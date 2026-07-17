@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { mockStateSocket } from "./_state-socket-mock";
 
 // This spec is fully mocked: the isolated e2e tmux server has no real
 // change-bound PRs and `gh` is unavailable in CI, so we inject the SSE
@@ -65,17 +66,7 @@ async function mockBackend(page: Page) {
     }),
   );
 
-  await page.route("**/api/sessions/stream*", (route) =>
-    route.fulfill({
-      status: 200,
-      headers: {
-        "content-type": "text/event-stream",
-        "cache-control": "no-cache",
-        connection: "keep-alive",
-      },
-      body: `event: sessions\ndata: ${sessionsPayload}\n\n`,
-    }),
-  );
+  await mockStateSocket(page, { sessions: sessionsPayload });
 }
 
 /** The purple PR dot on the change-bound window row reads "PR — open". */

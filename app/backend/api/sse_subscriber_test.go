@@ -100,7 +100,7 @@ func TestSSE_EventDrivenWakesOnSubscriberBump(t *testing.T) {
 	hub.safetyInterval = 5 * time.Second // long enough that the test
 	// would clearly fail if it had to wait for the timer.
 
-	client := &sseClient{ch: make(chan []byte, 8), server: "kits"}
+	client := &sseClient{ch: make(chan hubEvent, 8), server: "kits"}
 	hub.addClient(client)
 	t.Cleanup(func() { hub.removeClient(client) })
 
@@ -148,7 +148,7 @@ loop:
 	for {
 		select {
 		case b := <-client.ch:
-			got = string(b)
+			got = b.String()
 			allReceived = append(allReceived, got)
 			if strings.Contains(got, "event: sessions") && strings.Contains(got, "\"w1\"") {
 				break loop
@@ -176,7 +176,7 @@ func TestSSE_SafetyTickerFiresWithoutSubscriber(t *testing.T) {
 	hub := newSSEHub(tracker, nil, nil, nil)
 	hub.safetyInterval = 50 * time.Millisecond
 
-	client := &sseClient{ch: make(chan []byte, 16), server: "kits"}
+	client := &sseClient{ch: make(chan hubEvent, 16), server: "kits"}
 	hub.addClient(client)
 	t.Cleanup(func() { hub.removeClient(client) })
 
@@ -197,7 +197,7 @@ func TestSSE_SafetyTickerFiresWithoutSubscriber(t *testing.T) {
 	for {
 		select {
 		case b := <-client.ch:
-			if strings.Contains(string(b), "s2") {
+			if strings.Contains(b.String(), "s2") {
 				return
 			}
 		case <-deadline:
@@ -240,7 +240,7 @@ func TestSSE_PTYUnavailableDoesNotBusyLoop(t *testing.T) {
 	// a busy-loop would call FetchSessions hundreds of times in 250ms.
 	hub.safetyInterval = 200 * time.Millisecond
 
-	client := &sseClient{ch: make(chan []byte, 32), server: "kits"}
+	client := &sseClient{ch: make(chan hubEvent, 32), server: "kits"}
 	hub.addClient(client)
 	t.Cleanup(func() { hub.removeClient(client) })
 
@@ -280,7 +280,7 @@ func TestSSE_WaitForNextDoesNotLeakGoroutines(t *testing.T) {
 	hub.subscriber = sub
 	hub.safetyInterval = 5 * time.Second // safety timer never wins.
 
-	client := &sseClient{ch: make(chan []byte, 64), server: "kits"}
+	client := &sseClient{ch: make(chan hubEvent, 64), server: "kits"}
 	hub.addClient(client)
 	t.Cleanup(func() {
 		hub.removeClient(client)

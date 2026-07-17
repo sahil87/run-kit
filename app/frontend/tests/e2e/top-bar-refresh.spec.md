@@ -13,9 +13,10 @@ than by flat wrapper-sibling adjacency.
 
 - Fully mocked — no tmux server, no `gh`, no real backend reads. The spec
   injects data via `page.route`:
-  - `**/api/servers` → a single server `default` (so the app attaches exactly one
-    SSE connection).
-  - `**/api/sessions/stream*` → one `event: sessions` frame whose payload is a
+  - `**/api/servers` → a single server `default` (so the app subscribes to
+    exactly one server over the state socket).
+  - `/ws/state` (state socket, via `mockStateSocket`) → the subscribe ack +
+    `sessions` event carry the mocked payload — a
     session `dev` with two windows: `@1` "feature-work" (the URL target,
     `isActiveWindow: false`) and `@2` "other" (`isActiveWindow: true`). This
     satisfies the `currentWindow` gate the Split/Close cluster renders behind,
@@ -35,9 +36,9 @@ than by flat wrapper-sibling adjacency.
     route mounts without a backend.
 - `beforeEach` installs the routes, navigates to the percent-encoded terminal
   window route `/default/%401` (`@1`), and waits for the **Close pane** button to
-  be visible — the signal the SSE payload has landed and `currentWindow` is set.
+  be visible — the signal the state-socket payload has landed and `currentWindow` is set.
   The Refresh button cannot be this anchor: it rides the L3 always-block
-  (260704-9o7k) and is visible at first paint, before the mocked SSE event is
+  (260704-9o7k) and is visible at first paint, before the mocked state-socket event is
   processed, so anchoring on it raced the mount-time `/select` POST.
 
 ## Tests

@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { mockStateSocket } from "./_state-socket-mock";
 
 // This spec is fully mocked: we inject the SSE `sessions` payload (and the
 // server list) via page.route and navigate to a terminal window route. The
@@ -90,17 +91,7 @@ async function mockBackend(page: Page): Promise<{ selectHits: () => number }> {
   );
 
   // SSE stream: one `sessions` event carrying the mocked payload.
-  await page.route("**/api/sessions/stream*", (route) =>
-    route.fulfill({
-      status: 200,
-      headers: {
-        "content-type": "text/event-stream",
-        "cache-control": "no-cache",
-        connection: "keep-alive",
-      },
-      body: `event: sessions\ndata: ${sessionsPayload}\n\n`,
-    }),
-  );
+  await mockStateSocket(page, { sessions: sessionsPayload });
 
   return { selectHits: () => selectHits };
 }

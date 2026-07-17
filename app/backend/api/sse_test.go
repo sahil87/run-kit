@@ -1,11 +1,8 @@
 package api
 
 import (
-	"bufio"
 	"context"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -17,6 +14,34 @@ import (
 	"rk/internal/tmux"
 )
 
+// addTestClient wires a state-socket-style test connection into the hub: it
+// creates a stateConn wrapping `ch`, registers it for host-global fan-out, adds
+// a per-server subscription record (sharing `ch`), and replays the cached global
+// slots — mirroring the real hello + subscribe flow. It returns the per-server
+// subscription record whose `.ch` is the shared channel, so both per-server
+// events (via h.clients) and host-global events (via h.stateConns) land on it.
+// Since the state-socket migration (260716-qf3j) host-global events fan out over
+// connections, so a bare sseClient not registered as a stateConn would miss them.
+func (h *sseHub) addTestClient(ch chan hubEvent, server string) *sseClient {
+	sc := &stateConn{ch: ch, subs: map[string]*sseClient{}}
+	rec := &sseClient{ch: ch, server: server, conn: sc, expanded: map[string]bool{}}
+	sc.subs[server] = rec
+	h.addClient(rec)
+	h.replayGlobalSlots(sc)
+	return rec
+}
+
+// drainConnEvents non-blockingly drains a channel and renders each event to its
+// SSE-style string form (hubEvent.String) so existing string-based assertions
+// keep working against the new hubEvent channel.
+func drainConnEvents(ch chan hubEvent) []string {
+	var out []string
+	for len(ch) > 0 {
+		out = append(out, (<-ch).String())
+	}
+	return out
+}
+
 // slowSessionFetcher returns canned data with a small delay.
 type slowSessionFetcher struct {
 	result []sessions.ProjectSession
@@ -26,75 +51,10 @@ func (s *slowSessionFetcher) FetchSessions(ctx context.Context, server string) (
 	return s.result, nil
 }
 
-func TestSSEInitialSnapshot(t *testing.T) {
-	sf := &slowSessionFetcher{
-		result: []sessions.ProjectSession{
-			{
-				Name: "test-session",
-				Windows: []tmux.WindowInfo{
-					{Index: 0, Name: "main", WorktreePath: "/home/user", Activity: "active", IsActiveWindow: true},
-				},
-			},
-		},
-	}
-
-	router := newTestRouter(sf, &mockTmuxOps{})
-	server := httptest.NewServer(router)
-	defer server.Close()
-
-	// Create a context with timeout to avoid hanging
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/api/sessions/stream", nil)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("request error: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusOK)
-	}
-
-	ct := resp.Header.Get("Content-Type")
-	if ct != "text/event-stream" {
-		t.Errorf("Content-Type = %q, want %q", ct, "text/event-stream")
-	}
-
-	// Read the first SSE event
-	scanner := bufio.NewScanner(resp.Body)
-	var eventLines []string
-	for scanner.Scan() {
-		line := scanner.Text()
-		eventLines = append(eventLines, line)
-		// SSE events end with an empty line
-		if line == "" && len(eventLines) > 1 {
-			break
-		}
-	}
-
-	// Verify we got a sessions event
-	foundEvent := false
-	foundData := false
-	for _, line := range eventLines {
-		if strings.HasPrefix(line, "event: sessions") {
-			foundEvent = true
-		}
-		if strings.HasPrefix(line, "data: ") {
-			foundData = true
-			if !strings.Contains(line, "test-session") {
-				t.Errorf("data does not contain session name: %s", line)
-			}
-		}
-	}
-	if !foundEvent {
-		t.Error("did not receive 'event: sessions' line")
-	}
-	if !foundData {
-		t.Error("did not receive 'data:' line")
-	}
-}
+// The initial-snapshot delivery (subscribe → ack with sessions snapshot) is
+// covered end-to-end over the real WebSocket in state_ws_test.go
+// (TestStateWS_SubscribeServerAcksWithSnapshot). The former SSE-endpoint
+// TestSSEInitialSnapshot was retired with GET /api/sessions/stream.
 
 // goneSessionFetcher returns a tmux.IsServerGone-matching error so the poll
 // loop reaps the server. result is returned for any server not in goneServers.
@@ -119,7 +79,7 @@ func TestSSEHubReapsDeadServer(t *testing.T) {
 	// Short safety interval so the poll loop cycles quickly for the test.
 	hub.safetyInterval = 50 * time.Millisecond
 
-	client := &sseClient{ch: make(chan []byte, 8), server: "dead"}
+	client := &sseClient{ch: make(chan hubEvent, 8), server: "dead"}
 	hub.addClient(client) // starts the poll goroutine
 
 	// The poll loop's first tick fetches "dead", gets an IsServerGone error,
@@ -129,7 +89,7 @@ func TestSSEHubReapsDeadServer(t *testing.T) {
 	for !gotGone {
 		select {
 		case ev := <-client.ch:
-			if strings.HasPrefix(string(ev), "event: server-gone") {
+			if strings.HasPrefix(ev.String(), "event: server-gone") {
 				gotGone = true
 			}
 		case <-deadline:
@@ -191,8 +151,7 @@ func TestSSEHubMetricsOnlyClientNotReaped(t *testing.T) {
 	hub := newSSEHub(sf, mc, nil, nil)
 	hub.safetyInterval = 50 * time.Millisecond // cycle the poll loop quickly
 
-	client := &sseClient{ch: make(chan []byte, 16), server: metricsOnlyServer}
-	hub.addClient(client) // starts the poll goroutine
+	client := hub.addTestClient(make(chan hubEvent, 16), metricsOnlyServer) // starts the poll goroutine
 
 	// The client must receive an `event: metrics` and must NOT receive a
 	// `server-gone` (it has no server to reap).
@@ -201,7 +160,7 @@ func TestSSEHubMetricsOnlyClientNotReaped(t *testing.T) {
 	for !gotMetrics {
 		select {
 		case ev := <-client.ch:
-			s := string(ev)
+			s := ev.String()
 			if strings.HasPrefix(s, "event: server-gone") {
 				t.Fatal("metrics-only client received server-gone (was wrongly reaped)")
 			}
@@ -233,15 +192,14 @@ func TestSSEHubServicesBroadcast(t *testing.T) {
 	hub := newSSEHub(sf, nil, svc, nil)
 	hub.safetyInterval = 50 * time.Millisecond // cycle the poll loop quickly
 
-	client := &sseClient{ch: make(chan []byte, 16), server: metricsOnlyServer}
-	hub.addClient(client) // starts the poll goroutine
+	client := hub.addTestClient(make(chan hubEvent, 16), metricsOnlyServer) // starts the poll goroutine
 
 	gotServices := false
 	deadline := time.After(2 * time.Second)
 	for !gotServices {
 		select {
 		case ev := <-client.ch:
-			s := string(ev)
+			s := ev.String()
 			if strings.HasPrefix(s, "event: services") {
 				// The payload must carry a JSON object with a (possibly empty)
 				// services array — never `null`.
@@ -264,7 +222,7 @@ func TestSSEHubDeduplication(t *testing.T) {
 	}
 
 	hub := newSSEHub(sf, nil, nil, nil)
-	client := &sseClient{ch: make(chan []byte, 16), server: "default"}
+	client := &sseClient{ch: make(chan hubEvent, 16), server: "default"}
 
 	hub.addClient(client)
 	defer hub.removeClient(client)
@@ -305,7 +263,7 @@ func TestSSEHubStopsPollingWhenNoClients(t *testing.T) {
 	}
 
 	hub := newSSEHub(sf, nil, nil, nil)
-	client := &sseClient{ch: make(chan []byte, 8), server: "default"}
+	client := &sseClient{ch: make(chan hubEvent, 8), server: "default"}
 
 	hub.addClient(client)
 
@@ -352,7 +310,7 @@ func TestSSEHubDropLogging(t *testing.T) {
 	hub := newSSEHub(sf, nil, nil, nil)
 
 	// Use a buffer of 1 so it fills immediately
-	client := &sseClient{ch: make(chan []byte, 1), server: "default"}
+	client := &sseClient{ch: make(chan hubEvent, 1), server: "default"}
 	hub.addClient(client)
 	defer hub.removeClient(client)
 
@@ -405,11 +363,9 @@ func TestSSEHubMultiServerIsolation(t *testing.T) {
 	}
 
 	hub := newSSEHub(sf, nil, nil, nil)
-	rkClient := &sseClient{ch: make(chan []byte, 16), server: "runkit"}
-	dfClient := &sseClient{ch: make(chan []byte, 16), server: "default"}
+	rkClient := hub.addTestClient(make(chan hubEvent, 16), "runkit")
+	dfClient := hub.addTestClient(make(chan hubEvent, 16), "default")
 
-	hub.addClient(rkClient)
-	hub.addClient(dfClient)
 	defer hub.removeClient(rkClient)
 	defer hub.removeClient(dfClient)
 
@@ -419,10 +375,10 @@ func TestSSEHubMultiServerIsolation(t *testing.T) {
 	// Drain both channels and check content
 	var rkEvents, dfEvents []string
 	for len(rkClient.ch) > 0 {
-		rkEvents = append(rkEvents, string(<-rkClient.ch))
+		rkEvents = append(rkEvents, (<-rkClient.ch).String())
 	}
 	for len(dfClient.ch) > 0 {
-		dfEvents = append(dfEvents, string(<-dfClient.ch))
+		dfEvents = append(dfEvents, (<-dfClient.ch).String())
 	}
 
 	if len(rkEvents) == 0 {
@@ -482,12 +438,9 @@ func TestBroadcastServerOrderFansOutToAllClients(t *testing.T) {
 	sf := &slowSessionFetcher{result: []sessions.ProjectSession{}}
 	hub := newSSEHub(sf, nil, nil, nil)
 
-	rkClient := &sseClient{ch: make(chan []byte, 16), server: "runkit"}
-	dfClient := &sseClient{ch: make(chan []byte, 16), server: "default"}
-	moClient := &sseClient{ch: make(chan []byte, 16), server: metricsOnlyServer}
-	hub.addClient(rkClient)
-	hub.addClient(dfClient)
-	hub.addClient(moClient)
+	rkClient := hub.addTestClient(make(chan hubEvent, 16), "runkit")
+	dfClient := hub.addTestClient(make(chan hubEvent, 16), "default")
+	moClient := hub.addTestClient(make(chan hubEvent, 16), metricsOnlyServer)
 	defer hub.removeClient(rkClient)
 	defer hub.removeClient(dfClient)
 	defer hub.removeClient(moClient)
@@ -499,7 +452,7 @@ func TestBroadcastServerOrderFansOutToAllClients(t *testing.T) {
 	for name, c := range map[string]*sseClient{"runkit": rkClient, "default": dfClient, "metrics-only": moClient} {
 		var events []string
 		for len(c.ch) > 0 {
-			events = append(events, string(<-c.ch))
+			events = append(events, (<-c.ch).String())
 		}
 		got := filterSSEEvents(events, "server-order")
 		if len(got) == 0 {
@@ -512,12 +465,11 @@ func TestBroadcastServerOrderFansOutToAllClients(t *testing.T) {
 
 	// A client that connects AFTER the broadcast must receive the cached
 	// snapshot on connect (server-global cache, not per-server).
-	lateClient := &sseClient{ch: make(chan []byte, 16), server: metricsOnlyServer}
-	hub.addClient(lateClient)
+	lateClient := hub.addTestClient(make(chan hubEvent, 16), metricsOnlyServer)
 	defer hub.removeClient(lateClient)
 	var lateEvents []string
 	for len(lateClient.ch) > 0 {
-		lateEvents = append(lateEvents, string(<-lateClient.ch))
+		lateEvents = append(lateEvents, (<-lateClient.ch).String())
 	}
 	replay := filterSSEEvents(lateEvents, "server-order")
 	if len(replay) == 0 {
@@ -537,12 +489,9 @@ func TestBroadcastBoardOrderFansOutToAllClients(t *testing.T) {
 	sf := &slowSessionFetcher{result: []sessions.ProjectSession{}}
 	hub := newSSEHub(sf, nil, nil, nil)
 
-	rkClient := &sseClient{ch: make(chan []byte, 16), server: "runkit"}
-	dfClient := &sseClient{ch: make(chan []byte, 16), server: "default"}
-	moClient := &sseClient{ch: make(chan []byte, 16), server: metricsOnlyServer}
-	hub.addClient(rkClient)
-	hub.addClient(dfClient)
-	hub.addClient(moClient)
+	rkClient := hub.addTestClient(make(chan hubEvent, 16), "runkit")
+	dfClient := hub.addTestClient(make(chan hubEvent, 16), "default")
+	moClient := hub.addTestClient(make(chan hubEvent, 16), metricsOnlyServer)
 	defer hub.removeClient(rkClient)
 	defer hub.removeClient(dfClient)
 	defer hub.removeClient(moClient)
@@ -552,7 +501,7 @@ func TestBroadcastBoardOrderFansOutToAllClients(t *testing.T) {
 	for name, c := range map[string]*sseClient{"runkit": rkClient, "default": dfClient, "metrics-only": moClient} {
 		var events []string
 		for len(c.ch) > 0 {
-			events = append(events, string(<-c.ch))
+			events = append(events, (<-c.ch).String())
 		}
 		got := filterSSEEvents(events, "board-order")
 		if len(got) == 0 {
@@ -564,12 +513,11 @@ func TestBroadcastBoardOrderFansOutToAllClients(t *testing.T) {
 	}
 
 	// A client that connects AFTER the broadcast must receive the cached snapshot.
-	lateClient := &sseClient{ch: make(chan []byte, 16), server: metricsOnlyServer}
-	hub.addClient(lateClient)
+	lateClient := hub.addTestClient(make(chan hubEvent, 16), metricsOnlyServer)
 	defer hub.removeClient(lateClient)
 	var lateEvents []string
 	for len(lateClient.ch) > 0 {
-		lateEvents = append(lateEvents, string(<-lateClient.ch))
+		lateEvents = append(lateEvents, (<-lateClient.ch).String())
 	}
 	replay := filterSSEEvents(lateEvents, "board-order")
 	if len(replay) == 0 {
@@ -590,12 +538,9 @@ func TestBroadcastStatusRefreshFansOutToAllClients(t *testing.T) {
 	sf := &slowSessionFetcher{result: []sessions.ProjectSession{}}
 	hub := newSSEHub(sf, nil, nil, nil)
 
-	rkClient := &sseClient{ch: make(chan []byte, 16), server: "runkit"}
-	dfClient := &sseClient{ch: make(chan []byte, 16), server: "default"}
-	moClient := &sseClient{ch: make(chan []byte, 16), server: metricsOnlyServer}
-	hub.addClient(rkClient)
-	hub.addClient(dfClient)
-	hub.addClient(moClient)
+	rkClient := hub.addTestClient(make(chan hubEvent, 16), "runkit")
+	dfClient := hub.addTestClient(make(chan hubEvent, 16), "default")
+	moClient := hub.addTestClient(make(chan hubEvent, 16), metricsOnlyServer)
 	defer hub.removeClient(rkClient)
 	defer hub.removeClient(dfClient)
 	defer hub.removeClient(moClient)
@@ -605,7 +550,7 @@ func TestBroadcastStatusRefreshFansOutToAllClients(t *testing.T) {
 	for name, c := range map[string]*sseClient{"runkit": rkClient, "default": dfClient, "metrics-only": moClient} {
 		var events []string
 		for len(c.ch) > 0 {
-			events = append(events, string(<-c.ch))
+			events = append(events, (<-c.ch).String())
 		}
 		got := filterSSEEvents(events, "status-refresh")
 		if len(got) == 0 {
@@ -618,12 +563,11 @@ func TestBroadcastStatusRefreshFansOutToAllClients(t *testing.T) {
 
 	// Broadcast-only: a client connecting AFTER the broadcast gets NO replay
 	// (there is no cached slot, unlike server-order/board-order/update-available).
-	lateClient := &sseClient{ch: make(chan []byte, 16), server: metricsOnlyServer}
-	hub.addClient(lateClient)
+	lateClient := hub.addTestClient(make(chan hubEvent, 16), metricsOnlyServer)
 	defer hub.removeClient(lateClient)
 	var lateEvents []string
 	for len(lateClient.ch) > 0 {
-		lateEvents = append(lateEvents, string(<-lateClient.ch))
+		lateEvents = append(lateEvents, (<-lateClient.ch).String())
 	}
 	if replay := filterSSEEvents(lateEvents, "status-refresh"); len(replay) != 0 {
 		t.Errorf("late client received a replayed status-refresh (should be broadcast-only): %v", replay)
@@ -635,15 +579,14 @@ func TestBroadcastStatusRefreshFansOutToAllClients(t *testing.T) {
 func TestBroadcastBoardOrderNilNormalizedToEmpty(t *testing.T) {
 	sf := &slowSessionFetcher{result: []sessions.ProjectSession{}}
 	hub := newSSEHub(sf, nil, nil, nil)
-	c := &sseClient{ch: make(chan []byte, 16), server: "default"}
-	hub.addClient(c)
+	c := hub.addTestClient(make(chan hubEvent, 16), "default")
 	defer hub.removeClient(c)
 
 	hub.broadcastBoardOrder(nil)
 
 	var events []string
 	for len(c.ch) > 0 {
-		events = append(events, string(<-c.ch))
+		events = append(events, (<-c.ch).String())
 	}
 	got := filterSSEEvents(events, "board-order")
 	if len(got) == 0 {
@@ -664,11 +607,10 @@ func TestVersionSlotReplayedOnConnect(t *testing.T) {
 	hub.setVersion("0.5.3", "abc123", true)
 
 	for name, server := range map[string]string{"default": "default", "metrics-only": metricsOnlyServer} {
-		c := &sseClient{ch: make(chan []byte, 16), server: server}
-		hub.addClient(c)
+		c := hub.addTestClient(make(chan hubEvent, 16), server)
 		var events []string
 		for len(c.ch) > 0 {
-			events = append(events, string(<-c.ch))
+			events = append(events, (<-c.ch).String())
 		}
 		hub.removeClient(c)
 		got := filterSSEEvents(events, "version")
@@ -691,12 +633,11 @@ func TestVersionSlotReplayedOnConnect(t *testing.T) {
 func TestVersionSlotEmptyWhenUnset(t *testing.T) {
 	sf := &slowSessionFetcher{result: []sessions.ProjectSession{}}
 	hub := newSSEHub(sf, nil, nil, nil)
-	c := &sseClient{ch: make(chan []byte, 16), server: "default"}
-	hub.addClient(c)
+	c := hub.addTestClient(make(chan hubEvent, 16), "default")
 	defer hub.removeClient(c)
 	var events []string
 	for len(c.ch) > 0 {
-		events = append(events, string(<-c.ch))
+		events = append(events, (<-c.ch).String())
 	}
 	if got := filterSSEEvents(events, "version"); len(got) != 0 {
 		t.Errorf("expected no version event when unset, got %v", got)
@@ -709,12 +650,11 @@ func TestVersionSlotEmptyVersionSuppressed(t *testing.T) {
 	sf := &slowSessionFetcher{result: []sessions.ProjectSession{}}
 	hub := newSSEHub(sf, nil, nil, nil)
 	hub.setVersion("", "abc123", true)
-	c := &sseClient{ch: make(chan []byte, 16), server: "default"}
-	hub.addClient(c)
+	c := hub.addTestClient(make(chan hubEvent, 16), "default")
 	defer hub.removeClient(c)
 	var events []string
 	for len(c.ch) > 0 {
-		events = append(events, string(<-c.ch))
+		events = append(events, (<-c.ch).String())
 	}
 	if got := filterSSEEvents(events, "version"); len(got) != 0 {
 		t.Errorf("expected no version event when version is empty, got %v", got)
@@ -730,10 +670,8 @@ func TestBroadcastUpdateAvailableFansOutAndReplays(t *testing.T) {
 	sf := &slowSessionFetcher{result: []sessions.ProjectSession{}}
 	hub := newSSEHub(sf, nil, nil, nil)
 
-	rkClient := &sseClient{ch: make(chan []byte, 16), server: "runkit"}
-	moClient := &sseClient{ch: make(chan []byte, 16), server: metricsOnlyServer}
-	hub.addClient(rkClient)
-	hub.addClient(moClient)
+	rkClient := hub.addTestClient(make(chan hubEvent, 16), "runkit")
+	moClient := hub.addTestClient(make(chan hubEvent, 16), metricsOnlyServer)
 	defer hub.removeClient(rkClient)
 	defer hub.removeClient(moClient)
 
@@ -742,7 +680,7 @@ func TestBroadcastUpdateAvailableFansOutAndReplays(t *testing.T) {
 	for name, c := range map[string]*sseClient{"runkit": rkClient, "metrics-only": moClient} {
 		var events []string
 		for len(c.ch) > 0 {
-			events = append(events, string(<-c.ch))
+			events = append(events, (<-c.ch).String())
 		}
 		got := filterSSEEvents(events, "update-available")
 		if len(got) == 0 {
@@ -754,12 +692,11 @@ func TestBroadcastUpdateAvailableFansOutAndReplays(t *testing.T) {
 	}
 
 	// A client connecting AFTER the broadcast must receive the cached snapshot.
-	lateClient := &sseClient{ch: make(chan []byte, 16), server: metricsOnlyServer}
-	hub.addClient(lateClient)
+	lateClient := hub.addTestClient(make(chan hubEvent, 16), metricsOnlyServer)
 	defer hub.removeClient(lateClient)
 	var lateEvents []string
 	for len(lateClient.ch) > 0 {
-		lateEvents = append(lateEvents, string(<-lateClient.ch))
+		lateEvents = append(lateEvents, (<-lateClient.ch).String())
 	}
 	replay := filterSSEEvents(lateEvents, "update-available")
 	if len(replay) == 0 {
@@ -786,9 +723,9 @@ func TestSSEHubRemoveClientSwapDelete(t *testing.T) {
 	sf := &slowSessionFetcher{result: []sessions.ProjectSession{}}
 	hub := newSSEHub(sf, nil, nil, nil)
 
-	c1 := &sseClient{ch: make(chan []byte, 8), server: "runkit"}
-	c2 := &sseClient{ch: make(chan []byte, 8), server: "runkit"}
-	c3 := &sseClient{ch: make(chan []byte, 8), server: "runkit"}
+	c1 := &sseClient{ch: make(chan hubEvent, 8), server: "runkit"}
+	c2 := &sseClient{ch: make(chan hubEvent, 8), server: "runkit"}
+	c3 := &sseClient{ch: make(chan hubEvent, 8), server: "runkit"}
 
 	hub.addClient(c1)
 	hub.addClient(c2)
@@ -833,8 +770,8 @@ func TestSSEHubRemoveLastClientDeletesKey(t *testing.T) {
 	sf := &slowSessionFetcher{result: []sessions.ProjectSession{}}
 	hub := newSSEHub(sf, nil, nil, nil)
 
-	c1 := &sseClient{ch: make(chan []byte, 8), server: "runkit"}
-	c2 := &sseClient{ch: make(chan []byte, 8), server: "default"}
+	c1 := &sseClient{ch: make(chan hubEvent, 8), server: "runkit"}
+	c2 := &sseClient{ch: make(chan hubEvent, 8), server: "default"}
 
 	hub.addClient(c1)
 	hub.addClient(c2)
@@ -871,7 +808,7 @@ func TestSSEHubConcurrentAddRemove(t *testing.T) {
 	hub := newSSEHub(sf, nil, nil, nil)
 
 	// Seed one client to start polling
-	seed := &sseClient{ch: make(chan []byte, 32), server: "default"}
+	seed := &sseClient{ch: make(chan hubEvent, 32), server: "default"}
 	hub.addClient(seed)
 
 	var wg sync.WaitGroup
@@ -882,7 +819,7 @@ func TestSSEHubConcurrentAddRemove(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			c := &sseClient{ch: make(chan []byte, 32), server: "default"}
+			c := &sseClient{ch: make(chan hubEvent, 32), server: "default"}
 			hub.addClient(c)
 			time.Sleep(10 * time.Millisecond)
 			hub.removeClient(c)
@@ -894,7 +831,7 @@ func TestSSEHubConcurrentAddRemove(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			c := &sseClient{ch: make(chan []byte, 32), server: "runkit"}
+			c := &sseClient{ch: make(chan hubEvent, 32), server: "runkit"}
 			hub.addClient(c)
 			time.Sleep(10 * time.Millisecond)
 			hub.removeClient(c)
@@ -945,8 +882,8 @@ func TestSSE_BroadcastSessionOrderReachesMatchingClients(t *testing.T) {
 	hub := newSSEHub(&slowSessionFetcher{}, nil, nil, nil)
 	hub.orderFetcher = &stubOrderFetcher{orders: map[string][]string{}}
 
-	cDefault := &sseClient{ch: make(chan []byte, 32), server: "default"}
-	cStaging := &sseClient{ch: make(chan []byte, 32), server: "staging"}
+	cDefault := &sseClient{ch: make(chan hubEvent, 32), server: "default"}
+	cStaging := &sseClient{ch: make(chan hubEvent, 32), server: "staging"}
 	hub.mu.Lock()
 	hub.clients["default"] = append(hub.clients["default"], cDefault)
 	hub.clients["staging"] = append(hub.clients["staging"], cStaging)
@@ -957,11 +894,11 @@ func TestSSE_BroadcastSessionOrderReachesMatchingClients(t *testing.T) {
 	// The default client must receive a session-order event
 	select {
 	case ev := <-cDefault.ch:
-		if !strings.Contains(string(ev), "event: session-order") {
-			t.Errorf("default client got %q, want session-order event", string(ev))
+		if !strings.Contains(ev.String(), "event: session-order") {
+			t.Errorf("default client got %q, want session-order event", ev.String())
 		}
-		if !strings.Contains(string(ev), `"order":["main","dev"]`) {
-			t.Errorf("default client payload missing order: %s", string(ev))
+		if !strings.Contains(ev.String(), `"order":["main","dev"]`) {
+			t.Errorf("default client payload missing order: %s", ev.String())
 		}
 	case <-time.After(500 * time.Millisecond):
 		t.Fatal("default client did not receive event")
@@ -970,7 +907,7 @@ func TestSSE_BroadcastSessionOrderReachesMatchingClients(t *testing.T) {
 	// The staging client must NOT receive anything
 	select {
 	case ev := <-cStaging.ch:
-		t.Errorf("staging client unexpectedly got: %s", string(ev))
+		t.Errorf("staging client unexpectedly got: %s", ev.String())
 	case <-time.After(100 * time.Millisecond):
 		// expected — no event
 	}
@@ -983,7 +920,7 @@ func TestSSE_SessionOrderCachedOnConnect(t *testing.T) {
 	// Broadcast before any client connects — the payload should be cached.
 	hub.broadcastSessionOrder("default", []string{"main", "dev"})
 
-	c := &sseClient{ch: make(chan []byte, 32), server: "default"}
+	c := &sseClient{ch: make(chan hubEvent, 32), server: "default"}
 	hub.addClient(c)
 	defer hub.removeClient(c)
 
@@ -994,9 +931,9 @@ func TestSSE_SessionOrderCachedOnConnect(t *testing.T) {
 	for !gotOrder {
 		select {
 		case ev := <-c.ch:
-			if strings.Contains(string(ev), "event: session-order") {
-				if !strings.Contains(string(ev), `"order":["main","dev"]`) {
-					t.Errorf("cached event payload missing order: %s", string(ev))
+			if strings.Contains(ev.String(), "event: session-order") {
+				if !strings.Contains(ev.String(), `"order":["main","dev"]`) {
+					t.Errorf("cached event payload missing order: %s", ev.String())
 				}
 				gotOrder = true
 			}
@@ -1013,7 +950,7 @@ func TestSSE_HubBootstrapReadsOrderOnFirstPoll(t *testing.T) {
 	hub := newSSEHub(&slowSessionFetcher{}, nil, nil, nil)
 	hub.orderFetcher = stub
 
-	c := &sseClient{ch: make(chan []byte, 32), server: "default"}
+	c := &sseClient{ch: make(chan hubEvent, 32), server: "default"}
 	hub.addClient(c)
 	defer hub.removeClient(c)
 
@@ -1024,8 +961,8 @@ func TestSSE_HubBootstrapReadsOrderOnFirstPoll(t *testing.T) {
 	for !gotOrder {
 		select {
 		case ev := <-c.ch:
-			if strings.Contains(string(ev), "event: session-order") &&
-				strings.Contains(string(ev), `"order":["alpha","beta"]`) {
+			if strings.Contains(ev.String(), "event: session-order") &&
+				strings.Contains(ev.String(), `"order":["alpha","beta"]`) {
 				gotOrder = true
 			}
 		case <-deadline:

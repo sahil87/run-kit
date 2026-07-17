@@ -11,9 +11,8 @@ window-tree rows — so each test selects the target window, then reads the pane
   e2e tmux server has no change-bound PRs and `gh` is unavailable in CI, so the
   spec injects the data via `page.route`:
   - `**/api/servers` → a single server `default` (so the app attaches exactly
-    one SSE connection).
-  - `**/api/sessions/stream*` → one `event: sessions` frame whose payload is a
-    session `dev` with two windows:
+    one state-socket connection).
+  - `/ws/state` (state socket, via `mockStateSocket`) → the subscribe ack + `sessions` event carry the mocked payload — a session `dev` with two windows:
     - `@1` "feature-work" — change-bound (`fabChange` set) with
       `prNumber: 386`, `prUrl`, `prState: open`, `prChecks: pass`,
       `prReview: approved` (the gate is satisfied). `@1` is the active window,

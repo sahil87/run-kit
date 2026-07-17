@@ -1138,7 +1138,7 @@ func TestSessionOrder_POST_triggersBroadcast(t *testing.T) {
 	// Connect a client to the SSE hub directly. Using the hub avoids needing
 	// httptest.NewServer for a streaming response.
 	server.initSSEHub()
-	client := &sseClient{ch: make(chan []byte, 16), server: "default"}
+	client := &sseClient{ch: make(chan hubEvent, 16), server: "default"}
 	server.sseHub.addClient(client)
 	defer server.sseHub.removeClient(client)
 
@@ -1168,7 +1168,7 @@ draining:
 	// is synchronous on the PUT path).
 	select {
 	case ev := <-client.ch:
-		evStr := string(ev)
+		evStr := ev.String()
 		if !strings.Contains(evStr, "event: session-order") {
 			t.Errorf("expected session-order event, got: %s", evStr)
 		}

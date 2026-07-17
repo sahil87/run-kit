@@ -153,36 +153,47 @@ test.describe("Board list reorder — order endpoint + rank-aware sort + server-
   test("a successful order POST broadcasts a server-global event: board-order", async ({
     page,
   }) => {
-    // The Host home (`/`) attaches ZERO tmux servers, so its `?metrics=1`
-    // stream is the server-neutral one — a board-order frame reaching it proves
-    // the broadcast is server-global (the BOARDS zone re-sorts with no attached
-    // server). Wait for the HOST HEALTH zone as the readiness signal.
+    // The Host home (`/`) attaches ZERO tmux servers, so its metrics-only state
+    // socket subscription is the server-neutral one — a board-order envelope
+    // reaching it proves the broadcast is server-global (the BOARDS zone re-sorts
+    // with no attached server). Wait for the HOST HEALTH zone as the readiness
+    // signal.
     await page.goto("/");
     await expect(page.getByRole("region", { name: "Host health" })).toBeVisible({
       timeout: 15_000,
     });
 
-    // Open a client on the server-neutral (?metrics=1) stream — no attached tmux
-    // server — and prove the board-order broadcast reaches it (server-global).
+    // Open an in-page state-socket client subscribed to metrics (no server
+    // subscription) and prove the board-order broadcast reaches it (server-global).
     const orderPromise = page.evaluate(
       ({ z, a }) => {
         return new Promise<string>((resolve, reject) => {
-          const es = new EventSource("/api/sessions/stream?metrics=1");
+          const proto = location.protocol === "https:" ? "wss:" : "ws:";
+          const ws = new WebSocket(`${proto}//${location.host}/ws/state`);
           const timer = setTimeout(() => {
-            es.close();
+            ws.close();
             reject(new Error("no board-order frame within timeout"));
           }, 15_000);
-          es.addEventListener("board-order", (e: MessageEvent) => {
-            clearTimeout(timer);
-            es.close();
-            resolve(e.data as string);
-          });
-          es.onopen = () => {
+          ws.onopen = () => {
+            ws.send(JSON.stringify({ op: "hello", conn: "e2e-board-list-reorder" }));
+            ws.send(JSON.stringify({ op: "subscribe", kind: "metrics", req: 1 }));
             void fetch("/api/boards/order", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ order: [z, a] }),
             });
+          };
+          ws.onmessage = (e: MessageEvent) => {
+            try {
+              const m = JSON.parse(e.data as string);
+              if (m.op === "event" && m.kind === "global" && m.type === "board-order") {
+                clearTimeout(timer);
+                ws.close();
+                resolve(JSON.stringify(m.data));
+              }
+            } catch {
+              /* ignore malformed frame */
+            }
           };
         });
       },

@@ -362,7 +362,7 @@ func TestBoard_Pin_triggersBroadcast(t *testing.T) {
 	}
 
 	server.initSSEHub()
-	client := &sseClient{ch: make(chan []byte, 16), server: "default"}
+	client := &sseClient{ch: make(chan hubEvent, 16), server: "default"}
 	server.sseHub.addClient(client)
 	defer server.sseHub.removeClient(client)
 
@@ -386,7 +386,7 @@ func TestBoard_Unpin_triggersBroadcast(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	server := &Server{logger: logger, sessions: &mockSessionFetcher{}, tmux: ops, hostname: "test"}
 	server.initSSEHub()
-	client := &sseClient{ch: make(chan []byte, 16), server: "default"}
+	client := &sseClient{ch: make(chan hubEvent, 16), server: "default"}
 	server.sseHub.addClient(client)
 	defer server.sseHub.removeClient(client)
 	drainSSE(client)
@@ -408,7 +408,7 @@ func TestBoard_Reorder_triggersBroadcast(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	server := &Server{logger: logger, sessions: &mockSessionFetcher{}, tmux: ops, hostname: "test"}
 	server.initSSEHub()
-	client := &sseClient{ch: make(chan []byte, 16), server: "default"}
+	client := &sseClient{ch: make(chan hubEvent, 16), server: "default"}
 	server.sseHub.addClient(client)
 	defer server.sseHub.removeClient(client)
 	drainSSE(client)
@@ -525,8 +525,7 @@ func TestHandleBoardOrderPost_WritesAndBroadcasts(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	server := &Server{logger: logger, sessions: &mockSessionFetcher{}, tmux: ops, hostname: "test"}
 	server.initSSEHub()
-	client := &sseClient{ch: make(chan []byte, 16), server: "default"}
-	server.sseHub.addClient(client)
+	client := server.sseHub.addTestClient(make(chan hubEvent, 16), "default")
 	defer server.sseHub.removeClient(client)
 	drainSSE(client)
 
@@ -548,7 +547,7 @@ func TestHandleBoardOrderPost_WritesAndBroadcasts(t *testing.T) {
 	for {
 		select {
 		case ev := <-client.ch:
-			s := string(ev)
+			s := ev.String()
 			if strings.Contains(s, "event: board-order") {
 				if !strings.Contains(s, `{"order":["reviews","deploys"]}`) {
 					t.Errorf("board-order payload = %q", s)
@@ -622,7 +621,7 @@ func requireBoardEvent(t *testing.T, c *sseClient, change string) {
 	for {
 		select {
 		case ev := <-c.ch:
-			s := string(ev)
+			s := ev.String()
 			if !strings.Contains(s, "event: board-changed") {
 				continue
 			}

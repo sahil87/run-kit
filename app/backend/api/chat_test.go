@@ -1,8 +1,6 @@
 package api
 
 import (
-	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -11,50 +9,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	"rk/internal/sessions"
 	"rk/internal/tmux"
 )
-
-// syncFlushRecorder is a thread-safe http.ResponseWriter + http.Flusher for
-// streaming-handler tests: the handler goroutine writes while the test goroutine
-// polls body(), so both accesses go through mu. httptest.ResponseRecorder is not
-// safe for concurrent access, which is what the race detector flags.
-type syncFlushRecorder struct {
-	mu   sync.Mutex
-	buf  bytes.Buffer
-	hdr  http.Header
-	code int
-}
-
-func newSyncFlushRecorder() *syncFlushRecorder {
-	return &syncFlushRecorder{hdr: http.Header{}, code: http.StatusOK}
-}
-
-func (s *syncFlushRecorder) Header() http.Header { return s.hdr }
-
-func (s *syncFlushRecorder) Write(p []byte) (int, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.buf.Write(p)
-}
-
-func (s *syncFlushRecorder) WriteHeader(code int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.code = code
-}
-
-func (s *syncFlushRecorder) Flush() {}
-
-func (s *syncFlushRecorder) body() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.buf.String()
-}
 
 const testChatRef = "5d80479e-8f25-46cd-a0d4-e51435508a37"
 
@@ -89,29 +49,6 @@ func chatSessions(windowID, provider, ref string) []sessions.ProjectSession {
 				Panes: []tmux.PaneInfo{{PaneID: "%1", IsActive: true, ChatProvider: provider, ChatSessionRef: ref}}},
 		}},
 	}
-}
-
-// mutableSessionFetcher is a thread-safe SessionFetcher whose result can be
-// swapped mid-stream, used to simulate a session rotation (the window's @rk_chat
-// re-stamps to a new ref) while a chat SSE stream is open. The static
-// mockSessionFetcher cannot be mutated safely under the race detector because the
-// handler goroutine reads it concurrently.
-type mutableSessionFetcher struct {
-	mu     sync.Mutex
-	result []sessions.ProjectSession
-	err    error
-}
-
-func (m *mutableSessionFetcher) FetchSessions(context.Context, string) ([]sessions.ProjectSession, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.result, m.err
-}
-
-func (m *mutableSessionFetcher) set(result []sessions.ProjectSession) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.result = result
 }
 
 // stageEmptyConfigDir points $CLAUDE_CONFIG_DIR at a fresh temp dir with a
@@ -262,69 +199,6 @@ func TestChatBackfillTranscriptMissing(t *testing.T) {
 	}
 }
 
-// TestChatStreamBackfillEventAndDisconnect drives the SSE stream handler,
-// asserts a chat-backfill event lands on connect, then cancels the request
-// context (client disconnect) and confirms the handler returns without throwing.
-func TestChatStreamBackfillEventAndDisconnect(t *testing.T) {
-	stageFixtureTranscript(t, testChatRef)
-	sf := &mockSessionFetcher{result: chatSessions("@1", "claude", testChatRef)}
-	router := NewTestRouter(slog.Default(), sf, &mockTmuxOps{}, "host")
-
-	ctx, cancel := context.WithCancel(context.Background())
-	req := httptest.NewRequest(http.MethodGet, "/api/windows/@1/chat/stream", nil).WithContext(ctx)
-	rec := newSyncFlushRecorder()
-
-	done := make(chan struct{})
-	go func() {
-		router.ServeHTTP(rec, req)
-		close(done)
-	}()
-
-	// Poll the recorder for the chat-backfill event (thread-safe body()).
-	deadline := time.After(3 * time.Second)
-	sawBackfill := false
-	for !sawBackfill {
-		select {
-		case <-deadline:
-			t.Fatal("did not observe chat-backfill event")
-		default:
-			if strings.Contains(rec.body(), "event: chat-backfill") {
-				sawBackfill = true
-			} else {
-				time.Sleep(20 * time.Millisecond)
-			}
-		}
-	}
-
-	// Client disconnects.
-	cancel()
-	select {
-	case <-done:
-		// handler returned cleanly
-	case <-time.After(3 * time.Second):
-		t.Fatal("stream handler did not return after client disconnect")
-	}
-
-	body := rec.body()
-	if !strings.Contains(body, "\"provider\":\"claude\"") {
-		t.Errorf("backfill payload missing provider; body=%s", body)
-	}
-}
-
-func TestChatStreamNoChat(t *testing.T) {
-	sf := &mockSessionFetcher{result: []sessions.ProjectSession{
-		{Name: "s", Windows: []tmux.WindowInfo{{WindowID: "@1"}}},
-	}}
-	router := NewTestRouter(slog.Default(), sf, &mockTmuxOps{}, "host")
-
-	req := httptest.NewRequest(http.MethodGet, "/api/windows/@1/chat/stream", nil)
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want 404; body=%s", rec.Code, rec.Body.String())
-	}
-}
-
 // TestChatBackfillFetchError: a FetchSessions failure is an infrastructure fault
 // (500), NOT "no chat session" (404) — resolveWindowChat must distinguish the two
 // so a transient tmux failure is not misreported as a missing chat.
@@ -333,20 +207,6 @@ func TestChatBackfillFetchError(t *testing.T) {
 	router := NewTestRouter(slog.Default(), sf, &mockTmuxOps{}, "host")
 
 	req := httptest.NewRequest(http.MethodGet, "/api/windows/@1/chat", nil)
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want 500; body=%s", rec.Code, rec.Body.String())
-	}
-}
-
-// TestChatStreamFetchError: same distinction on the stream handler — the fetch
-// failure surfaces at connect (before SSE headers are committed) as a 500.
-func TestChatStreamFetchError(t *testing.T) {
-	sf := &mockSessionFetcher{err: errors.New("tmux exploded")}
-	router := NewTestRouter(slog.Default(), sf, &mockTmuxOps{}, "host")
-
-	req := httptest.NewRequest(http.MethodGet, "/api/windows/@1/chat/stream", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusInternalServerError {
@@ -367,141 +227,5 @@ func TestChatBackfillMalformedRef(t *testing.T) {
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404 for malformed ref; body=%s", rec.Code, rec.Body.String())
-	}
-}
-
-// TestChatStreamInitialConnectTranscriptNotYet exercises the MUST-FIX (R11/A-011)
-// lazy-transcript case on INITIAL CONNECT: the window carries a valid-UUID
-// @rk_chat but Claude Code has not written the transcript yet (re-stamped at
-// SessionStart before the first prompt). The stream must NOT die with a
-// chat-error — it must stay open and, once the transcript appears, deliver the
-// chat-backfill on the same connection.
-func TestChatStreamInitialConnectTranscriptNotYet(t *testing.T) {
-	fastRefResolve(t, 40*time.Millisecond)
-	projDir := stageEmptyConfigDir(t) // no transcript yet
-	sf := &mockSessionFetcher{result: chatSessions("@1", "claude", testChatRef)}
-	router := NewTestRouter(slog.Default(), sf, &mockTmuxOps{}, "host")
-
-	ctx, cancel := context.WithCancel(context.Background())
-	req := httptest.NewRequest(http.MethodGet, "/api/windows/@1/chat/stream", nil).WithContext(ctx)
-	rec := newSyncFlushRecorder()
-
-	done := make(chan struct{})
-	go func() { router.ServeHTTP(rec, req); close(done) }()
-
-	// Give the stream a few retry ticks with NO file: it must stay open and emit
-	// no chat-error (the pre-fix behavior closed the connection here).
-	time.Sleep(200 * time.Millisecond)
-	if b := rec.body(); strings.Contains(b, "event: chat-error") {
-		t.Fatalf("stream emitted chat-error before the transcript appeared; body=%s", b)
-	}
-	select {
-	case <-done:
-		t.Fatal("stream handler returned before the transcript appeared (should stay open)")
-	default:
-	}
-
-	// The transcript now appears (first prompt lands).
-	writeFixtureAt(t, projDir, testChatRef)
-
-	// Within a few retry ticks the backfill must arrive on the SAME connection.
-	deadline := time.After(3 * time.Second)
-	for {
-		if strings.Contains(rec.body(), "event: chat-backfill") {
-			break
-		}
-		select {
-		case <-deadline:
-			t.Fatalf("no chat-backfill after transcript appeared; body=%s", rec.body())
-		default:
-			time.Sleep(20 * time.Millisecond)
-		}
-	}
-	if b := rec.body(); strings.Contains(b, "event: chat-error") {
-		t.Errorf("unexpected chat-error in stream; body=%s", b)
-	}
-
-	cancel()
-	select {
-	case <-done:
-	case <-time.After(3 * time.Second):
-		t.Fatal("stream handler did not return after client disconnect")
-	}
-}
-
-// TestChatStreamRotationTranscriptNotYet exercises the MUST-FIX (R11/A-011) lazy
-// -transcript case on ROTATION: the stream is live on session A, then the
-// window's @rk_chat re-stamps to session B (a real /clear) whose transcript does
-// not exist yet. The stream must NOT die — it must hold the connection open and,
-// once B's transcript appears, deliver a fresh chat-backfill for B on the same
-// connection (survives /clear without reconnecting).
-func TestChatStreamRotationTranscriptNotYet(t *testing.T) {
-	const refB = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-	fastRefResolve(t, 40*time.Millisecond)
-	projDir := stageEmptyConfigDir(t)
-	writeFixtureAt(t, projDir, testChatRef) // session A exists
-
-	sf := &mutableSessionFetcher{result: chatSessions("@1", "claude", testChatRef)}
-	router := NewTestRouter(slog.Default(), sf, &mockTmuxOps{}, "host")
-
-	ctx, cancel := context.WithCancel(context.Background())
-	req := httptest.NewRequest(http.MethodGet, "/api/windows/@1/chat/stream", nil).WithContext(ctx)
-	rec := newSyncFlushRecorder()
-
-	done := make(chan struct{})
-	go func() { router.ServeHTTP(rec, req); close(done) }()
-
-	// First backfill (session A) lands.
-	deadline := time.After(3 * time.Second)
-	for !strings.Contains(rec.body(), "event: chat-backfill") {
-		select {
-		case <-deadline:
-			t.Fatalf("no initial chat-backfill; body=%s", rec.body())
-		default:
-			time.Sleep(20 * time.Millisecond)
-		}
-	}
-	backfillsAfterA := strings.Count(rec.body(), "event: chat-backfill")
-
-	// Rotation: window re-stamps to session B, whose transcript does NOT exist yet.
-	sf.set(chatSessions("@1", "claude", refB))
-
-	// The stream must hold open through the no-file window (no chat-error, no
-	// return) — a few retry ticks pass here.
-	time.Sleep(200 * time.Millisecond)
-	if b := rec.body(); strings.Contains(b, "event: chat-error") {
-		t.Fatalf("stream emitted chat-error during rotation no-file window; body=%s", b)
-	}
-	select {
-	case <-done:
-		t.Fatal("stream handler returned during rotation no-file window (should stay open)")
-	default:
-	}
-
-	// Session B's transcript now appears.
-	writeFixtureAt(t, projDir, refB)
-
-	// A fresh backfill (for B) must arrive on the SAME connection.
-	deadline = time.After(3 * time.Second)
-	for {
-		if strings.Count(rec.body(), "event: chat-backfill") > backfillsAfterA {
-			break
-		}
-		select {
-		case <-deadline:
-			t.Fatalf("no fresh chat-backfill for rotated session; body=%s", rec.body())
-		default:
-			time.Sleep(20 * time.Millisecond)
-		}
-	}
-	if b := rec.body(); !strings.Contains(b, refB) {
-		t.Errorf("rotated backfill missing new session ref %q; body=%s", refB, b)
-	}
-
-	cancel()
-	select {
-	case <-done:
-	case <-time.After(3 * time.Second):
-		t.Fatal("stream handler did not return after client disconnect")
 	}
 }

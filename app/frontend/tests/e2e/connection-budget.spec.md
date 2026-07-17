@@ -1,14 +1,17 @@
 # connection-budget.spec.ts
 
-Connection-budget guard for the socket-unification effort (state socket
-260716-qf3j + terminals mux 260717-803u). The effort collapsed BOTH stream
-families onto one muxed WebSocket each: session-state + host-metrics ride
-`/ws/state` (change 1), and ALL terminal pane relays ride `/ws/terminals`
-(change 2 — this change, retiring the per-pane `/relay/{windowId}` sockets).
-This spec asserts the user-facing budget invariant across the four route types:
-a tab holds **at most two** rk WebSockets total — **exactly one** `/ws/state`
-plus (only on routes with live panes) **exactly one** `/ws/terminals` — and
-**zero** `text/event-stream` responses from rk endpoints. An established
+Connection-budget guard — **final any-route form** for the socket-unification
+effort (state socket 260716-qf3j + terminals mux 260717-803u +
+chat-on-state-socket 260717-vhvz). The effort collapsed EVERY long-lived stream
+onto one of two muxed WebSockets: session-state + host-metrics + **chat** ride
+`/ws/state` (change 1 + change 3), and ALL terminal pane relays ride
+`/ws/terminals` (change 2). The chat lens was the last remaining EventSource;
+change 3 moved it onto the state socket as a `kind:"chat"` subscription, so **no**
+route holds an SSE anymore. This spec asserts the user-facing budget invariant
+across every route type (Host, tmux Server, Terminal, Board, and the **chat
+lens**): a tab holds **at most two** rk WebSockets total — **exactly one**
+`/ws/state` plus (only on routes with live panes) **exactly one** `/ws/terminals`
+— and **zero** `text/event-stream` responses from rk endpoints. An established
 WebSocket holds no HTTP/1.1 connection-pool slot, so this is what clears the pool
 starvation that blocked terminal-relay handshakes on Firefox/WebKit for
 plaintext origins.
@@ -68,6 +71,23 @@ total, and no SSE.
 2. Install the counters, `goto('/${TMUX_SERVER}/${windowId}')`.
 3. Wait for the **Connected** dot; poll state-socket count `=== 1` AND
    terminals-socket count `=== 1`; assert no `text/event-stream` responses.
+
+### `a chat-lens route (/$server/$window?view=chat) holds AT MOST 2 WS and zero SSE`
+
+**What it proves:** the chat lens — the last EventSource in the app before change
+3 — now rides the state socket as a `kind:"chat"` subscription, so a `?view=chat`
+route introduces **no** third WebSocket and **no** `text/event-stream`. The
+guarded invariant is that the chat lens contributes neither an SSE nor a WS beyond
+the fixed budget. (The plain e2e test window carries no `@rk_chat`, so
+`resolveView` falls back to tty and the terminals socket stays; the guarded fact —
+no SSE, at most 2 WS — holds either way, which is why the terminals count is
+asserted `<= 1` rather than exactly 1.)
+
+**Steps:**
+1. Resolve the session's first window id via `tmux list-windows`.
+2. Install the counters, `goto('/${TMUX_SERVER}/${windowId}?view=chat')`.
+3. Wait for the **Connected** dot; poll state-socket count `=== 1`, assert
+   terminals-socket count `<= 1`, and assert no `text/event-stream` responses.
 
 ### `a Board route (/board/$name) holds exactly 2 WS (state + terminals) and zero SSE`
 

@@ -2,10 +2,11 @@
  * Chat-stream schema + pure derivation helpers (260714-r7rq). Mirrors the
  * rk-owned, provider-neutral event schema shipped by Change 2
  * (`docs/memory/run-kit/chat.md` § "rk-owned neutral event schema"). Extracted
- * from the `use-chat-stream` hook and the `ChatView` renderer so the pure parts
- * (dedup, turn grouping, tool pairing, pending derivation) are unit-testable
- * without an `EventSource` or a mounted component — mirroring the
- * `palette-move.ts` / `palette-agent-nav.ts` extraction pattern.
+ * from the chat stream hook (`use-chat-subscription`, née `use-chat-stream`) and
+ * the `ChatView` renderer so the pure parts (dedup, turn grouping, tool pairing,
+ * pending derivation) are unit-testable without a live stream or a mounted
+ * component — mirroring the `palette-move.ts` / `palette-agent-nav.ts` extraction
+ * pattern.
  */
 
 /** Event type discriminator (matches the backend `Type` field). */
@@ -48,12 +49,18 @@ export type ChatPending = {
   text?: string;
 };
 
-/** The full conversation shape delivered by a `chat-backfill` event. */
+/**
+ * The full conversation shape returned by `GET /api/windows/{id}/chat`. `offset`
+ * is the transcript byte offset the backfill read up to (260717-vhvz): the chat
+ * subscription tails `from: offset`, so the GET(offset)→subscribe(from)
+ * composition is gap-free and duplicate-free.
+ */
 export type Conversation = {
   provider: string;
   sessionRef: string;
   events: ChatEvent[];
   pending: ChatPending | null;
+  offset: number;
 };
 
 /**

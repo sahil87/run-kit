@@ -92,7 +92,10 @@ func locateTranscript(ref string) (string, error) {
 	return matches[0], nil
 }
 
-// Backfill reads the whole transcript for ref and returns the full conversation.
+// Backfill reads the whole transcript for ref and returns the full conversation,
+// including the end byte Offset (the count of complete-line bytes consumed) so a
+// state-socket chat subscription can compose GET(offset)→TailFrom(from) without a
+// gap or duplicate (260717-vhvz).
 func (a claudeAdapter) Backfill(ctx context.Context, ref string) (*Conversation, error) {
 	if !uuidRe.MatchString(ref) {
 		return nil, ErrInvalidRef
@@ -108,7 +111,8 @@ func (a claudeAdapter) Backfill(ctx context.Context, ref string) (*Conversation,
 	defer f.Close()
 
 	p := newParser()
-	if _, err := p.consume(ctx, f); err != nil {
+	n, err := p.consume(ctx, f)
+	if err != nil {
 		return nil, err
 	}
 	return &Conversation{
@@ -116,18 +120,20 @@ func (a claudeAdapter) Backfill(ctx context.Context, ref string) (*Conversation,
 		SessionRef: ref,
 		Events:     p.events,
 		Pending:    p.pending(),
+		Offset:     n,
 	}, nil
 }
 
-// Tail returns a channel of incremental Updates for ref. It performs its own
-// initial backfill to establish the byte offset, then stat-polls the file for
-// growth (no fsnotify). The poll goroutine exits and closes the channel when ctx
-// is cancelled — no state outlives the stream (Constitution II).
-//
-// NOTE: the first Update on the channel is always a Reset carrying the full
-// backfill, so a stream handler can drive both the initial `chat-backfill` and
-// subsequent increments off this one channel.
-func (a claudeAdapter) Tail(ctx context.Context, ref string) (<-chan Update, error) {
+// TailFrom returns a channel of incremental Updates for ref, tailing from byte
+// offset `from` (260717-vhvz). It primes parser state by parsing 0..from and
+// discarding those events (the turn counter + pending derivation need the
+// full-file walk), then stat-polls the file for growth (no fsnotify) and emits
+// ONLY bytes >= from. Unlike the retired self-priming Tail, its first emission is
+// NOT a full-Conv Reset — the backfill already reached the client via the GET —
+// so the composition GET(offset)→TailFrom(from) is gap-free and duplicate-free.
+// The poll goroutine exits and closes the channel when ctx is cancelled — no
+// state outlives the stream (Constitution II).
+func (a claudeAdapter) TailFrom(ctx context.Context, ref string, from int64) (<-chan Update, error) {
 	if !uuidRe.MatchString(ref) {
 		return nil, ErrInvalidRef
 	}
@@ -137,23 +143,33 @@ func (a claudeAdapter) Tail(ctx context.Context, ref string) (<-chan Update, err
 	}
 
 	out := make(chan Update, 8)
-	go a.tailLoop(ctx, path, ref, out)
+	go a.tailFromLoop(ctx, path, from, out)
 	return out, nil
 }
 
-// tailLoop owns the whole tail lifecycle for one stream. It sends an initial
-// Reset (full backfill), then polls for growth/shrink and emits incremental or
-// reset Updates until ctx is done.
-func (a claudeAdapter) tailLoop(ctx context.Context, path, ref string, out chan<- Update) {
+// tailFromLoop owns the whole tail lifecycle for one TailFrom stream. It primes
+// parser state by consuming 0..from (discarding those events), then polls for
+// growth/shrink and emits incremental Events updates — and a bounded Reset
+// (shrink SIGNAL, Conv nil) when the file shrank below the tail offset — until
+// ctx is done.
+func (a claudeAdapter) tailFromLoop(ctx context.Context, path string, from int64, out chan<- Update) {
 	defer close(out)
 
+	// Prime parser state by walking 0..from; the resulting events are DISCARDED
+	// (they were delivered by the GET backfill) — only the turn counter + pending
+	// derivation carry forward, so appended events stay continuous.
 	p := newParser()
-	offset, conv, ok := a.backfillFromPath(ctx, path, ref, p)
+	offset, ok := a.primeTo(ctx, path, from, p)
 	if !ok {
-		return // ctx cancelled mid-backfill
+		return // ctx cancelled mid-prime
 	}
-	if !send(ctx, out, Update{Reset: true, Conv: conv}) {
-		return
+	// The file may already be shorter than `from` (rotated/cleared between the
+	// GET and the subscribe). Signal a reset so the caller re-composes; primeTo
+	// consumed only up to the real EOF, so `offset < from` detects this.
+	if offset < from {
+		if !send(ctx, out, Update{Reset: true}) {
+			return
+		}
 	}
 
 	ticker := time.NewTicker(tailPollInterval)
@@ -176,14 +192,17 @@ func (a claudeAdapter) tailLoop(ctx context.Context, path, ref string, out chan<
 		size := fi.Size()
 		switch {
 		case size < offset:
-			// Shrink/rewrite: full re-derive and re-backfill on the same stream.
+			// Shrink/rewrite below the tail offset: emit a bounded Reset SIGNAL
+			// (no transcript payload — decision D5). The caller re-runs the
+			// GET-backfill→subscribe composition. Re-prime a fresh parser from the
+			// new EOF so the tail continues cleanly for any further growth.
 			p = newParser()
-			newOffset, conv, ok := a.backfillFromPath(ctx, path, ref, p)
+			newOffset, ok := a.primeTo(ctx, path, size, p)
 			if !ok {
 				return
 			}
 			offset = newOffset
-			if !send(ctx, out, Update{Reset: true, Conv: conv}) {
+			if !send(ctx, out, Update{Reset: true}) {
 				return
 			}
 		case size > offset:
@@ -206,26 +225,36 @@ func (a claudeAdapter) tailLoop(ctx context.Context, path, ref string, out chan<
 	}
 }
 
-// backfillFromPath opens path, consumes it fully into p, and returns the end
-// byte offset plus the assembled Conversation. ok is false only when ctx was
-// cancelled during the read.
-func (a claudeAdapter) backfillFromPath(ctx context.Context, path, ref string, p *parser) (offset int64, conv *Conversation, ok bool) {
+// primeTo consumes complete lines of path up to at most `limit` bytes into p,
+// discarding the resulting events (only the turn counter + pending state carry
+// forward). It returns the actual end offset consumed (<= limit, and < limit
+// when the file is shorter than limit — the rotated/cleared case) and ok=false
+// only when ctx was cancelled. It parses ONLY complete lines, so a partial final
+// line straddling `limit` is left for the next growth read.
+func (a claudeAdapter) primeTo(ctx context.Context, path string, limit int64, p *parser) (int64, bool) {
+	if limit <= 0 {
+		return 0, ctx.Err() == nil
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		// Transient open error — treat as empty so the tail keeps polling.
-		return 0, &Conversation{Provider: providerClaude, SessionRef: ref}, ctx.Err() == nil
+		return 0, ctx.Err() == nil
 	}
 	defer f.Close()
-	n, err := p.consume(ctx, f)
+	n, err := p.consume(ctx, io.LimitReader(f, limit))
 	if err != nil && ctx.Err() != nil {
-		return 0, nil, false
+		return 0, false
 	}
-	return n, &Conversation{
-		Provider:   providerClaude,
-		SessionRef: ref,
-		Events:     p.events,
-		Pending:    p.pending(),
-	}, true
+	if err != nil {
+		// A non-ctx read error (e.g. a mid-file I/O fault): the primed turn/pending
+		// state may be incomplete, but the tail continues from the bytes read so
+		// far. Log it (observability) rather than swallowing silently.
+		slog.Debug("chat: prime read error (non-fatal)", "path", path, "err", err)
+	}
+	// Discard the primed events — they belong to the GET backfill. The turn
+	// counter and pending state remain in p for continuity.
+	p.events = p.events[:0]
+	return n, true
 }
 
 // readFromOffset seeks path to offset and consumes the newly-appended bytes into

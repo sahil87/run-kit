@@ -1,9 +1,12 @@
 import { test, expect, type Page } from "@playwright/test";
 import { mockStateSocket } from "./_state-socket-mock";
 
-// Fully mocked (no tmux/gh) — inject the SSE `sessions` payload + server list +
-// the chat stream via page.route, then drive the chat view. See
-// chat-view.spec.md for intent + steps.
+// Fully mocked (no tmux/gh) — inject the `sessions` payload over the state-socket
+// mock + the server list + the chat backfill (a plain GET) via page.route, then
+// drive the chat view. Chat moved onto the state socket (260717-vhvz): the
+// backfill demoted to GET /api/windows/{id}/chat and incremental events ride the
+// `kind:"chat"` subscription — there is NO chat SSE stub. See chat-view.spec.md
+// for intent + steps.
 //
 // Chat read frontend (260714-r7rq — Change 3 of the agent-chat-view plan): a
 // read-only HTML chat view over the same agent pane, toggled via `?view=chat`
@@ -53,10 +56,20 @@ function sessionsPayload(winName = "agent-win"): string {
   ]);
 }
 
+// A `Conversation` (the GET /api/windows/{id}/chat backfill body, 260717-vhvz).
+// `offset` is the transcript byte position the tail subscribes `from`.
+type Conv = {
+  provider: string;
+  sessionRef: string;
+  events: unknown[];
+  pending: unknown;
+  offset: number;
+};
+
 // A backfill conversation: one user message, one assistant markdown message,
 // one tool_use/tool_result pair, and a tail pending question.
-function backfillWithPending(): string {
-  const conv = {
+function backfillWithPending(): Conv {
+  return {
     provider: "claude",
     sessionRef: "11111111-1111-1111-1111-111111111111",
     events: [
@@ -66,13 +79,13 @@ function backfillWithPending(): string {
       { type: "tool_result", id: "r1", turn: 1, toolUseId: "T1", toolOutput: "all green" },
     ],
     pending: { toolUseId: "T2", toolName: "AskUserQuestion", text: "Ship it?" },
+    offset: 1234,
   };
-  return `event: chat-backfill\ndata: ${JSON.stringify(conv)}\n\n`;
 }
 
-// A backfill with no pending, plus a chat-state clearing any prior pending.
-function backfillCleared(): string {
-  const conv = {
+// A backfill with no pending.
+function backfillCleared(): Conv {
+  return {
     provider: "claude",
     sessionRef: "11111111-1111-1111-1111-111111111111",
     events: [
@@ -80,14 +93,23 @@ function backfillCleared(): string {
       { type: "message", id: "m2", turn: 1, role: "assistant", text: "done" },
     ],
     pending: null,
+    offset: 42,
   };
-  return (
-    `event: chat-backfill\ndata: ${JSON.stringify(conv)}\n\n` +
-    `event: chat-state\ndata: ${JSON.stringify({ pending: null })}\n\n`
-  );
 }
 
-async function mockBackend(page: Page, chatBody: string, winName?: string) {
+// mockBackend wires the fully-mocked chat backend (260717-vhvz — chat moved onto
+// the state socket). The BACKFILL is a plain GET `/api/windows/*/chat` (D5), and
+// incremental chat events / a pending transition ride the state-socket mock's
+// `chat` option. `chatOpts` drives the socket's post-ack chat frames (e.g. a
+// `chat-state` pending:null to clear a backfilled pending). The terminals mux is
+// stubbed on `/ws/terminals`; there is NO `/relay/` or SSE stub (memory
+// `relay-mux-stale-ws-stub-class`).
+async function mockBackend(
+  page: Page,
+  conv: Conv,
+  chatOpts?: { state?: { pending: unknown } | null; events?: unknown[]; reset?: boolean },
+  winName?: string,
+) {
   await page.routeWebSocket(/\/ws\/terminals/, () => {});
   await page.route("**/api/windows/*/select*", (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: '{"ok":true}' }),
@@ -99,17 +121,21 @@ async function mockBackend(page: Page, chatBody: string, winName?: string) {
       body: JSON.stringify([{ name: SERVER, sessionCount: 1 }]),
     }),
   );
-  await mockStateSocket(page, { sessions: sessionsPayload(winName) });
-  // Dedicated per-view chat stream. The trailing `*` is REQUIRED — the client
-  // appends `?server=` (established project gotcha). Fulfilled with an
-  // `text/event-stream` body carrying the backfill (+ optional chat-state).
-  await page.route("**/api/windows/*/chat/stream*", (route) =>
+  // The GET chat backfill (the trailing `*` is REQUIRED — the client appends
+  // `?server=`; glob-fallthrough trap). Returns the offset-bearing Conversation.
+  await page.route("**/api/windows/*/chat*", (route) => {
+    // Do NOT intercept the send POST (`/chat/send`) — mockChatSend owns that.
+    if (route.request().url().includes("/chat/send")) {
+      route.fallback();
+      return;
+    }
     route.fulfill({
       status: 200,
-      headers: { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" },
-      body: chatBody,
-    }),
-  );
+      contentType: "application/json",
+      body: JSON.stringify(conv),
+    });
+  });
+  await mockStateSocket(page, { sessions: sessionsPayload(winName), chat: chatOpts });
 }
 
 // mockChatSend routes the chat-send POST and records each request's body text.
@@ -252,10 +278,9 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
   });
 
   test("the pending bubble clears on a chat-state pending:null", async ({ page }) => {
-    // backfill carries a pending; then a chat-state clears it on the same stream.
-    const body =
-      backfillWithPending() + `event: chat-state\ndata: ${JSON.stringify({ pending: null })}\n\n`;
-    await mockBackend(page, body);
+    // The GET backfill carries a pending; then a `chat-state` pending:null rides
+    // the state socket after the subscribe ack and clears it on the same lens.
+    await mockBackend(page, backfillWithPending(), { state: { pending: null } });
     await page.goto(`/${SERVER}/1?view=chat`);
 
     await expect(page.getByTestId("chat-view")).toBeVisible({ timeout: 10_000 });
@@ -268,7 +293,7 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
     // at phone width with a realistically long window name it yields into the
     // "More controls" menu (as per-view `View:` rows) to give the heading room —
     // it no longer stays pinned inline via a `hidden sm:*`-exempt slot.
-    await mockBackend(page, backfillCleared(), "riff-gallant-jackal-worktree-mobile");
+    await mockBackend(page, backfillCleared(), undefined, "riff-gallant-jackal-worktree-mobile");
     await page.setViewportSize(MOBILE);
     await page.goto(`/${SERVER}/1?view=chat`);
 

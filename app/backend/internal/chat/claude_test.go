@@ -177,8 +177,8 @@ func TestStrictUUIDGuard(t *testing.T) {
 		if _, err := a.Backfill(context.Background(), ref); err != ErrInvalidRef {
 			t.Errorf("Backfill(%q) err = %v, want ErrInvalidRef", ref, err)
 		}
-		if _, err := a.Tail(context.Background(), ref); err != ErrInvalidRef {
-			t.Errorf("Tail(%q) err = %v, want ErrInvalidRef", ref, err)
+		if _, err := a.TailFrom(context.Background(), ref, 0); err != ErrInvalidRef {
+			t.Errorf("TailFrom(%q) err = %v, want ErrInvalidRef", ref, err)
 		}
 		if _, err := locateTranscript(ref); err != ErrInvalidRef {
 			t.Errorf("locateTranscript(%q) err = %v, want ErrInvalidRef", ref, err)
@@ -232,11 +232,21 @@ func TestBackfillFromDisk(t *testing.T) {
 	if conv.Pending == nil || conv.Pending.ToolName != "AskUserQuestion" {
 		t.Errorf("pending = %+v", conv.Pending)
 	}
+	// The backfill Offset MUST equal the byte length consumed (all complete lines
+	// of the fixture) — it is the `from` a chat subscription tails from, so a
+	// regression to 0 would make the producer re-stream the whole backfill as
+	// socket duplicates. The fixture ends with a trailing newline, so every byte
+	// is a complete line.
+	if conv.Offset != int64(len(fixture)) {
+		t.Errorf("Offset = %d, want %d (bytes consumed by the backfill parse)", conv.Offset, len(fixture))
+	}
 }
 
-// TestTailInitialResetAndAppend: Tail emits an initial Reset (full backfill),
-// then an Events update when the file grows; ctx cancel closes the channel.
-func TestTailInitialResetAndAppend(t *testing.T) {
+// TestTailFromEmitsOnlyBytesAfterOffset: TailFrom(from) primes 0..from (the GET
+// backfill's bytes) WITHOUT emitting them, then emits ONLY the appended events on
+// growth — the fetch→subscribe composition is gap-free and duplicate-free. ctx
+// cancel closes the channel.
+func TestTailFromEmitsOnlyBytesAfterOffset(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	ref := "5d80479e-8f25-46cd-a0d4-e51435508a37"
@@ -250,24 +260,28 @@ func TestTailInitialResetAndAppend(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	a := claudeAdapter{}
+	// The client subscribes `from` the GET backfill's Offset — derive it from a
+	// real Backfill (not a hand-computed len) so the offset round-trips end-to-end
+	// exactly as production composes GET(offset)→TailFrom(from).
+	backfill, err := a.Backfill(context.Background(), ref)
+	if err != nil {
+		t.Fatalf("Backfill: %v", err)
+	}
+	from := backfill.Offset
+	if from != int64(len(initial)) {
+		t.Fatalf("Backfill Offset = %d, want %d", from, len(initial))
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	a := claudeAdapter{}
-	ch, err := a.Tail(ctx, ref)
+	ch, err := a.TailFrom(ctx, ref, from)
 	if err != nil {
-		t.Fatalf("Tail: %v", err)
+		t.Fatalf("TailFrom: %v", err)
 	}
 
-	// First update: Reset with full backfill.
-	first := recvUpdate(t, ch)
-	if !first.Reset || first.Conv == nil {
-		t.Fatalf("first update = %+v, want Reset with Conv", first)
-	}
-	if len(first.Conv.Events) != 1 {
-		t.Errorf("initial backfill events = %d, want 1", len(first.Conv.Events))
-	}
-
-	// Append a complete line; expect an Events update.
+	// No initial Reset/backfill (the GET delivered 0..from) — the primed "first"
+	// event is DISCARDED, so the ONLY update is the appended line below.
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		t.Fatal(err)
@@ -278,12 +292,12 @@ func TestTailInitialResetAndAppend(t *testing.T) {
 	}
 	f.Close()
 
-	second := recvUpdate(t, ch)
-	if second.Reset {
-		t.Fatalf("second update unexpectedly Reset: %+v", second)
+	first := recvUpdate(t, ch)
+	if first.Reset {
+		t.Fatalf("first update unexpectedly Reset (must not re-backfill 0..from): %+v", first)
 	}
-	if len(second.Events) != 1 || second.Events[0].Text != "reply" {
-		t.Errorf("append update events = %+v, want one 'reply' text event", second.Events)
+	if len(first.Events) != 1 || first.Events[0].Text != "reply" {
+		t.Errorf("append update events = %+v, want exactly the one appended 'reply' event (no dup of 'first')", first.Events)
 	}
 
 	// Cancel closes the channel.
@@ -301,8 +315,59 @@ func TestTailInitialResetAndAppend(t *testing.T) {
 	}
 }
 
+// TestTailFromPrimesTurnContinuity: the primed 0..from walk carries the turn
+// counter forward so an appended event's turn is continuous with the backfill —
+// even though the primed events themselves are discarded.
+func TestTailFromPrimesTurnContinuity(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	ref := "5d80479e-8f25-46cd-a0d4-e51435508a37"
+	projDir := filepath.Join(dir, "projects", "someproj")
+	if err := os.MkdirAll(projDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(projDir, ref+".jsonl")
+	// Two user prompts in the backfill → turn counter reaches 2.
+	backfill := `{"type":"user","uuid":"u1","timestamp":"t","message":{"role":"user","content":"one"}}` + "\n" +
+		`{"type":"user","uuid":"u2","timestamp":"t","message":{"role":"user","content":"two"}}` + "\n"
+	if err := os.WriteFile(path, []byte(backfill), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	from := int64(len(backfill))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	a := claudeAdapter{}
+	ch, err := a.TailFrom(ctx, ref, from)
+	if err != nil {
+		t.Fatalf("TailFrom: %v", err)
+	}
+
+	// A third user prompt appended after `from` must land on turn 3 (continuous),
+	// proving the primed walk carried the counter forward.
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(`{"type":"user","uuid":"u3","timestamp":"t","message":{"role":"user","content":"three"}}` + "\n"); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+
+	u := recvUpdate(t, ch)
+	if len(u.Events) != 1 {
+		t.Fatalf("append events = %+v, want one", u.Events)
+	}
+	if u.Events[0].Turn != 3 {
+		t.Errorf("appended event turn = %d, want 3 (continuous with the primed backfill)", u.Events[0].Turn)
+	}
+}
+
 // TestTailShrinkResets: truncating the file below the offset triggers a Reset.
-func TestTailShrinkResets(t *testing.T) {
+// TestTailFromShrinkSignalsReset: a shrink/rewrite below the tail offset emits a
+// bounded Reset SIGNAL (Conv nil — no transcript rides the socket, D5) so the
+// caller re-runs the GET-backfill→subscribe composition.
+func TestTailFromShrinkSignalsReset(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	ref := "5d80479e-8f25-46cd-a0d4-e51435508a37"
@@ -315,30 +380,60 @@ func TestTailShrinkResets(t *testing.T) {
 	if err := os.WriteFile(path, []byte(big), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	from := int64(len(big))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	a := claudeAdapter{}
-	ch, err := a.Tail(ctx, ref)
+	ch, err := a.TailFrom(ctx, ref, from)
 	if err != nil {
-		t.Fatalf("Tail: %v", err)
-	}
-	first := recvUpdate(t, ch)
-	if !first.Reset {
-		t.Fatalf("first update not Reset: %+v", first)
+		t.Fatalf("TailFrom: %v", err)
 	}
 
-	// Rewrite the file smaller (session /clear rewrite).
+	// Rewrite the file smaller (session /clear rewrite) — below `from`.
 	small := `{"type":"user","uuid":"u2","timestamp":"t","message":{"role":"user","content":"fresh"}}` + "\n"
 	if err := os.WriteFile(path, []byte(small), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	reset := recvUpdate(t, ch)
-	if !reset.Reset || reset.Conv == nil {
+	if !reset.Reset {
 		t.Fatalf("expected Reset after shrink, got %+v", reset)
 	}
-	if len(reset.Conv.Events) != 1 {
-		t.Errorf("post-shrink backfill events = %d, want 1", len(reset.Conv.Events))
+	if reset.Conv != nil {
+		t.Errorf("shrink Reset must carry NO transcript payload (Conv nil, D5), got Conv=%+v", reset.Conv)
+	}
+}
+
+// TestTailFromFileShorterThanOffset: if the file is ALREADY shorter than `from`
+// at prime time (rotated/cleared between the GET and the subscribe), TailFrom
+// immediately emits a Reset (shrink signal) so the caller re-composes (A-019).
+func TestTailFromFileShorterThanOffset(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	ref := "5d80479e-8f25-46cd-a0d4-e51435508a37"
+	projDir := filepath.Join(dir, "projects", "someproj")
+	if err := os.MkdirAll(projDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(projDir, ref+".jsonl")
+	small := `{"type":"user","uuid":"u1","timestamp":"t","message":{"role":"user","content":"short"}}` + "\n"
+	if err := os.WriteFile(path, []byte(small), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Subscribe from an offset FAR beyond the current EOF (the transcript was
+	// rewritten shorter between the client's GET and this subscribe).
+	from := int64(len(small)) + 10_000
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	a := claudeAdapter{}
+	ch, err := a.TailFrom(ctx, ref, from)
+	if err != nil {
+		t.Fatalf("TailFrom: %v", err)
+	}
+	first := recvUpdate(t, ch)
+	if !first.Reset || first.Conv != nil {
+		t.Fatalf("expected an immediate bounded Reset (Conv nil) for file-shorter-than-from, got %+v", first)
 	}
 }
 

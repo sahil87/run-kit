@@ -44,6 +44,13 @@ const (
 	kindServer  = "server"
 	kindMetrics = "metrics"
 	kindGlobal  = "global"
+	// kindChat is a per-chat-window subscription (keyed by window ID, scoped to a
+	// tmux server via clientMsg.Server) that moved the retired per-view chat SSE
+	// (GET /api/windows/{id}/chat/stream) onto the state socket (change
+	// 260717-vhvz). Unlike kindServer it does NOT join the tmux poll set —
+	// transcript appends generate no tmux events — so each chat subscription owns
+	// a dedicated per-subscription producer goroutine (see chat_ws.go).
+	kindChat = "chat"
 )
 
 // clientMsg is a client → server frame. All fields are optional; `op`
@@ -57,6 +64,11 @@ type clientMsg struct {
 	Req      int64    `json:"req"`
 	Server   string   `json:"server"`
 	Expanded []string `json:"expanded"`
+	// From is the transcript byte offset a chat subscribe tails from (kindChat
+	// only; 260717-vhvz). The client GETs the backfill (whose response carries the
+	// offset) then subscribes with from:<offset>, so fetch→subscribe composes
+	// without a gap or duplicate.
+	From int64 `json:"from"`
 }
 
 // eventFrame is the server → client `event` envelope. `data` is
@@ -71,12 +83,16 @@ type eventFrame struct {
 	Data json.RawMessage `json:"data"`
 }
 
-// ackFrame answers a subscribe with the current snapshot for that subscription
-// (the same payload the SSE `event: sessions` / cached-metrics slot carried).
+// ackFrame answers a subscribe. For server/metrics kinds it carries the current
+// snapshot (the same payload the SSE `event: sessions` / cached-metrics slot
+// carried). For a chat kind it carries NO snapshot (D5 — the transcript came
+// from the GET backfill) and instead the tail-start byte Offset the producer
+// began emitting from (normally == the subscribe's `from`).
 type ackFrame struct {
 	Op       string          `json:"op"` // "ack"
 	Req      int64           `json:"req"`
-	Snapshot json.RawMessage `json:"snapshot"`
+	Snapshot json.RawMessage `json:"snapshot,omitempty"`
+	Offset   int64           `json:"offset,omitempty"`
 }
 
 // goneFrame replaces the SSE `event: server-gone`: the subscribed server's

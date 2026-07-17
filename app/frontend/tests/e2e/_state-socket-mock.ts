@@ -12,7 +12,16 @@ import type { Page } from "@playwright/test";
 //                                                       then live sessions event
 //                     {op:"subscribe",kind:"metrics",req}    → ack{snapshot: metrics}
 //                                                       then metrics + services events
+//                     {op:"subscribe",kind:"chat",key,from,req} → ack{offset: from}
+//                                                       (NO snapshot, D5) then any
+//                                                       configured chat events
 //                     {op:"unsubscribe"|"preview-scope"}     → ignored (no-op)
+//
+// The chat BACKFILL is NOT on the socket (D5) — it demoted to GET
+// /api/windows/{id}/chat, which specs mock as a plain `page.route`. This mock only
+// answers the incremental `kind:"chat"` subscription (the retired chat SSE's live
+// half). Terminal stubs stay on `/ws/terminals`; do NOT add `/relay/` or SSE-based
+// stubs (memory `relay-mux-stale-ws-stub-class`).
 //
 // Payloads are delivered VERBATIM inside the envelope's `data`, matching the
 // backend's contract-preservation rule, so specs assert on the same rendered UI
@@ -35,6 +44,23 @@ export type StateSocketMockOptions = {
   serverOrder?: unknown;
   /** Optional board-order slot ({order:[...]}) delivered on hello. */
   boardOrder?: unknown;
+  /** Chat subscription support (260717-vhvz). When set, a `kind:"chat"` subscribe
+   *  is acked with `{offset}` (no snapshot — D5; the transcript came from the GET
+   *  backfill, which specs mock as a plain `page.route` on
+   *  `**\/api/windows/*\/chat*`). The `offset` echoes the subscribe's `from` (so
+   *  the composition stays consistent). After the ack, any `events` are emitted as
+   *  a `kind:"chat"` `chat` event and `state` (if present) as a `chat-state` event
+   *  — so a spec can drive incremental appends / a pending transition without SSE.
+   *  A `reset:true` also emits a `chat-reset` after the ack. */
+  chat?: {
+    /** Incremental chat events emitted after the ack (a `kind:"chat"` `chat`
+     *  event carrying this ChatEvent[]). */
+    events?: unknown[];
+    /** A `chat-state` `{pending}` payload emitted after the ack. */
+    state?: { pending: unknown } | null;
+    /** Emit a `chat-reset` after the ack (rotation drill). */
+    reset?: boolean;
+  };
 };
 
 /** Install a `/ws/state` mock speaking the state-socket protocol. Call before
@@ -47,8 +73,11 @@ export async function mockStateSocket(page: Page, opts: StateSocketMockOptions =
     const emitGlobal = (type: string, data: unknown) =>
       ws.send(JSON.stringify({ op: "event", kind: "global", type, data }));
 
+    const emitChat = (key: string, type: string, data: unknown) =>
+      ws.send(JSON.stringify({ op: "event", kind: "chat", key, type, data }));
+
     ws.onMessage((message) => {
-      let msg: { op?: string; kind?: string; key?: string; req?: number };
+      let msg: { op?: string; kind?: string; key?: string; req?: number; from?: number };
       try {
         msg = JSON.parse(typeof message === "string" ? message : message.toString());
       } catch {
@@ -86,6 +115,17 @@ export async function mockStateSocket(page: Page, opts: StateSocketMockOptions =
             ws.send(JSON.stringify({ op: "ack", req: msg.req, snapshot }));
             if (opts.metrics !== undefined) emitGlobal("metrics", opts.metrics);
             if (opts.services !== undefined) emitGlobal("services", opts.services);
+          } else if (msg.kind === "chat" && typeof msg.key === "string") {
+            // Chat ack carries the tail-start offset (echo `from`), NO snapshot
+            // (D5 — the transcript came from the GET backfill). Then emit any
+            // configured incremental events / pending state / reset.
+            ws.send(JSON.stringify({ op: "ack", req: msg.req, offset: msg.from ?? 0 }));
+            const chat = opts.chat;
+            if (chat) {
+              if (chat.events && chat.events.length > 0) emitChat(msg.key, "chat", chat.events);
+              if (chat.state !== undefined) emitChat(msg.key, "chat-state", chat.state);
+              if (chat.reset) emitChat(msg.key, "chat-reset", {});
+            }
           }
           break;
         default:

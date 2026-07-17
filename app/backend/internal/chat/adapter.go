@@ -8,28 +8,39 @@ import (
 
 // Conversation is the rk-schema backfill result: the full conversation as
 // neutral events plus the retractable pending marker. It is the body of the
-// backfill endpoint and the payload of the stream's `chat-backfill` event.
+// backfill endpoint (GET /api/windows/{id}/chat).
+//
+// Offset is the transcript BYTE offset the backfill read up to — additive
+// (older readers ignore it). It is the enabler for the state-socket chat
+// subscription's gap-free/duplicate-free composition (260717-vhvz): the client
+// GETs the backfill, then subscribes `kind:"chat"` with `from: <this offset>`,
+// and the server's TailFrom emits only bytes >= from (see TailFrom). Events
+// with byte position < Offset are in this body; events >= Offset are the tail's;
+// no overlap, no gap.
 type Conversation struct {
 	Provider   string   `json:"provider"`
 	SessionRef string   `json:"sessionRef"`
 	Events     []Event  `json:"events"`
 	Pending    *Pending `json:"pending"`
+	Offset     int64    `json:"offset"`
 }
 
-// Update is one increment emitted by a Tail stream. Exactly one of the two
+// Update is one increment emitted by a TailFrom stream. Exactly one of the two
 // shapes is populated per Update:
 //
 //   - Events (with Reset=false): newly appended rk-schema events, sent as the
 //     stream's `chat` event vocabulary. Pending carries the current pending
 //     state AFTER applying these events (nil = no pending / retracted), sent as
 //     the `chat-state` event.
-//   - Reset=true: the referenced transcript shrank/rewrote (e.g. a re-derive is
-//     required); Conversation carries a fresh full backfill to replace the
-//     client's view. Emitted as a fresh `chat-backfill`.
+//   - Reset=true: the referenced transcript shrank/rewrote below the tail offset
+//     (a re-derive is required). Under TailFrom, Reset is a bounded SHRINK SIGNAL
+//     with no transcript payload (Conv is nil) — the caller re-runs the
+//     GET-backfill→subscribe composition (emitted as a `chat-reset`), so a large
+//     rotated conversation never rides the shared socket (decision D5).
 //
-// A Tail also emits a Reset update when the window's session ref rotates (the API
-// layer re-resolves the ref and re-subscribes); the adapter itself only knows
-// about shrink/rewrite of the file it is tailing.
+// The API layer additionally re-resolves a rotated window ref and restarts the
+// subscription; the adapter itself only knows about shrink/rewrite of the file
+// it is tailing.
 type Update struct {
 	Events  []Event
 	Pending *Pending
@@ -46,22 +57,25 @@ type Adapter interface {
 	Provider() string
 
 	// Backfill reads the whole transcript for ref and returns the full
-	// conversation. A missing transcript is surfaced as an error (this endpoint
-	// is where a missing transcript naturally shows — Change 1's
-	// no-disk-validation rationale). ctx bounds the read.
+	// conversation (including its end byte Offset). A missing transcript is
+	// surfaced as an error (this endpoint is where a missing transcript naturally
+	// shows — Change 1's no-disk-validation rationale). ctx bounds the read.
 	Backfill(ctx context.Context, ref string) (*Conversation, error)
 
-	// Tail returns a channel of incremental Updates for ref. It is self-priming:
-	// the caller passes no offset, and the FIRST Update on the channel is always a
-	// Reset carrying a fresh full backfill (Conv), establishing the starting point
-	// the adapter then tails from; subsequent Updates are incremental appends (or a
-	// further Reset on shrink/rewrite). A stream handler therefore drives both the
-	// initial `chat-backfill` and later increments off this one channel — no
-	// separate Backfill call is required (see the claude adapter). The channel is
-	// closed when ctx is cancelled; no goroutine outlives ctx (Constitution II —
-	// nothing cached beyond the stream). The implementation MUST NOT block the
-	// caller: the poll loop runs on its own goroutine feeding the returned channel.
-	Tail(ctx context.Context, ref string) (<-chan Update, error)
+	// TailFrom returns a channel of incremental Updates for ref, tailing from the
+	// byte offset `from` (260717-vhvz). It PRIMES parser state by parsing bytes
+	// 0..from (the turn counter + pending derivation need the full-file walk —
+	// backfill and tail share one parser) and DISCARDS those primed events, then
+	// emits ONLY bytes >= from as incremental `Events` updates and tails the file
+	// for growth. Unlike the retired self-priming Tail, its first emission is NOT a
+	// full-Conv Reset: the backfill (bytes 0..from) already reached the client via
+	// GET /api/windows/{id}/chat, so the composition GET(offset)→TailFrom(from) is
+	// gap-free and duplicate-free. A file already SHORTER than `from` at prime time
+	// (or a later shrink/rewrite) yields a Reset (shrink signal) so the caller can
+	// re-run the composition. The channel is closed when ctx is cancelled; no
+	// goroutine outlives ctx (Constitution II). The implementation MUST NOT block
+	// the caller: the poll loop runs on its own goroutine feeding the channel.
+	TailFrom(ctx context.Context, ref string, from int64) (<-chan Update, error)
 }
 
 // ErrNoAdapter is returned by Lookup when no adapter is registered for a

@@ -20,6 +20,7 @@ describe("applyChatBackfill", () => {
       sessionRef: "uuid",
       events: [ev({ type: "message", turn: 1, id: "a" })],
       pending: null,
+      offset: 0,
     };
     expect(applyChatBackfill(conv)).toEqual(conv.events);
   });

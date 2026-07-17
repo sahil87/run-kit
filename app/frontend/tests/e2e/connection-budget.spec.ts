@@ -136,15 +136,16 @@ test.describe("Connection budget — 2 muxed WS (state + terminals), zero SSE", 
     expect(c.eventStreamUrls(), "no text/event-stream responses").toEqual([]);
   });
 
-  test("a chat-lens route (/$server/$window?view=chat) holds AT MOST 2 WS and zero SSE", async ({ page }) => {
+  test("a ?view=chat route holds AT MOST 2 WS and zero SSE (no extra socket vs the base route)", async ({ page }) => {
     // FINAL any-route form (260717-vhvz): the chat lens was the last EventSource
     // in the app; it moved onto the state socket as a `kind:"chat"` subscription,
-    // so a chat-lens route adds NO third WS and NO SSE. Chat rides the SAME state
-    // socket a chat-capable window would already hold — the invariant this asserts
-    // is that `?view=chat` introduces neither a `text/event-stream` response nor a
-    // WebSocket beyond the fixed budget. (The plain e2e test window carries no
-    // `@rk_chat`, so `resolveView` falls back to tty and the terminals socket
-    // stays; the guarded fact — no SSE, no extra WS — holds either way.)
+    // so requesting `?view=chat` adds NO third WS and NO SSE. This test does NOT
+    // exercise the chat subscription path directly: the plain e2e test window
+    // carries no `@rk_chat`, so `resolveView` falls back to tty and the terminals
+    // socket stays. What it DOES guard is the budget invariant — appending
+    // `?view=chat` introduces neither a `text/event-stream` response nor a
+    // WebSocket beyond the fixed budget — which holds whether the window is
+    // chat-capable (chat rides the already-held state socket) or falls back to tty.
     test.setTimeout(30_000);
     const c = installCounters(page);
     const wins = execSync(
@@ -158,11 +159,12 @@ test.describe("Connection budget — 2 muxed WS (state + terminals), zero SSE", 
 
     await page.goto(`/${TMUX_SERVER}/${windowId}?view=chat`, { waitUntil: "domcontentloaded" });
     await expect(page.locator("[aria-label='Connected']")).toBeVisible({ timeout: 15_000 });
-    // Exactly one state socket; at most one terminals socket; ZERO SSE — the chat
-    // lens never contributes a text/event-stream (the whole point of this change).
+    // Exactly one state socket; at most one terminals socket (this window falls
+    // back to tty, so the terminals mux stays); ZERO SSE — `?view=chat` never
+    // contributes a text/event-stream (the whole point of this change).
     await expect.poll(() => c.stateSocketCount(), { timeout: 5_000 }).toBe(1);
     await expect.poll(() => c.terminalsSocketCount(), { timeout: 5_000 }).toBeLessThanOrEqual(1);
-    expect(c.eventStreamUrls(), "no text/event-stream responses on a chat-lens route").toEqual([]);
+    expect(c.eventStreamUrls(), "no text/event-stream responses on a ?view=chat route").toEqual([]);
   });
 
   test("a Board route (/board/$name) holds exactly 2 WS (state + terminals) and zero SSE", async ({ page, request }) => {

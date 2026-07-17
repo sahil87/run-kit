@@ -72,22 +72,25 @@ total, and no SSE.
 3. Wait for the **Connected** dot; poll state-socket count `=== 1` AND
    terminals-socket count `=== 1`; assert no `text/event-stream` responses.
 
-### `a chat-lens route (/$server/$window?view=chat) holds AT MOST 2 WS and zero SSE`
+### `a ?view=chat route holds AT MOST 2 WS and zero SSE (no extra socket vs the base route)`
 
-**What it proves:** the chat lens — the last EventSource in the app before change
-3 — now rides the state socket as a `kind:"chat"` subscription, so a `?view=chat`
-route introduces **no** third WebSocket and **no** `text/event-stream`. The
-guarded invariant is that the chat lens contributes neither an SSE nor a WS beyond
-the fixed budget. (The plain e2e test window carries no `@rk_chat`, so
-`resolveView` falls back to tty and the terminals socket stays; the guarded fact —
-no SSE, at most 2 WS — holds either way, which is why the terminals count is
-asserted `<= 1` rather than exactly 1.)
+**What it proves:** appending `?view=chat` to a window route introduces **no**
+`text/event-stream` response and **no** WebSocket beyond the fixed budget (one
+`/ws/state` + at most one `/ws/terminals`). This is the budget invariant that
+holds regardless of whether the window is chat-capable — it does **not** claim to
+exercise the chat subscription path itself. The plain e2e test window carries no
+`@rk_chat`, so `resolveView` falls back to tty and the terminals socket stays;
+had the window been chat-capable, chat would ride the already-held state socket
+rather than adding a stream. Either way the guarded fact — no SSE, at most 2 WS —
+holds.
 
 **Steps:**
 1. Resolve the session's first window id via `tmux list-windows`.
 2. Install the counters, `goto('/${TMUX_SERVER}/${windowId}?view=chat')`.
 3. Wait for the **Connected** dot; poll state-socket count `=== 1`, assert
-   terminals-socket count `<= 1`, and assert no `text/event-stream` responses.
+   terminals-socket count `<= 1` (this window falls back to tty, so the terminals
+   mux stays live — hence `<= 1`, not exactly 1), and assert no
+   `text/event-stream` responses.
 
 ### `a Board route (/board/$name) holds exactly 2 WS (state + terminals) and zero SSE`
 

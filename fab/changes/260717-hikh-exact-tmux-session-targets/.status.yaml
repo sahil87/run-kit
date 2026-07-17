@@ -9,8 +9,8 @@ progress:
     apply: skipped
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 1
@@ -33,13 +33,15 @@ stage_metrics:
     apply: {iterations: 1}
     review: {started_at: "2026-07-17T20:11:23Z", driver: fab-adopt, iterations: 1, completed_at: "2026-07-17T20:24:46Z"}
     hydrate: {started_at: "2026-07-17T20:24:46Z", driver: fab-adopt, iterations: 1, completed_at: "2026-07-17T20:31:03Z"}
-    ship: {started_at: "2026-07-17T20:31:03Z", driver: fab-adopt, iterations: 1}
-prs: []
+    ship: {started_at: "2026-07-17T20:31:03Z", driver: fab-adopt, iterations: 1, completed_at: "2026-07-17T20:34:49Z"}
+    review-pr: {started_at: "2026-07-17T20:34:49Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/380
 summary: Exact-match tmux session targets (=name:/=session:), window-id-keyed pane join, and 15s ghost-window TTL backstop
 true_impact:
-    added: 373
-    deleted: 147
-    net: 226
+    added: 612
+    deleted: 155
+    net: 457
     excluding:
         added: 373
         deleted: 147
@@ -48,7 +50,7 @@ true_impact:
         added: 244
         deleted: 94
         net: 150
-    computed_at: "2026-07-17T20:31:03Z"
-    computed_at_stage: hydrate
+    computed_at: "2026-07-17T20:34:49Z"
+    computed_at_stage: ship
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-07-17T20:31:03Z
+last_updated: 2026-07-17T20:34:49Z

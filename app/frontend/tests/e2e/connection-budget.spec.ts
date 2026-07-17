@@ -1,13 +1,16 @@
 import { test, expect, type Page } from "@playwright/test";
 import { execSync } from "node:child_process";
 
-// Connection-budget guard (state socket 260716-qf3j + terminals mux 260717-803u).
+// Connection-budget guard — FINAL any-route form (state socket 260716-qf3j +
+// terminals mux 260717-803u + chat-on-state-socket 260717-vhvz).
 //
-// The socket-unification effort collapsed BOTH stream families onto ONE muxed
-// WebSocket each: session-state + host-metrics ride `/ws/state` (change 1), and
-// ALL terminal pane relays ride `/ws/terminals` (change 2 — this change,
-// retiring the per-pane `/relay/{windowId}` sockets). This spec asserts the
-// user-facing budget invariant across the four route types: a tab holds AT MOST
+// The socket-unification effort collapsed EVERY long-lived stream onto ONE of two
+// muxed WebSockets: session-state + host-metrics + CHAT ride `/ws/state` (change
+// 1 + change 3), and ALL terminal pane relays ride `/ws/terminals` (change 2).
+// The chat lens was the last remaining EventSource; change 3 moved it onto the
+// state socket as a `kind:"chat"` subscription, so NO route holds an SSE anymore.
+// This spec asserts the user-facing budget invariant across every route type
+// (Host, tmux Server, Terminal, Board, and the chat lens): a tab holds AT MOST
 // two rk WebSockets total — exactly one `/ws/state` plus (only on routes with
 // live panes) exactly one `/ws/terminals` — and ZERO `text/event-stream`
 // responses from rk endpoints (the Vite HMR WS is excluded by URL). An
@@ -131,6 +134,37 @@ test.describe("Connection budget — 2 muxed WS (state + terminals), zero SSE", 
     await expect.poll(() => c.stateSocketCount(), { timeout: 5_000 }).toBe(1);
     await expect.poll(() => c.terminalsSocketCount(), { timeout: 5_000 }).toBe(1);
     expect(c.eventStreamUrls(), "no text/event-stream responses").toEqual([]);
+  });
+
+  test("a ?view=chat route holds AT MOST 2 WS and zero SSE (no extra socket vs the base route)", async ({ page }) => {
+    // FINAL any-route form (260717-vhvz): the chat lens was the last EventSource
+    // in the app; it moved onto the state socket as a `kind:"chat"` subscription,
+    // so requesting `?view=chat` adds NO third WS and NO SSE. This test does NOT
+    // exercise the chat subscription path directly: the plain e2e test window
+    // carries no `@rk_chat`, so `resolveView` falls back to tty and the terminals
+    // socket stays. What it DOES guard is the budget invariant — appending
+    // `?view=chat` introduces neither a `text/event-stream` response nor a
+    // WebSocket beyond the fixed budget — which holds whether the window is
+    // chat-capable (chat rides the already-held state socket) or falls back to tty.
+    test.setTimeout(30_000);
+    const c = installCounters(page);
+    const wins = execSync(
+      `tmux -L ${TMUX_SERVER} list-windows -t ${TEST_SESSION} -F "#{window_id}"`,
+    )
+      .toString()
+      .trim()
+      .split("\n");
+    const windowId = wins[0]?.replace(/^@/, "");
+    expect(windowId, "first window id").toBeTruthy();
+
+    await page.goto(`/${TMUX_SERVER}/${windowId}?view=chat`, { waitUntil: "domcontentloaded" });
+    await expect(page.locator("[aria-label='Connected']")).toBeVisible({ timeout: 15_000 });
+    // Exactly one state socket; at most one terminals socket (this window falls
+    // back to tty, so the terminals mux stays); ZERO SSE — `?view=chat` never
+    // contributes a text/event-stream (the whole point of this change).
+    await expect.poll(() => c.stateSocketCount(), { timeout: 5_000 }).toBe(1);
+    await expect.poll(() => c.terminalsSocketCount(), { timeout: 5_000 }).toBeLessThanOrEqual(1);
+    expect(c.eventStreamUrls(), "no text/event-stream responses on a ?view=chat route").toEqual([]);
   });
 
   test("a Board route (/board/$name) holds exactly 2 WS (state + terminals) and zero SSE", async ({ page, request }) => {

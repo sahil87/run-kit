@@ -27,18 +27,19 @@ import {
  * SENDS a message into the pane via tmux injection (paste + probed Enter) —
  * still no SDK hosting, no session ownership (Constitution II/VI).
  *
- * Consumes the dedicated per-view chat `EventSource` via `use-chat-stream`;
- * nothing is cached beyond component state that dies with the view
- * (Constitution II analog).
+ * Consumes the chat stream (a `kind:"chat"` subscription on the shared state
+ * socket, via `use-chat-subscription`) purely as passed props; nothing is cached
+ * beyond component state that dies with the view (Constitution II analog).
  *
  * House aesthetic throughout: monospace, three-mode theme tokens, animation
  * behind `prefers-reduced-motion` (the stick-to-bottom scroll uses `auto`
  * behavior — no smooth-scroll animation to gate — and there is no decorative
  * motion here).
  *
- * Pure component over passed props: `AppShell` owns the single `use-chat-stream`
- * call (so one `EventSource` feeds BOTH this renderer and the connection dot's
- * health, R9) AND supplies `onSend` (wrapping the chat-send POST) + the `busy`
+ * Pure component over passed props: `AppShell` owns the single
+ * `use-chat-subscription` call (so one chat subscription feeds BOTH this renderer
+ * and the connection dot's health) AND supplies `onSend` (wrapping the chat-send
+ * POST) + the `busy`
  * signal (`agentState === "active"`). This component opens no stream and calls
  * no API itself.
  */

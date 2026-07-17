@@ -1,0 +1,15 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-17T19:06:16Z"}
+{"args":"Implement chat-on-state-socket (Change 3 of fab/plans/sahil/socket-unification.md): move chat incremental events onto the state socket as a 'chat' kind subscription; retire the per-view chat SSE; backfill demoted to GET /api/windows/{id}/chat with offset-composed subscribe (D5)","cmd":"fab-new","event":"command","ts":"2026-07-17T19:06:16Z"}
+{"delta":"+4.2","event":"confidence","score":4.2,"trigger":"calc-score","ts":"2026-07-17T19:10:11Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-17T19:12:48Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-17T19:12:54Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-17T19:46:54Z"}
+{"event":"review","result":"failed","ts":"2026-07-17T20:17:25Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-17T20:17:25Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-17T20:34:27Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-17T21:08:57Z"}
+{"event":"review","result":"passed","ts":"2026-07-17T21:08:57Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-17T21:09:52Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-17T21:23:02Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-07-17T21:26:11Z"}
+{"event":"review","result":"passed","ts":"2026-07-17T21:38:56Z"}

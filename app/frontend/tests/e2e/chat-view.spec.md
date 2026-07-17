@@ -15,21 +15,31 @@ segment flips into chat, and the shipped `Ctrl+\`` binding toggles tty↔chat.
 
 ## Shared setup
 
-- Fully mocked — no tmux, no `gh`, no real backend. Injected via `page.route`:
+- Fully mocked — no tmux, no `gh`, no real backend. Chat moved onto the state
+  socket (260717-vhvz): the backfill demoted to a plain `GET`, and incremental
+  events ride the `kind:"chat"` subscription — there is **no** chat SSE stub.
+  Injected via `page.route`:
   - `**/api/servers` → a single server `default`.
   - `**/api/windows/*/select*` → 200 (trailing `*` so the client's appended
     `?server=` query is still intercepted).
-  - `/ws/state` (state socket, via `mockStateSocket`) → the subscribe ack + `sessions` event carry the mocked payload, session `dev` with
-    two windows: `@1` "agent-win" (`chatProvider: claude`, the active window) and
-    `@2` "plain-win" (no `chatProvider`).
-  - `**/api/windows/*/chat/stream*` → a `text/event-stream` body carrying a
-    `chat-backfill` (and, per test, a `chat-state`). The trailing `*` is required
-    because the client appends `?server=`.
-  - The terminals mux WebSocket (`/ws/terminals`) is stubbed.
-- `backfillWithPending()` — a backfill with a user message, an assistant
-  markdown message, a `tool_use`/`tool_result` pair, and a tail pending question.
-- `backfillCleared()` — a backfill with two plain messages and a `chat-state`
-  `pending: null`.
+  - `/ws/state` (state socket, via `mockStateSocket`) → the subscribe ack +
+    `sessions` event carry the mocked payload, session `dev` with two windows:
+    `@1` "agent-win" (`chatProvider: claude`, the active window) and `@2`
+    "plain-win" (no `chatProvider`). The mock ALSO answers a `kind:"chat"`
+    subscribe with an ack carrying `{offset}` (no snapshot, D5), then emits any
+    configured `chat` / `chat-state` / `chat-reset` frames.
+  - `**/api/windows/*/chat*` → the chat backfill: a plain JSON `Conversation`
+    with an additive byte `offset` (the trailing `*` is required because the
+    client appends `?server=`; the `/chat/send` POST is left to `mockChatSend`).
+  - The terminals mux WebSocket (`/ws/terminals`) is stubbed. No `/relay/` or SSE
+    stubs (memory `relay-mux-stale-ws-stub-class`).
+- `backfillWithPending()` — a `Conversation` (offset-bearing) with a user
+  message, an assistant markdown message, a `tool_use`/`tool_result` pair, and a
+  tail pending question.
+- `backfillCleared()` — a `Conversation` with two plain messages and no pending.
+- `mockBackend(page, conv, chatOpts?, winName?)` — wires the routes above; `conv`
+  is the GET backfill body and `chatOpts` drives the socket's post-ack chat frames
+  (e.g. `{ state: { pending: null } }` to clear a backfilled pending).
 - `mockChatSend(page, { status, error })` — routes the chat-send POST
   (`**/api/windows/*/chat/send*`, trailing `*` for the appended `?server=`),
   records each request's `text` body, and fulfils either `200 {"ok":true}` or a
@@ -127,8 +137,9 @@ collapsible tool-call card (collapsed by default, expandable to reveal
 pending bubble (the retractable-state contract — always applied, incl. null).
 
 **Steps:**
-1. Mock a backfill carrying a pending, followed by a `chat-state`
-   `pending: null` on the same stream; navigate to `/default/1?view=chat`.
+1. Mock the GET backfill with a pending, and a `chat-state` `pending: null`
+   emitted over the state socket after the chat subscribe ack; navigate to
+   `/default/1?view=chat`.
 2. Assert the `chat-view` is visible, then assert the `chat-pending` bubble has
    count 0.
 

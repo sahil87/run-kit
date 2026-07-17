@@ -532,7 +532,6 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/windows/{windowId}/split", s.handleWindowSplit)
 	r.Post("/api/windows/{windowId}/close-pane", s.handleClosePaneKill)
 	r.Get("/api/windows/{windowId}/chat", s.handleChatBackfill)
-	r.Get("/api/windows/{windowId}/chat/stream", s.handleChatStream)
 	r.Post("/api/windows/{windowId}/chat/send", s.handleChatSend)
 	r.Get("/api/directories", s.handleDirectories)
 	r.Post("/api/sessions/{session}/upload", s.handleUpload)

@@ -14,9 +14,10 @@
 
 /** A decoded server → client event, matching the retired SSE `event: <type>`
  *  with its `data:` JSON parsed. `key` is the server name for per-server events
- *  (kind "server") and undefined for host-global events (kind "global"). */
+ *  (kind "server"), the window ID for chat events (kind "chat"), and undefined
+ *  for host-global events (kind "global"). */
 export type StateEvent = {
-  kind: "server" | "global";
+  kind: "server" | "global" | "chat";
   type: string;
   key?: string;
   data: unknown;
@@ -25,15 +26,29 @@ export type StateEvent = {
 export type StateSocketHandlers = {
   /** A demuxed event (kind/type/key/data). */
   onEvent: (ev: StateEvent) => void;
-  /** A subscription was acked with a fresh snapshot. `key` is the server name
-   *  for a server subscription; undefined for the metrics subscription. */
-  onAck?: (req: number, kind: string, key: string | undefined, snapshot: unknown) => void;
+  /** A subscription was acked. `key` is the server name for a server
+   *  subscription, the window ID for a chat subscription, and undefined for the
+   *  metrics subscription. `snapshot` carries the sessions/metrics payload for
+   *  server/metrics kinds; `offset` carries the chat tail-start byte offset (D5
+   *  — chat acks carry no snapshot). */
+  onAck?: (
+    req: number,
+    kind: string,
+    key: string | undefined,
+    snapshot: unknown,
+    offset?: number,
+  ) => void;
   /** A subscribed server's tmux socket is gone (replaces SSE `server-gone`). */
   onGone?: (key: string) => void;
   /** Socket-level connection state changed (open ⇢ true, close/error ⇢ false).
    *  Drives the connection-dot debounce in the provider. */
   onConnectionChange?: (connected: boolean) => void;
 };
+
+/** The window ID a chat frame (event or ack) addresses, so the owner hook can
+ *  route it to the right chat lens. */
+export type ChatSubscribeArgs = { server: string; windowId: string; from: number };
+export type ChatUnsubscribeArgs = { server: string; windowId: string };
 
 type Subscription =
   | { kind: "server"; key: string }
@@ -64,6 +79,12 @@ export class StateSocket {
   private readonly subs = new Map<string, Subscription>();
   private nextReq = 1;
   private reqToKey = new Map<number, string>();
+  // Chat subscriptions are deliberately NOT tracked in `subs` (so the onopen
+  // blind-resubscribe loop never re-sends a chat subscribe with a stale `from`).
+  // The owner hook re-runs its fetch→subscribe composition on reconnect instead
+  // (decision D5 / the no-cursor reset contract). We only remember the pending
+  // subscribe req → windowId so a chat ack can be routed back to its lens.
+  private reqToChatWindow = new Map<number, string>();
   private backoff = RECONNECT_BASE_MS;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private closed = false;
@@ -105,8 +126,11 @@ export class StateSocket {
     ws.onclose = () => {
       // Pending subscribe reqs belong to the dead connection and will never be
       // acked — reconnect resubscribes with fresh req numbers. Clear them so
-      // repeated drop-while-pending cycles can't grow reqToKey unbounded.
+      // repeated drop-while-pending cycles can't grow the maps unbounded. Chat
+      // reqs are cleared too; the owner hook re-runs its fetch→subscribe
+      // composition on reconnect (chat is not blindly resubscribed here).
       this.reqToKey.clear();
+      this.reqToChatWindow.clear();
       this.handlers.onConnectionChange?.(false);
       this.scheduleReconnect();
     };
@@ -158,6 +182,26 @@ export class StateSocket {
    *  POST /api/preview-scope, addressed by this socket's own conn id). */
   sendPreviewScope(server: string, expanded: string[]): void {
     this.send({ op: "preview-scope", server, expanded });
+  }
+
+  /** Subscribe to a chat window's incremental stream (260717-vhvz). Carries the
+   *  transcript byte `from` offset the client's GET backfill read up to, so the
+   *  server's tail composes gap-free with the fetch. NOT ref-counted and NOT
+   *  tracked in `subs`: chat's `from` is a stateful cursor a blind reconnect
+   *  resubscribe would send stale, so the owner hook re-runs fetch→subscribe on
+   *  reconnect instead. A no-op if the socket is not OPEN (the hook re-issues on
+   *  reconnect) — the pending req is recorded ONLY when the frame is actually sent,
+   *  so a not-OPEN call leaves no lingering reqToChatWindow row. */
+  subscribeChat({ server, windowId, from }: ChatSubscribeArgs): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    const req = this.nextReq++;
+    this.reqToChatWindow.set(req, windowId);
+    this.send({ op: "subscribe", kind: "chat", key: windowId, server, from, req });
+  }
+
+  /** Unsubscribe a chat window (cancels its server-side producer). */
+  unsubscribeChat({ server, windowId }: ChatUnsubscribeArgs): void {
+    this.send({ op: "unsubscribe", kind: "chat", key: windowId, server });
   }
 
   private addSub(id: string, sub: Subscription): void {
@@ -224,6 +268,7 @@ export class StateSocket {
       data?: unknown;
       req?: number;
       snapshot?: unknown;
+      offset?: number;
       reason?: string;
     };
     try {
@@ -233,7 +278,10 @@ export class StateSocket {
     }
     switch (msg.op) {
       case "event":
-        if (typeof msg.type === "string" && (msg.kind === "server" || msg.kind === "global")) {
+        if (
+          typeof msg.type === "string" &&
+          (msg.kind === "server" || msg.kind === "global" || msg.kind === "chat")
+        ) {
           this.handlers.onEvent({
             kind: msg.kind,
             type: msg.type,
@@ -244,6 +292,15 @@ export class StateSocket {
         break;
       case "ack": {
         const req = typeof msg.req === "number" ? msg.req : -1;
+        // A chat ack is routed by the pending req → windowId we recorded on
+        // subscribeChat (chat subs are not in `subs`). It carries an `offset`
+        // (the tail-start byte position, D5) and NO snapshot.
+        const chatWindow = this.reqToChatWindow.get(req);
+        if (chatWindow !== undefined) {
+          this.reqToChatWindow.delete(req);
+          this.handlers.onAck?.(req, "chat", chatWindow, undefined, msg.offset);
+          break;
+        }
         const id = this.reqToKey.get(req);
         this.reqToKey.delete(req);
         // Derive the acked subscription's kind/key from the id we recorded.
@@ -267,9 +324,11 @@ export class StateSocket {
         // Non-fatal protocol error (e.g. an invalid server key or unknown op).
         // The socket stays live. When the error carries the offending `req`, the
         // server rejected a subscribe that will never ack — drop its pending
-        // reqToKey entry so the map doesn't leak one row per rejected subscribe.
+        // reqToKey / reqToChatWindow entry so the maps don't leak one row per
+        // rejected subscribe.
         if (typeof msg.req === "number") {
           this.reqToKey.delete(msg.req);
+          this.reqToChatWindow.delete(msg.req);
         }
         break;
       default:

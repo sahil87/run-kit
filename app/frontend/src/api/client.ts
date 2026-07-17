@@ -1,4 +1,5 @@
 import type { ProjectSession } from "@/types";
+import type { Conversation } from "@/lib/chat-stream";
 
 export type { ProjectSession };
 
@@ -207,6 +208,41 @@ export async function sendKeys(
     },
   );
   if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
+/** An HTTP error carrying the response status, so callers can branch on it (the
+ *  chat lens treats a 404 "transcript not yet" as a wait-and-retry, not a fatal
+ *  error). */
+export class HttpError extends Error {
+  readonly status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "HttpError";
+    this.status = status;
+  }
+}
+
+/**
+ * Fetch a window's chat backfill (260717-vhvz). GETs the full conversation as
+ * rk-schema JSON, including the transcript byte `offset` the backfill read up to.
+ * The chat lens then subscribes `kind:"chat"` on the state socket with
+ * `from: offset`, so the GET(offset)→subscribe(from) composition is gap-free and
+ * duplicate-free (the chat SSE stream this replaced is retired). On a non-ok
+ * response it throws an `HttpError` carrying the status so the caller can
+ * distinguish a 404 (transcript not written yet — retry) from a real fault.
+ */
+export async function getWindowChat(
+  server: string,
+  windowId: string,
+): Promise<Conversation> {
+  const res = await deduplicatedFetch(
+    withServer(`/api/windows/${encodeURIComponent(windowId)}/chat`, server),
+  );
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new HttpError(res.status, (data as { error?: string }).error ?? `Request failed: ${res.status}`);
+  }
   return res.json();
 }
 

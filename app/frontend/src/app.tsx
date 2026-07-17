@@ -22,7 +22,7 @@ import { buildStatusRefreshAction } from "@/lib/palette-status-refresh";
 import { buildNavActions } from "@/lib/palette-nav";
 import { nextWaitingTarget, chatSearchForTarget, type WaitingTarget } from "@/lib/palette-agent-nav";
 import { isWaiting } from "@/lib/waiting";
-import { useChatStream } from "@/hooks/use-chat-stream";
+import { useChatSubscription } from "@/hooks/use-chat-subscription";
 import { useChatViewShortcut } from "@/hooks/use-chat-view-shortcut";
 import { ChatView } from "@/components/chat-view";
 import {
@@ -1223,15 +1223,16 @@ function AppShell() {
     [server, navigate, isMobile, setSidebarOpen, beginPendingSwitch],
   );
 
-  // Chat stream (260714-r7rq) — a SINGLE dedicated EventSource, owned here so it
-  // feeds BOTH the `ChatView` renderer (below) and the connection dot's health
-  // (R9). The chat lens is active exactly when `resolveView` resolves to `chat`
+  // Chat subscription (260717-vhvz — succeeds the dedicated per-view chat SSE) —
+  // a single `kind:"chat"` subscription on the shared state socket, owned here so
+  // it feeds BOTH the `ChatView` renderer (below) and the connection dot's health
+  // (R13). The chat lens is active exactly when `resolveView` resolves to `chat`
   // (which already bakes in the `chatProvider` availability gate, so a chat-less
   // window never resolves here). Opened only when the chat view is active; the
-  // hook is a no-op with empty ids otherwise (it early-returns without opening a
-  // connection), so a terminal-view window never streams.
+  // hook is a no-op with empty ids otherwise (it early-returns without
+  // subscribing), so a terminal-view window never streams.
   const chatViewActive = resolvedView === "chat";
-  const chatStream = useChatStream(
+  const chatStream = useChatSubscription(
     chatViewActive ? server : "",
     chatViewActive ? windowParam ?? "" : "",
   );
@@ -2597,9 +2598,10 @@ function AppShell() {
           {windowParam ? (
             chatViewActive ? (
               // Chat view (260714-r7rq) — read-only HTML renderer over the same
-              // pane, swapped in ahead of the iframe/terminal branches. The
-              // stream is owned by AppShell (`chatStream`) so one EventSource
-              // feeds both this and the connection dot's health.
+              // pane, swapped in ahead of the iframe/terminal branches. The chat
+              // stream is owned by AppShell (`chatStream`, the `kind:"chat"` state
+              // -socket subscription — 260717-vhvz) so one subscription feeds both
+              // this renderer and the connection dot's health.
               <ChatView
                 // Key by SERVER + window so switching chat-lens targets REMOUNTS
                 // ChatView (and its ChatSendForm) rather than reusing the mounted

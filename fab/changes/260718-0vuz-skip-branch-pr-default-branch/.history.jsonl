@@ -1,0 +1,12 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-18T13:21:10Z"}
+{"args":"skip branch-PR derivation on default branch (bug fix): PANE panel shows stale 'pr #480 · merged' for a pane on fab-kit main — gh pr list --head main matches fork PRs whose head ref name is main (mcclawd:main -\u003e sahil87/fab-kit:main); pickBranchPR + --state all durable-merged design makes it permanent. Fix: do not derive a branch-PR for a pane on the repo's DEFAULT branch (git symbolic-ref refs/remotes/origin/HEAD, resolved off the SSE hot path on the background refresher, fail-open on lookup failure).","cmd":"fab-new","event":"command","ts":"2026-07-18T13:21:10Z"}
+{"delta":"+4.8","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-07-18T13:22:38Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-07-18T13:23:34Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-18T13:25:13Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-18T13:25:25Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-18T13:26:12Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-18T13:32:35Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-18T13:33:25Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-18T13:40:45Z"}
+{"event":"review","result":"passed","ts":"2026-07-18T13:40:45Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-18T13:44:01Z"}

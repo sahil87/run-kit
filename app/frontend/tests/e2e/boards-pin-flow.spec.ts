@@ -136,11 +136,23 @@ test.describe("Boards: Pin flow", () => {
     const paletteInput = page.getByPlaceholder("Type a command...");
     await expect(paletteInput).toBeVisible({ timeout: 5_000 });
     await paletteInput.fill(`Pin: Current Window to ${board}`);
+    // The direct-pin entry only exists once useBoards' fetch and the
+    // session/window context have resolved — on a slow runner Enter can fire
+    // before the action is in the list, and the palette treats Enter with no
+    // filtered match as a silent no-op. Gate on the rendered option.
+    await expect(
+      page.getByRole("option", { name: `Pin: Current Window to ${board}` }),
+    ).toBeVisible({ timeout: 10_000 });
     await page.keyboard.press("Enter");
 
     // The post-pin success toast surfaces with a "View board" action (§2c).
     await expect(page.getByText(`Pinned to ${board}`)).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByRole("button", { name: "View board" })).toBeVisible();
+
+    // Click "View board" within the toast's 4s auto-dismiss window
+    // (TOAST_DURATION) — the server-side poll below can outlive it, so
+    // navigate first and verify the contract after.
+    await page.getByRole("button", { name: "View board" }).click();
+    await expect(page).toHaveURL(new RegExp(`/board/${board}$`), { timeout: 10_000 });
 
     // The pin actually landed: win-b is now on the board (server-side contract).
     await expect
@@ -156,10 +168,6 @@ test.describe("Boards: Pin flow", () => {
         { timeout: 10_000 },
       )
       .toContain(winB);
-
-    // The "View board" toast action navigates to /board/<board>.
-    await page.getByRole("button", { name: "View board" }).click();
-    await expect(page).toHaveURL(new RegExp(`/board/${board}$`), { timeout: 10_000 });
 
     // Cleanup: unpin both so the board is not left behind on the shared server.
     await page.request.post(`/api/boards/${board}/unpin`, {

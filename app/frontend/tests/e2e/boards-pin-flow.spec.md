@@ -66,10 +66,13 @@ the `View board` action navigates to `/board/<board>`.
 2. Resolve `win-b`'s `@N` id and navigate to its terminal route
    (`/<server>/<winB>`) so the palette's current window is `win-b` (not yet
    pinned to `<board>`, so the direct-pin entry is offered).
-3. Open the palette (`Meta+k`), fill `Pin: Current Window to <board>`, press
-   Enter.
-4. Assert the `Pinned to <board>` toast appears with a `View board` button.
-5. Poll `GET /api/boards/<board>` until `win-b`'s id is among the entries
+3. Open the palette (`Meta+k`), fill `Pin: Current Window to <board>`, wait
+   for the filtered option to render (the entry exists only once the boards
+   fetch and window context resolve — pressing Enter earlier is a silent
+   no-op), then press Enter.
+4. Assert the `Pinned to <board>` toast appears.
+5. Click `View board` immediately (within the toast's 4s auto-dismiss
+   window) and assert the URL becomes `/board/<board>`.
+6. Poll `GET /api/boards/<board>` until `win-b`'s id is among the entries
    (the direct pin landed server-side).
-6. Click `View board` and assert the URL becomes `/board/<board>`.
 7. Cleanup: unpin `win-a` and `win-b` from `<board>`.

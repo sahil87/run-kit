@@ -348,20 +348,37 @@ func (r *BranchRefresher) refresh(ctx context.Context) {
 
 	// Age out unobserved pairs and collect the live keys to resolve. Done under
 	// the lock; the (cheap) resolution loop below runs the gh calls WITHOUT the
-	// lock held so Register/Snapshot never block on a hung gh.
+	// lock held so Register/Snapshot never block on a hung gh. The set of live
+	// repoDirs is collected here too, so stale per-repo default-branch entries
+	// (repos no window observes anymore) can be pruned symmetrically with the
+	// per-pair age-out — keeping defaultBranches bounded (Constitution §II).
 	r.mu.Lock()
 	type pending struct {
 		key             string
 		repoDir, branch string
 	}
 	var todo []pending
+	liveRepos := make(map[string]struct{})
 	for key, e := range r.entries {
 		if now.Sub(e.observedAt) > branchPRObservedTTL {
 			delete(r.entries, key)
 			continue
 		}
 		repoDir, branch := splitBranchPRKey(key)
+		liveRepos[repoDir] = struct{}{}
 		todo = append(todo, pending{key: key, repoDir: repoDir, branch: branch})
+	}
+	// Prune per-repo default-branch verdicts for repos no live pair observes
+	// anymore. Best-effort, timestamp-guarded: a repo whose newest verdict is
+	// still within branchDefaultBranchTTL is kept (it may be re-observed within
+	// the window and re-used), so this never fights an in-flight re-probe.
+	for repoDir, e := range r.defaultBranches {
+		if _, live := liveRepos[repoDir]; live {
+			continue
+		}
+		if now.Sub(e.at) > branchDefaultBranchTTL {
+			delete(r.defaultBranches, repoDir)
+		}
 	}
 	r.mu.Unlock()
 
@@ -370,9 +387,12 @@ func (r *BranchRefresher) refresh(ctx context.Context) {
 	}
 
 	// One availability check per pass (cached verdict — positive AND negative).
-	if !r.checkAvailable(ctx, now) {
-		return
-	}
+	// NOTE: this is NOT an early return. The default-branch exclusion below needs
+	// only local `git symbolic-ref`, so it MUST run even when gh is unavailable —
+	// otherwise a stale positive (the #480 fork-PR case) would never be cleared
+	// while gh is down, defeating the whole point of the exclusion. Only the gh
+	// execution path (r.exec) is gated on ghOK.
+	ghOK := r.checkAvailable(ctx, now)
 
 	for _, p := range todo {
 		// Default-branch exclusion: a pane parked on the repo's DEFAULT branch
@@ -393,6 +413,13 @@ func (r *BranchRefresher) refresh(ctx context.Context) {
 				r.entries[p.key] = e
 			}
 			r.mu.Unlock()
+			continue
+		}
+
+		// gh path: only reachable for a non-default branch. Skip it when gh is
+		// unavailable (keeping last-good, stale-while-revalidate) — the exclusion
+		// above already ran regardless of gh.
+		if !ghOK {
 			continue
 		}
 

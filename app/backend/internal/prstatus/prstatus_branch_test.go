@@ -660,6 +660,92 @@ func TestBranchRefresher_DefaultBranchReprobedAfterTTL(t *testing.T) {
 	}
 }
 
+// TestBranchRefresher_DefaultBranchExcludedWhenGhUnavailable: the default-branch
+// exclusion needs only local `git symbolic-ref`, so it MUST run — and clear a
+// stale positive — even when gh is unavailable. This is the live-bug edge: if gh
+// goes down, the #480 fork-PR match must still disappear once main is recognized
+// as the default branch (the exclusion is not gated behind gh availability).
+func TestBranchRefresher_DefaultBranchExcludedWhenGhUnavailable(t *testing.T) {
+	ghCalls := 0
+	// gh is AVAILABLE for the first pass (so the stale positive gets cached), then
+	// flips unavailable — the exclusion must still clear it.
+	ghUp := true
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		ghCalls++
+		return branchListJSON(branchNodeState(480, "https://x/pull/480", "MERGED", "2026-07-16T00:00:00Z")), nil
+	})
+	r.available = func(context.Context) bool { return ghUp }
+	// origin/HEAD does not resolve on the first pass (fail-open → gh caches #480),
+	// then resolves to main so the exclusion applies.
+	defaultResolves := false
+	r.defaultExec = func(context.Context, string) ([]byte, error) {
+		if !defaultResolves {
+			return nil, errors.New("origin/HEAD unset")
+		}
+		return defaultBranchRefOutput("main"), nil
+	}
+	now := time.Unix(1_000_000, 0)
+	r.now = func() time.Time { return now }
+
+	r.Register("/repo", "main")
+	r.refresh(context.Background()) // fail-open + gh up → caches stale #480
+	if pr, ok := r.Snapshot("/repo", "main"); !ok || pr == nil || pr.Number != 480 {
+		t.Fatalf("precondition: stale #480 should be cached, got ok=%v pr=%v", ok, pr)
+	}
+
+	// gh goes DOWN and origin/HEAD now resolves; advance past both TTLs so the
+	// availability verdict re-probes (negative) and the default-branch verdict
+	// re-probes (main). The exclusion must clear #480 despite gh being down.
+	ghUp = false
+	defaultResolves = true
+	now = now.Add(branchDefaultBranchTTL + branchPRAvailabilityTTL + time.Second)
+	r.now = func() time.Time { return now }
+	r.Register("/repo", "main")
+	r.refresh(context.Background())
+
+	if pr, ok := r.Snapshot("/repo", "main"); ok || pr != nil {
+		t.Errorf("stale #480 must be cleared by the exclusion even when gh is down, got ok=%v pr=%v", ok, pr)
+	}
+}
+
+// TestBranchRefresher_DefaultBranchPrunedWhenRepoUnobserved: the per-repo
+// default-branch cache must not grow unbounded. Once a repo has no live pair AND
+// its verdict has aged past branchDefaultBranchTTL, the entry is pruned during the
+// age-out pass (symmetric with the per-pair observed-TTL age-out).
+func TestBranchRefresher_DefaultBranchPrunedWhenRepoUnobserved(t *testing.T) {
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		return branchListJSON(branchNode(4, "https://x/pull/4", "2026-07-01T00:00:00Z")), nil
+	})
+	r.defaultExec = func(context.Context, string) ([]byte, error) {
+		return defaultBranchRefOutput("main"), nil
+	}
+	now := time.Unix(1_000_000, 0)
+	r.now = func() time.Time { return now }
+
+	// Observe a feature-branch pair once → its repo's default-branch verdict is cached.
+	r.Register("/repo", "feat")
+	r.refresh(context.Background())
+	r.mu.RLock()
+	_, cached := r.defaultBranches["/repo"]
+	r.mu.RUnlock()
+	if !cached {
+		t.Fatalf("precondition: /repo default-branch verdict should be cached after a refresh")
+	}
+
+	// Stop observing the pair and advance past both the observed-TTL (so the pair
+	// ages out) and the default-branch TTL (so the verdict is prune-eligible).
+	now = now.Add(branchPRObservedTTL + branchDefaultBranchTTL + time.Second)
+	r.now = func() time.Time { return now }
+	r.refresh(context.Background()) // pair ages out; unobserved+stale repo verdict is pruned
+
+	r.mu.RLock()
+	_, stillCached := r.defaultBranches["/repo"]
+	r.mu.RUnlock()
+	if stillCached {
+		t.Errorf("default-branch verdict for an unobserved, aged-out repo must be pruned")
+	}
+}
+
 // TestParseDefaultBranch covers the symbolic-ref output parser: the expected
 // prefix is stripped and whitespace trimmed; anything else is a lookup failure.
 func TestParseDefaultBranch(t *testing.T) {

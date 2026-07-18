@@ -10,15 +10,27 @@ import (
 
 // newTestRefresher builds a BranchRefresher with injected exec/available seams
 // and a controllable clock, so tests drive resolution deterministically without
-// a real gh binary, the background goroutine, or wall-clock timing.
+// a real gh binary, the background goroutine, or wall-clock timing. The
+// default-branch seam defaults to a fail-open stub (git symbolic-ref "fails"), so
+// tests that don't care about the default-branch exclusion resolve every pair
+// via the gh path exactly as before — no real git process is ever spawned.
 func newTestRefresher(available bool, exec func(ctx context.Context, repoDir, branch string) ([]byte, error)) *BranchRefresher {
 	r := NewBranchRefresher(branchPRRefreshInterval)
 	r.exec = exec
 	r.available = func(context.Context) bool { return available }
+	r.defaultExec = func(context.Context, string) ([]byte, error) {
+		return nil, errors.New("no default branch (test default: fail-open)")
+	}
 	// Fixed clock; tests advance it via r.now reassignment when they need TTL math.
 	base := time.Unix(1_000_000, 0)
 	r.now = func() time.Time { return base }
 	return r
+}
+
+// defaultBranchRefOutput renders the `git symbolic-ref refs/remotes/origin/HEAD`
+// stdout for a given default branch name (trailing newline as git emits).
+func defaultBranchRefOutput(name string) []byte {
+	return []byte(defaultBranchRefPrefix + name + "\n")
 }
 
 // branchListJSON renders a `gh pr list --json ...` array from raw node strings.
@@ -472,6 +484,293 @@ func TestPickBranchPR_SkipsEmptyURL(t *testing.T) {
 	}
 	if pr == nil || pr.Number != 4 {
 		t.Fatalf("expected #4 (URL-less node skipped), got %v", pr)
+	}
+}
+
+// TestBranchRefresher_DefaultBranchExcluded: a pair whose branch is the repo's
+// default branch is excluded — the branch-list gh query is NEVER run for it, and
+// Snapshot returns (nil, false).
+func TestBranchRefresher_DefaultBranchExcluded(t *testing.T) {
+	ghCalls := 0
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		ghCalls++
+		return branchListJSON(branchNodeState(480, "https://x/pull/480", "MERGED", "2026-07-16T00:00:00Z")), nil
+	})
+	r.defaultExec = func(context.Context, string) ([]byte, error) {
+		return defaultBranchRefOutput("main"), nil
+	}
+
+	r.Register("/repo", "main")
+	r.refresh(context.Background())
+
+	if pr, ok := r.Snapshot("/repo", "main"); ok || pr != nil {
+		t.Errorf("default-branch pair must resolve to a negative, got ok=%v pr=%v", ok, pr)
+	}
+	if ghCalls != 0 {
+		t.Errorf("gh pr list ran %d times for a default-branch pair, want 0", ghCalls)
+	}
+}
+
+// TestBranchRefresher_DefaultBranchClearsStalePositive: the live-bug regression
+// (fab-kit main → #480). An entry already holding a positive PR is CLEARED to a
+// confirmed negative once its branch is recognized as the default branch —
+// exclusion is authoritative, not a transient/skip that would stale-keep the
+// wrong PR forever.
+func TestBranchRefresher_DefaultBranchClearsStalePositive(t *testing.T) {
+	defaultResolves := false
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		// The degenerate fork-PR match: gh keeps returning #480 for --head main.
+		return branchListJSON(branchNodeState(480, "https://x/pull/480", "MERGED", "2026-07-16T00:00:00Z")), nil
+	})
+	r.defaultExec = func(context.Context, string) ([]byte, error) {
+		if !defaultResolves {
+			// First pass: origin/HEAD not yet resolvable → fail-open, gh runs,
+			// the stale #480 gets cached (models the pre-fix / pre-ref state).
+			return nil, errors.New("origin/HEAD unset")
+		}
+		return defaultBranchRefOutput("main"), nil
+	}
+
+	r.Register("/repo", "main")
+	r.refresh(context.Background()) // fail-open: caches the stale positive #480
+	if pr, ok := r.Snapshot("/repo", "main"); !ok || pr == nil || pr.Number != 480 {
+		t.Fatalf("precondition: stale #480 should be cached after fail-open pass, got ok=%v pr=%v", ok, pr)
+	}
+
+	// origin/HEAD now resolves; advance past the default-branch cache TTL so the
+	// verdict is re-probed and the exclusion applies.
+	defaultResolves = true
+	base := time.Unix(1_000_000, 0).Add(branchDefaultBranchTTL + time.Second)
+	r.now = func() time.Time { return base }
+	r.Register("/repo", "main")
+	r.refresh(context.Background()) // now excluded → clears the stale positive
+
+	if pr, ok := r.Snapshot("/repo", "main"); ok || pr != nil {
+		t.Errorf("stale #480 must be cleared once main is recognized as the default branch, got ok=%v pr=%v", ok, pr)
+	}
+}
+
+// TestBranchRefresher_ExclusionIsBranchScoped: a feature-branch pair in the SAME
+// repo still resolves normally when a sibling default-branch pair is excluded —
+// the exclusion is branch-scoped, not repo-scoped.
+func TestBranchRefresher_ExclusionIsBranchScoped(t *testing.T) {
+	r := newTestRefresher(true, func(_ context.Context, _ string, branch string) ([]byte, error) {
+		// gh would (degenerately) match main too, but it must never be asked for it.
+		if branch == "main" {
+			t.Fatalf("gh pr list must not run for the excluded default branch")
+		}
+		return branchListJSON(branchNode(7, "https://x/pull/7", "2026-07-01T00:00:00Z")), nil
+	})
+	r.defaultExec = func(context.Context, string) ([]byte, error) {
+		return defaultBranchRefOutput("main"), nil
+	}
+
+	r.Register("/repo", "main")
+	r.Register("/repo", "feat")
+	r.refresh(context.Background())
+
+	if pr, ok := r.Snapshot("/repo", "main"); ok || pr != nil {
+		t.Errorf("default-branch pair must be excluded, got ok=%v pr=%v", ok, pr)
+	}
+	if pr, ok := r.Snapshot("/repo", "feat"); !ok || pr == nil || pr.Number != 7 {
+		t.Errorf("feature-branch pair must resolve normally, got ok=%v pr=%v", ok, pr)
+	}
+}
+
+// TestBranchRefresher_DefaultBranchLookupFailsOpen: when the default-branch
+// lookup fails (unset origin/HEAD, no origin, git error), the pair resolves via
+// gh exactly as today (fail-open), and the failure verdict is CACHED — a second
+// pass within the TTL does not re-probe git symbolic-ref.
+func TestBranchRefresher_DefaultBranchLookupFailsOpen(t *testing.T) {
+	defaultCalls := 0
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		return branchListJSON(branchNode(4, "https://x/pull/4", "2026-07-01T00:00:00Z")), nil
+	})
+	r.defaultExec = func(context.Context, string) ([]byte, error) {
+		defaultCalls++
+		return nil, errors.New("fatal: ref refs/remotes/origin/HEAD is not a symbolic ref")
+	}
+
+	r.Register("/repo", "main")
+	r.refresh(context.Background())
+	r.refresh(context.Background()) // second pass, same (cached) clock
+
+	if pr, ok := r.Snapshot("/repo", "main"); !ok || pr == nil || pr.Number != 4 {
+		t.Errorf("fail-open: pair must resolve via gh, got ok=%v pr=%v", ok, pr)
+	}
+	if defaultCalls != 1 {
+		t.Errorf("git symbolic-ref probed %d times across two passes, want 1 (failure cached)", defaultCalls)
+	}
+}
+
+// TestBranchRefresher_DefaultBranchCachedPerRepo: N pairs in one repo cost ONE
+// default-branch lookup per pass/TTL window (not one per pair), mirroring the
+// availability-cache call-count style.
+func TestBranchRefresher_DefaultBranchCachedPerRepo(t *testing.T) {
+	defaultCalls := 0
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		return branchListJSON(branchNode(4, "https://x/pull/4", "2026-07-01T00:00:00Z")), nil
+	})
+	r.defaultExec = func(context.Context, string) ([]byte, error) {
+		defaultCalls++
+		return defaultBranchRefOutput("main"), nil
+	}
+
+	// Several feature-branch pairs in the same repo (none is the default branch).
+	r.Register("/repo", "feat-a")
+	r.Register("/repo", "feat-b")
+	r.Register("/repo", "feat-c")
+	r.refresh(context.Background())
+
+	if defaultCalls != 1 {
+		t.Errorf("default-branch lookup ran %d times for 3 pairs in one repo, want 1 (per-repo cached)", defaultCalls)
+	}
+
+	// A second pass within the TTL adds no further lookups.
+	r.refresh(context.Background())
+	if defaultCalls != 1 {
+		t.Errorf("default-branch lookup ran %d times across two passes, want 1 (verdict cached)", defaultCalls)
+	}
+}
+
+// TestBranchRefresher_DefaultBranchReprobedAfterTTL: once the cached
+// default-branch verdict ages past branchDefaultBranchTTL, the next pass
+// re-probes git symbolic-ref.
+func TestBranchRefresher_DefaultBranchReprobedAfterTTL(t *testing.T) {
+	defaultCalls := 0
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		return branchListJSON(branchNode(4, "https://x/pull/4", "2026-07-01T00:00:00Z")), nil
+	})
+	r.defaultExec = func(context.Context, string) ([]byte, error) {
+		defaultCalls++
+		return defaultBranchRefOutput("main"), nil
+	}
+
+	now := time.Unix(1_000_000, 0)
+	r.now = func() time.Time { return now }
+
+	r.Register("/repo", "feat")
+	r.refresh(context.Background()) // probe #1
+	now = now.Add(branchDefaultBranchTTL + time.Second)
+	r.Register("/repo", "feat")     // keep the pair alive past its observed-TTL
+	r.refresh(context.Background()) // verdict stale → probe #2
+
+	if defaultCalls != 2 {
+		t.Errorf("default-branch probed %d times, want 2 (re-probe after TTL)", defaultCalls)
+	}
+}
+
+// TestBranchRefresher_DefaultBranchExcludedWhenGhUnavailable: the default-branch
+// exclusion needs only local `git symbolic-ref`, so it MUST run — and clear a
+// stale positive — even when gh is unavailable. This is the live-bug edge: if gh
+// goes down, the #480 fork-PR match must still disappear once main is recognized
+// as the default branch (the exclusion is not gated behind gh availability).
+func TestBranchRefresher_DefaultBranchExcludedWhenGhUnavailable(t *testing.T) {
+	ghCalls := 0
+	// gh is AVAILABLE for the first pass (so the stale positive gets cached), then
+	// flips unavailable — the exclusion must still clear it.
+	ghUp := true
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		ghCalls++
+		return branchListJSON(branchNodeState(480, "https://x/pull/480", "MERGED", "2026-07-16T00:00:00Z")), nil
+	})
+	r.available = func(context.Context) bool { return ghUp }
+	// origin/HEAD does not resolve on the first pass (fail-open → gh caches #480),
+	// then resolves to main so the exclusion applies.
+	defaultResolves := false
+	r.defaultExec = func(context.Context, string) ([]byte, error) {
+		if !defaultResolves {
+			return nil, errors.New("origin/HEAD unset")
+		}
+		return defaultBranchRefOutput("main"), nil
+	}
+	now := time.Unix(1_000_000, 0)
+	r.now = func() time.Time { return now }
+
+	r.Register("/repo", "main")
+	r.refresh(context.Background()) // fail-open + gh up → caches stale #480
+	if pr, ok := r.Snapshot("/repo", "main"); !ok || pr == nil || pr.Number != 480 {
+		t.Fatalf("precondition: stale #480 should be cached, got ok=%v pr=%v", ok, pr)
+	}
+
+	// gh goes DOWN and origin/HEAD now resolves; advance past both TTLs so the
+	// availability verdict re-probes (negative) and the default-branch verdict
+	// re-probes (main). The exclusion must clear #480 despite gh being down.
+	ghUp = false
+	defaultResolves = true
+	now = now.Add(branchDefaultBranchTTL + branchPRAvailabilityTTL + time.Second)
+	r.now = func() time.Time { return now }
+	r.Register("/repo", "main")
+	r.refresh(context.Background())
+
+	if pr, ok := r.Snapshot("/repo", "main"); ok || pr != nil {
+		t.Errorf("stale #480 must be cleared by the exclusion even when gh is down, got ok=%v pr=%v", ok, pr)
+	}
+}
+
+// TestBranchRefresher_DefaultBranchPrunedWhenRepoUnobserved: the per-repo
+// default-branch cache must not grow unbounded. Once a repo has no live pair AND
+// its verdict has aged past branchDefaultBranchTTL, the entry is pruned during the
+// age-out pass (symmetric with the per-pair observed-TTL age-out).
+func TestBranchRefresher_DefaultBranchPrunedWhenRepoUnobserved(t *testing.T) {
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		return branchListJSON(branchNode(4, "https://x/pull/4", "2026-07-01T00:00:00Z")), nil
+	})
+	r.defaultExec = func(context.Context, string) ([]byte, error) {
+		return defaultBranchRefOutput("main"), nil
+	}
+	now := time.Unix(1_000_000, 0)
+	r.now = func() time.Time { return now }
+
+	// Observe a feature-branch pair once → its repo's default-branch verdict is cached.
+	r.Register("/repo", "feat")
+	r.refresh(context.Background())
+	r.mu.RLock()
+	_, cached := r.defaultBranches["/repo"]
+	r.mu.RUnlock()
+	if !cached {
+		t.Fatalf("precondition: /repo default-branch verdict should be cached after a refresh")
+	}
+
+	// Stop observing the pair and advance past both the observed-TTL (so the pair
+	// ages out) and the default-branch TTL (so the verdict is prune-eligible).
+	now = now.Add(branchPRObservedTTL + branchDefaultBranchTTL + time.Second)
+	r.now = func() time.Time { return now }
+	r.refresh(context.Background()) // pair ages out; unobserved+stale repo verdict is pruned
+
+	r.mu.RLock()
+	_, stillCached := r.defaultBranches["/repo"]
+	r.mu.RUnlock()
+	if stillCached {
+		t.Errorf("default-branch verdict for an unobserved, aged-out repo must be pruned")
+	}
+}
+
+// TestParseDefaultBranch covers the symbolic-ref output parser: the expected
+// prefix is stripped and whitespace trimmed; anything else is a lookup failure.
+func TestParseDefaultBranch(t *testing.T) {
+	cases := []struct {
+		name     string
+		in       string
+		wantName string
+		wantOK   bool
+	}{
+		{"main with trailing newline", "refs/remotes/origin/main\n", "main", true},
+		{"master", "refs/remotes/origin/master\n", "master", true},
+		{"slashed branch name preserved", "refs/remotes/origin/release/2.0\n", "release/2.0", true},
+		{"surrounding whitespace trimmed", "  refs/remotes/origin/main  \n", "main", true},
+		{"missing prefix is a failure", "main\n", "", false},
+		{"empty output is a failure", "", "", false},
+		{"prefix only (empty name) is a failure", "refs/remotes/origin/\n", "", false},
+		{"unrelated ref is a failure", "refs/heads/main\n", "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			name, ok := parseDefaultBranch([]byte(tc.in))
+			if name != tc.wantName || ok != tc.wantOK {
+				t.Errorf("parseDefaultBranch(%q) = (%q, %v), want (%q, %v)", tc.in, name, ok, tc.wantName, tc.wantOK)
+			}
+		})
 	}
 }
 

@@ -64,6 +64,14 @@ const (
 	// forever. One availability probe per pass at most, and skipped entirely
 	// while a fresh verdict stands.
 	branchPRAvailabilityTTL = 60 * time.Second
+
+	// branchDefaultBranchTTL bounds how long a per-repo default-branch verdict
+	// (the resolved name OR a fail-open lookup failure) is reused. A default
+	// branch essentially never changes, so a minutes-range TTL keeps each repo to
+	// at most one `git symbolic-ref` per window regardless of how many pairs it
+	// has — never one per pair per pass. Sized like branchPRObservedTTL (minutes
+	// scale, comfortably longer than the 30s refresh tick).
+	branchDefaultBranchTTL = 5 * time.Minute
 )
 
 // BranchPR is the derived PR for a (repo, branch) pair. It carries only the
@@ -118,6 +126,50 @@ var branchPRExec = func(ctx context.Context, repoDir, branch string) ([]byte, er
 // viewer-wide collector uses.
 var branchPRAvailable = ghAvailable
 
+// defaultBranchRef is the local symbolic ref that names a repo's default branch,
+// and defaultBranchRefPrefix is the part stripped from a resolved
+// `git symbolic-ref` value to yield the bare branch name (e.g.
+// `refs/remotes/origin/main` → `main`).
+const (
+	defaultBranchRef       = "refs/remotes/origin/HEAD"
+	defaultBranchRefPrefix = "refs/remotes/origin/"
+)
+
+// branchDefaultExec resolves a repo's default branch LOCALLY (no network) via
+// `git symbolic-ref refs/remotes/origin/HEAD` run in repoDir, returning its raw
+// stdout (e.g. `refs/remotes/origin/main\n`). It is a package var so tests can
+// stub git without a real repo, mirroring the branchPRExec seam. The default
+// uses exec.CommandContext with a timeout and an explicit argv slice; repoDir is
+// set as cmd.Dir, never interpolated — no user input in argv (Constitution §I).
+// The symbolic-ref read touches only a local ref file, so it never hits the
+// network. An unset/missing ref makes git exit non-zero, which surfaces here as
+// an error → the caller fails open.
+var branchDefaultExec = func(ctx context.Context, repoDir string) ([]byte, error) {
+	queryCtx, cancel := context.WithTimeout(ctx, ghTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(queryCtx, "git", "symbolic-ref", defaultBranchRef)
+	cmd.Dir = repoDir
+	return cmd.Output()
+}
+
+// parseDefaultBranch extracts the bare default-branch name from
+// `git symbolic-ref refs/remotes/origin/HEAD` output. It strips the
+// `refs/remotes/origin/` prefix and any surrounding whitespace (the trailing
+// newline git emits). It reports ok=false for output that does not carry the
+// expected prefix or that yields an empty name — treated by the caller as a
+// lookup failure (fail-open).
+func parseDefaultBranch(out []byte) (string, bool) {
+	ref := strings.TrimSpace(string(out))
+	if !strings.HasPrefix(ref, defaultBranchRefPrefix) {
+		return "", false
+	}
+	name := strings.TrimSpace(strings.TrimPrefix(ref, defaultBranchRefPrefix))
+	if name == "" {
+		return "", false
+	}
+	return name, true
+}
+
 // branchEntry is a cached derivation for one (repo, branch) pair. observedAt is
 // bumped on every Register so the refresher can age out pairs no window reports
 // anymore; pr is the last-good result (nil == either not-yet-resolved OR a
@@ -131,6 +183,17 @@ var branchPRAvailable = ghAvailable
 type branchEntry struct {
 	pr         *BranchPR // last-known PR
 	observedAt time.Time // last Register time — drives age-out
+}
+
+// defaultBranchEntry is a per-repo cached default-branch verdict. It caches BOTH
+// a successful resolution (name set, ok=true) AND a lookup failure (name "",
+// ok=false → the caller fails open), each with a taken-at timestamp, so a repo
+// costs at most one `git symbolic-ref` per branchDefaultBranchTTL window — never
+// one per pair per pass. Mirrors the availValid/availAt gh-availability cache.
+type defaultBranchEntry struct {
+	name string    // resolved default branch (empty on a cached failure)
+	ok   bool      // true when the lookup succeeded; false is a cached fail-open verdict
+	at   time.Time // wall-clock time the verdict was taken
 }
 
 // BranchRefresher resolves registered (repo, branch) pairs → their PR (any
@@ -150,12 +213,21 @@ type BranchRefresher struct {
 	availValid bool
 	availAt    time.Time
 
+	// Per-repo default-branch cache (keyed by repoDir), guarded by mu. Caches
+	// both a resolved name and a fail-open failure verdict, each with a taken-at
+	// timestamp; a verdict older than branchDefaultBranchTTL is re-probed. This
+	// is what keeps a repo to one `git symbolic-ref` per TTL window regardless of
+	// how many pairs it registers.
+	defaultBranches map[string]defaultBranchEntry
+
 	// exec runs the branch-list gh query; available reports gh installed+
-	// authenticated. Both are fields so tests can stub them per instance
-	// (matching the ghExec/available seams on Collector). They default to the
-	// package-var seams.
-	exec      func(ctx context.Context, repoDir, branch string) ([]byte, error)
-	available func(ctx context.Context) bool
+	// authenticated; defaultExec resolves a repo's default branch via git
+	// symbolic-ref. All are fields so tests can stub them per instance (matching
+	// the ghExec/available seams on Collector). They default to the package-var
+	// seams.
+	exec        func(ctx context.Context, repoDir, branch string) ([]byte, error)
+	available   func(ctx context.Context) bool
+	defaultExec func(ctx context.Context, repoDir string) ([]byte, error)
 
 	// now is a clock seam for tests (defaults to time.Now).
 	now func() time.Time
@@ -166,11 +238,13 @@ type BranchRefresher struct {
 // goroutine.
 func NewBranchRefresher(interval time.Duration) *BranchRefresher {
 	return &BranchRefresher{
-		entries:   make(map[string]branchEntry),
-		interval:  interval,
-		exec:      branchPRExec,
-		available: branchPRAvailable,
-		now:       time.Now,
+		entries:         make(map[string]branchEntry),
+		defaultBranches: make(map[string]defaultBranchEntry),
+		interval:        interval,
+		exec:            branchPRExec,
+		available:       branchPRAvailable,
+		defaultExec:     branchDefaultExec,
+		now:             time.Now,
 	}
 }
 
@@ -274,20 +348,37 @@ func (r *BranchRefresher) refresh(ctx context.Context) {
 
 	// Age out unobserved pairs and collect the live keys to resolve. Done under
 	// the lock; the (cheap) resolution loop below runs the gh calls WITHOUT the
-	// lock held so Register/Snapshot never block on a hung gh.
+	// lock held so Register/Snapshot never block on a hung gh. The set of live
+	// repoDirs is collected here too, so stale per-repo default-branch entries
+	// (repos no window observes anymore) can be pruned symmetrically with the
+	// per-pair age-out — keeping defaultBranches bounded (Constitution §II).
 	r.mu.Lock()
 	type pending struct {
 		key             string
 		repoDir, branch string
 	}
 	var todo []pending
+	liveRepos := make(map[string]struct{})
 	for key, e := range r.entries {
 		if now.Sub(e.observedAt) > branchPRObservedTTL {
 			delete(r.entries, key)
 			continue
 		}
 		repoDir, branch := splitBranchPRKey(key)
+		liveRepos[repoDir] = struct{}{}
 		todo = append(todo, pending{key: key, repoDir: repoDir, branch: branch})
+	}
+	// Prune per-repo default-branch verdicts for repos no live pair observes
+	// anymore. Best-effort, timestamp-guarded: a repo whose newest verdict is
+	// still within branchDefaultBranchTTL is kept (it may be re-observed within
+	// the window and re-used), so this never fights an in-flight re-probe.
+	for repoDir, e := range r.defaultBranches {
+		if _, live := liveRepos[repoDir]; live {
+			continue
+		}
+		if now.Sub(e.at) > branchDefaultBranchTTL {
+			delete(r.defaultBranches, repoDir)
+		}
 	}
 	r.mu.Unlock()
 
@@ -296,11 +387,42 @@ func (r *BranchRefresher) refresh(ctx context.Context) {
 	}
 
 	// One availability check per pass (cached verdict — positive AND negative).
-	if !r.checkAvailable(ctx, now) {
-		return
-	}
+	// NOTE: this is NOT an early return. The default-branch exclusion below needs
+	// only local `git symbolic-ref`, so it MUST run even when gh is unavailable —
+	// otherwise a stale positive (the #480 fork-PR case) would never be cleared
+	// while gh is down, defeating the whole point of the exclusion. Only the gh
+	// execution path (r.exec) is gated on ghOK.
+	ghOK := r.checkAvailable(ctx, now)
 
 	for _, p := range todo {
+		// Default-branch exclusion: a pane parked on the repo's DEFAULT branch
+		// never "has its own PR" — every `gh pr list --head <default>` match is
+		// degenerate (a fork PR sharing the name, or an old PR whose head was the
+		// default branch). Resolve the repo's default branch locally (cached
+		// per-repo; runs `git symbolic-ref` at most once per TTL window) and, when
+		// the pair's branch equals it, resolve the entry to an AUTHORITATIVE
+		// NEGATIVE without any gh call. Authoritative (not skip/transient) is what
+		// CLEARS a stale positive — e.g. a fork-PR match cached before the ref
+		// resolved — within one pass. On lookup FAILURE the (name,ok) verdict is
+		// ok=false → fall through to the normal gh path (fail-open): a missing
+		// local ref must not silently disable the feature repo-wide.
+		if defName, ok := r.defaultBranch(ctx, now, p.repoDir); ok && p.branch == defName {
+			r.mu.Lock()
+			if e, present := r.entries[p.key]; present { // may have aged out concurrently
+				e.pr = nil
+				r.entries[p.key] = e
+			}
+			r.mu.Unlock()
+			continue
+		}
+
+		// gh path: only reachable for a non-default branch. Skip it when gh is
+		// unavailable (keeping last-good, stale-while-revalidate) — the exclusion
+		// above already ran regardless of gh.
+		if !ghOK {
+			continue
+		}
+
 		out, err := r.exec(ctx, p.repoDir, p.branch)
 		if err != nil {
 			// Transient exec/network error: keep last-good (stale-while-
@@ -345,6 +467,34 @@ func (r *BranchRefresher) checkAvailable(ctx context.Context, now time.Time) boo
 	r.availAt = now
 	r.mu.Unlock()
 	return ok
+}
+
+// defaultBranch returns the repo's default branch, resolving it via the git
+// symbolic-ref seam and caching the verdict per-repo for branchDefaultBranchTTL.
+// The bool reports whether the lookup SUCCEEDED — ok=false is a fail-open signal
+// (the caller then resolves the pair normally via gh). BOTH outcomes are cached
+// (a failure just as much as a success) so a missing local ref does not trigger
+// a per-pass `git symbolic-ref` retry storm. It NEVER runs a subprocess when a
+// fresh verdict stands. Runs on the refresher goroutine only (off the hot path).
+func (r *BranchRefresher) defaultBranch(ctx context.Context, now time.Time, repoDir string) (string, bool) {
+	r.mu.RLock()
+	e, cached := r.defaultBranches[repoDir]
+	r.mu.RUnlock()
+	if cached && !e.at.IsZero() && now.Sub(e.at) < branchDefaultBranchTTL {
+		return e.name, e.ok
+	}
+
+	name, ok := "", false
+	if r.defaultExec != nil {
+		if out, err := r.defaultExec(ctx, repoDir); err == nil {
+			name, ok = parseDefaultBranch(out)
+		}
+	}
+
+	r.mu.Lock()
+	r.defaultBranches[repoDir] = defaultBranchEntry{name: name, ok: ok, at: now}
+	r.mu.Unlock()
+	return name, ok
 }
 
 // splitBranchPRKey inverts branchPRCacheKey.

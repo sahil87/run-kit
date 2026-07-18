@@ -44,7 +44,7 @@ Replace the ANSI-descriptor picker machinery (`PICKER_ANSI_INDICES`, `PICKER_BLE
 
 **Downstream pipeline unchanged**: saturate ×1.5, tint blends into theme background, WCAG border guardrail (`adjustBorderForContrast`, 3.0 min) all operate on the new source hexes as-is.
 
-**Legacy mapping (zero migration)**: stored color values (tmux user options) keep their current vocabulary; `colorValueToHex` resolves each legacy value to its family base per the table above (1:1). No storage, API, or backend change for *color*. New writes may use family names (`"orange"`) with numeric forms kept as parse aliases.
+**Legacy mapping (zero migration)**: stored color values (tmux user options) keep their current vocabulary; `colorValueToHex` resolves each legacy value to its family base per the table above (1:1). No storage, API, or backend change for *color*. New writes stay in the legacy vocabulary too — the swatch popover maps each picked family name back to its legacy descriptor on write (`familyToLegacy`); family names (`"orange"`) are frontend read aliases only.
 
 ### 2. Row anatomy — selection loses the border
 

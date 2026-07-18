@@ -70,9 +70,12 @@ export type WindowInfo = {
   isActiveWindow: boolean;
   paneCommand?: string;
   activityTimestamp: number;
-  /** Color value: an owned family name ("orange") or a legacy numeric/blend
-   *  descriptor ("4" / "1+3") that resolves 1:1 to a family. Sourced from the
-   *  `@color` window option. Drives the row's hue (label axis). */
+  /** Color value from the `@color` window option — a legacy numeric/blend
+   *  descriptor ("4" / "1+3"); the backend only validates/stores this vocabulary
+   *  (ValidateColorValue). Family names ("orange") are frontend read aliases that
+   *  resolve 1:1 to a family (resolveFamily) — the picker maps them back to the
+   *  legacy descriptor at the write seam (familyToLegacy). Drives the row's hue
+   *  (label axis). */
   color?: string;
   /** Left-gutter marker state, from the `@rk_marker` window option:
    *  ""/absent (no marker) | "dotted" | "solid" | "double". An INDEPENDENT

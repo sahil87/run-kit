@@ -405,8 +405,10 @@ const FAMILY_BY_LEGACY: ReadonlyMap<string, HueFamily> = new Map(
 );
 
 /** Display-ordered list of every picker color value — now the 10 family names.
- *  New writes store the family name; legacy numeric/blend descriptors remain
- *  valid on read (see resolveFamily / colorValueToHex). */
+ *  The picker PRESENTS family names, but writes are mapped back to the legacy
+ *  numeric/blend descriptor at the write seam (familyToLegacy), so stored values
+ *  stay in the legacy vocabulary; both forms resolve on read (see resolveFamily /
+ *  colorValueToHex). */
 export const PICKER_COLOR_VALUES: readonly string[] = HUE_FAMILIES.map((f) => f.name);
 
 /** ANSI index used to render uncolored rows in the selected state. */
@@ -471,8 +473,10 @@ export function parseColorValue(value: string | null | undefined): PickerColor |
   return family ? { family } : null;
 }
 
-/** Format a {family} descriptor back into its canonical color value — the
- *  family name (the form new writes store). */
+/** Format a {family} descriptor into its canonical DISPLAY value — the family
+ *  name. Note this is not the storage form: writes are mapped to the legacy
+ *  descriptor at the write seam (familyToLegacy), so stored values stay in the
+ *  legacy vocabulary. */
 export function formatColorValue(color: PickerColor): string {
   return color.family.name;
 }

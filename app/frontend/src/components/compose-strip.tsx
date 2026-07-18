@@ -164,6 +164,11 @@ export function ComposeStrip() {
     // Only re-home on an actual target change with pending attachments.
     if (key === prevKey || key === null || files.length === 0) return;
 
+    // Clear any stale error from a prior re-home attempt — this fresh attempt
+    // owns the alert state, so a subsequent success must not leave the old
+    // failure visible.
+    setError(null);
+
     let cancelled = false;
     (async () => {
       for (const uf of files) {
@@ -301,6 +306,11 @@ export function ComposeStrip() {
       return lines.join("\n");
     });
     setFiles((prev) => prev.filter((_, i) => i !== index));
+    // The re-home error is attachment-specific; once no attachments remain it no
+    // longer applies, so clear it when the last one is removed. The module store
+    // commits synchronously, so the snapshot already reflects the removal (read
+    // outside the setFiles updater so the updater stays pure for StrictMode).
+    if (getComposeDraft().attachments.length === 0) setError(null);
   }, []);
 
   /** Prevent mousedown from stealing focus away from the terminal/textarea. */

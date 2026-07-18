@@ -250,16 +250,18 @@ The engine targets tmux by two orthogonal seams, both driven off `EffectiveSpec`
 
 ## Exit Code Discipline
 
-Since `260713-sbk1` the exit-code type is the **exported** `riff.ExitCodeError{Code, Msg}` (in `internal/riff/riff.go`) so **both** frontends can classify engine failures without re-parsing error strings. The engine constructs failures via `riff.ValidationErr(...)` (`Code: ExitValidation`) and `riff.SubprocessErr(...)` (`Code: ExitSubprocess`); preconditions (`ExitPrecondition`) stay CLI-side. The exit-code sentinel constants are `ExitValidation=1`, `ExitPrecondition=2`, `ExitSubprocess=3`.
+Since `260713-sbk1` the exit-code type is the **exported** `riff.ExitCodeError{Code, Msg}` (in `internal/riff/riff.go`) so **both** frontends can classify engine failures without re-parsing error strings. The engine constructs failures via `riff.ValidationErr(...)` (`Code: ExitValidation`) and `riff.SubprocessErr(...)` (`Code: ExitSubprocess`); preconditions (`ExitPrecondition`) stay CLI-side.
 
-- **CLI**: the `runRiffWithExitCode` wrapper (`cmd/rk/riff.go`) `errors.As`-matches `*riff.ExitCodeError`, prints `Msg` to stderr, and `os.Exit(Code)`. `main.execute()` is shared; a non-`ExitCodeError` falls through to exit 1. (The CLI-local `exitCodeError` type still exists in `cmd/rk/exit_code.go` — now used only by `rk shell-init`.)
-- **HTTP handler**: `riffStatusForError` (`api/riff.go`) `errors.As`-matches `*riff.ExitCodeError` and maps `Code == ExitValidation` → `400` (client-correctable: unknown preset / invalid layout, nothing created); everything else → `500`.
+**Exit-class conformance (`260717-rex1`)**: the sentinel constants were renumbered to the sahil87-toolkit exit-code convention (Principle 4 — usage errors are 2, operational failures are 1): `ExitValidation=2`, `ExitPrecondition=1`, `ExitSubprocess=3` (was `1`/`2`/`3` — validation and precondition swapped). The renumbering is a **numeric-value change only**; every consumer keys on the constant **identity** (`ExitValidation`, not `1`), so no CLI/HTTP mapping code changed. See [toolkit-standards](toolkit-standards.md) § principles P4.
+
+- **CLI**: the `runRiffWithExitCode` wrapper (`cmd/rk/riff.go`) `errors.As`-matches `*riff.ExitCodeError`, prints `Msg` to stderr, and `os.Exit(Code)` (the engine's own 1/2/3 class). A **manual flag-parse error** (`rk riff --nope` — `DisableFlagParsing: true` means the root `SetFlagErrorFunc` never sees it) is instead returned wrapped as the CLI-local `usageError` (exit 2), so cobra's own error path prints `Error: <msg>` and the central `main.execute()` seam owns the code (since `260717-rex1`; previously the raw parse error fell through to exit 1). The CLI-local `exitCodeError` type / `usageError` constructor live in `cmd/rk/exit_code.go`; `main.execute()` classifies every returned error via the pure `exitCode(err)` (default 1). A non-`ExitCodeError` engine error still falls through to exit 1.
+- **HTTP handler**: `riffStatusForError` (`api/riff.go`) `errors.As`-matches `*riff.ExitCodeError` and maps `Code == ExitValidation` → `400` (client-correctable: unknown preset / invalid layout, nothing created); everything else → `500`. Unaffected by the renumbering (keys on the constant, not the value).
 
 | Exit / Status | Condition |
 |------|-----------|
 | 0 / 200 | Success |
-| 1 / 400 | Validation error (unknown layout, invalid count, unknown/conflicting/unknown preset) |
-| 2 / — | Precondition failure (`$TMUX` unset, `wt` not on PATH) — CLI-only |
+| 1 / — | Precondition failure (`$TMUX` unset, `wt` not on PATH) — CLI-only operational class |
+| 2 / 400 | Validation/usage error (unknown layout, invalid count, unknown/conflicting/unknown preset, bad flag) |
 | 3 / 500 | Subprocess failure (wt / tmux non-zero, output parse failure, timeout) |
 
 ## Single-Quote Escaping and Task Injection

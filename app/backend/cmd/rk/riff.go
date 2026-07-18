@@ -95,7 +95,8 @@ Examples:
 
 Exit codes:
   0  success
-  2  precondition failure ($TMUX unset, wt not found)
+  1  precondition failure ($TMUX unset, wt not found)
+  2  validation/usage error (unknown layout, invalid --count, unknown/conflicting preset, bad flag)
   3  subprocess failure (wt or tmux non-zero, output parse failure, timeout)`,
 	// Interspersed=false so the "--" separator terminates cobra's flag parsing
 	// and the remainder lands in args[] for passthrough to `wt create`.
@@ -144,9 +145,13 @@ func init() {
 // we manually call Flags().Parse on the rewritten argv. --help / -h are
 // handled explicitly since cobra's own help path is bypassed.
 //
-// After parsing, it delegates to runRiff, then inspects the returned error: if
-// it's a *riff.ExitCodeError we print Msg to stderr and os.Exit with Code;
-// otherwise we return it so main.execute() handles it as a generic exit-1 error.
+// A manual flag-parse failure is returned as a usageError (CLI-local
+// *exitCodeError, exit 2) so cobra's own error path prints `Error: <msg>` and
+// the central execute() seam owns the exit code. On a successful parse it
+// delegates to runRiff and inspects the returned error: a *riff.ExitCodeError is
+// printed to stderr and os.Exited with its Code (the riff engine's own 1/2/3
+// classes); any other error is returned to main.execute() as a generic exit-1
+// error.
 func runRiffWithExitCode(cmd *cobra.Command, args []string) error {
 	// Reset accumulator + flag vars so repeated cobra.Execute() calls (tests)
 	// start fresh.
@@ -167,12 +172,20 @@ func runRiffWithExitCode(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	if err := cmd.Flags().Parse(rewritten); err != nil {
-		return err
+	// A manual flag-parse failure (e.g. `riff --nope`) is a usage error.
+	// DisableFlagParsing means the root SetFlagErrorFunc never sees this parse
+	// error, so we tag it usage-class locally with usageError (the CLI-local
+	// *exitCodeError, exit 2) and RETURN it — this lets cobra's own error path
+	// print `Error: unknown flag: --nope` exactly as the pre-DisableFlagParsing
+	// binary did (usageError preserves the message verbatim), and the central
+	// execute() seam classifies the carried code to exit 2. A riff-engine error
+	// (*riff.ExitCodeError, from runRiff) is still printed here and os.Exited with
+	// its own class code (1/2/3) — that path owns its bare-message stderr and is
+	// unchanged.
+	if parseErr := cmd.Flags().Parse(rewritten); parseErr != nil {
+		return usageError(parseErr)
 	}
-	remaining := cmd.Flags().Args()
-
-	err := runRiff(cmd, remaining)
+	err := runRiff(cmd, cmd.Flags().Args())
 	if err == nil {
 		return nil
 	}

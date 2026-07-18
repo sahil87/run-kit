@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "run-kit's sahil87-toolkit-standards conformance posture — constitution binding (§ Toolkit Standards), the audit-against-HEAD-build rule (installed brew rk is stale), and the per-standard status audited @ shll v0.0.23 (help-dump: 1 envelope violation fixed; readme-extraction: 2 closure violations fixed; principles: P1/P2/P5 gaps fixed, P4/P9 deferred to backlog [rex1]/[f8yv]; skill: PASS). Records the deliverable = the PR-body conformance report."
+description: "run-kit's sahil87-toolkit-standards conformance posture — constitution binding (§ Toolkit Standards), the audit-against-HEAD-build rule (installed brew rk is stale), and the per-standard status audited @ shll v0.0.23 (help-dump: 1 envelope fix; readme-extraction: 2 closure fixes; principles: P1/P2/P4/P5 fixed — P4 exit-code convention conformant via 260717-rex1 central classification, only P9 deferred [f8yv]; skill: PASS). Deliverable = the PR-body conformance report."
 ---
 # Toolkit Standards Conformance
 
@@ -106,8 +106,10 @@ env-derived content — that stays in `rk context`), in-genre briefing. See
 [architecture](/run-kit/architecture.md) § CLI Subcommands (`skill` row) for the
 embed mechanism and drift guard.
 
-### principles — PASS with gaps (three fixed, two deferred)
-Assessed each of the ten principles against `bin/rk` behavior + source.
+### principles — PASS with gaps (four fixed, one deferred)
+Assessed each of the ten principles against `bin/rk` behavior + source. Of the
+five gaps the c424 audit found, three (P1/P2/P5) were fixed in c424; **P4 was
+subsequently fixed by `260717-rex1`** (below), leaving only P9 ([f8yv]) deferred.
 
 **Fixed here (additive per-command flags — the intake's in-scope "missing flag"):**
 - **P1 (Non-interactive by default)** — `agent-setup` could neither consent
@@ -121,13 +123,57 @@ Assessed each of the ten principles against `bin/rk` behavior + source.
 - **P5 (Visible mutation boundaries)** — the `agent-setup --dry-run` above also
   satisfies P5's destructive-write preview requirement.
 
+**Fixed by `260717-rex1` (the deferred restructural P4, now conformant):**
+- **P4 (Fail fast — exit-code convention)** — usage errors now exit `2`, operational
+  failures `1`, per the convention. The c424 audit deferred this to [rex1] because
+  it is a cross-cutting error-model change, not a per-command missing exit code;
+  `260717-rex1` implemented it. The model (all in `cmd/rk`, extending the existing
+  `exitCodeError` plumbing rather than a parallel mechanism):
+  - **Pure classification seam** — `execute()` (`root.go`) calls `os.Exit(exitCode(err))`
+    instead of a blanket `os.Exit(1)`. `exitCode(err) int` (`exit_code.go`) is pure
+    (no `os.Exit`/I/O, unit-testable in-process): `errors.As` on `*exitCodeError`
+    yields its carried `.code`; else default `1`.
+  - **`usageError(err)` constructor** (`exit_code.go`) wraps any error as
+    `*exitCodeError{code: 2}` (named `exitUsage`), preserving the message verbatim
+    so cobra's existing stderr (`Error: …` line + usage) is byte-identical — only the
+    exit code changes.
+  - **Flag-parse errors** — one `rootCmd.SetFlagErrorFunc(→ usageError)` in `init()`;
+    cobra's own-wins inheritance covers every subcommand.
+  - **Arg-count validators** — a central wrap loop in `init()` over `rootCmd.Commands()`
+    re-tags each non-nil `c.Args` via `usageArgs` (inert for `ArbitraryArgs` commands),
+    a one-place root-cause fix rather than editing the five declaration sites
+    (`shell-init`/`help-dump`/`agent-setup`/`skill`/`notify`).
+  - **Unknown command** — classified at the `execute()` seam by the stable
+    `unknown command ` message prefix (`unknownCommandPrefix`) with root `Args: nil`.
+    Keeping `Args: nil` lets cobra print the unknown-command line, Levenshtein
+    suggestions, and the `Run '… --help' for usage.` hint natively (byte-identical);
+    the prefix match fails safe (2→1, never wrong output) if cobra's wording ever
+    changes. (Note the case-sensitivity: cobra's help-topic error `Unknown help topic`
+    has a capital U and does NOT match, so `rk help bogus` stays exit 0.) An explicit
+    `rootCmd.Args` validator was rejected in review — it relocated detection and
+    regressed all three stderr behaviors.
+  - **riff exit-class renumbering** — `internal/riff` constants swapped to conform:
+    `ExitValidation` 1→2 (usage), `ExitPrecondition` 2→1 (operational), `ExitSubprocess`
+    unchanged at 3. Numeric-value change only — the `POST /api/riff` HTTP mapping keys
+    on the constant **identity** (`ExitValidation` → 400), so no api-layer change. riff's
+    manual `Flags().Parse` error (`DisableFlagParsing` bypasses the root FlagErrorFunc)
+    is wrapped locally as `usageError` (exit 2). See [rk-riff](rk-riff.md) § Exit Code
+    Discipline and [architecture](architecture.md) § CLI Subcommands (`riff` row).
+  - **agent-hook never-fail carve-out preserved** — `agent-hook` keeps its own
+    `SetFlagErrorFunc(→ nil)`, which shadows the root's (cobra own-wins), plus its
+    `ArbitraryArgs` + `FParseErrWhitelist.UnknownFlags`, so every malformed invocation
+    still exits `0`. This is safety-critical: Claude Code treats a hook exit **2 as
+    *blocking***, so agent-hook must surface neither 1 nor 2. `agent_hook.go` was NOT
+    modified; a regression test asserts `exitCode == 0` on `--nope` / missing `--agent`
+    value / bad arg counts. See [agent-state](agent-state.md).
+  - **Docs surfaces updated in lockstep** — the exit-code contract line in the embedded
+    `rk skill` bundle (`cmd/rk/skill/skill.md`) + its byte-identical mirror
+    `docs/site/skill.md` now state the 0/1/2/3 convention; the `## Exit codes` table in
+    `docs/site/workflows.md` and riff's `-h` `Exit codes:` block were corrected to
+    `0` success / `1` precondition / `2` validation-usage / `3` subprocess. Command tree
+    unchanged (no flags added/removed), so the help-dump contract is unaffected.
+
 **Deferred to backlog (restructural — the intake's proportionality "restructure" class):**
-- **P4 (Fail fast — exit-code convention)** → `fab/backlog.md` **[rex1]**. Usage
-  errors exit cobra's default 1, not the toolkit convention's 2. `shell-init` and
-  `riff` already return 2 for their own usage errors, but every other command
-  inherits 1 via the shared `main.execute()` blanket `os.Exit(1)`. Unifying this
-  is a cross-cutting error-model change (central usage-error classification), not
-  a per-command missing exit code.
 - **P9 (Bounded, high-signal output)** → `fab/backlog.md` **[f8yv]**. No command
   offers `--quiet`, and `reaper`'s match list is uncapped (~4485 lines in the
   audit environment). Both are global output-model changes (a shared quiet-gating
@@ -169,4 +215,41 @@ gaps (rather than a half-covered fix) honors "fix root causes, not symptoms" and
 the toolkit's phased-adoption posture.
 **Rejected**: GitHub issues / draft changes for the deferrals (not the repo's
 visible convention); committing the report under `docs/` (drift, no consumer).
+**Follow-up**: the P4 deferral [rex1] has since been implemented (see § principles
+→ "Fixed by `260717-rex1`"); [f8yv] (P9) remains the only open deferral. The
+backlog-then-implement path validated the deferral convention end-to-end.
 *Introduced by*: `260717-c424-toolkit-standards-conformance`
+
+### Unknown-command classification at the `execute()` seam, not an explicit validator
+**Decision**: `run-kit bogus` is classified usage-class (exit 2) at the central
+`execute()` seam by matching the stable `unknown command ` prefix on cobra's
+error, with the root command's `Args` left `nil` — rather than by an explicit
+`rootCmd.Args` validator that replicates cobra's `legacyArgs`/Find check.
+**Why**: `Args: nil` keeps cobra's native Find/legacyArgs path, which prints the
+`unknown command %q` line, the Levenshtein "Did you mean this?" suggestions, and
+the trailing `Run 'run-kit --help' for usage.` hint, and detects `run-kit help
+bogus` as an unknown help topic (exit 0). A review of the first (cycle-1)
+explicit-validator implementation proved — via old-vs-new binary stderr diff —
+that it relocated detection from Find-time to ValidateArgs-time and regressed all
+three: it dropped the help hint, disabled suggestions (`SuggestionsMinimumDistance`
+never bumped 0→2), and broke `help bogus`. Byte-identity of user-facing output
+outranks string-coupling elegance; the prefix match fails safe (2→1, never wrong
+output) if cobra ever changes the wording, and the capital-U `Unknown help topic`
+message deliberately does not match (so `help bogus` stays exit 0).
+**Rejected**: an explicit `rootCmd.Args` validator replicating `legacyArgs` (three
+distinct stderr regressions); patching each regression inside the validator (would
+replicate ever more cobra internals to reproduce what `Args: nil` gives for free).
+*Introduced by*: `260717-rex1-unify-usage-error-exit-codes`
+
+### riff exit-class renumbering is a value change, not a mapping change
+**Decision**: swap `internal/riff`'s `ExitValidation` (1→2) and `ExitPrecondition`
+(2→1) numeric values to conform to Principle 4, and touch no mapping code.
+**Why**: both the CLI `os.Exit` wrapper and the HTTP `riffStatusForError` map key
+on the **constant identity** (`ExitValidation` → 400), never the literal value, so
+the value swap propagates to every consumer with zero mapping edits — the HTTP
+`400` for an unknown preset is unchanged. A locking test (`TestRiffExitClassMapping`)
+pins the new numeric values so a future accidental re-swap is caught.
+**Rejected**: leaving riff's codes inverted (permanent P4 nonconformance for the
+one command already using explicit codes); adding a numeric translation layer at
+the boundaries (unnecessary once consumers key on identity).
+*Introduced by*: `260717-rex1-unify-usage-error-exit-codes`

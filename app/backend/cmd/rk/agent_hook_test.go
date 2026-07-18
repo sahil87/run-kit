@@ -449,8 +449,16 @@ func TestAgentHookCmdNeverErrorsOnMalformedInvocation(t *testing.T) {
 	for _, args := range cases {
 		agentHookAgent = "claude" // reset the package-level flag binding between runs
 		rootCmd.SetArgs(args)
-		if err := rootCmd.Execute(); err != nil {
+		err := rootCmd.Execute()
+		if err != nil {
 			t.Errorf("rk %v returned error %v; must always be nil (never-fail contract)", args, err)
+		}
+		// Explicit exit-code assertion: after the root SetFlagErrorFunc tags flag
+		// errors usage-class (2), agent-hook's OWN SetFlagErrorFunc(→ nil) must keep
+		// shadowing it so `--agent` (missing value) and unknown flags still exit 0.
+		// Claude Code treats a hook exit 2 as *blocking* — this must never surface.
+		if code := exitCode(err); code != 0 {
+			t.Errorf("rk %v exitCode = %d; must be 0 (never-fail contract; 2 would block the harness)", args, code)
 		}
 	}
 }

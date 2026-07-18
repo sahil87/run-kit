@@ -56,11 +56,17 @@ const (
 )
 
 // Exit code discipline — the CLI maps these to os.Exit codes; the HTTP handler
-// maps them to status codes. See ExitCodeError.
+// maps them to status codes (by constant IDENTITY, not numeric value — see
+// riffStatusForError). See ExitCodeError.
+//
+// The numeric values conform to the sahil87 toolkit exit-code convention
+// (Principle 4): 1 = operational failure, 2 = usage error, 3 = the documented
+// subprocess class. ExitValidation (usage: bad flags/args/preset/layout/count)
+// is 2; ExitPrecondition (operational: $TMUX unset, wt missing) is 1.
 const (
-	ExitValidation   = 1 // unknown layout, invalid count, unknown/conflicting preset
-	ExitPrecondition = 2 // $TMUX unset, wt not on PATH (CLI-only preconditions)
-	ExitSubprocess   = 3 // wt/tmux non-zero exit, output parse failure, timeouts
+	ExitValidation   = 2 // usage: unknown layout, invalid count, unknown/conflicting preset (CLI flag-parse errors are tagged usageError in cmd/rk/riff.go, not emitted here)
+	ExitPrecondition = 1 // operational: $TMUX unset, wt not on PATH (CLI-only preconditions)
+	ExitSubprocess   = 3 // operational: wt/tmux non-zero exit, output parse failure, timeouts
 )
 
 // ExitCodeError signals a specific non-zero exit/status class. The CLI's RunE

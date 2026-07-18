@@ -105,7 +105,8 @@ Run `wt create --help` for the full passthrough flag list.
 | Code | Meaning |
 |------|---------|
 | 0 | success |
-| 2 | precondition failure (`$TMUX` unset, `wt` not found) |
+| 1 | precondition failure (`$TMUX` unset, `wt` not found) |
+| 2 | validation/usage error (unknown layout, invalid `--count`, unknown/conflicting preset, bad flag) |
 | 3 | subprocess failure (`wt` or `tmux` non-zero, parse failure, timeout) |
 
 ## Common patterns

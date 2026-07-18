@@ -72,7 +72,7 @@ One line each, keyed to the subcommand or tmux option that does it:
 
 - **`rk notify` is fail-silent by contract.** Any error — server unreachable, no subscriptions, non-2xx — exits **0** and prints nothing, so it never stalls a calling loop. Do not branch on its output.
 - **`rk skill`, `rk context`, and `rk help-dump` print data to stdout** (stdout is data; stderr is diagnostics). `rk skill` emits this bundle byte-identical with empty stderr and exit 0; `rk help-dump` emits the machine-readable command tree.
-- **Other commands exit non-zero (generic `1`) on error**, with the diagnostic on stderr.
+- **Exit codes follow the toolkit convention: `0` success, `1` operational failure, `2` usage error** — usage/flag/arg-count/unknown-command errors exit `2`; operational failures (dead server, failed check) exit `1`; `rk riff` subprocess failures exit `3`. The diagnostic is on stderr. (`rk notify` is the exception above — runtime failures exit `0`.)
 
 ## Gotchas
 

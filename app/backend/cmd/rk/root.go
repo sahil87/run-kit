@@ -28,6 +28,14 @@ var rootCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return serveCmd.RunE(cmd, args)
 	},
+	// Args is left nil so cobra's native legacyArgs/Find path prints the
+	// unknown-command error EXACTLY as before — the "unknown command %q for %q"
+	// line, the Levenshtein "Did you mean this?" suggestions, and the trailing
+	// "Run 'run-kit --help' for usage." hint. Unknown-command exit-code
+	// classification happens centrally at the execute() seam (see exitCode's
+	// unknownCommandPrefix check), which keeps user-facing stderr byte-identical
+	// and fails safe (2→1) if cobra ever changes the message wording. A bare
+	// `run-kit` (no positional args) still descends into the serve default.
 	SilenceUsage: true,
 }
 
@@ -47,10 +55,44 @@ func init() {
 	rootCmd.AddCommand(reaperCmd)
 	rootCmd.AddCommand(newShellInitCmd())
 	rootCmd.AddCommand(helpDumpCmd)
+
+	// Flag-parse errors on the root and any inheriting subcommand are usage-class
+	// (exit 2). Cobra's FlagErrorFunc is inherited by children that do NOT set
+	// their own, so this one func covers every subcommand except agent-hook, which
+	// sets its own SetFlagErrorFunc(→ nil) to preserve its NEVER-FAIL contract
+	// (Claude Code treats a hook exit 2 as *blocking*). Own-wins inheritance keeps
+	// agent-hook shadowing this — do not remove agent-hook's func.
+	rootCmd.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
+		return usageError(err)
+	})
+
+	// Arg-count validator errors (NoArgs / ExactArgs / MaximumNArgs on the
+	// subcommands) are usage-class (exit 2). Wrap each subcommand's non-nil Args
+	// validator centrally so a violation carries the usage sentinel. Commands with
+	// ArbitraryArgs (agent-hook, riff) never produce a validator error, so the wrap
+	// is inert for them. This is deliberately a one-place root-cause fix rather than
+	// editing each declaration site.
+	for _, c := range rootCmd.Commands() {
+		if c.Args != nil {
+			c.Args = usageArgs(c.Args)
+		}
+	}
+}
+
+// usageArgs wraps a cobra positional-args validator so a non-nil validation error
+// is re-tagged as usage-class (exit 2) while preserving the original message. A
+// nil result (valid args) passes through unchanged.
+func usageArgs(v cobra.PositionalArgs) cobra.PositionalArgs {
+	return func(cmd *cobra.Command, args []string) error {
+		if err := v(cmd, args); err != nil {
+			return usageError(err)
+		}
+		return nil
+	}
 }
 
 func execute() {
 	if err := rootCmd.Execute(); err != nil {
-		os.Exit(1)
+		os.Exit(exitCode(err))
 	}
 }

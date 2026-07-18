@@ -1327,7 +1327,7 @@ func (h *sseHub) poll() {
 
 			// Board membership changes are surfaced only via the explicit
 			// pin/unpin/reorder handlers (each emits its own board-changed
-			// event). In the move-based model a killed pinned window simply
+			// event). Under the link-based model a killed pinned window's pin-session simply
 			// drops out of the next ListBoardEntries read — the frontend's
 			// refetch on the session-list change picks it up — so there is no
 			// eager board-cleanup diff and no first-poll bootstrap broadcast.

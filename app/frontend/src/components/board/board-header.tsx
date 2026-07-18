@@ -6,6 +6,16 @@ interface BoardHeaderProps {
   entry: BoardEntry;
   onUnpin: () => void;
   /**
+   * The window's HOME session name, resolved by the parent from the live
+   * sessions snapshot (co9z). Possible now precisely because a pinned window
+   * stays LINKED into its home session, so it appears in a visible session.
+   * When present, the header shows the `{session} › {window}` crumb (top-bar
+   * crumb vocabulary). Undefined → the window is not derivable from a visible
+   * session (legacy move-based pin / home died): fall back to `{window} ·
+   * {server}`.
+   */
+  homeSession?: string;
+  /**
    * HTML5 drag-SOURCE props applied to the header itself — the header is the
    * board pane's drag HANDLE (`draggable` + onDragStart/onDragEnd only; the
    * drop TARGET's onDragOver/onDrop live on the pane root, not here — see
@@ -32,7 +42,8 @@ interface BoardHeaderProps {
  * button is explicitly non-draggable so a click there unpins rather than
  * starting a drag.
  */
-export function BoardHeader({ entry, onUnpin, dragHandleProps }: BoardHeaderProps) {
+export function BoardHeader({ entry, onUnpin, homeSession, dragHandleProps }: BoardHeaderProps) {
+  const windowLabel = entry.windowName || `@${entry.windowIndex}`;
   return (
     <div
       {...dragHandleProps}
@@ -40,11 +51,24 @@ export function BoardHeader({ entry, onUnpin, dragHandleProps }: BoardHeaderProp
         dragHandleProps?.draggable ? "cursor-grab active:cursor-grabbing" : ""
       }`}
     >
-      <div className="flex items-center gap-1.5 min-w-0">
-        <span className="truncate text-text-primary">{entry.windowName || `@${entry.windowIndex}`}</span>
-        <span className="text-text-secondary">·</span>
-        <span className="text-text-secondary truncate">{entry.server}</span>
-      </div>
+      {homeSession ? (
+        // Dual-residence crumb (co9z): `{session} › {window}`, using the top-bar
+        // crumb vocabulary (the `›` separator). The home session is the honest,
+        // tmux-derived owner of the linked window.
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="text-text-secondary truncate">{homeSession}</span>
+          <span className="text-text-secondary">›</span>
+          <span className="truncate text-text-primary">{windowLabel}</span>
+        </div>
+      ) : (
+        // Fallback when the home session is not derivable (legacy move-based pin
+        // or the home session died): window name + server tag.
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="truncate text-text-primary">{windowLabel}</span>
+          <span className="text-text-secondary">·</span>
+          <span className="text-text-secondary truncate">{entry.server}</span>
+        </div>
+      )}
       <button
         type="button"
         draggable={false}

@@ -1583,6 +1583,60 @@ func TestMoveWindowToSession_movesAndPreservesID(t *testing.T) {
 	}
 }
 
+func TestLinkWindowToSession_linksAndPreservesID(t *testing.T) {
+	server := withSessionOrderTmux(t)
+
+	// Create the destination session and a source window in the boot session.
+	for _, args := range [][]string{
+		{"new-session", "-d", "-s", "dst"},
+		{"new-window", "-t", "boot", "-n", "linker"},
+	} {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		full := append([]string{"-L", server}, args...)
+		out, err := exec.CommandContext(ctx, "tmux", full...).CombinedOutput()
+		cancel()
+		if err != nil {
+			t.Fatalf("setup %v: %v\n%s", args, err, string(out))
+		}
+	}
+
+	id := windowID(t, server, "boot:linker")
+
+	if err := LinkWindowToSession(id, "dst", server); err != nil {
+		t.Fatalf("LinkWindowToSession(%q -> dst): %v", id, err)
+	}
+
+	// link-window makes the window a member of BOTH sessions (unlike move-window),
+	// preserving its id. Verify the same id now appears in dst AND still in boot.
+	windowsIn := func(session string) []string {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		lines, err := tmuxExecServer(ctx, server, "list-windows", "-t", ExactSessionTarget(session), "-F", "#{window_id}")
+		if err != nil {
+			t.Fatalf("list-windows %q: %v", session, err)
+		}
+		out := make([]string, 0, len(lines))
+		for _, l := range lines {
+			out = append(out, strings.TrimSpace(l))
+		}
+		return out
+	}
+	inSession := func(session string) bool {
+		for _, w := range windowsIn(session) {
+			if w == id {
+				return true
+			}
+		}
+		return false
+	}
+	if !inSession("dst") {
+		t.Errorf("after LinkWindowToSession: window %q not present in dst", id)
+	}
+	if !inSession("boot") {
+		t.Errorf("after LinkWindowToSession: window %q left boot (link must keep it a member of the source too)", id)
+	}
+}
+
 // withSessionOrderTmux starts an isolated tmux server for session-order
 // integration tests, runs fn, and cleans up. Skips the test if tmux is
 // unavailable. Returns the server name fn should pass to tmux helpers.
@@ -1841,9 +1895,8 @@ func withRealSessionTmux(t *testing.T) (string, string) {
 	return server, real
 }
 
-// ResolveWindowSession returns the session a window lives in. In the move-based
-// model a window lives in exactly one session (home or `_rk-pin-*`), so a window
-// in the real session resolves to that session.
+// ResolveWindowSession returns the window's home (non-pin) session. An unpinned
+// window has exactly one link, so it resolves to that session directly.
 func TestResolveWindowSession_findsOwningSession(t *testing.T) {
 	server, real := withRealSessionTmux(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

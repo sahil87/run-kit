@@ -16,7 +16,7 @@ import { Shell } from "@/components/shell/shell";
 import { Sidebar } from "@/components/sidebar";
 import { HELP_URL } from "@/components/top-bar";
 import { useRegisterTopBarSlot } from "@/contexts/top-bar-slot-context";
-import { createSession, createWindow as createWindowApi, killServer as killServerApi, createServer, splitWindow, closePane } from "@/api/client";
+import { createSession, createWindow as createWindowApi, killServer as killServerApi, createServer, splitWindow, killWindow } from "@/api/client";
 import { setBoardOrder } from "@/api/boards";
 import { computeMoveOrder } from "@/lib/palette-move";
 import { buildUpdateActions, buildMaintenanceActions } from "@/lib/palette-update";
@@ -382,11 +382,6 @@ function BoardPageContent({ name }: { name: string }) {
     action: (srv, windowId, horizontal, cwd) => splitWindow(srv, windowId, horizontal, cwd),
     onError: (err) => addToast(err.message || "Failed to split pane"),
   });
-  const { execute: executeClosePane } = useOptimisticAction<[string, string]>({
-    action: (srv, windowId) => closePane(srv, windowId),
-    onSettled: () => refetch(),
-    onError: (err) => addToast(err.message || "Failed to close pane"),
-  });
 
   // The focused tile's kill/split target — the SINGLE source of truth for the
   // focused window shared by the top-bar SplitButtons + ✕ slot AND the three
@@ -420,6 +415,48 @@ function BoardPageContent({ name }: { name: string }) {
     const e = entries[focusedIndex];
     if (e) unpin(e.server, e.windowId, name);
   }, [entries, focusedIndex, unpin, name]);
+
+  // Board kill is confirm-gated + consequence-legible (co9z). The board ✕ and
+  // the palette kill entry both open this dialog instead of firing immediately,
+  // because a board Kill destroys the window EVERYWHERE (home session included),
+  // not just the board pane. `killTarget` is the focused window while the dialog
+  // is open (null = closed). The confirmed Kill is a WINDOW-kill (killWindow —
+  // "closes it everywhere"), distinct from the reversible tile-header Unpin. The
+  // home session is resolved at open time from the SAME `homeSessionByKey` join
+  // that feeds the pane-header crumb (single join implementation, R11) — read via
+  // a ref (`homeSessionByKeyRef`, assigned just below the memo) so opening the
+  // dialog does not couple this callback's identity to every SSE tick. Absent key
+  // → window-only fallback copy (legacy pin / home died).
+  const homeSessionByKeyRef = useRef<Map<string, string>>(new Map());
+  const [killTarget, setKillTarget] = useState<{
+    server: string;
+    windowId: string;
+    windowName: string;
+    home?: string;
+  } | null>(null);
+  const requestKillFocused = useCallback(() => {
+    const e = entries[focusedIndex];
+    if (!e) return;
+    setKillTarget({
+      server: e.server,
+      windowId: e.windowId,
+      windowName: e.windowName || e.windowId,
+      home: homeSessionByKeyRef.current.get(`${e.server}:${e.windowId}`),
+    });
+  }, [entries, focusedIndex]);
+  const { execute: executeKillWindow } = useOptimisticAction<[string, string]>({
+    action: (srv, windowId) => killWindow(srv, windowId),
+    onSettled: () => refetch(),
+    onError: (err) => addToast(err.message || "Failed to kill window"),
+  });
+  const confirmKill = useCallback(() => {
+    if (killTarget) executeKillWindow(killTarget.server, killTarget.windowId);
+    setKillTarget(null);
+  }, [killTarget, executeKillWindow]);
+  const killUnpinInstead = useCallback(() => {
+    if (killTarget) unpin(killTarget.server, killTarget.windowId, name);
+    setKillTarget(null);
+  }, [killTarget, unpin, name]);
 
   // Board-route-scoped command palette actions. Constitution V (Keyboard-First)
   // requires every action be keyboard-reachable — AppShell's palette is not
@@ -592,15 +629,15 @@ function BoardPageContent({ name }: { name: string }) {
         onSelect: unpinFocused,
       });
 
-      // Keyboard parity for the top-bar board SplitButtons + ✕ (Constitution V;
+      // Keyboard parity for the top-bar board SplitButtons (Constitution V;
       // 260715-6jwn). Act on the focused tile's window via the shared
       // `focusedPane` memo — the SAME `{server, windowId, cwd}` the top-bar slot
       // consumes, so there is one derivation of the active-pane cwd, not a
       // duplicated per-handler lookup (parsimony). Split mirrors the terminal
       // PALETTE's `horizontal` mapping (Vertical → horizontal: true — the
       // documented cross-surface divergence with the top-bar chip labels, left
-      // out of scope). Close = kill the focused tile's active pane (schedules a
-      // self-heal refetch via the executeClosePane `onSettled`).
+      // out of scope). The board Kill lives in `board-kill-focused` above (routes
+      // through the confirm dialog), not here.
       conditional.push({
         id: "board-split-vertical",
         label: "Board: Split Focused Pane Vertical",
@@ -615,12 +652,15 @@ function BoardPageContent({ name }: { name: string }) {
           if (focusedPane) executeSplit(focusedPane.server, focusedPane.windowId, false, focusedPane.cwd);
         },
       });
+      // Board Kill (co9z) — routes through the confirm dialog (NOT an immediate
+      // close-pane). The verb is "Kill" on board surfaces: a board Kill destroys
+      // the window everywhere (home session included), so it is consequence-gated
+      // with an `Unpin instead` escape. Retires the old `Board: Close Focused
+      // Pane` entry.
       conditional.push({
-        id: "board-close-focused",
-        label: "Board: Close Focused Pane",
-        onSelect: () => {
-          if (focusedPane) executeClosePane(focusedPane.server, focusedPane.windowId);
-        },
+        id: "board-kill-focused",
+        label: "Board: Kill Focused Pane",
+        onSelect: requestKillFocused,
       });
 
       // Keyboard parity for header drag-reorder (Constitution V). Boundary-gated
@@ -678,7 +718,7 @@ function BoardPageContent({ name }: { name: string }) {
     }
 
     return [...switchEntries, ...conditional, ...fontEntries, refreshEntry, helpEntry, ...updateEntries, ...maintenanceEntries, ...versionEntries];
-  }, [boards, name, entries, focusedIndex, autofit, toggleAutofit, unpinFocused, focusedPane, reorder, executeSplit, executeClosePane, navigate, addToast, increaseTerminalFont, decreaseTerminalFont, resetTerminalFont, updateQualifies, updateLatest, updateNow, dismissUpdate, brew, daemonVersion, forceUpdateNow, restartNow]);
+  }, [boards, name, entries, focusedIndex, autofit, toggleAutofit, unpinFocused, requestKillFocused, focusedPane, reorder, executeSplit, navigate, addToast, increaseTerminalFont, decreaseTerminalFont, resetTerminalFont, updateQualifies, updateLatest, updateNow, dismissUpdate, brew, daemonVersion, forceUpdateNow, restartNow]);
 
   // Pane-server count (distinct servers) used by TopBar board-mode info.
   const serverCount = useMemo(() => {
@@ -720,6 +760,40 @@ function BoardPageContent({ name }: { name: string }) {
   }, [entries, ctx.sessionsByServer]);
   const waitingPaneCount = waitingWindowIds.size;
 
+  // Home-session crumb map (co9z): `server:windowId` → the window's HOME session
+  // name, derived from the live sessions snapshot. Possible now precisely because
+  // a pinned window stays LINKED into its home session, so it appears under a
+  // visible session. Built once per distinct board server (single scan), then
+  // narrowed to the pinned entries — mirrors the waitingWindowIds shape to avoid
+  // an O(entries × windows) re-scan on every SSE tick. A window not present in
+  // the snapshot (legacy pin / home died) is simply absent from the map, and the
+  // header/dialog fall back to window-only copy.
+  const homeSessionByKey = useMemo(() => {
+    const byWindow = new Map<string, string>();
+    const seenServers = new Set<string>();
+    for (const e of entries) {
+      if (seenServers.has(e.server)) continue;
+      seenServers.add(e.server);
+      for (const s of ctx.sessionsByServer.get(e.server) ?? []) {
+        for (const w of s.windows) {
+          byWindow.set(`${e.server}:${w.windowId}`, s.name);
+        }
+      }
+    }
+    const out = new Map<string, string>();
+    for (const e of entries) {
+      const key = `${e.server}:${e.windowId}`;
+      const home = byWindow.get(key);
+      if (home !== undefined) out.set(key, home);
+    }
+    return out;
+  }, [entries, ctx.sessionsByServer]);
+  // Mirror the join into a ref so `requestKillFocused` (declared above, before
+  // this memo) can read the current home map at click time without depending on
+  // it — keeping that callback's identity stable across SSE ticks (parsimony:
+  // one join, consumed by both the crumb and the kill dialog).
+  homeSessionByKeyRef.current = homeSessionByKey;
+
   // Connection dot (260704-9o7k): "this board's live data is flowing". Green
   // only when the board has entries AND every distinct attached server's SSE
   // slice is connected (binary AND — a single disconnected server flips it
@@ -734,21 +808,10 @@ function BoardPageContent({ name }: { name: string }) {
     return true;
   }, [entries, ctx.isConnectedByServer]);
 
-  // Self-heal after a top-bar ✕ kill (260715-6jwn): killing the last pane of a
-  // window collapses its single-window pin-session with NO `board-changed`
-  // event, and `useBoardEntries` subscribes only to `board-changed`, so the
-  // dead tile would linger. Refetch so `getBoard` (which skips vanished
-  // pin-sessions) drops it; an emptied board vanishes from GET /api/boards,
-  // leaving the empty-state route. Harmless after a non-window-killing kill
-  // (the entry still resolves).
-  const handlePaneClosed = useCallback(() => {
-    refetch();
-  }, [refetch]);
-
   // Publish the board TopBar's page-owned props into the persistent root bar's
   // slot (260707-4vq2). `mode` (`board`) and `boardName` are derived at root
   // from the route; the board extras (counts, waiting badge, board switcher, the
-  // focused-tile split/close target + self-heal seam) travel through the slot.
+  // focused-tile split/kill target) travel through the slot.
   // Session/window props stay tolerant-empty (board mode has no session context,
   // the terminal-only L1 chrome — ViewSwitcher/FixedWidthToggle — stays hidden
   // via `currentWindow: null`; the board SplitButtons key on `focusedPane`
@@ -781,12 +844,14 @@ function BoardPageContent({ name }: { name: string }) {
         serverCount,
         waitingPaneCount,
         boards: boardTopBarBoards,
-        // 260715-6jwn: the top-bar ✕ + SplitButtons act on the focused tile's
-        // window (`focusedPane`); the ✕ is a real close-pane now (NOT unpin),
-        // with `onPaneClosed` driving the self-heal refetch. Unpin left the ✕
-        // entirely — it lives on the tile header + the palette action.
+        // The top-bar ✕ + SplitButtons act on the focused tile's window
+        // (`focusedPane`). co9z: the board ✕ is now a consequence-gated KILL —
+        // `onRequestKill` opens the confirm dialog (with an `Unpin instead`
+        // escape) instead of firing close-pane. The confirmed kill's self-heal
+        // refetch is driven by `executeKillWindow`'s own `onSettled` (above), not
+        // a top-bar callback. Unpin lives on the tile header + the palette action.
         focusedPane,
-        onPaneClosed: handlePaneClosed,
+        onRequestKill: requestKillFocused,
         autofit,
         onToggleAutofit: toggleAutofit,
       }),
@@ -799,7 +864,7 @@ function BoardPageContent({ name }: { name: string }) {
         waitingPaneCount,
         boardTopBarBoards,
         focusedPane,
-        handlePaneClosed,
+        requestKillFocused,
         autofit,
         toggleAutofit,
       ],
@@ -885,12 +950,13 @@ function BoardPageContent({ name }: { name: string }) {
         {/* Top bar mount moved to the persistent root layout (260707-4vq2).
             Board mode + `boardName` are derived at root from the route; the
             board extras (pane/server counts, waiting badge, board switcher, and
-            the focused-tile split/close target `focusedPane` + `onPaneClosed`
-            self-heal seam — the ✕ is a real close-pane now, 260715-6jwn, NOT
-            unpin) are published into the slot context via the
-            `useRegisterTopBarSlot` effect above. The terminal-only L1 chrome
-            (ViewSwitcher / FixedWidthToggle) stays hidden via
-            `currentWindow: null`. */}
+            the focused-tile split/kill target `focusedPane` + the `onRequestKill`
+            confirm-dialog opener — co9z: the board ✕ is a consequence-gated KILL,
+            not close-pane) are published into the slot context via the
+            `useRegisterTopBarSlot` effect above. The confirmed kill's self-heal
+            refetch rides `executeKillWindow`'s own `onSettled`, not a top-bar
+            callback. The terminal-only L1 chrome (ViewSwitcher /
+            FixedWidthToggle) stays hidden via `currentWindow: null`. */}
 
         {/* Content grid area — horizontal-scroll body. Viewport begins
             flush with sidebar.right (no left gutter). */}
@@ -921,6 +987,7 @@ function BoardPageContent({ name }: { name: string }) {
               onPaneClick={setFocusedIndex}
               scrollLocked={scrollLocked}
               waitingWindowIds={waitingWindowIds}
+              homeSessionByKey={homeSessionByKey}
             />
           ) : (
             <DesktopRow
@@ -936,6 +1003,7 @@ function BoardPageContent({ name }: { name: string }) {
               onPaneClick={setFocusedIndex}
               scrollLocked={scrollLocked}
               waitingWindowIds={waitingWindowIds}
+              homeSessionByKey={homeSessionByKey}
             />
           )}
         </main>
@@ -1018,6 +1086,48 @@ function BoardPageContent({ name }: { name: string }) {
           </div>
         </Dialog>
       )}
+
+      {/* Board kill confirm (co9z). A board Kill destroys the window EVERYWHERE
+          (its home session too), not just the board pane — so it is
+          consequence-gated with a safe `Unpin instead` escape. `Unpin instead`
+          is the FIRST focusable element so `Dialog` auto-focuses it (default
+          focus on the safe action); the dialog is fully keyboard-operable
+          (Escape/Tab/backdrop via `Dialog`). When the home session is not
+          derivable (legacy pin / home died — window absent from the sessions
+          snapshot), the copy falls back to window-only. */}
+      {killTarget && (
+        <Dialog title={`Kill ${killTarget.windowName}?`} onClose={() => setKillTarget(null)}>
+          <p className="text-text-secondary mb-2.5">
+            {killTarget.home ? (
+              <>
+                This closes it everywhere — including session <strong>{killTarget.home}</strong>.
+              </>
+            ) : (
+              <>This closes the window everywhere.</>
+            )}
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={killUnpinInstead}
+              className="flex-1 py-1.5 border border-border rounded hover:border-text-secondary"
+            >
+              Unpin instead
+            </button>
+            <button
+              onClick={confirmKill}
+              className="flex-1 py-1.5 bg-red-900/30 border border-red-900 rounded hover:bg-red-900/50"
+            >
+              Kill
+            </button>
+            <button
+              onClick={() => setKillTarget(null)}
+              className="flex-1 py-1.5 border border-border rounded hover:border-text-secondary"
+            >
+              Cancel
+            </button>
+          </div>
+        </Dialog>
+      )}
     </div>
   );
 }
@@ -1035,6 +1145,7 @@ function DesktopRow({
   onPaneClick,
   scrollLocked,
   waitingWindowIds,
+  homeSessionByKey,
 }: {
   entries: ReturnType<typeof useBoardEntries>["entries"];
   board: string;
@@ -1052,6 +1163,9 @@ function DesktopRow({
   scrollLocked: boolean;
   /** (server:windowId) keys of panes whose joined window is `waiting`. */
   waitingWindowIds: Set<string>;
+  /** (server:windowId) → HOME session name for the `{session} › {window}`
+   *  crumb (co9z); absent key → header falls back to window-only. */
+  homeSessionByKey: Map<string, string>;
 }) {
   const rowRef = useRef<HTMLDivElement>(null);
 
@@ -1199,6 +1313,7 @@ function DesktopRow({
             isFocused={authIdx === focusedIndex}
             dimmed={draggingKey === key}
             waiting={waitingWindowIds.has(key)}
+            homeSession={homeSessionByKey.get(key)}
             onClick={() => onPaneClick(authIdx)}
             onUnpin={() => onUnpin(entry)}
             showResizeHandle={!autofit}
@@ -1222,6 +1337,7 @@ function MobileCarousel({
   onPaneClick,
   scrollLocked,
   waitingWindowIds,
+  homeSessionByKey,
 }: {
   entries: ReturnType<typeof useBoardEntries>["entries"];
   carouselIndex: number;
@@ -1232,6 +1348,9 @@ function MobileCarousel({
   scrollLocked: boolean;
   /** (server:windowId) keys of panes whose joined window is `waiting`. */
   waitingWindowIds: Set<string>;
+  /** (server:windowId) → HOME session name for the `{session} › {window}`
+   *  crumb (co9z); absent key → header falls back to window-only. */
+  homeSessionByKey: Map<string, string>;
 }) {
   return (
     <div className="h-full flex flex-col">
@@ -1254,6 +1373,7 @@ function MobileCarousel({
               paused={idx !== carouselIndex}
               isFocused={idx === focusedIndex}
               waiting={waitingWindowIds.has(`${entry.server}:${entry.windowId}`)}
+              homeSession={homeSessionByKey.get(`${entry.server}:${entry.windowId}`)}
               onClick={() => onPaneClick(idx)}
               onUnpin={() => onUnpin(entry)}
               showResizeHandle={false}

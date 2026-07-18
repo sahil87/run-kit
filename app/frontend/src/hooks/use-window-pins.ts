@@ -26,6 +26,13 @@ export interface WindowPinsResult {
   boards: BoardSummary[];
   pinnedSet: Set<string>;
   pinnedToBoard: (board: string, server: string, windowId: string) => boolean;
+  /**
+   * The single board a window is pinned to, or undefined if unpinned (co9z). A
+   * window has exactly one `_rk-pin-*` pin-session → exactly one board, so the
+   * reverse lookup is unambiguous. Powers the sidebar pinned-row → board
+   * navigation affordance.
+   */
+  boardForWindow: (server: string, windowId: string) => string | undefined;
   isLoading: boolean;
 }
 
@@ -37,6 +44,8 @@ export function useWindowPins(): WindowPinsResult {
   const [boards, setBoards] = useState<BoardSummary[]>([]);
   const [pinnedSet, setPinnedSet] = useState<Set<string>>(() => new Set());
   const [perBoard, setPerBoard] = useState<Map<string, Set<string>>>(() => new Map());
+  // pinKey → board name (reverse lookup; one pin-session per window → one board).
+  const [windowToBoard, setWindowToBoard] = useState<Map<string, string>>(() => new Map());
   const [isLoading, setIsLoading] = useState(true);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -47,6 +56,7 @@ export function useWindowPins(): WindowPinsResult {
       setBoards(safe);
       const newPerBoard = new Map<string, Set<string>>();
       const newPinned = new Set<string>();
+      const newWindowToBoard = new Map<string, string>();
       // Fetch all board entries in parallel for the union view.
       const results = await Promise.all(
         safe.map(async (b) => {
@@ -64,11 +74,16 @@ export function useWindowPins(): WindowPinsResult {
           const k = pinKey(e.server, e.windowId);
           set.add(k);
           newPinned.add(k);
+          // One pin-session per window → one board. If a window somehow appears
+          // on two boards (should not happen), first-listed wins; harmless for
+          // the navigation affordance.
+          if (!newWindowToBoard.has(k)) newWindowToBoard.set(k, name);
         }
         newPerBoard.set(name, set);
       }
       setPerBoard(newPerBoard);
       setPinnedSet(newPinned);
+      setWindowToBoard(newWindowToBoard);
     } catch {
       // best effort — preserve previous values
     } finally {
@@ -110,5 +125,11 @@ export function useWindowPins(): WindowPinsResult {
     [perBoard],
   );
 
-  return { boards, pinnedSet, pinnedToBoard, isLoading };
+  const boardForWindow = useCallback(
+    (server: string, windowId: string): string | undefined =>
+      windowToBoard.get(pinKey(server, windowId)),
+    [windowToBoard],
+  );
+
+  return { boards, pinnedSet, pinnedToBoard, boardForWindow, isLoading };
 }

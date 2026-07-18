@@ -41,14 +41,18 @@ import (
 //       server → client: {"op":"opened","id":7}
 //                        {"op":"closed","id":7,"code":4004|4001|1000,"reason":..}
 //
-// Per-stream behavior preserves handleRelay (relay.go) EXACTLY: window-ID
-// validation via the shared validate.ValidateWindowID (the same validator
-// decodeWindowID wraps — REST and mux entry points cannot drift; constitution
-// §I), ResolveWindowSession (5s) → session-scoped SelectWindowInSession →
-// forceTERM + best-effort ReloadConfig → pty.StartWithSize at the open op's
-// cols/rows. A stream-level failure (bad window, attach failure) emits a
-// `closed` control event — the SOCKET itself never closes for a single stream's
-// failure (today's 4004/4001 WS close codes become per-stream `closed` events).
+// Per-stream behavior preserves handleRelay (relay.go): window-ID validation via
+// the shared validate.ValidateWindowID (the same validator decodeWindowID wraps —
+// REST and mux entry points cannot drift; constitution §I), then session
+// resolution → session-scoped SelectWindowInSession → forceTERM + best-effort
+// ReloadConfig → pty.StartWithSize at the open op's cols/rows. Session resolution
+// PREFERS the window's `_rk-pin-*` pin-session when it exists (a pinned window is
+// linked into both its pin-session and its home session, and attaching to the
+// pin-session leaves home's active-window pointer untouched), otherwise resolves
+// the home session via ResolveWindowSession (5s). A stream-level failure (bad
+// window, attach failure) emits a `closed` control event — the SOCKET itself
+// never closes for a single stream's failure (today's 4004/4001 WS close codes
+// become per-stream `closed` events).
 //
 // Write path (decision D3, a v1 protocol requirement — NOT an optimization):
 // per-stream bounded send queues drained by a SINGLE writer goroutine that
@@ -391,26 +395,45 @@ func (tc *terminalsConn) attachStream(op openOp, st *stream) {
 		}
 	}
 
-	// Resolve the owning session from the window ID (5s). In the move-based model
-	// a window lives in exactly ONE session (home or `_rk-pin-*` board
-	// pin-session). A missing window (resolve fails / empty) is a per-stream 4004.
+	// Resolve the session to attach to. A board-pinned window is a member of BOTH
+	// its home session AND its single-window `_rk-pin-*` pin-session (Pin uses
+	// link-window). Prefer the pin-session when it exists: its sole window is
+	// permanently active, so attaching there gives this stream an independent
+	// current-window pointer and — crucially — merely VIEWING a pinned window
+	// (board pane or direct URL) never moves the home session's active-window
+	// pointer. When the window is not pinned, resolve its home session and attach
+	// there as before. A missing window (resolve fails / empty) is a per-stream
+	// 4004.
 	resolveCtx, resolveCancel := context.WithTimeout(context.Background(), resolveTimeout)
-	session, err := tc.s.tmux.ResolveWindowSession(resolveCtx, server, op.WindowID)
+	var session string
+	if pinSession, ok := tmux.PinSessionName(op.WindowID); ok && tc.s.tmux.HasSession(resolveCtx, server, pinSession) {
+		session = pinSession
+	} else {
+		resolved, err := tc.s.tmux.ResolveWindowSession(resolveCtx, server, op.WindowID)
+		if err != nil || resolved == "" {
+			resolveCancel()
+			if !stillLive() {
+				failClosed(closeNormal, "closed")
+				return
+			}
+			slog.Warn("terminals: window not found", "windowID", op.WindowID, "err", err)
+			failClosed(closeWindowNotFound, "Window not found")
+			return
+		}
+		session = resolved
+	}
 	resolveCancel()
 	if !stillLive() {
 		failClosed(closeNormal, "closed")
 		return
 	}
-	if err != nil || session == "" {
-		slog.Warn("terminals: window not found", "windowID", op.WindowID, "err", err)
-		failClosed(closeWindowNotFound, "Window not found")
-		return
-	}
 
-	// Select the window on its real session so the attach renders the right
+	// Select the window on the resolved session so the attach renders the right
 	// window. Scope the select to the resolved session — a bare window-id target
 	// is ambiguous inside a tmux session group and must agree with the
-	// attach-session below (the group-ambiguity rationale at relay.go:88-99).
+	// attach-session below (the group-ambiguity rationale at relay.go:88-99). For a
+	// pin-session the select is effectively a no-op (its sole window is already
+	// active), but scoping keeps the code path uniform.
 	if err := tc.s.tmux.SelectWindowInSession(session, op.WindowID, server); err != nil {
 		slog.Error("terminals: select-window failed", "err", err, "session", session, "windowID", op.WindowID)
 		failClosed(closeWindowNotFound, "Window not found")

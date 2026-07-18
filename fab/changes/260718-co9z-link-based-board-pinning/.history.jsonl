@@ -1,0 +1,17 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-18T14:20:12Z"}
+{"args":"Link-based board pinning: dual presence in SESSIONS sidebar + board, with kill-vs-unpin consequence legibility (switch Pin from move-window to link-window; unpin = kill-session; board kill confirm-gated)","cmd":"fab-new","event":"command","ts":"2026-07-18T14:20:12Z"}
+{"delta":"+3.4","event":"confidence","score":3.4,"trigger":"calc-score","ts":"2026-07-18T14:23:10Z"}
+{"cmd":"_intake","event":"command","ts":"2026-07-18T14:23:18Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-07-18T14:24:12Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-18T14:25:58Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-18T14:26:12Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-18T15:11:04Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-18T15:12:12Z"}
+{"event":"review","result":"failed","ts":"2026-07-18T15:24:14Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-18T15:24:14Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-18T15:41:18Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-18T15:59:56Z"}
+{"event":"review","result":"passed","ts":"2026-07-18T15:59:56Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-18T16:14:32Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-07-18T16:17:37Z"}
+{"event":"review","result":"passed","ts":"2026-07-18T16:27:14Z"}

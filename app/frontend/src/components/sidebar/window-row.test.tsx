@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import { useState } from "react";
 import { render, screen, cleanup, act } from "@testing-library/react";
 import { WindowRow } from "./window-row";
+import { ToastProvider } from "@/components/toast";
 import * as optimisticContext from "@/contexts/optimistic-context";
 import type { WindowInfo } from "@/types";
 import type { MergedWindow } from "@/store/window-store";
@@ -464,6 +465,77 @@ describe("WindowRow", () => {
       const pin = screen.getByLabelText("Pin my-shell to a board");
       expect(pin.className).toContain("opacity-100");
       expect(pin.className).not.toContain("opacity-0 ");
+    });
+  });
+
+  // Pinned-row → board navigation (co9z): a pinned window's pin popover offers a
+  // "Go to {board}" row that navigates to the owning board.
+  describe("pinned-row board navigation (co9z)", () => {
+    it("offers a 'Go to {board}' row in the pin popover that calls onNavigateToBoard", async () => {
+      const win = makeWindow({ windowId: "@0", index: 0, name: "my-shell" });
+      const onNavigateToBoard = vi.fn();
+      render(
+        <ToastProvider>
+          <WindowRow
+            win={win}
+            session="alpha"
+            isSelected={false}
+            isDragOver={false}
+            editingWindow={null}
+            editingName=""
+            inputRef={{ current: null }}
+            onSelectWindow={noop}
+            onStartEditing={noop}
+            onWindowNameChange={noop}
+            onRenameKeyDown={noop as React.KeyboardEventHandler<HTMLInputElement>}
+            onRenameBlur={noop}
+            onKillClick={noop}
+            server="srv"
+            isPinnedToAny={true}
+            pinnedBoard="work"
+            onNavigateToBoard={onNavigateToBoard}
+          />
+        </ToastProvider>,
+      );
+      // Open the pin popover via the pin button.
+      await act(async () => {
+        screen.getByLabelText("Pin my-shell to a board").click();
+      });
+      const goto = screen.getByRole("button", { name: /Go to work/ });
+      expect(goto).toBeInTheDocument();
+      await act(async () => {
+        goto.click();
+      });
+      expect(onNavigateToBoard).toHaveBeenCalledWith("work");
+    });
+
+    it("does not offer the 'Go to' row when the window is not pinned to a board", async () => {
+      const win = makeWindow({ windowId: "@0", index: 0, name: "my-shell" });
+      render(
+        <ToastProvider>
+          <WindowRow
+            win={win}
+            session="alpha"
+            isSelected={false}
+            isDragOver={false}
+            editingWindow={null}
+            editingName=""
+            inputRef={{ current: null }}
+            onSelectWindow={noop}
+            onStartEditing={noop}
+            onWindowNameChange={noop}
+            onRenameKeyDown={noop as React.KeyboardEventHandler<HTMLInputElement>}
+            onRenameBlur={noop}
+            onKillClick={noop}
+            server="srv"
+            onNavigateToBoard={noop}
+          />
+        </ToastProvider>,
+      );
+      await act(async () => {
+        screen.getByLabelText("Pin my-shell to a board").click();
+      });
+      expect(screen.queryByRole("button", { name: /Go to/ })).not.toBeInTheDocument();
     });
   });
 

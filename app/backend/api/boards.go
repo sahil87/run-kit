@@ -90,15 +90,15 @@ func (s *Server) handleBoardGet(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]BoardEntryResponse, 0, len(entries))
 
-	// Join each board entry with live window data. A pinned window has been MOVED
-	// into its own single-window pin-session `_rk-pin-<id>`, so the window lives
-	// inside a session that the user-facing `ListSessions`/`parseSessions` path
-	// deliberately HIDES (the `_rk-pin-` skip). Enumerating via `ListSessions`
-	// would therefore never find the pinned window and the board would render
-	// empty (the CI/e2e failure this replaced). Instead, look the window up in its
+	// Join each board entry with live window data. A pinned window is LINKED into
+	// its own single-window pin-session `_rk-pin-<id>` (it is ALSO a member of its
+	// home session, but that session's identity is not what the board renders).
+	// The pin-session itself is one the user-facing `ListSessions`/`parseSessions`
+	// path deliberately HIDES (the `_rk-pin-` skip), so look the window up in its
 	// OWN pin-session directly: the entry's WindowID maps deterministically to its
 	// pin-session name, and `ListWindows -t <pinSession>` is a by-name target query
-	// that is NOT subject to the session-list filter. O(entries) targeted lookups.
+	// that is NOT subject to the session-list filter and still holds the window
+	// under its pin link. O(entries) targeted lookups.
 	for _, e := range entries {
 		pinSession, ok := tmux.PinSessionName(e.WindowID)
 		if !ok {
@@ -353,13 +353,15 @@ func (s *Server) handleBoardOrderPost(w http.ResponseWriter, r *http.Request) {
 
 // windowExistsOnServer returns true if the supplied windowID matches a live
 // window on the server — whether the window is in a normal (home) session OR
-// already moved into its own pin-session.
+// linked into its own pin-session (a pinned window is a member of both).
 //
-// The pin-session must be checked explicitly: `ListSessions`/`parseSessions`
-// HIDES `_rk-pin-*` sessions, so a window that is ALREADY pinned would be
-// invisible to the home-session scan alone. Without the pin-session check, a
-// re-pin of an already-pinned window (e.g. moving it to a different board) would
-// be rejected 404 before reaching tmux.Pin's wrong-board re-stamp path.
+// The pin-session fast path is kept as an optimization and for robustness: under
+// the link model an already-pinned window ALSO appears in its home session, so
+// the home-session scan below would find it too — but `ListSessions`/
+// `parseSessions` HIDES `_rk-pin-*` sessions, and checking the pin-session
+// directly resolves an already-pinned window in one by-name lookup without
+// scanning every home session. Either path makes a re-pin (e.g. moving it to a
+// different board) reach tmux.Pin's wrong-board re-stamp path rather than 404.
 func (s *Server) windowExistsOnServer(r *http.Request, server, windowID string) bool {
 	// Fast path: the window's own pin-session (by-name target, not subject to the
 	// session-list filter). If present, the window is already pinned and live.

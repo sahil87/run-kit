@@ -71,6 +71,13 @@ type WindowRowProps = {
    *  `pinnedToBoard`) serves every row; the row binds its own (server,
    *  windowId). Used by the pin popover to render checkmarks. */
   isPinnedToBoard?: (board: string, server: string, windowId: string) => boolean;
+  /** The single board this window is pinned to (co9z), or undefined if unpinned.
+   *  When set, the pin popover offers a "Go to {board}" navigation row so the
+   *  pinned-row indicator becomes a path to the owning board. */
+  pinnedBoard?: string;
+  /** Navigate to a board's route (`/board/{board}`). Stable identity-arg
+   *  handler shared by every row (like the other identity-arg handlers). */
+  onNavigateToBoard?: (board: string) => void;
   /** Roving-tabindex value: `0` for the single roving-focused tree row, `-1`
    *  for every other row (the roving model lives in `index.tsx`). Defaults to
    *  `-1` so a row rendered without the tree wiring is not a tab stop. Only the
@@ -121,6 +128,8 @@ function WindowRowInner({
   boards = [],
   boardsLoading = false,
   isPinnedToBoard,
+  pinnedBoard,
+  onNavigateToBoard,
   tabIndex = -1,
   ariaLevel,
   ariaSetSize,
@@ -355,6 +364,8 @@ function WindowRowInner({
           boards={boards}
           boardsLoading={boardsLoading}
           isPinnedTo={(b) => (isPinnedToBoard ? isPinnedToBoard(b, srv, win.windowId) : false)}
+          pinnedBoard={pinnedBoard}
+          onNavigateToBoard={onNavigateToBoard}
           onClose={() => setShowPinPopover(false)}
         />
       )}

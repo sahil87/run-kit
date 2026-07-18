@@ -44,3 +44,26 @@ describe("BoardHeader unpin glyph (260715-6jwn)", () => {
     expect(stop).toHaveBeenCalled();
   });
 });
+
+describe("BoardHeader dual-residence crumb (co9z)", () => {
+  afterEach(cleanup);
+
+  it("renders `{session} › {window}` when the home session is derivable", () => {
+    render(<BoardHeader entry={entry} onUnpin={() => {}} homeSession="my-home" />);
+    // The home session is shown, followed by the `›` separator and the window.
+    expect(screen.getByText("my-home")).toBeInTheDocument();
+    expect(screen.getByText("›")).toBeInTheDocument();
+    expect(screen.getByText("win-a")).toBeInTheDocument();
+    // The `· {server}` fallback tag is NOT shown when the crumb is available.
+    expect(screen.queryByText("·")).not.toBeInTheDocument();
+  });
+
+  it("falls back to `{window} · {server}` when the home session is not derivable", () => {
+    render(<BoardHeader entry={entry} onUnpin={() => {}} />);
+    // No home session → window name + server tag, no `›` crumb.
+    expect(screen.getByText("win-a")).toBeInTheDocument();
+    expect(screen.getByText("·")).toBeInTheDocument();
+    expect(screen.getByText("rk-dev")).toBeInTheDocument();
+    expect(screen.queryByText("›")).not.toBeInTheDocument();
+  });
+});

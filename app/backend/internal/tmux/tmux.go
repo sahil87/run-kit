@@ -193,9 +193,10 @@ const (
 	// listDelim is the tab delimiter used in tmux format strings.
 	listDelim = "\t"
 	// PinSessionPrefix is the reserved name prefix for run-kit's single-window
-	// board pin-sessions. Each pinned window is MOVED into its own session named
+	// board pin-sessions. Each pinned window is LINKED into its own session named
 	// `_rk-pin-<windowDigits>` (the window's `@N` id with the `@` stripped, since
-	// tmux session names disallow `@`). Sessions matching this prefix are filtered
+	// tmux session names disallow `@`) — the window stays a member of its home
+	// session too (dual membership). Sessions matching this prefix are filtered
 	// out of user-facing session lists — a board is the set of pin-sessions
 	// sharing an `@rk_board` value, not a session itself. Pin-sessions are
 	// persistent across rk restarts (Constitution VI); there is no startup sweep.
@@ -544,13 +545,15 @@ func parseSessions(lines []string) []SessionInfo {
 			continue
 		}
 		// Filter run-kit's single-window board pin-sessions from every
-		// user-facing session list. A pinned window is physically MOVED into
-		// its `_rk-pin-*` session, so it leaves its home session's tab list;
-		// the pin-session itself is never a user-facing SESSIONS entry (it is
+		// user-facing session list. A pinned window is LINKED into its
+		// `_rk-pin-*` session (it stays a member of its home session too, so it
+		// still appears in the sidebar natively via its home membership); the
+		// pin-session ITSELF is never a user-facing SESSIONS entry (it is
 		// rendered only as a BOARDS pane). This is the single chokepoint — every
 		// consumer (REST, SSE, board derivation, server-aggregate) flows
 		// through ListSessions/parseSessions, so a single early-skip here
-		// guarantees no pin-session leaks into the SESSIONS UI.
+		// guarantees no pin-session leaks into the SESSIONS UI while the pinned
+		// window is still shown under its home session.
 		if strings.HasPrefix(parts[0], PinSessionPrefix) {
 			continue
 		}
@@ -1247,12 +1250,19 @@ func KillSessionCtx(ctx context.Context, server, session string) error {
 	return err
 }
 
-// ResolveWindowSession returns the name of the session that owns the window
-// identified by windowID on the given server — either a normal home session or
-// a board pin-session (`_rk-pin-*`). Since a window lives in exactly ONE session
-// (the move-based model removes window sharing), a targeted
-// `display-message -t <windowID> -p "#{session_name}"` resolves the window's
-// single owning session in O(1) — no enumeration.
+// ResolveWindowSession returns the window's HOME (non-pin) session on the given
+// server. A board-pinned window is a member of TWO sessions at once — its home
+// session AND its single-window `_rk-pin-*` pin-session (Pin uses link-window,
+// not move-window) — so a naive `display-message -t <windowID> -p
+// "#{session_name}"` may report EITHER link (tmux's pick across links is
+// order-unspecified). When the naive result is a pin-session name, this
+// re-resolves deterministically to the non-pin owner by enumerating
+// `list-windows -a` and choosing the session for @N that is not a `_rk-pin-*`
+// name. A window whose ONLY link is its pin-session (its home session died while
+// pinned, or a legacy move-based pin) legitimately resolves to the pin-session.
+// The relay layers its own pin-session-first attach preference ABOVE this (see
+// api/terminals_ws.go); this function's job is to name the home session for
+// callers that need it (the REST /select handler, ProjectRoot).
 //
 // Not-found contract: callers (e.g. the relay) rely on a missing window
 // surfacing as `window %q not found`. On tmux 3.6a, `display-message` for a
@@ -1276,7 +1286,45 @@ func ResolveWindowSession(ctx context.Context, server, windowID string) (string,
 	if session == "" {
 		return "", fmt.Errorf("window %q not found", windowID)
 	}
+	// Dual membership: if tmux named the pin-session, re-resolve to the home
+	// (non-pin) session. A window whose only link is its pin-session keeps the
+	// pin-session (home is gone).
+	if strings.HasPrefix(session, PinSessionPrefix) {
+		if home, ok, herr := resolveHomeSession(ctx, server, windowID); herr != nil {
+			return "", herr
+		} else if ok {
+			return home, nil
+		}
+	}
 	return session, nil
+}
+
+// resolveHomeSession enumerates every session the window identified by windowID
+// is linked into (via `list-windows -a`) and returns the first non-pin
+// (non-`_rk-pin-*`) session. ok is false when the window is linked ONLY into
+// pin-session(s) — i.e. it has no live home session — in which case the caller
+// keeps the pin-session as the resolved owner. Read-only.
+func resolveHomeSession(ctx context.Context, server, windowID string) (string, bool, error) {
+	lines, err := tmuxExecServer(ctx, server, "list-windows", "-a", "-F", "#{session_name}\t#{window_id}")
+	if err != nil {
+		return "", false, err
+	}
+	for _, line := range lines {
+		parts := strings.SplitN(strings.TrimSpace(line), "\t", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		name := strings.TrimSpace(parts[0])
+		wid := strings.TrimSpace(parts[1])
+		if wid != windowID {
+			continue
+		}
+		if strings.HasPrefix(name, PinSessionPrefix) {
+			continue
+		}
+		return name, true, nil
+	}
+	return "", false, nil
 }
 
 // isMissingWindowErr reports whether err's stderr text matches tmux's
@@ -1460,6 +1508,36 @@ func MoveWindowToSession(windowID string, dstSession string, server string) erro
 	dst := ExactSessionTarget(dstSession)
 	_, err := tmuxExecServer(ctx, server, "move-window", "-s", windowID, "-t", dst)
 	return err
+}
+
+// LinkWindowToSession links the window identified by windowID INTO another
+// session on the specified server, leaving it a member of its original
+// session(s) too. Unlike MoveWindowToSession (which removes the window from its
+// source), link-window makes the window a shared member of both sessions — the
+// board pin-session model relies on this so a pinned window stays visible in its
+// home session AND attachable via its `_rk-pin-*` session. The source is a
+// self-contained window ID; the destination is a session name. link-window
+// preserves the window's ID (tmux contract). tmux destroys the window only when
+// its LAST link is removed, which is what makes Unpin = kill-session on the
+// pin-session leave the window intact in home.
+func LinkWindowToSession(windowID string, dstSession string, server string) error {
+	ctx, cancel := withTimeout()
+	defer cancel()
+
+	dst := ExactSessionTarget(dstSession)
+	_, err := tmuxExecServer(ctx, server, "link-window", "-s", windowID, "-t", dst)
+	return err
+}
+
+// HasSession reports whether a session with the given name exists on the server.
+// Uses an exact-match `has-session` probe (via ExactSessionTarget). Any error
+// (unset session, dead server, deadline) is reported as false — the caller wants
+// a boolean existence answer, not an operational error. Read-only.
+func HasSession(ctx context.Context, server, session string) bool {
+	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
+	defer cancel()
+	_, err := tmuxExecRawServer(ctx, server, "has-session", "-t", ExactSessionTarget(session))
+	return err == nil
 }
 
 // SetWindowOption sets a user-defined window option on the specified server.

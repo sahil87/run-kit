@@ -58,9 +58,10 @@ func TestBoards_GET_aggregateAcrossServers(t *testing.T) {
 }
 
 func TestBoard_GET_byName(t *testing.T) {
-	// In the move-based model a pinned window lives in its own `_rk-pin-<id>`
-	// session (the handler joins live window data from there, not from a home
-	// session). The pinned window @1234 → pin-session `_rk-pin-1234`.
+	// A pinned window is linked into its own `_rk-pin-<id>` session (the handler
+	// joins live window data from there — the pin-session still holds the window
+	// under its link, and the returned Session field is that pin-session). The
+	// pinned window @1234 → pin-session `_rk-pin-1234`.
 	ops := &mockTmuxOps{
 		getBoardResult: []tmux.BoardEntry{
 			{Server: "default", WindowID: "@1234", Board: "main", OrderKey: "a"},
@@ -93,24 +94,24 @@ func TestBoard_GET_byName(t *testing.T) {
 }
 
 // TestBoard_GET_byName_windowInPinSession is the regression test for the
-// CI/e2e failure where a pinned board rendered EMPTY. In the move-based model a
-// pinned window is moved into its own `_rk-pin-<id>` session, which the
-// user-facing ListSessions/parseSessions path HIDES. handleBoardGet must look the
-// window up in its pin-session directly — NOT by scanning ListSessions, which
-// would never find it and drop every entry. Here the home session list contains
-// only an unrelated empty session; the pinned window @1234 lives ONLY under
-// `_rk-pin-1234`. The join must still return the entry with live window data.
+// CI/e2e failure where a pinned board rendered EMPTY. handleBoardGet must look
+// the window up in its `_rk-pin-<id>` pin-session directly (by name) — NOT by
+// scanning the user-facing ListSessions, which HIDES `_rk-pin-*` sessions and
+// would drop every entry. Under the link model the pinned window @1234 is a
+// member of BOTH its home session `dev` AND `_rk-pin-1234`; the join reads its
+// metadata from the pin-session regardless, and the returned Session is the
+// pin-session.
 func TestBoard_GET_byName_windowInPinSession(t *testing.T) {
 	ops := &mockTmuxOps{
 		getBoardResult: []tmux.BoardEntry{
 			{Server: "default", WindowID: "@1234", Board: "main", OrderKey: "a"},
 		},
-		// Home sessions visible to ListSessions do NOT contain @1234 — it was
-		// moved out into its pin-session (which ListSessions hides). A scan of
-		// these would find nothing.
+		// Dual membership: @1234 appears in its home `dev` (alongside an unrelated
+		// window) AND in `_rk-pin-1234`. The GET join deliberately reads from the
+		// pin-session by name, not by scanning the (pin-hiding) session list.
 		listSessionsResult: []tmux.SessionInfo{{Name: "dev"}},
 		listWindowsBySession: map[string][]tmux.WindowInfo{
-			"dev":          {{Index: 0, WindowID: "@9", Name: "other"}},
+			"dev":          {{Index: 0, WindowID: "@9", Name: "other"}, {Index: 1, WindowID: "@1234", Name: "agent"}},
 			"_rk-pin-1234": {{Index: 0, WindowID: "@1234", Name: "agent"}},
 		},
 	}

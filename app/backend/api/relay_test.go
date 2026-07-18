@@ -257,7 +257,8 @@ func awaitClosed(t *testing.T, conn *websocket.Conn, id uint32, deadline time.Du
 
 // realSessionNames returns the non-pin, non-anchor session names on a tmux
 // server. Used to assert the relay creates NO extra (ephemeral) session — the
-// move-based model attaches the PTY directly to the real session.
+// relay attaches the PTY directly to the window's owning session (its home
+// session for an unpinned window, its pin-session for a pinned one).
 func realSessionNames(t *testing.T, server string) []string {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -275,11 +276,11 @@ func realSessionNames(t *testing.T, server string) []string {
 
 // TestTerminals_DirectAttachRendersSelectedWindow proves a stream attaches the
 // PTY DIRECTLY to the real session and renders the window it selected — once per
-// window. The streams are opened SEQUENTIALLY (not concurrently): in the
-// move-based model both windows live in the SAME real session with a single
-// shared active-window pointer (the accepted multi-client tradeoff #1), so two
-// SIMULTANEOUS attaches would fight over that pointer. Sequential attaches
-// exercise the direct-attach + select-window path per window without that race.
+// window. The streams are opened SEQUENTIALLY (not concurrently): both (unpinned)
+// windows live in the SAME real session with a single shared active-window
+// pointer (the accepted multi-client tradeoff #1), so two SIMULTANEOUS attaches
+// would fight over that pointer. Sequential attaches exercise the direct-attach +
+// select-window path per window without that race.
 func TestTerminals_DirectAttachRendersSelectedWindow(t *testing.T) {
 	tmuxServer, real, win0ID, win1ID := withRelayTmux(t)
 	ts := relayServerWithProdTmux(t)
@@ -308,6 +309,62 @@ func TestTerminals_DirectAttachRendersSelectedWindow(t *testing.T) {
 		if n != real {
 			t.Errorf("unexpected extra session %q after stream open (no ephemeral expected); sessions=%v", n, names)
 		}
+	}
+}
+
+// activeWindowID returns the active window's @N for a session (via display-message).
+func activeWindowID(t *testing.T, server, session string) string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "tmux", "-L", server,
+		"display-message", "-t", "="+session+":", "-p", "#{window_id}").CombinedOutput()
+	if err != nil {
+		t.Fatalf("display-message active window for %q: %v\n%s", session, err, string(out))
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// TestTerminals_PinPreferenceAttachesPinSession proves the relay attach prefers a
+// window's `_rk-pin-*` pin-session when it exists, and that merely VIEWING the
+// pinned window does NOT move the home session's active-window pointer (the
+// decided side benefit — R7). win1 is pinned (so it is linked into both `real`
+// and its pin-session); `real`'s active window is left on win0. Opening a stream
+// for win1 must render its content (attach worked) while `real` still points at
+// win0.
+func TestTerminals_PinPreferenceAttachesPinSession(t *testing.T) {
+	tmuxServer, real, win0ID, win1ID := withRelayTmux(t)
+	ts := relayServerWithProdTmux(t)
+	defer ts.Close()
+
+	// Ensure real's active window is win0, then pin win1 (dual membership).
+	if err := tmux.SelectWindowInSession(real, win0ID, tmuxServer); err != nil {
+		t.Fatalf("select win0 in real: %v", err)
+	}
+	pinCtx, pinCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer pinCancel()
+	if err := tmux.Pin(pinCtx, tmuxServer, win1ID, "main"); err != nil {
+		t.Fatalf("Pin win1: %v", err)
+	}
+	pinSession, _ := tmux.PinSessionName(win1ID)
+
+	// Open a stream for the pinned window. The relay must prefer its pin-session.
+	conn := dialTerminals(t, ts)
+	openStream(t, conn, 1, tmuxServer, win1ID, 80, 24)
+	got := readStreamUntilContains(t, conn, 1, "WINDOW_ONE", 5*time.Second)
+	conn.Close()
+	if !bytes.Contains(got, []byte("WINDOW_ONE")) {
+		t.Errorf("stream for pinned win1 did not receive WINDOW_ONE marker; got: %q", string(got))
+	}
+
+	// The pin-session's sole window is win1 and is permanently active.
+	if a := activeWindowID(t, tmuxServer, pinSession); a != win1ID {
+		t.Errorf("pin-session active window = %q, want %q", a, win1ID)
+	}
+	// Side benefit: viewing the pinned window did NOT move home's active-window
+	// pointer — `real` still points at win0.
+	if a := activeWindowID(t, tmuxServer, real); a != win0ID {
+		t.Errorf("home session active window moved to %q after viewing pinned window; want %q (viewing must not touch home's pointer)", a, win0ID)
 	}
 }
 

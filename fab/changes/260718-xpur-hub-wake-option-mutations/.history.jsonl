@@ -1,0 +1,14 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-18T13:21:15Z"}
+{"args":"Fix 5-10s latency applying session/window row colors — add a hub wake seam so user-option mutations trigger an immediate state-socket snapshot rebuild","cmd":"fab-new","event":"command","ts":"2026-07-18T13:21:15Z"}
+{"delta":"+4.8","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-07-18T13:24:52Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-07-18T13:25:58Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-18T13:27:29Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-18T13:31:17Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-18T13:40:09Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-18T13:40:43Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-18T14:02:06Z"}
+{"event":"review","result":"passed","ts":"2026-07-18T14:02:06Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-18T14:02:41Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-18T14:05:22Z"}
+{"action":"enter","event":"stage-transition","stage":"review-pr","ts":"2026-07-18T14:07:40Z"}
+{"event":"review","result":"passed","ts":"2026-07-18T14:20:36Z"}

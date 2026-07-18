@@ -1182,3 +1182,98 @@ draining:
 		t.Fatal("client did not receive session-order event after PUT")
 	}
 }
+
+// newWakeSeamServer builds a test Server with an SSE hub and one connected
+// client on "default", drains the bootstrap snapshot, and returns the server +
+// its fetch tracker. The seam tests assert on the tracker's fetch count rather
+// than on a broadcast: the SSE hub's previousJSON dedup correctly SUPPRESSES a
+// no-change snapshot broadcast, so the observable seam behavior is "the wake
+// drove a fresh poll pass (FetchSessions ran)", not "a frame was delivered".
+// Shared by the option-mutation wake-seam tests (windows /options, sessions
+// /color). Mirrors the Server construction in TestSessionOrder_POST_triggersBroadcast.
+func newWakeSeamServer(t *testing.T, ops TmuxOps) (*Server, *fetchTracker) {
+	t.Helper()
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	tracker := &fetchTracker{result: map[string][]sessions.ProjectSession{
+		"default": {{Name: "s1"}},
+	}}
+	server := &Server{logger: logger, sessions: tracker, tmux: ops, hostname: "test-host"}
+	server.initSSEHub()
+	// A long safety interval so any observed fetch beyond the bootstrap is
+	// attributable to the wake, never the safety-net timer.
+	server.sseHub.safetyInterval = 5 * time.Second
+	client := &sseClient{ch: make(chan hubEvent, 16), server: "default"}
+	server.sseHub.addClient(client)
+	t.Cleanup(func() {
+		// removeClient drops the client from h.clients under h.mu, so the poll
+		// loop can no longer send to client.ch (and every send is non-blocking
+		// anyway). No drain goroutine is needed — spawning one over the
+		// never-closed buffered channel would just leak, blocking forever.
+		server.sseHub.removeClient(client)
+	})
+	// Let the bootstrap poll pass complete and the loop settle into waitForNext.
+	time.Sleep(100 * time.Millisecond)
+	return server, tracker
+}
+
+// expectWake asserts FetchSessions ran again after the POST (the wake drove a
+// fresh poll pass). label is used in the failure message.
+func expectWake(t *testing.T, tracker *fetchTracker, before int64, label string) {
+	t.Helper()
+	deadline := time.After(2 * time.Second)
+	for {
+		if tracker.count.Load() > before {
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("%s: FetchSessions did not run after a successful mutation (want a wake-driven poll pass; count stayed %d)", label, before)
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+}
+
+// expectNoWake asserts FetchSessions did NOT run again within a short window (a
+// rejected mutation must not wake the hub). The window is well short of the 5s
+// safety interval so a stray fetch could only come from an (erroneous) wake.
+func expectNoWake(t *testing.T, tracker *fetchTracker, before int64, label string) {
+	t.Helper()
+	time.Sleep(300 * time.Millisecond)
+	if got := tracker.count.Load(); got > before {
+		t.Fatalf("%s: FetchSessions ran (%d→%d) after a REJECTED mutation (must not wake)", label, before, got)
+	}
+}
+
+// TestSessionColor_POST_wakesHub verifies the handleSessionColor wake seam: a
+// successful POST wakes the request's server so the poll loop runs a fresh pass
+// promptly (instead of waiting for the safety tick), while a rejected (malformed)
+// color does not wake.
+func TestSessionColor_POST_wakesHub(t *testing.T) {
+	t.Run("successful set wakes", func(t *testing.T) {
+		server, tracker := newWakeSeamServer(t, &mockTmuxOps{})
+		before := tracker.count.Load()
+		router := server.buildRouter()
+		req := httptest.NewRequest(http.MethodPost, "/api/sessions/myproject/color?server=default", strings.NewReader(`{"color":"6"}`))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("POST status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+		}
+		expectWake(t, tracker, before, "session color set")
+	})
+
+	t.Run("rejected color does not wake", func(t *testing.T) {
+		server, tracker := newWakeSeamServer(t, &mockTmuxOps{})
+		before := tracker.count.Load()
+		router := server.buildRouter()
+		req := httptest.NewRequest(http.MethodPost, "/api/sessions/myproject/color?server=default", strings.NewReader(`{"color":"99"}`))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("POST status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+		}
+		expectNoWake(t, tracker, before, "session color rejected")
+	})
+}

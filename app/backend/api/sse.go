@@ -270,6 +270,21 @@ type sseHub struct {
 	// for the PTY-unavailable startup case.
 	subscriber WindowChangeSubscriber
 
+	// wakeMu guards wakes. It is a dedicated mutex (not h.mu) so wake() can
+	// signal from an HTTP handler goroutine without contending on the poll
+	// loop's hot RWMutex.
+	wakeMu sync.Mutex
+	// wakes is the per-server wake-signal index: a CLOSED channel means a
+	// wake is pending for that server (an immediate snapshot pass is owed).
+	// wake() closes it; waitForNext observes the closed channel and replaces
+	// it with a fresh open one on consumption. Close-based (not buffered-token)
+	// so it composes with selectFirst's fan-in + the peek loop, which both
+	// re-read the same channel and rely on fired-channels-staying-readable
+	// (subscriber Wait channels fire by close too). Independent of subscriber,
+	// so wakes work when subscriber == nil (unit-test hubs, PTY-unavailable
+	// hosts). See wake / wakeChannel / consumeWake.
+	wakes map[string]chan struct{}
+
 	// safetyInterval overrides safetyPollInterval per-hub. Zero falls back
 	// to the package constant. Tests set this to a short duration so
 	// existing time-based assertions remain valid; production callers
@@ -364,6 +379,7 @@ func newSSEHub(fetcher SessionFetcher, mc *metrics.Collector, svc *ports.Collect
 		previousRealSessions:   make(map[string]map[string]bool),
 		previousPreviewJSON:    make(map[string]map[string]string),
 		cache:                  make(map[string]*cachedResult),
+		wakes:                  make(map[string]chan struct{}),
 		fetcher:                fetcher,
 		orderFetcher:           prodSessionOrderFetcher{},
 		metrics:                mc,
@@ -1402,6 +1418,15 @@ func (h *sseHub) poll() {
 				delete(perServerGen, server)
 				delete(eventDrivenServers, server)
 			}
+			// h.wakes is guarded by its own wakeMu (not h.mu). Drop each dead
+			// server's wake channel so a reaped server leaves no residual entry.
+			// Lock order is h.mu → wakeMu; no path takes them the other way
+			// (the wake helpers touch only wakeMu), so this cannot deadlock.
+			h.wakeMu.Lock()
+			for _, server := range deadServers {
+				delete(h.wakes, server)
+			}
+			h.wakeMu.Unlock()
 			h.mu.Unlock()
 		}
 
@@ -1447,49 +1472,127 @@ func (h *sseHub) poll() {
 	}
 }
 
-// waitForNext blocks until either a control-mode notification fires for any
-// of the supplied servers OR the safety-net timer elapses. Updates
-// perServerGen with each server's current generation so the next pass can
-// detect change.
+// wake marks the server for an immediate snapshot pass. Non-blocking and safe
+// from any goroutine; called by the option-mutation handlers after a successful
+// tmux write (set-option @color/@session_color/@rk_url/@rk_type is invisible to
+// the tmuxctl control-mode parser, so no subscriber notification fires — the
+// wake is the freshness driver for these mutations). Per-server, keyed by the
+// same server name the poll set uses; a wake for a server with no connected
+// clients (not in the poll set) is a harmless no-op (the closed channel is
+// simply retired the next time that server is polled, and the entry is deleted
+// from h.wakes when the server is reaped from the poll set). Coalescing,
+// at-least-once: N wakes before consumption trigger
+// 1..N passes; redundant passes are suppressed by the previousJSON dedup.
+func (h *sseHub) wake(server string) {
+	h.wakeMu.Lock()
+	defer h.wakeMu.Unlock()
+	ch, ok := h.wakes[server]
+	if !ok {
+		ch = make(chan struct{})
+		h.wakes[server] = ch
+	}
+	select {
+	case <-ch:
+		// Already closed — a wake is already pending; coalesce.
+	default:
+		close(ch)
+	}
+}
+
+// wakeChannel returns the current wake-signal channel for a server, lazily
+// creating an open one if none exists. waitForNext adds the returned channel as
+// a wait case. A channel returned here that is ALREADY closed means a wake
+// landed before the loop reached waitForNext — it fires immediately, exactly as
+// intended (at-least-once). Guarded by wakeMu.
+func (h *sseHub) wakeChannel(server string) <-chan struct{} {
+	h.wakeMu.Lock()
+	defer h.wakeMu.Unlock()
+	ch, ok := h.wakes[server]
+	if !ok {
+		ch = make(chan struct{})
+		h.wakes[server] = ch
+	}
+	return ch
+}
+
+// consumeWake retires a server's wake signal if it is currently closed: it
+// replaces the closed channel with a fresh open one and reports true. Called
+// when waitForNext observes a server's wake channel fired (winner or peek). The
+// replacement happens BEFORE the next fetch pass, so a wake landing between
+// observation and fetch closes the FRESH channel and triggers one more pass —
+// never lost, and never a busy-loop (the closed channel is retired the moment
+// it is observed). If the channel is not closed (a spurious call, or a wake that
+// was already consumed), it is left in place and consumeWake reports false.
+// Guarded by wakeMu.
+func (h *sseHub) consumeWake(server string) bool {
+	h.wakeMu.Lock()
+	defer h.wakeMu.Unlock()
+	ch, ok := h.wakes[server]
+	if !ok {
+		return false
+	}
+	select {
+	case <-ch:
+		// Closed — a wake was pending. Retire it with a fresh open channel.
+		h.wakes[server] = make(chan struct{})
+		return true
+	default:
+		return false
+	}
+}
+
+// waitForNext blocks until either a control-mode notification fires for any of
+// the supplied servers, a wake is signalled for any of them (via wake()), OR the
+// safety-net timer elapses. Updates perServerGen with each server's current
+// generation so the next pass can detect change, and marks woken/notified
+// servers in eventDrivenServers so poll() invalidates their fetch cache.
+//
+// Wake cases are built independent of h.subscriber: a wake must wake the loop
+// even when subscriber == nil (unit-test hubs, PTY-unavailable hosts), where the
+// code previously short-circuited to a timer-only wait. Wake wins do NOT enter
+// subscriber bookkeeping (no perServerGen / Generation() touch) — they are
+// distinguished from subscriber cases by waitCase.isWake.
 func (h *sseHub) waitForNext(servers []string, perServerGen map[string]int64, eventDrivenServers map[string]bool) {
 	timer := time.NewTimer(h.safetyIntervalEffective(servers))
 	defer timer.Stop()
 
-	if h.subscriber == nil {
-		// No control-mode driver — ticker-only.
-		<-timer.C
-		return
-	}
-
-	// Build one wait channel per server, anchored at the generation we
-	// last observed.
-	cases := make([]waitCase, 0, len(servers))
+	// Build wait cases: a subscriber case per server (only when a subscriber is
+	// wired), anchored at the generation we last observed, AND a wake case per
+	// server (always — independent of the subscriber). selectFirst falls through
+	// to the timer when the combined case list is empty.
+	cases := make([]waitCase, 0, len(servers)*2)
 	for _, server := range servers {
-		after := perServerGen[server]
-		ch := h.subscriber.Wait(server, after)
-		cases = append(cases, waitCase{server: server, ch: ch})
+		if h.subscriber != nil {
+			after := perServerGen[server]
+			cases = append(cases, waitCase{server: server, ch: h.subscriber.Wait(server, after)})
+		}
+		cases = append(cases, waitCase{server: server, ch: h.wakeChannel(server), isWake: true})
 	}
 
-	winner := selectFirst(cases, timer)
-	if winner != "" {
-		// A subscriber fired — update its observed generation and mark
-		// the server as event-driven so the next iteration invalidates
-		// its fetch cache.
-		perServerGen[winner] = h.subscriber.Generation(winner)
-		eventDrivenServers[winner] = true
-	}
-	// Even when a subscriber fires, refresh observed generations for the
-	// other servers so we don't replay their backlog on the next pass.
+	// selectFirst blocks until one case's channel fires (or the timer wins). It
+	// returns only the winning server NAME, not which kind of case fired — and
+	// a fired channel stays readable (subscriber Wait fires by close; wake fires
+	// by close) — so we don't special-case the winner. Instead, once selectFirst
+	// unblocks, a single non-blocking peek over ALL cases picks up every case
+	// that has fired (the winner plus any that fired concurrently), routing each
+	// by isWake. This is correct even when a server has BOTH a subscriber case
+	// and a wake case that fired: each is handled independently in one pass.
+	selectFirst(cases, timer)
 	for _, c := range cases {
-		if c.server == winner {
-			continue
-		}
-		// Non-blocking peek: only update perServerGen if the wait already
-		// closed (i.e., generation advanced during our select).
 		select {
 		case <-c.ch:
-			perServerGen[c.server] = h.subscriber.Generation(c.server)
-			eventDrivenServers[c.server] = true
+			if c.isWake {
+				// Only mark event-driven when this call actually retires a
+				// pending (closed) wake — consumeWake reports false once the
+				// wake has already been retired (e.g. two servers sharing a
+				// name cannot happen, but a repeated peek must be idempotent).
+				if h.consumeWake(c.server) {
+					eventDrivenServers[c.server] = true
+				}
+			} else {
+				perServerGen[c.server] = h.subscriber.Generation(c.server)
+				eventDrivenServers[c.server] = true
+			}
 		default:
 		}
 	}
@@ -1497,10 +1600,13 @@ func (h *sseHub) waitForNext(servers []string, perServerGen map[string]int64, ev
 
 // waitCase is a small (server, channel) pair used by selectFirst to
 // determine which server's wait fired first. We avoid reflect.Select by
-// fan-in: each channel sends its server name to a unifying channel.
+// fan-in: each channel sends its server name to a unifying channel. isWake
+// distinguishes a wake-signal case (wakeChannel) from a subscriber Wait case:
+// wake wins skip subscriber bookkeeping and consume the wake instead.
 type waitCase struct {
 	server string
 	ch     <-chan struct{}
+	isWake bool
 }
 
 // selectFirst blocks until either one of the wait channels closes OR the

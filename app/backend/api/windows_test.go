@@ -1012,3 +1012,38 @@ func TestWindowCreateWithoutRkTypeUsesStandardCreate(t *testing.T) {
 		t.Error("CreateWindow was not called")
 	}
 }
+
+// TestWindowOptions_POST_wakesHub verifies the handleWindowOptions wake seam: a
+// successful /options POST wakes the request's server so the poll loop runs a
+// fresh pass promptly (the fix for the 5–10s @color/@rk_url/@rk_type latency),
+// while a rejected (unknown-key) POST does not wake. Shares newWakeSeamServer /
+// expectWake / expectNoWake with the session-color seam test in sessions_test.go.
+func TestWindowOptions_POST_wakesHub(t *testing.T) {
+	t.Run("successful set wakes", func(t *testing.T) {
+		server, tracker := newWakeSeamServer(t, &mockTmuxOps{})
+		before := tracker.count.Load()
+		router := server.buildRouter()
+		req := httptest.NewRequest(http.MethodPost, "/api/windows/@2/options?server=default", strings.NewReader(`{"options":{"@color":"5"}}`))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("POST status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+		}
+		expectWake(t, tracker, before, "window options set")
+	})
+
+	t.Run("rejected key does not wake", func(t *testing.T) {
+		server, tracker := newWakeSeamServer(t, &mockTmuxOps{})
+		before := tracker.count.Load()
+		router := server.buildRouter()
+		req := httptest.NewRequest(http.MethodPost, "/api/windows/@2/options?server=default", strings.NewReader(`{"options":{"@bogus":"x"}}`))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("POST status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+		}
+		expectNoWake(t, tracker, before, "window options rejected")
+	})
+}

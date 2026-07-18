@@ -287,7 +287,7 @@ export function Sidebar({
   const { markKilled, unmarkKilled, markRenamed, unmarkRenamed } = useOptimisticContext();
 
   // Boards integration: aggregate pin map across all servers + boards.
-  const { boards: allBoards, pinnedSet, pinnedToBoard, isLoading: boardsLoading } = useWindowPins();
+  const { boards: allBoards, pinnedSet, pinnedToBoard, boardForWindow, isLoading: boardsLoading } = useWindowPins();
   const activeBoardName = useActiveBoardName();
   const isPinnedToActiveBoardFor = useCallback(
     (winServer: string, windowId: string) => {
@@ -295,6 +295,14 @@ export function Sidebar({
       return pinnedToBoard(activeBoardName, winServer, windowId);
     },
     [activeBoardName, pinnedToBoard],
+  );
+  // Navigate to a board (co9z): the pinned-row indicator's navigation
+  // affordance. Stable identity so it does not churn ServerGroup's React.memo.
+  const onNavigateToBoard = useCallback(
+    (board: string) => {
+      navigate({ to: "/board/$name", params: { name: board } });
+    },
+    [navigate],
   );
   const killWindowStore = useWindowStore((state) => state.killWindow);
   const restoreWindow = useWindowStore((state) => state.restoreWindow);
@@ -1163,7 +1171,9 @@ export function Sidebar({
                 boardsLoading={boardsLoading}
                 pinnedSet={pinnedSet}
                 pinnedToBoard={pinnedToBoard}
+                boardForWindow={boardForWindow}
                 isPinnedToActiveBoardFor={isPinnedToActiveBoardFor}
+                onNavigateToBoard={onNavigateToBoard}
                 collapsed={collapsed}
                 onToggleSession={toggleSession}
                 onSelectWindow={onSelectWindow}
@@ -1286,7 +1296,12 @@ type ServerGroupProps = {
   boardsLoading: boolean;
   pinnedSet: Set<string>;
   pinnedToBoard: (board: string, server: string, windowId: string) => boolean;
+  /** Reverse lookup: the single board a window is pinned to (co9z), or undefined
+   *  if unpinned. Powers the pinned-row → board navigation affordance. Stable. */
+  boardForWindow: (server: string, windowId: string) => string | undefined;
   isPinnedToActiveBoardFor: (winServer: string, windowId: string) => boolean;
+  /** Navigate to a board's route (`/board/{board}`). Stable identity. */
+  onNavigateToBoard: (board: string) => void;
   collapsed: Record<string, boolean>;
 
   onToggleSession: (server: string, name: string) => void;
@@ -1349,7 +1364,9 @@ function ServerGroupInner(props: ServerGroupProps) {
     boardsLoading,
     pinnedSet,
     pinnedToBoard,
+    boardForWindow,
     isPinnedToActiveBoardFor,
+    onNavigateToBoard,
     collapsed,
     onToggleSession,
     onSelectWindow,
@@ -1623,6 +1640,8 @@ function ServerGroupInner(props: ServerGroupProps) {
                             isPinnedToAny={!ghost && pinnedSet.has(`${server}:${win.windowId}`)}
                             isPinnedToActiveBoard={!ghost && isPinnedToActiveBoardFor(server, win.windowId)}
                             isPinnedToBoard={pinnedToBoard}
+                            pinnedBoard={ghost ? undefined : boardForWindow(server, win.windowId)}
+                            onNavigateToBoard={onNavigateToBoard}
                             tabIndex={rovingKey === winRowKey ? 0 : -1}
                             rowKey={winRowKey}
                             ariaLevel={2}

@@ -25,6 +25,12 @@ type PinPopoverProps = {
   boardsLoading?: boolean;
   /** Predicate: is this window already pinned to the given board? */
   isPinnedTo: (board: string) => boolean;
+  /** The single board this window is pinned to (co9z), or undefined. When set,
+   *  a "Go to {board}" navigation row is offered at the top of the popover so
+   *  the pinned-row indicator becomes a path to the owning board. */
+  pinnedBoard?: string;
+  /** Navigate to a board's route (`/board/{board}`). */
+  onNavigateToBoard?: (board: string) => void;
   onClose: () => void;
 };
 
@@ -37,7 +43,7 @@ type PinPopoverProps = {
  *
  * Validation errors render inline. Closes on Escape or outside-click.
  */
-export function PinPopover({ server, windowId, boards, boardsLoading = false, isPinnedTo, onClose }: PinPopoverProps) {
+export function PinPopover({ server, windowId, boards, boardsLoading = false, isPinnedTo, pinnedBoard, onNavigateToBoard, onClose }: PinPopoverProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   // Cold start = zero boards KNOWN to exist. Gated on `!boardsLoading` so the
@@ -143,6 +149,26 @@ export function PinPopover({ server, windowId, boards, boardsLoading = false, is
       aria-label="Pin window to board"
       className="absolute right-0 top-full z-50 mt-1 bg-bg-primary border border-border rounded-md shadow-lg py-1 min-w-[160px] max-w-[220px]"
     >
+      {/* Navigation affordance (co9z): when this window is pinned to a board,
+          offer a direct link to that board's route. Makes the pinned-row pin
+          indicator a path to the owning board (keyboard-reachable within the
+          popover). */}
+      {pinnedBoard && onNavigateToBoard && (
+        <>
+          <button
+            type="button"
+            onClick={() => {
+              onNavigateToBoard(pinnedBoard);
+              onClose();
+            }}
+            className="w-full flex items-center justify-between gap-2 px-3 py-1.5 text-sm text-left text-accent hover:bg-bg-card transition-colors"
+          >
+            <span className="truncate">Go to {pinnedBoard}</span>
+            <span aria-hidden="true">→</span>
+          </button>
+          <div className="border-t border-border my-1" />
+        </>
+      )}
       {boards.length > 0 && (
         <ul className="flex flex-col">
           {orderedBoards.map((b) => {

@@ -54,12 +54,14 @@ export type TopBarSlot = {
    *  unpin lives only on the tile header + the `Board: Unpin Focused Pane`
    *  palette action (see `board-page.tsx`). */
   focusedPane?: { server: string; windowId: string; cwd?: string } | null;
-  /** Board mode: called after a successful top-bar ✕ kill so `BoardPage` can
-   *  self-heal (schedule an entries refetch). Killing the last pane of a window
-   *  collapses its pin-session with NO `board-changed` event, and
-   *  `useBoardEntries` subscribes only to `board-changed`, so the dead tile
-   *  would otherwise linger. Absent outside board mode. */
-  onPaneClosed?: () => void;
+  /** Board mode (co9z): the board ✕ is a consequence-gated KILL, not an
+   *  immediate close-pane. When present, the top-bar ✕ calls this to open
+   *  `BoardPage`'s confirm dialog (with an `Unpin instead` escape) instead of
+   *  firing `closePane`; the ✕ label/aria/tooltip read "Kill". The confirmed
+   *  kill's self-heal refetch is owned by `BoardPage` (`executeKillWindow`'s
+   *  `onSettled`), not signalled back through this slot. Absent outside board
+   *  mode → the ✕ keeps its terminal-mode close-pane behavior. */
+  onRequestKill?: () => void;
   /** Board-mode autofit toggle (738w): current per-board autofit state and its
    *  setter, published by `BoardPage` (like `focusedPane`). Absent outside
    *  board mode — the top-bar toggle renders only when both are present. */

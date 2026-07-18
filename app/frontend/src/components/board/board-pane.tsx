@@ -46,6 +46,10 @@ interface BoardPaneProps {
   dimmed?: boolean;
   onClick: () => void;
   onUnpin: () => void;
+  /** The window's HOME session name (co9z), resolved by the parent from the
+   *  sessions snapshot. Forwarded to BoardHeader for the `{session} › {window}`
+   *  crumb; undefined → header falls back to `{window} · {server}`. */
+  homeSession?: string;
   showResizeHandle: boolean;
   onResizeStart?: (clientX: number) => void;
   /** HTML5 drag-SOURCE props for the pane HEADER (the drag handle:
@@ -82,7 +86,7 @@ interface BoardPaneProps {
  * Re-mounting on swipe-in re-establishes the connection.
  */
 export const BoardPane = forwardRef<BoardPaneHandle, BoardPaneProps>(function BoardPane(
-  { entry, width, autofit = false, paused = false, isFocused, waiting = false, dimmed = false, onClick, onUnpin, showResizeHandle, onResizeStart, scrollLocked, rootRef, dragHandleProps, dropTargetProps },
+  { entry, width, autofit = false, paused = false, isFocused, waiting = false, dimmed = false, onClick, onUnpin, homeSession, showResizeHandle, onResizeStart, scrollLocked, rootRef, dragHandleProps, dropTargetProps },
   ref,
 ) {
   const wsRef = useRef<WebSocket | null>(null);
@@ -165,7 +169,7 @@ export const BoardPane = forwardRef<BoardPaneHandle, BoardPaneProps>(function Bo
             : undefined
       }
     >
-      <BoardHeader entry={entry} onUnpin={onUnpin} dragHandleProps={dragHandleProps} />
+      <BoardHeader entry={entry} onUnpin={onUnpin} homeSession={homeSession} dragHandleProps={dragHandleProps} />
       <div className="flex-1 min-h-0 px-1 py-0.5 flex flex-col">
         {!paused && (
           <TerminalClient

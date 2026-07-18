@@ -103,15 +103,17 @@ type TopBarProps = {
   waitingPaneCount?: number;
   /** Board-mode list of all boards (for the board switcher dropdown). */
   boards?: { name: string }[];
-  /** Board-mode split/close target (260715-6jwn): the focused tile's window.
-   *  Feeds the two top-bar SplitButtons AND the ✕ (now a real close-pane,
-   *  uniform with terminal mode — NOT unpin). `null` when the board is empty →
-   *  splits absent, ✕ disabled. `cwd` seeds the split's working directory. */
+  /** Board-mode split/kill target (260715-6jwn): the focused tile's window.
+   *  Feeds the two top-bar SplitButtons AND the ✕ (a consequence-gated Kill in
+   *  board mode — co9z). `null` when the board is empty → splits absent, ✕
+   *  disabled. `cwd` seeds the split's working directory. */
   focusedPane?: { server: string; windowId: string; cwd?: string } | null;
-  /** Board-mode self-heal hook (260715-6jwn): invoked after a successful ✕ kill
-   *  so `BoardPage` can schedule an entries refetch (a window-killing kill
-   *  collapses the pin-session with no `board-changed` event). */
-  onPaneClosed?: () => void;
+  /** Board-mode kill request (co9z): when present, the board ✕ calls this to
+   *  open `BoardPage`'s consequence-gated kill dialog instead of firing
+   *  `closePane` directly, and the ✕ reads "Kill". The confirmed kill's
+   *  self-heal refetch is owned by `BoardPage` (`executeKillWindow`'s
+   *  `onSettled`). Absent → terminal-mode close-pane behavior. */
+  onRequestKill?: () => void;
   /** Board-mode autofit state (738w) — reflected by the L2 toggle's
    *  `aria-pressed`. Wired from `board-page.tsx` via the slot context. */
   autofit?: boolean;
@@ -346,7 +348,7 @@ export function TopBar({
   waitingPaneCount,
   boards,
   focusedPane,
-  onPaneClosed,
+  onRequestKill,
   autofit,
   onToggleAutofit,
   availableViews,
@@ -544,11 +546,14 @@ export function TopBar({
       menuRender: () => <AutofitMenuRow autofit={autofit ?? false} onToggle={onToggleAutofit ?? (() => {})} />,
     },
     {
-      // Close-pane ✕ — a real kill in BOTH modes (260715-6jwn). Terminal kills
-      // the current window's active pane; board kills the focused tile's active
-      // pane (`focusedPane`) with `onPaneClosed` driving BoardPage's self-heal
-      // refetch (a window-killing kill fires no `board-changed`). Disabled on
-      // board when there is no focused tile.
+      // Close-pane / Kill ✕. Terminal mode kills the current window's active pane
+      // (immediate close-pane). Board mode (co9z) is a consequence-gated KILL:
+      // the ✕ reads "Kill" and, via `onRequestKill`, opens BoardPage's confirm
+      // dialog (with an `Unpin instead` escape) instead of firing immediately —
+      // a board Kill destroys the window everywhere, not just the board pane. The
+      // confirmed kill's self-heal refetch is owned by BoardPage
+      // (`executeKillWindow`'s `onSettled`), not signalled back through the ✕.
+      // Disabled on board when there is no focused tile.
       id: "close-pane",
       modes: ["terminal", "board"],
       hidden: mode === "terminal" && !currentWindow,
@@ -558,7 +563,8 @@ export function TopBar({
             server={focusedPane?.server ?? ""}
             windowId={focusedPane?.windowId ?? ""}
             disabled={!focusedPane}
-            onClosed={onPaneClosed}
+            onRequestKill={onRequestKill}
+            label="Kill"
           />
         ) : currentWindow ? (
           <ClosePaneButton server={server} windowId={currentWindow.windowId} />
@@ -569,8 +575,8 @@ export function TopBar({
             server={focusedPane?.server ?? ""}
             windowId={focusedPane?.windowId ?? ""}
             disabled={!focusedPane}
-            onClosed={onPaneClosed}
-            label="Close pane"
+            onRequestKill={onRequestKill}
+            label="Kill"
           />
         ) : currentWindow ? (
           <ClosePaneMenuRow server={server} windowId={currentWindow.windowId} label="Close pane" />
@@ -1939,39 +1945,34 @@ function SplitButton({
 }
 
 /**
- * The L2 ✕ chip — a real close-pane in BOTH terminal and board mode
- * (260715-6jwn reversed the prior board-✕-unpin behavior). `closePane(server,
- * windowId)` kills the addressed window's active pane via the optimistic path
- * (spinner while pending, toast on error). Terminal passes the current window;
- * board passes the focused tile's window (`focusedPane`) and a `disabled` when
- * the board is empty, plus an `onClosed` callback fired after a successful kill
- * so BoardPage can self-heal a window-killing kill (no `board-changed` fires on
- * that path). One component, one kill path — the earlier `onUnpin` board branch
- * is gone (unpin lives on the tile header + palette).
+ * The L2 ✕ chip. Terminal mode: a real close-pane — `closePane(server,
+ * windowId)` kills the current window's active pane via the optimistic path
+ * (spinner while pending, toast on error). Board mode (co9z): a consequence-gated
+ * KILL — when `onRequestKill` is present the click opens BoardPage's confirm
+ * dialog (with an `Unpin instead` escape) instead of firing `closePane`, and the
+ * ✕ reads "Kill". The confirmed board kill's self-heal refetch is owned by
+ * BoardPage (`executeKillWindow`'s `onSettled`), so this component carries no
+ * self-heal callback of its own.
  */
 function ClosePaneButton({
   server,
   windowId,
   disabled,
-  onClosed,
+  onRequestKill,
   label = "Close pane",
 }: {
   server?: string;
   windowId?: string;
   disabled?: boolean;
-  /** Called after a successful kill (board self-heal seam). */
-  onClosed?: () => void;
+  /** Board mode (co9z): when present, the click opens BoardPage's confirm dialog
+   *  instead of firing closePane directly — a board Kill is consequence-gated. */
+  onRequestKill?: () => void;
   label?: string;
 }) {
   const { addToast } = useToast();
 
   const { execute, isPending } = useOptimisticAction<[]>({
     action: () => closePane(server ?? "", windowId ?? ""),
-    // Self-heal seam (board): fire after a successful kill so BoardPage can
-    // refetch entries and drop a now-dead tile. `onSettled` (guarded, mounted-
-    // only) is correct — the board page stays mounted on an empty board (it
-    // renders the empty state), and the callback drives the board hook's state.
-    onSettled: () => onClosed?.(),
     onError: (err) => {
       addToast(err.message || "Failed to close pane");
     },
@@ -1982,7 +1983,7 @@ function ClosePaneButton({
   return (
     <button
       type="button"
-      onClick={() => execute()}
+      onClick={() => (onRequestKill ? onRequestKill() : execute())}
       disabled={isDisabled}
       aria-label={label}
       className="rk-glint min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
@@ -2643,28 +2644,28 @@ function AutofitMenuRow({ autofit, onToggle }: { autofit: boolean; onToggle: () 
   );
 }
 
-/** Close-pane row — the menu mirror of the in-bar ClosePaneButton. A real kill
- *  in both modes (260715-6jwn): `closePane(server, windowId)` on the addressed
- *  window's active pane; board passes the focused tile's window + an `onClosed`
- *  self-heal seam and a `disabled` when the board is empty. */
+/** Close-pane row — the menu mirror of the in-bar ClosePaneButton. Terminal
+ *  mode: a real close-pane on the current window's active pane. Board mode
+ *  (co9z): `onRequestKill` opens BoardPage's consequence-gated kill dialog
+ *  instead, and the row reads "Kill"; `disabled` when the board is empty. */
 function ClosePaneMenuRow({
   server,
   windowId,
   disabled,
-  onClosed,
+  onRequestKill,
   label = "Close pane",
 }: {
   server?: string;
   windowId?: string;
   disabled?: boolean;
-  /** Called after a successful kill (board self-heal seam). */
-  onClosed?: () => void;
+  /** Board mode (co9z): when present, open BoardPage's confirm dialog instead of
+   *  firing closePane directly. */
+  onRequestKill?: () => void;
   label?: string;
 }) {
   const { addToast } = useToast();
   const { execute, isPending } = useOptimisticAction<[]>({
     action: () => closePane(server ?? "", windowId ?? ""),
-    onSettled: () => onClosed?.(),
     onError: (err) => addToast(err.message || "Failed to close pane"),
   });
   return (
@@ -2673,7 +2674,7 @@ function ClosePaneMenuRow({
       role="menuitem"
       tabIndex={-1}
       disabled={disabled || isPending}
-      onClick={() => execute()}
+      onClick={() => (onRequestKill ? onRequestKill() : execute())}
       className={MENU_ROW_CLASS}
     >
       {label}

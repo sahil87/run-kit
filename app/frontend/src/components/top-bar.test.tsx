@@ -764,9 +764,10 @@ describe("TopBar", () => {
     expect(closePane).toHaveBeenCalledWith("runkit", "@0");
   });
 
-  describe("board-mode ✕ = close the focused tile's pane (260715-6jwn)", () => {
+  describe("board-mode ✕ = consequence-gated Kill (co9z)", () => {
     /** Board mode passes tolerant-empty session props plus the focused-tile
-     *  split/close target (`focusedPane`) the top bar now keys on. */
+     *  split/kill target (`focusedPane`) the top bar keys on, and `onRequestKill`
+     *  (co9z) which routes the ✕ to BoardPage's confirm dialog. */
     function renderBoard(overrides: Partial<React.ComponentProps<typeof TopBar>> = {}) {
       return renderTopBar({
         mode: "board",
@@ -781,41 +782,37 @@ describe("TopBar", () => {
         serverCount: 1,
         boards: [{ name: "b" }],
         focusedPane: { server: "runkit", windowId: "@7", cwd: "~/code/x" },
+        onRequestKill: vi.fn(),
         ...overrides,
       });
     }
 
-    it("labels the ✕ as 'Close pane' (uniform with terminal) and calls closePane with the focused tile's target, not any unpin", async () => {
+    it("labels the board ✕ as 'Kill' and calls onRequestKill (NOT closePane) — the board Kill is consequence-gated", async () => {
       const { closePane } = await import("@/api/client");
-      renderBoard();
-      // The board ✕ carries the terminal label now (no more "Unpin pane from board").
+      vi.mocked(closePane).mockClear();
+      const onRequestKill = vi.fn();
+      renderBoard({ onRequestKill });
+      // The board ✕ reads "Kill" (verb discipline) — no old "Close pane"/"Unpin pane from board".
+      expect(screen.queryByLabelText("Close pane")).not.toBeInTheDocument();
       expect(screen.queryByLabelText("Unpin pane from board")).not.toBeInTheDocument();
-      const close = screen.getByLabelText("Close pane");
+      const kill = screen.getByLabelText("Kill");
       await act(async () => {
-        fireEvent.click(close);
+        fireEvent.click(kill);
       });
-      expect(closePane).toHaveBeenCalledWith("runkit", "@7");
+      // Routes to the confirm dialog opener, does NOT fire an immediate close-pane.
+      expect(onRequestKill).toHaveBeenCalledTimes(1);
+      expect(closePane).not.toHaveBeenCalled();
     });
 
-    it("fires onPaneClosed after a successful board ✕ kill (self-heal seam)", async () => {
-      const onPaneClosed = vi.fn();
-      renderBoard({ onPaneClosed });
+    it("disables the board ✕ when there is no focused tile (empty board)", async () => {
+      const onRequestKill = vi.fn();
+      renderBoard({ focusedPane: null, paneCount: 0, onRequestKill });
+      const kill = screen.getByLabelText("Kill");
+      expect(kill).toBeDisabled();
       await act(async () => {
-        fireEvent.click(screen.getByLabelText("Close pane"));
+        fireEvent.click(kill);
       });
-      expect(onPaneClosed).toHaveBeenCalledTimes(1);
-    });
-
-    it("disables the ✕ when the board has no focused tile (empty board)", async () => {
-      const { closePane } = await import("@/api/client");
-      const before = vi.mocked(closePane).mock.calls.length;
-      renderBoard({ focusedPane: null, paneCount: 0 });
-      const close = screen.getByLabelText("Close pane");
-      expect(close).toBeDisabled();
-      await act(async () => {
-        fireEvent.click(close);
-      });
-      expect(vi.mocked(closePane).mock.calls.length).toBe(before);
+      expect(onRequestKill).not.toHaveBeenCalled();
     });
 
     it("renders both SplitButtons on board mode, wired to the focused tile", async () => {

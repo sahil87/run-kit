@@ -77,9 +77,10 @@ type mockTmuxOps struct {
 	// listWindowsBySession, when non-nil, makes ListWindows session-aware:
 	// it returns the windows mapped to the queried session name (empty slice
 	// for an unmapped session). This is required to faithfully model the
-	// move-based board world, where a pinned window lives ONLY in its
-	// `_rk-pin-<id>` session and NOT in any home session — the flat
-	// listWindowsResult (returned for every session) cannot express that.
+	// link-based board world, where a pinned window is a member of BOTH its
+	// `_rk-pin-<id>` pin-session AND its home session at once — the flat
+	// listWindowsResult (returned for every session) cannot express that a window
+	// appears under two distinct session keys.
 	listWindowsBySession map[string][]tmux.WindowInfo
 	listSessionsResult   []tmux.SessionInfo
 	listServersResult  []string
@@ -87,6 +88,11 @@ type mockTmuxOps struct {
 	resolveWindowSessionResult string
 	resolveWindowSessionErr    error
 	resolveWindowSessionID     string
+
+	// hasSessionNames, when non-nil, makes HasSession return true only for the
+	// listed session names (models the relay's pin-session-first probe). When nil,
+	// HasSession returns false for everything (no pin-session present).
+	hasSessionNames map[string]bool
 
 	splitWindowCalled     bool
 	splitWindowID         string
@@ -305,6 +311,12 @@ func (m *mockTmuxOps) ResolveWindowSession(ctx context.Context, server, windowID
 		return "", m.resolveWindowSessionErr
 	}
 	return m.resolveWindowSessionResult, nil
+}
+func (m *mockTmuxOps) HasSession(ctx context.Context, server, session string) bool {
+	if m.hasSessionNames == nil {
+		return false
+	}
+	return m.hasSessionNames[session]
 }
 func (m *mockTmuxOps) SplitWindow(windowID string, horizontal bool, cwd string, server string) (string, error) {
 	m.splitWindowCalled = true

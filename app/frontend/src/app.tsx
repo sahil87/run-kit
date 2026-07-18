@@ -19,6 +19,8 @@ import { buildVersionAction, displayVersion } from "@/lib/palette-version";
 import { copyToClipboard } from "@/lib/clipboard";
 import { buildViewActions } from "@/lib/palette-view";
 import { buildStatusRefreshAction } from "@/lib/palette-status-refresh";
+import { buildPinActions } from "@/lib/palette-pin";
+import { readLastPinnedBoard } from "@/lib/last-pinned-board";
 import { buildNavActions } from "@/lib/palette-nav";
 import { nextWaitingTarget, chatSearchForTarget, type WaitingTarget } from "@/lib/palette-agent-nav";
 import { isWaiting } from "@/lib/waiting";
@@ -1853,7 +1855,7 @@ function AppShell() {
   // Window, and Unpin Current Window when the current window is pinned.
   const { boards: boardSummaries } = useBoards();
   const { pinnedToBoard } = useWindowPins();
-  const { unpin: unpinPinAction } = usePinActions();
+  const { pin: pinPinAction, unpin: unpinPinAction } = usePinActions();
 
   // Boards the current window is currently pinned to (for Unpin Current Window
   // visibility + bulk-unpin behavior). Recomputed when the cross-board pin map
@@ -1877,20 +1879,32 @@ function AppShell() {
     const conditional: PaletteAction[] = [];
 
     if (sessionName && currentWindow && server) {
-      conditional.push({
-        id: "board-pin-current",
-        label: "Board: Pin Current Window",
-        onSelect: () => {
-          // Imperatively open the existing sidebar pin popover for the current
-          // window. The matching WindowRow listens for this event and only the
-          // row whose (server, windowId) matches handles it.
-          document.dispatchEvent(
-            new CustomEvent("pin-popover:open", {
-              detail: { server, windowId: currentWindow.windowId },
-            }),
-          );
-        },
-      });
+      const win = currentWindow;
+      const srv = server;
+      // Direct-pin palette actions (`Pin: Current Window to <board>`) + the
+      // `Pin: Current Window to new board…` variant, from the pure
+      // buildPinActions builder (lib/palette-pin.ts). These close the
+      // Constitution V keyboard-first gap: a direct pin is Cmd+K → type →
+      // Enter, with the §2c success toast as feedback. They SUPERSEDE the old
+      // inline `board-pin-current` opener — its popover-opening role is now the
+      // new-board variant. The new-board variant reuses the existing
+      // `pin-popover:open` CustomEvent (only the WindowRow whose
+      // (server, windowId) matches handles it) since free-text entry needs the
+      // popover (the palette has no value input).
+      conditional.push(
+        ...buildPinActions(
+          boardSummaries,
+          currentWindowPinnedBoards,
+          readLastPinnedBoard(),
+          (board) => pinPinAction(srv, win.windowId, board),
+          () =>
+            document.dispatchEvent(
+              new CustomEvent("pin-popover:open", {
+                detail: { server: srv, windowId: win.windowId },
+              }),
+            ),
+        ),
+      );
 
       // Unpin Current Window — visible only when the current window is pinned
       // to ≥1 board. v1 semantics: unpin from ALL boards in parallel (simpler
@@ -1900,8 +1914,6 @@ function AppShell() {
           id: "board-unpin-current",
           label: "Board: Unpin Current Window",
           onSelect: () => {
-            const win = currentWindow;
-            const srv = server;
             for (const board of currentWindowPinnedBoards) {
               unpinPinAction(srv, win.windowId, board);
             }
@@ -1910,7 +1922,7 @@ function AppShell() {
       }
     }
     return [...switchEntries, ...conditional];
-  }, [boardSummaries, sessionName, currentWindow, server, navigate, currentWindowPinnedBoards, unpinPinAction]);
+  }, [boardSummaries, sessionName, currentWindow, server, navigate, currentWindowPinnedBoards, pinPinAction, unpinPinAction]);
 
   const viewActions: PaletteAction[] = useMemo(
     () => [

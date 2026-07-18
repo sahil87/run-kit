@@ -2,13 +2,23 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, act, cleanup } from "@testing-library/react";
 import { ToastProvider, useToast } from "./toast";
 
-function TestConsumer() {
+function TestConsumer({ onViewBoard }: { onViewBoard?: () => void } = {}) {
   const { addToast } = useToast();
   return (
     <div>
       <button onClick={() => addToast("Something failed", "error")}>Error Toast</button>
       <button onClick={() => addToast("Action completed", "info")}>Info Toast</button>
       <button onClick={() => addToast("Default variant")}>Default Toast</button>
+      <button
+        onClick={() =>
+          addToast("Pinned to deploys", "info", {
+            label: "View board",
+            onSelect: () => onViewBoard?.(),
+          })
+        }
+      >
+        Action Toast
+      </button>
     </div>
   );
 }
@@ -174,5 +184,41 @@ describe("Toast system", () => {
     }
 
     expect(() => render(<Orphan />)).toThrow("useToast must be used within ToastProvider");
+  });
+
+  describe("optional action button", () => {
+    it("renders no action button for a message-only toast", () => {
+      render(
+        <ToastProvider>
+          <TestConsumer />
+        </ToastProvider>,
+      );
+      act(() => {
+        screen.getByText("Info Toast").click();
+      });
+      expect(screen.queryByRole("button", { name: "View board" })).not.toBeInTheDocument();
+    });
+
+    it("renders the action as a button and runs onSelect + dismisses on activation", () => {
+      const onViewBoard = vi.fn();
+      render(
+        <ToastProvider>
+          <TestConsumer onViewBoard={onViewBoard} />
+        </ToastProvider>,
+      );
+      act(() => {
+        screen.getByText("Action Toast").click();
+      });
+      const actionBtn = screen.getByRole("button", { name: "View board" });
+      expect(actionBtn).toBeInTheDocument();
+      expect(screen.getByRole("alert")).toHaveTextContent("Pinned to deploys");
+
+      act(() => {
+        actionBtn.click();
+      });
+      expect(onViewBoard).toHaveBeenCalledOnce();
+      // Selecting the action dismisses the toast.
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
   });
 });

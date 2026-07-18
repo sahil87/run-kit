@@ -2,14 +2,22 @@ import { createContext, useContext, useState, useCallback, useEffect, useRef } f
 
 type ToastVariant = "error" | "info";
 
+/** Optional actionable button rendered inside a toast (e.g. "View board" on a
+ *  successful pin). Selecting it dismisses the toast, then runs `onSelect`. */
+type ToastAction = {
+  label: string;
+  onSelect: () => void;
+};
+
 type ToastEntry = {
   id: string;
   message: string;
   variant: ToastVariant;
+  action?: ToastAction;
 };
 
 type ToastContextType = {
-  addToast: (message: string, variant?: ToastVariant) => void;
+  addToast: (message: string, variant?: ToastVariant, action?: ToastAction) => void;
 };
 
 const ToastContext = createContext<ToastContextType | null>(null);
@@ -21,10 +29,13 @@ const TOAST_DURATION = 4000;
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<ToastEntry[]>([]);
 
-  const addToast = useCallback((message: string, variant: ToastVariant = "error") => {
-    const id = String(++nextId);
-    setToasts((prev) => [...prev, { id, message, variant }]);
-  }, []);
+  const addToast = useCallback(
+    (message: string, variant: ToastVariant = "error", action?: ToastAction) => {
+      const id = String(++nextId);
+      setToasts((prev) => [...prev, { id, message, variant, action }]);
+    },
+    [],
+  );
 
   const removeToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
@@ -76,10 +87,22 @@ function Toast({ entry, onDismiss }: { entry: ToastEntry; onDismiss: () => void 
   return (
     <div
       role="alert"
-      className="pointer-events-auto bg-bg-card border border-border text-text-primary font-mono text-xs px-3 py-2 rounded shadow-lg max-w-xs"
+      className="pointer-events-auto bg-bg-card border border-border text-text-primary font-mono text-xs px-3 py-2 rounded shadow-lg max-w-xs flex items-center justify-between gap-3"
       style={{ borderLeftWidth: 3, borderLeftColor: accentColor }}
     >
-      {entry.message}
+      <span>{entry.message}</span>
+      {entry.action && (
+        <button
+          type="button"
+          onClick={() => {
+            onDismiss();
+            entry.action?.onSelect();
+          }}
+          className="shrink-0 text-accent underline underline-offset-2 hover:text-text-primary transition-colors"
+        >
+          {entry.action.label}
+        </button>
+      )}
     </div>
   );
 }

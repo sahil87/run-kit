@@ -63,6 +63,9 @@ type WindowRowProps = {
   isPinnedToActiveBoard?: boolean;
   /** All known boards (for the pin popover). */
   boards?: BoardSummary[];
+  /** True while the board list is still loading — forwarded to the pin popover
+   *  so its cold-start prefill isn't triggered by an empty mid-load list. */
+  boardsLoading?: boolean;
   /** Predicate: is this window pinned to the given board? Identity-arg form
    *  (board, server, windowId) so a single stable reference (the context's
    *  `pinnedToBoard`) serves every row; the row binds its own (server,
@@ -116,6 +119,7 @@ function WindowRowInner({
   isPinnedToAny = false,
   isPinnedToActiveBoard = false,
   boards = [],
+  boardsLoading = false,
   isPinnedToBoard,
   tabIndex = -1,
   ariaLevel,
@@ -349,6 +353,7 @@ function WindowRowInner({
           server={server}
           windowId={win.windowId}
           boards={boards}
+          boardsLoading={boardsLoading}
           isPinnedTo={(b) => (isPinnedToBoard ? isPinnedToBoard(b, srv, win.windowId) : false)}
           onClose={() => setShowPinPopover(false)}
         />

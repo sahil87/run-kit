@@ -3,6 +3,7 @@ import { useBoards } from "@/hooks/use-boards";
 import { useBoardListReorder } from "@/hooks/use-board-list-reorder";
 import { useActiveBoardName } from "@/hooks/use-active-board";
 import { useToast } from "@/components/toast";
+import { PinIcon } from "@/components/pin-icon";
 import { CollapsiblePanel } from "./collapsible-panel";
 
 /**
@@ -39,12 +40,19 @@ export function BoardsSection() {
     <CollapsiblePanel
       title="Boards"
       storageKey="runkit-panel-boards"
-      defaultOpen={false}
+      // Default open once boards exist so a fresh pin surfaces where it landed.
+      // useLocalStorageBoolean only consults this default when no stored key
+      // exists and resyncs on default change, so the panel opens live when the
+      // first board appears while an explicit user toggle always wins.
+      defaultOpen={boards.length > 0}
       contentClassName=""
       headerRight={
-        boards.length > 0 ? (
-          <span className="text-xs text-text-secondary">{boards.length}</span>
-        ) : undefined
+        // The shared PinIcon visually links the window-row pin affordance to
+        // where pins land; leads the count and stays in zero-board hint mode.
+        <span className="flex items-center gap-1.5 text-text-secondary">
+          <PinIcon />
+          {boards.length > 0 ? <span className="text-xs">{boards.length}</span> : null}
+        </span>
       }
     >
       {isHintMode ? (

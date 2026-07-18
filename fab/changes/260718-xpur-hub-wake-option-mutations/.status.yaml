@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 11
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-07-18T13:27:29Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-18T13:40:09Z"}
     review: {started_at: "2026-07-18T13:40:09Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-18T14:02:06Z"}
     hydrate: {started_at: "2026-07-18T14:02:06Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-18T14:05:22Z"}
-    ship: {started_at: "2026-07-18T14:05:22Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-07-18T14:05:22Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-18T14:07:40Z"}
+    review-pr: {started_at: "2026-07-18T14:07:40Z", iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/390
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 898
+    deleted: 39
+    net: 859
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 515
+        deleted: 36
+        net: 479
     tests:
-        added: 0
+        added: 365
         deleted: 0
-        net: 0
-    computed_at: "2026-07-18T14:05:22Z"
-    computed_at_stage: hydrate
+        net: 365
+    computed_at: "2026-07-18T14:07:40Z"
+    computed_at_stage: ship
 summary: Add a per-server sseHub.wake seam so user-option mutations (@color/@session_color/@rk_url/@rk_type) repaint in one poll pass instead of the 12s safety tick
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-07-18T14:05:22Z
+last_updated: 2026-07-18T14:07:40Z

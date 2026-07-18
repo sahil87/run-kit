@@ -1,0 +1,55 @@
+id: dhdj
+name: 260718-dhdj-docked-compose-strip
+created: 2026-07-18T14:04:48Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 16
+    acceptance_count: 25
+    acceptance_completed: 25
+confidence:
+    certain: 10
+    confident: 4
+    tentative: 0
+    unresolved: 0
+    score: 4.3
+    fuzzy: true
+    dimensions:
+        signal: 80.4
+        reversibility: 78.9
+        competence: 82.9
+        disambiguation: 82.1
+stage_metrics:
+    intake: {started_at: "2026-07-18T14:04:48Z", driver: fab-new, iterations: 1, completed_at: "2026-07-18T14:10:57Z"}
+    apply: {started_at: "2026-07-18T14:46:27Z", driver: fab-fff, iterations: 2, completed_at: "2026-07-18T14:58:48Z"}
+    review: {started_at: "2026-07-18T14:58:48Z", driver: fab-fff, iterations: 2, completed_at: "2026-07-18T15:09:47Z"}
+    hydrate: {started_at: "2026-07-18T15:09:47Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-18T15:16:24Z"}
+    ship: {started_at: "2026-07-18T15:16:24Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-07-18T15:16:24Z"
+    computed_at_stage: hydrate
+summary: 'Replace the modal ComposeBuffer with a global docked compose strip: sticky >_ toggle + palette parity, ChromeContext-persisted preference, live focused-pane target, module-level draft store, relay-bytes send path'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-07-18T15:16:24Z

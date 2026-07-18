@@ -12,6 +12,7 @@ const FIXED_WIDTH_STORAGE_KEY = "runkit-fixed-width";
 const SIDEBAR_OPEN_STORAGE_KEY = "runkit-sidebar-open";
 const SIDEBAR_WIDTH_STORAGE_KEY = "runkit-sidebar-width";
 const TERMINAL_FONT_STORAGE_KEY = "runkit-terminal-font-size";
+const COMPOSE_STRIP_STORAGE_KEY = "runkit-compose-strip";
 
 const SIDEBAR_DEFAULT_WIDTH = 220;
 const SIDEBAR_MIN_WIDTH = 160;
@@ -49,6 +50,16 @@ function clampTerminalFont(px: number): number {
 function readFixedWidth(): boolean {
   try {
     return localStorage.getItem(FIXED_WIDTH_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+/** Whether the docked compose strip is enabled (a global chrome preference,
+ * persisted like `fixedWidth`). Absent key defaults to off. */
+function readComposeStrip(): boolean {
+  try {
+    return localStorage.getItem(COMPOSE_STRIP_STORAGE_KEY) === "true";
   } catch {
     return false;
   }
@@ -119,6 +130,10 @@ type ChromeState = {
    * the device default (11 mobile / 13 desktop). This is what `TerminalClient`
    * reads and what the top-bar combo control displays. */
   terminalFontSize: number;
+  /** Whether the docked compose strip is enabled — a global chrome preference
+   * persisted to `runkit-compose-strip`. When on, the strip renders above the
+   * bottom bar on every route that mounts a `<BottomBar>`. */
+  composeStripEnabled: boolean;
 };
 
 type ChromeDispatch = {
@@ -144,6 +159,8 @@ type ChromeDispatch = {
   /** Forget the preference: removes the stored key so the effective size falls
    * back to the device default. */
   resetTerminalFont: () => void;
+  /** Toggle the docked compose strip on/off, persisting to localStorage. */
+  toggleComposeStrip: () => void;
 };
 
 const ChromeStateContext = createContext<ChromeState | null>(null);
@@ -214,9 +231,19 @@ export function ChromeProvider({ children }: { children: React.ReactNode }) {
     setTerminalFontPref(null);
   }, []);
 
+  const [composeStripEnabled, setComposeStripEnabled] = useState(readComposeStrip);
+
+  const toggleComposeStrip = useCallback(() => {
+    setComposeStripEnabled((prev) => {
+      const next = !prev;
+      try { localStorage.setItem(COMPOSE_STRIP_STORAGE_KEY, String(next)); } catch { /* noop */ }
+      return next;
+    });
+  }, []);
+
   const stateValue = useMemo<ChromeState>(
-    () => ({ currentSession, currentWindow, sidebarOpen, sidebarWidth, isConnected, fixedWidth, terminalFontSize }),
-    [currentSession, currentWindow, sidebarOpen, sidebarWidth, isConnected, fixedWidth, terminalFontSize],
+    () => ({ currentSession, currentWindow, sidebarOpen, sidebarWidth, isConnected, fixedWidth, terminalFontSize, composeStripEnabled }),
+    [currentSession, currentWindow, sidebarOpen, sidebarWidth, isConnected, fixedWidth, terminalFontSize, composeStripEnabled],
   );
 
   const dispatchRef = useRef<ChromeDispatch | null>(null);
@@ -232,6 +259,7 @@ export function ChromeProvider({ children }: { children: React.ReactNode }) {
       increaseTerminalFont,
       decreaseTerminalFont,
       resetTerminalFont,
+      toggleComposeStrip,
     };
   }
 

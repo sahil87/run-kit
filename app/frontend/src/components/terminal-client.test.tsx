@@ -158,10 +158,6 @@ vi.mock("@/themes", () => ({
   deriveXtermTheme: () => ({}),
 }));
 
-vi.mock("@/components/compose-buffer", () => ({
-  ComposeBuffer: () => null,
-}));
-
 function createWsRef(): React.MutableRefObject<WebSocket | null> {
   return { current: null };
 }
@@ -175,8 +171,6 @@ function renderTerminalClient(scrollLocked = false) {
           windowId="@0"
           server="default"
           wsRef={createWsRef()}
-          composeOpen={false}
-          setComposeOpen={vi.fn()}
           scrollLocked={scrollLocked}
         />
       </FocusedTerminalProvider>
@@ -517,8 +511,6 @@ describe("TerminalClient connection identity — (server, owning session), not w
             windowId={p.windowId}
             server={p.server ?? "default"}
             wsRef={wsRef}
-            composeOpen={false}
-            setComposeOpen={vi.fn()}
             onSessionNotFound={p.onSessionNotFound}
             scrollLocked={false}
           />
@@ -933,8 +925,6 @@ describe("TerminalClient terminal-font change syncs the grid to tmux", () => {
             windowId="@0"
             server="default"
             wsRef={createWsRef()}
-            composeOpen={false}
-            setComposeOpen={vi.fn()}
             scrollLocked={false}
           />
           <FontStepper />

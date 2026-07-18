@@ -9,9 +9,9 @@ import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useOptimisticContext } from "@/contexts/optimistic-context";
 import { useSessionContext, useUpdateNotification } from "@/contexts/session-context";
 import { useChromeState, useChromeDispatch } from "@/contexts/chrome-context";
-import { useFocusedTerminal } from "@/contexts/focused-terminal-context";
 import { useToast } from "@/components/toast";
 import { BottomBar } from "@/components/bottom-bar";
+import { ComposeStrip } from "@/components/compose-strip";
 import { Shell } from "@/components/shell/shell";
 import { Sidebar } from "@/components/sidebar";
 import { HELP_URL } from "@/components/top-bar";
@@ -350,8 +350,8 @@ function BoardPageContent({ name }: { name: string }) {
   // Chrome dispatch for the sidebar toggle (below) and the terminal-font palette
   // actions. Lifted here (above boardRouteActions) so the font mutators are in
   // scope for the palette memo.
-  const { sidebarOpen } = useChromeState();
-  const { setSidebarOpen, increaseTerminalFont, decreaseTerminalFont, resetTerminalFont } = useChromeDispatch();
+  const { sidebarOpen, composeStripEnabled } = useChromeState();
+  const { setSidebarOpen, increaseTerminalFont, decreaseTerminalFont, resetTerminalFont, toggleComposeStrip } = useChromeDispatch();
 
   // Update notification (lifted above boardRouteActions so the qualify state +
   // triggers are in scope for the palette memo). Below `sm` the top-bar L3
@@ -876,16 +876,14 @@ function BoardPageContent({ name }: { name: string }) {
   // (alongside the terminal-font mutators) so AppShell and BoardPage share one
   // ChromeContext toggle target.
 
-  // Compose / focus / scroll-lock plumbing for the shell-level BottomBar.
-  // BottomBar is byte-identical across routes per spec § Behavioral
-  // Correctness, so the board route MUST pass the same callback set as
-  // AppShell — otherwise the `>_` compose button is gated out (BottomBar
-  // renders compose iff `onOpenCompose` is truthy) and `ScrollLock` long-press
-  // never reaches a handler. Compose state is owned by `FocusedTerminalContext`
-  // so opening the buffer here surfaces it inside the focused `BoardPane`'s
-  // `TerminalClient` (the only one rendering ComposeBuffer when its
-  // `isFocused && composeOpen` gate matches).
-  const { setComposeOpen } = useFocusedTerminal();
+  // Focus / scroll-lock plumbing for the shell-level BottomBar. BottomBar is
+  // byte-identical across routes per spec § Behavioral Correctness, so the board
+  // route MUST pass the same callback set as AppShell — otherwise the `>_`
+  // compose-toggle button is gated out (BottomBar renders it iff `onOpenCompose`
+  // is truthy) and `ScrollLock` long-press never reaches a handler. The compose
+  // strip is a single global surface enabled via the `composeStripEnabled`
+  // chrome preference; the `>_` chip toggles it, and the strip reads the focused
+  // BoardPane live from `FocusedTerminalContext` (260718-dhdj).
   const [scrollLocked, setScrollLocked] = useState(false);
   const focusFocusedPaneRef = useRef<(() => void) | null>(null);
   // Track the currently-focused pane's imperative focus method so BottomBar's
@@ -1016,15 +1014,15 @@ function BoardPageContent({ name }: { name: string }) {
             routes (spec § Behavioral Correctness, A-022) — without these
             the `>_` compose button is gated out and the long-press
             scroll-lock affordance is inert. */}
-        <footer
-          style={{ gridArea: "bottombar" }}
-          className="border-t-[3px] border-border px-1.5 h-[48px]"
-        >
-          <BottomBar
-            onOpenCompose={() => setComposeOpen(true)}
-            onFocusTerminal={() => focusFocusedPaneRef.current?.()}
-            onScrollLockChange={setScrollLocked}
-          />
+        <footer style={{ gridArea: "bottombar" }}>
+          {composeStripEnabled && <ComposeStrip />}
+          <div className="border-t-[3px] border-border px-1.5 h-[48px]">
+            <BottomBar
+              onOpenCompose={toggleComposeStrip}
+              onFocusTerminal={() => focusFocusedPaneRef.current?.()}
+              onScrollLockChange={setScrollLocked}
+            />
+          </div>
         </footer>
       </Shell>
 

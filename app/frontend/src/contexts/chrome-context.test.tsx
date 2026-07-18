@@ -164,3 +164,77 @@ describe("ChromeProvider terminal font size", () => {
     setItem.mockRestore();
   });
 });
+
+const COMPOSE_KEY = "runkit-compose-strip";
+
+function ComposeStripConsumer() {
+  const { composeStripEnabled } = useChromeState();
+  const { toggleComposeStrip } = useChromeDispatch();
+  return (
+    <div>
+      <span data-testid="enabled">{String(composeStripEnabled)}</span>
+      <button onClick={toggleComposeStrip}>toggle</button>
+    </div>
+  );
+}
+
+function renderComposeConsumer() {
+  return render(
+    <ChromeProvider>
+      <ComposeStripConsumer />
+    </ChromeProvider>,
+  );
+}
+
+const enabled = () => screen.getByTestId("enabled").textContent;
+
+describe("ChromeProvider compose-strip preference", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    mockViewport(false);
+  });
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    localStorage.clear();
+  });
+
+  it("defaults to off (false) when unset", () => {
+    renderComposeConsumer();
+    expect(enabled()).toBe("false");
+    expect(localStorage.getItem(COMPOSE_KEY)).toBeNull();
+  });
+
+  it("rehydrates an enabled preference from localStorage on init", () => {
+    localStorage.setItem(COMPOSE_KEY, "true");
+    renderComposeConsumer();
+    expect(enabled()).toBe("true");
+  });
+
+  it("toggles on and persists 'true'", () => {
+    renderComposeConsumer();
+    click("toggle");
+    expect(enabled()).toBe("true");
+    expect(localStorage.getItem(COMPOSE_KEY)).toBe("true");
+  });
+
+  it("toggles back off and persists 'false'", () => {
+    localStorage.setItem(COMPOSE_KEY, "true");
+    renderComposeConsumer();
+    expect(enabled()).toBe("true");
+    click("toggle");
+    expect(enabled()).toBe("false");
+    expect(localStorage.getItem(COMPOSE_KEY)).toBe("false");
+  });
+
+  it("survives a localStorage write throw without breaking (try/catch noop)", () => {
+    renderComposeConsumer();
+    const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("quota exceeded");
+    });
+    expect(() => click("toggle")).not.toThrow();
+    expect(enabled()).toBe("true");
+    setItem.mockRestore();
+  });
+});

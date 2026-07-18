@@ -10,7 +10,7 @@ import {
   type ViewName,
 } from "@/lib/window-view";
 import { ChromeProvider, useChromeState, useChromeDispatch, SIDEBAR_WIDTH_BOUNDS } from "@/contexts/chrome-context";
-import { FocusedTerminalProvider, useFocusedTerminal } from "@/contexts/focused-terminal-context";
+import { FocusedTerminalProvider } from "@/contexts/focused-terminal-context";
 import { TopBarSlotProvider, useTopBarSlot, useTopBarNotFound, useRegisterTopBarSlot } from "@/contexts/top-bar-slot-context";
 import { computeKillRedirect } from "@/lib/navigation";
 import { deriveEffectiveSessionOrder, computeMoveOrder, computeWindowMoveTarget } from "@/lib/palette-move";
@@ -57,6 +57,7 @@ import { Sidebar } from "@/components/sidebar";
 import { TerminalClient } from "@/components/terminal-client";
 import { IframeWindow } from "@/components/iframe-window";
 import { BottomBar } from "@/components/bottom-bar";
+import { ComposeStrip } from "@/components/compose-strip";
 import type { PaletteAction } from "@/components/command-palette";
 import { Dialog } from "@/components/dialog";
 import { SessionTiles } from "@/components/session-tiles/session-tiles";
@@ -385,8 +386,8 @@ function AppShell() {
   const pendingServer = ctx.pendingServer;
   const markServerPending = ctx.markServerPending;
   const sessions = useMergedSessions(rawSessions, server);
-  const { sidebarOpen, sidebarWidth, fixedWidth } = useChromeState();
-  const { setCurrentSession, setCurrentWindow, setSidebarOpen, setSidebarWidth, persistSidebarWidth, toggleFixedWidth, increaseTerminalFont, decreaseTerminalFont, resetTerminalFont } = useChromeDispatch();
+  const { sidebarOpen, sidebarWidth, fixedWidth, composeStripEnabled } = useChromeState();
+  const { setCurrentSession, setCurrentWindow, setSidebarOpen, setSidebarWidth, persistSidebarWidth, toggleFixedWidth, increaseTerminalFont, decreaseTerminalFont, resetTerminalFont, toggleComposeStrip } = useChromeDispatch();
   const navigate = useNavigate();
   // Router handle for the browser-history palette actions (`Go: Back` /
   // `Go: Forward`, 260714-uco1) — the same `router.history` the top-bar arrows
@@ -488,14 +489,10 @@ function AppShell() {
     return () => window.removeEventListener("keydown", onKey);
   }, [switchView]);
 
-  // Compose buffer open state lives in `FocusedTerminalContext` so the
-  // shell-level `<BottomBar>` can open compose for the focused terminal
-  // without owning the state. The focused `TerminalClient` (or focused
-  // `BoardPane` on the board route) reads `composeOpen` and renders the
-  // `ComposeBuffer` itself — anchoring compose to a specific
-  // `TerminalClient` instance satisfies the spec's "compose target frozen
-  // at open time" scenario.
-  const { composeOpen, setComposeOpen } = useFocusedTerminal();
+  // The docked compose strip is a single global surface (260718-dhdj) rendered
+  // in the shell footer above `<BottomBar>`; its enablement is the persisted
+  // `composeStripEnabled` chrome preference, toggled by the `>_` chip and the
+  // `View: Text Input` palette action. No per-terminal compose-open state.
   const [scrollLocked, setScrollLocked] = useState(false);
   const [hostname, setHostname] = useState("");
   const [showCreateServerDialog, setShowCreateServerDialog] = useState(false);
@@ -1931,7 +1928,7 @@ function AppShell() {
             {
               id: "text-input",
               label: "View: Text Input",
-              onSelect: () => setComposeOpen(true),
+              onSelect: toggleComposeStrip,
             },
           ]
         : []),
@@ -1965,7 +1962,7 @@ function AppShell() {
         onSelect: () => window.location.reload(),
       },
     ],
-    [sessionName, fixedWidth, toggleFixedWidth, setComposeOpen, currentViews, resolvedView, switchView],
+    [sessionName, fixedWidth, toggleFixedWidth, toggleComposeStrip, currentViews, resolvedView, switchView],
   );
 
   // Navigation actions (260714-uco1) — palette parity (Constitution V) for the
@@ -2656,8 +2653,6 @@ function AppShell() {
                   windowId={windowParam}
                   server={server}
                   wsRef={wsRef}
-                  composeOpen={composeOpen}
-                  setComposeOpen={setComposeOpen}
                   onSessionNotFound={() => navigate({ to: "/$server", params: { server }, replace: true })}
                   focusRef={focusTerminalRef}
                   scrollLocked={scrollLocked}
@@ -2677,16 +2672,20 @@ function AppShell() {
       </main>
 
       {/* Bottom bar grid area — shell-level. Reads focused terminal from
-          FocusedTerminalContext (TerminalClient registered itself on mount). */}
-      <footer
-        style={{ gridArea: "bottombar" }}
-        className="border-t-[3px] border-border px-1.5 h-[48px]"
-      >
-        <BottomBar
-          onOpenCompose={() => setComposeOpen(!composeOpen)}
-          onFocusTerminal={() => focusTerminalRef.current?.()}
-          onScrollLockChange={setScrollLocked}
-        />
+          FocusedTerminalContext (TerminalClient registered itself on mount).
+          When the compose-strip preference is on, the docked strip renders
+          ABOVE the bottom bar inside this grid area; its presence grows the
+          `auto` footer row and shrinks the `1fr` content row, so the terminal's
+          ResizeObserver refits automatically (260718-dhdj). */}
+      <footer style={{ gridArea: "bottombar" }}>
+        {composeStripEnabled && <ComposeStrip />}
+        <div className="border-t-[3px] border-border px-1.5 h-[48px]">
+          <BottomBar
+            onOpenCompose={toggleComposeStrip}
+            onFocusTerminal={() => focusTerminalRef.current?.()}
+            onScrollLockChange={setScrollLocked}
+          />
+        </div>
       </footer>
 
       {/* Dialogs */}

@@ -8,7 +8,10 @@ export type UploadedFile = {
 };
 
 type UseFileUploadReturn = {
-  uploadFiles: (files: FileList) => Promise<UploadedFile[]>;
+  /** Accepts a `FileList` (native input/drop/paste) or a plain `File[]` (e.g.
+   * files handed off to the compose strip for re-homing) — both are normalized
+   * via `Array.from` internally. */
+  uploadFiles: (files: FileList | File[]) => Promise<UploadedFile[]>;
   uploading: boolean;
 };
 
@@ -32,13 +35,14 @@ export function useFileUpload(
   }
 
   const uploadFiles = useCallback(
-    async (files: FileList): Promise<UploadedFile[]> => {
-      if (files.length === 0) return [];
+    async (files: FileList | File[]): Promise<UploadedFile[]> => {
+      const list = Array.from(files);
+      if (list.length === 0) return [];
       setUploading(true);
 
       const results: UploadedFile[] = [];
       try {
-        for (const file of Array.from(files)) {
+        for (const file of list) {
           try {
             const result = await uploadFile(server, session, file, windowId);
             if (result.ok && result.path) {

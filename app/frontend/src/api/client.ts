@@ -491,6 +491,19 @@ export async function setWindowColor(
   });
 }
 
+/** Set (or clear) the window's left-gutter marker via the unified /options
+ *  contract. `marker` is one of "dotted"/"solid"/"double"; null OR "" clears it
+ *  (the server treats an empty @rk_marker as unset). Mirrors setWindowColor. */
+export async function setWindowMarker(
+  server: string,
+  windowId: string,
+  marker: string | null,
+): Promise<{ ok: boolean }> {
+  return setWindowOptions(server, windowId, {
+    "@rk_marker": marker == null || marker === "" ? "" : marker,
+  });
+}
+
 export async function setSessionColor(
   server: string,
   session: string,

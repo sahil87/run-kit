@@ -469,6 +469,11 @@ type WindowInfo struct {
 	PrFetchedAt *time.Time `json:"prFetchedAt,omitempty"`
 	RkType    string     `json:"rkType,omitempty"`
 	RkUrl     string     `json:"rkUrl,omitempty"`
+	// Marker is the window's left-gutter marker state, sourced from the
+	// @rk_marker window user option: "" (unset)/"dotted"/"solid"/"double". An
+	// independent label axis from Color — see docs/specs/themes.md. Unknown
+	// tokens are dropped to "" by parseWindows.
+	Marker    string     `json:"marker,omitempty"`
 	Panes     []PaneInfo `json:"panes,omitempty"`
 }
 
@@ -767,10 +772,10 @@ func parsePanes(lines []string) map[string][]PaneInfo {
 
 // parseWindows parses tmux list-windows output lines into WindowInfo structs.
 // nowUnix is the current Unix timestamp for activity threshold computation.
-// Lines have 10 tab-delimited fields: window_id, window_index, window_name,
+// Lines have 11 tab-delimited fields: window_id, window_index, window_name,
 // pane_current_path, window_activity, window_active, pane_current_command,
-// @color, @rk_type, @rk_url. Lines with fewer than 8 fields are skipped;
-// fields 9-10 are optional (empty string if absent).
+// @color, @rk_type, @rk_url, @rk_marker. Lines with fewer than 8 fields are
+// skipped; fields 9-11 are optional (empty string if absent).
 // Exported for testing.
 func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 	var windows []WindowInfo
@@ -806,6 +811,15 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 			rkUrl = strings.TrimSpace(parts[9])
 		}
 
+		// Marker is a closed-set token ("dotted"/"solid"/"double"); drop any
+		// value outside the set (including "") to the empty unset state.
+		var marker string
+		if len(parts) >= 11 {
+			if m := strings.TrimSpace(parts[10]); validate.MarkerValues[m] {
+				marker = m
+			}
+		}
+
 		windows = append(windows, WindowInfo{
 			Index:             index,
 			WindowID:          windowID,
@@ -818,6 +832,7 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 			Color:             color,
 			RkType:            rkType,
 			RkUrl:             rkUrl,
+			Marker:            marker,
 		})
 	}
 	return windows
@@ -859,6 +874,7 @@ func ListWindows(ctx context.Context, session string, server string) ([]WindowIn
 		"#{@color}",
 		"#{@rk_type}",
 		"#{@rk_url}",
+		"#{@rk_marker}",
 	}, listDelim)
 
 	lines, err := tmuxExecServer(ctx, server, "list-windows", "-t", ExactSessionTarget(session), "-F", format)

@@ -66,7 +66,8 @@ import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 import { LogoSpinner } from "@/components/logo-spinner";
 import type { ServerInfo } from "@/api/client";
 
-import { selectWindow, createSession, createWindow, splitWindow, closePane, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, getHealth, createServer, killServer as killServerApi, setWindowColor as setWindowColorApi, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, sendChatMessage, refreshStatus, isInfraServer, DAEMON_SERVER } from "@/api/client";
+import { selectWindow, createSession, createWindow, splitWindow, closePane, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, getHealth, createServer, killServer as killServerApi, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, sendChatMessage, refreshStatus, isInfraServer, DAEMON_SERVER } from "@/api/client";
+import { nextMarkerState } from "@/themes";
 import { useBoards } from "@/hooks/use-boards";
 import { useWindowPins } from "@/hooks/use-window-pins";
 import { usePinActions } from "@/hooks/use-pin-actions";
@@ -1663,6 +1664,21 @@ function AppShell() {
               id: "window-set-color",
               label: "Window: Set Color",
               onSelect: () => setShowColorPicker("window"),
+            },
+            {
+              // Keyboard/touch parity for the left-gutter marker (Constitution
+              // V): advance the current window's marker one state via the SAME
+              // path as the gutter click (nextMarkerState → setWindowMarker).
+              // This is the sole marker affordance on coarse pointers (the gutter
+              // is inert there — 260718-3prk).
+              id: "window-cycle-marker",
+              label: "Window: Cycle Marker",
+              onSelect: () => {
+                if (!currentWindow) return;
+                setWindowMarkerApi(server, currentWindow.windowId, nextMarkerState(currentWindow.marker)).catch(
+                  (err) => addToast(err.message || "Failed to set window marker"),
+                );
+              },
             },
             // NOTE: the old `toggle-iframe-terminal` action (which mutated
             // `@rk_type`) was REPLACED by the `View: Terminal` / `View: Web`

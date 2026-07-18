@@ -62,6 +62,99 @@ The 8 CSS custom properties are derived, not stored:
 | `--color-accent` | `palette.ansi[4]` (blue) |
 | `--color-accent-green` | `palette.ansi[2]` (green) |
 
+## Row Color System — Owned Palette + Axis Split
+
+Sidebar rows and server tiles carry a user-assignable color. Rather than deriving
+that color from the active theme's ANSI palette (which made a "orange" label read
+tan-gray on one theme and brownish-pink on another, and capped the set at what
+ANSI offers), run-kit owns **10 fixed hue families** and *adapts* them to the
+theme so hue identity stays stable while the colors still feel native.
+
+### Owned hue families
+
+Ten families are defined by fixed **OKLCH hue angle**, placed non-uniformly —
+tight through the discriminable red→amber region, with the large gap parked in
+teal→blue where human hue discrimination is weakest:
+
+| Family | Hue | Role | Legacy value |
+|--------|-----|------|--------------|
+| red | 25° | anchor: blocked/urgent | `1` |
+| orange | 55° | quiet | `1+3` |
+| amber | 90° | anchor: attention/WIP | `3` |
+| olive | 120° | quiet | `1+2` |
+| green | 150° | anchor: done/good | `2` |
+| teal | 185° | quiet | `6` |
+| blue | 250° | anchor: default/info | `4` |
+| purple | 290° | quiet | `1+4` |
+| magenta | 330° | quiet | `5` |
+| slate | 250° (chroma-floored) | neutral: parked/archived | `3+4` |
+
+### Theme adaptation
+
+Each family is rendered at the theme's **mean OKLab lightness** and **mean
+chroma** over `palette.ansi[1..6]` (chroma floored at 0.05 so near-monochrome
+themes stay distinguishable): `family = OKLCH(L_theme, C_theme, ownHue)`. Slate
+uses a near-neutral chroma `min(C_theme × 0.2, 0.025)`. Out-of-gamut results are
+brought into sRGB by **reducing chroma stepwise** (×0.92, ≤20 iterations) —
+never by sRGB channel clamping, which would shift hue and defeat the stable-hue
+goal. The helpers (`oklchToHex`, `oklchToHexInGamut`, `themeColorStats`,
+`HUE_FAMILIES`) live in `app/frontend/src/themes.ts` and reuse the existing
+OKLab conversions. The downstream tint pipeline (saturate ×1.5 → blend into
+background → WCAG border guardrail at 3.0) operates on the adapted family hex
+unchanged.
+
+### Legacy values (zero migration)
+
+Stored color values keep their existing vocabulary. `colorValueToHex` resolves
+each legacy descriptor to its family 1:1 per the table above (e.g. `"1+3"` →
+orange). Stored values remain the **legacy vocabulary** end-to-end: the swatch
+popover maps each pick back to its legacy descriptor on write (`familyToLegacy`,
+e.g. orange → `"1+3"`) because the backend validators accept only numeric/blend
+forms. Family names (`"orange"`) are frontend-side read aliases. No storage,
+API, or backend change for color.
+
+### Axis split
+
+The row's visual axes are split so labeling and selection never share a channel:
+
+- **Hue = label** — the family color (above).
+- **Tint depth = selection** — a selected row deepens to the family tint at 40%
+  (rest 14%, hover 22%; uncolored rows use a gray sentinel), plus bold +
+  brightened text. There is **no** left selection border (removed in the split).
+- **Left-gutter marker = an independent 4-state label axis** — see below.
+
+The board-pin active-board cue (once a 4px accent left border) now rides the
+**persistent filled pin glyph**, rendered accent-colored when the row is pinned
+to the board currently being viewed.
+
+### Left-gutter marker (`@rk_marker`)
+
+Each **window** row (windows only — session rows and server tiles are out of
+scope) carries a ~14px left gutter presenting one of four states, cycled on
+click: empty → dotted (3px) → solid (3px) → double (6px double), rendered in the
+row's guarded family color (gray for uncolored rows). Semantics are deliberately
+unnamed (todo/doing/done for one user, priority for another). Hovering the row
+fills the gutter ~20%; hovering the gutter itself steps to ~30% and ghosts a
+preview of the next state, with a `cell` cursor. The gutter is inert on coarse
+(touch) pointers — the `Window: Cycle Marker` command-palette action is the
+touch path (Constitution V).
+
+Marker state persists as the `@rk_marker` **window user option**
+(`""`/`dotted`/`solid`/`double`), written through the unified
+`POST /api/windows/{id}/options` endpoint (the same allowlist + validate-all path
+as `@color`), read back through the sessions enrichment onto the window payload
+as `marker`, and wired into the SSE-hub wake seam so the mutation repaints in one
+poll pass rather than the 12s safety tick. Marker and color are fully
+independent — a window may be any (family, marker) pair.
+
+**Easter egg**: a `double`-marker row wears a static CRT scanline overlay
+(`repeating-linear-gradient`, ~14% marker color); when such a row is *also*
+selected, the scanlines animate (a slow downward crawl + an occasional CRT
+refresh band). Pure CSS utilities (`rk-scanlines` / `rk-scanlines-crawl` in
+`globals.css`), fully zeroed under `prefers-reduced-motion` — the effect never
+touches the status pyramid's attention channel (the waiting halo stays
+unambiguous).
+
 ## File Layout
 
 ```

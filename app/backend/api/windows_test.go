@@ -150,6 +150,53 @@ func TestWindowOptionsUnknownKeyRejected(t *testing.T) {
 	}
 }
 
+// Set @rk_marker only — one SetWindowOptions call with just @rk_marker.
+func TestWindowOptionsSetMarkerOnly(t *testing.T) {
+	ops := &mockTmuxOps{}
+	rec := postOptions(t, ops, "@2", `{"options":{"@rk_marker":"solid"}}`)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if len(ops.setWindowOptionsOps) != 1 {
+		t.Fatalf("ops = %v, want exactly 1 (@rk_marker)", ops.setWindowOptionsOps)
+	}
+	op, ok := findOp(ops.setWindowOptionsOps, "@rk_marker")
+	if !ok || op.Value == nil || *op.Value != "solid" {
+		t.Errorf("@rk_marker op = %+v, want value \"solid\"", op)
+	}
+}
+
+// @rk_marker empty string unsets (nil Value op), mirroring @rk_type — "" clears.
+func TestWindowOptionsMarkerEmptyUnsets(t *testing.T) {
+	ops := &mockTmuxOps{}
+	rec := postOptions(t, ops, "@2", `{"options":{"@rk_marker":""}}`)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	op, ok := findOp(ops.setWindowOptionsOps, "@rk_marker")
+	if !ok {
+		t.Fatal("expected @rk_marker op")
+	}
+	if op.Value != nil {
+		t.Errorf("@rk_marker value = %q, want nil (empty string unsets)", *op.Value)
+	}
+}
+
+// Invalid @rk_marker → 400 and zero tmux calls (validate-all-then-execute).
+func TestWindowOptionsMarkerInvalid(t *testing.T) {
+	ops := &mockTmuxOps{}
+	rec := postOptions(t, ops, "@0", `{"options":{"@rk_marker":"dashed"}}`)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+	if ops.setWindowOptionsCalled {
+		t.Error("SetWindowOptions must NOT be called for invalid marker")
+	}
+}
+
 // @rk_type empty string unsets (nil Value op); non-empty sets verbatim.
 func TestWindowOptionsRkTypeEmptyUnsets(t *testing.T) {
 	ops := &mockTmuxOps{}
@@ -1031,6 +1078,20 @@ func TestWindowOptions_POST_wakesHub(t *testing.T) {
 			t.Fatalf("POST status = %d, want 200; body=%s", rec.Code, rec.Body.String())
 		}
 		expectWake(t, tracker, before, "window options set")
+	})
+
+	t.Run("successful marker set wakes", func(t *testing.T) {
+		server, tracker := newWakeSeamServer(t, &mockTmuxOps{})
+		before := tracker.count.Load()
+		router := server.buildRouter()
+		req := httptest.NewRequest(http.MethodPost, "/api/windows/@2/options?server=default", strings.NewReader(`{"options":{"@rk_marker":"double"}}`))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("POST status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+		}
+		expectWake(t, tracker, before, "window marker set")
 	})
 
 	t.Run("rejected key does not wake", func(t *testing.T) {

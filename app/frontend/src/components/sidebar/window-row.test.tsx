@@ -4,6 +4,7 @@ import { render, screen, cleanup, act } from "@testing-library/react";
 import { WindowRow } from "./window-row";
 import { ToastProvider } from "@/components/toast";
 import * as optimisticContext from "@/contexts/optimistic-context";
+import { computeRowTints, computeRowBorders, DEFAULT_DARK_THEME } from "@/themes";
 import type { WindowInfo } from "@/types";
 import type { MergedWindow } from "@/store/window-store";
 
@@ -692,6 +693,174 @@ describe("WindowRow", () => {
       expect(ghostSpy.mock.calls.length).toBe(afterMount);
 
       ghostSpy.mockRestore();
+    });
+  });
+
+  // ── Axis split (260718-3prk): selection = tint depth + typography (no
+  // border); active-board cue on the pin glyph; left-gutter marker axis. ──
+  describe("axis split: selection, pin-glyph cue, marker gutter", () => {
+    const rowTints = computeRowTints(DEFAULT_DARK_THEME.palette);
+    const rowBorders = computeRowBorders(DEFAULT_DARK_THEME.palette, DEFAULT_DARK_THEME.category);
+
+    /** Render with the axis-split props wired (color, marker, tint/border maps,
+     *  server + onMarkerChange so the gutter mounts). The row reads `color` and
+     *  `marker` as PROPS (the real sidebar passes `color={win.color}` /
+     *  `marker={win.marker}`), so mirror that here. */
+    function renderAxis(win: WindowInfo, extra: Partial<React.ComponentProps<typeof WindowRow>> = {}) {
+      return render(
+        <WindowRow
+          win={win}
+          session="alpha"
+          isSelected={false}
+          isDragOver={false}
+          color={win.color}
+          marker={win.marker}
+          editingWindow={null}
+          editingName=""
+          inputRef={{ current: null }}
+          onSelectWindow={noop}
+          onStartEditing={noop}
+          onWindowNameChange={noop}
+          onRenameKeyDown={noop as React.KeyboardEventHandler<HTMLInputElement>}
+          onRenameBlur={noop}
+          onKillClick={noop}
+          onColorChange={noop}
+          onMarkerChange={noop}
+          rowTints={rowTints}
+          rowBorders={rowBorders}
+          server="srv"
+          {...extra}
+        />,
+      );
+    }
+
+    it("selected row carries NO left border and gets the deep 40% tint + bold", () => {
+      const win = makeWindow({ windowId: "@0", index: 0, name: "sel", color: "orange" });
+      const { container } = renderAxis(win, { isSelected: true });
+      const button = container.querySelector('button[aria-current="page"]') as HTMLElement;
+      expect(button).toBeTruthy();
+      // No borderLeft on the button (selection border removed).
+      expect(button.style.borderLeft).toBe("");
+      // Selection uses tint.selected (the 40% blend) as the background.
+      expect(button.style.backgroundColor).not.toBe("");
+      // Bold + brightened text.
+      expect(button.className).toContain("font-medium");
+      expect(button.className).toContain("text-text-primary");
+    });
+
+    it("an unselected colored row shows no left border either", () => {
+      const win = makeWindow({ windowId: "@0", index: 0, color: "blue" });
+      const { container } = renderAxis(win);
+      const button = container.querySelector("button") as HTMLElement;
+      expect(button.style.borderLeft).toBe("");
+    });
+
+    it("pin glyph turns accent-colored when pinned to the active board", () => {
+      const win = makeWindow({ windowId: "@0", index: 0, name: "pinned" });
+      renderAxis(win, { isPinnedToAny: true, isPinnedToActiveBoard: true });
+      const pin = screen.getByLabelText("Pin pinned to a board");
+      expect(pin.className).toContain("text-accent");
+      expect(pin.className).toContain("opacity-100");
+    });
+
+    it("pin glyph stays monochrome when pinned to a NON-active board", () => {
+      const win = makeWindow({ windowId: "@0", index: 0, name: "pinned" });
+      renderAxis(win, { isPinnedToAny: true, isPinnedToActiveBoard: false });
+      const pin = screen.getByLabelText("Pin pinned to a board");
+      expect(pin.className).not.toContain("text-accent");
+      expect(pin.className).toContain("text-text-secondary");
+    });
+
+    it("renders the marker gutter (cursor cell) when onMarkerChange is wired", () => {
+      const win = makeWindow({ windowId: "@0", index: 0 });
+      renderAxis(win);
+      // Pointer-only affordance: no ARIA button role (palette is the keyboard
+      // path, intake #12) — selected by its aria-label.
+      const gutter = screen.getByLabelText("Cycle window marker");
+      expect(gutter.className).toContain("cursor-[cell]");
+      // Inert on coarse pointers (palette is the touch path).
+      expect(gutter.className).toContain("coarse:pointer-events-none");
+    });
+
+    it("gutter click cycles the marker one step and does NOT select the row", () => {
+      const win = makeWindow({ windowId: "@0", index: 0, marker: "dotted" });
+      const onMarkerChange = vi.fn();
+      const onSelectWindow = vi.fn();
+      renderAxis(win, { onMarkerChange, onSelectWindow });
+      const gutter = screen.getByLabelText("Cycle window marker");
+      act(() => { gutter.click(); });
+      // dotted → solid; stopPropagation means row-select never fired.
+      expect(onMarkerChange).toHaveBeenCalledWith("srv", "alpha", "@0", "solid");
+      expect(onSelectWindow).not.toHaveBeenCalled();
+    });
+
+    it("gutter cycle wraps double → empty", () => {
+      const win = makeWindow({ windowId: "@0", index: 0, marker: "double" });
+      const onMarkerChange = vi.fn();
+      renderAxis(win, { onMarkerChange });
+      act(() => { screen.getByLabelText("Cycle window marker").click(); });
+      expect(onMarkerChange).toHaveBeenCalledWith("srv", "alpha", "@0", "");
+    });
+
+    it("a double-marker row gets the static scanline overlay (in a clipped inner element, NOT the root) + marker color var", () => {
+      const win = makeWindow({ windowId: "@0", index: 0, color: "green", marker: "double" });
+      const { container } = renderAxis(win);
+      const row = container.querySelector('[data-window-id="@0"]') as HTMLElement;
+      // The clip lives on a dedicated inner overlay so the root can overflow for
+      // popovers (must-fix 4): the root carries NEITHER the scanline class NOR
+      // overflow-hidden; the overlay carries both.
+      expect(row.className).not.toContain("rk-scanlines");
+      expect(row.className).not.toContain("overflow-hidden");
+      const overlay = row.querySelector(".rk-scanlines") as HTMLElement;
+      expect(overlay).toBeTruthy();
+      expect(overlay.className).toContain("overflow-hidden");
+      expect(overlay.className).toContain("pointer-events-none");
+      // The marker color rides on the ROOT (the overlay pseudos inherit it).
+      expect(row.style.getPropertyValue("--rk-marker-color")).not.toBe("");
+    });
+
+    it("a selected double-marker row animates the overlay (crawl) while the root stays unclipped", () => {
+      const win = makeWindow({ windowId: "@0", index: 0, marker: "double" });
+      const { container } = renderAxis(win, { isSelected: true });
+      const row = container.querySelector('[data-window-id="@0"]') as HTMLElement;
+      // Root never clips (popovers must escape); the overlay owns crawl + clip.
+      expect(row.className).not.toContain("overflow-hidden");
+      const overlay = row.querySelector(".rk-scanlines") as HTMLElement;
+      expect(overlay).toBeTruthy();
+      expect(overlay.className).toContain("rk-scanlines-crawl");
+      expect(overlay.className).toContain("overflow-hidden");
+    });
+
+    it("a non-double row renders no scanline overlay", () => {
+      const win = makeWindow({ windowId: "@0", index: 0, marker: "solid" });
+      const { container } = renderAxis(win);
+      const row = container.querySelector('[data-window-id="@0"]') as HTMLElement;
+      expect(row.className).not.toContain("rk-scanlines");
+      expect(row.querySelector(".rk-scanlines")).toBeNull();
+    });
+
+    it("ghost rows get no marker gutter", () => {
+      const ghost = makeGhostWindow();
+      render(
+        <WindowRow
+          win={ghost}
+          session="alpha"
+          isSelected={false}
+          isDragOver={false}
+          editingWindow={null}
+          editingName=""
+          inputRef={{ current: null }}
+          onSelectWindow={noop}
+          onStartEditing={noop}
+          onWindowNameChange={noop}
+          onRenameKeyDown={noop as React.KeyboardEventHandler<HTMLInputElement>}
+          onRenameBlur={noop}
+          onKillClick={noop}
+          onMarkerChange={noop}
+          server="srv"
+        />,
+      );
+      expect(screen.queryByLabelText("Cycle window marker")).toBeNull();
     });
   });
 });

@@ -1205,12 +1205,11 @@ func newWakeSeamServer(t *testing.T, ops TmuxOps) (*Server, *fetchTracker) {
 	client := &sseClient{ch: make(chan hubEvent, 16), server: "default"}
 	server.sseHub.addClient(client)
 	t.Cleanup(func() {
+		// removeClient drops the client from h.clients under h.mu, so the poll
+		// loop can no longer send to client.ch (and every send is non-blocking
+		// anyway). No drain goroutine is needed — spawning one over the
+		// never-closed buffered channel would just leak, blocking forever.
 		server.sseHub.removeClient(client)
-		// Drain so the poll loop never blocks on a full channel while winding down.
-		go func() {
-			for range client.ch {
-			}
-		}()
 	})
 	// Let the bootstrap poll pass complete and the loop settle into waitForNext.
 	time.Sleep(100 * time.Millisecond)

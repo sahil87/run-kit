@@ -1418,6 +1418,15 @@ func (h *sseHub) poll() {
 				delete(perServerGen, server)
 				delete(eventDrivenServers, server)
 			}
+			// h.wakes is guarded by its own wakeMu (not h.mu). Drop each dead
+			// server's wake channel so a reaped server leaves no residual entry.
+			// Lock order is h.mu → wakeMu; no path takes them the other way
+			// (the wake helpers touch only wakeMu), so this cannot deadlock.
+			h.wakeMu.Lock()
+			for _, server := range deadServers {
+				delete(h.wakes, server)
+			}
+			h.wakeMu.Unlock()
 			h.mu.Unlock()
 		}
 
@@ -1470,8 +1479,9 @@ func (h *sseHub) poll() {
 // wake is the freshness driver for these mutations). Per-server, keyed by the
 // same server name the poll set uses; a wake for a server with no connected
 // clients (not in the poll set) is a harmless no-op (the closed channel is
-// simply retired the next time that server is polled, or garbage-collected on
-// server reap). Coalescing, at-least-once: N wakes before consumption trigger
+// simply retired the next time that server is polled, and the entry is deleted
+// from h.wakes when the server is reaped from the poll set). Coalescing,
+// at-least-once: N wakes before consumption trigger
 // 1..N passes; redundant passes are suppressed by the previousJSON dedup.
 func (h *sseHub) wake(server string) {
 	h.wakeMu.Lock()

@@ -1,7 +1,16 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ValidBoardName } from "@/components/board/board-name";
 import type { BoardSummary } from "@/api/boards";
 import { usePinActions } from "@/hooks/use-pin-actions";
+import {
+  orderBoardsLastUsedFirst,
+  readLastPinnedBoard,
+} from "@/lib/last-pinned-board";
+
+/** Cold-start default board name — agreed in the change scope. Pre-filled
+ *  (text selected) when zero boards exist so a bare Enter pins to a new board
+ *  `main` without the user inventing a name. `ValidBoardName` accepts it. */
+const DEFAULT_BOARD_NAME = "main";
 
 type PinPopoverProps = {
   /** Server scope for the pin (per server-routing contract). */
@@ -25,9 +34,26 @@ type PinPopoverProps = {
 export function PinPopover({ server, windowId, boards, isPinnedTo, onClose }: PinPopoverProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const [newName, setNewName] = useState("");
+  const coldStart = boards.length === 0;
+  // Pre-fill `main` on cold start so bare Enter pins to a new board (1a); the
+  // input stays empty when boards already exist (placeholder path unchanged).
+  const [newName, setNewName] = useState(coldStart ? DEFAULT_BOARD_NAME : "");
   const [error, setError] = useState<string | null>(null);
   const { pin, unpin } = usePinActions();
+
+  // Last-used board, read once when the popover opens (a per-client preference,
+  // stable for the popover's lifetime). Order the existing-board list with a
+  // live last-used board first (a stale value is ignored). The Enter-target for
+  // an empty input is that live last-used board.
+  const lastUsed = useMemo(() => readLastPinnedBoard(), []);
+  const orderedBoards = useMemo(
+    () => orderBoardsLastUsedFirst(boards, lastUsed),
+    [boards, lastUsed],
+  );
+  const emptyEnterTarget =
+    !coldStart && lastUsed && boards.some((b) => b.name === lastUsed)
+      ? lastUsed
+      : null;
 
   // Close on Escape
   useEffect(() => {
@@ -59,10 +85,15 @@ export function PinPopover({ server, windowId, boards, isPinnedTo, onClose }: Pi
     };
   }, [onClose]);
 
-  // Autofocus the inline input
+  // Autofocus the inline input. On cold start the pre-filled `main` is selected
+  // so any keystroke replaces it (invent-a-name path preserved) while bare
+  // Enter pins to `main`.
   useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
+    const el = inputRef.current;
+    if (!el) return;
+    el.focus();
+    if (coldStart) el.select();
+  }, [coldStart]);
 
   async function handleToggleExisting(boardName: string) {
     setError(null);
@@ -76,7 +107,16 @@ export function PinPopover({ server, windowId, boards, isPinnedTo, onClose }: Pi
 
   async function handleSubmitNew() {
     const trimmed = newName.trim();
-    if (!trimmed) return;
+    if (!trimmed) {
+      // Empty input + a valid last-used board → pin to it (1b). Otherwise a
+      // no-op (current behavior). Unreachable on cold start (input pre-filled).
+      if (emptyEnterTarget) {
+        setError(null);
+        await pin(server, windowId, emptyEnterTarget);
+        onClose();
+      }
+      return;
+    }
     if (!ValidBoardName(trimmed)) {
       setError("Board name must be alphanumeric, hyphen, or underscore (1–32 chars).");
       return;
@@ -95,8 +135,11 @@ export function PinPopover({ server, windowId, boards, isPinnedTo, onClose }: Pi
     >
       {boards.length > 0 && (
         <ul className="flex flex-col">
-          {boards.map((b) => {
+          {orderedBoards.map((b) => {
             const pinned = isPinnedTo(b.name);
+            // Mark the Enter target (the live last-used board, rendered first)
+            // so the empty-input Enter destination is visible.
+            const isEnterTarget = b.name === emptyEnterTarget;
             return (
               <li key={b.name}>
                 <button
@@ -105,11 +148,21 @@ export function PinPopover({ server, windowId, boards, isPinnedTo, onClose }: Pi
                   className="w-full flex items-center justify-between gap-2 px-3 py-1.5 text-sm text-left text-text-primary hover:bg-bg-card transition-colors"
                 >
                   <span className="truncate">{b.name}</span>
-                  {pinned ? (
-                    <span className="text-accent text-xs" aria-label="pinned">
-                      ✓
-                    </span>
-                  ) : null}
+                  <span className="flex items-center gap-1.5 shrink-0">
+                    {isEnterTarget ? (
+                      <span
+                        className="text-text-secondary text-xs"
+                        aria-label="press Enter to pin here"
+                      >
+                        ↵
+                      </span>
+                    ) : null}
+                    {pinned ? (
+                      <span className="text-accent text-xs" aria-label="pinned">
+                        ✓
+                      </span>
+                    ) : null}
+                  </span>
                 </button>
               </li>
             );

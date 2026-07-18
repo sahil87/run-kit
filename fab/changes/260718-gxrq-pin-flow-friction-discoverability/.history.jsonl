@@ -1,0 +1,13 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-18T14:18:22Z"}
+{"args":"Make pinning windows to boards easier and boards more discoverable: pin-popover cold-start default 'main' + last-used-board Enter default (localStorage), BOARDS panel default-open when boards exist + PinIcon header glyph + post-pin toast with View board link, and command-palette per-board pin actions via a pure lib/palette-pin.ts builder","cmd":"fab-new","event":"command","ts":"2026-07-18T14:18:22Z"}
+{"delta":"+4.1","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-07-18T14:19:57Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-07-18T14:21:25Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-18T14:22:44Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-18T14:23:10Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-18T14:23:59Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-18T14:38:44Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-18T14:39:25Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-18T14:48:40Z"}
+{"event":"review","result":"passed","ts":"2026-07-18T14:48:40Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-18T14:49:11Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-18T14:53:35Z"}

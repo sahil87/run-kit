@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { execSync } from "node:child_process";
+import { resolveWindow, gotoWindow } from "./_ready";
 
 const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
 // Each test file uses its own session to avoid cross-test interference.
@@ -110,5 +111,62 @@ test.describe("Boards: Pin flow", () => {
         { timeout: 10_000 },
       )
       .toBe(false);
+  });
+
+  test("palette 'Pin: Current Window to <board>' pins directly and shows the View board toast", async ({
+    page,
+  }) => {
+    test.setTimeout(30_000);
+    // Fresh board per run; pre-create it (pinning win-a) so it is an existing
+    // direct-pin candidate the palette can target for win-b.
+    const board = `pal${Date.now().toString().slice(-6)}`;
+    const winA = await resolveWindow(page, TMUX_SERVER, TEST_SESSION, "win-a");
+    const seedRes = await page.request.post(`/api/boards/${board}/pin`, {
+      data: { server: TMUX_SERVER, windowId: winA },
+    });
+    expect(seedRes.ok()).toBeTruthy();
+
+    // Navigate to win-b's terminal route so the palette's "current window" is
+    // win-b, and it is NOT yet pinned to `board` (so the direct-pin entry shows).
+    const winB = await resolveWindow(page, TMUX_SERVER, TEST_SESSION, "win-b");
+    await gotoWindow(page, TMUX_SERVER, winB);
+
+    // Open the command palette and run the direct-pin action.
+    await page.keyboard.press("Meta+k");
+    const paletteInput = page.getByPlaceholder("Type a command...");
+    await expect(paletteInput).toBeVisible({ timeout: 5_000 });
+    await paletteInput.fill(`Pin: Current Window to ${board}`);
+    await page.keyboard.press("Enter");
+
+    // The post-pin success toast surfaces with a "View board" action (§2c).
+    await expect(page.getByText(`Pinned to ${board}`)).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole("button", { name: "View board" })).toBeVisible();
+
+    // The pin actually landed: win-b is now on the board (server-side contract).
+    await expect
+      .poll(
+        async () => {
+          const r = await page.request.get(
+            `/api/boards/${encodeURIComponent(board)}`,
+          );
+          if (!r.ok()) return [] as string[];
+          const entries = (await r.json()) as Array<{ windowId: string }>;
+          return entries.map((e) => e.windowId);
+        },
+        { timeout: 10_000 },
+      )
+      .toContain(winB);
+
+    // The "View board" toast action navigates to /board/<board>.
+    await page.getByRole("button", { name: "View board" }).click();
+    await expect(page).toHaveURL(new RegExp(`/board/${board}$`), { timeout: 10_000 });
+
+    // Cleanup: unpin both so the board is not left behind on the shared server.
+    await page.request.post(`/api/boards/${board}/unpin`, {
+      data: { server: TMUX_SERVER, windowId: winA },
+    });
+    await page.request.post(`/api/boards/${board}/unpin`, {
+      data: { server: TMUX_SERVER, windowId: winB },
+    });
   });
 });

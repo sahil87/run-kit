@@ -31,6 +31,7 @@ afterEach(() => {
   cleanup();
   mockBoards = [];
   mockNavigate.mockClear();
+  localStorage.clear();
 });
 
 describe("BoardsSection — reorder wiring", () => {
@@ -64,5 +65,41 @@ describe("BoardsSection — reorder wiring", () => {
   it("shows the pin-to-start hint (no draggable rows) when no boards exist", () => {
     render(<BoardsSection />);
     expect(screen.getByText("Pin a window to start a board")).toBeInTheDocument();
+  });
+});
+
+describe("BoardsSection — default-open + header PinIcon", () => {
+  it("defaults open when boards exist (no stored preference)", () => {
+    mockBoards = [{ name: "deploys", pinCount: 2 }];
+    render(<BoardsSection />);
+    // The CollapsiblePanel toggle exposes aria-expanded; boards present → open.
+    expect(screen.getByRole("button", { expanded: true })).toBeInTheDocument();
+  });
+
+  it("defaults closed when no boards exist (no stored preference)", () => {
+    render(<BoardsSection />);
+    expect(screen.getByRole("button", { expanded: false })).toBeInTheDocument();
+  });
+
+  it("respects a stored collapse preference over the board-count default", () => {
+    // User explicitly collapsed → stored 'false' wins even with boards present.
+    localStorage.setItem("runkit-panel-boards", "false");
+    mockBoards = [{ name: "deploys", pinCount: 2 }];
+    render(<BoardsSection />);
+    expect(screen.getByRole("button", { expanded: false })).toBeInTheDocument();
+  });
+
+  it("renders the shared PinIcon in the header with boards present", () => {
+    mockBoards = [{ name: "deploys", pinCount: 2 }];
+    const { container } = render(<BoardsSection />);
+    // PinIcon is a 16-viewBox inline SVG (aria-hidden); assert one is present.
+    expect(container.querySelector('svg[viewBox="0 0 16 16"]')).not.toBeNull();
+    // Count still rendered alongside the icon.
+    expect(screen.getByText("1")).toBeInTheDocument();
+  });
+
+  it("renders the header PinIcon even in zero-board hint mode", () => {
+    const { container } = render(<BoardsSection />);
+    expect(container.querySelector('svg[viewBox="0 0 16 16"]')).not.toBeNull();
   });
 });

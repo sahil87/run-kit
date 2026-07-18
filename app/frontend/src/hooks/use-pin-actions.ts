@@ -1,6 +1,8 @@
 import { useCallback } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { pinWindow, unpinWindow, reorderPin } from "@/api/boards";
 import { useToast } from "@/components/toast";
+import { writeLastPinnedBoard } from "@/lib/last-pinned-board";
 
 interface PinActions {
   pin: (server: string, windowId: string, board: string) => Promise<void>;
@@ -21,16 +23,26 @@ interface PinActions {
  */
 export function usePinActions(): PinActions {
   const { addToast } = useToast();
+  const navigate = useNavigate();
 
   const pin = useCallback(
     async (server: string, windowId: string, board: string) => {
       try {
         await pinWindow(server, windowId, board);
+        // Persist last-used at the single pin site so every entry point
+        // (popover, palette) keeps the preference consistent.
+        writeLastPinnedBoard(board);
+        // Success feedback with a jump to the destination board. Placed here
+        // (not per call site) so all pin entry points get the same toast.
+        addToast(`Pinned to ${board}`, "info", {
+          label: "View board",
+          onSelect: () => navigate({ to: "/board/$name", params: { name: board } }),
+        });
       } catch (err) {
         addToast(err instanceof Error ? err.message : "Failed to pin window");
       }
     },
-    [addToast],
+    [addToast, navigate],
   );
 
   const unpin = useCallback(

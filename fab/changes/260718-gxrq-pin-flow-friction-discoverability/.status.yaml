@@ -1,0 +1,55 @@
+id: gxrq
+name: 260718-gxrq-pin-flow-friction-discoverability
+created: 2026-07-18T14:18:22Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 14
+    acceptance_count: 22
+    acceptance_completed: 22
+confidence:
+    certain: 4
+    confident: 8
+    tentative: 0
+    unresolved: 0
+    score: 4.1
+    fuzzy: true
+    dimensions:
+        signal: 74.2
+        reversibility: 89.2
+        competence: 78.8
+        disambiguation: 71.3
+stage_metrics:
+    intake: {started_at: "2026-07-18T14:18:22Z", driver: fab-new, iterations: 1, completed_at: "2026-07-18T14:23:10Z"}
+    apply: {started_at: "2026-07-18T14:23:10Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-18T14:38:44Z"}
+    review: {started_at: "2026-07-18T14:38:44Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-18T14:48:40Z"}
+    hydrate: {started_at: "2026-07-18T14:48:40Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-18T14:53:35Z"}
+    ship: {started_at: "2026-07-18T14:53:35Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-07-18T14:53:35Z"
+    computed_at_stage: hydrate
+summary: 'Pin flow friction + boards discoverability: popover cold-start main prefill, last-used-first ordering + empty-Enter, runkit-last-pinned-board helper, BOARDS panel dynamic default-open + header PinIcon, toast optional action + post-pin View-board toast, lib/palette-pin.ts direct-pin actions superseding inline board-pin-current'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-07-18T14:53:35Z

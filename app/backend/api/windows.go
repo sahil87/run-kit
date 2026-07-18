@@ -438,6 +438,15 @@ func (s *Server) handleWindowOptions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Wake the SSE hub so the option change (@color/@rk_url/@rk_type) surfaces on
+	// the next poll pass instead of the 12s safety tick — set-option is invisible
+	// to the tmuxctl control-mode parser, so no subscriber notification fires.
+	// Mirrors handleSessionOrderPost's initSSEHub-then-hub-call pattern; initSSEHub
+	// is idempotent. Only reached on a successful tmux write (validation/tmux
+	// errors returned early above).
+	s.initSSEHub()
+	s.sseHub.wake(server)
+
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 

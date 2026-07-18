@@ -402,5 +402,239 @@ func TestSafetyIntervalEffective(t *testing.T) {
 	})
 }
 
+// drainBootstrap drains the initial bootstrap snapshot (and any trailing
+// bootstrap events) from a freshly-added client so a subsequent assertion sees
+// only post-mutation events. Mirrors the drain sequence in the existing tests.
+func drainBootstrap(t *testing.T, ch <-chan hubEvent) {
+	t.Helper()
+	select {
+	case <-ch:
+	case <-time.After(2 * time.Second):
+		t.Fatal("no bootstrap snapshot delivered")
+	}
+	drainDeadline := time.Now().Add(200 * time.Millisecond)
+	for time.Now().Before(drainDeadline) {
+		select {
+		case <-ch:
+		default:
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+}
+
+// TestSSE_WakeTriggersRebuildBeforeSafetyInterval verifies the core wake seam:
+// a wake() on a server makes the loop snapshot+broadcast well before the
+// safety-net cadence would — the fix for the 5–10s color-apply latency.
+func TestSSE_WakeTriggersRebuildBeforeSafetyInterval(t *testing.T) {
+	sub := newStubSubscriber()
+	tracker := &fetchTracker{
+		result: map[string][]sessions.ProjectSession{
+			"kits": {{Name: "s1", Windows: []tmux.WindowInfo{{Index: 0, Name: "w0", IsActiveWindow: true}}}},
+		},
+	}
+	hub := newSSEHub(tracker, nil, nil, nil)
+	hub.subscriber = sub
+	hub.safetyInterval = 5 * time.Second // long enough that the timer clearly can't drive this.
+
+	client := &sseClient{ch: make(chan hubEvent, 8), server: "kits"}
+	hub.addClient(client)
+	t.Cleanup(func() { hub.removeClient(client) })
+	drainBootstrap(t, client.ch)
+
+	// Change the result and wake — the loop must observe it via the wake case
+	// (no subscriber Bump), invalidating the fetch cache.
+	tracker.mu.Lock()
+	tracker.result["kits"] = []sessions.ProjectSession{{
+		Name:    "s1",
+		Windows: []tmux.WindowInfo{{Index: 0, Name: "w0", IsActiveWindow: false}, {Index: 1, Name: "w1", IsActiveWindow: true}},
+	}}
+	tracker.mu.Unlock()
+
+	time.Sleep(50 * time.Millisecond) // let the loop settle into waitForNext
+	wakeTime := time.Now()
+	hub.wake("kits")
+
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case b := <-client.ch:
+			got := b.String()
+			if strings.Contains(got, "event: sessions") && strings.Contains(got, "\"w1\"") {
+				if elapsed := time.Since(wakeTime); elapsed > 1*time.Second {
+					t.Errorf("wake-driven snapshot took %v (want sub-second)", elapsed)
+				}
+				return
+			}
+		case <-deadline:
+			t.Fatalf("never observed wake-driven snapshot containing w1 (fetches: %d)", tracker.count.Load())
+		}
+	}
+}
+
+// TestSSE_WakeWorksWithNilSubscriber verifies wake drives the loop even when
+// subscriber == nil (unit-test hubs, PTY-unavailable hosts) — where the loop
+// previously short-circuited to a timer-only wait. Uses a long safety interval
+// so a passing test must be driven by the wake, not the timer.
+func TestSSE_WakeWorksWithNilSubscriber(t *testing.T) {
+	tracker := &fetchTracker{
+		result: map[string][]sessions.ProjectSession{"kits": {{Name: "s1"}}},
+	}
+	hub := newSSEHub(tracker, nil, nil, nil)
+	// subscriber left nil.
+	hub.safetyInterval = 5 * time.Second
+
+	client := &sseClient{ch: make(chan hubEvent, 8), server: "kits"}
+	hub.addClient(client)
+	t.Cleanup(func() { hub.removeClient(client) })
+	drainBootstrap(t, client.ch)
+
+	tracker.mu.Lock()
+	tracker.result["kits"] = []sessions.ProjectSession{{Name: "s1"}, {Name: "s2"}}
+	tracker.mu.Unlock()
+
+	time.Sleep(50 * time.Millisecond)
+	wakeTime := time.Now()
+	hub.wake("kits")
+
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case b := <-client.ch:
+			if strings.Contains(b.String(), "s2") {
+				if elapsed := time.Since(wakeTime); elapsed > 1*time.Second {
+					t.Errorf("wake-driven snapshot (nil subscriber) took %v (want sub-second)", elapsed)
+				}
+				return
+			}
+		case <-deadline:
+			t.Fatalf("never observed wake-driven snapshot containing s2 with nil subscriber")
+		}
+	}
+}
+
+// TestSSE_WakeUnknownServerIsNoOp verifies that waking a server with no
+// connected clients / an unknown name is a harmless no-op (no panic, no effect
+// on the polled server). It must not disturb the running loop.
+func TestSSE_WakeUnknownServerIsNoOp(t *testing.T) {
+	tracker := &fetchTracker{
+		result: map[string][]sessions.ProjectSession{"kits": {{Name: "s1"}}},
+	}
+	hub := newSSEHub(tracker, nil, nil, nil)
+	hub.safetyInterval = 200 * time.Millisecond
+
+	client := &sseClient{ch: make(chan hubEvent, 16), server: "kits"}
+	hub.addClient(client)
+	t.Cleanup(func() { hub.removeClient(client) })
+	drainBootstrap(t, client.ch)
+
+	// Waking servers that are not in the poll set must not panic and must not
+	// wedge the loop. Also exercise waking BEFORE any poll observes the channel.
+	hub.wake("nonexistent")
+	hub.wake("also-not-here")
+	hub.wake("nonexistent") // coalesce on an unpolled server
+
+	// The loop stays healthy: a real mutation on the polled server still lands
+	// (here via the fast safety cadence, since we don't wake "kits").
+	tracker.mu.Lock()
+	tracker.result["kits"] = []sessions.ProjectSession{{Name: "s1"}, {Name: "s2"}}
+	tracker.mu.Unlock()
+
+	deadline := time.After(1 * time.Second)
+	for {
+		select {
+		case b := <-client.ch:
+			if strings.Contains(b.String(), "s2") {
+				return
+			}
+		case <-deadline:
+			t.Fatal("polled server stopped updating after waking unknown servers")
+		}
+	}
+}
+
+// TestSSE_WakeDoesNotBusyLoop verifies coalescing / at-least-once: after a wake
+// is served, the loop settles back into waitForNext instead of spinning on
+// FetchSessions. With a long safety interval, a correct loop fetches only a
+// bounded number of times after the wake is consumed.
+func TestSSE_WakeDoesNotBusyLoop(t *testing.T) {
+	tracker := &fetchTracker{
+		result: map[string][]sessions.ProjectSession{"kits": {{Name: "s1"}}},
+	}
+	hub := newSSEHub(tracker, nil, nil, nil)
+	hub.safetyInterval = 5 * time.Second // timer must not drive fetches during the window.
+
+	client := &sseClient{ch: make(chan hubEvent, 64), server: "kits"}
+	hub.addClient(client)
+	t.Cleanup(func() { hub.removeClient(client) })
+	drainBootstrap(t, client.ch)
+
+	// Fire a burst of wakes, then measure fetches over a window that is well
+	// short of the 5s safety interval. Each wake is entitled to at most one
+	// extra pass (at-least-once); a busy-loop would fetch continuously because
+	// the wake channel was never retired.
+	time.Sleep(50 * time.Millisecond)
+	for i := 0; i < 5; i++ {
+		hub.wake("kits")
+	}
+	// Let the burst be served and the loop settle back into waitForNext.
+	time.Sleep(150 * time.Millisecond)
+	start := tracker.count.Load()
+	// Drain any events so the client channel can't fill and stall the loop.
+	for len(client.ch) > 0 {
+		<-client.ch
+	}
+	time.Sleep(300 * time.Millisecond)
+	got := tracker.count.Load() - start
+	if got > 5 {
+		t.Errorf("FetchSessions called %d times in 300ms after the wake burst was served — looks like a busy-loop", got)
+	}
+}
+
+// TestSSE_WakeInvalidatesFetchCache verifies that a woken pass observes the
+// post-mutation tmux state even when a <500ms-old snapshot is cached: the
+// consumed wake marks the server event-driven, which invalidates the sseCacheTTL
+// cache in poll(). Without the invalidation the woken pass would serve the
+// pre-mutation cached fetch and the fix would silently degrade to the safety tick.
+func TestSSE_WakeInvalidatesFetchCache(t *testing.T) {
+	tracker := &fetchTracker{
+		result: map[string][]sessions.ProjectSession{"kits": {{Name: "s1"}}},
+	}
+	hub := newSSEHub(tracker, nil, nil, nil)
+	hub.safetyInterval = 5 * time.Second
+
+	client := &sseClient{ch: make(chan hubEvent, 32), server: "kits"}
+	hub.addClient(client)
+	t.Cleanup(func() { hub.removeClient(client) })
+	drainBootstrap(t, client.ch)
+
+	// Prime a fresh cache entry via a first wake pass (still "s1"), so the next
+	// wake lands within the 500ms TTL and would hit a cached pre-mutation fetch
+	// if the cache were NOT invalidated.
+	time.Sleep(50 * time.Millisecond)
+	hub.wake("kits")
+	time.Sleep(100 * time.Millisecond) // pass runs; cache is now < 500ms old
+	for len(client.ch) > 0 {
+		<-client.ch
+	}
+
+	// Mutate, then wake again — all within the 500ms TTL of the primed cache.
+	tracker.mu.Lock()
+	tracker.result["kits"] = []sessions.ProjectSession{{Name: "s1"}, {Name: "s2"}}
+	tracker.mu.Unlock()
+	hub.wake("kits")
+
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case b := <-client.ch:
+			if strings.Contains(b.String(), "s2") {
+				return // post-mutation state surfaced → cache was invalidated
+			}
+		case <-deadline:
+			t.Fatal("woken pass served a stale cached fetch — eventDrivenServers cache invalidation missing")
+		}
+	}
+}
+
 // Silence unused-import warning if the kit changes shape.
 var _ = fmt.Sprintf

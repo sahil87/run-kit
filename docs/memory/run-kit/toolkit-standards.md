@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "run-kit's sahil87-toolkit-standards conformance posture — constitution binding (§ Toolkit Standards), the audit-against-HEAD-build rule (installed brew rk is stale), and the per-standard status audited @ shll v0.0.23 (help-dump: 1 envelope fix; readme-extraction: 2 closure fixes; principles: P1/P2/P4/P5 fixed — P4 exit-code convention conformant via 260717-rex1 central classification, only P9 deferred [f8yv]; skill: PASS). Deliverable = the PR-body conformance report."
+description: "run-kit's sahil87-toolkit-standards conformance posture — constitution binding (§ Toolkit Standards), the audit-against-HEAD-build rule (installed brew rk is stale), and per-standard status @ shll v0.0.23 (help-dump: envelope fixed; readme-extraction: 2 closure fixes; principles: P1/P2/P5 fixed at c424, P4 conformant via 260717-rex1, P9 conformant via 260717-f8yv --quiet/outputSink + reaper cap — all ten PASS; skill: PASS). c424 deliverable = the PR-body conformance report."
 ---
 # Toolkit Standards Conformance
 
@@ -39,6 +39,74 @@ same binary).
 - **WHEN** the audit runs against the stale installed brew `rk` (v3.7.2)
 - **THEN** `rk skill` errors (`unknown command "skill"`) and the standard reads as unmet
 - **AND** the audit-against-HEAD-build rule prevents that false negative: `bin/rk skill` passes the standard's checklist
+
+### Requirement: Bounded, high-signal output (Principle 9)
+run-kit's CLI SHALL conform to toolkit Principle 9 (bounded, high-signal output):
+unbounded surfaces carry explicit caps stated in the output, and what survives
+`--quiet` is the data and the errors — never progress, decoration, or chatter.
+This closes the P9 gap the c424 audit deferred as restructural (backlog **[f8yv]**,
+resolved by `260717-f8yv-cli-output-volume-controls`).
+
+The shipped posture (mechanism lives in
+[architecture](/run-kit/architecture.md) § CLI Subcommands — the `outputSink`
+convention plus the per-command rows):
+
+- **A single persistent `--quiet` bool on `rootCmd`** (`root.go`), so every present
+  and future subcommand accepts it uniformly and inherits it with zero registration
+  work. It is a deliberate no-op on any command not yet routed through the sink
+  (incremental adoption).
+- **A shared `outputSink` convention, decided once** (`cmd/rk/output.go`, package
+  `main`): **stdout carries data** (machine-consumable results — outcome lines,
+  `--json` documents, requested previews/lists — never gated by `--quiet`);
+  **stderr carries chatter** (progress/decoration) which `--quiet` routes to
+  `io.Discard`. **Errors always survive** (they flow through `RunE` returns and
+  ungated stderr writes); exit codes are never affected by `--quiet`; a successful
+  run with nothing to report is silent under `--quiet`. Built on
+  `cmd.OutOrStdout()`/`cmd.ErrOrStderr()` (never bare `os.Stdout`/`os.Stderr`) so
+  gating is unit-testable — the idiom `doctor.go`/`agent_setup.go` already used.
+- **Three commands adopt the sink** (the audit-named chatter carriers): `update`
+  (`upgrade.go`), `doctor` (`doctor.go`), `agent-setup` (`agent_setup.go`).
+  Adopting the convention re-routes `update`'s former stdout progress lines onto
+  stderr on non-quiet runs — an intentional consequence of "decide the convention
+  once", aligning with Principle 2 (stdout is data).
+- **A consent-mode diff-routing nuance in `agent-setup`** (cycle-1 rework): the
+  settings diff routes **per consent mode** via `consent.diffWriter` — on the
+  interactive-prompt and `--dry-run` paths it is **data** (never gated: a consent
+  prompt without the diff it asks about is a dark pattern, and a dry-run's diff is
+  the requested output), while on the **`--yes`** path (write already authorized)
+  it is **chatter**, so `--yes --quiet` is fully silent on success while `--yes`
+  non-quiet still shows the diff on stderr. The interactive prompt itself and the
+  non-TTY refusal are never gated (the refusal is an error).
+- **A brew-stderr-in-error nuance in `update`** (cycle-1 rework): under `--quiet`
+  the suppressed brew subprocess stderr is **buffered** (not discarded) and, on a
+  non-zero exit, wrapped into the returned error, so a failing `rk update --quiet`
+  keeps its diagnostic detail rather than surfacing a bare `exit status 1`.
+- **`reaper` gets a display cap, not a quiet conversion** (`reaper.go`): everything
+  reaper prints is data (a dry-run's candidate list is the requested result; an act
+  summary is the record of a destructive mutation), so `--quiet` legitimately
+  changes nothing. Instead each rendered list caps at **10 entries per list**
+  (mirroring `shll changelog`'s 10-release cap) with a **stated truncation notice**
+  (`… and N more; pass --all to list all`) — silent truncation reads as
+  completeness — applied to **both** paths (`renderDryRun`'s candidate list;
+  `renderReapSummary`'s `killed` and `removed` lists, each capped independently). A
+  **`--all`** display-only escape hatch restores the full list. The cap is
+  **display-only**: header counts stay exact (computed from the full result),
+  `--yes`/`--force` still reap every match regardless of what was listed, and the
+  dangerous-prefix guard, `_rk-ctl`/`rk-daemon` unconditional skips, and
+  dry-run-by-default behavior are all unchanged.
+
+#### Scenario: `--quiet` preserves data and errors, drops chatter
+- **GIVEN** `run-kit doctor --quiet` with all dependencies present
+- **WHEN** the checks pass
+- **THEN** stderr is empty (banner / `[ OK ]` rows / success tail dropped) and the exit code is 0
+- **AND GIVEN** a failing check, the `[FAIL]` row (carrying the remediation hint) survives on stderr and the exit is non-zero
+- **AND GIVEN** `--quiet --json`, stdout carries exactly the JSON report
+
+#### Scenario: Reaper caps a large list and states the cap
+- **GIVEN** a dry-run with 4485 candidates
+- **WHEN** `renderDryRun` renders under the default cap
+- **THEN** at most 10 candidate rows print, the header count is the exact `4485`, and the notice states `… and 4475 more; pass --all to list all`
+- **AND GIVEN** `--all`, every candidate row prints with no truncation notice and reap semantics are identical
 
 ### Requirement: The standards set is enumerated at runtime, not assumed
 Each audit MUST re-run `shll standards` for the authoritative list and
@@ -106,10 +174,12 @@ env-derived content — that stays in `rk context`), in-genre briefing. See
 [architecture](/run-kit/architecture.md) § CLI Subcommands (`skill` row) for the
 embed mechanism and drift guard.
 
-### principles — PASS with gaps (four fixed, one deferred)
+### principles — PASS (all gaps closed: three fixed at c424, P4 by [rex1], P9 by [f8yv])
 Assessed each of the ten principles against `bin/rk` behavior + source. Of the
 five gaps the c424 audit found, three (P1/P2/P5) were fixed in c424; **P4 was
-subsequently fixed by `260717-rex1`** (below), leaving only P9 ([f8yv]) deferred.
+subsequently fixed by `260717-rex1`** (below) and **P9 by
+`260717-f8yv-cli-output-volume-controls`** (the "Now conformant" subsection
+below). No principle gaps remain open.
 
 **Fixed here (additive per-command flags — the intake's in-scope "missing flag"):**
 - **P1 (Non-interactive by default)** — `agent-setup` could neither consent
@@ -173,12 +243,15 @@ subsequently fixed by `260717-rex1`** (below), leaving only P9 ([f8yv]) deferred
     `0` success / `1` precondition / `2` validation-usage / `3` subprocess. Command tree
     unchanged (no flags added/removed), so the help-dump contract is unaffected.
 
-**Deferred to backlog (restructural — the intake's proportionality "restructure" class):**
-- **P9 (Bounded, high-signal output)** → `fab/backlog.md` **[f8yv]**. No command
-  offers `--quiet`, and `reaper`'s match list is uncapped (~4485 lines in the
-  audit environment). Both are global output-model changes (a shared quiet-gating
-  convention; a default list cap + `--all` + truncation notice), not a single
-  additive flag.
+**Deferred to backlog at the c424 audit (restructural — the intake's
+proportionality "restructure" class) — both deferrals since resolved:** P4 →
+**[rex1]** (implemented by `260717-rex1`, the "Fixed by" block above) and P9 →
+**[f8yv]** (below).
+
+**Now conformant (was deferred to backlog, resolved by `260717-f8yv-cli-output-volume-controls`):**
+- **P9 (Bounded, high-signal output)** — **PASS**. The deferred restructure landed:
+  see § Requirement: Bounded, high-signal output (Principle 9) below for the
+  shipped mechanism. Backlog **[f8yv]** is resolved by that change.
 
 Principles 3, 6, 7, 8, 10 PASS as-audited (help published; stateless/derive-from-tmux;
 wraps `wt`/`fab`/`brew`; degrades gracefully; README + docs/site + `rk skill`
@@ -215,9 +288,11 @@ gaps (rather than a half-covered fix) honors "fix root causes, not symptoms" and
 the toolkit's phased-adoption posture.
 **Rejected**: GitHub issues / draft changes for the deferrals (not the repo's
 visible convention); committing the report under `docs/` (drift, no consumer).
-**Follow-up**: the P4 deferral [rex1] has since been implemented (see § principles
-→ "Fixed by `260717-rex1`"); [f8yv] (P9) remains the only open deferral. The
-backlog-then-implement path validated the deferral convention end-to-end.
+**Follow-up**: both deferrals have since been implemented — **[rex1]** (P4) by
+`260717-rex1` (see § principles → "Fixed by `260717-rex1`") and **[f8yv]** (P9)
+by `260717-f8yv-cli-output-volume-controls` (see § Requirement: Bounded,
+high-signal output). The backlog-then-implement path validated the deferral
+convention end-to-end.
 *Introduced by*: `260717-c424-toolkit-standards-conformance`
 
 ### Unknown-command classification at the `execute()` seam, not an explicit validator

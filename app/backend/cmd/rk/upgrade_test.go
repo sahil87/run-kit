@@ -1,10 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // withResolveExe swaps resolveExeFn to return the given path/err for the test's
@@ -145,6 +150,174 @@ func TestUpdate_Default_RunsUpdateAndUpgradeAndRestarts(t *testing.T) {
 	if restartCalls != 1 {
 		t.Errorf("restartDaemonFn called %d times, want 1", restartCalls)
 	}
+}
+
+// setUpdateBuffers wires updateCmd's stdout/stderr to the given buffers for the
+// test's duration, so a quiet-gating test can observe the data vs chatter split.
+func setUpdateBuffers(t *testing.T, stdout, stderr *bytes.Buffer) {
+	t.Helper()
+	updateCmd.SetOut(stdout)
+	updateCmd.SetErr(stderr)
+	t.Cleanup(func() { updateCmd.SetOut(nil); updateCmd.SetErr(nil) })
+}
+
+// TestUpdate_Quiet_OutcomeSurvivesProgressDropped pins R3: under --quiet the
+// outcome line ("Updated to v…") survives on stdout (data) while progress lines
+// ("Current version", "Updating", "Restarting") are dropped from stderr
+// (chatter). Errors and exit codes are unaffected.
+func TestUpdate_Quiet_OutcomeSurvivesProgressDropped(t *testing.T) {
+	resetSkipFlag(t)
+	withQuiet(t, true)
+	withResolveExe(t, "/opt/homebrew/Cellar/run-kit/9.9.9/bin/run-kit", nil)
+
+	var rec []string
+	withBrewRecorder(t, &rec, brewInfoJSON("9.9.9"))
+	var restartCalls int
+	var restartPath string
+	withRestartRecorder(t, &restartCalls, &restartPath)
+
+	var stdout, stderr bytes.Buffer
+	setUpdateBuffers(t, &stdout, &stderr)
+
+	if err := updateCmd.RunE(updateCmd, nil); err != nil {
+		t.Fatalf("updateCmd.RunE returned error: %v", err)
+	}
+
+	// Outcome line is data — survives --quiet on stdout.
+	if !strings.Contains(stdout.String(), "Updated to v9.9.9.") {
+		t.Errorf("--quiet must keep the outcome line on stdout, got: %q", stdout.String())
+	}
+	// Progress/decoration lines are chatter — dropped under --quiet.
+	for _, chatter := range []string{"Current version", "Updating v", "Restarting run-kit daemon", "run-kit daemon started"} {
+		if strings.Contains(stderr.String(), chatter) {
+			t.Errorf("--quiet must drop chatter %q, got stderr: %q", chatter, stderr.String())
+		}
+	}
+	// The mutation still happened — --quiet changes output only, never behavior.
+	if restartCalls != 1 {
+		t.Errorf("restartDaemonFn called %d times, want 1 (--quiet must not change behavior)", restartCalls)
+	}
+}
+
+// TestUpdate_NonQuiet_ProgressOnStderrOutcomeOnStdout pins A-009: without
+// --quiet, progress lines route to stderr (the convention re-routes update's
+// former stdout progress onto stderr) while the outcome line stays on stdout.
+func TestUpdate_NonQuiet_ProgressOnStderrOutcomeOnStdout(t *testing.T) {
+	resetSkipFlag(t)
+	withQuiet(t, false)
+	withResolveExe(t, "/opt/homebrew/Cellar/run-kit/9.9.9/bin/run-kit", nil)
+
+	var rec []string
+	withBrewRecorder(t, &rec, brewInfoJSON("9.9.9"))
+	var restartCalls int
+	var restartPath string
+	withRestartRecorder(t, &restartCalls, &restartPath)
+
+	var stdout, stderr bytes.Buffer
+	setUpdateBuffers(t, &stdout, &stderr)
+
+	if err := updateCmd.RunE(updateCmd, nil); err != nil {
+		t.Fatalf("updateCmd.RunE returned error: %v", err)
+	}
+
+	if !strings.Contains(stdout.String(), "Updated to v9.9.9.") {
+		t.Errorf("outcome line must be on stdout, got stdout: %q", stdout.String())
+	}
+	if strings.Contains(stdout.String(), "Current version") {
+		t.Errorf("progress must NOT be on stdout (convention: stdout is data), got: %q", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "Current version") {
+		t.Errorf("progress must be on stderr, got stderr: %q", stderr.String())
+	}
+}
+
+// TestUpdate_Quiet_NotBrewGuidanceSurvives pins R3's guidance clause: the
+// not-a-brew-install guidance is data (it explains why nothing happened) and
+// survives --quiet on stdout.
+func TestUpdate_Quiet_NotBrewGuidanceSurvives(t *testing.T) {
+	resetSkipFlag(t)
+	withQuiet(t, true)
+	// A non-Cellar path → IsBrewInstalled is false → guidance block prints.
+	withResolveExe(t, "/usr/local/bin/run-kit", nil)
+
+	var stdout, stderr bytes.Buffer
+	setUpdateBuffers(t, &stdout, &stderr)
+
+	if err := updateCmd.RunE(updateCmd, nil); err != nil {
+		t.Fatalf("updateCmd.RunE returned error: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "was not installed via Homebrew") {
+		t.Errorf("--quiet must keep the not-brew guidance on stdout, got: %q", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "brew install sahil87/tap/run-kit") {
+		t.Errorf("--quiet must keep the reinstall hint, got: %q", stdout.String())
+	}
+}
+
+// TestBrewStreams_QuietGating pins that under --quiet the brew subprocess stdout
+// (the definitional "raw brew output" chatter) is discarded while stderr is
+// BUFFERED into the returned *bytes.Buffer (so a failing quiet run can surface
+// the diagnostic detail in its error), and that a non-quiet run streams to the
+// real process streams with a nil errBuf. This is the seam the default runBrewFn
+// uses, tested without spawning a real `brew`.
+func TestBrewStreams_QuietGating(t *testing.T) {
+	stdout, stderr, errBuf := brewStreams(true)
+	if stdout != io.Discard {
+		t.Errorf("brewStreams(true) stdout = %v, want io.Discard", stdout)
+	}
+	if errBuf == nil {
+		t.Fatal("brewStreams(true) errBuf = nil, want a buffer to capture stderr under --quiet")
+	}
+	// Under --quiet stderr and errBuf are the SAME buffer (captured, not discarded).
+	if stderr != io.Writer(errBuf) {
+		t.Errorf("brewStreams(true) stderr must be the errBuf capture buffer, got %v", stderr)
+	}
+
+	stdout, stderr, errBuf = brewStreams(false)
+	if stdout != io.Writer(os.Stdout) || stderr != io.Writer(os.Stderr) {
+		t.Errorf("brewStreams(false) must return the real os.Stdout/os.Stderr, got (%v, %v)", stdout, stderr)
+	}
+	if errBuf != nil {
+		t.Errorf("brewStreams(false) errBuf = %v, want nil (non-quiet streams live, buffers nothing)", errBuf)
+	}
+}
+
+// TestRunBrewFn_QuietFailureSurfacesStderrDetail pins T004's fix: a failing brew
+// under --quiet must not destroy diagnostics. The default runBrewFn buffers brew
+// stderr under --quiet and wraps the captured detail into the returned error, so
+// a caller sees the actual failure reason — not just "exit status 1". Uses a
+// fake `brew` on PATH that writes to stderr and exits non-zero.
+func TestRunBrewFn_QuietFailureSurfacesStderrDetail(t *testing.T) {
+	const detail = "Error: brew-upgrade-boom-detail"
+	withFakeBrew(t, detail, 1)
+	withQuiet(t, true)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	_, err := runBrewFn(ctx, "upgrade", "sahil87/tap/run-kit")
+	if err == nil {
+		t.Fatal("failing brew under --quiet must return an error")
+	}
+	// The captured stderr detail must be wrapped into the error (not discarded).
+	if !strings.Contains(err.Error(), detail) {
+		t.Errorf("--quiet failure must surface the captured brew stderr detail, got: %v", err)
+	}
+}
+
+// withFakeBrew installs a fake `brew` executable on PATH (prepended) for the
+// test's duration. The fake writes stderrText to stderr and exits with exitCode,
+// so runBrewFn's real exec.CommandContext path is exercised without a real brew.
+func withFakeBrew(t *testing.T, stderrText string, exitCode int) {
+	t.Helper()
+	dir := t.TempDir()
+	script := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' %q 1>&2\nexit %d\n", stderrText, exitCode)
+	brewPath := filepath.Join(dir, "brew")
+	if err := os.WriteFile(brewPath, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake brew: %v", err)
+	}
+	origPath := os.Getenv("PATH")
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+origPath)
 }
 
 func TestUpdate_SkipBrewUpdate_ShortCircuitsWhenUpToDate(t *testing.T) {

@@ -1,19 +1,26 @@
 #!/usr/bin/env bash
-# Copy the canonical docs/site/skill.md into the cmd/rk package so it can be
-# embedded via //go:embed. The Go module root is app/backend/ and docs/site/
-# sits above it, so embed cannot reach the canonical file directly — this copy
-# step bridges the gap (Constitution VIII: thin justfile, logic in scripts/).
-# The committed copy is what a clean `go build ./...` (which does not run this
-# script) compiles; TestSkillEmbedMatchesCanonical keeps it byte-honest against
-# docs/site/skill.md on every `go test`.
+# Copy the canonical skill bundle + topic pages into the cmd/rk package so they
+# can be embedded via //go:embed. The Go module root is app/backend/ and
+# docs/site/ sits above it, so embed cannot reach the canonical files directly —
+# this copy step bridges the gap (Constitution VIII: thin justfile, logic in
+# scripts/). The committed copies are what a clean `go build ./...` (which does
+# not run this script) compiles; the drift-guard tests (TestSkillEmbedMatchesCanonical,
+# TestSkillDisplayEmbedMatchesCanonical) keep them byte-honest against the
+# canonical docs/site/ sources on every `go test`.
 set -euo pipefail
 
 # Run from the repo root regardless of caller CWD.
 cd "$(dirname "$0")/.."
 
-SRC="docs/site/skill.md"
-DEST="app/backend/cmd/rk/skill/skill.md"
+DEST_DIR="app/backend/cmd/rk/skill"
+mkdir -p "$DEST_DIR"
 
-mkdir -p "$(dirname "$DEST")"
-cp -f "$SRC" "$DEST"
-echo "synced skill bundle: $SRC -> $DEST"
+# core bundle + each topic page under docs/site/skill/. Add a row per topic page.
+sync() {
+	local src="$1" dest="$2"
+	cp -f "$src" "$dest"
+	echo "synced skill bundle: $src -> $dest"
+}
+
+sync "docs/site/skill.md" "$DEST_DIR/skill.md"
+sync "docs/site/skill/display.md" "$DEST_DIR/display.md"

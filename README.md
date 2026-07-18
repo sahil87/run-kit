@@ -249,8 +249,8 @@ Supports `zsh`, `bash`, `fish`, and `powershell`. Completion-only — run-kit ha
 | `run-kit riff` | Create a worktree + tmux window + agent/command pane(s). |
 | `run-kit serve` | Start the HTTP server (foreground or daemon). |
 | `run-kit status` | Show a tmux session summary. |
-| `run-kit context` | Print agent-optimized environment info (server URL, ports, etc.) — designed to be read by AI agents inside a run-kit-spawned workspace. |
-| `run-kit skill` | Print the agent skill bundle — a static usage briefing for agents operating run-kit; the static complement to `run-kit context` (canonical source `docs/site/skill.md`). |
+| `run-kit url` | Print the run-kit server URL (config-derived from `RK_HOST`/`RK_PORT`, default `http://127.0.0.1:3000`) — a heuristic for AI agents, not a liveness probe. |
+| `run-kit skill` | Print the agent skill bundle — a static usage briefing for agents operating run-kit (canonical source `docs/site/skill.md`); `run-kit skill display` prints the visual-display topic page. |
 | `run-kit notify` | Send a Web Push notification to your subscribed devices (see [Push notifications](#push-notifications)). Fail-silent. |
 | `run-kit doctor` | Check runtime dependencies. Run this first when something breaks. |
 | `run-kit agent-setup` | Install agent-harness hooks (v1: Claude Code) so panes report busy/waiting/idle state (see [Agent state](#agent-state--run-kit-agent-setup)). Once per machine; `--uninstall` reverses it. |

@@ -55,7 +55,7 @@ func init() {
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(daemonCmd)
 	rootCmd.AddCommand(initConfCmd)
-	rootCmd.AddCommand(contextCmd)
+	rootCmd.AddCommand(urlCmd)
 	rootCmd.AddCommand(skillCmd)
 	rootCmd.AddCommand(notifyCmd)
 	rootCmd.AddCommand(agentSetupCmd)

@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "run-kit's sahil87-toolkit-standards conformance posture — constitution binding (§ Toolkit Standards), the audit-against-HEAD-build rule (installed brew rk is stale), and per-standard status @ shll v0.0.23 (help-dump: envelope fixed; readme-extraction: 2 closure fixes; principles: P1/P2/P5 fixed at c424, P4 conformant via 260717-rex1, P9 conformant via 260717-f8yv --quiet/outputSink + reaper cap — all ten PASS; skill: PASS). c424 deliverable = the PR-body conformance report."
+description: "run-kit's sahil87-toolkit-standards conformance posture — constitution binding (§ Toolkit Standards), audit-against-HEAD-build rule, per-standard status @ shll v0.0.23 (help-dump: envelope fixed; readme-extraction: 2 closure fixes; principles: P1/P2/P5 at c424, P4 via 260717-rex1, P9 via 260717-f8yv --quiet/outputSink+reaper cap — all ten PASS; skill: PASS + topic pages `rk skill display` via 260718-icxz, `rk context` retired for `rk url`+static derivation recipes)."
 ---
 # Toolkit Standards Conformance
 
@@ -165,14 +165,33 @@ The two auto-rewritten relative forms are correct and stay relative: README →
 `docs/site/*.md` hub links, and between-`docs/site/` links. A post-fix closure
 sweep over `README.md` + `docs/site/**` showed zero remaining escapes.
 
-### skill — PASS (fully conformant, no changes)
+### skill — PASS (fully conformant; topic pages adopted by `260718-icxz`)
 The standard's "deferred, not yet adopted" contingency does NOT apply — `rk skill`
 + `docs/site/skill.md` exist at HEAD (PR #381,
 `260717-agst-rk-skill-agent-setup-hooks-only`), so it was audited in full and
-passed: byte-identical stdout to canonical, ≤150 lines (83), static-only (no
-env-derived content — that stays in `rk context`), in-genre briefing. See
-[architecture](/run-kit/architecture.md) § CLI Subcommands (`skill` row) for the
-embed mechanism and drift guard.
+passed: byte-identical stdout to canonical, ≤150 lines, static-only, in-genre
+briefing. See [architecture](/run-kit/architecture.md) § CLI Subcommands
+(`skill` row) for the embed mechanism and drift guard.
+
+**Topic-page amendment adopted (`260718-icxz-skill-display-topic-url-retire-context`).**
+The shll skill standard gained **topic pages** (`<tool> skill <topic>`, each
+canonical at `docs/site/skill/<topic>.md`, ≤150 lines, static-only, byte-identical,
+drift-guarded, rendered at `/<tool>/skill/<topic>` on shll.ai — shll PR #47, merged
+2026-07-18). run-kit adopted it in the same release: `rk skill display` serves a
+new `docs/site/skill/display.md` topic page (81 lines) via the **per-topic** embed
++ drift-guard extension of the existing mechanism (a `map[string][]byte` topic
+table, one `//go:embed`/`bytes.Equal`/line-budget test per topic file). The
+standard's fail-fast rule is implemented: an **unknown topic** exits usage-class
+(2) via the existing `usageError` helper with the valid topics named on stderr and
+**empty stdout** — never a silent empty document; bare `rk skill` **never inlines**
+a topic page. The final topic-index wording was re-checked against the merged
+standard at apply entry (Constitution § Toolkit Standards binds CLI-surface changes
+to the standards; `shll standards skill` is the canonical read), satisfying the
+intake's sequencing constraint — apply was gated on that amendment merging.
+No **new** standard was audited by this change (the four @ `shll v0.0.23` are
+unchanged); this is an adoption of a revised clause of the already-passing `skill`
+standard. See § Design Decisions → "Static derivation recipes replace `rk context`
+(a recipe is static content)".
 
 ### principles — PASS (all gaps closed: three fixed at c424, P4 by [rex1], P9 by [f8yv])
 Assessed each of the ten principles against `bin/rk` behavior + source. Of the
@@ -328,3 +347,42 @@ pins the new numeric values so a future accidental re-swap is caught.
 one command already using explicit codes); adding a numeric translation layer at
 the boundaries (unnecessary once consumers key on identity).
 *Introduced by*: `260717-rex1-unify-usage-error-exit-codes`
+
+### Static derivation recipes replace `rk context` (a recipe is static content)
+**Decision**: **delete `rk context` outright** (no stub/alias) and absorb its two
+halves into the skill standard's static surface: (1) its ~100 lines of static
+capability prose (terminal/iframe windows, proxy, Visual Display Recipe,
+conventions) move to the new **`rk skill display`** topic page; (2) its genuinely
+**dynamic** residue — the ~4-line "where am I" Environment block (pane id, session,
+window, window type, server URL) — is taught to agents as a **static derivation
+recipe** in the core `rk skill` bundle: a fixed `$TMUX_PANE` / `tmux
+display-message -p '#S'`/`'#W'` / `tmux show-option -w @rk_type` / **`rk url`**
+snippet. A **derivation recipe is static content even though its result is
+dynamic** — the recipe text never varies by where/when it runs, so the bundle can
+teach it without violating the standard's static-only rule.
+**Why**: `rk context` duplicated the bundle-owned static prose (drift risk — no
+guard pinned the two copies) and cost an extra CLI subcommand (Constitution §IV
+minimal surface). The standard's own static/dynamic split, plus Constitution §X's
+"when a fact is available both ways, derivation wins", applied to rk's own CLI:
+every Environment value is derivable by the agent directly (`$TMUX_PANE`, `tmux
+display-message`, env-backed config), so the command was pure duplication once the
+topic page existed. The one derivation that earns a stable command seam is the
+server URL → **`rk url`** (`config.Load()` heuristic, byte-equal to the deleted
+`serverURL()`; ecosystem precedent `gh browse --no-browser` / `docker port` /
+`minikube service --url`), which also keeps a natural home for smarter port-owner
+discovery later without freezing a heuristic into prose. Net CLI surface: −1
+`context`, +1 `url`, +topic arg on `skill` — zero growth, less duplication. The
+line "static-only (no env-derived content — that stays in `rk context`)" recorded
+at the c424 audit (§ skill) is superseded: env-derived content is now reached via
+`rk url` + the taught tmux derivations, not `rk context`.
+**Rejected**: a deprecation stub/alias for `rk context` ("completely get rid of";
+the version-locked binary embed makes removal atomic per-install — a binary lacking
+the command also ships the bundle that no longer references it, and external callers
+follow the fail-silent rk discipline and degrade to no-op); merging context INTO
+`rk skill` as a `context` subcommand (topic pages are static-only, and the dynamic
+Environment block has no place there — the recipe belongs in the bundle, the URL in
+its own command); keeping the static prose in BOTH `rk context` and the topic page
+(the exact drift the deletion removes). The fab-kit `_cli-external.md` § rk update
+(it documents `rk context` as carrying the recipes) is a **sibling change** in the
+fab-kit repo, out of scope here.
+*Introduced by*: `260718-icxz-skill-display-topic-url-retire-context`

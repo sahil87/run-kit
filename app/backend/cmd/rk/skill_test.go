@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -53,21 +54,142 @@ func TestSkillEmbedMatchesCanonical(t *testing.T) {
 	}
 }
 
+// countLines counts content lines the way the ≤150 budget is defined: newline
+// characters plus one for a final line with no trailing newline (an undercount
+// would make the budget check falsely permissive; see TestSkillBundleWithinLineBudget).
+func countLines(b []byte) int {
+	lines := bytes.Count(b, []byte("\n"))
+	if len(b) > 0 && !bytes.HasSuffix(b, []byte("\n")) {
+		lines++
+	}
+	return lines
+}
+
 // TestSkillBundleWithinLineBudget pins the ≤150-line budget from the standard.
 // A bundle over budget is trying to be a README and taxes every conversation
 // that loads it.
 func TestSkillBundleWithinLineBudget(t *testing.T) {
-	// Count content lines. bytes.Count reports newline characters, so a bundle
-	// without a trailing newline would undercount by one (its final line has no
-	// terminator) — and an undercount makes the check MORE permissive, letting an
-	// over-budget bundle (e.g. 151 lines, no trailing newline) falsely pass. Add
-	// the final non-newline-terminated line back explicitly so the budget holds
-	// regardless of trailing-newline convention.
-	lines := bytes.Count(skillBundle, []byte("\n"))
-	if len(skillBundle) > 0 && !bytes.HasSuffix(skillBundle, []byte("\n")) {
-		lines++
-	}
-	if lines > skillLineBudget {
+	if lines := countLines(skillBundle); lines > skillLineBudget {
 		t.Errorf("skill bundle is %d lines, over the %d-line budget", lines, skillLineBudget)
+	}
+}
+
+// runSkill drives `rk skill [args...]` through the real cobra Execute() seam —
+// not skillCmd.RunE directly — so the MaximumNArgs(1)+usageArgs validator and
+// cobra's stderr error path are exercised exactly as they are in production. It
+// returns (stdout, stderr, err); err is the value Execute() returns, which
+// execute() would classify via exitCode. Buffers are attached to the shared
+// rootCmd (children inherit its out/err), and root flag/arg state is reset first
+// so a prior test's Execute() cannot bleed into this one.
+func runSkill(t *testing.T, args ...string) (string, string, error) {
+	t.Helper()
+	resetRootFlagState(t)
+	var stdout, stderr bytes.Buffer
+	rootCmd.SetOut(&stdout)
+	rootCmd.SetErr(&stderr)
+	rootCmd.SetArgs(append([]string{"skill"}, args...))
+	t.Cleanup(func() {
+		rootCmd.SetOut(nil)
+		rootCmd.SetErr(nil)
+		rootCmd.SetArgs(nil)
+	})
+	err := rootCmd.Execute()
+	return stdout.String(), stderr.String(), err
+}
+
+// TestSkillBareStillPrintsCoreBundle asserts bare `rk skill` (no arg) still
+// prints ONLY the core bundle, byte-identical — never a topic page inlined.
+func TestSkillBareStillPrintsCoreBundle(t *testing.T) {
+	stdout, stderr, err := runSkill(t)
+	if err != nil {
+		t.Fatalf("skill RunE err = %v, want nil (exit 0)", err)
+	}
+	if stdout != string(skillBundle) {
+		t.Error("bare `skill` stdout is not the core bundle byte-identical")
+	}
+	if stderr != "" {
+		t.Errorf("skill wrote to stderr: %q", stderr)
+	}
+}
+
+// TestSkillDisplayPrintsTopicByteIdentical drives `rk skill display` and asserts
+// stdout equals the embedded topic bundle byte-for-byte, empty stderr, nil error.
+func TestSkillDisplayPrintsTopicByteIdentical(t *testing.T) {
+	stdout, stderr, err := runSkill(t, "display")
+	if err != nil {
+		t.Fatalf("skill display RunE err = %v, want nil (exit 0)", err)
+	}
+	if !bytes.Equal([]byte(stdout), skillDisplayTopic) {
+		t.Errorf("stdout is not byte-identical to the embedded display topic (got %d bytes, want %d)",
+			len(stdout), len(skillDisplayTopic))
+	}
+	if stderr != "" {
+		t.Errorf("skill display wrote to stderr: %q", stderr)
+	}
+}
+
+// TestSkillUnknownTopicFailsFast asserts `rk skill bogus` fails fast: empty
+// stdout, the diagnostic emitted on STDERR (cobra's `Error:` line, since the
+// command runs through Execute()), a non-nil usage-class error (exit 2) whose
+// message names the valid topics — never a silent empty stdout with exit 0.
+func TestSkillUnknownTopicFailsFast(t *testing.T) {
+	stdout, stderr, err := runSkill(t, "bogus")
+	if err == nil {
+		t.Fatal("skill bogus err = nil, want a usage error")
+	}
+	if stdout != "" {
+		t.Errorf("skill bogus wrote to stdout: %q, want empty", stdout)
+	}
+	if exitCode(err) != exitUsage {
+		t.Errorf("skill bogus exit code = %d, want %d (usage)", exitCode(err), exitUsage)
+	}
+	for _, want := range []string{"unknown topic", "display"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("skill bogus error %q missing %q", err.Error(), want)
+		}
+		if !strings.Contains(stderr, want) {
+			t.Errorf("skill bogus stderr %q missing %q", stderr, want)
+		}
+	}
+}
+
+// TestSkillTooManyArgsFailsFast pins the MaximumNArgs(1)+usageArgs contract: a
+// second positional arg is a usage error (exit 2) with empty stdout and the
+// diagnostic on stderr — the validator rejects it before RunE runs, so no bundle
+// is ever printed.
+func TestSkillTooManyArgsFailsFast(t *testing.T) {
+	stdout, stderr, err := runSkill(t, "display", "extra")
+	if err == nil {
+		t.Fatal("skill display extra err = nil, want a usage error")
+	}
+	if stdout != "" {
+		t.Errorf("skill display extra wrote to stdout: %q, want empty", stdout)
+	}
+	if exitCode(err) != exitUsage {
+		t.Errorf("skill display extra exit code = %d, want %d (usage)", exitCode(err), exitUsage)
+	}
+	if stderr == "" {
+		t.Error("skill display extra wrote nothing to stderr, want the arg-count diagnostic")
+	}
+}
+
+// TestSkillDisplayEmbedMatchesCanonical is the topic drift guard: the embedded
+// display topic bytes MUST equal the canonical docs/site/skill/display.md.
+func TestSkillDisplayEmbedMatchesCanonical(t *testing.T) {
+	canonicalPath := filepath.Join("..", "..", "..", "..", "docs", "site", "skill", "display.md")
+	canonical, err := os.ReadFile(canonicalPath)
+	if err != nil {
+		t.Fatalf("read canonical %s: %v", canonicalPath, err)
+	}
+	if !bytes.Equal(skillDisplayTopic, canonical) {
+		t.Errorf("embedded display topic has drifted from canonical %s — run scripts/sync-skill.sh and commit the refreshed copy", canonicalPath)
+	}
+}
+
+// TestSkillDisplayWithinLineBudget pins the topic page's independent ≤150-line
+// budget (the standard bounds each topic page separately, not the aggregate).
+func TestSkillDisplayWithinLineBudget(t *testing.T) {
+	if lines := countLines(skillDisplayTopic); lines > skillLineBudget {
+		t.Errorf("display topic is %d lines, over the %d-line budget", lines, skillLineBudget)
 	}
 }

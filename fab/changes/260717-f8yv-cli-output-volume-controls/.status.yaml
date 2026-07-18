@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 10
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-07-18T00:12:57Z", driver: fab-fff, iterations: 2, completed_at: "2026-07-18T00:20:20Z"}
     review: {started_at: "2026-07-18T00:20:20Z", driver: fab-fff, iterations: 2, completed_at: "2026-07-18T00:32:54Z"}
     hydrate: {started_at: "2026-07-18T00:32:54Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-18T00:38:28Z"}
-    ship: {started_at: "2026-07-18T00:38:28Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-07-18T00:38:28Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-18T00:42:13Z"}
+    review-pr: {started_at: "2026-07-18T00:42:13Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/385
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 1506
+    deleted: 85
+    net: 1421
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 1029
+        deleted: 72
+        net: 957
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-07-18T00:38:28Z"
-    computed_at_stage: hydrate
+        added: 752
+        deleted: 16
+        net: 736
+    computed_at: "2026-07-18T00:42:13Z"
+    computed_at_stage: ship
 summary: 'Toolkit Principle 9 conformance: persistent --quiet on rootCmd + shared outputSink (stdout=data / stderr=chatter, errors always survive) adopted by update/doctor/agent-setup (consent-mode diff routing; brew stderr buffered+wrapped into error under --quiet), + reaper 10-entry-per-list display cap with stated truncation notice + --all; backlog [f8yv] resolved'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-07-18T00:38:28Z
+last_updated: 2026-07-18T00:42:13Z

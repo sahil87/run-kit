@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// Exit-code convention (sahil87 toolkit Principle 4, https://shll.ai/shll/standards/principles):
+// Exit-code convention (shll toolkit Principle 4, https://shll.ai/shll/standards/principles):
 //
 //	0  success
 //	1  operational failure (a dead server, a failed dependency check, a subprocess error)

@@ -1,6 +1,6 @@
 # <img src="https://raw.githubusercontent.com/sahil87/run-kit/main/assets/logo.svg" alt="run-kit logo" width="32" height="32"> run-kit
 
-> Part of [@sahil87's open source toolkit](https://shll.ai) — see all projects there.
+> Part of the [shll toolkit](https://shll.ai) — see all projects there.
 
 [![Latest release](https://img.shields.io/github/v/release/sahil87/run-kit)](https://github.com/sahil87/run-kit/releases) [![Downloads](https://img.shields.io/github/downloads/sahil87/run-kit/total)](https://github.com/sahil87/run-kit/releases) [![Stars](https://img.shields.io/github/stars/sahil87/run-kit?style=social)](https://github.com/sahil87/run-kit/stargazers)
 
@@ -14,7 +14,7 @@ What makes it sing in 2026 is what you tend to run in those panes: **AI coding a
 curl -fsSL https://shll.ai/install | sh -s -- run-kit
 ```
 
-Installs run-kit (plus the shll meta-CLI) via Homebrew, handling tap trust automatically. Prefer plain Homebrew? `brew install sahil87/tap/run-kit` does the same. To install the entire sahil87 toolkit instead:
+Installs run-kit (plus the shll meta-CLI) via Homebrew, handling tap trust automatically. Prefer plain Homebrew? `brew install sahil87/tap/run-kit` does the same. To install the entire shll toolkit instead:
 
 ```sh
 curl -fsSL https://shll.ai/install | sh
@@ -240,7 +240,7 @@ eval "$(run-kit shell-init bash)"  # in ~/.bashrc
 
 Supports `zsh`, `bash`, `fish`, and `powershell`. Completion-only — run-kit has no shell function wrapper; every subcommand is reached via `run-kit <subcommand>` (or the `rk` alias).
 
-> 💡 Have other sahil87 tools? [`shll shell-install`](https://github.com/sahil87/shll#shll-shell-install--wire-the-rc-file-recommended) handles all of their shell integrations and autocompletions at once.
+> 💡 Have other shll tools? [`shll shell-install`](https://github.com/sahil87/shll#shll-shell-install--wire-the-rc-file-recommended) handles all of their shell integrations and autocompletions at once.
 
 ## Command reference
 

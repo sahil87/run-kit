@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "run-kit's sahil87-toolkit-standards conformance posture — constitution binding (§ Toolkit Standards), audit-against-HEAD-build rule, per-standard status @ shll v0.0.23 (help-dump: envelope fixed; readme-extraction: 2 closure fixes; principles: P1/P2/P5 at c424, P4 via 260717-rex1, P9 via 260717-f8yv --quiet/outputSink+reaper cap — all ten PASS; skill: PASS + topic pages `rk skill display` via 260718-icxz, `rk context` retired for `rk url`+static derivation recipes)."
+description: "run-kit's shll-toolkit-standards conformance posture — constitution binding (§ Toolkit Standards), audit-against-HEAD-build rule, per-standard status @ shll v0.0.23 (help-dump: envelope fixed; readme-extraction: 2 closure fixes + shll-toolkit rename blockquote via 260718-oa9b; principles: P1/P2/P5 at c424, P4 via 260717-rex1, P9 via 260717-f8yv; skill: PASS + topic pages via 260718-icxz, `rk context` retired for `rk url`)."
 ---
 # Toolkit Standards Conformance
 
@@ -8,7 +8,7 @@ description: "run-kit's sahil87-toolkit-standards conformance posture — consti
 
 ## Overview
 
-run-kit is one of the sahil87 toolkit CLIs, and its constitution
+run-kit is one of the shll toolkit CLIs, and its constitution
 (§ Toolkit Standards, added v1.6.0 by `260717-zn03-constitution-toolkit-standards`,
 PR #379) binds it to the toolkit's published standards — the set enumerated at
 runtime by `shll standards`, each readable with `shll standards <name>`. This
@@ -164,6 +164,21 @@ set (the README slice + `docs/site/**`) 404s on the rendered shll.ai page:
 The two auto-rewritten relative forms are correct and stay relative: README →
 `docs/site/*.md` hub links, and between-`docs/site/` links. A post-fix closure
 sweep over `README.md` + `docs/site/**` showed zero remaining escapes.
+
+**Toolkit rename conformed (`260718-oa9b-shll-toolkit-rename`).** The toolkit was
+renamed to **"shll toolkit"** (from its former `@sahil87`-prefixed name;
+sahil87/shll#56), and the readme-extraction standard's canonical README blockquote
+changed with it to
+`> Part of the [shll toolkit](https://shll.ai) — see all projects there.` run-kit
+conformed in this docs-type change: `README.md` line 3 was replaced **byte-exact**
+with the new blockquote (mandated head order H1 → blockquote → badges preserved),
+a repo-wide prose sweep updated the two README lines plus three Go doc comments
+(`cmd/rk/exit_code.go`, `cmd/rk/root.go`, `internal/riff/riff.go`), and the
+constitution § Toolkit Standards clause was reworded "part of the shll toolkit"
+**cosmetically at v1.6.0** (no version bump — `Last Amended` already carried
+today's date). Identifiers were deliberately untouched: `sahil87/tap` formula
+names, `github.com/sahil87/…` / `raw.githubusercontent.com/sahil87/…` URLs, and
+the constitution's `sahil87/shll` canonical-source reference all stay.
 
 ### skill — PASS (fully conformant; topic pages adopted by `260718-icxz`)
 The standard's "deferred, not yet adopted" contingency does NOT apply — `rk skill`

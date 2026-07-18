@@ -101,11 +101,17 @@ export function ComposeStrip() {
     focused?.server ?? "no-target",
   );
 
-  // Resolve a human-readable window name for the target label. The focused
-  // context carries only the windowId, so we look up the name from the window
-  // store (keyed by server:windowId). Falls back to the raw windowId.
+  // Resolve a human-readable window name for the target label, layered:
+  // window-store name (live — tracks renames) → the name the registrant knew
+  // at registration (board entries carry a server-derived windowName; the
+  // store only covers servers whose sidebar group has delivered sessions, so
+  // board panes from other servers would otherwise miss) → raw windowId.
   const targetName = useWindowStore((s) =>
-    focused ? s.entries.get(focusedKey(focused))?.name ?? focused.windowId : null,
+    focused
+      ? s.entries.get(focusedKey(focused))?.name ||
+        focused.windowName ||
+        focused.windowId
+      : null,
   );
 
   // Auto-grow to content, bounded to MAX_TEXTAREA_ROWS (then internal scroll).

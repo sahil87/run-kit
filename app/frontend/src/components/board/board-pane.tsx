@@ -119,8 +119,9 @@ export const BoardPane = forwardRef<BoardPaneHandle, BoardPaneProps>(function Bo
       server: entry.server,
       session: entry.session,
       windowId: entry.windowId,
+      windowName: entry.windowName,
     });
-  }, [isFocused, setFocused, entry.server, entry.session, entry.windowId]);
+  }, [isFocused, setFocused, entry.server, entry.session, entry.windowId, entry.windowName]);
 
   // Unmount cleanup: clear the focused terminal IFF it is still THIS pane
   // (mirrors terminal-client.tsx:139). Without this, leaving a board (board →

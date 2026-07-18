@@ -30,6 +30,12 @@ export type FocusedTerminal = {
   server: string;
   session: string;
   windowId: string;
+  /** Display name known to the registrant at registration time. The compose
+   *  strip's target label prefers the live window-store name (tracks renames)
+   *  and falls back to this before the raw windowId — on the board route the
+   *  store only covers servers whose sidebar group has delivered sessions, so
+   *  without this fallback other panes label as `@N`. */
+  windowName?: string;
 } | null;
 
 type FocusedTerminalContextValue = {

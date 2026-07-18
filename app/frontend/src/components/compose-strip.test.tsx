@@ -133,6 +133,47 @@ describe("ComposeStrip", () => {
     expect(screen.getByTestId("compose-strip-target").textContent).toBe("@7");
   });
 
+  it("falls back to the registered windowName when the store has no entry", () => {
+    // No seedWindow — board panes from servers the sidebar hasn't delivered
+    // sessions for have no store entry; the registration-time name covers them.
+    render(
+      <ChromeProvider>
+        <FocusedTerminalProvider>
+          <FocusSetter
+            focus={{
+              wsRef: makeWs().ref,
+              server: "srv",
+              session: "sess",
+              windowId: "@7",
+              windowName: "board-win",
+            }}
+          />
+          <ComposeStrip />
+        </FocusedTerminalProvider>
+      </ChromeProvider>,
+    );
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+    expect(screen.getByTestId("compose-strip-target").textContent).toBe("board-win");
+  });
+
+  it("prefers the live store name over the registered windowName", () => {
+    // The store tracks renames; a registration-time name may be stale.
+    seedWindow("srv", "@1", "renamed-win");
+    render(
+      <Harness
+        focus={{
+          wsRef: makeWs().ref,
+          server: "srv",
+          session: "sess",
+          windowId: "@1",
+          windowName: "stale-name",
+        }}
+      />,
+    );
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+    expect(screen.getByTestId("compose-strip-target").textContent).toBe("renamed-win");
+  });
+
   it("Enter sends text + trailing carriage return to the focused wsRef", () => {
     const { ref, sent } = makeWs();
     seedWindow("srv", "@1", "win");

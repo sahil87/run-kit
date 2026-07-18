@@ -112,3 +112,35 @@ describe("PinPopover with existing boards", () => {
     expect(screen.queryByLabelText("press Enter to pin here")).toBeNull();
   });
 });
+
+describe("PinPopover Pin button (mouse submit path)", () => {
+  it("pins to the pre-filled 'main' on click at cold start", () => {
+    renderPopover([]);
+    fireEvent.click(screen.getByRole("button", { name: "Pin to board" }));
+    expect(pin).toHaveBeenCalledWith("srvA", "@3", "main");
+  });
+
+  it("pins to a typed name on click", () => {
+    renderPopover([board("alpha")]);
+    const input = screen.getByLabelText("Pin to new board");
+    fireEvent.change(input, { target: { value: "custom" } });
+    fireEvent.click(screen.getByRole("button", { name: "Pin to board" }));
+    expect(pin).toHaveBeenCalledWith("srvA", "@3", "custom");
+  });
+
+  it("mirrors empty-Enter: pins to the live last-used board when the input is empty", () => {
+    mockLastUsed = "gamma";
+    renderPopover([board("alpha"), board("gamma")]);
+    fireEvent.click(screen.getByRole("button", { name: "Pin to board" }));
+    expect(pin).toHaveBeenCalledWith("srvA", "@3", "gamma");
+  });
+
+  it("is disabled when a click would be a no-op (empty input, no live last-used board)", () => {
+    mockLastUsed = "gone";
+    renderPopover([board("alpha")]);
+    const button = screen.getByRole("button", { name: "Pin to board" });
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
+    expect(pin).not.toHaveBeenCalled();
+  });
+});

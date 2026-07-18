@@ -31,7 +31,9 @@ type PinPopoverProps = {
 /**
  * Sidebar pin popover. Lists existing boards (with a check when the current
  * window is already pinned to that board — clicking toggles pin/unpin), plus
- * an inline text input "Pin to new board…" that creates a new board on Enter.
+ * an inline text input "Pin to new board…" that creates a new board on Enter
+ * or via the adjacent Pin button (the mouse-only submit path — without it the
+ * cold-start `main` prefill is Enter-only).
  *
  * Validation errors render inline. Closes on Escape or outside-click.
  */
@@ -139,7 +141,7 @@ export function PinPopover({ server, windowId, boards, boardsLoading = false, is
       ref={containerRef}
       role="dialog"
       aria-label="Pin window to board"
-      className="absolute right-0 top-full z-50 mt-1 bg-bg-primary border border-border rounded-md shadow-lg py-1 min-w-[200px] max-w-[260px]"
+      className="absolute right-0 top-full z-50 mt-1 bg-bg-primary border border-border rounded-md shadow-lg py-1 min-w-[160px] max-w-[220px]"
     >
       {boards.length > 0 && (
         <ul className="flex flex-col">
@@ -153,7 +155,7 @@ export function PinPopover({ server, windowId, boards, boardsLoading = false, is
                 <button
                   type="button"
                   onClick={() => handleToggleExisting(b.name)}
-                  className="w-full flex items-center justify-between gap-2 px-3 py-1.5 text-sm text-left text-text-primary hover:bg-bg-card transition-colors"
+                  className="w-full flex items-center justify-between gap-2 px-2 py-0.5 min-h-[24px] coarse:min-h-[36px] text-xs text-left text-text-primary hover:bg-bg-card transition-colors"
                 >
                   <span className="truncate">{b.name}</span>
                   <span className="flex items-center gap-1.5 shrink-0">
@@ -178,25 +180,39 @@ export function PinPopover({ server, windowId, boards, boardsLoading = false, is
         </ul>
       )}
       {boards.length > 0 && <div className="border-t border-border my-1" />}
-      <div className="px-2 pb-1.5">
-        <input
-          ref={inputRef}
-          type="text"
-          value={newName}
-          onChange={(e) => {
-            setNewName(e.target.value);
-            if (error) setError(null);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              handleSubmitNew();
-            }
-          }}
-          placeholder="Pin to new board..."
-          aria-label="Pin to new board"
-          className="w-full bg-transparent text-sm text-text-primary border border-border rounded px-2 py-1 outline-none focus:border-text-secondary placeholder:text-text-secondary"
-        />
+      <div className="px-1.5 pb-1">
+        <div className="flex items-center gap-1">
+          <input
+            ref={inputRef}
+            type="text"
+            value={newName}
+            onChange={(e) => {
+              setNewName(e.target.value);
+              if (error) setError(null);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                handleSubmitNew();
+              }
+            }}
+            placeholder="Pin to new board..."
+            aria-label="Pin to new board"
+            className="w-full min-w-0 flex-1 bg-transparent text-xs text-text-primary border border-border rounded px-1.5 py-0.5 outline-none focus:border-text-secondary placeholder:text-text-secondary"
+          />
+          {/* Mouse submit path — mirrors Enter exactly (handleSubmitNew), so a
+              non-empty input pins to that name and an empty input pins to the
+              ↵-hinted last-used board. Disabled when Enter would be a no-op. */}
+          <button
+            type="button"
+            onClick={handleSubmitNew}
+            disabled={!newName.trim() && !emptyEnterTarget}
+            aria-label="Pin to board"
+            className="shrink-0 text-xs border border-border rounded px-1.5 py-0.5 min-h-[22px] coarse:min-h-[36px] text-text-secondary hover:text-text-primary hover:bg-bg-card transition-colors disabled:opacity-40"
+          >
+            Pin
+          </button>
+        </div>
         {error && (
           <p role="alert" className="mt-1 text-xs text-red-500">
             {error}

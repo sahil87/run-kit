@@ -5,18 +5,25 @@ import (
 	"testing"
 )
 
-// runURL drives urlCmd with isolated buffers and returns (stdout, stderr).
+// runURL drives `rk url` through the real cobra Execute() seam — not urlCmd.RunE
+// directly — so the NoArgs validator and cobra's stdout-data / stderr-diagnostic
+// paths are exercised exactly as they are in production (exit 0 on success).
+// Buffers are attached to the shared rootCmd (children inherit its out/err), and
+// root flag/arg state is reset first so a prior test's Execute() cannot bleed in.
 func runURL(t *testing.T) (string, string) {
 	t.Helper()
+	resetRootFlagState(t)
 	var stdout, stderr bytes.Buffer
-	urlCmd.SetOut(&stdout)
-	urlCmd.SetErr(&stderr)
+	rootCmd.SetOut(&stdout)
+	rootCmd.SetErr(&stderr)
+	rootCmd.SetArgs([]string{"url"})
 	t.Cleanup(func() {
-		urlCmd.SetOut(nil)
-		urlCmd.SetErr(nil)
+		rootCmd.SetOut(nil)
+		rootCmd.SetErr(nil)
+		rootCmd.SetArgs(nil)
 	})
-	if err := urlCmd.RunE(urlCmd, nil); err != nil {
-		t.Fatalf("url RunE err = %v, want nil (exit 0)", err)
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("url Execute err = %v, want nil (exit 0)", err)
 	}
 	return stdout.String(), stderr.String()
 }

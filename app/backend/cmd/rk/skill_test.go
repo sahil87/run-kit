@@ -74,17 +74,26 @@ func TestSkillBundleWithinLineBudget(t *testing.T) {
 	}
 }
 
-// runSkill drives skillCmd with the given args and returns (stdout, stderr, err).
+// runSkill drives `rk skill [args...]` through the real cobra Execute() seam —
+// not skillCmd.RunE directly — so the MaximumNArgs(1)+usageArgs validator and
+// cobra's stderr error path are exercised exactly as they are in production. It
+// returns (stdout, stderr, err); err is the value Execute() returns, which
+// execute() would classify via exitCode. Buffers are attached to the shared
+// rootCmd (children inherit its out/err), and root flag/arg state is reset first
+// so a prior test's Execute() cannot bleed into this one.
 func runSkill(t *testing.T, args ...string) (string, string, error) {
 	t.Helper()
+	resetRootFlagState(t)
 	var stdout, stderr bytes.Buffer
-	skillCmd.SetOut(&stdout)
-	skillCmd.SetErr(&stderr)
+	rootCmd.SetOut(&stdout)
+	rootCmd.SetErr(&stderr)
+	rootCmd.SetArgs(append([]string{"skill"}, args...))
 	t.Cleanup(func() {
-		skillCmd.SetOut(nil)
-		skillCmd.SetErr(nil)
+		rootCmd.SetOut(nil)
+		rootCmd.SetErr(nil)
+		rootCmd.SetArgs(nil)
 	})
-	err := skillCmd.RunE(skillCmd, args)
+	err := rootCmd.Execute()
 	return stdout.String(), stderr.String(), err
 }
 
@@ -120,10 +129,11 @@ func TestSkillDisplayPrintsTopicByteIdentical(t *testing.T) {
 }
 
 // TestSkillUnknownTopicFailsFast asserts `rk skill bogus` fails fast: empty
-// stdout, a non-nil usage-class error (exit 2) whose message names the valid
-// topics — never a silent empty stdout with exit 0.
+// stdout, the diagnostic emitted on STDERR (cobra's `Error:` line, since the
+// command runs through Execute()), a non-nil usage-class error (exit 2) whose
+// message names the valid topics — never a silent empty stdout with exit 0.
 func TestSkillUnknownTopicFailsFast(t *testing.T) {
-	stdout, _, err := runSkill(t, "bogus")
+	stdout, stderr, err := runSkill(t, "bogus")
 	if err == nil {
 		t.Fatal("skill bogus err = nil, want a usage error")
 	}
@@ -137,6 +147,29 @@ func TestSkillUnknownTopicFailsFast(t *testing.T) {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("skill bogus error %q missing %q", err.Error(), want)
 		}
+		if !strings.Contains(stderr, want) {
+			t.Errorf("skill bogus stderr %q missing %q", stderr, want)
+		}
+	}
+}
+
+// TestSkillTooManyArgsFailsFast pins the MaximumNArgs(1)+usageArgs contract: a
+// second positional arg is a usage error (exit 2) with empty stdout and the
+// diagnostic on stderr — the validator rejects it before RunE runs, so no bundle
+// is ever printed.
+func TestSkillTooManyArgsFailsFast(t *testing.T) {
+	stdout, stderr, err := runSkill(t, "display", "extra")
+	if err == nil {
+		t.Fatal("skill display extra err = nil, want a usage error")
+	}
+	if stdout != "" {
+		t.Errorf("skill display extra wrote to stdout: %q, want empty", stdout)
+	}
+	if exitCode(err) != exitUsage {
+		t.Errorf("skill display extra exit code = %d, want %d (usage)", exitCode(err), exitUsage)
+	}
+	if stderr == "" {
+		t.Error("skill display extra wrote nothing to stderr, want the arg-count diagnostic")
 	}
 }
 

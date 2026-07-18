@@ -26,12 +26,13 @@ function board(name: string): BoardSummary {
   return { name, pinCount: 1 };
 }
 
-function renderPopover(boards: BoardSummary[]) {
+function renderPopover(boards: BoardSummary[], boardsLoading = false) {
   return render(
     <PinPopover
       server="srvA"
       windowId="@3"
       boards={boards}
+      boardsLoading={boardsLoading}
       isPinnedTo={() => false}
       onClose={vi.fn()}
     />,
@@ -64,6 +65,16 @@ describe("PinPopover cold start (zero boards)", () => {
     fireEvent.change(input, { target: { value: "custom" } });
     fireEvent.keyDown(input, { key: "Enter" });
     expect(pin).toHaveBeenCalledWith("srvA", "@3", "custom");
+  });
+
+  it("does NOT prefill or pin to 'main' while boards are still loading (empty list mid-fetch)", () => {
+    // boards=[] here means "not loaded yet", not "genuinely zero boards" — the
+    // cold-start prefill must stay dormant so a bare Enter is a no-op.
+    renderPopover([], /* boardsLoading */ true);
+    const input = screen.getByLabelText("Pin to new board") as HTMLInputElement;
+    expect(input.value).toBe("");
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(pin).not.toHaveBeenCalled();
   });
 });
 

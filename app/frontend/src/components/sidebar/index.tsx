@@ -287,7 +287,7 @@ export function Sidebar({
   const { markKilled, unmarkKilled, markRenamed, unmarkRenamed } = useOptimisticContext();
 
   // Boards integration: aggregate pin map across all servers + boards.
-  const { boards: allBoards, pinnedSet, pinnedToBoard } = useWindowPins();
+  const { boards: allBoards, pinnedSet, pinnedToBoard, isLoading: boardsLoading } = useWindowPins();
   const activeBoardName = useActiveBoardName();
   const isPinnedToActiveBoardFor = useCallback(
     (winServer: string, windowId: string) => {
@@ -1160,6 +1160,7 @@ export function Sidebar({
                 dropTarget={dropTarget?.server === srvInfo.name ? dropTarget : null}
                 sessionDropTarget={sessionDropTarget?.server === srvInfo.name ? sessionDropTarget.session : null}
                 allBoards={allBoards}
+                boardsLoading={boardsLoading}
                 pinnedSet={pinnedSet}
                 pinnedToBoard={pinnedToBoard}
                 isPinnedToActiveBoardFor={isPinnedToActiveBoardFor}
@@ -1282,6 +1283,7 @@ type ServerGroupProps = {
   sessionDropTarget: string | null;
 
   allBoards: ReturnType<typeof useWindowPins>["boards"];
+  boardsLoading: boolean;
   pinnedSet: Set<string>;
   pinnedToBoard: (board: string, server: string, windowId: string) => boolean;
   isPinnedToActiveBoardFor: (winServer: string, windowId: string) => boolean;
@@ -1344,6 +1346,7 @@ function ServerGroupInner(props: ServerGroupProps) {
     dropTarget,
     sessionDropTarget,
     allBoards,
+    boardsLoading,
     pinnedSet,
     pinnedToBoard,
     isPinnedToActiveBoardFor,
@@ -1616,6 +1619,7 @@ function ServerGroupInner(props: ServerGroupProps) {
                             inputRef={inputRef}
                             server={server}
                             boards={allBoards}
+                            boardsLoading={boardsLoading}
                             isPinnedToAny={!ghost && pinnedSet.has(`${server}:${win.windowId}`)}
                             isPinnedToActiveBoard={!ghost && isPinnedToActiveBoardFor(server, win.windowId)}
                             isPinnedToBoard={pinnedToBoard}
@@ -1677,6 +1681,8 @@ function ServerGroupInner(props: ServerGroupProps) {
  *  `rowBorders`, `allBoards`, `pinnedSet`, `pinnedToBoard`,
  *  `isPinnedToActiveBoardFor`) are stable refs — so a tick on server B does not
  *  re-render server A's group at all. The group whose `rawSessions`/order/
- *  connection actually changed still re-renders (correct). */
+ *  connection actually changed still re-renders (correct). (`boardsLoading` is a
+ *  primitive that flips true→false once when the board list finishes loading —
+ *  a legitimate one-time re-render of every group, not per-tick churn.) */
 const ServerGroup = memo(ServerGroupInner);
 

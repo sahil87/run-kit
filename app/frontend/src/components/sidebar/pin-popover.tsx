@@ -19,6 +19,10 @@ type PinPopoverProps = {
   windowId: string;
   /** All known boards (used to render existing rows). */
   boards: BoardSummary[];
+  /** True while the board list is still being fetched. Suppresses the
+   *  cold-start prefill so an empty `boards` mid-load is not mistaken for a
+   *  genuine zero-board state (which would wrongly prefill/pin to `main`). */
+  boardsLoading?: boolean;
   /** Predicate: is this window already pinned to the given board? */
   isPinnedTo: (board: string) => boolean;
   onClose: () => void;
@@ -31,10 +35,14 @@ type PinPopoverProps = {
  *
  * Validation errors render inline. Closes on Escape or outside-click.
  */
-export function PinPopover({ server, windowId, boards, isPinnedTo, onClose }: PinPopoverProps) {
+export function PinPopover({ server, windowId, boards, boardsLoading = false, isPinnedTo, onClose }: PinPopoverProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const coldStart = boards.length === 0;
+  // Cold start = zero boards KNOWN to exist. Gated on `!boardsLoading` so the
+  // empty `boards` seen mid-fetch (boards may still exist on the server) does
+  // NOT trigger the `main` prefill — otherwise a bare Enter before the list
+  // loads would pin to / create a new board `main` unintentionally.
+  const coldStart = !boardsLoading && boards.length === 0;
   // Pre-fill `main` on cold start so bare Enter pins to a new board (1a); the
   // input stays empty when boards already exist (placeholder path unchanged).
   const [newName, setNewName] = useState(coldStart ? DEFAULT_BOARD_NAME : "");

@@ -1979,15 +1979,21 @@ function ClosePaneButton({
   });
 
   const isDisabled = disabled || isPending;
+  // Keep the accessible label coupled to the actual click behavior: a "Kill"
+  // label only holds when `onRequestKill` routes the click to the confirm
+  // dialog. If the handler is absent the click falls through to `closePane`, so
+  // the label must reflect that (co9z) — never advertise "Kill" for a plain
+  // close-pane.
+  const effectiveLabel = onRequestKill ? label : "Close pane";
 
   return (
     <button
       type="button"
       onClick={() => (onRequestKill ? onRequestKill() : execute())}
       disabled={isDisabled}
-      aria-label={label}
+      aria-label={effectiveLabel}
       className="rk-glint min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
-      title={label}
+      title={effectiveLabel}
     >
       {isPending ? (
         <LogoSpinner size={14} />
@@ -2668,6 +2674,10 @@ function ClosePaneMenuRow({
     action: () => closePane(server ?? "", windowId ?? ""),
     onError: (err) => addToast(err.message || "Failed to close pane"),
   });
+  // Keep the row label coupled to the actual click behavior: "Kill" only holds
+  // when `onRequestKill` routes to the confirm dialog; without it the click is a
+  // plain close-pane, so the label must say so (co9z).
+  const effectiveLabel = onRequestKill ? label : "Close pane";
   return (
     <button
       type="button"
@@ -2677,7 +2687,7 @@ function ClosePaneMenuRow({
       onClick={() => (onRequestKill ? onRequestKill() : execute())}
       className={MENU_ROW_CLASS}
     >
-      {label}
+      {effectiveLabel}
     </button>
   );
 }

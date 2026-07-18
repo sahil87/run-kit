@@ -276,6 +276,20 @@ type consent struct {
 // presence guarantees nothing was written.
 var errNonInteractiveConsent = errors.New("refusing to write without confirmation: stdin is not a TTY — pass --yes to consent non-interactively, or --dry-run to preview without writing")
 
+// diffWriter selects the channel a pending write's diff renders to, given this
+// consent mode (R5). On the --yes path the write is already authorized, so the
+// diff is narration → the chatter channel (quiet-gated: `--yes --quiet` is
+// silent on success). On the interactive and --dry-run paths the diff is either
+// the context for the [y/N] prompt or the explicitly-requested dry-run output →
+// the data channel (never gated). --dry-run wins over --yes (a preview is data),
+// matching authorizeWrite's precedence.
+func (c consent) diffWriter(sink outputSink) io.Writer {
+	if c.yes && !c.dryRun {
+		return sink.chatter
+	}
+	return sink.data
+}
+
 // authorizeWrite decides whether a pending write proceeds. On --dry-run it
 // reports the preview to out and returns (false, nil) (no write); on --yes it
 // returns (true, nil) without prompting; on a TTY with neither flag it prints
@@ -315,7 +329,7 @@ var agentSetupCmd = &cobra.Command{
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		in := cmd.InOrStdin()
-		return runAgentSetup(cmd.OutOrStdout(), in, agentSetupUninstall, consent{yes: agentSetupYes, dryRun: agentSetupDryRun, stdinIsTTY: isTerminal(in)})
+		return runAgentSetup(newSink(cmd), in, agentSetupUninstall, consent{yes: agentSetupYes, dryRun: agentSetupDryRun, stdinIsTTY: isTerminal(in)})
 	},
 }
 
@@ -327,9 +341,16 @@ func init() {
 
 // runAgentSetup applies the install/uninstall to every agent in the registry,
 // showing a diff and prompting for confirmation before each write. It is split
-// from the cobra RunE with explicit io.Writer/io.Reader so it is testable without
-// a TTY.
-func runAgentSetup(out io.Writer, in io.Reader, uninstall bool, cons consent) error {
+// from the cobra RunE with an explicit outputSink/io.Reader so it is testable
+// without a TTY.
+//
+// Output convention (Toolkit Principle 9): informational status lines go to the
+// sink's chatter channel (dropped by --quiet); the settings diff and the
+// interactive consent prompt go to the data channel (never gated — a consent
+// prompt without the diff it asks about would be a dark pattern, and a dry-run's
+// diff is the requested data). The non-TTY refusal is an error and always
+// surfaces regardless of --quiet.
+func runAgentSetup(sink outputSink, in io.Reader, uninstall bool, cons consent) error {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("could not determine home directory: %w", err)
@@ -350,7 +371,7 @@ func runAgentSetup(out io.Writer, in io.Reader, uninstall bool, cons consent) er
 
 	reader := bufio.NewReader(in)
 	for _, ac := range agentRegistry(home) {
-		if err := applyAgentConfig(out, reader, ac, rkPath, uninstall, cons); err != nil {
+		if err := applyAgentConfig(sink, reader, ac, rkPath, uninstall, cons); err != nil {
 			return err
 		}
 	}
@@ -365,12 +386,12 @@ func runAgentSetup(out io.Writer, in io.Reader, uninstall bool, cons consent) er
 // diff/prompt, and no-op report — so declining or no-op-ing one does not skip the
 // other. The legacy cleanup is skipped entirely when skillsDir is empty (e.g. a
 // future codex/copilot row with no skills convention).
-func applyAgentConfig(out io.Writer, reader *bufio.Reader, ac agentConfig, rkPath string, uninstall bool, cons consent) error {
-	if err := applyAgentHooks(out, reader, ac, rkPath, uninstall, cons); err != nil {
+func applyAgentConfig(sink outputSink, reader *bufio.Reader, ac agentConfig, rkPath string, uninstall bool, cons consent) error {
+	if err := applyAgentHooks(sink, reader, ac, rkPath, uninstall, cons); err != nil {
 		return err
 	}
 	if ac.skillsDir != "" {
-		if err := removeLegacySkill(out, reader, ac, cons); err != nil {
+		if err := removeLegacySkill(sink, reader, ac, cons); err != nil {
 			return err
 		}
 	}
@@ -380,7 +401,7 @@ func applyAgentConfig(out io.Writer, reader *bufio.Reader, ac agentConfig, rkPat
 // applyAgentHooks reads one agent's settings file, computes the merged (or
 // unmerged) result, prints a diff, and — on confirmation — writes it back. A
 // no-op (result identical to current) is reported and skipped without prompting.
-func applyAgentHooks(out io.Writer, reader *bufio.Reader, ac agentConfig, rkPath string, uninstall bool, cons consent) error {
+func applyAgentHooks(sink outputSink, reader *bufio.Reader, ac agentConfig, rkPath string, uninstall bool, cons consent) error {
 	current, err := readSettings(ac.settingsPath)
 	if err != nil {
 		return fmt.Errorf("%s: read %s: %w", ac.name, ac.settingsPath, err)
@@ -400,7 +421,8 @@ func applyAgentHooks(out io.Writer, reader *bufio.Reader, ac agentConfig, rkPath
 		if uninstall {
 			verb = "absent"
 		}
-		fmt.Fprintf(out, "%s: hooks already %s in %s — nothing to do.\n", ac.name, verb, ac.settingsPath)
+		// Informational status line — chatter (dropped by --quiet).
+		sink.Notef("%s: hooks already %s in %s — nothing to do.\n", ac.name, verb, ac.settingsPath)
 		return nil
 	}
 
@@ -408,17 +430,29 @@ func applyAgentHooks(out io.Writer, reader *bufio.Reader, ac agentConfig, rkPath
 	if uninstall {
 		action = "uninstall"
 	}
+	// The diff routes PER CONSENT MODE (R5's net-effect clause: `--yes --quiet`
+	// is fully silent on success):
+	//   - interactive prompt / --dry-run → data (never gated): the interactive
+	//     prompt without the diff it asks about would be a dark pattern, and a
+	//     --dry-run diff is the explicitly-requested output.
+	//   - --yes → chatter (quiet-gated): the write is already authorized, so the
+	//     diff is narration of an action that will happen regardless. `--yes`
+	//     non-quiet still shows it on stderr; `--yes --quiet` drops it, leaving
+	//     the invocation silent on success.
+	// The consent prompt itself (prompt suffix / dry-run note) always goes to the
+	// data channel via authorizeWrite.
 	header := fmt.Sprintf("%s: will %s run-kit agent-state hooks in %s", ac.name, action, ac.settingsPath)
-	renderArtifactDiff(out, header, beforeJSON, afterJSON)
+	renderArtifactDiff(cons.diffWriter(sink), header, beforeJSON, afterJSON)
 
 	dryRunNote := fmt.Sprintf("%s: dry run — no changes written.", ac.name)
-	ok, err := cons.authorizeWrite(out, reader, dryRunNote, "\nWrite these changes? [y/N] ")
+	ok, err := cons.authorizeWrite(sink.data, reader, dryRunNote, "\nWrite these changes? [y/N] ")
 	if err != nil {
 		return err
 	}
 	if !ok {
 		if !cons.dryRun {
-			fmt.Fprintf(out, "%s: skipped (no changes written).\n", ac.name)
+			// Status line — chatter.
+			sink.Notef("%s: skipped (no changes written).\n", ac.name)
 		}
 		return nil
 	}
@@ -426,7 +460,8 @@ func applyAgentHooks(out io.Writer, reader *bufio.Reader, ac agentConfig, rkPath
 	if err := writeSettings(ac.settingsPath, next); err != nil {
 		return fmt.Errorf("%s: write %s: %w", ac.name, ac.settingsPath, err)
 	}
-	fmt.Fprintf(out, "%s: wrote %s.\n", ac.name, ac.settingsPath)
+	// Status line — chatter.
+	sink.Notef("%s: wrote %s.\n", ac.name, ac.settingsPath)
 	return nil
 }
 
@@ -444,7 +479,7 @@ func applyAgentHooks(out io.Writer, reader *bufio.Reader, ac agentConfig, rkPath
 //   - marker-owned file → offer removal (confirm), then os.RemoveAll the whole
 //     rk-display/ directory. Removal is confirmed first because it deletes the
 //     entire directory, including any user-added files within it.
-func removeLegacySkill(out io.Writer, reader *bufio.Reader, ac agentConfig, cons consent) error {
+func removeLegacySkill(sink outputSink, reader *bufio.Reader, ac agentConfig, cons consent) error {
 	skillDir := filepath.Join(ac.skillsDir, rkDisplaySkillDir)
 	skillPath := filepath.Join(skillDir, rkDisplaySkillFile)
 
@@ -459,20 +494,25 @@ func removeLegacySkill(out io.Writer, reader *bufio.Reader, ac agentConfig, cons
 		return nil
 	}
 	if !skillHasMarker(current) {
-		fmt.Fprintf(out, "%s: %s was rewritten without the %q marker — leaving it untouched (rk only removes files it owns).\n", ac.name, skillPath, skillManagedByMarker)
+		// Removal narration — chatter (dropped by --quiet).
+		sink.Notef("%s: %s was rewritten without the %q marker — leaving it untouched (rk only removes files it owns).\n", ac.name, skillPath, skillManagedByMarker)
 		return nil
 	}
 
-	fmt.Fprintf(out, "%s: found a legacy rk-display skill at %s (agent-setup no longer installs it).\n\n", ac.name, skillPath)
+	// The "found a legacy skill" line is narration (chatter), but the consent
+	// prompt + dry-run note are interaction/requested-data and go to the data
+	// channel (survive --quiet), mirroring applyAgentHooks.
+	sink.Notef("%s: found a legacy rk-display skill at %s (agent-setup no longer installs it).\n\n", ac.name, skillPath)
 	dryRunNote := fmt.Sprintf("%s: dry run — legacy rk-display skill left in place (nothing removed).", ac.name)
 	promptSuffix := fmt.Sprintf("Remove the %s directory? [y/N] ", skillDir)
-	ok, err := cons.authorizeWrite(out, reader, dryRunNote, promptSuffix)
+	ok, err := cons.authorizeWrite(sink.data, reader, dryRunNote, promptSuffix)
 	if err != nil {
 		return err
 	}
 	if !ok {
 		if !cons.dryRun {
-			fmt.Fprintf(out, "%s: legacy rk-display skill left in place (nothing removed).\n", ac.name)
+			// Status line — chatter.
+			sink.Notef("%s: legacy rk-display skill left in place (nothing removed).\n", ac.name)
 		}
 		return nil
 	}
@@ -480,7 +520,8 @@ func removeLegacySkill(out io.Writer, reader *bufio.Reader, ac agentConfig, cons
 	if err := os.RemoveAll(skillDir); err != nil {
 		return fmt.Errorf("%s: remove %s: %w", ac.name, skillDir, err)
 	}
-	fmt.Fprintf(out, "%s: removed %s.\n", ac.name, skillDir)
+	// Status line — chatter.
+	sink.Notef("%s: removed %s.\n", ac.name, skillDir)
 	return nil
 }
 

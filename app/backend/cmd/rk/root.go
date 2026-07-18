@@ -40,6 +40,15 @@ var rootCmd = &cobra.Command{
 }
 
 func init() {
+	// quiet is a single persistent flag on the root so every subcommand accepts
+	// it uniformly and future commands inherit it with zero registration work
+	// (Toolkit Principle 9). It is a no-op on commands not yet routed through the
+	// output sink (see output.go) — deliberate incremental adoption. Bound to the
+	// package-level `quiet` var; the sink reads that var via the cobra flag on the
+	// invoked command so quiet-gating stays unit-testable.
+	rootCmd.PersistentFlags().BoolVar(&quiet, "quiet", false,
+		"Suppress progress/decoration/chatter (data and errors still print)")
+
 	rootCmd.AddCommand(serveCmd)
 	rootCmd.AddCommand(updateCmd)
 	rootCmd.AddCommand(doctorCmd)

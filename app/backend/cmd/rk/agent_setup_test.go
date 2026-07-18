@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -196,7 +197,7 @@ func TestApplyAgentConfigDeclineDoesNotWrite(t *testing.T) {
 
 	var out bytes.Buffer
 	// Decline the confirmation (interactive TTY session simulated by feeding "n").
-	if err := applyAgentConfig(&out, bufio.NewReader(strings.NewReader("n\n")), ac, "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
+	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("n\n")), ac, "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
 		t.Fatalf("applyAgentConfig error: %v", err)
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
@@ -213,7 +214,7 @@ func TestApplyAgentConfigConfirmWritesAndIsIdempotent(t *testing.T) {
 	ac := agentConfig{name: "Test", settingsPath: path, comm: "claude", hooks: claudeHooks()}
 
 	var out bytes.Buffer
-	if err := applyAgentConfig(&out, bufio.NewReader(strings.NewReader("y\n")), ac, "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
+	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("y\n")), ac, "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
 		t.Fatalf("install error: %v", err)
 	}
 	written, err := os.ReadFile(path)
@@ -231,7 +232,7 @@ func TestApplyAgentConfigConfirmWritesAndIsIdempotent(t *testing.T) {
 
 	// Second install is a no-op: nothing to do, no prompt consumed.
 	out.Reset()
-	if err := applyAgentConfig(&out, bufio.NewReader(strings.NewReader("")), ac, "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
+	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("")), ac, "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
 		t.Fatalf("second install error: %v", err)
 	}
 	if !strings.Contains(out.String(), "nothing to do") {
@@ -240,7 +241,7 @@ func TestApplyAgentConfigConfirmWritesAndIsIdempotent(t *testing.T) {
 
 	// Uninstall with confirmation clears the rk entries.
 	out.Reset()
-	if err := applyAgentConfig(&out, bufio.NewReader(strings.NewReader("y\n")), ac, "", true, consent{stdinIsTTY: true}); err != nil {
+	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("y\n")), ac, "", true, consent{stdinIsTTY: true}); err != nil {
 		t.Fatalf("uninstall error: %v", err)
 	}
 	after, _ := os.ReadFile(path)
@@ -259,7 +260,7 @@ func TestApplyAgentConfigYesWritesWithoutPrompt(t *testing.T) {
 
 	var out bytes.Buffer
 	// Empty (EOF) stdin — the interactive path declines on EOF; --yes overrides.
-	if err := applyAgentConfig(&out, bufio.NewReader(strings.NewReader("")), ac, "/opt/homebrew/bin/rk", false, consent{yes: true}); err != nil {
+	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("")), ac, "/opt/homebrew/bin/rk", false, consent{yes: true}); err != nil {
 		t.Fatalf("applyAgentConfig --yes error: %v", err)
 	}
 	written, err := os.ReadFile(path)
@@ -284,7 +285,7 @@ func TestApplyAgentConfigDryRunNeverWrites(t *testing.T) {
 		ac := agentConfig{name: "Test", settingsPath: path, comm: "claude", hooks: claudeHooks()}
 
 		var out bytes.Buffer
-		if err := applyAgentConfig(&out, bufio.NewReader(strings.NewReader("")), ac, "/opt/homebrew/bin/rk", false, cons); err != nil {
+		if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("")), ac, "/opt/homebrew/bin/rk", false, cons); err != nil {
 			t.Fatalf("applyAgentConfig dry-run error (cons=%+v): %v", cons, err)
 		}
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
@@ -314,7 +315,7 @@ func TestApplyAgentConfigNonTTYNoFlagRefuses(t *testing.T) {
 	var out bytes.Buffer
 	// consent{} → no flags, stdinIsTTY false (the non-TTY default). A write is
 	// pending (fresh machine), so authorizeWrite must refuse.
-	err := applyAgentConfig(&out, bufio.NewReader(strings.NewReader("")), ac, "/opt/homebrew/bin/rk", false, consent{})
+	err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("")), ac, "/opt/homebrew/bin/rk", false, consent{})
 	if err == nil {
 		t.Fatal("non-TTY no-flag run must refuse with an error, got nil")
 	}
@@ -343,7 +344,7 @@ func TestRemoveLegacySkillConsentVariants(t *testing.T) {
 
 		var out bytes.Buffer
 		// EOF stdin — the interactive path would decline; --yes authorizes.
-		if err := removeLegacySkill(&out, bufio.NewReader(strings.NewReader("")), ac, consent{yes: true}); err != nil {
+		if err := removeLegacySkill(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("")), ac, consent{yes: true}); err != nil {
 			t.Fatalf("removeLegacySkill --yes error: %v", err)
 		}
 		if _, err := os.Stat(skillDir); !os.IsNotExist(err) {
@@ -360,7 +361,7 @@ func TestRemoveLegacySkillConsentVariants(t *testing.T) {
 		skillDir, skillPath := seedLegacySkill(t, dir, legacyMarkerSkill)
 
 		var out bytes.Buffer
-		if err := removeLegacySkill(&out, bufio.NewReader(strings.NewReader("")), ac, consent{dryRun: true}); err != nil {
+		if err := removeLegacySkill(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("")), ac, consent{dryRun: true}); err != nil {
 			t.Fatalf("removeLegacySkill --dry-run error: %v", err)
 		}
 		if _, err := os.Stat(skillDir); err != nil {
@@ -671,7 +672,7 @@ func TestRemoveLegacySkill(t *testing.T) {
 		skillDir, skillPath := seedLegacySkill(t, dir, legacyMarkerSkill)
 
 		var out bytes.Buffer
-		if err := removeLegacySkill(&out, bufio.NewReader(strings.NewReader("y\n")), ac, consent{stdinIsTTY: true}); err != nil {
+		if err := removeLegacySkill(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("y\n")), ac, consent{stdinIsTTY: true}); err != nil {
 			t.Fatalf("removeLegacySkill error: %v", err)
 		}
 		if _, err := os.Stat(skillDir); !os.IsNotExist(err) {
@@ -691,7 +692,7 @@ func TestRemoveLegacySkill(t *testing.T) {
 		_, skillPath := seedLegacySkill(t, dir, legacyMarkerSkill)
 
 		var out bytes.Buffer
-		if err := removeLegacySkill(&out, bufio.NewReader(strings.NewReader("n\n")), ac, consent{stdinIsTTY: true}); err != nil {
+		if err := removeLegacySkill(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("n\n")), ac, consent{stdinIsTTY: true}); err != nil {
 			t.Fatalf("removeLegacySkill error: %v", err)
 		}
 		if _, err := os.Stat(skillPath); err != nil {
@@ -710,7 +711,7 @@ func TestRemoveLegacySkill(t *testing.T) {
 
 		var out bytes.Buffer
 		// Empty reader: a marker-less file must be skipped WITHOUT prompting.
-		if err := removeLegacySkill(&out, bufio.NewReader(strings.NewReader("")), ac, consent{}); err != nil {
+		if err := removeLegacySkill(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("")), ac, consent{}); err != nil {
 			t.Fatalf("removeLegacySkill error: %v", err)
 		}
 		got, _ := os.ReadFile(skillPath)
@@ -726,7 +727,7 @@ func TestRemoveLegacySkill(t *testing.T) {
 		dir := t.TempDir()
 		ac := agentConfig{name: "Test", skillsDir: dir}
 		var out bytes.Buffer
-		if err := removeLegacySkill(&out, bufio.NewReader(strings.NewReader("")), ac, consent{}); err != nil {
+		if err := removeLegacySkill(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("")), ac, consent{}); err != nil {
 			t.Fatalf("removeLegacySkill error: %v", err)
 		}
 		// A fresh machine must produce ZERO rk-display output — not even a
@@ -749,7 +750,7 @@ func TestApplyAgentConfigCleansLegacySkillOnInstall(t *testing.T) {
 
 	var out bytes.Buffer
 	// First "y" confirms the hooks write; second "y" confirms the legacy removal.
-	if err := applyAgentConfig(&out, bufio.NewReader(strings.NewReader("y\ny\n")), ac, "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
+	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("y\ny\n")), ac, "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
 		t.Fatalf("applyAgentConfig error: %v", err)
 	}
 	if _, err := os.Stat(skillDir); !os.IsNotExist(err) {
@@ -768,7 +769,7 @@ func TestApplyAgentConfigFreshMachineWritesNoSkill(t *testing.T) {
 
 	var out bytes.Buffer
 	// Single "y" confirms the hooks write; no skill prompt should ever be reached.
-	if err := applyAgentConfig(&out, bufio.NewReader(strings.NewReader("y\n")), ac, "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
+	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("y\n")), ac, "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
 		t.Fatalf("applyAgentConfig error: %v", err)
 	}
 	if strings.Contains(out.String(), "rk-display") {
@@ -789,7 +790,7 @@ func TestApplyAgentConfigSkipsSkillWhenSkillsDirEmpty(t *testing.T) {
 	// Only the hooks artifact prompts; a single "y" confirms it. If a skill prompt
 	// were reached, the empty tail of the reader would surface as a decline, not a
 	// hang — so we also assert no skill output appears.
-	if err := applyAgentConfig(&out, bufio.NewReader(strings.NewReader("y\n")), ac, "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
+	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("y\n")), ac, "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
 		t.Fatalf("applyAgentConfig error: %v", err)
 	}
 	if strings.Contains(out.String(), "rk-display") {
@@ -833,5 +834,221 @@ func TestValidateHookPath(t *testing.T) {
 		if err := validateHookPath(p); err == nil {
 			t.Errorf("validateHookPath(%q) = nil, want error (invalid: empty, non-absolute, or shell-unsafe)", p)
 		}
+	}
+}
+
+// --- quiet-gating (Toolkit Principle 9) --------------------------------------
+
+// TestAgentSetup_SplitChannels pins R5's convention: informational status lines
+// go to the sink's chatter channel while the settings diff and the interactive
+// prompt go to the data channel. With separate buffers, a written install shows
+// the "wrote" status on chatter and the diff header on data.
+func TestAgentSetup_SplitChannels(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+	ac := agentConfig{name: "Test", settingsPath: path, comm: "claude", hooks: claudeHooks()}
+
+	var data, chatter bytes.Buffer
+	sink := newSinkWriters(&data, &chatter)
+	if err := applyAgentHooks(sink, bufio.NewReader(strings.NewReader("y\n")), ac, "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
+		t.Fatalf("applyAgentHooks error: %v", err)
+	}
+
+	// The diff header is data — never gated.
+	if !strings.Contains(data.String(), "will install run-kit agent-state hooks") {
+		t.Errorf("diff header must be on the data channel, got data: %q", data.String())
+	}
+	// The "wrote" status line is chatter.
+	if !strings.Contains(chatter.String(), "wrote") {
+		t.Errorf("the wrote status line must be on the chatter channel, got chatter: %q", chatter.String())
+	}
+	if strings.Contains(data.String(), "wrote") {
+		t.Errorf("status line leaked onto the data channel, got data: %q", data.String())
+	}
+}
+
+// TestAgentSetup_QuietDropsStatusKeepsDiff pins R5: under --quiet (chatter →
+// io.Discard) the status lines vanish but the --dry-run diff (requested data)
+// survives on the data channel.
+func TestAgentSetup_QuietDropsStatusKeepsDiff(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+	ac := agentConfig{name: "Test", settingsPath: path, comm: "claude", hooks: claudeHooks()}
+
+	var data bytes.Buffer
+	// A quiet sink: data survives, chatter is discarded (what newSink builds when
+	// --quiet is set).
+	sink := newSinkWriters(&data, io.Discard)
+	if err := applyAgentHooks(sink, bufio.NewReader(strings.NewReader("")), ac, "/opt/homebrew/bin/rk", false, consent{dryRun: true}); err != nil {
+		t.Fatalf("applyAgentHooks --dry-run error: %v", err)
+	}
+
+	// The dry-run diff is requested data — survives --quiet.
+	if !strings.Contains(data.String(), "will install run-kit agent-state hooks") {
+		t.Errorf("--dry-run diff must survive --quiet on the data channel, got data: %q", data.String())
+	}
+	// Nothing written (dry-run).
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("dry-run must not write the settings file; stat err = %v", err)
+	}
+}
+
+// TestAgentSetup_QuietYesSilentOnSuccess pins R5's net-effect clause: a
+// --yes --quiet install with a PENDING write is fully silent on success — BOTH
+// channels empty. Under --yes the diff is narration of an already-authorized
+// action, so it routes to chatter (quiet-gated → discarded); the status line is
+// chatter too. Success is verified by the settings file being written, not by
+// any output. (This replaces the earlier assertion that only checked the data
+// channel for the absent status line while accepting the diff on data — the
+// review found that leaked the full diff to stdout, so --yes --quiet was NOT
+// silent. The diff now routes per consent mode; see consent.diffWriter.)
+func TestAgentSetup_QuietYesSilentOnSuccess(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+	ac := agentConfig{name: "Test", settingsPath: path, comm: "claude", hooks: claudeHooks()}
+
+	var data, chatter bytes.Buffer
+	// A quiet --yes sink: data is a real buffer (must stay empty), chatter is
+	// discarded (what newSink builds when --quiet is set). We buffer chatter here
+	// only to prove the diff+status were ROUTED to it (and thus dropped under real
+	// --quiet), not to the data channel.
+	sink := newSinkWriters(&data, &chatter)
+	if err := applyAgentHooks(sink, bufio.NewReader(strings.NewReader("")), ac, "/opt/homebrew/bin/rk", false, consent{yes: true}); err != nil {
+		t.Fatalf("applyAgentHooks --yes error: %v", err)
+	}
+	// The write happened — success is proven by the file, not by output.
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("--yes must write the settings file: %v", err)
+	}
+	// The data channel must be EMPTY: under --yes the diff is narration (chatter),
+	// not requested data. Nothing survives --quiet on stdout — fully silent success.
+	if data.Len() != 0 {
+		t.Errorf("--yes --quiet must be fully silent on the data channel, got data: %q", data.String())
+	}
+	// The diff and status DID route to chatter (which real --quiet discards), so a
+	// non-quiet --yes still shows them on stderr.
+	if !strings.Contains(chatter.String(), "will install run-kit agent-state hooks") {
+		t.Errorf("the diff must route to chatter under --yes, got chatter: %q", chatter.String())
+	}
+	if !strings.Contains(chatter.String(), "wrote") {
+		t.Errorf("the wrote status line must route to chatter, got chatter: %q", chatter.String())
+	}
+}
+
+// TestAgentSetup_YesNonQuietShowsDiffOnStderr pins the other half of the
+// per-consent-mode diff routing: `--yes` WITHOUT --quiet still shows the diff, on
+// the chatter channel (stderr in production). The data channel stays empty — the
+// diff is narration of an authorized action, not machine-consumable data.
+func TestAgentSetup_YesNonQuietShowsDiffOnStderr(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+	ac := agentConfig{name: "Test", settingsPath: path, comm: "claude", hooks: claudeHooks()}
+
+	var data, chatter bytes.Buffer
+	// Non-quiet: chatter is a live buffer (would be os.Stderr in production).
+	sink := newSinkWriters(&data, &chatter)
+	if err := applyAgentHooks(sink, bufio.NewReader(strings.NewReader("")), ac, "/opt/homebrew/bin/rk", false, consent{yes: true}); err != nil {
+		t.Fatalf("applyAgentHooks --yes error: %v", err)
+	}
+	// The diff renders on stderr (chatter) so a non-quiet --yes is not silent.
+	if !strings.Contains(chatter.String(), "will install run-kit agent-state hooks") {
+		t.Errorf("--yes non-quiet must show the diff on stderr, got chatter: %q", chatter.String())
+	}
+	// The data channel is empty — the diff is not on stdout under --yes.
+	if data.Len() != 0 {
+		t.Errorf("--yes must not put the diff on the data channel, got data: %q", data.String())
+	}
+}
+
+// TestAgentSetup_InteractiveDryRunDiffOnData pins that the diff STILL routes to
+// the data channel on the paths R5 forbids gating — the interactive [y/N] prompt
+// and --dry-run — so consent.diffWriter's per-mode split did not over-rotate the
+// non-yes paths onto chatter.
+func TestAgentSetup_InteractiveDryRunDiffOnData(t *testing.T) {
+	t.Run("interactive prompt → diff on data", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "settings.json")
+		ac := agentConfig{name: "Test", settingsPath: path, comm: "claude", hooks: claudeHooks()}
+
+		var data, chatter bytes.Buffer
+		// Decline ("n") on a simulated TTY so nothing is written; the diff must
+		// still have rendered on the data channel to inform the [y/N] decision.
+		if err := applyAgentHooks(newSinkWriters(&data, &chatter), bufio.NewReader(strings.NewReader("n\n")), ac, "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
+			t.Fatalf("applyAgentHooks interactive error: %v", err)
+		}
+		if !strings.Contains(data.String(), "will install run-kit agent-state hooks") {
+			t.Errorf("interactive diff must be on the data channel, got data: %q", data.String())
+		}
+	})
+
+	t.Run("--dry-run → diff on data", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "settings.json")
+		ac := agentConfig{name: "Test", settingsPath: path, comm: "claude", hooks: claudeHooks()}
+
+		var data, chatter bytes.Buffer
+		if err := applyAgentHooks(newSinkWriters(&data, &chatter), bufio.NewReader(strings.NewReader("")), ac, "/opt/homebrew/bin/rk", false, consent{dryRun: true}); err != nil {
+			t.Fatalf("applyAgentHooks --dry-run error: %v", err)
+		}
+		if !strings.Contains(data.String(), "will install run-kit agent-state hooks") {
+			t.Errorf("--dry-run diff must be on the data channel (requested output), got data: %q", data.String())
+		}
+	})
+}
+
+// TestAgentSetup_QuietRefusalSurvives pins R5's error clause: the non-TTY
+// refusal (an error naming --yes) is not gated by --quiet — it surfaces as a
+// returned error and nothing is written.
+func TestAgentSetup_QuietRefusalSurvives(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+	ac := agentConfig{name: "Test", settingsPath: path, comm: "claude", hooks: claudeHooks()}
+
+	var data bytes.Buffer
+	sink := newSinkWriters(&data, io.Discard)
+	// consent{} → no flags, non-TTY: a pending write must refuse with an error.
+	err := applyAgentHooks(sink, bufio.NewReader(strings.NewReader("")), ac, "/opt/homebrew/bin/rk", false, consent{})
+	if err == nil {
+		t.Fatal("non-TTY no-flag run must refuse with an error even under --quiet, got nil")
+	}
+	if !strings.Contains(err.Error(), "--yes") {
+		t.Errorf("refusal error must name --yes, got: %v", err)
+	}
+	if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+		t.Errorf("refusal must not create the settings file; stat err = %v", statErr)
+	}
+}
+
+// TestAgentSetup_QuietFlagWiredThroughRoot proves the production seam: invoking
+// via rootCmd.Execute() with `agent-setup --dry-run --quiet` resolves the
+// persistent --quiet flag so newSink discards chatter, while the dry-run diff
+// (data) still reaches stdout. Uses --dry-run so nothing is written to the real
+// ~/.claude/settings.json.
+func TestAgentSetup_QuietFlagWiredThroughRoot(t *testing.T) {
+	// Hermetic: point HOME at a temp dir so the run never reads the invoking
+	// user's real ~/.claude/settings.json or scans their real skills dir
+	// (os.UserHomeDir reads $HOME on Unix). --dry-run writes nothing regardless;
+	// this isolates the READ side too.
+	t.Setenv("HOME", t.TempDir())
+
+	var stdout, stderr bytes.Buffer
+	rootCmd.SetOut(&stdout)
+	rootCmd.SetErr(&stderr)
+	rootCmd.SetArgs([]string{"agent-setup", "--dry-run", "--quiet"})
+	t.Cleanup(func() {
+		rootCmd.SetOut(nil)
+		rootCmd.SetErr(nil)
+		rootCmd.SetArgs(nil)
+		_ = rootCmd.PersistentFlags().Set("quiet", "false")
+		quiet = false
+		agentSetupDryRun = false
+	})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("agent-setup --dry-run --quiet via rootCmd.Execute() error: %v", err)
+	}
+	// The dry-run diff is data — survives --quiet on stdout.
+	if !strings.Contains(stdout.String(), "run-kit agent-state hooks") {
+		t.Errorf("--dry-run --quiet must still render the diff on stdout, got stdout: %q", stdout.String())
 	}
 }

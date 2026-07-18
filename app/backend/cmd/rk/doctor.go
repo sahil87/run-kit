@@ -69,11 +69,15 @@ var doctorCmd = &cobra.Command{
 
 		// Human diagnostic output goes to stderr (Principle 2: this is status,
 		// not the data a machine consumer parses — that is the --json path).
+		// Under --quiet (Principle 9) the banner, [ OK ] rows, and success tail
+		// are chatter and drop; [FAIL] rows carry the remediation hint (actionable
+		// error detail) and MUST survive, so they write to ungated stderr.
+		sink := newSink(cmd)
 		stderr := cmd.ErrOrStderr()
-		fmt.Fprintln(stderr, "Checking runtime dependencies...")
+		sink.Notef("Checking runtime dependencies...\n")
 		for _, c := range report.Checks {
 			if c.OK {
-				fmt.Fprintf(stderr, "  [ OK ] %s\n", c.Name)
+				sink.Notef("  [ OK ] %s\n", c.Name)
 			} else {
 				fmt.Fprintf(stderr, "  [FAIL] %s not found — %s\n", c.Name, c.Hint)
 			}
@@ -81,7 +85,7 @@ var doctorCmd = &cobra.Command{
 		if !report.OK {
 			return fmt.Errorf("one or more dependency checks failed")
 		}
-		fmt.Fprintln(stderr, "\nAll checks passed.")
+		sink.Notef("\nAll checks passed.\n")
 		return nil
 	},
 }

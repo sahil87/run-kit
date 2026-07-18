@@ -59,7 +59,7 @@ const (
 // maps them to status codes (by constant IDENTITY, not numeric value — see
 // riffStatusForError). See ExitCodeError.
 //
-// The numeric values conform to the sahil87 toolkit exit-code convention
+// The numeric values conform to the shll toolkit exit-code convention
 // (Principle 4): 1 = operational failure, 2 = usage error, 3 = the documented
 // subprocess class. ExitValidation (usage: bad flags/args/preset/layout/count)
 // is 2; ExitPrecondition (operational: $TMUX unset, wt missing) is 1.

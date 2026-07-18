@@ -10,8 +10,8 @@ import (
 // version is set at build time via ldflags: -X main.version=...
 var version = "dev"
 
-// displayVersion prefixes a numeric version with "v" to match the sahil87
-// toolkit standard (e.g. "run-kit version v1.5.3"). The "dev" sentinel used for
+// displayVersion prefixes a numeric version with "v" to match the shll toolkit
+// standard (e.g. "run-kit version v1.5.3"). The "dev" sentinel used for
 // non-ldflags builds is left untouched so we don't end up with "vdev".
 func displayVersion() string {
 	if version == "dev" || strings.HasPrefix(version, "v") {

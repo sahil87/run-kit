@@ -127,7 +127,7 @@ func TestExitCodeClassification(t *testing.T) {
 		{"usageError is 2", usageError(errors.New("unknown flag: --nope")), exitUsage},
 		{"direct exitCodeError carries its code", &exitCodeError{code: 2, msg: "x"}, 2},
 		{"wrapped exitCodeError is unwrapped via errors.As", fmt.Errorf("ctx: %w", &exitCodeError{code: 2, msg: "x"}), 2},
-		{"riff subprocess exitCodeError as generic error defaults to 1", errors.New("wt failed"), 1},
+		{"plain error from riff engine (not an *ExitCodeError) defaults to 1", errors.New("wt failed"), 1},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

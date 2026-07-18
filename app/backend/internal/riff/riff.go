@@ -64,7 +64,7 @@ const (
 // subprocess class. ExitValidation (usage: bad flags/args/preset/layout/count)
 // is 2; ExitPrecondition (operational: $TMUX unset, wt missing) is 1.
 const (
-	ExitValidation   = 2 // usage: unknown layout, invalid count, unknown/conflicting preset, flag-parse error
+	ExitValidation   = 2 // usage: unknown layout, invalid count, unknown/conflicting preset (CLI flag-parse errors are tagged usageError in cmd/rk/riff.go, not emitted here)
 	ExitPrecondition = 1 // operational: $TMUX unset, wt not on PATH (CLI-only preconditions)
 	ExitSubprocess   = 3 // operational: wt/tmux non-zero exit, output parse failure, timeouts
 )

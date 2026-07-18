@@ -1,7 +1,9 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useModifierState, type ModifierSnapshot } from "@/hooks/use-modifier-state";
 import { useFocusedTerminal } from "@/contexts/focused-terminal-context";
+import { useChromeState } from "@/contexts/chrome-context";
 import { ArrowPad } from "@/components/arrow-pad";
+import { focusComposeStrip } from "@/lib/compose-strip-events";
 
 type BottomBarProps = {
   onOpenCompose?: () => void;
@@ -67,6 +69,7 @@ const preventFocusSteal = (e: React.MouseEvent) => e.preventDefault();
 
 export function BottomBar({ onOpenCompose, onFocusTerminal, onScrollLockChange }: BottomBarProps) {
   const { focused } = useFocusedTerminal();
+  const { composeStripEnabled } = useChromeState();
   const wsRef = focused?.wsRef;
   const mods = useModifierState();
   const [fnOpen, setFnOpen] = useState(false);
@@ -210,6 +213,16 @@ export function BottomBar({ onOpenCompose, onFocusTerminal, onScrollLockChange }
     cancelLongPress();
   }, [cancelLongPress]);
 
+  // Summon the keyboard: when the compose strip is on, focus the strip's
+  // textarea (its real DOM input is the mobile IME/autocorrect surface xterm
+  // lacks) via the strip's module-level focus registry — NOT a test-id DOM
+  // query (test ids are test-only in this repo). Falls back to the terminal if
+  // the strip is off, unmounted, or declines (its "no target" disabled state).
+  const focusInput = useCallback(() => {
+    if (composeStripEnabled && focusComposeStrip()) return;
+    onFocusTerminal?.();
+  }, [composeStripEnabled, onFocusTerminal]);
+
   const handleKbdClick = useCallback(() => {
     if (didLongPressRef.current) {
       didLongPressRef.current = false;
@@ -218,15 +231,15 @@ export function BottomBar({ onOpenCompose, onFocusTerminal, onScrollLockChange }
     if (scrollLocked) {
       // Tap in locked mode: unlock and summon keyboard
       toggleScrollLock(false);
-      onFocusTerminal?.();
+      focusInput();
       return;
     }
     if (termFocused && document.activeElement instanceof HTMLElement) {
       document.activeElement.blur();
     } else {
-      onFocusTerminal?.();
+      focusInput();
     }
-  }, [scrollLocked, termFocused, toggleScrollLock, onFocusTerminal]);
+  }, [scrollLocked, termFocused, toggleScrollLock, focusInput]);
 
   const send = useCallback(
     (data: string) => {
@@ -350,7 +363,8 @@ export function BottomBar({ onOpenCompose, onFocusTerminal, onScrollLockChange }
           onMouseDown={preventFocusSteal}
           onClick={onOpenCompose}
           aria-label="Compose text"
-          className={`${KBD_CLASS} text-text-secondary`}
+          aria-pressed={composeStripEnabled}
+          className={`${KBD_CLASS} ${composeStripEnabled ? "bg-accent/20 border-accent text-accent" : "text-text-secondary"}`}
         >
           &gt;_
         </button>

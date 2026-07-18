@@ -91,15 +91,11 @@ export const BoardPane = forwardRef<BoardPaneHandle, BoardPaneProps>(function Bo
 ) {
   const wsRef = useRef<WebSocket | null>(null);
   const focusFnRef = useRef<(() => void) | null>(null);
-  // Compose state lives in `FocusedTerminalContext` so the shell-level
-  // `<BottomBar>` can open compose for the focused pane without owning the
-  // state. Each pane gates ComposeBuffer rendering on `isFocused &&
-  // composeOpen` so only the focused pane shows the buffer; cycling focus
-  // while compose is open does NOT retarget because (a) only one
-  // TerminalClient renders ComposeBuffer at a time and (b) ComposeBuffer
-  // snapshots its `wsRef` on mount (see `compose-buffer.tsx` line 34).
-  const { setFocused, composeOpen, setComposeOpen } = useFocusedTerminal();
-  const composeOpenForPane = isFocused && composeOpen;
+  // The pane registers itself as the focused terminal so the shell-level
+  // `<BottomBar>` and the docked compose strip target it. The strip is a single
+  // global component reading `focused.wsRef` live at send time (260718-dhdj) —
+  // panes no longer render any per-pane compose surface.
+  const { focused, setFocused } = useFocusedTerminal();
 
   useImperativeHandle(ref, () => ({
     focus() {
@@ -123,8 +119,31 @@ export const BoardPane = forwardRef<BoardPaneHandle, BoardPaneProps>(function Bo
       server: entry.server,
       session: entry.session,
       windowId: entry.windowId,
+      windowName: entry.windowName,
     });
-  }, [isFocused, setFocused, entry.server, entry.session, entry.windowId]);
+  }, [isFocused, setFocused, entry.server, entry.session, entry.windowId, entry.windowName]);
+
+  // Unmount cleanup: clear the focused terminal IFF it is still THIS pane
+  // (mirrors terminal-client.tsx:139). Without this, leaving a board (board →
+  // `/$server` tiles) leaves a stale non-null `FocusedTerminalContext` — the
+  // enabled compose strip would render ACTIVE with the stale target label,
+  // uploads would land in the stale (possibly other-server) worktree, and Enter
+  // would no-op against the closed stream while clearing the draft.
+  //
+  // The registration effect above deliberately does NOT clear on focus loss (to
+  // avoid a transient `null` during a pane cycle where a sibling pane
+  // immediately re-registers). This cleanup is unmount-only (`[]` deps), so a
+  // pane-focus SWITCH — which does not unmount the losing pane — never fires it;
+  // it runs only when the pane truly leaves the tree. The still-mine guard reads
+  // the live focused value through a ref so a newer sibling registration made
+  // just before this unmount is not clobbered.
+  const focusedRef = useRef(focused);
+  focusedRef.current = focused;
+  useEffect(() => {
+    return () => {
+      if (focusedRef.current?.wsRef === wsRef) setFocused(null);
+    };
+  }, [setFocused]);
 
   return (
     <div
@@ -177,8 +196,6 @@ export const BoardPane = forwardRef<BoardPaneHandle, BoardPaneProps>(function Bo
             windowId={entry.windowId}
             server={entry.server}
             wsRef={wsRef}
-            composeOpen={composeOpenForPane}
-            setComposeOpen={setComposeOpen}
             focusRef={focusFnRef}
             registerFocus={false}
             scrollLocked={scrollLocked}

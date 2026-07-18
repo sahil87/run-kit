@@ -9,35 +9,38 @@ import { createContext, useContext, useMemo, useRef, useState } from "react";
  *   - `TerminalClient` (single-terminal route): registers on mount, clears
  *     on unmount.
  *   - `BoardPane` (board route): registers on focus events (click,
- *     cycle, initial pane). Does NOT clear on focus loss — the next pane
- *     to gain focus overwrites.
+ *     cycle, initial pane). Does NOT clear on focus LOSS — the next pane
+ *     to gain focus overwrites (avoids a transient `null` during a cycle).
+ *     It DOES clear on UNMOUNT, iff it is still the registered focused pane,
+ *     so leaving the board (board → `/$server` tiles) does not leave a stale
+ *     target for the compose strip (260718-dhdj).
  *
- * Consumer:
+ * Consumers:
  *   - `BottomBar`: reads `focused?.wsRef` to send keystrokes/input to
  *     the active terminal. The existing `readyState !== OPEN` guard
  *     handles the `null` case naturally.
- *
- * Compose-open state lives here too: shell-level affordances (BottomBar,
- * TopBar `>_`) can open the compose buffer for the focused terminal
- * without the calling site knowing which TerminalClient is focused. The
- * focused TerminalClient instance reads `composeOpen` and renders the
- * `ComposeBuffer` itself — anchoring compose to a specific TerminalClient
- * lifetime satisfies the spec's "compose target frozen at open time"
- * scenario (cycling focus while compose is open does not retarget,
- * because the open ComposeBuffer's parent TerminalClient never unmounts).
+ *   - `ComposeStrip`: reads `focused` live at send time to target the
+ *     currently-focused pane's `wsRef` and to derive its `→ {window}`
+ *     target label. Compose enablement is a persisted `ChromeContext`
+ *     preference (`composeStripEnabled`), NOT held here — the strip is a
+ *     single global surface, not a per-terminal one (260718-dhdj).
  */
 export type FocusedTerminal = {
   wsRef: React.RefObject<WebSocket | null>;
   server: string;
   session: string;
   windowId: string;
+  /** Display name known to the registrant at registration time. The compose
+   *  strip's target label prefers the live window-store name (tracks renames)
+   *  and falls back to this before the raw windowId — on the board route the
+   *  store only covers servers whose sidebar group has delivered sessions, so
+   *  without this fallback other panes label as `@N`. */
+  windowName?: string;
 } | null;
 
 type FocusedTerminalContextValue = {
   focused: FocusedTerminal;
   setFocused: (t: FocusedTerminal) => void;
-  composeOpen: boolean;
-  setComposeOpen: (open: boolean) => void;
 };
 
 const FocusedTerminalContext = createContext<FocusedTerminalContextValue | null>(null);
@@ -49,19 +52,16 @@ const FocusedTerminalContext = createContext<FocusedTerminalContextValue | null>
  */
 export function FocusedTerminalProvider({ children }: { children: React.ReactNode }) {
   const [focused, setFocusedState] = useState<FocusedTerminal>(null);
-  const [composeOpen, setComposeOpenState] = useState(false);
 
-  // Keep dispatchers referentially stable so callers can pass them directly
+  // Keep the dispatcher referentially stable so callers can pass it directly
   // into `useEffect` deps without retriggering on every render. Mirrors the
   // dispatch-stability pattern used by `chrome-context.tsx`.
   const dispatchersRef = useRef<{
     setFocused: (t: FocusedTerminal) => void;
-    setComposeOpen: (open: boolean) => void;
   } | null>(null);
   if (!dispatchersRef.current) {
     dispatchersRef.current = {
       setFocused: (t: FocusedTerminal) => setFocusedState(t),
-      setComposeOpen: (open: boolean) => setComposeOpenState(open),
     };
   }
 
@@ -69,10 +69,8 @@ export function FocusedTerminalProvider({ children }: { children: React.ReactNod
     () => ({
       focused,
       setFocused: dispatchersRef.current!.setFocused,
-      composeOpen,
-      setComposeOpen: dispatchersRef.current!.setComposeOpen,
     }),
-    [focused, composeOpen],
+    [focused],
   );
 
   return (

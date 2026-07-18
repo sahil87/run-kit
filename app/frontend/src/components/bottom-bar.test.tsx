@@ -2,18 +2,23 @@ import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, cleanup, fireEvent, act } from "@testing-library/react";
 import { BottomBar } from "./bottom-bar";
 import { FocusedTerminalProvider } from "@/contexts/focused-terminal-context";
+import { ChromeProvider } from "@/contexts/chrome-context";
 
 function renderBottomBar(overrides: Partial<React.ComponentProps<typeof BottomBar>> = {}) {
   // Tests render the BottomBar with no focused terminal; the existing
   // `wsRef.current?.readyState !== OPEN` guard ensures input handlers no-op.
+  // ChromeProvider supplies `composeStripEnabled` (the `>_` chip's pressed
+  // state) read via `useChromeState`.
   return render(
-    <FocusedTerminalProvider>
-      <BottomBar
-        onFocusTerminal={vi.fn()}
-        onScrollLockChange={vi.fn()}
-        {...overrides}
-      />
-    </FocusedTerminalProvider>,
+    <ChromeProvider>
+      <FocusedTerminalProvider>
+        <BottomBar
+          onFocusTerminal={vi.fn()}
+          onScrollLockChange={vi.fn()}
+          {...overrides}
+        />
+      </FocusedTerminalProvider>
+    </ChromeProvider>,
   );
 }
 

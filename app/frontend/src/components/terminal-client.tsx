@@ -6,13 +6,11 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { UnicodeGraphemesAddon } from "@xterm/addon-unicode-graphemes";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { useEffect, useRef, useCallback, useState } from "react";
-import { useFileUpload } from "@/hooks/use-file-upload";
-import type { UploadedFile } from "@/hooks/use-file-upload";
 import { useTheme } from "@/contexts/theme-context";
-import { useChromeState } from "@/contexts/chrome-context";
+import { useChromeState, useChromeDispatch } from "@/contexts/chrome-context";
 import { useFocusedTerminal } from "@/contexts/focused-terminal-context";
 import { deriveXtermTheme } from "@/themes";
-import { ComposeBuffer } from "@/components/compose-buffer";
+import { dispatchComposeStripAttach } from "@/lib/compose-strip-events";
 import { copyToClipboard } from "@/lib/clipboard";
 import { notifyFirstWrite } from "@/lib/window-transition";
 import { relayMux, type RelayStream } from "@/lib/relay-mux";
@@ -94,8 +92,6 @@ type TerminalClientProps = {
   windowId: string;
   server: string;
   wsRef: React.MutableRefObject<WebSocket | null>;
-  composeOpen: boolean;
-  setComposeOpen: (open: boolean) => void;
   onSessionNotFound?: () => void;
   focusRef?: React.MutableRefObject<(() => void) | null>;
   scrollLocked?: boolean;
@@ -114,8 +110,6 @@ export function TerminalClient({
   windowId,
   server,
   wsRef,
-  composeOpen,
-  setComposeOpen,
   onSessionNotFound,
   focusRef,
   scrollLocked,
@@ -126,11 +120,9 @@ export function TerminalClient({
   const fitAddonRef = useRef<import("@xterm/addon-fit").FitAddon | null>(null);
   const [terminalReady, setTerminalReady] = useState(false);
   const [dragOver, setDragOver] = useState(false);
-  const [composeInitialText, setComposeInitialText] = useState<string | undefined>();
-  const [composeFiles, setComposeFiles] = useState<UploadedFile[]>([]);
-  const { uploadFiles, uploading } = useFileUpload(sessionName, windowId, server);
   const { theme: activeTheme } = useTheme();
-  const { terminalFontSize } = useChromeState();
+  const { terminalFontSize, composeStripEnabled } = useChromeState();
+  const { toggleComposeStrip } = useChromeDispatch();
   const { setFocused } = useFocusedTerminal();
 
   // Register this terminal as the BottomBar's focused input target. The
@@ -173,14 +165,18 @@ export function TerminalClient({
     }
   }, [wsRef]);
 
-  const openComposeWithUploads = useCallback(
-    (uploads: UploadedFile[]) => {
-      if (uploads.length === 0) return;
-      setComposeFiles((prev) => [...prev, ...uploads]);
-      setComposeInitialText(uploads.map((u) => u.path).join("\n"));
-      setComposeOpen(true);
+  // Forward dropped/pasted files to the docked compose strip. The strip owns
+  // the upload (scoped to the live focused target's worktree) and its own
+  // draft/attachment state — terminal-client only enables the strip preference
+  // (if off) and hands off the raw files. This replaces the old
+  // upload-then-open-modal flow.
+  const attachToStrip = useCallback(
+    (files: FileList) => {
+      if (files.length === 0) return;
+      if (!composeStripEnabled) toggleComposeStrip();
+      dispatchComposeStripAttach(Array.from(files));
     },
-    [setComposeOpen],
+    [composeStripEnabled, toggleComposeStrip],
   );
 
   // Clipboard paste interception for file upload
@@ -189,11 +185,11 @@ export function TerminalClient({
       const files = e.clipboardData?.files;
       if (!files || files.length === 0) return;
       e.preventDefault();
-      uploadFiles(files).then(openComposeWithUploads);
+      attachToStrip(files);
     }
     document.addEventListener("paste", handlePaste);
     return () => document.removeEventListener("paste", handlePaste);
-  }, [uploadFiles, openComposeWithUploads]);
+  }, [attachToStrip]);
 
   // Drag and drop
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -213,16 +209,9 @@ export function TerminalClient({
       setDragOver(false);
       const files = e.dataTransfer.files;
       if (files.length === 0) return;
-      uploadFiles(files).then(openComposeWithUploads);
+      attachToStrip(files);
     },
-    [uploadFiles, openComposeWithUploads],
-  );
-
-  const handleUploadFiles = useCallback(
-    (files: FileList) => {
-      uploadFiles(files).then(openComposeWithUploads);
-    },
-    [uploadFiles, openComposeWithUploads],
+    [attachToStrip],
   );
 
   // xterm.js init — mount only, creates terminal instance and resize observer.
@@ -826,7 +815,7 @@ export function TerminalClient({
     // Open a muxed stream on the single per-tab terminals socket (RelayMux),
     // replacing the former per-pane `new WebSocket('/relay/...')`. The stream
     // handle is surfaced through wsRef as a WebSocket-shaped adapter so the
-    // shell consumers (BottomBar, ComposeBuffer, touch-scroll, fitAndSync) —
+    // shell consumers (BottomBar, ComposeStrip, touch-scroll, fitAndSync) —
     // which read wsRef.current.{readyState,send,close} — are untouched. Every
     // `send` (keystrokes, SGR, paste) becomes a binary data frame; resizes use
     // the adapter's DEDICATED `resize(cols, rows)` op (fitAndSync calls it), so
@@ -1003,36 +992,14 @@ export function TerminalClient({
         ref={terminalRef}
         role="application"
         aria-label={`Terminal: ${sessionName}/${windowId}`}
-        className={`flex-1 min-h-0 overflow-hidden coarse:touch-none transition-opacity ${
-          composeOpen ? "opacity-50" : ""
-        } ${dragOver ? "ring-2 ring-accent ring-inset" : ""}`}
+        className={`flex-1 min-h-0 overflow-hidden coarse:touch-none ${
+          dragOver ? "ring-2 ring-accent ring-inset" : ""
+        }`}
         onContextMenu={(e) => e.preventDefault()}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       />
-      {uploading && (
-        <div className="absolute bottom-1 left-2 text-xs text-text-secondary bg-bg-card/80 px-2 py-0.5 rounded z-10">
-          Uploading...
-        </div>
-      )}
-      {composeOpen && (
-        <ComposeBuffer
-          wsRef={wsRef}
-          onClose={() => {
-            setComposeOpen(false);
-            setComposeInitialText(undefined);
-            setComposeFiles([]);
-            xtermRef.current?.focus();
-          }}
-          initialText={composeInitialText}
-          uploadedFiles={composeFiles}
-          onUploadFiles={handleUploadFiles}
-          onRemoveFile={(index) => {
-            setComposeFiles((prev) => prev.filter((_, i) => i !== index));
-          }}
-        />
-      )}
     </div>
   );
 }

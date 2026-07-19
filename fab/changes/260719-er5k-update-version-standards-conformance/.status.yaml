@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 6
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-07-19T23:09:54Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-19T23:17:14Z"}
     review: {started_at: "2026-07-19T23:17:14Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-19T23:23:08Z"}
     hydrate: {started_at: "2026-07-19T23:23:08Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-19T23:26:54Z"}
-    ship: {started_at: "2026-07-19T23:26:54Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-07-19T23:26:54Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-19T23:28:54Z"}
+    review-pr: {started_at: "2026-07-19T23:28:54Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/414
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 587
+    deleted: 10
+    net: 577
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 182
+        deleted: 7
+        net: 175
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-07-19T23:26:54Z"
-    computed_at_stage: hydrate
+        added: 127
+        deleted: 1
+        net: 126
+    computed_at: "2026-07-19T23:28:54Z"
+    computed_at_stage: ship
 summary: 'Audit + fix rk update/version standards conformance: brew mutations use generous bounds + SIGTERM-with-grace (newBrewCmd), read-only queries keep fast-fail; displayVersion release-shape pinned'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-07-19T23:26:54Z
+last_updated: 2026-07-19T23:28:54Z

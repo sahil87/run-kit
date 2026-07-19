@@ -480,7 +480,8 @@ var ansiEscapeRe = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1
 // baseline (a stale chip from a prior send is in the baseline count).
 //
 // The pattern matches the WHITESPACE-STRIPPED capture (stripForProbe removes all
-// spaces), i.e. "[Pastedtext#1+12lines]" or "[Pastedtext#5]"; the "+M lines" part
+// whitespace — spaces, tabs, newlines, etc.), i.e. "[Pastedtext#1+12lines]" or
+// "[Pastedtext#5]"; the "+M lines" part
 // is optional and tolerant of singular/plural "line"/"lines" and any digit counts.
 var pasteCollapseRe = regexp.MustCompile(`\[Pastedtext#\d+(?:\+\d+lines?)?\]`)
 

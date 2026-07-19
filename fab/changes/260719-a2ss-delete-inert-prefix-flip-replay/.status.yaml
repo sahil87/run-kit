@@ -1,0 +1,57 @@
+id: a2ss
+name: 260719-a2ss-delete-inert-prefix-flip-replay
+created: 2026-07-19T20:18:30Z
+created_by: Sahil Ahuja
+change_type: chore
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 6
+    acceptance_count: 8
+    acceptance_completed: 8
+confidence:
+    certain: 4
+    confident: 0
+    tentative: 0
+    unresolved: 0
+    score: 5.0
+    fuzzy: true
+    dimensions:
+        signal: 82.5
+        reversibility: 92.5
+        competence: 92.5
+        disambiguation: 90.0
+stage_metrics:
+    intake: {started_at: "2026-07-19T20:18:30Z", driver: fab-new, iterations: 1, completed_at: "2026-07-19T20:19:54Z"}
+    apply: {started_at: "2026-07-19T20:19:54Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-19T20:21:59Z"}
+    review: {started_at: "2026-07-19T20:21:59Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-19T20:25:19Z"}
+    hydrate: {started_at: "2026-07-19T20:25:19Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-19T20:26:39Z"}
+    ship: {started_at: "2026-07-19T20:26:39Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-19T20:28:50Z"}
+    review-pr: {started_at: "2026-07-19T20:28:50Z", driver: git-pr, iterations: 1, completed_at: "2026-07-19T20:34:35Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/403
+change_type_source: explicit
+true_impact:
+    added: 255
+    deleted: 22
+    net: 233
+    excluding:
+        added: 3
+        deleted: 22
+        net: -19
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-07-19T20:28:50Z"
+    computed_at_stage: ship
+summary: Deleted inert WindowHeading prefix-flip replay machinery (prevPrefixRef + prefix-keyed effect) and corrected the stale prefix-prop docstring in top-bar.tsx
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-07-19T20:34:35Z

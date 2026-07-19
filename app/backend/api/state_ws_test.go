@@ -17,6 +17,7 @@ import (
 	"rk/internal/metrics"
 	"rk/internal/sessions"
 	"rk/internal/tmux"
+	"rk/internal/updatecheck"
 )
 
 // String renders a hubEvent as an SSE-style frame. Used ONLY by tests that
@@ -183,7 +184,12 @@ func TestStateWS_HelloReplaysGlobalSlots(t *testing.T) {
 	hub := newSSEHub(&slowSessionFetcher{}, nil, nil, nil)
 	hub.setVersion("0.5.3", "abc", true)
 	hub.broadcastServerOrder([]string{"x"})
-	hub.broadcastUpdateAvailable("0.5.3", "0.6.0")
+	hub.broadcastUpdateAvailable(updatecheck.Result{
+		Matched: []updatecheck.ToolUpdate{{Tool: "run-kit", Installed: "0.5.3", Latest: "0.6.0"}},
+		Key:     "run-kit@0.6.0",
+		Current: "0.5.3",
+		Latest:  "0.6.0",
+	})
 
 	sc := newTestStateConn(hub, "conn-1", 32)
 	hub.replayGlobalSlots(sc)
@@ -202,7 +208,8 @@ func TestStateWS_HelloReplaysGlobalSlots(t *testing.T) {
 	if types["server-order"] != `{"order":["x"]}` {
 		t.Errorf("server-order slot = %q", types["server-order"])
 	}
-	if types["update-available"] != `{"current":"0.5.3","latest":"0.6.0"}` {
+	if !strings.Contains(types["update-available"], `"key":"run-kit@0.6.0"`) ||
+		!strings.Contains(types["update-available"], `"tools":[{"tool":"run-kit","current":"0.5.3","latest":"0.6.0"}]`) {
 		t.Errorf("update-available slot = %q", types["update-available"])
 	}
 }

@@ -252,9 +252,9 @@ func (s *Server) SetUpdateChecker(c *updatecheck.Checker) {
 // server-global `event: update-available` via the SSE hub. Called from `rk serve`
 // to bridge the checker's OnQualify hook into the hub (initSSEHub is invoked so
 // the hub exists even before the first client connects).
-func (s *Server) WireUpdateAvailableBroadcast() func(current, latest string) {
+func (s *Server) WireUpdateAvailableBroadcast() func(updatecheck.Result) {
 	s.initSSEHub()
-	return func(current, latest string) {
-		s.sseHub.broadcastUpdateAvailable(current, latest)
+	return func(verdict updatecheck.Result) {
+		s.sseHub.broadcastUpdateAvailable(verdict)
 	}
 }

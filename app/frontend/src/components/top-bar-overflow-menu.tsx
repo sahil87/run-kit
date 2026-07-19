@@ -8,6 +8,7 @@ import {
 } from "react";
 import { useUpdateNotification } from "@/contexts/session-context";
 import { displayVersion } from "@/lib/palette-version";
+import { updateChipToolSummary } from "@/lib/palette-update";
 import { copyToClipboard } from "@/lib/clipboard";
 import { useToast } from "@/components/toast";
 import { LogoSpinner } from "@/components/logo-spinner";
@@ -77,7 +78,7 @@ type Props = {
  * attention badge (R7).
  */
 export function TopBarOverflowMenu({ rows, updateOverflowed }: Props) {
-  const { daemonVersion, latest, current } = useUpdateNotification();
+  const { daemonVersion, tools, singleRunKit, latest, current } = useUpdateNotification();
   const { addToast } = useToast();
   // Shared one-click-update behavior with the in-bar UpdateChip (review M5).
   const { updating, triggerUpdate } = useUpdateClick();
@@ -224,10 +225,22 @@ export function TopBarOverflowMenu({ rows, updateOverflowed }: Props) {
 
   // The version row becomes the update surface only when a qualifying update is
   // pending AND the UpdateChip is overflowed into this menu.
-  const asUpdateSurface = updateOverflowed && latest !== null;
-  const updateLabel = current
-    ? `Update run-kit: v${current} → v${latest}`
-    : `Update run-kit to v${latest}`;
+  const asUpdateSurface = updateOverflowed && tools.length > 0;
+  // Single run-kit match keeps today's `Run Kit v{current} → v{latest} ⬆` row +
+  // aria; any other single tool or multiple tools show a count row naming each
+  // per-tool transition in the aria (R15). The row triggers a SCOPED update of
+  // exactly the matched tools. The per-tool summary is the shared
+  // `updateChipToolSummary` (single source, consumed by the in-bar chip too — no
+  // bar↔menu drift, A-024).
+  const toolSummary = updateChipToolSummary(tools);
+  const updateRowText =
+    singleRunKit && current && latest
+      ? `Run Kit v${current} → v${latest} ⬆`
+      : `Toolkit updates (${tools.length}) ⬆`;
+  const updateLabel =
+    singleRunKit && current
+      ? `Update run-kit: v${current} → v${latest}`
+      : `Update: ${toolSummary}`;
 
   return (
     <div
@@ -318,7 +331,7 @@ export function TopBarOverflowMenu({ rows, updateOverflowed }: Props) {
                   <span>{"updating…"}</span>
                 </>
               ) : (
-                <span>{`Run Kit v${current} → v${latest} ⬆`}</span>
+                <span>{updateRowText}</span>
               )}
             </button>
           ) : (

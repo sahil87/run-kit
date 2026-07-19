@@ -27,7 +27,7 @@ func postRestart(t *testing.T, s *Server) *httptest.ResponseRecorder {
 // a plain (non-Cellar) self path still restarts.
 func TestHandleRestartAcceptedSpawns(t *testing.T) {
 	var rec spawnRecord
-	withSeams(t, "/usr/local/bin/run-kit", nil, recordingSpawn(&rec))
+	withSeams(t, "/usr/local/bin/run-kit", nil, "", errNoShll, recordingSpawn(&rec))
 	s := newRestartServer("0.5.3")
 
 	res := postRestart(t, s)
@@ -60,7 +60,7 @@ func TestHandleRestartAcceptedSpawns(t *testing.T) {
 // 409 and does NOT spawn (a dev serve process must not bounce the real daemon).
 func TestHandleRestartDevReturns409(t *testing.T) {
 	var rec spawnRecord
-	withSeams(t, "/usr/local/bin/run-kit", nil, recordingSpawn(&rec))
+	withSeams(t, "/usr/local/bin/run-kit", nil, "", errNoShll, recordingSpawn(&rec))
 	s := newRestartServer("dev")
 
 	res := postRestart(t, s)
@@ -76,7 +76,7 @@ func TestHandleRestartDevReturns409(t *testing.T) {
 // TestHandleRestartSpawnFailureKeeps202 verifies R3 (edge): a spawn error AFTER
 // the 202 is committed does not alter the already-written response.
 func TestHandleRestartSpawnFailureKeeps202(t *testing.T) {
-	withSeams(t, "/usr/local/bin/run-kit", nil, func(selfPath, logName string, args ...string) error {
+	withSeams(t, "/usr/local/bin/run-kit", nil, "", errNoShll, func(selfPath, logName string, args ...string) error {
 		return errors.New("boom")
 	})
 	s := newRestartServer("0.5.3")

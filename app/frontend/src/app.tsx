@@ -2068,7 +2068,7 @@ function AppShell() {
   // companion Dismiss action mirrors the chip's `✕` for keyboard users.
   const {
     qualifies: updateQualifies,
-    latest: updateLatest,
+    tools: updateTools,
     updateNow,
     dismissUpdate,
     daemonVersion,
@@ -2080,7 +2080,7 @@ function AppShell() {
     () =>
       buildUpdateActions(
         updateQualifies,
-        updateLatest,
+        updateTools,
         () => {
           void updateNow().catch((err: unknown) =>
             addToast(err instanceof Error ? err.message : "Update failed", "error"),
@@ -2088,7 +2088,7 @@ function AppShell() {
         },
         dismissUpdate,
       ),
-    [updateQualifies, updateLatest, updateNow, dismissUpdate, addToast],
+    [updateQualifies, updateTools, updateNow, dismissUpdate, addToast],
   );
 
   // Maintenance actions — palette-only force-update / restart (Constitution V).

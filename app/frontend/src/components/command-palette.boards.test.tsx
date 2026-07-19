@@ -158,7 +158,7 @@ function buildBoardActions(opts: BuildOpts): PaletteAction[] {
   // qualifying pending update, dismissal-independent.
   const updateEntries = buildUpdateActions(
     opts.updateLatest != null,
-    opts.updateLatest ?? null,
+    opts.updateLatest != null ? [{ tool: "run-kit", current: "", latest: opts.updateLatest }] : [],
     () => opts.onUpdate?.(),
     () => opts.onDismissUpdate?.(),
   );

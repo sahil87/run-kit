@@ -8,7 +8,7 @@ import {
   StandaloneSessionContextProvider,
   shouldReloadOnVersion,
 } from "@/contexts/session-context";
-import type { SessionContextType } from "@/contexts/session-context";
+import type { SessionContextType, UpdateAvailable, UpdateTool } from "@/contexts/session-context";
 
 // Silence the push lib so NotificationControl doesn't touch real serviceWorker.
 // getPushState returns a Promise (the hook calls .then), and "unsupported"
@@ -41,6 +41,20 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+// updateAvailable builds an UpdateAvailable payload from matched tools, deriving
+// the composite key (sorted tool@latest) and the legacy current/latest from the
+// run-kit row (mirroring the backend).
+function updateAvailable(tools: UpdateTool[]): UpdateAvailable {
+  const key = tools
+    .map((t) => `${t.tool}@${t.latest}`)
+    .sort()
+    .join(",");
+  const rk = tools.find((t) => t.tool === "run-kit");
+  return { tools, key, current: rk?.current ?? "", latest: rk?.latest ?? "" };
+}
+
+const runKit = (current: string, latest: string): UpdateTool => ({ tool: "run-kit", current, latest });
+
 function renderChip(sessionValue: Partial<SessionContextType>) {
   return render(
     <ToastProvider>
@@ -70,10 +84,10 @@ function renderChip(sessionValue: Partial<SessionContextType>) {
 }
 
 describe("UpdateChip", () => {
-  it("renders `⬆ v{latest}` and the v{current} → v{latest} transition title when a qualifying update is pending", () => {
+  it("renders `⬆ v{latest}` and the v{current} → v{latest} transition title for a single run-kit match", () => {
     renderChip({
       daemonVersion: "0.5.3",
-      updateAvailable: { current: "0.5.3", latest: "0.6.0" },
+      updateAvailable: updateAvailable([runKit("0.5.3", "0.6.0")]),
     });
     // The rest-state title/aria show the transition (both versions), not only
     // the target (260715-ifco R9).
@@ -84,45 +98,75 @@ describe("UpdateChip", () => {
     expect(screen.getByText("⬆ v0.6.0")).toBeInTheDocument();
   });
 
-  it("falls back to target-only wording when current is null", () => {
-    // `current` null (shouldn't happen once the chip qualifies, but degrade
-    // gracefully) → the pre-ifco `Update run-kit to v{latest}` wording.
+  it("renders a count form + per-tool transitions in the title for a multi-tool match", () => {
     renderChip({
-      daemonVersion: "0.5.3",
-      updateAvailable: { current: null as unknown as string, latest: "0.6.0" },
+      daemonVersion: "3.8.0",
+      updateAvailable: updateAvailable([
+        runKit("3.8.0", "3.9.0"),
+        { tool: "fab-kit", current: "2.16.0", latest: "2.17.0" },
+      ]),
     });
-    expect(screen.getByLabelText("Update run-kit to v0.6.0")).toBeInTheDocument();
+    // Visible label = count form.
+    expect(screen.getByText("⬆ updates (2)")).toBeInTheDocument();
+    // Title/aria names every per-tool transition.
+    const chip = screen.getByLabelText(
+      "Update: run-kit v3.8.0 → v3.9.0, fab-kit v2.16.0 → v2.17.0",
+    );
+    expect(chip).toBeInTheDocument();
+  });
+
+  it("uses the count form for a SINGLE non-run-kit tool", () => {
+    renderChip({
+      daemonVersion: "3.9.0",
+      updateAvailable: updateAvailable([{ tool: "fab-kit", current: "2.16.0", latest: "2.17.0" }]),
+    });
+    expect(screen.getByText("⬆ updates (1)")).toBeInTheDocument();
+    expect(screen.getByLabelText("Update: fab-kit v2.16.0 → v2.17.0")).toBeInTheDocument();
   });
 
   it("hides when no update is available", () => {
     renderChip({ daemonVersion: "0.5.3", updateAvailable: null });
-    expect(screen.queryByText(/⬆ v/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/⬆ /)).not.toBeInTheDocument();
   });
 
   it("hides when the daemon reports the dev version", () => {
     renderChip({
       daemonVersion: "dev",
-      updateAvailable: { current: "dev", latest: "0.6.0" },
+      updateAvailable: updateAvailable([{ tool: "run-kit", current: "dev", latest: "0.6.0" }]),
     });
-    expect(screen.queryByText(/⬆ v/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/⬆ /)).not.toBeInTheDocument();
   });
 
-  it("hides when dismissed for the current latest", () => {
+  it("hides when dismissed for the current composite key", () => {
     renderChip({
       daemonVersion: "0.5.3",
-      updateAvailable: { current: "0.5.3", latest: "0.6.0" },
-      updateDismissedVersion: "0.6.0",
+      updateAvailable: updateAvailable([runKit("0.5.3", "0.6.0")]),
+      updateDismissedKey: "run-kit@0.6.0",
     });
-    expect(screen.queryByText(/⬆ v/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/⬆ /)).not.toBeInTheDocument();
   });
 
-  it("re-shows for a newer latest even after an older dismissal", () => {
+  it("re-shows for a changed composite key even after an older dismissal", () => {
     renderChip({
       daemonVersion: "0.5.3",
-      updateAvailable: { current: "0.5.3", latest: "0.7.0" },
-      updateDismissedVersion: "0.6.0",
+      updateAvailable: updateAvailable([runKit("0.5.3", "0.7.0")]),
+      updateDismissedKey: "run-kit@0.6.0",
     });
     expect(screen.getByText("⬆ v0.7.0")).toBeInTheDocument();
+  });
+
+  it("re-shows when a newly-matching tool changes the key after a run-kit-only dismissal", () => {
+    // Dismissed the run-kit-only key; now fab-kit also matches → key changes →
+    // the chip re-shows (composite-key dismissal, R14).
+    renderChip({
+      daemonVersion: "3.8.0",
+      updateAvailable: updateAvailable([
+        runKit("3.8.0", "3.9.0"),
+        { tool: "fab-kit", current: "2.16.0", latest: "2.17.0" },
+      ]),
+      updateDismissedKey: "run-kit@3.9.0",
+    });
+    expect(screen.getByText("⬆ updates (2)")).toBeInTheDocument();
   });
 
   it("leaves no empty flex item in the top bar when hidden (gap regression)", () => {
@@ -145,7 +189,7 @@ describe("UpdateChip", () => {
     // corrupt the fit input.
     renderChip({
       daemonVersion: "0.5.3",
-      updateAvailable: { current: "0.5.3", latest: "0.6.0" },
+      updateAvailable: updateAvailable([runKit("0.5.3", "0.6.0")]),
     });
     const root = screen.getByLabelText("Update run-kit: v0.5.3 → v0.6.0").parentElement;
     expect(root).not.toHaveClass("hidden");
@@ -161,7 +205,7 @@ describe("UpdateChip", () => {
     );
     renderChip({
       daemonVersion: "0.5.3",
-      updateAvailable: { current: "0.5.3", latest: "0.6.0" },
+      updateAvailable: updateAvailable([runKit("0.5.3", "0.6.0")]),
       updateNow,
     });
     fireEvent.click(screen.getByLabelText("Update run-kit: v0.5.3 → v0.6.0"));
@@ -180,7 +224,7 @@ describe("UpdateChip", () => {
     const updateNow = vi.fn(() => Promise.reject(new Error("not brew-installed")));
     renderChip({
       daemonVersion: "0.5.3",
-      updateAvailable: { current: "0.5.3", latest: "0.6.0" },
+      updateAvailable: updateAvailable([runKit("0.5.3", "0.6.0")]),
       updateNow,
     });
     fireEvent.click(screen.getByLabelText("Update run-kit: v0.5.3 → v0.6.0"));
@@ -195,11 +239,99 @@ describe("UpdateChip", () => {
     const dismissUpdate = vi.fn();
     renderChip({
       daemonVersion: "0.5.3",
-      updateAvailable: { current: "0.5.3", latest: "0.6.0" },
+      updateAvailable: updateAvailable([runKit("0.5.3", "0.6.0")]),
       dismissUpdate,
     });
     fireEvent.click(screen.getByLabelText("Dismiss update notice"));
     expect(dismissUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides on a cleared verdict — a consumed match becomes null (R13, no stale chip)", () => {
+    // A siblings-only `shll update` never restarts the daemon; the post-
+    // remediation re-check broadcasts a cleared verdict, which the context's
+    // applyUpdateAvailable turns into null `updateAvailable`. The chip must then
+    // disappear (not sit advertising the already-installed update).
+    const { rerender } = renderChip({
+      daemonVersion: "3.9.0",
+      updateAvailable: updateAvailable([{ tool: "fab-kit", current: "2.16.0", latest: "2.17.0" }]),
+    });
+    expect(screen.getByText("⬆ updates (1)")).toBeInTheDocument();
+    // Re-render with the cleared state the provider computes on an empty-key event.
+    rerender(
+      <ToastProvider>
+        <ThemeProvider>
+          <ChromeProvider>
+            <StandaloneSessionContextProvider value={{ daemonVersion: "3.9.0", updateAvailable: null }}>
+              <TopBar
+                mode="server"
+                sessions={[]}
+                currentSession={null}
+                currentWindow={null}
+                sessionName=""
+                windowName=""
+                isConnected={true}
+                sidebarOpen={false}
+                server="runkit"
+                onNavigate={vi.fn()}
+                onToggleSidebar={vi.fn()}
+                onCreateSession={vi.fn()}
+                onCreateWindow={vi.fn()}
+              />
+            </StandaloneSessionContextProvider>
+          </ChromeProvider>
+        </ThemeProvider>
+      </ToastProvider>,
+    );
+    expect(screen.queryByText(/⬆ /)).not.toBeInTheDocument();
+  });
+
+  it("clears `updating…` when the composite key changes after the click (R13, siblings-only completion)", async () => {
+    // The user clicks update; a siblings-only spawn produces no daemon restart /
+    // reload, so `updating` can only clear when a later verdict's key differs
+    // from the click-time key. Simulate that key change via a re-render.
+    let resolveUpdate!: () => void;
+    const updateNow = vi.fn(
+      () => new Promise<void>((res) => { resolveUpdate = res; }),
+    );
+    const before = updateAvailable([{ tool: "fab-kit", current: "2.16.0", latest: "2.17.0" }]);
+    const { rerender } = renderChip({ daemonVersion: "3.9.0", updateAvailable: before, updateNow });
+
+    fireEvent.click(screen.getByLabelText("Update: fab-kit v2.16.0 → v2.17.0"));
+    resolveUpdate(); // the POST resolves 202; no reload follows (siblings-only)
+    await waitFor(() => expect(screen.getByLabelText("Updating run-kit")).toBeDisabled());
+
+    // A later verdict with a DIFFERENT key (fab-kit now updated further) arrives.
+    const after = updateAvailable([{ tool: "fab-kit", current: "2.17.0", latest: "2.18.0" }]);
+    rerender(
+      <ToastProvider>
+        <ThemeProvider>
+          <ChromeProvider>
+            <StandaloneSessionContextProvider value={{ daemonVersion: "3.9.0", updateAvailable: after, updateNow }}>
+              <TopBar
+                mode="server"
+                sessions={[]}
+                currentSession={null}
+                currentWindow={null}
+                sessionName=""
+                windowName=""
+                isConnected={true}
+                sidebarOpen={false}
+                server="runkit"
+                onNavigate={vi.fn()}
+                onToggleSidebar={vi.fn()}
+                onCreateSession={vi.fn()}
+                onCreateWindow={vi.fn()}
+              />
+            </StandaloneSessionContextProvider>
+          </ChromeProvider>
+        </ThemeProvider>
+      </ToastProvider>,
+    );
+    // `updating` cleared → the chip is back to its normal (new-verdict) rest form.
+    await waitFor(() =>
+      expect(screen.getByLabelText("Update: fab-kit v2.17.0 → v2.18.0")).toBeInTheDocument(),
+    );
+    expect(screen.queryByText("updating…")).not.toBeInTheDocument();
   });
 });
 
@@ -219,10 +351,10 @@ describe("overflow menu version row (260715-h1ck)", () => {
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("v0.6.2"));
   });
 
-  it("becomes the update surface (`Run Kit v{current} → v{latest} ⬆`) when a qualifying update is pending and the chip is overflowed", () => {
+  it("becomes the update surface (`Run Kit v{current} → v{latest} ⬆`) for a single run-kit match when overflowed", () => {
     renderChip({
       daemonVersion: "0.5.3",
-      updateAvailable: { current: "0.5.3", latest: "0.6.0" },
+      updateAvailable: updateAvailable([runKit("0.5.3", "0.6.0")]),
     });
     // The chevron carries an attention badge (R7).
     expect(screen.getByTestId("overflow-attention")).toBeInTheDocument();
@@ -233,11 +365,25 @@ describe("overflow menu version row (260715-h1ck)", () => {
     expect(within(menu).queryByText(/⬆ v/)).not.toBeInTheDocument();
   });
 
+  it("becomes a count update surface for a multi-tool match when overflowed", () => {
+    renderChip({
+      daemonVersion: "3.8.0",
+      updateAvailable: updateAvailable([
+        runKit("3.8.0", "3.9.0"),
+        { tool: "fab-kit", current: "2.16.0", latest: "2.17.0" },
+      ]),
+    });
+    expect(screen.getByTestId("overflow-attention")).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("More controls"));
+    const menu = screen.getByRole("menu", { name: "More controls" });
+    expect(within(menu).getByText("Toolkit updates (2) ⬆")).toBeInTheDocument();
+  });
+
   it("triggers updateNow() from the version-row update surface", () => {
     const updateNow = vi.fn(() => Promise.resolve());
     renderChip({
       daemonVersion: "0.5.3",
-      updateAvailable: { current: "0.5.3", latest: "0.6.0" },
+      updateAvailable: updateAvailable([runKit("0.5.3", "0.6.0")]),
       updateNow,
     });
     fireEvent.click(screen.getByLabelText("More controls"));

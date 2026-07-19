@@ -13,6 +13,7 @@ import (
 	"rk/internal/prstatus"
 	"rk/internal/sessions"
 	"rk/internal/tmux"
+	"rk/internal/updatecheck"
 	"rk/internal/validate"
 )
 
@@ -96,7 +97,7 @@ const (
 	// cadence. On-demand refresh (POST /api/status/refresh) covers the
 	// "I want it now" case.
 	prStatusPollInterval = 90 * time.Second
-	sseCacheTTL = 500 * time.Millisecond
+	sseCacheTTL          = 500 * time.Millisecond
 	// The SSE-only sseHeartbeatPeriod / maxLifetime constants were retired in
 	// 260717-vhvz-chat-on-state-socket along with their sole remaining consumer,
 	// the chat SSE stream (GET /api/windows/{id}/chat/stream), which moved onto
@@ -216,7 +217,7 @@ type sseHub struct {
 	// stateConns is the set of live state-socket connections, the unit of
 	// host-global event fan-out (once per connection, never once per
 	// subscription). A connection is added on hello and dropped on disconnect.
-	stateConns map[*stateConn]bool
+	stateConns             map[*stateConn]bool
 	previousJSON           map[string]string            // per-server sessions JSON dedup cache
 	previousOrderJSON      map[string]string            // per-server session-order event payload cache (only present when populated by a successful read or a POST broadcast)
 	orderBootstrapAttempts map[string]int               // per-server count of failed bootstrap attempts; capped at orderBootstrapMaxAttempts
@@ -250,10 +251,13 @@ type sseHub struct {
 	// needs it (the reload guard keys off SSE reconnect). Empty until SetVersion.
 	cachedVersionJSON string
 	// cachedUpdateAvailableJSON is the server-global `event: update-available`
-	// payload published when the periodic checker finds a qualifying newer
-	// version. Like the order slots it is a single cached slot fanned to EVERY
-	// client (incl. `?metrics=1`) and replayed on connect for late-joining
-	// clients, updated via broadcastUpdateAvailable. Empty until a check qualifies.
+	// payload published whenever the periodic checker's composite key changes.
+	// Like the order slots it is a single cached slot fanned to EVERY client
+	// (incl. `?metrics=1`) and replayed on connect for late-joining clients,
+	// updated via broadcastUpdateAvailable. It holds the LATEST verdict — a
+	// populated match OR a CLEARED verdict (empty tools/key) once a match is
+	// consumed — so a reconnecting tab never replays a stale consumed match
+	// (R8). Empty until the first check changes the key.
 	cachedUpdateAvailableJSON string
 	// prStatus, when non-nil, supplies the in-memory PR-status snapshot the
 	// poll path joins onto change-bound windows. nil degrades gracefully (no
@@ -822,6 +826,13 @@ func (h *sseHub) setVersion(version, boot string, brew bool) {
 	h.cachedVersionJSON = string(jsonBytes)
 }
 
+// updateAvailableTool is one matched tool in the `update-available` payload.
+type updateAvailableTool struct {
+	Tool    string `json:"tool"`
+	Current string `json:"current"`
+	Latest  string `json:"latest"`
+}
+
 // broadcastUpdateAvailable pushes a server-global `event: update-available` to
 // EVERY connected client across every server key (including the `?metrics=1`
 // metrics-only stream) and caches the payload so future clients receive it on
@@ -829,11 +840,29 @@ func (h *sseHub) setVersion(version, boot string, brew bool) {
 // regardless of how many tmux servers a client views), so this fans out to all
 // clients like broadcastServerOrder/broadcastBoardOrder, NOT to one server's
 // clients. Invoked from the updatecheck OnQualify callback wired in serve.go.
-func (h *sseHub) broadcastUpdateAvailable(current, latest string) {
+//
+// The payload carries the full matched-tool set plus the composite dismissal
+// key. The legacy top-level `current`/`latest` are populated from the run-kit
+// row when run-kit is in the match set (else empty) so a not-yet-reloaded
+// frontend keying off a non-empty `latest` degrades to run-kit-only display.
+//
+// A CLEARED verdict (empty Matched, empty Key — fired by the checker per R7 when
+// a match is consumed) is NOT skipped: it is marshalled, broadcast, and REPLACES
+// the cached slot exactly like a populated verdict, so a tab connecting after a
+// consumed-match clear replays the cleared state (empty tools/key) rather than a
+// stale match (R8). replayGlobalSlots still replays the slot on connect —
+// nothing special-cases the empty payload there either.
+func (h *sseHub) broadcastUpdateAvailable(verdict updatecheck.Result) {
+	tools := make([]updateAvailableTool, 0, len(verdict.Matched))
+	for _, m := range verdict.Matched {
+		tools = append(tools, updateAvailableTool{Tool: m.Tool, Current: m.Installed, Latest: m.Latest})
+	}
 	payload := struct {
-		Current string `json:"current"`
-		Latest  string `json:"latest"`
-	}{Current: current, Latest: latest}
+		Tools   []updateAvailableTool `json:"tools"`
+		Key     string                `json:"key"`
+		Current string                `json:"current"`
+		Latest  string                `json:"latest"`
+	}{Tools: tools, Key: verdict.Key, Current: verdict.Current, Latest: verdict.Latest}
 	jsonBytes, err := json.Marshal(payload)
 	if err != nil {
 		slog.Warn("update-available broadcast marshal failed", "err", err)

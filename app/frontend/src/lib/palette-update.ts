@@ -1,14 +1,33 @@
 /**
- * Pure builder for the command-palette update actions (`run-kit: Update to
- * v{latest}` + `run-kit: Dismiss Update Notice`). Extracted from app.tsx so the
- * qualification gating and label composition are unit-testable without mounting
- * the whole shell — mirroring lib/palette-move.ts. The action bodies are thin
- * wrappers passed in by the caller (they invoke updateNow / dismissUpdate).
+ * Pure builder for the command-palette update actions (a scoped
+ * `run-kit: Update …` action + `run-kit: Dismiss Update Notice`). Extracted from
+ * app.tsx so the qualification gating and label composition are unit-testable
+ * without mounting the whole shell — mirroring lib/palette-move.ts. The action
+ * bodies are thin wrappers passed in by the caller (they invoke updateNow /
+ * dismissUpdate; dismiss writes the composite key).
  *
  * Note: the palette deliberately IGNORES chip dismissal (dismissal silences only
  * the ambient chip; the palette is deliberate discovery), so the gate here is
  * `qualifies` alone — NOT the chip's `showChip`.
  */
+
+/** One matched tool for label composition (structurally the context's
+ *  `UpdateTool`; declared locally to keep this module context-free). */
+export type UpdateActionTool = { tool: string; current: string; latest: string };
+
+/**
+ * Compose the per-tool transition summary for a matched set — e.g.
+ * `run-kit v3.8.0 → v3.9.0, fab-kit v2.16.0 → v2.17.0`. A tool with no known
+ * current version degrades to `tool → v{latest}`. The SINGLE source consumed by
+ * both the top-bar `UpdateChip` (title/aria) and the overflow-menu version-row
+ * update surface (aria) so the two can never drift (R15 / A-024). Context-free
+ * (takes the tool list directly), so it stays unit-testable without the context.
+ */
+export function updateChipToolSummary(tools: UpdateActionTool[]): string {
+  return tools
+    .map((t) => (t.current ? `${t.tool} v${t.current} → v${t.latest}` : `${t.tool} → v${t.latest}`))
+    .join(", ");
+}
 
 export type UpdatePaletteAction = {
   id: string;
@@ -16,22 +35,43 @@ export type UpdatePaletteAction = {
   onSelect: () => void;
 };
 
+/** The run-kit tool name — a single run-kit match keeps the historical
+ *  `run-kit: Update to v{latest}` label. */
+const RUN_KIT_TOOL = "run-kit";
+
+/**
+ * Compose the update-action label from the matched tools. A single run-kit match
+ * keeps today's `run-kit: Update to v{latest}`; a single non-run-kit tool reads
+ * `run-kit: Update {tool} to v{latest}`; multiple tools read
+ * `run-kit: Update N tools`. The action always runs a SCOPED update of exactly
+ * the matched tools, so the label communicates which tools move.
+ */
+function updateActionLabel(tools: UpdateActionTool[]): string {
+  if (tools.length === 1) {
+    const t = tools[0];
+    return t.tool === RUN_KIT_TOOL
+      ? `run-kit: Update to v${t.latest}`
+      : `run-kit: Update ${t.tool} to v${t.latest}`;
+  }
+  return `run-kit: Update ${tools.length} tools`;
+}
+
 /**
  * Build the update palette actions. Returns an empty array when no qualifying
- * update is pending (`qualifies` false, or `latest` null — e.g. the `dev`
+ * update is pending (`qualifies` false, or `tools` empty — e.g. the `dev`
  * version or no update-available event yet).
  */
 export function buildUpdateActions(
   qualifies: boolean,
-  latest: string | null,
+  tools: UpdateActionTool[],
   onUpdate: () => void,
   onDismiss: () => void,
 ): UpdatePaletteAction[] {
-  if (!qualifies || !latest) return [];
+  if (!qualifies || tools.length === 0) return [];
   return [
     {
       id: "run-kit-update",
-      label: `run-kit: Update to v${latest}`,
+      label: updateActionLabel(tools),
       onSelect: onUpdate,
     },
     {

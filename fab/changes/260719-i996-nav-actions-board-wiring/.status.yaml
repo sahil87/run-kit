@@ -1,0 +1,57 @@
+id: i996
+name: 260719-i996-nav-actions-board-wiring
+created: 2026-07-19T21:25:16Z
+created_by: sahil-noon
+change_type: refactor
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 5
+    acceptance_count: 9
+    acceptance_completed: 9
+confidence:
+    certain: 2
+    confident: 2
+    tentative: 0
+    unresolved: 0
+    score: 4.9
+    fuzzy: true
+    dimensions:
+        signal: 66.3
+        reversibility: 85.0
+        competence: 86.3
+        disambiguation: 77.5
+stage_metrics:
+    intake: {started_at: "2026-07-19T21:25:16Z", driver: fab-new, iterations: 1, completed_at: "2026-07-19T21:26:13Z"}
+    apply: {started_at: "2026-07-19T21:26:13Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-19T21:36:08Z"}
+    review: {started_at: "2026-07-19T21:36:08Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-19T21:38:58Z"}
+    hydrate: {started_at: "2026-07-19T21:38:58Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-19T21:41:26Z"}
+    ship: {started_at: "2026-07-19T21:41:26Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-19T21:44:43Z"}
+    review-pr: {started_at: "2026-07-19T21:44:43Z", driver: git-pr, iterations: 1, completed_at: "2026-07-19T21:49:22Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/410
+change_type_source: explicit
+true_impact:
+    added: 383
+    deleted: 27
+    net: 356
+    excluding:
+        added: 112
+        deleted: 23
+        net: 89
+    tests:
+        added: 6
+        deleted: 4
+        net: 2
+    computed_at: "2026-07-19T21:44:43Z"
+    computed_at_stage: ship
+summary: 'Wire the Go: Back/Forward/Host nav trio into board-page.tsx boardRouteActions via buildNavActions(''board'',''''); narrow NavMode to terminal|board|server (palette-bearing subset of TopBarMode)'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-07-19T21:49:22Z

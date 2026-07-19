@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -651,5 +652,108 @@ func TestCountProbeOccurrences_ShortNeedleFailsClosed(t *testing.T) {
 		if postCount > baseCount {
 			t.Errorf("needle %q: post %d > baseline %d — a non-echoing paste would spuriously pass", needle, postCount, baseCount)
 		}
+	}
+}
+
+// --- control-byte sanitization (260719-t9uk) --------------------------------
+
+// TestSanitizeChatText pins the sanitize helper's behavior: CR/CRLF normalize to
+// \n, every control rune (C0, DEL, C1) is stripped EXCEPT \n and \t, and ordinary
+// / non-ASCII content passes through verbatim.
+func TestSanitizeChatText(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"plain text unchanged", "hello world", "hello world"},
+		{"newline preserved", "line one\nline two", "line one\nline two"},
+		{"tab preserved", "col1\tcol2", "col1\tcol2"},
+		{"CRLF normalized to LF", "line one\r\nline two", "line one\nline two"},
+		{"lone CR normalized to LF", "line one\rline two", "line one\nline two"},
+		// The sharpest vector: an ESC that would embed the bracketed-paste-end
+		// sequence loses the ESC, leaving the inert literal "[201~".
+		{"ESC stripped leaving inert 201~", "before\x1b[201~after", "before[201~after"},
+		{"NUL stripped", "a\x00b", "ab"},
+		{"BEL stripped", "a\x07b", "ab"},
+		{"BS stripped", "a\x08b", "ab"},
+		{"VT stripped", "a\x0bb", "ab"},
+		{"FF stripped", "a\x0cb", "ab"},
+		{"SUB stripped", "a\x1ab", "ab"},
+		{"DEL stripped", "a\x7fb", "ab"},
+		// C1 single-byte CSI (U+009B) is an escape introducer in some terminals.
+		{"C1 CSI stripped", "a\u009bb", "ab"},
+		{"other C1 stripped", "a\u0085b", "ab"}, // NEL (U+0085)
+		{"emoji preserved", "ship it 🚀", "ship it 🚀"},
+		{"accents preserved", "café résumé", "café résumé"},
+		{"all-control collapses to empty", "\x1b\x00\x07\x7f", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := sanitizeChatText(tt.in); got != tt.want {
+				t.Errorf("sanitizeChatText(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+// sendReqRaw builds a POST /chat/send request whose {"text":...} body is JSON-
+// encoded from a raw Go string — so control bytes below 0x20 are emitted as valid
+// \uXXXX JSON escapes and decode back to the raw runes server-side (a raw control
+// byte in a JSON string literal is invalid JSON).
+func sendReqRaw(t *testing.T, text string) *http.Request {
+	t.Helper()
+	body, err := json.Marshal(chatSendRequest{Text: text})
+	if err != nil {
+		t.Fatalf("marshal body: %v", err)
+	}
+	return sendReq(string(body))
+}
+
+// TestChatSendSanitizesRecordedBuffer: a send whose text carries embedded control
+// bytes (an ESC that would break the bracketed paste, plus a NUL) is sanitized
+// BEFORE injection — the text that reaches set-buffer is the cleaned form, and the
+// send otherwise succeeds (200, Enter sent).
+func TestChatSendSanitizesRecordedBuffer(t *testing.T) {
+	fastChatSendProbe(t)
+	// Raw text carries an ESC[201~ breakout attempt and a NUL amid real content.
+	raw := "run the tests\x1b[201~\x00please"
+	want := "run the tests[201~please" // ESC + NUL stripped, rest verbatim
+	sf := &mockSessionFetcher{result: chatSessions("@1", "claude", testChatRef)}
+	// The probe needle is derived from the SANITIZED text; the post-paste capture
+	// must contain it as a fresh occurrence for the send to reach 200.
+	ops := &mockTmuxOps{capturePaneResults: []string{"❯ ", "❯ " + want}}
+	router := NewTestRouter(slog.Default(), sf, ops, "host")
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, sendReqRaw(t, raw))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if ops.setChatBufferText != want {
+		t.Errorf("buffer text = %q, want sanitized %q (control bytes must be stripped before paste)", ops.setChatBufferText, want)
+	}
+	if !ops.sendEnterCalled {
+		t.Error("Enter not sent for a sanitized, echoing send")
+	}
+}
+
+// TestChatSendAllControlIsEmpty: a message that is entirely control bytes collapses
+// to empty via sanitize and takes the existing 400 (empty-text) path — no tmux
+// injection runs.
+func TestChatSendAllControlIsEmpty(t *testing.T) {
+	sf := &mockSessionFetcher{result: chatSessions("@1", "claude", testChatRef)}
+	ops := &mockTmuxOps{}
+	router := NewTestRouter(slog.Default(), sf, ops, "host")
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, sendReqRaw(t, "\x1b\x00\x07\x7f"))
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 (all-control collapses to empty); body=%s", rec.Code, rec.Body.String())
+	}
+	if len(ops.chatCalls) != 0 {
+		t.Errorf("injection ran (%v) for an all-control message", ops.chatCalls)
 	}
 }

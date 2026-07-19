@@ -121,23 +121,49 @@ The row's visual axes are split so labeling and selection never share a channel:
 - **Tint depth = selection** — a selected row deepens to the family tint at 40%
   (rest 14%, hover 22%; uncolored rows use a gray sentinel), plus bold +
   brightened text. There is **no** left selection border (removed in the split).
-- **Left-gutter marker = an independent 4-state label axis** — see below.
+- **Left-edge label zone = one target opening the combined Label picker** — both
+  label axes (color + marker) live here; see below.
 
 The board-pin active-board cue (once a 4px accent left border) now rides the
 **persistent filled pin glyph**, rendered accent-colored when the row is pinned
 to the board currently being viewed.
 
-### Left-gutter marker (`@rk_marker`)
+### Left-edge label zone (single target) + `@rk_marker`
 
 Each **window** row (windows only — session rows and server tiles are out of
-scope) carries a ~14px left gutter presenting one of four states, cycled on
-click: empty → dotted (3px) → solid (3px) → double (6px double), rendered in the
-row's guarded family color (gray for uncolored rows). Semantics are deliberately
-unnamed (todo/doing/done for one user, priority for another). Hovering the row
-fills the gutter ~20%; hovering the gutter itself steps to ~30% and ghosts a
-preview of the next state, with a `cell` cursor. The gutter is inert on coarse
-(touch) pointers — the `Window: Cycle Marker` command-palette action is the
-touch path (Constitution V).
+scope) devotes the **entire 26px to the left of the status dot** (12px group
+indent + 14px marker-stripe zone) to a **single click/tap target** that opens a
+combined **Label picker** (colors + marker states). The target never selects the
+row (`stopPropagation`) and coexists with drag-reorder; the status dot and window
+name keep their exact x-positions (the 26px repurposes the existing indent +
+gutter — no content shift). The cursor is `pointer` (menu-opener semantics).
+
+A hover-revealed **palette icon** (the shipped `PaletteIcon`, ~11px) in the 12px
+icon zone makes the target discoverable using the same affordance grammar as the
+right cluster: hovering the row fades the icon in (~65%) and glows the whole zone
+~12% in the row's guarded family color; hovering the zone itself raises the icon
+to full opacity and the glow to ~24%. The icon is family-tinted on colored rows,
+inherited monochrome on uncolored rows. The **marker stripe is display-only**,
+inset 5px within its 14px zone: empty → dotted (3px) → solid (3px) → double (6px
+double), rendered in the guarded family color (gray for uncolored rows). Marker
+semantics are deliberately unnamed (todo/doing/done for one user, priority for
+another). The zone is **active on coarse (touch) pointers** — a tap opens the
+picker, giving touch direct label access.
+
+The **combined Label picker** shows the 10 family swatches + a Clear-color row,
+then a 1px hairline separator, then 4 marker-state cells (none / dotted / solid /
+double) drawn as mini stripes in the row's guarded color; the current color and
+marker are highlighted. Any marker state is reachable in two clicks (open + pick)
+— there is **no cycling**. Color selection writes through the `familyToLegacy`
+seam (stored vocabulary stays legacy); marker selection writes the exact state.
+The picker uses **square styling** scoped to this instance (zero border-radius, a
+hard `3px 3px 0 rgba(0,0,0,.35)` offset block shadow, 1px selection outlines, 3px
+gaps) and keeps the color picker's arrow-key + Enter/Space keyboard nav extended
+across both sections (Escape / outside-click close). The `Window: Label`
+command-palette action opens the picker for the current window's row via the
+imperative `label-popover:open` event (Constitution V keyboard path). The
+right-side hover cluster is therefore **actions-only** (pin + kill) on window
+rows; session rows and server tiles keep their right-side color affordance.
 
 Marker state persists as the `@rk_marker` **window user option**
 (`""`/`dotted`/`solid`/`double`), written through the unified

@@ -1,8 +1,9 @@
-import { describe, it, expect, afterEach, vi } from "vitest";
+import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { useState } from "react";
 import { render, screen, cleanup, act } from "@testing-library/react";
 import { WindowRow } from "./window-row";
 import { ToastProvider } from "@/components/toast";
+import { ThemeProvider } from "@/contexts/theme-context";
 import * as optimisticContext from "@/contexts/optimistic-context";
 import { computeRowTints, computeRowBorders, DEFAULT_DARK_THEME } from "@/themes";
 import type { WindowInfo } from "@/types";
@@ -11,6 +12,23 @@ import type { MergedWindow } from "@/store/window-store";
 afterEach(() => {
   cleanup();
 });
+
+/** The combined Label picker (SwatchPopover) uses `useTheme()`, which throws
+ *  without a matchMedia shim + ThemeProvider. Provide a minimal dark-mode mock
+ *  for the label-zone describe block. */
+function mockMatchMedia() {
+  const mql = {
+    matches: true,
+    media: "(prefers-color-scheme: dark)",
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    onchange: null,
+  };
+  vi.stubGlobal("matchMedia", vi.fn().mockReturnValue(mql));
+}
 
 function makeWindow(overrides: Partial<WindowInfo> & { windowId: string; index: number }): WindowInfo {
   return {
@@ -50,8 +68,10 @@ function renderRow(win: WindowInfo) {
   );
 }
 
-/** Render with `server` and `onColorChange` wired so all three hover-revealed
- *  icons (pin / color swatch / kill) exist in the DOM. */
+/** Render with `server` and `onColorChange` wired so the right-cluster action
+ *  icons (pin / kill) exist in the DOM. The color affordance moved to the left
+ *  label zone (hwtr); `onMarkerChange` is intentionally NOT wired here so the
+ *  label zone does not mount for these right-cluster hardening checks. */
 function renderRowWithIcons(win: WindowInfo) {
   return render(
     <WindowRow
@@ -434,9 +454,11 @@ describe("WindowRow", () => {
       const win = makeWindow({ windowId: "@0", index: 0, name: "my-shell" });
       renderRowWithIcons(win);
       const pin = screen.getByLabelText("Pin my-shell to a board");
-      const swatch = screen.getByLabelText("Set color for my-shell");
       const kill = screen.getByLabelText("Kill window my-shell");
-      for (const btn of [pin, swatch, kill]) {
+      // The color button moved to the left label zone (hwtr) — the right cluster
+      // is actions-only now (pin + kill).
+      expect(screen.queryByLabelText("Set color for my-shell")).toBeNull();
+      for (const btn of [pin, kill]) {
         expect(btn.className).toContain("opacity-0");
         expect(btn.className).toContain("focus-visible:opacity-100");
       }
@@ -696,41 +718,53 @@ describe("WindowRow", () => {
     });
   });
 
-  // ── Axis split (260718-3prk): selection = tint depth + typography (no
-  // border); active-board cue on the pin glyph; left-gutter marker axis. ──
-  describe("axis split: selection, pin-glyph cue, marker gutter", () => {
+  // ── Axis split (260718-3prk) + left-edge label zone (hwtr): selection =
+  // tint depth + typography (no border); active-board cue on the pin glyph; the
+  // 26px left-edge zone opens the combined Label picker (no cycling). ──
+  describe("axis split + label zone: selection, pin-glyph cue, label picker", () => {
     const rowTints = computeRowTints(DEFAULT_DARK_THEME.palette);
     const rowBorders = computeRowBorders(DEFAULT_DARK_THEME.palette, DEFAULT_DARK_THEME.category);
 
+    beforeEach(() => {
+      mockMatchMedia();
+    });
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
     /** Render with the axis-split props wired (color, marker, tint/border maps,
-     *  server + onMarkerChange so the gutter mounts). The row reads `color` and
-     *  `marker` as PROPS (the real sidebar passes `color={win.color}` /
-     *  `marker={win.marker}`), so mirror that here. */
+     *  server + onColorChange + onMarkerChange so the label zone mounts). The
+     *  row reads `color` and `marker` as PROPS (the real sidebar passes
+     *  `color={win.color}` / `marker={win.marker}`), so mirror that here. Wrapped
+     *  in ThemeProvider so the combined Label picker (SwatchPopover → useTheme)
+     *  can mount when the zone is clicked. */
     function renderAxis(win: WindowInfo, extra: Partial<React.ComponentProps<typeof WindowRow>> = {}) {
       return render(
-        <WindowRow
-          win={win}
-          session="alpha"
-          isSelected={false}
-          isDragOver={false}
-          color={win.color}
-          marker={win.marker}
-          editingWindow={null}
-          editingName=""
-          inputRef={{ current: null }}
-          onSelectWindow={noop}
-          onStartEditing={noop}
-          onWindowNameChange={noop}
-          onRenameKeyDown={noop as React.KeyboardEventHandler<HTMLInputElement>}
-          onRenameBlur={noop}
-          onKillClick={noop}
-          onColorChange={noop}
-          onMarkerChange={noop}
-          rowTints={rowTints}
-          rowBorders={rowBorders}
-          server="srv"
-          {...extra}
-        />,
+        <ThemeProvider>
+          <WindowRow
+            win={win}
+            session="alpha"
+            isSelected={false}
+            isDragOver={false}
+            color={win.color}
+            marker={win.marker}
+            editingWindow={null}
+            editingName=""
+            inputRef={{ current: null }}
+            onSelectWindow={noop}
+            onStartEditing={noop}
+            onWindowNameChange={noop}
+            onRenameKeyDown={noop as React.KeyboardEventHandler<HTMLInputElement>}
+            onRenameBlur={noop}
+            onKillClick={noop}
+            onColorChange={noop}
+            onMarkerChange={noop}
+            rowTints={rowTints}
+            rowBorders={rowBorders}
+            server="srv"
+            {...extra}
+          />
+        </ThemeProvider>,
       );
     }
 
@@ -771,35 +805,72 @@ describe("WindowRow", () => {
       expect(pin.className).toContain("text-text-secondary");
     });
 
-    it("renders the marker gutter (cursor cell) when onMarkerChange is wired", () => {
+    it("renders the label zone (cursor pointer, coarse-active) when the write seams are wired", () => {
       const win = makeWindow({ windowId: "@0", index: 0 });
       renderAxis(win);
-      // Pointer-only affordance: no ARIA button role (palette is the keyboard
-      // path, intake #12) — selected by its aria-label.
-      const gutter = screen.getByLabelText("Cycle window marker");
-      expect(gutter.className).toContain("cursor-[cell]");
-      // Inert on coarse pointers (palette is the touch path).
-      expect(gutter.className).toContain("coarse:pointer-events-none");
+      // The 26px left-edge zone OPENS the picker — a menu-opener, so `pointer`
+      // (not the old `cell` cursor) and NOT coarse-inert (touch label access).
+      const zone = screen.getByLabelText("Set window label");
+      expect(zone.className).toContain("cursor-pointer");
+      expect(zone.className).not.toContain("cursor-[cell]");
+      expect(zone.className).not.toContain("coarse:pointer-events-none");
     });
 
-    it("gutter click cycles the marker one step and does NOT select the row", () => {
-      const win = makeWindow({ windowId: "@0", index: 0, marker: "dotted" });
+    it("clicking the label zone opens the picker and does NOT select the row (no cycling)", () => {
+      const win = makeWindow({ windowId: "@0", index: 0, marker: "dotted", color: "orange" });
       const onMarkerChange = vi.fn();
       const onSelectWindow = vi.fn();
       renderAxis(win, { onMarkerChange, onSelectWindow });
-      const gutter = screen.getByLabelText("Cycle window marker");
-      act(() => { gutter.click(); });
-      // dotted → solid; stopPropagation means row-select never fired.
-      expect(onMarkerChange).toHaveBeenCalledWith("srv", "alpha", "@0", "solid");
+      act(() => { screen.getByLabelText("Set window label").click(); });
+      // The click opens the combined Label picker (a listbox), it does NOT cycle
+      // the marker and does NOT select the row (stopPropagation).
+      expect(screen.getByRole("listbox", { name: "Label picker" })).toBeInTheDocument();
+      expect(onMarkerChange).not.toHaveBeenCalled();
       expect(onSelectWindow).not.toHaveBeenCalled();
     });
 
-    it("gutter cycle wraps double → empty", () => {
-      const win = makeWindow({ windowId: "@0", index: 0, marker: "double" });
+    it("picking a marker cell in the opened picker writes the EXACT state (no cycling)", () => {
+      const win = makeWindow({ windowId: "@0", index: 0, marker: "dotted", color: "orange" });
       const onMarkerChange = vi.fn();
       renderAxis(win, { onMarkerChange });
-      act(() => { screen.getByLabelText("Cycle window marker").click(); });
-      expect(onMarkerChange).toHaveBeenCalledWith("srv", "alpha", "@0", "");
+      act(() => { screen.getByLabelText("Set window label").click(); });
+      // Pick "double" directly — the write is the picked state, not a cycle step.
+      act(() => { screen.getByRole("option", { name: "Marker double" }).click(); });
+      expect(onMarkerChange).toHaveBeenCalledWith("srv", "alpha", "@0", "double");
+    });
+
+    it("picking the 'none' marker cell clears the marker (null)", () => {
+      const win = makeWindow({ windowId: "@0", index: 0, marker: "double", color: "orange" });
+      const onMarkerChange = vi.fn();
+      renderAxis(win, { onMarkerChange });
+      act(() => { screen.getByLabelText("Set window label").click(); });
+      act(() => { screen.getByRole("option", { name: "Marker none" }).click(); });
+      // The row maps the empty marker state to null for the clear write.
+      expect(onMarkerChange).toHaveBeenCalledWith("srv", "alpha", "@0", null);
+    });
+
+    it("picking a color in the opened picker writes via the legacy vocabulary seam", () => {
+      const win = makeWindow({ windowId: "@0", index: 0, color: "orange" });
+      const onColorChange = vi.fn();
+      renderAxis(win, { onColorChange });
+      act(() => { screen.getByLabelText("Set window label").click(); });
+      // Picking "green" emits the legacy descriptor "2" (familyToLegacy seam).
+      act(() => { screen.getByRole("option", { name: "Color green" }).click(); });
+      expect(onColorChange).toHaveBeenCalledWith("srv", "alpha", "@0", "2");
+    });
+
+    it("the Window: Label palette action (label-popover:open) opens this row's picker", () => {
+      const win = makeWindow({ windowId: "@0", index: 0, color: "orange" });
+      renderAxis(win);
+      expect(screen.queryByRole("listbox", { name: "Label picker" })).toBeNull();
+      act(() => {
+        document.dispatchEvent(
+          new CustomEvent("label-popover:open", {
+            detail: { server: "srv", windowId: "@0" },
+          }),
+        );
+      });
+      expect(screen.getByRole("listbox", { name: "Label picker" })).toBeInTheDocument();
     });
 
     it("a double-marker row gets the static scanline overlay (in a clipped inner element, NOT the root) + marker color var", () => {
@@ -839,7 +910,7 @@ describe("WindowRow", () => {
       expect(row.querySelector(".rk-scanlines")).toBeNull();
     });
 
-    it("ghost rows get no marker gutter", () => {
+    it("ghost rows get no label zone", () => {
       const ghost = makeGhostWindow();
       render(
         <WindowRow
@@ -856,11 +927,29 @@ describe("WindowRow", () => {
           onRenameKeyDown={noop as React.KeyboardEventHandler<HTMLInputElement>}
           onRenameBlur={noop}
           onKillClick={noop}
+          onColorChange={noop}
           onMarkerChange={noop}
           server="srv"
         />,
       );
-      expect(screen.queryByLabelText("Cycle window marker")).toBeNull();
+      expect(screen.queryByLabelText("Set window label")).toBeNull();
+    });
+
+    it("renders the display-only marker stripe for the current state (no ghost/next preview)", () => {
+      const win = makeWindow({ windowId: "@0", index: 0, marker: "solid", color: "orange" });
+      const { container } = renderAxis(win);
+      const zone = screen.getByLabelText("Set window label");
+      // The stripe is a display-only child with a left border in the guarded
+      // color; it is inset from the zone's left edge (not flush at 0).
+      const stripe = zone.querySelector('[style*="border-left"]') as HTMLElement | null;
+      expect(stripe).not.toBeNull();
+      expect(stripe!.style.borderLeft).toContain("solid");
+      // Inset: positioned left of 12 (icon zone) + 5 (inset) = 17px, not 0.
+      expect(stripe!.style.left).toBe("17px");
+      // No next-state ghost preview element exists anymore.
+      expect(zone.querySelectorAll('[style*="border-left"]').length).toBe(1);
+      // Container must not be present twice (single stripe).
+      expect(container.querySelectorAll('[aria-label="Set window label"]').length).toBe(1);
     });
   });
 });

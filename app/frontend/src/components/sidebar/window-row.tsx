@@ -3,7 +3,7 @@ import { isGhostWindow } from "@/contexts/optimistic-context";
 import type { ProjectSession } from "@/types";
 import type { MergedSession } from "@/contexts/optimistic-context";
 import type { BoardSummary } from "@/api/boards";
-import { UNCOLORED_SELECTED_KEY, nextMarkerState, type RowTint } from "@/themes";
+import { UNCOLORED_SELECTED_KEY, markerStripeStyle, type RowTint } from "@/themes";
 import { SwatchPopover } from "@/components/swatch-popover";
 import { StatusDot } from "@/components/status-dot";
 import { PinPopover } from "./pin-popover";
@@ -54,9 +54,9 @@ type WindowRowProps = {
   onDrop?: (e: React.DragEvent, server: string, session: string, index: number) => void;
   onDragEnd?: () => void;
   onColorChange?: (server: string, session: string, windowId: string, color: string | null) => void;
-  /** Persist a new marker state for this window. The row computes the NEXT state
-   *  (nextMarkerState) on a gutter click and passes it here. Omitted on ghost
-   *  rows (the gutter is disabled). */
+  /** Persist a marker state for this window. The combined Label picker passes the
+   *  EXACT picked state here (no cycling — any state is one click). Omitted on
+   *  ghost rows (the label zone is disabled). */
   onMarkerChange?: (server: string, session: string, windowId: string, marker: string | null) => void;
   /** Tmux server name for the pin popover (server-routing contract) AND the
    *  identity bound into the handlers above. When omitted the pin icon is
@@ -152,27 +152,37 @@ function WindowRowInner({
   // Drag is wired only for non-ghost rows that opted in via `draggable`.
   const dragEnabled = draggable && !ghost;
   const isEditing = editingWindow?.session === session && editingWindow.windowId === win.windowId;
-  const [showColorPicker, setShowColorPicker] = useState(false);
+  // The combined Label picker (colors + marker) opened by the left-edge label
+  // zone (or the `Window: Label` palette action). Replaces the former
+  // right-cluster color popover + gutter click-to-cycle (hwtr).
+  const [showLabelPicker, setShowLabelPicker] = useState(false);
   const [showPinPopover, setShowPinPopover] = useState(false);
-  const colorBtnRef = useRef<HTMLButtonElement>(null);
   const pinBtnRef = useRef<HTMLButtonElement>(null);
 
-  // Listen for the imperative `pin-popover:open` event dispatched by the
-  // command palette's "Board: Pin Current Window" action. Only the row whose
-  // (server, windowId) matches the event detail opens its popover; other rows
-  // ignore the event. Mirrors the `palette:open` document-event pattern used
-  // elsewhere — see app.tsx command palette wiring.
+  // Listen for the imperative `pin-popover:open` / `label-popover:open` events
+  // dispatched by the command palette's "Board: Pin Current Window" and
+  // "Window: Label" actions. Only the row whose (server, windowId) matches the
+  // event detail opens its popover; other rows ignore the event. Mirrors the
+  // `palette:open` document-event pattern used elsewhere — see app.tsx command
+  // palette wiring.
   useEffect(() => {
     if (!server) return;
-    function handler(e: Event) {
+    function isMatch(e: Event): boolean {
       const detail = (e as CustomEvent<{ server: string; windowId: string }>).detail;
-      if (!detail) return;
-      if (detail.server === server && detail.windowId === win.windowId) {
-        setShowPinPopover(true);
-      }
+      return !!detail && detail.server === server && detail.windowId === win.windowId;
     }
-    document.addEventListener("pin-popover:open", handler);
-    return () => document.removeEventListener("pin-popover:open", handler);
+    function pinHandler(e: Event) {
+      if (isMatch(e)) setShowPinPopover(true);
+    }
+    function labelHandler(e: Event) {
+      if (isMatch(e)) setShowLabelPicker(true);
+    }
+    document.addEventListener("pin-popover:open", pinHandler);
+    document.addEventListener("label-popover:open", labelHandler);
+    return () => {
+      document.removeEventListener("pin-popover:open", pinHandler);
+      document.removeEventListener("label-popover:open", labelHandler);
+    };
   }, [server, win.windowId]);
 
   const tint = useMemo(() => {
@@ -208,11 +218,13 @@ function WindowRowInner({
     return Object.keys(style).length > 0 ? style : undefined;
   }, [tint, uncoloredSelectedTint, isSelected]);
 
-  // Build className for the button. The 14px marker gutter (GUTTER_WIDTH) is an
-  // absolute z-20 sibling overlaying the left edge, so the button content must
-  // start CLEAR of it — otherwise the interactive StatusDot sits under the
-  // gutter and gutter hover/click steals the dot's hover-card + row select
-  // (must-fix 3). `pl-[18px]` keeps the leading dot + text just past the gutter.
+  // Build className for the button. The label zone is an absolute z-20 sibling
+  // reaching to x=14 within the row box (26px total, extending -12px left into
+  // the group indent), so the button content must start CLEAR of it — otherwise
+  // the interactive StatusDot sits under the zone and its hover/click steals the
+  // dot's hover-card + row select (the must-fix-3 geometry, preserved). The dot
+  // sits at `pl-[18px]` — 4px clear of the zone's inner edge, so the dot and
+  // name keep their EXACT current x-positions (intake R1: no content shift).
   // When the pin icon is wired up, reserve a few extra px on the right so labels
   // don't run under the icon group.
   const showPinIcon = !ghost && !!server;
@@ -234,17 +246,17 @@ function WindowRowInner({
     return `${base} text-text-secondary hover:text-text-primary hover:bg-bg-card/50`;
   }, [tint, isSelected, showPinIcon]);
 
-  // ── Left-gutter marker ──────────────────────────────────────────────────
-  // The marker gutter is an independent label axis. Available on ALL rows
-  // (colored or not) that opted in via onMarkerChange and are non-ghost. Inert
-  // on coarse pointers — the palette action is the touch path (R15).
-  const markerEnabled = !ghost && !!onMarkerChange && !!server;
-  const [gutterHover, setGutterHover] = useState(false);
-  const cycleMarker = (e: React.MouseEvent) => {
+  // ── Left-edge label zone ────────────────────────────────────────────────
+  // The 26px left of the status dot is ONE target opening the combined Label
+  // picker (colors + marker). Available on non-ghost rows wired with the color
+  // AND marker write seams. Active on coarse pointers too — touch gets direct
+  // label access (hwtr, superseding 3prk's palette-only touch decision).
+  const labelZoneEnabled = !ghost && !!onColorChange && !!onMarkerChange && !!server;
+  const [zoneHover, setZoneHover] = useState(false);
+  const openLabelPicker = (e: React.MouseEvent) => {
     // Must not select the row and must coexist with drag-reorder.
     e.stopPropagation();
-    if (!onMarkerChange) return;
-    onMarkerChange(srv, session, win.windowId, nextMarkerState(marker));
+    setShowLabelPicker(true);
   };
   const isDouble = marker === "double";
   const scanlineAnimated = isDouble && isSelected;
@@ -300,14 +312,15 @@ function WindowRowInner({
           }`}
         />
       )}
-      {markerEnabled && (
-        <MarkerGutter
+      {labelZoneEnabled && (
+        <LabelZone
           marker={marker}
           markerColor={markerColor}
-          hover={gutterHover}
-          onEnter={() => setGutterHover(true)}
-          onLeave={() => setGutterHover(false)}
-          onClick={cycleMarker}
+          colored={color != null}
+          hover={zoneHover}
+          onEnter={() => setZoneHover(true)}
+          onLeave={() => setZoneHover(false)}
+          onClick={openLabelPicker}
         />
       )}
       <button
@@ -359,14 +372,16 @@ function WindowRowInner({
             = health, additive halo = waiting); the freed width goes to the
             window name. The exact stage word + durations survive in the
             StatusDotTip hover-card and the PANE panel's register view. Hover-
-            reveal action icons (pin/color/kill) below are actions, not status,
-            so they are untouched. */}
+            reveal action icons (pin/kill) below are actions, not status, so they
+            are untouched. The color affordance moved to the left-edge label zone
+            (hwtr) — the right cluster is now actions-only. */}
       </button>
-      {/* Hover-reveal buttons: pin + color swatch + kill. Inert at rest on
-          fine pointers (pointer-events-none) so stray clicks near the row's
-          right edge fall through to the row-select button instead of hitting
-          an invisible icon; interactivity is restored on hover, coarse
-          pointers, and keyboard focus within (has-[:focus-visible]). */}
+      {/* Hover-reveal buttons: pin + kill (actions only — the color button moved
+          to the left label zone, hwtr). Inert at rest on fine pointers
+          (pointer-events-none) so stray clicks near the row's right edge fall
+          through to the row-select button instead of hitting an invisible icon;
+          interactivity is restored on hover, coarse pointers, and keyboard focus
+          within (has-[:focus-visible]). */}
       <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 z-10 pointer-events-none group-hover:pointer-events-auto coarse:pointer-events-auto has-[:focus-visible]:pointer-events-auto">
         {showPinIcon && (
           <button
@@ -395,20 +410,6 @@ function WindowRowInner({
             <PinIcon filled={isPinnedToAny} />
           </button>
         )}
-        {onColorChange && (
-          <button
-            ref={colorBtnRef}
-            type="button"
-            aria-label={`Set color for ${win.name}`}
-            onClick={(e) => {
-              e.stopPropagation();
-              setShowColorPicker((v) => !v);
-            }}
-            className="text-text-secondary hover:text-text-primary transition-opacity cursor-pointer opacity-0 group-hover:opacity-100 coarse:opacity-100 focus-visible:opacity-100 px-0.5 min-h-[24px] coarse:min-h-[36px] flex items-center justify-center"
-          >
-            <PaletteIcon />
-          </button>
-        )}
         <button
           type="button"
           aria-label={`Kill window ${win.name}`}
@@ -433,15 +434,26 @@ function WindowRowInner({
           onClose={() => setShowPinPopover(false)}
         />
       )}
-      {showColorPicker && onColorChange && (
-        <div className="absolute right-0 top-full z-50">
+      {showLabelPicker && onColorChange && onMarkerChange && (
+        // Combined Label picker (colors + marker), anchored at the row's
+        // BOTTOM-LEFT (twin of the shipped right-anchored color popover). The
+        // row root stays overflow-free (must-fix 4) so this `top-full` popover
+        // is not clipped, even on a selected+double row.
+        <div className="absolute left-0 top-full z-50">
           <SwatchPopover
             selectedColor={color}
             onSelect={(c) => {
               onColorChange(srv, session, win.windowId, c);
-              setShowColorPicker(false);
+              setShowLabelPicker(false);
             }}
-            onClose={() => setShowColorPicker(false)}
+            selectedMarker={marker}
+            onSelectMarker={(m) => {
+              onMarkerChange(srv, session, win.windowId, m === "" ? null : m);
+              setShowLabelPicker(false);
+            }}
+            markerColor={markerColor}
+            square
+            onClose={() => setShowLabelPicker(false)}
           />
         </div>
       )}
@@ -449,77 +461,81 @@ function WindowRowInner({
   );
 }
 
-/** Width of the left-gutter marker (fine pointers), in px. */
-const GUTTER_WIDTH = 14;
+/** Label-zone geometry (px). The zone spans the full 26px left of the status
+ *  dot — the 12px group indent (the parent `ml-3`) PLUS the 14px marker-stripe
+ *  zone. It is positioned `-left-3` (−12px) so it reaches from the group-indent
+ *  edge to x=14 within the row box, 4px clear of the dot at `pl-[18px]` — so the
+ *  dot + name keep their exact current x-positions (intake R1: no content shift). */
+const LABEL_ZONE_WIDTH = 26; // 12px icon zone + 14px stripe zone
+const ICON_ZONE_WIDTH = 12; // left 12px: the group indent, home of the palette icon
+const STRIPE_INSET = 5; // display-only stripe inset within its 14px zone (geometry fix)
 
-/** Inline style rendering a marker state as a left-edge border in the given
- *  color: dotted 3px, solid 3px, double 6px. Empty/ghost states render nothing
- *  (returns undefined). `ghost` renders the preview at low opacity. */
-function markerBorderStyle(state: string, color: string): React.CSSProperties | undefined {
-  switch (state) {
-    case "dotted":
-      return { borderLeft: `3px dotted ${color}` };
-    case "solid":
-      return { borderLeft: `3px solid ${color}` };
-    case "double":
-      return { borderLeft: `6px double ${color}` };
-    default:
-      return undefined;
-  }
-}
-
-type MarkerGutterProps = {
+type LabelZoneProps = {
   marker?: string;
   markerColor: string;
+  /** True on colored rows — the palette icon is drawn in the guarded family
+   *  color; false borrows the inherited monochrome token. */
+  colored: boolean;
   hover: boolean;
   onEnter: () => void;
   onLeave: () => void;
   onClick: (e: React.MouseEvent) => void;
 };
 
-/** The left-gutter marker — an independent 4-state label axis (empty→dotted→
- *  solid→double, click to cycle). Two-stage hover affordance: the parent row's
- *  `group-hover` fills the gutter ~20% family color; hovering the gutter itself
- *  steps to ~30% and ghosts a faint preview of the NEXT state. `cursor: cell`.
- *  The gutter is inert on coarse pointers (`coarse:pointer-events-none`) — the
- *  palette action is the touch path — but its marker STILL renders on touch so
- *  the state stays visible. Marker click stopPropagation lives in `onClick`. */
-function MarkerGutter({ marker, markerColor, hover, onEnter, onLeave, onClick }: MarkerGutterProps) {
+/** The left-edge label zone (hwtr) — the whole 26px left of the status dot is
+ *  ONE target that OPENS the combined Label picker (colors + marker). It never
+ *  cycles and never selects the row (click stopPropagation lives in `onClick`).
+ *  A hover-revealed PaletteIcon in the 12px icon zone + a family-tinted zone glow
+ *  make it discoverable (two-stage: row-hover ~65%/12% → zone-hover 100%/24%).
+ *  The marker stripe is DISPLAY-ONLY, inset `STRIPE_INSET`px within its 14px
+ *  zone. `cursor: pointer` (menu-opener semantics). Active on coarse pointers —
+ *  touch gets direct label access. `aria-label` names it for pointer AT users
+ *  and test selection (getByLabelText / getByLabel). */
+function LabelZone({ marker, markerColor, colored, hover, onEnter, onLeave, onClick }: LabelZoneProps) {
   const current = marker ?? "";
-  const currentStyle = markerBorderStyle(current, markerColor);
-  const next = nextMarkerState(current);
-  const ghostStyle = markerBorderStyle(next, markerColor);
+  const stripeStyle = markerStripeStyle(current, markerColor);
   return (
     <div
-      // A POINTER-ONLY affordance, not a keyboard button: intake #12 makes the
-      // command palette (`Window: Cycle Marker`) the sole keyboard/touch path,
-      // so the gutter carries no `role="button"`, `tabIndex`, or key handler
-      // (an ARIA button would promise a keyboard contract this element does not
-      // honor — must-fix 3 nice-to-have). `aria-label` names it for pointer AT
-      // users and test selection (getByLabelText / getByLabel).
-      aria-label="Cycle window marker"
+      aria-label="Set window label"
       onClick={onClick}
       onMouseEnter={onEnter}
       onMouseLeave={onLeave}
       // z-20 sits above the row-select button (z-10 icon cluster) at the left
-      // edge. Interactive on fine pointers only; inert on coarse.
-      className="absolute left-0 top-0 bottom-0 z-20 cursor-[cell] coarse:pointer-events-none"
-      style={{ width: GUTTER_WIDTH }}
+      // edge. Positioned -left-3 to also cover the parent's 12px group indent so
+      // the whole 26px is one hit target. Active on coarse pointers (touch label
+      // access). Cursor pointer = it opens a menu, not a cycle.
+      className="absolute -left-3 top-0 bottom-0 z-20 cursor-pointer"
+      style={{ width: LABEL_ZONE_WIDTH }}
     >
-      {/* Fill layer: transparent at rest; ~20% on row hover (group-hover, driven
-          by the parent row's `group`); ~30% when the gutter itself is hovered. */}
+      {/* Zone glow: transparent at rest; ~12% family color on ROW hover
+          (group-hover); ~24% when the zone ITSELF is hovered. */}
       <div
         className="absolute inset-0 transition-colors opacity-0 group-hover:opacity-100"
         style={{
-          backgroundColor: `color-mix(in srgb, ${markerColor} ${hover ? 30 : 20}%, transparent)`,
+          backgroundColor: `color-mix(in srgb, ${markerColor} ${hover ? 24 : 12}%, transparent)`,
         }}
       />
-      {/* Current marker (border on the left edge). Sits above the fill. */}
-      {currentStyle && <div className="absolute inset-0" style={currentStyle} />}
-      {/* Next-state ghost preview — only while the gutter itself is hovered, and
-          only when the next state actually draws something (not the empty step). */}
-      {hover && ghostStyle && (
-        <div className="absolute inset-0 opacity-40" style={ghostStyle} />
+      {/* Palette icon in the 12px icon zone (over the group indent), family-
+          tinted on colored rows / inherited monochrome otherwise. Fades in on
+          row hover (~65%) and reaches full opacity when the zone is hovered. */}
+      <div
+        className="absolute inset-y-0 left-0 flex items-center justify-center transition-opacity opacity-0 group-hover:opacity-65"
+        style={{
+          width: ICON_ZONE_WIDTH,
+          color: colored ? markerColor : undefined,
+          ...(hover ? { opacity: 1 } : {}),
+        }}
+        aria-hidden="true"
+      >
+        <PaletteIcon size={11} />
+      </div>
+      {/* Display-only marker stripe, inset within the 14px stripe zone (right of
+          the icon zone). */}
+      {stripeStyle && (
+        <div
+          className="absolute inset-y-0"
+          style={{ left: ICON_ZONE_WIDTH + STRIPE_INSET, right: 0, ...stripeStyle }}
+        />
       )}
     </div>
   );

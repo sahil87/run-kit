@@ -1,0 +1,20 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-19T07:18:21Z"}
+{"args":"left-edge label picker — 26px single target opening combined color+marker picker, hover palette icon, square picker styling, cycle removed","cmd":"fab-new","event":"command","ts":"2026-07-19T07:18:21Z"}
+{"delta":"+5.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-07-19T07:19:41Z"}
+{"cmd":"fab-new","event":"command","ts":"2026-07-19T07:19:41Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-19T07:44:02Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-19T07:44:02Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-19T07:46:12Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-19T07:59:57Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-19T08:01:10Z"}
+{"event":"review","result":"failed","ts":"2026-07-19T08:14:00Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-19T08:14:00Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-19T08:15:19Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-19T08:24:23Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-19T08:25:20Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-19T08:34:28Z"}
+{"event":"review","result":"passed","ts":"2026-07-19T08:34:28Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-19T08:35:05Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-19T08:41:31Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-07-19T08:45:31Z"}
+{"event":"review","result":"passed","ts":"2026-07-19T08:53:45Z"}

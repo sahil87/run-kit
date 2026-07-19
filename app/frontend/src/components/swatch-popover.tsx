@@ -15,42 +15,62 @@ type SwatchPopoverProps = {
    *  rows + the palette "Set Color" actions) funnels through. */
   onSelect: (color: string | null) => void;
   onClose: () => void;
-  /** ── Combined-label extension (hwtr) ── When BOTH `onSelectMarker` and
-   *  `markerColor` are supplied, the popover renders a second section below the
-   *  color grid: a 1px hairline separator followed by 4 marker-state cells
-   *  (none / dotted / solid / double) drawn as mini stripes in `markerColor`.
-   *  Selection calls `onSelectMarker` DIRECTLY (no cycling — any state is one
-   *  click) with `""` clearing the marker. Keyboard nav extends across both
-   *  sections. When the marker props are ABSENT the component renders exactly as
-   *  a color-only picker (session/server rows + the palette window-color action),
-   *  so those callers are unaffected. */
+  /** ── Combined-label extension ── When BOTH `onSelectMarker` and `markerColor`
+   *  are supplied, the popover renders the side-by-side Label picker: a marker
+   *  column (∅ / dotted / solid / double as mini stripes in `markerColor`) LEFT
+   *  of a vertical hairline, beside the color grid. Selection calls
+   *  `onSelectMarker` DIRECTLY (no cycling — any state is one click) with `""`
+   *  clearing the marker. Keyboard nav crosses the hairline (ArrowLeft/Right).
+   *  When the marker props are ABSENT the component renders the pure color grid
+   *  (session/server rows + the palette color actions) — same square style,
+   *  no marker column, no hairline. */
   selectedMarker?: string;
   onSelectMarker?: (marker: string) => void;
   /** The row's guarded family color used to draw the marker-cell stripes (family
    *  hex on colored rows, gray sentinel on uncolored). Required to render the
    *  marker section. */
   markerColor?: string;
-  /** Square styling flag (hwtr) — scoped to THIS instance (the window-row Label
-   *  picker): zero border-radius on container + cells, a hard offset block shadow
-   *  instead of the blurred drop shadow, 1px selection outlines, 3px gaps. Absent
-   *  (default) renders the shipped rounded style so other callers are unchanged. */
-  square?: boolean;
 };
 
-/** Grid columns for the color swatches, keyed to the `square` layout. Nav math
- *  and the Tailwind `grid-cols-*` class both read from this so they never drift.
- *  - `square` (the combined window-row Label picker, intake §2 BINDING layout):
- *    5 columns → the 10 swatches fill a perfect 5×2 grid and Clear is a
- *    full-width row spanning all 5 columns below them.
- *  - default (color-only session/server/palette callers): 4 columns → 10
- *    swatches fill rows 0-1 (cols 0-3) + row 2 cols 0-1, and Clear is a
- *    `col-span-2` cell occupying the remaining bottom-right cells. Unchanged. */
-const SQUARE_GRID_COLS = 5;
-const DEFAULT_GRID_COLS = 4;
+/** Colors per row in the color grid. The layout is a conceptual 5-column grid:
+ *  marker column (col 0, when shown) + 4 color columns (cols 1–4), 4 rows
+ *  (removal row + 3 color rows). */
+const COLOR_COLS = 4;
 
-/** The marker-cell order shown in the picker: none / dotted / solid / double.
- *  Mirrors MARKER_STATES (already `["", "dotted", "solid", "double"]`). */
+/** The marker-cell order shown in the picker column: none / dotted / solid /
+ *  double. Mirrors MARKER_STATES (already `["", "dotted", "solid", "double"]`),
+ *  with `∅` in row 0 (the removal row) and the three non-empty states beside
+ *  the three color rows.
+ *
+ *  LOAD-BEARING COINCIDENCE: the row pairing works because the 10
+ *  PICKER_COLOR_VALUES laid out 4-wide make exactly 3 rows (4/4/2) — the same
+ *  count as the 3 non-empty MARKER_STATES. Changing PICKER_COLOR_VALUES' length
+ *  or MARKER_STATES breaks the 1:1 marker-row ↔ color-row alignment (and the
+ *  keyboard grid below). */
 const MARKER_CELLS = MARKER_STATES;
+
+/** Number of grid rows: the removal row + ceil(10 / 4) = 3 color rows. */
+const GRID_ROWS = 1 + Math.ceil(PICKER_COLOR_VALUES.length / COLOR_COLS); // 4
+
+/** Keyboard focus position on the conceptual 5-column grid.
+ *  - `row`: 0 = removal row (∅ | Clear color), 1–3 = color rows.
+ *  - `col`: 0 = marker column (only valid when markers shown); 1–4 = color
+ *    columns. The `Clear color` button spans cols 1–4 of row 0 as a SINGLE
+ *    focus target, canonicalized to col 1. */
+type GridPos = { row: number; col: number };
+
+/** Color-array index for a grid position (rows 1–3, cols 1–4), possibly past
+ *  the end (the two dead cells at row 3, cols 3–4). */
+function colorIndexAt(row: number, col: number): number {
+  return (row - 1) * COLOR_COLS + (col - 1);
+}
+
+/** Last valid color column in a color row (row 3 holds only 2 colors). */
+function maxColorCol(row: number): number {
+  const rowStart = (row - 1) * COLOR_COLS;
+  const inRow = Math.min(PICKER_COLOR_VALUES.length - rowStart, COLOR_COLS);
+  return inRow; // cols are 1-based, so a full row's last col is 4
+}
 
 export function SwatchPopover({
   selectedColor,
@@ -59,18 +79,13 @@ export function SwatchPopover({
   selectedMarker,
   onSelectMarker,
   markerColor,
-  square = false,
 }: SwatchPopoverProps) {
   const { theme } = useTheme();
   const rowTints = useMemo(() => computeRowTints(theme.palette), [theme.palette]);
 
-  // Grid width follows the layout: the square (window-row Label) picker uses the
-  // intake §2 5×2 layout; color-only callers keep the shipped 4-col grid.
-  const gridCols = square ? SQUARE_GRID_COLS : DEFAULT_GRID_COLS;
-
   // The marker section is rendered only when its two required inputs are present
   // (a write callback + a color to draw the stripes). Color-only callers omit
-  // both and get the shipped picker unchanged.
+  // both and get the pure color grid (same square style, no marker column).
   const showMarkers = !!onSelectMarker && !!markerColor;
 
   // The single write seam: map the picked family name ("orange") to its legacy
@@ -81,13 +96,6 @@ export function SwatchPopover({
     (value: string | null) => onSelect(familyToLegacy(value)),
     [onSelect],
   );
-  const colorCount = PICKER_COLOR_VALUES.length; // 10
-  // Clear is the item just past the last swatch.
-  const clearIndex = colorCount;
-  // Marker cells (when shown) follow Clear, so the total keyboard-navigable item
-  // count is swatches + Clear + (4 marker cells | 0).
-  const markerBaseIndex = colorCount + 1; // first marker cell's focus index
-  const totalItems = markerBaseIndex + (showMarkers ? MARKER_CELLS.length : 0);
 
   // Normalize the incoming selection to its canonical family name so a
   // legacy-stored value ("1+3") highlights the same swatch as its family
@@ -96,29 +104,31 @@ export function SwatchPopover({
   // Normalize the current marker to one of the known cells ("" when unset).
   const currentMarker = selectedMarker ?? "";
 
-  const [focusIndex, setFocusIndex] = useState(() => {
-    if (selectedFamily == null) return 0;
-    const idx = PICKER_COLOR_VALUES.indexOf(selectedFamily);
-    return idx >= 0 ? idx : 0;
+  // Initial focus: the selected color swatch, or the first swatch (row 1,
+  // col 1) when uncolored. The marker column is reached via ArrowLeft.
+  const [focus, setFocus] = useState<GridPos>(() => {
+    const idx = selectedFamily != null ? PICKER_COLOR_VALUES.indexOf(selectedFamily) : -1;
+    if (idx < 0) return { row: 1, col: 1 };
+    return { row: Math.floor(idx / COLOR_COLS) + 1, col: (idx % COLOR_COLS) + 1 };
   });
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Emit the item at a given focus index (Enter/Space). Colors + Clear map to
-  // onSelect; marker cells map to onSelectMarker.
-  const activateIndex = useCallback(
-    (i: number) => {
-      if (i < colorCount) {
-        emit(PICKER_COLOR_VALUES[i]);
-      } else if (i === clearIndex) {
-        emit(null);
-      } else if (showMarkers) {
-        const cell = i - markerBaseIndex;
-        if (cell >= 0 && cell < MARKER_CELLS.length && onSelectMarker) {
-          onSelectMarker(MARKER_CELLS[cell]);
-        }
+  // Activate the cell at a grid position (Enter/Space). The marker column maps
+  // to onSelectMarker; row 0's color side is Clear; color cells map to onSelect.
+  const activate = useCallback(
+    (pos: GridPos) => {
+      if (pos.col === 0) {
+        // Marker column: MARKER_CELLS[row] — ∅ in row 0, dotted/solid/double
+        // beside the three color rows (the load-bearing alignment above).
+        if (showMarkers && onSelectMarker) onSelectMarker(MARKER_CELLS[pos.row]);
+      } else if (pos.row === 0) {
+        emit(null); // Clear color
+      } else {
+        const idx = colorIndexAt(pos.row, pos.col);
+        if (idx >= 0 && idx < PICKER_COLOR_VALUES.length) emit(PICKER_COLOR_VALUES[idx]);
       }
     },
-    [emit, colorCount, clearIndex, showMarkers, markerBaseIndex, onSelectMarker],
+    [emit, showMarkers, onSelectMarker],
   );
 
   // Close on Escape
@@ -159,70 +169,54 @@ export function SwatchPopover({
     };
   }, [onClose]);
 
+  // Arrow-key movement on the conceptual grid. ArrowLeft/ArrowRight cross the
+  // vertical hairline (marker column ↔ color columns); ArrowUp/ArrowDown move
+  // within a column. Moves off a grid edge — and into the two dead cells at
+  // row 3, cols 3–4 — clamp to the nearest valid cell (no-op at hard edges),
+  // consistent with the previous implementation's clamping.
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === "ArrowRight") {
         e.preventDefault();
-        setFocusIndex((i) => Math.min(i + 1, totalItems - 1));
+        setFocus((f) => {
+          if (f.col === 0) return { row: f.row, col: 1 }; // cross the hairline
+          if (f.row === 0) return f; // Clear spans to the right edge
+          return { row: f.row, col: Math.min(f.col + 1, maxColorCol(f.row)) };
+        });
       } else if (e.key === "ArrowLeft") {
         e.preventDefault();
-        setFocusIndex((i) => Math.max(i - 1, 0));
+        setFocus((f) => {
+          if (f.col === 0) return f; // already at the left edge
+          if (f.col === 1) return showMarkers ? { row: f.row, col: 0 } : f; // cross the hairline
+          return { row: f.row, col: f.col - 1 };
+        });
       } else if (e.key === "ArrowDown") {
         e.preventDefault();
-        setFocusIndex((i) => {
-          // Within the marker row: ArrowDown is a no-op (last row).
-          if (i >= markerBaseIndex) return i;
-          if (i === clearIndex) {
-            // From Clear, step into the marker section (first cell) when shown.
-            return showMarkers ? markerBaseIndex : i;
-          }
-          const next = i + gridCols;
-          if (next < colorCount) return next; // lands on a real swatch
-          // Past the last swatch row: any downward move lands on Clear (a
-          // full-width row in the square layout, the col-span cell otherwise).
-          return clearIndex;
+        setFocus((f) => {
+          if (f.row >= GRID_ROWS - 1) return f; // bottom row
+          const row = f.row + 1;
+          if (f.col === 0) return { row, col: 0 }; // within the marker column
+          // Clamp into the shorter last color row (dead cells at row 3, cols 3–4).
+          return { row, col: Math.min(f.col, maxColorCol(row)) };
         });
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
-        setFocusIndex((i) => {
-          if (i >= markerBaseIndex) {
-            // From a marker cell, step up to Clear (the row directly above).
-            return clearIndex;
-          }
-          if (i === clearIndex) {
-            // Clear begins the final swatch-grid row at column `colorCount % gridCols`.
-            // Step up one row, same column → the swatch directly above Clear's left edge.
-            // (4-col: slot 6, "blue"; 5-col square: slot 5, Clear starts at col 0.)
-            const clearCol = colorCount % gridCols;
-            const clearRow = Math.floor(colorCount / gridCols);
-            return (clearRow - 1) * gridCols + clearCol;
-          }
-          const prev = i - gridCols;
-          return prev >= 0 ? prev : i;
+        setFocus((f) => {
+          if (f.row === 0) return f; // top row
+          const row = f.row - 1;
+          if (f.col === 0) return { row, col: 0 }; // within the marker column
+          if (row === 0) return { row: 0, col: 1 }; // Clear — single spanning target
+          return { row, col: f.col };
         });
       } else if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
-        activateIndex(focusIndex);
+        activate(focus);
       }
     },
-    [focusIndex, activateIndex, totalItems, clearIndex, colorCount, markerBaseIndex, showMarkers, gridCols],
+    [focus, activate, showMarkers],
   );
 
-  // Square (hwtr Label picker) vs shipped rounded styling.
-  const containerCls = square
-    ? "bg-bg-primary border border-border p-1.5 z-50 w-max"
-    : "bg-bg-primary border border-border rounded-md shadow-lg p-1.5 z-50 w-max";
-  const containerStyle: React.CSSProperties | undefined = square
-    ? { boxShadow: "3px 3px 0 rgba(0,0,0,.35)" }
-    : undefined;
-  const cellRadius = square ? "" : "rounded-sm";
-  const gridGap = square ? "gap-[3px]" : "gap-1";
-  // Full literal class strings (Tailwind JIT can't see interpolated names).
-  // Square (Label picker): 5×2 swatch grid, 18px cells, full-width Clear row.
-  // Default (color-only): shipped 4-col grid, 20px cells, col-span-2 Clear.
-  const colorGridCls = square ? "grid grid-cols-5" : "grid grid-cols-4";
-  const swatchSize = square ? "w-[18px] h-[18px]" : "w-5 h-5";
-  const clearSpan = square ? "col-span-5" : "col-span-2";
+  const focusOnClear = focus.row === 0 && focus.col >= 1;
 
   return (
     <div
@@ -231,86 +225,93 @@ export function SwatchPopover({
       aria-label={showMarkers ? "Label picker" : "Color picker"}
       tabIndex={0}
       onKeyDown={handleKeyDown}
-      className={containerCls}
-      style={containerStyle}
+      className="bg-bg-primary border border-border p-1.5 z-50 w-max"
+      style={{ boxShadow: "3px 3px 0 rgba(0,0,0,.35)" }}
     >
-      <div className={`${colorGridCls} ${gridGap}`}>
-        {PICKER_COLOR_VALUES.map((value, i) => {
-          const tint = rowTints.get(value);
-          const fallback = colorValueToHex(value, theme.palette) ?? theme.palette.foreground;
-          const baseColor = tint?.base ?? fallback;
-          const selectedColor_ = tint?.selected ?? fallback;
-          const isSelected = selectedFamily === value;
-          return (
-            <button
-              key={value}
-              role="option"
-              aria-selected={isSelected}
-              aria-label={`Color ${value}`}
-              data-color-value={value}
-              onClick={() => emit(value)}
-              className={`${swatchSize} ${cellRadius} overflow-hidden transition-all flex flex-col ${
-                focusIndex === i ? "ring-1 ring-text-secondary" : ""
-              } ${isSelected ? "ring-1 ring-text-secondary" : ""}`}
-            >
-              <span className="flex-1 w-full" style={{ backgroundColor: baseColor }} />
-              <span className="flex-1 w-full flex items-center justify-center" style={{ backgroundColor: selectedColor_ }}>
-                {isSelected && (
-                  <span style={{ color: theme.palette.foreground, fontWeight: 700, fontSize: 7, lineHeight: 1 }}>
-                    &#x2713;
-                  </span>
-                )}
-              </span>
-            </button>
-          );
-        })}
-        {/* Clear — full-width row in the square layout (spanning all 5 columns),
-            the col-span-2 bottom-right cell otherwise. */}
-        <button
-          role="option"
-          aria-selected={selectedFamily == null}
-          onClick={() => emit(null)}
-          className={`${clearSpan} h-5 text-[10px] text-text-secondary hover:text-text-primary ${cellRadius} transition-colors flex items-center justify-center ${
-            focusIndex === clearIndex ? "ring-1 ring-text-secondary" : ""
-          }`}
-        >
-          {square ? "Clear color" : "Clear"}
-        </button>
-      </div>
-      {/* Combined-label extension (hwtr): marker section below a hairline. */}
-      {showMarkers && markerColor && (
-        <>
-          <div className="border-t border-border my-1.5" aria-hidden="true" />
-          <div className={`grid grid-cols-4 ${gridGap}`}>
-            {MARKER_CELLS.map((state, cell) => {
-              const idx = markerBaseIndex + cell;
-              const isSelected = currentMarker === state;
-              const stripe = markerStripeStyle(state, markerColor);
-              return (
-                <button
-                  key={state || "none"}
-                  role="option"
-                  aria-selected={isSelected}
-                  aria-label={`Marker ${state || "none"}`}
-                  data-marker-value={state}
-                  onClick={() => onSelectMarker?.(state)}
-                  className={`w-5 h-5 ${cellRadius} bg-bg-inset overflow-hidden transition-all relative ${
-                    focusIndex === idx ? "ring-1 ring-text-secondary" : ""
-                  } ${isSelected ? "ring-1 ring-text-secondary" : ""}`}
-                  title={state || "none"}
-                >
-                  {stripe && <span className="absolute inset-0" style={stripe} />}
-                  {state === "" && (
-                    <span className="absolute inset-0 flex items-center justify-center text-text-secondary" style={{ fontSize: 8, lineHeight: 1 }}>
-                      &#x2205;
+      <div className="flex">
+        {/* Marker column (col 0) + vertical hairline — Label-picker callers only.
+            Each 18px cell + 3px gap row-aligns 1:1 with the color grid beside it:
+            ∅ beside Clear color (the removal row), dotted/solid/double beside
+            the three color rows. */}
+        {showMarkers && markerColor && (
+          <>
+            <div className="flex flex-col gap-[3px]">
+              {MARKER_CELLS.map((state, row) => {
+                const isSelected = currentMarker === state;
+                const isFocused = focus.col === 0 && focus.row === row;
+                const stripe = markerStripeStyle(state, markerColor);
+                return (
+                  <button
+                    key={state || "none"}
+                    role="option"
+                    aria-selected={isSelected}
+                    aria-label={`Marker ${state || "none"}`}
+                    data-marker-value={state}
+                    onClick={() => onSelectMarker?.(state)}
+                    className={`w-[18px] h-[18px] bg-bg-inset overflow-hidden transition-all relative ${
+                      isFocused ? "ring-1 ring-text-secondary" : ""
+                    } ${isSelected ? "ring-1 ring-text-secondary" : ""}`}
+                    title={state || "none"}
+                  >
+                    {stripe && <span className="absolute inset-0" style={stripe} />}
+                    {state === "" && (
+                      <span className="absolute inset-0 flex items-center justify-center text-text-secondary" style={{ fontSize: 8, lineHeight: 1 }}>
+                        &#x2205;
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="w-px bg-border mx-1.5 self-stretch" aria-hidden="true" />
+          </>
+        )}
+        {/* Color section (cols 1–4): the removal row's full-width Clear color,
+            then the 10 family swatches laid out 4-wide (rows of 4/4/2). */}
+        <div className="grid grid-cols-4 gap-[3px]">
+          <button
+            role="option"
+            aria-selected={selectedFamily == null}
+            onClick={() => emit(null)}
+            className={`col-span-4 h-[18px] text-[10px] text-text-secondary hover:text-text-primary transition-colors flex items-center justify-center ${
+              focusOnClear ? "ring-1 ring-text-secondary" : ""
+            }`}
+          >
+            Clear color
+          </button>
+          {PICKER_COLOR_VALUES.map((value, i) => {
+            const tint = rowTints.get(value);
+            const fallback = colorValueToHex(value, theme.palette) ?? theme.palette.foreground;
+            const baseColor = tint?.base ?? fallback;
+            const selectedColor_ = tint?.selected ?? fallback;
+            const isSelected = selectedFamily === value;
+            const isFocused =
+              focus.row === Math.floor(i / COLOR_COLS) + 1 && focus.col === (i % COLOR_COLS) + 1;
+            return (
+              <button
+                key={value}
+                role="option"
+                aria-selected={isSelected}
+                aria-label={`Color ${value}`}
+                data-color-value={value}
+                onClick={() => emit(value)}
+                className={`w-[18px] h-[18px] overflow-hidden transition-all flex flex-col ${
+                  isFocused ? "ring-1 ring-text-secondary" : ""
+                } ${isSelected ? "ring-1 ring-text-secondary" : ""}`}
+              >
+                <span className="flex-1 w-full" style={{ backgroundColor: baseColor }} />
+                <span className="flex-1 w-full flex items-center justify-center" style={{ backgroundColor: selectedColor_ }}>
+                  {isSelected && (
+                    <span style={{ color: theme.palette.foreground, fontWeight: 700, fontSize: 7, lineHeight: 1 }}>
+                      &#x2713;
                     </span>
                   )}
-                </button>
-              );
-            })}
-          </div>
-        </>
-      )}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }

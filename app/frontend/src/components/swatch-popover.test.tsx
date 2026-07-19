@@ -39,13 +39,13 @@ describe("SwatchPopover", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders 10 owned-family swatches + Clear", () => {
+  it("renders 10 owned-family swatches + Clear color", () => {
     const onSelect = vi.fn();
     const onClose = vi.fn();
     renderWithTheme(<SwatchPopover onSelect={onSelect} onClose={onClose} />);
 
     const options = screen.getAllByRole("option");
-    // 10 family swatches + 1 Clear button
+    // 10 family swatches + 1 Clear color button
     expect(options).toHaveLength(11);
   });
 
@@ -94,14 +94,14 @@ describe("SwatchPopover", () => {
     expect(legacyOf("green")).toBe("2");
   });
 
-  it("calls onSelect with null when Clear clicked", () => {
+  it("calls onSelect with null when Clear color clicked", () => {
     const onSelect = vi.fn();
     const onClose = vi.fn();
     renderWithTheme(
       <SwatchPopover selectedColor="blue" onSelect={onSelect} onClose={onClose} />,
     );
 
-    fireEvent.click(screen.getByText("Clear"));
+    fireEvent.click(screen.getByText("Clear color"));
     expect(onSelect).toHaveBeenCalledWith(null);
   });
 
@@ -123,131 +123,211 @@ describe("SwatchPopover", () => {
     expect(document.activeElement).toBe(screen.getByRole("listbox"));
   });
 
-  it("ArrowRight reaches every swatch then Clear; Enter emits the family's legacy value", () => {
-    const onSelect = vi.fn();
-    const onClose = vi.fn();
-    renderWithTheme(<SwatchPopover onSelect={onSelect} onClose={onClose} />);
-
-    const listbox = screen.getByRole("listbox");
-    // Step through all 10 swatches; on each, Enter emits that family's legacy
-    // descriptor (the stored vocabulary), not the presented family name.
-    for (let i = 0; i < PICKER_COLOR_VALUES.length; i++) {
-      fireEvent.keyDown(listbox, { key: "Enter" });
-      expect(onSelect).toHaveBeenLastCalledWith(legacyOf(PICKER_COLOR_VALUES[i]));
-      fireEvent.keyDown(listbox, { key: "ArrowRight" });
-    }
-    // After 10 ArrowRights from index 0 we are on Clear (index 10); Enter clears.
-    fireEvent.keyDown(listbox, { key: "Enter" });
-    expect(onSelect).toHaveBeenLastCalledWith(null);
-  });
-
-  it("ArrowDown from the bottom swatch row lands on Clear; Enter clears", () => {
-    const onSelect = vi.fn();
-    const onClose = vi.fn();
-    // Focus starts on the first item of the last swatch row (slot 8, "magenta").
-    renderWithTheme(<SwatchPopover selectedColor="magenta" onSelect={onSelect} onClose={onClose} />);
-
-    const listbox = screen.getByRole("listbox");
-    // In the 4-col grid, slot 8 ("magenta") + ArrowDown → Clear (no real swatch below).
-    fireEvent.keyDown(listbox, { key: "ArrowDown" });
-    fireEvent.keyDown(listbox, { key: "Enter" });
-    expect(onSelect).toHaveBeenLastCalledWith(null);
-  });
-
-  it("ArrowUp from Clear returns to the swatch above its left edge (slot 6, blue)", () => {
-    const onSelect = vi.fn();
-    const onClose = vi.fn();
-    renderWithTheme(<SwatchPopover onSelect={onSelect} onClose={onClose} />);
-
-    const listbox = screen.getByRole("listbox");
-    // Walk to Clear (10 ArrowRights from slot 0), then ArrowUp → slot 6, Enter selects it.
-    for (let i = 0; i < PICKER_COLOR_VALUES.length; i++) {
-      fireEvent.keyDown(listbox, { key: "ArrowRight" });
-    }
-    fireEvent.keyDown(listbox, { key: "ArrowUp" });
-    fireEvent.keyDown(listbox, { key: "Enter" });
-    // Clear occupies col 2 of the final row (colorCount % 4 === 2); stepping up one
-    // row lands on slot (row1)*4 + 2 = 6 → "blue", emitted as its legacy value "4".
-    expect(onSelect).toHaveBeenLastCalledWith(legacyOf(PICKER_COLOR_VALUES[6]));
-    expect(PICKER_COLOR_VALUES[6]).toBe("blue");
-  });
-
-  it("Clear renders inside the grid (col-span cell), still reachable by label", () => {
-    const onSelect = vi.fn();
-    const onClose = vi.fn();
-    renderWithTheme(<SwatchPopover selectedColor="blue" onSelect={onSelect} onClose={onClose} />);
-    const clear = screen.getByText("Clear");
-    expect(clear.className).toContain("col-span-2");
-    fireEvent.click(clear);
-    expect(onSelect).toHaveBeenCalledWith(null);
-  });
-
-  it("Space emits the focused swatch's legacy value", () => {
-    const onSelect = vi.fn();
-    const onClose = vi.fn();
-    // Start focused on "orange".
-    renderWithTheme(<SwatchPopover selectedColor="orange" onSelect={onSelect} onClose={onClose} />);
-
-    const listbox = screen.getByRole("listbox");
-    fireEvent.keyDown(listbox, { key: " " });
-    expect(onSelect).toHaveBeenCalledWith(legacyOf("orange"));
-    expect(legacyOf("orange")).toBe("1+3");
-  });
-
   it("the 10 families are the display-ordered picker values (no weight variants)", () => {
     expect(PICKER_COLOR_VALUES).toEqual(HUE_FAMILIES.map((f) => f.name));
     expect(PICKER_COLOR_VALUES).toHaveLength(10);
   });
 
-  // ── Combined-label extension (hwtr): optional marker section + square flag. ──
-  describe("combined Label picker (marker section + square styling)", () => {
-    it("renders NO marker section when the marker props are absent (color-only, unchanged)", () => {
+  // ── Universal square style (maya): the ONLY style — no `square` prop. ──
+  describe("universal square style", () => {
+    it("every caller gets the square container: no rounding, hard offset block shadow", () => {
       const onSelect = vi.fn();
       const onClose = vi.fn();
       renderWithTheme(<SwatchPopover onSelect={onSelect} onClose={onClose} />);
-      // Color-only: 10 swatches + Clear = 11 options, and no marker cells.
-      expect(screen.getAllByRole("option")).toHaveLength(11);
-      expect(screen.queryByRole("option", { name: /^Marker / })).toBeNull();
-      // Default (rounded) container — no square styling.
-      expect(screen.getByRole("listbox").className).toContain("rounded-md");
+      const listbox = screen.getByRole("listbox");
+      expect(listbox.className).not.toContain("rounded-md");
+      expect(listbox.className).not.toContain("shadow-lg");
+      expect(listbox.getAttribute("style")).toContain("3px 3px 0");
+      // Cells are square too (no rounded-sm) and 18px.
+      const swatch = screen.getByRole("option", { name: "Color orange" });
+      expect(swatch.className).not.toContain("rounded-sm");
+      expect(swatch.className).toContain("w-[18px]");
+      expect(swatch.className).toContain("h-[18px]");
     });
 
-    it("renders 4 marker cells (none/dotted/solid/double) when marker props supplied", () => {
+    it("Clear color is a full-width first row spanning the 4 color columns (no col-span-2 corner cell)", () => {
+      const onSelect = vi.fn();
+      const onClose = vi.fn();
+      renderWithTheme(<SwatchPopover onSelect={onSelect} onClose={onClose} />);
+      const clear = screen.getByText("Clear color");
+      expect(clear.className).toContain("col-span-4");
+      // The color grid itself is 4-wide (rows of 4/4/2 below the removal row).
+      expect(clear.parentElement!.className).toContain("grid-cols-4");
+      fireEvent.click(clear);
+      expect(onSelect).toHaveBeenCalledWith(null);
+    });
+  });
+
+  // ── Color-only keyboard nav: the conceptual grid minus the marker column. ──
+  describe("keyboard navigation (color-only grid)", () => {
+    it("initial focus is the first swatch when uncolored; Enter emits its legacy value", () => {
+      const onSelect = vi.fn();
+      const onClose = vi.fn();
+      renderWithTheme(<SwatchPopover onSelect={onSelect} onClose={onClose} />);
+      fireEvent.keyDown(screen.getByRole("listbox"), { key: "Enter" });
+      expect(onSelect).toHaveBeenLastCalledWith(legacyOf(PICKER_COLOR_VALUES[0]));
+    });
+
+    it("initial focus lands on the selected swatch (magenta, row 3)", () => {
+      const onSelect = vi.fn();
+      const onClose = vi.fn();
+      renderWithTheme(
+        <SwatchPopover selectedColor="magenta" onSelect={onSelect} onClose={onClose} />,
+      );
+      fireEvent.keyDown(screen.getByRole("listbox"), { key: "Enter" });
+      expect(onSelect).toHaveBeenLastCalledWith(legacyOf("magenta"));
+      expect(PICKER_COLOR_VALUES[8]).toBe("magenta");
+    });
+
+    it("ArrowRight walks a color row and clamps at its right edge", () => {
+      const onSelect = vi.fn();
+      const onClose = vi.fn();
+      renderWithTheme(<SwatchPopover onSelect={onSelect} onClose={onClose} />);
+      const listbox = screen.getByRole("listbox");
+      // Row 1: colors 0–3. Three ArrowRights reach the row end (col 4).
+      for (let i = 0; i < 3; i++) fireEvent.keyDown(listbox, { key: "ArrowRight" });
+      fireEvent.keyDown(listbox, { key: "Enter" });
+      expect(onSelect).toHaveBeenLastCalledWith(legacyOf(PICKER_COLOR_VALUES[3]));
+      // A fourth ArrowRight clamps (no wrap into the next row).
+      fireEvent.keyDown(listbox, { key: "ArrowRight" });
+      fireEvent.keyDown(listbox, { key: "Enter" });
+      expect(onSelect).toHaveBeenLastCalledWith(legacyOf(PICKER_COLOR_VALUES[3]));
+    });
+
+    it("ArrowDown moves down a column; from the dead cells' columns it clamps to the last color of row 3", () => {
+      const onSelect = vi.fn();
+      const onClose = vi.fn();
+      renderWithTheme(<SwatchPopover onSelect={onSelect} onClose={onClose} />);
+      const listbox = screen.getByRole("listbox");
+      // Walk to (row 1, col 4), then down to (row 2, col 4) = color 7.
+      for (let i = 0; i < 3; i++) fireEvent.keyDown(listbox, { key: "ArrowRight" });
+      fireEvent.keyDown(listbox, { key: "ArrowDown" });
+      fireEvent.keyDown(listbox, { key: "Enter" });
+      expect(onSelect).toHaveBeenLastCalledWith(legacyOf(PICKER_COLOR_VALUES[7]));
+      // Row 3 holds only colors 8–9 (cols 1–2): ArrowDown from col 4 lands on
+      // the nearest valid cell — color 9 (col 2), not a dead cell.
+      fireEvent.keyDown(listbox, { key: "ArrowDown" });
+      fireEvent.keyDown(listbox, { key: "Enter" });
+      expect(onSelect).toHaveBeenLastCalledWith(legacyOf(PICKER_COLOR_VALUES[9]));
+      // ArrowDown at the bottom row is a no-op.
+      fireEvent.keyDown(listbox, { key: "ArrowDown" });
+      fireEvent.keyDown(listbox, { key: "Enter" });
+      expect(onSelect).toHaveBeenLastCalledWith(legacyOf(PICKER_COLOR_VALUES[9]));
+    });
+
+    it("ArrowUp from row 1 lands on the single Clear color target; Enter clears", () => {
+      const onSelect = vi.fn();
+      const onClose = vi.fn();
+      renderWithTheme(<SwatchPopover onSelect={onSelect} onClose={onClose} />);
+      const listbox = screen.getByRole("listbox");
+      // From ANY column of row 1 (walk right two cells first), ArrowUp → Clear.
+      fireEvent.keyDown(listbox, { key: "ArrowRight" });
+      fireEvent.keyDown(listbox, { key: "ArrowRight" });
+      fireEvent.keyDown(listbox, { key: "ArrowUp" });
+      fireEvent.keyDown(listbox, { key: "Enter" });
+      expect(onSelect).toHaveBeenLastCalledWith(null);
+      // ArrowUp at the top row is a no-op (still Clear).
+      fireEvent.keyDown(listbox, { key: "ArrowUp" });
+      fireEvent.keyDown(listbox, { key: "Enter" });
+      expect(onSelect).toHaveBeenLastCalledWith(null);
+    });
+
+    it("ArrowDown from Clear color enters the first color row", () => {
+      const onSelect = vi.fn();
+      const onClose = vi.fn();
+      renderWithTheme(<SwatchPopover onSelect={onSelect} onClose={onClose} />);
+      const listbox = screen.getByRole("listbox");
+      fireEvent.keyDown(listbox, { key: "ArrowUp" }); // (1,1) → Clear
+      fireEvent.keyDown(listbox, { key: "ArrowDown" }); // Clear → (1,1)
+      fireEvent.keyDown(listbox, { key: "Enter" });
+      expect(onSelect).toHaveBeenLastCalledWith(legacyOf(PICKER_COLOR_VALUES[0]));
+    });
+
+    it("ArrowLeft at the left edge is a no-op when no marker column exists", () => {
+      const onSelect = vi.fn();
+      const onClose = vi.fn();
+      renderWithTheme(<SwatchPopover onSelect={onSelect} onClose={onClose} />);
+      const listbox = screen.getByRole("listbox");
+      fireEvent.keyDown(listbox, { key: "ArrowLeft" });
+      fireEvent.keyDown(listbox, { key: "Enter" });
+      expect(onSelect).toHaveBeenLastCalledWith(legacyOf(PICKER_COLOR_VALUES[0]));
+    });
+
+    it("Space emits the focused swatch's legacy value", () => {
+      const onSelect = vi.fn();
+      const onClose = vi.fn();
+      // Start focused on "orange".
+      renderWithTheme(
+        <SwatchPopover selectedColor="orange" onSelect={onSelect} onClose={onClose} />,
+      );
+      fireEvent.keyDown(screen.getByRole("listbox"), { key: " " });
+      expect(onSelect).toHaveBeenCalledWith(legacyOf("orange"));
+      expect(legacyOf("orange")).toBe("1+3");
+    });
+  });
+
+  // ── Combined Label picker (maya): side-by-side marker column | hairline |
+  //    color grid. Marker section still gated on onSelectMarker + markerColor. ──
+  describe("combined Label picker (side-by-side marker column)", () => {
+    function renderLabelPicker(extra: Partial<React.ComponentProps<typeof SwatchPopover>> = {}) {
       const onSelect = vi.fn();
       const onSelectMarker = vi.fn();
       const onClose = vi.fn();
-      renderWithTheme(
+      const utils = renderWithTheme(
         <SwatchPopover
           onSelect={onSelect}
           onSelectMarker={onSelectMarker}
           markerColor="#8888ff"
-          square
           onClose={onClose}
+          {...extra}
         />,
       );
-      // 10 color swatches + Clear + 4 marker cells = 15 options.
+      return { onSelect, onSelectMarker, onClose, ...utils };
+    }
+
+    it("renders NO marker column and NO hairline when the marker props are absent", () => {
+      const onSelect = vi.fn();
+      const onClose = vi.fn();
+      const { container } = renderWithTheme(
+        <SwatchPopover onSelect={onSelect} onClose={onClose} />,
+      );
+      // Color-only: 10 swatches + Clear color = 11 options, no marker cells.
+      expect(screen.getAllByRole("option")).toHaveLength(11);
+      expect(screen.queryByRole("option", { name: /^Marker / })).toBeNull();
+      // No vertical hairline divider.
+      expect(container.querySelector(".w-px")).toBeNull();
+      expect(screen.getByRole("listbox").getAttribute("aria-label")).toBe("Color picker");
+    });
+
+    it("renders 4 marker cells (none/dotted/solid/double) in a left column beside a vertical hairline", () => {
+      const { container } = renderLabelPicker();
+      // 10 color swatches + Clear color + 4 marker cells = 15 options.
       expect(screen.getAllByRole("option")).toHaveLength(15);
       for (const state of ["none", "dotted", "solid", "double"]) {
         expect(screen.getByRole("option", { name: `Marker ${state}` })).toBeTruthy();
       }
       // The listbox is labelled "Label picker" once markers are present.
       expect(screen.getByRole("listbox").getAttribute("aria-label")).toBe("Label picker");
+      // The vertical hairline divides the two sections.
+      expect(container.querySelector(".w-px")).not.toBeNull();
+      // The marker cells live in a single left column, ∅ first (the removal
+      // row), then dotted/solid/double beside the three color rows.
+      const markerCol = screen.getByRole("option", { name: "Marker none" }).parentElement!;
+      expect(markerCol.className).toContain("flex-col");
+      const cells = Array.from(markerCol.querySelectorAll("[data-marker-value]"));
+      expect(cells.map((c) => c.getAttribute("data-marker-value"))).toEqual([
+        "",
+        "dotted",
+        "solid",
+        "double",
+      ]);
+      // Marker cells share the 18px square metric so rows align 1:1.
+      expect((cells[0] as HTMLElement).className).toContain("w-[18px]");
+      expect((cells[0] as HTMLElement).className).toContain("h-[18px]");
     });
 
     it("clicking a marker cell calls onSelectMarker with that state (no cycling)", () => {
-      const onSelect = vi.fn();
-      const onSelectMarker = vi.fn();
-      const onClose = vi.fn();
-      renderWithTheme(
-        <SwatchPopover
-          selectedMarker="dotted"
-          onSelect={onSelect}
-          onSelectMarker={onSelectMarker}
-          markerColor="#8888ff"
-          square
-          onClose={onClose}
-        />,
-      );
+      const { onSelectMarker } = renderLabelPicker({ selectedMarker: "dotted" });
       // Clicking "solid" directly picks solid — NOT the next cycle state.
       fireEvent.click(screen.getByRole("option", { name: "Marker solid" }));
       expect(onSelectMarker).toHaveBeenCalledWith("solid");
@@ -256,111 +336,65 @@ describe("SwatchPopover", () => {
     });
 
     it("clicking the 'none' marker cell clears the marker (empty string)", () => {
-      const onSelect = vi.fn();
-      const onSelectMarker = vi.fn();
-      const onClose = vi.fn();
-      renderWithTheme(
-        <SwatchPopover
-          selectedMarker="double"
-          onSelect={onSelect}
-          onSelectMarker={onSelectMarker}
-          markerColor="#8888ff"
-          square
-          onClose={onClose}
-        />,
-      );
+      const { onSelectMarker } = renderLabelPicker({ selectedMarker: "double" });
       fireEvent.click(screen.getByRole("option", { name: "Marker none" }));
       expect(onSelectMarker).toHaveBeenCalledWith("");
     });
 
-    it("keyboard nav reaches the marker cells (ArrowDown from Clear) and Enter activates them", () => {
-      const onSelect = vi.fn();
-      const onSelectMarker = vi.fn();
-      const onClose = vi.fn();
-      renderWithTheme(
-        <SwatchPopover
-          onSelect={onSelect}
-          onSelectMarker={onSelectMarker}
-          markerColor="#8888ff"
-          square
-          onClose={onClose}
-        />,
-      );
+    it("ArrowLeft crosses the hairline into the marker column; ArrowUp/Down move within it", () => {
+      const { onSelectMarker } = renderLabelPicker();
       const listbox = screen.getByRole("listbox");
-      // Walk to Clear (10 ArrowRights from slot 0 — Clear is index 10 in the 5×2
-      // square grid), ArrowDown into the first marker cell ("none"), then
-      // ArrowRight twice to "solid", Enter activates.
-      for (let i = 0; i < PICKER_COLOR_VALUES.length; i++) {
-        fireEvent.keyDown(listbox, { key: "ArrowRight" });
-      }
-      fireEvent.keyDown(listbox, { key: "ArrowDown" }); // → marker "none"
+      // Initial focus (1,1) = first color; ArrowLeft crosses to (1,0) = dotted.
+      fireEvent.keyDown(listbox, { key: "ArrowLeft" });
       fireEvent.keyDown(listbox, { key: "Enter" });
-      expect(onSelectMarker).toHaveBeenLastCalledWith("");
-      fireEvent.keyDown(listbox, { key: "ArrowRight" }); // dotted
-      fireEvent.keyDown(listbox, { key: "ArrowRight" }); // solid
+      expect(onSelectMarker).toHaveBeenLastCalledWith("dotted");
+      // ArrowDown within the column: solid, then double.
+      fireEvent.keyDown(listbox, { key: "ArrowDown" });
       fireEvent.keyDown(listbox, { key: "Enter" });
       expect(onSelectMarker).toHaveBeenLastCalledWith("solid");
+      fireEvent.keyDown(listbox, { key: "ArrowDown" });
+      fireEvent.keyDown(listbox, { key: "Enter" });
+      expect(onSelectMarker).toHaveBeenLastCalledWith("double");
+      // ArrowUp back to the top of the column reaches ∅ (clears).
+      for (let i = 0; i < 3; i++) fireEvent.keyDown(listbox, { key: "ArrowUp" });
+      fireEvent.keyDown(listbox, { key: "Enter" });
+      expect(onSelectMarker).toHaveBeenLastCalledWith("");
     });
 
-    it("the square flag strips rounding and applies the hard offset block shadow", () => {
-      const onSelect = vi.fn();
-      const onSelectMarker = vi.fn();
-      const onClose = vi.fn();
-      renderWithTheme(
-        <SwatchPopover
-          onSelect={onSelect}
-          onSelectMarker={onSelectMarker}
-          markerColor="#8888ff"
-          square
-          onClose={onClose}
-        />,
-      );
+    it("ArrowRight crosses back from a marker cell to its row's first color", () => {
+      const { onSelect, onSelectMarker } = renderLabelPicker();
       const listbox = screen.getByRole("listbox");
-      // No rounded container, no blurred shadow-lg; hard offset block shadow.
-      expect(listbox.className).not.toContain("rounded-md");
-      expect(listbox.className).not.toContain("shadow-lg");
-      expect(listbox.getAttribute("style")).toContain("3px 3px 0");
-      // Cells are square too (no rounded-sm).
-      const swatch = screen.getByRole("option", { name: "Color orange" });
-      expect(swatch.className).not.toContain("rounded-sm");
+      // (1,1) → marker "dotted" (1,0), down to "solid" (2,0), then back across
+      // the hairline → (2,1) = color 5 (index 4).
+      fireEvent.keyDown(listbox, { key: "ArrowLeft" });
+      fireEvent.keyDown(listbox, { key: "ArrowDown" });
+      fireEvent.keyDown(listbox, { key: "ArrowRight" });
+      fireEvent.keyDown(listbox, { key: "Enter" });
+      expect(onSelect).toHaveBeenLastCalledWith(legacyOf(PICKER_COLOR_VALUES[4]));
+      expect(onSelectMarker).not.toHaveBeenCalled();
     });
 
-    it("the square layout is a 5×2 swatch grid with 18px cells and a full-width Clear row", () => {
-      const onSelect = vi.fn();
-      const onSelectMarker = vi.fn();
-      const onClose = vi.fn();
-      renderWithTheme(
-        <SwatchPopover
-          onSelect={onSelect}
-          onSelectMarker={onSelectMarker}
-          markerColor="#8888ff"
-          square
-          onClose={onClose}
-        />,
-      );
-      // The 10 swatches fill a 5-column grid (→ perfect 5×2).
+    it("row 0 is the removal row: ArrowLeft from Clear color reaches the ∅ cell", () => {
+      const { onSelect, onSelectMarker } = renderLabelPicker();
+      const listbox = screen.getByRole("listbox");
+      fireEvent.keyDown(listbox, { key: "ArrowUp" }); // (1,1) → Clear color
+      fireEvent.keyDown(listbox, { key: "Enter" });
+      expect(onSelect).toHaveBeenLastCalledWith(null);
+      fireEvent.keyDown(listbox, { key: "ArrowLeft" }); // Clear → ∅ (0,0)
+      fireEvent.keyDown(listbox, { key: "Enter" });
+      expect(onSelectMarker).toHaveBeenLastCalledWith("");
+    });
+
+    it("the Label picker keeps the universal square vocabulary (18px cells, offset shadow)", () => {
+      renderLabelPicker();
+      const listbox = screen.getByRole("listbox");
+      expect(listbox.className).not.toContain("rounded-md");
+      expect(listbox.getAttribute("style")).toContain("3px 3px 0");
       const swatch = screen.getByRole("option", { name: "Color orange" });
-      const colorGrid = swatch.parentElement!;
-      expect(colorGrid.className).toContain("grid-cols-5");
-      // 18px square swatch cells (intake §2 BINDING layout).
       expect(swatch.className).toContain("w-[18px]");
       expect(swatch.className).toContain("h-[18px]");
-      // "Clear color" is a full-width row spanning all 5 columns.
-      const clear = screen.getByText("Clear color");
-      expect(clear.className).toContain("col-span-5");
-    });
-
-    it("the DEFAULT (color-only) layout is unchanged: 4-col grid, 20px cells, col-span-2 'Clear'", () => {
-      const onSelect = vi.fn();
-      const onClose = vi.fn();
-      renderWithTheme(<SwatchPopover onSelect={onSelect} onClose={onClose} />);
-      // Scoping decision: the 5×2/18px/full-width layout is gated to `square`, so
-      // color-only callers (session/server/palette modal) render exactly as today.
-      const swatch = screen.getByRole("option", { name: "Color orange" });
-      expect(swatch.parentElement!.className).toContain("grid-cols-4");
-      expect(swatch.className).toContain("w-5");
-      const clear = screen.getByText("Clear");
-      expect(clear.className).toContain("col-span-2");
+      // Clear color spans the 4 color columns of the removal row.
+      expect(screen.getByText("Clear color").className).toContain("col-span-4");
     });
   });
 });

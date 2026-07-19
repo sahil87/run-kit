@@ -452,7 +452,6 @@ function WindowRowInner({
               setShowLabelPicker(false);
             }}
             markerColor={markerColor}
-            square
             onClose={() => setShowLabelPicker(false)}
           />
         </div>

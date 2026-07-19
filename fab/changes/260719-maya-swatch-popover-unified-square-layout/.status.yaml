@@ -1,0 +1,54 @@
+id: maya
+name: 260719-maya-swatch-popover-unified-square-layout
+created: 2026-07-19T22:55:34Z
+created_by: Sahil Ahuja
+change_type: refactor
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 7
+    acceptance_count: 18
+    acceptance_completed: 18
+confidence:
+    certain: 7
+    confident: 4
+    tentative: 0
+    unresolved: 0
+    score: 4.7
+    fuzzy: true
+    dimensions:
+        signal: 79.5
+        reversibility: 82.7
+        competence: 87.7
+        disambiguation: 84.5
+stage_metrics:
+    intake: {started_at: "2026-07-19T22:55:34Z", driver: fab-new, iterations: 1, completed_at: "2026-07-19T23:02:49Z"}
+    apply: {started_at: "2026-07-19T23:02:49Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-19T23:17:36Z"}
+    review: {started_at: "2026-07-19T23:17:36Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-19T23:25:26Z"}
+    hydrate: {started_at: "2026-07-19T23:25:26Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-19T23:28:07Z"}
+    ship: {started_at: "2026-07-19T23:28:07Z", driver: fab-fff, iterations: 1}
+prs: []
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-07-19T23:28:07Z"
+    computed_at_stage: hydrate
+summary: SwatchPopover unified to a single universal square style with side-by-side markers-left/colors-right layout, 5-column keyboard grid, and full-width Clear-color first row for all callers
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-07-19T23:28:07Z

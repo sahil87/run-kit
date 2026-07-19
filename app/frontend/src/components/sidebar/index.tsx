@@ -1059,9 +1059,9 @@ export function Sidebar({
     );
   }, [addToast]);
 
-  // Persist a window's marker state (the gutter click and the palette action
-  // both compute the NEXT state via nextMarkerState and pass it here — this only
-  // writes). Mirrors handleWindowColorChange.
+  // Persist a window's marker state. The combined Label picker (opened from the
+  // left-edge zone or the `Window: Label` palette action) passes the EXACT state
+  // the user picked — this only writes it. Mirrors handleWindowColorChange.
   const handleWindowMarkerChange = useCallback((server: string, _session: string, windowId: string, marker: string | null) => {
     setWindowMarkerApi(server, windowId, marker).catch((err) =>
       addToast(err.message || "Failed to set window marker"),

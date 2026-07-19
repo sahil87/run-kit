@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import themeDefs from "@configs/themes.json";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -416,22 +417,29 @@ export const UNCOLORED_SELECTED_ANSI = 8;
 /** Sentinel color-value key for the uncolored-selected gray tint. */
 export const UNCOLORED_SELECTED_KEY = `${UNCOLORED_SELECTED_ANSI}`;
 
-// ── Left-gutter marker (independent label axis) ──────────────────────────────
+// ── Left-edge marker (independent label axis) ────────────────────────────────
 
-/** The window left-gutter marker states in cycle order. `""` (no marker) is the
- *  rest state; clicking the gutter (or the palette action) advances one step and
- *  wraps back to `""` after `double`. Mirrors the backend closed set
- *  (validate.MarkerValues) minus the empty string, with `""` at the front. */
+/** The window marker states. `""` (no marker) is the rest state. A marker is
+ *  chosen directly from the combined Label picker (any state in one click — no
+ *  cycling) or the `Window: Label` palette action. Mirrors the backend closed
+ *  set (validate.MarkerValues) minus the empty string, with `""` at the front. */
 export const MARKER_STATES = ["", "dotted", "solid", "double"] as const;
-export type MarkerState = (typeof MARKER_STATES)[number];
 
-/** Advance a marker value one step in the cycle (empty→dotted→solid→double→
- *  empty). An unrecognized/absent value is treated as empty, so the first click
- *  always lands on `dotted`. */
-export function nextMarkerState(current: string | null | undefined): MarkerState {
-  const idx = MARKER_STATES.indexOf((current ?? "") as MarkerState);
-  const at = idx < 0 ? 0 : idx;
-  return MARKER_STATES[(at + 1) % MARKER_STATES.length];
+/** Inline style rendering a marker state as a left-edge border stripe in the
+ *  given color: dotted 3px, solid 3px, double 6px. The empty state renders no
+ *  stripe. Shared by the window-row display-only stripe and the Label picker's
+ *  marker cells so the stripe vocabulary lives in exactly one place. */
+export function markerStripeStyle(state: string, color: string): CSSProperties | undefined {
+  switch (state) {
+    case "dotted":
+      return { borderLeft: `3px dotted ${color}` };
+    case "solid":
+      return { borderLeft: `3px solid ${color}` };
+    case "double":
+      return { borderLeft: `6px double ${color}` };
+    default:
+      return undefined;
+  }
 }
 
 /** A parsed color value: an owned family (canonical name) OR a legacy numeric/

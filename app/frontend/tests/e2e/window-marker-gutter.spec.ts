@@ -7,15 +7,15 @@ const TEST_SESSION = `e2e-marker-${Date.now()}`;
 
 /**
  * Resolve a window's stable identifiers (tmux `@N` id + index) AND its current
- * marker from the backend snapshot by its display name. Polls because the
+ * marker/color from the backend snapshot by its display name. Polls because the
  * window is created via the tmux CLI and surfaces asynchronously.
  */
 async function resolveWindow(
   page: Page,
   windowName: string,
-): Promise<{ windowId: string; index: number; marker?: string }> {
+): Promise<{ windowId: string; index: number; marker?: string; color?: string }> {
   const deadline = Date.now() + 5_000;
-  let last: { windowId: string; index: number; marker?: string } | null = null;
+  let last: { windowId: string; index: number; marker?: string; color?: string } | null = null;
   while (Date.now() < deadline) {
     const res = await page.request.get(
       `/api/sessions?server=${encodeURIComponent(TMUX_SERVER)}`,
@@ -23,13 +23,13 @@ async function resolveWindow(
     if (res.ok()) {
       const sessions = (await res.json()) as Array<{
         name: string;
-        windows: Array<{ windowId: string; index: number; name: string; marker?: string }>;
+        windows: Array<{ windowId: string; index: number; name: string; marker?: string; color?: string }>;
       }>;
       const win = sessions
         .find((s) => s.name === TEST_SESSION)
         ?.windows.find((w) => w.name === windowName);
       if (win) {
-        last = { windowId: win.windowId, index: win.index, marker: win.marker };
+        last = { windowId: win.windowId, index: win.index, marker: win.marker, color: win.color };
         break;
       }
     }
@@ -62,7 +62,30 @@ async function expectMarker(page: Page, windowName: string, expected: string): P
     .toBe(expected);
 }
 
-test.describe("Window marker gutter + borderless selection", () => {
+/** Poll the snapshot until the named window's @color equals `expected`. */
+async function expectColor(page: Page, windowName: string, expected: string): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        const res = await page.request.get(
+          `/api/sessions?server=${encodeURIComponent(TMUX_SERVER)}`,
+        );
+        if (!res.ok()) return "<fetch-failed>";
+        const sessions = (await res.json()) as Array<{
+          name: string;
+          windows: Array<{ name: string; color?: string }>;
+        }>;
+        const win = sessions
+          .find((s) => s.name === TEST_SESSION)
+          ?.windows.find((w) => w.name === windowName);
+        return win?.color ?? "";
+      },
+      { timeout: 6_000 },
+    )
+    .toBe(expected);
+}
+
+test.describe("Window left-edge label zone + combined picker", () => {
   test.beforeAll(() => {
     try {
       execSync(
@@ -84,7 +107,7 @@ test.describe("Window marker gutter + borderless selection", () => {
     }
   });
 
-  test("clicking the gutter cycles the marker and persists via @rk_marker", async ({ page }) => {
+  test("the label zone opens the combined picker; picking a marker persists via @rk_marker (no cycling)", async ({ page }) => {
     const ts = Date.now();
     const winName = `marker-win-${ts}`;
     execSync(
@@ -103,27 +126,56 @@ test.describe("Window marker gutter + borderless selection", () => {
     // Fresh window has no marker.
     expect(target.marker ?? "").toBe("");
 
-    // Pointer-only affordance — no ARIA button role (palette is the keyboard
-    // path, intake #12); selected by its aria-label.
-    const gutter = row.getByLabel("Cycle window marker");
-    // First click: empty → dotted.
-    await gutter.click();
-    await expectMarker(page, winName, "dotted");
+    // The 26px left-edge zone is a single target that OPENS the combined Label
+    // picker — it does NOT cycle. Named for selection by its aria-label.
+    await row.getByLabel("Set window label").click();
+    const picker = page.getByRole("listbox", { name: "Label picker" });
+    await expect(picker).toBeVisible({ timeout: 5_000 });
 
-    // Second click: dotted → solid.
-    await gutter.click();
+    // Pick "solid" DIRECTLY (any state is one click — no cycling). Persists.
+    await picker.getByRole("option", { name: "Marker solid" }).click();
     await expectMarker(page, winName, "solid");
 
-    // Third click: solid → double.
-    await gutter.click();
+    // Re-open and pick "double" directly (still no cycling — reaches any state).
+    await row.getByLabel("Set window label").click();
+    await page.getByRole("listbox", { name: "Label picker" }).getByRole("option", { name: "Marker double" }).click();
     await expectMarker(page, winName, "double");
 
-    // Fourth click wraps double → empty (cleared).
-    await gutter.click();
+    // Re-open and pick "none" to clear.
+    await row.getByLabel("Set window label").click();
+    await page.getByRole("listbox", { name: "Label picker" }).getByRole("option", { name: "Marker none" }).click();
     await expectMarker(page, winName, "");
   });
 
-  test("gutter click does not select the row (stopPropagation)", async ({ page }) => {
+  test("picking a color in the label picker persists via @color (legacy vocabulary seam)", async ({ page }) => {
+    const ts = Date.now();
+    const winName = `marker-color-${ts}`;
+    execSync(
+      `tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${winName}"`,
+      { stdio: "ignore" },
+    );
+
+    await page.goto(`/${TMUX_SERVER}`);
+    await expect(page.locator("[aria-label='Connected']")).toBeVisible({ timeout: 10_000 });
+
+    const sidebar = page.locator("nav[aria-label='Sessions']");
+    const target = await resolveWindow(page, winName);
+    const row = sidebar.locator(`[data-window-id="${target.windowId}"]`);
+    await expect(row).toBeVisible({ timeout: 5_000 });
+    expect(target.color ?? "").toBe("");
+
+    // Open the picker from the left-edge zone and pick the "orange" family. The
+    // picker maps it to the LEGACY descriptor "1+3" at the write seam
+    // (familyToLegacy) — the vocabulary the backend validates — so @color
+    // persists as "1+3", not the family name.
+    await row.getByLabel("Set window label").click();
+    const picker = page.getByRole("listbox", { name: "Label picker" });
+    await expect(picker).toBeVisible({ timeout: 5_000 });
+    await picker.getByRole("option", { name: "Color orange" }).click();
+    await expectColor(page, winName, "1+3");
+  });
+
+  test("clicking the label zone does not select the row (stopPropagation)", async ({ page }) => {
     const ts = Date.now();
     const winName = `marker-noselect-${ts}`;
     execSync(
@@ -139,11 +191,12 @@ test.describe("Window marker gutter + borderless selection", () => {
     const row = sidebar.locator(`[data-window-id="${target.windowId}"]`);
     const rowButton = row.getByRole("button").filter({ hasText: winName });
 
-    // On the dashboard the row is not selected; clicking its gutter must NOT
-    // select it (the URL must not gain the window segment).
+    // On the dashboard the row is not selected; clicking its label zone must
+    // open the picker but NOT select it (the URL must not gain the window
+    // segment).
     await expect(rowButton).not.toHaveAttribute("aria-current", "page");
-    await row.getByLabel("Cycle window marker").click();
-    await expectMarker(page, winName, "dotted");
+    await row.getByLabel("Set window label").click();
+    await expect(page.getByRole("listbox", { name: "Label picker" })).toBeVisible({ timeout: 5_000 });
     // Row still not selected, URL still on the dashboard.
     await expect(rowButton).not.toHaveAttribute("aria-current", "page");
     expect(page.url()).not.toContain(`/${target.windowId.slice(1)}`);
@@ -165,9 +218,8 @@ test.describe("Window marker gutter + borderless selection", () => {
     // vocabulary the backend validates: "1+3" is the legacy descriptor for the
     // "orange" family (the picker maps orange → "1+3" at the write seam). Setting
     // the raw family name via the tmux CLI would be dropped by the backend's
-    // NormalizeColorValue on read, leaving the row uncolored — the bug the
-    // vocabulary fix (must-fix 2) closed. Driving it through the API with the
-    // legacy value renders the real family tint.
+    // NormalizeColorValue on read, leaving the row uncolored. Driving it through
+    // the API with the legacy value renders the real family tint.
     const setRes = await page.request.post(
       `/api/windows/${encodeURIComponent(target0.windowId)}/options?server=${encodeURIComponent(TMUX_SERVER)}`,
       { data: { options: { "@color": "1+3" } } },
@@ -184,9 +236,8 @@ test.describe("Window marker gutter + borderless selection", () => {
 
     // Selection is tint depth + typography only. The stored legacy value "1+3"
     // resolves to the orange family, so the button MUST paint an actual tinted
-    // background (not transparent) — this is the half the old CLI-driven test
-    // silently skipped (it exercised an uncolored row). Poll because the color
-    // arrives on the next SSE payload after the API write.
+    // background (not transparent). Poll because the color arrives on the next
+    // SSE payload after the API write.
     await expect
       .poll(
         async () =>

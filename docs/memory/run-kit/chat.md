@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "The chat subsystem — rk-owned neutral event schema (Event/Pending/turn), Adapter interface + registry, the Claude JSONL adapter (UUID-glob locate, tolerant parse, TailFrom offset-tail). Read: GET /api/windows/{windowId}/chat backfill + a kind:chat live subscription on /ws/state. Frontend: the ?view=chat lens over the terminal route. Send: POST .../chat/send — named-buffer paste + novelty echo probe + gated Enter. Read derives from disk per request; send types into the pane as a human typist."
+description: "The chat subsystem — rk-owned neutral event schema (Event/Pending/turn), Adapter interface + registry, the Claude JSONL adapter (UUID-glob locate, tolerant parse, TailFrom offset-tail). Read: GET /api/windows/{windowId}/chat backfill + a kind:chat sub on /ws/state. Frontend: ?view=chat lens over the terminal route. Send: POST .../chat/send — handler-boundary control-byte sanitize, named-buffer paste + novelty echo probe + gated Enter. Read derives from disk; send types into the pane as a human."
 ---
 # Chat Subsystem
 
@@ -387,6 +387,35 @@ endpoint SHALL be left untouched (different contract, possible external callers)
 - **THEN** it returns `400` with a `writeError` JSON body and performs no tmux
   injection.
 
+### Requirement: Send-text sanitization at the handler boundary
+`handleChatSend` SHALL sanitize `body.Text` via the pure package helper
+`sanitizeChatText` (`api/chat.go`) immediately after the JSON decode and BEFORE the
+whitespace-only emptiness check. `sanitizeChatText` normalizes `\r\n` and lone `\r`
+to `\n`, then drops every control rune per `unicode.IsControl` — C0 (U+0000–U+001F),
+DEL (U+007F), and the C1 range (U+0080–U+009F, including the single-byte CSI
+U+009B) — EXCEPT `\n` and `\t`, which are legitimate message content (multiline
+messages and indented code). Ordinary text, non-ASCII runes (accents, emoji), `\n`,
+and `\t` pass through unchanged. Because the sanitize runs before the emptiness
+check, a message that is entirely control bytes collapses to the empty string and
+takes the existing `400` path without touching tmux. Because it runs before pane
+resolution and injection, every downstream consumer (`chatProbeNeedle`, the
+`multiline` detection via `strings.Contains(text, "\n")`, `setAndPaste`, the echo
+probe) operates on the already-sanitized text. The sanitize is caller-side policy
+only — the `internal/tmux` wrappers stay byte-faithful (Constitution I), and the
+read/backfill endpoints are untouched.
+
+#### Scenario: ESC and other control bytes stripped; all-control text 400s
+- **GIVEN** a send whose text embeds an ESC (`0x1B`) that would form the
+  bracketed-paste-end sequence `\x1b[201~`
+- **WHEN** `handleChatSend` sanitizes it
+- **THEN** the ESC is stripped (leaving the inert literal `[201~`), so the text
+  recorded at `set-buffer` cannot terminate the paste early to inject live
+  keystrokes; C0/DEL/C1 controls are likewise removed while `\n`/`\t`/accents/emoji
+  survive and `\r\n`/`\r` become `\n`.
+- **AND GIVEN** a send whose text is entirely control bytes, **THEN** it collapses
+  to empty and the handler returns `400` ("Message text cannot be empty") with no
+  tmux injection.
+
 ### Requirement: Server-resolved pane (never trust a client ref)
 The handler SHALL derive the target **pane** server-side by extending
 `resolveWindowChat` to also return the resolved `paneID` — the pane picked by the
@@ -427,9 +456,11 @@ every subprocess an argv slice (Constitution I) targeting the `paneID`:
    successful probe.
 
 There SHALL be NO `agentState` gate and NO server-side queue (busy policy =
-Allow + probe, Constitution II). Text is delivered verbatim, including newlines,
-tmux key names (`Enter`, `C-c`), and leading dashes — never interpreted as
-keys/flags nor submitted per-line.
+Allow + probe, Constitution II). The text reaching `set-buffer` is the
+handler-sanitized string (§ Send-text sanitization) — control bytes stripped,
+CR/CRLF normalized to `\n`; from that point delivery to tmux is verbatim. Newlines,
+tmux key names (`Enter`, `C-c`), and leading dashes in the sanitized text are all
+delivered literally — never interpreted as keys/flags nor submitted per-line.
 
 #### Scenario: Key-name / leading-dash text is delivered literally
 - **GIVEN** a resolved pane and text `"--force is broken\necho Enter"`
@@ -895,6 +926,29 @@ lands as one literal block.
 routes to the active pane, key-name interpretation of message text, unconditional
 Enter — the stale-prompt trap); `load-buffer -` (no stdin).
 *Introduced by*: `260714-jdyg-chat-send`
+
+### Control-byte sanitize at the handler boundary, sanitize-not-reject
+**Decision**: Strip terminal control bytes from `body.Text` in `handleChatSend` via
+a pure `sanitizeChatText` helper (normalize CR/CRLF to `\n`, then drop every
+`unicode.IsControl` rune — C0 + DEL + C1 — except `\n`/`\t`), applied right after the
+JSON decode and before the emptiness check — sanitize, never reject-with-400 for the
+mere presence of control bytes.
+**Why**: Bracketed paste makes ordinary text inert, but control bytes ride through
+verbatim; ESC is the sharpest vector — it can embed the bracketed-paste-end sequence
+`ESC[201~`, terminating paste mode early so the message tail is interpreted as live
+keystrokes (the paste-injection break-out that would sidestep the echo-probe +
+withheld-Enter guard). Sanitizing at the handler makes every downstream consumer
+(needle, multiline detection, paste, probe) automatically consistent and keeps the
+tmux layer byte-faithful (Constitution I — the wrappers store argv verbatim; policy
+belongs to the caller). Running before the emptiness check makes an all-control
+message collapse to empty and take the existing `400` path. Stripping is strictly
+friendlier than rejecting legitimate copy-paste content that merely carries stray
+escapes, and CR-normalization (rather than bare stripping) keeps a CRLF-origin
+multiline message's line structure so it still counts as multiline.
+**Rejected**: sanitizing inside `SetChatSendBufferCtx` (wrong layer — the tmux
+package is a mechanism-only wrapper; future callers may legitimately need raw bytes);
+rejecting control-byte requests with a `400` (hostile to legitimate paste content).
+*Introduced by*: `260719-t9uk-chat-send-control-byte-sanitize`
 
 ### NOVELTY echo probe before Enter, fail-closed
 **Decision**: Never send Enter blindly. Capture the pane tail BEFORE the paste, then

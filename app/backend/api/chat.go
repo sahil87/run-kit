@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"rk/internal/chat"
 	"rk/internal/sessions"
@@ -247,6 +248,10 @@ func (s *Server) handleChatSend(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Invalid JSON body")
 		return
 	}
+	// Strip terminal control bytes BEFORE the emptiness check so every downstream
+	// consumer (needle, multiline detection, paste, probe) sees the sanitized text
+	// and an all-control message collapses to empty and takes the existing 400 path.
+	body.Text = sanitizeChatText(body.Text)
 	if strings.TrimSpace(body.Text) == "" {
 		writeError(w, http.StatusBadRequest, "Message text cannot be empty")
 		return
@@ -457,6 +462,31 @@ var ansiEscapeRe = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1
 // spaces), i.e. "[Pastedtext#1+12lines]", and is tolerant of singular/plural
 // "line"/"lines" and any digit counts.
 var pasteCollapseRe = regexp.MustCompile(`\[Pastedtext#\d+\+\d+lines?\]`)
+
+// sanitizeChatText strips terminal control bytes from a chat-send message before
+// it is pasted into the agent pane. Bracketed paste makes ordinary text inert, but
+// control bytes ride through verbatim — most sharply ESC (0x1B), which can embed
+// the bracketed-paste-end sequence (ESC[201~) and turn the tail of the message into
+// live keystrokes (the classic paste-injection break-out). Defense: normalize
+// CR/CRLF to \n, then drop every control rune — unicode.IsControl covers C0
+// (U+0000–U+001F), DEL (U+007F), and the C1 range (U+0080–U+009F, incl. the
+// single-byte CSI U+009B) — EXCEPT \n and \t, which are legitimate message content
+// (multiline messages and indented code). CR-normalization (rather than bare
+// stripping) keeps a CRLF-origin multiline message's line structure so it still
+// counts as multiline downstream.
+func sanitizeChatText(text string) string {
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\r", "\n")
+	return strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\t' {
+			return r
+		}
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, text)
+}
 
 // chatProbeNeedle derives the echo-probe needle from the message text: the LAST
 // non-empty line, whitespace-stripped and capped to the last chatSendNeedleMaxLen

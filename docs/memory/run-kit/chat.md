@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "The chat subsystem — rk-owned neutral chat event schema (Event/Pending/turn counter), the Adapter interface + provider registry, the Claude JSONL adapter (UUID-glob locate, tolerant line-by-line parse, TailFrom(from) offset-tail), the read surface: GET /api/windows/{windowId}/chat backfill (gained an additive `offset` byte-offset field) + the live stream as a `kind:\"chat\"` subscription on /ws/state (subscribe key=windowId + server + from:<offset> + req; ack carries the tail-start offset, NO snapshot — D5; events chat/chat-state verbatim + lightweight chat-reset on rotation/shrink; per-subscription TAIL/DORMANT producer goroutine, ~2s re-resolve, chat never joins the tmux poll set), the frontend consumer: the `?view=chat` chat view over the terminal route (use-chat-subscription hook composing GET-backfill→subscribe gap-free, react-markdown bubbles + collapsible tool cards + tail pending bubble), AND the SEND path (Change 4, chat-send): POST /api/windows/{windowId}/chat/send — pane-targeted named-buffer paste + NOVELTY echo probe + gated Enter, per-(server,paneID) whole-sequence lock, allow+probe busy policy, and the ChatView send-form input box. Read stays derive-from-disk-per-request (Constitution II); send types into the pane exactly as a human typist (Constitution VI — the pane stays the agent's parent, no SDK/session ownership). The dedicated per-view chat SSE (GET /api/windows/{id}/chat/stream) was RETIRED by 260717-vhvz (socket-unification Change 3): the tab now holds a fixed 2 WebSockets + 0 SSE"
+description: "The chat subsystem — rk-owned neutral event schema (Event/Pending/turn), Adapter interface + registry, the Claude JSONL adapter (UUID-glob locate, tolerant parse, TailFrom offset-tail). Read: GET /api/windows/{windowId}/chat backfill + a kind:chat live subscription on /ws/state. Frontend: the ?view=chat lens over the terminal route. Send: POST .../chat/send — named-buffer paste + novelty echo probe + gated Enter. Read derives from disk per request; send types into the pane as a human typist."
 ---
 # Chat Subsystem
 
@@ -9,66 +9,41 @@ description: "The chat subsystem — rk-owned neutral chat event schema (Event/P
 ## Overview
 
 `internal/chat` turns a window's reconciled `@rk_chat = <provider>:<session-ref>`
-(from [agent-state](/run-kit/agent-state.md) § Chat Session Identity, Change 1)
-into the conversation it names. It is a **read-only** view over the agent pane —
-the pane stays the agent's parent process (Constitution VI); rk only ever *reads*
-the transcript — and derives everything from disk at request/stream time with
-**nothing cached beyond the connection** (Constitution II). The schema is rk-owned
-and provider-neutral from day one so Codex/Gemini adapters are backend-only
-additions. v1 ships the **Claude** adapter and two window-keyed GET endpoints
-(backfill + SSE stream). No send path, no SDK hosting, no SessionStore/DB (all
-routes are GET). *Shipped by `260714-pmfh-chat-read-backend` (Change 2 of the
-HTML-agent-chat-view stack).*
+(from [agent-state](/run-kit/agent-state.md) § Chat Session Identity) into the
+conversation it names. It is a **read-only** view over the agent pane plus a
+narrow **send** path: the pane stays the agent's parent process (Constitution VI);
+rk only ever *reads* the transcript and *types into* the pane exactly as a human
+typist would — never owning the agent's session. Everything derives from disk at
+request/stream time with **nothing cached beyond the connection** (Constitution
+II): all read routes are GET, the send path holds no SDK/session/queue state. The
+schema is rk-owned and provider-neutral so Codex/Gemini adapters are backend-only
+additions; the **Claude** adapter is the one registered provider (protocol-based
+send such as Codex JSON-RPC branches behind the `injectChatMessage` seam later).
 
-**Change 3 added the frontend consumer** (`260714-r7rq-chat-read-frontend`): a
-read-only HTML chat view over the SAME agent pane, addressed by a `?view=chat`
-search param on the existing `/$server/$window` terminal route (Constitution IV
-— no new route). It is a SECOND view over the tmux pane, never a substrate — the
-pane stays the agent's parent (Constitution VI) and the view only *renders* the
-streamed transcript, with nothing cached beyond React state that dies with the
-view (Constitution II analog). Chat is the `chat` LENS of the unified window-view
-model — its view-state plumbing (the `?view=` param, ViewSwitcher chip,
-value-bearing localStorage, palette/`Ctrl+`` parity, chat-health
-connection dot) is the shared lens machinery in
-[ui-patterns](/run-kit/ui-patterns.md) § Window Views (Lens Model) / § Chat View.
-(The top-bar center heading no longer names the lens — since
-`260714-uco1-topbar-heading-anchor-nav` it reads a static `Window: <window>` in
-every lens; lens indication belongs to the L1 ViewSwitcher, not the heading.)
-the § Chat View Frontend requirements below own only the DATA-layer consumer half
-(schema types, subscription lifecycle, renderer). The push deep-link URL +
-service-worker navigation lives in [architecture](/run-kit/architecture.md)
-§ Web Push Notifications.
+The read surface is a window-keyed `GET /api/windows/{windowId}/chat` backfill and
+a live incremental stream carried as a `kind:"chat"` subscription on `/ws/state`
+(subscribed on chat-lens enter, unsubscribed on leave), so a tab holds a fixed
+2 WebSockets + 0 SSE on every route (D6). Backfill carries an additive byte
+`offset`; the subscribe carries `from:<offset>` and its ack returns the tail-start
+offset with NO snapshot, so `GET(offset)→subscribe(from)` composes gap-free and
+duplicate-free — a full `Conversation` never rides the shared socket (§ Live
+stream; § Design Decisions → Chat live stream on the state socket). The generic
+`POST /api/windows/{windowId}/keys` endpoint is a distinct contract, untouched by
+the send path.
 
-**Change 4 added the SEND path** (`260714-jdyg-chat-send`, the FINAL change of the
-stack): a mutating `POST /api/windows/{windowId}/chat/send` and a send-form input
-box replacing ChatView's read-only disabled footer. Send does NOT make the
-subsystem an agent substrate — rk still never *owns* the session; it types the
-message *into the pane* exactly as a human typist would (a named-buffer bracketed
-paste + a gated Enter), so the pane stays the agent's parent process (Constitution
-VI) and there is no SDK hosting, no SessionStore/queue (Constitution II). The two
-GET read endpoints, the stream, and the schema are unchanged; the generic
-`POST /api/windows/{windowId}/keys` endpoint is left untouched. Protocol-based send
-(Codex JSON-RPC) is a later change — v1 makes no provider branch (§ Send Path).
-
-**`260717-vhvz-chat-on-state-socket` moved the live stream onto the state
-socket** (Change 3 of the socket-unification plan `fab/plans/sahil/socket-unification.md`,
-building on the merged Change 1 state-socket machinery `260716-qf3j`). The chat
-lens was the app's LAST `EventSource` — a dedicated per-view SSE
-(`GET /api/windows/{id}/chat/stream`) that held one HTTP/1.1 pool slot on
-plaintext origins, the exact starvation class socket-unification exists to
-eliminate. Chat is now one more `kind:"chat"` subscription on `/ws/state`
-(subscribed on chat-lens enter, unsubscribed on leave), so a tab holds a FIXED
-2 WebSockets + 0 SSE on every route (D6). **Backfill demoted to the existing
-`GET /api/windows/{id}/chat`** (D5): its response gained an additive byte
-`offset`, and the subscribe carries `from:<offset>` while the ack returns the
-tail-start offset (NO snapshot), so `GET(offset)→subscribe(from)` composes
-gap-free and duplicate-free — a full `Conversation` never rides the shared
-socket (a rotation can target a large resumed session; pushing it over `/ws/state`
-would break D5's bounded-event-size rationale). The `chatStream` SSE machinery,
-`handleChatStream`, `emitChatUpdate`, the `writeSSE*` helpers, and the adapter's
-self-priming `Tail` were retired in the same change (§ Live stream = `kind:"chat"`
-subscription; § Design Decisions). UNTOUCHED: the GET backfill (beyond the offset
-field), the whole send path, `POST /keys`, and the parser/schema.
+The frontend consumer is the `chat` LENS: a read-only HTML view over the SAME
+agent pane, addressed by a `?view=chat` search param on the existing
+`/$server/$window` terminal route (Constitution IV — no new route). It renders the
+streamed transcript with nothing cached beyond React state that dies with the
+view. Its view-state plumbing (the `?view=` param, ViewSwitcher chip, value-bearing
+localStorage, palette/`Ctrl+`` parity, chat-health connection dot) is the shared
+lens machinery in [ui-patterns](/run-kit/ui-patterns.md) § Window Views (Lens
+Model) / § Chat View; the top-bar center heading reads a static `Window: <window>`
+in every lens (lens indication belongs to the L1 ViewSwitcher). The § Chat View
+Frontend requirements below own only the DATA-layer consumer half (schema types,
+subscription lifecycle, renderer). The push deep-link URL + service-worker
+navigation lives in [architecture](/run-kit/architecture.md) § Web Push
+Notifications.
 
 ## Requirements
 
@@ -141,22 +116,20 @@ guarded by a `sync.RWMutex`, `Register`/`Lookup`, and the `ErrNoAdapter`
 sentinel. Lookup is by the `@rk_chat` provider prefix; a well-formed but
 unregistered provider returns `ErrNoAdapter` (the API layer maps it to a
 404-class JSON error, so presence-gating stays provider-agnostic and
-codex/gemini adapters are additive). v1 registers `claude` from `claude.go`'s
-`init()`. **The self-priming `Tail(ctx, ref)` method was removed from the
-interface by `260717-vhvz`** (superseded by `TailFrom` — see § Live stream and
-§ Design Decisions → `TailFrom` supersedes `Tail`).
+codex/gemini adapters are additive). The one registered provider is `claude`, from
+`claude.go`'s `init()`. Tail is exposed as `TailFrom` (§ Design Decisions →
+`TailFrom` supersedes the self-priming `Tail`).
 
 **`Update` (the tail increment)**: exactly one shape per Update — `Events`
 (newly-appended events; `Pending` carries the current pending state AFTER them,
-emitted as `chat`+`chat-state`) OR `Reset: true` (a bounded shrink signal). Under
-`TailFrom`, a **`Reset` is a bounded SHRINK/rewrite signal only** — its `Conv` is
-always nil (`260717-vhvz`: the producer maps `Reset`→`chat-reset`, no transcript
-payload); the full-`Conv`-Reset first-emission contract died with the self-priming
-`Tail`. `TailFrom(ref, from)` primes parser state by parsing bytes `0..from`
-(discarded), then emits ONLY bytes `≥ from` as `Events` — its first emission is
-NOT a full backfill (the backfill came from the GET, D5). *(Deletion candidate,
-recorded by review: `Update.Conv` now has no producer that populates it and no
-production reader — only tests assert it is nil; a follow-up may remove the field.)*
+emitted as `chat`+`chat-state`) OR `Reset: true`. Under `TailFrom`, a **`Reset` is
+a bounded SHRINK/rewrite signal** — its `Conv` is always nil (the producer maps
+`Reset`→`chat-reset`, no transcript payload). `TailFrom(ref, from)` primes parser
+state by parsing bytes `0..from` (discarded), then emits ONLY bytes `≥ from` as
+`Events` — its first emission is NOT a full backfill (the backfill came from the
+GET, D5). *(Deletion candidate, recorded by review: `Update.Conv` has no producer
+that populates it and no production reader — only tests assert it is nil; a
+follow-up may remove the field.)* (260717-vhvz)
 
 #### Scenario: Unregistered provider returns the sentinel
 - **GIVEN** a chat ref with an unregistered provider (`codex` in v1)
@@ -208,7 +181,7 @@ renders).
 - **THEN** it yields only the conversational events, skips the rest without error,
   and the malformed-line count is > 0.
 
-### Requirement: `TailFrom(ctx, ref, from)` — prime-then-emit offset tail (`260717-vhvz`)
+### Requirement: `TailFrom(ctx, ref, from)` — prime-then-emit offset tail
 The adapter SHALL expose `TailFrom(ctx, ref, from int64) (<-chan Update, error)`
 (the `tailFromLoop`) that **primes parser state by parsing bytes `0..from` and
 DISCARDS those events** (turn counter + pending continuity require the full-file
@@ -216,7 +189,7 @@ walk — backfill and the tail share one `parser`), then emits ONLY bytes `≥ f
 as `Events` updates and stat-polls the file at the named `tailPollInterval = 400ms`
 cadence (**no fsnotify** — one stat per tick per open stream is negligible and
 dependency-free) for the life of the stream. Its first emission is NOT a full-`Conv`
-`Reset` (the backfill came from the GET, D5 — this retired the self-priming `Tail`).
+`Reset` (the backfill came from the GET, D5).
 On **growth** (`size > offset`) it reads from the offset and `consume` parses ONLY
 complete (newline-terminated) lines — a partial final line without a trailing
 newline is held (its bytes excluded from the consumed count) until its newline
@@ -241,13 +214,13 @@ beyond the per-connection offset** (Constitution II). Because priming replays
 `handleChatBackfill` SHALL validate the `{windowId}` (`parseWindowID`, `400` on
 malformed), resolve the window's **reconciled** `@rk_chat` rollup server-side via
 `resolveWindowChat` (`FetchSessions` + a window lookup by stable `WindowID`,
-reading the rolled-up `ChatProvider`/`ChatSessionRef` — Change 1's active-pane-
-first / else-first-pane rule), route to the provider adapter, and return
-`{"provider","sessionRef","events","pending","offset"}` as JSON. **The additive
-`offset` field (`260717-vhvz`)** carries the transcript byte offset the backfill
-parse read up to — `Backfill` populates it from `backfillFromPath`'s end offset
-(which it formerly discarded). It supplies the state-socket subscribe's `from`, so
-`GET(offset)→subscribe(from)` composes gap-free/duplicate-free (§ Live stream).
+reading the rolled-up `ChatProvider`/`ChatSessionRef` by the active-pane-first /
+else-first-pane rule), route to the provider adapter, and return
+`{"provider","sessionRef","events","pending","offset"}` as JSON. The **`offset`
+field** carries the transcript byte offset the backfill parse read up to —
+`Backfill` populates it from `backfillFromPath`'s end offset. It supplies the
+state-socket subscribe's `from`, so `GET(offset)→subscribe(from)` composes
+gap-free/duplicate-free (§ Live stream). (260717-vhvz)
 It NEVER trusts a client-supplied ref (URLs carry no session UUIDs). It is a GET
 (Constitution IX) and curl-able. `resolveWindowChat` distinguishes a
 **FetchSessions failure**
@@ -260,11 +233,11 @@ It NEVER trusts a client-supplied ref (URLs carry no session UUIDs). It is a GET
 - **WHEN** a client GETs the backfill route
 - **THEN** it returns `200` with the conversation as rk-schema JSON.
 
-## Live stream — `kind:"chat"` subscription on `/ws/state` (`260717-vhvz-chat-on-state-socket`)
+## Live stream — `kind:"chat"` subscription on `/ws/state`
 
-The live incremental stream is a subscription kind on the state socket, NOT a
-dedicated SSE endpoint (retired — § Design Decisions → Chat live stream on the
-state socket). The backend lives in `app/backend/api/chat_ws.go`; the wire
+The live incremental stream is a subscription kind on the state socket
+(§ Design Decisions → Chat live stream on the state socket). The backend lives in
+`app/backend/api/chat_ws.go`; the wire
 envelope + `stateSubscribe`/`stateUnsubscribe` dispatch are in
 [architecture](/run-kit/architecture.md) § State Socket. The `kind:"chat"` arm
 does NOT join the tmux poll set — transcript appends generate no tmux events (the
@@ -293,14 +266,13 @@ the prior producer (new `from` → fresh tail).
   begins emitting `kind:"chat"` events from byte `from` onward.
 
 ### Requirement: chat events — verbatim `chat`/`chat-state` + lightweight `chat-reset`
-The producer SHALL emit `kind:"chat"` `event` frames whose `type`/`data` are
-BYTE-IDENTICAL to the retired SSE bodies for the surviving events: `chat`
-(`ChatEvent[]` — appended events) and `chat-state` (`{pending}`, always emitted
-incl. `null`). On rotation/shrink it SHALL emit a NEW lightweight `chat-reset`
+The producer SHALL emit `kind:"chat"` `event` frames with two data-bearing types:
+`chat` (`ChatEvent[]` — appended events) and `chat-state` (`{pending}`, always
+emitted incl. `null`). On rotation/shrink it SHALL emit a lightweight `chat-reset`
 (`data:{}`, no transcript payload — a rotation can target a large resumed session,
 so pushing a `Conversation` over the shared socket would break D5's
 bounded-event-size rationale; the client re-runs its GET-backfill→subscribe on
-reset). `chat-backfill` SHALL NOT ride the socket (backfill is the GET's job now).
+reset). `chat-backfill` SHALL NOT ride the socket (backfill is the GET's job).
 A `chat-error` (`{error}`) constant exists as **client-facing protocol tolerance**
 (the hook renders it inline) but **the producer never emits it today** — every
 failure path converges via DORMANT→`chat-reset` or the subscribe-time `error`
@@ -367,18 +339,16 @@ The **GET backfill** SHALL return, as JSON error objects (`writeError` shape):
 a live ref — because the client only ever supplies a windowID, a bad ref is a
 property of the reconciled `@rk_chat`, not a server fault; any other adapter read
 error is a `500`. On the **state-socket subscription**, the equivalent
-subscribe-time failures become an `error` frame carrying `req` (above), and a
+subscribe-time failures surface as an `error` frame carrying `req` (above), and a
 transient/not-yet tail failure goes DORMANT (converging via `chat-reset`) rather
-than surfacing a terminal error — the retired SSE's post-header
-`event: chat-error` best-effort frame is gone with `writeSSEError`.
+than surfacing a terminal error — there is no terminal `chat-error` frame.
 
-> **Residual (should-fix, OPEN — recorded at hydrate).** A subscribe `error`
+> **Residual (should-fix, OPEN).** A subscribe `error`
 > frame is currently **swallowed client-side**: the R5-path transient resolve
 > fault (a fault between the GET backfill and the async producer resolve) leaves
 > the lens wedged un-acked (gray dot, no inline error, no retry) until a lens
-> toggle or socket reconnect — the retired SSE self-healed via `EventSource`
-> auto-reconnect. Fix direction: route `req`-mapped error frames through the chat
-> handler seam so the hook sets `error` or re-composes.
+> toggle or socket reconnect. Fix direction: route `req`-mapped error frames
+> through the chat handler seam so the hook sets `error` or re-composes.
 >
 > **Residual protocol races (record-only).** (1) Byte offsets carry no file
 > identity, so a rotation landing in the GET→subscribe window onto an EXISTING
@@ -390,7 +360,7 @@ than surfacing a terminal error — the retired SSE's post-header
 > from server A's `@1` can route into server B's `@1` lens in a narrow reorder
 > window — self-heals on the next backfill REPLACE.
 
-## Send Path (`260714-jdyg-chat-send`)
+## Send Path
 
 The mutating half of the subsystem: a single `POST` endpoint that injects a typed
 message into the window's resolved agent pane. It reuses the read side's
@@ -570,13 +540,12 @@ window-targeted `/keys` helper) is untouched.
 - **THEN** the full 400/404/409/500/200 matrix, injection order, and
   no-Enter-on-probe-failure are exercisable with no live claude pane.
 
-## Chat View Frontend (`260714-r7rq-chat-read-frontend`, send form `260714-jdyg-chat-send`)
+## Chat View Frontend
 
 The read-only frontend consumer of the backend contract above. The pure schema
 + derivation helpers live in `app/frontend/src/lib/chat-stream.ts`; the
 subscription lifecycle in `app/frontend/src/hooks/use-chat-subscription.ts`
-(**successor to the retired `use-chat-stream.ts`**, `260717-vhvz` — same return
-shape, GET-backfill→state-socket-subscribe instead of an `EventSource`); the
+(GET-backfill→state-socket-subscribe); the
 renderer in `app/frontend/src/components/chat-view.tsx`. The view-state
 plumbing (the `?view=` param, ViewSwitcher chip, heading, value-bearing
 persistence, palette, `Ctrl+`` shortcut, connection dot) is the UNIFIED lens
@@ -589,14 +558,12 @@ one-to-one: `ChatEvent` (`type`/`id?`/`turn`/`role?`/`text?`/`toolUseId?`/
 `toolName?`/`toolInput?: unknown`/`toolOutput?`/`isError?`/`ts?` — every field
 except `type`/`turn` optional, matching the backend `omitempty`), `ChatPending`
 (`toolUseId?`/`toolName?`/`text?`), and `Conversation` (`{provider, sessionRef,
-events, pending, offset}`, `pending` nullable; **`offset: number`** added by
-`260717-vhvz` — the backfill byte offset the subscription tails `from`).
-`toolInput` is typed `unknown` (verbatim
-provider JSON, rendered pretty-printed) — type narrowing over `as` casts
-(code-quality Frontend rule). No client parsing change was needed for the
-`WindowInfo` gate fields — the backend already emits `chatProvider`/
-`chatSessionRef` on every `/api/sessions` response + SSE `sessions` event; Change
-3 only *typed* them on `WindowInfo` (`types.ts`).
+events, pending, offset}`, `pending` nullable; `offset: number` is the backfill
+byte offset the subscription tails `from`). `toolInput` is typed `unknown`
+(verbatim provider JSON, rendered pretty-printed) — type narrowing over `as` casts
+(code-quality Frontend rule). The `WindowInfo` gate fields `chatProvider`/
+`chatSessionRef` are typed on `WindowInfo` (`types.ts`); the backend emits them on
+every `/api/sessions` response + SSE `sessions` event, needing no client parsing.
 
 #### Scenario: An event with no `id` is still rendered
 - **GIVEN** a `ChatEvent` whose optional `id` is absent
@@ -630,10 +597,9 @@ unit-tested without an `EventSource` or a mounted component (mirroring the
 - **THEN** it returns exactly one `ToolCard` joining them, and the renderer
   draws one collapsible card (the paired `tool_result` is not drawn separately).
 
-### Requirement: `useChatSubscription` hook (`use-chat-subscription.ts`, `260717-vhvz`)
-`useChatSubscription(server, windowId)` (the successor to the retired
-`useChatStream`/`use-chat-stream.ts`) SHALL return the SAME shape
-`{events, pending, connected, error}` consumed unchanged by `app.tsx`/`ChatView`.
+### Requirement: `useChatSubscription` hook (`use-chat-subscription.ts`)
+`useChatSubscription(server, windowId)` SHALL return the shape
+`{events, pending, connected, error}` consumed by `app.tsx`/`ChatView`.
 It drives its lifecycle through the `session-context` chat seam
 (`subscribeChat`/`unsubscribeChat`/`registerChatHandlers`/`socketConnected`) — it
 holds NO socket handle (R11). On chat-lens enter it **composes fetch→subscribe**
@@ -676,9 +642,9 @@ subscription acked)`, keeping the established 3s disconnect debounce.
 ### Requirement: Read-only renderer (`chat-view.tsx`)
 `ChatView` SHALL be a **pure renderer over passed stream state** (`{events,
 pending, connected, error}`) — `AppShell` owns the single owner-hook call
-(`useChatSubscription` since `260717-vhvz`, was `useChatStream`) so ONE chat
-subscription feeds both the renderer and the connection dot (§ Web Push
-/ ui-patterns § Chat View). It renders in the house aesthetic (monospace,
+(`useChatSubscription`) so ONE chat subscription feeds both the renderer and the
+connection dot (§ Web Push / ui-patterns § Chat View). It renders in the house
+aesthetic (monospace,
 three-mode theme tokens, animation behind `prefers-reduced-motion`):
 - **Message bubbles** grouped by `turn` (`groupEventsByTurn`), user vs assistant
   visually distinct (right/left, distinct backgrounds); markdown + fenced code
@@ -697,9 +663,7 @@ three-mode theme tokens, animation behind `prefers-reduced-motion`):
 - **Streaming** — stick-to-bottom auto-follow (a `stickRef` gated on ~40px
   from-bottom + a `useLayoutEffect` on `[events, pendingBubble]`) unless the user
   has scrolled up.
-- **Send form footer** — a `shrink-0` `ChatSendForm` (§ Send-form input box,
-  `260714-jdyg-chat-send`); it REPLACED the earlier read-only disabled footer
-  (the `chat-send-disabled` testid is gone).
+- **Send form footer** — a `shrink-0` `ChatSendForm` (§ Send-form input box).
 - **`chat-error`** — an inline `role="alert"` error state.
 
 #### Scenario: Markdown bubble, collapsed tool card, tail pending
@@ -710,9 +674,9 @@ three-mode theme tokens, animation behind `prefers-reduced-motion`):
   expands on click, and the pending bubble shows at the tail and clears when
   `pending` becomes null.
 
-### Requirement: Send-form input box — pure `ChatSendForm`, AppShell-wired (`260714-jdyg-chat-send`)
+### Requirement: Send-form input box — pure `ChatSendForm`, AppShell-wired
 `ChatView` SHALL stay a **pure component over passed props**. A `ChatSendForm`
-child replaces the read-only disabled footer; `AppShell` supplies an
+child is the footer; `AppShell` supplies an
 `onSend(text): Promise<void>` callback (wrapping the `sendChatMessage(server,
 windowId, text)` client — `client.ts`, POSTs `{text}` via the shipped
 `withServer` + `throwOnError` shape so the server's structured error, including the
@@ -784,70 +748,27 @@ changes.
 `/api/windows/{windowId}/*` route, `?server=` query); the backend re-resolves the
 reconciled `@rk_chat` rollup server-side per request/tick.
 **Why**: URLs carry no session UUIDs, and the backend never trusts a
-client-supplied ref over the reconciler — the same reconciliation Change 1 applied
-in `FetchSessions`.
+client-supplied ref over the reconciler — the same reconciliation `FetchSessions`
+applies.
 **Rejected**: Ref-in-URL (stale/spoofable).
 *Introduced by*: `260714-pmfh-chat-read-backend`
 
-### Dedicated per-view SSE endpoint, not the sessions hub *(SUPERSEDED by `260717-vhvz`)*
-**Decision**: The live stream is its own SSE endpoint, not a scope on the shared
-sessions hub.
-**Why**: The hub wakes on tmux control-mode events + a 12s safety ticker, and
-transcript appends generate NO tmux events — the hub would need a new wake source
-either way. A chat stream exists only while a chat view is open (+1 bounded
-connection per open view, well inside the 6-per-origin plaintext budget that bit
-the board route; board-pane chat is out of scope plan-wide), keeping the
-per-connection byte offset stream-scoped (Constitution II).
-**Rejected**: A scope on the shared hub.
-**SUPERSEDED by `260717-vhvz-chat-on-state-socket`** (Chat live stream on the
-state socket, below): the "+1 bounded connection per open view" was exactly the
-last SSE pool slot socket-unification exists to eliminate. Chat is now a
-`kind:"chat"` subscription on `/ws/state` — NOT a scope on the sessions
-poll set (it still has no tmux event source, so it owns a per-subscription
-producer goroutine), which honors this decision's real insight (chat needs its
-own wake source) while dropping the dedicated socket.
-*Introduced by*: `260714-pmfh-chat-read-backend`
-
 ### Reset-on-reconnect stream contract (no cursor)
-**Decision**: Connect ⇒ full backfill, then `chat`/`chat-state` appends;
-reconnect (or an `rk serve` restart mid-conversation) = full re-derive from disk.
+**Decision**: The stream carries no per-event resume cursor. The owner hook
+re-runs GET-backfill→subscribe on socket reconnect (or an `rk serve` restart
+mid-conversation) and on `chat-reset` — a full re-derive from disk composed with
+`subscribe(from:offset)`.
 **Why**: Matches the plan acceptance ("loses nothing — full re-derive on
 reconnect") and avoids a backfill/tail gap race; the only retained state is the
 per-connection byte offset, which dies with the connection.
 **Rejected**: A cursor protocol (additive later).
-**Carried forward by `260717-vhvz`**: the no-cursor reset contract HOLDS on the
-state socket — the owner hook re-runs GET-backfill→subscribe on socket reconnect
-(and on `chat-reset`) instead of a per-event resume cursor. The mechanism changed
-(the connect-time `chat-backfill` SSE event became the demoted GET, composed with
-`subscribe(from:offset)`); the contract did not.
 *Introduced by*: `260714-pmfh-chat-read-backend`
 
-### Dedicated per-view `EventSource` on the frontend, not the sessions pool *(SUPERSEDED by `260717-vhvz`)*
-**Decision**: `useChatStream` opens its OWN `EventSource` per open chat view,
-distinct from the per-server sessions SSE pool.
-**Why**: Matches the backend's dedicated per-view stream design (§ Dedicated
-per-view SSE endpoint) and keeps within the 6-per-origin plaintext budget — one
-bounded connection that exists only while a chat view is open (board-pane chat
-is out of scope plan-wide, so at most one per tab). The sessions pool carries no
-transcript-append signal, so scoping onto it would need a new event source
-anyway.
-**Rejected**: A scope on the shared sessions hub (would bloat its dedup/order
-machinery with transcript text and couple chat cadence to structural ticks).
-**SUPERSEDED by `260717-vhvz-chat-on-state-socket`**: `use-chat-stream.ts` was
-DELETED for `use-chat-subscription.ts`, which holds NO `EventSource` — it drives
-a `kind:"chat"` subscription on the singleton `StateSocket` through the
-`session-context` seam. The "one bounded connection per open view" this decision
-sought became ZERO extra connections (chat rides the state socket the tab already
-holds). The insight that the sessions pool carries no transcript signal survives
-as the per-subscription producer goroutine backend-side.
-*Introduced by*: `260714-r7rq-chat-read-frontend`
-
-### `react-markdown` + `remark-gfm` — the frontend's first markdown renderer
-**Decision**: Render message-bubble markdown via `react-markdown` + `remark-gfm`
-(net-new deps — the frontend had no markdown renderer), scoped to a
-`.chat-markdown` wrapper whose typography rules live in `globals.css`; code
-blocks render as plain monospace `<pre>` with no syntax-highlighting dependency
-in v1.
+### `react-markdown` + `remark-gfm` — the frontend's markdown renderer
+**Decision**: Render message-bubble markdown via `react-markdown` + `remark-gfm`,
+scoped to a `.chat-markdown` wrapper whose typography rules live in `globals.css`;
+code blocks render as plain monospace `<pre>` with no syntax-highlighting
+dependency in v1.
 **Why**: React-idiomatic, no `dangerouslySetInnerHTML` (no XSS surface),
 swappable behind the one `MarkdownText` component. Under Tailwind v4 preflight
 the raw markdown elements render flat (zero margins, no list bullets, uniform
@@ -855,27 +776,23 @@ heading size), so the `.chat-markdown` globals.css rules are load-bearing — th
 restore document flow (paragraph/list/heading/blockquote/table spacing, disc/
 decimal list markers) in the house monospace aesthetic (headings sized by weight
 + color, not scale jumps), all riding the theme custom properties so both light
-and dark are covered. *(This was a review rework: the first cut shipped the class
-with no CSS rules.)*
+and dark are covered.
 **Rejected**: A raw-HTML markdown lib (XSS); a syntax-highlighter dependency
 (v1 minimal-deps ethos — the terminal aesthetic is plain monospace).
 *Introduced by*: `260714-r7rq-chat-read-frontend`
 
 ### `ChatView` is a pure renderer; `AppShell` owns the single owner-hook
-**Decision**: `AppShell` calls the owner hook once (only when the chat view is
-actually active for a chat-capable window) and passes `{events, pending,
-connected, error}` into `ChatView` as props; `ChatView` opens no stream itself.
+**Decision**: `AppShell` calls the owner hook (`useChatSubscription`) once (only
+when the chat view is actually active for a chat-capable window) and passes
+`{events, pending, connected, error}` into `ChatView` as props; `ChatView` opens
+no stream itself.
 **Why**: ONE owner-hook feeds BOTH the renderer AND the connection-dot health
 (ui-patterns § Chat View → the dot reports chat health in chat mode) — a
 second hook would desync the two health readings.
 **Rejected**: `ChatView` owning its own hook (two subscriptions, desynced dot).
-**Carried forward by `260717-vhvz`**: the single-owner-hook shape is UNCHANGED —
-`260717-vhvz` swapped `useChatStream` → `useChatSubscription` at the same call
-site (call-site-only; `ChatView` was not touched). "ONE `EventSource`" is now
-"ONE chat subscription on the shared state socket".
 *Introduced by*: `260714-r7rq-chat-read-frontend`
 
-### Chat live stream on the state socket, backfill demoted to the GET (`260717-vhvz`)
+### Chat live stream on the state socket, backfill demoted to the GET
 **Decision**: The chat live stream is a `kind:"chat"` subscription on `/ws/state`,
 not a dedicated SSE endpoint. Backfill demotes to the existing
 `GET /api/windows/{id}/chat` (which gains an additive byte `offset`); the subscribe
@@ -895,20 +812,19 @@ session — D5); pushing the full backfill on `chat-reset` (same); merging `/ws/
 and `/ws/terminals` (D6, decided against plan-wide).
 *Introduced by*: `260717-vhvz-chat-on-state-socket`
 
-### `TailFrom(from)` supersedes the self-priming `Tail` (`260717-vhvz`)
-**Decision**: The adapter exposes `TailFrom(ctx, ref, from)` (primes `0..from`
-discarding those events, then emits ONLY bytes `≥ from`); the self-priming
-`Tail` (whose first Update was a full-`Conv` `Reset`) is REMOVED from the `Adapter`
-interface with its sole SSE consumer. Under `TailFrom`, `Reset` is a bounded
-SHRINK signal with `Conv` always nil.
-**Why**: `Tail`'s first-`Reset`-with-`Conv` contract existed only to drive the SSE
-stream's `chat-backfill`; with backfill demoted to the GET, the tail's job is
-purely "emit bytes ≥ from". Keeping `Tail` alongside `TailFrom` would be dead code
-(the interface method would have no caller).
-**Rejected**: keeping both methods on the interface.
+### `TailFrom(from)` is the sole tail method (no self-priming `Tail`)
+**Decision**: The adapter exposes only `TailFrom(ctx, ref, from)` (primes `0..from`
+discarding those events, then emits ONLY bytes `≥ from`); the `Adapter` interface
+carries no self-priming `Tail` whose first Update is a full-`Conv` `Reset`. Under
+`TailFrom`, `Reset` is a bounded SHRINK signal with `Conv` always nil.
+**Why**: The tail's job is purely "emit bytes ≥ from" — backfill is the GET's job,
+so the tail never needs to prime a first-`Reset`-with-`Conv`. A self-priming `Tail`
+alongside `TailFrom` would be dead code (no caller once backfill is the GET's).
+**Rejected**: keeping both methods on the interface (the `Tail` method would have
+no caller).
 *Introduced by*: `260717-vhvz-chat-on-state-socket`
 
-### Rotation goes DORMANT, never re-tails from 0 (rework MUST-FIX, `260717-vhvz`)
+### Rotation goes DORMANT, never re-tails from 0
 **Decision**: On a rotation (~2s re-resolve sees a fresh ref) or a shrink, the
 per-subscription producer CANCELS the tail and goes DORMANT — it does NOT re-tail
 the new ref from `0`. It emits a single `chat-reset` ONLY once the rotated-to
@@ -929,7 +845,7 @@ flushed on drain) so a lost frame converges by re-composition, never a permanent
 `chat-reset` before the transcript exists (404-wedges the client's re-compose).
 *Introduced by*: `260717-vhvz-chat-on-state-socket`
 
-### One guarded `compose` shared by mount + reconnect (rework MUST-FIX, `260717-vhvz`)
+### One guarded `compose` shared by mount + reconnect
 **Decision**: `useChatSubscription` hoists ONE guarded `compose` (behind a
 `composeRef` carrying the current generation, with `gen`/`cancelled` guards) reused
 by both the mount effect and the socket-reconnect effect.
@@ -944,7 +860,7 @@ identity.
 **Rejected**: an inline unguarded reconnect compose (the leak above).
 *Introduced by*: `260717-vhvz-chat-on-state-socket`
 
-### `chat-error` is protocol tolerance, currently never emitted (`260717-vhvz`)
+### `chat-error` is protocol tolerance, currently never emitted
 **Decision**: `chat-error` (`{error}`) stays in the client-facing protocol (the hook
 renders it inline) but the producer NEVER emits it today — every failure path
 converges via subscribe-time `error` frame (carrying `req`) or DORMANT→`chat-reset`.
@@ -1045,21 +961,4 @@ timeout.
 case; the code-review 5s route-blocking rule requires one bounded deadline. Deriving
 from the request context also cancels the tmux subprocesses on client disconnect.
 **Rejected**: independent per-primitive timeouts (unbounded route block).
-*Introduced by*: `260714-jdyg-chat-send`
-
-### Follow-ups (non-blocking, recorded at hydrate)
-Recorded for a later change, accepted as non-blocking by review:
-- **Control-byte sanitization of `body.Text`** (should-fix, OPEN): the send handler
-  does not strip C0 control bytes from the message before the buffer paste — a
-  bracketed paste neutralizes the common cases, but a defensive sanitize is the
-  clean fix. Not yet implemented.
-- **Long-single-line paste-collapse assumption** (unverified): the probe only counts
-  the paste-collapse placeholder for MULTILINE text, on the assumption a long
-  single line does not collapse into the chip; not empirically re-verified across
-  TUI widths.
-- **`sendKeys` client wrapper** — a pre-existing zero-production-caller deletion
-  candidate (`app/frontend/src/api/client.ts`; the backend `/keys` endpoint stays —
-  possible external callers — only the frontend wrapper + its test are candidates).
-  Not made redundant *by* this change; chat-send provides the pane-targeted
-  alternative for the only contemplated UI use.
 *Introduced by*: `260714-jdyg-chat-send`

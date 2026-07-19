@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "run-kit's shll-toolkit-standards conformance posture — constitution binding (§ Toolkit Standards), audit-against-HEAD-build rule, per-standard status @ shll v0.0.23 (help-dump: envelope fixed; readme-extraction: 2 closure fixes + shll-toolkit rename blockquote via 260718-oa9b; principles: P1/P2/P5 at c424, P4 via 260717-rex1, P9 via 260717-f8yv; skill: PASS + topic pages via 260718-icxz, `rk context` retired for `rk url`)."
+description: "run-kit's shll-toolkit-standards conformance posture — constitution binding (§ Toolkit Standards), audit-against-HEAD-build rule, per-standard status @ shll v0.0.23. help-dump, readme-extraction, skill, and all ten principles PASS; skill has topic pages (`rk skill display`), `rk context` retired for `rk url`; Principle 9 bounded/high-signal output via `--quiet` + reaper display cap."
 ---
 # Toolkit Standards Conformance
 
@@ -9,30 +9,30 @@ description: "run-kit's shll-toolkit-standards conformance posture — constitut
 ## Overview
 
 run-kit is one of the shll toolkit CLIs, and its constitution
-(§ Toolkit Standards, added v1.6.0 by `260717-zn03-constitution-toolkit-standards`,
-PR #379) binds it to the toolkit's published standards — the set enumerated at
-runtime by `shll standards`, each readable with `shll standards <name>`. This
-file records the **conformance posture** established when that binding was first
-audited: which standards exist, how run-kit was measured against each, what was
-fixed, and what was deferred. It is the baseline a future re-audit diffs against.
+(§ Toolkit Standards, v1.6.0) binds it to the toolkit's published standards — the
+set enumerated at runtime by `shll standards`, each readable with
+`shll standards <name>`. (`260717-zn03-constitution-toolkit-standards`, PR #379.)
+This file records the **conformance posture**: which standards exist, how run-kit
+is measured against each, what was fixed, and what was deferred. It is the
+baseline a future re-audit diffs against.
 
-The audit + proportionate fixes landed in
-`260717-c424-toolkit-standards-conformance`. The deliverable — a per-standard
-conformance report — ships in that change's **PR body only** (lifted from
-`fab/changes/260717-c424-toolkit-standards-conformance/conformance-report.md` at
-ship), not as a committed doc under `docs/`; there is no named consumer for a
+The per-standard conformance report is **not** a committed doc under `docs/`: it
+lives in the change folder
+(`fab/changes/260717-c424-toolkit-standards-conformance/conformance-report.md`)
+and is lifted into the **PR body only** at ship. There is no named consumer for a
 parallel in-repo copy, so committing one would only invite drift.
+(`260717-c424-toolkit-standards-conformance`.)
 
 ## Requirements
 
 ### Requirement: Audit against a HEAD build, never the installed brew binary
 Conformance MUST be assessed against a build of the repo at HEAD
 (`just build` → `bin/rk`, source `app/backend/cmd/rk/`), NOT the installed
-Homebrew `rk`. The installed binary lags the tree — at the c424 audit it was
+Homebrew `rk`. The installed binary lags the tree — at the audit it was
 brew `rk` v3.7.2, which rejects `rk skill` (a standard adopted at HEAD by
 PR #381) and would false-negative an already-conformant surface. The canonical
 command name is `run-kit`; `rk` is the permanent short alias (both invoke the
-same binary).
+same binary). (`260717-c424-toolkit-standards-conformance`.)
 
 #### Scenario: A standard adopted at HEAD but absent from the installed binary
 - **GIVEN** the `skill` standard, adopted at HEAD (`rk skill` + `docs/site/skill.md`)
@@ -44,8 +44,7 @@ same binary).
 run-kit's CLI SHALL conform to toolkit Principle 9 (bounded, high-signal output):
 unbounded surfaces carry explicit caps stated in the output, and what survives
 `--quiet` is the data and the errors — never progress, decoration, or chatter.
-This closes the P9 gap the c424 audit deferred as restructural (backlog **[f8yv]**,
-resolved by `260717-f8yv-cli-output-volume-controls`).
+(`260717-f8yv-cli-output-volume-controls`.)
 
 The shipped posture (mechanism lives in
 [architecture](/run-kit/architecture.md) § CLI Subcommands — the `outputSink`
@@ -66,10 +65,9 @@ convention plus the per-command rows):
   gating is unit-testable — the idiom `doctor.go`/`agent_setup.go` already used.
 - **Three commands adopt the sink** (the audit-named chatter carriers): `update`
   (`upgrade.go`), `doctor` (`doctor.go`), `agent-setup` (`agent_setup.go`).
-  Adopting the convention re-routes `update`'s former stdout progress lines onto
-  stderr on non-quiet runs — an intentional consequence of "decide the convention
-  once", aligning with Principle 2 (stdout is data).
-- **A consent-mode diff-routing nuance in `agent-setup`** (cycle-1 rework): the
+  `update`'s progress lines route to stderr on non-quiet runs — a consequence of
+  "decide the convention once", aligning with Principle 2 (stdout is data).
+- **A consent-mode diff-routing nuance in `agent-setup`**: the
   settings diff routes **per consent mode** via `consent.diffWriter` — on the
   interactive-prompt and `--dry-run` paths it is **data** (never gated: a consent
   prompt without the diff it asks about is a dark pattern, and a dry-run's diff is
@@ -77,7 +75,7 @@ convention plus the per-command rows):
   it is **chatter**, so `--yes --quiet` is fully silent on success while `--yes`
   non-quiet still shows the diff on stderr. The interactive prompt itself and the
   non-TTY refusal are never gated (the refusal is an error).
-- **A brew-stderr-in-error nuance in `update`** (cycle-1 rework): under `--quiet`
+- **A brew-stderr-in-error nuance in `update`**: under `--quiet`
   the suppressed brew subprocess stderr is **buffered** (not discarded) and, on a
   non-zero exit, wrapped into the returned error, so a failing `rk update --quiet`
   keeps its diagnostic detail rather than surfacing a bare `exit status 1`.
@@ -112,8 +110,7 @@ convention plus the per-command rows):
 Each audit MUST re-run `shll standards` for the authoritative list and
 `shll standards <name>` for each entry's full text — never work from memory or
 the website. If `shll standards` fails, run `shll update` once; if it still
-fails, STOP and report. The precondition passed at the c424 audit (exit 0, no
-update needed).
+fails, STOP and report.
 
 ## Standards Audited @ shll v0.0.23
 
@@ -128,111 +125,92 @@ meaningful against a named version. `shll standards` enumerated four:
 | `readme-extraction` | repo | README + `docs/site/` structure |
 | `skill` | binary+repo | the `<tool> skill` agent-bundle contract |
 
-**Version-drift note**: shll moved `v0.0.23` → `v0.1.0` between the audit and the
-c424 review. The four cited standards were spot-checked and are **unchanged**
-across that bump, so every conformance claim stays pinned at the audited
-**`shll v0.0.23`**.
+**Version-drift note**: shll has since moved `v0.0.23` → `v0.1.0`. The four cited
+standards are **unchanged** across that bump, so every conformance claim stays
+pinned at the audited **`shll v0.0.23`**.
 
 ### help-dump — PASS (1 violation fixed)
-The only violation was the envelope shape: it emitted `captured_at`, which the
-standard forbids as a rule "with teeth" (the capture timestamp is owned by the
-shll.ai puller — a tool cannot know its own capture time). **Fixed here**: the
-envelope is now exactly `{tool, version, schema_version, root}` (see
-[architecture](/run-kit/architecture.md) § CLI Subcommands, `help-dump` row —
-the `dump` struct dropped `CapturedAt` and the `nowUTC`/`time` plumbing). The
-rest of the checklist already passed and still does: exit 0, stdout-only JSON,
-stderr empty, no `completion`/`help`/hidden nodes, `version` from the built
-binary (ldflags). Re-verified after the flag-adding principle fixes changed the
-command tree (R8).
+The envelope is exactly `{tool, version, schema_version, root}` (see
+[architecture](/run-kit/architecture.md) § CLI Subcommands, `help-dump` row). It
+carries **no** `captured_at` — the standard forbids it as a rule "with teeth" (the
+capture timestamp is owned by the shll.ai puller; a tool cannot know its own
+capture time). The rest of the checklist passes: exit 0, stdout-only JSON, stderr
+empty, no `completion`/`help`/hidden nodes, `version` from the built binary
+(ldflags), re-verified against the flag-added command tree (R8).
+(`260717-c424-toolkit-standards-conformance`.)
 
 *Nuance, not a violation*: the `version` field is `v`-prefixed (`v3.8.0`); the
 standard's example shows bare semver but its text mandates only "from the built
 binary", and `shll version` itself renders `v`-prefixed rows — left as-is.
 
 ### readme-extraction — PASS (2 closure violations fixed)
-Both violations were **closure** escapes — a relative link leaving the published
-set (the README slice + `docs/site/**`) 404s on the rendered shll.ai page:
-- `README.md` linked `docs/specs/agent-state.md` relatively (a path outside the
-  published set) — **fixed** to the absolute
+Closure holds: every relative link stays inside the published set (the README
+slice + `docs/site/**`), so none 404s on the rendered shll.ai page. The two links
+that would have escaped are absolute:
+- `README.md`'s link to `docs/specs/agent-state.md` (outside the published set) is
+  the absolute
   `https://github.com/sahil87/run-kit/blob/main/docs/specs/agent-state.md`.
-- `docs/site/install.md` linked `../../README.md#agent-state--run-kit-agent-setup`
-  (a `..` escape out of `docs/site/`) — **fixed** to the absolute
+- `docs/site/install.md`'s link to the README anchor (a `..` escape out of
+  `docs/site/`) is the absolute
   `https://github.com/sahil87/run-kit/blob/main/README.md#agent-state--run-kit-agent-setup`.
-  (This one was **missed by the audit sweep and caught at review** — hence the
-  report's § readme-extraction initially over-PASSed docs/site closure.)
 
-The two auto-rewritten relative forms are correct and stay relative: README →
-`docs/site/*.md` hub links, and between-`docs/site/` links. A post-fix closure
-sweep over `README.md` + `docs/site/**` showed zero remaining escapes.
+The remaining relative forms are correct and stay relative: README →
+`docs/site/*.md` hub links, and between-`docs/site/` links. A closure sweep over
+`README.md` + `docs/site/**` shows zero escapes.
+(`260717-c424-toolkit-standards-conformance`.)
 
-**Toolkit rename conformed (`260718-oa9b-shll-toolkit-rename`).** The toolkit was
-renamed to **"shll toolkit"** (from its former `@sahil87`-prefixed name;
-sahil87/shll#56), and the readme-extraction standard's canonical README blockquote
-changed with it to
-`> Part of the [shll toolkit](https://shll.ai) — see all projects there.` run-kit
-conformed in this docs-type change: `README.md` line 3 was replaced **byte-exact**
-with the new blockquote (mandated head order H1 → blockquote → badges preserved),
-a repo-wide prose sweep updated the two README lines plus three Go doc comments
-(`cmd/rk/exit_code.go`, `cmd/rk/root.go`, `internal/riff/riff.go`), and the
-constitution § Toolkit Standards clause was reworded "part of the shll toolkit"
-**cosmetically at v1.6.0** (no version bump — `Last Amended` already carried
-today's date). Identifiers were deliberately untouched: `sahil87/tap` formula
-names, `github.com/sahil87/…` / `raw.githubusercontent.com/sahil87/…` URLs, and
-the constitution's `sahil87/shll` canonical-source reference all stay.
+**Toolkit "shll toolkit" naming.** The toolkit's name is **"shll toolkit"**
+(sahil87/shll#56), and the readme-extraction standard's canonical README
+blockquote is
+`> Part of the [shll toolkit](https://shll.ai) — see all projects there.`
+run-kit's `README.md` line 3 is that blockquote **byte-exact** (mandated head
+order H1 → blockquote → badges), and the constitution § Toolkit Standards clause
+reads "part of the shll toolkit". Identifiers stay by design: `sahil87/tap`
+formula names, `github.com/sahil87/…` / `raw.githubusercontent.com/sahil87/…`
+URLs, and the constitution's `sahil87/shll` canonical-source reference are all
+untouched. (`260718-oa9b-shll-toolkit-rename`.)
 
-### skill — PASS (fully conformant; topic pages adopted by `260718-icxz`)
-The standard's "deferred, not yet adopted" contingency does NOT apply — `rk skill`
-+ `docs/site/skill.md` exist at HEAD (PR #381,
-`260717-agst-rk-skill-agent-setup-hooks-only`), so it was audited in full and
-passed: byte-identical stdout to canonical, ≤150 lines, static-only, in-genre
-briefing. See [architecture](/run-kit/architecture.md) § CLI Subcommands
-(`skill` row) for the embed mechanism and drift guard.
+### skill — PASS (fully conformant; topic pages adopted)
+`rk skill` + `docs/site/skill.md` exist at HEAD (PR #381), so the standard's
+"deferred, not yet adopted" contingency does NOT apply — it passes in full:
+byte-identical stdout to canonical, ≤150 lines, static-only, in-genre briefing.
+See [architecture](/run-kit/architecture.md) § CLI Subcommands (`skill` row) for
+the embed mechanism and drift guard.
+(`260717-agst-rk-skill-agent-setup-hooks-only`.)
 
-**Topic-page amendment adopted (`260718-icxz-skill-display-topic-url-retire-context`).**
-The shll skill standard gained **topic pages** (`<tool> skill <topic>`, each
-canonical at `docs/site/skill/<topic>.md`, ≤150 lines, static-only, byte-identical,
-drift-guarded, rendered at `/<tool>/skill/<topic>` on shll.ai — shll PR #47, merged
-2026-07-18). run-kit adopted it in the same release: `rk skill display` serves a
-new `docs/site/skill/display.md` topic page (81 lines) via the **per-topic** embed
-+ drift-guard extension of the existing mechanism (a `map[string][]byte` topic
-table, one `//go:embed`/`bytes.Equal`/line-budget test per topic file). The
-standard's fail-fast rule is implemented: an **unknown topic** exits usage-class
-(2) via the existing `usageError` helper with the valid topics named on stderr and
-**empty stdout** — never a silent empty document; bare `rk skill` **never inlines**
-a topic page. The final topic-index wording was re-checked against the merged
-standard at apply entry (Constitution § Toolkit Standards binds CLI-surface changes
-to the standards; `shll standards skill` is the canonical read), satisfying the
-intake's sequencing constraint — apply was gated on that amendment merging.
-No **new** standard was audited by this change (the four @ `shll v0.0.23` are
-unchanged); this is an adoption of a revised clause of the already-passing `skill`
-standard. See § Design Decisions → "Static derivation recipes replace `rk context`
-(a recipe is static content)".
+**Topic pages.** The shll skill standard has **topic pages** (`<tool> skill
+<topic>`, each canonical at `docs/site/skill/<topic>.md`, ≤150 lines, static-only,
+byte-identical, drift-guarded, rendered at `/<tool>/skill/<topic>` on shll.ai —
+shll PR #47). `rk skill display` serves `docs/site/skill/display.md` (81 lines)
+via the **per-topic** embed + drift-guard extension of the existing mechanism (a
+`map[string][]byte` topic table, one `//go:embed`/`bytes.Equal`/line-budget test
+per topic file). The standard's fail-fast rule holds: an **unknown topic** exits
+usage-class (2) via the `usageError` helper with the valid topics named on stderr
+and **empty stdout** — never a silent empty document; bare `rk skill` **never
+inlines** a topic page. No new standard is introduced (the four @ `shll v0.0.23`
+are unchanged) — this is a revised clause of the already-passing `skill` standard.
+See § Design Decisions → "Static derivation recipes replace `rk context`
+(a recipe is static content)". (`260718-icxz-skill-display-topic-url-retire-context`.)
 
-### principles — PASS (all gaps closed: three fixed at c424, P4 by [rex1], P9 by [f8yv])
-Assessed each of the ten principles against `bin/rk` behavior + source. Of the
-five gaps the c424 audit found, three (P1/P2/P5) were fixed in c424; **P4 was
-subsequently fixed by `260717-rex1`** (below) and **P9 by
-`260717-f8yv-cli-output-volume-controls`** (the "Now conformant" subsection
-below). No principle gaps remain open.
+### principles — PASS (all gaps closed)
+Each of the ten principles is assessed against `bin/rk` behavior + source, and all
+PASS — no principle gaps remain open. The conformance mechanisms:
 
-**Fixed here (additive per-command flags — the intake's in-scope "missing flag"):**
-- **P1 (Non-interactive by default)** — `agent-setup` could neither consent
-  non-interactively nor refuse a non-TTY prompt. Fixed by `--yes`/`-y` + `--dry-run`
-  and a non-TTY refusal naming `--yes`. See [agent-state](/run-kit/agent-state.md)
-  § `rk agent-setup` for the consent flow (the material change that also updated
-  that file).
-- **P2 (stdout is data)** — `status` and `doctor` had no machine format. Fixed by
-  `--json` on both (data to stdout; `doctor`'s human diagnostic stays on stderr).
-  See [architecture](/run-kit/architecture.md) § CLI Subcommands.
+**P1/P2/P5 — additive per-command flags:**
+- **P1 (Non-interactive by default)** — `agent-setup` consents non-interactively
+  via `--yes`/`-y` + `--dry-run`, and refuses a non-TTY prompt naming `--yes`. See
+  [agent-state](/run-kit/agent-state.md) § `rk agent-setup` for the consent flow.
+- **P2 (stdout is data)** — `status` and `doctor` carry a machine format via
+  `--json` (data to stdout; `doctor`'s human diagnostic stays on stderr). See
+  [architecture](/run-kit/architecture.md) § CLI Subcommands.
 - **P5 (Visible mutation boundaries)** — the `agent-setup --dry-run` above also
   satisfies P5's destructive-write preview requirement.
 
-**Fixed by `260717-rex1` (the deferred restructural P4, now conformant):**
-- **P4 (Fail fast — exit-code convention)** — usage errors now exit `2`, operational
-  failures `1`, per the convention. The c424 audit deferred this to [rex1] because
-  it is a cross-cutting error-model change, not a per-command missing exit code;
-  `260717-rex1` implemented it. The model (all in `cmd/rk`, extending the existing
-  `exitCodeError` plumbing rather than a parallel mechanism):
+(`260717-c424-toolkit-standards-conformance`.)
+
+**P4 (Fail fast — exit-code convention):** usage errors exit `2`, operational
+failures `1`. The model (all in `cmd/rk`, extending the existing `exitCodeError`
+plumbing rather than a parallel mechanism):
   - **Pure classification seam** — `execute()` (`root.go`) calls `os.Exit(exitCode(err))`
     instead of a blanket `os.Exit(1)`. `exitCode(err) int` (`exit_code.go`) is pure
     (no `os.Exit`/I/O, unit-testable in-process): `errors.As` on `*exitCodeError`
@@ -253,41 +231,37 @@ below). No principle gaps remain open.
     suggestions, and the `Run '… --help' for usage.` hint natively (byte-identical);
     the prefix match fails safe (2→1, never wrong output) if cobra's wording ever
     changes. (Note the case-sensitivity: cobra's help-topic error `Unknown help topic`
-    has a capital U and does NOT match, so `rk help bogus` stays exit 0.) An explicit
-    `rootCmd.Args` validator was rejected in review — it relocated detection and
-    regressed all three stderr behaviors.
-  - **riff exit-class renumbering** — `internal/riff` constants swapped to conform:
-    `ExitValidation` 1→2 (usage), `ExitPrecondition` 2→1 (operational), `ExitSubprocess`
-    unchanged at 3. Numeric-value change only — the `POST /api/riff` HTTP mapping keys
-    on the constant **identity** (`ExitValidation` → 400), so no api-layer change. riff's
-    manual `Flags().Parse` error (`DisableFlagParsing` bypasses the root FlagErrorFunc)
-    is wrapped locally as `usageError` (exit 2). See [rk-riff](rk-riff.md) § Exit Code
-    Discipline and [architecture](architecture.md) § CLI Subcommands (`riff` row).
-  - **agent-hook never-fail carve-out preserved** — `agent-hook` keeps its own
+    has a capital U and does NOT match, so `rk help bogus` stays exit 0.) See
+    § Design Decisions → "Unknown-command classification at the `execute()` seam".
+  - **riff exit-class renumbering** — `internal/riff` constants conform:
+    `ExitValidation` 2 (usage), `ExitPrecondition` 1 (operational), `ExitSubprocess`
+    3. The `POST /api/riff` HTTP mapping keys on the constant **identity**
+    (`ExitValidation` → 400), so no api-layer change. riff's manual `Flags().Parse`
+    error (`DisableFlagParsing` bypasses the root FlagErrorFunc) is wrapped locally
+    as `usageError` (exit 2). See [rk-riff](rk-riff.md) § Exit Code Discipline and
+    [architecture](architecture.md) § CLI Subcommands (`riff` row), and § Design
+    Decisions → "riff exit-class renumbering is a value change, not a mapping change".
+  - **agent-hook never-fail carve-out** — `agent-hook` keeps its own
     `SetFlagErrorFunc(→ nil)`, which shadows the root's (cobra own-wins), plus its
     `ArbitraryArgs` + `FParseErrWhitelist.UnknownFlags`, so every malformed invocation
-    still exits `0`. This is safety-critical: Claude Code treats a hook exit **2 as
-    *blocking***, so agent-hook must surface neither 1 nor 2. `agent_hook.go` was NOT
-    modified; a regression test asserts `exitCode == 0` on `--nope` / missing `--agent`
-    value / bad arg counts. See [agent-state](agent-state.md).
-  - **Docs surfaces updated in lockstep** — the exit-code contract line in the embedded
+    exits `0`. This is safety-critical: Claude Code treats a hook exit **2 as
+    *blocking***, so agent-hook must surface neither 1 nor 2. A regression test
+    asserts `exitCode == 0` on `--nope` / missing `--agent` value / bad arg counts.
+    See [agent-state](agent-state.md).
+  - **Docs surfaces in lockstep** — the exit-code contract line in the embedded
     `rk skill` bundle (`cmd/rk/skill/skill.md`) + its byte-identical mirror
-    `docs/site/skill.md` now state the 0/1/2/3 convention; the `## Exit codes` table in
-    `docs/site/workflows.md` and riff's `-h` `Exit codes:` block were corrected to
-    `0` success / `1` precondition / `2` validation-usage / `3` subprocess. Command tree
-    unchanged (no flags added/removed), so the help-dump contract is unaffected.
+    `docs/site/skill.md` state the 0/1/2/3 convention; the `## Exit codes` table in
+    `docs/site/workflows.md` and riff's `-h` `Exit codes:` block state
+    `0` success / `1` precondition / `2` validation-usage / `3` subprocess. Command
+    tree unchanged (no flags added/removed), so the help-dump contract is unaffected.
 
-**Deferred to backlog at the c424 audit (restructural — the intake's
-proportionality "restructure" class) — both deferrals since resolved:** P4 →
-**[rex1]** (implemented by `260717-rex1`, the "Fixed by" block above) and P9 →
-**[f8yv]** (below).
+(`260717-rex1-unify-usage-error-exit-codes`.)
 
-**Now conformant (was deferred to backlog, resolved by `260717-f8yv-cli-output-volume-controls`):**
-- **P9 (Bounded, high-signal output)** — **PASS**. The deferred restructure landed:
-  see § Requirement: Bounded, high-signal output (Principle 9) below for the
-  shipped mechanism. Backlog **[f8yv]** is resolved by that change.
+**P9 (Bounded, high-signal output)** — see § Requirement: Bounded, high-signal
+output (Principle 9) for the shipped mechanism.
+(`260717-f8yv-cli-output-volume-controls`.)
 
-Principles 3, 6, 7, 8, 10 PASS as-audited (help published; stateless/derive-from-tmux;
+Principles 3, 6, 7, 8, 10 PASS (help published; stateless/derive-from-tmux;
 wraps `wt`/`fab`/`brew`; degrades gracefully; README + docs/site + `rk skill`
 bundle discoverable).
 
@@ -322,11 +296,6 @@ gaps (rather than a half-covered fix) honors "fix root causes, not symptoms" and
 the toolkit's phased-adoption posture.
 **Rejected**: GitHub issues / draft changes for the deferrals (not the repo's
 visible convention); committing the report under `docs/` (drift, no consumer).
-**Follow-up**: both deferrals have since been implemented — **[rex1]** (P4) by
-`260717-rex1` (see § principles → "Fixed by `260717-rex1`") and **[f8yv]** (P9)
-by `260717-f8yv-cli-output-volume-controls` (see § Requirement: Bounded,
-high-signal output). The backlog-then-implement path validated the deferral
-convention end-to-end.
 *Introduced by*: `260717-c424-toolkit-standards-conformance`
 
 ### Unknown-command classification at the `execute()` seam, not an explicit validator
@@ -337,14 +306,13 @@ error, with the root command's `Args` left `nil` — rather than by an explicit
 **Why**: `Args: nil` keeps cobra's native Find/legacyArgs path, which prints the
 `unknown command %q` line, the Levenshtein "Did you mean this?" suggestions, and
 the trailing `Run 'run-kit --help' for usage.` hint, and detects `run-kit help
-bogus` as an unknown help topic (exit 0). A review of the first (cycle-1)
-explicit-validator implementation proved — via old-vs-new binary stderr diff —
-that it relocated detection from Find-time to ValidateArgs-time and regressed all
-three: it dropped the help hint, disabled suggestions (`SuggestionsMinimumDistance`
-never bumped 0→2), and broke `help bogus`. Byte-identity of user-facing output
-outranks string-coupling elegance; the prefix match fails safe (2→1, never wrong
-output) if cobra ever changes the wording, and the capital-U `Unknown help topic`
-message deliberately does not match (so `help bogus` stays exit 0).
+bogus` as an unknown help topic (exit 0). An explicit `rootCmd.Args` validator
+relocates detection from Find-time to ValidateArgs-time and regresses all three:
+it drops the help hint, disables suggestions (`SuggestionsMinimumDistance` never
+bumped 0→2), and breaks `help bogus`. Byte-identity of user-facing output outranks
+string-coupling elegance; the prefix match fails safe (2→1, never wrong output) if
+cobra ever changes the wording, and the capital-U `Unknown help topic` message
+deliberately does not match (so `help bogus` stays exit 0).
 **Rejected**: an explicit `rootCmd.Args` validator replicating `legacyArgs` (three
 distinct stderr regressions); patching each regression inside the validator (would
 replicate ever more cobra internals to reproduce what `Args: nil` gives for free).
@@ -382,14 +350,13 @@ minimal surface). The standard's own static/dynamic split, plus Constitution §X
 every Environment value is derivable by the agent directly (`$TMUX_PANE`, `tmux
 display-message`, env-backed config), so the command was pure duplication once the
 topic page existed. The one derivation that earns a stable command seam is the
-server URL → **`rk url`** (`config.Load()` heuristic, byte-equal to the deleted
-`serverURL()`; ecosystem precedent `gh browse --no-browser` / `docker port` /
-`minikube service --url`), which also keeps a natural home for smarter port-owner
-discovery later without freezing a heuristic into prose. Net CLI surface: −1
-`context`, +1 `url`, +topic arg on `skill` — zero growth, less duplication. The
-line "static-only (no env-derived content — that stays in `rk context`)" recorded
-at the c424 audit (§ skill) is superseded: env-derived content is now reached via
-`rk url` + the taught tmux derivations, not `rk context`.
+server URL → **`rk url`** (a `config.Load()` heuristic; ecosystem precedent
+`gh browse --no-browser` / `docker port` / `minikube service --url`), which also
+keeps a natural home for smarter port-owner discovery later without freezing a
+heuristic into prose. Net CLI surface: −1 `context`, +1 `url`, +topic arg on
+`skill` — zero growth, less duplication. Env-derived content is reached via
+`rk url` + the taught tmux derivations; the bundle carries no `rk context`
+reference.
 **Rejected**: a deprecation stub/alias for `rk context` ("completely get rid of";
 the version-locked binary embed makes removal atomic per-install — a binary lacking
 the command also ships the bundle that no longer references it, and external callers

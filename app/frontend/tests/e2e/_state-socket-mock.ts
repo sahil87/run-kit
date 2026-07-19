@@ -38,7 +38,11 @@ export type StateSocketMockOptions = {
   services?: unknown;
   /** Optional version slot ({version,boot,brew}) delivered on hello. */
   version?: unknown;
-  /** Optional update-available slot ({current,latest}) delivered on hello. */
+  /** Optional update-available slot delivered on hello. Payload shape is
+   *  `{tools:[{tool,current,latest}],key,current,latest}` — the matched-tool set
+   *  plus the composite dismissal `key`; the legacy top-level `current`/`latest`
+   *  are the run-kit row (empty when run-kit is not matched). An empty
+   *  `{tools:[],key:""}` is a cleared verdict (chip hides). */
   updateAvailable?: unknown;
   /** Optional server-order slot ({order:[...]}) delivered on hello. */
   serverOrder?: unknown;

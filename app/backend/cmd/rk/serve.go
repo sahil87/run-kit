@@ -138,13 +138,15 @@ To run run-kit as a background daemon, see 'run-kit daemon start' (and the rest 
 
 		// Expose the running version to clients over SSE (server-global
 		// `event: version`, replayed on connect) and wire the periodic update
-		// checker: it polls the GitHub Releases API on a background tick and, when
-		// a qualifying minor/major release is found, broadcasts a server-global
+		// checker: it polls the shll.ai versions manifest on a background tick
+		// and, when any toolkit tool crosses its notify threshold (or a prior
+		// match clears), broadcasts a server-global
 		// `event: update-available`. Both surfaces drive the web UI's update chip
 		// and the post-restart auto-reload. The checker suppresses itself for the
 		// "dev" sentinel / unparseable versions and is bound to the serve context.
-		apiServer.SetVersion(version, newBootID(), resolveBrewInstalled())
-		updateChecker := updatecheck.New(version)
+		selfBrew := resolveBrewInstalled()
+		apiServer.SetVersion(version, newBootID(), selfBrew)
+		updateChecker := updatecheck.New(version, selfBrew)
 		updateChecker.OnQualify = apiServer.WireUpdateAvailableBroadcast()
 		updateChecker.Start(ctx)
 		apiServer.SetUpdateChecker(updateChecker)

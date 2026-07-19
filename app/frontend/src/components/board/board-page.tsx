@@ -362,7 +362,7 @@ function BoardPageContent({ name }: { name: string }) {
   // the same reason as the font trio / refresh / help entries below.
   const {
     qualifies: updateQualifies,
-    latest: updateLatest,
+    tools: updateTools,
     updateNow,
     dismissUpdate,
     daemonVersion,
@@ -559,7 +559,7 @@ function BoardPageContent({ name }: { name: string }) {
     // updateNow with the same toast-on-failure handling AppShell uses.
     const updateEntries: PaletteAction[] = buildUpdateActions(
       updateQualifies,
-      updateLatest,
+      updateTools,
       () => {
         void updateNow().catch((err: unknown) =>
           addToast(err instanceof Error ? err.message : "Update failed"),
@@ -718,7 +718,7 @@ function BoardPageContent({ name }: { name: string }) {
     }
 
     return [...switchEntries, ...conditional, ...fontEntries, refreshEntry, helpEntry, ...updateEntries, ...maintenanceEntries, ...versionEntries];
-  }, [boards, name, entries, focusedIndex, autofit, toggleAutofit, unpinFocused, requestKillFocused, focusedPane, reorder, executeSplit, navigate, addToast, increaseTerminalFont, decreaseTerminalFont, resetTerminalFont, updateQualifies, updateLatest, updateNow, dismissUpdate, brew, daemonVersion, forceUpdateNow, restartNow]);
+  }, [boards, name, entries, focusedIndex, autofit, toggleAutofit, unpinFocused, requestKillFocused, focusedPane, reorder, executeSplit, navigate, addToast, increaseTerminalFont, decreaseTerminalFont, resetTerminalFont, updateQualifies, updateTools, updateNow, dismissUpdate, brew, daemonVersion, forceUpdateNow, restartNow]);
 
   // Pane-server count (distinct servers) used by TopBar board-mode info.
   const serverCount = useMemo(() => {

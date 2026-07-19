@@ -1,0 +1,18 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-18T19:45:28Z"}
+{"args":"Update notifications: switch source to shll.ai versions.json manifest (per-tool notify policy), composite dismissal key, remediation via scoped shll update of matched tools with rk update fallback","cmd":"fab-new","event":"command","ts":"2026-07-18T19:45:28Z"}
+{"delta":"+4.6","event":"confidence","score":4.6,"trigger":"calc-score","ts":"2026-07-18T19:47:40Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-07-19T03:13:30Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-19T03:14:10Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-19T03:14:22Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-19T03:36:53Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-19T03:37:37Z"}
+{"event":"review","result":"failed","ts":"2026-07-19T03:51:16Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-19T03:51:16Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-19T04:07:56Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-19T04:09:08Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-19T04:19:39Z"}
+{"event":"review","result":"passed","ts":"2026-07-19T04:19:39Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-19T04:29:44Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-07-19T04:31:39Z"}
+{"cmd":"git-pr-review","event":"command","ts":"2026-07-19T04:32:38Z"}
+{"event":"review","result":"passed","ts":"2026-07-19T04:42:52Z"}

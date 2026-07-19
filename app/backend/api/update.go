@@ -7,13 +7,22 @@ import (
 	"os/exec"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"rk/internal/selfpath"
+	"rk/internal/validate"
 )
 
 // updateLogRelPath is the ~/.rk-relative log name the detached `rk update`
 // child's stdout/stderr are redirected to, so a silent failure is diagnosable.
 const updateLogRelPath = "update.log"
+
+// postRemediationRecheckDelay is how long after a scoped `shll update` spawn the
+// handler asks the checker to re-run its fetch+match pass (R17). A brew upgrade
+// of a few tools comfortably finishes inside this window, so the consumed match
+// propagates as a cleared/changed verdict within minutes instead of waiting for
+// the 6h ticker. Single-shot, daemon-context-bound (see Checker.RecheckAfter).
+const postRemediationRecheckDelay = 2 * time.Minute
 
 // restartLogRelPath is the ~/.rk-relative log name the detached `rk daemon
 // restart` child (handleRestart) redirects to. Separate from update.log so the
@@ -27,6 +36,12 @@ const restartLogRelPath = "restart.log"
 // EvalSymlinks) — the same resolver upgrade.go uses, so brew-install detection
 // cannot drift between the two entry points.
 var resolveSelfPathFn = selfpath.Resolve
+
+// lookShllFn resolves the `shll` binary on PATH, returning its absolute path.
+// Package var seam so handler tests can force shll present/absent without a real
+// binary. Default wraps exec.LookPath. When it errors, remediation degrades to
+// the run-kit-self `rk update` path (§5) — fail-silent per the toolkit rule.
+var lookShllFn = func() (string, error) { return exec.LookPath("shll") }
 
 // spawnSelfFn spawns a detached `rk <args...>` child logging to ~/.rk/<logName>.
 // Package var seam (mirrors cmd/rk/upgrade.go's runBrewFn/restartDaemonFn) so
@@ -79,18 +94,28 @@ type updateRequest struct {
 	Force bool `json:"force"`
 }
 
-// handleUpdate triggers a one-click self-upgrade. POST per Constitution IX.
+// handleUpdate triggers a one-click toolkit upgrade. POST per Constitution IX.
 //
-// Flow: (1) require a Homebrew install (Cellar marker) — else 409; (2) unless
-// `force=true`, require a qualifying pending update from the in-memory checker —
-// else 409; (3) respond 202 Accepted, then spawn a detached `rk update`. There
-// is deliberately no in-flight lock: a second click spawns another `rk update`,
-// which exits harmlessly with "already up to date" once brew resolves.
+// Remediation branches on whether `shll` is on PATH:
 //
-// `force=true` (from the body) skips ONLY the qualify 409 — the real "is there
-// anything newer" decision is delegated to the idempotent `rk update` — but
-// KEEPS the brew 409 (which also covers dev builds: a dev binary never lives
-// under /Cellar/run-kit/). `force=false`/absent-body is byte-identical to today.
+//   - shll PRESENT → a SCOPED toolkit update. Non-force: require a non-empty
+//     match set from the in-memory checker — else 409 — then respond 202 and
+//     spawn a detached `shll update <matched tools…>` (argv from the checker
+//     snapshot). Force: skip the match 409 and spawn a full-roster `shll update`
+//     (no tool args). `shll update` normalizes subset order to roster order and
+//     preserves run-kit's daemon-restart side effect by delegating to
+//     `rk update --skip-brew-update`, so the detached spawn side effects carry
+//     over. There is NO brew-409 on this path — a run-kit-not-brew daemon simply
+//     never matches its own row (§2), while sibling tools remain updatable.
+//
+//   - shll ABSENT → today's run-kit-self behavior verbatim: (1) require a
+//     Homebrew install (Cellar marker) — else 409; (2) unless force, require a
+//     qualifying pending update — else 409; (3) 202 then spawn a detached
+//     `rk update` (self). The brew-409 (which also covers dev builds — a dev
+//     binary never lives under /Cellar/run-kit/) applies ONLY here.
+//
+// There is deliberately no in-flight lock: a second click spawns again, which
+// exits harmlessly with "already up to date" once brew resolves.
 //
 // POST /api/update → 202 {"status":"updating"} | 409 {"error":...}
 func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
@@ -105,6 +130,72 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// shll present → scoped toolkit update. The lookup is fail-silent (an error
+	// simply routes to the run-kit-self fallback below).
+	if shllPath, err := lookShllFn(); err == nil {
+		s.handleShllUpdate(w, shllPath, force)
+		return
+	}
+
+	s.handleSelfUpdate(w, force)
+}
+
+// handleShllUpdate spawns a scoped (or full-roster, on force) `shll update`.
+// The match set is read from the checker snapshot; on the non-force path an
+// empty match set 409s before spawning (mirroring today's qualify-409 gate).
+// After spawning it schedules a ~2min post-remediation re-check (R17) so a
+// consumed match clears promptly on the siblings-only path (no daemon restart).
+func (s *Server) handleShllUpdate(w http.ResponseWriter, shllPath string, force bool) {
+	args := []string{"update"}
+	if !force {
+		var matched []string
+		if s.updateChecker != nil {
+			for _, m := range s.updateChecker.Snapshot().Matched {
+				// Tool names come from the REMOTE shll.ai manifest, so validate each
+				// before it reaches `shll update` argv — a name starting with `-` (or
+				// carrying whitespace/control chars) could be misread as a flag by
+				// shll's arg parser (constitution §I). A rejected name is dropped and
+				// logged, not passed through.
+				if msg := validate.ValidateToolName(m.Tool); msg != "" {
+					s.logger.Warn("dropping invalid manifest tool name from shll update argv", "tool", m.Tool, "reason", msg)
+					continue
+				}
+				matched = append(matched, m.Tool)
+			}
+		}
+		if len(matched) == 0 {
+			writeError(w, http.StatusConflict, "no update available")
+			return
+		}
+		args = append(args, matched...)
+	}
+	// force keeps args == ["update"] — a full-roster sweep with no tool args.
+
+	// Accept before spawning: `shll update` restarts the daemon (via its
+	// delegation to `rk update`), which kills THIS process, so the client must
+	// get its response first.
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "updating"})
+
+	if err := spawnSelfFn(shllPath, updateLogRelPath, args...); err != nil {
+		// The response is already committed (202); log for diagnosis only.
+		s.logger.Error("failed to spawn shll update", "error", err)
+	}
+
+	// Schedule a delayed re-check so a consumed match clears within minutes
+	// instead of waiting for the 6h ticker (R17). Applies to BOTH scoped paths
+	// (non-force scoped + force sweep). When run-kit was in the spawned scope the
+	// daemon restarts and this process-local timer dies with it — harmless. The
+	// shll-absent `rk update` fallback (handleSelfUpdate) needs no re-check: it
+	// always restarts the daemon, which resets state.
+	if s.updateChecker != nil {
+		s.updateChecker.RecheckAfter(postRemediationRecheckDelay)
+	}
+}
+
+// handleSelfUpdate is the shll-absent fallback — the pre-manifest run-kit-self
+// behavior verbatim: brew-409 gate, qualify/force gate, then a detached
+// `rk update` (self).
+func (s *Server) handleSelfUpdate(w http.ResponseWriter, force bool) {
 	selfPath, err := resolveSelfPathFn()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "could not determine executable path")
@@ -117,7 +208,7 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !force && (s.updateChecker == nil || !s.updateChecker.Snapshot().Qualifies) {
+	if !force && (s.updateChecker == nil || len(s.updateChecker.Snapshot().Matched) == 0) {
 		writeError(w, http.StatusConflict, "no update available")
 		return
 	}

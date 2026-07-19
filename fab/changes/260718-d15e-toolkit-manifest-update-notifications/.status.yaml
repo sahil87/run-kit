@@ -1,0 +1,57 @@
+id: d15e
+name: 260718-d15e-toolkit-manifest-update-notifications
+created: 2026-07-18T19:45:28Z
+created_by: Sahil Ahuja
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 16
+    acceptance_count: 24
+    acceptance_completed: 24
+confidence:
+    certain: 6
+    confident: 6
+    tentative: 0
+    unresolved: 0
+    score: 4.6
+    fuzzy: true
+    dimensions:
+        signal: 69.6
+        reversibility: 87.9
+        competence: 85.8
+        disambiguation: 81.3
+stage_metrics:
+    intake: {started_at: "2026-07-18T19:45:28Z", driver: fab-new, iterations: 1, completed_at: "2026-07-19T03:14:22Z"}
+    apply: {started_at: "2026-07-19T03:51:16Z", driver: fab-fff, iterations: 2, completed_at: "2026-07-19T04:07:56Z"}
+    review: {started_at: "2026-07-19T04:07:56Z", driver: fab-fff, iterations: 2, completed_at: "2026-07-19T04:19:39Z"}
+    hydrate: {started_at: "2026-07-19T04:19:39Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-19T04:29:44Z"}
+    ship: {started_at: "2026-07-19T04:29:44Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-19T04:31:39Z"}
+    review-pr: {started_at: "2026-07-19T04:31:39Z", driver: git-pr, iterations: 1, completed_at: "2026-07-19T04:42:52Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/395
+change_type_source: explicit
+true_impact:
+    added: 2357
+    deleted: 458
+    net: 1899
+    excluding:
+        added: 1781
+        deleted: 418
+        net: 1363
+    tests:
+        added: 745
+        deleted: 161
+        net: 584
+    computed_at: "2026-07-19T04:31:40Z"
+    computed_at_stage: ship
+summary: 'Toolkit-wide update notifications: internal/updatecheck fetches the shll.ai versions manifest with per-tool never/patch/minor policy + brew-list sibling versions, composite tool@latest key, cleared-verdict OnQualify + RecheckAfter; POST /api/update spawns scoped shll update (rk update fallback); UpdateChip single/multi form with composite-key dismissal'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-07-19T04:42:52Z

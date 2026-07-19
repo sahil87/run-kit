@@ -33,9 +33,11 @@ export type ChatFrameHandlers = {
 const METRICS_SUB = "\x00metrics";
 
 const SERVER_STORAGE_KEY = "runkit-server";
-// localStorage key for per-version update-notice dismissal. The value is the
-// dismissed `latest` version string (e.g. "0.6.0"); a later release with a
-// different version re-shows the chip. No server state (Constitution II).
+// localStorage key for composite update-notice dismissal. The value is the
+// dismissed composite `key` — the sorted `tool@latest` pairs (e.g.
+// "fab-kit@2.17.0,run-kit@3.9.0"); any change to the matched set (a newer latest
+// or a newly-matching tool) changes the key and re-shows the chip. No server
+// state (Constitution II).
 const UPDATE_DISMISSED_KEY = "runkit-update-dismissed";
 // Sentinel running version for local (non-ldflags) builds — the update chip and
 // palette actions are suppressed for it.
@@ -86,6 +88,24 @@ export function shouldReloadOnVersion(
  *  subscribe to this provider's `subscribeBoardChange` API rather than opening
  *  their own streams. `currentServer` is dispatched by the matched route —
  *  `params.server` for `/$server/...`, `null` for `/board/$name` and `/`. */
+
+/** One matched toolkit tool in the update-available payload: `tool` is the
+ *  manifest/roster name (e.g. "run-kit", "fab-kit"), `current` its installed
+ *  version, `latest` the manifest's latest. */
+export type UpdateTool = { tool: string; current: string; latest: string };
+
+/** A pending toolkit update, from the server-global `event: update-available`.
+ *  `tools` lists every matched tool (a scoped `shll update` will update exactly
+ *  these); `key` is the composite dismissal key (sorted `tool@latest`,
+ *  comma-joined). `current`/`latest` are the legacy run-kit-row fields, retained
+ *  for transitional compat (populated only when run-kit is in the match set). */
+export type UpdateAvailable = {
+  tools: UpdateTool[];
+  key: string;
+  current: string;
+  latest: string;
+};
+
 export type SessionContextType = {
   sessionsByServer: Map<string, ProjectSession[]>;
   sessionOrderByServer: Map<string, string[]>;
@@ -163,13 +183,13 @@ export type SessionContextType = {
   /** The running daemon version reported over the server-global `event: version`
    *  (no leading "v"). `null` until the first `version` event. */
   daemonVersion: string | null;
-  /** A pending qualifying (minor/major) update, from the server-global
-   *  `event: update-available`. `null` when no update is pending. */
-  updateAvailable: { current: string; latest: string } | null;
-  /** The latest version the user dismissed the update notice for (localStorage
+  /** A pending toolkit update (matched tools + composite key), from the
+   *  server-global `event: update-available`. `null` when no update is pending. */
+  updateAvailable: UpdateAvailable | null;
+  /** The composite `key` the user dismissed the update notice for (localStorage
    *  `runkit-update-dismissed`), or `null` when none. The chip hides when this
-   *  equals `updateAvailable.latest`; the palette action ignores it. */
-  updateDismissedVersion: string | null;
+   *  equals `updateAvailable.key`; the palette action ignores it. */
+  updateDismissedKey: string | null;
   /** Trigger a one-click update: POST /api/update. Best-effort — the daemon
    *  restart then drops the state socket, and the reconnect's differing
    *  `version` drives the reload guard. Rejects on a non-2xx so the caller can
@@ -309,10 +329,10 @@ export function SessionProvider({ children }: SessionProviderProps) {
   // `event: version` `brew` field. `false` until the first version event (the
   // brew-gated `run-kit: Update Now` palette entry stays hidden until observed).
   const [isBrew, setIsBrew] = useState(false);
-  // Pending qualifying update from the server-global `event: update-available`.
-  const [updateAvailable, setUpdateAvailable] = useState<{ current: string; latest: string } | null>(null);
-  // The latest version the user dismissed the notice for (localStorage-backed).
-  const [updateDismissedVersion, setUpdateDismissedVersion] = useState<string | null>(() => {
+  // Pending toolkit update from the server-global `event: update-available`.
+  const [updateAvailable, setUpdateAvailable] = useState<UpdateAvailable | null>(null);
+  // The composite key the user dismissed the notice for (localStorage-backed).
+  const [updateDismissedKey, setUpdateDismissedKey] = useState<string | null>(() => {
     try {
       return localStorage.getItem(UPDATE_DISMISSED_KEY);
     } catch {
@@ -354,27 +374,33 @@ export function SessionProvider({ children }: SessionProviderProps) {
 
   // Apply an `update-available` payload. Host-global (a `kind:"global"` event):
   // the backend delivers it as a cached-on-connect global slot (once per socket
-  // connection) and only re-broadcasts when the qualifying latest changes — NOT
-  // on every check tick. Setting the same {current, latest} object is cheap and
-  // idempotent (React bails out only on identical references, but re-broadcasts
-  // are bounded to an actual version change, far rarer than the ~6h check
-  // cadence, so no dedup guard is needed).
-  const applyUpdateAvailable = useCallback((current: string, latest: string) => {
-    if (!latest) return;
-    setUpdateAvailable((prev) =>
-      prev && prev.current === current && prev.latest === latest ? prev : { current, latest },
-    );
+  // connection) and re-broadcasts whenever the composite key changes — including
+  // to EMPTY when a match is consumed (R7/R8). Deduping on the composite `key`
+  // collapses an idempotent replay (a reconnect re-sends the cached slot) to no
+  // state change, so a re-delivery of the same matched set does not churn
+  // consumers.
+  //
+  // A CLEARED payload (empty key) clears the stored state so the chip hides —
+  // it MUST NOT early-return (the old bug that left a consumed match advertised
+  // forever after a siblings-only update, which never restarts the daemon). A
+  // non-empty key stores/dedups as before.
+  const applyUpdateAvailable = useCallback((next: UpdateAvailable) => {
+    if (!next.key) {
+      setUpdateAvailable((prev) => (prev === null ? prev : null));
+      return;
+    }
+    setUpdateAvailable((prev) => (prev && prev.key === next.key ? prev : next));
   }, []);
 
   const dismissUpdate = useCallback(() => {
-    const latest = updateAvailable?.latest;
-    if (!latest) return;
+    const key = updateAvailable?.key;
+    if (!key) return;
     try {
-      localStorage.setItem(UPDATE_DISMISSED_KEY, latest);
+      localStorage.setItem(UPDATE_DISMISSED_KEY, key);
     } catch {
       // localStorage unavailable — dismissal is best-effort.
     }
-    setUpdateDismissedVersion(latest);
+    setUpdateDismissedKey(key);
   }, [updateAvailable]);
 
   const updateNow = useCallback(() => triggerUpdate(), []);
@@ -729,9 +755,27 @@ export function SessionProvider({ children }: SessionProviderProps) {
           break;
         }
         case "update-available": {
-          const d = data as { current?: string; latest?: string };
-          if (typeof d.current === "string" && typeof d.latest === "string") {
-            applyUpdateAvailable(d.current, d.latest);
+          const d = data as {
+            tools?: { tool?: string; current?: string; latest?: string }[];
+            key?: string;
+            current?: string;
+            latest?: string;
+          };
+          if (typeof d.key === "string" && Array.isArray(d.tools)) {
+            const tools: UpdateTool[] = d.tools
+              .filter(
+                (t): t is { tool: string; current: string; latest: string } =>
+                  typeof t.tool === "string" &&
+                  typeof t.current === "string" &&
+                  typeof t.latest === "string",
+              )
+              .map((t) => ({ tool: t.tool, current: t.current, latest: t.latest }));
+            applyUpdateAvailable({
+              tools,
+              key: d.key,
+              current: typeof d.current === "string" ? d.current : "",
+              latest: typeof d.latest === "string" ? d.latest : "",
+            });
           }
           break;
         }
@@ -1007,7 +1051,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
       socketConnected,
       daemonVersion,
       updateAvailable,
-      updateDismissedVersion,
+      updateDismissedKey,
       updateNow,
       dismissUpdate,
       brew: isBrew,
@@ -1038,7 +1082,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
       socketConnected,
       daemonVersion,
       updateAvailable,
-      updateDismissedVersion,
+      updateDismissedKey,
       updateNow,
       dismissUpdate,
       isBrew,
@@ -1070,28 +1114,45 @@ export function useSessionContext(): SessionContextType {
   return ctx;
 }
 
+/** The run-kit manifest/roster tool name — the single tool that keeps today's
+ *  `⬆ v{latest}` chip form (any other single tool, or multiple, uses a count
+ *  form). Mirrors the backend's `runKitTool` constant. */
+const RUN_KIT_TOOL = "run-kit";
+
+/** Frozen module-level empty tools list — the stable fallback for
+ *  `updateAvailable?.tools ?? EMPTY_TOOLS` in `useUpdateNotification`, so a
+ *  no-update render returns the SAME array reference every time instead of
+ *  minting a fresh `[]` (which would defeat referential-equality memoization in
+ *  consumers and churn the top bar's fit effect). Frozen at runtime (no consumer
+ *  mutates it); typed as the mutable `UpdateTool[]` to match the exported
+ *  `tools` contract without a readonly ripple through its consumers. */
+const EMPTY_TOOLS: UpdateTool[] = Object.freeze([]) as unknown as UpdateTool[];
+
 /** Derived view of the update-notification state, shared by the top-bar chip and
  *  the command-palette actions so their gating can never drift.
- *   - `qualifies` — a pending update exists AND the daemon is not the `dev`
- *     sentinel. (This is the palette's gate; the palette IGNORES dismissal —
- *     dismissal silences only the ambient chip.)
- *   - `showChip` — `qualifies` AND not dismissed for the current `latest`. This
- *     is the chip's visibility gate.
- *   - `latest` — the pending latest version string (or `null`).
- *   - `current` — the currently-running version at the time the update was
- *     announced (`updateAvailable?.current ?? null`), so the chip can render the
- *     `v{current} → v{latest}` transition.
- *   - `updateNow` / `dismissUpdate` — the context actions, re-exported for
- *     convenience.
- *   - `daemonVersion` — the running version (or `null`), so the maintenance
- *     palette entries can dev-gate.
+ *   - `qualifies` — a pending update exists (non-empty `tools`) AND the daemon is
+ *     not the `dev` sentinel. (This is the palette's gate; the palette IGNORES
+ *     dismissal — dismissal silences only the ambient chip.)
+ *   - `showChip` — `qualifies` AND the composite `key` is not dismissed. This is
+ *     the chip's visibility gate.
+ *   - `tools` — the matched tools (each `{tool, current, latest}`); a scoped
+ *     `shll update` will update exactly these. Empty when nothing is pending.
+ *   - `key` — the composite dismissal key (or `null`).
+ *   - `singleRunKit` — true when exactly one tool matched and it is run-kit, so
+ *     the chip keeps today's `⬆ v{latest}` form; otherwise a count form.
+ *   - `latest` / `current` — the run-kit row versions when `singleRunKit`, else
+ *     `null`; kept for the single-run-kit chip/palette wording.
+ *   - `updateNow` / `dismissUpdate` — the context actions, re-exported.
+ *   - `daemonVersion` — the running version (or `null`), for the dev-gate.
  *   - `brew` — whether the daemon is a Homebrew install, gating the force-update
  *     maintenance entry (`false` until the first version event).
- *   - `forceUpdateNow` / `restartNow` — the maintenance actions, re-exported for
- *     the palette. */
+ *   - `forceUpdateNow` / `restartNow` — the maintenance actions, re-exported. */
 export function useUpdateNotification(): {
   qualifies: boolean;
   showChip: boolean;
+  tools: UpdateTool[];
+  key: string | null;
+  singleRunKit: boolean;
   latest: string | null;
   current: string | null;
   updateNow: () => Promise<void>;
@@ -1108,24 +1169,29 @@ export function useUpdateNotification(): {
   const ctx = useContext(SessionContext);
   const daemonVersion = ctx?.daemonVersion ?? null;
   const updateAvailable = ctx?.updateAvailable ?? null;
-  const updateDismissedVersion = ctx?.updateDismissedVersion ?? null;
+  const updateDismissedKey = ctx?.updateDismissedKey ?? null;
   const updateNow = ctx?.updateNow ?? (() => Promise.resolve());
   const dismissUpdate = ctx?.dismissUpdate ?? (() => {});
   const brew = ctx?.brew ?? false;
   const forceUpdateNow = ctx?.forceUpdateNow ?? (() => Promise.resolve());
   const restartNow = ctx?.restartNow ?? (() => Promise.resolve());
   const isDev = daemonVersion === DEV_VERSION;
-  const latest = updateAvailable?.latest ?? null;
-  // The version the daemon is currently on, per the pending update-available
-  // event. Surfaced so the UpdateChip can render the `v{current} → v{latest}`
-  // transition instead of only the target. Null when no update is pending (the
-  // chip falls back to target-only wording).
-  const current = updateAvailable?.current ?? null;
-  const qualifies = !isDev && latest !== null;
-  const showChip = qualifies && latest !== updateDismissedVersion;
+  const tools = updateAvailable?.tools ?? EMPTY_TOOLS;
+  const key = updateAvailable?.key ?? null;
+  const singleRunKit = tools.length === 1 && tools[0].tool === RUN_KIT_TOOL;
+  // The run-kit row versions, surfaced only for the single-run-kit chip/palette
+  // wording (`⬆ v{latest}` / `run-kit: Update to v{latest}`). Null otherwise —
+  // a multi/non-run-kit chip uses the count form and per-tool detail.
+  const latest = singleRunKit ? tools[0].latest : null;
+  const current = singleRunKit ? tools[0].current : null;
+  const qualifies = !isDev && tools.length > 0;
+  const showChip = qualifies && key !== updateDismissedKey;
   return {
     qualifies,
     showChip,
+    tools,
+    key,
+    singleRunKit,
     latest,
     current,
     updateNow,
@@ -1211,7 +1277,7 @@ export function StandaloneSessionContextProvider({
     socketConnected: value.socketConnected ?? false,
     daemonVersion: value.daemonVersion ?? null,
     updateAvailable: value.updateAvailable ?? null,
-    updateDismissedVersion: value.updateDismissedVersion ?? null,
+    updateDismissedKey: value.updateDismissedKey ?? null,
     updateNow: value.updateNow ?? (() => Promise.resolve()),
     dismissUpdate: value.dismissUpdate ?? (() => {}),
     brew: value.brew ?? false,

@@ -12,6 +12,7 @@ import (
 	"rk/internal/ports"
 	"rk/internal/sessions"
 	"rk/internal/tmux"
+	"rk/internal/updatecheck"
 )
 
 // addTestClient wires a state-socket-style test connection into the hub: it
@@ -675,7 +676,18 @@ func TestBroadcastUpdateAvailableFansOutAndReplays(t *testing.T) {
 	defer hub.removeClient(rkClient)
 	defer hub.removeClient(moClient)
 
-	hub.broadcastUpdateAvailable("0.5.3", "0.6.0")
+	hub.broadcastUpdateAvailable(updatecheck.Result{
+		Matched: []updatecheck.ToolUpdate{{Tool: "run-kit", Installed: "0.5.3", Latest: "0.6.0"}},
+		Key:     "run-kit@0.6.0",
+		Current: "0.5.3",
+		Latest:  "0.6.0",
+	})
+
+	// The payload carries the matched-tool list, the composite key, and the
+	// legacy top-level current/latest (from the run-kit row).
+	wantPayload := `"tools":[{"tool":"run-kit","current":"0.5.3","latest":"0.6.0"}]`
+	wantKey := `"key":"run-kit@0.6.0"`
+	wantLegacy := `"current":"0.5.3","latest":"0.6.0"`
 
 	for name, c := range map[string]*sseClient{"runkit": rkClient, "metrics-only": moClient} {
 		var events []string
@@ -686,7 +698,7 @@ func TestBroadcastUpdateAvailableFansOutAndReplays(t *testing.T) {
 		if len(got) == 0 {
 			t.Fatalf("%s client received no update-available event (all: %v)", name, events)
 		}
-		if !strings.Contains(got[0], `{"current":"0.5.3","latest":"0.6.0"}`) {
+		if !strings.Contains(got[0], wantPayload) || !strings.Contains(got[0], wantKey) || !strings.Contains(got[0], wantLegacy) {
 			t.Errorf("%s client update-available payload = %q", name, got[0])
 		}
 	}
@@ -702,7 +714,7 @@ func TestBroadcastUpdateAvailableFansOutAndReplays(t *testing.T) {
 	if len(replay) == 0 {
 		t.Fatalf("late client did not receive cached update-available snapshot (all: %v)", lateEvents)
 	}
-	if !strings.Contains(replay[0], `{"current":"0.5.3","latest":"0.6.0"}`) {
+	if !strings.Contains(replay[0], wantPayload) || !strings.Contains(replay[0], wantKey) {
 		t.Errorf("late client cached update-available snapshot = %q", replay[0])
 	}
 }

@@ -10,6 +10,7 @@ import { usePushSubscription } from "@/hooks/use-push-subscription";
 import { useUpdateClick } from "@/hooks/use-update-click";
 import { useUpdateNotification } from "@/contexts/session-context";
 import { displayVersion } from "@/lib/palette-version";
+import { updateChipToolSummary } from "@/lib/palette-update";
 import { splitWindow, closePane } from "@/api/client";
 import { useWindowRename } from "@/hooks/use-window-rename";
 import { prefersReducedMotion } from "@/lib/motion";
@@ -365,7 +366,7 @@ export function TopBar({
   // qualifying, undismissed, non-dev update). When it does but the chip's
   // registry entry is overflowed into the menu, the version row becomes the
   // update surface and the chevron shows an attention badge (change areas 2–3).
-  const { daemonVersion, showChip, latest } = useUpdateNotification();
+  const { daemonVersion, showChip, key: updateKey } = useUpdateNotification();
   const dotTitle = !isConnected
     ? "Disconnected"
     : daemonVersion
@@ -677,20 +678,20 @@ export function TopBar({
     measure();
     // Observe the cell AND the probe/trailing nodes (review S2): a candidate's
     // own width can change (e.g. the ViewSwitcher gaining a segment when
-    // `availableViews` grows, or the UpdateChip's `⬆ v{latest}` label width when
-    // `latest` changes) without resizing the OUTER cell (its width is
-    // grid-determined). Observing the probe (which renders every candidate's bar
-    // form, ViewSwitcher included) + the trailing chevron/dot block re-fits on
-    // any of those. The `availableViews`/`activeView`/`latest`/`showChip` deps
-    // additionally re-run the whole effect when the candidate set or membership
-    // changes.
+    // `availableViews` grows, or the UpdateChip's label width when the matched
+    // set — hence the composite `updateKey` — changes) without resizing the
+    // OUTER cell (its width is grid-determined). Observing the probe (which
+    // renders every candidate's bar form, ViewSwitcher included) + the trailing
+    // chevron/dot block re-fits on any of those. The
+    // `availableViews`/`activeView`/`updateKey`/`showChip` deps additionally
+    // re-run the whole effect when the candidate set or membership changes.
     const ro = new ResizeObserver(measure);
     ro.observe(cell);
     ro.observe(probe);
     if (trailingRef.current) ro.observe(trailingRef.current);
     return () => ro.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [candidateKey, mode, availableViews, activeView, latest, showChip]);
+  }, [candidateKey, mode, availableViews, activeView, updateKey, showChip]);
 
   // Keep the LAST `visibleCount` candidates in-bar (the L3-end suffix); the rest
   // (L1-end prefix) overflow. Surviving buttons keep their screen positions —
@@ -2238,19 +2239,23 @@ function TerminalFontControl() {
  * daemon is not the `dev` version.
  */
 function UpdateChip() {
-  const { showChip, latest, current, dismissUpdate } = useUpdateNotification();
+  const { showChip, tools, singleRunKit, latest, current, dismissUpdate } = useUpdateNotification();
   // Shared one-click-update behavior (updating state + catch/toast) with the
   // overflow menu's version-row update surface — see useUpdateClick (review M5).
   const { updating, triggerUpdate } = useUpdateClick();
 
-  if (!showChip || !latest) return null;
+  if (!showChip || tools.length === 0) return null;
 
-  // Show the `v{current} → v{latest}` transition when the current version is
-  // known (it always is whenever the chip renders — the update-available event
-  // carries both fields), else fall back to the target-only wording.
-  const restLabel = current
-    ? `Update run-kit: v${current} → v${latest}`
-    : `Update run-kit to v${latest}`;
+  // Presentation (R15): a single run-kit match keeps today's `⬆ v{latest}`
+  // with the `v{current} → v{latest}` transition in the title/aria. Any other
+  // single tool or multiple tools use a count form `⬆ updates (N)`, and the
+  // title/aria names every per-tool transition — the button runs a SCOPED
+  // update of exactly these tools, so it must say which tools move.
+  const visibleLabel = singleRunKit ? `⬆ v${latest}` : `⬆ updates (${tools.length})`;
+  const restLabel =
+    singleRunKit && current
+      ? `Update run-kit: v${current} → v${latest}`
+      : `Update: ${updateChipToolSummary(tools)}`;
 
   // No `hidden sm:flex` (review M2 / R14): responsive gating is 100%
   // registry-driven now — below `sm` the chip's registry entry overflows into
@@ -2273,7 +2278,7 @@ function UpdateChip() {
             <span>{"updating\u2026"}</span>
           </>
         ) : (
-          <span>{`\u2B06 v${latest}`}</span>
+          <span>{visibleLabel}</span>
         )}
       </button>
       {!updating && (

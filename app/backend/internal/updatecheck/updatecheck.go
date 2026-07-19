@@ -13,8 +13,13 @@
 // latest verdict lives in an in-memory struct guarded by a mutex. The external
 // surfaces are one unauthenticated JSON GET every ~6h (far under the CDN's
 // budget) plus, per check, one `brew list --versions` exec to read installed
-// versions of the sibling tools. Fetch/parse/exec failures retain the previous
-// verdict and never crash the daemon or surface to clients.
+// versions of the sibling tools. No failure ever crashes the daemon or surfaces
+// to clients. A fetch/parse failure is stale-while-revalidate — the whole check
+// aborts and the previous verdict is retained. A `brew list --versions` exec
+// failure is narrower: stale-while-revalidate covers the manifest, not the brew
+// join, so the sibling tools simply go unmatched that pass (they have no
+// installed version to compare) while the run-kit row still evaluates against
+// the running version.
 package updatecheck
 
 import (

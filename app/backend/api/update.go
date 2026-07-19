@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"rk/internal/selfpath"
+	"rk/internal/validate"
 )
 
 // updateLogRelPath is the ~/.rk-relative log name the detached `rk update`
@@ -150,6 +151,15 @@ func (s *Server) handleShllUpdate(w http.ResponseWriter, shllPath string, force 
 		var matched []string
 		if s.updateChecker != nil {
 			for _, m := range s.updateChecker.Snapshot().Matched {
+				// Tool names come from the REMOTE shll.ai manifest, so validate each
+				// before it reaches `shll update` argv — a name starting with `-` (or
+				// carrying whitespace/control chars) could be misread as a flag by
+				// shll's arg parser (constitution §I). A rejected name is dropped and
+				// logged, not passed through.
+				if msg := validate.ValidateToolName(m.Tool); msg != "" {
+					s.logger.Warn("dropping invalid manifest tool name from shll update argv", "tool", m.Tool, "reason", msg)
+					continue
+				}
 				matched = append(matched, m.Tool)
 			}
 		}

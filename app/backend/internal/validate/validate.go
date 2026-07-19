@@ -203,6 +203,38 @@ func ValidateWorktreeName(name string) string {
 	return ""
 }
 
+// toolNamePattern matches a shll-toolkit tool name (a manifest key such as
+// "run-kit", "fab-kit", "tu", "wt"): alphanumeric plus hyphen and underscore,
+// with the leading char constrained to alphanumeric or underscore. Tool names
+// originate from the REMOTE shll.ai version manifest and flow into a subprocess
+// as bare positionals (`shll update <tool…>`), so they are validated against
+// this strict identifier shape before use (constitution §I — Security First).
+// A leading `-` is disallowed so a manifest-sourced name can never be
+// interpreted as a flag by shll's arg parser. Mirrors tierNamePattern.
+var toolNamePattern = regexp.MustCompile(`^[a-zA-Z0-9_][a-zA-Z0-9_-]*$`)
+
+// MaxToolNameLength bounds a tool name. Toolkit tool names are short identifiers
+// (run-kit/fab-kit/tu/wt); 64 is generous and matches the server/tier bounds.
+const MaxToolNameLength = 64
+
+// ValidateToolName validates a shll-toolkit tool name sourced from the remote
+// manifest before it is passed as an argument to `shll update`. Returns empty
+// string if valid, an error message otherwise. Rejects an empty name, a leading
+// `-` (flag-injection defense), whitespace/control characters, and any other
+// non-identifier character (see toolNamePattern).
+func ValidateToolName(name string) string {
+	if name == "" {
+		return "Tool name cannot be empty"
+	}
+	if len(name) > MaxToolNameLength {
+		return fmt.Sprintf("Tool name exceeds maximum length of %d characters", MaxToolNameLength)
+	}
+	if !toolNamePattern.MatchString(name) {
+		return "Tool name must contain only alphanumeric characters, hyphens, and underscores, and must not start with a hyphen"
+	}
+	return ""
+}
+
 // ExpandTilde expands a leading ~ to $HOME and resolves the path.
 // Returns the expanded path and an empty error string on success,
 // or an empty path and error message on failure.

@@ -296,6 +296,65 @@ func TestValidateTier(t *testing.T) {
 	}
 }
 
+func TestValidateToolName(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		wantErr  bool
+		contains string
+	}{
+		{"valid run-kit", "run-kit", false, ""},
+		{"valid fab-kit", "fab-kit", false, ""},
+		{"valid short tu", "tu", false, ""},
+		{"valid wt", "wt", false, ""},
+		{"valid alphanumeric", "tool2", false, ""},
+		{"valid underscore", "my_tool", false, ""},
+		{"valid leading underscore", "_tool", false, ""},
+		{"empty rejected", "", true, "cannot be empty"},
+		{"leading hyphen rejected (flag injection)", "-rf", true, "must not start with a hyphen"},
+		{"leading double-hyphen rejected", "--force", true, "must not start with a hyphen"},
+		{"forbidden space", "run kit", true, "alphanumeric"},
+		{"forbidden tab", "run\tkit", true, "alphanumeric"},
+		{"forbidden newline", "run\nkit", true, "alphanumeric"},
+		{"forbidden semicolon", "a;b", true, "alphanumeric"},
+		{"forbidden dollar", "a$b", true, "alphanumeric"},
+		{"at max length", "", false, ""},                   // filled below
+		{"exceeds max length", "", true, "maximum length"}, // filled below
+	}
+
+	for i := range tests {
+		if tests[i].name == "at max length" {
+			b := make([]byte, MaxToolNameLength)
+			for j := range b {
+				b[j] = 'a'
+			}
+			tests[i].input = string(b)
+		}
+		if tests[i].name == "exceeds max length" {
+			b := make([]byte, MaxToolNameLength+1)
+			for j := range b {
+				b[j] = 'a'
+			}
+			tests[i].input = string(b)
+		}
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ValidateToolName(tt.input)
+			if tt.wantErr && result == "" {
+				t.Errorf("ValidateToolName(%q) = valid, want error", tt.input)
+			}
+			if !tt.wantErr && result != "" {
+				t.Errorf("ValidateToolName(%q) = %q, want valid", tt.input, result)
+			}
+			if tt.contains != "" && result != "" && !contains(result, tt.contains) {
+				t.Errorf("ValidateToolName(%q) = %q, want error containing %q", tt.input, result, tt.contains)
+			}
+		})
+	}
+}
+
 func TestValidateWorktreeName(t *testing.T) {
 	tests := []struct {
 		name     string

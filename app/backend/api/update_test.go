@@ -144,6 +144,51 @@ func TestHandleUpdateShllScopedSpawnsMatched(t *testing.T) {
 	}
 }
 
+// TestHandleUpdateShllDropsFlagLikeToolName verifies the manifest is remote
+// input: a matched tool name that could be interpreted as a flag (leading `-`)
+// is dropped from the `shll update` argv rather than passed through, so it can
+// never inject into shll's flag parser. A legitimate sibling in the same match
+// set is still passed.
+func TestHandleUpdateShllDropsFlagLikeToolName(t *testing.T) {
+	var rec spawnRecord
+	withSeams(t, "/opt/homebrew/Cellar/run-kit/3.9.0/bin/run-kit", nil, "/opt/homebrew/bin/shll", nil, recordingSpawn(&rec))
+	// A checker whose match set contains a hostile manifest key ("--force") next
+	// to a legitimate sibling. run-kit itself is at latest so its row won't match,
+	// keeping the assertion focused on the sibling join.
+	c := updatecheck.New("3.9.0", true)
+	c.SetFetchForTest(func() (updatecheck.Manifest, error) {
+		return updatecheck.Manifest{Tools: map[string]updatecheck.ManifestTool{
+			"fab-kit": {Latest: "2.17.0", Notify: "minor", Formula: "fab-kit"},
+			"--force": {Latest: "9.9.9", Notify: "minor", Formula: "evil"},
+		}}, nil
+	})
+	c.SetLookShllForTest(true)
+	c.SetBrewListForTest(func(_ []string) (map[string]string, error) {
+		return map[string]string{"fab-kit": "2.16.0", "evil": "1.0.0"}, nil
+	})
+	c.CheckOnceForTest()
+	if len(c.Snapshot().Matched) != 2 {
+		t.Fatalf("test setup: expected 2 matched tools (incl. the hostile key), got %+v", c.Snapshot().Matched)
+	}
+	s := newUpdateServer(c)
+
+	res := postUpdate(t, s, "")
+
+	if res.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202 (body=%s)", res.Code, res.Body.String())
+	}
+	// argv must carry the legit sibling only — the flag-like name is dropped.
+	want := []string{"update", "fab-kit"}
+	if strings.Join(rec.args, " ") != strings.Join(want, " ") {
+		t.Errorf("spawn args = %v, want %v (flag-like tool name must be dropped)", rec.args, want)
+	}
+	for _, a := range rec.args {
+		if a == "--force" {
+			t.Errorf("hostile manifest tool name reached argv: %v", rec.args)
+		}
+	}
+}
+
 // TestHandleUpdateShllNoMatch409 verifies R9: shll present but nothing matches →
 // 409 before any spawn (the non-force qualify gate).
 func TestHandleUpdateShllNoMatch409(t *testing.T) {

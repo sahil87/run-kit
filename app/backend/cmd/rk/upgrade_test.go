@@ -380,8 +380,8 @@ func TestNewBrewCmd_ContextCancelDeliversSIGTERM(t *testing.T) {
 	ready := filepath.Join(dir, "ready")
 	marker := filepath.Join(dir, "graceful")
 	installFakeBrew(t, fmt.Sprintf(`#!/bin/sh
-trap 'touch %s; exit 0' TERM
-touch %s
+trap 'touch "%s"; exit 0' TERM
+touch "%s"
 while :; do sleep 0.1; done
 `, marker, ready))
 

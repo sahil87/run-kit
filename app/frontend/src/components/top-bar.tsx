@@ -1355,9 +1355,9 @@ function WindowHeading({
   windowId: string;
   sessionName: string;
   name: string;
-  /** Page-type prefix (`Terminal:` / `Web:`) — follows the active lens (spec
-   *  R4). The boot sweep runs over `prefix + " " + name`, so a prefix change
-   *  (a tty↔web view switch) replays the sweep just like a name change. */
+  /** Page-type prefix — the static `Window:` constant (`WINDOW_PREFIX`) in every
+   *  lens; the lens-following `Terminal:`/`Web:`/`Chat:` prefix was retired by
+   *  260714-uco1. The boot sweep renders over `prefix + " " + name`. */
   prefix: string;
   /** Optional element rendered inside the prefix, BEFORE its trailing `:`
    *  (260714-uco1 — the hierarchy ▾ binds to the prefix "before the colon",
@@ -1391,13 +1391,6 @@ function WindowHeading({
   // play path (rather than a separate mount effect) is what keeps mount from
   // double-playing over a name change.
   const prevNameRef = useRef<string | null>(null);
-  // Track the displayed prefix so a lens switch (tty↔web changes `Terminal:`↔
-  // `Web:` with the SAME window name) replays the boot sweep and re-seeds the
-  // sweep cells — otherwise `useBootSweep`'s `cells` state (seeded once from
-  // `rest()`) would stay stale and the heading would show the old prefix. Seeded
-  // with the initial prefix so the mount replay is owned by the name effect
-  // alone (no double-play on mount).
-  const prevPrefixRef = useRef<string>(prefix);
   const editingRef = useRef(editing);
   editingRef.current = editing;
   // Set true by a key-driven commit/cancel (Enter/Escape) so the onBlur that
@@ -1447,18 +1440,6 @@ function WindowHeading({
       else sweep.resolve();
     }
   }, [name, sweep]);
-
-  // Lens switch: the page-type prefix flipped (`Terminal:`↔`Web:`) with the
-  // same window name. Replay the sweep (or, while editing, resolve to rest) so
-  // the heading re-seeds `sweep.cells` to the new prefix — the same one-effect
-  // mechanism as the name change, keyed on the prefix instead.
-  useEffect(() => {
-    if (prefix !== prevPrefixRef.current) {
-      prevPrefixRef.current = prefix;
-      if (!editingRef.current) sweep.play();
-      else sweep.resolve();
-    }
-  }, [prefix, sweep]);
 
   const startEdit = useCallback(() => {
     sweep.resolve();

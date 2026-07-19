@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 3
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-07-19T21:10:45Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-19T21:12:44Z"}
     hydrate: {started_at: "2026-07-19T21:12:44Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-19T21:14:26Z"}
     ship: {started_at: "2026-07-19T21:14:26Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-19T21:16:15Z"}
-    review-pr: {started_at: "2026-07-19T21:16:15Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-07-19T21:16:15Z", driver: git-pr, iterations: 1, completed_at: "2026-07-19T21:23:34Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/408
 change_type_source: explicit
@@ -54,4 +54,4 @@ true_impact:
     computed_at_stage: ship
 summary: 'Consolidated the palette window-move pair to Window: Move up/down (removed the Move Left/Right aliases)'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-07-19T21:16:15Z
+last_updated: 2026-07-19T21:23:34Z

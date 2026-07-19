@@ -61,7 +61,7 @@ jobs:
         run: just test-frontend
 
   e2e:
-    name: E2E (shard ${{ matrix.shard }}/2)
+    name: E2E (shard ${{ matrix.shard }}/3)
     runs-on: ubuntu-latest
     # Blocking gate (since 260602-a1wo). The e2e suite is SSE-driven and shares
     # one dev + tmux server per shard; under a 2-vCPU runner's contention a
@@ -74,7 +74,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -114,8 +114,8 @@ jobs:
       - name: Set up project (deps, playwright chromium, .env.local)
         run: just setup
 
-      - name: Run e2e tests (shard ${{ matrix.shard }}/2)
-        run: just test-e2e --shard=${{ matrix.shard }}/2
+      - name: Run e2e tests (shard ${{ matrix.shard }}/3)
+        run: just test-e2e --shard=${{ matrix.shard }}/3
 
       - name: Upload Playwright report on failure
         if: failure()
@@ -129,7 +129,7 @@ jobs:
 
   # Single stable-named aggregate gate for branch-protection / rulesets to
   # require. The individual jobs above have names that are fine to require
-  # directly EXCEPT the e2e matrix, whose names (`E2E (shard N/2)`) are coupled
+  # directly EXCEPT the e2e matrix, whose names (`E2E (shard N/3)`) are coupled
   # to the shard count — requiring those by name would silently break the gate
   # if the matrix ever changes. Requiring this one job instead decouples the
   # ruleset from the job topology: changing the shard count needs no ruleset

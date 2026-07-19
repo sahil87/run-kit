@@ -30,7 +30,7 @@ function hasNestedDialog(container: HTMLElement): boolean {
  * Traps Tab focus within `containerRef` and calls `onEscape` on Escape, while
  * `active` is true. Focuses the first focusable element on activation. The
  * single focus-cycle contract consumed by the Shell mobile drawer
- * (`shell/shell.tsx`), `Dialog` (`components/dialog.tsx`), and
+ * (`components/shell/shell.tsx`), `Dialog` (`components/dialog.tsx`), and
  * `CommandPalette` (`components/command-palette.tsx`).
  *
  * Only attaches the document `keydown` listener and steals focus while

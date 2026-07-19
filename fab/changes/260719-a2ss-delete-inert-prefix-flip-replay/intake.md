@@ -9,9 +9,9 @@ Backlog item `[a2ss]` (fab/backlog.md:30), worked by a backlog-cleanup agent in 
 
 > [a2ss] 2026-07-19: Delete the inert WindowHeading prefix-flip replay machinery (prevPrefixRef + prefix-keyed effect, top-bar.tsx ~:1053/:1108) — inert since the sole call site passes the constant WINDOW_PREFIX. (relocated from docs/memory/run-kit/ui-patterns.md by /docs-distill-memory)
 
-Validity was verified in-session before intake creation (line numbers have drifted since the note was written — current locations below):
+Validity was verified in-session before intake creation (line numbers below refer to the **pre-change** state — they have drifted since the backlog note was written, and the referenced items are deleted by this change):
 
-- `prevPrefixRef` is declared at `top-bar.tsx:1400` (with its explanatory comment at :1394-1399), and the prefix-keyed effect lives at `top-bar.tsx:1451-1461`.
+- `prevPrefixRef` was declared at `top-bar.tsx:1400` (with its explanatory comment at :1394-1399), and the prefix-keyed effect lived at `top-bar.tsx:1451-1461`.
 - The **sole** JSX call site is `top-bar.tsx:871-876`, which passes `prefix={WINDOW_PREFIX}` — a module constant `const WINDOW_PREFIX = "Window:"` (`top-bar.tsx:1233`). A repo-wide search (grep plus a NUL-safe perl sweep covering the NUL-joined `session-tiles.tsx`) found no other `<WindowHeading` usage — remaining hits are comments and a test `describe` label.
 - The lens-following prefix (`Terminal:`/`Web:`/`Chat:`) was retired by change `260714-uco1` — the test suite documents this (`top-bar.test.tsx:182-183`: "the lens-following `Terminal:`/`Web:`/`Chat:` prefix was retired") and asserts a static `Window:` prefix in every lens. No test passes a `prefix=` prop directly or exercises a prefix flip.
 

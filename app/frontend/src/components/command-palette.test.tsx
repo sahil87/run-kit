@@ -117,6 +117,39 @@ describe("CommandPalette", () => {
     expect(screen.queryByPlaceholderText("Type a command...")).not.toBeInTheDocument();
   });
 
+  it("closes on Escape when focus is on an option row (document-level trap)", () => {
+    const actions = makeActions(["New Session", "Kill Window"]);
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+
+    // Options are non-focusable divs; the keydown still bubbles to the
+    // document, where useFocusTrap owns Escape.
+    const option = screen.getByText("Kill Window");
+    fireEvent.keyDown(option, { key: "Escape" });
+
+    expect(screen.queryByPlaceholderText("Type a command...")).not.toBeInTheDocument();
+  });
+
+  it("keeps Tab focus inside the palette (wraps on the sole focusable input)", () => {
+    const actions = makeActions(["New Session"]);
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+
+    const input = screen.getByPlaceholderText("Type a command...");
+    expect(input).toHaveFocus();
+
+    // The input is the palette's only focusable element, so the trap wraps
+    // Tab and Shift+Tab back onto it — focus can never leave the modal.
+    // fireEvent returns false when the trap preventDefault()ed the keydown,
+    // which is the observable proof of interception in jsdom (which never
+    // moves focus on Tab by itself).
+    expect(fireEvent.keyDown(input, { key: "Tab" })).toBe(false);
+    expect(input).toHaveFocus();
+
+    expect(fireEvent.keyDown(input, { key: "Tab", shiftKey: true })).toBe(false);
+    expect(input).toHaveFocus();
+  });
+
   it("closes on backdrop click", () => {
     const actions = makeActions(["New Session"]);
     render(<CommandPalette actions={actions} />);

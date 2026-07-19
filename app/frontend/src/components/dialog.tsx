@@ -1,4 +1,5 @@
-import { useEffect, useRef, useId, useCallback } from "react";
+import { useRef, useId } from "react";
+import { useFocusTrap } from "@/hooks/use-focus-trap";
 
 type DialogProps = {
   title: string;
@@ -10,44 +11,9 @@ export function Dialog({ title, onClose, children }: DialogProps) {
   const titleId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
 
-  // Stable ref so the keydown handler always calls the latest onClose
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
-
-  const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if (e.key === "Escape") {
-      onCloseRef.current();
-      return;
-    }
-    const dialog = dialogRef.current;
-    if (!dialog || e.key !== "Tab") return;
-    const focusable = dialog.querySelectorAll<HTMLElement>(
-      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-    );
-    if (focusable.length === 0) return;
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-    if (e.shiftKey && document.activeElement === first) {
-      e.preventDefault();
-      last?.focus();
-    } else if (!e.shiftKey && document.activeElement === last) {
-      e.preventDefault();
-      first?.focus();
-    }
-  }, []);
-
-  // Focus first focusable element on mount; attach keydown listener
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (dialog) {
-      const first = dialog.querySelector<HTMLElement>(
-        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-      );
-      first?.focus();
-    }
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [handleKeyDown]);
+  // Dialog only mounts while open, so the trap is unconditionally active.
+  // The hook owns focus-first-on-mount, Escape → onClose, and Tab wrap.
+  useFocusTrap(dialogRef, true, onClose);
 
   return (
     <div

@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-19T20:31:27Z"}
+{"args":"Chat-send long-single-line paste-collapse (backlog yxi0): empirically disproved the never-collapses assumption — CC 2.1.215 collapses single lines \u003e800 chars into a [Pasted text #N] chip (no lines suffix, width-independent); probe must count the chip for long single-line sends and the regex must accept the suffix-less form","cmd":"fab-new","event":"command","ts":"2026-07-19T20:31:27Z"}
+{"delta":"+5.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-07-19T20:32:22Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-19T20:32:31Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-19T20:33:20Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-19T20:37:52Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-19T20:38:30Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-19T20:43:29Z"}
+{"event":"review","result":"passed","ts":"2026-07-19T20:43:29Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-19T20:45:40Z"}

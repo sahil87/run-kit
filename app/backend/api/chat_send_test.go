@@ -381,6 +381,86 @@ func TestChatSendMultilinePlaceholderNovelty(t *testing.T) {
 	}
 }
 
+// TestChatSendLongSingleLineCollapseNovelty: a LONG SINGLE-LINE paste (>800 chars,
+// no newline) that Claude Code collapses into a SUFFIX-LESS "[Pasted text #N]" chip
+// (empirical, CC 2.1.215, width-independent) is a legitimate echo → 200, Enter
+// sent. The raw needle never appears (the TUI shows the chip, not the text), so
+// before the collapsible-gate widening this send would have deterministically 409'd
+// — this is the regression the fix closes.
+func TestChatSendLongSingleLineCollapseNovelty(t *testing.T) {
+	fastChatSendProbe(t)
+	// A single line over the observed 801-char collapse threshold, no newline.
+	longLine := strings.Repeat("x", 900)
+	sf := &mockSessionFetcher{result: chatSessions("@1", "claude", testChatRef)}
+	// [0] baseline (no chip) → [1] the suffix-less collapse chip appears (fresh).
+	ops := &mockTmuxOps{capturePaneResults: []string{"❯ ", "❯ [Pasted text #1]"}}
+	router := NewTestRouter(slog.Default(), sf, ops, "host")
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, sendReq(`{"text":"`+longLine+`"}`))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if ops.setChatBufferText != longLine {
+		t.Errorf("buffer text len = %d, want the verbatim %d-char line", len(ops.setChatBufferText), len(longLine))
+	}
+	if !ops.sendEnterCalled {
+		t.Error("Enter not sent on a fresh suffix-less collapse chip (valid long-single-line echo)")
+	}
+}
+
+// TestChatSendStaleSuffixlessChipNoBlindEnter: a stale suffix-less "[Pasted text
+// #N]" chip already in the baseline (e.g. this handler's prior 409 left the long
+// paste in the composer) must NOT satisfy the probe for a new long-single-line
+// send whose raw needle does not echo. Every capture returns the same stale chip,
+// so the count never strictly increases → 409, Enter withheld. Mirrors the
+// multiline stale-chip guard for the single-line collapse form.
+func TestChatSendStaleSuffixlessChipNoBlindEnter(t *testing.T) {
+	fastChatSendProbe(t)
+	longLine := strings.Repeat("y", 900)
+	sf := &mockSessionFetcher{result: chatSessions("@1", "claude", testChatRef)}
+	// Baseline == probe: the stale suffix-less chip is present throughout, so no
+	// FRESH occurrence is added by this paste.
+	ops := &mockTmuxOps{capturePaneResult: "❯ [Pasted text #1]"}
+	router := NewTestRouter(slog.Default(), sf, ops, "host")
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, sendReq(`{"text":"`+longLine+`"}`))
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409 (stale suffix-less chip must not pass); body=%s", rec.Code, rec.Body.String())
+	}
+	if ops.sendEnterCalled {
+		t.Error("Enter sent on a stale (non-novel) suffix-less chip — blind-Enter hazard")
+	}
+}
+
+// TestChatSendShortLineFreshChipNotCounted: a SHORT single-line send is not
+// collapsible, so even a FRESH chip appearing post-paste (e.g. a concurrent
+// human paste into the same pane) must not satisfy the probe — short sends keep
+// exact-needle-only matching. Pins the false branch of the collapsible gate at
+// the handler seam: if the gate ever regressed to unconditionally counting
+// chips, this send would 200 instead of 409.
+func TestChatSendShortLineFreshChipNotCounted(t *testing.T) {
+	fastChatSendProbe(t)
+	sf := &mockSessionFetcher{result: chatSessions("@1", "claude", testChatRef)}
+	// Baseline chip-free; every probe capture shows a fresh chip but never the
+	// pasted text "ok" — a non-collapsible send must ignore the chip and 409.
+	ops := &mockTmuxOps{capturePaneResults: []string{"❯ ", "❯ [Pasted text #1]", "❯ [Pasted text #1]", "❯ [Pasted text #1]"}}
+	router := NewTestRouter(slog.Default(), sf, ops, "host")
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, sendReq(`{"text":"ok"}`))
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409 (short send must not ride a chip); body=%s", rec.Code, rec.Body.String())
+	}
+	if ops.sendEnterCalled {
+		t.Error("Enter sent for a short send on a chip occurrence — the collapsible gate is not being applied")
+	}
+}
+
 // TestChatSendSharedDeadlineAborts: the whole injection sequence shares ONE
 // context deadline (chatSendTotalBudget). When it is tiny and a tmux subprocess
 // (the baseline capture here) respects ctx cancellation, the sequence aborts as
@@ -591,15 +671,15 @@ func TestChatProbeNeedle(t *testing.T) {
 // TestCountProbeOccurrences exercises the occurrence-COUNTING matcher directly.
 // The handler compares a pre-paste baseline count against a post-paste count and
 // requires a strict increase; these cases pin the counting rules (raw needle,
-// multiline-gated placeholder, ANSI/whitespace normalization) the comparison
-// rests on.
+// collapsible-gated placeholder — BOTH chip forms, ANSI/whitespace normalization)
+// the comparison rests on.
 func TestCountProbeOccurrences(t *testing.T) {
 	needle := chatProbeNeedle("please run the tests")
 	tests := []struct {
-		name      string
-		capture   string
-		multiline bool
-		want      int
+		name        string
+		capture     string
+		collapsible bool
+		want        int
 	}{
 		{"echo present once", "❯ please run the tests", false, 1},
 		{"echo absent", "unrelated scrollback\n❯ ", false, 0},
@@ -609,24 +689,29 @@ func TestCountProbeOccurrences(t *testing.T) {
 		{"wrapped across rows", "❯ please run the\n  tests", false, 1},
 		// ANSI-styled input (CapturePane keeps escapes with -e) is stripped first.
 		{"ansi-styled echo", "\x1b[1m❯\x1b[0m please run \x1b[32mthe tests\x1b[0m", false, 1},
-		// Placeholder counts ONLY for multiline text (single-line pastes never
-		// collapse). Same capture, opposite gate:
-		{"placeholder counted when multiline", "❯ [Pasted text #1 +12 lines]", true, 1},
-		{"placeholder ignored when single-line", "❯ [Pasted text #1 +12 lines]", false, 0},
-		// Singular "line" + a leading prompt glyph still counts (multiline).
+		// The multiline "+M lines" chip counts ONLY when collapsible. Same capture,
+		// opposite gate:
+		{"multiline chip counted when collapsible", "❯ [Pasted text #1 +12 lines]", true, 1},
+		{"multiline chip ignored when not collapsible", "❯ [Pasted text #1 +12 lines]", false, 0},
+		// The suffix-less single-line collapse chip (a long single line >800 chars
+		// collapses with NO "+M lines" suffix) counts ONLY when collapsible. Same
+		// capture, opposite gate:
+		{"suffix-less chip counted when collapsible", "❯ [Pasted text #7]", true, 1},
+		{"suffix-less chip ignored when not collapsible", "❯ [Pasted text #7]", false, 0},
+		// Singular "line" + a leading prompt glyph still counts (collapsible).
 		{"placeholder singular line", "❯ [Pasted text #3 +1 line]", true, 1},
-		// ANSI-styled placeholder is stripped before matching (multiline).
+		// ANSI-styled placeholder is stripped before matching (collapsible).
 		{"ansi-styled placeholder", "\x1b[2m[Pasted text #2 +40 lines]\x1b[0m", true, 1},
-		// Two chips → two placeholder occurrences (multiline).
-		{"two placeholders", "[Pasted text #1 +2 lines]\n[Pasted text #2 +3 lines]", true, 2},
-		// A partial / malformed chip (no "+M lines" tail) is NOT counted — only a
-		// genuine paste-collapse placeholder, never arbitrary bracketed text.
+		// Two chips (one of each form) → two placeholder occurrences (collapsible).
+		{"two chips both forms", "[Pasted text #1 +2 lines]\n[Pasted text #2]", true, 2},
+		// Arbitrary bracketed text is NOT counted — only a genuine paste-collapse
+		// placeholder chip.
 		{"non-placeholder bracketed text", "❯ [some other note]", true, 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := countProbeOccurrences(tt.capture, needle, tt.multiline); got != tt.want {
-				t.Errorf("countProbeOccurrences(%q, %q, multiline=%v) = %d, want %d", tt.capture, needle, tt.multiline, got, tt.want)
+			if got := countProbeOccurrences(tt.capture, needle, tt.collapsible); got != tt.want {
+				t.Errorf("countProbeOccurrences(%q, %q, collapsible=%v) = %d, want %d", tt.capture, needle, tt.collapsible, got, tt.want)
 			}
 		})
 	}

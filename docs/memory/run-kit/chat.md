@@ -472,15 +472,20 @@ delivered literally — never interpreted as keys/flags nor submitted per-line.
 ### Requirement: NOVELTY echo probe (fail-closed), settle + bounded retry
 Before Enter the handler SHALL verify the pasted text ECHOED into the pane's live
 input buffer, using **novelty**, not mere presence: it counts a probe **needle**
-(and, for multiline text only, the paste-collapse placeholder) in the pre-paste
-**baseline** capture, then requires that count to strictly INCREASE in a post-paste
-capture. The needle is derived from the LAST non-empty line of the text,
+(and, when the paste is *collapsible*, the paste-collapse placeholder) in the
+pre-paste **baseline** capture, then requires that count to strictly INCREASE in a
+post-paste capture. The needle is derived from the LAST non-empty line of the text,
 whitespace-stripped (both needle and capture stripped of ANSI + all whitespace so
 an ~80-col TUI wrap cannot split the fragment) and capped to the last
-`chatSendNeedleMaxLen = 40` runes. The multiline paste-collapse placeholder
-(`[Pasted text #N +M lines]`, matched whitespace-stripped) counts as a successful
-echo — but ONLY for multiline text (single-line pastes never collapse) and ONLY as
-a *fresh* occurrence vs baseline. A short settle (`chatSendProbeSettle = 80ms`)
+`chatSendNeedleMaxLen = 40` runes. A paste is **collapsible** when it is multiline
+OR a single line of at least `chatSendCollapseMinRunes = 200` runes — the Claude
+Code TUI collapses such a paste into a chip, so the chip is a valid fresh-echo
+signal. `pasteCollapseRe` matches BOTH chip forms whitespace-stripped:
+`[Pasted text #N +M lines]` (multiline collapse) and the suffix-less
+`[Pasted text #N]` (long-single-line collapse), with the `+M lines` suffix optional.
+The chip counts as a successful echo ONLY when the paste is collapsible and ONLY as
+a *fresh* occurrence vs baseline; a short single-line send keeps exact-needle-only
+matching. A short settle (`chatSendProbeSettle = 80ms`)
 precedes the first capture, then up to `chatSendProbeAttempts = 3` captures with a
 `chatSendProbeGap = 80ms` gap (settle/gap are package **vars** solely so tests can
 shrink them). The probe **fails closed**: an empty needle, a pane that scrolls
@@ -495,8 +500,9 @@ dialog. A `CapturePane` subprocess error is distinct (→ `500`, not a clean mis
 - **WHEN** the paste does not add a fresh occurrence (or the pane scrolls)
 - **THEN** the count does not strictly increase, so no Enter is sent and the
   response is `409` — the stale occurrence is a floor to beat, not a false positive.
-- **AND GIVEN** the text (or its multiline paste-collapse chip) newly appears within
-  the retry budget, **THEN** Enter is sent and the response is `200 {"ok":true}`.
+- **AND GIVEN** the text (or, for a collapsible paste, its paste-collapse chip in
+  either form) newly appears within the retry budget, **THEN** Enter is sent and the
+  response is `200 {"ok":true}`.
 
 ### Requirement: 409 on probe failure — Enter withheld, text left recoverable
 On probe failure the handler SHALL send no Enter and return `409` with a structured
@@ -952,9 +958,9 @@ rejecting control-byte requests with a `400` (hostile to legitimate paste conten
 
 ### NOVELTY echo probe before Enter, fail-closed
 **Decision**: Never send Enter blindly. Capture the pane tail BEFORE the paste, then
-require a probe needle's (or the multiline paste-collapse chip's) occurrence count
-to strictly INCREASE after the paste; on failure withhold Enter and return `409`
-with the text left recoverable in the composer.
+require a probe needle's (or, for a collapsible paste, the paste-collapse chip's in
+either form) occurrence count to strictly INCREASE after the paste; on failure
+withhold Enter and return `409` with the text left recoverable in the composer.
 **Why**: A visible `❯ <text>` line in a capture can be STALE printed output, not the
 live input buffer (a recorded operator lesson) — a mere-presence check would false
 pass on a stale chip (this very handler's 409 path leaves pasted text in-frame) or a
@@ -973,6 +979,30 @@ reachable but low-consequence false-positive.
 reject-while-busy (superseded — Claude Code queues typed input natively, and the
 probe already guards the unsafe cases).
 *Introduced by*: `260714-jdyg-chat-send`
+
+### Collapse-chip gate at 200 runes, a conservative lower bound
+**Decision**: Count the paste-collapse chip whenever the paste is *collapsible* —
+multiline OR a single line of at least `chatSendCollapseMinRunes = 200` runes — and
+make the `+M lines` suffix optional in `pasteCollapseRe` so both the multiline chip
+(`[Pasted text #N +M lines]`) and the suffix-less long-single-line chip
+(`[Pasted text #N]`) match.
+**Why**: Claude Code collapses a single-line paste over 800 chars into a suffix-less
+chip (empirical, CC 2.1.215, width-independent, observed threshold 801), so its raw
+needle never echoes and the probe would 409 for a paste that demonstrably reached
+the buffer. Gating chip-counting on `collapsible` (not merely on the presence of a
+newline) is what makes the long-single-line chip a valid echo signal. The NOVELTY
+strict-increase-over-baseline design is
+unchanged and is what keeps chip-counting sound: a stale chip is in the pre-paste
+floor, so only THIS paste's fresh occurrence can satisfy the probe — soundness is
+independent of whether the text is multiline. 200 is a deliberate conservative lower
+bound (vs the observed 801) so an upstream threshold reduction cannot silently
+rebreak long-single-line sends, while short interactive sends keep exact-needle-only
+matching.
+**Rejected**: keying the gate to the exact observed 801 (brittle — an upstream
+Claude Code release can lower it silently); counting the chip unconditionally for
+ALL sends (needlessly widens the concurrent-fresh-chip false-positive window to
+short interactive sends that never collapse).
+*Introduced by*: `260719-yxi0-chat-send-single-line-collapse-probe`
 
 ### Allow + probe busy policy — no server-side gate, no queue
 **Decision**: There is NO `agentState` gate on send and NO server-side queue. A busy

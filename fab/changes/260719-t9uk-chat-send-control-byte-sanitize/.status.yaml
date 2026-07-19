@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 5
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-07-19T19:53:17Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-19T20:03:13Z"}
     review: {started_at: "2026-07-19T20:03:13Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-19T20:10:09Z"}
     hydrate: {started_at: "2026-07-19T20:10:09Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-19T20:14:04Z"}
-    ship: {started_at: "2026-07-19T20:14:04Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-07-19T20:14:04Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-19T20:15:22Z"}
+    review-pr: {started_at: "2026-07-19T20:15:22Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/402
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 481
+    deleted: 5
+    net: 476
     excluding:
-        added: 0
+        added: 134
         deleted: 0
-        net: 0
+        net: 134
     tests:
-        added: 0
+        added: 104
         deleted: 0
-        net: 0
-    computed_at: "2026-07-19T20:14:04Z"
-    computed_at_stage: hydrate
+        net: 104
+    computed_at: "2026-07-19T20:15:22Z"
+    computed_at_stage: ship
 summary: Chat send now strips terminal control bytes (CR/CRLF→\n, drop C0/DEL/C1 except \n/\t via sanitizeChatText) at the api/chat.go handler boundary before the emptiness check
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-07-19T20:14:04Z
+last_updated: 2026-07-19T20:15:22Z

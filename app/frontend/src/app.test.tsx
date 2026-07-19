@@ -8,8 +8,8 @@ import type { ServerInfo } from "@/api/client";
  * Tests for move window CmdK actions (T010).
  *
  * These test the action generation logic as it would appear in the palette:
- * - "Window: Move Left" present when not at min index, absent at min
- * - "Window: Move Right" present when not at max index, absent at max
+ * - "Window: Move up" present when not at min index, absent at min
+ * - "Window: Move down" present when not at max index, absent at max
  * - onSelect calls the expected move function
  */
 
@@ -22,22 +22,22 @@ function buildWindowActions(opts: {
   currentWindowIndex: number;
   minIndex: number;
   maxIndex: number;
-  onMoveLeft: () => void;
-  onMoveRight: () => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
 }): PaletteAction[] {
   const actions: PaletteAction[] = [];
   if (opts.currentWindowIndex > opts.minIndex) {
     actions.push({
-      id: "move-window-left",
-      label: "Window: Move Left",
-      onSelect: opts.onMoveLeft,
+      id: "window-move-up",
+      label: "Window: Move up",
+      onSelect: opts.onMoveUp,
     });
   }
   if (opts.currentWindowIndex < opts.maxIndex) {
     actions.push({
-      id: "move-window-right",
-      label: "Window: Move Right",
-      onSelect: opts.onMoveRight,
+      id: "window-move-down",
+      label: "Window: Move down",
+      onSelect: opts.onMoveDown,
     });
   }
   return actions;
@@ -46,54 +46,54 @@ function buildWindowActions(opts: {
 describe("CmdK Move Window Actions", () => {
   afterEach(cleanup);
 
-  it("shows Move Left and Move Right when window is in the middle", () => {
-    const onMoveLeft = vi.fn();
-    const onMoveRight = vi.fn();
+  it("shows Move up and Move down when window is in the middle", () => {
+    const onMoveUp = vi.fn();
+    const onMoveDown = vi.fn();
     const actions = buildWindowActions({
       currentWindowIndex: 1,
       minIndex: 0,
       maxIndex: 2,
-      onMoveLeft,
-      onMoveRight,
+      onMoveUp,
+      onMoveDown,
     });
 
     render(<CommandPalette actions={actions} />);
     openPalette();
 
-    expect(screen.getByText("Window: Move Left")).toBeInTheDocument();
-    expect(screen.getByText("Window: Move Right")).toBeInTheDocument();
+    expect(screen.getByText("Window: Move up")).toBeInTheDocument();
+    expect(screen.getByText("Window: Move down")).toBeInTheDocument();
   });
 
-  it("hides Move Left when window is at min index", () => {
+  it("hides Move up when window is at min index", () => {
     const actions = buildWindowActions({
       currentWindowIndex: 0,
       minIndex: 0,
       maxIndex: 2,
-      onMoveLeft: vi.fn(),
-      onMoveRight: vi.fn(),
+      onMoveUp: vi.fn(),
+      onMoveDown: vi.fn(),
     });
 
     render(<CommandPalette actions={actions} />);
     openPalette();
 
-    expect(screen.queryByText("Window: Move Left")).not.toBeInTheDocument();
-    expect(screen.getByText("Window: Move Right")).toBeInTheDocument();
+    expect(screen.queryByText("Window: Move up")).not.toBeInTheDocument();
+    expect(screen.getByText("Window: Move down")).toBeInTheDocument();
   });
 
-  it("hides Move Right when window is at max index", () => {
+  it("hides Move down when window is at max index", () => {
     const actions = buildWindowActions({
       currentWindowIndex: 2,
       minIndex: 0,
       maxIndex: 2,
-      onMoveLeft: vi.fn(),
-      onMoveRight: vi.fn(),
+      onMoveUp: vi.fn(),
+      onMoveDown: vi.fn(),
     });
 
     render(<CommandPalette actions={actions} />);
     openPalette();
 
-    expect(screen.getByText("Window: Move Left")).toBeInTheDocument();
-    expect(screen.queryByText("Window: Move Right")).not.toBeInTheDocument();
+    expect(screen.getByText("Window: Move up")).toBeInTheDocument();
+    expect(screen.queryByText("Window: Move down")).not.toBeInTheDocument();
   });
 
   it("hides both when session has only one window", () => {
@@ -101,56 +101,56 @@ describe("CmdK Move Window Actions", () => {
       currentWindowIndex: 0,
       minIndex: 0,
       maxIndex: 0,
-      onMoveLeft: vi.fn(),
-      onMoveRight: vi.fn(),
+      onMoveUp: vi.fn(),
+      onMoveDown: vi.fn(),
     });
 
     render(<CommandPalette actions={actions} />);
     openPalette();
 
-    expect(screen.queryByText("Window: Move Left")).not.toBeInTheDocument();
-    expect(screen.queryByText("Window: Move Right")).not.toBeInTheDocument();
+    expect(screen.queryByText("Window: Move up")).not.toBeInTheDocument();
+    expect(screen.queryByText("Window: Move down")).not.toBeInTheDocument();
   });
 
-  it("Move Left onSelect fires correctly", () => {
-    const onMoveLeft = vi.fn();
+  it("Move up onSelect fires correctly", () => {
+    const onMoveUp = vi.fn();
     const actions = buildWindowActions({
       currentWindowIndex: 1,
       minIndex: 0,
       maxIndex: 2,
-      onMoveLeft,
-      onMoveRight: vi.fn(),
+      onMoveUp,
+      onMoveDown: vi.fn(),
     });
 
     render(<CommandPalette actions={actions} />);
     openPalette();
 
-    // Filter to Move Left, then Enter
+    // Filter to Move up, then Enter
     const input = screen.getByPlaceholderText("Type a command...");
-    fireEvent.change(input, { target: { value: "Move Left" } });
+    fireEvent.change(input, { target: { value: "Move up" } });
     fireEvent.keyDown(input, { key: "Enter" });
 
-    expect(onMoveLeft).toHaveBeenCalledOnce();
+    expect(onMoveUp).toHaveBeenCalledOnce();
   });
 
-  it("Move Right onSelect fires correctly", () => {
-    const onMoveRight = vi.fn();
+  it("Move down onSelect fires correctly", () => {
+    const onMoveDown = vi.fn();
     const actions = buildWindowActions({
       currentWindowIndex: 1,
       minIndex: 0,
       maxIndex: 2,
-      onMoveLeft: vi.fn(),
-      onMoveRight,
+      onMoveUp: vi.fn(),
+      onMoveDown,
     });
 
     render(<CommandPalette actions={actions} />);
     openPalette();
 
     const input = screen.getByPlaceholderText("Type a command...");
-    fireEvent.change(input, { target: { value: "Move Right" } });
+    fireEvent.change(input, { target: { value: "Move down" } });
     fireEvent.keyDown(input, { key: "Enter" });
 
-    expect(onMoveRight).toHaveBeenCalledOnce();
+    expect(onMoveDown).toHaveBeenCalledOnce();
   });
 });
 

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useId } from "react";
+import { useFocusTrap } from "@/hooks/use-focus-trap";
 
 export type PaletteAction = {
   id: string;
@@ -15,9 +16,14 @@ export function CommandPalette({ actions }: CommandPaletteProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const paletteRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const listId = useId();
+
+  // The hook owns Escape (document-level, so it fires regardless of which
+  // element inside the palette has focus), Tab containment, and initial focus
+  // (the input is the container's first — and only — focusable element).
+  useFocusTrap(paletteRef, open, () => setOpen(false));
 
   const filtered = actions.filter((a) =>
     a.label.toLowerCase().includes(query.toLowerCase()),
@@ -45,12 +51,6 @@ export function CommandPalette({ actions }: CommandPaletteProps) {
     };
   }, []);
 
-  useEffect(() => {
-    if (open) {
-      inputRef.current?.focus();
-    }
-  }, [open]);
-
   // Scroll selected item into view
   useEffect(() => {
     if (!open || !listRef.current) return;
@@ -69,9 +69,7 @@ export function CommandPalette({ actions }: CommandPaletteProps) {
   );
 
   function handleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "Escape") {
-      setOpen(false);
-    } else if (e.key === "ArrowDown") {
+    if (e.key === "ArrowDown") {
       e.preventDefault();
       setSelectedIndex((i) => Math.min(i + 1, filtered.length - 1));
     } else if (e.key === "ArrowUp") {
@@ -100,6 +98,7 @@ export function CommandPalette({ actions }: CommandPaletteProps) {
 
       {/* Modal */}
       <div
+        ref={paletteRef}
         role="dialog"
         aria-modal="true"
         aria-label="Command palette"
@@ -107,7 +106,6 @@ export function CommandPalette({ actions }: CommandPaletteProps) {
         onClick={(e) => e.stopPropagation()}
       >
         <input
-          ref={inputRef}
           type="text"
           value={query}
           onChange={(e) => {

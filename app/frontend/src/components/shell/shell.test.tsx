@@ -98,6 +98,74 @@ describe("Shell", () => {
     expect(root.style.gridTemplateColumns).toBe("220px 1fr");
   });
 
+  describe("desktop sidebar aside (Shell-owned, 260719-rwqf)", () => {
+    it("renders an <aside aria-label='Sidebar'> containing sidebarChildren when desktop + open", () => {
+      renderShell({ open: true, mobile: false });
+      const aside = screen.getByRole("complementary", { name: "Sidebar" });
+      expect(aside).toBeInTheDocument();
+      // The sidebar content lives inside the aside.
+      expect(aside).toContainElement(screen.getByTestId("sidebar"));
+      // It is placed in the `sidebar` grid area.
+      expect(aside.style.gridArea).toBe("sidebar");
+    });
+
+    it("does not render the desktop aside when sidebarOpen is false", () => {
+      renderShell({ open: false, mobile: false });
+      expect(screen.queryByRole("complementary", { name: "Sidebar" })).not.toBeInTheDocument();
+      // Fully unmounted — the children are absent, not merely hidden.
+      expect(screen.queryByTestId("sidebar")).not.toBeInTheDocument();
+    });
+
+    it("renders a passed sidebarResizeHandle inside the aside and drops border-r", () => {
+      render(
+        <ChromeProvider>
+          <Shell
+            sidebarChildren={<div data-testid="sidebar">SIDEBAR</div>}
+            sidebarResizeHandle={<div data-testid="resize-handle">HANDLE</div>}
+          >
+            <main style={{ gridArea: "content" }} data-testid="content">CONTENT</main>
+            <footer style={{ gridArea: "bottombar" }} data-testid="bottombar">BOTTOM</footer>
+          </Shell>
+        </ChromeProvider>,
+      );
+      const aside = screen.getByRole("complementary", { name: "Sidebar" });
+      // The handle renders inside the aside (right edge).
+      expect(aside).toContainElement(screen.getByTestId("resize-handle"));
+      // With a handle, the handle bar is the visual seam — no border-r.
+      expect(aside.className).not.toContain("border-r");
+    });
+
+    it("applies border-r border-border on the aside when no resize handle is passed", () => {
+      renderShell({ open: true, mobile: false });
+      const aside = screen.getByRole("complementary", { name: "Sidebar" });
+      expect(aside.className).toContain("border-r");
+      expect(aside.className).toContain("border-border");
+    });
+
+    it("does not render sidebarResizeHandle in the mobile overlay", () => {
+      // ChromeProvider reads the stored preference; pin open, mock mobile viewport.
+      localStorage.setItem("runkit-sidebar-open", "true");
+      mockMatchMedia((q) => q.includes("max-width"));
+      render(
+        <ChromeProvider>
+          <Shell
+            sidebarChildren={<div data-testid="sidebar">SIDEBAR</div>}
+            sidebarResizeHandle={<div data-testid="resize-handle">HANDLE</div>}
+          >
+            <main style={{ gridArea: "content" }} data-testid="content">CONTENT</main>
+            <footer style={{ gridArea: "bottombar" }} data-testid="bottombar">BOTTOM</footer>
+          </Shell>
+        </ChromeProvider>,
+      );
+      // The mobile overlay (role="dialog") renders the children but NOT the handle.
+      const overlay = screen.getByRole("dialog");
+      expect(overlay).toContainElement(screen.getByTestId("sidebar"));
+      expect(screen.queryByTestId("resize-handle")).not.toBeInTheDocument();
+      // And there is no desktop complementary aside on mobile.
+      expect(screen.queryByRole("complementary", { name: "Sidebar" })).not.toBeInTheDocument();
+    });
+  });
+
   it("switches to single-column grid on mobile and renders sidebar overlay when open", () => {
     renderShell({ open: true, mobile: true });
     const root = screen.getByTestId("content").parentElement!;
@@ -155,11 +223,14 @@ describe("Shell", () => {
 
     it("does not steal focus or attach the trap on desktop", () => {
       renderShell({ open: true, mobile: false, sidebarChildren: trapChildren() });
-      // Desktop sidebar is not a modal: Shell renders the overlay (and thus the
-      // sidebarChildren) only on mobile, so there is no role="dialog" and the
-      // trap never activates — focus stays on <body>, nothing is focused.
+      // Desktop sidebar is not a modal: Shell renders it as a grid <aside>
+      // (aria-label="Sidebar"), not the role="dialog" overlay, so the focus trap
+      // never activates — focus stays on <body>, nothing is focused. The
+      // sidebarChildren DO render now (Shell owns the desktop aside, 260719-rwqf),
+      // but the trap is scoped to the mobile overlay only.
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-      expect(screen.queryByTestId("first")).not.toBeInTheDocument();
+      // The desktop aside renders the children (Shell-owned), but focus is untouched.
+      expect(screen.getByTestId("first")).toBeInTheDocument();
       expect(document.activeElement).toBe(document.body);
     });
 

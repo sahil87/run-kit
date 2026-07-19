@@ -1,13 +1,11 @@
 ---
-description: "The `@rk_agent_state` pane-option convention — two-tier ownership, three-state value schema, writer/reader rules, shell reconciler, window rollup, the `rk agent-setup` installer (now HOOKS-ONLY — settings-hooks merge, plus a one-release cleanup of the legacy marker-owned `rk-display` skill it no longer installs; that context-injection role is superseded by the `rk skill` bundle) + `rk agent-hook` binary indirection (stable settings interface, logic in the binary, comm-validated ancestor walk) — plus the sibling `@rk_chat` chat-session-identity convention (`<provider>:<session-ref>` value, stdin-JSON session-id seam in the hook, stamp-only token + SessionStart row, chat reconciliation sharing agent-state's per-pane liveness)"
+description: "The `@rk_agent_state` pane-option convention: two-tier ownership, three-state value schema, writer/reader rules, shell reconciler, and window rollup. Covers the hooks-only `rk agent-setup` installer (settings-hooks merge plus a one-release legacy `rk-display` skill cleanup) and its `rk agent-hook` binary indirection, plus the sibling `@rk_chat` chat-session-identity convention whose reconciliation shares agent-state's per-pane liveness."
 type: memory
 ---
 # Agent-State Tier (`@rk_agent_state`)
 
 The generic agent-lifecycle tier: a tmux **pane** user option that any agent
-harness writes and run-kit reads natively, replacing the Claude-only,
-fab-root-coupled `_agents` pipeline that run-kit previously consumed via
-`fab pane map`. Landed by `260705-dmex-generic-agent-state-tier`. The cross-repo
+harness writes and run-kit reads natively. (`260705-dmex`) The cross-repo
 contract lives in [`docs/specs/agent-state.md`](../../specs/agent-state.md) (this
 memory file records what run-kit actually implemented).
 
@@ -23,14 +21,11 @@ Agent status splits into two tiers with distinct owners:
   written by agent-harness hooks for **any** agent (Claude, codex, copilot,
   gemini, opencode, …) in **any** directory under **any** workflow.
 
-This inverts the previous model where run-kit consumed a Claude-only,
-fab-root-coupled `_agents` pipeline (`fab hook` dies outside a fab root; hooks
-are registered in Claude settings only). Per constitution **Principle X — Hooks
-Carry Only the Underivable** (amended to v1.4.0 for this change), hooks push only
-ephemeral in-flight lifecycle state; everything derivable (PR links, branches,
-worktrees) is derived server-side — which is why PR links moved to branch→PR
-derivation in the same change (see [architecture](/run-kit/architecture.md)
-§ Backend Libraries → `internal/prstatus`, § Branch→PR Derivation).
+Per constitution **Principle X — Hooks Carry Only the Underivable**, hooks push
+only ephemeral in-flight lifecycle state; everything derivable (PR links,
+branches, worktrees) is derived server-side — which is why PR links use branch→PR
+derivation (see [architecture](/run-kit/architecture.md)
+§ Backend Libraries → `internal/prstatus`, § Branch→PR Derivation). (`260705-dmex`)
 
 ## The Convention
 
@@ -44,10 +39,9 @@ derivation in the same change (see [architecture](/run-kit/architecture.md)
 
 The epoch suffix is **mandatory** — readers compute idle/waiting duration from
 it. Values MAY carry a third `:<pid>` segment (the agent process's pid, for the
-PID-liveness reconciler); the schema is `<state>:<epoch>[:<pid>]` and is
-**unchanged** by the `rk agent-hook` indirection (`260707-qfps`) — the pure
-`formatAgentStateValue(state, epoch, pid)` in `cmd/rk/agent_hook.go` reproduces
-it byte-for-byte, and every reader is untouched. The option name and the three
+PID-liveness reconciler); the schema is `<state>:<epoch>[:<pid>]`, formatted by
+the pure `formatAgentStateValue(state, epoch, pid)` in `cmd/rk/agent_hook.go`. The
+option name and the three
 state tokens are declared **once** in `app/backend/internal/tmux/tmux.go`
 (constants `AgentStateOption`, `AgentStateActive`/`Waiting`/`Idle`);
 `cmd/rk/agent_setup.go` **and** `cmd/rk/agent_hook.go` alias them rather than
@@ -60,15 +54,15 @@ most notification-worthy state; `idle` = turn complete, at rest.
 ## Backend Native Read (`internal/tmux`)
 
 `#{@rk_agent_state}` is field 6 (0-indexed) of the `paneFormat` `list-panes`
-format string — **7 fields** since this change (`window_index`, `pane_id`,
+format string — **7 fields** (`window_index`, `pane_id`,
 `pane_index`, `pane_current_path`, `pane_current_command`, `pane_active`,
 `@rk_agent_state`). It costs **zero extra subprocess** — it rides the existing
 `list-panes` call `ListWindows` already issues per session.
 
-`PaneInfo` gained two fields: `AgentState string` (`json:"agentState,omitempty"`,
+`PaneInfo` carries two fields: `AgentState string` (`json:"agentState,omitempty"`,
 `active|waiting|idle`, empty = unknown) and `AgentStateEpoch int64`
 (`json:"agentStateEpoch,omitempty"`, 0 = unknown). Both are parsed and reconciled
-in `parsePanes` (which now requires `< 7` fields to skip a line, up from 6):
+in `parsePanes` (which requires `< 7` fields to skip a line):
 
 - **`parseAgentState(raw string) (string, int64)`** — pure helper. Trims, splits
   on the **last** `:` (defensive; state tokens never contain a colon so it equals
@@ -86,10 +80,9 @@ in `parsePanes` (which now requires `< 7` fields to skip a line, up from 6):
 
 ## Window Rollup + Duration (`internal/sessions`)
 
-`WindowInfo.AgentState` / `AgentIdleDuration` keep their JSON field names
-(`agentState` / `agentIdleDuration`) but **change source**: they are now a
-window-level rollup over the window's panes (post-reconciler) computed rk-side in
-`FetchSessions`, no longer joined from `fab pane map`.
+`WindowInfo.AgentState` / `AgentIdleDuration` (JSON `agentState` /
+`agentIdleDuration`) are a window-level rollup over the window's panes
+(post-reconciler) computed rk-side in `FetchSessions`.
 
 - **`rollupAgentState(panes []tmux.PaneInfo, nowUnix int64) (state, duration string)`**
   — pure helper (mirrors the `parseWindows`/`parsePanes`/`applyActiveWindow`
@@ -100,20 +93,20 @@ window-level rollup over the window's panes (post-reconciler) computed rk-side i
 - **Duration** is computed from the winning pane's `AgentStateEpoch` for `idle`
   **and** `waiting` (both are durations a human cares about — how long at rest /
   how long the human has been the blocker); `active` and unknown produce `""`.
-- **`formatAgentDuration(elapsedSeconds int64) string`** — reproduces fab's
-  `Ns`/`Nm`/`Nh` floor-division style (`<60s`→`Ns`, `<3600s`→`Nm`, else `Nh`;
-  non-positive → `""`) so the frontend duration string surface is byte-compatible
-  with the previously fab-formatted value.
+- **`formatAgentDuration(elapsedSeconds int64) string`** — the `Ns`/`Nm`/`Nh`
+  floor-division style (`<60s`→`Ns`, `<3600s`→`Nm`, else `Nh`;
+  non-positive → `""`), byte-compatible with fab's duration-string format so the
+  frontend surface is unchanged.
 
 `FetchSessions` calls the rollup per window inside the enrichment loop
 (`nowUnix := time.Now().Unix()` captured once for the whole loop).
 
 ## `rk agent-hook` — Hook Logic in the Binary (`cmd/rk/agent_hook.go`)
 
-Since `260707-qfps` the hook body installed into harness settings is a stable
+The hook body installed into harness settings is a stable
 *interface* (`agentStateHookCommand` above) and **all logic lives in this Go
 subcommand** — so a hook fix reaches every running agent on `brew upgrade rk`
-with no settings churn and no session restarts. `rk agent-hook --agent <name>
+with no settings churn and no session restarts. (`260707-qfps`) `rk agent-hook --agent <name>
 <state>` (registered in `root.go` `init()`) is what the installed wrapper
 invokes; `<state>` ∈ `active | waiting | idle`, `--agent` selects the harness
 whose comm literal drives pid resolution (v1: `claude`, default).
@@ -146,8 +139,8 @@ silent and returns without error.
 **Comm-validated ancestor walk** (`resolveAgentPID(ctx, startPPID, comm)`, bound
 **5**): walks up from `os.Getppid()` comparing each ancestor's comm against the
 registry literal, returning the first match's pid or **0** (→ pid segment omitted,
-never a wrong pid). The bound rose 3→5 vs. the former shell hook because the
-delegation adds a wrapper layer (`claude → hook shell → sh -c → rk`, and `sh` may
+never a wrong pid). The bound is **5** because the delegation adds a wrapper layer
+(`claude → hook shell → sh -c → rk`, and `sh` may
 or may not exec the final `rk`). Raw `$PPID` is wrong here — harnesses spawn hooks
 through an *ephemeral* shell that exits when the hook finishes, so `$PPID` records
 that dead wrapper (the reader's PID-liveness check would then suppress every
@@ -188,27 +181,28 @@ installer that writes into an agent harness's **user-global** config so any
 session of that agent, anywhere, reports state. Modeled on guppi's explicit
 `agent-setup` command rather than a silent sync ("explicit feels honest").
 
-**Consent flags** (`260717-c424-toolkit-standards-conformance`, toolkit
-Principle 1/5): because it mutates `~/.claude/settings.json`, the confirmation is
+**Consent flags** (toolkit Principle 1/5): because it mutates
+`~/.claude/settings.json`, the confirmation is
 gated through a `consent` struct (`yes` / `dryRun` / `stdinIsTTY`) resolved once
 per run in the `RunE` and threaded through `runAgentSetup` → `applyAgentConfig`
 → `applyAgentHooks` / `removeLegacySkill`. The single decision point is
 `consent.authorizeWrite(out, reader, dryRunNote, promptSuffix) (bool, error)`:
+(`260717-c424`)
 
 - **`--dry-run`** → print the dry-run note, write nothing, return `(false, nil)`.
   Needs no consent, and **wins over `--yes`** (a preview must never mutate).
 - **`--yes` / `-y`** → return `(true, nil)` without prompting (non-interactive consent).
 - **neither, stdin is a TTY** → print `promptSuffix` and defer to the interactive
-  `confirm()` `[y/N]` read (unchanged from before this change).
+  `confirm()` `[y/N]` read.
 - **neither, stdin is NOT a TTY** → **refuse**: return
-  `(false, errNonInteractiveConsent)`, an error naming `--yes`, nothing written.
-  This REPLACES the prior silent EOF-decline (which exited 0 — a success-looking
-  no-op, the exact agent trap Principle 1 targets; reference impl: `shll uninstall`).
+  `(false, errNonInteractiveConsent)`, an error naming `--yes`, nothing written
+  (a success-looking silent no-op is the exact agent trap Principle 1 targets;
+  reference impl: `shll uninstall`).
 
 The `promptSuffix` (`"Write these changes? [y/N] "` / `"Remove … directory? [y/N] "`)
 is emitted **only** on the interactive path — the auto-answered `--yes`/`--dry-run`
 paths never read it, so printing `[y/N] ` there would read as a hang in an agent's
-transcript. `renderArtifactDiff` no longer appends the suffix for this reason.
+transcript. `renderArtifactDiff` does not append the suffix for this reason.
 
 **TTY detection uses `term.IsTerminal`, NOT a bare `os.ModeCharDevice` check**
 (`isTerminal(r io.Reader)`): a char-device test alone classifies `/dev/null`
@@ -219,20 +213,18 @@ non-interactive path unless they set `stdinIsTTY` explicitly. Pinned by
 `TestIsTerminalRejectsNonTTYFiles`.
 
 **It installs exactly ONE artifact: the settings-hooks merge** (described here).
-It briefly managed a second — a user-global `rk-display` skill (`260714-popk`) —
-but that context-injection responsibility moved to the **`rk skill` bundle**
-(served by the `skill` subcommand, aggregated by the coming `shll agent-setup`)
-in `260717-agst-rk-skill-agent-setup-hooks-only`, which slimmed agent-setup back
-to hooks-only. The command surface is unchanged (`rk agent-setup` /
-`rk agent-setup --uninstall`); the only remaining trace of the skill is a
-**one-release legacy cleanup** that removes a stale copy left by an older run-kit
-(see § Legacy `rk-display` Cleanup). The `rk skill` bundle itself is described in
-[architecture](/run-kit/architecture.md) § CLI Subcommands.
+The command surface is `rk agent-setup` / `rk agent-setup --uninstall`. The
+visual-display context-injection role belongs to the **`rk skill` bundle** (served
+by the `skill` subcommand, aggregated by the coming `shll agent-setup`), described
+in [architecture](/run-kit/architecture.md) § CLI Subcommands; the only skill trace
+in agent-setup is a **one-release legacy cleanup** that removes a stale
+`rk-display` copy left by an older run-kit (see § Legacy `rk-display` Cleanup).
+(`260717-agst`)
 
 **Per-agent registry** (`agentRegistry(home) []agentConfig`): each `agentConfig`
 carries a display `name`, a `settingsPath`, the agent binary's `comm` (process
 name, e.g. `"claude"` — threaded into both the installed wrapper's `--agent` value
-and `agent_hook.go`'s pid-resolution walk since `260707-qfps`), and an ordered
+and `agent_hook.go`'s pid-resolution walk), and an ordered
 `[]agentHook` (event + optional matcher + fixed state token). v1 ships **Claude
 Code only** (`~/.claude/settings.json` via `claudeSettingsRelPath`); codex/
 copilot/gemini/opencode are additive registry rows. The Claude event→state
@@ -246,9 +238,9 @@ mapping:
 | `Notification` | `idle_prompt` | `idle` (backstop — `Stop` doesn't fire on every turn-end path, e.g. Esc-interrupt) |
 | `Stop` | — | `idle` |
 
-**Hook command** (`agentStateHookCommand(rkPath, state, comm)`): since
-`260707-qfps` a **stable delegating wrapper** that keeps all logic in the rk
-binary (see § `rk agent-hook` below) instead of inlining it —
+**Hook command** (`agentStateHookCommand(rkPath, state, comm)`): a **stable
+delegating wrapper** that keeps all logic in the rk binary (see § `rk agent-hook`
+below) —
 
 ```sh
 sh -c '[ -n "$TMUX_PANE" ] || exit 0; "<abs-rk>" agent-hook --agent claude <state> 2>/dev/null || true'
@@ -259,34 +251,25 @@ spawn outside tmux); `|| true` preserves the never-fail contract even if the
 binary is missing or moved (silent no-op is acceptable — the PID-liveness
 reconciler clears stranded values). state and comm are fixed registry literals;
 the only machine-derived interpolation is `<abs-rk>`, closed by
-`validateHookPath` (below). This replaces the former self-contained one-liner
-that inlined `tmux set-option … @rk_agent_state "<state>:$(date +%s)"` — that
-form was **frozen twice** (once in `~/.claude/settings.json` at install time,
-once in the harness's session-start snapshot), so a hook bug fix shipped in the
-binary reached zero running agents until every session was restarted (the
-#320↔#321 skew: the settings-side raw-`$PPID` writer and the binary-side #320
-PID-liveness reconciler diverged and suppressed agent state fleet-wide). The
-delegating wrapper lifts that freeze — hook *logic* changes now ship with the
-binary on `brew upgrade rk`, no settings churn, no session restarts.
+`validateHookPath` (below). Delegating to the binary means hook *logic* changes
+ship with the binary on `brew upgrade rk`, no settings churn, no session
+restarts. (`260707-qfps`)
 
 **Install-time path resolution** (`resolveRkPath()`): the `<abs-rk>` embedded in
-the wrapper is resolved once per `runAgentSetup` invocation. Since
-`260709-gidk-swap-canonical-cli-name-run-kit` it prefers
-`exec.LookPath("run-kit")` (the new canonical name), then falls back to
+the wrapper is resolved once per `runAgentSetup` invocation. It prefers
+`exec.LookPath("run-kit")` (the canonical name), then falls back to
 `exec.LookPath("rk")`, then `os.Executable()`. Either LookPath hit yields the
 STABLE Homebrew symlink (`/home/linuxbrew/.linuxbrew/bin/{run-kit,rk}` or
 `/opt/homebrew/bin/{run-kit,rk}`, NOT the version-pinned Cellar path) — both
 stable symlinks resolve to the same binary, so the order is functionally
-equivalent; run-kit-first just matches the new canonical identity, and the
-existing `resolveRkPath` test is order-agnostic (asserts only non-empty +
-absolute). The `os.Executable()` fallback runs **without** `filepath.EvalSymlinks`
-(resolution would pin the Cellar version and re-freeze the hook — the exact
-failure `260707-qfps` removed). **Installed hooks embedding `…/bin/rk` remain
-valid indefinitely**: `rk` stays a real on-PATH symlink (per the canonical-swap
-invariants — see [architecture](/run-kit/architecture.md) § Homebrew Distribution),
-so a hook resolved to `/opt/homebrew/bin/rk` before the swap keeps working after
-it. Before any merge the path is
-run through `validateHookPath`: a path containing any of `' " $ ` backslash (all
+equivalent, and the `resolveRkPath` test is order-agnostic (asserts only
+non-empty + absolute). The `os.Executable()` fallback runs **without**
+`filepath.EvalSymlinks` (resolution would pin the Cellar version and re-freeze the
+hook). **Installed hooks embedding `…/bin/rk` remain valid indefinitely**: `rk`
+stays a real on-PATH symlink (per the canonical-swap invariants — see
+[architecture](/run-kit/architecture.md) § Homebrew Distribution), so a hook
+resolved to `/opt/homebrew/bin/rk` keeps working. (`260709-gidk`) Before any merge
+the path is run through `validateHookPath`: a path containing any of `' " $ ` backslash (all
 shell-active inside the wrapper's double-in-single quoting) **fails the install
 with a clear error** — reject-don't-escape (escaping would have to survive three
 nested quoting layers; such paths never occur under Homebrew/conventional
@@ -302,17 +285,15 @@ at a TTY or agent passing `--yes` — sees it and acts).
   rk-owned entry (once per event — an event may carry multiple rk hooks, e.g.
   `Notification` maps to both `waiting` and `idle`), **then** appends the fresh
   entries — so a re-run replaces in place and never duplicates.
-- rk-owned entries are identified by `isRkEntry`, which since `260707-qfps`
+- rk-owned entries are identified by `isRkEntry`, which
   matches **either generation** of the command string: the LEGACY marker
   `rkHookMarker` (which *is* `tmux.AgentStateOption`, `@rk_agent_state` — the old
-  inlined one-liner carried the option name) **or** the NEW-form const
+  inlined one-liner carried the option name) **or** the const
   `rkHookMarkerAgentHook` (`" agent-hook "`, spaces included so it can't match an
-  unrelated token). Matching both is what lets a re-run on the new binary strip
+  unrelated token). Matching both lets a re-run strip
   old-generation entries and replace them **in place** (no duplication), and lets
   `--uninstall` remove **both** generations. Non-rk hooks carry neither marker and
-  are preserved untouched. *(The legacy arm is transitional — once the fleet's
-  one-time re-setup migration is complete, no settings file carries the old
-  inlined one-liner and the `@rk_agent_state` match becomes removable.)*
+  are preserved untouched. (`260707-qfps`)
 - `--uninstall` runs `unmergeHooks`, removing exactly the rk-owned entries; an
   event array that empties is deleted, and a `hooks` object that empties is
   deleted.
@@ -352,22 +333,16 @@ report — so declining or no-op-ing one does not skip the other. `agentConfig`
 carries a `skillsDir string` field; the Claude Code registry row sets it to
 `filepath.Join(home, ".claude", "skills")`, and an **empty `skillsDir` means "no
 legacy skill to clean for that agent"** — only the hooks merge runs (future
-codex/copilot/gemini/opencode rows may leave it empty). `skillsDir` now exists
-**solely to locate the legacy skill for cleanup** and is scheduled for removal one
-release after `260717-agst`.
+codex/copilot/gemini/opencode rows may leave it empty). `skillsDir` exists
+**solely to locate the legacy skill for cleanup**.
 
 ### Legacy `rk-display` Cleanup (`removeLegacySkill`, one release only)
 
-`260714-popk` briefly made `rk agent-setup` install a **second** artifact — a
+`removeLegacySkill` is a **cleanup-only** flow that removes a stale
 user-global Claude Code skill at `{skillsDir}/rk-display/SKILL.md` (so
-`~/.claude/skills/rk-display/SKILL.md` for Claude Code) — whose `description:`
-frontmatter put run-kit's visual-display capability into an ordinary agent
-session's context so the agent ran `rk context` on its own. `260717-agst`
-**deleted that install path entirely** (the `rkDisplaySkillContent` literal,
-`writeSkill`, and the `applyAgentSkill` install branch are gone); the
-context-injection role is now the **`rk skill` bundle**, aggregated by the coming
-`shll agent-setup`. What remains is a **cleanup-only** flow that removes a stale
-copy left by an older run-kit:
+`~/.claude/skills/rk-display/SKILL.md` for Claude Code) left by an older run-kit
+that once installed it. The visual-display context-injection role belongs to the
+**`rk skill` bundle**, aggregated by the coming `shll agent-setup`. (`260717-agst`)
 
 - **Runs on BOTH the install and uninstall passes.** `removeLegacySkill` is called
   from `applyAgentConfig` regardless of `--uninstall`. Rationale: re-running plain
@@ -376,26 +351,18 @@ copy left by an older run-kit:
   would never fire for them, stranding the file forever.
 - **Uniform behavior across both passes** (keyed on the file's state, not the mode):
   - **Absent** file → **silent** in both modes. A fresh machine produces zero
-    rk-display output (a deliberate change from the pre-`agst` uninstall's
-    "absent — nothing to do" line).
+    rk-display output.
   - **Marker-less** (user-rewritten) file → **left untouched with a skip note** (rk
     only removes files it owns).
   - **Marker-owned** file → **offer removal** (confirm prompt), then `os.RemoveAll`
     the whole `rk-display/` directory. Confirmed first because it deletes the entire
     directory, including any user-added files within it.
-- **Retained recognition machinery** (all scheduled for deletion one release after
-  `260717-agst`): the marker constants `rkDisplaySkillDir`/`rkDisplaySkillFile`/
+- **Recognition machinery**: the marker constants `rkDisplaySkillDir`/`rkDisplaySkillFile`/
   `skillManagedByMarker`, the tolerant `readSkill` (missing → empty, never an
   error), and the whole-file `skillHasMarker` predicate (the whole-file analogue of
-  `isRkEntry` — rk owned the entire file, so a `managed-by: rk agent-setup`
+  `isRkEntry` — rk owns the entire file, so a `managed-by: rk agent-setup`
   frontmatter-marker presence check gates the destructive removal). No content
-  literal survives — the cleanup needs only to LOCATE and RECOGNIZE, never write.
-
-The `rk-display` skill's original design (thin-pointer body, whole-file marker
-ownership, the anti-freeze rationale for shipping capability content via
-`rk context` rather than freezing it in a file) is preserved for the historical
-record in § Design Decisions → "Whole-file skill ownership…", now marked
-superseded.
+  literal exists — the cleanup only LOCATEs and RECOGNIZEs, never writes.
 
 ## Lifecycle
 
@@ -407,12 +374,10 @@ gone) or reverts to a shell (reconciler zeros it).
 
 ## Migration — Clean Swap, No Dual-Source Fallback
 
-The pane-map join was **slimmed** in the same change:
-`paneMapEntry` dropped `agent_state`, `agent_idle_duration`, `pr_url`, and
-`pr_number`; the join consumes only `change`/`stage`/`display_state`; and
-`dedupEntries` priority simplified from `Change > AgentState > first-seen` to
-`Change > first-seen` (the AgentState tiebreak arm is dead — agent state no longer
-rides the map). See [architecture](/run-kit/architecture.md) § `internal/sessions`.
+The pane-map join carries only fab pipeline state: `paneMapEntry` holds
+`change`/`stage`/`display_state` (not `agent_state`, `agent_idle_duration`,
+`pr_url`, or `pr_number`), and `dedupEntries` priority is `Change > first-seen`.
+See [architecture](/run-kit/architecture.md) § `internal/sessions`.
 
 There is **no dual-source fallback**: until `rk agent-setup` has been run on a
 machine, agent columns read unknown (`—`). Accepted for a single-operator
@@ -422,12 +387,10 @@ keeps writing `.fab-runtime.yaml` `_agents` until its own reader-side change
 (fab-kit backlog `[ioku]`) lands — harmless coexistence, run-kit simply stops
 reading the old sink.
 
-## UI Surfacing (landed — `260706-y1ar-status-pyramid-ui-surfacing`)
+## UI Surfacing
 
-#314 shipped the `waiting` value but nothing rendered it (the UI redesign was
-deferred out per #314's Assumption 11). `260706-y1ar` is that deferred work — the
-`agentState` three-state value is now a first-class UI input across every surface
-(design authority `docs/specs/status-pyramid.md`, palette v3). What consumes it:
+The `agentState` three-state value is a first-class UI input across every surface
+(design authority `docs/specs/status-pyramid.md`, palette v3). (`260706-y1ar`) What consumes it:
 
 - **`StatusDot` (palette-v3 two-family ladder)**: a fresh `agentState` on a
   non-fab window drives the **warm ad-hoc-agent family** — yellow working / orange
@@ -436,9 +399,8 @@ deferred out per #314's Assumption 11). `260706-y1ar` is that deferred work — 
   shape untouched — never a hue-flip). `agentState === "idle"` is a ring;
   `active`/`waiting` are solid (mid-turn). See
   [ui-patterns](/run-kit/ui-patterns.md) § Status Dot.
-- **Row Minimalism**: the sidebar window row's trailing stage-word + duration
-  cluster was removed — the `StatusDot` is now the row's ONLY status signal
-  (§ Window rows).
+- **Row Minimalism**: the `StatusDot` is the sidebar window row's ONLY status
+  signal — no trailing stage-word + duration cluster (§ Window rows).
 - **PANE panel L1 `agent` register**: the four-register view (output/agent/fab/PR)
   renders `agent waiting <dur>` on its own line, never muted by flowing output
   (the pierce rule); the `StatusDotTip` gains an `agent:` line on every tier
@@ -451,28 +413,26 @@ deferred out per #314's Assumption 11). `260706-y1ar` is that deferred work — 
   [ui-patterns](/run-kit/ui-patterns.md) § Attention Surfacing for the surface
   list and the sidebar tile's inline-flex placement (distinct from the Host-page
   tile's absolute top-right, to avoid the sidebar tile's hover-action cluster).
-  *(The `/` page was renamed Cockpit → Host in `260715-zs1y`; the tile itself is
-  unchanged.)*
 - **Web Push on sustained waiting**: the SSE hub fires one push per sustained
   (≥15s) waiting episode — see [architecture](/run-kit/architecture.md)
   § Web Push on Sustained Waiting.
 
-The window-level rollup + `waiting > active > idle` precedence + the
-`formatAgentDuration` value (present for `waiting`/`idle`) documented above are
-what these surfaces consume — unchanged by `260706-y1ar`, which only added
-consumers.
+These surfaces consume the window-level rollup + `waiting > active > idle`
+precedence + the `formatAgentDuration` value (present for `waiting`/`idle`)
+documented above.
 
-## Chat Session Identity (`@rk_chat`) — landed `260713-nh86-chat-session-identity`
+## Chat Session Identity (`@rk_chat`)
 
 A **second** pane user option, written by the **same** `rk agent-hook` binary on
 the same hook fires, ties a pane to the **live** agent chat session running in
 it. It is the keystone of the HTML-agent-chat-view stack (chat as a **view over
 the pane** — the pane stays the agent's parent process, Constitution VI): the
 chat-read backend has no key to read a transcript by, and a frontend toggle
-nothing to gate on, without it. This change is backend + hooks + spec only — no
-frontend, no read/stream endpoint (those are later changes in the stack). The
+nothing to gate on, without it. The scope here is backend + hooks + spec — there
+is no frontend and no read/stream endpoint. The
 cross-repo contract is in [`docs/specs/agent-state.md`](../../specs/agent-state.md)
 § Chat Session Identity; this section records what run-kit actually implemented.
+(`260713-nh86`)
 
 **Why a hook, not derivation.** Claude Code sessions are disk-owned — each
 persists to `~/.claude/projects/<cwd-slug>/<session-id>.jsonl` and any process in
@@ -506,10 +466,10 @@ hooks.
 
 ### Reader: parse + reconcile (`internal/tmux`)
 
-- **`paneFormat` gained an 8th field `#{@rk_chat}`** (after `#{@rk_agent_state}`);
-  `parsePanes`'s skip-guard moved `< 7` → `< 8`. Zero extra subprocess — it rides
+- **`paneFormat` carries an 8th field `#{@rk_chat}`** (after `#{@rk_agent_state}`);
+  `parsePanes`'s skip-guard is `< 8`. Zero extra subprocess — it rides
   the existing per-session `list-panes` call.
-- **`PaneInfo` gained `ChatProvider string`** (`json:"chatProvider,omitempty"`)
+- **`PaneInfo` carries `ChatProvider string`** (`json:"chatProvider,omitempty"`)
   **and `ChatSessionRef string`** (`json:"chatSessionRef,omitempty"`), parsed once
   in Go so no consumer re-splits the raw value.
 - **`parseChatRef(raw) (provider, ref string)`** — pure helper: trims, splits on
@@ -521,9 +481,9 @@ hooks.
 - **Chat reconciliation shares agent-state's per-pane liveness decision.**
   `@rk_chat` carries **no pid of its own** (the two-segment schema is fixed), so
   liveness comes from the **same pane's `@rk_agent_state`**, written by the same
-  binary on the same fires. This change **restructured** the `parsePanes`
-  reconciler into a single shared `stale` boolean:
-  - agent-state carried a pid (3-segment): `stale = !agentProcessAlive(pid)`.
+  binary on the same fires. The `parsePanes` reconciler uses a single shared
+  `stale` boolean:
+  - agent-state carries a pid (3-segment): `stale = !agentProcessAlive(pid)`.
   - otherwise (no agent-state yet, or a legacy 2-segment value):
     `stale = isShellCommand(command)`.
   - when `stale`, **both** the agent-state fields **and** the chat fields are
@@ -542,11 +502,9 @@ hooks.
 
 ### Writer: `rk agent-hook` stdin-JSON seam + chat stamp (`cmd/rk/agent_hook.go`)
 
-Before this change the hook **never read stdin** — state came from the positional
-arg, pid from the process tree, and the payload was ignored (the "read hook JSON
-on stdin" follow-up `260707-qfps` explicitly deferred, scoped here to session
-identity only; state derivation stays in the settings matchers). This change adds
-the stdin seam:
+The hook reads a `session_id` from the harness's hook JSON on stdin, scoped to
+session identity only — state still comes from the positional arg and pid from the
+process tree, and state derivation stays in the settings matchers. The stdin seam:
 
 - **`readHookSessionID(r io.Reader) string`** — the conservative stdin parse:
   - **TTY guard** — if `r` is an `*os.File` in char-device mode
@@ -574,8 +532,8 @@ the stdin seam:
   a fixed registry comm literal and `sessionID` a pre-validated discrete argv
   element — nothing user-derived is interpolated into a shell string
   (Constitution I). Errors are swallowed (never-fail).
-- **Token dispatch** — `runAgentHook`'s state param was generalized to a **token**
-  param. `writeState := isAgentState(token)`; a token that is neither a canonical
+- **Token dispatch** — `runAgentHook` takes a **token** param.
+  `writeState := isAgentState(token)`; a token that is neither a canonical
   state nor `agentHookStampToken` is a silent no-op. Ordering:
   1. `active|waiting|idle` → resolve pid via the ancestor walk, `writeAgentState`,
      **then** stamp `@rk_chat` if stdin yielded a session id. The chat stamp is
@@ -591,26 +549,23 @@ the stdin seam:
   (the `260707-qfps` indirection dividend — the installed wrappers already pipe
   stdin through to the binary).
 - The never-fail/always-exit-0 contract
-  (`TestAgentHookCmdNeverErrorsOnMalformedInvocation`) is unchanged — the stdin
+  (`TestAgentHookCmdNeverErrorsOnMalformedInvocation`) holds — the stdin
   seam adds no new error path.
 
 ### Installer: SessionStart registry row (`cmd/rk/agent_setup.go`)
 
-The Claude `agentRegistry` row gained ONE entry:
+The Claude `agentRegistry` carries a SessionStart entry:
 
 | Event | Matcher | Writes |
 |-------|---------|--------|
 | `SessionStart` | — | `@rk_chat` **stamp only** (token `stamp`; **no** `@rk_agent_state`) |
 
-- The installed command keeps the exact established wrapper shape via the
-  **unchanged** `agentStateHookCommand(rkPath, state, comm)` — the `state`
-  parameter (renamed conceptually to "the positional token") simply carries the
+- The installed command uses the standard `agentStateHookCommand(rkPath, state, comm)`
+  wrapper — the positional-token `state` parameter carries the
   `stamp` literal from `h.state = agentHookStampToken`, producing
   `sh -c '[ -n "$TMUX_PANE" ] || exit 0; "<abs-rk>" agent-hook --agent claude stamp 2>/dev/null || true'`.
-  **No `rkHookEntry`/`agentStateHookCommand` restructure was needed** — the intake
-  anticipated teaching them to "emit the stamp token", but the token rides the
-  existing `state` field with no code change. The `isRkEntry` marker
-  (`" agent-hook "`) already matches it, so idempotent re-run replacement and
+  The `isRkEntry` marker
+  (`" agent-hook "`) matches it, so idempotent re-run replacement and
   `--uninstall` need no marker changes.
 - **SessionStart writes no agent-state** because `source=compact` fires
   **mid-turn** — an `idle` state write there would clobber a live `active` state.
@@ -624,7 +579,7 @@ The Claude `agentRegistry` row gained ONE entry:
 
 ### Surfacing: window rollup (`internal/sessions`)
 
-- **`WindowInfo` gained `ChatProvider`/`ChatSessionRef`** (same JSON tags), filled
+- **`WindowInfo` carries `ChatProvider`/`ChatSessionRef`** (same JSON tags), filled
   in `FetchSessions` beside the `rollupAgentState` call by the pure
   **`rollupChat(panes) (provider, ref string)`** helper: the **active pane's**
   reconciled chat if set, else the **first pane** (in tmux pane order) carrying
@@ -632,8 +587,8 @@ The Claude `agentRegistry` row gained ONE entry:
   window; a later change can revisit the multi-pane rule without a backend
   contract break because **per-pane truth also ships** on
   `PaneInfo.ChatProvider/ChatSessionRef`.
-- Both `GET /api/sessions` and the SSE `event: sessions` payload carry the new
-  fields automatically via the existing `ProjectSession` marshal — **per window
+- Both `GET /api/sessions` and the SSE `event: sessions` payload carry these
+  fields via the existing `ProjectSession` marshal — **per window
   and per pane** — with no new endpoint and no new SSE event type. See
   [architecture](/run-kit/architecture.md) § API Layer.
 
@@ -674,7 +629,10 @@ set and split the rule from its data); computing the rollup in `internal/tmux`
 
 ### Explicit `rk agent-setup` opt-in, not silent sync
 **Decision**: an explicit installer command that shows a diff and asks for
-confirmation before mutating user-global config, with `--uninstall`.
+confirmation before mutating user-global config, with `--uninstall`. Each artifact
+(today: the hooks merge, plus the cleanup-only `removeLegacySkill`) runs its own
+diff-and-confirm through `applyAgentConfig`, so declining or no-op-ing one does not
+skip the other.
 **Why**: it mutates `~/.claude/settings.json` (user-global) — the user chose
 "explicit feels honest" over agentdock's silent sync. A marker-keyed idempotent
 merge is the only way "update rk entries in place, never touch non-rk hooks" is
@@ -683,25 +641,6 @@ satisfiable.
 per-project install (defeats the "any session anywhere" goal — the whole point is
 user-global registration).
 *Introduced by*: `260705-dmex-generic-agent-state-tier`
-*Extended by*: `260714-popk` — the installer briefly managed a **second artifact**
-(the `rk-display` skill) through a thin `applyAgentConfig` wrapper over
-`applyAgentHooks` + `applyAgentSkill`; the diff-and-confirm-per-artifact discipline
-carried over unchanged (declining one artifact did not skip the other).
-*Superseded (in part) by*: `260717-agst-rk-skill-agent-setup-hooks-only` — the
-skill-install path was **removed**; `applyAgentConfig` now wraps `applyAgentHooks`
-(the sole install) plus a cleanup-only `removeLegacySkill` (both passes). Hooks are
-once again the only artifact `rk agent-setup` installs; the visual-display
-context-injection role moved to the `rk skill` bundle. The per-step
-diff-and-confirm discipline still holds.
-*Extended by*: `260717-c424-toolkit-standards-conformance` — the diff-and-confirm
-gained a **non-interactive path** to satisfy toolkit Principle 1 (a warranted
-confirmation MUST be satisfiable by `--yes`/`-y`, and a non-TTY invocation MUST
-refuse rather than hang or silently decline) and Principle 5 (a destructive write
-MUST support `--dry-run`). The `[y/N]` interactive path is unchanged; what changed
-is that a non-TTY invocation with no flag now REFUSES (error naming `--yes`,
-exit non-zero, nothing written) instead of the prior silent EOF-decline that exited
-0. See § `rk agent-setup` consent flags and the § Non-interactive consent Design
-Decision below.
 
 ### Non-interactive consent: `--yes`/`--dry-run` + non-TTY refusal (not a silent decline)
 **Decision**: gate every `agent-setup` write through a `consent` struct
@@ -730,64 +669,46 @@ still writes when combined with `--yes` (violates the preview promise); a bare
 *Introduced by*: `260717-c424-toolkit-standards-conformance`
 
 ### Whole-file skill ownership by frontmatter marker; thin pointer, not embedded recipe
-> **SUPERSEDED by `260717-agst-rk-skill-agent-setup-hooks-only`.** `rk agent-setup`
-> no longer INSTALLS the `rk-display` skill — the visual-display context-injection
-> role moved to the `rk skill` bundle. Only the marker-recognition half of this
-> decision survives, repurposed for the one-release `removeLegacySkill` cleanup
-> (see § Installer Structure → Legacy `rk-display` Cleanup); the thin-pointer body
-> `const` and the whole-file install flow are deleted. Retained below for the
-> historical rationale (why the marker gates the destructive removal, and the
-> anti-freeze principle now embodied by `rk skill`).
-
-**Decision**: install the `rk-display` skill as a whole file rk owns outright
-(no merge), gated by the `managed-by: rk agent-setup` frontmatter marker checked
-by `skillHasMarker`; store the content as a fixed Go raw-string `const`
-(`rkDisplaySkillContent`) whose body is a thin pointer (gate → `rk context` →
-follow the Visual Display Recipe), never reproducing recipe content.
+**Decision**: the legacy `rk-display` skill is a whole file rk owns outright (no
+merge), recognized by the `managed-by: rk agent-setup` frontmatter marker checked
+by `skillHasMarker`. `removeLegacySkill` uses that marker to gate the destructive
+directory removal (`os.RemoveAll` on `rk-display/`).
 **Why**: the marker is the whole-file analogue of `isRkEntry` — it gates the
-destructive `--uninstall` directory removal (`os.RemoveAll` on `rk-display/`) so a
-user rewrite that drops the marker is left untouched, without any out-of-band
-ownership manifest (Constitution §II — no persistent state store). The thin-pointer
-body is the **same anti-freeze principle as `rk agent-hook`** (`260707-qfps`):
-capability content ships in the binary via `rk context`, so recipe changes reach
-agents on `brew upgrade rk` with no skill-file churn — the fixed literal embeds
-nothing machine-derived, so it adds no new interpolation surface (Constitution §I).
-The 0644 mode (vs settings.json's 0600) reflects that skill text is documentation,
-not a secret.
-**Rejected**: `//go:embed` for one tiny inline literal (diverges from `cmd/rk`
-convention — consts for small blobs, embed for file trees — for no benefit);
-merging into user skill content (rk owns the whole file, so a presence check
-suffices); tracking ownership in a manifest/state file (Constitution §II);
-embedding the recipe/server-URL/pane-identity in the body (re-freezes the exact
-content `rk context` exists to keep current — the failure mode the indirection
-removes); a SessionStart hook / CLAUDE.md pointer / launch-time
-`--append-system-prompt` injection / MCP `display_html` tool (all rejected in
-intake — compaction cost, passivity, missing hand-launched agents, and
-Constitution §IV minimal surface respectively).
-*Introduced by*: `260714-popk-rk-display-skill-agent-setup`
+destructive removal so a user rewrite that drops the marker is left untouched,
+without any out-of-band ownership manifest (Constitution §II — no persistent state
+store). The visual-display capability content ships in the binary via the `rk skill`
+bundle / `rk context` rather than a frozen skill file (the **same anti-freeze
+principle as `rk agent-hook`**): capability content reaches agents on
+`brew upgrade rk` with no skill-file churn.
+**Rejected**: tracking ownership in a manifest/state file (Constitution §II);
+embedding the recipe/server-URL/pane-identity in a skill body (re-freezes the exact
+content `rk context` exists to keep current); a SessionStart hook / CLAUDE.md
+pointer / launch-time `--append-system-prompt` injection / MCP `display_html` tool
+(all rejected in intake — compaction cost, passivity, missing hand-launched agents,
+and Constitution §IV minimal surface respectively).
+*Introduced by*: `260714-popk-rk-display-skill-agent-setup` (marker-recognition
+repurposed for cleanup by `260717-agst`)
 
 ### One source of truth per binary for the convention strings
 **Decision**: `cmd/rk/agent_setup.go` aliases `tmux.AgentStateOption` /
 `tmux.AgentState*` rather than re-declaring `"@rk_agent_state"` and the state
-literals locally.
+literals locally; `cmd/rk/agent_hook.go` (the writer) likewise aliases the same
+`tmux.AgentState*` constants and reuses `agentRegistry`, so writer and reader have
+one source per binary. (`260707-qfps`)
 **Why**: the option name and states are the cross-repo contract; a second copy in
 the installer would let the writer and the reader drift (A-021, resolved at
 rework cycle 1 after review flagged the local re-declaration).
 *Introduced by*: `260705-dmex-generic-agent-state-tier`
-*Extended by*: `260707-qfps-rk-agent-hook-indirection` — `cmd/rk/agent_hook.go`
-(the new writer) aliases the same `tmux.AgentState*` constants and reuses
-`agentRegistry`, so writer and reader still have one source per binary.
 
 ### Stable interface in settings, logic in the binary (`rk agent-hook`)
 **Decision**: install a thin, never-changing wrapper into harness settings that
 delegates to a new `rk agent-hook` subcommand; put ALL logic (comm-validated
 ancestor walk, value formatting, `tmux set-option` write) in the Go binary.
-**Why**: the whole point of the change — a hook logic fix reaches every running
-agent on `brew upgrade rk`, with no settings churn and no session restarts. Hook
-logic was formerly frozen twice (in `~/.claude/settings.json` at install time and
-in the harness's session-start snapshot), so the #320 PID-liveness reconciler
-(binary-updated) and the raw-`$PPID` hook (settings-frozen) skewed between #320
-and #321 and suppressed agent state fleet-wide.
+**Why**: a hook logic fix reaches every running agent on `brew upgrade rk`, with
+no settings churn and no session restarts. An inlined one-liner would be frozen
+twice (in `~/.claude/settings.json` at install time and in the harness's
+session-start snapshot), letting a binary-updated reconciler and a settings-frozen
+writer skew and suppress agent state fleet-wide.
 **Rejected**: keep raw one-liners + drift detection (a doctor check / UI
 surfacing — mitigates *discovery* of the skew, not the fleet-wide migration
 itself); dual-path hook (binary-if-present + pure-tmux fallback inline — the
@@ -795,28 +716,21 @@ fallback string IS the frozen logic being removed, and doubles the surface). No
 pure-tmux fallback when the binary is missing: silence is acceptable because the
 PID-liveness reconciler already clears state from dead agents and a stranded
 value clears when the agent/pane dies.
-*Migration*: one final old-style migration is needed now (re-run
-`rk agent-setup`, restart sessions — the snapshot still pins old strings);
-subsequent *logic* changes need neither. Matcher / event-mapping changes still
-need re-setup + restart (that mapping lives in the settings matchers).
+*Migration*: *logic* changes need no re-setup or restart. Matcher / event-mapping
+changes still need re-setup + restart (that mapping lives in the settings matchers).
 *Introduced by*: `260707-qfps-rk-agent-hook-indirection`
 
 ### Event→state mapping stays in settings; state-literal args + `--agent` flag
-**Decision**: v1 keeps the event→state mapping (which harness event installs which
-state, including the two `Notification` matchers) in the settings matchers; the
-wrapper passes a fixed state literal + `--agent <comm>`. Reading the harness's
-hook JSON on stdin to derive state in-binary is deferred as an additive
-follow-up.
+**Decision**: the event→state mapping (which harness event installs which
+state, including the two `Notification` matchers) lives in the settings matchers;
+the wrapper passes a fixed state literal + `--agent <comm>`. The binary reads the
+harness's hook JSON on stdin **only** to extract `session_id` for the `@rk_chat`
+stamp — NOT to derive state, which stays driven by the settings matchers + the
+positional token (see § Chat Session Identity → Writer). (`260713-nh86`)
 **Why**: the mapping churns far less than the logic, and matcher changes require a
-settings write regardless; stdin-JSON parsing would not change the installed
-command shape, so deferring it loses nothing.
+settings write regardless; stdin-JSON parsing does not change the installed
+command shape, so state derivation via stdin gains nothing over the matchers.
 *Introduced by*: `260707-qfps-rk-agent-hook-indirection`
-*Extended by*: `260713-nh86-chat-session-identity` — the deferred stdin-JSON parse
-landed, **scoped to session identity only** (extracting `session_id` for the
-`@rk_chat` stamp), NOT to state derivation. Confirming the deferral's premise: the
-installed command shape was unchanged — the stdin parse is entirely binary-side.
-Agent-*state* is still driven by the settings matchers + the positional token; see
-§ Chat Session Identity → Writer.
 
 ### Reject (don't escape) shell-unsafe rk paths; never Cellar-pin
 **Decision**: resolve `<abs-rk>` via `LookPath("run-kit")` → `LookPath("rk")` →
@@ -832,17 +746,6 @@ paths never occur under Homebrew/conventional layouts, so the install-time error
 essentially unreachable, and whatever caller triggered the install — a human at a
 TTY or an agent passing `--yes` — sees the error and can act.
 *Introduced by*: `260707-qfps-rk-agent-hook-indirection`
-*Amended by*: `260717-c424-toolkit-standards-conformance` — agent-setup is no
-longer described as strictly "interactive": `--yes`/`-y` (non-interactive consent)
-and `--dry-run` (preview) were added, and a non-TTY invocation with neither flag
-now REFUSES with an error naming `--yes` rather than silently declining (toolkit
-Principle 1). The reject-don't-escape rationale is unchanged; only the "who sees
-the error" framing widened from "the interactive user" to "the caller" (see
-§ `rk agent-setup` consent flags).
-*Extended by*: `260709-gidk-swap-canonical-cli-name-run-kit` — the LookPath order
-became `run-kit`-first (`rk` fallback) to match the new canonical command name;
-both stable symlinks hit the same binary so the change is functionally equivalent
-and the order-agnostic test is unchanged.
 
 ### Session-ref = the session UUID only (not the transcript path)
 **Decision**: `@rk_chat`'s `<session-ref>` for `claude` is the session UUID

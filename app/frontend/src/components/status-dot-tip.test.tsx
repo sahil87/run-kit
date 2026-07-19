@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, cleanup, fireEvent, act } from "@testing-library/react";
 import { StatusDotTip } from "./status-dot-tip";
-import type { StatusDotState } from "./pr-status-line";
+import type { StatusDotState } from "./pr-status-model";
 import type { WindowInfo } from "@/types";
 
 // The freshness line ("checked Xs ago") renders inside the floating hover-card,

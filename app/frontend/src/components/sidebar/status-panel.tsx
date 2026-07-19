@@ -9,7 +9,7 @@ import { CollapsiblePanel } from "./collapsible-panel";
 import { ICON_CLASS } from "./icons";
 import { copyToClipboard } from "@/lib/clipboard";
 import { formatDuration, parseFabChange } from "@/lib/format";
-import { PR_STATE_COLORS, PR_CHECKS_COLORS, PR_REVIEW_COLORS } from "@/components/pr-status-line";
+import { PR_STATE_COLORS, PR_CHECKS_COLORS, PR_REVIEW_COLORS } from "@/components/pr-status-model";
 import { StatusDot } from "@/components/status-dot";
 import type { WindowInfo } from "@/types";
 
@@ -99,7 +99,7 @@ function getAgentLine(win: WindowInfo): string | null {
 type PrSegment = { text: string; color: string };
 
 // PR segment color vocabulary (PR_STATE_COLORS / PR_CHECKS_COLORS /
-// PR_REVIEW_COLORS) is imported from pr-status-line.tsx — the single source of
+// PR_REVIEW_COLORS) is imported from pr-status-model.ts — the single source of
 // truth shared with the sidebar dot and the dashboard PR line.
 
 /**

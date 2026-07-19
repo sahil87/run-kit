@@ -1,4 +1,4 @@
-import type { DotShape, StatusDotState } from "@/components/pr-status-line";
+import type { DotShape, StatusDotState } from "@/components/pr-status-model";
 import type { WindowInfo } from "@/types";
 
 /**

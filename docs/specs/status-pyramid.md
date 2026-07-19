@@ -9,7 +9,7 @@
 > Companions: [`agent-state.md`](agent-state.md) defines the `@rk_agent_state`
 > convention this spec consumes (states, staleness, reconciler, rollup);
 > the dot's shape/hue rendering vocabulary lives in `status-dot.tsx` /
-> `pr-status-line.tsx` (`statusDotState`, `PHASE_HUE`, `fabShape`, `prShape`).
+> `pr-status-model.ts` (`statusDotState`, `PHASE_HUE`, `fabShape`, `prShape`).
 
 ---
 

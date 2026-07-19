@@ -1,11 +1,11 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { cleanup } from "@testing-library/react";
-import { prDotState } from "./pr-status-line";
+import { prDotState } from "./pr-status-model";
 import type { WindowInfo } from "@/types";
 
 // NOTE (260715-jykd): the `PrStatusLine` component (and its render tests) were
 // retired — it had zero live mount sites. This module now exercises the RETAINED
-// exports of pr-status-line.tsx; the `prDotState` precedence coverage below is
+// exports of pr-status-model.ts; the `prDotState` precedence coverage below is
 // the live behavior that still ships.
 
 afterEach(() => {

@@ -10,7 +10,7 @@
 > core hue or shape.
 
 Implementation: `app/frontend/src/components/status-dot.tsx` (rendering) +
-`app/frontend/src/components/pr-status-line.tsx` (`statusDotState` / `fabPhase` / `fabShape` /
+`app/frontend/src/components/pr-status-model.ts` (`statusDotState` / `fabPhase` / `fabShape` /
 `prShape` / `PHASE_HUE`). Design authority: [`docs/specs/status-pyramid.md`](https://github.com/sahil87/run-kit/blob/main/docs/specs/status-pyramid.md).
 
 ## Precedence — which input drives the dot (two families joined at the top)

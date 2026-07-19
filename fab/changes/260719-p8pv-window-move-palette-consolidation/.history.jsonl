@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-19T21:05:33Z"}
+{"args":"Consolidate Window: Move Left/Right palette pair with the newer Move up/down entries (backlog p8pv)","cmd":"fab-new","event":"command","ts":"2026-07-19T21:05:33Z"}
+{"delta":"+4.9","event":"confidence","score":4.9,"trigger":"calc-score","ts":"2026-07-19T21:07:17Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-19T21:07:20Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-19T21:07:20Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-19T21:08:14Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-19T21:10:45Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-19T21:12:44Z"}
+{"event":"review","result":"passed","ts":"2026-07-19T21:12:44Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-19T21:14:26Z"}

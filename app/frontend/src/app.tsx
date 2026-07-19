@@ -1688,66 +1688,9 @@ function AppShell() {
             // `@rk_type`) was REPLACED by the `View: Terminal` / `View: Web`
             // actions in `viewActions` (260714-t97o-web-view-lens) — switching a
             // lens is per-viewer view state, never a `@rk_type` mutation.
-            ...(currentWindow.index > minWindowIndex
-              ? [
-                  {
-                    id: "move-window-left",
-                    label: "Window: Move Left",
-                    onSelect: () => {
-                      const targetIndex = computeWindowMoveTarget(currentWindow.index, -1, minWindowIndex, maxWindowIndex);
-                      if (sessionName && targetIndex !== null) {
-                        // The move preserves the window's stable ID — only its
-                        // index changes — so navigate to the same windowId.
-                        moveWindow(server, currentWindow.windowId, targetIndex)
-                          .then(() => {
-                            navigate({
-                              to: "/$server/$window",
-                              params: { server, window: currentWindow.windowId },
-                              // Same-window move (index only): preserve the
-                              // current view (260714-r7rq).
-                              search: (prev) => prev,
-                            });
-                          })
-                          .catch((err) => {
-                            addToast(err.message || "Failed to move window");
-                          });
-                      }
-                    },
-                  },
-                ]
-              : []),
-            ...(currentWindow.index < maxWindowIndex
-              ? [
-                  {
-                    id: "move-window-right",
-                    label: "Window: Move Right",
-                    onSelect: () => {
-                      const targetIndex = computeWindowMoveTarget(currentWindow.index, 1, minWindowIndex, maxWindowIndex);
-                      if (sessionName && targetIndex !== null) {
-                        // The move preserves the window's stable ID — only its
-                        // index changes — so navigate to the same windowId.
-                        moveWindow(server, currentWindow.windowId, targetIndex)
-                          .then(() => {
-                            navigate({
-                              to: "/$server/$window",
-                              params: { server, window: currentWindow.windowId },
-                              // Same-window move (index only): preserve the
-                              // current view (260714-r7rq).
-                              search: (prev) => prev,
-                            });
-                          })
-                          .catch((err) => {
-                            addToast(err.message || "Failed to move window");
-                          });
-                      }
-                    },
-                  },
-                ]
-              : []),
-            // Move up/down — the up/down vocabulary parity for windows (same
-            // moveWindow ±1 primitive as Move Left/Right above; kept alongside
-            // them so the existing left/right entries are not regressed).
-            // Boundary = hidden, no wraparound.
+            // Move up/down — the sole window-move pair (up/down vocabulary
+            // parity with the Session/Server/Board Move entries; windows render
+            // as vertical sidebar rows). Boundary = hidden, no wraparound.
             ...(currentWindow.index > minWindowIndex
               ? [
                   {

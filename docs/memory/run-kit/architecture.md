@@ -565,24 +565,23 @@ Both modes: any request not matching `/api/*`, `/relay/*`, or `/proxy/*` serves 
 
 **Lazy-loaded components**: `CommandPalette`, `ThemeSelector`, and `CreateSessionDialog` are loaded via `React.lazy()` with dynamic `import()` (not static imports). Each uses `.then(m => ({ default: m.X }))` to re-wrap named exports for `React.lazy()` compatibility. Render sites wrapped in per-component `<Suspense fallback={null}>` boundaries. These components are overlays/dialogs that render conditionally — lazy loading keeps them out of the initial bundle for faster first paint.
 
-**Shell wrapper (CSS Grid topology)** — `<Shell>` (`app/frontend/src/components/shell/shell.tsx`) is the shared chrome wrapper used by both `AppShell` and `BoardPage`. The shell is a single CSS Grid root carrying `height: var(--app-height, 100vh)` (preserves iOS keyboard handling via `useVisualViewport`). Desktop topology (`>= 640px`):
+**Shell wrapper (CSS Grid topology)** — `<Shell>` (`app/frontend/src/components/shell/shell.tsx`) is the shared chrome wrapper used by both `AppShell` and `BoardPage`. The shell is a single CSS Grid root carrying `height: 100%` — it fills the root layout's `flex-1` content region. The TopBar is NOT part of the Shell grid (since `260707-4vq2`): it mounts once as `RootTopBar` in the persistent root layout, full-width above this Shell. The `--app-height` var (iOS keyboard handling) is maintained by `useVisualViewport()` in `RootWrapper` on the root layout div — Shell no longer calls the hook or reads the var. Desktop topology (`>= 640px`):
 
 ```
 grid-template-areas:
-  "sidebar topbar"
   "sidebar content"
   "sidebar bottombar"
-grid-template-rows:    auto 1fr auto
+grid-template-rows:    1fr auto
 grid-template-columns: ${sidebarWidth}px 1fr   (when sidebarOpen)
 grid-template-columns: 0 1fr                   (when !sidebarOpen)
 transition: grid-template-columns 150ms ease-out
 ```
 
-Sidebar is full-height — it spans all three rows and owns the entire left column. Topbar/content/bottombar stack in the right column. Sidebar collapse zeroes the first grid column (no 48px rail) — the topbar/content/bottombar cells extend their left edge to page.left automatically; no JS-side conditional rendering or component mutation.
+Sidebar is full-height — it spans both rows and owns the entire left column. Content/bottombar stack in the right column. Sidebar collapse zeroes the first grid column (no 48px rail) — the content/bottombar cells extend their left edge to page.left automatically; no JS-side conditional rendering or component mutation.
 
 The `sidebar` grid area is **Shell-owned**: on desktop `Shell` renders the `<aside style={{ gridArea: "sidebar" }} aria-label="Sidebar">` itself from its `sidebarChildren` prop, gated `!isMobile && sidebarOpen && !!sidebarChildren` (fully unmounts on collapse — no zero-width rail). Consumers place ONLY the `content` and `bottombar` grid areas; they never grid-area-place `sidebar`. The aside wraps `sidebarChildren` in a `flex-1 min-w-0 overflow-hidden` content wrapper and accepts an optional `sidebarResizeHandle?: ReactNode` slot rendered at its right edge — the desktop drag-resize handle. AppShell passes its handle through this slot; BoardPage passes none (drag-resize is intentionally absent on the board route). The aside carries `border-r border-border` ONLY when no handle is passed (BoardPage): with a handle the 3px handle bar is the visual seam, so a border would double it. Drag-resize wiring stays AppShell-only — all drag state/handlers (`handleDragHandlePointerDown`, width persistence, aria-value bounds) live in AppShell; the handle rides through the slot as an opaque node, so `Shell` stays dumb about drag logic. The mobile overlay never renders the handle. The handle is hidden when `sidebarOpen === false` (the only re-open affordance is the hamburger).
 
-Mobile topology (`< 640px`): single column, `grid-template-areas: "topbar" / "content" / "bottombar"`. Sidebar renders as an overlay child of the Shell positioned via `gridRow: "2/4"` (spans content + bottombar, leaves the topbar visible). Backdrop and `<aside>` use `position: absolute` (NOT `fixed inset-0`) so the overlay starts below the topbar — matches the existing project convention recorded in `fab/project/context.md`. The aside carries `role="dialog" aria-modal="true"`. Sidebar overlay open/close is driven by the same `sidebarOpen` state — `drawerOpen` is removed from `ChromeContext`.
+Mobile topology (`< 640px`): single column, `grid-template-areas: "content" / "bottombar"`. Sidebar renders as an overlay child of the Shell positioned via `gridRow: "1 / 3"` (spans content + bottombar, leaves the root-layout topbar above the Shell visible). Backdrop and `<aside>` use `position: absolute` (NOT `fixed inset-0`) so the overlay starts below the topbar — matches the existing project convention recorded in `fab/project/context.md`. The aside carries `role="dialog" aria-modal="true"`. Sidebar overlay open/close is driven by the same `sidebarOpen` state — `drawerOpen` is removed from `ChromeContext`.
 
 **Hamburger placement** — the hamburger icon is statically rendered at `TopBar.left` in both `sidebarOpen` states. Visual "relocation" on collapse is a side effect of the grid column collapsing; there is no component-level relocation logic. When `sidebarOpen === true`, the hamburger sits at the sidebar.right / topbar.left seam (pixel-identical to "attached to sidebar"). When `sidebarOpen === false`, it sits at page.left because the topbar grid cell has extended to page.left.
 

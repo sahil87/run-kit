@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-19T21:25:16Z"}
+{"args":"Wire buildNavActions('board') into boardRouteActions and narrow NavMode (backlog i996)","cmd":"fab-new","event":"command","ts":"2026-07-19T21:25:16Z"}
+{"delta":"+4.9","event":"confidence","score":4.9,"trigger":"calc-score","ts":"2026-07-19T21:26:03Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-19T21:26:13Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-19T21:26:13Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-19T21:30:02Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-19T21:36:08Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-19T21:38:58Z"}
+{"event":"review","result":"passed","ts":"2026-07-19T21:38:58Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-19T21:41:26Z"}

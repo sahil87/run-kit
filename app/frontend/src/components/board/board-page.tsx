@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "@tanstack/react-router";
+import { Link, useNavigate, useParams, useRouter } from "@tanstack/react-router";
 import { useBoardEntries, useBoards } from "@/hooks/use-boards";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { usePaneWidths, BOARD_PANE_DEFAULT_WIDTH } from "@/hooks/use-pane-widths";
@@ -19,6 +19,7 @@ import { useRegisterTopBarSlot } from "@/contexts/top-bar-slot-context";
 import { createSession, createWindow as createWindowApi, killServer as killServerApi, createServer, splitWindow, killWindow } from "@/api/client";
 import { setBoardOrder } from "@/api/boards";
 import { computeMoveOrder } from "@/lib/palette-move";
+import { buildNavActions } from "@/lib/palette-nav";
 import { buildUpdateActions, buildMaintenanceActions } from "@/lib/palette-update";
 import { buildVersionAction, displayVersion } from "@/lib/palette-version";
 import { copyToClipboard } from "@/lib/clipboard";
@@ -90,6 +91,7 @@ function BoardPageInner() {
 
 function BoardPageContent({ name }: { name: string }) {
   const navigate = useNavigate();
+  const router = useRouter();
   const { entries, isLoading, error, refetch } = useBoardEntries(name);
   const { boards } = useBoards();
   const { unpin, reorder } = usePinActions();
@@ -463,7 +465,8 @@ function BoardPageContent({ name }: { name: string }) {
   // mounted here (the board route does not render AppShell, see DD-8), so
   // BoardPage owns its own palette mount with the entries that are meaningful
   // on a board route: switch to other boards, leave the board view, cycle pane
-  // focus, split/close the focused pane, the global terminal-font controls (the
+  // focus, split/close the focused pane, the `Go: Back`/`Go: Forward`/`Go: Host`
+  // nav entries (see navEntries below), the global terminal-font controls (the
   // board's panes are live terminals; the setting is global), and "View: Refresh
   // Page" (duplicated from AppShell's viewActions — see refreshEntry below).
   // Pin/Unpin Current Window are AppShell-only (no current window exists in
@@ -517,6 +520,22 @@ function BoardPageContent({ name }: { name: string }) {
         onSelect: () => moveBoard(1),
       });
     }
+
+    // Navigation entries (260714-uco1 builder) — palette parity (Constitution V)
+    // for the top-bar history arrows + the board breadcrumb's Host ancestor.
+    // AppShell's palette doesn't mount here (DD-8), so the board palette wires
+    // its own `buildNavActions("board", ...)` call, handlers mirroring
+    // AppShell's `navActions` (app.tsx). `server` is "" — board mode never
+    // emits `Go: tmux Server` (its gate is `mode === "terminal" && server`),
+    // so `onTmuxServer` is an unreachable no-op. Positioned after the
+    // board-specific entries and before the font trio, mirroring AppShell's
+    // group ordering (nav after the route groups, before terminalFontActions).
+    const navEntries: PaletteAction[] = buildNavActions("board", "", {
+      onBack: () => router.history.back(),
+      onForward: () => router.history.forward(),
+      onTmuxServer: () => {}, // unreachable in board mode (entry only emitted for terminal)
+      onHost: () => navigate({ to: "/" }),
+    });
 
     const fontEntries: PaletteAction[] = [
       // No `shortcut` — Cmd +/- is deliberately not intercepted.
@@ -717,8 +736,8 @@ function BoardPageContent({ name }: { name: string }) {
       }
     }
 
-    return [...switchEntries, ...conditional, ...fontEntries, refreshEntry, helpEntry, ...updateEntries, ...maintenanceEntries, ...versionEntries];
-  }, [boards, name, entries, focusedIndex, autofit, toggleAutofit, unpinFocused, requestKillFocused, focusedPane, reorder, executeSplit, navigate, addToast, increaseTerminalFont, decreaseTerminalFont, resetTerminalFont, updateQualifies, updateTools, updateNow, dismissUpdate, brew, daemonVersion, forceUpdateNow, restartNow]);
+    return [...switchEntries, ...conditional, ...navEntries, ...fontEntries, refreshEntry, helpEntry, ...updateEntries, ...maintenanceEntries, ...versionEntries];
+  }, [boards, name, entries, focusedIndex, autofit, toggleAutofit, unpinFocused, requestKillFocused, focusedPane, reorder, executeSplit, navigate, router, addToast, increaseTerminalFont, decreaseTerminalFont, resetTerminalFont, updateQualifies, updateTools, updateNow, dismissUpdate, brew, daemonVersion, forceUpdateNow, restartNow]);
 
   // Pane-server count (distinct servers) used by TopBar board-mode info.
   const serverCount = useMemo(() => {

@@ -11,8 +11,9 @@
  * dropdown. History actions are ALWAYS offered (history is global; forward is a
  * harmless no-op with no forward entry, matching the always-active arrow). The
  * ancestor entries mirror the hierarchy dropdown's contents for the current
- * route — ancestors only, nearest-first — so a solo Host route (no
- * ancestors) yields only the two history actions.
+ * route — ancestors only, nearest-first — and every supported mode emits at
+ * least `Go: Host` (the Host root is an ancestor of every palette-bearing
+ * route).
  */
 
 export type NavPaletteAction = {
@@ -22,13 +23,13 @@ export type NavPaletteAction = {
 };
 
 /**
- * The route's page mode, matching `TopBarMode`. Drives which ancestor entries
- * are offered:
+ * The route's page mode — the palette-bearing subset of `TopBarMode` (the root
+ * Host route mounts no palette, hence no `host` mode). Drives which ancestor
+ * entries are offered:
  *   - `terminal`: `Go: tmux Server` + `Go: Host`
  *   - `board` / `server`: `Go: Host`
- *   - `host`: none (the root has no ancestors)
  */
-export type NavMode = "terminal" | "board" | "server" | "host";
+export type NavMode = "terminal" | "board" | "server";
 
 /**
  * Build the navigation palette actions. Returns the two history actions
@@ -61,13 +62,13 @@ export function buildNavActions(
       onSelect: handlers.onTmuxServer,
     });
   }
-  if (mode === "terminal" || mode === "board" || mode === "server") {
-    actions.push({
-      id: "go-host",
-      label: "Go: Host",
-      onSelect: handlers.onHost,
-    });
-  }
+  // `Go: Host` is unconditional — the Host root is an ancestor of every
+  // palette-bearing mode (only the `terminal` extra above differs by mode).
+  actions.push({
+    id: "go-host",
+    label: "Go: Host",
+    onSelect: handlers.onHost,
+  });
 
   return actions;
 }

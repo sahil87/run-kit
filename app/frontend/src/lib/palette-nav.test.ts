@@ -10,15 +10,17 @@ const noop = {
 
 describe("buildNavActions (Go: palette parity)", () => {
   it("always offers Back and Forward first (history is global)", () => {
-    const actions = buildNavActions("host", "", noop);
+    const actions = buildNavActions("server", "prod", noop);
     expect(actions.slice(0, 2).map((a) => a.id)).toEqual(["go-back", "go-forward"]);
     expect(actions[0].label).toBe("Go: Back");
     expect(actions[1].label).toBe("Go: Forward");
   });
 
-  it("on the host (root of the hierarchy) offers ONLY the two history actions", () => {
-    const ids = buildNavActions("host", "", noop).map((a) => a.id);
-    expect(ids).toEqual(["go-back", "go-forward"]);
+  it("emits Go: Host as the final entry on every supported mode (the Host root is a universal ancestor)", () => {
+    for (const mode of ["terminal", "board", "server"] as const) {
+      const ids = buildNavActions(mode, "prod", noop).map((a) => a.id);
+      expect(ids[ids.length - 1]).toBe("go-host");
+    }
   });
 
   it("on a terminal route offers tmux Server then Host (nearest-first)", () => {

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { CommandPalette, type PaletteAction } from "./command-palette";
+import { buildNavActions } from "@/lib/palette-nav";
 import { buildUpdateActions } from "@/lib/palette-update";
 
 /**
@@ -19,12 +20,21 @@ import { buildUpdateActions } from "@/lib/palette-update";
  *
  * The mirror is deliberately partial and does NOT reproduce production 1:1: it
  * omits `boardRouteActions`' `fontEntries` (terminal-font trio) + `helpEntry`
- * and positions `refreshEntry` right after `conditional` rather than after
+ * and positions `refreshEntry` right after the nav entries rather than after
  * `fontEntries` as production does. It also never executes either production
  * `onSelect` (the mirror wires its own stubs). So these tests verify the
  * entry-shape and visibility RULES the mirror reproduces — not full parity, and
  * not the production selection wiring; treat them as rule checks, not a drift
  * alarm for the parts left out.
+ *
+ * The nav entries (`Go: Back` / `Go: Forward` / `Go: Host`) are folded into
+ * `boardRouteActions` unconditionally (i996 — palette parity for the top-bar
+ * history arrows + the board breadcrumb's Host ancestor; the board route
+ * mounts its own palette, so AppShell's `navActions` are unreachable here).
+ * Production builds them via `buildNavActions("board", ...)` (unit-tested in
+ * `lib/palette-nav.test` — the source of truth for gating/labels); the mirror
+ * uses the SAME production helper, positioned after `conditional` as
+ * production does, matching the `buildUpdateActions` treatment.
  *
  * The update entries (`run-kit: Update to v…` / `run-kit: Dismiss Update
  * Notice`) are the newest AppShell-duplicated block folded into
@@ -69,6 +79,11 @@ interface BuildOpts {
   updateLatest?: string | null;
   onUpdate?: () => void;
   onDismissUpdate?: () => void;
+  /** Nav handlers (i996) — production wires these to `router.history.back()` /
+   *  `.forward()` and `navigate({ to: "/" })`; the mirror stubs them. */
+  onNavBack?: () => void;
+  onNavForward?: () => void;
+  onNavHost?: () => void;
 }
 
 function buildBoardActions(opts: BuildOpts): PaletteAction[] {
@@ -144,6 +159,18 @@ function buildBoardActions(opts: BuildOpts): PaletteAction[] {
     }
   }
 
+  // Nav entries — folded into boardRouteActions unconditionally (i996), built
+  // via the SAME production helper (`buildNavActions`) with the mirror's stub
+  // handlers. Board mode + server "" ⇒ Go: Back / Go: Forward / Go: Host and
+  // never Go: tmux Server (that entry is terminal-mode-only), so the tmux
+  // Server handler is an unreachable no-op exactly as in production.
+  const navEntries = buildNavActions("board", "", {
+    onBack: () => opts.onNavBack?.(),
+    onForward: () => opts.onNavForward?.(),
+    onTmuxServer: () => {},
+    onHost: () => opts.onNavHost?.(),
+  });
+
   // Always-present in boardRouteActions (unconditional refreshEntry) — the board
   // route mounts its own palette, so the AppShell "View: Refresh Page" entry is
   // unreachable here and is duplicated in (R4).
@@ -163,7 +190,7 @@ function buildBoardActions(opts: BuildOpts): PaletteAction[] {
     () => opts.onDismissUpdate?.(),
   );
 
-  return [...switchEntries, ...conditional, refreshEntry, ...updateEntries];
+  return [...switchEntries, ...conditional, ...navEntries, refreshEntry, ...updateEntries];
 }
 
 describe("CmdK Board Actions", () => {
@@ -443,5 +470,45 @@ describe("CmdK Board Actions", () => {
     fireEvent.change(input, { target: { value: "Close Focused Pane" } });
     fireEvent.keyDown(input, { key: "Enter" });
     expect(onCloseFocused).toHaveBeenCalledOnce();
+  });
+
+  it("renders the nav trio — Go: Back / Go: Forward / Go: Host — on the board palette (i996)", () => {
+    const actions = buildBoardActions({
+      boards: [{ name: "main" }],
+      currentBoardName: "main",
+      isOnBoardRoute: true,
+    });
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+    expect(screen.getByText("Go: Back")).toBeInTheDocument();
+    expect(screen.getByText("Go: Forward")).toBeInTheDocument();
+    expect(screen.getByText("Go: Host")).toBeInTheDocument();
+  });
+
+  it("never renders Go: tmux Server on the board palette (terminal-mode-only entry) (i996)", () => {
+    const actions = buildBoardActions({
+      boards: [{ name: "main" }],
+      currentBoardName: "main",
+      isOnBoardRoute: true,
+    });
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+    expect(screen.queryByText("Go: tmux Server")).not.toBeInTheDocument();
+  });
+
+  it("invokes the host handler when 'Go: Host' is selected (i996)", () => {
+    const onNavHost = vi.fn();
+    const actions = buildBoardActions({
+      boards: [{ name: "main" }],
+      currentBoardName: "main",
+      isOnBoardRoute: true,
+      onNavHost,
+    });
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+    const input = screen.getByPlaceholderText("Type a command...");
+    fireEvent.change(input, { target: { value: "Go: Host" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onNavHost).toHaveBeenCalledOnce();
   });
 });

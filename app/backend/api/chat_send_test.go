@@ -686,7 +686,7 @@ func TestSanitizeChatText(t *testing.T) {
 		{"other C1 stripped", "a\u0085b", "ab"}, // NEL (U+0085)
 		{"emoji preserved", "ship it 🚀", "ship it 🚀"},
 		{"accents preserved", "café résumé", "café résumé"},
-		{"all-control collapses to empty", "\x1b\x00\x07\x7f", ""},
+		{"all-control collapses to empty", "\x1b\x00\x07\x7f\u009b", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -748,7 +748,7 @@ func TestChatSendAllControlIsEmpty(t *testing.T) {
 	router := NewTestRouter(slog.Default(), sf, ops, "host")
 
 	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, sendReqRaw(t, "\x1b\x00\x07\x7f"))
+	router.ServeHTTP(rec, sendReqRaw(t, "\x1b\x00\x07\x7f\u009b"))
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400 (all-control collapses to empty); body=%s", rec.Code, rec.Body.String())

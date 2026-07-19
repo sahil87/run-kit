@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "The chat subsystem — rk-owned neutral event schema (Event/Pending/turn), Adapter interface + registry, the Claude JSONL adapter (UUID-glob locate, tolerant parse, TailFrom offset-tail). Read: GET /api/windows/{windowId}/chat backfill + a kind:chat sub on /ws/state. Frontend: ?view=chat lens over the terminal route. Send: POST .../chat/send — handler-boundary control-byte sanitize, named-buffer paste + novelty echo probe + gated Enter. Read derives from disk; send types into the pane as a human."
+description: "The chat subsystem — rk-owned neutral event schema (Event/Pending/turn), Adapter registry, the Claude JSONL adapter (UUID-glob, tolerant parse, TailFrom offset-tail). Read: GET .../chat backfill + a kind:chat sub on /ws/state; ?view=chat lens with a pointer-aware Enter/Insert send form. Send: POST .../chat/send — sanitize, named-buffer paste + novelty echo probe + Enter gated on probe AND an additive submit flag (submit:false = insert-without-submit). Read derives from disk; send types in."
 ---
 # Chat Subsystem
 
@@ -373,11 +373,16 @@ primitives; the read endpoints, stream, and schema are untouched.
 ### Requirement: Send endpoint `POST /api/windows/{windowId}/chat/send`
 The backend SHALL expose `POST /api/windows/{windowId}/chat/send?server={server}`
 (mutation ⇒ POST, Constitution IX), registered next to the two GET chat routes and
-implemented as `handleChatSend`. The JSON body is `{"text": "<message>"}`; the
-handler validates `{windowId}` (`parseWindowID`, `400`), rejects an
-empty/whitespace-only or undecodable body (`400`), then re-resolves the target pane
-server-side (§ Server-resolved pane) before injecting. Success is
-`200 {"ok":true}`. The existing generic `POST /api/windows/{windowId}/keys`
+implemented as `handleChatSend`. The JSON body is `{"text": "<message>", "submit"?:
+bool}` — `chatSendRequest{ Text string; Submit *bool }`. The **`submit` boolean is
+additive and optional, defaulting to `true` when absent** (`submit := body.Submit ==
+nil || *body.Submit`), so an older client's `{"text": …}` body is byte-for-byte the
+current always-submit behavior. `submit:false` is **insert-without-submit**: the text
+is pasted into the pane's input box but the final gated Enter is skipped (§ Pane-targeted
+injection sequence). The handler validates `{windowId}` (`parseWindowID`, `400`),
+rejects an empty/whitespace-only or undecodable body (`400`), then re-resolves the
+target pane server-side (§ Server-resolved pane) before injecting. Success is
+`200 {"ok":true}` for both modes. The existing generic `POST /api/windows/{windowId}/keys`
 endpoint SHALL be left untouched (different contract, possible external callers).
 
 #### Scenario: Malformed id or empty text is rejected before any injection
@@ -386,6 +391,10 @@ endpoint SHALL be left untouched (different contract, possible external callers)
 - **WHEN** `handleChatSend` runs
 - **THEN** it returns `400` with a `writeError` JSON body and performs no tmux
   injection.
+- **AND GIVEN** a body carrying no `submit` field (or `submit:true`), **THEN**
+  `submit` resolves to `true` and behavior is byte-identical to the always-submit
+  path; **AND GIVEN** `{"text":…,"submit":false}`, **THEN** the paste/probe run but
+  the final Enter is withheld.
 
 ### Requirement: Send-text sanitization at the handler boundary
 `handleChatSend` SHALL sanitize `body.Text` via the pure package helper
@@ -453,7 +462,17 @@ every subprocess an argv slice (Constitution I) targeting the `paneID`:
    pasting so the buffer set stays clean.
 4. **Probe** (§ Novelty echo probe) — only on success:
 5. `send-keys -t <paneID> Enter` — the literal `Enter` key, sent ONLY after a
-   successful probe.
+   successful probe **AND** when `submit` is true.
+
+`injectChatMessage(ctx, server, paneID, text, submit bool)` carries the resolved
+boolean. **`submit:false` (insert-without-submit) skips ONLY step 5** — the baseline
+capture, handler-boundary sanitize, named-buffer set/paste, novelty echo probe (a
+probe failure still returns the structured `409`, Enter irrelevant but the text left
+recoverable in the composer), per-`(server,paneID)` whole-sequence lock,
+`chatSetPasteMu`, and the single `chatSendTotalBudget` deadline are all unchanged.
+The insert-only path still requires a passing probe (the paste must have echoed); it
+just leaves the text staged in the pane's input box without pressing Enter, so a
+human — or a later submit — completes it.
 
 There SHALL be NO `agentState` gate and NO server-side queue (busy policy =
 Allow + probe, Constitution II). The text reaching `set-buffer` is the
@@ -468,6 +487,10 @@ delivered literally — never interpreted as keys/flags nor submitted per-line.
 - **THEN** the order is baseline → set-buffer (`--`-terminated) → paste-buffer →
   probe → send-keys, the text is one literal argv element (never parsed as
   flags/keys), and Enter is a separate step gated on the probe.
+- **AND GIVEN** `submit:false` with a passing probe, **THEN** set-buffer/paste/probe
+  all run against the resolved pane and `SendEnterToPane` is NEVER called (response
+  still `200 {"ok":true}`); **AND GIVEN** `submit:false` with a failing probe,
+  **THEN** the response is `409` and no Enter is sent.
 
 ### Requirement: NOVELTY echo probe (fail-closed), settle + bounded retry
 Before Enter the handler SHALL verify the pasted text ECHOED into the pane's live
@@ -714,26 +737,44 @@ three-mode theme tokens, animation behind `prefers-reduced-motion`):
 ### Requirement: Send-form input box — pure `ChatSendForm`, AppShell-wired
 `ChatView` SHALL stay a **pure component over passed props**. A `ChatSendForm`
 child is the footer; `AppShell` supplies an
-`onSend(text): Promise<void>` callback (wrapping the `sendChatMessage(server,
-windowId, text)` client — `client.ts`, POSTs `{text}` via the shipped
-`withServer` + `throwOnError` shape so the server's structured error, including the
-409 probe message, surfaces as the thrown Error's message) plus a `busy` boolean
-derived from `currentWindow.agentState === "active"`. `ChatView` calls the client
-directly for nothing — it delegates to `onSend`. The lens/switcher machinery
-(`window-view.ts`, `ViewSwitcher`, search-param validation — [ui-patterns](/run-kit/ui-patterns.md)
-§ Window Views) is NOT touched. The input UX:
+`onSend(text, submit): Promise<void>` callback (wrapping the `sendChatMessage(server,
+windowId, text, submit)` client — `client.ts`, POSTs `{text}` (plus `submit:false`
+only when false) via the shipped `withServer` + `throwOnError` shape so the server's
+structured error, including the 409 probe message, surfaces as the thrown Error's
+message) plus a `busy` boolean derived from `currentWindow.agentState === "active"`.
+`ChatView` calls the client directly for nothing — it delegates to `onSend`. The
+lens/switcher machinery (`window-view.ts`, `ViewSwitcher`, search-param validation —
+[ui-patterns](/run-kit/ui-patterns.md) § Window Views) is NOT touched. The input UX:
 - An auto-growing monospace `<textarea>` (`.rk-chat-input`, placeholder
-  `Message the agent…`), bounded max-height then internal scroll, plus a house-chip
-  (`rk-glint`) send button for touch/mouse.
-- **Enter submits; Shift+Enter inserts a newline**; an empty/whitespace-only
-  textarea does not submit. `keydown` **stops propagation** so a `Ctrl+`` toggle or
-  other global chord never hijacks a keystroke while typing — and the textarea is
-  explicitly EXEMPTED from the `Ctrl+`` view-toggle suppression via its
+  `Message the agent…`), bounded max-height then internal scroll, plus house-chip
+  (`rk-glint`) **Insert** and **Send** buttons for touch/mouse (Insert left of Send,
+  `data-testid="chat-send-insert"`, same enable/disable as Send, `title` documenting
+  the Alt+Enter chord). Insert routes through the shared in-flight-locked submission
+  with `submit:false` (`onSend(text, false)`); Send with `submit:true`.
+- **Pointer-aware Enter, shared with the compose strip** (260719-mxvw): the keydown
+  routes through the shared pure `classifyComposeEnter` (`lib/compose-keys.ts`) fed the
+  live `useCoarsePointer()` value — the SAME hook + classifier both surfaces use, so
+  the two cannot diverge (divergence is a defect). **Fine pointer**: Enter = submit,
+  Shift+Enter = newline (unchanged). **Coarse pointer (touch)**: Enter = newline (NOT
+  intercepted — the textarea default; the Send button submits). **Cmd/Ctrl+Enter =
+  submit ALWAYS**, all devices (the escape hatch for a hardware keyboard on a touch
+  device). **Alt+Enter = insert-without-submit ALWAYS** (`submit:false`, the chord
+  peer of the Insert button). Precedence: non-Enter/IME-composing → default; meta/ctrl
+  → submit; alt → insert; shift → default; coarse → default; else → submit. The
+  empty/whitespace-only no-op is unchanged. `keydown` **stops propagation** so a
+  `Ctrl+`` toggle or other global chord never hijacks a keystroke while typing — and
+  the textarea is explicitly EXEMPTED from the `Ctrl+`` view-toggle suppression via its
   `.rk-chat-input` class (see [ui-patterns](/run-kit/ui-patterns.md) § Window Views;
   the toggle must still fire from inside the chat input or the user is trapped).
+- **Truthful `enterKeyHint`** (260719-mxvw): `enterKeyHint="send"` when Enter submits
+  (fine pointer), `enterKeyHint="enter"` when Enter inserts a newline (coarse pointer)
+  — driven by the same live `useCoarsePointer()` value, so a mid-session pointer-capability
+  change updates the keydown policy and the keyboard hint together.
 - **In-flight lock**: while a send POST is pending, the submit path is locked
-  (double-Enter / double-click cannot double-send). The textarea KEEPS its text
-  until the POST succeeds — cleared on success, kept on failure.
+  (double-Enter / double-click cannot double-send). It guards insert-mode sends
+  identically — insert reuses the one lock/clear/error state machine, not a parallel
+  one. The textarea KEEPS its text until the POST succeeds — cleared on success, kept
+  on failure (identically for submit and insert modes).
 - **Inline error**: a failed send renders an inline `role="alert"`
   (`chat-send-error`) above the input carrying the server's structured error
   (e.g. the 409 message). Never silent.
@@ -749,14 +790,20 @@ directly for nothing — it delegates to `onSend`. The lens/switcher machinery
   any draft/stale-error carryover and re-firing autofocus.
 
 #### Scenario: Enter submits and clears; a 409 keeps the text and shows the error
-- **GIVEN** the send form with typed text
+- **GIVEN** the send form with typed text on a fine pointer
 - **WHEN** the user presses Enter and the POST resolves ok
-- **THEN** exactly one POST fires with the typed body, the textarea clears, and any
-  prior error clears; **AND GIVEN** a second Enter while in flight, **THEN** no
-  second POST fires; **AND GIVEN** the POST rejects `409`, **THEN** the text is
-  retained and the server's message renders in a `role="alert"` element.
+- **THEN** exactly one POST fires with the typed body (no `submit` field), the
+  textarea clears, and any prior error clears; **AND GIVEN** a second Enter while in
+  flight, **THEN** no second POST fires; **AND GIVEN** the POST rejects `409`, **THEN**
+  the text is retained and the server's message renders in a `role="alert"` element.
 - **AND GIVEN** the agent is `active`, **THEN** the queued-message hint is visible
   and the input stays enabled.
+- **AND GIVEN** a coarse pointer, **WHEN** the user presses plain Enter, **THEN** no
+  POST fires and the textarea gains a newline (Cmd/Ctrl+Enter and the Send button
+  still submit).
+- **AND GIVEN** the user clicks Insert (or presses Alt+Enter), **THEN** exactly one
+  POST fires with `{text, submit:false}` and clears on success / keeps the text with
+  the inline error on failure — identical to the submit path.
 
 ## Design Decisions
 
@@ -1046,3 +1093,50 @@ case; the code-review 5s route-blocking rule requires one bounded deadline. Deri
 from the request context also cancels the tmux subprocesses on client disconnect.
 **Rejected**: independent per-primitive timeouts (unbounded route block).
 *Introduced by*: `260714-jdyg-chat-send`
+
+### Additive `submit` flag gates only the final Enter; serialized only when false
+**Decision**: Insert-without-submit is an additive optional `submit *bool` on the
+chat-send POST body (default true), and `sendChatMessage` serializes `submit:false`
+into the body ONLY when false — the default body stays exactly `{ text }`.
+`submit:false` skips ONLY the final `SendEnterToPane`; baseline/set/paste/probe/lock/
+budget are unchanged, and a failing probe still 409s.
+**Why**: Keeps the default wire shape byte-identical so older clients and every
+existing test/mocked body are untouched (a missing field and `true` are the same
+server-side via `*bool` nil-or-true, so serializing `true` adds noise without
+meaning). Gating only step 5 reuses the whole hardened injection path — the paste
+must still echo before the text is left staged in the composer, so an insert is a
+verified paste minus the keypress, not a weaker second path. It restores the
+capability the docked-compose-strip cutover (`260718-dhdj`) removed when it flipped
+to always-submit: staging text in the agent's input box (pre-load a prompt, append
+to a queued steer, leave a draft for a human) without firing it.
+**Rejected**: always serializing the field (churns every existing mocked body for
+zero information); a separate insert endpoint (a new POST route for a one-step
+delta — Constitution IV/IX prefer the additive body); a parallel insert-mode state
+machine on the form (a second lock/clear/error path is the cross-surface divergence
+the intake forbids).
+*Introduced by*: 260719-mxvw-pointer-aware-enter-insert-mode
+
+### Pointer-aware Enter via one shared classifier + one pointer hook
+**Decision**: Both text-input surfaces (chat send form, docked compose strip) route
+Enter through ONE pure `classifyComposeEnter(key, coarse)` (`lib/compose-keys.ts`)
+fed the live `useCoarsePointer()` value (`hooks/use-coarse-pointer.ts`), driving both
+the keydown policy and the `enterKeyHint`. Enter is pointer-type-keyed — fine = submit,
+coarse = newline (Send button submits) — with universal Cmd/Ctrl+Enter submit and
+universal Alt+Enter insert; `enterKeyHint` tracks it (`"send"`/`"enter"`).
+**Why**: Mobile keyboards cannot express Shift+Enter, so a coarse-pointer user could
+not compose multiline text — every Enter fired a premature message at a live agent
+(the costlier error). Keying on `(pointer: coarse)`, NOT viewport width, is deliberate:
+a narrow desktop window still has a hardware keyboard, and a tablet with one still
+gets the Cmd/Ctrl+Enter escape hatch. The intake makes cross-surface divergence a
+defect, so a single shared decision path (pure + unit-testable without a mount, the
+`palette-move.ts` extraction pattern) makes divergence structurally impossible — the
+two handlers had already drifted once. A live `matchMedia` subscription (not a
+mount-time check) keeps the keydown policy and the keyboard hint in lockstep when the
+pointer capability changes mid-session.
+**Rejected**: keying on viewport width (a narrow desktop window loses hardware-keyboard
+Enter); per-surface inline branching (the two handlers drift); a mount-time pointer
+read (a stale hint after plugging in a mouse). The new focused-textarea chords are
+NOT registered in the command palette (the palette steals focus from the textarea it
+would act on, and these are editing chords like the already-unregistered Shift+Enter);
+each Insert button's `title` documents its chord, satisfying Constitution V.
+*Introduced by*: 260719-mxvw-pointer-aware-enter-insert-mode

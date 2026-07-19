@@ -2604,8 +2604,8 @@ function AppShell() {
                 // signal (agentState === "active"); ChatView stays pure. The
                 // chat lens is only active with a real windowParam, so `@N` is a
                 // non-empty string here.
-                onSend={async (text) => {
-                  await sendChatMessage(server, windowParam, text);
+                onSend={async (text, submit) => {
+                  await sendChatMessage(server, windowParam, text, submit);
                 }}
                 busy={currentWindow?.agentState === "active"}
               />

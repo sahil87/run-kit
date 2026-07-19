@@ -76,6 +76,26 @@ function seedWindow(server: string, windowId: string, name: string) {
 
 const input = () => screen.getByTestId("compose-strip-input") as HTMLTextAreaElement;
 const sendBtn = () => screen.getByTestId("compose-strip-send") as HTMLButtonElement;
+const insertBtn = () => screen.getByTestId("compose-strip-insert") as HTMLButtonElement;
+
+/** Re-stub matchMedia so `(pointer: coarse)` matches (or not) — drives the
+ * pointer-aware Enter policy + `enterkeyhint` (260719-mxvw). Must run BEFORE
+ * render (the hook reads the initial value at mount). */
+function stubPointer(coarse: boolean) {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn().mockImplementation((query: string) => ({
+      matches: coarse && query === "(pointer: coarse)",
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  );
+}
 
 describe("ComposeStrip", () => {
   beforeEach(() => {
@@ -241,6 +261,134 @@ describe("ComposeStrip", () => {
     // isComposing rides the native event; fireEvent.keyDown forwards it.
     act(() => fireEvent.keyDown(input(), { key: "Enter", isComposing: true }));
     expect(sent).toEqual([]);
+  });
+
+  // ── Pointer-aware Enter + insert-without-submit (260719-mxvw) ──────────────
+
+  it("coarse pointer: plain Enter does NOT send (textarea default newline)", () => {
+    stubPointer(true);
+    const { ref, sent } = makeWs();
+    render(
+      <ChromeProvider>
+        <FocusedTerminalProvider>
+          <FocusSetter focus={{ wsRef: ref, server: "srv", session: "sess", windowId: "@1" }} />
+          <ComposeStrip />
+        </FocusedTerminalProvider>
+      </ChromeProvider>,
+    );
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+    act(() => fireEvent.change(input(), { target: { value: "touch draft" } }));
+    act(() => fireEvent.keyDown(input(), { key: "Enter" }));
+    expect(sent).toEqual([]);
+    // The draft stays (Enter was not intercepted — no send, no clear).
+    expect(input().value).toBe("touch draft");
+    // The Send button still submits.
+    act(() => fireEvent.click(sendBtn()));
+    expect(sent).toEqual(["touch draft\r"]);
+  });
+
+  it("Cmd/Ctrl+Enter submits on BOTH pointer types (universal escape hatch)", () => {
+    for (const coarse of [false, true]) {
+      for (const mod of [{ metaKey: true }, { ctrlKey: true }]) {
+        stubPointer(coarse);
+        const { ref, sent } = makeWs();
+        const view = render(
+          <ChromeProvider>
+            <FocusedTerminalProvider>
+              <FocusSetter focus={{ wsRef: ref, server: "srv", session: "sess", windowId: "@1" }} />
+              <ComposeStrip />
+            </FocusedTerminalProvider>
+          </ChromeProvider>,
+        );
+        act(() => fireEvent.click(screen.getByTestId("set-focus")));
+        act(() => fireEvent.change(input(), { target: { value: "chord" } }));
+        act(() => fireEvent.keyDown(input(), { key: "Enter", ...mod }));
+        expect(sent).toEqual(["chord\r"]);
+        expect(input().value).toBe("");
+        view.unmount();
+      }
+    }
+  });
+
+  it("Alt+Enter inserts WITHOUT the trailing carriage return and clears the draft", () => {
+    const { ref, sent } = makeWs();
+    render(
+      <ChromeProvider>
+        <FocusedTerminalProvider>
+          <FocusSetter focus={{ wsRef: ref, server: "srv", session: "sess", windowId: "@1" }} />
+          <ComposeStrip />
+        </FocusedTerminalProvider>
+      </ChromeProvider>,
+    );
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+    act(() => fireEvent.change(input(), { target: { value: "stage me" } }));
+    act(() => fireEvent.keyDown(input(), { key: "Enter", altKey: true }));
+    expect(sent).toEqual(["stage me"]); // raw bytes, no \r
+    expect(input().value).toBe(""); // same clear-on-delivery as submit
+  });
+
+  it("the Insert button sends without \\r, mirrors Send's disabled state", () => {
+    const { ref, sent } = makeWs();
+    render(
+      <ChromeProvider>
+        <FocusedTerminalProvider>
+          <FocusSetter focus={{ wsRef: ref, server: "srv", session: "sess", windowId: "@1" }} />
+          <ComposeStrip />
+        </FocusedTerminalProvider>
+      </ChromeProvider>,
+    );
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+    // Empty draft: Insert is disabled exactly like Send.
+    expect(insertBtn().disabled).toBe(true);
+    expect(sendBtn().disabled).toBe(true);
+    act(() => fireEvent.change(input(), { target: { value: "via button" } }));
+    expect(insertBtn().disabled).toBe(false);
+    act(() => fireEvent.click(insertBtn()));
+    expect(sent).toEqual(["via button"]); // no trailing \r
+    expect(input().value).toBe("");
+  });
+
+  it("a guard-blocked insert (stream not OPEN) preserves the draft", () => {
+    const { ref, sent } = makeWs(false); // CLOSED
+    render(
+      <ChromeProvider>
+        <FocusedTerminalProvider>
+          <FocusSetter focus={{ wsRef: ref, server: "srv", session: "sess", windowId: "@1" }} />
+          <ComposeStrip />
+        </FocusedTerminalProvider>
+      </ChromeProvider>,
+    );
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+    act(() => fireEvent.change(input(), { target: { value: "keep insert" } }));
+    act(() => fireEvent.keyDown(input(), { key: "Enter", altKey: true }));
+    expect(sent).toEqual([]);
+    expect(input().value).toBe("keep insert");
+  });
+
+  it("enterkeyhint states the truth: 'send' on fine pointers, 'enter' on coarse", () => {
+    // Fine (default stub): Enter submits → hint is "send".
+    const fine = render(
+      <ChromeProvider>
+        <FocusedTerminalProvider>
+          <FocusSetter focus={{ wsRef: makeWs().ref, server: "srv", session: "sess", windowId: "@1" }} />
+          <ComposeStrip />
+        </FocusedTerminalProvider>
+      </ChromeProvider>,
+    );
+    expect(input().getAttribute("enterkeyhint")).toBe("send");
+    fine.unmount();
+
+    // Coarse: Enter inserts a newline → hint is the default "enter" action.
+    stubPointer(true);
+    render(
+      <ChromeProvider>
+        <FocusedTerminalProvider>
+          <FocusSetter focus={{ wsRef: makeWs().ref, server: "srv", session: "sess", windowId: "@1" }} />
+          <ComposeStrip />
+        </FocusedTerminalProvider>
+      </ChromeProvider>,
+    );
+    expect(input().getAttribute("enterkeyhint")).toBe("enter");
   });
 
   it("does not steal focus on mount", () => {

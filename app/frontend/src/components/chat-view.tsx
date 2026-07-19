@@ -9,6 +9,8 @@ import {
 } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
+import { classifyComposeEnter } from "@/lib/compose-keys";
 import {
   groupEventsByTurn,
   pairToolEvents,
@@ -56,11 +58,13 @@ export function ChatView({
   connected: boolean;
   error: string | null;
   /**
-   * Send a message into the agent pane. Resolves on a successful send (200) and
+   * Send a message into the agent pane. `submit: false` is the insert-without-
+   * submit mode (260719-mxvw) — the text is pasted into the pane's input box but
+   * the final gated Enter is skipped. Resolves on a successful send (200) and
    * REJECTS with an Error whose message is the server's structured error (e.g.
    * the 409 probe failure) so the footer can surface it inline.
    */
-  onSend: (text: string) => Promise<void>;
+  onSend: (text: string, submit: boolean) => Promise<void>;
   /** True while the window's agent is `active` — drives the non-blocking hint. */
   busy: boolean;
 }) {
@@ -138,9 +142,15 @@ export function ChatView({
 const MAX_TEXTAREA_ROWS = 6;
 
 /**
- * The chat send input: an auto-growing monospace textarea + a house-chip send
- * button. Enter submits; Shift+Enter inserts a newline. In-flight-locked (no
- * double-send); text clears on success and is kept on failure with an inline
+ * The chat send input: an auto-growing monospace textarea + house-chip Insert /
+ * Send buttons. Enter policy is the shared pointer-aware `classifyComposeEnter`
+ * (260719-mxvw — the SAME classifier the compose strip uses; the two surfaces
+ * must not diverge): fine pointer Enter submits / Shift+Enter newline; coarse
+ * pointer Enter inserts a newline (Send button submits); Cmd/Ctrl+Enter submits
+ * always; Alt+Enter — and the Insert button — send with `submit: false` (paste
+ * into the agent's input box, gated Enter skipped). `enterkeyhint` tracks what
+ * Enter actually does. In-flight-locked (no double-send, shared by submit and
+ * insert); text clears on success and is kept on failure with an inline
  * `role="alert"` error carrying the server's structured message. A non-blocking
  * "will be queued" hint shows while the agent is busy (the input stays enabled —
  * Allow + probe policy). On a fine pointer the input auto-focuses on mount (the
@@ -150,13 +160,16 @@ function ChatSendForm({
   onSend,
   busy,
 }: {
-  onSend: (text: string) => Promise<void>;
+  onSend: (text: string, submit: boolean) => Promise<void>;
   busy: boolean;
 }) {
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Live pointer type drives BOTH the Enter policy and `enterkeyhint` — one
+  // subscription so hint and behavior can never disagree (260719-mxvw).
+  const coarse = useCoarsePointer();
 
   // Auto-grow to content, bounded to MAX_TEXTAREA_ROWS (then internal scroll).
   const resize = useCallback(() => {
@@ -172,40 +185,56 @@ function ChatSendForm({
   useLayoutEffect(resize, [text, resize]);
 
   // Desktop-only autofocus on mount (the chat lens just activated). Skip on
-  // coarse pointers so the on-screen keyboard does not pop unbidden.
+  // coarse pointers so the on-screen keyboard does not pop unbidden. Mount-only
+  // by design: a live pointer-capability change must not steal focus, so the
+  // hook value is read once here and deliberately not a dependency.
   useEffect(() => {
-    const coarse =
-      typeof window !== "undefined" &&
-      typeof window.matchMedia === "function" &&
-      window.matchMedia("(pointer: coarse)").matches;
     if (!coarse) textareaRef.current?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const submit = useCallback(async () => {
-    if (sending) return; // in-flight lock — double-Enter / double-click no-op
-    const trimmed = text.trim();
-    if (trimmed === "") return; // empty / whitespace-only never submits
-    setSending(true);
-    setError(null);
-    try {
-      await onSend(text);
-      setText(""); // clear on success
-    } catch (e) {
-      // Keep the text on failure; surface the server's structured error inline.
-      setError(e instanceof Error ? e.message : "Failed to send message");
-    } finally {
-      setSending(false);
-    }
-  }, [onSend, sending, text]);
+  const submit = useCallback(
+    async (submitMode: boolean) => {
+      if (sending) return; // in-flight lock — double-Enter / double-click no-op
+      const trimmed = text.trim();
+      if (trimmed === "") return; // empty / whitespace-only never submits
+      setSending(true);
+      setError(null);
+      try {
+        await onSend(text, submitMode);
+        setText(""); // clear on success (insert-mode: the text now lives in the pane's input box)
+      } catch (e) {
+        // Keep the text on failure; surface the server's structured error inline.
+        setError(e instanceof Error ? e.message : "Failed to send message");
+      } finally {
+        setSending(false);
+      }
+    },
+    [onSend, sending, text],
+  );
 
   const onKeyDown = (e: ReactKeyboardEvent<HTMLTextAreaElement>) => {
-    // Enter submits; Shift+Enter inserts a newline (default). Stop propagation so
-    // a submitting Enter never bubbles to global chords.
-    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-      e.preventDefault();
-      e.stopPropagation();
-      void submit();
-    }
+    // Shared pointer-aware Enter policy (classifyComposeEnter — the SAME
+    // classifier the compose strip uses). "default" means: do not intercept —
+    // the textarea inserts a newline (Shift+Enter anywhere, plain Enter on
+    // coarse pointers, IME composition).
+    const action = classifyComposeEnter(
+      {
+        key: e.key,
+        shiftKey: e.shiftKey,
+        metaKey: e.metaKey,
+        ctrlKey: e.ctrlKey,
+        altKey: e.altKey,
+        isComposing: e.nativeEvent.isComposing,
+      },
+      coarse,
+    );
+    if (action === "default") return;
+    // Stop propagation so a submitting/inserting Enter never bubbles to global
+    // chords.
+    e.preventDefault();
+    e.stopPropagation();
+    void submit(action === "submit");
   };
 
   const canSend = !sending && text.trim() !== "";
@@ -238,14 +267,29 @@ function ChatSendForm({
           onKeyDown={onKeyDown}
           placeholder="Message the agent…"
           aria-label="Message the agent"
+          // Truthful hint: "send" only where Enter actually submits (fine
+          // pointer); coarse pointers get the default newline action.
+          enterKeyHint={coarse ? "enter" : "send"}
           data-testid="chat-send-input"
           className="rk-chat-input flex-1 min-h-0 resize-none rounded border border-border bg-bg-inset px-3 py-2 font-mono text-sm text-text-primary placeholder:text-text-secondary focus:outline-none focus:border-accent"
         />
         <button
           type="button"
-          onClick={() => void submit()}
+          onClick={() => void submit(false)}
+          disabled={!canSend}
+          aria-label="Insert message without submitting"
+          title="Insert into the agent's input without submitting (Alt+Enter)"
+          data-testid="chat-send-insert"
+          className="rk-glint shrink-0 rounded border border-border px-3 py-2 font-mono text-sm text-text-secondary select-none transition-colors hover:border-text-secondary active:bg-bg-card focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40 disabled:cursor-not-allowed coarse:min-h-[36px]"
+        >
+          Insert
+        </button>
+        <button
+          type="button"
+          onClick={() => void submit(true)}
           disabled={!canSend}
           aria-label="Send message"
+          title={coarse ? "Send (Ctrl/⌘+Enter)" : "Send (Enter)"}
           data-testid="chat-send-button"
           className="rk-glint shrink-0 rounded border border-border px-3 py-2 font-mono text-sm text-text-primary select-none transition-colors hover:border-text-secondary active:bg-bg-card focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40 disabled:cursor-not-allowed coarse:min-h-[36px]"
         >

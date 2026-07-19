@@ -8,7 +8,9 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { useFocusedTerminal, type FocusedTerminal } from "@/contexts/focused-terminal-context";
+import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import { useFileUpload } from "@/hooks/use-file-upload";
+import { classifyComposeEnter } from "@/lib/compose-keys";
 import { useWindowStore, entryKey } from "@/store/window-store";
 import {
   COMPOSE_STRIP_ATTACH_EVENT,
@@ -38,11 +40,18 @@ import {
  * send time — never a target snapshotted at open. The wrong-pane-send risk is
  * mitigated by the always-visible `→ {window}` target label, not by freezing.
  *
- * Interaction (mirrors `ChatSendForm`): Enter sends `text + "\r"` as raw bytes
- * over the relay stream (same path as BottomBar keystrokes); Shift+Enter inserts
- * a newline; Enter is guarded against IME composition; empty/whitespace-only
- * Enter is a no-op. The strip NEVER steals focus (mount / toggle / after-send);
- * Escape blurs the textarea back to the terminal.
+ * Interaction (mirrors `ChatSendForm` — the shared `classifyComposeEnter`
+ * policy, 260719-mxvw): on a FINE pointer Enter sends `text + "\r"` as raw
+ * bytes over the relay stream (same path as BottomBar keystrokes) and
+ * Shift+Enter inserts a newline; on a COARSE pointer Enter is not intercepted
+ * (newline — touch keyboards cannot express Shift+Enter, and the Send button
+ * submits). Cmd/Ctrl+Enter submits ALWAYS (hardware keyboard on a touch
+ * device); Alt+Enter — and the secondary Insert button — deliver the text
+ * WITHOUT the trailing `\r` (insert into the pane's input box without pressing
+ * Enter). `enterkeyhint` tracks what Enter actually does. Enter is guarded
+ * against IME composition; empty/whitespace-only submission is a no-op. The
+ * strip NEVER steals focus (mount / toggle / after-send); Escape blurs the
+ * textarea back to the terminal.
  *
  * Uploads ride `useFileUpload` scoped to the LIVE focused target's worktree
  * (eager upload). When the focused target changes while attachments are pending,
@@ -207,27 +216,39 @@ export function ComposeStrip() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focused?.server, focused?.windowId]);
 
-  const send = useCallback(() => {
-    if (!hasTarget) return;
-    const trimmed = text.trim();
-    if (trimmed === "") return; // empty / whitespace-only never sends
-    const ws = focused?.wsRef.current;
-    // Guard-blocked send: the focused stream is not open. Early-return WITHOUT
-    // clearing — the draft is preserved so nothing is silently lost against a
-    // closed pane. Clearing happens only after a delivered send below.
-    if (ws?.readyState !== WebSocket.OPEN) return;
-    // Enter submits with a trailing carriage return — same raw-bytes relay
-    // path as BottomBar keystrokes. Deliberate behavior change from the
-    // dialog's raw-insert (no `\r`) send.
-    ws.send(text + "\r");
-    // Delivered: clear draft + attachments; the strip stays open and does NOT
-    // grab or return focus. The module store is the source of truth for the
-    // draft; revoke this mount's preview URLs (their files are gone).
-    for (const url of blobUrlsRef.current.values()) URL.revokeObjectURL(url);
-    blobUrlsRef.current.clear();
-    clearComposeDraft();
-    setError(null);
-  }, [hasTarget, text, focused]);
+  // Live pointer type drives BOTH the Enter policy and `enterkeyhint` — one
+  // subscription so hint and behavior can never disagree (260719-mxvw).
+  const coarse = useCoarsePointer();
+
+  const send = useCallback(
+    (submit: boolean) => {
+      if (!hasTarget) return;
+      const trimmed = text.trim();
+      if (trimmed === "") return; // empty / whitespace-only never sends
+      const ws = focused?.wsRef.current;
+      // Guard-blocked send: the focused stream is not open. Early-return WITHOUT
+      // clearing — the draft is preserved so nothing is silently lost against a
+      // closed pane. Clearing happens only after a delivered send below.
+      if (ws?.readyState !== WebSocket.OPEN) return;
+      // Submit sends a trailing carriage return — the `\r` IS the Enter press
+      // (same raw-bytes relay path as BottomBar keystrokes). Insert-only omits
+      // it, staging the text in the pane's input box without submitting (the
+      // old modal ComposeBuffer's raw-insert, back as a secondary action).
+      // Caveat (documented, not guarded — intake §6): embedded `\n` in an
+      // insert-only send is raw bytes, so a plain shell pane executes each
+      // line; insert is only truly Enter-free for single-line text on non-TUI
+      // panes (Claude Code treats `\n` as newline insert).
+      ws.send(submit ? text + "\r" : text);
+      // Delivered: clear draft + attachments; the strip stays open and does NOT
+      // grab or return focus. The module store is the source of truth for the
+      // draft; revoke this mount's preview URLs (their files are gone).
+      for (const url of blobUrlsRef.current.values()) URL.revokeObjectURL(url);
+      blobUrlsRef.current.clear();
+      clearComposeDraft();
+      setError(null);
+    },
+    [hasTarget, text, focused],
+  );
 
   const onKeyDown = (e: ReactKeyboardEvent<HTMLTextAreaElement>) => {
     // Escape blurs the textarea back to the terminal (never closes the strip).
@@ -237,14 +258,27 @@ export function ComposeStrip() {
       textareaRef.current?.blur();
       return;
     }
-    // Enter submits; Shift+Enter inserts a newline (default). Guard against IME
-    // composition. Stop propagation so a submitting Enter never bubbles to
-    // global chords.
-    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-      e.preventDefault();
-      e.stopPropagation();
-      send();
-    }
+    // Shared pointer-aware Enter policy (classifyComposeEnter — the SAME
+    // classifier ChatSendForm uses; the two surfaces must not diverge).
+    // "default" means: do not intercept — the textarea inserts a newline
+    // (Shift+Enter anywhere, plain Enter on coarse pointers, IME composition).
+    const action = classifyComposeEnter(
+      {
+        key: e.key,
+        shiftKey: e.shiftKey,
+        metaKey: e.metaKey,
+        ctrlKey: e.ctrlKey,
+        altKey: e.altKey,
+        isComposing: e.nativeEvent.isComposing,
+      },
+      coarse,
+    );
+    if (action === "default") return;
+    // Stop propagation so a submitting/inserting Enter never bubbles to global
+    // chords.
+    e.preventDefault();
+    e.stopPropagation();
+    send(action === "submit");
   };
 
   // File uploads through the strip's own 📎 button.
@@ -401,6 +435,9 @@ export function ComposeStrip() {
           autoCorrect="off"
           autoCapitalize="off"
           spellCheck={false}
+          // Truthful hint: "send" only where Enter actually submits (fine
+          // pointer); coarse pointers get the default newline action.
+          enterKeyHint={coarse ? "enter" : "send"}
           aria-label="Compose text to send to terminal"
           placeholder={hasTarget ? "Compose text…" : "No focused terminal"}
           data-testid="compose-strip-input"
@@ -430,10 +467,23 @@ export function ComposeStrip() {
         </button>
         <button
           type="button"
-          aria-label="Send text"
+          aria-label="Insert text without submitting"
+          title="Insert into the terminal input without submitting (Alt+Enter)"
           disabled={!canSend}
           onMouseDown={preventFocusSteal}
-          onClick={send}
+          onClick={() => send(false)}
+          data-testid="compose-strip-insert"
+          className="rk-glint shrink-0 rounded border border-border px-2 py-1.5 text-xs text-text-secondary transition-colors hover:border-text-secondary disabled:opacity-40 disabled:cursor-not-allowed coarse:min-h-[36px]"
+        >
+          Insert
+        </button>
+        <button
+          type="button"
+          aria-label="Send text"
+          title={coarse ? "Send (Ctrl/⌘+Enter)" : "Send (Enter)"}
+          disabled={!canSend}
+          onMouseDown={preventFocusSteal}
+          onClick={() => send(true)}
           data-testid="compose-strip-send"
           className="rk-glint shrink-0 rounded border border-accent bg-accent/20 px-3 py-1.5 text-xs text-accent transition-colors hover:bg-accent/30 disabled:opacity-40 disabled:cursor-not-allowed coarse:min-h-[36px]"
         >

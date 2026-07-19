@@ -154,6 +154,60 @@ test.describe("Docked compose strip", () => {
     await expect(page.getByTestId("compose-strip")).toBeVisible();
   });
 
+  test("Insert stages text without committing; Ctrl/Cmd+Enter submits (260719-mxvw)", async ({ page }) => {
+    test.setTimeout(60_000);
+    const windowId = await resolveWindowId(page, TERM_SESSION);
+    await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(windowId)}`, {
+      waitUntil: "domcontentloaded",
+    });
+    await expect(page.locator(".xterm-screen")).toBeVisible({ timeout: 15_000 });
+    await expect
+      .poll(() => page.evaluate((w) => Boolean(window.__rkTerminals?.[w]), windowId), {
+        timeout: 15_000,
+      })
+      .toBe(true);
+
+    await page.getByRole("button", { name: "Compose text" }).click();
+    const input = page.getByTestId("compose-strip-input");
+    await expect(input).toBeVisible();
+    // Fine pointer (default e2e environment): Enter submits, so the keyboard
+    // hint states "send".
+    await expect(input).toHaveAttribute("enterkeyhint", "send");
+
+    // Insert: raw bytes with NO trailing \r — staged on cat's input line,
+    // never committed.
+    const staged = `CSINS${Date.now()}`;
+    await input.click();
+    await input.fill(staged);
+    await page.getByTestId("compose-strip-insert").click();
+    // Same clear-on-delivery as submit; the strip stays open.
+    await expect(input).toHaveValue("");
+    await expect
+      .poll(() => tmuxCapture(TERM_SESSION), { timeout: 10_000 })
+      .toContain(staged);
+    // Exactly ONE occurrence — the tty echo of the staged input line. A
+    // committed line would appear twice (input echo + cat's output line).
+    expect(
+      (tmuxCapture(TERM_SESSION).match(new RegExp(staged, "g")) ?? []).length,
+    ).toBe(1);
+
+    // Cmd/Ctrl+Enter (the universal submit chord) commits the staged line plus
+    // this suffix as ONE line — proving the insert really was staged (still in
+    // the input buffer) and the chord really submitted.
+    const suffix = `CSSUB${Date.now()}`;
+    await input.fill(suffix);
+    await input.press("ControlOrMeta+Enter");
+    await expect(input).toHaveValue("");
+    await expect
+      .poll(
+        () =>
+          (tmuxCapture(TERM_SESSION).match(new RegExp(`${staged}${suffix}`, "g")) ?? [])
+            .length,
+        { timeout: 10_000 },
+      )
+      .toBeGreaterThanOrEqual(2); // input echo + cat's echoed output line
+  });
+
   test("target label follows the focused board pane", async ({ page }) => {
     test.setTimeout(60_000);
     const alpha = await resolveWindowId(page, BOARD_SESSION, "cs-alpha");

@@ -2528,36 +2528,33 @@ function AppShell() {
   );
 
   return (
-    <Shell sidebarChildren={sidebarElement}>
-      {/* Sidebar grid area (desktop only — Shell removes it on mobile). The
-          drag handle sits at the right edge so dragging it widens the
-          sidebar column. Hidden when collapsed (sidebarOpen === false). */}
-      {!isMobile && sidebarOpen && (
-        <aside
-          style={{ gridArea: "sidebar" }}
-          className="relative flex flex-row overflow-hidden"
-        >
-          <div className="flex-1 min-w-0 overflow-hidden">{sidebarElement}</div>
-          {/* Drag handle — hidden when collapsed (column is 0-width anyway).
-              Visual bar is 3px (the seam width), but the grabbable area is
-              extended ~8px into the sidebar via the invisible `before:`
-              pseudo-element (pointer events on a pseudo hit its element, so
-              the drag/hover handlers fire unchanged). It cannot extend RIGHT
-              over the terminal: the aside's `overflow-hidden` clips anything
-              past its edge. */}
-          <div
-            className="relative w-[3px] shrink-0 cursor-col-resize bg-border hover:bg-text-secondary transition-colors before:content-[''] before:absolute before:inset-y-0 before:-left-2 before:right-0"
-            onPointerDown={handleDragHandlePointerDown}
-            style={{ touchAction: "none" }}
-            role="separator"
-            aria-orientation="vertical"
-            aria-label="Resize sidebar"
-            aria-valuenow={sidebarWidth}
-            aria-valuemin={SIDEBAR_MIN_WIDTH}
-            aria-valuemax={SIDEBAR_MAX_WIDTH}
-          />
-        </aside>
-      )}
+    <Shell
+      sidebarChildren={sidebarElement}
+      sidebarResizeHandle={
+        // Drag handle — Shell places it at the sidebar aside's right edge and
+        // renders it only when the desktop aside is up (never on the mobile
+        // overlay). All drag state/handlers stay here in AppShell.
+        // Visual bar is 3px (the seam width), but the grabbable area is
+        // extended ~8px into the sidebar via the invisible `before:`
+        // pseudo-element (pointer events on a pseudo hit its element, so the
+        // drag/hover handlers fire unchanged). It cannot extend RIGHT over the
+        // terminal: the aside's `overflow-hidden` clips anything past its edge.
+        <div
+          className="relative w-[3px] shrink-0 cursor-col-resize bg-border hover:bg-text-secondary transition-colors before:content-[''] before:absolute before:inset-y-0 before:-left-2 before:right-0"
+          onPointerDown={handleDragHandlePointerDown}
+          style={{ touchAction: "none" }}
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize sidebar"
+          aria-valuenow={sidebarWidth}
+          aria-valuemin={SIDEBAR_MIN_WIDTH}
+          aria-valuemax={SIDEBAR_MAX_WIDTH}
+        />
+      }
+    >
+      {/* The desktop sidebar aside is now Shell-owned (260719-rwqf): AppShell
+          passes `sidebarChildren` + `sidebarResizeHandle` and Shell renders the
+          `<aside gridArea:"sidebar">` (gated `!isMobile && sidebarOpen`). */}
 
       {/* Top bar mount moved to the persistent root layout (260707-4vq2) —
           AppShell publishes its TopBar props into the slot context instead

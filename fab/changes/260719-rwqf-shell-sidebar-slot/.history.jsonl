@@ -1,0 +1,11 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-19T19:50:55Z"}
+{"args":"Collapse sidebarChildren prop duplication on \u003cShell\u003e between AppShell and BoardPage into a shared slot (backlog rwqf)","cmd":"fab-new","event":"command","ts":"2026-07-19T19:50:55Z"}
+{"delta":"+4.8","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-07-19T19:52:27Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-19T19:52:58Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-19T19:52:58Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-19T20:02:55Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-19T20:07:13Z"}
+{"event":"review","result":"passed","ts":"2026-07-19T20:07:13Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-19T20:09:36Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-07-19T20:10:55Z"}
+{"event":"review","result":"passed","ts":"2026-07-19T20:19:16Z"}

@@ -69,14 +69,35 @@ function useSidebarKeyboardToggle(toggle: () => void) {
  *     grid as an absolute overlay with a backdrop. The overlay carries
  *     `role="dialog" aria-modal="true"` for assistive tech.
  *
- * Children must use grid-area placement via `style={{ gridArea: "sidebar" | "content" | "bottombar" }}`.
+ * The `sidebar` grid area is Shell-owned: on desktop Shell renders the
+ * `<aside gridArea:"sidebar">` itself from `sidebarChildren` (gated
+ * `!isMobile && sidebarOpen && !!sidebarChildren`), with an optional
+ * `sidebarResizeHandle` node placed at its right edge (AppShell's drag-resize
+ * handle; drag state/handlers stay in AppShell). Consumers therefore place
+ * ONLY the `content` and `bottombar` grid areas via
+ * `style={{ gridArea: "content" | "bottombar" }}` — never `sidebar`.
  *
  * Height is `100%` — Shell fills the root layout's `flex-1` content region.
  * The `--app-height` var (iOS keyboard handling) is now maintained by
  * `useVisualViewport()` in `RootWrapper`, whose root layout div is the var's
  * consumer; Shell no longer calls the hook or reads the var directly.
  */
-export function Shell({ children, sidebarChildren }: { children: ReactNode; sidebarChildren?: ReactNode }) {
+export function Shell({
+  children,
+  sidebarChildren,
+  sidebarResizeHandle,
+}: {
+  children: ReactNode;
+  sidebarChildren?: ReactNode;
+  /**
+   * Desktop-only chrome rendered at the sidebar aside's right edge, after the
+   * content wrapper (AppShell passes its drag-resize handle here; BoardPage
+   * passes none). The mobile overlay never renders it. When present, the aside
+   * drops its `border-r` (the handle bar is the visual seam); when absent, the
+   * aside keeps `border-r border-border` as the seam.
+   */
+  sidebarResizeHandle?: ReactNode;
+}) {
   const { sidebarOpen, sidebarWidth } = useChromeState();
   const { setSidebarOpen } = useChromeDispatch();
   const isMobile = useIsMobile();
@@ -116,6 +137,28 @@ export function Shell({ children, sidebarChildren }: { children: ReactNode; side
 
   return (
     <div className="app-shell" style={gridStyle}>
+      {/* Desktop sidebar aside (Shell-owned — 260719-rwqf). Gated the same way
+          the callers used to gate their own asides (`!isMobile && sidebarOpen`,
+          plus a `sidebarChildren` presence check), so it fully unmounts on
+          collapse — no zero-width rail. The optional `sidebarResizeHandle` sits
+          at the right edge (AppShell's drag handle; BoardPage passes none). The
+          `border-r` seam is applied ONLY when no handle is present: with a
+          handle the 3px handle bar IS the seam, so a border would double it. */}
+      {!isMobile && sidebarOpen && sidebarChildren && (
+        <aside
+          style={{ gridArea: "sidebar" }}
+          aria-label="Sidebar"
+          className={
+            sidebarResizeHandle
+              ? "relative flex flex-row overflow-hidden"
+              : "relative flex flex-row overflow-hidden border-r border-border"
+          }
+        >
+          <div className="flex-1 min-w-0 overflow-hidden">{sidebarChildren}</div>
+          {sidebarResizeHandle}
+        </aside>
+      )}
+
       {children}
 
       {/* Mobile overlay: renders below the topbar so the hamburger stays

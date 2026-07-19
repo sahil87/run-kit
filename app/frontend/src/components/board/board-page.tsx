@@ -931,19 +931,13 @@ function BoardPageContent({ name }: { name: string }) {
   return (
     <div className="h-full bg-bg-primary text-text-primary">
       <Shell sidebarChildren={sidebarElement}>
-        {/* Sidebar grid area (desktop only — Shell removes it on mobile). The
-            board route shares the unified Sidebar with AppShell; drag-resize
-            is intentionally omitted here for now (the column width still
-            comes from ChromeContext). */}
-        {!isMobile && sidebarOpen && (
-          <aside
-            style={{ gridArea: "sidebar" }}
-            className="overflow-hidden border-r border-border"
-            aria-label="board sidebar"
-          >
-            {sidebarElement}
-          </aside>
-        )}
+        {/* The desktop sidebar aside is now Shell-owned (260719-rwqf): BoardPage
+            passes only `sidebarChildren` and Shell renders the
+            `<aside gridArea:"sidebar" aria-label="Sidebar">` (gated
+            `!isMobile && sidebarOpen`). No `sidebarResizeHandle` is passed —
+            drag-resize is intentionally absent on the board route — so Shell's
+            no-handle branch keeps the `border-r border-border` seam. The column
+            width still comes from ChromeContext. */}
 
         {/* Top bar mount moved to the persistent root layout (260707-4vq2).
             Board mode + `boardName` are derived at root from the route; the

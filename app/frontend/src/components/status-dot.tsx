@@ -1,4 +1,4 @@
-import { statusDotState, PHASE_HUE } from "@/components/pr-status-line";
+import { statusDotState, PHASE_HUE } from "@/components/pr-status-model";
 import { StatusDotTip } from "@/components/status-dot-tip";
 import { dotLabel } from "@/components/status-dot-label";
 import type { WindowInfo } from "@/types";

@@ -13,7 +13,7 @@ import {
   autoUpdate,
 } from "@floating-ui/react";
 import { dotLabel } from "@/components/status-dot-label";
-import type { StatusDotState } from "@/components/pr-status-line";
+import type { StatusDotState } from "@/components/pr-status-model";
 import { formatDuration } from "@/lib/format";
 import { useNow } from "@/hooks/use-now";
 import type { WindowInfo } from "@/types";

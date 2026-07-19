@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 import { StatusDot, dotLabel } from "./status-dot";
 import { dotTipContent } from "./status-dot-tip";
-import { statusDotState, fabPhase, fabShape, prShape } from "./pr-status-line";
+import { statusDotState, fabPhase, fabShape, prShape } from "./pr-status-model";
 import type { WindowInfo } from "@/types";
 
 afterEach(() => {

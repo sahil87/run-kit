@@ -1,0 +1,9 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-19T20:20:51Z"}
+{"args":"Rename pr-status-line.tsx -\u003e pr-status-model.ts since the namesake component is gone (backlog 8hc6)","cmd":"fab-new","event":"command","ts":"2026-07-19T20:20:51Z"}
+{"delta":"+4.9","event":"confidence","score":4.9,"trigger":"calc-score","ts":"2026-07-19T20:21:22Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-19T20:21:39Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-19T20:21:39Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-19T20:25:04Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-19T20:28:43Z"}
+{"event":"review","result":"passed","ts":"2026-07-19T20:28:43Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-19T20:31:43Z"}

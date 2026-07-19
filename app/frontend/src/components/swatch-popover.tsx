@@ -119,8 +119,11 @@ export function SwatchPopover({
     (pos: GridPos) => {
       if (pos.col === 0) {
         // Marker column: MARKER_CELLS[row] — ∅ in row 0, dotted/solid/double
-        // beside the three color rows (the load-bearing alignment above).
-        if (showMarkers && onSelectMarker) onSelectMarker(MARKER_CELLS[pos.row]);
+        // beside the three color rows (the load-bearing alignment above). The
+        // explicit undefined check guards against that alignment drifting
+        // (GRID_ROWS outgrowing MARKER_CELLS) — never emit undefined.
+        const marker = MARKER_CELLS[pos.row];
+        if (showMarkers && onSelectMarker && marker !== undefined) onSelectMarker(marker);
       } else if (pos.row === 0) {
         emit(null); // Clear color
       } else {

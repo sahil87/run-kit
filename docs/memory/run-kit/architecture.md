@@ -224,7 +224,6 @@ The `POST /api/riff` + `GET /api/riff/presets` handlers surface the extracted `i
 | `setWindowOptions(server, windowId, options)` | POST | `/api/windows/{windowId}/options` — partial-merge; `options` is `Record<string, string \| null>` (since `260529-jad6`) |
 | `updateWindowUrl(server, windowId, url)` | POST | delegates to `setWindowOptions` → `/api/windows/{windowId}/options` (`{"@rk_url": url}`) |
 | `updateWindowType(server, windowId, rkType)` | POST | delegates to `setWindowOptions` → `/api/windows/{windowId}/options` (`{"@rk_type": rkType === "" ? null : rkType}`). **Deletion candidate since `260714-t97o-web-view-lens`** — that change removed both view-switch call sites (the `IframeWindow` `>_` button and the `toggle-iframe-terminal` palette action / tty-branch hint bar), so zero non-test references remain (only its own `client.test.ts` case). Kept for now; the backend `POST /options` endpoint stays regardless (shared with `updateWindowUrl`, and `@rk_type` remains legitimate substrate state an external process may set) |
-| `sendKeys(server, windowId, keys)` | POST | `/api/windows/{windowId}/keys` |
 | `getDirectories(prefix)` | GET | `/api/directories?prefix=...` |
 | `selectWindow(server, windowId)` | POST | `/api/windows/{windowId}/select?server=...` |
 | `splitWindow(server, windowId, horizontal, cwd?)` | POST | `/api/windows/{windowId}/split` |

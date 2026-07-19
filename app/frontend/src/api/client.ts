@@ -194,23 +194,6 @@ export async function renameWindow(
   return res.json();
 }
 
-export async function sendKeys(
-  server: string,
-  windowId: string,
-  keys: string,
-): Promise<{ ok: boolean }> {
-  const res = await fetch(
-    withServer(`/api/windows/${encodeURIComponent(windowId)}/keys`, server),
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ keys }),
-    },
-  );
-  if (!res.ok) await throwOnError(res);
-  return res.json();
-}
-
 /** An HTTP error carrying the response status, so callers can branch on it (the
  *  chat lens treats a 404 "transcript not yet" as a wait-and-retry, not a fatal
  *  error). */

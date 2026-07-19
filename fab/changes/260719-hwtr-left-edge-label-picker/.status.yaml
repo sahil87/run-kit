@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 12
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-07-19T08:14:00Z", driver: fab-fff, iterations: 2, completed_at: "2026-07-19T08:24:23Z"}
     review: {started_at: "2026-07-19T08:24:23Z", driver: fab-fff, iterations: 2, completed_at: "2026-07-19T08:34:28Z"}
     hydrate: {started_at: "2026-07-19T08:34:28Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-19T08:41:31Z"}
-    ship: {started_at: "2026-07-19T08:41:31Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-07-19T08:41:31Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-19T08:45:31Z"}
+    review-pr: {started_at: "2026-07-19T08:45:31Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/396
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 1302
+    deleted: 319
+    net: 983
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 785
+        deleted: 291
+        net: 494
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-07-19T08:41:31Z"
-    computed_at_stage: hydrate
+        added: 81
+        deleted: 30
+        net: 51
+    computed_at: "2026-07-19T08:45:31Z"
+    computed_at_stage: ship
 summary: Window rows consolidate both label axes into one 26px left-edge target opening a combined color+marker Label picker; marker cycling removed, right cluster slims to pin+kill
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-07-19T08:41:31Z
+last_updated: 2026-07-19T08:45:31Z

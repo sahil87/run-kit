@@ -838,9 +838,9 @@ function AppShell() {
       // Supersede any prior pending switch's tracking (its timer/mask).
       clearPendingSwitchTracking();
       // A fresh switch owns ALL feedback: proactively clear a mask/grace timer a
-      // prior TIMED-OUT switch left showing (module state — clearPendingSwitch-
-      // Tracking above only cancels the tracked entry's own timer/handle, never
-      // the module mask). The gated paths get this via armGraceMask/
+      // prior TIMED-OUT switch left showing (module state — the
+      // clearPendingSwitchTracking above only cancels the tracked entry's own
+      // timer/handle, never the module mask). The gated paths get this via armGraceMask/
       // beginWindowSwitchGate; the two gateless paths (mount-time cold deep-link
       // alignment, waiting-target navigation) otherwise leave the stale mask up
       // until SSE confirmation. Deliberately the BARE teardown, NOT
@@ -1138,7 +1138,7 @@ function AppShell() {
         // with its OWN gate current). Without this, an animated switch
         // superseded within its 300ms budget by this ungated instant path
         // would re-mask a view whose semantics are "non-tty targets stay
-        // mask-less" (Copilot).
+        // mask-less".
         if (targetUngated) abandonSwitchFeedback();
         runSwitch(!targetUngated);
         return;

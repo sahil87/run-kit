@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"syscall"
 	"time"
 
 	"rk/internal/daemon"
@@ -17,7 +18,29 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const brewTimeout = 120 * time.Second
+// Brew-mutation bounds (shll update standard, brew-handling safety clause):
+// brew mutations are NOT interruptible without damage — a keg swap runs
+// `brew unlink` then `brew link`, and a process killed between them leaves the
+// tool half-installed. brew can also legitimately block for minutes on the
+// network (Homebrew 6 makes an un-timed api.github.com call inside every
+// tap-formula upgrade; observed 2026-07-19: a 120s hard kill landed mid-swap
+// and corrupted the keg). So any bound on a mutating brew subcommand MUST be
+// generous — sized for a network transfer, never a short hard cap — and
+// terminate gracefully (SIGTERM + grace, see newBrewCmd), per the standard's
+// "MUST NOT impose a short hard timeout on brew upgrade" / "MUST NOT send
+// SIGKILL to a package-manager subprocess mid-transaction". Timeouts are kept
+// at all (rather than unbounded) per Constitution § Process Execution.
+const (
+	// brewUpgradeTimeout bounds `brew upgrade` — the keg-swapping mutation.
+	brewUpgradeTimeout = 30 * time.Minute
+	// brewUpdateTimeout bounds `brew update` — also a network-bound
+	// package-manager mutation with the same stall profile.
+	brewUpdateTimeout = 10 * time.Minute
+	// brewCancelGrace is the WaitDelay window a mutating brew subprocess gets
+	// between SIGTERM (on context expiry) and the runtime's final kill —
+	// enough for brew to unwind a keg swap cleanly.
+	brewCancelGrace = 30 * time.Second
+)
 
 // skipBrewUpdate is bound to the --skip-brew-update flag (registered in init).
 // When true, the update command skips ONLY the internal `brew update --quiet`
@@ -33,8 +56,10 @@ var skipBrewUpdate bool
 //   - upgrade → streams to os.Stdout + os.Stderr (returns no captured bytes)
 //   - info    → captures stdout via .Output() and returns the bytes
 //
-// It does NOT change the exec.CommandContext calling style — it only relocates
-// it behind a var, matching the daemon_start.go innerServePIDFn idiom.
+// Command construction goes through newBrewCmd, which configures graceful
+// cancellation (SIGTERM + WaitDelay grace) for the mutating subcommands —
+// see its doc comment. The seam itself only relocates the call behind a var,
+// matching the daemon_start.go innerServePIDFn idiom.
 //
 // Per-subcommand stdout/stderr wiring is keyed on args[0]; a new brew
 // subcommand not matched here inherits the default (Stderr-only) wiring.
@@ -55,7 +80,7 @@ var skipBrewUpdate bool
 // runs keep streaming stderr live — the detail is already on the terminal, so
 // the bare exit error suffices.
 var runBrewFn = func(ctx context.Context, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, "brew", args...)
+	cmd := newBrewCmd(ctx, args...)
 	if len(args) > 0 && args[0] == "info" {
 		return cmd.Output()
 	}
@@ -71,6 +96,30 @@ var runBrewFn = func(ctx context.Context, args ...string) ([]byte, error) {
 		}
 	}
 	return nil, err
+}
+
+// newBrewCmd constructs the *exec.Cmd for a brew invocation. Mutating
+// subcommands (update, upgrade) perform keg transactions that must never be
+// SIGKILLed mid-swap (shll update standard: "MUST NOT send SIGKILL to a
+// package-manager subprocess mid-transaction" — SIGKILL cannot be trapped, so
+// brew gets no chance to finish or roll back the keg swap). For those, the
+// command is configured for graceful cancellation: on context expiry brew
+// receives SIGTERM (cmd.Cancel) and gets a brewCancelGrace window
+// (cmd.WaitDelay) to unwind before the runtime's final kill. Read-only
+// subcommands (info, list) keep Go's default cancel (immediate kill) — a
+// killed query corrupts nothing, so fast-fail is correct there. Keyed on
+// args[0], like runBrewFn's per-subcommand stream wiring: an unmatched brew
+// subcommand inherits the read-only default.
+//
+// It is a standalone helper so the cancel configuration is unit-testable
+// without spawning a real `brew` (tests assert on the returned Cmd's fields).
+func newBrewCmd(ctx context.Context, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, "brew", args...)
+	if len(args) > 0 && (args[0] == "update" || args[0] == "upgrade") {
+		cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
+		cmd.WaitDelay = brewCancelGrace
+	}
+	return cmd
 }
 
 // brewStreams selects the stdout/stderr writers for the streamed brew
@@ -139,7 +188,7 @@ var updateCmd = &cobra.Command{
 
 		// Refresh tap metadata (skippable via --skip-brew-update).
 		if !skipBrewUpdate {
-			updateCtx, updateCancel := context.WithTimeout(context.Background(), 30*time.Second)
+			updateCtx, updateCancel := context.WithTimeout(context.Background(), brewUpdateTimeout)
 			defer updateCancel()
 
 			if _, err := runBrewFn(updateCtx, "update", "--quiet"); err != nil {
@@ -170,7 +219,7 @@ var updateCmd = &cobra.Command{
 
 		sink.Notef("Updating v%s → v%s...\n", version, latest)
 
-		upgradeCtx, upgradeCancel := context.WithTimeout(context.Background(), brewTimeout)
+		upgradeCtx, upgradeCancel := context.WithTimeout(context.Background(), brewUpgradeTimeout)
 		defer upgradeCancel()
 
 		if _, err := runBrewFn(upgradeCtx, "upgrade", "sahil87/tap/run-kit"); err != nil {

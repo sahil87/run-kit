@@ -1,0 +1,11 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-19T20:58:54Z"}
+{"args":"Board pane focus residual (backlog 6dh9): the index-change gate cannot distinguish an own-move follow from a remote-driven index reconcile — a board-changed from another client that shifts the focused pane's index fires .focus() into the xterm; fix is a true intent flag mirroring the sidebar focusMovedRef","cmd":"fab-new","event":"command","ts":"2026-07-19T20:58:54Z"}
+{"delta":"+4.9","event":"confidence","score":4.9,"trigger":"calc-score","ts":"2026-07-19T21:00:05Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-19T21:00:11Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-19T21:06:58Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-19T21:07:39Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-19T21:15:03Z"}
+{"event":"review","result":"passed","ts":"2026-07-19T21:15:03Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-19T21:17:17Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-07-19T21:19:15Z"}
+{"event":"review","result":"passed","ts":"2026-07-19T21:28:03Z"}

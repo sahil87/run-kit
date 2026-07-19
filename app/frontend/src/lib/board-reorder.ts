@@ -117,8 +117,9 @@ export function focusedIndexForKey(
 }
 
 /**
- * Gate for imperative xterm focus on the board: return `true` only when the
- * focused pane index has actually CHANGED from the previously-focused index.
+ * Gate for imperative xterm focus on the board: return `true` only when a
+ * user-INTENT flag is set AND the focused pane index has actually CHANGED from
+ * the previously-focused index.
  *
  * The board's single focus effect runs on every `entries` identity change, and
  * `useBoardEntries` refetches a fresh array on every `board-changed` SSE event
@@ -129,20 +130,34 @@ export function focusedIndexForKey(
  * steal focus" invariant (`docs/memory/run-kit/ui-patterns.md` § Keyboard
  * Navigation). It also auto-focuses pane 0's terminal on board load.
  *
- * Gating imperative focus on the index actually changing lets it fire ONLY on
- * user intent that moves focus: `Cmd+]`/`Cmd+[` cycling, a pane click, or an
- * own move's post-echo follow (the key-reconcile in the effect bumps
- * `focusedIndex` to the moved pane's new slot, so a successful own move always
- * changes the index — R6's own-move follow is preserved). An SSE refetch that
- * leaves the focused pane's index unchanged (the steal case) and the initial
- * board load (index 0 unchanged from its seed) do NOT focus.
+ * Index change alone is NOT sufficient: a remote reorder — or a remote pin/unpin
+ * AHEAD of the focused pane — from another client shifts the focused pane's
+ * index via the key-reconcile, which changes the index without any user intent
+ * (the focus-steal case the index-change proxy could not distinguish). So the
+ * caller passes a true intent flag (`focusIntentRef`, set only at user-driven
+ * focus sites: `Cmd+]`/`Cmd+[` cycling, palette cycle, a pane click that moves
+ * focus, or an own move's initiation) and imperative focus fires only when that
+ * flag rode into the render that changed the index.
  *
- * Pure and unit-testable without mounting the board — mirrors the
- * `focusMovedRef` gate the sidebar keyboard-nav tree uses for the same reason.
+ * Intent alone is NOT sufficient either: a same-index render must not re-focus
+ * (same-index user actions — single-pane cycle, a click on the already-focused
+ * pane — are handled imperatively at the call sites WITHOUT the flag, so no
+ * stale flag can linger). An SSE refetch that leaves the focused pane's index
+ * unchanged (intent false, index same) and the initial board load (intent
+ * false, index 0 unchanged from its seed) both return false.
+ *
+ * For an own move the flag is set at move INITIATION and survives the async
+ * POST→SSE-echo window: the echo's key-reconcile bumps the index, the re-entered
+ * settled pass consumes the flag, and R6's own-move follow is preserved.
+ *
+ * Pure and unit-testable without mounting the board — this is now literally the
+ * `focusMovedRef` gate the sidebar keyboard-nav tree uses for the same reason
+ * (a true intent flag consumed once, never set by passive re-renders).
  */
 export function shouldFocusPane(
+  intent: boolean,
   prevFocusedIndex: number,
   focusedIndex: number,
 ): boolean {
-  return prevFocusedIndex !== focusedIndex;
+  return intent && prevFocusedIndex !== focusedIndex;
 }

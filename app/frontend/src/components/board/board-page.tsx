@@ -206,15 +206,24 @@ function BoardPageContent({ name }: { name: string }) {
   // reconciled from the key whenever the order changes (rework must-fix #3).
   const [focusedIndex, setFocusedIndex] = useState(0);
   const focusedKeyRef = useRef<string | null>(null);
+  // Gates the imperative `.focus()` to user-driven focus movement only — mirrors
+  // the sidebar's `focusMovedRef` (`components/sidebar/index.tsx`). Set at every
+  // user-intent site (keyboard/palette cycle, a pane click that moves focus, an
+  // own move's initiation) and consumed exactly once by the focus effect below.
+  // A passive `board-changed` refetch (remote reorder/pin/unpin from another
+  // client) reconciles the index but never sets this flag, so it never steals
+  // DOM focus into a terminal — the "SSE must not steal focus" invariant.
+  const focusIntentRef = useRef(false);
   // Signature of the previous authoritative order, to distinguish an
   // ORDER-changed render (index must follow key) from a user-intent index
   // change (key must follow index) within the single focus effect below.
   const prevOrderSigRef = useRef<string | null>(null);
-  // Previously-focused index, to gate the imperative `.focus()` on the index
-  // ACTUALLY CHANGING (user intent) vs. a passive SSE refetch that leaves the
-  // focused pane put. Seeded to the initial `focusedIndex` (0) so the first
-  // settled render on board load does NOT auto-focus pane 0's terminal. See
-  // `shouldFocusPane` and the "SSE must not steal focus" invariant
+  // Previously-focused index. User intent is carried by `focusIntentRef` —
+  // this ref's only remaining role is suppressing a same-index re-focus (a
+  // settled pass whose index didn't move must not re-fire `.focus()`). Seeded
+  // to the initial `focusedIndex` (0) so the first settled render on board
+  // load does NOT auto-focus pane 0's terminal. See `shouldFocusPane` and the
+  // "SSE must not steal focus" invariant
   // (`docs/memory/run-kit/ui-patterns.md` § Keyboard Navigation).
   const prevFocusedIndexRef = useRef(0);
 
@@ -222,9 +231,12 @@ function BoardPageContent({ name }: { name: string }) {
   // to the key when the order shifts, and imperatively focuses the terminal —
   // always by KEY so a keystroke lands in the intended pane both on the
   // optimistic move (order not yet echoed) and after the authoritative order
-  // settles. Imperative focus fires ONLY on user intent (index change) — a
-  // `board-changed` SSE refetch alone must not yank DOM focus into a terminal
-  // (cycle-2 must-fix #1).
+  // settles. Imperative focus fires ONLY on true user intent (`focusIntentRef`)
+  // — a `board-changed` SSE refetch alone (remote reorder/pin/unpin) reconciles
+  // the index but never sets the flag, so it never yanks DOM focus into a
+  // terminal even when the reconcile shifts the focused pane's index (6dh9;
+  // the index-change proxy could not tell an own-move follow from a remote
+  // reconcile — cycle-2 must-fix #1 was the coarser first cut).
   useEffect(() => {
     const keys = entries.map((e) => `${e.server}:${e.windowId}`);
     const sig = keys.join("|");
@@ -238,7 +250,11 @@ function BoardPageContent({ name }: { name: string }) {
       // capture the key + focus — never focusing the transient wrong index.
       // `prevFocusedIndexRef` is deliberately left untouched here so the
       // re-entered settled pass sees the index change and (for an own move)
-      // focuses the moved pane.
+      // focuses the moved pane. `focusIntentRef` is ALSO left untouched: an own
+      // move set it at initiation and it must SURVIVE this reconcile pass to be
+      // consumed on the re-entered settled pass — that survival is exactly how
+      // R6's own-move follow works (a remote reconcile never set it, so it stays
+      // false here and no focus is stolen).
       const j = focusedIndexForKey(keys, focusedKeyRef.current, focusedIndex);
       if (j !== focusedIndex) {
         setFocusedIndex(j);
@@ -248,13 +264,19 @@ function BoardPageContent({ name }: { name: string }) {
 
     // Index is authoritative for identity now: capture the focused key (always,
     // so the ref tracks the current pane across passive refetches) and focus
-    // that pane's terminal ONLY when the index actually changed from the last
-    // focused index. `paneRefs` is keyed to the authoritative order (see
+    // that pane's terminal ONLY when a user-intent flag rode into a render that
+    // changed the index. `paneRefs` is keyed to the authoritative order (see
     // DesktopRow), so `focusedIndex` addresses the right handle.
     focusedKeyRef.current = keys[focusedIndex] ?? null;
-    if (shouldFocusPane(prevFocusedIndexRef.current, focusedIndex)) {
+    if (shouldFocusPane(focusIntentRef.current, prevFocusedIndexRef.current, focusedIndex)) {
       paneRefs.current[focusedIndex]?.focus();
     }
+    // Clear the intent flag whenever the settled pass runs with it set — whether
+    // or not the index changed — so a flag set for a render that turned out not
+    // to move focus cannot linger to a later (passive) render and steal focus.
+    // The `orderChanged` early-return above deliberately does NOT clear it: it
+    // must survive to this re-entered settled pass for the own-move follow.
+    focusIntentRef.current = false;
     prevFocusedIndexRef.current = focusedIndex;
   }, [entries, focusedIndex]);
 
@@ -264,6 +286,45 @@ function BoardPageContent({ name }: { name: string }) {
     if (carouselIndex >= entries.length && entries.length > 0) setCarouselIndex(0);
   }, [entries.length, carouselIndex]);
 
+  // Pane-click focus (DesktopRow + MobileCarousel). Moving to a different pane
+  // is a user-intent focus move: set the flag, then the state change re-runs the
+  // effect which consumes it. Clicking the ALREADY-focused pane changes no
+  // state, so the effect will not run — a set flag would go stale. So focus the
+  // terminal imperatively at the call site WITHOUT the flag (mirrors the
+  // sidebar's same-key imperative branch in `moveRovingTo`).
+  const handlePaneClick = useCallback((idx: number) => {
+    // Branch OUTSIDE the state updater — updaters must stay pure (StrictMode
+    // double-invokes them), mirroring the sidebar's same-key imperative branch
+    // in `moveRovingTo`. Same pane: no state change, so the focus effect will
+    // not run — focus imperatively and leave the intent flag unset (it would
+    // go stale). Different pane: set intent, let the effect focus it.
+    if (idx === focusedIndex) {
+      paneRefs.current[idx]?.focus();
+      return;
+    }
+    focusIntentRef.current = true;
+    setFocusedIndex(idx);
+  }, [focusedIndex]);
+
+  // Own-move intent seam. Both own-move paths — the palette Move Focused Pane
+  // Left/Right and the header DnD drop (via `useBoardPaneReorder`, which takes
+  // this as its `reorder`) — flow through here so intent is set at ONE seam.
+  // Set the flag AHEAD of the SSE echo: the own move has no synchronous index
+  // change (the display reorders only when `board-changed` arrives), so the flag
+  // must survive the async POST→echo window to be consumed on the settled pass
+  // after the key-reconcile — that survival is R6's own-move follow. On failure
+  // no echo arrives to consume it, so clear it in the `.catch` (no stale flag).
+  const reorderWithFollow = useCallback<typeof reorder>(
+    (...args) => {
+      focusIntentRef.current = true;
+      return reorder(...args).catch((err) => {
+        focusIntentRef.current = false;
+        throw err;
+      });
+    },
+    [reorder],
+  );
+
   // Keyboard cycle: Cmd/Ctrl + ] / [
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -271,9 +332,14 @@ function BoardPageContent({ name }: { name: string }) {
       if (entries.length === 0) return;
       if (e.key === "]") {
         e.preventDefault();
+        // Skip the intent set when a modulo cycle over a single pane leaves the
+        // index unchanged — no re-render would consume the flag, so it would go
+        // stale and steal focus on the next passive refetch (stale-flag rule).
+        if (entries.length >= 2) focusIntentRef.current = true;
         setFocusedIndex((prev) => (prev + 1) % entries.length);
       } else if (e.key === "[") {
         e.preventDefault();
+        if (entries.length >= 2) focusIntentRef.current = true;
         setFocusedIndex((prev) => (prev - 1 + entries.length) % entries.length);
       }
     };
@@ -628,6 +694,9 @@ function BoardPageContent({ name }: { name: string }) {
         id: "board-cycle-next",
         label: "Board: Cycle Pane Focus →",
         onSelect: () => {
+          // Same stale-flag guard as the keyboard cycle: a single-pane modulo
+          // cycle leaves the index unchanged, so skip the intent set.
+          if (entries.length >= 2) focusIntentRef.current = true;
           setFocusedIndex((prev) => (prev + 1) % entries.length);
         },
       });
@@ -635,6 +704,7 @@ function BoardPageContent({ name }: { name: string }) {
         id: "board-cycle-prev",
         label: "Board: Cycle Pane Focus ←",
         onSelect: () => {
+          if (entries.length >= 2) focusIntentRef.current = true;
           setFocusedIndex((prev) => (prev - 1 + entries.length) % entries.length);
         },
       });
@@ -707,12 +777,15 @@ function BoardPageContent({ name }: { name: string }) {
         if (!neighbors) return; // boundary no-op (guarded by the gating below too)
         const stripServer = (k: string | null) =>
           k === null ? null : k.slice(k.indexOf(":") + 1);
-        // `reorder` (usePinActions) shows a toast AND rethrows on failure; the
-        // palette has no client-side optimistic order to roll back (unlike the
-        // DnD override), so just swallow to avoid an unhandled rejection — the
-        // toast already informed the user, and the absent SSE echo leaves the
-        // order unchanged.
-        reorder(
+        // `reorderWithFollow` (wrapping usePinActions' `reorder`) shows a toast
+        // AND rethrows on failure, and it clears the own-move intent flag in its
+        // own `.catch` before rethrowing; the palette has no client-side
+        // optimistic order to roll back (unlike the DnD override), so just
+        // swallow here to avoid an unhandled rejection — the toast already
+        // informed the user, the intent flag is already cleared, and the absent
+        // SSE echo leaves the order unchanged. Own-move focus-follow rides
+        // `reorderWithFollow` (R6 preserved through the SSE echo's reconcile).
+        reorderWithFollow(
           e.server,
           e.windowId,
           name,
@@ -737,7 +810,7 @@ function BoardPageContent({ name }: { name: string }) {
     }
 
     return [...switchEntries, ...conditional, ...navEntries, ...fontEntries, refreshEntry, helpEntry, ...updateEntries, ...maintenanceEntries, ...versionEntries];
-  }, [boards, name, entries, focusedIndex, autofit, toggleAutofit, unpinFocused, requestKillFocused, focusedPane, reorder, executeSplit, navigate, router, addToast, increaseTerminalFont, decreaseTerminalFont, resetTerminalFont, updateQualifies, updateTools, updateNow, dismissUpdate, brew, daemonVersion, forceUpdateNow, restartNow]);
+  }, [boards, name, entries, focusedIndex, autofit, toggleAutofit, unpinFocused, requestKillFocused, focusedPane, reorderWithFollow, executeSplit, navigate, router, addToast, increaseTerminalFont, decreaseTerminalFont, resetTerminalFont, updateQualifies, updateTools, updateNow, dismissUpdate, brew, daemonVersion, forceUpdateNow, restartNow]);
 
   // Pane-server count (distinct servers) used by TopBar board-mode info.
   const serverCount = useMemo(() => {
@@ -995,7 +1068,7 @@ function BoardPageContent({ name }: { name: string }) {
               onUnpin={(e) => unpin(e.server, e.windowId, name)}
               paneRefs={paneRefs}
               focusedIndex={focusedIndex}
-              onPaneClick={setFocusedIndex}
+              onPaneClick={handlePaneClick}
               scrollLocked={scrollLocked}
               waitingWindowIds={waitingWindowIds}
               homeSessionByKey={homeSessionByKey}
@@ -1004,14 +1077,14 @@ function BoardPageContent({ name }: { name: string }) {
             <DesktopRow
               entries={entries}
               board={name}
-              reorder={reorder}
+              reorder={reorderWithFollow}
               getWidth={(id) => (getWidth(id) || BOARD_PANE_DEFAULT_WIDTH)}
               autofit={autofit}
               onResizeStart={handleResizeStart}
               onUnpin={(e) => unpin(e.server, e.windowId, name)}
               paneRefs={paneRefs}
               focusedIndex={focusedIndex}
-              onPaneClick={setFocusedIndex}
+              onPaneClick={handlePaneClick}
               scrollLocked={scrollLocked}
               waitingWindowIds={waitingWindowIds}
               homeSessionByKey={homeSessionByKey}

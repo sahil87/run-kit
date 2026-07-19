@@ -156,24 +156,43 @@ describe("focusedIndexForKey (focus follows the moved pane by key, T013)", () =>
   });
 });
 
-describe("shouldFocusPane (imperative focus gated on index change, cycle-2 T013)", () => {
+describe("shouldFocusPane (imperative focus gated on intent AND index change, 6dh9)", () => {
   it("does NOT focus on board load (index unchanged from its 0 seed)", () => {
-    // First settled render: focusedIndex 0, prevFocusedIndexRef seeded to 0.
-    expect(shouldFocusPane(0, 0)).toBe(false);
+    // First settled render: focusedIndex 0, prevFocusedIndexRef seeded to 0. No
+    // user intent yet either — false on both dimensions.
+    expect(shouldFocusPane(false, 0, 0)).toBe(false);
+    expect(shouldFocusPane(true, 0, 0)).toBe(false);
   });
 
   it("does NOT focus on an SSE refetch that leaves the focused index put", () => {
     // A board-changed refetch (pin/unpin/remote reorder on another board) re-runs
-    // the effect with the same focusedIndex — no DOM focus steal.
-    expect(shouldFocusPane(1, 1)).toBe(false);
-    expect(shouldFocusPane(2, 2)).toBe(false);
+    // the effect with the same focusedIndex and no intent — no DOM focus steal.
+    expect(shouldFocusPane(false, 1, 1)).toBe(false);
+    expect(shouldFocusPane(false, 2, 2)).toBe(false);
   });
 
-  it("focuses when the index changed (Cmd+]/Cmd+[, click, own-move echo)", () => {
-    // Cycle right: 0→1. Click: 1→2. Own-move echo bumps the index to the moved
-    // pane's new slot: each is a real index change → focus fires.
-    expect(shouldFocusPane(0, 1)).toBe(true);
-    expect(shouldFocusPane(1, 2)).toBe(true);
-    expect(shouldFocusPane(2, 0)).toBe(true);
+  it("does NOT focus on a REMOTE reconcile that shifts the focused index (the fix)", () => {
+    // A remote reorder — or a remote pin/unpin ahead of the focused pane — from
+    // another client bumps the focused pane's index via the key-reconcile. Intent
+    // is false (the local user did nothing), so despite the index change no focus
+    // is stolen. This is the 6dh9 focus-steal case the index-only proxy missed.
+    expect(shouldFocusPane(false, 0, 1)).toBe(false);
+    expect(shouldFocusPane(false, 2, 0)).toBe(false);
+  });
+
+  it("does NOT focus on a same-index render even with intent set", () => {
+    // Intent alone is not sufficient: a set flag riding a render that did not
+    // move the index must not re-focus (same-index user actions are handled
+    // imperatively at the call sites, without the flag).
+    expect(shouldFocusPane(true, 1, 1)).toBe(false);
+  });
+
+  it("focuses when intent is set AND the index changed (cycle, click, own-move echo)", () => {
+    // Cycle right: 0→1. Click to a different pane: 1→2. Own-move echo bumps the
+    // index to the moved pane's new slot with the intent flag set at initiation:
+    // each is a real index change carrying intent → focus fires.
+    expect(shouldFocusPane(true, 0, 1)).toBe(true);
+    expect(shouldFocusPane(true, 1, 2)).toBe(true);
+    expect(shouldFocusPane(true, 2, 0)).toBe(true);
   });
 });

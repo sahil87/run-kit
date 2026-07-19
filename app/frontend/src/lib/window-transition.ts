@@ -428,13 +428,17 @@ function setMaskState(next: MaskState): void {
  * fresh switch start (a new switch owns all feedback). Idempotent no-op when
  * already idle and no timer pending.
  *
- * NOTE (cycle-3 N1, per the plan's Deletion Candidates narrowing note): this is
- * effectively module-internal — app.tsx's former direct callers (failure/bounce,
- * route-leave/unmount) were replaced by `abandonSwitchFeedback()` in the G2
- * rework, which additionally settles a still-pending gate. The export remains
- * only for unit tests; production callers should reach for
- * `abandonSwitchFeedback` (abandonment) or `confirmSwitchArrived` (confirmed
- * arrival) instead, both of which delegate here.
+ * NOTE (cycle-3 N1, per the plan's Deletion Candidates narrowing note): the
+ * abandonment/arrival callers were folded away — app.tsx's former direct callers
+ * (failure/bounce, route-leave/unmount) were replaced by `abandonSwitchFeedback()`
+ * in the G2 rework, which additionally settles a still-pending gate. For those
+ * intents production callers reach for `abandonSwitchFeedback` (abandonment) or
+ * `confirmSwitchArrived` (confirmed arrival), both of which delegate here. The
+ * ONE sanctioned direct production caller of the bare primitive is
+ * `beginPendingSwitch`'s fresh-switch teardown (260719-h0x4): it must clear a
+ * leftover mask WITHOUT settling a gate, because on the animated path it runs
+ * while the switch's own just-opened gate is current — settling it would skip the
+ * earned slide, which is exactly why the abandonment wrapper is wrong there.
  */
 export function tearDownMask(): void {
   cancelGraceTimer();

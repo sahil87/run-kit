@@ -35,6 +35,7 @@ import {
   nextDirectionToken,
   isLatestDirectionToken,
   armGraceMask,
+  tearDownMask,
   confirmSwitchArrived,
   abandonSwitchFeedback,
   subscribeMaskState,
@@ -836,6 +837,18 @@ function AppShell() {
       pendingClickRef.current = { server: target.server, windowId: target.windowId };
       // Supersede any prior pending switch's tracking (its timer/mask).
       clearPendingSwitchTracking();
+      // A fresh switch owns ALL feedback: proactively clear a mask/grace timer a
+      // prior TIMED-OUT switch left showing (module state — clearPendingSwitch-
+      // Tracking above only cancels the tracked entry's own timer/handle, never
+      // the module mask). The gated paths get this via armGraceMask/
+      // beginWindowSwitchGate; the two gateless paths (mount-time cold deep-link
+      // alignment, waiting-target navigation) otherwise leave the stale mask up
+      // until SSE confirmation. Deliberately the BARE teardown, NOT
+      // abandonSwitchFeedback: on the animated path this runs (via
+      // beginWindowSwitchGate → startViewTransition → runSwitch) while the
+      // switch's OWN just-opened gate is current, and settling it would skip the
+      // earned slide (260715-38kg R8). Idempotent no-op when nothing is showing.
+      tearDownMask();
       const grace = opts.graceMask ? armGraceMask() : null;
       if (grace) {
         // Post-POST lift filter (rework F3): only once the switch's selectWindow
@@ -1116,14 +1129,16 @@ function AppShell() {
         // — non-tty (web/chat) targets stay mask-less, matching the gated path.
         const { ungatedIds } = switchTransitionRef.current;
         const targetUngated = ungatedIds.has(windowId);
-        // A fresh switch owns ALL feedback — clear any mask/gate a prior
-        // timed-out switch left showing. The gated instant path gets this for
-        // free (`armGraceMask` supersedes + tears down, via `beginPendingSwitch`
-        // below), and so does the animated path (`beginWindowSwitchGate`). The
-        // ungated instant path arms NEITHER, so without this an already-armed
-        // mask from a prior gated switch would linger over the new non-tty view
-        // until SSE confirmation — contradicting the "non-tty targets stay
-        // mask-less" semantics and briefly blocking interaction (Copilot).
+        // A fresh switch owns ALL feedback. A leftover ARMED mask is now
+        // cleared by `beginPendingSwitch`'s fresh-switch teardown (via
+        // `runSwitch` below — 260719-h0x4); this call's remaining unique value
+        // is settling a still-PENDING prior gate as "superseded" so its later
+        // timeout cannot re-mask the new non-tty view (the bare teardown
+        // deliberately never touches the gate — the animated path reaches it
+        // with its OWN gate current). Without this, an animated switch
+        // superseded within its 300ms budget by this ungated instant path
+        // would re-mask a view whose semantics are "non-tty targets stay
+        // mask-less" (Copilot).
         if (targetUngated) abandonSwitchFeedback();
         runSwitch(!targetUngated);
         return;

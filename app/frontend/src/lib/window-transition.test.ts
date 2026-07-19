@@ -407,6 +407,41 @@ describe("pending-switch mask signal (260715-38kg)", () => {
     expect(getMaskState()).toBe("idle");
   });
 
+  it("tearDownMask from the masked state is idempotent (fresh-switch teardown — 260719-h0x4)", async () => {
+    // beginPendingSwitch calls the bare tearDownMask() at every fresh switch
+    // start to clear a leftover mask a prior timed-out switch left showing. It
+    // must clear a masked state AND be a harmless no-op on a second bare call
+    // (the gated paths reach it after already tearing down).
+    vi.useFakeTimers();
+    const gate = beginWindowSwitchGate({ gated: true });
+    gate.openForNotify();
+    const wait = gate.waitForFirstWrite(300);
+    vi.advanceTimersByTime(300);
+    await wait; // times out → masked
+    expect(getMaskState()).toBe("masked");
+    tearDownMask(); // masked → idle
+    expect(getMaskState()).toBe("idle");
+    tearDownMask(); // idle → idle: harmless no-op
+    expect(getMaskState()).toBe("idle");
+  });
+
+  it("bare tearDownMask does NOT settle a still-pending gate (260719-h0x4 R2)", async () => {
+    // The animated path reaches beginPendingSwitch's fresh-switch tearDownMask
+    // while its OWN just-opened gate is current. The bare teardown must leave
+    // that gate pending so its first-write settle still plays the earned slide
+    // — the contrast with abandonSwitchFeedback (which settles "superseded").
+    // If tearDownMask ever grew gate-settling, every animated switch would
+    // silently lose its slide.
+    vi.useFakeTimers();
+    const gate = beginWindowSwitchGate({ gated: true });
+    gate.openForNotify();
+    const wait = gate.waitForFirstWrite(300);
+    tearDownMask(); // the fresh-switch teardown, gate still pending
+    notifyFirstWrite();
+    await expect(wait).resolves.toBe("first-write");
+    expect(getMaskState()).toBe("idle");
+  });
+
   it("confirmSwitchArrived settles a still-pending gate as first-write, so it never times out into a mask", async () => {
     // The same-session gap: tmux's redraw completed before openForNotify, so no
     // later write fires the lift. SSE confirming the switch settles the gate as

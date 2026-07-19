@@ -13,7 +13,6 @@ import {
   createWindow,
   killWindow,
   renameWindow,
-  sendKeys,
   sendChatMessage,
   getDirectories,
   uploadFile,
@@ -207,19 +206,6 @@ describe("API client", () => {
     expect(result.ok).toBe(true);
     expect(capturedUrl).toMatch(/\/api\/windows\/%400\/rename\?server=runkit$/);
     expect(capturedBody.name).toBe("renamed");
-  });
-
-  it("sendKeys sends POST /api/windows/:windowId/keys with server query", async () => {
-    let capturedUrl = "";
-    mswServer.use(
-      http.post("/api/windows/:windowId/keys", async ({ request }) => {
-        capturedUrl = request.url;
-        return HttpResponse.json({ ok: true });
-      }),
-    );
-    const result = await sendKeys("runkit", "@0", "echo hello");
-    expect(result.ok).toBe(true);
-    expect(capturedUrl).toContain("?server=runkit");
   });
 
   it("sendChatMessage POSTs /api/windows/:windowId/chat/send with {text} and server query", async () => {

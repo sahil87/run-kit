@@ -1,0 +1,21 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-18T18:55:19Z"}
+{"args":"row color system overhaul — owned 10-family theme-adapted palette + axis split (hue=label, tint-depth=selection, gutter marker)","cmd":"fab-new","event":"command","ts":"2026-07-18T18:55:19Z"}
+{"delta":"+4.6","event":"confidence","score":4.6,"trigger":"calc-score","ts":"2026-07-18T18:57:07Z"}
+{"delta":"+0.1","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-07-18T19:13:12Z"}
+{"cmd":"fab-new","event":"command","ts":"2026-07-18T19:13:12Z"}
+{"delta":"+0.3","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-07-18T19:21:12Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-18T19:21:34Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-18T19:21:53Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-18T19:22:54Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-18T19:49:38Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-18T19:50:35Z"}
+{"event":"review","result":"failed","ts":"2026-07-18T20:06:02Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-18T20:06:02Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-18T20:07:57Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-18T20:19:43Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-18T20:20:37Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-18T20:30:50Z"}
+{"event":"review","result":"passed","ts":"2026-07-18T20:30:50Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-18T20:38:34Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-07-18T20:41:01Z"}
+{"event":"review","result":"passed","ts":"2026-07-18T20:51:25Z"}

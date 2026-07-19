@@ -1,10 +1,18 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useTheme } from "@/contexts/theme-context";
-import { PICKER_COLOR_VALUES, computeRowTints, colorValueToHex } from "@/themes";
+import { PICKER_COLOR_VALUES, computeRowTints, colorValueToHex, resolveFamily, familyToLegacy } from "@/themes";
 
 type SwatchPopoverProps = {
-  /** Currently-selected color value ("4" / "1+3"), or undefined when uncolored. */
+  /** Currently-selected color value — a family name ("orange") or a legacy
+   *  numeric/blend descriptor ("4" / "1+3"); undefined when uncolored. Legacy
+   *  values are normalized to their family so the correct swatch highlights. */
   selectedColor?: string;
+  /** Called with the value to STORE. The popover maps the picked family name to
+   *  its legacy numeric/blend descriptor (familyToLegacy) before invoking this,
+   *  so stored color values stay in the legacy vocabulary the backend validates
+   *  (zero backend change; R4 zero-migration). `null` clears the color. This is
+   *  the single write seam every color-picking surface (window/session/server
+   *  rows + the palette "Set Color" actions) funnels through. */
   onSelect: (color: string | null) => void;
   onClose: () => void;
 };
@@ -18,14 +26,28 @@ const GRID_COLS = 4;
 export function SwatchPopover({ selectedColor, onSelect, onClose }: SwatchPopoverProps) {
   const { theme } = useTheme();
   const rowTints = useMemo(() => computeRowTints(theme.palette), [theme.palette]);
+
+  // The single write seam: map the picked family name ("orange") to its legacy
+  // descriptor ("1+3") before handing it to the caller's onSelect, so every
+  // stored color value stays in the legacy vocabulary the backend accepts.
+  // `null` (Clear) passes through untouched.
+  const emit = useCallback(
+    (value: string | null) => onSelect(familyToLegacy(value)),
+    [onSelect],
+  );
   const colorCount = PICKER_COLOR_VALUES.length; // 10
   // Clear is the item just past the last swatch; total = swatches + 1.
   const clearIndex = colorCount;
   const totalItems = colorCount + 1;
 
+  // Normalize the incoming selection to its canonical family name so a
+  // legacy-stored value ("1+3") highlights the same swatch as its family
+  // ("orange"). Undefined when uncolored or unrecognized.
+  const selectedFamily = resolveFamily(selectedColor)?.name;
+
   const [focusIndex, setFocusIndex] = useState(() => {
-    if (selectedColor == null) return 0;
-    const idx = PICKER_COLOR_VALUES.indexOf(selectedColor);
+    if (selectedFamily == null) return 0;
+    const idx = PICKER_COLOR_VALUES.indexOf(selectedFamily);
     return idx >= 0 ? idx : 0;
   });
   const containerRef = useRef<HTMLDivElement>(null);
@@ -94,13 +116,13 @@ export function SwatchPopover({ selectedColor, onSelect, onClose }: SwatchPopove
       } else if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
         if (focusIndex < colorCount) {
-          onSelect(PICKER_COLOR_VALUES[focusIndex]);
+          emit(PICKER_COLOR_VALUES[focusIndex]);
         } else {
-          onSelect(null);
+          emit(null);
         }
       }
     },
-    [focusIndex, onSelect, totalItems, clearIndex, colorCount],
+    [focusIndex, emit, totalItems, clearIndex, colorCount],
   );
 
   return (
@@ -118,7 +140,7 @@ export function SwatchPopover({ selectedColor, onSelect, onClose }: SwatchPopove
           const fallback = colorValueToHex(value, theme.palette) ?? theme.palette.foreground;
           const baseColor = tint?.base ?? fallback;
           const selectedColor_ = tint?.selected ?? fallback;
-          const isSelected = selectedColor === value;
+          const isSelected = selectedFamily === value;
           return (
             <button
               key={value}
@@ -126,7 +148,7 @@ export function SwatchPopover({ selectedColor, onSelect, onClose }: SwatchPopove
               aria-selected={isSelected}
               aria-label={`Color ${value}`}
               data-color-value={value}
-              onClick={() => onSelect(value)}
+              onClick={() => emit(value)}
               className={`w-5 h-5 rounded-sm overflow-hidden transition-all flex flex-col ${
                 focusIndex === i ? "ring-1 ring-text-secondary" : ""
               } ${isSelected ? "ring-1 ring-text-secondary" : ""}`}
@@ -145,8 +167,8 @@ export function SwatchPopover({ selectedColor, onSelect, onClose }: SwatchPopove
         {/* Clear — bottom-right, spanning the final row's remaining cells. */}
         <button
           role="option"
-          aria-selected={selectedColor == null}
-          onClick={() => onSelect(null)}
+          aria-selected={selectedFamily == null}
+          onClick={() => emit(null)}
           className={`col-span-2 h-5 text-[10px] text-text-secondary hover:text-text-primary rounded-sm transition-colors flex items-center justify-center ${
             focusIndex === clearIndex ? "ring-1 ring-text-secondary" : ""
           }`}

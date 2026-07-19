@@ -9,12 +9,18 @@ import {
   deriveXtermTheme,
   computeRowTints,
   computeRowBorders,
-  PICKER_ANSI_INDICES,
+  HUE_FAMILIES,
   PICKER_COLOR_VALUES,
   UNCOLORED_SELECTED_KEY,
   parseColorValue,
   formatColorValue,
   colorValueToHex,
+  resolveFamily,
+  familyToLegacy,
+  oklchToHex,
+  oklchInGamut,
+  oklchToHexInGamut,
+  themeColorStats,
   saturateHex,
   hexToOklab,
   oklabToHex,
@@ -228,62 +234,167 @@ describe("deriveXtermTheme", () => {
   });
 });
 
-describe("color value parse/format", () => {
-  it("round-trips a single index", () => {
-    const parsed = parseColorValue("4");
-    expect(parsed).toEqual({ a: 4 });
-    expect(formatColorValue(parsed!)).toBe("4");
+describe("owned hue families", () => {
+  it("defines exactly 10 families in the documented order with unique names/hues", () => {
+    expect(HUE_FAMILIES.map((f) => f.name)).toEqual([
+      "red", "orange", "amber", "olive", "green", "teal", "blue", "purple", "magenta", "slate",
+    ]);
+    expect(PICKER_COLOR_VALUES).toEqual([
+      "red", "orange", "amber", "olive", "green", "teal", "blue", "purple", "magenta", "slate",
+    ]);
+    expect(new Set(HUE_FAMILIES.map((f) => f.name)).size).toBe(10);
+    // slate is the only near-neutral family.
+    expect(HUE_FAMILIES.filter((f) => f.neutral).map((f) => f.name)).toEqual(["slate"]);
   });
 
-  it("round-trips a blend", () => {
-    const parsed = parseColorValue("1+3");
-    expect(parsed).toEqual({ a: 1, b: 3 });
-    expect(formatColorValue(parsed!)).toBe("1+3");
-  });
-
-  it("tolerates surrounding whitespace", () => {
-    expect(parseColorValue(" 1 + 3 ")).toEqual({ a: 1, b: 3 });
-  });
-
-  it("returns null for malformed values", () => {
-    for (const bad of [null, undefined, "", "x", "1+", "+3", "1+2+3", "1.5"]) {
-      expect(parseColorValue(bad)).toBeNull();
+  it("maps every legacy color value 1:1 onto its family", () => {
+    const legacyMap: Record<string, string> = {
+      "1": "red", "1+3": "orange", "3": "amber", "1+2": "olive", "2": "green",
+      "6": "teal", "4": "blue", "1+4": "purple", "5": "magenta", "3+4": "slate",
+    };
+    for (const [legacy, name] of Object.entries(legacyMap)) {
+      expect(resolveFamily(legacy)?.name).toBe(name);
+      // The family name resolves to itself.
+      expect(resolveFamily(name)?.name).toBe(name);
     }
   });
 
-  it("colorValueToHex resolves single index to ansi[idx] and blend to blendHex", () => {
+  it("familyToLegacy maps a family name to its stored legacy descriptor (the write seam)", () => {
+    // Each family name → its legacy descriptor (the vocabulary the backend stores
+    // and validates). This is what every color write seam funnels through.
+    for (const f of HUE_FAMILIES) {
+      expect(familyToLegacy(f.name)).toBe(f.legacy);
+    }
+    // Idempotent / passthrough: an already-legacy value or an unknown string is
+    // returned unchanged, and null (Clear) stays null.
+    expect(familyToLegacy("1+3")).toBe("1+3");
+    expect(familyToLegacy("4")).toBe("4");
+    expect(familyToLegacy("nope")).toBe("nope");
+    expect(familyToLegacy(null)).toBeNull();
+  });
+
+  it("parseColorValue accepts family names AND legacy aliases; formatColorValue returns the name", () => {
+    const byName = parseColorValue("orange");
+    expect(byName?.family.name).toBe("orange");
+    expect(formatColorValue(byName!)).toBe("orange");
+    // Legacy alias resolves to the same family and canonicalizes to the name.
+    const byLegacy = parseColorValue("1+3");
+    expect(byLegacy?.family.name).toBe("orange");
+    expect(formatColorValue(byLegacy!)).toBe("orange");
+    // Whitespace and leading-zero legacy forms are tolerated.
+    expect(parseColorValue(" 4 ")?.family.name).toBe("blue");
+    expect(parseColorValue("01")?.family.name).toBe("red");
+  });
+
+  it("returns null for values matching no family", () => {
+    for (const bad of [null, undefined, "", "x", "1+", "+3", "1+2+3", "1.5", "99", "teal-ish"]) {
+      expect(parseColorValue(bad)).toBeNull();
+      expect(resolveFamily(bad)).toBeNull();
+    }
+  });
+
+  it("colorValueToHex resolves a family name and its legacy alias to the SAME hex", () => {
     const p = DEFAULT_DARK_THEME.palette;
-    expect(colorValueToHex("4", p)).toBe(p.ansi[4]);
-    expect(colorValueToHex("1+3", p)).toBe(blendHex(p.ansi[1], p.ansi[3], 0.5));
-    expect(colorValueToHex("99", p)).toBeNull();
+    expect(colorValueToHex("orange", p)).toBe(colorValueToHex("1+3", p));
+    expect(colorValueToHex("blue", p)).toBe(colorValueToHex("4", p));
+    expect(colorValueToHex("slate", p)).toBe(colorValueToHex("3+4", p));
+    expect(colorValueToHex("nope", p)).toBeNull();
+  });
+
+  it("colorValueToHex produces a valid in-gamut hex for every family on every theme", () => {
+    for (const theme of THEMES) {
+      for (const value of PICKER_COLOR_VALUES) {
+        const hex = colorValueToHex(value, theme.palette)!;
+        expect(hex).toMatch(HEX_RE);
+      }
+    }
+  });
+
+  it("slate renders at a near-neutral chroma (much lower than a chromatic family)", () => {
+    const p = DEFAULT_DARK_THEME.palette;
+    const slate = hexToOklab(colorValueToHex("slate", p)!);
+    const blue = hexToOklab(colorValueToHex("blue", p)!);
+    const slateC = Math.hypot(slate.a, slate.b);
+    const blueC = Math.hypot(blue.a, blue.b);
+    expect(slateC).toBeLessThan(blueC);
+  });
+});
+
+describe("OKLCH helpers", () => {
+  it("oklchToHex round-trips a mid hue/chroma through OKLab back to a close OKLCH", () => {
+    const hex = oklchToHex(0.6, 0.1, 55); // orange-ish
+    expect(hex).toMatch(HEX_RE);
+    const lab = hexToOklab(hex);
+    // Reconstructed hue angle ≈ 55° (within 8-bit rounding tolerance).
+    const hueDeg = (Math.atan2(lab.b, lab.a) * 180) / Math.PI;
+    expect(Math.abs(hueDeg - 55)).toBeLessThan(3);
+  });
+
+  it("oklchInGamut flags an obviously out-of-gamut high-chroma triple", () => {
+    // A very high chroma at mid lightness cannot fit in sRGB.
+    expect(oklchInGamut(0.6, 0.5, 25)).toBe(false);
+    // A modest chroma easily fits.
+    expect(oklchInGamut(0.6, 0.05, 25)).toBe(true);
+  });
+
+  it("oklchToHexInGamut reduces chroma (never hue) until in gamut", () => {
+    const L = 0.6, hue = 25, tooMuch = 0.5;
+    expect(oklchInGamut(L, tooMuch, hue)).toBe(false);
+    const hex = oklchToHexInGamut(L, tooMuch, hue);
+    expect(hex).toMatch(HEX_RE);
+    // The result's hue angle stays ≈ 25° — chroma moved, hue did not.
+    const lab = hexToOklab(hex);
+    const hueDeg = (Math.atan2(lab.b, lab.a) * 180) / Math.PI;
+    expect(Math.abs(hueDeg - 25)).toBeLessThan(5);
+  });
+
+  it("themeColorStats averages L/C over ansi[1..6] and floors chroma at 0.05", () => {
+    const stats = themeColorStats(DEFAULT_DARK_THEME.palette);
+    expect(stats.L).toBeGreaterThan(0);
+    expect(stats.L).toBeLessThan(1);
+    expect(stats.C).toBeGreaterThanOrEqual(0.05);
+    // A synthetic near-monochrome palette hits the floor.
+    const mono: typeof DEFAULT_DARK_THEME.palette = {
+      ...DEFAULT_DARK_THEME.palette,
+      ansi: Array(16).fill("#808080") as unknown as typeof DEFAULT_DARK_THEME.palette.ansi,
+    };
+    expect(themeColorStats(mono).C).toBe(0.05);
   });
 });
 
 describe("computeRowTints", () => {
-  it("returns an entry for every picker color value plus the uncolored sentinel", () => {
+  it("returns an entry for every family value plus the uncolored sentinel", () => {
     const tints = computeRowTints(DEFAULT_DARK_THEME.palette);
-    // 6 single + 4 blends + 1 uncolored-selected sentinel.
-    expect(tints.size).toBe(PICKER_COLOR_VALUES.length + 1);
+    // Each of the 10 families is keyed under BOTH its family name AND its legacy
+    // descriptor (20 keys), plus the 1 uncolored-selected sentinel.
+    expect(tints.size).toBe(PICKER_COLOR_VALUES.length * 2 + 1);
     for (const value of PICKER_COLOR_VALUES) {
       expect(tints.has(value)).toBe(true);
     }
     expect(tints.has(UNCOLORED_SELECTED_KEY)).toBe(true);
   });
 
-  it("includes the 4 locked blends in order orange/purple/slate/olive", () => {
-    expect(PICKER_COLOR_VALUES).toEqual(["1", "2", "3", "4", "5", "6", "1+3", "1+4", "3+4", "1+2"]);
+  it("keys tints under BOTH the family name AND its legacy descriptor (same entry)", () => {
+    const tints = computeRowTints(DEFAULT_DARK_THEME.palette);
+    // Consumers look up the RAW stored value, and the backend still emits legacy
+    // forms ("1+3"/"4"), so both vocabularies MUST be keys pointing at the same
+    // tint — a family-name-only map would leave every pre-existing colored row
+    // untinted (the must-fix-2 regression).
+    expect(tints.has("orange")).toBe(true);
+    expect(tints.has("1+3")).toBe(true); // orange's legacy descriptor
+    expect(tints.has("4")).toBe(true); // blue's legacy descriptor
+    expect(tints.get("1+3")).toBe(tints.get("orange"));
+    expect(tints.get("4")).toBe(tints.get("blue"));
   });
 
-  it("no-regression: single-index tint matches the documented saturate→blend pipeline", () => {
+  it("no-regression: a family tint matches the documented saturate→blend pipeline (selected=0.40)", () => {
     const p = DEFAULT_DARK_THEME.palette;
     const tints = computeRowTints(p);
-    // The documented single-index pipeline (themes.ts): the source hue is
-    // saturated ×1.5, then blended into the background at the per-state ratio.
     const SATURATE = 1.5;
-    const RATIOS = { base: 0.14, hover: 0.22, selected: 0.32 } as const;
-    for (const idx of PICKER_ANSI_INDICES) {
-      const fg = saturateHex(p.ansi[idx], SATURATE);
-      const tint = tints.get(`${idx}`)!;
+    const RATIOS = { base: 0.14, hover: 0.22, selected: 0.4 } as const;
+    for (const value of PICKER_COLOR_VALUES) {
+      const fg = saturateHex(colorValueToHex(value, p)!, SATURATE);
+      const tint = tints.get(value)!;
       expect(tint.base).toBe(blendHex(fg, p.background, RATIOS.base));
       expect(tint.hover).toBe(blendHex(fg, p.background, RATIOS.hover));
       expect(tint.selected).toBe(blendHex(fg, p.background, RATIOS.selected));
@@ -303,18 +414,9 @@ describe("computeRowTints", () => {
 
   it("hover blend differs from base, selected differs from both", () => {
     const tints = computeRowTints(DEFAULT_DARK_THEME.palette);
-    const tint = tints.get("4")!; // blue
+    const tint = tints.get("blue")!;
     expect(tint.base).not.toBe(tint.hover);
     expect(tint.selected).not.toBe(tint.base);
-  });
-
-  it("does not include excluded single indices 0, 7, 9-15", () => {
-    const tints = computeRowTints(DEFAULT_DARK_THEME.palette);
-    expect(tints.has("0")).toBe(false);
-    expect(tints.has("7")).toBe(false);
-    for (let i = 9; i <= 15; i++) {
-      expect(tints.has(`${i}`)).toBe(false);
-    }
   });
 });
 
@@ -378,12 +480,17 @@ describe("adjustBorderForContrast", () => {
 });
 
 describe("computeRowBorders", () => {
-  it("returns a contrast-adjusted border per picker color value + sentinel", () => {
+  it("returns a contrast-adjusted border per family under BOTH vocabularies + sentinel", () => {
     const borders = computeRowBorders(DEFAULT_DARK_THEME.palette, DEFAULT_DARK_THEME.category);
-    expect(borders.size).toBe(PICKER_COLOR_VALUES.length + 1);
+    // Each family keyed under its name AND its legacy descriptor (20 keys) + the
+    // uncolored-selected sentinel — mirroring computeRowTints so consumers keyed
+    // by the raw stored value hit regardless of the stored vocabulary.
+    expect(borders.size).toBe(PICKER_COLOR_VALUES.length * 2 + 1);
     for (const [, hex] of borders) {
       expect(hex).toMatch(HEX_RE);
     }
+    // The two vocabularies point at the same border.
+    expect(borders.get("1+3")).toBe(borders.get("orange"));
   });
 
   it("every border clears the min contrast (or improves on the raw source) across all themes", () => {

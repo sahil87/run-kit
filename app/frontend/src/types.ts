@@ -70,8 +70,17 @@ export type WindowInfo = {
   isActiveWindow: boolean;
   paneCommand?: string;
   activityTimestamp: number;
-  /** Color value descriptor: "4" for a single ANSI index, "1+3" for a blend. */
+  /** Color value from the `@color` window option — a legacy numeric/blend
+   *  descriptor ("4" / "1+3"); the backend only validates/stores this vocabulary
+   *  (ValidateColorValue). Family names ("orange") are frontend read aliases that
+   *  resolve 1:1 to a family (resolveFamily) — the picker maps them back to the
+   *  legacy descriptor at the write seam (familyToLegacy). Drives the row's hue
+   *  (label axis). */
   color?: string;
+  /** Left-gutter marker state, from the `@rk_marker` window option:
+   *  ""/absent (no marker) | "dotted" | "solid" | "double". An INDEPENDENT
+   *  label axis from `color` — see docs/specs/themes.md. */
+  marker?: string;
   /** Generic agent-lifecycle state from the `@rk_agent_state` pane option:
    *  `active` (turn in progress) | `waiting` (blocked on a human — permission
    *  prompt / question dialog) | `idle` (at rest). Empty/absent = unknown.

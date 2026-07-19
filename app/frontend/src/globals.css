@@ -328,6 +328,75 @@ summary {
   to { opacity: 1; }
 }
 
+/* ── Double-marker scanlines (easter egg, 260718-3prk) ──────────────────────
+   A window row whose left-gutter marker is `double` gets a static CRT scanline
+   overlay across its FULL width, layered over its tint. The marker color rides
+   in via the --rk-marker-color custom property (set inline on the row). This is
+   an EASTER-EGG label treatment, deliberately NOT a hover treatment and NOT part
+   of the status pyramid's animation channel — the waiting halo stays the only
+   attention motion (so `.rk-scanlines-crawl` below only animates the OPT-IN
+   selected+double case, never resting rows).
+
+   CLIPPING LIVES ON THE OVERLAY, NEVER THE ROW ROOT: `.rk-scanlines` is applied
+   to a dedicated absolutely-positioned inner element (inset-0, overflow-hidden,
+   pointer-events-none) — NOT the row `<div>`. Putting `overflow-hidden` on the
+   row root would clip the row's `top-full` pin/color popovers (invisible on a
+   selected+double row); the inner overlay clips only the rolling CRT band and
+   leaves the root free to overflow. The overlay sits at z-index 5 in the row's
+   stacking context (above the tint/button bg, below the z-10 icon cluster /
+   z-20 gutter).
+
+   ORDER MATTERS (same discipline as .rk-waiting-halo): these base rules PRECEDE
+   the prefers-reduced-motion block so its equal-specificity `animation: none` /
+   hidden overrides win by source order. */
+.rk-scanlines::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: repeating-linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--rk-marker-color) 14%, transparent) 0 1px,
+    transparent 1px 3px
+  );
+}
+
+/* When a scanlined row is ALSO selected, the scanlines come alive: a slow
+   downward crawl of the gradient period, plus an occasional CRT refresh band
+   rolling top→bottom (a soft ~12px band via ::after). Static again when
+   deselected. Fully zeroed under prefers-reduced-motion (below). */
+@keyframes rk-scanline-crawl {
+  from { background-position-y: 0; }
+  to { background-position-y: 3px; } /* one gradient period */
+}
+.rk-scanlines-crawl::before {
+  animation: rk-scanline-crawl 1.4s linear infinite;
+}
+@keyframes rk-scanline-band {
+  /* Rest phase then a single sweep: the band is parked above the row for most
+     of the cycle, then rolls through top→bottom. */
+  0%, 70% { transform: translateY(-100%); opacity: 0; }
+  72% { opacity: 1; }
+  100% { transform: translateY(1200%); opacity: 0.9; }
+}
+.rk-scanlines-crawl::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 12px;
+  z-index: 6;
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    color-mix(in srgb, var(--rk-marker-color) 45%, transparent),
+    transparent
+  );
+  animation: rk-scanline-band 3.4s linear infinite;
+}
+
 /* Reduced-motion gate — disable EVERY treatment above (Parts A and B). The
    decode scramble is skipped in JS (top-bar.tsx reads the same media query). */
 @media (prefers-reduced-motion: reduce) {
@@ -347,6 +416,11 @@ summary {
   /* Pending-switch mask still SHOWS (input safety is never motion-only) — only
      its fade-in is dropped so it appears as an instant cut. */
   .rk-window-switch-mask { animation: none; }
+  /* Double-marker scanlines: the STATIC overlay stays (it's a label cue, not
+     motion), but the selected+double crawl is zeroed and the CRT refresh band
+     is hidden entirely — attention/effect is never encoded in motion alone. */
+  .rk-scanlines-crawl::before { animation: none; }
+  .rk-scanlines-crawl::after { animation: none; display: none; }
 }
 
 /* Prevent iOS Safari page scroll/bounce — fullbleed always on in single-view. */

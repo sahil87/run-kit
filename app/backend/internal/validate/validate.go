@@ -92,6 +92,24 @@ func NormalizeColorValue(value string) (string, bool) {
 	return strings.Join(parts, "+"), true
 }
 
+// MarkerValues is the closed set of accepted @rk_marker window-option values.
+// The empty string means "unset" (no marker); the three named states drive the
+// left-gutter marker's border style in the UI (dotted/solid 3px, double 6px).
+// A closed set bounds the injection/abuse surface (constitution §I) exactly as
+// the color-value rule does — the value flows into `tmux set-option`.
+var MarkerValues = map[string]bool{"": true, "dotted": true, "solid": true, "double": true}
+
+// ValidateMarkerValue validates an @rk_marker value: one of ""/dotted/solid/
+// double. Returns an empty string if valid, an error message otherwise. An empty
+// value is valid (it means unset). Mirrors ValidateColorValue as the single
+// shared marker-value rule reused by the window-option handler.
+func ValidateMarkerValue(value string) string {
+	if MarkerValues[value] {
+		return ""
+	}
+	return "Marker must be one of: dotted, solid, double (or empty to clear)"
+}
+
 // windowIDPattern matches a tmux window ID: an '@' followed by one or more digits
 // (e.g. "@5"). Window IDs originate from tmux's #{window_id} and are never
 // user-typed, but they flow into subprocess args, so they are validated against

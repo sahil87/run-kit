@@ -3,7 +3,7 @@ import { isGhostWindow } from "@/contexts/optimistic-context";
 import type { ProjectSession } from "@/types";
 import type { MergedSession } from "@/contexts/optimistic-context";
 import type { BoardSummary } from "@/api/boards";
-import { UNCOLORED_SELECTED_KEY, type RowTint } from "@/themes";
+import { UNCOLORED_SELECTED_KEY, nextMarkerState, type RowTint } from "@/themes";
 import { SwatchPopover } from "@/components/swatch-popover";
 import { StatusDot } from "@/components/status-dot";
 import { PinPopover } from "./pin-popover";
@@ -18,10 +18,15 @@ type WindowRowProps = {
   session: string;
   isSelected: boolean;
   isDragOver: boolean;
-  /** Color value descriptor: "4" for a single ANSI index, "1+3" for a blend. */
+  /** Color value: an owned family name ("orange") or a legacy numeric/blend
+   *  descriptor ("4" / "1+3") — the row's hue (label axis). */
   color?: string;
+  /** Left-gutter marker state ("" | "dotted" | "solid" | "double") — an
+   *  independent label axis from `color`. */
+  marker?: string;
   rowTints?: Map<string, RowTint>;
-  /** Contrast-adjusted full-saturation left-border color per color value. */
+  /** Contrast-adjusted full-saturation guarded color per color value. Used for
+   *  SERVER tile edges and — here — the left-gutter marker's family color. */
   rowBorders?: Map<string, string>;
   editingWindow: { session: string; windowId: string } | null;
   // Note: callers may pass an object that also carries a `server` field — the
@@ -49,6 +54,10 @@ type WindowRowProps = {
   onDrop?: (e: React.DragEvent, server: string, session: string, index: number) => void;
   onDragEnd?: () => void;
   onColorChange?: (server: string, session: string, windowId: string, color: string | null) => void;
+  /** Persist a new marker state for this window. The row computes the NEXT state
+   *  (nextMarkerState) on a gutter click and passes it here. Omitted on ghost
+   *  rows (the gutter is disabled). */
+  onMarkerChange?: (server: string, session: string, windowId: string, marker: string | null) => void;
   /** Tmux server name for the pin popover (server-routing contract) AND the
    *  identity bound into the handlers above. When omitted the pin icon is
    *  hidden and handlers bind an empty server — used by tests that render
@@ -105,6 +114,7 @@ function WindowRowInner({
   isSelected,
   isDragOver,
   color,
+  marker,
   rowTints,
   rowBorders,
   editingWindow,
@@ -122,6 +132,7 @@ function WindowRowInner({
   onDrop,
   onDragEnd,
   onColorChange,
+  onMarkerChange,
   server,
   isPinnedToAny = false,
   isPinnedToActiveBoard = false,
@@ -175,17 +186,18 @@ function WindowRowInner({
     return rowTints.get(UNCOLORED_SELECTED_KEY) ?? null;
   }, [color, rowTints, isSelected]);
 
-  // Contrast-adjusted full-saturation color for the left border on selected
-  // rows (a blend resolves to blendHex(ansi[a], ansi[b], 0.5), then the WCAG
-  // guardrail nudges its lightness — both baked into rowBorders).
-  const borderColor = useMemo(() => {
-    if (!rowBorders) return undefined;
-    if (color != null) return rowBorders.get(color);
-    if (isSelected) return rowBorders.get(UNCOLORED_SELECTED_KEY);
-    return undefined;
-  }, [color, rowBorders, isSelected]);
+  // The row's guarded family color, used for the left-gutter MARKER (contrast-
+  // adjusted full-saturation family hex, baked into rowBorders). Colored rows
+  // use their family; uncolored rows use the gray sentinel. The 4px selection
+  // border this once fed was removed in the axis split — selection is now tint
+  // depth + typography alone (R6/R7).
+  const markerColor = useMemo(() => {
+    if (!rowBorders) return "var(--color-border)";
+    if (color != null) return rowBorders.get(color) ?? "var(--color-border)";
+    return rowBorders.get(UNCOLORED_SELECTED_KEY) ?? "var(--color-border)";
+  }, [color, rowBorders]);
 
-  // Compute inline style for the button (background + left accent border)
+  // Compute inline style for the button (background tint only — no left border).
   const buttonStyle = useMemo(() => {
     const style: React.CSSProperties = {};
     if (tint) {
@@ -193,30 +205,25 @@ function WindowRowInner({
     } else if (uncoloredSelectedTint) {
       style.backgroundColor = uncoloredSelectedTint.selected;
     }
-    // Active-board highlight: when not selected (selection takes priority for
-    // border), tint the left border in accent color so the user sees which
-    // windows belong to the board they're viewing.
-    if (isSelected) {
-      style.borderLeft = `4px solid ${borderColor ?? "var(--color-accent)"}`;
-    } else if (isPinnedToActiveBoard) {
-      style.borderLeft = "4px solid var(--color-accent)";
-    } else {
-      // Always reserve left border space to prevent text shift between states.
-      style.borderLeft = "4px solid transparent";
-    }
     return Object.keys(style).length > 0 ? style : undefined;
-  }, [tint, uncoloredSelectedTint, isSelected, borderColor, isPinnedToActiveBoard]);
+  }, [tint, uncoloredSelectedTint, isSelected]);
 
-  // Build className for the button — when the pin icon is wired up, reserve
-  // a few extra px on the right so labels don't run under the icon group.
+  // Build className for the button. The 14px marker gutter (GUTTER_WIDTH) is an
+  // absolute z-20 sibling overlaying the left edge, so the button content must
+  // start CLEAR of it — otherwise the interactive StatusDot sits under the
+  // gutter and gutter hover/click steals the dot's hover-card + row select
+  // (must-fix 3). `pl-[18px]` keeps the leading dot + text just past the gutter.
+  // When the pin icon is wired up, reserve a few extra px on the right so labels
+  // don't run under the icon group.
   const showPinIcon = !ghost && !!server;
   const buttonClass = useMemo(() => {
     const rightPad = showPinIcon ? "pr-[68px]" : "pr-11";
     // Dense rows on fine pointers (24px); touch keeps the 36px target via the
     // `coarse:` variant (context.md § Mobile Responsive Design).
-    const base = `w-full text-left flex items-center justify-between gap-2 py-px pl-2 ${rightPad} text-xs transition-colors min-h-[24px] coarse:min-h-[36px]`;
+    const base = `w-full text-left flex items-center justify-between gap-2 py-px pl-[18px] ${rightPad} text-xs transition-colors min-h-[24px] coarse:min-h-[36px]`;
     if (isSelected) {
-      // Colored selected uses tint.selected; uncolored selected borrows gray tint — both via buttonStyle.
+      // Selection = deeper tint (tint.selected / gray sentinel via buttonStyle)
+      // + bold + brightened text. No border (removed in the axis split).
       return `${base} text-text-primary font-medium`;
     }
     if (tint) {
@@ -226,6 +233,21 @@ function WindowRowInner({
     // Uncolored non-selected
     return `${base} text-text-secondary hover:text-text-primary hover:bg-bg-card/50`;
   }, [tint, isSelected, showPinIcon]);
+
+  // ── Left-gutter marker ──────────────────────────────────────────────────
+  // The marker gutter is an independent label axis. Available on ALL rows
+  // (colored or not) that opted in via onMarkerChange and are non-ghost. Inert
+  // on coarse pointers — the palette action is the touch path (R15).
+  const markerEnabled = !ghost && !!onMarkerChange && !!server;
+  const [gutterHover, setGutterHover] = useState(false);
+  const cycleMarker = (e: React.MouseEvent) => {
+    // Must not select the row and must coexist with drag-reorder.
+    e.stopPropagation();
+    if (!onMarkerChange) return;
+    onMarkerChange(srv, session, win.windowId, nextMarkerState(marker));
+  };
+  const isDouble = marker === "double";
+  const scanlineAnimated = isDouble && isSelected;
 
   return (
     <div
@@ -246,14 +268,48 @@ function WindowRowInner({
       aria-setsize={ariaSetSize}
       aria-posinset={ariaPosInSet}
       tabIndex={tabIndex}
+      // `relative` anchors the absolute gutter + status dot + scanline overlay.
+      // The scanline/CRT-band overlay is a dedicated inner element (below), NOT
+      // classes on this root: the root must stay free to OVERFLOW so the row's
+      // `top-full` pin/color popovers aren't clipped on a selected+double row
+      // (must-fix 4). The `--rk-marker-color` custom property is set here (the
+      // overlay's pseudos read it via inheritance). See globals.css § scanlines
+      // and docs/specs/themes.md.
       className={`relative group${ghost ? " opacity-50 animate-pulse" : ""}`}
       draggable={dragEnabled}
       onDragStart={dragEnabled && onDragStart ? (e) => onDragStart(e, srv, session, win.index, win.windowId, win.name) : undefined}
       onDragOver={dragEnabled && onDragOver ? (e) => onDragOver(e, srv, session, win.index) : undefined}
       onDrop={dragEnabled && onDrop ? (e) => onDrop(e, srv, session, win.index) : undefined}
       onDragEnd={dragEnabled ? onDragEnd : undefined}
-      style={isDragOver ? { boxShadow: "0 -2px 0 0 var(--color-accent)" } : undefined}
+      style={{
+        ...(isDouble ? ({ "--rk-marker-color": markerColor } as React.CSSProperties) : {}),
+        ...(isDragOver ? { boxShadow: "0 -2px 0 0 var(--color-accent)" } : {}),
+      }}
     >
+      {/* Scanline / CRT-band overlay for double-marker rows. A dedicated inner
+          element that OWNS the clip (`overflow-hidden`) so the rolling band's
+          `::after` stays inside the row while the row ROOT remains free to
+          overflow for the `top-full` popovers (must-fix 4). Non-interactive
+          (`pointer-events-none`) and z-5 (above the button bg, below the z-10
+          icon cluster / z-20 gutter). Selected+double adds the animated crawl. */}
+      {isDouble && (
+        <div
+          aria-hidden="true"
+          className={`absolute inset-0 z-[5] overflow-hidden pointer-events-none rk-scanlines${
+            scanlineAnimated ? " rk-scanlines-crawl" : ""
+          }`}
+        />
+      )}
+      {markerEnabled && (
+        <MarkerGutter
+          marker={marker}
+          markerColor={markerColor}
+          hover={gutterHover}
+          onEnter={() => setGutterHover(true)}
+          onLeave={() => setGutterHover(false)}
+          onClick={cycleMarker}
+        />
+      )}
       <button
         onClick={() => onSelectWindow(srv, session, win.windowId)}
         onDoubleClick={(e) => {
@@ -318,12 +374,20 @@ function WindowRowInner({
             type="button"
             aria-label={`Pin ${win.name} to a board`}
             aria-pressed={isPinnedToAny}
+            // The active-board cue lives on THIS glyph now (the 4px left border
+            // was removed in the axis split): a row pinned to the board you're
+            // viewing gets an ACCENT-colored persistent glyph; a row pinned to
+            // some other board is a monochrome persistent glyph; an unpinned row
+            // shows the glyph only on hover/focus/coarse. isPinnedToActiveBoard
+            // implies isPinnedToAny, so the accent branch is always persistent.
             onClick={(e) => {
               e.stopPropagation();
               setShowPinPopover((v) => !v);
             }}
             className={`transition-opacity cursor-pointer ${
-              isPinnedToAny
+              isPinnedToActiveBoard
+                ? "opacity-100 text-accent hover:text-accent"
+                : isPinnedToAny
                 ? "opacity-100 text-text-secondary hover:text-text-primary"
                 : "opacity-0 group-hover:opacity-100 coarse:opacity-100 focus-visible:opacity-100 text-text-secondary hover:text-text-primary"
             } px-0.5 min-h-[24px] coarse:min-h-[36px] flex items-center justify-center`}
@@ -380,6 +444,82 @@ function WindowRowInner({
             onClose={() => setShowColorPicker(false)}
           />
         </div>
+      )}
+    </div>
+  );
+}
+
+/** Width of the left-gutter marker (fine pointers), in px. */
+const GUTTER_WIDTH = 14;
+
+/** Inline style rendering a marker state as a left-edge border in the given
+ *  color: dotted 3px, solid 3px, double 6px. Empty/ghost states render nothing
+ *  (returns undefined). `ghost` renders the preview at low opacity. */
+function markerBorderStyle(state: string, color: string): React.CSSProperties | undefined {
+  switch (state) {
+    case "dotted":
+      return { borderLeft: `3px dotted ${color}` };
+    case "solid":
+      return { borderLeft: `3px solid ${color}` };
+    case "double":
+      return { borderLeft: `6px double ${color}` };
+    default:
+      return undefined;
+  }
+}
+
+type MarkerGutterProps = {
+  marker?: string;
+  markerColor: string;
+  hover: boolean;
+  onEnter: () => void;
+  onLeave: () => void;
+  onClick: (e: React.MouseEvent) => void;
+};
+
+/** The left-gutter marker — an independent 4-state label axis (empty→dotted→
+ *  solid→double, click to cycle). Two-stage hover affordance: the parent row's
+ *  `group-hover` fills the gutter ~20% family color; hovering the gutter itself
+ *  steps to ~30% and ghosts a faint preview of the NEXT state. `cursor: cell`.
+ *  The gutter is inert on coarse pointers (`coarse:pointer-events-none`) — the
+ *  palette action is the touch path — but its marker STILL renders on touch so
+ *  the state stays visible. Marker click stopPropagation lives in `onClick`. */
+function MarkerGutter({ marker, markerColor, hover, onEnter, onLeave, onClick }: MarkerGutterProps) {
+  const current = marker ?? "";
+  const currentStyle = markerBorderStyle(current, markerColor);
+  const next = nextMarkerState(current);
+  const ghostStyle = markerBorderStyle(next, markerColor);
+  return (
+    <div
+      // A POINTER-ONLY affordance, not a keyboard button: intake #12 makes the
+      // command palette (`Window: Cycle Marker`) the sole keyboard/touch path,
+      // so the gutter carries no `role="button"`, `tabIndex`, or key handler
+      // (an ARIA button would promise a keyboard contract this element does not
+      // honor — must-fix 3 nice-to-have). `aria-label` names it for pointer AT
+      // users and test selection (getByLabelText / getByLabel).
+      aria-label="Cycle window marker"
+      onClick={onClick}
+      onMouseEnter={onEnter}
+      onMouseLeave={onLeave}
+      // z-20 sits above the row-select button (z-10 icon cluster) at the left
+      // edge. Interactive on fine pointers only; inert on coarse.
+      className="absolute left-0 top-0 bottom-0 z-20 cursor-[cell] coarse:pointer-events-none"
+      style={{ width: GUTTER_WIDTH }}
+    >
+      {/* Fill layer: transparent at rest; ~20% on row hover (group-hover, driven
+          by the parent row's `group`); ~30% when the gutter itself is hovered. */}
+      <div
+        className="absolute inset-0 transition-colors opacity-0 group-hover:opacity-100"
+        style={{
+          backgroundColor: `color-mix(in srgb, ${markerColor} ${hover ? 30 : 20}%, transparent)`,
+        }}
+      />
+      {/* Current marker (border on the left edge). Sits above the fill. */}
+      {currentStyle && <div className="absolute inset-0" style={currentStyle} />}
+      {/* Next-state ghost preview — only while the gutter itself is hovered, and
+          only when the next state actually draws something (not the empty step). */}
+      {hover && ghostStyle && (
+        <div className="absolute inset-0 opacity-40" style={ghostStyle} />
       )}
     </div>
   );

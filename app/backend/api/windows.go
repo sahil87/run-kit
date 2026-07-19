@@ -348,6 +348,7 @@ const (
 	optKeyColor  = "@color"
 	optKeyRkURL  = "@rk_url"
 	optKeyRkType = "@rk_type"
+	optKeyMarker = "@rk_marker"
 )
 
 // validateWindowOption enforces the per-key rules preserved from the old
@@ -372,13 +373,19 @@ func validateWindowOption(key string, value *string) string {
 	case optKeyRkType:
 		// No set-value validation: handleWindowTypeUpdate set any non-empty
 		// string verbatim. An empty string is treated as unset below.
+	case optKeyMarker:
+		// Left-gutter marker state: one of dotted/solid/double. An empty string
+		// is valid and treated as unset below (mirroring @rk_type).
+		if errMsg := validate.ValidateMarkerValue(*value); errMsg != "" {
+			return errMsg
+		}
 	}
 	return ""
 }
 
 // handleWindowOptions applies a partial-merge of window options to {windowId}.
 // POST /api/windows/{windowId}/options ← {"options": {"@color": "5", "@rk_url":
-// "...", "@rk_type": null}} → 200 {"ok": true}.
+// "...", "@rk_type": null, "@rk_marker": "solid"}} → 200 {"ok": true}.
 //
 // Semantics: only keys present in `options` are touched; a present key with a
 // non-null value sets it, an explicit null unsets it. ALL keys are validated
@@ -406,7 +413,7 @@ func (s *Server) handleWindowOptions(w http.ResponseWriter, r *http.Request) {
 	ops := make([]tmux.WindowOptionOp, 0, len(body.Options))
 	for key, value := range body.Options {
 		switch key {
-		case optKeyColor, optKeyRkURL, optKeyRkType:
+		case optKeyColor, optKeyRkURL, optKeyRkType, optKeyMarker:
 		default:
 			writeError(w, http.StatusBadRequest, "Unknown option key: "+key)
 			return
@@ -416,9 +423,10 @@ func (s *Server) handleWindowOptions(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		op := tmux.WindowOptionOp{Key: key, Value: value}
-		// @rk_type empty string means unset (revert to terminal mode), matching
-		// the old handleWindowTypeUpdate behavior.
-		if key == optKeyRkType && value != nil && *value == "" {
+		// An empty string means unset for @rk_type (revert to terminal mode) and
+		// @rk_marker (clear the marker) — matching the old handleWindowTypeUpdate
+		// behavior and the marker's "empty = no marker" contract.
+		if (key == optKeyRkType || key == optKeyMarker) && value != nil && *value == "" {
 			op.Value = nil
 		}
 		ops = append(ops, op)

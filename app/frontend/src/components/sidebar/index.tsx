@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect, useMemo, useReducer, memo } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { killSession as killSessionApi, killWindow as killWindowApi, renameSession, moveWindow, moveWindowToSession, setSessionColor as setSessionColorApi, setWindowColor as setWindowColorApi, getAllServerColors, setServerColor as setServerColorApi, setSessionOrder, type ServerInfo } from "@/api/client";
+import { killSession as killSessionApi, killWindow as killWindowApi, renameSession, moveWindow, moveWindowToSession, setSessionColor as setSessionColorApi, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, getAllServerColors, setServerColor as setServerColorApi, setSessionOrder, type ServerInfo } from "@/api/client";
 import { useSessionContext } from "@/contexts/session-context";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useOptimisticContext } from "@/contexts/optimistic-context";
@@ -1059,6 +1059,15 @@ export function Sidebar({
     );
   }, [addToast]);
 
+  // Persist a window's marker state (the gutter click and the palette action
+  // both compute the NEXT state via nextMarkerState and pass it here — this only
+  // writes). Mirrors handleWindowColorChange.
+  const handleWindowMarkerChange = useCallback((server: string, _session: string, windowId: string, marker: string | null) => {
+    setWindowMarkerApi(server, windowId, marker).catch((err) =>
+      addToast(err.message || "Failed to set window marker"),
+    );
+  }, [addToast]);
+
   return (
     <nav ref={navRef} aria-label="Sessions" className="flex flex-col h-full">
       {/* Boards — cross-server section, always visible at the top of the
@@ -1193,6 +1202,7 @@ export function Sidebar({
                 onWindowRenameBlur={handleWindowRenameBlur}
                 onSessionColorChange={handleSessionColorChange}
                 onWindowColorChange={handleWindowColorChange}
+                onWindowMarkerChange={handleWindowMarkerChange}
                 onWindowDragStart={handleDragStart}
                 onWindowDragOver={handleDragOver}
                 onWindowDrop={handleDrop}
@@ -1322,6 +1332,7 @@ type ServerGroupProps = {
   onWindowRenameBlur: () => void;
   onSessionColorChange: (server: string, name: string, color: string | null) => void;
   onWindowColorChange: (server: string, session: string, windowId: string, color: string | null) => void;
+  onWindowMarkerChange: (server: string, session: string, windowId: string, marker: string | null) => void;
   onWindowDragStart: (e: React.DragEvent, server: string, session: string, index: number, windowId: string, name: string) => void;
   onWindowDragOver: (e: React.DragEvent, server: string, session: string, index: number) => void;
   onWindowDrop: (e: React.DragEvent, server: string, session: string, index: number) => void;
@@ -1386,6 +1397,7 @@ function ServerGroupInner(props: ServerGroupProps) {
     onWindowRenameBlur,
     onSessionColorChange,
     onWindowColorChange,
+    onWindowMarkerChange,
     onWindowDragStart,
     onWindowDragOver,
     onWindowDrop,
@@ -1629,6 +1641,7 @@ function ServerGroupInner(props: ServerGroupProps) {
                             isSelected={isSelected}
                             isDragOver={isDragOver}
                             color={win.color}
+                            marker={win.marker}
                             rowTints={rowTints}
                             rowBorders={rowBorders}
                             editingWindow={editingWindow}
@@ -1659,6 +1672,7 @@ function ServerGroupInner(props: ServerGroupProps) {
                             onDrop={ghost ? undefined : onWindowDrop}
                             onDragEnd={ghost ? undefined : onWindowDragEnd}
                             onColorChange={ghost ? undefined : onWindowColorChange}
+                            onMarkerChange={ghost ? undefined : onWindowMarkerChange}
                           />
                         );
                       })}

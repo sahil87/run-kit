@@ -49,6 +49,13 @@ func windowLine9(windowID string, index int, name, path string, activityTs int64
 		windowID, listDelim, index, listDelim, name, listDelim, path, listDelim, activityTs, listDelim, active, listDelim, paneCmd, listDelim, "" /*@color*/, listDelim, rkType, listDelim, rkUrl)
 }
 
+// windowLineMarker builds an 11-field tab-delimited tmux line including the
+// trailing @rk_marker field (@color/@rk_type/@rk_url left empty).
+func windowLineMarker(windowID string, index int, name, path string, activityTs int64, active int, paneCmd, marker string) string {
+	return fmt.Sprintf("%s%s%d%s%s%s%s%s%d%s%d%s%s%s%s%s%s%s%s%s%s",
+		windowID, listDelim, index, listDelim, name, listDelim, path, listDelim, activityTs, listDelim, active, listDelim, paneCmd, listDelim, "" /*@color*/, listDelim, "" /*@rk_type*/, listDelim, "" /*@rk_url*/, listDelim, marker)
+}
+
 func TestParseSessions(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -513,6 +520,35 @@ func TestParseWindowsMixedTypes(t *testing.T) {
 	}
 	if got[2].RkType != "" {
 		t.Errorf("window 2 RkType = %q, want empty", got[2].RkType)
+	}
+}
+
+func TestParseWindowsMarker(t *testing.T) {
+	const fakeNow int64 = 1700000000
+
+	tests := []struct {
+		name       string
+		line       string
+		wantMarker string
+	}{
+		{"dotted marker", windowLineMarker("@0", 0, "a", "/p", fakeNow, 1, "zsh", "dotted"), "dotted"},
+		{"solid marker", windowLineMarker("@0", 0, "a", "/p", fakeNow, 1, "zsh", "solid"), "solid"},
+		{"double marker", windowLineMarker("@0", 0, "a", "/p", fakeNow, 1, "zsh", "double"), "double"},
+		{"empty marker", windowLineMarker("@0", 0, "a", "/p", fakeNow, 1, "zsh", ""), ""},
+		{"unknown marker dropped to empty", windowLineMarker("@0", 0, "a", "/p", fakeNow, 1, "zsh", "dashed"), ""},
+		{"10-field line (no marker field) has empty marker", windowLine9("@0", 0, "a", "/p", fakeNow, 1, "zsh", "", ""), ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseWindows([]string{tt.line}, fakeNow)
+			if len(got) != 1 {
+				t.Fatalf("parseWindows() returned %d windows, want 1", len(got))
+			}
+			if got[0].Marker != tt.wantMarker {
+				t.Errorf("Marker = %q, want %q", got[0].Marker, tt.wantMarker)
+			}
+		})
 	}
 }
 

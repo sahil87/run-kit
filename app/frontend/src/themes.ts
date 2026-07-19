@@ -55,6 +55,8 @@ export const COLOR_CSS_MAP: Record<keyof UIColors, string> = {
 // ── Color helpers (module-private) ───────────────────────────────────────────
 
 type RGB = { r: number; g: number; b: number };
+/** Linear-light sRGB channels (unclamped, may fall outside [0, 1]). */
+type RGBLinear = { lr: number; lg: number; lb: number };
 
 function hexToRgb(hex: string): RGB {
   const h = hex.replace("#", "");
@@ -196,7 +198,7 @@ export function deriveXtermTheme(palette: ThemePalette) {
   };
 }
 
-// ── OKLab + WCAG color math (ported verbatim from scripts/audit-swatch-colors.ts) ─
+// ── OKLab + WCAG color math (ported verbatim from the retired swatch-color audit script) ─
 // These are the design-evidence reference implementations. They are pure
 // arithmetic (no trig / lookup tables) and are used by the contrast guardrail.
 
@@ -225,15 +227,26 @@ export function hexToOklab(hex: string): OKLab {
   };
 }
 
-/** Convert OKLab back to a hex sRGB color (inverse of hexToOklab). */
-export function oklabToHex(c: OKLab): string {
+/** OKLab → linear-light sRGB channels (unclamped). The shared inverse matrix
+ *  (OKLab → LMS' → LMS → linear RGB) used by BOTH the hex encoder (oklabToHex)
+ *  and the in-gamut check (oklchInGamut) — extracted so the 18 coefficients
+ *  cannot drift between the two callers. Channels may fall outside [0, 1] when
+ *  the color is out of gamut; the encoder clamps, the gamut check does not. */
+function oklabToLinearRgb(c: OKLab): RGBLinear {
   const l_ = c.L + 0.3963377774 * c.a + 0.2158037573 * c.b;
   const m_ = c.L - 0.1055613458 * c.a - 0.0638541728 * c.b;
   const s_ = c.L - 0.0894841775 * c.a - 1.291485548 * c.b;
   const l = l_ * l_ * l_, m = m_ * m_ * m_, s = s_ * s_ * s_;
-  const lr = +4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s;
-  const lg = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s;
-  const lb = -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s;
+  return {
+    lr: +4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+    lg: -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+    lb: -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s,
+  };
+}
+
+/** Convert OKLab back to a hex sRGB color (inverse of hexToOklab). */
+export function oklabToHex(c: OKLab): string {
+  const { lr, lg, lb } = oklabToLinearRgb(c);
   const enc = (channel: number) => {
     const v = channel <= 0.0031308 ? 12.92 * channel : 1.055 * Math.pow(channel, 1 / 2.4) - 0.055;
     return Math.max(0, Math.min(255, Math.round(v * 255)));
@@ -266,7 +279,7 @@ const CONTRAST_ADJUST_STEP = 0.03;
  * Return a border color that clears `min` contrast vs bg, nudging OKLab L if
  * needed. isDark ⇒ push lighter; light theme ⇒ push darker. Preserves hue and
  * chroma (only L moves) so the swatch keeps its identity. Caps at 24 steps.
- * Ported from scripts/audit-swatch-colors.ts (adjustBorderForContrast).
+ * Ported from the retired swatch-color audit script (adjustBorderForContrast).
  */
 export function adjustBorderForContrast(border: string, bg: string, isDark: boolean, min: number): string {
   if (contrastRatio(border, bg) >= min) return border;
@@ -282,112 +295,264 @@ export function adjustBorderForContrast(border: string, bg: string, isDark: bool
   return oklabToHex({ L, a: lab.a, b: lab.b }); // best effort at the cap
 }
 
-// ── Row tint computation ────────────────────────────────────────────────────
+// ── Owned OKLCH hue-family palette ────────────────────────────────────────────
+// The picker no longer derives its swatches from the theme's ANSI palette (which
+// made hue identity hostage to the theme). Instead 10 OWNED hue families are
+// defined by fixed OKLCH hue angle and rendered ADAPTED to the theme: each family
+// is drawn at the theme's mean OKLab lightness and chroma so it feels native,
+// while its hue stays stable across every theme. See docs/specs/themes.md.
 
-/** ANSI palette indices available as single-hue swatches in the color picker.
- *  6 colors: the standard hues (red, green, yellow, blue, magenta, cyan).
- *  Excludes 0 (black), 7 (white), 8 (gray — reused internally for uncolored
- *  selected rows), 15 (bright white), and all bright variants (9-14) which
- *  are near-identical to normal at low blend ratios (audit-confirmed). */
-export const PICKER_ANSI_INDICES = [1, 2, 3, 4, 5, 6] as const;
+/** OKLCH → hex sRGB. Converts polar chroma/hue to OKLab a,b (a = C·cos h,
+ *  b = C·sin h; hue in DEGREES) then reuses oklabToHex. Out-of-gamut inputs are
+ *  channel-clamped by oklabToHex — callers that need in-gamut fidelity use
+ *  oklchToHexInGamut, which reduces chroma instead. */
+export function oklchToHex(L: number, C: number, hueDeg: number): string {
+  const h = (hueDeg * Math.PI) / 180;
+  return oklabToHex({ L, a: C * Math.cos(h), b: C * Math.sin(h) });
+}
 
-/** A picker color is either a single ANSI index or a 50/50 blend of two indices.
- *  `b` is undefined for a single index, present for a blend. */
-export type PickerColor = { a: number; b?: number };
+/** True when the OKLCH triple maps inside the sRGB gamut (no channel clamped on
+ *  encode). Reuses the shared oklabToLinearRgb matrix (so its coefficients stay
+ *  in lockstep with oklabToHex) and checks each un-clamped channel stays within
+ *  [0, 1] (with a tiny epsilon for float noise at the boundaries). */
+export function oklchInGamut(L: number, C: number, hueDeg: number): boolean {
+  const h = (hueDeg * Math.PI) / 180;
+  const { lr, lg, lb } = oklabToLinearRgb({ L, a: C * Math.cos(h), b: C * Math.sin(h) });
+  const eps = 1e-4;
+  return [lr, lg, lb].every((c) => c >= -eps && c <= 1 + eps);
+}
 
-/** The picker palette: the 6 single hues first, then the 4 locked two-hue
- *  blends in stable display order — orange (1+3), purple (1+4), slate (3+4),
- *  olive (1+2). Locked from the audit across 70 themes (distinct on 83–96%).
- *  Brights (9–14) are rejected (collapse onto 1–6 on the majority of themes). */
-export const PICKER_BLEND_PAIRS: ReadonlyArray<readonly [number, number]> = [
-  [1, 3], // orange
-  [1, 4], // purple
-  [3, 4], // slate
-  [1, 2], // olive
+/** Number of stepwise chroma reductions before giving up bringing an OKLCH
+ *  triple into gamut. */
+const GAMUT_REDUCE_MAX_STEPS = 20;
+/** Multiplicative chroma reduction per step. */
+const GAMUT_REDUCE_FACTOR = 0.92;
+
+/** Resolve an OKLCH family color to a hex that is in the sRGB gamut, reducing
+ *  CHROMA stepwise (×0.92, ≤20 steps) when out of gamut — never sRGB
+ *  channel-clamping, which would shift the hue and defeat stable hue identity.
+ *  L and hue are preserved; only chroma moves. */
+export function oklchToHexInGamut(L: number, C: number, hueDeg: number): string {
+  let c = C;
+  for (let i = 0; i < GAMUT_REDUCE_MAX_STEPS; i++) {
+    if (oklchInGamut(L, c, hueDeg)) break;
+    c *= GAMUT_REDUCE_FACTOR;
+  }
+  return oklchToHex(L, c, hueDeg);
+}
+
+/** OKLab chroma (distance from the neutral axis) of a hex color. */
+function oklabChroma(hex: string): number {
+  const { a, b } = hexToOklab(hex);
+  return Math.hypot(a, b);
+}
+
+/** Chroma floor: near-monochrome themes still get distinguishable families. */
+const THEME_CHROMA_FLOOR = 0.05;
+
+/** Theme adaptation stats: the mean OKLab lightness and mean chroma over the
+ *  theme's `ansi[1..6]` (the 6 standard hues), with the chroma floored so
+ *  near-monochrome themes stay usable. Families render at (L, C, ownHue). */
+export type ThemeColorStats = { L: number; C: number };
+export function themeColorStats(palette: ThemePalette): ThemeColorStats {
+  let sumL = 0, sumC = 0;
+  for (let i = 1; i <= 6; i++) {
+    const lab = hexToOklab(palette.ansi[i]);
+    sumL += lab.L;
+    sumC += Math.hypot(lab.a, lab.b);
+  }
+  return { L: sumL / 6, C: Math.max(sumC / 6, THEME_CHROMA_FLOOR) };
+}
+
+/** An owned hue family: a stable name, its OKLCH hue angle, and — for `slate` —
+ *  a flag that floors its chroma to a near-neutral value (parked/archived
+ *  identity). `legacy` is the pre-owned-palette color-value descriptor that maps
+ *  1:1 onto this family for zero-migration reads. */
+export type HueFamily = {
+  name: string;
+  hue: number;
+  legacy: string;
+  neutral?: boolean;
+};
+
+/** The 10 owned hue families in stable display order. Hue angles are placed
+ *  non-uniformly — tight through the discriminable red→amber region, the large
+ *  gap parked in teal→blue where human hue discrimination is weakest. `legacy`
+ *  is the old ANSI-derived color value that resolves onto this family (zero
+ *  migration): red←1, orange←1+3, amber←3, olive←1+2, green←2, teal←6, blue←4,
+ *  purple←1+4, magenta←5, slate←3+4. */
+export const HUE_FAMILIES: readonly HueFamily[] = [
+  { name: "red", hue: 25, legacy: "1" },
+  { name: "orange", hue: 55, legacy: "1+3" },
+  { name: "amber", hue: 90, legacy: "3" },
+  { name: "olive", hue: 120, legacy: "1+2" },
+  { name: "green", hue: 150, legacy: "2" },
+  { name: "teal", hue: 185, legacy: "6" },
+  { name: "blue", hue: 250, legacy: "4" },
+  { name: "purple", hue: 290, legacy: "1+4" },
+  { name: "magenta", hue: 330, legacy: "5" },
+  { name: "slate", hue: 250, legacy: "3+4", neutral: true },
 ] as const;
 
-/** Display-ordered list of every picker color value (string descriptors). */
-export const PICKER_COLOR_VALUES: readonly string[] = [
-  ...PICKER_ANSI_INDICES.map((i) => `${i}`),
-  ...PICKER_BLEND_PAIRS.map(([a, b]) => `${a}+${b}`),
-];
+/** Family lookup by canonical name. */
+const FAMILY_BY_NAME: ReadonlyMap<string, HueFamily> = new Map(
+  HUE_FAMILIES.map((f) => [f.name, f]),
+);
+/** Family lookup by legacy color-value descriptor ("4" / "1+3"). Built from the
+ *  canonical (normalized) legacy string so both `"4"` and `"blue"` resolve. */
+const FAMILY_BY_LEGACY: ReadonlyMap<string, HueFamily> = new Map(
+  HUE_FAMILIES.map((f) => [f.legacy, f]),
+);
+
+/** Display-ordered list of every picker color value — now the 10 family names.
+ *  The picker PRESENTS family names, but writes are mapped back to the legacy
+ *  numeric/blend descriptor at the write seam (familyToLegacy), so stored values
+ *  stay in the legacy vocabulary; both forms resolve on read (see resolveFamily /
+ *  colorValueToHex). */
+export const PICKER_COLOR_VALUES: readonly string[] = HUE_FAMILIES.map((f) => f.name);
 
 /** ANSI index used to render uncolored rows in the selected state. */
 export const UNCOLORED_SELECTED_ANSI = 8;
 /** Sentinel color-value key for the uncolored-selected gray tint. */
 export const UNCOLORED_SELECTED_KEY = `${UNCOLORED_SELECTED_ANSI}`;
 
-/** Parse a stored color value ("4" or "1+3") into a {a, b?} descriptor, or null
- *  when malformed. Tolerant of surrounding whitespace; rejects empty parts,
- *  non-numeric parts, and more than two indices. */
-export function parseColorValue(value: string | null | undefined): PickerColor | null {
-  if (value == null) return null;
+// ── Left-gutter marker (independent label axis) ──────────────────────────────
+
+/** The window left-gutter marker states in cycle order. `""` (no marker) is the
+ *  rest state; clicking the gutter (or the palette action) advances one step and
+ *  wraps back to `""` after `double`. Mirrors the backend closed set
+ *  (validate.MarkerValues) minus the empty string, with `""` at the front. */
+export const MARKER_STATES = ["", "dotted", "solid", "double"] as const;
+export type MarkerState = (typeof MARKER_STATES)[number];
+
+/** Advance a marker value one step in the cycle (empty→dotted→solid→double→
+ *  empty). An unrecognized/absent value is treated as empty, so the first click
+ *  always lands on `dotted`. */
+export function nextMarkerState(current: string | null | undefined): MarkerState {
+  const idx = MARKER_STATES.indexOf((current ?? "") as MarkerState);
+  const at = idx < 0 ? 0 : idx;
+  return MARKER_STATES[(at + 1) % MARKER_STATES.length];
+}
+
+/** A parsed color value: an owned family (canonical name) OR a legacy numeric/
+ *  blend descriptor that maps onto one. `null` when unrecognized. */
+export type PickerColor = { family: HueFamily };
+
+/** Normalize a legacy numeric/blend descriptor ("01", " 1 + 3 ") to its
+ *  canonical form ("1", "1+3"), or null when malformed. Mirrors the backend
+ *  validate.NormalizeColorValue rule (parts trimmed, empty parts rejected). */
+function normalizeLegacy(value: string): string | null {
   const parts = value.trim().split("+");
   if (parts.length < 1 || parts.length > 2) return null;
-  const nums = parts.map((p) => {
+  const nums: number[] = [];
+  for (const p of parts) {
     const t = p.trim();
-    if (t === "" || !/^\d+$/.test(t)) return NaN;
-    return Number(t);
-  });
-  if (nums.some((n) => Number.isNaN(n))) return null;
-  if (parts.length === 1) return { a: nums[0] };
-  return { a: nums[0], b: nums[1] };
+    if (t === "" || !/^\d+$/.test(t)) return null;
+    nums.push(Number(t));
+  }
+  return nums.join("+");
 }
 
-/** Format a {a, b?} descriptor back into its string color value ("4" / "1+3"). */
+/** Resolve a stored color value to its owned family. Accepts a family name
+ *  ("orange") or a legacy numeric/blend descriptor ("1+3"), returning the same
+ *  family for both. Returns null when the value matches neither. */
+export function resolveFamily(value: string | null | undefined): HueFamily | null {
+  if (value == null) return null;
+  const trimmed = value.trim();
+  const byName = FAMILY_BY_NAME.get(trimmed);
+  if (byName) return byName;
+  const normalized = normalizeLegacy(trimmed);
+  if (normalized == null) return null;
+  return FAMILY_BY_LEGACY.get(normalized) ?? null;
+}
+
+/** Parse a stored color value into a {family} descriptor, or null when it maps
+ *  to no owned family. Accepts family names and legacy numeric/blend aliases. */
+export function parseColorValue(value: string | null | undefined): PickerColor | null {
+  const family = resolveFamily(value);
+  return family ? { family } : null;
+}
+
+/** Format a {family} descriptor into its canonical DISPLAY value — the family
+ *  name. Note this is not the storage form: writes are mapped to the legacy
+ *  descriptor at the write seam (familyToLegacy), so stored values stay in the
+ *  legacy vocabulary. */
 export function formatColorValue(color: PickerColor): string {
-  return color.b == null ? `${color.a}` : `${color.a}+${color.b}`;
+  return color.family.name;
 }
 
-/** Resolve a color value's full-saturation source hex from a palette: a single
- *  index is `ansi[a]`; a blend is `blendHex(ansi[a], ansi[b], 0.5)`. Returns
- *  null when the value is malformed or an index is out of palette range. */
+/** Map a picker family name ("orange") to the LEGACY numeric/blend descriptor
+ *  the backend stores and validates ("1+3"). The UI picker presents family
+ *  names, but the color storage/validation contract is the legacy vocabulary
+ *  (validate.ValidateColorValue / NormalizeColorValue accept only numeric
+ *  forms), so every write seam funnels the picked value through this map to keep
+ *  stored values in the legacy vocabulary end-to-end (zero backend change; R4's
+ *  zero-migration promise). A value that is already legacy (or unrecognized) is
+ *  returned unchanged, so the mapping is idempotent and safe on any input. */
+export function familyToLegacy(value: string | null): string | null {
+  if (value == null) return null;
+  const family = FAMILY_BY_NAME.get(value.trim());
+  return family ? family.legacy : value;
+}
+
+/** Resolve a color value's theme-adapted source hex: the value's owned family
+ *  rendered at the theme's mean L/C in the family's own hue, brought into the
+ *  sRGB gamut by chroma reduction. `slate` uses a near-neutral chroma
+ *  (min(C_theme × 0.2, 0.025)). Accepts family names and legacy aliases.
+ *  Returns null when the value maps to no owned family. */
 export function colorValueToHex(value: string, palette: ThemePalette): string | null {
-  const parsed = parseColorValue(value);
-  if (!parsed) return null;
-  const { a, b } = parsed;
-  if (a < 0 || a >= palette.ansi.length) return null;
-  if (b == null) return palette.ansi[a];
-  if (b < 0 || b >= palette.ansi.length) return null;
-  return blendHex(palette.ansi[a], palette.ansi[b], 0.5);
+  const family = resolveFamily(value);
+  if (!family) return null;
+  const { L, C } = themeColorStats(palette);
+  const chroma = family.neutral ? Math.min(C * 0.2, 0.025) : C;
+  return oklchToHexInGamut(L, chroma, family.hue);
 }
 
-/** Pre-blended row tint colors for a single picker color at three states. */
+/** Pre-blended row tint colors for a single owned family at three states. */
 export type RowTint = {
   base: string;     // 14% saturated-source into background
   hover: string;    // 22% saturated-source into background
-  selected: string; // 32% saturated-source into background
+  selected: string; // 40% saturated-source into background
 };
 
 const TINT_SATURATE_FACTOR = 1.5;
 const TINT_BASE_RATIO = 0.14;
 const TINT_HOVER_RATIO = 0.22;
-const TINT_SELECTED_RATIO = 0.32;
+// Selection is now carried by tint DEPTH alone (the 4px left border was removed
+// in the axis split), so the selected tint is deepened from 0.32 → 0.40.
+const TINT_SELECTED_RATIO = 0.4;
 /** Uncolored selected rows use a deeper ratio so they beat the bg-card/50 hover. */
 const UNCOLORED_SELECTED_RATIO = 0.5;
 
 /**
- * Pre-compute blended hex values for all picker colors, keyed by string color
- * value ("4", "1+3", and the uncolored-selected sentinel "8").
- * The source hue is saturated (×1.5) before blending so row tints read as their
- * intended color rather than grayish, while blend ratios stay muted. A two-hue
- * blend's source is `blendHex(ansi[a], ansi[b], 0.5)` *before* the saturate step.
- * Gray (ANSI 8) is not saturated (near-zero saturation by definition) and uses
- * a 0.5 selected ratio so uncolored selected rows beat the bg-card/50 hover.
+ * Pre-compute blended hex values for all owned families, keyed under BOTH
+ * vocabularies: the family name ("orange") AND its legacy numeric/blend
+ * descriptor ("1+3"), pointing at the same tint entry, plus the
+ * uncolored-selected sentinel "8". Both keys are populated because consumers
+ * (window-row/session-row/server-panel) look up the RAW stored color value, and
+ * the backend still emits the legacy vocabulary — a family-name-only map would
+ * miss every pre-existing colored row. Each family's theme-adapted source hex
+ * (colorValueToHex) is saturated (×1.5) before blending so row tints read as
+ * their intended color rather than grayish, while blend ratios stay muted. Gray
+ * (ANSI 8) is not saturated (near-zero saturation by definition) and uses a 0.5
+ * selected ratio so uncolored selected rows beat the bg-card/50 hover.
  */
 export function computeRowTints(palette: ThemePalette): Map<string, RowTint> {
   const bg = palette.background;
   const tints = new Map<string, RowTint>();
 
-  for (const value of PICKER_COLOR_VALUES) {
-    const src = colorValueToHex(value, palette);
+  for (const family of HUE_FAMILIES) {
+    const src = colorValueToHex(family.name, palette);
     if (src == null) continue;
     const fg = saturateHex(src, TINT_SATURATE_FACTOR);
-    tints.set(value, {
+    const tint: RowTint = {
       base: blendHex(fg, bg, TINT_BASE_RATIO),
       hover: blendHex(fg, bg, TINT_HOVER_RATIO),
       selected: blendHex(fg, bg, TINT_SELECTED_RATIO),
-    });
+    };
+    // Key both the family name and its legacy descriptor at the same entry.
+    tints.set(family.name, tint);
+    tints.set(family.legacy, tint);
   }
 
   // Uncolored-selected gray sentinel (not saturated; deeper selected ratio).
@@ -402,22 +567,28 @@ export function computeRowTints(palette: ThemePalette): Map<string, RowTint> {
 }
 
 /**
- * Pre-compute the contrast-adjusted full-saturation left-border color for every
- * picker color value (plus the uncolored-selected sentinel), keyed by color
- * value string. Each border is the value's full-saturation source hex passed
- * through the WCAG contrast guardrail (nudge OKLab L until it clears
- * BORDER_MIN_CONTRAST vs the theme background) so the 8px window-row border
- * stays visible on every theme. Computed once per theme alongside computeRowTints.
+ * Pre-compute the contrast-adjusted full-saturation border color for every owned
+ * family (plus the uncolored-selected sentinel), keyed under BOTH vocabularies
+ * (family name AND legacy descriptor) pointing at the same border — mirroring
+ * computeRowTints, so consumers keyed by the raw stored value hit regardless of
+ * which vocabulary is stored. Each border is the family's theme-adapted source
+ * hex passed through the WCAG contrast guardrail (nudge OKLab L until it clears
+ * BORDER_MIN_CONTRAST vs the theme background). The window row no longer uses
+ * these for a selection border (removed in the axis split), but SERVER tiles
+ * still use them for their stripe/edge, and the marker gutter uses them as the
+ * guarded family color. Computed once per theme alongside computeRowTints.
  */
 export function computeRowBorders(palette: ThemePalette, category: "dark" | "light"): Map<string, string> {
   const bg = palette.background;
   const isDark = category === "dark";
   const borders = new Map<string, string>();
 
-  for (const value of PICKER_COLOR_VALUES) {
-    const src = colorValueToHex(value, palette);
+  for (const family of HUE_FAMILIES) {
+    const src = colorValueToHex(family.name, palette);
     if (src == null) continue;
-    borders.set(value, adjustBorderForContrast(src, bg, isDark, BORDER_MIN_CONTRAST));
+    const border = adjustBorderForContrast(src, bg, isDark, BORDER_MIN_CONTRAST);
+    borders.set(family.name, border);
+    borders.set(family.legacy, border);
   }
 
   borders.set(

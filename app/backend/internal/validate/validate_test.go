@@ -353,6 +353,24 @@ func TestValidateColorValue(t *testing.T) {
 	}
 }
 
+func TestValidateMarkerValue(t *testing.T) {
+	// The empty string is valid — it means "unset" (no marker).
+	valid := []string{"", "dotted", "solid", "double"}
+	for _, v := range valid {
+		if msg := ValidateMarkerValue(v); msg != "" {
+			t.Errorf("ValidateMarkerValue(%q) = %q, want valid", v, msg)
+		}
+	}
+	// Anything outside the closed set is rejected (case-sensitive, no whitespace
+	// tolerance — the frontend only ever writes the canonical tokens).
+	invalid := []string{"Dotted", "DASHED", "dot", " solid ", "4", "1+3", "none", "true"}
+	for _, v := range invalid {
+		if msg := ValidateMarkerValue(v); msg == "" {
+			t.Errorf("ValidateMarkerValue(%q) = valid, want error", v)
+		}
+	}
+}
+
 func TestNormalizeColorValue(t *testing.T) {
 	cases := map[string]struct {
 		want string

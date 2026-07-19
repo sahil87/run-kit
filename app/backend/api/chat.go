@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"rk/internal/chat"
 	"rk/internal/sessions"
@@ -313,22 +314,32 @@ func (chatProbeFailure) Error() string {
 		"The text remains in the agent's input — check the terminal view before retrying, as a resend would duplicate it."
 }
 
+// chatSendCollapseMinRunes is the single-line rune length at or above which the
+// paste-collapse placeholder is counted as a valid echo signal. Claude Code
+// collapses a single-line paste over 800 chars into a suffix-less
+// "[Pasted text #N]" chip (empirical, CC 2.1.215, INDEPENDENT of TUI width — the
+// observed threshold is 801). 200 is a deliberately conservative lower bound so an
+// upstream threshold reduction cannot silently rebreak long-single-line sends,
+// while short interactive sends (which never collapse) keep exact-needle-only
+// matching and so keep the narrowest false-positive window.
+const chatSendCollapseMinRunes = 200
+
 // injectChatMessage runs the pane-targeted injection sequence (Constitution I —
 // all argv slices, no shell strings, text as a discrete argv element via the
 // named buffer): baseline capture → set-buffer → paste-buffer (-d -p, bracketed)
 // → NOVELTY echo probe → send-keys Enter (only on probe success). Every step
 // targets paneID, never the window, and shares the caller's ctx deadline.
 //
-// The probe verifies NOVELTY, not mere presence: it counts the needle (and, for
-// multiline text, the paste-collapse placeholder) in a PRE-PASTE baseline
+// The probe verifies NOVELTY, not mere presence: it counts the needle (and, for a
+// COLLAPSIBLE paste, the paste-collapse placeholder) in a PRE-PASTE baseline
 // capture and requires the count to strictly INCREASE after the paste. This is
-// what makes the guard sound: a stale "[Pasted text #N +M lines]" chip already
-// in-frame (this very handler's 409 path leaves the pasted text in the composer)
-// or a short/common needle like "y"/"ok" already on screen no longer
-// false-positives the probe — only the CURRENT paste, which adds a fresh
-// occurrence, satisfies it. If the pane scrolls between baseline and probe the
-// count cannot rise, so it fails CLOSED (409, no blind Enter) — the exact hazard
-// (blind Enter into e.g. a permission dialog) R5 exists to prevent.
+// what makes the guard sound: a stale "[Pasted text #N …]" chip already in-frame
+// (this very handler's 409 path leaves the pasted text in the composer) or a
+// short/common needle like "y"/"ok" already on screen no longer false-positives
+// the probe — only the CURRENT paste, which adds a fresh occurrence, satisfies it.
+// If the pane scrolls between baseline and probe the count cannot rise, so it
+// fails CLOSED (409, no blind Enter) — the exact hazard (blind Enter into e.g. a
+// permission dialog) R5 exists to prevent.
 //
 // A tmux failure is returned verbatim (→ 500); a probe failure is returned as
 // chatProbeFailure (→ 409, Enter withheld).
@@ -340,10 +351,13 @@ func (s *Server) injectChatMessage(ctx context.Context, server, paneID, text str
 		// verify", so fail closed BEFORE touching the buffer — never a blind Enter.
 		return chatProbeFailure{}
 	}
-	// Multiline text can be collapsed by the TUI into a "[Pasted text #N +M lines]"
-	// chip; single-line pastes never collapse, so the placeholder is only a valid
-	// echo signal (and only counted) for multiline text.
-	multiline := strings.Contains(text, "\n")
+	// The TUI can collapse a paste into a "[Pasted text #N …]" chip instead of
+	// echoing the raw text — for MULTILINE text (a "+M lines" chip) OR for a long
+	// single line (a suffix-less chip, empirically >800 chars). A paste is
+	// "collapsible" when either is possible, and only then is the chip a valid
+	// echo signal (see chatSendCollapseMinRunes). Short single-line pastes keep
+	// exact-needle-only matching.
+	collapsible := strings.Contains(text, "\n") || utf8.RuneCountInString(text) >= chatSendCollapseMinRunes
 
 	// Serialize the WHOLE sequence per (server, paneID): a second send to the SAME
 	// pane only begins after this one has fully finished (baseline → set → paste →
@@ -361,7 +375,7 @@ func (s *Server) injectChatMessage(ctx context.Context, server, paneID, text str
 	if err != nil {
 		return fmt.Errorf("capture-pane (baseline): %w", err)
 	}
-	baseCount := countProbeOccurrences(baseline, needle, multiline)
+	baseCount := countProbeOccurrences(baseline, needle, collapsible)
 
 	// The set → paste critical section is additionally serialized across ALL panes
 	// (chatSetPasteMu) because the named buffer is shared server-wide; held only
@@ -371,7 +385,7 @@ func (s *Server) injectChatMessage(ctx context.Context, server, paneID, text str
 		return err
 	}
 
-	if err := s.probeChatEcho(ctx, server, paneID, needle, multiline, baseCount); err != nil {
+	if err := s.probeChatEcho(ctx, server, paneID, needle, collapsible, baseCount); err != nil {
 		return err
 	}
 	if err := s.tmux.SendEnterToPane(ctx, paneID, server); err != nil {
@@ -405,7 +419,7 @@ func (s *Server) setAndPaste(ctx context.Context, server, paneID, text string) e
 // is returned verbatim (→ 500, distinct from a clean probe miss); an exhausted
 // retry returns chatProbeFailure (→ 409). All captures and sleeps share the
 // caller's ctx deadline, so the loop stays well under the route budget.
-func (s *Server) probeChatEcho(ctx context.Context, server, paneID, needle string, multiline bool, baseCount int) error {
+func (s *Server) probeChatEcho(ctx context.Context, server, paneID, needle string, collapsible bool, baseCount int) error {
 	for attempt := 0; attempt < chatSendProbeAttempts; attempt++ {
 		d := chatSendProbeGap
 		if attempt == 0 {
@@ -421,7 +435,7 @@ func (s *Server) probeChatEcho(ctx context.Context, server, paneID, needle strin
 		if err != nil {
 			return fmt.Errorf("capture-pane: %w", err)
 		}
-		if countProbeOccurrences(capture, needle, multiline) > baseCount {
+		if countProbeOccurrences(capture, needle, collapsible) > baseCount {
 			return nil
 		}
 	}
@@ -450,18 +464,26 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 var ansiEscapeRe = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)`)
 
 // pasteCollapseRe matches Claude Code's paste-collapse placeholder — the TUI
-// replaces a larger multiline bracketed paste with a "[Pasted text #N +M lines]"
-// chip rather than echoing the raw text, so the raw needle would never be found
-// and the probe would 409 exactly the multiline case. The placeholder counts as
-// a SUCCESSFUL echo (the paste demonstrably reached the input buffer — the TUI
-// only renders this chip for content it accepted) — but ONLY for multiline text
-// (single-line pastes never collapse), and ONLY as a fresh occurrence vs the
-// pre-paste baseline (a stale chip from a prior send is in the baseline count).
+// replaces a larger bracketed paste with a chip rather than echoing the raw text,
+// so the raw needle would never be found and the probe would 409 exactly the
+// collapsed case. There are TWO chip forms:
+//   - multiline collapse:            "[Pasted text #N +M lines]"
+//   - long single-line collapse:     "[Pasted text #N]" (NO "+M lines" suffix)
+//
+// The single-line collapse is a pure character-count threshold (empirically
+// >800 chars on Claude Code 2.1.215, INDEPENDENT of TUI width — verified at
+// 60/80/200 cols), NOT a wrap effect, so the suffix-less chip carries no line
+// count. The placeholder counts as a SUCCESSFUL echo (the paste demonstrably
+// reached the input buffer — the TUI only renders this chip for content it
+// accepted) — but ONLY when the paste is COLLAPSIBLE (see countProbeOccurrences /
+// chatSendCollapseMinRunes), and ONLY as a fresh occurrence vs the pre-paste
+// baseline (a stale chip from a prior send is in the baseline count).
 //
 // The pattern matches the WHITESPACE-STRIPPED capture (stripForProbe removes all
-// spaces), i.e. "[Pastedtext#1+12lines]", and is tolerant of singular/plural
-// "line"/"lines" and any digit counts.
-var pasteCollapseRe = regexp.MustCompile(`\[Pastedtext#\d+\+\d+lines?\]`)
+// whitespace — spaces, tabs, newlines, etc.), i.e. "[Pastedtext#1+12lines]" or
+// "[Pastedtext#5]"; the "+M lines" part
+// is optional and tolerant of singular/plural "line"/"lines" and any digit counts.
+var pasteCollapseRe = regexp.MustCompile(`\[Pastedtext#\d+(?:\+\d+lines?)?\]`)
 
 // sanitizeChatText strips terminal control bytes from a chat-send message before
 // it is pasted into the agent pane. Bracketed paste makes ordinary text inert, but
@@ -509,24 +531,27 @@ func chatProbeNeedle(text string) string {
 }
 
 // countProbeOccurrences counts how many times this paste's echo signal appears
-// in the pane capture: the raw needle occurrences PLUS, for multiline text only,
-// the paste-collapse placeholder occurrences. Both the capture and the needle
-// have ALL whitespace removed (stripForProbe) so a TUI wrap that inserts
-// spaces/newlines mid-fragment (or a leading prompt glyph on the wrapped row)
-// cannot defeat the match.
+// in the pane capture: the raw needle occurrences PLUS, when the paste is
+// COLLAPSIBLE, the paste-collapse placeholder occurrences. Both the capture and
+// the needle have ALL whitespace removed (stripForProbe) so a TUI wrap that
+// inserts spaces/newlines mid-fragment (or a leading prompt glyph on the wrapped
+// row) cannot defeat the match.
 //
 // The handler compares this count against a pre-paste BASELINE and requires a
 // strict increase, so a stale needle/placeholder already in-frame is a floor to
-// beat rather than a false positive. The multiline gate matters: a short/common
-// single-line needle ("y", "ok") could substring-match unrelated stale content,
-// but that content is in the baseline too — the caller's increase requirement,
-// not this counter, is what makes short needles fail closed against stale
-// content. The placeholder is only counted for multiline text because
-// single-line pastes never collapse into the chip.
-func countProbeOccurrences(capture, needle string, multiline bool) int {
+// beat rather than a false positive. The collapsible gate matters: `collapsible`
+// means the TUI may have collapsed THIS paste into a chip (multiline text, or a
+// single line long enough to collapse — chatSendCollapseMinRunes), so the chip is
+// a valid fresh-echo signal; a short single-line paste never collapses, so
+// counting the chip for it would only widen the concurrent-fresh-chip
+// false-positive window. A short/common single-line needle ("y", "ok") could
+// substring-match unrelated stale content, but that content is in the baseline
+// too — the caller's strict-increase requirement, not this counter, is what makes
+// short needles fail closed against stale content.
+func countProbeOccurrences(capture, needle string, collapsible bool) int {
 	stripped := stripForProbe(capture)
 	n := strings.Count(stripped, needle)
-	if multiline {
+	if collapsible {
 		n += len(pasteCollapseRe.FindAllString(stripped, -1))
 	}
 	return n

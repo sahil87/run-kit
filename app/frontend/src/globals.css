@@ -356,7 +356,7 @@ summary {
   pointer-events: none;
   background-image: repeating-linear-gradient(
     to bottom,
-    color-mix(in srgb, var(--rk-marker-color) 14%, transparent) 0 1px,
+    color-mix(in srgb, var(--rk-marker-color) 24%, transparent) 0 1px,
     transparent 1px 3px
   );
 }
@@ -364,37 +364,46 @@ summary {
 /* When a scanlined row is ALSO selected, the scanlines come alive: a slow
    downward crawl of the gradient period, plus an occasional CRT refresh band
    rolling top→bottom (a soft ~12px band via ::after). Static again when
-   deselected. Fully zeroed under prefers-reduced-motion (below). */
+   deselected. Fully zeroed under prefers-reduced-motion (below).
+
+   BOTH animations move background-position-y, NEVER transform: an animated
+   translateY range grows the compositor layer to cover the band's whole
+   travel (beyond the row box, ancestor clips ignored), and the HTML5
+   drag-ghost snapshot of a selected+double row then carries a sliver of the
+   neighboring row along with it. A background sweep cannot paint outside the
+   element's own box, so the drag image stays exactly the row. */
 @keyframes rk-scanline-crawl {
   from { background-position-y: 0; }
   to { background-position-y: 3px; } /* one gradient period */
 }
 .rk-scanlines-crawl::before {
-  animation: rk-scanline-crawl 1.4s linear infinite;
+  animation: rk-scanline-crawl 2.4s linear infinite;
 }
 @keyframes rk-scanline-band {
-  /* Rest phase then a single sweep: the band is parked above the row for most
-     of the cycle, then rolls through top→bottom. */
-  0%, 70% { transform: translateY(-100%); opacity: 0; }
-  72% { opacity: 1; }
-  100% { transform: translateY(1200%); opacity: 0.9; }
+  /* Rest phase then a single slow sweep: parked fully above the box (a
+     no-repeat background outside its area paints nothing) for most of the
+     cycle, then one top→bottom roll. 100% background-position-y is
+     (box - band) aligned, so +12px puts the band's top at the box bottom —
+     fully exited. */
+  0%, 60% { background-position-y: -12px; }
+  100% { background-position-y: calc(100% + 12px); }
 }
 .rk-scanlines-crawl::after {
   content: "";
   position: absolute;
-  left: 0;
-  right: 0;
-  top: 0;
-  height: 12px;
+  inset: 0;
   z-index: 6;
   pointer-events: none;
-  background: linear-gradient(
+  background-image: linear-gradient(
     to bottom,
     transparent,
     color-mix(in srgb, var(--rk-marker-color) 45%, transparent),
     transparent
   );
-  animation: rk-scanline-band 3.4s linear infinite;
+  background-repeat: no-repeat;
+  background-size: 100% 12px;
+  background-position-y: -12px;
+  animation: rk-scanline-band 7s linear infinite;
 }
 
 /* Reduced-motion gate — disable EVERY treatment above (Parts A and B). The

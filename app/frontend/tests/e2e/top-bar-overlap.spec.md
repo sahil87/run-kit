@@ -6,7 +6,7 @@ compress to an ellipsis and clip inside the nav box instead of overflowing and
 painting over the centered `Window: <name>` heading. Specifically, it proves the
 degradation ladder — long crumbs truncate (the `min-w-0` chain unblocks the
 existing `truncate max-w-[16ch]`), the breadcrumb `<nav>` clips residual overflow
-(`overflow-hidden` + an explicit `min-w-[76px] sm:min-w-[180px]` floor), the
+(`overflow-hidden` + an explicit `min-w-[46px] sm:min-w-[150px]` floor), the
 server crumb hides below `md` and reappears at `md+` (the hierarchy ▾ covers its
 navigation), and the center heading is never compressed into overlap (the center
 grid track's `min-w-0` was removed so the `auto` column holds its content floor,
@@ -66,7 +66,7 @@ at this width.
 ### `across the 375/640/700/768/1024 sweep the nav never overlaps the heading and the page never overflows horizontally`
 
 **What it proves:** The tunable-floor sweep (intake assumption #6): the explicit
-nav floor (`min-w-[76px] sm:min-w-[180px]`) plus `overflow-hidden` holds the
+nav floor (`min-w-[46px] sm:min-w-[150px]`) plus `overflow-hidden` holds the
 no-overlap invariant across the entire responsive band — not just at 700px —
 and no width in the band introduces horizontal page overflow. This is the
 harness that would surface a bad floor value (overlap → floor too small; page

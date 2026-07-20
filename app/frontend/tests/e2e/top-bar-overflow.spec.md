@@ -72,7 +72,7 @@ control row plus the always-present version row (c).
 1. At 375px open the `More controls` menu.
 2. Assert the Split vertical / Split horizontal / Fixed width (checkbox) / Close
    pane / Theme: / Refresh page / Help / Documentation rows are present, plus a
-   `Run Kit` version row.
+   `RunKit` version row.
 
 ### `the version row copies the version to the clipboard`
 
@@ -81,8 +81,8 @@ control row plus the always-present version row (c).
 **Steps:**
 1. Grant clipboard permissions; open the menu at 375px.
 2. Read the version row's text; click it.
-3. If the row shows `Run Kit v…` (a version was reported), assert the clipboard
-   holds the `v…` form; if it is the plain `Run Kit` (no version yet), the copy is
+3. If the row shows `RunKit v…` (a version was reported), assert the clipboard
+   holds the `v…` form; if it is the plain `RunKit` (no version yet), the copy is
    a no-op and the clipboard assertion is skipped.
 
 ### `a menu action (theme cycle) works from the menu`

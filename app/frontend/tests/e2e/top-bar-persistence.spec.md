@@ -67,13 +67,13 @@ and its route-derived center heading updates to the correct page each time,
 including the board heading rendered from the URL while the lazy chunk loads.
 
 **Steps:**
-1. `goto("/")`; assert the solo `Host` heading and the `Run Kit home` brand
+1. `goto("/")`; assert the solo `Host` heading and the `RunKit home` brand
    crumb are visible.
 2. Click the `default` server tile (scoped to the "Tmux servers" region). Assert
    URL `/default`, heading `tmux Server default`, brand crumb visible, and the
    previous `Host` heading is gone (count 0 — the mode is route-derived, not
    stacked).
-3. **(Reload boundary)** Click the `Run Kit home` brand crumb — a full document
+3. **(Reload boundary)** Click the `RunKit home` brand crumb — a full document
    reload, not client-side nav. Assert URL `/`, the persistent-layout chrome
    remounts with the `Host` heading, brand crumb visible, and the
    `tmux Server default` heading gone.

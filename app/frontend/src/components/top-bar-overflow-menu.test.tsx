@@ -56,7 +56,7 @@ describe("version-row check affordance (260720-ml7k)", () => {
   it("renders the ⟳ 'Check for updates' button on the resting version row", () => {
     renderMenu({ daemonVersion: "0.6.2", updateAvailable: null });
     const menu = openMenu();
-    expect(within(menu).getByText("Run Kit v0.6.2")).toBeInTheDocument();
+    expect(within(menu).getByText("RunKit v0.6.2")).toBeInTheDocument();
     const check = within(menu).getByLabelText("Check for updates");
     expect(check).toBeInTheDocument();
     expect(check).toHaveAttribute("title", "Check for updates");
@@ -68,14 +68,14 @@ describe("version-row check affordance (260720-ml7k)", () => {
   it("renders the affordance before any version event (null daemonVersion counts as non-dev)", () => {
     renderMenu({ daemonVersion: null, updateAvailable: null });
     const menu = openMenu();
-    expect(within(menu).getByText("Run Kit")).toBeInTheDocument();
+    expect(within(menu).getByText("RunKit")).toBeInTheDocument();
     expect(within(menu).getByLabelText("Check for updates")).toBeInTheDocument();
   });
 
   it("hides the affordance on the dev sentinel — a dev daemon never checks", () => {
     renderMenu({ daemonVersion: "dev", updateAvailable: null });
     const menu = openMenu();
-    expect(within(menu).getByText("Run Kit dev")).toBeInTheDocument();
+    expect(within(menu).getByText("RunKit dev")).toBeInTheDocument();
     expect(within(menu).queryByLabelText("Check for updates")).not.toBeInTheDocument();
   });
 
@@ -140,7 +140,7 @@ describe("version-row check affordance (260720-ml7k)", () => {
     );
     expect(screen.getByTestId("overflow-attention")).toBeInTheDocument();
     const menu = openMenu();
-    expect(within(menu).getByText("Run Kit v0.5.3 → v0.6.0 ⬆")).toBeInTheDocument();
+    expect(within(menu).getByText("RunKit v0.5.3 → v0.6.0 ⬆")).toBeInTheDocument();
     expect(within(menu).queryByLabelText("Check for updates")).not.toBeInTheDocument();
   });
 
@@ -159,7 +159,7 @@ describe("version-row check affordance (260720-ml7k)", () => {
     // Dismissal silences ambient chrome: no attention badge.
     expect(screen.queryByTestId("overflow-attention")).not.toBeInTheDocument();
     const menu = openMenu();
-    expect(within(menu).getByText("Run Kit v0.5.3 → v0.6.0 ⬆")).toBeInTheDocument();
+    expect(within(menu).getByText("RunKit v0.5.3 → v0.6.0 ⬆")).toBeInTheDocument();
     expect(within(menu).queryByLabelText("Check for updates")).not.toBeInTheDocument();
   });
 
@@ -173,7 +173,7 @@ describe("version-row check affordance (260720-ml7k)", () => {
     );
     expect(screen.queryByTestId("overflow-attention")).not.toBeInTheDocument();
     const menu = openMenu();
-    expect(within(menu).getByText("Run Kit v0.5.3")).toBeInTheDocument();
+    expect(within(menu).getByText("RunKit v0.5.3")).toBeInTheDocument();
     expect(within(menu).queryByText(/⬆/)).not.toBeInTheDocument();
     expect(within(menu).getByLabelText("Check for updates")).toBeInTheDocument();
   });

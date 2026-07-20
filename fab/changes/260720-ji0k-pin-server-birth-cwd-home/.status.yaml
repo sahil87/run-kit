@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 10
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-07-20T16:25:16Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-20T16:29:15Z"}
     hydrate: {started_at: "2026-07-20T16:29:15Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-20T16:34:37Z"}
     ship: {started_at: "2026-07-20T16:34:37Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-20T16:36:14Z"}
-    review-pr: {started_at: "2026-07-20T16:36:14Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-07-20T16:36:14Z", driver: git-pr, iterations: 1, completed_at: "2026-07-20T16:43:31Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/429
 true_impact:
@@ -53,4 +53,4 @@ true_impact:
     computed_at_stage: ship
 summary: Pin rk-birthed tmux server CWD to $HOME (fallback /) at all four birth seams — daemon startSession, CreateSession, tmuxctl createAnchor (+env sanitization), board.go Pin -c — via shared tmux.ServerBirthDir(); defends tmux 3.7 dead-server-CWD pane breakage
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-07-20T16:36:14Z
+last_updated: 2026-07-20T16:43:31Z

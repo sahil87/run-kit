@@ -327,7 +327,14 @@ func Pin(ctx context.Context, server, windowID, board string) error {
 	// window as the session's sole window. Capturing the placeholder ID (rather
 	// than assuming index 0) is robust to base-index config and to the linked
 	// window's landing index.
-	if _, err := tmuxExecServer(ctx, server, "new-session", "-d", "-s", pinSession); err != nil {
+	//
+	// `-c ServerBirthDir()` anchors the pin-session's session_path to the
+	// operator's home (fallback "/") so it never dangles. Without it the path
+	// defaults to the tmux SERVER's own CWD, which can be a deleted directory.
+	// This is session_path hygiene on an already-live server — distinct from
+	// the cmd.Dir server-birth pins (the server exists by Pin time), hence the
+	// tmux `-c` flag rather than an exec working-directory override.
+	if _, err := tmuxExecServer(ctx, server, "new-session", "-d", "-s", pinSession, "-c", ServerBirthDir()); err != nil {
 		return fmt.Errorf("create pin session: %w", err)
 	}
 	placeholderLines, err := tmuxExecServer(ctx, server, "list-windows", "-t", ExactSessionTarget(pinSession), "-F", "#{window_id}")

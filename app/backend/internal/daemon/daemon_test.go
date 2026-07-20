@@ -6,9 +6,12 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"rk/internal/tmux"
 )
 
 // testSocketName builds a unified test socket name: rk-test-<role>-<pid>-<ns>.
@@ -755,5 +758,91 @@ func TestRestart_WhenRunning(t *testing.T) {
 	}
 	if !isRunningOn(testSocket) {
 		t.Error("isRunningOn() = false after restart")
+	}
+}
+
+// sessionPathOn reads #{session_path} for an exact-match session on the
+// daemon socket (which withServerSocket points at the test socket).
+func sessionPathOn(t *testing.T, session string) string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
+	defer cancel()
+	out, err := runTmuxOutput(ctx, "display-message", "-t", "="+session+":", "-p", "#{session_path}")
+	if err != nil {
+		t.Fatalf("read session_path of %q: %v", session, err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// resolveSymlinks normalizes a path for comparison with tmux-reported paths
+// (tmux records the client's physical getcwd; $HOME / TempDir may be symlinked).
+func resolveSymlinks(t *testing.T, path string) string {
+	t.Helper()
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(%q): %v", path, err)
+	}
+	return resolved
+}
+
+// TestRunTmuxInDir_SetsClientCwd proves the dir-carrying runTmux variant
+// (change 260720-ji0k) actually runs the tmux client from the given directory:
+// a new-session created through it (no -c) records that directory as its
+// session_path.
+func TestRunTmuxInDir_SetsClientCwd(t *testing.T) {
+	if !hasTmux() {
+		t.Skip("tmux not in PATH")
+	}
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	useTestSocket(t)
+	withServerSocket(t, testSocket)
+
+	dir := t.TempDir()
+	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
+	defer cancel()
+	if err := runTmuxInDir(ctx, dir, "new-session", "-d", "-s", "cwdtest", "sleep", "300"); err != nil {
+		t.Fatalf("runTmuxInDir new-session: %v", err)
+	}
+
+	got := resolveSymlinks(t, sessionPathOn(t, "cwdtest"))
+	want := resolveSymlinks(t, dir)
+	if got != want {
+		t.Errorf("session_path = %q, want %q (runTmuxInDir must run the client from dir)", got, want)
+	}
+}
+
+// TestStartSession_BirthCwdIsHome proves the daemon server-birth pin (change
+// 260720-ji0k): startSession births the rk-daemon tmux server with the client
+// CWD anchored to tmux.ServerBirthDir(), so the daemon session's start dir is
+// the operator's home — NOT wherever the rk process happens to run (this test
+// binary runs from the package dir, so a missing pin fails the assertion).
+func TestStartSession_BirthCwdIsHome(t *testing.T) {
+	if !hasTmux() {
+		t.Skip("tmux not in PATH")
+	}
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	useTestSocket(t)
+	withServerSocket(t, testSocket)
+
+	// A fake serve binary that just stays alive: startSession runs `<exe> serve`,
+	// and the session (and with it the birthed server) must survive long enough
+	// to be inspected.
+	script := filepath.Join(t.TempDir(), "fake-serve")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nsleep 300\n"), 0o755); err != nil {
+		t.Fatalf("write fake serve script: %v", err)
+	}
+
+	if err := startSession(script); err != nil {
+		t.Fatalf("startSession: %v", err)
+	}
+
+	got := resolveSymlinks(t, sessionPathOn(t, SessionName))
+	want := resolveSymlinks(t, tmux.ServerBirthDir())
+	if got != want {
+		t.Errorf("daemon session_path = %q, want %q (server birth must be anchored to home)", got, want)
 	}
 }

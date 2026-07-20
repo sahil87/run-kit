@@ -6,10 +6,14 @@ import (
 	"errors"
 	"io"
 	"os/exec"
+	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"rk/internal/tmux"
 )
 
 // recordingSink captures sink callbacks for assertions.
@@ -452,5 +456,45 @@ func TestClient_DispatchOrderPreserved(t *testing.T) {
 	}
 	if sink.winAdd[0].WindowID != "@1" || sink.winAdd[1].WindowID != "@2" || sink.winAdd[2].WindowID != "@3" {
 		t.Fatalf("order not preserved: %+v", sink.winAdd)
+	}
+}
+
+// TestAnchorCommand pins the server-birth hygiene of createAnchor's
+// new-session (change 260720-ji0k): the built exec must carry cmd.Dir =
+// tmux.ServerBirthDir() and a tmux.CleanEnvForServer()-sanitized environment
+// (no RK_*/DIRENV_* vars), while preserving the load-bearing stderr capture
+// (isDuplicateSessionError reads the folded stderr text — 260602-a1wo) and the
+// exact argv shape.
+func TestAnchorCommand(t *testing.T) {
+	// Sentinels that MUST be stripped by the sanitized environment.
+	t.Setenv("RK_TEST_SENTINEL", "leak")
+	t.Setenv("DIRENV_TEST_SENTINEL", "leak")
+
+	cmd, stderr := anchorCommand(context.Background(), "sock1")
+
+	if want := tmux.ServerBirthDir(); cmd.Dir != want {
+		t.Errorf("cmd.Dir = %q, want %q (server-birth CWD pin)", cmd.Dir, want)
+	}
+	if cmd.Env == nil {
+		t.Fatal("cmd.Env = nil, want sanitized environment (tmux.CleanEnvForServer)")
+	}
+	for _, e := range cmd.Env {
+		if strings.HasPrefix(e, "RK_") || strings.HasPrefix(e, "DIRENV_") {
+			t.Errorf("sanitized env leaked %q", e)
+		}
+	}
+	if cmd.Stderr != stderr {
+		t.Error("returned stderr buffer is not wired as cmd.Stderr (isDuplicateSessionError depends on it)")
+	}
+	wantArgs := []string{"tmux", "-L", "sock1", "new-session", "-d", "-s", tmux.ControlAnchorSessionName}
+	if !slices.Equal(cmd.Args, wantArgs) {
+		t.Errorf("cmd.Args = %v, want %v", cmd.Args, wantArgs)
+	}
+
+	// The default socket omits -L (same branch createAnchor always had).
+	cmdDefault, _ := anchorCommand(context.Background(), "default")
+	wantDefault := []string{"tmux", "new-session", "-d", "-s", tmux.ControlAnchorSessionName}
+	if !slices.Equal(cmdDefault.Args, wantDefault) {
+		t.Errorf("default-socket cmd.Args = %v, want %v", cmdDefault.Args, wantDefault)
 	}
 }

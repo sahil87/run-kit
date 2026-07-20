@@ -556,22 +556,9 @@ func matchesServerDeadText(s string) bool {
 }
 
 func createAnchor(ctx context.Context, socket string) error {
-	args := []string{}
-	if socket != "default" && socket != "" {
-		args = append(args, "-L", socket)
-	}
-	args = append(args, "new-session", "-d", "-s", tmux.ControlAnchorSessionName)
 	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(cctx, "tmux", args...)
-	// Capture stderr and fold it into the returned error. cmd.Run() (unlike
-	// cmd.Output()) does NOT populate ExitError.Stderr, so without this the
-	// "duplicate session: _rk-ctl" text tmux prints on the concurrent-rk race
-	// would be invisible to isDuplicateSessionError, and the now-reachable
-	// always-create path (resolveBootstrap) would treat the benign race as a
-	// hard failure. Change: 260602-a1wo-prevent-exit-empty-server-death.
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
+	cmd, stderr := anchorCommand(cctx, socket)
 	if err := cmd.Run(); err != nil {
 		if msg := strings.TrimSpace(stderr.String()); msg != "" {
 			return fmt.Errorf("%w: %s", err, msg)
@@ -579,6 +566,42 @@ func createAnchor(ctx context.Context, socket string) error {
 		return err
 	}
 	return nil
+}
+
+// anchorCommand builds the `new-session` exec that creates the `_rk-ctl`
+// anchor. Although resolveBootstrap's probe-first ordering means createAnchor
+// only ever JOINS an already-running server in practice (change 260602-poka),
+// `new-session` remains birth-CAPABLE — so the command carries the same
+// server-birth hygiene as tmux.CreateSession, closing both asymmetries with
+// that path (change 260720-ji0k):
+//
+//   - cmd.Dir is pinned to tmux.ServerBirthDir() (home, fallback "/") so a
+//     server this call ever births never inherits rk's own — possibly
+//     later-deleted — CWD (a tmux server keeps its first client's CWD for
+//     life; a dead server CWD silently breaks `-c` on tmux 3.7).
+//   - cmd.Env is routed through tmux.CleanEnvForServer() so a born server
+//     carries the operator's from-home environment (direnv reversed, RK_*/
+//     DIRENV_* stripped) instead of rk's polluted one.
+//
+// The returned stderr buffer is wired as cmd.Stderr and MUST be folded into
+// the returned error by the caller: cmd.Run() (unlike cmd.Output()) does NOT
+// populate ExitError.Stderr, so without this the "duplicate session: _rk-ctl"
+// text tmux prints on the concurrent-rk race would be invisible to
+// isDuplicateSessionError, and the always-create path (resolveBootstrap) would
+// treat the benign race as a hard failure. Change:
+// 260602-a1wo-prevent-exit-empty-server-death.
+func anchorCommand(ctx context.Context, socket string) (*exec.Cmd, *bytes.Buffer) {
+	args := []string{}
+	if socket != "default" && socket != "" {
+		args = append(args, "-L", socket)
+	}
+	args = append(args, "new-session", "-d", "-s", tmux.ControlAnchorSessionName)
+	cmd := exec.CommandContext(ctx, "tmux", args...)
+	cmd.Dir = tmux.ServerBirthDir()
+	cmd.Env = tmux.CleanEnvForServer()
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	return cmd, &stderr
 }
 
 func setAnchorKeepalive(ctx context.Context, socket string) error {

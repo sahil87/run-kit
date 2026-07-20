@@ -1077,14 +1077,25 @@ func ListActiveWindowsByGroup(ctx context.Context, server string) (map[string]st
 // CreateSession creates a new detached tmux session on the specified server,
 // optionally in a specific directory.
 //
-// Because new-session may start the tmux server process, the command runs with
-// a sanitized environment (see sanitizeEnv): direnv's DIRENV_DIFF is
-// reverse-applied so the server is born with the operator's from-home
-// environment, and rk-owned (RK_*) and direnv-state (DIRENV_*) vars are
-// stripped. Without this, a server first-touched by the rk daemon inherits
-// run-kit's direnv-polluted environment (WORKTREE_INIT_SCRIPT, IDEAS_FILE,
-// RK_PORT/RK_HOST, RK_DAEMON_LOG, a direnv-mangled PATH), leaking run-kit's
-// project config into unrelated repos.
+// Because new-session may start the tmux server process, the command runs "as
+// if the user had started tmux from $HOME" — on both halves of that contract:
+//
+//   - Environment (see sanitizeEnv): direnv's DIRENV_DIFF is reverse-applied so
+//     the server is born with the operator's from-home environment, and
+//     rk-owned (RK_*) and direnv-state (DIRENV_*) vars are stripped. Without
+//     this, a server first-touched by the rk daemon inherits run-kit's
+//     direnv-polluted environment (WORKTREE_INIT_SCRIPT, IDEAS_FILE,
+//     RK_PORT/RK_HOST, RK_DAEMON_LOG, a direnv-mangled PATH), leaking run-kit's
+//     project config into unrelated repos.
+//   - Working directory (see ServerBirthDir): the exec runs with cmd.Dir pinned
+//     to the operator's home, so a server this call births never inherits rk's
+//     own CWD. A tmux server keeps the CWD of the process that first touches
+//     its socket for its whole life; inheriting rk's CWD (often a git worktree
+//     that is later deleted) parks the server on a dead inode — on tmux 3.7 the
+//     server-side chdir guard (`getcwd` in spawn.c) then fails and every new
+//     pane silently ignores its `-c` path. The explicit cwd argument still
+//     lands as `-c` on the session itself; the Dir pin anchors only the server
+//     process and the session's default start dir.
 func CreateSession(name string, cwd string, server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
@@ -1097,16 +1108,19 @@ func CreateSession(name string, cwd string, server string) error {
 	}
 
 	full := append(serverArgs(server), args...)
-	return runTmuxWithEnv(ctx, full, cleanEnvForServer())
+	return runTmuxWithEnv(ctx, full, CleanEnvForServer(), ServerBirthDir())
 }
 
-// runTmuxWithEnv executes a tmux command with an optional environment override,
-// capturing stderr for diagnostics.
-func runTmuxWithEnv(ctx context.Context, args []string, env []string) error {
+// runTmuxWithEnv executes a tmux command with an optional environment override
+// and an optional working-directory override (empty dir inherits the process
+// CWD), capturing stderr for diagnostics. Server-birth-capable invocations pass
+// ServerBirthDir() so the born server never sits on rk's own CWD.
+func runTmuxWithEnv(ctx context.Context, args []string, env []string, dir string) error {
 	cmd := exec.CommandContext(ctx, "tmux", args...)
 	if env != nil {
 		cmd.Env = env
 	}
+	cmd.Dir = dir
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
@@ -1118,15 +1132,33 @@ func runTmuxWithEnv(ctx context.Context, args []string, env []string) error {
 	return nil
 }
 
+// ServerBirthDir returns the working directory every rk-birthed tmux server
+// (and rk-created pin-session) is anchored to: the operator's home directory,
+// falling back to "/" when the home cannot be resolved. "/" always exists and
+// can never dangle — mirroring tmux ≤ 3.6a's own child-side fallback chain
+// (target → $HOME → /). $HOME is what a login-shell-started tmux would give,
+// so it is the least-surprising stable anchor. Shared by CreateSession,
+// board.go's pin-session create, daemon.startSession, and
+// tmuxctl.createAnchor.
+func ServerBirthDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return "/"
+	}
+	return home
+}
+
 // cleanPATH is the POSIX default PATH used only as a last-resort guard when the
 // sanitized environment carries no PATH at all (see sanitizeEnv). It is no
 // longer an unconditional reset — the direnv-reversed environment carries the
 // operator's true from-home PATH.
 const cleanPATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
-// cleanEnvForServer returns a sanitized copy of the current environment for a
-// user-facing tmux server rk is about to birth. See sanitizeEnv.
-func cleanEnvForServer() []string {
+// CleanEnvForServer returns a sanitized copy of the current environment for a
+// tmux server rk is about to birth. See sanitizeEnv. Exported so every
+// birth-capable seam shares one sanitization (CreateSession here;
+// tmuxctl.createAnchor cross-package).
+func CleanEnvForServer() []string {
 	return sanitizeEnv(os.Environ())
 }
 

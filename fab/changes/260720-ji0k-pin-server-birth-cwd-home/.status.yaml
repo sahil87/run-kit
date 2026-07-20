@@ -1,0 +1,56 @@
+id: ji0k
+name: 260720-ji0k-pin-server-birth-cwd-home
+created: 2026-07-20T16:08:01Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 10
+    acceptance_count: 12
+    acceptance_completed: 12
+confidence:
+    certain: 6
+    confident: 3
+    tentative: 0
+    unresolved: 0
+    score: 4.8
+    fuzzy: true
+    dimensions:
+        signal: 85.0
+        reversibility: 82.2
+        competence: 88.3
+        disambiguation: 82.2
+stage_metrics:
+    intake: {started_at: "2026-07-20T16:08:01Z", driver: fab-new, iterations: 1, completed_at: "2026-07-20T16:12:42Z"}
+    apply: {started_at: "2026-07-20T16:12:42Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-20T16:25:16Z"}
+    review: {started_at: "2026-07-20T16:25:16Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-20T16:29:15Z"}
+    hydrate: {started_at: "2026-07-20T16:29:15Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-20T16:34:37Z"}
+    ship: {started_at: "2026-07-20T16:34:37Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-20T16:36:14Z"}
+    review-pr: {started_at: "2026-07-20T16:36:14Z", driver: git-pr, iterations: 1, completed_at: "2026-07-20T16:43:31Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/429
+true_impact:
+    added: 714
+    deleted: 37
+    net: 677
+    excluding:
+        added: 346
+        deleted: 31
+        net: 315
+    tests:
+        added: 229
+        deleted: 0
+        net: 229
+    computed_at: "2026-07-20T16:36:14Z"
+    computed_at_stage: ship
+summary: Pin rk-birthed tmux server CWD to $HOME (fallback /) at all four birth seams — daemon startSession, CreateSession, tmuxctl createAnchor (+env sanitization), board.go Pin -c — via shared tmux.ServerBirthDir(); defends tmux 3.7 dead-server-CWD pane breakage
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-07-20T16:43:31Z

@@ -1,0 +1,16 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-20T16:08:01Z"}
+{"args":"Pin rk-birthed tmux server CWD to $HOME — servers inherit rk serve's CWD (often a later-deleted worktree); on tmux 3.7 a dead server CWD silently breaks every new pane's -c handling (getcwd guard in spawn.c); pin cmd.Dir at the four server-birth/new-session seams (daemon startSession, tmux CreateSession, tmuxctl createAnchor, board pin-session -c) plus route createAnchor env through cleanEnvForServer","cmd":"fab-new","event":"command","ts":"2026-07-20T16:08:01Z"}
+{"delta":"+0.0","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-07-20T16:09:22Z"}
+{"delta":"+0.0","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-07-20T16:10:19Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-07-20T16:11:11Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-20T16:12:11Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-20T16:12:42Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-20T16:13:27Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-20T16:25:16Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-20T16:29:15Z"}
+{"event":"review","result":"passed","ts":"2026-07-20T16:29:15Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-20T16:29:42Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-20T16:34:37Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-07-20T16:36:14Z"}
+{"cmd":"git-pr-review","event":"command","ts":"2026-07-20T16:37:30Z"}
+{"event":"review","result":"passed","ts":"2026-07-20T16:43:31Z"}

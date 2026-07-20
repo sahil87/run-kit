@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"rk/internal/config"
+	"rk/internal/tmux"
 )
 
 const (
@@ -89,8 +90,19 @@ var stopPollInterval = 200 * time.Millisecond
 
 // runTmux executes a tmux command on the daemon server, capturing stderr for diagnostics.
 func runTmux(ctx context.Context, args ...string) error {
+	return runTmuxInDir(ctx, "", args...)
+}
+
+// runTmuxInDir is runTmux with a working-directory override for the tmux
+// client process (empty dir inherits the daemon's own CWD, preserving
+// runTmux's historical behavior). Server-birth-capable invocations
+// (startSession's new-session, which starts the rk-daemon tmux server) pass
+// tmux.ServerBirthDir() so the born server — which keeps its first client's
+// CWD for life — never sits on rk's own, possibly-later-deleted, CWD.
+func runTmuxInDir(ctx context.Context, dir string, args ...string) error {
 	fullArgs := append([]string{"-L", serverSocket}, args...)
 	cmd := exec.CommandContext(ctx, "tmux", fullArgs...)
+	cmd.Dir = dir
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
@@ -290,6 +302,18 @@ func StartWithBinary(binPath string) error {
 // output to a durable log file (read by cmd/rk/serve.go). On UserCacheDir
 // failure we proceed without the env var — file logging is best-effort and
 // MUST NOT block daemon creation.
+//
+// The new-session runs with its working directory pinned to
+// tmux.ServerBirthDir() (home, fallback "/"): this call BIRTHS the rk-daemon
+// tmux server, and a tmux server keeps the CWD of the process that first
+// touches its socket for its whole life. Without the pin the server inherits
+// wherever the user ran `rk daemon start` — often a git worktree that is later
+// deleted, leaving the server on a dead inode (on tmux 3.7 that silently
+// breaks `-c` for every new pane). This is the highest-leverage pin: the inner
+// `rk serve` runs inside this session, so its own CWD (home, via the session's
+// default start dir) is what every later server birth would inherit. `rk
+// serve` is CWD-independent (config is env-only, exe is absolute), so running
+// it from home is safe.
 func startSession(exe string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
 	defer cancel()
@@ -302,7 +326,7 @@ func startSession(exe string) error {
 
 	// Create a detached tmux session that runs the resolved binary directly.
 	// When the serve process exits, the session closes automatically.
-	if err := runTmux(ctx, args...); err != nil {
+	if err := runTmuxInDir(ctx, tmux.ServerBirthDir(), args...); err != nil {
 		return fmt.Errorf("creating tmux session: %w", err)
 	}
 

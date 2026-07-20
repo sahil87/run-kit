@@ -2363,3 +2363,75 @@ func TestSetChatSendBuffer_LeadingDash(t *testing.T) {
 		})
 	}
 }
+
+func TestServerBirthDir(t *testing.T) {
+	t.Run("resolvable home", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Setenv("HOME", dir)
+		if got := ServerBirthDir(); got != dir {
+			t.Errorf("ServerBirthDir() = %q, want %q", got, dir)
+		}
+	})
+	t.Run("unresolvable home falls back to root", func(t *testing.T) {
+		// An empty $HOME makes os.UserHomeDir error on unix; the fallback must
+		// be "/" (always exists, can never dangle) — never an empty string,
+		// which would silently no-op the cmd.Dir / -c pins.
+		t.Setenv("HOME", "")
+		if got := ServerBirthDir(); got != "/" {
+			t.Errorf("ServerBirthDir() with empty HOME = %q, want %q", got, "/")
+		}
+	})
+}
+
+// sessionPathOf reads #{session_path} for one session on the given server.
+func sessionPathOf(t *testing.T, server, session string) string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, err := tmuxExecRawServer(ctx, server, "display-message", "-t", ExactSessionTarget(session), "-p", "#{session_path}")
+	if err != nil {
+		t.Fatalf("read session_path of %q: %v", session, err)
+	}
+	return strings.TrimSpace(out)
+}
+
+// mustEvalSymlinks resolves symlinks so paths reported by tmux (which records
+// the client's getcwd, i.e. the resolved physical path) compare equal to a
+// possibly-symlinked $HOME (e.g. macOS /var → /private/var temp dirs).
+func mustEvalSymlinks(t *testing.T, path string) string {
+	t.Helper()
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(%q): %v", path, err)
+	}
+	return resolved
+}
+
+// TestCreateSession_ServerBirthCwdIsHome proves the server-birth CWD pin
+// (change 260720-ji0k): CreateSession first-touching a fresh socket births the
+// tmux server from ServerBirthDir(), so — with no explicit -c — the session's
+// start dir is the operator's home, NOT the rk process's own CWD (this test
+// binary runs from the package dir, so a missing pin fails the assertion).
+func TestCreateSession_ServerBirthCwdIsHome(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available — skipping integration test")
+	}
+	server := testSocketName("unit")
+	t.Cleanup(func() {
+		killCtx, cancelKill := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancelKill()
+		_ = exec.CommandContext(killCtx, "tmux", "-L", server, "kill-server").Run()
+	})
+
+	// Empty cwd: no -c is passed, so the session_path exposes the birthing
+	// client's working directory — exactly the pin under test.
+	if err := CreateSession("birth", "", server); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	got := mustEvalSymlinks(t, sessionPathOf(t, server, "birth"))
+	want := mustEvalSymlinks(t, ServerBirthDir())
+	if got != want {
+		t.Errorf("session_path = %q, want %q (server birth must be anchored to home, not rk's CWD)", got, want)
+	}
+}

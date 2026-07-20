@@ -819,3 +819,27 @@ func TestEmptyBoardVanishesOnLastUnpin(t *testing.T) {
 		}
 	}
 }
+
+// TestPin_PinSessionPathIsHome proves the pin-session session_path hygiene
+// (change 260720-ji0k): the `_rk-pin-*` session is created with
+// `-c ServerBirthDir()`, so its session_path is the operator's home — not the
+// live tmux SERVER's own CWD (the board test server is birthed from the
+// package dir, so a missing -c fails the assertion).
+func TestPin_PinSessionPathIsHome(t *testing.T) {
+	server := withBoardTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	wid := createHomeWindow(t, server, "home", "agent")
+	pin, _ := PinSessionName(wid)
+
+	if err := Pin(ctx, server, wid, "main"); err != nil {
+		t.Fatalf("Pin: %v", err)
+	}
+
+	got := mustEvalSymlinks(t, sessionPathOf(t, server, pin))
+	want := mustEvalSymlinks(t, ServerBirthDir())
+	if got != want {
+		t.Errorf("pin session_path = %q, want %q (must never dangle)", got, want)
+	}
+}

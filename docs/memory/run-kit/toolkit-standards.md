@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "run-kit's shll-toolkit-standards conformance posture — constitution binding (§ Toolkit Standards), audit-against-HEAD-build rule, per-standard status. help-dump, readme-extraction, skill, all ten principles, plus `update` + `version` all PASS. skill topic pages (`rk skill display`), `rk context` retired for `rk url`, Principle 9 caps via `--quiet` + reaper cap; brew mutations use generous bounds + SIGTERM-with-grace (`newBrewCmd`), read-only queries fast-fail; `displayVersion` pinned."
+description: "run-kit's shll-toolkit-standards conformance posture — constitution binding (§ Toolkit Standards), audit-against-HEAD-build rule, per-standard status. help-dump, readme-extraction, skill, ten principles, update, version PASS. skill topic pages, `rk context` retired for `rk url`, Principle 9 `--quiet`/reaper caps, brew mutations SIGTERM-with-grace (`newBrewCmd`). install-composition Policy B (docs half) PASS — install docs centralized to shll.ai; Policy A binary half unaudited."
 ---
 # Toolkit Standards Conformance
 
@@ -349,6 +349,81 @@ shape shll actually parses), `"v1.2.3"` passthrough, and the `"dev"` sentinel
 passthrough (no `"vdev"`) — so the release-shape path (the one shll parses in
 production) is pinned, not just the `dev` sentinel. See
 [architecture](/run-kit/architecture.md) § Version Management.
+
+## `install-composition` Standard
+
+The `install-composition` standard (`shll standards install-composition`,
+authoritative at `sahil87/shll` `docs/site/standards/install-composition.md`,
+rendered on https://shll.ai) is a separate **binary+repo** standard from the six
+above, audited @ **`shll v0.1.12`**. It has two halves: **Policy A** (no
+inter-tool Homebrew dependencies; a sibling invoked at runtime is *probed*, never
+assumed, and degrades with an actionable install hint) and **Policy B** (install
+*documentation* is centralized on shll.ai — per-tool READMEs and doc pages MUST
+NOT carry per-formula `brew install sahil87/tap/<tool>` install *instructions*;
+they point at the curl bootstrap `curl -fsSL https://shll.ai/install | sh` and
+`shll install <tool>` for subsets). Policy A binds all seven tap formulas + every
+sibling-invoking binary; Policy B binds the six roster-tool repos + the tap
+README. Individual formula installs remain *supported* — only *documenting* them
+per-repo is prohibited, so no install behavior changes.
+(`260720-ec6i-install-docs-policy-b`.)
+
+### Requirement: Install documentation carries no per-formula brew instructions (Policy B)
+run-kit's install *documentation* — `README.md` and `docs/site/`, the pages the
+shll.ai site extracts — MUST NOT carry per-formula `brew install sahil87/tap/…`
+install instructions, and MUST NOT reference the retired `sahil87/tap/all`
+meta-formula. Install guidance points to the centralized shll.ai bootstrap
+(`curl -fsSL https://shll.ai/install | sh`, subset `sh -s -- run-kit`) and, for
+sibling-tool prerequisites, `shll install <tool>` + a https://shll.ai link.
+(`260720-ec6i-install-docs-policy-b`.)
+
+### install-composition — Policy B (docs half) PASS
+The docs half now passes: an audit grep (`grep -rn -iE 'brew install|sahil87/tap'
+README.md docs/site/`) returns zero hits. The centralization landed as five
+edits, matching the wording already shipped in the conformant sibling READMEs
+(wt/hop/idea/tu):
+
+- **`README.md`** — the Install section's per-formula escape-hatch sentence
+  ("Prefer plain Homebrew? `brew install sahil87/tap/run-kit` …") removed (both
+  curl bootstrap blocks kept); the Quick-start `wt`-prereq fragment switched to
+  `shll install wt`; the Troubleshooting *"wt not found"* entry re-pointed to
+  `shll install wt` + a https://shll.ai link (the entry itself stays — it is
+  doc-carried install guidance, not the Policy-A binary hint).
+- **`docs/site/install.md`** — the "run-kit ships as a Homebrew formula" lead-in +
+  `brew install sahil87/tap/run-kit` block replaced by the shll.ai bootstrap
+  lead-in + curl block (PATH sentence spliced in, heading structure preserved so
+  shll.ai extraction anchors are unaffected); the Prerequisites `wt` bullet
+  switched to the full-toolkit shll.ai link + `shll install wt`.
+- **Retired `all` meta-formula** — both `sahil87/tap/all` references (README
+  Troubleshooting + install.md Prerequisites) removed; the standard's Precedent
+  states it "is retired in favor of `shll install`".
+
+**Explicitly out of scope (KEPT).** The curl bootstrap blocks are the
+centralized pointer, not per-formula instructions — kept inline. Upgrade/update
+prose (`run-kit update` Homebrew behavior), the README toolkit banner +
+command-reference links, `docs/site/skill.md`'s gating instruction, and
+historical references in `fab/changes/` / `docs/memory/` / changelogs are
+behavior/pointer/history, not install instructions — untouched. Docs-only
+change: no source, tests, or API surface touched.
+
+### Requirement: Policy A's binary half was NOT audited in this docs-only change
+Policy A (probe siblings at runtime + emit an actionable per-formula install
+hint) is a **binary-surface** requirement — distinct from Policy B's docs half —
+and was **out of scope** here. The change did not audit sibling-probe coverage or
+the binary error hints. The illustrative case: `app/backend/cmd/rk/upgrade.go`
+prints `brew install sahil87/tap/run-kit` on a non-brew install — a hint Policy A
+*mandates* in binary output and Policy B does *not* prohibit (Policy B binds
+docs, not binary output). It was left untouched, and its conformance is unclaimed
+here — a future Policy-A audit is the baseline this entry defers.
+(`260720-ec6i-install-docs-policy-b`.)
+
+#### Scenario: An audit grep over the install docs finds no per-formula brew line
+- **GIVEN** `README.md` + `docs/site/` after the change
+- **WHEN** `grep -rn -iE 'brew install|sahil87/tap' README.md docs/site/` runs
+- **THEN** it returns zero hits (the docs point to the shll.ai bootstrap +
+  `shll install <tool>`, and no `sahil87/tap/all` reference remains)
+- **AND** the Policy-A binary hint in `app/backend/cmd/rk/upgrade.go` still prints
+  `brew install sahil87/tap/run-kit` on a non-brew install — untouched and
+  unaudited, since Policy B binds docs, not binary output
 
 ## Design Decisions
 

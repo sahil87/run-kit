@@ -1,0 +1,13 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-20T07:30:16Z"}
+{"args":"Conform install documentation to shll toolkit install-composition standard Policy B: replace per-formula brew install instructions in README.md and docs/site/ with shll.ai pointer","cmd":"fab-new","event":"command","ts":"2026-07-20T07:30:16Z"}
+{"delta":"+4.9","event":"confidence","score":4.9,"trigger":"calc-score","ts":"2026-07-20T07:32:09Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-20T07:34:00Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-20T07:34:08Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-20T07:35:19Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-20T07:37:07Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-20T07:39:19Z"}
+{"event":"review","result":"passed","ts":"2026-07-20T07:39:19Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-20T07:43:05Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-07-20T07:45:10Z"}
+{"cmd":"git-pr-review","event":"command","ts":"2026-07-20T07:46:29Z"}
+{"event":"review","result":"passed","ts":"2026-07-20T07:55:56Z"}

@@ -940,12 +940,13 @@ describe("WindowRow", () => {
       const { container } = renderAxis(win);
       const zone = screen.getByLabelText("Set window label");
       // The stripe is a display-only child with a left border in the guarded
-      // color; it is inset from the zone's left edge (not flush at 0).
+      // color; it anchors near-flush at the zone's (= the sidebar's) left edge.
       const stripe = zone.querySelector('[style*="border-left"]') as HTMLElement | null;
       expect(stripe).not.toBeNull();
       expect(stripe!.style.borderLeft).toContain("solid");
-      // Inset: positioned left of 12 (icon zone) + 5 (inset) = 17px, not 0.
-      expect(stripe!.style.left).toBe("17px");
+      // Edge-anchored: a small 2px inset from the sidebar edge (full-bleed
+      // rows), not the old 17px post-icon-zone placement.
+      expect(stripe!.style.left).toBe("2px");
       // No next-state ghost preview element exists anymore.
       expect(zone.querySelectorAll('[style*="border-left"]').length).toBe(1);
       // Container must not be present twice (single stripe).

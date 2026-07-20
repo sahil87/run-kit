@@ -1594,7 +1594,7 @@ function ServerGroupInner(props: ServerGroupProps) {
                   />
 
                   {!isCollapsed && (
-                    <div className="ml-3" role="group" id={windowGroupId}>
+                    <div role="group" id={windowGroupId}>
                       {session.windows.map((win, winIdx) => {
                         const ghost = isGhostWindow(win);
                         // Globally-unique roving key — matches the row's

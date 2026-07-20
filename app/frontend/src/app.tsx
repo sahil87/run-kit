@@ -50,6 +50,7 @@ import { SessionProvider } from "@/contexts/session-context";
 import { ToastProvider } from "@/components/toast";
 import { OptimisticProvider } from "@/contexts/optimistic-context";
 import { useDialogState } from "@/hooks/use-dialog-state";
+import { useSessionsScope } from "@/hooks/use-sessions-scope";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { TopBar, HELP_URL, type TopBarMode } from "@/components/top-bar";
 import { useVisualViewport } from "@/hooks/use-visual-viewport";
@@ -2121,6 +2122,24 @@ function AppShell() {
     [currentRegularIdx, regularOrder, server, addToast],
   );
 
+  // Sessions-pane scope toggle — palette parity for the sidebar's SESSIONS
+  // header chip (Constitution V). A single toggle entry labeled by its TARGET
+  // state; the sidebar re-renders reactively via the shared hook's pub/sub.
+  const [sessionsScope, setSessionsScope] = useSessionsScope();
+  const sessionsScopeActions: PaletteAction[] = useMemo(
+    () => [
+      {
+        id: "sessions-scope-toggle",
+        label:
+          sessionsScope === "all"
+            ? "Sessions: Show current server only"
+            : "Sessions: Show all servers",
+        onSelect: () => setSessionsScope(sessionsScope === "all" ? "current" : "all"),
+      },
+    ],
+    [sessionsScope, setSessionsScope],
+  );
+
   const serverActions: PaletteAction[] = useMemo(
     () => [
       {
@@ -2285,8 +2304,8 @@ function AppShell() {
   const { actions: pushActions } = usePushSubscription();
 
   const paletteActions: PaletteAction[] = useMemo(
-    () => [...sessionActions, ...windowActions, ...boardActions, ...viewActions, ...navActions, ...terminalFontActions, ...themeActions, ...configActions, ...statusRefreshActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions, ...serverActions, ...pushActions, ...windowSwitchActions, ...agentActions, ...agentSpawnActions],
-    [sessionActions, windowActions, boardActions, viewActions, navActions, terminalFontActions, themeActions, configActions, statusRefreshActions, updateActions, checkActions, maintenanceActions, versionActions, serverActions, pushActions, windowSwitchActions, agentActions, agentSpawnActions],
+    () => [...sessionActions, ...sessionsScopeActions, ...windowActions, ...boardActions, ...viewActions, ...navActions, ...terminalFontActions, ...themeActions, ...configActions, ...statusRefreshActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions, ...serverActions, ...pushActions, ...windowSwitchActions, ...agentActions, ...agentSpawnActions],
+    [sessionActions, sessionsScopeActions, windowActions, boardActions, viewActions, navActions, terminalFontActions, themeActions, configActions, statusRefreshActions, updateActions, checkActions, maintenanceActions, versionActions, serverActions, pushActions, windowSwitchActions, agentActions, agentSpawnActions],
   );
 
   const displayName = currentWindow?.name ?? windowParam ?? "";

@@ -3,7 +3,9 @@
 Behavioural contract for the redesigned `ServerPanel` — a swatch-style grid
 of tile buttons that replaces the previous vertical list. Validates that
 tiles render per server, active-tile state, click-to-switch behaviour, and
-the mobile single-row horizontal-swipe layout.
+the mobile single-row horizontal-swipe layout. The panel defaults **open**
+(`defaultOpen={true}` since `260720-rzg7-sessions-scope-toggle-delink`), so
+tests assert the grid directly without an expand click.
 
 ## Shared setup
 
@@ -18,28 +20,28 @@ the mobile single-row horizontal-swipe layout.
 
 ### `Desktop: tile grid renders with session counts`
 
-**What it proves:** On desktop viewport (1024×768), the Server panel opens
-and renders a grid of server tiles, each with the expected name and
-`N sess` meta, including a count that reflects the sessions created in
-setup.
+**What it proves:** On desktop viewport (1024×768), the Server panel is
+open by default and renders a grid of server tiles, each with the expected
+name and `N sess` meta, including a count that reflects the sessions
+created in setup.
 
 **Steps:**
 1. Navigate to `/${TMUX_SERVER}` and wait for `Connected`.
-2. Locate the Server header button (`name: /^Server/`); assert visible.
-3. Click to expand (triggers `/api/servers` refresh).
-4. Locate the grid listbox via `getByRole('listbox', { name: /Tmux servers/ })`.
-5. Within the grid, assert at least one `option` tile whose name includes
+2. Locate the Server header button (`name: /^Server/`); assert visible and
+   `aria-expanded="true"` (default-open, no click).
+3. Locate the grid listbox via `getByRole('listbox', { name: /Tmux servers/ })`.
+4. Within the grid, assert at least one `option` tile whose name includes
    the e2e server.
-6. Assert the meta line `/\d+ sess/` is rendered in the grid.
+5. Assert the meta line `/\d+ sess/` is rendered in the grid.
 
-### `Desktop: active tile has aria-current and switches on click`
+### `Desktop: active tile has aria-current`
 
 **What it proves:** The active server's tile carries `aria-current="true"`
-and clicking a different tile navigates to that server's URL.
+in the default-open grid.
 
 **Steps:**
 1. Navigate to `/${TMUX_SERVER}` and wait for `Connected`.
-2. Expand the Server panel.
+2. Locate the grid listbox directly (panel defaults open — no click).
 3. Find the tile option matching the current server; assert
    `aria-current="true"`.
 4. (Skipped unless a second server exists) — the click path is covered by
@@ -56,33 +58,36 @@ multiple rows — it lays out as a single horizontal strip with
 1. Set viewport 375×812.
 2. Navigate to `/${TMUX_SERVER}`.
 3. Click the `Toggle navigation` button to open the mobile sidebar drawer.
-4. Within the `Sessions` navigation region, expand the Server panel.
-5. Locate the grid listbox inside the sidebar.
-6. Evaluate the grid element's computed `grid-auto-flow` — assert `column`
+4. Within the `Sessions` navigation region, locate the grid listbox (panel
+   defaults open — no expand click).
+5. Evaluate the grid element's computed `grid-auto-flow` — assert `column`
    (desktop would be `row`).
-7. Evaluate `overflow-x` — assert `auto` or `scroll`.
+6. Evaluate `overflow-x` — assert `auto` or `scroll`.
 
 ### `Mobile: drag handle is hidden`
 
 **What it proves:** The resize drag handle (`role="separator"` with name
 matching `Resize Server panel`) is NOT rendered on mobile viewports — the
-single-row layout does not need vertical resize.
+single-row layout does not need vertical resize — even with the panel open
+by default.
 
 **Steps:**
 1. Set viewport 375×812.
 2. Navigate and open the mobile sidebar drawer via `Toggle navigation`.
-3. Expand the Server panel.
+3. Assert the grid listbox is visible (default-open).
 4. Assert `getByRole('separator', { name: /Resize.*Server/ })` is not visible.
 
 ### `Desktop: drag handle is visible on resizable panel`
 
 **What it proves:** On a 1024×768 desktop viewport, the Server panel is
-resizable — the bottom drag handle is rendered and reachable.
+resizable — the bottom drag handle is rendered and reachable from the
+default-open state.
 
 **Steps:**
 1. Set viewport 1024×768.
-2. Navigate, wait for `Connected`, expand the Server panel.
-3. Assert `getByRole('separator', { name: /Resize.*Server/ })` is visible.
+2. Navigate, wait for `Connected`.
+3. Assert `getByRole('separator', { name: /Resize.*Server/ })` is visible
+   (no expand click — the panel defaults open).
 
 ## Notes
 
@@ -90,3 +95,6 @@ resizable — the bottom drag handle is rendered and reachable.
   `just test-e2e` isolation convention.
 - Resize drag interaction itself is covered by unit tests in
   `collapsible-panel.test.tsx`; e2e coverage focuses on presence + layout.
+- The collapsed → open transition (and its `/api/servers` refresh-on-open)
+  is covered by unit tests in `server-panel.test.tsx` from a seeded-collapsed
+  state.

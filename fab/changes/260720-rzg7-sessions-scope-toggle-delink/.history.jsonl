@@ -1,0 +1,11 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-20T12:27:21Z"}
+{"args":"Sessions-pane scope toggle — delink one-server-vs-all-servers session-list display from the SERVER pane expansion state; explicit all|current scope in localStorage with a SESSIONS-header toggle chip, SERVER panel defaults open, command palette entry, hint removed","cmd":"fab-new","event":"command","ts":"2026-07-20T12:27:21Z"}
+{"delta":"+4.7","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-07-20T12:29:25Z"}
+{"delta":"+0.0","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-07-20T12:29:48Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-07-20T12:30:56Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-20T12:32:53Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-20T12:33:45Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-20T12:50:05Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-20T12:54:35Z"}
+{"event":"review","result":"passed","ts":"2026-07-20T12:54:35Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-20T12:58:26Z"}

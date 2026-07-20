@@ -952,5 +952,20 @@ describe("WindowRow", () => {
       // Container must not be present twice (single stripe).
       expect(container.querySelectorAll('[aria-label="Set window label"]').length).toBe(1);
     });
+
+    it("hover palette-icon container is inset off the physical sidebar edge", () => {
+      const win = makeWindow({ windowId: "@0", index: 0, marker: "solid", color: "orange" });
+      renderAxis(win);
+      const zone = screen.getByLabelText("Set window label");
+      // The icon container is the zone's only aria-hidden child (the glow and
+      // stripe carry no aria-hidden).
+      const icon = zone.querySelector('[aria-hidden="true"]') as HTMLElement | null;
+      expect(icon).not.toBeNull();
+      // Inset ICON_EDGE_INSET (10px) off the sidebar edge — past the widest
+      // (double) stripe's 8px right edge — with the 12px icon-zone width
+      // unchanged, so the hover icon sits beside the stripe, not over it.
+      expect(icon!.style.left).toBe("10px");
+      expect(icon!.style.width).toBe("12px");
+    });
   });
 });

@@ -1565,7 +1565,7 @@ function ServerGroupInner(props: ServerGroupProps) {
           selected fill + brighter text; inactive rests at the base fill with
           the guarded accent text and deepens on hover. */}
       <div
-        className="flex items-stretch w-full"
+        className="flex items-stretch w-full transition-colors"
         aria-current={isCurrent ? "true" : undefined}
         data-current-server={isCurrent ? "true" : undefined}
         data-server={server}

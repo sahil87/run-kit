@@ -1,5 +1,83 @@
 # Archived Changes
 
+- **260719-yxi0-chat-send-single-line-collapse-probe** — Chat-Send Long-Single-Line Paste-Collapse Probe Fix
+- **260719-t9uk-chat-send-control-byte-sanitize** — Chat-Send Control-Byte Sanitization
+- **260719-rwqf-shell-sidebar-slot** — Shell-Owned Sidebar Slot
+- **260719-p8pv-window-move-palette-consolidation** — Consolidate Window Move Palette Entries
+- **260719-mxvw-pointer-aware-enter-insert-mode** — Pointer-Aware Enter Semantics + Insert-Without-Submit
+- **260719-maya-swatch-popover-unified-square-layout** — SwatchPopover Unified Side-by-Side Square Layout
+- **260719-i996-nav-actions-board-wiring** — Wire Board Nav Actions, Narrow NavMode
+- **260719-hwtr-left-edge-label-picker** — Left-Edge Label Picker — Single 26px Target, Combined Color+Marker Menu
+- **260719-h0x4-window-switch-stale-mask-teardown** — Window-Switch Stale-Mask Proactive Teardown
+- **260719-er5k-update-version-standards-conformance** — Update & Version Standards Conformance
+- **260719-dsw9-focus-trap-adoption** — Dialog and CommandPalette Adopt useFocusTrap
+- **260719-a2ss-delete-inert-prefix-flip-replay** — Delete Inert WindowHeading Prefix-Flip Replay Machinery
+- **260719-8hc6-pr-status-model-rename** — Rename pr-status-line to pr-status-model
+- **260719-6dh9-board-focus-intent-flag** — Board Pane Focus Intent Flag
+- **260719-4ujs-delete-sendkeys-frontend-wrapper** — Delete Unused sendKeys Frontend Client Wrapper
+- **260718-xpur-hub-wake-option-mutations** — Hub Wake Seam for Option Mutations
+- **260718-oa9b-shll-toolkit-rename** — Conform Repo to the "shll toolkit" Name
+- **260718-icxz-skill-display-topic-url-retire-context** — Skill Display Topic Page, `rk url`, Retire `rk context`
+- **260718-gxrq-pin-flow-friction-discoverability** — Pin Flow Friction & Boards Discoverability
+- **260718-dhdj-docked-compose-strip** — Docked Compose Strip
+- **260718-d15e-toolkit-manifest-update-notifications** — Toolkit Manifest Update Notifications
+- **260718-co9z-link-based-board-pinning** — Link-Based Board Pinning — Dual Presence + Kill-vs-Unpin Legibility
+- **260718-3prk-row-color-owned-palette-axis-split** — Row Color System Overhaul — Owned Palette + Axis Split
+- **260718-0vuz-skip-branch-pr-default-branch** — Skip Branch-PR Derivation on Default Branch
+- **260717-zn03-constitution-toolkit-standards** — Bind Constitution to sahil87 Toolkit Standards
+- **260717-vhvz-chat-on-state-socket** — Chat on State Socket
+- **260717-rex1-unify-usage-error-exit-codes** — Unify Usage-Error Exit Codes
+- **260717-hikh-exact-tmux-session-targets** — Exact tmux session targets, window-id pane join, ghost TTL
+- **260717-f8yv-cli-output-volume-controls** — CLI Output-Volume Controls (Toolkit Principle 9)
+- **260717-c424-toolkit-standards-conformance** — Toolkit Standards Conformance
+- **260717-agst-rk-skill-agent-setup-hooks-only** — rk skill bundle + agent-setup hooks-only
+- **260717-803u-relay-mux** — Relay Mux — one terminal WebSocket per tab
+- **260717-6anu-mobile-view-switcher-overflow** — Mobile View-Switcher Overflow
+- **260716-qf3j-state-socket** — State Socket — mux session-state + host-metrics SSE into one WebSocket
+- **260715-zs1y-host-tmux-server-rename** — Host / tmux Server Vocabulary Rename
+- **260715-vfcz-passive-ports-process-attribution** — Passive Port Tiles — Remove Ambient HTTP Probe, Show All Listening Ports, Linux Process Attribution
+- **260715-q8ey-top-bar-overlap-fixes** — Top-Bar Overlap Fixes
+- **260715-nwla-status-refresh-feedback** — Status Refresh Feedback
+- **260715-m4xy-history-push-window-switch** — History Push on Window Switch
+- **260715-jykd-manual-status-refresh** — Manual Status Refresh
+- **260715-ifco-expose-running-version-ui** — Expose Running Version in Web UI
+- **260715-h1ck-top-bar-overflow-chevron-menu** — Top-Bar Overflow Chevron Menu
+- **260715-6jwn-board-splits-close-pin-icon** — Board Splits, Close-Pane ✕, and Pin-Glyph Unpin
+- **260715-3zwr-daemon-stop-copy-mode-readonly** — Daemon Stop — Copy-Mode Read-Only Fix
+- **260715-38kg-window-switch-confirmed-motion** — Honest Window-Switch Feedback — Confirmation-Gated Motion
+- **260714-uco1-topbar-heading-anchor-nav** — Top-Bar Window Heading — Stable Anchor, Hierarchy Dropdown, Window Rename, History Nav Arrows
+- **260714-t97o-web-view-lens** — Web View Lens — Iframe Viewing Retrofit
+- **260714-r7rq-chat-read-frontend** — Chat Read Frontend (read-only HTML chat view over the agent pane)
+- **260714-q9cg-spawn-agent-dialog-mockup** — Spawn-Agent Dialog v2 — Match the Original UI Mockup
+- **260714-popk-rk-display-skill-agent-setup** — rk-display Skill Installed by rk agent-setup
+- **260714-pmfh-chat-read-backend** — Chat Read Backend (neutral event schema + Claude adapter + read/stream API)
+- **260714-jdyg-chat-send** — Chat Send — message input from the chat view into the agent pane
+- **260714-gsmu-spawn-dialog-tier-gate-sidebar-entry** — Spawn Dialog Follow-up — Fab-Gated Tier Field + Sidebar Spawn Entry
+- **260714-6pe6-preserve-active-window-reorder** — Preserve Active Window Across Sidebar Reorder
+- **260714-3law-force-update-restart-palette** — Force Update + Daemon Restart Palette Actions with Boot-Aware Reload
+- **260713-sbk1-web-spawn-agent** — Web-UI Spawn Agent
+- **260713-nh86-chat-session-identity** — Chat Session Identity (`@rk_chat` pane-option convention)
+- **260713-d07t-pane-map-join-by-pane-id** — Pane-Map Join by Pane ID
+- **260713-4zap-update-notify-one-click-upgrade** — Update Notification and One-Click Upgrade
+- **260709-gidk-swap-canonical-cli-name-run-kit** — Swap Canonical CLI Name to run-kit
+- **260708-a2qd-board-list-reorder** — Board List Reorder
+- **260708-4li7-sidebar-server-tile-waiting-badge** — Sidebar Server Tile Waiting Badge
+- **260707-qfps-rk-agent-hook-indirection** — rk agent-hook Indirection
+- **260707-ook7-run-kit-command-alias** — run-kit Command Alias
+- **260707-j66b-unnamed-windows-autoname-folder** — Unnamed Windows Auto-Name to Folder
+- **260707-4vq2-lift-topbar-root-layout** — Lift TopBar to Persistent Root Layout
+- **260706-y1ar-status-pyramid-ui-surfacing** — Status-Pyramid UI Surfacing
+- **260706-6mpm-direnv-diff-reversal-server-env** — Direnv Diff Reversal for User Server Environments
+- **260706-4h26-durable-merged-pr-register-keys** — Durable Merged-PR Dot + 3-Char Register Keys
+- **260705-uh8f-deemphasize-infra-servers** — De-emphasize Infrastructure Tmux Servers
+- **260705-i41e-server-tile-drag-snap-back** — Server Tile Drag Snap-Back Fix
+- **260705-dmex-generic-agent-state-tier** — Generic Agent-State Tier
+- **260705-bpnr-server-tiles-drag-reorder** — Server Tiles Drag Reorder
+- **260704-pr0p-navbar-page-heading-boot-sweep** — Universal Top-Bar Page Heading with Boot Sweep
+- **260704-hmd0-help-icon-top-bar** — Help Icon on Top Bar
+- **260704-9o7k-top-bar-button-pyramid** — Top-Bar Button Pyramid
+- **260703-l4nf-window-switch-slide-transition** — Window Switch Slide Transition
+- **260703-5ilm-window-heading-hover-vocabulary** — Centered Window Heading & Hover-Animation Vocabulary
 - **260708-738w-board-autofit** — Board Autofit Toggle
 - **260708-rmiq-board-pane-reorder** — Board Pane Reorder UI
 - **260703-w884-riff-launcher-fab-agent-print** — Delegate `rk riff` launcher resolution to `fab agent --print`

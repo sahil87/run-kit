@@ -783,7 +783,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
           if (typeof d.key === "string" && Array.isArray(d.tools)) {
             const tools: UpdateTool[] = d.tools
               .filter(
-                (t): t is { tool: string; current: string; latest: string } & typeof t =>
+                (t): t is UpdateTool =>
                   typeof t.tool === "string" &&
                   typeof t.current === "string" &&
                   typeof t.latest === "string",

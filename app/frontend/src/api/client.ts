@@ -427,6 +427,17 @@ export type UpdateCheckTool = {
  *  plus the composite dismissal key over the notable set. */
 export type UpdateCheckResult = { tools: UpdateCheckTool[]; key: string };
 
+/** A validated wire row from POST /api/updates/check: the three identifying
+ *  fields are verified present; the verdict flags are still optional (an old
+ *  daemon omits them) and are normalized to booleans by the caller. */
+type UpdateCheckWireTool = {
+  tool: string;
+  current: string;
+  latest: string;
+  updateAvailable?: boolean;
+  notable?: boolean;
+};
+
 /** Run an on-demand update check: POST /api/updates/check. The server runs one
  *  inline `shll check-updates` pass (also converging the cached verdict + SSE
  *  slot the chip reads) and returns the fresh verdict synchronously (~1-2s).
@@ -452,7 +463,7 @@ export async function checkForUpdates(): Promise<UpdateCheckResult> {
   };
   const tools: UpdateCheckTool[] = (Array.isArray(body.tools) ? body.tools : [])
     .filter(
-      (t): t is { tool: string; current: string; latest: string } & typeof t =>
+      (t): t is UpdateCheckWireTool =>
         typeof t.tool === "string" && typeof t.current === "string" && typeof t.latest === "string",
     )
     .map((t) => ({

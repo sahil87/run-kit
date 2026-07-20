@@ -323,7 +323,7 @@ describe("HostOverviewPage — TopBar mount moved to root (260707-4vq2)", () => 
   it("renders NO TopBar of its own — the brand crumb / controls / heading are not this component's DOM", () => {
     renderPage();
     // None of the shared TopBar's landmarks render from HostOverviewPage now.
-    expect(screen.queryByLabelText("Run Kit home")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("RunKit home")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Refresh page")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Host")).not.toBeInTheDocument();
   });

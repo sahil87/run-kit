@@ -376,18 +376,18 @@ describe("UpdateChip", () => {
 // therefore reflects the update-surface path whenever a qualifying update is
 // pending (the update-chip entry is "overflowed").
 describe("overflow menu version row (260715-h1ck)", () => {
-  it("shows `Run Kit v{version}` and copies the displayed form on click", async () => {
+  it("shows `RunKit v{version}` and copies the displayed form on click", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.assign(navigator, { clipboard: { writeText } });
     renderChip({ daemonVersion: "0.6.2", updateAvailable: null });
     fireEvent.click(screen.getByLabelText("More controls"));
     const menu = screen.getByRole("menu", { name: "More controls" });
-    const row = within(menu).getByText("Run Kit v0.6.2").closest("button")!;
+    const row = within(menu).getByText("RunKit v0.6.2").closest("button")!;
     fireEvent.click(row);
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("v0.6.2"));
   });
 
-  it("becomes the update surface (`Run Kit v{current} → v{latest} ⬆`) for a single run-kit match when overflowed", () => {
+  it("becomes the update surface (`RunKit v{current} → v{latest} ⬆`) for a single run-kit match when overflowed", () => {
     renderChip({
       daemonVersion: "0.5.3",
       updateAvailable: updateAvailable([runKit("0.5.3", "0.6.0")]),
@@ -396,7 +396,7 @@ describe("overflow menu version row (260715-h1ck)", () => {
     expect(screen.getByTestId("overflow-attention")).toBeInTheDocument();
     fireEvent.click(screen.getByLabelText("More controls"));
     const menu = screen.getByRole("menu", { name: "More controls" });
-    expect(within(menu).getByText("Run Kit v0.5.3 → v0.6.0 ⬆")).toBeInTheDocument();
+    expect(within(menu).getByText("RunKit v0.5.3 → v0.6.0 ⬆")).toBeInTheDocument();
     // No separate UpdateChip menu row — its function merged into the version row.
     expect(within(menu).queryByText(/⬆ v/)).not.toBeInTheDocument();
   });
@@ -424,7 +424,7 @@ describe("overflow menu version row (260715-h1ck)", () => {
     });
     fireEvent.click(screen.getByLabelText("More controls"));
     const menu = screen.getByRole("menu", { name: "More controls" });
-    fireEvent.click(within(menu).getByText("Run Kit v0.5.3 → v0.6.0 ⬆").closest("button")!);
+    fireEvent.click(within(menu).getByText("RunKit v0.5.3 → v0.6.0 ⬆").closest("button")!);
     expect(updateNow).toHaveBeenCalledTimes(1);
   });
 
@@ -433,7 +433,7 @@ describe("overflow menu version row (260715-h1ck)", () => {
     expect(screen.queryByTestId("overflow-attention")).not.toBeInTheDocument();
     fireEvent.click(screen.getByLabelText("More controls"));
     const menu = screen.getByRole("menu", { name: "More controls" });
-    expect(within(menu).getByText("Run Kit v0.6.2")).toBeInTheDocument();
+    expect(within(menu).getByText("RunKit v0.6.2")).toBeInTheDocument();
   });
 });
 

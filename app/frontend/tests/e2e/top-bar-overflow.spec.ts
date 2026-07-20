@@ -219,8 +219,8 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
     await expect(menu.getByRole("menuitem", { name: /Theme:/ })).toBeVisible();
     await expect(menu.getByRole("menuitem", { name: "Refresh page" })).toBeVisible();
     await expect(menu.getByRole("menuitem", { name: "Help / Documentation" })).toBeVisible();
-    // The fixed version row is always present (plain `Run Kit` or `Run Kit v…`).
-    await expect(menu.getByRole("menuitem", { name: /Run Kit/ })).toBeVisible();
+    // The fixed version row is always present (plain `RunKit` or `RunKit v…`).
+    await expect(menu.getByRole("menuitem", { name: /RunKit/ })).toBeVisible();
   });
 
   test("the version row copies the version to the clipboard", async ({ page, context }) => {
@@ -233,15 +233,15 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
 
     await page.getByRole("button", { name: "More controls" }).click();
     const menu = page.getByRole("menu", { name: "More controls" });
-    const versionRow = menu.getByRole("menuitem", { name: /Run Kit/ });
+    const versionRow = menu.getByRole("menuitem", { name: /RunKit/ });
     await expect(versionRow).toBeVisible();
     const rowText = (await versionRow.textContent())?.trim() ?? "";
     await versionRow.click();
 
-    // If the daemon reported a version (`Run Kit v…`), the clipboard holds the
-    // displayed `v…` form. If it is the plain `Run Kit` (no version yet), the row
+    // If the daemon reported a version (`RunKit v…`), the clipboard holds the
+    // displayed `v…` form. If it is the plain `RunKit` (no version yet), the row
     // is a no-op copy — skip the clipboard assertion in that case.
-    if (/^Run Kit v/.test(rowText)) {
+    if (/^RunKit v/.test(rowText)) {
       const copied = await page.evaluate(() => navigator.clipboard.readText());
       expect(copied).toMatch(/^v?\d/);
     }

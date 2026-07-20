@@ -231,13 +231,13 @@ export function TopBarOverflowMenu({ rows, updateOverflowed }: Props) {
   // handler so a menu-row click dismisses the panel like BreadcrumbDropdown.
   const close = useCallback(() => setOpen(false), []);
 
-  // Version-row plain form: `Run Kit v{version}` (plain `Run Kit` when the
+  // Version-row plain form: `RunKit v{version}` (plain `RunKit` when the
   // version is unknown — no `event: version` yet — never `vundefined`).
-  const versionText = daemonVersion ? `Run Kit ${displayVersion(daemonVersion)}` : "Run Kit";
+  const versionText = daemonVersion ? `RunKit ${displayVersion(daemonVersion)}` : "RunKit";
 
   // Copy the displayed version form (matches app.tsx buildVersionAction body).
   const handleCopy = useCallback(() => {
-    if (!daemonVersion) return; // plain `Run Kit` — nothing meaningful to copy
+    if (!daemonVersion) return; // plain `RunKit` — nothing meaningful to copy
     void copyToClipboard(displayVersion(daemonVersion)).then((ok) => {
       addToast(ok ? "Version copied" : "Copy failed", ok ? "info" : "error");
     });
@@ -257,7 +257,7 @@ export function TopBarOverflowMenu({ rows, updateOverflowed }: Props) {
   // surface is showing, EXCEPT on the dev sentinel (a dev daemon never checks —
   // same gate as the palette check entries; a null version counts as non-dev).
   const showCheck = !asUpdateSurface && daemonVersion !== DEV_VERSION;
-  // Single run-kit match keeps today's `Run Kit v{current} → v{latest} ⬆` row +
+  // Single run-kit match keeps today's `RunKit v{current} → v{latest} ⬆` row +
   // aria; any other single tool or multiple tools show a count row naming each
   // per-tool transition in the aria (R15). The row triggers a SCOPED update of
   // exactly the matched tools. The per-tool summary is the shared
@@ -266,7 +266,7 @@ export function TopBarOverflowMenu({ rows, updateOverflowed }: Props) {
   const toolSummary = updateChipToolSummary(tools);
   const updateRowText =
     singleRunKit && current && latest
-      ? `Run Kit v${current} → v${latest} ⬆`
+      ? `RunKit v${current} → v${latest} ⬆`
       : `Toolkit updates (${tools.length}) ⬆`;
   const updateLabel =
     singleRunKit && current
@@ -383,7 +383,7 @@ export function TopBarOverflowMenu({ rows, updateOverflowed }: Props) {
                 onFocus={() => setVersionRowFocused(true)}
                 onBlur={() => setVersionRowFocused(false)}
                 onClick={handleCopy}
-                aria-label={daemonVersion ? `${versionText} (copy)` : "Run Kit"}
+                aria-label={daemonVersion ? `${versionText} (copy)` : "RunKit"}
                 title={daemonVersion ? "Copy version" : undefined}
                 className="flex-1 min-w-0 text-left px-3 py-2 text-sm text-text-secondary hover:text-text-primary hover:bg-bg-card transition-colors"
               >

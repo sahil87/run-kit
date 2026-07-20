@@ -100,7 +100,7 @@ async function mockBackend(page: Page): Promise<void> {
 // The brand crumb is the always-present bar element on every mode — its
 // continuous visibility across navigation is the proxy for "the bar never
 // blanks out".
-const brand = (page: Page) => page.getByLabel("Run Kit home");
+const brand = (page: Page) => page.getByLabel("RunKit home");
 
 test.describe("TopBar persistence across routes (260707-4vq2)", () => {
   test.beforeEach(async ({ page }) => {

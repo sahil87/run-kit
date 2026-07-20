@@ -720,110 +720,123 @@ export function TopBar({
           center = the universal `PageType: name` page heading (all four modes,
           260704-pr0p), right = controls. */}
       <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 py-2">
-        {/* Left breadcrumb nav (260715-q8ey overlap fixes): `overflow-hidden`
-            is the clip backstop — any crumb content past the floor clips at the
-            nav edge instead of painting over the center heading. The explicit
-            `min-w-[76px] sm:min-w-[180px]` floor (replacing a bare `min-w-0`)
-            guarantees brand icon + hamburger below `sm`, plus a usable session
-            crumb sliver at `sm+`. The two crumb wrapper spans carry `min-w-0`
-            (below) so their inner `truncate max-w-[16ch]` engages under
-            pressure — degradation ladder: crumbs truncate → server crumb hides
-            below `md` → nav clips at its floor. */}
-        <nav
-          aria-label="Breadcrumb"
-          className="flex items-center gap-1.5 text-sm overflow-hidden min-w-[76px] sm:min-w-[180px]"
-        >
-          {/* Brand root crumb — logo + wordmark, links to `/`. Left-most on
-              every route; IS the home affordance (no separate "Host" crumb).
-              Wordmark collapses to the bare icon below `sm` so long crumbs still
-              fit the single-line 375px topbar. */}
-          <a
-            href="/"
-            aria-label="Run Kit home"
-            title="Host"
-            className={`flex items-center gap-2 shrink-0 rk-brand-glitch ${LINK_CRUMB_CLASS}`}
-          >
-            {/* Inline SVG (LogoSpinner at rest), not the /icon.svg img — the
-                hover spin rotates the border ring (.rk-logo-ring) while the
-                cube faces stay pinned, which CSS can't reach inside an img. */}
-            <LogoSpinner size={20} loading={false} />
-            {/* [text-decoration:inherit] — the anchor is a flex container and
-                text-decoration does not propagate into flex items, so an
-                underline-based LINK_CRUMB_CLASS would silently skip the
-                wordmark without it. No-op for non-underline variants. */}
-            <span className="hidden sm:inline text-xs [text-decoration:inherit]">Run Kit</span>
-          </a>
-
+        {/* Left cluster (260720-ap63): a flex wrapper so the hamburger — a
+            drawer toggle, NOT a breadcrumb item — sits FIRST, outside the
+            breadcrumb nav landmark, with the nav beside it inside the `1fr`
+            left cell (the center heading's true centering is untouched).
+            `min-w-0` lets the nav shrink below its content inside `1fr`. */}
+        <div className="flex items-center gap-1.5 min-w-0">
           {/* Hamburger icon — toggles sidebarOpen (one boolean covers both
-              desktop grid column and mobile overlay). Sits between the brand and
-              the crumbs. Not rendered on the Host page, which has no sidebar.
-              rk-glint: borderless at rest, so hover = green icon + sweep only
-              (the glint border flip is a no-op without a border). */}
+              desktop grid column and mobile overlay). First element of the left
+              cluster (standard drawer-toggle position). Not rendered on the
+              Host page, which has no sidebar — the brand shifts left there (no
+              ghost slot reserved). rk-glint: borderless at rest, so hover =
+              green icon + sweep only (the glint border flip is a no-op without
+              a border). Coarse pointers get the top-bar button-control 30px
+              target (24px fine). */}
           {hasSidebar && (
             <button
               onClick={onToggleSidebar}
               aria-label="Toggle navigation"
-              className="rk-glint text-text-primary transition-colors min-w-[24px] min-h-[24px] flex items-center justify-center shrink-0"
+              className="rk-glint text-text-primary transition-colors min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] flex items-center justify-center shrink-0"
             >
               <HamburgerIcon isOpen={hamburgerOpen} />
             </button>
           )}
 
-          {mode === "board" ? (
-            // Board mode keeps ONLY the counts/hint on the left (move-don't-copy,
-            // 260704-pr0p): the board name + ▾ switcher moved to the center
-            // heading, and the left `Board ▸` home button is gone (the brand
-            // crumb is already the home affordance). No leading separator — the
-            // hint is not a crumb.
-            <BoardModeInfo
-              paneCount={paneCount ?? 0}
-              serverCount={serverCount ?? 0}
-              waitingPaneCount={waitingPaneCount ?? 0}
-            />
-          ) : (
-            <>
-              {/* Server LINK crumb — terminal route only (parent = the tmux
-                  Server). On the server route the server name is the leaf and lives
-                  in the center heading, so no left server crumb there. Hidden
-                  below `md` (260715-q8ey — demoted from `sm`): it is the
-                  redundant first-to-give crumb since the hierarchy ▾ in the
-                  center heading (`Window ▾:`) already navigates to the tmux
-                  Server → Host, so it gives way before the session crumb in
-                  the cramped `sm`..`md` band. `min-w-0` unblocks the inner
-                  `truncate max-w-[16ch]`. */}
-              {showServerCrumb && (
-                <span className="hidden md:flex items-center gap-1.5 min-w-0">
-                  <BreadcrumbSeparator />
-                  <a
-                    href={serverHref}
-                    title="tmux Server"
-                    className={`rk-glint truncate max-w-[16ch] ${LINK_CRUMB_CLASS}`}
-                  >
-                    {server}
-                  </a>
-                </span>
-              )}
+          {/* Breadcrumb nav (260715-q8ey overlap fixes): `overflow-hidden`
+              is the clip backstop — any crumb content past the floor clips at
+              the nav edge instead of painting over the center heading. The
+              explicit `min-w-[46px] sm:min-w-[150px]` floor guarantees the bare
+              brand icon below `sm` (the hamburger sibling carries its own
+              `shrink-0` + min sizes outside the nav — 260720-ap63 subtracted
+              its 30px from the old 76/180 floor), plus a usable session crumb
+              sliver at `sm+`. The two crumb wrapper spans carry `min-w-0`
+              (below) so their inner `truncate max-w-[16ch]` engages under
+              pressure — degradation ladder: crumbs truncate → server crumb
+              hides below `md` → nav clips at its floor. */}
+          <nav
+            aria-label="Breadcrumb"
+            className="flex items-center gap-1.5 text-sm overflow-hidden min-w-[46px] sm:min-w-[150px]"
+          >
+            {/* Brand root crumb — logo + wordmark, links to `/`. The nav's
+                first child (the breadcrumb's root — the `›` separator starts
+                after it); IS the home affordance (no separate "Host" crumb).
+                Wordmark collapses to the bare icon below `sm` so long crumbs
+                still fit the single-line 375px topbar. */}
+            <a
+              href="/"
+              aria-label="RunKit home"
+              title="Host"
+              className={`flex items-center gap-2 shrink-0 rk-brand-glitch ${LINK_CRUMB_CLASS}`}
+            >
+              {/* Inline SVG (LogoSpinner at rest), not the /icon.svg img — the
+                  hover spin rotates the border ring (.rk-logo-ring) while the
+                  cube faces stay pinned, which CSS can't reach inside an img. */}
+              <LogoSpinner size={20} loading={false} />
+              {/* [text-decoration:inherit] — the anchor is a flex container and
+                  text-decoration does not propagate into flex items, so an
+                  underline-based LINK_CRUMB_CLASS would silently skip the
+                  wordmark without it. No-op for non-underline variants. */}
+              <span className="hidden sm:inline text-xs [text-decoration:inherit]">RunKit</span>
+            </a>
 
-              {sessionName && (
-                // The breadcrumb ends at the SESSION crumb — window identity
-                // moved to the centered heading (below), so the window name is
-                // never duplicated. Session crumb hidden below `sm`.
-                <span className="hidden sm:flex items-center gap-1.5 min-w-0">
-                  <BreadcrumbSeparator />
-                  <BreadcrumbDropdown
-                    items={sessionItems}
-                    label="session"
-                    icon={sessionName}
-                    title="Session"
-                    onNavigate={handleDropdownNavigate}
-                    action={{ label: "+ New Session", onAction: onCreateSession }}
-                    triggerClassName="max-w-[16ch] truncate text-text-secondary hover:text-text-primary transition-colors text-sm"
-                  />
-                </span>
-              )}
-            </>
-          )}
-        </nav>
+            {mode === "board" ? (
+              // Board mode keeps ONLY the counts/hint on the left (move-don't-copy,
+              // 260704-pr0p): the board name + ▾ switcher moved to the center
+              // heading, and the left `Board ▸` home button is gone (the brand
+              // crumb is already the home affordance). No leading separator — the
+              // hint is not a crumb.
+              <BoardModeInfo
+                paneCount={paneCount ?? 0}
+                serverCount={serverCount ?? 0}
+                waitingPaneCount={waitingPaneCount ?? 0}
+              />
+            ) : (
+              <>
+                {/* Server LINK crumb — terminal route only (parent = the tmux
+                    Server). On the server route the server name is the leaf and lives
+                    in the center heading, so no left server crumb there. Hidden
+                    below `md` (260715-q8ey — demoted from `sm`): it is the
+                    redundant first-to-give crumb since the hierarchy ▾ in the
+                    center heading (`Window ▾:`) already navigates to the tmux
+                    Server → Host, so it gives way before the session crumb in
+                    the cramped `sm`..`md` band. `min-w-0` unblocks the inner
+                    `truncate max-w-[16ch]`. */}
+                {showServerCrumb && (
+                  <span className="hidden md:flex items-center gap-1.5 min-w-0">
+                    <BreadcrumbSeparator />
+                    <a
+                      href={serverHref}
+                      title="tmux Server"
+                      className={`rk-glint truncate max-w-[16ch] ${LINK_CRUMB_CLASS}`}
+                    >
+                      {server}
+                    </a>
+                  </span>
+                )}
+
+                {sessionName && (
+                  // The breadcrumb ends at the SESSION crumb — window identity
+                  // moved to the centered heading (below), so the window name is
+                  // never duplicated. Session crumb hidden below `sm`.
+                  <span className="hidden sm:flex items-center gap-1.5 min-w-0">
+                    <BreadcrumbSeparator />
+                    <BreadcrumbDropdown
+                      items={sessionItems}
+                      label="session"
+                      icon={sessionName}
+                      title="Session"
+                      onNavigate={handleDropdownNavigate}
+                      action={{ label: "+ New Session", onAction: onCreateSession }}
+                      triggerClassName="max-w-[16ch] truncate text-text-secondary hover:text-text-primary transition-colors text-sm"
+                    />
+                  </span>
+                )}
+              </>
+            )}
+          </nav>
+        </div>
 
         {/* Center cell — the universal `PageType: name` page heading, filled on
             EVERY mode (260704-pr0p): terminal = editable window heading + ▾

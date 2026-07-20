@@ -399,7 +399,7 @@ describe("TopBar", () => {
 
   it("names each crumb's level via a native title tooltip (Host / tmux Server / Session / Window)", () => {
     renderTopBar();
-    expect(screen.getByLabelText("Run Kit home")).toHaveAttribute("title", "Host");
+    expect(screen.getByLabelText("RunKit home")).toHaveAttribute("title", "Host");
     expect(screen.getByText("runkit").closest("a")).toHaveAttribute("title", "tmux Server");
     expect(screen.getByLabelText("Switch session")).toHaveAttribute("title", "Session");
     expect(screen.getByLabelText("Switch window")).toHaveAttribute("title", "Window");
@@ -413,18 +413,40 @@ describe("TopBar", () => {
     expect(screen.getByLabelText("tmux Server runkit")).toBeInTheDocument();
   });
 
-  it("renders the brand as the left-most root crumb linking to / (and no right-side Run Kit anchor)", () => {
+  it("renders the brand as the left-most root crumb linking to / (and no right-side RunKit anchor)", () => {
     const { container } = renderTopBar();
-    const brand = screen.getByLabelText("Run Kit home");
+    const brand = screen.getByLabelText("RunKit home");
     expect(brand.tagName).toBe("A");
     expect(brand).toHaveAttribute("href", "/");
     // The brand is the FIRST element inside the breadcrumb nav.
     const nav = container.querySelector('nav[aria-label="Breadcrumb"]')!;
     expect(nav.firstElementChild).toBe(brand);
     // There is exactly ONE anchor to "/" (the left brand) \u2014 the old right-side
-    // Run Kit anchor is gone.
+    // RunKit anchor is gone.
     const homeAnchors = Array.from(container.querySelectorAll('a[href="/"]'));
     expect(homeAnchors).toHaveLength(1);
+  });
+
+  it("renders the hamburger as the first left-cluster element, before and OUTSIDE the breadcrumb nav (260720-ap63)", () => {
+    // Terminal mode \u2192 hasSidebar true \u2192 the hamburger renders. It is a drawer
+    // toggle, not a breadcrumb item: it precedes the nav landmark as a sibling
+    // and is never a descendant of it.
+    const { container } = renderTopBar();
+    const hamburger = screen.getByLabelText("Toggle navigation");
+    const nav = container.querySelector('nav[aria-label="Breadcrumb"]')!;
+    expect(hamburger.closest('nav[aria-label="Breadcrumb"]')).toBeNull();
+    // Same left cluster, hamburger first, nav after it in document order.
+    const cluster = nav.parentElement!;
+    expect(cluster.firstElementChild).toBe(hamburger);
+    expect(
+      Boolean(hamburger.compareDocumentPosition(nav) & Node.DOCUMENT_POSITION_FOLLOWING),
+    ).toBe(true);
+    // Coarse touch target joins the top-bar 24px-fine / 30px-coarse button
+    // vocabulary (fine-pointer minimum stays 24px).
+    expect(hamburger.className).toContain("coarse:min-w-[30px]");
+    expect(hamburger.className).toContain("coarse:min-h-[30px]");
+    expect(hamburger.className).toContain("min-w-[24px]");
+    expect(hamburger.className).toContain("min-h-[24px]");
   });
 
   it("does not show 'live' or 'disconnected' text", () => {
@@ -538,7 +560,7 @@ describe("TopBar", () => {
     it("renders the brand link and the L3 always-block controls, without erroring on empty props", () => {
       renderHost();
       // Brand root crumb links home.
-      expect(screen.getByLabelText("Run Kit home")).toHaveAttribute("href", "/");
+      expect(screen.getByLabelText("RunKit home")).toHaveAttribute("href", "/");
       // L3 always-block controls stay (Refresh + Help promoted here; Theme).
       expect(screen.getByLabelText(/theme/i)).toBeInTheDocument();
       expect(screen.getByLabelText("Refresh page")).toBeInTheDocument();
@@ -696,9 +718,9 @@ describe("TopBar", () => {
     expect(slotFillOpacity()).toBe("0");
   });
 
-  it("renders 'Run Kit' branding text", () => {
+  it("renders 'RunKit' branding text", () => {
     renderTopBar();
-    expect(screen.getByText("Run Kit")).toBeInTheDocument();
+    expect(screen.getByText("RunKit")).toBeInTheDocument();
   });
 
   it("does not render Line 2 elements", () => {
@@ -1166,7 +1188,7 @@ describe("TopBar", () => {
       expect(within(menu).getByText("Refresh page")).toBeInTheDocument();
       expect(within(menu).getByText("Help / Documentation")).toBeInTheDocument();
       // The fixed version row is always present (last).
-      expect(within(menu).getByText("Run Kit")).toBeInTheDocument();
+      expect(within(menu).getByText("RunKit")).toBeInTheDocument();
     });
 
     it("closes on Escape and returns focus to the chevron", () => {
@@ -1253,11 +1275,11 @@ describe("TopBar", () => {
   });
 
   describe("overflow menu version row (260715-h1ck)", () => {
-    it("shows plain `Run Kit` when the daemon version is unknown (no vundefined)", () => {
+    it("shows plain `RunKit` when the daemon version is unknown (no vundefined)", () => {
       renderTopBar(); // no SessionProvider → daemonVersion null
       act(() => fireEvent.click(screen.getByLabelText("More controls")));
       const menu = screen.getByRole("menu", { name: "More controls" });
-      const versionRow = within(menu).getByText("Run Kit");
+      const versionRow = within(menu).getByText("RunKit");
       expect(versionRow).toBeInTheDocument();
       expect(within(menu).queryByText(/vundefined/)).not.toBeInTheDocument();
     });

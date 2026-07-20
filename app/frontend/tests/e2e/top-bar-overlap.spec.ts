@@ -131,7 +131,7 @@ test.describe("Top-bar overlap fixes (260715-q8ey)", () => {
     page,
   }) => {
     // The intake's tunable-floor sweep (assumption #6): the explicit nav floor
-    // (`min-w-[76px] sm:min-w-[180px]`) + `overflow-hidden` must hold the
+    // (`min-w-[46px] sm:min-w-[150px]`) + `overflow-hidden` must hold the
     // no-overlap invariant across the whole band, not just at 700px. This is
     // the harness that would surface a bad floor value (overlap → too small;
     // page overflow at a benign width → too large).
@@ -149,7 +149,8 @@ test.describe("Top-bar overlap fixes (260715-q8ey)", () => {
       const navBox = await nav.boundingBox();
       const headingBox = (await heading.boundingBox())!;
       // The nav is present (and visible) at sm+; at 375 it may be a bare
-      // brand+hamburger sliver, but it must still never overlap the heading.
+      // brand sliver (the hamburger sits outside the nav, 260720-ap63), but
+      // it must still never overlap the heading.
       if (navBox) {
         expect(
           intersects(navBox, headingBox),

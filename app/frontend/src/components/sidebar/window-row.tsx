@@ -451,7 +451,6 @@ function WindowRowInner({
               onMarkerChange(srv, session, win.windowId, m === "" ? null : m);
               setShowLabelPicker(false);
             }}
-            markerColor={markerColor}
             onClose={() => setShowLabelPicker(false)}
           />
         </div>

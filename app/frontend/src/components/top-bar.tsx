@@ -716,9 +716,10 @@ export function TopBar({
   return (
     <header className="px-3 border-b-[3px] border-border">
       {/* 3-column grid `1fr auto 1fr`: the center cell is truly centered
-          regardless of asymmetric left/right widths. Left = breadcrumb nav,
-          center = the universal `PageType: name` page heading (all four modes,
-          260704-pr0p), right = controls. */}
+          regardless of asymmetric left/right widths. Left = left cluster
+          (hamburger + breadcrumb nav, 260720-ap63), center = the universal
+          `PageType: name` page heading (all four modes, 260704-pr0p),
+          right = controls. */}
       <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 py-2">
         {/* Left cluster (260720-ap63): a flex wrapper so the hamburger — a
             drawer toggle, NOT a breadcrumb item — sits FIRST, outside the

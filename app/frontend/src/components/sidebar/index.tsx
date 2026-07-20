@@ -1293,8 +1293,11 @@ function BottomPanels({
   // its fully-enriched home-session copy by windowId (dual home+pin membership
   // keeps it in the sessions stream); a miss means a pin-only window (home
   // session died), which gets a thin render from the board entry's own pane
-  // data — registers honestly absent.
-  const fallbackWindow = !routeWindow && focusedPane
+  // data — registers honestly absent. Gated on the board route itself
+  // (`currentServer === null`), NOT on `!routeWindow` — on a server route a
+  // temporarily-unresolved route window (sessions snapshot not yet arrived)
+  // must show the empty state, never a stale board-focused window.
+  const fallbackWindow = !currentServer && focusedPane
     ? resolveFocusedWindow(
         ctx.sessionsByServer.get(focusedPane.server) ?? [],
         focusedPane.windowId,

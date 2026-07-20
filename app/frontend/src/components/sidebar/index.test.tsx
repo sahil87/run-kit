@@ -864,6 +864,29 @@ describe("BottomPanels — board-route focused-pane fallback + HOST dot (zx4i)",
     expect(screen.queryByText(/· apply/)).not.toBeInTheDocument();
   });
 
+  it("never falls back to the focused pane on a server route (unresolved route window)", () => {
+    // Server route (currentServer set) whose route window can't resolve yet —
+    // the sessions snapshot hasn't arrived (empty list). A stale focused pane
+    // is still published (clear-on-unmount lands a commit later). The PANE
+    // panel must show the empty state, NOT the board-focused window: the
+    // fallback is gated on the board route itself, not on `!routeWindow`.
+    renderSidebar({
+      currentServer: "primary",
+      servers: [{ name: "primary", sessionCount: 0 }, ...boardServers],
+      sessionsByServer: new Map([["primary", []], ["boardsrv", BOARD_SESSIONS]]),
+      focusedPane: {
+        server: "boardsrv",
+        windowId: "@9",
+        windowName: "pinned-live",
+        panes: [
+          { paneId: "%77", paneIndex: 0, cwd: "/tmp/thin", command: "zsh", isActive: true },
+        ],
+      },
+    });
+    expect(screen.getByText("No window selected")).toBeInTheDocument();
+    expect(paneHeader().textContent).not.toContain("pinned-live");
+  });
+
   it("keeps 'No window selected' when no focused pane is published (empty board)", () => {
     renderSidebar({
       currentServer: null,

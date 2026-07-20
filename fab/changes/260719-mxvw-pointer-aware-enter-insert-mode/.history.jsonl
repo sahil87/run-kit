@@ -1,0 +1,16 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-19T22:55:28Z"}
+{"args":"Pointer-aware Enter semantics + insert-without-submit for compose strip and chat send form: coarse pointer Enter inserts newline, Cmd/Ctrl+Enter universal submit, truthful enterkeyhint, insert-only mode (no trailing CR / submit:false on chat send POST)","cmd":"fab-new","event":"command","ts":"2026-07-19T22:55:28Z"}
+{"delta":"+4.7","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-07-19T22:57:52Z"}
+{"cmd":"fab-proceed:create-intake","event":"command","ts":"2026-07-19T22:57:59Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-07-19T22:58:35Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-19T22:59:40Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-19T22:59:49Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-19T23:01:16Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-19T23:19:57Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-19T23:25:59Z"}
+{"event":"review","result":"passed","ts":"2026-07-19T23:25:59Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-19T23:26:27Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-19T23:32:39Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-07-19T23:35:08Z"}
+{"cmd":"git-pr-review","event":"command","ts":"2026-07-19T23:36:58Z"}
+{"event":"review","result":"passed","ts":"2026-07-19T23:42:49Z"}

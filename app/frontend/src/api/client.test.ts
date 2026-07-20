@@ -225,6 +225,22 @@ describe("API client", () => {
     expect(capturedMethod).toBe("POST");
     expect(capturedUrl).toMatch(/\/api\/windows\/%400\/chat\/send\?server=runkit$/);
     expect(capturedBody.text).toBe("hello agent");
+    // Default submit ⇒ the body carries NO `submit` key — the additive wire
+    // contract keeps the default shape exactly `{ text }` (260719-mxvw).
+    expect("submit" in capturedBody).toBe(false);
+  });
+
+  it("sendChatMessage serializes submit:false into the body (insert-without-submit)", async () => {
+    let capturedBody: { text?: string; submit?: boolean } = {};
+    mswServer.use(
+      http.post("/api/windows/:windowId/chat/send", async ({ request }) => {
+        capturedBody = (await request.json()) as { text?: string; submit?: boolean };
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    const result = await sendChatMessage("runkit", "@0", "stage me", false);
+    expect(result.ok).toBe(true);
+    expect(capturedBody).toEqual({ text: "stage me", submit: false });
   });
 
   it("sendChatMessage throws the server's structured error on a non-ok response (409 probe failure)", async () => {

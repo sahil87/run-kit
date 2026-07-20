@@ -3,6 +3,25 @@ import { render, cleanup, fireEvent, screen, waitFor } from "@testing-library/re
 import { ChatView } from "./chat-view";
 import type { ChatEvent } from "@/lib/chat-stream";
 
+/** Stub matchMedia so `(pointer: coarse)` matches — drives the pointer-aware
+ * Enter policy + `enterkeyhint` (260719-mxvw). jsdom has no matchMedia, so the
+ * unstubbed default is the fine-pointer path (the hook's guarded fallback). */
+function stubCoarsePointer() {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn().mockImplementation((query: string) => ({
+      matches: query === "(pointer: coarse)",
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  );
+}
+
 // ChatView send footer (260714-jdyg-chat-send). ChatView is a pure component:
 // `AppShell` supplies `onSend` (wrapping the chat-send POST) and `busy`. These
 // tests drive the footer directly with a fake `onSend`, so no API/EventSource
@@ -30,7 +49,10 @@ function renderChat(
   return { ...utils, onSend };
 }
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 describe("ChatView send footer", () => {
   it("replaces the read-only disabled footer with a live input", () => {
@@ -46,7 +68,7 @@ describe("ChatView send footer", () => {
     fireEvent.change(input, { target: { value: "run the tests" } });
     fireEvent.keyDown(input, { key: "Enter" });
 
-    await waitFor(() => expect(onSend).toHaveBeenCalledWith("run the tests"));
+    await waitFor(() => expect(onSend).toHaveBeenCalledWith("run the tests", true));
     expect(onSend).toHaveBeenCalledTimes(1);
     // Clear on success.
     await waitFor(() => expect(input.value).toBe(""));
@@ -77,7 +99,81 @@ describe("ChatView send footer", () => {
     fireEvent.change(input, { target: { value: "hello" } });
     expect(screen.getByTestId("chat-send-button")).toBeEnabled();
     fireEvent.click(screen.getByTestId("chat-send-button"));
-    await waitFor(() => expect(onSend).toHaveBeenCalledWith("hello"));
+    await waitFor(() => expect(onSend).toHaveBeenCalledWith("hello", true));
+  });
+
+  // ── Pointer-aware Enter + insert-without-submit (260719-mxvw) ──────────────
+
+  it("coarse pointer: plain Enter does NOT submit (textarea default newline); Send button still does", async () => {
+    stubCoarsePointer();
+    const { onSend } = renderChat();
+    const input = screen.getByTestId("chat-send-input") as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "touch draft" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onSend).not.toHaveBeenCalled();
+    expect(input.value).toBe("touch draft"); // no clear — nothing was sent
+
+    fireEvent.click(screen.getByTestId("chat-send-button"));
+    await waitFor(() => expect(onSend).toHaveBeenCalledWith("touch draft", true));
+  });
+
+  it("Cmd/Ctrl+Enter submits on BOTH pointer types (universal escape hatch)", async () => {
+    // Coarse pointer + hardware keyboard: the modifier chord submits.
+    stubCoarsePointer();
+    const { onSend } = renderChat();
+    const input = screen.getByTestId("chat-send-input");
+    fireEvent.change(input, { target: { value: "meta" } });
+    fireEvent.keyDown(input, { key: "Enter", metaKey: true });
+    await waitFor(() => expect(onSend).toHaveBeenCalledWith("meta", true));
+    fireEvent.change(input, { target: { value: "ctrl" } });
+    fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
+    await waitFor(() => expect(onSend).toHaveBeenCalledWith("ctrl", true));
+    expect(onSend).toHaveBeenCalledTimes(2);
+  });
+
+  it("Alt+Enter sends with submit:false and clears on success", async () => {
+    const { onSend } = renderChat();
+    const input = screen.getByTestId("chat-send-input") as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "stage me" } });
+    fireEvent.keyDown(input, { key: "Enter", altKey: true });
+    await waitFor(() => expect(onSend).toHaveBeenCalledWith("stage me", false));
+    await waitFor(() => expect(input.value).toBe(""));
+  });
+
+  it("the Insert button sends with submit:false, mirrors Send's disabled state", async () => {
+    const { onSend } = renderChat();
+    expect(screen.getByTestId("chat-send-insert")).toBeDisabled();
+    const input = screen.getByTestId("chat-send-input");
+    fireEvent.change(input, { target: { value: "via button" } });
+    expect(screen.getByTestId("chat-send-insert")).toBeEnabled();
+    fireEvent.click(screen.getByTestId("chat-send-insert"));
+    await waitFor(() => expect(onSend).toHaveBeenCalledWith("via button", false));
+  });
+
+  it("an insert-mode failure keeps the text and surfaces the inline error (shared path)", async () => {
+    const onSend = vi.fn().mockRejectedValue(new Error("Enter withheld"));
+    renderChat({ onSend });
+    const input = screen.getByTestId("chat-send-input") as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "keep insert" } });
+    fireEvent.keyDown(input, { key: "Enter", altKey: true });
+    await screen.findByTestId("chat-send-error");
+    expect(input.value).toBe("keep insert");
+  });
+
+  it("enterkeyhint states the truth: 'send' on fine pointers, 'enter' on coarse", () => {
+    // Fine (jsdom default — no matchMedia): Enter submits → hint is "send".
+    const fine = renderChat();
+    expect(
+      (screen.getByTestId("chat-send-input") as HTMLTextAreaElement).getAttribute("enterkeyhint"),
+    ).toBe("send");
+    fine.unmount();
+
+    // Coarse: Enter inserts a newline → hint is the default "enter" action.
+    stubCoarsePointer();
+    renderChat();
+    expect(
+      (screen.getByTestId("chat-send-input") as HTMLTextAreaElement).getAttribute("enterkeyhint"),
+    ).toBe("enter");
   });
 
   it("in-flight lock: a second Enter while pending does not double-send", async () => {

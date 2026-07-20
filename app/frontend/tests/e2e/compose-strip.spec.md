@@ -3,9 +3,12 @@
 Validates the docked compose strip (260718-dhdj) — the sticky, global text-input
 surface that replaces the modal ComposeBuffer. Covers the toggle affordances
 (`>_` chip + palette parity), the persisted chrome preference, the live-target
-send semantics (Enter + trailing `\r` to the focused pane), Escape-blurs focus
-routing, and the target label following board-pane focus (closing the per-pane
-STDIN routing gap noted in `shell-rotation.spec.ts:14`).
+send semantics (Enter + trailing `\r` to the focused pane), the
+insert-without-submit affordance + universal Cmd/Ctrl+Enter chord +
+fine-pointer `enterkeyhint` (260719-mxvw — coarse-pointer Enter behavior is
+unit-tested in `compose-strip.test.tsx`), Escape-blurs focus routing, and the
+target label following board-pane focus (closing the per-pane STDIN routing gap
+noted in `shell-rotation.spec.ts:14`).
 
 ## Shared setup
 
@@ -60,6 +63,33 @@ textarea without closing the strip.
    (proves `text + \r` reached the pane and was echoed).
 6. Focus the input, press Escape, assert the input is no longer focused and the
    strip is still visible.
+
+### `Insert stages text without committing; Ctrl/Cmd+Enter submits (260719-mxvw)`
+
+**What it proves:** The Insert button delivers the raw text bytes WITHOUT the
+trailing `\r` — the text is staged on the pane's input line, never committed —
+with the same clear-on-delivery as a submit; the universal Cmd/Ctrl+Enter chord
+then submits, committing the previously-staged text plus the new suffix as ONE
+line. Also asserts the fine-pointer `enterkeyhint="send"` (the truthful keyboard
+hint — coarse behavior is unit-tested in `compose-strip.test.tsx`).
+
+**Steps:**
+
+1. Navigate to the `cat` session's window; wait for `.xterm-screen` and the
+   relay stream to attach.
+2. Enable the strip via the `>_` chip; assert the input is visible and carries
+   `enterkeyhint="send"` (fine pointer).
+3. Fill a unique staged marker and click the `Insert` button
+   (`compose-strip-insert`).
+4. Assert the input clears (same clear-on-delivery as submit).
+5. Poll `capture-pane` until it contains the staged marker; assert it appears
+   EXACTLY once — the tty echo of the input line. A committed line would appear
+   twice (input echo + `cat`'s output line).
+6. Fill a second suffix marker and press `ControlOrMeta+Enter`; assert the input
+   clears.
+7. Poll `capture-pane` until `staged+suffix` (the concatenated single line)
+   appears at least twice — proving the insert was truly staged in the input
+   buffer and the chord truly committed it.
 
 ### `target label follows the focused board pane`
 

@@ -138,10 +138,13 @@ async function mockBackend(
   await mockStateSocket(page, { sessions: sessionsPayload(winName), chat: chatOpts });
 }
 
-// mockChatSend routes the chat-send POST and records each request's body text.
-// The trailing `*` is REQUIRED — the client appends `?server=` (glob-fallthrough
-// trap). `opts.status` (default 200) picks the response; a non-200 fulfils the
-// `writeError` JSON shape so the client's throwOnError surfaces `error`.
+// mockChatSend routes the chat-send POST and records each request's body text
+// (`bodies`) plus the full parsed body (`raw`) — the latter asserts the additive
+// `submit` field contract (260719-mxvw: absent by default, `false` for
+// insert-without-submit). The trailing `*` is REQUIRED — the client appends
+// `?server=` (glob-fallthrough trap). `opts.status` (default 200) picks the
+// response; a non-200 fulfils the `writeError` JSON shape so the client's
+// throwOnError surfaces `error`.
 //
 // AWAIT the returned promise before navigating: the `page.route` registration
 // must be committed before the page issues the send POST (registration-race
@@ -149,12 +152,15 @@ async function mockBackend(
 async function mockChatSend(
   page: Page,
   opts: { status?: number; error?: string } = {},
-): Promise<{ bodies: string[] }> {
+): Promise<{ bodies: string[]; raw: Array<{ text?: string; submit?: boolean }> }> {
   const bodies: string[] = [];
+  const raw: Array<{ text?: string; submit?: boolean }> = [];
   const status = opts.status ?? 200;
   await page.route("**/api/windows/*/chat/send*", async (route) => {
-    const raw = route.request().postData() ?? "{}";
-    bodies.push((JSON.parse(raw) as { text?: string }).text ?? "");
+    const rawBody = route.request().postData() ?? "{}";
+    const parsed = JSON.parse(rawBody) as { text?: string; submit?: boolean };
+    raw.push(parsed);
+    bodies.push(parsed.text ?? "");
     if (status === 200) {
       await route.fulfill({ status: 200, contentType: "application/json", body: '{"ok":true}' });
     } else {
@@ -165,7 +171,7 @@ async function mockChatSend(
       });
     }
   });
-  return { bodies };
+  return { bodies, raw };
 }
 
 test.describe("Chat read frontend — view toggle, heading, rendering", () => {
@@ -357,9 +363,33 @@ test.describe("Chat send — input, POST, error surfacing, busy hint", () => {
     // Exactly one POST with the typed body.
     await expect.poll(() => send.bodies.length).toBe(1);
     expect(send.bodies[0]).toBe("run the tests");
+    // Default submit ⇒ the body carries NO `submit` field — the additive wire
+    // contract keeps the default shape exactly `{ text }` (260719-mxvw).
+    expect("submit" in send.raw[0]).toBe(false);
     // Cleared on success.
     await expect(input).toHaveValue("");
     // No inline error.
+    await expect(page.getByTestId("chat-send-error")).toHaveCount(0);
+  });
+
+  test("the Insert button POSTs submit:false and clears (insert-without-submit, 260719-mxvw)", async ({ page }) => {
+    await mockBackend(page, backfillCleared());
+    const send = await mockChatSend(page); // 200
+    await page.goto(`/${SERVER}/1?view=chat`);
+
+    const input = page.getByTestId("chat-send-input");
+    await expect(input).toBeVisible({ timeout: 10_000 });
+    // Fine pointer (default e2e environment): Enter submits, so the keyboard
+    // hint states "send".
+    await expect(input).toHaveAttribute("enterkeyhint", "send");
+    await input.fill("stage this prompt");
+    await page.getByTestId("chat-send-insert").click();
+
+    // Exactly one POST carrying the explicit insert flag.
+    await expect.poll(() => send.raw.length).toBe(1);
+    expect(send.raw[0]).toEqual({ text: "stage this prompt", submit: false });
+    // Cleared on success (the text now lives in the agent's input box).
+    await expect(input).toHaveValue("");
     await expect(page.getByTestId("chat-send-error")).toHaveCount(0);
   });
 

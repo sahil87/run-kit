@@ -195,6 +195,76 @@ func TestChatSendProbeRetryThenSuccess(t *testing.T) {
 	}
 }
 
+// TestChatSendInsertSkipsEnter (260719-mxvw): `"submit": false` runs the FULL
+// sequence up to and including a passing probe, then skips ONLY the final
+// send-keys Enter — the text stays staged in the agent's input box and the
+// response is the same 200.
+func TestChatSendInsertSkipsEnter(t *testing.T) {
+	fastChatSendProbe(t)
+	sf := &mockSessionFetcher{result: chatSessions("@1", "claude", testChatRef)}
+	// [0] baseline (no echo) → [1] post-paste (echo present) — probe passes.
+	ops := &mockTmuxOps{capturePaneResults: []string{"❯ ", "❯ stage me"}}
+	router := NewTestRouter(slog.Default(), sf, ops, "host")
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, sendReq(`{"text":"stage me","submit":false}`))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	// The whole pipeline minus the final send-keys: baseline → set → paste → probe.
+	want := []string{"capture-pane", "set-buffer", "paste-buffer", "capture-pane"}
+	if strings.Join(ops.chatCalls, ",") != strings.Join(want, ",") {
+		t.Errorf("injection order = %v, want %v (no send-keys)", ops.chatCalls, want)
+	}
+	if ops.sendEnterCalled {
+		t.Error("Enter was sent despite submit:false (insert-without-submit must skip it)")
+	}
+}
+
+// TestChatSendInsertProbeFailureStill409 (260719-mxvw): submit:false does NOT
+// bypass the echo probe — a paste that never echoes still fails closed with the
+// structured 409 and no Enter.
+func TestChatSendInsertProbeFailureStill409(t *testing.T) {
+	fastChatSendProbe(t)
+	sf := &mockSessionFetcher{result: chatSessions("@1", "claude", testChatRef)}
+	ops := &mockTmuxOps{capturePaneResult: "some unrelated pane output"}
+	router := NewTestRouter(slog.Default(), sf, ops, "host")
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, sendReq(`{"text":"stage me","submit":false}`))
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409; body=%s", rec.Code, rec.Body.String())
+	}
+	if ops.sendEnterCalled {
+		t.Error("Enter was sent on a failed probe (insert mode must also withhold it)")
+	}
+	if !strings.Contains(rec.Body.String(), "Enter withheld") {
+		t.Errorf("409 body = %s, want the structured probe error", rec.Body.String())
+	}
+}
+
+// TestChatSendExplicitSubmitTrue (260719-mxvw): an explicit `"submit": true` is
+// byte-identical to the absent field — the full sequence including Enter runs.
+// (The absent-field default is exercised by every other success test.)
+func TestChatSendExplicitSubmitTrue(t *testing.T) {
+	fastChatSendProbe(t)
+	sf := &mockSessionFetcher{result: chatSessions("@1", "claude", testChatRef)}
+	ops := &mockTmuxOps{capturePaneResults: []string{"❯ ", "❯ hello world"}}
+	router := NewTestRouter(slog.Default(), sf, ops, "host")
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, sendReq(`{"text":"hello world","submit":true}`))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if !ops.sendEnterCalled {
+		t.Error("Enter was not sent for an explicit submit:true")
+	}
+}
+
 // TestChatSendEmptyText: empty / whitespace-only text is rejected 400 with no
 // injection.
 func TestChatSendEmptyText(t *testing.T) {

@@ -184,8 +184,27 @@ inline error shows.
 **Steps:**
 1. Mock the backend + `mockChatSend` (200); navigate to `/default/1?view=chat`.
 2. Fill `chat-send-input` with "run the tests" and press Enter.
-3. Assert exactly one recorded POST body equal to "run the tests".
+3. Assert exactly one recorded POST body equal to "run the tests", and that the
+   parsed body carries NO `submit` field (the additive wire contract keeps the
+   default shape exactly `{ text }` — 260719-mxvw).
 4. Assert the input is now empty and `chat-send-error` has count 0.
+
+### `the Insert button POSTs submit:false and clears (insert-without-submit, 260719-mxvw)`
+
+**What it proves:** the Insert button (the insert-without-submit affordance —
+paste into the agent's input box, gated Enter skipped server-side) fires exactly
+one chat-send POST with the explicit body `{ text, submit: false }` and clears
+the input on success. Also asserts the fine-pointer `enterkeyhint="send"` (the
+truthful keyboard hint — coarse/chord behavior is unit-tested in
+`chat-view.test.tsx` / `compose-keys.test.ts`).
+
+**Steps:**
+1. Mock the backend + `mockChatSend` (200); navigate to `/default/1?view=chat`.
+2. Assert `chat-send-input` carries `enterkeyhint="send"` (fine pointer).
+3. Fill the input with "stage this prompt" and click `chat-send-insert`.
+4. Assert exactly one recorded parsed body equal to
+   `{ text: "stage this prompt", submit: false }`.
+5. Assert the input is now empty and `chat-send-error` has count 0.
 
 ### `a 409 probe failure surfaces the inline error and keeps the text`
 

@@ -233,21 +233,28 @@ export async function getWindowChat(
  * Send a chat message into the window's resolved agent pane
  * (260714-jdyg-chat-send). POSTs `{ text }` to the chat-send endpoint, which
  * re-resolves the pane server-side, pastes the text, probes the echo, and only
- * then sends Enter. `throwOnError` surfaces the server's structured error as the
- * thrown Error's message — including the 409 probe failure ("agent input not
- * ready — message pasted but not echoed; Enter withheld").
+ * then sends Enter. `submit: false` (260719-mxvw) is the insert-without-submit
+ * mode — serialized into the body ONLY when false (the default body stays
+ * exactly `{ text }`, the additive wire contract), telling the backend to skip
+ * the final gated Enter while keeping paste/probe/lock semantics unchanged.
+ * `throwOnError` surfaces the server's structured error as the thrown Error's
+ * message — including the 409 probe failure ("agent input not ready — message
+ * pasted but not echoed; Enter withheld").
  */
 export async function sendChatMessage(
   server: string,
   windowId: string,
   text: string,
+  submit = true,
 ): Promise<{ ok: boolean }> {
+  const body: { text: string; submit?: boolean } = { text };
+  if (!submit) body.submit = false;
   const res = await fetch(
     withServer(`/api/windows/${encodeURIComponent(windowId)}/chat/send`, server),
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify(body),
     },
   );
   if (!res.ok) await throwOnError(res);

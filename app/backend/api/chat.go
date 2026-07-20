@@ -220,9 +220,15 @@ func (l *chatSendLockMap) lockFor(server, paneID string) *sync.Mutex {
 	return mu
 }
 
-// chatSendRequest is the POST body for handleChatSend.
+// chatSendRequest is the POST body for handleChatSend. Submit is additive and
+// optional (260719-mxvw): absent or true keeps the full sequence (paste → probe
+// → Enter); false is insert-without-submit — the final gated Enter is skipped
+// and the text is left staged in the agent's input box. A *bool so an absent
+// field is distinguishable from an explicit false (absent ⇒ true — older
+// clients are unaffected).
 type chatSendRequest struct {
-	Text string `json:"text"`
+	Text   string `json:"text"`
+	Submit *bool  `json:"submit"`
 }
 
 // handleChatSend serves POST /api/windows/{windowId}/chat/send — injects a
@@ -281,10 +287,14 @@ func (s *Server) handleChatSend(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), chatSendTotalBudget)
 	defer cancel()
 
+	// Insert-without-submit (260719-mxvw): submit defaults to true when the
+	// field is absent — only an explicit `"submit": false` skips the final Enter.
+	submit := body.Submit == nil || *body.Submit
+
 	// Provider-agnostic tmux injection behind a small function seam so Change 5's
 	// protocol-based codex send can later branch on provider without reshaping
 	// this handler. v1 makes NO provider branch.
-	if err := s.injectChatMessage(ctx, server, paneID, body.Text); err != nil {
+	if err := s.injectChatMessage(ctx, server, paneID, body.Text, submit); err != nil {
 		var probeErr chatProbeFailure
 		if errors.As(err, &probeErr) {
 			// Probe failed — no Enter was sent; the pasted text is left visible in
@@ -327,8 +337,12 @@ const chatSendCollapseMinRunes = 200
 // injectChatMessage runs the pane-targeted injection sequence (Constitution I —
 // all argv slices, no shell strings, text as a discrete argv element via the
 // named buffer): baseline capture → set-buffer → paste-buffer (-d -p, bracketed)
-// → NOVELTY echo probe → send-keys Enter (only on probe success). Every step
-// targets paneID, never the window, and shares the caller's ctx deadline.
+// → NOVELTY echo probe → send-keys Enter (only on probe success AND submit).
+// Every step targets paneID, never the window, and shares the caller's ctx
+// deadline. submit=false (insert-without-submit, 260719-mxvw) skips ONLY the
+// final SendEnterToPane — baseline, set/paste, probe (a probe failure still
+// returns chatProbeFailure → 409), locks, and the shared budget are unchanged —
+// leaving the verified paste staged in the agent's input box.
 //
 // The probe verifies NOVELTY, not mere presence: it counts the needle (and, for a
 // COLLAPSIBLE paste, the paste-collapse placeholder) in a PRE-PASTE baseline
@@ -343,7 +357,7 @@ const chatSendCollapseMinRunes = 200
 //
 // A tmux failure is returned verbatim (→ 500); a probe failure is returned as
 // chatProbeFailure (→ 409, Enter withheld).
-func (s *Server) injectChatMessage(ctx context.Context, server, paneID, text string) error {
+func (s *Server) injectChatMessage(ctx context.Context, server, paneID, text string, submit bool) error {
 	needle := chatProbeNeedle(text)
 	if needle == "" {
 		// Whitespace-only text is rejected upstream (400); a non-empty text always
@@ -387,6 +401,11 @@ func (s *Server) injectChatMessage(ctx context.Context, server, paneID, text str
 
 	if err := s.probeChatEcho(ctx, server, paneID, needle, collapsible, baseCount); err != nil {
 		return err
+	}
+	if !submit {
+		// Insert-without-submit: the probe verified the paste landed; leave it
+		// staged in the input box and send no Enter.
+		return nil
 	}
 	if err := s.tmux.SendEnterToPane(ctx, paneID, server); err != nil {
 		return fmt.Errorf("send-keys: %w", err)

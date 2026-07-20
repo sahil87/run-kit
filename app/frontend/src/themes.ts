@@ -425,14 +425,26 @@ export const UNCOLORED_SELECTED_KEY = `${UNCOLORED_SELECTED_ANSI}`;
  *  set (validate.MarkerValues) minus the empty string, with `""` at the front. */
 export const MARKER_STATES = ["", "dotted", "solid", "double"] as const;
 
-/** Inline style rendering a marker state as a left-edge border stripe in the
- *  given color: dotted 3px, solid 3px, double 6px. The empty state renders no
+/** Inline style rendering a marker state as a left-edge stripe in the given
+ *  color: dotted 3px, solid 3px, double 6px. The empty state renders no
  *  stripe. Shared by the window-row display-only stripe and the Label picker's
- *  marker cells so the stripe vocabulary lives in exactly one place. */
+ *  marker cells so the stripe vocabulary lives in exactly one place.
+ *
+ *  `dotted` is a fixed-rhythm background (3px dash / 3px gap), NOT
+ *  `border-left: dotted`: a dotted border distributes its dots per-element,
+ *  restarting the pattern at every row, so stacked dotted-marker rows showed
+ *  visible seams while solid/double merged continuously. The gradient's 6px
+ *  period starts at each element's top and window rows are 24px (36px coarse)
+ *  tall — exact multiples of the period — so the rhythm carries across
+ *  adjacent rows without a seam. */
 export function markerStripeStyle(state: string, color: string): CSSProperties | undefined {
   switch (state) {
     case "dotted":
-      return { borderLeft: `3px dotted ${color}` };
+      return {
+        backgroundImage: `repeating-linear-gradient(to bottom, ${color} 0 3px, transparent 3px 6px)`,
+        backgroundSize: "3px 100%",
+        backgroundRepeat: "no-repeat",
+      };
     case "solid":
       return { borderLeft: `3px solid ${color}` };
     case "double":

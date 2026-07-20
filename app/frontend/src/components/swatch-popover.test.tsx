@@ -378,14 +378,20 @@ describe("SwatchPopover", () => {
 
     it("marker stripes draw in the THEME FOREGROUND, not a row-dependent color", () => {
       renderLabelPicker();
-      const dotted = screen.getByRole("option", { name: "Marker dotted" });
-      const stripe = dotted.querySelector("span")!;
       // Default Dark foreground (#e8eaf0) — bright and theme-adaptive, so the
       // marker column is legible on uncolored rows (no gray-sentinel stripes)
       // and never repaints when the color axis changes.
-      expect(stripe.style.borderLeft.toLowerCase()).toContain("dotted");
-      // #e8eaf0 — jsdom normalizes the inline hex to rgb().
-      expect(stripe.style.borderLeft).toContain("rgb(232, 234, 240)");
+      const dotted = screen
+        .getByRole("option", { name: "Marker dotted" })
+        .querySelector("span")!;
+      // Dotted is a fixed-rhythm gradient (seam-free across stacked rows), not
+      // a dotted border. #e8eaf0 — jsdom normalizes the inline hex to rgb().
+      expect(dotted.style.backgroundImage).toContain("repeating-linear-gradient");
+      expect(dotted.style.backgroundImage).toContain("rgb(232, 234, 240)");
+      const solid = screen
+        .getByRole("option", { name: "Marker solid" })
+        .querySelector("span")!;
+      expect(solid.style.borderLeft).toContain("rgb(232, 234, 240)");
     });
 
     it("ArrowLeft crosses the hairline into the marker column; ArrowUp/Down move within it", () => {

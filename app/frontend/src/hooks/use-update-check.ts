@@ -21,7 +21,13 @@ const DEV_VERSION = "dev";
  * Flow: POST /api/updates/check (synchronous ~1-2s — deliberately NO
  * intermediate "checking…" toast), then ONE result toast:
  *   - info toast with the per-tool summary (composeCheckToast; the
- *     includePatches flag selects notable-only vs. all-pending filtering);
+ *     includePatches flag selects notable-only vs. all-pending filtering).
+ *     The two commands are TWO BACKENDS (260720-wb3n): the default check runs
+ *     shll's released-manifest source, while incl.-patches requests the fresh
+ *     GitHub release-tags source (`checkForUpdates("github")` — a side-channel
+ *     query that never touches the daemon's cached verdict/chip). The response's
+ *     echoed `source` rides into the toast composition so the sub-threshold
+ *     annotation keys off what actually ran;
  *   - when something updatable was reported AND the daemon can actually update
  *     (brew install, non-dev — the same gate as the palette's `run-kit: Update
  *     Now` entry), the toast's action slot carries "Update Now", triggering the
@@ -52,9 +58,13 @@ export function useUpdateCheck(): {
       if (checkingRef.current) return;
       checkingRef.current = true;
       setChecking(true);
-      void checkForUpdates()
+      void checkForUpdates(includePatches ? "github" : undefined)
         .then((result) => {
-          const { message, updatable } = composeCheckToast(result.tools, includePatches);
+          const { message, updatable } = composeCheckToast(
+            result.tools,
+            includePatches,
+            result.source,
+          );
           const canUpdate = brew && daemonVersion !== DEV_VERSION;
           const action =
             updatable && canUpdate

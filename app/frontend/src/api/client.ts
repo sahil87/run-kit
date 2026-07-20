@@ -430,9 +430,11 @@ export type UpdateCheckTool = {
   notable: boolean;
 };
 
-/** The parsed POST /api/updates/check response: the full per-tool verdict list
- *  plus the composite dismissal key over the notable set. */
-export type UpdateCheckResult = { tools: UpdateCheckTool[]; key: string };
+/** The parsed POST /api/updates/check response: the full per-tool verdict list,
+ *  the composite dismissal key over the notable set, and the backend `source`
+ *  the report self-identified (`"released"`/`"github"`; defensively `""` on an
+ *  old daemon that omits it). */
+export type UpdateCheckResult = { tools: UpdateCheckTool[]; key: string; source: string };
 
 /** A validated wire row from POST /api/updates/check: the three identifying
  *  fields are verified present; the verdict flags are still optional (an old
@@ -445,17 +447,21 @@ type UpdateCheckWireTool = {
   notable?: boolean;
 };
 
-/** Run an on-demand update check: POST /api/updates/check. The server runs one
- *  inline `shll check-updates` pass (also converging the cached verdict + SSE
- *  slot the chip reads) and returns the fresh verdict synchronously (~1-2s).
- *  Rejects on a non-2xx (502 when the check itself fails — e.g. shll missing —
- *  or 409 on a dev build) with the server's error message, so the palette
- *  check commands can raise an honest error toast. */
-export async function checkForUpdates(): Promise<UpdateCheckResult> {
+/** Run an on-demand update check: POST /api/updates/check. The default
+ *  (source-less) call runs one inline `shll check-updates` pass against the
+ *  released manifest (also converging the cached verdict + SSE slot the chip
+ *  reads); passing `"github"` requests shll's GitHub release-tags backend
+ *  (POST body `{"source":"github"}`) — a side-channel query the daemon answers
+ *  without touching the cached verdict. Returns the fresh verdict synchronously
+ *  (~1-2s) with the echoed report `source`. Rejects on a non-2xx (502 when the
+ *  check itself fails — e.g. shll missing, or an older shll without `--source`
+ *  support — or 409 on a dev build) with the server's error message, so the
+ *  palette check commands can raise an honest error toast. */
+export async function checkForUpdates(source?: "github"): Promise<UpdateCheckResult> {
   const res = await fetch("/api/updates/check", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({}),
+    body: JSON.stringify(source ? { source } : {}),
   });
   if (!res.ok) await throwOnError(res);
   const body = (await res.json()) as {
@@ -467,6 +473,7 @@ export async function checkForUpdates(): Promise<UpdateCheckResult> {
       notable?: boolean;
     }[];
     key?: string;
+    source?: string;
   };
   const tools: UpdateCheckTool[] = (Array.isArray(body.tools) ? body.tools : [])
     .filter(
@@ -480,7 +487,11 @@ export async function checkForUpdates(): Promise<UpdateCheckResult> {
       updateAvailable: t.updateAvailable === true,
       notable: t.notable === true,
     }));
-  return { tools, key: typeof body.key === "string" ? body.key : "" };
+  return {
+    tools,
+    key: typeof body.key === "string" ? body.key : "",
+    source: typeof body.source === "string" ? body.source : "",
+  };
 }
 
 /** Force a self-upgrade regardless of the update checker's qualifying snapshot:

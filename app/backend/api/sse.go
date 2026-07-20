@@ -853,6 +853,13 @@ type updateAvailablePayload struct {
 	// transitional compat (populated only when run-kit is in the notable set).
 	Current string `json:"current"`
 	Latest  string `json:"latest"`
+	// Source echoes the report's self-identified backend ("released"/"github"),
+	// so the check-toast client reacts to what actually ran (the incl.-patches
+	// annotation is suppressed for github, which carries no notify policy). The
+	// ambient SSE slot carries "released" — harmless, and keeps the
+	// one-builder-no-drift property. Kept LAST so existing byte-fragment
+	// assertions on the payload stay valid.
+	Source string `json:"source"`
 }
 
 // buildUpdateAvailablePayload maps a checker verdict onto the wire payload.
@@ -867,7 +874,7 @@ func buildUpdateAvailablePayload(verdict updatecheck.Result) updateAvailablePayl
 			Notable:         v.Notable,
 		})
 	}
-	return updateAvailablePayload{Tools: tools, Key: verdict.Key, Current: verdict.Current, Latest: verdict.Latest}
+	return updateAvailablePayload{Tools: tools, Key: verdict.Key, Current: verdict.Current, Latest: verdict.Latest, Source: verdict.Source}
 }
 
 // broadcastUpdateAvailable pushes a server-global `event: update-available` to

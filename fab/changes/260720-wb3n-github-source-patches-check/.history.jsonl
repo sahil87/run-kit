@@ -1,0 +1,11 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-20T09:44:05Z"}
+{"args":"Make the palette command 'run-kit: Check for Updates (incl. patches)' use the GitHub backend of shll's update check (shll check-updates --source github), while the default check keeps the released-manifest backend; plumb a source parameter through client/handler/checker/exec, keep github checks out of the shared cached verdict and OnQualify, echo the report source, suppress the patch annotation for github results","cmd":"fab-new","event":"command","ts":"2026-07-20T09:44:05Z"}
+{"delta":"+4.8","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-07-20T09:46:10Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-07-20T09:47:10Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-20T09:48:29Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-20T09:48:55Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-20T09:49:39Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-20T10:07:08Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-20T10:10:57Z"}
+{"event":"review","result":"passed","ts":"2026-07-20T10:10:57Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-20T10:16:07Z"}

@@ -32,7 +32,7 @@ function updateAvailable(tools: UpdateTool[]): UpdateAvailable {
   return { tools, key, current: rk?.current ?? "", latest: rk?.latest ?? "" };
 }
 
-const emptyResult: UpdateCheckResult = { tools: [], key: "" };
+const emptyResult: UpdateCheckResult = { tools: [], key: "", source: "released" };
 
 function renderMenu(
   sessionValue: Partial<SessionContextType>,

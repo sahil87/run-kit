@@ -153,6 +153,50 @@ describe("composeCheckToast", () => {
       updatable: false,
     });
   });
+
+  describe("source-aware annotation (260720-wb3n)", () => {
+    // A github-backend row: no notify policy exists there, so a genuine MINOR
+    // bump still arrives notable=false — annotating it "(patch — below notify
+    // threshold)" would mislabel it.
+    const githubMinorBump: CheckVerdictTool = {
+      tool: "run-kit",
+      current: "3.8.7",
+      latest: "3.9.1",
+      updateAvailable: true,
+      notable: false,
+    };
+
+    it('suppresses the sub-threshold annotation when the echoed source is "github"', () => {
+      expect(composeCheckToast([githubMinorBump], true, "github")).toEqual({
+        message: "run-kit v3.8.7 → v3.9.1",
+        updatable: true,
+      });
+    });
+
+    it('keeps the annotation for a released-sourced non-notable row', () => {
+      expect(composeCheckToast([subThresholdTu], true, "released")).toEqual({
+        message: "tu v0.9.1 → v0.9.2 (patch — below notify threshold)",
+        updatable: true,
+      });
+    });
+
+    it("keeps the annotation when the source is absent (old daemon fallback)", () => {
+      expect(composeCheckToast([subThresholdTu], true)).toEqual({
+        message: "tu v0.9.1 → v0.9.2 (patch — below notify threshold)",
+        updatable: true,
+      });
+    });
+
+    it("leaves the incl.-patches filter untouched by the source (github rows ride updateAvailable)", () => {
+      // Default (notable-only) view: a github row is never notable, so the
+      // default check over a github verdict composes up-to-date — filtering is
+      // source-blind by design; only the annotation keys off the source.
+      expect(composeCheckToast([githubMinorBump], false, "github")).toEqual({
+        message: "All tools up to date",
+        updatable: false,
+      });
+    });
+  });
 });
 
 describe("buildMaintenanceActions", () => {

@@ -20,7 +20,7 @@ import (
 func qualifyingChecker(t *testing.T) *updatecheck.Checker {
 	t.Helper()
 	c := updatecheck.New("3.8.0", true)
-	c.SetCheckForTest(func() (updatecheck.CheckReport, error) {
+	c.SetCheckForTest(func(string) (updatecheck.CheckReport, error) {
 		return updatecheck.CheckReport{Schema: 1, Tools: []updatecheck.CheckTool{
 			{Name: "run-kit", Formula: "run-kit", Latest: "3.9.0", Notify: "minor"},
 		}}, nil
@@ -37,7 +37,7 @@ func qualifyingChecker(t *testing.T) *updatecheck.Checker {
 func multiToolChecker(t *testing.T) *updatecheck.Checker {
 	t.Helper()
 	c := updatecheck.New("3.8.0", true)
-	c.SetCheckForTest(func() (updatecheck.CheckReport, error) {
+	c.SetCheckForTest(func(string) (updatecheck.CheckReport, error) {
 		return updatecheck.CheckReport{Schema: 1, Tools: []updatecheck.CheckTool{
 			{Name: "run-kit", Formula: "run-kit", Latest: "3.9.0", Notify: "minor"},
 			{Name: "fab-kit", Formula: "fab-kit", Installed: "2.16.0", Latest: "2.17.0", Notify: "minor", UpdateAvailable: true, Notable: true},
@@ -151,7 +151,7 @@ func TestHandleUpdateShllDropsFlagLikeToolName(t *testing.T) {
 	// next to a legitimate sibling. run-kit itself is at latest so its row won't
 	// match, keeping the assertion focused on the sibling verdicts.
 	c := updatecheck.New("3.9.0", true)
-	c.SetCheckForTest(func() (updatecheck.CheckReport, error) {
+	c.SetCheckForTest(func(string) (updatecheck.CheckReport, error) {
 		return updatecheck.CheckReport{Schema: 1, Tools: []updatecheck.CheckTool{
 			{Name: "fab-kit", Formula: "fab-kit", Installed: "2.16.0", Latest: "2.17.0", Notify: "minor", UpdateAvailable: true, Notable: true},
 			{Name: "--force", Formula: "evil", Installed: "1.0.0", Latest: "9.9.9", Notify: "minor", UpdateAvailable: true, Notable: true},
@@ -233,7 +233,7 @@ func TestHandleUpdateShllPresentIgnoresBrew409(t *testing.T) {
 	withSeams(t, "/usr/local/bin/run-kit", nil, "/opt/homebrew/bin/shll", nil, recordingSpawn(&rec))
 	// A checker matching fab-kit only (run-kit not brew, so its row is gated off).
 	c := updatecheck.New("3.9.0", false)
-	c.SetCheckForTest(func() (updatecheck.CheckReport, error) {
+	c.SetCheckForTest(func(string) (updatecheck.CheckReport, error) {
 		return updatecheck.CheckReport{Schema: 1, Tools: []updatecheck.CheckTool{
 			{Name: "fab-kit", Formula: "fab-kit", Installed: "2.16.0", Latest: "2.17.0", Notify: "minor", UpdateAvailable: true, Notable: true},
 		}}, nil
@@ -463,11 +463,17 @@ func TestHandleUpdateForceKeepsBrew409(t *testing.T) {
 
 // ----- POST /api/updates/check (on-demand check) -----
 
-// postUpdatesCheck issues a POST /api/updates/check.
-func postUpdatesCheck(t *testing.T, s *Server) *httptest.ResponseRecorder {
+// postUpdatesCheck issues a POST /api/updates/check with the given raw body
+// ("" = no body).
+func postUpdatesCheck(t *testing.T, s *Server, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/updates/check", nil)
+	var req *http.Request
+	if body == "" {
+		req = httptest.NewRequest(http.MethodPost, "/api/updates/check", nil)
+	} else {
+		req = httptest.NewRequest(http.MethodPost, "/api/updates/check", strings.NewReader(body))
+	}
 	s.handleUpdatesCheck(rec, req)
 	return rec
 }
@@ -477,7 +483,7 @@ func postUpdatesCheck(t *testing.T, s *Server) *httptest.ResponseRecorder {
 // SSE-payload shape (full per-tool verdict list + notable-derived key).
 func TestHandleUpdatesCheckReturnsFreshVerdict(t *testing.T) {
 	c := updatecheck.New("3.8.0", true)
-	c.SetCheckForTest(func() (updatecheck.CheckReport, error) {
+	c.SetCheckForTest(func(string) (updatecheck.CheckReport, error) {
 		return updatecheck.CheckReport{Schema: 1, Tools: []updatecheck.CheckTool{
 			{Name: "run-kit", Formula: "run-kit", Latest: "3.9.0", Notify: "minor"},
 			{Name: "tu", Formula: "tu", Installed: "0.9.1", Latest: "0.9.2", Notify: "minor", UpdateAvailable: true, Notable: false},
@@ -485,7 +491,7 @@ func TestHandleUpdatesCheckReturnsFreshVerdict(t *testing.T) {
 	})
 	s := newUpdateServer(c)
 
-	res := postUpdatesCheck(t, s)
+	res := postUpdatesCheck(t, s, "")
 
 	if res.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200 (body=%s)", res.Code, res.Body.String())
@@ -526,12 +532,12 @@ func TestHandleUpdatesCheckReturnsFreshVerdict(t *testing.T) {
 // reason in the error body.
 func TestHandleUpdatesCheckFailure502(t *testing.T) {
 	c := updatecheck.New("3.8.0", true)
-	c.SetCheckForTest(func() (updatecheck.CheckReport, error) {
+	c.SetCheckForTest(func(string) (updatecheck.CheckReport, error) {
 		return updatecheck.CheckReport{}, errors.New("shll not found on PATH")
 	})
 	s := newUpdateServer(c)
 
-	res := postUpdatesCheck(t, s)
+	res := postUpdatesCheck(t, s, "")
 
 	if res.Code != http.StatusBadGateway {
 		t.Fatalf("status = %d, want 502 (body=%s)", res.Code, res.Body.String())
@@ -550,11 +556,123 @@ func TestHandleUpdatesCheckSuppressedAndNil409(t *testing.T) {
 		"nil":        newUpdateServer(nil),
 	} {
 		t.Run(name, func(t *testing.T) {
-			res := postUpdatesCheck(t, s)
+			res := postUpdatesCheck(t, s, "")
 			if res.Code != http.StatusConflict {
 				t.Fatalf("status = %d, want 409 (body=%s)", res.Code, res.Body.String())
 			}
 		})
+	}
+}
+
+// sourceRecordingChecker returns a checker whose check seam records every
+// requested source and answers with a minimal per-source report (source echoed
+// in the report, github rows carrying no notify/notable per that contract).
+func sourceRecordingChecker(seen *[]string) *updatecheck.Checker {
+	c := updatecheck.New("3.8.0", true)
+	c.SetCheckForTest(func(source string) (updatecheck.CheckReport, error) {
+		*seen = append(*seen, source)
+		if source == updatecheck.SourceGithub {
+			return updatecheck.CheckReport{Schema: 1, Source: "github", Tools: []updatecheck.CheckTool{
+				{Name: "run-kit", Formula: "run-kit", Installed: "3.8.0", Latest: "3.9.1", UpdateAvailable: true},
+			}}, nil
+		}
+		return updatecheck.CheckReport{Schema: 1, Source: "released", Tools: []updatecheck.CheckTool{
+			{Name: "run-kit", Formula: "run-kit", Latest: "3.9.0", Notify: "minor"},
+		}}, nil
+	})
+	return c
+}
+
+// TestHandleUpdatesCheckBodyVariantsDefaultReleased verifies the tolerant body
+// parse: an absent body, `{}`, an empty source, and a malformed body all take
+// the released default (existing clients POSTing `{}` unchanged).
+func TestHandleUpdatesCheckBodyVariantsDefaultReleased(t *testing.T) {
+	for name, body := range map[string]string{
+		"absent":       "",
+		"empty-obj":    `{}`,
+		"empty-source": `{"source":""}`,
+		"malformed":    `{not json`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			var seen []string
+			s := newUpdateServer(sourceRecordingChecker(&seen))
+
+			res := postUpdatesCheck(t, s, body)
+
+			if res.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200 for body %q (body=%s)", res.Code, body, res.Body.String())
+			}
+			if len(seen) != 1 || seen[0] != updatecheck.SourceReleased {
+				t.Errorf("check seam saw sources %v, want [released default] for body %q", seen, body)
+			}
+			if !strings.Contains(res.Body.String(), `"source":"released"`) {
+				t.Errorf("response = %s, want the released source echoed", res.Body.String())
+			}
+		})
+	}
+}
+
+// TestHandleUpdatesCheckGithubSource verifies the github override: the
+// validated enum value reaches the checker seam, the response echoes the
+// report's source, and the side-channel posture holds through the handler (the
+// cached snapshot the chip reads stays untouched).
+func TestHandleUpdatesCheckGithubSource(t *testing.T) {
+	var seen []string
+	c := sourceRecordingChecker(&seen)
+	s := newUpdateServer(c)
+
+	res := postUpdatesCheck(t, s, `{"source":"github"}`)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body=%s)", res.Code, res.Body.String())
+	}
+	if len(seen) != 1 || seen[0] != updatecheck.SourceGithub {
+		t.Errorf("check seam saw sources %v, want [github]", seen)
+	}
+	var body struct {
+		Tools []struct {
+			Tool            string `json:"tool"`
+			UpdateAvailable bool   `json:"updateAvailable"`
+			Notable         bool   `json:"notable"`
+		} `json:"tools"`
+		Key    string `json:"key"`
+		Source string `json:"source"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body.Source != "github" {
+		t.Errorf("response source = %q, want github (echo of the report's source)", body.Source)
+	}
+	if len(body.Tools) != 1 || !body.Tools[0].UpdateAvailable || body.Tools[0].Notable {
+		t.Errorf("tools = %+v, want one non-notable updateAvailable row (no notify policy in the github backend)", body.Tools)
+	}
+	if body.Key != "" {
+		t.Errorf("key = %q, want empty (github rows never enter the notable set)", body.Key)
+	}
+	// Side-channel: the shared cached verdict was never written.
+	if snap := c.Snapshot(); snap.Key != "" || len(snap.Tools) != 0 {
+		t.Errorf("github check must not write the cache: snapshot = %+v", snap)
+	}
+}
+
+// TestHandleUpdatesCheckUnknownSource400 verifies the closed enum: a parsed
+// unknown non-empty source is a client bug → 400 without invoking the checker
+// (a silent released fallback would mask it).
+func TestHandleUpdatesCheckUnknownSource400(t *testing.T) {
+	var seen []string
+	s := newUpdateServer(sourceRecordingChecker(&seen))
+
+	res := postUpdatesCheck(t, s, `{"source":"bogus"}`)
+
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 (body=%s)", res.Code, res.Body.String())
+	}
+	if !strings.Contains(res.Body.String(), "bogus") {
+		t.Errorf("error body = %q, want the rejected source named", res.Body.String())
+	}
+	if len(seen) != 0 {
+		t.Errorf("check seam invoked %v times on an invalid source, want none", seen)
 	}
 }
 

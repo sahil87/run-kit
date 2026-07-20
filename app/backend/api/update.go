@@ -6,10 +6,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"time"
 
 	"rk/internal/selfpath"
+	"rk/internal/updatecheck"
 	"rk/internal/validate"
 )
 
@@ -92,6 +94,15 @@ func openRkLog(logName string) (*os.File, error) {
 // MUST keep working unchanged). `force=true` skips the qualify check.
 type updateRequest struct {
 	Force bool `json:"force"`
+}
+
+// updatesCheckRequest is the tolerant body of POST /api/updates/check
+// (mirroring updateRequest's posture): an absent body, empty body, `{}`, or an
+// absent/empty `source` key all mean the released default — existing clients
+// POSTing `{}` are unchanged. `"source":"github"` requests the GitHub backend;
+// any other non-empty value is a 400 (see handleUpdatesCheck).
+type updatesCheckRequest struct {
+	Source string `json:"source"`
 }
 
 // handleUpdate triggers a one-click toolkit upgrade. POST per Constitution IX.
@@ -192,13 +203,27 @@ func (s *Server) handleShllUpdate(w http.ResponseWriter, shllPath string, force 
 	}
 }
 
-// handleUpdatesCheck runs one immediate update-check pass inline — the same
-// code path the 6h ambient loop uses (`shll check-updates` exec + cached
-// verdict update + SSE broadcast via the checker's OnQualify seam) — and
-// returns the fresh verdict synchronously so the palette check commands can
-// report without waiting on SSE. POST per Constitution IX. The ~1-2s exec
-// latency is acceptable for a synchronous response; the checker's exec timeout
-// is the bound (API routes must not block unbounded).
+// handleUpdatesCheck runs one immediate update-check pass inline and returns
+// the fresh verdict synchronously so the palette check commands can report
+// without waiting on SSE. POST per Constitution IX. The ~1-2s exec latency is
+// acceptable for a synchronous response; the checker's exec timeout is the
+// bound (API routes must not block unbounded).
+//
+// The tolerant body selects the check backend (see updatesCheckRequest):
+//
+//   - released default (absent/empty/`{}` body, absent/empty `source`) — the
+//     same code path the 6h ambient loop uses (`shll check-updates` exec +
+//     cached verdict update + SSE broadcast via the checker's OnQualify seam).
+//   - `"source":"github"` — a SIDE-CHANNEL query against shll's GitHub backend:
+//     exec + verdict computation + synchronous response only; the shared cached
+//     verdict and the OnQualify/SSE broadcast are deliberately untouched (the
+//     github contract has no notify policy, so caching it would wipe a legit
+//     released chip and starve the scoped `shll update` argv).
+//
+// The handler maps the request onto the closed updatecheck.Source* enum —
+// nothing user-controlled reaches argv (Constitution I). An unrecognized
+// non-empty `source` → 400 (fail-loud; a silent released fallback would mask a
+// client bug). The response echoes the report's self-identified `source`.
 //
 // Failure mapping (the manual check is deliberately fail-LOUD, unlike the
 // fail-silent ambient loop): a nil or suppressed checker (dev build) → 409; a
@@ -206,13 +231,33 @@ func (s *Server) handleShllUpdate(w http.ResponseWriter, shllPath string, force 
 // reason, so the client can raise an honest error toast. No in-flight lock —
 // mirrors /api/update's no-lock posture (a concurrent pass is idempotent).
 //
-// POST /api/updates/check → 200 {tools,key,current,latest} | 409/502 {"error":...}
+// POST /api/updates/check → 200 {tools,key,current,latest,source} | 400/409/502 {"error":...}
 func (s *Server) handleUpdatesCheck(w http.ResponseWriter, r *http.Request) {
 	if s.updateChecker == nil || s.updateChecker.Suppressed() {
 		writeError(w, http.StatusConflict, "update checks are disabled for this daemon (dev build)")
 		return
 	}
-	verdict, err := s.updateChecker.CheckNow(r.Context())
+
+	// Tolerant body parse mirroring handleUpdate's: absent/empty/malformed body
+	// ⇒ the released default. A successfully-parsed unknown source is a client
+	// bug and 400s; only the validated enum value selects the github backend.
+	source := updatecheck.SourceReleased
+	if r.Body != nil {
+		var req updatesCheckRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err == nil {
+			switch req.Source {
+			case "":
+				// released default
+			case updatecheck.SourceGithub:
+				source = updatecheck.SourceGithub
+			default:
+				writeError(w, http.StatusBadRequest, "unknown update-check source "+strconv.Quote(req.Source)+" (supported: \"github\")")
+				return
+			}
+		}
+	}
+
+	verdict, err := s.updateChecker.CheckNow(r.Context(), source)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, "update check unavailable — "+err.Error())
 		return

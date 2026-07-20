@@ -192,7 +192,7 @@ func fixtureReport(t *testing.T) CheckReport {
 func checkerWith(t *testing.T, current string, selfBrew bool, report CheckReport) *Checker {
 	t.Helper()
 	c := New(current, selfBrew)
-	c.SetCheckForTest(func() (CheckReport, error) { return report, nil })
+	c.SetCheckForTest(func(string) (CheckReport, error) { return report, nil })
 	return c
 }
 
@@ -330,7 +330,7 @@ func TestCheckOnceFiresOnKeyChange(t *testing.T) {
 	c.SetSelfBrewForTest(true)
 
 	var latest string
-	c.SetCheckForTest(func() (CheckReport, error) {
+	c.SetCheckForTest(func(string) (CheckReport, error) {
 		return CheckReport{Schema: 1, Tools: []CheckTool{
 			{Name: "run-kit", Latest: latest, Notify: "minor", Formula: "run-kit"},
 		}}, nil
@@ -375,7 +375,7 @@ func TestCheckOnceClearThenReMatchRefires(t *testing.T) {
 	c.SetSelfBrewForTest(true)
 
 	var latest string
-	c.SetCheckForTest(func() (CheckReport, error) {
+	c.SetCheckForTest(func(string) (CheckReport, error) {
 		return CheckReport{Schema: 1, Tools: []CheckTool{
 			{Name: "run-kit", Latest: latest, Notify: "minor", Formula: "run-kit"},
 		}}, nil
@@ -421,7 +421,7 @@ func TestCheckOnceClearThenReMatchRefires(t *testing.T) {
 func TestCheckOnceEmptyToEmptyNoFire(t *testing.T) {
 	c := New("3.9.0", true) // already at latest — nothing matches
 	c.SetSelfBrewForTest(true)
-	c.SetCheckForTest(func() (CheckReport, error) {
+	c.SetCheckForTest(func(string) (CheckReport, error) {
 		return CheckReport{Schema: 1, Tools: []CheckTool{
 			{Name: "run-kit", Latest: "3.9.0", Notify: "minor", Formula: "run-kit"},
 		}}, nil
@@ -481,7 +481,7 @@ func TestCheckOnceErrorRetainsResult(t *testing.T) {
 
 	fired := false
 	c.OnQualify = func(Result) { fired = true }
-	c.SetCheckForTest(func() (CheckReport, error) { return CheckReport{}, errors.New("shll not found on PATH") })
+	c.SetCheckForTest(func(string) (CheckReport, error) { return CheckReport{}, errors.New("shll not found on PATH") })
 	c.CheckOnceForTest()
 
 	got := c.Snapshot()
@@ -497,7 +497,7 @@ func TestCheckOnceErrorRetainsResult(t *testing.T) {
 // inline pass and returns the fresh verdict synchronously.
 func TestCheckNowReturnsFreshVerdict(t *testing.T) {
 	c := checkerWith(t, "3.8.0", true, fixtureReport(t))
-	got, err := c.CheckNow(context.Background())
+	got, err := c.CheckNow(context.Background(), SourceReleased)
 	if err != nil {
 		t.Fatalf("CheckNow error: %v", err)
 	}
@@ -513,6 +513,172 @@ func TestCheckNowReturnsFreshVerdict(t *testing.T) {
 	}
 }
 
+// githubFixtureReport loads the vendored GITHUB contract fixture — the twin of
+// check-updates.json for `shll check-updates --source github --json`: source
+// "github", NO notify/notable fields on any row (no notify policy in that
+// backend). run-kit=minor+patch bump, fab-kit=minor bump, wt=current.
+func githubFixtureReport(t *testing.T) CheckReport {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("testdata", "check-updates-github.json"))
+	if err != nil {
+		t.Fatalf("read vendored github fixture: %v", err)
+	}
+	var report CheckReport
+	if err := json.Unmarshal(raw, &report); err != nil {
+		t.Fatalf("decode vendored github fixture: %v", err)
+	}
+	return report
+}
+
+// TestVendoredGithubContractFixture parses the vendored github-backend fixture
+// and verifies the no-notify contract decodes with zero-valued notify/notable
+// on every row (unknown fields still tolerated).
+func TestVendoredGithubContractFixture(t *testing.T) {
+	report := githubFixtureReport(t)
+	if report.Schema != checkUpdatesSchema {
+		t.Errorf("github fixture schema = %d, want %d", report.Schema, checkUpdatesSchema)
+	}
+	if report.Source != "github" {
+		t.Errorf("github fixture source = %q, want github", report.Source)
+	}
+	if len(report.Tools) != 3 {
+		t.Fatalf("github fixture tools = %d, want 3", len(report.Tools))
+	}
+	for _, tool := range report.Tools {
+		if tool.Notify != "" || tool.Notable {
+			t.Errorf("github row %q = (notify=%q, notable=%v), want zero values — the github contract carries no notify policy", tool.Name, tool.Notify, tool.Notable)
+		}
+	}
+	byName := map[string]CheckTool{}
+	for _, tool := range report.Tools {
+		byName[tool.Name] = tool
+	}
+	if fk := byName["fab-kit"]; fk.Installed != "2.16.0" || fk.Latest != "2.17.0" || !fk.UpdateAvailable {
+		t.Errorf("fab-kit github row decoded wrong (unknown fields must be tolerated): %+v", fk)
+	}
+	if wt := byName["wt"]; wt.UpdateAvailable {
+		t.Errorf("wt github row = %+v, want up to date", wt)
+	}
+}
+
+// TestCheckNowGithubSideChannel verifies the load-bearing cache-isolation
+// contract: a github-sourced CheckNow returns the computed verdict (all rows
+// notable=false under the no-notify contract, Source echoed) but performs NO
+// cache write and fires NO OnQualify — and a released check afterwards still
+// caches and fires normally.
+func TestCheckNowGithubSideChannel(t *testing.T) {
+	released := fixtureReport(t)
+	github := githubFixtureReport(t)
+
+	c := New("3.8.0", true)
+	c.SetCheckForTest(func(source string) (CheckReport, error) {
+		if source == SourceGithub {
+			return github, nil
+		}
+		return released, nil
+	})
+	fires := 0
+	c.OnQualify = func(Result) { fires++ }
+
+	// Seed the shared cache from the released path.
+	c.CheckOnceForTest()
+	seeded := c.Snapshot()
+	if seeded.Key != "fab-kit@2.17.0,run-kit@3.9.0" || fires != 1 {
+		t.Fatalf("precondition: seeded released verdict key=%q fires=%d", seeded.Key, fires)
+	}
+
+	// The github side-channel query.
+	got, err := c.CheckNow(context.Background(), SourceGithub)
+	if err != nil {
+		t.Fatalf("github CheckNow error: %v", err)
+	}
+	if got.Source != "github" {
+		t.Errorf("github Result.Source = %q, want github", got.Source)
+	}
+	// run-kit (3.8.0→3.9.1, notify "" fail-closed) + fab-kit — both non-notable.
+	if len(got.Tools) != 2 {
+		t.Fatalf("github verdicts = %v, want 2 (run-kit + fab-kit)", got.Tools)
+	}
+	for _, v := range got.Tools {
+		if !v.UpdateAvailable || v.Notable {
+			t.Errorf("github verdict %q = (ua=%v, notable=%v), want updateAvailable && !notable", v.Tool, v.UpdateAvailable, v.Notable)
+		}
+	}
+	if got.Key != "" || len(got.Matched) != 0 {
+		t.Errorf("github verdict must have empty notable set, got key=%q matched=%v", got.Key, got.Matched)
+	}
+
+	// NO cache write: the snapshot still carries the seeded released verdict.
+	if snap := c.Snapshot(); snap.Key != seeded.Key || len(snap.Tools) != len(seeded.Tools) || snap.Source != seeded.Source {
+		t.Errorf("github check must not touch the cache: snapshot = %+v, want retained %+v", snap, seeded)
+	}
+	// NO OnQualify fire for the side-channel pass.
+	if fires != 1 {
+		t.Errorf("OnQualify fired %d times, want still 1 — a github check must never broadcast", fires)
+	}
+
+	// A released check afterwards still converges the cache and fires on change.
+	released.Tools[0].Latest = "3.10.0" // run-kit row → key change
+	if _, err := c.CheckNow(context.Background(), SourceReleased); err != nil {
+		t.Fatalf("released CheckNow error: %v", err)
+	}
+	if snap := c.Snapshot(); snap.Key != "fab-kit@2.17.0,run-kit@3.10.0" {
+		t.Errorf("released re-check key = %q, want fab-kit@2.17.0,run-kit@3.10.0", snap.Key)
+	}
+	if fires != 2 {
+		t.Errorf("OnQualify fired %d times, want 2 — the released path must still fire", fires)
+	}
+}
+
+// TestCheckNowPassesSourceToSeam verifies the source rides the check-exec seam:
+// the manual github pass hands SourceGithub to the seam, while CheckOnceForTest
+// (the ambient stand-in) stays released.
+func TestCheckNowPassesSourceToSeam(t *testing.T) {
+	var seen []string
+	c := New("3.8.0", true)
+	c.SetCheckForTest(func(source string) (CheckReport, error) {
+		seen = append(seen, source)
+		return CheckReport{Schema: 1}, nil
+	})
+
+	c.CheckOnceForTest()
+	if _, err := c.CheckNow(context.Background(), SourceGithub); err != nil {
+		t.Fatalf("github CheckNow error: %v", err)
+	}
+
+	want := []string{SourceReleased, SourceGithub}
+	if len(seen) != len(want) || seen[0] != want[0] || seen[1] != want[1] {
+		t.Errorf("seam saw sources %v, want %v", seen, want)
+	}
+}
+
+// TestCheckUpdatesArgs verifies the argv builder: the literal `--source github`
+// pair is appended ONLY for the validated SourceGithub enum value — released
+// keeps the flag-free argv byte-for-byte, and an unvalidated string never
+// reaches argv (Constitution I).
+func TestCheckUpdatesArgs(t *testing.T) {
+	cases := []struct {
+		source string
+		want   []string
+	}{
+		{SourceReleased, []string{"check-updates", "--json"}},
+		{SourceGithub, []string{"check-updates", "--json", "--source", "github"}},
+		{"bogus; rm -rf /", []string{"check-updates", "--json"}},
+	}
+	for _, tc := range cases {
+		got := checkUpdatesArgs(tc.source)
+		if len(got) != len(tc.want) {
+			t.Errorf("checkUpdatesArgs(%q) = %v, want %v", tc.source, got, tc.want)
+			continue
+		}
+		for i := range tc.want {
+			if got[i] != tc.want[i] {
+				t.Errorf("checkUpdatesArgs(%q)[%d] = %q, want %q", tc.source, i, got[i], tc.want[i])
+			}
+		}
+	}
+}
+
 // TestCheckNowSurfacesFailure verifies the fail-loud manual posture: a failed
 // check returns the error (and retains the previous verdict).
 func TestCheckNowSurfacesFailure(t *testing.T) {
@@ -520,8 +686,8 @@ func TestCheckNowSurfacesFailure(t *testing.T) {
 	c.CheckOnceForTest()
 	seededKey := c.Snapshot().Key
 
-	c.SetCheckForTest(func() (CheckReport, error) { return CheckReport{}, errors.New("shll not found on PATH") })
-	if _, err := c.CheckNow(context.Background()); err == nil {
+	c.SetCheckForTest(func(string) (CheckReport, error) { return CheckReport{}, errors.New("shll not found on PATH") })
+	if _, err := c.CheckNow(context.Background(), SourceReleased); err == nil {
 		t.Fatalf("CheckNow must surface the check failure")
 	}
 	if c.Snapshot().Key != seededKey {
@@ -533,7 +699,7 @@ func TestCheckNowSurfacesFailure(t *testing.T) {
 // without running the seam.
 func TestCheckNowSuppressed(t *testing.T) {
 	c := New("dev", true)
-	if _, err := c.CheckNow(context.Background()); err == nil {
+	if _, err := c.CheckNow(context.Background(), SourceReleased); err == nil {
 		t.Fatalf("CheckNow on a suppressed checker must error")
 	}
 }
@@ -553,7 +719,7 @@ func TestRecheckAfterRunsDelayedCheck(t *testing.T) {
 	c.SetSelfBrewForTest(true)
 
 	var latest string
-	c.SetCheckForTest(func() (CheckReport, error) {
+	c.SetCheckForTest(func(string) (CheckReport, error) {
 		return CheckReport{Schema: 1, Tools: []CheckTool{
 			{Name: "run-kit", Latest: latest, Notify: "minor", Formula: "run-kit"},
 		}}, nil
@@ -618,7 +784,7 @@ func TestRecheckAfterNoopBeforeStartAndSuppressed(t *testing.T) {
 func TestStartSuppressedIsNoop(t *testing.T) {
 	c := New("dev", true)
 	called := false
-	c.checkFn = func(ctx context.Context) (CheckReport, error) {
+	c.checkFn = func(ctx context.Context, source string) (CheckReport, error) {
 		called = true
 		return fixtureReport(t), nil
 	}

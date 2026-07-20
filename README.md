@@ -14,7 +14,7 @@ What makes it sing in 2026 is what you tend to run in those panes: **AI coding a
 curl -fsSL https://shll.ai/install | sh -s -- run-kit
 ```
 
-Installs run-kit (plus the shll meta-CLI) via Homebrew, handling tap trust automatically. Prefer plain Homebrew? `brew install sahil87/tap/run-kit` does the same. To install the entire shll toolkit instead:
+Installs run-kit (plus the shll meta-CLI) via Homebrew, handling tap trust automatically. To install the entire shll toolkit instead:
 
 ```sh
 curl -fsSL https://shll.ai/install | sh
@@ -33,7 +33,7 @@ open http://localhost:3000      # open the dashboard in your browser
 run-kit riff                    # spawn an agent workspace (--skill /name picks the slash-command)
 ```
 
-`run-kit riff` also needs [`wt`](https://github.com/sahil87/wt) on your `PATH` — included with the full-toolkit install, or `brew install sahil87/tap/wt` — and your agent CLI available. When something fails, `run-kit doctor` prints per-dependency status.
+`run-kit riff` also needs [`wt`](https://github.com/sahil87/wt) on your `PATH` — included with the full-toolkit install, or `shll install wt` — and your agent CLI available. When something fails, `run-kit doctor` prints per-dependency status.
 
 The new workspace appears in the sidebar; click into it to drive the agent — or any command — from the browser.
 
@@ -264,7 +264,7 @@ Every command is also reachable via the short `rk` alias (e.g. `rk riff`). Run `
 ## Troubleshooting
 
 - **`run-kit riff` fails with "not in a tmux session"** — riff requires `$TMUX` to be set. Start tmux first (`tmux new -s work`), then run `run-kit riff` inside it.
-- **`run-kit riff` fails with "wt not found"** — install `wt` via `brew install sahil87/tap/wt`, or via the toolkit meta-formula `brew install sahil87/tap/all`.
+- **`run-kit riff` fails with "wt not found"** — install `wt` via `shll install wt`, or install the full toolkit from [https://shll.ai](https://shll.ai).
 - **Agent state shows `—` for every window** — run `run-kit agent-setup` once on the machine, then start a fresh agent session (hooks apply to new sessions, not already-running ones). A pane sitting at a plain shell also reads `—` by design — state clears when the agent exits.
 - **Anything else broken** — run `run-kit doctor`. It checks tmux, `wt`, the launcher binary, port availability, and prints per-dependency status.
 

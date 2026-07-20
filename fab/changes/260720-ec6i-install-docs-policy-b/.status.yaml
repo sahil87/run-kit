@@ -1,0 +1,55 @@
+id: ec6i
+name: 260720-ec6i-install-docs-policy-b
+created: 2026-07-20T07:30:16Z
+created_by: sahil-noon
+change_type: docs
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 6
+    acceptance_count: 10
+    acceptance_completed: 10
+confidence:
+    certain: 5
+    confident: 2
+    tentative: 0
+    unresolved: 0
+    score: 4.9
+    fuzzy: true
+    dimensions:
+        signal: 82.1
+        reversibility: 89.3
+        competence: 82.9
+        disambiguation: 80.0
+stage_metrics:
+    intake: {started_at: "2026-07-20T07:30:16Z", driver: fab-new, iterations: 1, completed_at: "2026-07-20T07:34:08Z"}
+    apply: {started_at: "2026-07-20T07:34:08Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-20T07:37:07Z"}
+    review: {started_at: "2026-07-20T07:37:07Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-20T07:39:19Z"}
+    hydrate: {started_at: "2026-07-20T07:39:19Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-20T07:43:05Z"}
+    ship: {started_at: "2026-07-20T07:43:05Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-07-20T07:43:05Z"
+    computed_at_stage: hydrate
+summary: 'install-composition Policy B (docs half) PASS: install docs centralized to the shll.ai pointer, per-formula brew lines + retired all meta-formula removed from README.md and docs/site/install.md'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-07-20T07:43:05Z

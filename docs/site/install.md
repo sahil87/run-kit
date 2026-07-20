@@ -4,13 +4,13 @@ How to install `run-kit`, keep it up to date, check your runtime, set up a devel
 
 ## Install
 
-run-kit ships as a Homebrew formula:
+Install via the [shll toolkit](https://shll.ai) bootstrap:
 
 ```bash
-brew install sahil87/tap/run-kit
+curl -fsSL https://shll.ai/install | sh -s -- run-kit
 ```
 
-This puts the `run-kit` binary on your `PATH`. The formula also installs `rk` as a fully interchangeable short alias, so every command below works the same whether you type `run-kit` or `rk`. From there, a clean install to a working dashboard with one agent running is:
+This installs run-kit (plus the shll meta-CLI) via Homebrew, handling tap trust automatically, and puts the `run-kit` binary on your `PATH`. The formula also installs `rk` as a fully interchangeable short alias, so every command below works the same whether you type `run-kit` or `rk`. From there, a clean install to a working dashboard with one agent running is:
 
 ```bash
 run-kit agent-setup             # optional, once per machine: agent busy/waiting/idle in the dashboard
@@ -40,7 +40,7 @@ run-kit update
 `run-kit riff` requires:
 
 - A running tmux session (`$TMUX` set).
-- [`wt`](https://github.com/sahil87/wt) on your `PATH` — install via `brew install sahil87/tap/wt`, or via the toolkit meta-formula `brew install sahil87/tap/all`.
+- [`wt`](https://github.com/sahil87/wt) on your `PATH` — included with the [full-toolkit install](https://shll.ai), or `shll install wt`.
 - The launcher (default `claude --dangerously-skip-permissions`) available.
 
 When something breaks, run:

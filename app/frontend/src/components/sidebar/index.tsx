@@ -1067,6 +1067,16 @@ export function Sidebar({
     );
   }, [addToast]);
 
+  // `current` scope narrows to the resolved current server. When no current
+  // server resolves — board route (`currentServer === null`) or a
+  // stale/deleted route param not in the list — fall back to showing all
+  // servers: never an empty pane or a dead-end hint. Shared by the scope
+  // chip's tooltip and the session-tree filter so they can't disagree.
+  const currentOnly =
+    sessionsScope === "current" &&
+    currentServer !== null &&
+    servers.some((s) => s.name === currentServer);
+
   return (
     <nav ref={navRef} aria-label="Sessions" className="flex flex-col h-full">
       {/* Boards — cross-server section, always visible at the top of the
@@ -1116,10 +1126,13 @@ export function Sidebar({
               type="button"
               onClick={() => setSessionsScope(sessionsScope === "all" ? "current" : "all")}
               aria-label="Toggle sessions scope"
+              aria-pressed={sessionsScope === "current"}
               title={
                 sessionsScope === "all"
                   ? "Showing all servers — click to show current server only"
-                  : "Showing current server only — click to show all servers"
+                  : currentOnly
+                    ? "Showing current server only — click to show all servers"
+                    : "Current-server scope — no current server here, so showing all servers — click to switch scope to all"
               }
               className="shrink-0 font-mono text-[10px] leading-none tracking-wide px-1 py-0.5 border border-border rounded-sm text-text-secondary hover:text-text-primary hover:border-text-secondary transition-colors"
             >
@@ -1138,14 +1151,8 @@ export function Sidebar({
             if (servers.length === 0) {
               return <div className="text-text-secondary text-xs py-4 text-center">No servers</div>;
             }
-            // `current` scope narrows to the resolved current server. When no
-            // current server resolves — board route (`currentServer === null`)
-            // or a stale/deleted route param not in the list — fall back to
-            // showing all servers: never an empty pane or a dead-end hint.
-            const currentOnly =
-              sessionsScope === "current" &&
-              currentServer !== null &&
-              servers.some((s) => s.name === currentServer);
+            // `currentOnly` (hoisted above the JSX) narrows to the resolved
+            // current server, with the no-current-server fallback to all.
             const visibleServers = currentOnly
               ? servers.filter((s) => s.name === currentServer)
               : servers;

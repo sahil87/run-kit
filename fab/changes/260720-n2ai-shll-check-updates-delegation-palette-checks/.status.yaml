@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 10
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-07-20T05:25:25Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-20T05:53:34Z"}
     review: {started_at: "2026-07-20T05:53:34Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-20T05:58:43Z"}
     hydrate: {started_at: "2026-07-20T05:58:43Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-20T06:08:57Z"}
-    ship: {started_at: "2026-07-20T06:08:57Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-07-20T06:08:57Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-20T06:11:24Z"}
+    review-pr: {started_at: "2026-07-20T06:11:24Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/418
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 1756
+    deleted: 620
+    net: 1136
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 1195
+        deleted: 598
+        net: 597
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-07-20T06:08:57Z"
-    computed_at_stage: hydrate
+        added: 479
+        deleted: 224
+        net: 255
+    computed_at: "2026-07-20T06:11:24Z"
+    computed_at_stage: ship
 summary: Update check delegated to a thin shll check-updates --json exec caller; new POST /api/updates/check on-demand endpoint; SSE update-available carries per-tool updateAvailable/notable; palette gains two Check for Updates commands with toast reporting and Update Now as the single update action (dynamic Update to v{X} entry deleted)
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-07-20T06:08:57Z
+last_updated: 2026-07-20T06:11:24Z

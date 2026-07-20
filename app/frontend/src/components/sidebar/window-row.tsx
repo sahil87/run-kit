@@ -468,12 +468,13 @@ function WindowRowInner({
  *  so the zone never steals the dot's hover-card/click (must-fix-3). The
  *  marker stripe anchors near-flush at the sidebar edge (`STRIPE_EDGE_INSET`);
  *  the hover palette-icon zone is inset `ICON_EDGE_INSET`px off that edge,
- *  spanning to `ICON_EDGE_INSET + ICON_ZONE_WIDTH` so the icon has breathing
- *  room from the physical edge. Stripe and icon still overlap — the icon
- *  renders ABOVE the stripe (explicit layering below). */
+ *  spanning to `ICON_EDGE_INSET + ICON_ZONE_WIDTH` — past the widest (double,
+ *  2+6=8px) stripe, so the hover icon sits beside the stripe rather than over
+ *  it. The icon keeps an explicit `z-10` (layering below) as a guard for any
+ *  residual sub-pixel overlap. */
 const LABEL_ZONE_WIDTH = 26; // full zone: icon home + clearance before the dot
 const ICON_ZONE_WIDTH = 12; // 12px icon zone: home of the hover palette icon
-const ICON_EDGE_INSET = 4; // icon-zone inset off the physical sidebar edge (hover icon breathing room)
+const ICON_EDGE_INSET = 10; // icon-zone inset off the physical sidebar edge — clears the widest (double, 2+6=8px) marker stripe so the hover icon sits beside it, not over it
 const STRIPE_EDGE_INSET = 2; // stripe inset from the zone's/sidebar's left edge (near-flush per the full-bleed spec)
 
 type LabelZoneProps = {
@@ -496,9 +497,9 @@ type LabelZoneProps = {
  *  The marker stripe is DISPLAY-ONLY, anchored near-flush at the sidebar's left
  *  edge (`STRIPE_EDGE_INSET`px). The icon zone is inset `ICON_EDGE_INSET`px off
  *  the physical edge (spanning to `ICON_EDGE_INSET + ICON_ZONE_WIDTH`) so the
- *  hover icon clears the sidebar boundary; it still overlaps the stripe, so the
- *  icon is layered explicitly ABOVE the stripe (`z-10` on the icon container;
- *  the zone's own `z-20` scopes the stack). `cursor: pointer` (menu-opener
+ *  hover icon clears both the sidebar boundary and the widest (8px) stripe,
+ *  sitting beside it (explicit `z-10` on the icon container guards residual
+ *  overlap; the zone's own `z-20` scopes the stack). `cursor: pointer` (menu-opener
  *  semantics). Active on coarse pointers — touch gets direct label access.
  *  `aria-label` names it for pointer AT users and test selection
  *  (getByLabelText / getByLabel). */
@@ -536,10 +537,10 @@ function LabelZone({ marker, markerColor, colored, hover, onEnter, onLeave, onCl
         />
       )}
       {/* Palette icon in the 12px icon zone, inset `ICON_EDGE_INSET`px off the
-          physical sidebar edge so it doesn't hug the boundary; family-tinted on
-          colored rows / inherited monochrome otherwise. Fades in on row hover
-          (~65%) and reaches full opacity when the zone is hovered. Explicit
-          `z-10` keeps it ABOVE the marker stripe it overlaps. */}
+          physical sidebar edge — beside (past) the widest marker stripe, not
+          over it; family-tinted on colored rows / inherited monochrome
+          otherwise. Fades in on row hover (~65%) and reaches full opacity when
+          the zone is hovered. Explicit `z-10` guards any residual overlap. */}
       <div
         className="absolute inset-y-0 z-10 flex items-center justify-center transition-opacity opacity-0 group-hover:opacity-65"
         style={{

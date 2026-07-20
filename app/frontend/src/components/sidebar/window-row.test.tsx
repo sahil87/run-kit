@@ -961,10 +961,10 @@ describe("WindowRow", () => {
       // stripe carry no aria-hidden).
       const icon = zone.querySelector('[aria-hidden="true"]') as HTMLElement | null;
       expect(icon).not.toBeNull();
-      // Inset ICON_EDGE_INSET (4px) off the sidebar edge — parallel to the
-      // stripe's 2px anchor above — with the 12px icon-zone width unchanged,
-      // so the icon no longer hugs the full-bleed row's physical left edge.
-      expect(icon!.style.left).toBe("4px");
+      // Inset ICON_EDGE_INSET (10px) off the sidebar edge — past the widest
+      // (double) stripe's 8px right edge — with the 12px icon-zone width
+      // unchanged, so the hover icon sits beside the stripe, not over it.
+      expect(icon!.style.left).toBe("10px");
       expect(icon!.style.width).toBe("12px");
     });
   });

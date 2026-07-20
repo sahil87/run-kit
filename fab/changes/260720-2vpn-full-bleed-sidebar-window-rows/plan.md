@@ -58,7 +58,7 @@ Board name/pin-count keep their x-positions; the active `bg-bg-card` and hover `
 - **THEN** the display-only-stripe test asserts the new edge-anchored `left` and passes
 
 #### R6: Preserved behaviors — explicit regression guards
-The change MUST NOT alter: (a) the fixed-rhythm dotted-stripe cross-row continuity (PR #420 — `markerStripeStyle` in `src/themes.ts` untouched; only the stripe's x-position moves); (b) the selected+double `rk-scanlines-crawl` overlay classes, `--rk-marker-color` custom property, dedicated inner clip element, and reduced-motion behavior (only the overlay's width grows with the row box); (c) the dot hover-card/click-to-select (dot starts 4px past the zone's inner edge). `markerStripeStyle` and `computeRowBorders` MUST NOT be modified.
+The change MUST NOT alter: (a) the fixed-rhythm dotted-stripe cross-row continuity (PR #420 — `markerStripeStyle` in `app/frontend/src/themes.ts` untouched; only the stripe's x-position moves); (b) the selected+double `rk-scanlines-crawl` overlay classes, `--rk-marker-color` custom property, dedicated inner clip element, and reduced-motion behavior (only the overlay's width grows with the row box); (c) the dot hover-card/click-to-select (dot starts 4px past the zone's inner edge). `markerStripeStyle` and `computeRowBorders` MUST NOT be modified.
 
 - **GIVEN** two adjacent dotted-marker rows
 - **WHEN** they render full-bleed

@@ -65,7 +65,7 @@ Two `ml-3` uses (lines 59, 69) get the identical margin→padding conversion so 
 
 ### 5. Preserved behaviors (explicit regression guards)
 
-- **Dotted-stripe cross-row continuity (PR #420, commit 2d00d770)**: the fixed-rhythm `repeating-linear-gradient` (6px period dividing the 24px/36px row heights exactly — `markerStripeStyle` in `src/themes.ts:440–447`) is untouched; only the stripe's x-position moves. Full-bleed should make continuity *better* (stripes meet at the physical sidebar edge with no gutter seam — the demo's adjacent dotted rows read as one continuous stripe). Verify no regression for stacked dotted rows and dotted↔solid/double adjacency.
+- **Dotted-stripe cross-row continuity (PR #420, commit 2d00d770)**: the fixed-rhythm `repeating-linear-gradient` (6px period dividing the 24px/36px row heights exactly — `markerStripeStyle` in `app/frontend/src/themes.ts:440–447`) is untouched; only the stripe's x-position moves. Full-bleed should make continuity *better* (stripes meet at the physical sidebar edge with no gutter seam — the demo's adjacent dotted rows read as one continuous stripe). Verify no regression for stacked dotted rows and dotted↔solid/double adjacency.
 - **Selected+double `rk-scanlines-crawl`**: overlay classes, the `--rk-marker-color` custom property, the dedicated inner clip element, and reduced-motion behavior are all unchanged; only the overlay's width grows with the row box.
 - **Dot hover-card/click-to-select**: the dot still starts 4px past the zone's inner edge, so the zone never steals the dot's interactions (the "must-fix-3" geometry).
 

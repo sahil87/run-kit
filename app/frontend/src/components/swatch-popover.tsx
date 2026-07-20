@@ -15,21 +15,22 @@ type SwatchPopoverProps = {
    *  rows + the palette "Set Color" actions) funnels through. */
   onSelect: (color: string | null) => void;
   onClose: () => void;
-  /** ── Combined-label extension ── When BOTH `onSelectMarker` and `markerColor`
-   *  are supplied, the popover renders the side-by-side Label picker: a marker
-   *  column (∅ / dotted / solid / double as mini stripes in `markerColor`) LEFT
-   *  of a vertical hairline, beside the color grid. Selection calls
-   *  `onSelectMarker` DIRECTLY (no cycling — any state is one click) with `""`
-   *  clearing the marker. Keyboard nav crosses the hairline (ArrowLeft/Right).
-   *  When the marker props are ABSENT the component renders the pure color grid
-   *  (session/server rows + the palette color actions) — same square style,
-   *  no marker column, no hairline. */
+  /** ── Combined-label extension ── When `onSelectMarker` is supplied, the
+   *  popover renders the side-by-side Label picker: a marker column (∅ /
+   *  dotted / solid / double as mini stripes) LEFT of a vertical hairline,
+   *  beside the color grid. Stripes draw in the theme FOREGROUND — deliberately
+   *  NOT the row's guarded family color: the picker's marker cells communicate
+   *  shape, the color axis has its own section, and a row-color-dependent
+   *  stripe repaints the marker column on color changes (contradicting the
+   *  independent-axes model) while rendering near-invisible gray on uncolored
+   *  rows. The row gutter itself still renders in the guarded family color.
+   *  Selection calls `onSelectMarker` DIRECTLY (no cycling — any state is one
+   *  click) with `""` clearing the marker. Keyboard nav crosses the hairline
+   *  (ArrowLeft/Right). When `onSelectMarker` is ABSENT the component renders
+   *  the pure color grid (session/server rows + the palette color actions) —
+   *  same square style, no marker column, no hairline. */
   selectedMarker?: string;
   onSelectMarker?: (marker: string) => void;
-  /** The row's guarded family color used to draw the marker-cell stripes (family
-   *  hex on colored rows, gray sentinel on uncolored). Required to render the
-   *  marker section. */
-  markerColor?: string;
 };
 
 /** Colors per row in the color grid. The layout is a conceptual 5-column grid:
@@ -78,15 +79,14 @@ export function SwatchPopover({
   onClose,
   selectedMarker,
   onSelectMarker,
-  markerColor,
 }: SwatchPopoverProps) {
   const { theme } = useTheme();
   const rowTints = useMemo(() => computeRowTints(theme.palette), [theme.palette]);
 
-  // The marker section is rendered only when its two required inputs are present
-  // (a write callback + a color to draw the stripes). Color-only callers omit
-  // both and get the pure color grid (same square style, no marker column).
-  const showMarkers = !!onSelectMarker && !!markerColor;
+  // The marker section is rendered only when a marker write callback is
+  // present. Color-only callers omit it and get the pure color grid (same
+  // square style, no marker column).
+  const showMarkers = !!onSelectMarker;
 
   // The single write seam: map the picked family name ("orange") to its legacy
   // descriptor ("1+3") before handing it to the caller's onSelect, so every
@@ -104,13 +104,20 @@ export function SwatchPopover({
   // Normalize the current marker to one of the known cells ("" when unset).
   const currentMarker = selectedMarker ?? "";
 
-  // Initial focus: the selected color swatch, or the first swatch (row 1,
-  // col 1) when uncolored. The marker column is reached via ArrowLeft.
+  // Initial focus FOLLOWS SELECTION: the selected color swatch, or the Clear
+  // color cell (row 0 — already aria-selected in that state) when uncolored.
+  // Never an arbitrary swatch — a focus ring on an unselected color reads as a
+  // phantom selection. The marker column is reached via ArrowLeft.
   const [focus, setFocus] = useState<GridPos>(() => {
     const idx = selectedFamily != null ? PICKER_COLOR_VALUES.indexOf(selectedFamily) : -1;
-    if (idx < 0) return { row: 1, col: 1 };
+    if (idx < 0) return { row: 0, col: 1 };
     return { row: Math.floor(idx / COLOR_COLS) + 1, col: (idx % COLOR_COLS) + 1 };
   });
+  // Focus-visible semantics: the focus ring renders only after the keyboard
+  // has actually been used (first arrow key). The listbox autofocuses on
+  // mount, so an always-on ring would show mouse users a phantom highlight
+  // they never asked for.
+  const [keyboardActive, setKeyboardActive] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Activate the cell at a grid position (Enter/Space). The marker column maps
@@ -123,7 +130,7 @@ export function SwatchPopover({
         // explicit undefined check guards against that alignment drifting
         // (GRID_ROWS outgrowing MARKER_CELLS) — never emit undefined.
         const marker = MARKER_CELLS[pos.row];
-        if (showMarkers && onSelectMarker && marker !== undefined) onSelectMarker(marker);
+        if (onSelectMarker && marker !== undefined) onSelectMarker(marker);
       } else if (pos.row === 0) {
         emit(null); // Clear color
       } else {
@@ -179,6 +186,7 @@ export function SwatchPopover({
   // consistent with the previous implementation's clamping.
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
+      if (e.key.startsWith("Arrow")) setKeyboardActive(true);
       if (e.key === "ArrowRight") {
         e.preventDefault();
         setFocus((f) => {
@@ -219,7 +227,7 @@ export function SwatchPopover({
     [focus, activate, showMarkers],
   );
 
-  const focusOnClear = focus.row === 0 && focus.col >= 1;
+  const focusOnClear = keyboardActive && focus.row === 0 && focus.col >= 1;
 
   return (
     <div
@@ -236,13 +244,15 @@ export function SwatchPopover({
             Each 18px cell + 3px gap row-aligns 1:1 with the color grid beside it:
             ∅ beside Clear color (the removal row), dotted/solid/double beside
             the three color rows. */}
-        {showMarkers && markerColor && (
+        {showMarkers && (
           <>
             <div className="flex flex-col gap-[3px]">
               {MARKER_CELLS.map((state, row) => {
                 const isSelected = currentMarker === state;
-                const isFocused = focus.col === 0 && focus.row === row;
-                const stripe = markerStripeStyle(state, markerColor);
+                const isFocused = keyboardActive && focus.col === 0 && focus.row === row;
+                // Theme foreground, NOT the row's guarded family color — see
+                // the prop docs on the combined-label extension.
+                const stripe = markerStripeStyle(state, theme.palette.foreground);
                 return (
                   <button
                     key={state || "none"}
@@ -253,12 +263,12 @@ export function SwatchPopover({
                     onClick={() => onSelectMarker?.(state)}
                     className={`w-[18px] h-[18px] bg-bg-inset overflow-hidden transition-all relative ${
                       isFocused ? "ring-1 ring-text-secondary" : ""
-                    } ${isSelected ? "ring-1 ring-text-secondary" : ""}`}
+                    } ${isSelected ? "ring-1 ring-text-primary" : ""}`}
                     title={state || "none"}
                   >
                     {stripe && <span className="absolute inset-0" style={stripe} />}
                     {state === "" && (
-                      <span className="absolute inset-0 flex items-center justify-center text-text-secondary" style={{ fontSize: 8, lineHeight: 1 }}>
+                      <span className="absolute inset-0 flex items-center justify-center text-text-secondary" style={{ fontSize: 10, lineHeight: 1 }}>
                         &#x2205;
                       </span>
                     )}
@@ -278,7 +288,7 @@ export function SwatchPopover({
             onClick={() => emit(null)}
             className={`col-span-4 h-[18px] text-[10px] text-text-secondary hover:text-text-primary transition-colors flex items-center justify-center ${
               focusOnClear ? "ring-1 ring-text-secondary" : ""
-            }`}
+            } ${selectedFamily == null ? "ring-1 ring-text-primary" : ""}`}
           >
             Clear color
           </button>
@@ -289,6 +299,7 @@ export function SwatchPopover({
             const selectedColor_ = tint?.selected ?? fallback;
             const isSelected = selectedFamily === value;
             const isFocused =
+              keyboardActive &&
               focus.row === Math.floor(i / COLOR_COLS) + 1 && focus.col === (i % COLOR_COLS) + 1;
             return (
               <button
@@ -300,7 +311,7 @@ export function SwatchPopover({
                 onClick={() => emit(value)}
                 className={`w-[18px] h-[18px] overflow-hidden transition-all flex flex-col ${
                   isFocused ? "ring-1 ring-text-secondary" : ""
-                } ${isSelected ? "ring-1 ring-text-secondary" : ""}`}
+                } ${isSelected ? "ring-1 ring-text-primary" : ""}`}
               >
                 <span className="flex-1 w-full" style={{ backgroundColor: baseColor }} />
                 <span className="flex-1 w-full flex items-center justify-center" style={{ backgroundColor: selectedColor_ }}>

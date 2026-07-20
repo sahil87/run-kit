@@ -160,12 +160,39 @@ describe("SwatchPopover", () => {
 
   // ── Color-only keyboard nav: the conceptual grid minus the marker column. ──
   describe("keyboard navigation (color-only grid)", () => {
-    it("initial focus is the first swatch when uncolored; Enter emits its legacy value", () => {
+    it("initial focus FOLLOWS SELECTION: Clear color when uncolored — Enter clears, never emits a phantom color", () => {
       const onSelect = vi.fn();
       const onClose = vi.fn();
       renderWithTheme(<SwatchPopover onSelect={onSelect} onClose={onClose} />);
       fireEvent.keyDown(screen.getByRole("listbox"), { key: "Enter" });
-      expect(onSelect).toHaveBeenLastCalledWith(legacyOf(PICKER_COLOR_VALUES[0]));
+      expect(onSelect).toHaveBeenLastCalledWith(null);
+    });
+
+    it("shows NO focus ring before the keyboard is used; the ring appears on the first arrow key", () => {
+      const onSelect = vi.fn();
+      const onClose = vi.fn();
+      renderWithTheme(<SwatchPopover onSelect={onSelect} onClose={onClose} />);
+      const listbox = screen.getByRole("listbox");
+      // At rest (mouse users): no focus ring anywhere — an always-on ring on
+      // the autofocused listbox read as a phantom selection.
+      expect(listbox.querySelectorAll(".ring-text-secondary")).toHaveLength(0);
+      fireEvent.keyDown(listbox, { key: "ArrowDown" });
+      expect(listbox.querySelectorAll(".ring-text-secondary")).toHaveLength(1);
+    });
+
+    it("the uncolored state highlights Clear color as selected (bright ring), not any swatch", () => {
+      const onSelect = vi.fn();
+      const onClose = vi.fn();
+      renderWithTheme(<SwatchPopover onSelect={onSelect} onClose={onClose} />);
+      const clear = screen.getByText("Clear color");
+      expect(clear.getAttribute("aria-selected")).toBe("true");
+      expect(clear.className).toContain("ring-text-primary");
+      // No color swatch carries the selection ring.
+      for (const value of PICKER_COLOR_VALUES) {
+        expect(
+          screen.getByRole("option", { name: `Color ${value}` }).className,
+        ).not.toContain("ring-text-primary");
+      }
     });
 
     it("initial focus lands on the selected swatch (magenta, row 3)", () => {
@@ -184,6 +211,8 @@ describe("SwatchPopover", () => {
       const onClose = vi.fn();
       renderWithTheme(<SwatchPopover onSelect={onSelect} onClose={onClose} />);
       const listbox = screen.getByRole("listbox");
+      // Uncolored → initial focus is Clear (row 0); descend into row 1 first.
+      fireEvent.keyDown(listbox, { key: "ArrowDown" });
       // Row 1: colors 0–3. Three ArrowRights reach the row end (col 4).
       for (let i = 0; i < 3; i++) fireEvent.keyDown(listbox, { key: "ArrowRight" });
       fireEvent.keyDown(listbox, { key: "Enter" });
@@ -199,7 +228,8 @@ describe("SwatchPopover", () => {
       const onClose = vi.fn();
       renderWithTheme(<SwatchPopover onSelect={onSelect} onClose={onClose} />);
       const listbox = screen.getByRole("listbox");
-      // Walk to (row 1, col 4), then down to (row 2, col 4) = color 7.
+      // Descend from Clear, then walk to (row 1, col 4), down to (row 2, col 4) = color 7.
+      fireEvent.keyDown(listbox, { key: "ArrowDown" });
       for (let i = 0; i < 3; i++) fireEvent.keyDown(listbox, { key: "ArrowRight" });
       fireEvent.keyDown(listbox, { key: "ArrowDown" });
       fireEvent.keyDown(listbox, { key: "Enter" });
@@ -220,7 +250,9 @@ describe("SwatchPopover", () => {
       const onClose = vi.fn();
       renderWithTheme(<SwatchPopover onSelect={onSelect} onClose={onClose} />);
       const listbox = screen.getByRole("listbox");
-      // From ANY column of row 1 (walk right two cells first), ArrowUp → Clear.
+      // Descend into row 1, walk right two cells, then ArrowUp → Clear (from
+      // ANY column of row 1 it lands on the single spanning target).
+      fireEvent.keyDown(listbox, { key: "ArrowDown" });
       fireEvent.keyDown(listbox, { key: "ArrowRight" });
       fireEvent.keyDown(listbox, { key: "ArrowRight" });
       fireEvent.keyDown(listbox, { key: "ArrowUp" });
@@ -232,15 +264,17 @@ describe("SwatchPopover", () => {
       expect(onSelect).toHaveBeenLastCalledWith(null);
     });
 
-    it("ArrowDown from Clear color enters the first color row", () => {
+    it("ArrowDown from Clear color (the uncolored initial focus) enters the first color row; ArrowUp returns", () => {
       const onSelect = vi.fn();
       const onClose = vi.fn();
       renderWithTheme(<SwatchPopover onSelect={onSelect} onClose={onClose} />);
       const listbox = screen.getByRole("listbox");
-      fireEvent.keyDown(listbox, { key: "ArrowUp" }); // (1,1) → Clear
       fireEvent.keyDown(listbox, { key: "ArrowDown" }); // Clear → (1,1)
       fireEvent.keyDown(listbox, { key: "Enter" });
       expect(onSelect).toHaveBeenLastCalledWith(legacyOf(PICKER_COLOR_VALUES[0]));
+      fireEvent.keyDown(listbox, { key: "ArrowUp" }); // (1,1) → Clear
+      fireEvent.keyDown(listbox, { key: "Enter" });
+      expect(onSelect).toHaveBeenLastCalledWith(null);
     });
 
     it("ArrowLeft at the left edge is a no-op when no marker column exists", () => {
@@ -248,6 +282,7 @@ describe("SwatchPopover", () => {
       const onClose = vi.fn();
       renderWithTheme(<SwatchPopover onSelect={onSelect} onClose={onClose} />);
       const listbox = screen.getByRole("listbox");
+      fireEvent.keyDown(listbox, { key: "ArrowDown" }); // Clear → (1,1)
       fireEvent.keyDown(listbox, { key: "ArrowLeft" });
       fireEvent.keyDown(listbox, { key: "Enter" });
       expect(onSelect).toHaveBeenLastCalledWith(legacyOf(PICKER_COLOR_VALUES[0]));
@@ -267,7 +302,8 @@ describe("SwatchPopover", () => {
   });
 
   // ── Combined Label picker (maya): side-by-side marker column | hairline |
-  //    color grid. Marker section still gated on onSelectMarker + markerColor. ──
+  //    color grid. Marker section gated on onSelectMarker alone; stripes draw
+  //    in the theme foreground (NOT the row's color — independent axes). ──
   describe("combined Label picker (side-by-side marker column)", () => {
     function renderLabelPicker(extra: Partial<React.ComponentProps<typeof SwatchPopover>> = {}) {
       const onSelect = vi.fn();
@@ -277,7 +313,6 @@ describe("SwatchPopover", () => {
         <SwatchPopover
           onSelect={onSelect}
           onSelectMarker={onSelectMarker}
-          markerColor="#8888ff"
           onClose={onClose}
           {...extra}
         />,
@@ -341,10 +376,24 @@ describe("SwatchPopover", () => {
       expect(onSelectMarker).toHaveBeenCalledWith("");
     });
 
+    it("marker stripes draw in the THEME FOREGROUND, not a row-dependent color", () => {
+      renderLabelPicker();
+      const dotted = screen.getByRole("option", { name: "Marker dotted" });
+      const stripe = dotted.querySelector("span")!;
+      // Default Dark foreground (#e8eaf0) — bright and theme-adaptive, so the
+      // marker column is legible on uncolored rows (no gray-sentinel stripes)
+      // and never repaints when the color axis changes.
+      expect(stripe.style.borderLeft.toLowerCase()).toContain("dotted");
+      // #e8eaf0 — jsdom normalizes the inline hex to rgb().
+      expect(stripe.style.borderLeft).toContain("rgb(232, 234, 240)");
+    });
+
     it("ArrowLeft crosses the hairline into the marker column; ArrowUp/Down move within it", () => {
       const { onSelectMarker } = renderLabelPicker();
       const listbox = screen.getByRole("listbox");
-      // Initial focus (1,1) = first color; ArrowLeft crosses to (1,0) = dotted.
+      // Uncolored → initial focus is Clear (0,1); descend to (1,1) = first
+      // color, then ArrowLeft crosses to (1,0) = dotted.
+      fireEvent.keyDown(listbox, { key: "ArrowDown" });
       fireEvent.keyDown(listbox, { key: "ArrowLeft" });
       fireEvent.keyDown(listbox, { key: "Enter" });
       expect(onSelectMarker).toHaveBeenLastCalledWith("dotted");
@@ -364,8 +413,9 @@ describe("SwatchPopover", () => {
     it("ArrowRight crosses back from a marker cell to its row's first color", () => {
       const { onSelect, onSelectMarker } = renderLabelPicker();
       const listbox = screen.getByRole("listbox");
-      // (1,1) → marker "dotted" (1,0), down to "solid" (2,0), then back across
-      // the hairline → (2,1) = color 5 (index 4).
+      // Clear (0,1) → (1,1) → marker "dotted" (1,0), down to "solid" (2,0),
+      // then back across the hairline → (2,1) = color 5 (index 4).
+      fireEvent.keyDown(listbox, { key: "ArrowDown" });
       fireEvent.keyDown(listbox, { key: "ArrowLeft" });
       fireEvent.keyDown(listbox, { key: "ArrowDown" });
       fireEvent.keyDown(listbox, { key: "ArrowRight" });
@@ -374,10 +424,10 @@ describe("SwatchPopover", () => {
       expect(onSelectMarker).not.toHaveBeenCalled();
     });
 
-    it("row 0 is the removal row: ArrowLeft from Clear color reaches the ∅ cell", () => {
+    it("row 0 is the removal row: ArrowLeft from Clear color (the uncolored initial focus) reaches the ∅ cell", () => {
       const { onSelect, onSelectMarker } = renderLabelPicker();
       const listbox = screen.getByRole("listbox");
-      fireEvent.keyDown(listbox, { key: "ArrowUp" }); // (1,1) → Clear color
+      // Uncolored → focus already sits on Clear color (row 0).
       fireEvent.keyDown(listbox, { key: "Enter" });
       expect(onSelect).toHaveBeenLastCalledWith(null);
       fireEvent.keyDown(listbox, { key: "ArrowLeft" }); // Clear → ∅ (0,0)

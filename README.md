@@ -41,6 +41,8 @@ The formula also installs `rk` as a fully interchangeable short alias of `run-ki
 
 To upgrade later, run `run-kit update` — pulls the latest version via Homebrew and restarts the daemon so the new binary takes effect immediately.
 
+> **Coming from the old `rk` formula?** run-kit was originally published as `sahil87/tap/rk`. If brew warns that `sahil87/tap/rk was renamed to sahil87/tap/run-kit`, you have a keg installed under the old name — remove it with a benign `brew uninstall sahil87/tap/rk` (your config and the `rk` command alias are unaffected), then `brew install sahil87/tap/run-kit` if `run-kit` is no longer on your `PATH`.
+
 See the [install & access guide](docs/site/install.md) for prerequisites, `run-kit doctor`, development setup, and driving run-kit from your phone over Tailscale HTTPS.
 
 ## What run-kit is (and isn't)

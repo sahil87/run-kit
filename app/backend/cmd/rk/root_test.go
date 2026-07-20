@@ -47,6 +47,28 @@ func TestRootCmdHasSubcommands(t *testing.T) {
 	}
 }
 
+// TestDisplayVersion pins the release-shape path of displayVersion (the
+// version standard's canonical first line is `run-kit version v{semver}`):
+// a numeric ldflags version gains the "v" prefix — the shape shll parses in
+// production — while an already-prefixed version and the "dev" sentinel pass
+// through untouched (never "vdev").
+func TestDisplayVersion(t *testing.T) {
+	orig := version
+	t.Cleanup(func() { version = orig })
+
+	cases := []struct{ in, want string }{
+		{"1.2.3", "v1.2.3"},
+		{"v1.2.3", "v1.2.3"},
+		{"dev", "dev"},
+	}
+	for _, c := range cases {
+		version = c.in
+		if got := displayVersion(); got != c.want {
+			t.Errorf("displayVersion() with version=%q = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
 func TestVersionFlag(t *testing.T) {
 	buf := new(bytes.Buffer)
 	rootCmd.SetOut(buf)

@@ -1,0 +1,57 @@
+id: er5k
+name: 260719-er5k-update-version-standards-conformance
+created: 2026-07-19T23:04:50Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 6
+    acceptance_count: 10
+    acceptance_completed: 10
+confidence:
+    certain: 4
+    confident: 4
+    tentative: 0
+    unresolved: 0
+    score: 4.4
+    fuzzy: true
+    dimensions:
+        signal: 71.9
+        reversibility: 85.6
+        competence: 81.9
+        disambiguation: 74.4
+stage_metrics:
+    intake: {started_at: "2026-07-19T23:04:50Z", driver: fab-new, iterations: 1, completed_at: "2026-07-19T23:09:54Z"}
+    apply: {started_at: "2026-07-19T23:09:54Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-19T23:17:14Z"}
+    review: {started_at: "2026-07-19T23:17:14Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-19T23:23:08Z"}
+    hydrate: {started_at: "2026-07-19T23:23:08Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-19T23:26:54Z"}
+    ship: {started_at: "2026-07-19T23:26:54Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-19T23:28:54Z"}
+    review-pr: {started_at: "2026-07-19T23:28:54Z", driver: git-pr, iterations: 1, completed_at: "2026-07-19T23:38:08Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/414
+change_type_source: explicit
+true_impact:
+    added: 587
+    deleted: 10
+    net: 577
+    excluding:
+        added: 182
+        deleted: 7
+        net: 175
+    tests:
+        added: 127
+        deleted: 1
+        net: 126
+    computed_at: "2026-07-19T23:28:54Z"
+    computed_at_stage: ship
+summary: 'Audit + fix rk update/version standards conformance: brew mutations use generous bounds + SIGTERM-with-grace (newBrewCmd), read-only queries keep fast-fail; displayVersion release-shape pinned'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-07-19T23:38:08Z

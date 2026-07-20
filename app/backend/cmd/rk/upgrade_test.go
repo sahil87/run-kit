@@ -310,14 +310,118 @@ func TestRunBrewFn_QuietFailureSurfacesStderrDetail(t *testing.T) {
 // so runBrewFn's real exec.CommandContext path is exercised without a real brew.
 func withFakeBrew(t *testing.T, stderrText string, exitCode int) {
 	t.Helper()
+	installFakeBrew(t, fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' %q 1>&2\nexit %d\n", stderrText, exitCode))
+}
+
+// installFakeBrew writes the given shell script as a `brew` executable in a
+// temp dir and prepends that dir to PATH for the test's duration.
+func installFakeBrew(t *testing.T, script string) {
+	t.Helper()
 	dir := t.TempDir()
-	script := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' %q 1>&2\nexit %d\n", stderrText, exitCode)
 	brewPath := filepath.Join(dir, "brew")
 	if err := os.WriteFile(brewPath, []byte(script), 0o755); err != nil {
 		t.Fatalf("write fake brew: %v", err)
 	}
 	origPath := os.Getenv("PATH")
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+origPath)
+}
+
+// TestNewBrewCmd_GracefulCancelConfig pins the per-subcommand-class cancel
+// configuration (shll update standard, brew-handling safety clause): mutating
+// brew subcommands (update, upgrade) get the SIGTERM-with-grace treatment
+// (WaitDelay == brewCancelGrace), while read-only queries (info) keep Go's
+// default cancel with no grace window (WaitDelay zero). WaitDelay is the
+// observable discriminator — exec.CommandContext always sets a non-nil default
+// Kill cancel, so Cancel != nil distinguishes nothing; the SIGTERM (not
+// SIGKILL) semantics are pinned behaviorally by
+// TestNewBrewCmd_ContextCancelDeliversSIGTERM.
+func TestNewBrewCmd_GracefulCancelConfig(t *testing.T) {
+	for _, sub := range []string{"update", "upgrade"} {
+		cmd := newBrewCmd(context.Background(), sub, "sahil87/tap/run-kit")
+		if cmd.WaitDelay != brewCancelGrace {
+			t.Errorf("newBrewCmd(%q).WaitDelay = %v, want %v (mutating brew subcommands must get a SIGTERM grace window)", sub, cmd.WaitDelay, brewCancelGrace)
+		}
+		if cmd.Cancel == nil {
+			t.Errorf("newBrewCmd(%q).Cancel = nil, want the SIGTERM cancel func", sub)
+		}
+	}
+
+	cmd := newBrewCmd(context.Background(), "info", "--json=v2", "sahil87/tap/run-kit")
+	if cmd.WaitDelay != 0 {
+		t.Errorf("newBrewCmd(\"info\").WaitDelay = %v, want 0 (read-only queries keep default fast-fail cancel)", cmd.WaitDelay)
+	}
+}
+
+// TestBrewMutationTimeouts_Generous pins the generous bounds so a future
+// refactor cannot silently reintroduce a short hard cap — the exact regression
+// the update standard's failure-mode paragraph warns about (a 120s hard kill
+// landed mid keg-swap and corrupted the install, observed 2026-07-19).
+func TestBrewMutationTimeouts_Generous(t *testing.T) {
+	if brewUpgradeTimeout < 30*time.Minute {
+		t.Errorf("brewUpgradeTimeout = %v, want >= 30m (bound must be sized for a network transfer, never a short hard cap)", brewUpgradeTimeout)
+	}
+	if brewUpdateTimeout < 10*time.Minute {
+		t.Errorf("brewUpdateTimeout = %v, want >= 10m (brew update is also a network-bound package-manager mutation)", brewUpdateTimeout)
+	}
+}
+
+// TestNewBrewCmd_ContextCancelDeliversSIGTERM behaviorally pins that context
+// expiry on a mutating brew subcommand delivers a trappable SIGTERM — never an
+// untrappable SIGKILL. A fake `brew` installs a TERM trap (writes a marker,
+// exits 0), signals readiness, then loops; the test cancels the context and
+// asserts the process exits within the grace window with the trap having run.
+// Under SIGKILL the trap could never run and the marker would be absent.
+func TestNewBrewCmd_ContextCancelDeliversSIGTERM(t *testing.T) {
+	if testing.Short() {
+		t.Skip("spawns a real subprocess; skipped under -short")
+	}
+
+	dir := t.TempDir()
+	ready := filepath.Join(dir, "ready")
+	marker := filepath.Join(dir, "graceful")
+	installFakeBrew(t, fmt.Sprintf(`#!/bin/sh
+trap 'touch "%s"; exit 0' TERM
+touch "%s"
+while :; do sleep 0.1; done
+`, marker, ready))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	cmd := newBrewCmd(ctx, "upgrade", "sahil87/tap/run-kit")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start fake brew: %v", err)
+	}
+
+	// Wait for the fake brew to install its trap before canceling, so an
+	// early SIGTERM can't hit the shell pre-trap and false-negative the test.
+	readyDeadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := os.Stat(ready); err == nil {
+			break
+		}
+		if time.Now().After(readyDeadline) {
+			t.Fatal("fake brew never signaled readiness")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	cancel()
+
+	done := make(chan struct{})
+	go func() {
+		_ = cmd.Wait() // returns ctx err after a clean post-Cancel exit — expected
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("process did not exit within the grace window after context cancel")
+	}
+
+	if _, err := os.Stat(marker); err != nil {
+		t.Error("SIGTERM trap did not run (marker missing) — the process was killed, not gracefully terminated")
+	}
 }
 
 func TestUpdate_SkipBrewUpdate_ShortCircuitsWhenUpToDate(t *testing.T) {

@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "run-kit's shll-toolkit-standards conformance posture — constitution binding (§ Toolkit Standards), audit-against-HEAD-build rule, per-standard status @ shll v0.0.23. help-dump, readme-extraction, skill, and all ten principles PASS; skill has topic pages (`rk skill display`), `rk context` retired for `rk url`; Principle 9 bounded/high-signal output via `--quiet` + reaper display cap."
+description: "run-kit's shll-toolkit-standards conformance posture — constitution binding (§ Toolkit Standards), audit-against-HEAD-build rule, per-standard status. help-dump, readme-extraction, skill, all ten principles, plus `update` + `version` all PASS. skill topic pages (`rk skill display`), `rk context` retired for `rk url`, Principle 9 caps via `--quiet` + reaper cap; brew mutations use generous bounds + SIGTERM-with-grace (`newBrewCmd`), read-only queries fast-fail; `displayVersion` pinned."
 ---
 # Toolkit Standards Conformance
 
@@ -265,7 +265,112 @@ Principles 3, 6, 7, 8, 10 PASS (help published; stateless/derive-from-tmux;
 wraps `wt`/`fab`/`brew`; degrades gracefully; README + docs/site + `rk skill`
 bundle discoverable).
 
+## `update` + `version` Standards
+
+The `update` and `version` standards (`shll standards update` / `shll standards
+version`) are separate binary standards from the four above. run-kit conforms to
+both; the sole gap was a MUST violation in the brew-mutation seam, now fixed.
+The audit was run against the **current** update-standard text, which carries a
+**brew-handling safety clause** (incident "Observed 2026-07-19": a `SIGKILL`
+landing mid keg-swap) added after the prior conformance pass shipped.
+(`260719-er5k-update-version-standards-conformance`.)
+
+### update — PASS (1 MUST violation fixed)
+The subcommand contract passes throughout: `update` (alias `upgrade`) runs
+in-place with post-upgrade side effects (daemon restart), works standalone,
+advertises + honors `--skip-brew-update`, exits 0 on success (incl.
+already-up-to-date) and non-zero only on genuine failure, self-updates via brew
+only when brew-installed (the `/Cellar/` gate with a clear non-brew degrade
+message), and satisfies the naming/release clauses (`run-kit` is one string
+across repo / roster / formula leaf / binary; `v{semver}` tags; the `rk` →
+`run-kit` rename shipped `formula_renames.json` tap-side — the standard's own
+cited precedent). See [architecture](/run-kit/architecture.md) § CLI Subcommands
+(`update` row) for the mechanism.
+
+The violation was the **brew-mutation timeout**: `brew upgrade` ran under a
+`120s` hard timeout via `exec.CommandContext`, whose default cancel sends
+**`SIGKILL`** on context expiry — the exact pattern the safety clause prohibits
+("MUST NOT send `SIGKILL` to a package-manager subprocess mid-transaction" /
+"MUST NOT impose a short hard timeout on `brew upgrade`"). Homebrew 6 makes an
+un-timed `api.github.com` call inside every tap-formula upgrade; a stall past
+120s got the wrapper's `SIGKILL` between `brew unlink` and `brew link`, leaving a
+corrupted keg and a dead binary. Both update entry points shared the hazard —
+the web one-click upgrade (`POST /api/update` → detached `rk update
+--skip-brew-update`) routes through the same `updateCmd`, so fixing the CLI seam
+fixed both.
+
+### Brew invocation discipline — the read-only vs mutating split
+run-kit splits brew calls by whether they mutate the install, and treats the two
+classes differently (the mechanism lives in `newBrewCmd` — see
+[architecture](/run-kit/architecture.md) § CLI Subcommands, `update` row):
+
+- **Mutating brew subcommands (`brew update`, `brew upgrade`)** — keg
+  transactions that must never be `SIGKILL`ed mid-swap. They run under
+  **generous, network-sized bounds** (`brewUpgradeTimeout = 30m`,
+  `brewUpdateTimeout = 10m`) with **graceful termination**: `newBrewCmd` sets
+  `cmd.Cancel` to deliver **`SIGTERM`** and `cmd.WaitDelay = brewCancelGrace`
+  (**30s**), so on context expiry brew gets a trappable signal plus a 30s grace
+  window to unwind the keg swap before the runtime's final kill. `brew update`
+  is included (not just `brew upgrade`) because the MUST-NOT-`SIGKILL` clause
+  covers "a package-manager subprocess mid-transaction" generally and `brew
+  update` is network-bound with the same stall profile.
+- **Read-only brew queries (`brew info --json=v2`; `internal/updatecheck`'s
+  `brew list --versions`)** keep their **short 10s bounds and Go's default
+  cancel** (immediate kill). A killed query corrupts nothing, so fast-fail is
+  correct. `newBrewCmd` keys the graceful-cancel config on `args[0]`, so an
+  unmatched brew subcommand inherits the safe read-only default.
+
+`exec.CommandContext` with a timeout is **retained** on every brew call
+(Constitution § Process Execution) — the bounds are simply generous with
+graceful cancel for mutations, satisfying both the constitution and the
+standard's "if any bound exists, it SHOULD be generous and terminate gracefully".
+The constitution's 5–10s / 30s figures name tmux / build operations; brew is
+neither. `HOMEBREW_NO_GITHUB_API=1` is deliberately **not** set — the standard
+only says a bounded caller "should also consider" it, and the generous bound +
+`SIGTERM` already satisfies the SHOULD (trivially addable later if wanted).
+
+#### Scenario: A mid-transaction stall terminates gracefully, never mid-swap
+- **GIVEN** a `brew upgrade sahil87/tap/run-kit` that stalls past its bound on an
+  un-timed `api.github.com` call
+- **WHEN** the (30-minute) context finally expires
+- **THEN** brew receives a trappable `SIGTERM` (not `SIGKILL`) and a 30s grace
+  window to finish or roll back the keg swap
+- **AND** a read-only `brew info` in the same run keeps immediate-kill fast-fail,
+  since killing a query corrupts nothing
+
+### version — PASS
+`--version` exits 0 with the version token on the first non-empty line
+(`run-kit version vX.Y.Z`, cobra's default template — the RECOMMENDED canonical
+shape, satisfying `versionPrefixRE`), responds within 2s with no network I/O
+(pure local ldflags string), and the on-PATH binary name equals the tool name.
+The release-shape path is now unit-pinned: `TestDisplayVersion` in `root_test.go`
+covers `displayVersion`'s three input shapes — `"1.2.3" → "v1.2.3"` (the release
+shape shll actually parses), `"v1.2.3"` passthrough, and the `"dev"` sentinel
+passthrough (no `"vdev"`) — so the release-shape path (the one shll parses in
+production) is pinned, not just the `dev` sentinel. See
+[architecture](/run-kit/architecture.md) § Version Management.
+
 ## Design Decisions
+
+### Graceful brew-mutation cancel lives in an extracted `newBrewCmd` helper
+**Decision**: extract `exec.Cmd` construction into `newBrewCmd(ctx, args...)
+*exec.Cmd`; the default `runBrewFn` calls it, and mutating subcommands
+(`update`, `upgrade`) get `cmd.Cancel` = `SIGTERM` + `cmd.WaitDelay` = 30s grace,
+keyed on `args[0]`. Read-only subcommands inherit Go's default cancel.
+**Why**: makes the cancel configuration unit-testable without spawning a real
+brew (tests assert on the returned `*exec.Cmd` fields), and keeps the single
+`runBrewFn` seam that all brew calls and all existing stubbed-`runBrewFn` tests
+route through — so the fix is invisible to those tests. Keying on `args[0]` (the
+same idiom as `runBrewFn`'s per-subcommand stream wiring) means a future brew
+subcommand fails safe to the read-only default rather than silently getting
+graceful-cancel it may not want.
+**Rejected**: configuring the cmd inline in `runBrewFn` (untestable without a
+real brew, or forces duplicating the wiring); a separate mutating-vs-readonly
+seam pair (splits the single seam existing tests stub); setting
+`HOMEBREW_NO_GITHUB_API=1` (the standard makes it optional — "should also
+consider" — and it alters brew behavior beyond this path; the generous bound +
+`SIGTERM` already satisfies the SHOULD).
+*Introduced by*: `260719-er5k-update-version-standards-conformance`
 
 ### `status --json` empty-vs-error semantics (absent ≠ unreachable)
 **Decision**: `status --json` splits by the **nature** of the condition, not by

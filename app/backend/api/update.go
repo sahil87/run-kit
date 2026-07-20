@@ -192,6 +192,34 @@ func (s *Server) handleShllUpdate(w http.ResponseWriter, shllPath string, force 
 	}
 }
 
+// handleUpdatesCheck runs one immediate update-check pass inline — the same
+// code path the 6h ambient loop uses (`shll check-updates` exec + cached
+// verdict update + SSE broadcast via the checker's OnQualify seam) — and
+// returns the fresh verdict synchronously so the palette check commands can
+// report without waiting on SSE. POST per Constitution IX. The ~1-2s exec
+// latency is acceptable for a synchronous response; the checker's exec timeout
+// is the bound (API routes must not block unbounded).
+//
+// Failure mapping (the manual check is deliberately fail-LOUD, unlike the
+// fail-silent ambient loop): a nil or suppressed checker (dev build) → 409; a
+// failed check (shll missing / non-zero exit / unparseable JSON) → 502 with the
+// reason, so the client can raise an honest error toast. No in-flight lock —
+// mirrors /api/update's no-lock posture (a concurrent pass is idempotent).
+//
+// POST /api/updates/check → 200 {tools,key,current,latest} | 409/502 {"error":...}
+func (s *Server) handleUpdatesCheck(w http.ResponseWriter, r *http.Request) {
+	if s.updateChecker == nil || s.updateChecker.Suppressed() {
+		writeError(w, http.StatusConflict, "update checks are disabled for this daemon (dev build)")
+		return
+	}
+	verdict, err := s.updateChecker.CheckNow(r.Context())
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "update check unavailable — "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, buildUpdateAvailablePayload(verdict))
+}
+
 // handleSelfUpdate is the shll-absent fallback — the pre-manifest run-kit-self
 // behavior verbatim: brew-409 gate, qualify/force gate, then a detached
 // `rk update` (self).

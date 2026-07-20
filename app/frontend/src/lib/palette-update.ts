@@ -1,14 +1,14 @@
 /**
- * Pure builder for the command-palette update actions (a scoped
- * `run-kit: Update …` action + `run-kit: Dismiss Update Notice`). Extracted from
- * app.tsx so the qualification gating and label composition are unit-testable
- * without mounting the whole shell — mirroring lib/palette-move.ts. The action
- * bodies are thin wrappers passed in by the caller (they invoke updateNow /
- * dismissUpdate; dismiss writes the composite key).
+ * Pure builders for the command-palette update surface (`run-kit: Check for
+ * Updates` / `… (incl. patches)`, `run-kit: Dismiss Update Notice`, and the
+ * maintenance entries) plus the check-result toast composition. Extracted from
+ * app.tsx so the gating and label/summary composition are unit-testable without
+ * mounting the whole shell — mirroring lib/palette-move.ts. The action bodies
+ * are thin wrappers passed in by the caller.
  *
  * Note: the palette deliberately IGNORES chip dismissal (dismissal silences only
- * the ambient chip; the palette is deliberate discovery), so the gate here is
- * `qualifies` alone — NOT the chip's `showChip`.
+ * the ambient chip; the palette is deliberate discovery), so the dismiss gate
+ * here is `qualifies` alone — NOT the chip's `showChip`.
  */
 
 /** One matched tool for label composition (structurally the context's
@@ -35,51 +35,65 @@ export type UpdatePaletteAction = {
   onSelect: () => void;
 };
 
-/** The run-kit tool name — a single run-kit match keeps the historical
- *  `run-kit: Update to v{latest}` label. */
-const RUN_KIT_TOOL = "run-kit";
-
 /**
- * Compose the update-action label from the matched tools. A single run-kit match
- * keeps today's `run-kit: Update to v{latest}`; a single non-run-kit tool reads
- * `run-kit: Update {tool} to v{latest}`; multiple tools read
- * `run-kit: Update N tools`. The action always runs a SCOPED update of exactly
- * the matched tools, so the label communicates which tools move.
- */
-function updateActionLabel(tools: UpdateActionTool[]): string {
-  if (tools.length === 1) {
-    const t = tools[0];
-    return t.tool === RUN_KIT_TOOL
-      ? `run-kit: Update to v${t.latest}`
-      : `run-kit: Update ${t.tool} to v${t.latest}`;
-  }
-  return `run-kit: Update ${tools.length} tools`;
-}
-
-/**
- * Build the update palette actions. Returns an empty array when no qualifying
+ * Build the qualifying-gated update palette actions. Since the dynamic
+ * `run-kit: Update to v{X}` entry was deleted (multi-tool ambiguous + stale
+ * between checks — `run-kit: Update Now` in buildMaintenanceActions is THE
+ * single update action), only `run-kit: Dismiss Update Notice` remains: the
+ * keyboard mirror of the chip's `✕`. Returns an empty array when no qualifying
  * update is pending (`qualifies` false, or `tools` empty — e.g. the `dev`
  * version or no update-available event yet).
  */
 export function buildUpdateActions(
   qualifies: boolean,
   tools: UpdateActionTool[],
-  onUpdate: () => void,
   onDismiss: () => void,
 ): UpdatePaletteAction[] {
   if (!qualifies || tools.length === 0) return [];
   return [
-    {
-      id: "run-kit-update",
-      label: updateActionLabel(tools),
-      onSelect: onUpdate,
-    },
     {
       id: "run-kit-dismiss-update",
       label: "run-kit: Dismiss Update Notice",
       onSelect: onDismiss,
     },
   ];
+}
+
+/** One tool's verdict for check-result toast composition (structurally the
+ *  client's `UpdateCheckTool`; declared locally to keep this module
+ *  context-free): the `UpdateActionTool` versions plus the two verdict flags. */
+export type CheckVerdictTool = UpdateActionTool & {
+  /** installed < latest. */
+  updateAvailable: boolean;
+  /** The bump crosses the tool's notify threshold. */
+  notable: boolean;
+};
+
+/** A composed check-result toast: the message plus whether anything updatable
+ *  was reported (gates the toast's "Update Now" action slot). */
+export type CheckToast = { message: string; updatable: boolean };
+
+/**
+ * Compose the check-result toast for the two palette check commands over ONE
+ * verdict list (the minor/patch distinction is purely client-side filtering):
+ *   - default view (`includePatches` false): tools where `notable` is true,
+ *     each as `tool v{current} → v{latest}` (updateChipToolSummary's shape);
+ *   - incl.-patches view: every tool where `updateAvailable` is true, with
+ *     sub-threshold rows annotated `(patch — below notify threshold)`.
+ * An empty filtered set composes "All tools up to date" (updatable: false).
+ */
+export function composeCheckToast(tools: CheckVerdictTool[], includePatches: boolean): CheckToast {
+  const relevant = tools.filter((t) =>
+    includePatches ? t.updateAvailable : t.updateAvailable && t.notable,
+  );
+  if (relevant.length === 0) return { message: "All tools up to date", updatable: false };
+  const message = relevant
+    .map((t) => {
+      const base = updateChipToolSummary([t]);
+      return t.notable ? base : `${base} (patch — below notify threshold)`;
+    })
+    .join(", ");
+  return { message, updatable: true };
 }
 
 // Sentinel running version for local (non-ldflags) builds — the maintenance
@@ -92,15 +106,15 @@ const DEV_VERSION = "dev";
 /**
  * Build the always-available maintenance palette actions, independent of the
  * qualifying-update gate (unlike buildUpdateActions):
- *   - `run-kit: Update Now` — force update. Included ONLY when the daemon is a
+ *   - `run-kit: Update Now` — THE single update action: a force update
+ *     (full-roster `shll update`; idempotent, and it picks up patch-only bumps
+ *     a scoped match set would skip). Included ONLY when the daemon is a
  *     Homebrew install (`brew`) AND the version is not the `dev` sentinel. NOT
- *     gated on a qualifying update, so it reaches patch releases and works before
- *     any check has run.
+ *     gated on a qualifying update, so it reaches patch releases and works
+ *     before any check has run.
  *   - `run-kit: Restart Daemon` — bounce the daemon. Included whenever the
  *     version is not `dev` (no brew requirement).
- * Both fire immediately on select (no confirmation dialog). The existing
- * qualifying-gated `run-kit: Update to v{latest}` entry (buildUpdateActions) is
- * unaffected — a slight label overlap when an update qualifies is accepted.
+ * Both fire immediately on select (no confirmation dialog).
  */
 export function buildMaintenanceActions(
   brew: boolean,
@@ -125,4 +139,36 @@ export function buildMaintenanceActions(
     });
   }
   return actions;
+}
+
+/**
+ * Build the two on-demand check palette actions:
+ *   - `run-kit: Check for Updates` — reports tools crossing their notify
+ *     threshold (`notable`);
+ *   - `run-kit: Check for Updates (incl. patches)` — reports every tool with
+ *     any pending update, annotating sub-threshold rows.
+ * Both POST the same /api/updates/check (the difference is client-side
+ * filtering — see composeCheckToast) and report via toast. Hidden on the `dev`
+ * sentinel (same gating pattern as the maintenance entries; a `null` version —
+ * no version event yet — counts as non-dev). No brew gate: checking is
+ * harmless without a remediation path.
+ */
+export function buildCheckActions(
+  version: string | null,
+  onCheck: () => void,
+  onCheckIncludingPatches: () => void,
+): UpdatePaletteAction[] {
+  if (version === DEV_VERSION) return [];
+  return [
+    {
+      id: "run-kit-check-updates",
+      label: "run-kit: Check for Updates",
+      onSelect: onCheck,
+    },
+    {
+      id: "run-kit-check-updates-patches",
+      label: "run-kit: Check for Updates (incl. patches)",
+      onSelect: onCheckIncludingPatches,
+    },
+  ];
 }

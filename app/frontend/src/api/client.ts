@@ -419,6 +419,70 @@ export async function triggerUpdate(): Promise<void> {
   if (!res.ok) await throwOnError(res);
 }
 
+/** One tool's verdict from an on-demand update check: `updateAvailable` =
+ *  installed < latest; `notable` = the bump crosses the tool's notify
+ *  threshold. The endpoint lists only tools with a pending update. */
+export type UpdateCheckTool = {
+  tool: string;
+  current: string;
+  latest: string;
+  updateAvailable: boolean;
+  notable: boolean;
+};
+
+/** The parsed POST /api/updates/check response: the full per-tool verdict list
+ *  plus the composite dismissal key over the notable set. */
+export type UpdateCheckResult = { tools: UpdateCheckTool[]; key: string };
+
+/** A validated wire row from POST /api/updates/check: the three identifying
+ *  fields are verified present; the verdict flags are still optional (an old
+ *  daemon omits them) and are normalized to booleans by the caller. */
+type UpdateCheckWireTool = {
+  tool: string;
+  current: string;
+  latest: string;
+  updateAvailable?: boolean;
+  notable?: boolean;
+};
+
+/** Run an on-demand update check: POST /api/updates/check. The server runs one
+ *  inline `shll check-updates` pass (also converging the cached verdict + SSE
+ *  slot the chip reads) and returns the fresh verdict synchronously (~1-2s).
+ *  Rejects on a non-2xx (502 when the check itself fails — e.g. shll missing —
+ *  or 409 on a dev build) with the server's error message, so the palette
+ *  check commands can raise an honest error toast. */
+export async function checkForUpdates(): Promise<UpdateCheckResult> {
+  const res = await fetch("/api/updates/check", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  if (!res.ok) await throwOnError(res);
+  const body = (await res.json()) as {
+    tools?: {
+      tool?: string;
+      current?: string;
+      latest?: string;
+      updateAvailable?: boolean;
+      notable?: boolean;
+    }[];
+    key?: string;
+  };
+  const tools: UpdateCheckTool[] = (Array.isArray(body.tools) ? body.tools : [])
+    .filter(
+      (t): t is UpdateCheckWireTool =>
+        typeof t.tool === "string" && typeof t.current === "string" && typeof t.latest === "string",
+    )
+    .map((t) => ({
+      tool: t.tool,
+      current: t.current,
+      latest: t.latest,
+      updateAvailable: t.updateAvailable === true,
+      notable: t.notable === true,
+    }));
+  return { tools, key: typeof body.key === "string" ? body.key : "" };
+}
+
 /** Force a self-upgrade regardless of the update checker's qualifying snapshot:
  *  POST /api/update with `{"force":true}`. The server skips the qualify check
  *  (but still requires a brew install) and spawns a detached `rk update`, so a

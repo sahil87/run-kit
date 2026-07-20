@@ -129,6 +129,42 @@ describe("UpdateChip", () => {
     expect(screen.queryByText(/⬆ /)).not.toBeInTheDocument();
   });
 
+  it("hides for a sub-threshold-only payload (notable: false) — patch-only findings are toast-only", () => {
+    // The extended payload carries the full verdict list; a tool below its
+    // notify threshold must never light the chip (policy-driven chip, B.5).
+    renderChip({
+      daemonVersion: "0.5.3",
+      updateAvailable: {
+        tools: [
+          { tool: "tu", current: "0.9.1", latest: "0.9.2", updateAvailable: true, notable: false },
+        ],
+        key: "",
+        current: "",
+        latest: "",
+      },
+    });
+    expect(screen.queryByText(/⬆ /)).not.toBeInTheDocument();
+  });
+
+  it("shows only the notable subset of a mixed verdict payload", () => {
+    // run-kit is notable, tu is sub-threshold: the chip renders the single
+    // run-kit form (not the count form a 2-tool matched set would use).
+    renderChip({
+      daemonVersion: "0.5.3",
+      updateAvailable: {
+        tools: [
+          { tool: "run-kit", current: "0.5.3", latest: "0.6.0", updateAvailable: true, notable: true },
+          { tool: "tu", current: "0.9.1", latest: "0.9.2", updateAvailable: true, notable: false },
+        ],
+        key: "run-kit@0.6.0",
+        current: "0.5.3",
+        latest: "0.6.0",
+      },
+    });
+    expect(screen.getByText("⬆ v0.6.0")).toBeInTheDocument();
+    expect(screen.getByLabelText("Update run-kit: v0.5.3 → v0.6.0")).toBeInTheDocument();
+  });
+
   it("hides when the daemon reports the dev version", () => {
     renderChip({
       daemonVersion: "dev",

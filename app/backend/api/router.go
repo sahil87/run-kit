@@ -544,6 +544,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/tmux/init-conf", s.handleTmuxInitConf)
 	r.Post("/api/status/refresh", s.handleStatusRefresh)
 	r.Post("/api/update", s.handleUpdate)
+	r.Post("/api/updates/check", s.handleUpdatesCheck)
 	r.Post("/api/restart", s.handleRestart)
 
 	// Riff — web-UI agent spawn (POST) + preset list (GET). See api/riff.go.

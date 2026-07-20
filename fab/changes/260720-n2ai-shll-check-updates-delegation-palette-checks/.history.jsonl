@@ -1,0 +1,14 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-20T05:21:55Z"}
+{"args":"Delegate toolkit update check to 'shll check-updates --json --released' (rework internal/updatecheck into a thin exec caller, delete manifest-fetch + brew-join + threshold code), add POST /api/updates/check on-demand endpoint, extend SSE update-available payload to full per-tool verdicts, rework palette: add 'Check for Updates' + 'Check for Updates (incl. patches)' with toast reporting, keep 'Update Now' as the single update action, delete the qualifying-gated 'Update to v{X}' entry and updateActionLabel","cmd":"fab-new","event":"command","ts":"2026-07-20T05:21:55Z"}
+{"delta":"+4.3","event":"confidence","score":4.3,"trigger":"calc-score","ts":"2026-07-20T05:23:32Z"}
+{"cmd":"fab-proceed:create-intake","event":"command","ts":"2026-07-20T05:23:40Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-07-20T05:24:19Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-20T05:25:09Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-20T05:25:25Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-20T05:26:25Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-20T05:53:34Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-20T05:58:43Z"}
+{"event":"review","result":"passed","ts":"2026-07-20T05:58:43Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-20T06:08:57Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-07-20T06:11:24Z"}
+{"event":"review","result":"passed","ts":"2026-07-20T06:31:47Z"}

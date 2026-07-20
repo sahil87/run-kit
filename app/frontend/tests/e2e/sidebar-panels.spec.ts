@@ -145,6 +145,57 @@ test.describe("Sidebar Host & Window Panels", () => {
     await page.evaluate(() => localStorage.removeItem("runkit-panel-host"));
   });
 
+  test("board route populates PANE (focused tile) and HOST (host-metrics fallback)", async ({ page }) => {
+    test.setTimeout(30_000);
+    // Pin the test session's window to a fresh board via the API (deterministic;
+    // the pin UI is exercised elsewhere). Board pins are LINK-based, so the
+    // window's home-session copy keeps flowing through the sessions stream —
+    // that enriched copy is what the PANE panel resolves by windowId.
+    const boardName = `panels${Date.now().toString().slice(-6)}`;
+    const winId = execSync(
+      `tmux -L ${TMUX_SERVER} list-windows -t ${TEST_SESSION} -F "#{window_id}"`,
+    )
+      .toString()
+      .trim()
+      .split("\n")[0];
+    expect(winId).toBeTruthy();
+    const pinRes = await page.request.post(`/api/boards/${boardName}/pin`, {
+      data: { server: TMUX_SERVER, windowId: winId },
+    });
+    expect(pinRes.ok()).toBeTruthy();
+
+    try {
+      await page.goto(`/board/${boardName}`, { waitUntil: "domcontentloaded" });
+
+      // PANE panel — no route window on /board/$name, so the panel follows the
+      // board's focused tile (index 0). The tmx/cwd identity rows render from
+      // the resolved home-session copy instead of "No window selected".
+      const paneButton = page.getByRole("button", { name: /^Pane/ });
+      await expect(paneButton).toBeVisible({ timeout: 10_000 });
+      const panePanel = paneButton.locator("../..");
+      await expect(panePanel.locator("text=/^tmx /")).toBeVisible({ timeout: 10_000 });
+      await expect(panePanel.locator("text=/^cwd /")).toBeVisible();
+      await expect(panePanel.locator("text=No window selected")).not.toBeVisible();
+
+      // HOST panel — no currentServer on the board route, so the panel falls
+      // back to the host-global metrics broadcast (and the dot to host-metrics
+      // health) instead of "No metrics".
+      const hostButton = page.getByRole("button", { name: /^Host/ });
+      await expect(hostButton).toBeVisible();
+      const hostPanel = hostButton.locator("../..");
+      await expect(hostPanel.locator("text=cpu")).toBeVisible({ timeout: 8_000 });
+      await expect(hostPanel.locator("text=mem")).toBeVisible();
+      await expect(hostPanel.locator("text=No metrics")).not.toBeVisible();
+      await expect(hostPanel.locator("[title='SSE connected']")).toBeVisible();
+    } finally {
+      // Unpin so the shared server carries no leftover board (empty boards are
+      // reaped server-side).
+      await page.request.post(`/api/boards/${boardName}/unpin`, {
+        data: { server: TMUX_SERVER, windowId: winId },
+      });
+    }
+  });
+
   test("Host panel metrics update over multiple SSE ticks", async ({ page }) => {
     await page.goto(`/${TMUX_SERVER}`);
 

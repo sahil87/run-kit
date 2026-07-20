@@ -12,6 +12,7 @@ import {
 import { ChromeProvider, useChromeState, useChromeDispatch, SIDEBAR_WIDTH_BOUNDS } from "@/contexts/chrome-context";
 import { FocusedTerminalProvider } from "@/contexts/focused-terminal-context";
 import { TopBarSlotProvider, useTopBarSlot, useTopBarNotFound, useRegisterTopBarSlot } from "@/contexts/top-bar-slot-context";
+import { FocusedPaneProvider } from "@/contexts/focused-pane-context";
 import { computeKillRedirect } from "@/lib/navigation";
 import { deriveEffectiveSessionOrder, computeMoveOrder, computeWindowMoveTarget } from "@/lib/palette-move";
 import { buildUpdateActions, buildMaintenanceActions, buildCheckActions } from "@/lib/palette-update";
@@ -149,7 +150,9 @@ export function RootWrapper() {
             <FocusedTerminalProvider>
               <OptimisticProvider>
                 <TopBarSlotProvider>
-                  <Outlet />
+                  <FocusedPaneProvider>
+                    <Outlet />
+                  </FocusedPaneProvider>
                 </TopBarSlotProvider>
               </OptimisticProvider>
             </FocusedTerminalProvider>

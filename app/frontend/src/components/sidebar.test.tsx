@@ -2,7 +2,8 @@ import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, fireEvent, cleanup, act, within } from "@testing-library/react";
 import { Sidebar } from "./sidebar";
 import { OptimisticProvider, useOptimisticContext } from "@/contexts/optimistic-context";
-import { MetricsProvider, StandaloneSessionContextProvider } from "@/contexts/session-context";
+import { HostMetricsProvider, MetricsProvider, StandaloneSessionContextProvider } from "@/contexts/session-context";
+import { FocusedPaneProvider } from "@/contexts/focused-pane-context";
 import { ThemeProvider } from "@/contexts/theme-context";
 import { ChromeProvider } from "@/contexts/chrome-context";
 import { ToastProvider } from "@/components/toast";
@@ -143,19 +144,23 @@ function buildTree(overrides: SidebarTestOverrides) {
           }}
         >
           <MetricsProvider value={null}>
-            <ChromeProvider>
-              <Sidebar
-                currentServer={currentServer}
-                currentSession="run-kit"
-                currentWindowId="@0"
-                onSelectWindow={vi.fn()}
-                onCreateWindow={vi.fn()}
-                onCreateSession={vi.fn()}
-                onCreateServer={vi.fn()}
-                onKillServer={vi.fn()}
-                {...sidebarOverrides}
-              />
-            </ChromeProvider>
+            <HostMetricsProvider value={null}>
+              <FocusedPaneProvider>
+                <ChromeProvider>
+                  <Sidebar
+                    currentServer={currentServer}
+                    currentSession="run-kit"
+                    currentWindowId="@0"
+                    onSelectWindow={vi.fn()}
+                    onCreateWindow={vi.fn()}
+                    onCreateSession={vi.fn()}
+                    onCreateServer={vi.fn()}
+                    onKillServer={vi.fn()}
+                    {...sidebarOverrides}
+                  />
+                </ChromeProvider>
+              </FocusedPaneProvider>
+            </HostMetricsProvider>
           </MetricsProvider>
         </StandaloneSessionContextProvider>
       </OptimisticProvider>
@@ -972,19 +977,23 @@ describe("Sidebar", () => {
               }}
             >
               <MetricsProvider value={null}>
-                <KilledCountDisplay />
-                <ChromeProvider>
-                  <Sidebar
-                    currentServer="runkit"
-                    currentSession="run-kit"
-                    currentWindowId="@0"
-                    onSelectWindow={vi.fn()}
-                    onCreateWindow={vi.fn()}
-                    onCreateSession={vi.fn()}
-                    onCreateServer={vi.fn()}
-                    onKillServer={vi.fn()}
-                  />
-                </ChromeProvider>
+                <HostMetricsProvider value={null}>
+                  <FocusedPaneProvider>
+                    <KilledCountDisplay />
+                    <ChromeProvider>
+                      <Sidebar
+                        currentServer="runkit"
+                        currentSession="run-kit"
+                        currentWindowId="@0"
+                        onSelectWindow={vi.fn()}
+                        onCreateWindow={vi.fn()}
+                        onCreateSession={vi.fn()}
+                        onCreateServer={vi.fn()}
+                        onKillServer={vi.fn()}
+                      />
+                    </ChromeProvider>
+                  </FocusedPaneProvider>
+                </HostMetricsProvider>
               </MetricsProvider>
             </StandaloneSessionContextProvider>
           </OptimisticProvider>

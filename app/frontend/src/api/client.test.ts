@@ -25,6 +25,7 @@ import {
   triggerForceUpdate,
   triggerRestart,
   refreshStatus,
+  checkForUpdates,
   DAEMON_SERVER,
   isInfraServer,
   compareServers,
@@ -650,6 +651,48 @@ describe("maintenance actions (force update + restart)", () => {
       ),
     );
     await expect(triggerRestart()).rejects.toThrow();
+  });
+});
+
+describe("checkForUpdates source wiring (260720-wb3n)", () => {
+  function withCheckResponse(body: Record<string, unknown>) {
+    let capturedBody: Record<string, unknown> = {};
+    mswServer.use(
+      http.post("/api/updates/check", async ({ request }) => {
+        capturedBody = (await request.json()) as typeof capturedBody;
+        return HttpResponse.json(body);
+      }),
+    );
+    return () => capturedBody;
+  }
+
+  const githubRow = {
+    tool: "run-kit",
+    current: "3.8.0",
+    latest: "3.9.1",
+    updateAvailable: true,
+    notable: false,
+  };
+
+  it("default check POSTs an empty body and parses the echoed source", async () => {
+    const body = withCheckResponse({ tools: [], key: "", source: "released" });
+    const result = await checkForUpdates();
+    expect(body()).toEqual({});
+    expect(result).toEqual({ tools: [], key: "", source: "released" });
+  });
+
+  it('checkForUpdates("github") POSTs {"source":"github"} and parses the echoed source', async () => {
+    const body = withCheckResponse({ tools: [githubRow], key: "", source: "github" });
+    const result = await checkForUpdates("github");
+    expect(body()).toEqual({ source: "github" });
+    expect(result.source).toBe("github");
+    expect(result.tools).toEqual([githubRow]);
+  });
+
+  it("defaults source to an empty string when an old daemon omits it", async () => {
+    withCheckResponse({ tools: [], key: "" });
+    const result = await checkForUpdates();
+    expect(result.source).toBe("");
   });
 });
 

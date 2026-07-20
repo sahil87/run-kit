@@ -74,23 +74,35 @@ export type CheckVerdictTool = UpdateActionTool & {
 export type CheckToast = { message: string; updatable: boolean };
 
 /**
- * Compose the check-result toast for the two palette check commands over ONE
- * verdict list (the minor/patch distinction is purely client-side filtering):
+ * Compose the check-result toast for the two palette check commands over the
+ * verdict list (the minor/patch distinction is client-side filtering):
  *   - default view (`includePatches` false): tools where `notable` is true,
  *     each as `tool v{current} → v{latest}` (updateChipToolSummary's shape);
  *   - incl.-patches view: every tool where `updateAvailable` is true, with
  *     sub-threshold rows annotated `(patch — below notify threshold)`.
- * An empty filtered set composes "All tools up to date" (updatable: false).
+ * `source` is the ECHOED report backend from the check response (`"released"`/
+ * `"github"`; defaults to `""` for old daemons that omit it, keeping today's
+ * behavior). When it is `"github"` the sub-threshold annotation is SUPPRESSED:
+ * that backend carries no notify policy, so every row lands `notable=false`
+ * and a github minor bump would otherwise be mislabeled as a sub-threshold
+ * patch. The filtering itself is unchanged — only the annotation keys off the
+ * source. An empty filtered set composes "All tools up to date"
+ * (updatable: false).
  */
-export function composeCheckToast(tools: CheckVerdictTool[], includePatches: boolean): CheckToast {
+export function composeCheckToast(
+  tools: CheckVerdictTool[],
+  includePatches: boolean,
+  source = "",
+): CheckToast {
   const relevant = tools.filter((t) =>
     includePatches ? t.updateAvailable : t.updateAvailable && t.notable,
   );
   if (relevant.length === 0) return { message: "All tools up to date", updatable: false };
+  const annotationSuppressed = source === "github";
   const message = relevant
     .map((t) => {
       const base = updateChipToolSummary([t]);
-      return t.notable ? base : `${base} (patch — below notify threshold)`;
+      return t.notable || annotationSuppressed ? base : `${base} (patch — below notify threshold)`;
     })
     .join(", ");
   return { message, updatable: true };

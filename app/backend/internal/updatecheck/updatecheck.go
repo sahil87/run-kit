@@ -3,11 +3,19 @@
 // in memory, firing a callback whenever the set of notable tools changes.
 //
 // The check itself is DELEGATED: one exec of `shll check-updates --json`
-// per pass (no backend flag — `released` is shll's default, so the invocation
-// is valid across every shll version carrying `check-updates` and is decoupled
-// from backend-flag evolution) replaces the former manifest HTTP fetch, `brew list
-// --versions` join, and sibling threshold evaluation (Constitution III — wrap,
-// don't reinvent). Per-tool verdicts (`update_available`, `notable`) are
+// per pass replaces the former manifest HTTP fetch, `brew list --versions`
+// join, and sibling threshold evaluation (Constitution III — wrap, don't
+// reinvent). The AMBIENT loop passes no backend flag (`released` is shll's
+// default, so the invocation is valid across every shll version carrying
+// `check-updates` and is decoupled from backend-flag evolution); that
+// no-backend-flag posture applies to the RELEASED path only — a manual check
+// may request the GitHub backend (SourceGithub → the literal `--source github`
+// argv pair), which runs as a SIDE-CHANNEL query: exec + verdict computation +
+// returned Result, but NO cache write and NO OnQualify fire, so the chip, the
+// dismissal key, and the scoped `shll update` argv stay bound to the
+// notify-policy-bearing released source (the github contract carries no
+// notify/notable fields at all — every row lands notable=false).
+// Per-tool verdicts (`update_available`, `notable`) are
 // consumed verbatim from shll's JSON for every sibling tool; only run-kit's own
 // row is re-compared locally, because shll can only see the brew-installed
 // version — not the version this daemon is actually running (ldflags).
@@ -66,6 +74,20 @@ const (
 	notifyNever = "never"
 	notifyPatch = "patch"
 	notifyMinor = "minor"
+)
+
+// Check-backend source values. The handler maps the request body onto this
+// closed enum; nothing user-controlled ever reaches argv (Constitution I) —
+// checkUpdatesArgs appends the literal `--source github` pair only for the
+// validated SourceGithub value.
+const (
+	// SourceReleased is the default released-manifest backend. The zero value:
+	// no `--source` flag is passed, keeping the ambient invocation valid across
+	// every shll version carrying `check-updates`.
+	SourceReleased = ""
+	// SourceGithub selects shll's GitHub release-tags backend (fresh, no notify
+	// policy). A github check is a side-channel query — see checkOnce.
+	SourceGithub = "github"
 )
 
 // CheckTool is one tool's entry in the `shll check-updates --json` report
@@ -147,6 +169,11 @@ type Result struct {
 	// compat — a not-yet-reloaded client keys off a non-empty Latest.
 	Current string
 	Latest  string
+	// Source echoes the report's self-identified backend (CheckReport.Source —
+	// e.g. "released" or "github"), propagated to the check response / SSE
+	// payload so the client reacts to what actually ran. Empty when the report
+	// carried no source (e.g. legacy test stubs).
+	Source string
 }
 
 // Checker runs `shll check-updates` on a background tick and caches the latest
@@ -159,10 +186,11 @@ type Checker struct {
 	mu     sync.RWMutex
 	result Result
 
-	// checkFn returns the decoded `shll check-updates --json` report.
-	// The default execs the real shll; tests stub it. Kept as a field (not a
-	// package var) so parallel tests don't race a shared seam.
-	checkFn func(ctx context.Context) (CheckReport, error)
+	// checkFn returns the decoded `shll check-updates --json` report for the
+	// given backend source (SourceReleased or SourceGithub). The default execs
+	// the real shll; tests stub it. Kept as a field (not a package var) so
+	// parallel tests don't race a shared seam.
+	checkFn func(ctx context.Context, source string) (CheckReport, error)
 
 	// OnQualify, when set, is invoked with the new verdict whenever a check
 	// changes Key at all — to a non-empty value (first match, re-match after
@@ -234,7 +262,7 @@ func (c *Checker) Start(ctx context.Context) {
 			return
 		case <-time.After(initialCheckDelay):
 		}
-		c.checkOnce(ctx)
+		c.checkOnce(ctx, SourceReleased)
 
 		ticker := time.NewTicker(checkInterval)
 		defer ticker.Stop()
@@ -243,31 +271,41 @@ func (c *Checker) Start(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				c.checkOnce(ctx)
+				c.checkOnce(ctx, SourceReleased)
 			}
 		}
 	}()
 }
 
-// CheckNow runs one immediate synchronous check pass — the SAME code path the
-// ambient loop uses (exec + verdict update + OnQualify on key change) — and
-// returns the fresh verdict. It is the seam behind POST /api/updates/check: on
-// failure (shll missing / non-zero exit / unparseable or wrong-schema JSON) the
-// previous verdict is retained and the error is returned so a MANUAL check can
-// surface it, while the ambient loop ignores the same error (fail-silent).
-// A suppressed checker returns an error without checking.
-func (c *Checker) CheckNow(ctx context.Context) (Result, error) {
+// CheckNow runs one immediate synchronous check pass against the given backend
+// source and returns the fresh verdict. For SourceReleased it is the SAME code
+// path the ambient loop uses (exec + verdict update + OnQualify on key change);
+// for SourceGithub it is a SIDE-CHANNEL query (exec + verdict computation +
+// returned Result, no cache write, no OnQualify — see checkOnce). It is the
+// seam behind POST /api/updates/check: on failure (shll missing / non-zero
+// exit / unparseable or wrong-schema JSON) the previous verdict is retained and
+// the error is returned so a MANUAL check can surface it, while the ambient
+// loop ignores the same error (fail-silent). A suppressed checker returns an
+// error without checking.
+func (c *Checker) CheckNow(ctx context.Context, source string) (Result, error) {
 	if c.Suppressed() {
 		return Result{}, fmt.Errorf("update checks are suppressed for this build")
 	}
-	return c.checkOnce(ctx)
+	return c.checkOnce(ctx, source)
 }
 
-// checkOnce performs one exec + verdict update, firing OnQualify when the
-// composite Key changes at all (including to empty). On a failed check it logs
-// a warning, retains the previous verdict (stale-while-revalidate), and returns
-// the error for the manual path — the ambient callers ignore it.
-func (c *Checker) checkOnce(ctx context.Context) (Result, error) {
+// checkOnce performs one exec + verdict pass for the given backend source. On
+// the released path it updates the cached verdict and fires OnQualify when the
+// composite Key changes at all (including to empty). Any OTHER source is a
+// side-channel query: the computed Result is returned WITHOUT touching the
+// shared cache or firing OnQualify — the github contract carries no
+// notify/notable fields (every row lands notable=false via the fail-closed
+// threshold), so caching it would wipe a legit released chip (Key→"" clear
+// broadcast) and 409 the scoped `shll update` (which reads Snapshot().Matched).
+// On a failed check it logs a warning, retains the previous verdict
+// (stale-while-revalidate), and returns the error for the manual path — the
+// ambient callers ignore it.
+func (c *Checker) checkOnce(ctx context.Context, source string) (Result, error) {
 	c.mu.RLock()
 	checkFn := c.checkFn
 	c.mu.RUnlock()
@@ -275,7 +313,7 @@ func (c *Checker) checkOnce(ctx context.Context) (Result, error) {
 	checkCtx, cancel := context.WithTimeout(ctx, checkTimeout)
 	defer cancel()
 
-	report, err := checkFn(checkCtx)
+	report, err := checkFn(checkCtx, source)
 	if err != nil {
 		slog.Warn("update check failed (retaining previous result)", "err", err)
 		return Result{}, err
@@ -285,7 +323,13 @@ func (c *Checker) checkOnce(ctx context.Context) (Result, error) {
 	matched := notableSet(verdicts)
 	key := computeKey(matched)
 	current, latest := runKitFields(matched)
-	newResult := Result{Tools: verdicts, Matched: matched, Key: key, Current: current, Latest: latest}
+	newResult := Result{Tools: verdicts, Matched: matched, Key: key, Current: current, Latest: latest, Source: report.Source}
+
+	if source != SourceReleased {
+		// Side-channel query: return the fresh verdict without converging the
+		// cached released verdict or broadcasting.
+		return newResult, nil
+	}
 
 	c.mu.Lock()
 	prevKey := c.result.Key
@@ -368,11 +412,13 @@ func notableSet(verdicts []ToolVerdict) []ToolUpdate {
 // SetCheckForTest replaces the check-exec seam with a stub and clears
 // suppression. Exported so tests in OTHER packages (e.g. api handler tests that
 // need a checker with a canned verdict) can drive the checker without a real
-// `shll` binary. The parameter is context-free for caller convenience.
-func (c *Checker) SetCheckForTest(fn func() (CheckReport, error)) {
+// `shll` binary. The stub receives the requested backend source (SourceReleased
+// or SourceGithub) so tests can observe/branch on it; it is context-free for
+// caller convenience.
+func (c *Checker) SetCheckForTest(fn func(source string) (CheckReport, error)) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.checkFn = func(context.Context) (CheckReport, error) { return fn() }
+	c.checkFn = func(_ context.Context, source string) (CheckReport, error) { return fn(source) }
 	c.suppressed = false
 }
 
@@ -383,11 +429,11 @@ func (c *Checker) SetSelfBrewForTest(brew bool) {
 	c.selfBrew = brew
 }
 
-// CheckOnceForTest runs a single synchronous check (exec + verdict update +
-// OnQualify). Exported so cross-package tests can materialise a qualifying
-// snapshot deterministically without waiting for the ~30s scheduler.
+// CheckOnceForTest runs a single synchronous RELEASED check (exec + verdict
+// update + OnQualify). Exported so cross-package tests can materialise a
+// qualifying snapshot deterministically without waiting for the ~30s scheduler.
 func (c *Checker) CheckOnceForTest() {
-	c.checkOnce(context.Background())
+	c.checkOnce(context.Background(), SourceReleased)
 }
 
 // afterFuncFn schedules fn to run after d, returning a no-op. Package-var seam
@@ -423,7 +469,7 @@ func (c *Checker) RecheckAfter(d time.Duration) {
 		case <-ctx.Done():
 			return
 		default:
-			c.checkOnce(ctx)
+			c.checkOnce(ctx, SourceReleased)
 		}
 	})
 }
@@ -439,18 +485,20 @@ func (c *Checker) SetRecheckHookForTest(fn func(time.Duration)) {
 	c.recheckHook = fn
 }
 
-// defaultCheck runs the real `shll check-updates --json` exec and
-// decodes its report. Context-bound with an explicit argument slice and no
-// shell string (Constitution I). Error mapping is the caller rule from the
-// vendored contract: shll absent from PATH, a non-zero exit (1 = check failed,
-// 2 = usage error — any non-zero skips), unparseable JSON, or an unsupported
-// schema all fail the pass.
-func defaultCheck(ctx context.Context) (CheckReport, error) {
+// defaultCheck runs the real `shll check-updates --json` exec for the given
+// backend source and decodes its report. Context-bound with an explicit
+// argument slice and no shell string (Constitution I). Error mapping is the
+// caller rule from the vendored contract: shll absent from PATH, a non-zero
+// exit (1 = check failed, 2 = usage error — any non-zero skips; this includes
+// an older shll without `--source` support, which the fail-loud manual path
+// surfaces honestly), unparseable JSON, or an unsupported schema all fail the
+// pass.
+func defaultCheck(ctx context.Context, source string) (CheckReport, error) {
 	shllPath, err := exec.LookPath("shll")
 	if err != nil {
 		return CheckReport{}, fmt.Errorf("shll not found on PATH")
 	}
-	cmd := exec.CommandContext(ctx, shllPath, "check-updates", "--json")
+	cmd := exec.CommandContext(ctx, shllPath, checkUpdatesArgs(source)...)
 	out, err := cmd.Output()
 	if err != nil {
 		return CheckReport{}, fmt.Errorf("shll check-updates failed: %w", err)
@@ -463,6 +511,19 @@ func defaultCheck(ctx context.Context) (CheckReport, error) {
 		return CheckReport{}, fmt.Errorf("shll check-updates schema %d unsupported (want %d)", report.Schema, checkUpdatesSchema)
 	}
 	return report, nil
+}
+
+// checkUpdatesArgs builds the `shll check-updates` argv tail for a backend
+// source. The literal `--source github` pair is appended ONLY for the validated
+// SourceGithub enum value — the source string itself is never spliced into the
+// command (Constitution I); any other value (including SourceReleased) keeps
+// the flag-free released argv.
+func checkUpdatesArgs(source string) []string {
+	args := []string{"check-updates", "--json"}
+	if source == SourceGithub {
+		args = append(args, "--source", "github")
+	}
+	return args
 }
 
 // computeKey builds the composite dismissal key: sorted "tool@latest" pairs,

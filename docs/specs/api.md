@@ -386,10 +386,32 @@ ldflags version).
 
 #### `POST /api/updates/check`
 
-On-demand update check: runs one immediate checker pass inline (the same code
-path as the 6h ambient loop), updates the cached verdict, broadcasts the
-`update-available` event, and returns the fresh verdict synchronously (~1-2s,
-bounded by the checker's 30s exec timeout).
+On-demand update check: runs one immediate checker pass inline and returns the
+fresh verdict synchronously (~1-2s, bounded by the checker's 30s exec timeout).
+
+**Request body** (tolerant — absent body, empty body, and `{}` all mean the
+released default, so existing clients are unchanged):
+```json
+{ "source": "github" }
+```
+
+- `source` — optional check-backend selector, a closed enum:
+  - absent/empty → the **released** manifest backend (shll's default). This is
+    the same code path as the 6h ambient loop: the pass updates the cached
+    verdict and broadcasts the `update-available` event.
+  - `"github"` → shll's GitHub release-tags backend
+    (`shll check-updates --source github`) — fresh, but carrying **no notify
+    policy** (every row arrives `notable=false`). A github check is a
+    **side-channel query**: the verdict is computed and returned, but the
+    cached verdict is NOT written and no `update-available` broadcast fires,
+    so the chip, the dismissal key, and the scoped `shll update` argv stay
+    bound to the released source.
+  - any other non-empty value → `400 {"error": ...}` (fail-loud; the value
+    never reaches the checker). Only the validated enum value maps to the
+    literal `--source github` argv pair — nothing user-controlled is spliced
+    into the command.
+- A malformed JSON body degrades to the released default (mirroring
+  `POST /api/update`'s tolerant posture).
 
 **Response (200):** the same shape as the `update-available` event payload:
 ```json
@@ -402,7 +424,8 @@ bounded by the checker's 30s exec timeout).
   ],
   "key": "run-kit@3.9.0",
   "current": "3.8.1",
-  "latest": "3.9.0"
+  "latest": "3.9.0",
+  "source": "released"
 }
 ```
 
@@ -414,11 +437,17 @@ bounded by the checker's 30s exec timeout).
   comma-joined; empty when nothing notable).
 - `current`/`latest` — legacy run-kit-row compat fields (populated only when
   run-kit is in the notable set).
+- `source` — echoes the report's self-identified backend (`"released"` /
+  `"github"`), so the client reacts to what actually ran. The frontend
+  suppresses the `(patch — below notify threshold)` toast annotation for
+  github-sourced results (no notify policy exists in that backend).
 
 **Errors:**
+- `400 {"error": ...}` — unrecognized non-empty `source` value
 - `409 {"error": ...}` — checker suppressed (dev build) or not wired
 - `502 {"error": "update check unavailable — ..."}` — the check itself failed
-  (shll not on PATH, non-zero exit, unparseable JSON)
+  (shll not on PATH, non-zero exit — including an older shll without
+  `--source` support — or unparseable JSON)
 
 The ambient 6h loop is fail-silent (a failed pass retains the previous
 verdict); only this manual endpoint surfaces check failures.
@@ -428,7 +457,9 @@ verdict); only this manual endpoint surfaces check failures.
 Broadcast whenever the checker's composite notable key changes (including to
 empty when a match is consumed), and replayed to late-connecting clients from a
 cached slot. The payload is byte-identical in shape to the
-`POST /api/updates/check` response above (one shared builder serves both).
+`POST /api/updates/check` response above (one shared builder serves both),
+including the `source` field — the ambient slot carries `"released"` (github
+checks are side-channel and never reach this slot).
 
 ---
 

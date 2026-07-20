@@ -218,13 +218,16 @@ function WindowRowInner({
     return Object.keys(style).length > 0 ? style : undefined;
   }, [tint, uncoloredSelectedTint, isSelected]);
 
-  // Build className for the button. The label zone is an absolute z-20 sibling
-  // reaching to x=14 within the row box (26px total, extending -12px left into
-  // the group indent), so the button content must start CLEAR of it — otherwise
-  // the interactive StatusDot sits under the zone and its hover/click steals the
-  // dot's hover-card + row select (the must-fix-3 geometry, preserved). The dot
-  // sits at `pl-[18px]` — 4px clear of the zone's inner edge, so the dot and
-  // name keep their EXACT current x-positions (intake R1: no content shift).
+  // Build className for the button. The row box is FULL-BLEED — it starts at
+  // the physical sidebar edge (the former 12px group `ml-3` indent moved into
+  // this button's left padding), so the tint/hover/selection fills span
+  // edge-to-edge. The label zone is an absolute z-20 sibling spanning the
+  // leftmost 26px of the row, so the button content must start CLEAR of it —
+  // otherwise the interactive StatusDot sits under the zone and its hover/click
+  // steals the dot's hover-card + row select (the must-fix-3 geometry,
+  // preserved). The dot sits at `pl-[30px]` (12px absorbed indent + 18px prior
+  // padding) — 4px clear of the zone's inner edge, so the dot and name keep
+  // their EXACT pre-full-bleed x-positions (no content shift).
   // When the pin icon is wired up, reserve a few extra px on the right so labels
   // don't run under the icon group.
   const showPinIcon = !ghost && !!server;
@@ -232,7 +235,7 @@ function WindowRowInner({
     const rightPad = showPinIcon ? "pr-[68px]" : "pr-11";
     // Dense rows on fine pointers (24px); touch keeps the 36px target via the
     // `coarse:` variant (context.md § Mobile Responsive Design).
-    const base = `w-full text-left flex items-center justify-between gap-2 py-px pl-[18px] ${rightPad} text-xs transition-colors min-h-[24px] coarse:min-h-[36px]`;
+    const base = `w-full text-left flex items-center justify-between gap-2 py-px pl-[30px] ${rightPad} text-xs transition-colors min-h-[24px] coarse:min-h-[36px]`;
     if (isSelected) {
       // Selection = deeper tint (tint.selected / gray sentinel via buttonStyle)
       // + bold + brightened text. No border (removed in the axis split).
@@ -459,14 +462,16 @@ function WindowRowInner({
   );
 }
 
-/** Label-zone geometry (px). The zone spans the full 26px left of the status
- *  dot — the 12px group indent (the parent `ml-3`) PLUS the 14px marker-stripe
- *  zone. It is positioned `-left-3` (−12px) so it reaches from the group-indent
- *  edge to x=14 within the row box, 4px clear of the dot at `pl-[18px]` — so the
- *  dot + name keep their exact current x-positions (intake R1: no content shift). */
-const LABEL_ZONE_WIDTH = 26; // 12px icon zone + 14px stripe zone
-const ICON_ZONE_WIDTH = 12; // left 12px: the group indent, home of the palette icon
-const STRIPE_INSET = 5; // display-only stripe inset within its 14px zone (geometry fix)
+/** Label-zone geometry (px). The row box is full-bleed (starts at the physical
+ *  sidebar edge), so the zone is a plain `left-0` overlay spanning the 26px
+ *  left of the status dot at `pl-[30px]` — 4px clear of the zone's inner edge,
+ *  so the zone never steals the dot's hover-card/click (must-fix-3). The
+ *  leftmost 12px is the hover palette-icon zone; the marker stripe anchors
+ *  near-flush at the sidebar edge (`STRIPE_EDGE_INSET`), sharing that 12px —
+ *  the icon renders ABOVE the stripe (explicit layering below). */
+const LABEL_ZONE_WIDTH = 26; // full zone: icon home + clearance before the dot
+const ICON_ZONE_WIDTH = 12; // leftmost 12px: home of the hover palette icon
+const STRIPE_EDGE_INSET = 2; // stripe inset from the zone's/sidebar's left edge (near-flush per the full-bleed spec)
 
 type LabelZoneProps = {
   marker?: string;
@@ -485,10 +490,13 @@ type LabelZoneProps = {
  *  cycles and never selects the row (click stopPropagation lives in `onClick`).
  *  A hover-revealed PaletteIcon in the 12px icon zone + a family-tinted zone glow
  *  make it discoverable (two-stage: row-hover ~65%/12% → zone-hover 100%/24%).
- *  The marker stripe is DISPLAY-ONLY, inset `STRIPE_INSET`px within its 14px
- *  zone. `cursor: pointer` (menu-opener semantics). Active on coarse pointers —
- *  touch gets direct label access. `aria-label` names it for pointer AT users
- *  and test selection (getByLabelText / getByLabel). */
+ *  The marker stripe is DISPLAY-ONLY, anchored near-flush at the sidebar's left
+ *  edge (`STRIPE_EDGE_INSET`px). Stripe and icon share the leftmost 12px, so the
+ *  icon is layered explicitly ABOVE the stripe (`z-10` on the icon container;
+ *  the zone's own `z-20` scopes the stack). `cursor: pointer` (menu-opener
+ *  semantics). Active on coarse pointers — touch gets direct label access.
+ *  `aria-label` names it for pointer AT users and test selection
+ *  (getByLabelText / getByLabel). */
 function LabelZone({ marker, markerColor, colored, hover, onEnter, onLeave, onClick }: LabelZoneProps) {
   const current = marker ?? "";
   const stripeStyle = markerStripeStyle(current, markerColor);
@@ -499,10 +507,10 @@ function LabelZone({ marker, markerColor, colored, hover, onEnter, onLeave, onCl
       onMouseEnter={onEnter}
       onMouseLeave={onLeave}
       // z-20 sits above the row-select button (z-10 icon cluster) at the left
-      // edge. Positioned -left-3 to also cover the parent's 12px group indent so
-      // the whole 26px is one hit target. Active on coarse pointers (touch label
-      // access). Cursor pointer = it opens a menu, not a cycle.
-      className="absolute -left-3 top-0 bottom-0 z-20 cursor-pointer"
+      // edge. The row box is full-bleed, so `left-0` IS the physical sidebar
+      // edge and the whole 26px is one hit target. Active on coarse pointers
+      // (touch label access). Cursor pointer = it opens a menu, not a cycle.
+      className="absolute left-0 top-0 bottom-0 z-20 cursor-pointer"
       style={{ width: LABEL_ZONE_WIDTH }}
     >
       {/* Zone glow: transparent at rest; ~12% family color on ROW hover
@@ -513,11 +521,21 @@ function LabelZone({ marker, markerColor, colored, hover, onEnter, onLeave, onCl
           backgroundColor: `color-mix(in srgb, ${markerColor} ${hover ? 24 : 12}%, transparent)`,
         }}
       />
-      {/* Palette icon in the 12px icon zone (over the group indent), family-
+      {/* Display-only marker stripe, anchored `STRIPE_EDGE_INSET`px from the
+          zone's (= the sidebar's) left edge. Rendered BEFORE the icon container
+          so the hover icon paints on top where they share the leftmost 12px. */}
+      {stripeStyle && (
+        <div
+          className="absolute inset-y-0"
+          style={{ left: STRIPE_EDGE_INSET, right: 0, ...stripeStyle }}
+        />
+      )}
+      {/* Palette icon in the leftmost 12px (the true sidebar edge), family-
           tinted on colored rows / inherited monochrome otherwise. Fades in on
-          row hover (~65%) and reaches full opacity when the zone is hovered. */}
+          row hover (~65%) and reaches full opacity when the zone is hovered.
+          Explicit `z-10` keeps it ABOVE the marker stripe it now overlaps. */}
       <div
-        className="absolute inset-y-0 left-0 flex items-center justify-center transition-opacity opacity-0 group-hover:opacity-65"
+        className="absolute inset-y-0 left-0 z-10 flex items-center justify-center transition-opacity opacity-0 group-hover:opacity-65"
         style={{
           width: ICON_ZONE_WIDTH,
           color: colored ? markerColor : undefined,
@@ -527,14 +545,6 @@ function LabelZone({ marker, markerColor, colored, hover, onEnter, onLeave, onCl
       >
         <PaletteIcon size={11} />
       </div>
-      {/* Display-only marker stripe, inset within the 14px stripe zone (right of
-          the icon zone). */}
-      {stripeStyle && (
-        <div
-          className="absolute inset-y-0"
-          style={{ left: ICON_ZONE_WIDTH + STRIPE_INSET, right: 0, ...stripeStyle }}
-        />
-      )}
     </div>
   );
 }

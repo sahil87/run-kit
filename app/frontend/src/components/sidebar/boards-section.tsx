@@ -56,7 +56,7 @@ export function BoardsSection() {
       }
     >
       {isHintMode ? (
-        <div className="ml-3 px-2 py-2 text-xs text-text-secondary">
+        <div className="pl-5 pr-2 py-2 text-xs text-text-secondary">
           Pin a window to start a board
         </div>
       ) : (
@@ -65,8 +65,12 @@ export function BoardsSection() {
             const isActive = b.name === activeBoardName;
             const drag = getTileProps(b.name);
             const isDragSource = isDragging && draggingName === b.name;
+            // Full-bleed rows: the former 12px `ml-3` list indent lives in the
+            // button's left padding (pl-5 = 12 + the old px-2's 8), so the
+            // active/hover fills span the sidebar edge-to-edge while the board
+            // name keeps its x-position.
             return (
-              <li key={b.name} className="ml-3">
+              <li key={b.name}>
                 <button
                   type="button"
                   draggable={drag.draggable}
@@ -76,7 +80,7 @@ export function BoardsSection() {
                   onDrop={drag.onDrop}
                   onClick={() => navigate({ to: "/board/$name", params: { name: b.name } })}
                   aria-current={isActive ? "page" : undefined}
-                  className={`w-full flex items-center justify-between gap-2 px-2 py-px text-left transition-colors min-h-[24px] coarse:min-h-[36px] ${
+                  className={`w-full flex items-center justify-between gap-2 pl-5 pr-2 py-px text-left transition-colors min-h-[24px] coarse:min-h-[36px] ${
                     isActive
                       ? "bg-bg-card text-text-primary font-medium"
                       : "text-text-secondary hover:text-text-primary hover:bg-bg-card/50"

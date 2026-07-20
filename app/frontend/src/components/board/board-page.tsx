@@ -6,6 +6,7 @@ import { usePaneWidths, BOARD_PANE_DEFAULT_WIDTH } from "@/hooks/use-pane-widths
 import { useBoardAutofit } from "@/hooks/use-board-autofit";
 import { usePinActions } from "@/hooks/use-pin-actions";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
+import { useUpdateCheck } from "@/hooks/use-update-check";
 import { useOptimisticContext } from "@/contexts/optimistic-context";
 import { useSessionContext, useUpdateNotification } from "@/contexts/session-context";
 import { useChromeState, useChromeDispatch } from "@/contexts/chrome-context";
@@ -20,7 +21,7 @@ import { createSession, createWindow as createWindowApi, killServer as killServe
 import { setBoardOrder } from "@/api/boards";
 import { computeMoveOrder } from "@/lib/palette-move";
 import { buildNavActions } from "@/lib/palette-nav";
-import { buildUpdateActions, buildMaintenanceActions } from "@/lib/palette-update";
+import { buildUpdateActions, buildMaintenanceActions, buildCheckActions } from "@/lib/palette-update";
 import { buildVersionAction, displayVersion } from "@/lib/palette-version";
 import { copyToClipboard } from "@/lib/clipboard";
 import { Dialog } from "@/components/dialog";
@@ -431,13 +432,16 @@ function BoardPageContent({ name }: { name: string }) {
   const {
     qualifies: updateQualifies,
     tools: updateTools,
-    updateNow,
     dismissUpdate,
     daemonVersion,
     brew,
     forceUpdateNow,
     restartNow,
   } = useUpdateNotification();
+  // Shared check-command flow (POST /api/updates/check → result toast) — the
+  // same hook AppShell's palette uses, so the flow can never drift between the
+  // two mounts (see use-update-check.ts).
+  const { runUpdateCheck } = useUpdateCheck();
 
   // Palette-surface split/close executors (Constitution V; 260715-6jwn). Mirror
   // the terminal palette's wiring (app.tsx — useOptimisticAction-wrapped
@@ -639,18 +643,26 @@ function BoardPageContent({ name }: { name: string }) {
     // the same reason as refreshEntry/helpEntry: the board route mounts its OWN
     // palette and does NOT render AppShell (DD-8). Critically, below `sm` the
     // top-bar UpdateChip is hidden, so on a phone /board/$name the palette is the
-    // ONLY update surface. Gated on `qualifies` only — the palette deliberately
-    // ignores chip dismissal (see lib/palette-update). The Update action wraps
-    // updateNow with the same toast-on-failure handling AppShell uses.
+    // ONLY update surface. Only the Dismiss entry remains (the dynamic
+    // `run-kit: Update to v{X}` entry was deleted — `run-kit: Update Now` in
+    // maintenanceEntries is THE single update action). Gated on `qualifies`
+    // only — the palette deliberately ignores chip dismissal (see
+    // lib/palette-update).
     const updateEntries: PaletteAction[] = buildUpdateActions(
       updateQualifies,
       updateTools,
-      () => {
-        void updateNow().catch((err: unknown) =>
-          addToast(err instanceof Error ? err.message : "Update failed"),
-        );
-      },
       dismissUpdate,
+    );
+
+    // Check actions — duplicated from AppShell's `checkActions` (app.tsx) for
+    // the same reason as updateEntries. Both commands POST the same
+    // /api/updates/check and report via toast through the SHARED useUpdateCheck
+    // flow (only the entry wiring is duplicated). Dev-gated inside
+    // buildCheckActions.
+    const checkEntries: PaletteAction[] = buildCheckActions(
+      daemonVersion,
+      () => runUpdateCheck(false),
+      () => runUpdateCheck(true),
     );
 
     // Maintenance actions — palette-only force-update / restart, duplicated from
@@ -809,8 +821,8 @@ function BoardPageContent({ name }: { name: string }) {
       }
     }
 
-    return [...switchEntries, ...conditional, ...navEntries, ...fontEntries, refreshEntry, helpEntry, ...updateEntries, ...maintenanceEntries, ...versionEntries];
-  }, [boards, name, entries, focusedIndex, autofit, toggleAutofit, unpinFocused, requestKillFocused, focusedPane, reorderWithFollow, executeSplit, navigate, router, addToast, increaseTerminalFont, decreaseTerminalFont, resetTerminalFont, updateQualifies, updateTools, updateNow, dismissUpdate, brew, daemonVersion, forceUpdateNow, restartNow]);
+    return [...switchEntries, ...conditional, ...navEntries, ...fontEntries, refreshEntry, helpEntry, ...updateEntries, ...checkEntries, ...maintenanceEntries, ...versionEntries];
+  }, [boards, name, entries, focusedIndex, autofit, toggleAutofit, unpinFocused, requestKillFocused, focusedPane, reorderWithFollow, executeSplit, navigate, router, addToast, increaseTerminalFont, decreaseTerminalFont, resetTerminalFont, updateQualifies, updateTools, runUpdateCheck, dismissUpdate, brew, daemonVersion, forceUpdateNow, restartNow]);
 
   // Pane-server count (distinct servers) used by TopBar board-mode info.
   const serverCount = useMemo(() => {

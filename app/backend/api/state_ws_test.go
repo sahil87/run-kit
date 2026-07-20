@@ -185,6 +185,7 @@ func TestStateWS_HelloReplaysGlobalSlots(t *testing.T) {
 	hub.setVersion("0.5.3", "abc", true)
 	hub.broadcastServerOrder([]string{"x"})
 	hub.broadcastUpdateAvailable(updatecheck.Result{
+		Tools:   []updatecheck.ToolVerdict{{Tool: "run-kit", Installed: "0.5.3", Latest: "0.6.0", UpdateAvailable: true, Notable: true}},
 		Matched: []updatecheck.ToolUpdate{{Tool: "run-kit", Installed: "0.5.3", Latest: "0.6.0"}},
 		Key:     "run-kit@0.6.0",
 		Current: "0.5.3",
@@ -209,7 +210,7 @@ func TestStateWS_HelloReplaysGlobalSlots(t *testing.T) {
 		t.Errorf("server-order slot = %q", types["server-order"])
 	}
 	if !strings.Contains(types["update-available"], `"key":"run-kit@0.6.0"`) ||
-		!strings.Contains(types["update-available"], `"tools":[{"tool":"run-kit","current":"0.5.3","latest":"0.6.0"}]`) {
+		!strings.Contains(types["update-available"], `"tools":[{"tool":"run-kit","current":"0.5.3","latest":"0.6.0","updateAvailable":true,"notable":true}]`) {
 		t.Errorf("update-available slot = %q", types["update-available"])
 	}
 }

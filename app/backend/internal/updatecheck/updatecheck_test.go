@@ -2,7 +2,10 @@ package updatecheck
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -69,6 +72,9 @@ func TestParsePatch(t *testing.T) {
 	}
 }
 
+// TestCrossesThreshold covers the run-kit row's LOCAL notable evaluation — the
+// only threshold evaluation left in this package (siblings arrive
+// pre-evaluated by shll).
 func TestCrossesThreshold(t *testing.T) {
 	cases := []struct {
 		installed, latest, notify string
@@ -112,24 +118,10 @@ func TestComputeKey(t *testing.T) {
 	}
 }
 
-func TestParseBrewVersions(t *testing.T) {
-	out := []byte("fab-kit 2.16.0\ntu 0.9.1\nshll 0.1.5 0.1.4\n\nbadline\n")
-	got := parseBrewVersions(out)
-	want := map[string]string{"fab-kit": "2.16.0", "tu": "0.9.1", "shll": "0.1.5"}
-	if len(got) != len(want) {
-		t.Fatalf("parseBrewVersions len = %d, want %d (%v)", len(got), len(want), got)
-	}
-	for k, v := range want {
-		if got[k] != v {
-			t.Errorf("parseBrewVersions[%q] = %q, want %q", k, got[k], v)
-		}
-	}
-}
-
 func TestNewSuppressesDevAndUnparseable(t *testing.T) {
 	for _, v := range []string{"dev", "not-a-version", ""} {
 		c := New(v, true)
-		if !c.suppressed {
+		if !c.Suppressed() {
 			t.Errorf("New(%q) expected suppressed=true", v)
 		}
 		if len(c.Snapshot().Matched) != 0 {
@@ -137,82 +129,164 @@ func TestNewSuppressesDevAndUnparseable(t *testing.T) {
 		}
 	}
 	c := New("0.5.3", true)
-	if c.suppressed {
+	if c.Suppressed() {
 		t.Errorf("New(0.5.3) should not be suppressed")
 	}
 }
 
-// fixtureManifest is a representative shll.ai manifest used across the match
-// tests. run-kit=minor, fab-kit=minor, tu=patch, wt=never.
-func fixtureManifest() Manifest {
-	return Manifest{
-		Schema:      1,
-		GeneratedAt: "2026-07-19T07:13:00Z",
-		Tools: map[string]ManifestTool{
-			"run-kit": {Latest: "3.9.0", Notify: "minor", Formula: "run-kit"},
-			"fab-kit": {Latest: "2.17.0", Notify: "minor", Formula: "fab-kit"},
-			"tu":      {Latest: "0.9.2", Notify: "patch", Formula: "tu"},
-			"wt":      {Latest: "0.2.0", Notify: "never", Formula: "wt"},
-		},
+// TestVendoredContractFixture parses the vendored `shll check-updates --json`
+// contract fixture (schema 1, released backend) and verifies the decoder tolerates
+// unknown fields and preserves per-tool verdicts verbatim.
+func TestVendoredContractFixture(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("testdata", "check-updates.json"))
+	if err != nil {
+		t.Fatalf("read vendored fixture: %v", err)
+	}
+	var report CheckReport
+	if err := json.Unmarshal(raw, &report); err != nil {
+		t.Fatalf("vendored fixture must decode (unknown fields tolerated): %v", err)
+	}
+	if report.Schema != checkUpdatesSchema {
+		t.Errorf("fixture schema = %d, want %d", report.Schema, checkUpdatesSchema)
+	}
+	if report.Source != "released" {
+		t.Errorf("fixture source = %q, want released", report.Source)
+	}
+	if len(report.Tools) != 4 {
+		t.Fatalf("fixture tools = %d, want 4", len(report.Tools))
+	}
+	byName := map[string]CheckTool{}
+	for _, tool := range report.Tools {
+		byName[tool.Name] = tool
+	}
+	// The tool carrying an unknown sibling field still decodes its known fields.
+	fk := byName["fab-kit"]
+	if fk.Installed != "2.16.0" || fk.Latest != "2.17.0" || !fk.UpdateAvailable || !fk.Notable {
+		t.Errorf("fab-kit row decoded wrong: %+v", fk)
+	}
+	// The sub-threshold row keeps its split verdict.
+	tu := byName["tu"]
+	if !tu.UpdateAvailable || tu.Notable {
+		t.Errorf("tu row = %+v, want update_available && !notable", tu)
 	}
 }
 
-// checkerWith wires a checker with a stubbed manifest fetch, brew list, and shll
-// presence, then runs one synchronous check. current = running run-kit version.
-func checkerWith(t *testing.T, current string, selfBrew bool, shllPresent bool, brew map[string]string) *Checker {
+// fixtureReport loads the vendored contract fixture as the check seam's return
+// value — the representative report used across the verdict tests.
+// run-kit=notable minor bump, fab-kit=notable, tu=sub-threshold patch, wt=current.
+func fixtureReport(t *testing.T) CheckReport {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("testdata", "check-updates.json"))
+	if err != nil {
+		t.Fatalf("read vendored fixture: %v", err)
+	}
+	var report CheckReport
+	if err := json.Unmarshal(raw, &report); err != nil {
+		t.Fatalf("decode vendored fixture: %v", err)
+	}
+	return report
+}
+
+// checkerWith wires a checker with a stubbed check exec, then leaves it to the
+// caller to run a synchronous pass. current = running run-kit version.
+func checkerWith(t *testing.T, current string, selfBrew bool, report CheckReport) *Checker {
 	t.Helper()
 	c := New(current, selfBrew)
-	c.SetFetchForTest(func() (Manifest, error) { return fixtureManifest(), nil })
-	c.SetLookShllForTest(shllPresent)
-	c.SetBrewListForTest(func(_ []string) (map[string]string, error) { return brew, nil })
+	c.SetCheckForTest(func() (CheckReport, error) { return report, nil })
 	return c
 }
 
-// TestMatchRunKitRow verifies the run-kit row matches against the RUNNING
-// version and honors the brew-install self-gate.
-func TestMatchRunKitRow(t *testing.T) {
-	// run-kit 3.8.0 → 3.9.0 (minor) matches; brew-installed rk, shll present.
-	c := checkerWith(t, "3.8.0", true, true, map[string]string{})
+// TestVerdictsRunKitRowLocalComparison verifies the run-kit row is compared
+// against the RUNNING ldflags version (not shll's brew-visible installed),
+// producing BOTH verdicts, and honors the brew-install self-gate.
+func TestVerdictsRunKitRowLocalComparison(t *testing.T) {
+	// Fixture says installed 3.8.0 → 3.9.0, but the daemon RUNS 3.8.1: the
+	// verdict must carry 3.8.1 and still be notable (minor bump).
+	c := checkerWith(t, "3.8.1", true, fixtureReport(t))
 	c.CheckOnceForTest()
 	snap := c.Snapshot()
-	if !hasTool(snap.Matched, "run-kit") {
-		t.Fatalf("run-kit should match 3.8.0→3.9.0 (minor), matched=%v", snap.Matched)
+	rk := findVerdict(snap.Tools, "run-kit")
+	if rk == nil {
+		t.Fatalf("run-kit verdict missing, tools=%v", snap.Tools)
 	}
-	if snap.Current != "3.8.0" || snap.Latest != "3.9.0" {
-		t.Errorf("run-kit row legacy fields = (%q,%q), want (3.8.0,3.9.0)", snap.Current, snap.Latest)
+	if rk.Installed != "3.8.1" || rk.Latest != "3.9.0" {
+		t.Errorf("run-kit verdict versions = (%q,%q), want (3.8.1,3.9.0) — must use the RUNNING version", rk.Installed, rk.Latest)
+	}
+	if !rk.UpdateAvailable || !rk.Notable {
+		t.Errorf("run-kit verdict flags = (ua=%v,notable=%v), want both true", rk.UpdateAvailable, rk.Notable)
+	}
+	if snap.Current != "3.8.1" || snap.Latest != "3.9.0" {
+		t.Errorf("legacy fields = (%q,%q), want (3.8.1,3.9.0)", snap.Current, snap.Latest)
 	}
 
-	// A go-install/dev rk (selfBrew=false) must NOT self-match even when newer.
-	c2 := checkerWith(t, "3.8.0", false, true, map[string]string{})
+	// A go-install/dev rk (selfBrew=false) must omit its own row entirely.
+	c2 := checkerWith(t, "3.8.1", false, fixtureReport(t))
 	c2.CheckOnceForTest()
+	if findVerdict(c2.Snapshot().Tools, "run-kit") != nil {
+		t.Errorf("non-brew run-kit must not list its own row")
+	}
 	if hasTool(c2.Snapshot().Matched, "run-kit") {
 		t.Errorf("non-brew run-kit must not self-match")
 	}
 }
 
-// TestMatchSiblingBrewJoin verifies sibling tools match off the brew-listed
-// installed version and that a formula missing from brew never matches.
-func TestMatchSiblingBrewJoin(t *testing.T) {
-	// fab-kit 2.16.0 → 2.17.0 (minor) matches; tu 0.9.1 → 0.9.2 (patch) matches;
-	// wt not listed (and notify:never anyway) never matches.
-	c := checkerWith(t, "3.9.0", true, true, map[string]string{
-		"fab-kit": "2.16.0",
-		"tu":      "0.9.1",
-	})
+// TestVerdictsRunKitSubThreshold verifies the local comparison produces the
+// split verdict: a patch bump under notify:minor is update_available but NOT
+// notable — it rides Tools but never Matched/Key.
+func TestVerdictsRunKitSubThreshold(t *testing.T) {
+	report := CheckReport{Schema: 1, Tools: []CheckTool{
+		{Name: "run-kit", Formula: "run-kit", Installed: "3.8.0", Latest: "3.8.2", Notify: "minor", UpdateAvailable: true, Notable: false},
+	}}
+	c := checkerWith(t, "3.8.1", true, report)
 	c.CheckOnceForTest()
 	snap := c.Snapshot()
-	if !hasTool(snap.Matched, "fab-kit") {
-		t.Errorf("fab-kit should match 2.16.0→2.17.0 (minor), matched=%v", snap.Matched)
+	rk := findVerdict(snap.Tools, "run-kit")
+	if rk == nil {
+		t.Fatalf("run-kit sub-threshold verdict missing, tools=%v", snap.Tools)
 	}
-	if !hasTool(snap.Matched, "tu") {
-		t.Errorf("tu should match 0.9.1→0.9.2 (patch), matched=%v", snap.Matched)
+	if !rk.UpdateAvailable || rk.Notable {
+		t.Errorf("run-kit verdict flags = (ua=%v,notable=%v), want (true,false)", rk.UpdateAvailable, rk.Notable)
 	}
-	if hasTool(snap.Matched, "wt") {
-		t.Errorf("wt (notify:never, not brew-listed) must never match")
+	if len(snap.Matched) != 0 || snap.Key != "" {
+		t.Errorf("sub-threshold run-kit must not match: matched=%v key=%q", snap.Matched, snap.Key)
 	}
-	// run-kit is at latest (3.9.0), so it should not match here.
-	if hasTool(snap.Matched, "run-kit") {
-		t.Errorf("run-kit at latest should not match")
+
+	// At latest (running 3.8.2 == latest): no row at all.
+	c2 := checkerWith(t, "3.8.2", true, report)
+	c2.CheckOnceForTest()
+	if len(c2.Snapshot().Tools) != 0 {
+		t.Errorf("run-kit at latest must list no verdict, got %v", c2.Snapshot().Tools)
+	}
+}
+
+// TestVerdictsSiblingsTrustedVerbatim verifies sibling verdicts pass through
+// unchanged (no local re-evaluation) and up-to-date tools are omitted.
+func TestVerdictsSiblingsTrustedVerbatim(t *testing.T) {
+	c := checkerWith(t, "3.9.0", true, fixtureReport(t)) // run-kit at latest
+	c.CheckOnceForTest()
+	snap := c.Snapshot()
+
+	fk := findVerdict(snap.Tools, "fab-kit")
+	if fk == nil || !fk.UpdateAvailable || !fk.Notable {
+		t.Errorf("fab-kit verdict = %+v, want verbatim update_available+notable", fk)
+	}
+	tu := findVerdict(snap.Tools, "tu")
+	if tu == nil || !tu.UpdateAvailable || tu.Notable {
+		t.Errorf("tu verdict = %+v, want verbatim update_available && !notable", tu)
+	}
+	if findVerdict(snap.Tools, "wt") != nil {
+		t.Errorf("up-to-date wt must be omitted from the verdict list")
+	}
+	if findVerdict(snap.Tools, "run-kit") != nil {
+		t.Errorf("run-kit at latest must be omitted")
+	}
+
+	// Notable projection: fab-kit only (tu is sub-threshold).
+	if len(snap.Matched) != 1 || snap.Matched[0].Tool != "fab-kit" {
+		t.Errorf("Matched = %v, want [fab-kit]", snap.Matched)
+	}
+	if snap.Key != "fab-kit@2.17.0" {
+		t.Errorf("Key = %q, want fab-kit@2.17.0 (notable set only)", snap.Key)
 	}
 	// run-kit absent from the match set → legacy fields empty.
 	if snap.Current != "" || snap.Latest != "" {
@@ -220,45 +294,30 @@ func TestMatchSiblingBrewJoin(t *testing.T) {
 	}
 }
 
-// TestMatchNotBrewInstalledSibling verifies a manifest tool with no brew line
-// (not installed) never matches even with a newer latest.
-func TestMatchNotBrewInstalledSibling(t *testing.T) {
-	// fab-kit newer in the manifest, but not present in brew output.
-	c := checkerWith(t, "3.9.0", true, true, map[string]string{})
-	c.CheckOnceForTest()
-	if hasTool(c.Snapshot().Matched, "fab-kit") {
-		t.Errorf("fab-kit not brew-installed must never match")
-	}
-}
-
-// TestMatchShllAbsentScopesToRunKit verifies that with shll absent, only the
-// run-kit row is considered — siblings are skipped regardless of brew.
-func TestMatchShllAbsentScopesToRunKit(t *testing.T) {
-	c := checkerWith(t, "3.8.0", true, false, map[string]string{
-		"fab-kit": "2.16.0", // would match if considered
-		"tu":      "0.9.1",
-	})
-	// The brew seam must never be consulted when shll is absent.
-	c.SetBrewListForTest(func(_ []string) (map[string]string, error) {
-		t.Fatalf("brew list must not run when shll is absent")
-		return nil, nil
-	})
+// TestVerdictsSortedOrder verifies the verdict list is deterministic
+// sorted-name order regardless of report order.
+func TestVerdictsSortedOrder(t *testing.T) {
+	report := CheckReport{Schema: 1, Tools: []CheckTool{
+		{Name: "tu", Installed: "0.9.1", Latest: "0.9.2", UpdateAvailable: true, Notable: false},
+		{Name: "run-kit", Installed: "3.8.0", Latest: "3.9.0", Notify: "minor", UpdateAvailable: true, Notable: true},
+		{Name: "fab-kit", Installed: "2.16.0", Latest: "2.17.0", UpdateAvailable: true, Notable: true},
+	}}
+	c := checkerWith(t, "3.8.0", true, report)
 	c.CheckOnceForTest()
 	snap := c.Snapshot()
-	if !hasTool(snap.Matched, "run-kit") {
-		t.Errorf("run-kit should still match when shll absent, matched=%v", snap.Matched)
+	var names []string
+	for _, v := range snap.Tools {
+		names = append(names, v.Tool)
 	}
-	if hasTool(snap.Matched, "fab-kit") || hasTool(snap.Matched, "tu") {
-		t.Errorf("siblings must be skipped when shll absent, matched=%v", snap.Matched)
+	want := []string{"fab-kit", "run-kit", "tu"}
+	if len(names) != len(want) {
+		t.Fatalf("verdict names = %v, want %v", names, want)
 	}
-}
-
-// TestMatchOrderAndKey verifies the composite key is sorted-stable across the
-// matched set.
-func TestMatchOrderAndKey(t *testing.T) {
-	c := checkerWith(t, "3.8.0", true, true, map[string]string{"fab-kit": "2.16.0"})
-	c.CheckOnceForTest()
-	snap := c.Snapshot()
+	for i := range want {
+		if names[i] != want[i] {
+			t.Errorf("verdict order[%d] = %q, want %q", i, names[i], want[i])
+		}
+	}
 	if snap.Key != "fab-kit@2.17.0,run-kit@3.9.0" {
 		t.Errorf("Key = %q, want fab-kit@2.17.0,run-kit@3.9.0", snap.Key)
 	}
@@ -268,13 +327,12 @@ func TestMatchOrderAndKey(t *testing.T) {
 // non-empty key, re-fire on a changed key, no re-fire on an unchanged key.
 func TestCheckOnceFiresOnKeyChange(t *testing.T) {
 	c := New("3.8.0", true)
-	c.SetLookShllForTest(false) // run-kit row only — deterministic
 	c.SetSelfBrewForTest(true)
 
 	var latest string
-	c.SetFetchForTest(func() (Manifest, error) {
-		return Manifest{Tools: map[string]ManifestTool{
-			"run-kit": {Latest: latest, Notify: "minor", Formula: "run-kit"},
+	c.SetCheckForTest(func() (CheckReport, error) {
+		return CheckReport{Schema: 1, Tools: []CheckTool{
+			{Name: "run-kit", Latest: latest, Notify: "minor", Formula: "run-kit"},
 		}}, nil
 	})
 
@@ -314,13 +372,12 @@ func TestCheckOnceFiresOnKeyChange(t *testing.T) {
 // re-match. The cleared fire carries an empty key + empty matched set.
 func TestCheckOnceClearThenReMatchRefires(t *testing.T) {
 	c := New("3.8.0", true)
-	c.SetLookShllForTest(false)
 	c.SetSelfBrewForTest(true)
 
 	var latest string
-	c.SetFetchForTest(func() (Manifest, error) {
-		return Manifest{Tools: map[string]ManifestTool{
-			"run-kit": {Latest: latest, Notify: "minor", Formula: "run-kit"},
+	c.SetCheckForTest(func() (CheckReport, error) {
+		return CheckReport{Schema: 1, Tools: []CheckTool{
+			{Name: "run-kit", Latest: latest, Notify: "minor", Formula: "run-kit"},
 		}}, nil
 	})
 	var mu sync.Mutex
@@ -363,11 +420,10 @@ func TestCheckOnceClearThenReMatchRefires(t *testing.T) {
 // CHANGE fires, and empty→empty is not a change.
 func TestCheckOnceEmptyToEmptyNoFire(t *testing.T) {
 	c := New("3.9.0", true) // already at latest — nothing matches
-	c.SetLookShllForTest(false)
 	c.SetSelfBrewForTest(true)
-	c.SetFetchForTest(func() (Manifest, error) {
-		return Manifest{Tools: map[string]ManifestTool{
-			"run-kit": {Latest: "3.9.0", Notify: "minor", Formula: "run-kit"},
+	c.SetCheckForTest(func() (CheckReport, error) {
+		return CheckReport{Schema: 1, Tools: []CheckTool{
+			{Name: "run-kit", Latest: "3.9.0", Notify: "minor", Formula: "run-kit"},
 		}}, nil
 	})
 	fires := 0
@@ -380,6 +436,29 @@ func TestCheckOnceEmptyToEmptyNoFire(t *testing.T) {
 	}
 }
 
+// TestCheckOncePatchOnlyKeyStaysEmpty verifies a sub-threshold-only verdict
+// (update_available, nothing notable) keeps the key empty and never fires —
+// a patch-only finding is toast-only by policy, not a chip/broadcast event.
+func TestCheckOncePatchOnlyKeyStaysEmpty(t *testing.T) {
+	report := CheckReport{Schema: 1, Tools: []CheckTool{
+		{Name: "tu", Installed: "0.9.1", Latest: "0.9.2", UpdateAvailable: true, Notable: false},
+	}}
+	c := checkerWith(t, "3.9.0", true, report)
+	fires := 0
+	c.OnQualify = func(Result) { fires++ }
+	c.CheckOnceForTest()
+	snap := c.Snapshot()
+	if len(snap.Tools) != 1 || snap.Tools[0].Tool != "tu" {
+		t.Fatalf("Tools = %v, want [tu]", snap.Tools)
+	}
+	if snap.Key != "" || len(snap.Matched) != 0 {
+		t.Errorf("patch-only verdict must keep Key/Matched empty, got key=%q matched=%v", snap.Key, snap.Matched)
+	}
+	if fires != 0 {
+		t.Errorf("OnQualify fired %d times on a patch-only verdict, want 0", fires)
+	}
+}
+
 // firedKeys is a debug helper: the Key of each recorded fire.
 func firedKeys(rs []Result) []string {
 	ks := make([]string, len(rs))
@@ -389,10 +468,11 @@ func firedKeys(rs []Result) []string {
 	return ks
 }
 
-// TestCheckOnceFetchErrorRetainsResult verifies stale-while-revalidate: a fetch
-// error leaves the previous verdict intact and does not fire OnQualify.
-func TestCheckOnceFetchErrorRetainsResult(t *testing.T) {
-	c := checkerWith(t, "3.8.0", true, false, nil) // run-kit-only, matches 3.8→3.9
+// TestCheckOnceErrorRetainsResult verifies stale-while-revalidate: a failed
+// check (exec error / unparseable output) leaves the previous verdict intact
+// and does not fire OnQualify.
+func TestCheckOnceErrorRetainsResult(t *testing.T) {
+	c := checkerWith(t, "3.8.0", true, fixtureReport(t))
 	c.CheckOnceForTest()
 	seeded := c.Snapshot()
 	if len(seeded.Matched) == 0 {
@@ -401,42 +481,66 @@ func TestCheckOnceFetchErrorRetainsResult(t *testing.T) {
 
 	fired := false
 	c.OnQualify = func(Result) { fired = true }
-	c.SetFetchForTest(func() (Manifest, error) { return Manifest{}, errors.New("network down") })
+	c.SetCheckForTest(func() (CheckReport, error) { return CheckReport{}, errors.New("shll not found on PATH") })
 	c.CheckOnceForTest()
 
 	got := c.Snapshot()
-	if got.Key != seeded.Key || len(got.Matched) != len(seeded.Matched) {
-		t.Errorf("after fetch error: snapshot = %+v, want retained %+v", got, seeded)
+	if got.Key != seeded.Key || len(got.Matched) != len(seeded.Matched) || len(got.Tools) != len(seeded.Tools) {
+		t.Errorf("after check error: snapshot = %+v, want retained %+v", got, seeded)
 	}
 	if fired {
-		t.Errorf("OnQualify should not fire on a fetch error")
+		t.Errorf("OnQualify should not fire on a check error")
 	}
 }
 
-// TestCheckOnceBrewErrorSkipsSiblings verifies a brew failure leaves siblings
-// unmatched this pass but does not crash or clear the run-kit row.
-func TestCheckOnceBrewErrorSkipsSiblings(t *testing.T) {
-	c := New("3.8.0", true)
-	c.SetFetchForTest(func() (Manifest, error) { return fixtureManifest(), nil })
-	c.SetLookShllForTest(true)
-	c.SetBrewListForTest(func(_ []string) (map[string]string, error) {
-		return nil, errors.New("brew not found")
-	})
-	c.CheckOnceForTest()
-	snap := c.Snapshot()
-	// run-kit still matches (its row does not depend on brew list output).
-	if !hasTool(snap.Matched, "run-kit") {
-		t.Errorf("run-kit should still match on a brew error, matched=%v", snap.Matched)
+// TestCheckNowReturnsFreshVerdict verifies the manual seam: CheckNow runs an
+// inline pass and returns the fresh verdict synchronously.
+func TestCheckNowReturnsFreshVerdict(t *testing.T) {
+	c := checkerWith(t, "3.8.0", true, fixtureReport(t))
+	got, err := c.CheckNow(context.Background())
+	if err != nil {
+		t.Fatalf("CheckNow error: %v", err)
 	}
-	// No sibling matched (brew failed).
-	if hasTool(snap.Matched, "fab-kit") || hasTool(snap.Matched, "tu") {
-		t.Errorf("siblings should be unmatched on a brew error, matched=%v", snap.Matched)
+	if got.Key != "fab-kit@2.17.0,run-kit@3.9.0" {
+		t.Errorf("CheckNow key = %q, want fab-kit@2.17.0,run-kit@3.9.0", got.Key)
+	}
+	if len(got.Tools) != 3 { // run-kit + fab-kit notable, tu sub-threshold
+		t.Errorf("CheckNow tools = %v, want 3 verdicts", got.Tools)
+	}
+	// The cached snapshot converges with the returned verdict (shared state).
+	if snap := c.Snapshot(); snap.Key != got.Key {
+		t.Errorf("snapshot key = %q, want %q (manual + ambient share one cache)", snap.Key, got.Key)
+	}
+}
+
+// TestCheckNowSurfacesFailure verifies the fail-loud manual posture: a failed
+// check returns the error (and retains the previous verdict).
+func TestCheckNowSurfacesFailure(t *testing.T) {
+	c := checkerWith(t, "3.8.0", true, fixtureReport(t))
+	c.CheckOnceForTest()
+	seededKey := c.Snapshot().Key
+
+	c.SetCheckForTest(func() (CheckReport, error) { return CheckReport{}, errors.New("shll not found on PATH") })
+	if _, err := c.CheckNow(context.Background()); err == nil {
+		t.Fatalf("CheckNow must surface the check failure")
+	}
+	if c.Snapshot().Key != seededKey {
+		t.Errorf("failed CheckNow must retain the previous verdict")
+	}
+}
+
+// TestCheckNowSuppressed verifies a suppressed checker refuses a manual check
+// without running the seam.
+func TestCheckNowSuppressed(t *testing.T) {
+	c := New("dev", true)
+	if _, err := c.CheckNow(context.Background()); err == nil {
+		t.Fatalf("CheckNow on a suppressed checker must error")
 	}
 }
 
 // TestRecheckAfterRunsDelayedCheck verifies R17's checker trigger: after Start
 // captures the daemon context, RecheckAfter schedules a single delayed check
-// that re-runs fetch+match and fires OnQualify on the resulting key change.
+// that re-runs the exec and fires OnQualify on the resulting key change.
 func TestRecheckAfterRunsDelayedCheck(t *testing.T) {
 	// Capture the scheduled (delay, fn) instead of waiting a real ~2min.
 	var gotDelay time.Duration
@@ -446,13 +550,12 @@ func TestRecheckAfterRunsDelayedCheck(t *testing.T) {
 	t.Cleanup(func() { afterFuncFn = orig })
 
 	c := New("3.8.0", true)
-	c.SetLookShllForTest(false) // run-kit row only — deterministic
 	c.SetSelfBrewForTest(true)
 
 	var latest string
-	c.SetFetchForTest(func() (Manifest, error) {
-		return Manifest{Tools: map[string]ManifestTool{
-			"run-kit": {Latest: latest, Notify: "minor", Formula: "run-kit"},
+	c.SetCheckForTest(func() (CheckReport, error) {
+		return CheckReport{Schema: 1, Tools: []CheckTool{
+			{Name: "run-kit", Latest: latest, Notify: "minor", Formula: "run-kit"},
 		}}, nil
 	})
 	fires := 0
@@ -510,21 +613,21 @@ func TestRecheckAfterNoopBeforeStartAndSuppressed(t *testing.T) {
 	}
 }
 
-// TestStartSuppressedIsNoop verifies a suppressed checker's Start never calls the
-// fetch seam.
+// TestStartSuppressedIsNoop verifies a suppressed checker's Start never calls
+// the check seam.
 func TestStartSuppressedIsNoop(t *testing.T) {
 	c := New("dev", true)
 	called := false
-	c.fetchFn = func(ctx context.Context) (Manifest, error) {
+	c.checkFn = func(ctx context.Context) (CheckReport, error) {
 		called = true
-		return fixtureManifest(), nil
+		return fixtureReport(t), nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 	c.Start(ctx)
 	<-ctx.Done()
 	if called {
-		t.Errorf("suppressed checker must not fetch")
+		t.Errorf("suppressed checker must not run the check")
 	}
 }
 
@@ -535,4 +638,13 @@ func hasTool(matched []ToolUpdate, tool string) bool {
 		}
 	}
 	return false
+}
+
+func findVerdict(tools []ToolVerdict, tool string) *ToolVerdict {
+	for i := range tools {
+		if tools[i].Tool == tool {
+			return &tools[i]
+		}
+	}
+	return nil
 }

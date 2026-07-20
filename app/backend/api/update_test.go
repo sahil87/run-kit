@@ -14,18 +14,17 @@ import (
 )
 
 // qualifyingChecker returns a checker whose cached snapshot reports a pending
-// qualifying update for run-kit (3.8.0 → 3.9.0) without running any real fetch,
-// brew list, or shll lookup. shll-absent scoping keeps the match set to the
-// run-kit row only (deterministic argv for the shll-present remediation tests).
+// qualifying update for run-kit (3.8.0 → 3.9.0) without a real `shll
+// check-updates` exec: the check seam is stubbed with a run-kit-only report
+// (deterministic argv for the remediation tests).
 func qualifyingChecker(t *testing.T) *updatecheck.Checker {
 	t.Helper()
 	c := updatecheck.New("3.8.0", true)
-	c.SetFetchForTest(func() (updatecheck.Manifest, error) {
-		return updatecheck.Manifest{Tools: map[string]updatecheck.ManifestTool{
-			"run-kit": {Latest: "3.9.0", Notify: "minor", Formula: "run-kit"},
+	c.SetCheckForTest(func() (updatecheck.CheckReport, error) {
+		return updatecheck.CheckReport{Schema: 1, Tools: []updatecheck.CheckTool{
+			{Name: "run-kit", Formula: "run-kit", Latest: "3.9.0", Notify: "minor"},
 		}}, nil
 	})
-	c.SetLookShllForTest(false) // run-kit row only
 	c.CheckOnceForTest()
 	if len(c.Snapshot().Matched) == 0 {
 		t.Fatalf("test setup: checker snapshot should match, got %+v", c.Snapshot())
@@ -38,15 +37,11 @@ func qualifyingChecker(t *testing.T) *updatecheck.Checker {
 func multiToolChecker(t *testing.T) *updatecheck.Checker {
 	t.Helper()
 	c := updatecheck.New("3.8.0", true)
-	c.SetFetchForTest(func() (updatecheck.Manifest, error) {
-		return updatecheck.Manifest{Tools: map[string]updatecheck.ManifestTool{
-			"run-kit": {Latest: "3.9.0", Notify: "minor", Formula: "run-kit"},
-			"fab-kit": {Latest: "2.17.0", Notify: "minor", Formula: "fab-kit"},
+	c.SetCheckForTest(func() (updatecheck.CheckReport, error) {
+		return updatecheck.CheckReport{Schema: 1, Tools: []updatecheck.CheckTool{
+			{Name: "run-kit", Formula: "run-kit", Latest: "3.9.0", Notify: "minor"},
+			{Name: "fab-kit", Formula: "fab-kit", Installed: "2.16.0", Latest: "2.17.0", Notify: "minor", UpdateAvailable: true, Notable: true},
 		}}, nil
-	})
-	c.SetLookShllForTest(true)
-	c.SetBrewListForTest(func(_ []string) (map[string]string, error) {
-		return map[string]string{"fab-kit": "2.16.0"}, nil
 	})
 	c.CheckOnceForTest()
 	if len(c.Snapshot().Matched) != 2 {
@@ -152,19 +147,15 @@ func TestHandleUpdateShllScopedSpawnsMatched(t *testing.T) {
 func TestHandleUpdateShllDropsFlagLikeToolName(t *testing.T) {
 	var rec spawnRecord
 	withSeams(t, "/opt/homebrew/Cellar/run-kit/3.9.0/bin/run-kit", nil, "/opt/homebrew/bin/shll", nil, recordingSpawn(&rec))
-	// A checker whose match set contains a hostile manifest key ("--force") next
-	// to a legitimate sibling. run-kit itself is at latest so its row won't match,
-	// keeping the assertion focused on the sibling join.
+	// A checker whose match set contains a hostile report tool name ("--force")
+	// next to a legitimate sibling. run-kit itself is at latest so its row won't
+	// match, keeping the assertion focused on the sibling verdicts.
 	c := updatecheck.New("3.9.0", true)
-	c.SetFetchForTest(func() (updatecheck.Manifest, error) {
-		return updatecheck.Manifest{Tools: map[string]updatecheck.ManifestTool{
-			"fab-kit": {Latest: "2.17.0", Notify: "minor", Formula: "fab-kit"},
-			"--force": {Latest: "9.9.9", Notify: "minor", Formula: "evil"},
+	c.SetCheckForTest(func() (updatecheck.CheckReport, error) {
+		return updatecheck.CheckReport{Schema: 1, Tools: []updatecheck.CheckTool{
+			{Name: "fab-kit", Formula: "fab-kit", Installed: "2.16.0", Latest: "2.17.0", Notify: "minor", UpdateAvailable: true, Notable: true},
+			{Name: "--force", Formula: "evil", Installed: "1.0.0", Latest: "9.9.9", Notify: "minor", UpdateAvailable: true, Notable: true},
 		}}, nil
-	})
-	c.SetLookShllForTest(true)
-	c.SetBrewListForTest(func(_ []string) (map[string]string, error) {
-		return map[string]string{"fab-kit": "2.16.0", "evil": "1.0.0"}, nil
 	})
 	c.CheckOnceForTest()
 	if len(c.Snapshot().Matched) != 2 {
@@ -242,14 +233,10 @@ func TestHandleUpdateShllPresentIgnoresBrew409(t *testing.T) {
 	withSeams(t, "/usr/local/bin/run-kit", nil, "/opt/homebrew/bin/shll", nil, recordingSpawn(&rec))
 	// A checker matching fab-kit only (run-kit not brew, so its row is gated off).
 	c := updatecheck.New("3.9.0", false)
-	c.SetFetchForTest(func() (updatecheck.Manifest, error) {
-		return updatecheck.Manifest{Tools: map[string]updatecheck.ManifestTool{
-			"fab-kit": {Latest: "2.17.0", Notify: "minor", Formula: "fab-kit"},
+	c.SetCheckForTest(func() (updatecheck.CheckReport, error) {
+		return updatecheck.CheckReport{Schema: 1, Tools: []updatecheck.CheckTool{
+			{Name: "fab-kit", Formula: "fab-kit", Installed: "2.16.0", Latest: "2.17.0", Notify: "minor", UpdateAvailable: true, Notable: true},
 		}}, nil
-	})
-	c.SetLookShllForTest(true)
-	c.SetBrewListForTest(func(_ []string) (map[string]string, error) {
-		return map[string]string{"fab-kit": "2.16.0"}, nil
 	})
 	c.CheckOnceForTest()
 	s := newUpdateServer(c)
@@ -471,6 +458,103 @@ func TestHandleUpdateForceKeepsBrew409(t *testing.T) {
 	}
 	if rec.called {
 		t.Errorf("must not spawn on a non-brew install even with force=true")
+	}
+}
+
+// ----- POST /api/updates/check (on-demand check) -----
+
+// postUpdatesCheck issues a POST /api/updates/check.
+func postUpdatesCheck(t *testing.T, s *Server) *httptest.ResponseRecorder {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/updates/check", nil)
+	s.handleUpdatesCheck(rec, req)
+	return rec
+}
+
+// TestHandleUpdatesCheckReturnsFreshVerdict verifies the endpoint runs one
+// inline pass and returns the fresh verdict synchronously in the shared
+// SSE-payload shape (full per-tool verdict list + notable-derived key).
+func TestHandleUpdatesCheckReturnsFreshVerdict(t *testing.T) {
+	c := updatecheck.New("3.8.0", true)
+	c.SetCheckForTest(func() (updatecheck.CheckReport, error) {
+		return updatecheck.CheckReport{Schema: 1, Tools: []updatecheck.CheckTool{
+			{Name: "run-kit", Formula: "run-kit", Latest: "3.9.0", Notify: "minor"},
+			{Name: "tu", Formula: "tu", Installed: "0.9.1", Latest: "0.9.2", Notify: "minor", UpdateAvailable: true, Notable: false},
+		}}, nil
+	})
+	s := newUpdateServer(c)
+
+	res := postUpdatesCheck(t, s)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body=%s)", res.Code, res.Body.String())
+	}
+	var body struct {
+		Tools []struct {
+			Tool            string `json:"tool"`
+			Current         string `json:"current"`
+			Latest          string `json:"latest"`
+			UpdateAvailable bool   `json:"updateAvailable"`
+			Notable         bool   `json:"notable"`
+		} `json:"tools"`
+		Key string `json:"key"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if len(body.Tools) != 2 {
+		t.Fatalf("tools = %+v, want 2 verdicts (notable run-kit + sub-threshold tu)", body.Tools)
+	}
+	if body.Tools[0].Tool != "run-kit" || !body.Tools[0].Notable || !body.Tools[0].UpdateAvailable {
+		t.Errorf("run-kit verdict = %+v, want notable+updateAvailable", body.Tools[0])
+	}
+	if body.Tools[1].Tool != "tu" || body.Tools[1].Notable || !body.Tools[1].UpdateAvailable {
+		t.Errorf("tu verdict = %+v, want sub-threshold updateAvailable", body.Tools[1])
+	}
+	if body.Key != "run-kit@3.9.0" {
+		t.Errorf("key = %q, want run-kit@3.9.0 (notable set only)", body.Key)
+	}
+	// The pass converged the shared cached verdict (chip source).
+	if snap := c.Snapshot(); snap.Key != "run-kit@3.9.0" {
+		t.Errorf("cached snapshot key = %q, want run-kit@3.9.0", snap.Key)
+	}
+}
+
+// TestHandleUpdatesCheckFailure502 verifies the fail-loud manual posture: a
+// failed check (shll missing / non-zero / unparseable) maps to 502 with the
+// reason in the error body.
+func TestHandleUpdatesCheckFailure502(t *testing.T) {
+	c := updatecheck.New("3.8.0", true)
+	c.SetCheckForTest(func() (updatecheck.CheckReport, error) {
+		return updatecheck.CheckReport{}, errors.New("shll not found on PATH")
+	})
+	s := newUpdateServer(c)
+
+	res := postUpdatesCheck(t, s)
+
+	if res.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want 502 (body=%s)", res.Code, res.Body.String())
+	}
+	if !strings.Contains(res.Body.String(), "shll not found on PATH") {
+		t.Errorf("error body = %q, want the check-failure reason", res.Body.String())
+	}
+}
+
+// TestHandleUpdatesCheckSuppressedAndNil409 verifies the defensive contract: a
+// suppressed (dev) or nil checker responds 409 without running any check.
+func TestHandleUpdatesCheckSuppressedAndNil409(t *testing.T) {
+	dev := updatecheck.New("dev", true)
+	for name, s := range map[string]*Server{
+		"suppressed": newUpdateServer(dev),
+		"nil":        newUpdateServer(nil),
+	} {
+		t.Run(name, func(t *testing.T) {
+			res := postUpdatesCheck(t, s)
+			if res.Code != http.StatusConflict {
+				t.Fatalf("status = %d, want 409 (body=%s)", res.Code, res.Body.String())
+			}
+		})
 	}
 }
 

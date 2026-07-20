@@ -826,11 +826,48 @@ func (h *sseHub) setVersion(version, boot string, brew bool) {
 	h.cachedVersionJSON = string(jsonBytes)
 }
 
-// updateAvailableTool is one matched tool in the `update-available` payload.
+// updateAvailableTool is one tool in the `update-available` payload — the FULL
+// per-tool verdict (every tool with a pending update, including sub-threshold
+// rows), not just the notable/matched set, so the client can filter either
+// check view (default = notable only; incl.-patches = all updateAvailable).
 type updateAvailableTool struct {
 	Tool    string `json:"tool"`
 	Current string `json:"current"`
 	Latest  string `json:"latest"`
+	// UpdateAvailable reports installed < latest.
+	UpdateAvailable bool `json:"updateAvailable"`
+	// Notable reports the bump crosses the tool's notify threshold — the set
+	// that lights the chip and composes the dismissal key.
+	Notable bool `json:"notable"`
+}
+
+// updateAvailablePayload is the JSON body shared by the SSE `update-available`
+// slot and the POST /api/updates/check response. ONE builder
+// (buildUpdateAvailablePayload) serves both surfaces so their shapes can never
+// drift.
+type updateAvailablePayload struct {
+	Tools []updateAvailableTool `json:"tools"`
+	// Key is the composite dismissal key derived from the NOTABLE set only.
+	Key string `json:"key"`
+	// Current/Latest are the legacy run-kit-row fields, retained for
+	// transitional compat (populated only when run-kit is in the notable set).
+	Current string `json:"current"`
+	Latest  string `json:"latest"`
+}
+
+// buildUpdateAvailablePayload maps a checker verdict onto the wire payload.
+func buildUpdateAvailablePayload(verdict updatecheck.Result) updateAvailablePayload {
+	tools := make([]updateAvailableTool, 0, len(verdict.Tools))
+	for _, v := range verdict.Tools {
+		tools = append(tools, updateAvailableTool{
+			Tool:            v.Tool,
+			Current:         v.Installed,
+			Latest:          v.Latest,
+			UpdateAvailable: v.UpdateAvailable,
+			Notable:         v.Notable,
+		})
+	}
+	return updateAvailablePayload{Tools: tools, Key: verdict.Key, Current: verdict.Current, Latest: verdict.Latest}
 }
 
 // broadcastUpdateAvailable pushes a server-global `event: update-available` to
@@ -841,10 +878,12 @@ type updateAvailableTool struct {
 // clients like broadcastServerOrder/broadcastBoardOrder, NOT to one server's
 // clients. Invoked from the updatecheck OnQualify callback wired in serve.go.
 //
-// The payload carries the full matched-tool set plus the composite dismissal
-// key. The legacy top-level `current`/`latest` are populated from the run-kit
-// row when run-kit is in the match set (else empty) so a not-yet-reloaded
-// frontend keying off a non-empty `latest` degrades to run-kit-only display.
+// The payload carries the FULL per-tool verdict list (updateAvailable +
+// notable per tool — see buildUpdateAvailablePayload) plus the composite
+// dismissal key derived from the notable set. The legacy top-level
+// `current`/`latest` are populated from the run-kit row when run-kit is in the
+// notable set (else empty) so a not-yet-reloaded frontend keying off a
+// non-empty `latest` degrades to run-kit-only display.
 //
 // A CLEARED verdict (empty Matched, empty Key — fired by the checker per R7 when
 // a match is consumed) is NOT skipped: it is marshalled, broadcast, and REPLACES
@@ -853,17 +892,7 @@ type updateAvailableTool struct {
 // stale match (R8). replayGlobalSlots still replays the slot on connect —
 // nothing special-cases the empty payload there either.
 func (h *sseHub) broadcastUpdateAvailable(verdict updatecheck.Result) {
-	tools := make([]updateAvailableTool, 0, len(verdict.Matched))
-	for _, m := range verdict.Matched {
-		tools = append(tools, updateAvailableTool{Tool: m.Tool, Current: m.Installed, Latest: m.Latest})
-	}
-	payload := struct {
-		Tools   []updateAvailableTool `json:"tools"`
-		Key     string                `json:"key"`
-		Current string                `json:"current"`
-		Latest  string                `json:"latest"`
-	}{Tools: tools, Key: verdict.Key, Current: verdict.Current, Latest: verdict.Latest}
-	jsonBytes, err := json.Marshal(payload)
+	jsonBytes, err := json.Marshal(buildUpdateAvailablePayload(verdict))
 	if err != nil {
 		slog.Warn("update-available broadcast marshal failed", "err", err)
 		return

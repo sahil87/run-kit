@@ -677,15 +677,17 @@ func TestBroadcastUpdateAvailableFansOutAndReplays(t *testing.T) {
 	defer hub.removeClient(moClient)
 
 	hub.broadcastUpdateAvailable(updatecheck.Result{
+		Tools:   []updatecheck.ToolVerdict{{Tool: "run-kit", Installed: "0.5.3", Latest: "0.6.0", UpdateAvailable: true, Notable: true}},
 		Matched: []updatecheck.ToolUpdate{{Tool: "run-kit", Installed: "0.5.3", Latest: "0.6.0"}},
 		Key:     "run-kit@0.6.0",
 		Current: "0.5.3",
 		Latest:  "0.6.0",
 	})
 
-	// The payload carries the matched-tool list, the composite key, and the
-	// legacy top-level current/latest (from the run-kit row).
-	wantPayload := `"tools":[{"tool":"run-kit","current":"0.5.3","latest":"0.6.0"}]`
+	// The payload carries the full per-tool verdict list (updateAvailable +
+	// notable), the composite key, and the legacy top-level current/latest
+	// (from the run-kit row).
+	wantPayload := `"tools":[{"tool":"run-kit","current":"0.5.3","latest":"0.6.0","updateAvailable":true,"notable":true}]`
 	wantKey := `"key":"run-kit@0.6.0"`
 	wantLegacy := `"current":"0.5.3","latest":"0.6.0"`
 

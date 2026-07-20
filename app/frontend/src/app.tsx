@@ -14,7 +14,7 @@ import { FocusedTerminalProvider } from "@/contexts/focused-terminal-context";
 import { TopBarSlotProvider, useTopBarSlot, useTopBarNotFound, useRegisterTopBarSlot } from "@/contexts/top-bar-slot-context";
 import { computeKillRedirect } from "@/lib/navigation";
 import { deriveEffectiveSessionOrder, computeMoveOrder, computeWindowMoveTarget } from "@/lib/palette-move";
-import { buildUpdateActions, buildMaintenanceActions } from "@/lib/palette-update";
+import { buildUpdateActions, buildMaintenanceActions, buildCheckActions } from "@/lib/palette-update";
 import { buildVersionAction, displayVersion } from "@/lib/palette-version";
 import { copyToClipboard } from "@/lib/clipboard";
 import { buildViewActions } from "@/lib/palette-view";
@@ -75,6 +75,7 @@ import { deriveNameFromPath } from "@/components/create-session-dialog";
 import { useSessionContext, useUpdateNotification } from "@/contexts/session-context";
 import { useOptimisticContext, useMergedSessions } from "@/contexts/optimistic-context";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
+import { useUpdateCheck } from "@/hooks/use-update-check";
 import { useToast } from "@/components/toast";
 import { useBrowserTitle } from "@/hooks/use-browser-title";
 import { usePushSubscription } from "@/hooks/use-push-subscription";
@@ -2025,13 +2026,15 @@ function AppShell() {
 
   // Update actions — keyboard-first parity (Constitution V) for the top-bar
   // update chip. Gated on a qualifying pending update (dev version suppressed).
-  // The Update action deliberately IGNORES chip dismissal — dismissal silences
-  // the ambient chip, but the palette is deliberate discovery — while a
-  // companion Dismiss action mirrors the chip's `✕` for keyboard users.
+  // Only the Dismiss action remains here (mirroring the chip's `✕` for
+  // keyboard users; it deliberately IGNORES chip dismissal — the palette is
+  // deliberate discovery). The dynamic `run-kit: Update to v{X}` entry was
+  // deleted (multi-tool ambiguous + stale between checks): `run-kit: Update
+  // Now` (maintenanceActions) is THE single update action, and version detail
+  // lives in the check-result toasts + chip summary.
   const {
     qualifies: updateQualifies,
     tools: updateTools,
-    updateNow,
     dismissUpdate,
     daemonVersion,
     brew,
@@ -2039,18 +2042,23 @@ function AppShell() {
     restartNow,
   } = useUpdateNotification();
   const updateActions: PaletteAction[] = useMemo(
+    () => buildUpdateActions(updateQualifies, updateTools, dismissUpdate),
+    [updateQualifies, updateTools, dismissUpdate],
+  );
+
+  // Check actions — the two on-demand check commands (`run-kit: Check for
+  // Updates` / `… (incl. patches)`). One POST /api/updates/check, client-side
+  // filtering, single result toast (shared flow: useUpdateCheck). Dev-gated
+  // inside buildCheckActions, same pattern as the maintenance entries.
+  const { runUpdateCheck } = useUpdateCheck();
+  const checkActions: PaletteAction[] = useMemo(
     () =>
-      buildUpdateActions(
-        updateQualifies,
-        updateTools,
-        () => {
-          void updateNow().catch((err: unknown) =>
-            addToast(err instanceof Error ? err.message : "Update failed", "error"),
-          );
-        },
-        dismissUpdate,
+      buildCheckActions(
+        daemonVersion,
+        () => runUpdateCheck(false),
+        () => runUpdateCheck(true),
       ),
-    [updateQualifies, updateTools, updateNow, dismissUpdate, addToast],
+    [daemonVersion, runUpdateCheck],
   );
 
   // Maintenance actions — palette-only force-update / restart (Constitution V).
@@ -2277,8 +2285,8 @@ function AppShell() {
   const { actions: pushActions } = usePushSubscription();
 
   const paletteActions: PaletteAction[] = useMemo(
-    () => [...sessionActions, ...windowActions, ...boardActions, ...viewActions, ...navActions, ...terminalFontActions, ...themeActions, ...configActions, ...statusRefreshActions, ...updateActions, ...maintenanceActions, ...versionActions, ...serverActions, ...pushActions, ...windowSwitchActions, ...agentActions, ...agentSpawnActions],
-    [sessionActions, windowActions, boardActions, viewActions, navActions, terminalFontActions, themeActions, configActions, statusRefreshActions, updateActions, maintenanceActions, versionActions, serverActions, pushActions, windowSwitchActions, agentActions, agentSpawnActions],
+    () => [...sessionActions, ...windowActions, ...boardActions, ...viewActions, ...navActions, ...terminalFontActions, ...themeActions, ...configActions, ...statusRefreshActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions, ...serverActions, ...pushActions, ...windowSwitchActions, ...agentActions, ...agentSpawnActions],
+    [sessionActions, windowActions, boardActions, viewActions, navActions, terminalFontActions, themeActions, configActions, statusRefreshActions, updateActions, checkActions, maintenanceActions, versionActions, serverActions, pushActions, windowSwitchActions, agentActions, agentSpawnActions],
   );
 
   const displayName = currentWindow?.name ?? windowParam ?? "";

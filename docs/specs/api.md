@@ -377,6 +377,61 @@ failures):
 
 ---
 
+### Updates
+
+Toolkit update surface. The daemon's periodic checker delegates the check to
+one exec of `shll check-updates --json` (per-tool verdicts consumed
+from its JSON; run-kit's own row re-compared locally against the running
+ldflags version).
+
+#### `POST /api/updates/check`
+
+On-demand update check: runs one immediate checker pass inline (the same code
+path as the 6h ambient loop), updates the cached verdict, broadcasts the
+`update-available` event, and returns the fresh verdict synchronously (~1-2s,
+bounded by the checker's 30s exec timeout).
+
+**Response (200):** the same shape as the `update-available` event payload:
+```json
+{
+  "tools": [
+    { "tool": "run-kit", "current": "3.8.1", "latest": "3.9.0",
+      "updateAvailable": true, "notable": true },
+    { "tool": "tu", "current": "0.9.1", "latest": "0.9.2",
+      "updateAvailable": true, "notable": false }
+  ],
+  "key": "run-kit@3.9.0",
+  "current": "3.8.1",
+  "latest": "3.9.0"
+}
+```
+
+- `tools` — the full per-tool verdict list: every tool with a pending update,
+  including sub-threshold rows (`updateAvailable` = installed < latest;
+  `notable` = the bump crosses the tool's notify threshold). Up-to-date tools
+  are omitted — an empty list means everything is current.
+- `key` — composite dismissal key over the NOTABLE set (sorted `tool@latest`,
+  comma-joined; empty when nothing notable).
+- `current`/`latest` — legacy run-kit-row compat fields (populated only when
+  run-kit is in the notable set).
+
+**Errors:**
+- `409 {"error": ...}` — checker suppressed (dev build) or not wired
+- `502 {"error": "update check unavailable — ..."}` — the check itself failed
+  (shll not on PATH, non-zero exit, unparseable JSON)
+
+The ambient 6h loop is fail-silent (a failed pass retains the previous
+verdict); only this manual endpoint surfaces check failures.
+
+#### `event: update-available` (state socket / SSE global slot)
+
+Broadcast whenever the checker's composite notable key changes (including to
+empty when a match is consumed), and replayed to late-connecting clients from a
+cached slot. The payload is byte-identical in shape to the
+`POST /api/updates/check` response above (one shared builder serves both).
+
+---
+
 ### SPA Fallback
 
 #### `GET /*` (catch-all, lowest priority)
@@ -453,5 +508,7 @@ failures):
 | `POST` | `/api/sessions/:session/windows/:index/keys` | `windows.go` | Send keystrokes |
 | `POST` | `/api/sessions/:session/upload` | `upload.go` | File upload |
 | `GET` | `/api/directories` | `directories.go` | Directory autocomplete |
+| `POST` | `/api/update` | `update.go` | One-click toolkit upgrade (scoped/force) |
+| `POST` | `/api/updates/check` | `update.go` | On-demand update check (inline checker pass, synchronous verdict) |
 | `WS` | `/ws/terminals` | `terminals_ws.go` | Terminals mux (all pane relays, one socket/tab) |
 | `GET` | `/*` | `spa.go` | SPA static + fallback |

@@ -89,16 +89,29 @@ export function shouldReloadOnVersion(
  *  their own streams. `currentServer` is dispatched by the matched route —
  *  `params.server` for `/$server/...`, `null` for `/board/$name` and `/`. */
 
-/** One matched toolkit tool in the update-available payload: `tool` is the
- *  manifest/roster name (e.g. "run-kit", "fab-kit"), `current` its installed
- *  version, `latest` the manifest's latest. */
-export type UpdateTool = { tool: string; current: string; latest: string };
+/** One toolkit tool in the update-available payload: `tool` is the roster name
+ *  (e.g. "run-kit", "fab-kit"), `current` its installed version, `latest` the
+ *  newest release. The payload carries the FULL per-tool verdict list — every
+ *  tool with a pending update, including sub-threshold rows — so each entry
+ *  also carries the two verdict flags. A missing flag (an old daemon's payload,
+ *  which listed only matched tools) is treated as `true`. */
+export type UpdateTool = {
+  tool: string;
+  current: string;
+  latest: string;
+  /** installed < latest. Missing (old-daemon payload) ⇒ treated as true. */
+  updateAvailable?: boolean;
+  /** The bump crosses the tool's notify threshold — the set that lights the
+   *  chip. Missing (old-daemon payload) ⇒ treated as true. */
+  notable?: boolean;
+};
 
 /** A pending toolkit update, from the server-global `event: update-available`.
- *  `tools` lists every matched tool (a scoped `shll update` will update exactly
- *  these); `key` is the composite dismissal key (sorted `tool@latest`,
- *  comma-joined). `current`/`latest` are the legacy run-kit-row fields, retained
- *  for transitional compat (populated only when run-kit is in the match set). */
+ *  `tools` is the full per-tool verdict list (chip/palette consumers filter the
+ *  notable subset via `useUpdateNotification`); `key` is the composite
+ *  dismissal key over the NOTABLE set (sorted `tool@latest`, comma-joined).
+ *  `current`/`latest` are the legacy run-kit-row fields, retained for
+ *  transitional compat (populated only when run-kit is in the notable set). */
 export type UpdateAvailable = {
   tools: UpdateTool[];
   key: string;
@@ -756,7 +769,13 @@ export function SessionProvider({ children }: SessionProviderProps) {
         }
         case "update-available": {
           const d = data as {
-            tools?: { tool?: string; current?: string; latest?: string }[];
+            tools?: {
+              tool?: string;
+              current?: string;
+              latest?: string;
+              updateAvailable?: boolean;
+              notable?: boolean;
+            }[];
             key?: string;
             current?: string;
             latest?: string;
@@ -764,12 +783,23 @@ export function SessionProvider({ children }: SessionProviderProps) {
           if (typeof d.key === "string" && Array.isArray(d.tools)) {
             const tools: UpdateTool[] = d.tools
               .filter(
-                (t): t is { tool: string; current: string; latest: string } =>
+                (t): t is { tool: string; current: string; latest: string } & typeof t =>
                   typeof t.tool === "string" &&
                   typeof t.current === "string" &&
                   typeof t.latest === "string",
               )
-              .map((t) => ({ tool: t.tool, current: t.current, latest: t.latest }));
+              .map((t) => ({
+                tool: t.tool,
+                current: t.current,
+                latest: t.latest,
+                // The verdict flags ride only when the daemon sends booleans —
+                // an old daemon's flag-less payload leaves them undefined, which
+                // consumers treat as true (every listed tool was matched).
+                ...(typeof t.updateAvailable === "boolean"
+                  ? { updateAvailable: t.updateAvailable }
+                  : {}),
+                ...(typeof t.notable === "boolean" ? { notable: t.notable } : {}),
+              }));
             applyUpdateAvailable({
               tools,
               key: d.key,
@@ -1130,13 +1160,16 @@ const EMPTY_TOOLS: UpdateTool[] = Object.freeze([]) as unknown as UpdateTool[];
 
 /** Derived view of the update-notification state, shared by the top-bar chip and
  *  the command-palette actions so their gating can never drift.
- *   - `qualifies` — a pending update exists (non-empty `tools`) AND the daemon is
- *     not the `dev` sentinel. (This is the palette's gate; the palette IGNORES
+ *   - `qualifies` — a NOTABLE pending update exists AND the daemon is not the
+ *     `dev` sentinel. (This is the palette's gate; the palette IGNORES
  *     dismissal — dismissal silences only the ambient chip.)
  *   - `showChip` — `qualifies` AND the composite `key` is not dismissed. This is
- *     the chip's visibility gate.
- *   - `tools` — the matched tools (each `{tool, current, latest}`); a scoped
- *     `shll update` will update exactly these. Empty when nothing is pending.
+ *     the chip's visibility gate. Sub-threshold (`notable: false`) verdicts in
+ *     the payload never light the chip — a patch-only finding is toast-only
+ *     (surfaced by the palette check commands), by policy.
+ *   - `tools` — the NOTABLE tools (each `{tool, current, latest}`), filtered
+ *     from the payload's full verdict list (a missing flag — old-daemon payload
+ *     — counts as notable). Empty when nothing notable is pending.
  *   - `key` — the composite dismissal key (or `null`).
  *   - `singleRunKit` — true when exactly one tool matched and it is run-kit, so
  *     the chip keeps today's `⬆ v{latest}` form; otherwise a count form.
@@ -1176,7 +1209,17 @@ export function useUpdateNotification(): {
   const forceUpdateNow = ctx?.forceUpdateNow ?? (() => Promise.resolve());
   const restartNow = ctx?.restartNow ?? (() => Promise.resolve());
   const isDev = daemonVersion === DEV_VERSION;
-  const tools = updateAvailable?.tools ?? EMPTY_TOOLS;
+  // The payload's tools list is the FULL verdict list (incl. sub-threshold
+  // rows); chip/palette consumers care about the NOTABLE subset only. A missing
+  // flag (old-daemon payload — it listed only matched tools) counts as notable.
+  // Memoized with identity preserved when nothing filters out, so a no-op
+  // filter never mints a fresh array (same referential-equality concern as
+  // EMPTY_TOOLS — see its comment).
+  const tools = useMemo(() => {
+    const all = updateAvailable?.tools ?? EMPTY_TOOLS;
+    const notable = all.filter((t) => t.notable !== false);
+    return notable.length === all.length ? all : notable;
+  }, [updateAvailable]);
   const key = updateAvailable?.key ?? null;
   const singleRunKit = tools.length === 1 && tools[0].tool === RUN_KIT_TOOL;
   // The run-kit row versions, surfaced only for the single-run-kit chip/palette

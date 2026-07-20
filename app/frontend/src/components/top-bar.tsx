@@ -141,8 +141,8 @@ function HamburgerIcon({ isOpen }: { isOpen: boolean }) {
   // flips, so the icon's identity ("this is a sidebar toggle") never changes.
   return (
     <svg
-      width="18"
-      height="18"
+      width="20"
+      height="20"
       viewBox="0 0 18 18"
       fill="none"
       stroke="currentColor"

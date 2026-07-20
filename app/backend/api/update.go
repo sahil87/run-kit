@@ -31,6 +31,12 @@ const postRemediationRecheckDelay = 2 * time.Minute
 // update and restart spawn logs stay independent.
 const restartLogRelPath = "restart.log"
 
+// maxUpdatesCheckBodyBytes bounds the POST /api/updates/check request body
+// (mirroring push.go's MaxBytesReader cap). The body is a tiny source selector,
+// so 4KB is generous; an oversized body fails the tolerant decode and falls
+// back to the released default — no new error path.
+const maxUpdatesCheckBodyBytes = 4 * 1024
+
 // resolveSelfPathFn resolves this daemon's own on-disk executable path. Package
 // var seam (mirrors cmd/rk/upgrade.go's resolveExeFn) so tests can return a
 // synthetic Cellar (or non-Cellar) path without depending on the test binary's
@@ -243,6 +249,7 @@ func (s *Server) handleUpdatesCheck(w http.ResponseWriter, r *http.Request) {
 	// bug and 400s; only the validated enum value selects the github backend.
 	source := updatecheck.SourceReleased
 	if r.Body != nil {
+		r.Body = http.MaxBytesReader(w, r.Body, maxUpdatesCheckBodyBytes)
 		var req updatesCheckRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err == nil {
 			switch req.Source {

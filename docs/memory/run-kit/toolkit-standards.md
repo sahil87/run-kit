@@ -399,11 +399,11 @@ edits, matching the wording already shipped in the conformant sibling READMEs
 
 **Explicitly out of scope (KEPT).** The curl bootstrap blocks are the
 centralized pointer, not per-formula instructions — kept inline. Upgrade/update
-prose (`run-kit update` Homebrew behavior), the README toolkit banner + command
--reference links, `docs/site/skill.md`'s gating instruction, and historical
-references in `fab/changes/` / `docs/memory/` / changelogs are behavior/pointer
-/history, not install instructions — untouched. Docs-only change: no source,
-tests, or API surface touched.
+prose (`run-kit update` Homebrew behavior), the README toolkit banner +
+command-reference links, `docs/site/skill.md`'s gating instruction, and
+historical references in `fab/changes/` / `docs/memory/` / changelogs are
+behavior/pointer/history, not install instructions — untouched. Docs-only
+change: no source, tests, or API surface touched.
 
 ### Requirement: Policy A's binary half was NOT audited in this docs-only change
 Policy A (probe siblings at runtime + emit an actionable per-formula install

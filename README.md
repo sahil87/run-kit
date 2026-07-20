@@ -11,14 +11,10 @@ What makes it sing in 2026 is what you tend to run in those panes: **AI coding a
 ## Install
 
 ```sh
-curl -fsSL https://shll.ai/install | sh -s -- run-kit
-```
-
-Installs run-kit (plus the shll meta-CLI) via Homebrew, handling tap trust automatically. To install the entire shll toolkit instead:
-
-```sh
 curl -fsSL https://shll.ai/install | sh
 ```
+
+Installs the entire shll toolkit via Homebrew, handling tap trust automatically. run-kit relies on its sibling tools (`wt` for the riff worktree flow), so the full-toolkit install is the supported path.
 
 ## Quick start
 

@@ -43,9 +43,10 @@ test.describe("Server Panel Tile Grid", () => {
       page.locator("[aria-label='Connected']"),
     ).toBeVisible({ timeout: 10_000 });
 
+    // The panel defaults open — no expand click needed.
     const serverButton = page.getByRole("button", { name: /^Server/ });
     await expect(serverButton).toBeVisible();
-    await serverButton.click(); // expand
+    await expect(serverButton).toHaveAttribute("aria-expanded", "true");
 
     const grid = page.getByRole("listbox", { name: /Tmux servers/ });
     await expect(grid).toBeVisible({ timeout: 5_000 });
@@ -66,8 +67,7 @@ test.describe("Server Panel Tile Grid", () => {
       page.locator("[aria-label='Connected']"),
     ).toBeVisible({ timeout: 10_000 });
 
-    await page.getByRole("button", { name: /^Server/ }).click();
-
+    // Panel defaults open — the grid is available without a click.
     const grid = page.getByRole("listbox", { name: /Tmux servers/ });
     const activeOption = grid.getByRole("option", { name: new RegExp(TMUX_SERVER) });
     await expect(activeOption).toHaveAttribute("aria-current", "true");
@@ -82,8 +82,7 @@ test.describe("Server Panel Tile Grid", () => {
     const sidebar = page.getByRole("navigation", { name: "Sessions" });
     await expect(sidebar).toBeVisible();
 
-    await sidebar.getByRole("button", { name: /^Server/ }).click();
-
+    // Panel defaults open — the grid is available without a click.
     const grid = sidebar.getByRole("listbox", { name: /Tmux servers/ });
     await expect(grid).toBeVisible();
 
@@ -102,8 +101,10 @@ test.describe("Server Panel Tile Grid", () => {
     const sidebar = page.getByRole("navigation", { name: "Sessions" });
     await expect(sidebar).toBeVisible();
 
-    await sidebar.getByRole("button", { name: /^Server/ }).click();
-
+    // Panel defaults open — no expand click; the handle must still be absent.
+    await expect(
+      sidebar.getByRole("listbox", { name: /Tmux servers/ }),
+    ).toBeVisible();
     await expect(
       sidebar.getByRole("separator", { name: /Resize.*Server/ }),
     ).not.toBeVisible();
@@ -117,8 +118,7 @@ test.describe("Server Panel Tile Grid", () => {
       page.locator("[aria-label='Connected']"),
     ).toBeVisible({ timeout: 10_000 });
 
-    await page.getByRole("button", { name: /^Server/ }).click();
-
+    // Panel defaults open — the resizable panel's handle renders without a click.
     await expect(
       page.getByRole("separator", { name: /Resize.*Server/ }),
     ).toBeVisible();

@@ -53,10 +53,10 @@ function renderPanel(overrides: {
   );
 }
 
-function openPanel() {
-  // Header button whose accessible name includes "Server". Opening triggers a refresh.
-  const toggle = screen.getByRole("button", { name: /Server/ });
-  fireEvent.click(toggle);
+// The panel defaults open (defaultOpen=true) — tests that need a collapsed
+// start seed the persisted key before rendering.
+function seedCollapsed() {
+  localStorage.setItem("runkit-panel-server", "false");
 }
 
 beforeEach(() => {
@@ -71,7 +71,6 @@ afterEach(() => {
 describe("ServerPanel", () => {
   it("renders a tile per server with name and session count", () => {
     renderPanel();
-    openPanel();
 
     expect(screen.getByRole("option", { name: /default/ })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /work/ })).toBeInTheDocument();
@@ -85,7 +84,6 @@ describe("ServerPanel", () => {
 
   it("marks the active server tile with aria-current", () => {
     renderPanel({ server: "work" });
-    openPanel();
 
     const activeTile = screen.getByRole("option", { name: /work/ });
     expect(activeTile.getAttribute("aria-current")).toBe("true");
@@ -99,7 +97,6 @@ describe("ServerPanel", () => {
   it("clicking a non-active tile calls onSwitchServer with that name", () => {
     const onSwitchServer = vi.fn();
     renderPanel({ server: "default", onSwitchServer });
-    openPanel();
 
     fireEvent.click(screen.getByRole("option", { name: /work/ }));
     expect(onSwitchServer).toHaveBeenCalledWith("work");
@@ -107,7 +104,6 @@ describe("ServerPanel", () => {
 
   it("shows 'No servers' when server list is empty", () => {
     renderPanel({ servers: [] });
-    openPanel();
     expect(screen.getByText("No servers")).toBeInTheDocument();
   });
 
@@ -124,7 +120,6 @@ describe("ServerPanel", () => {
     const onSwitchServer = vi.fn();
     const onServerColorChange = vi.fn();
     renderPanel({ server: "default", onSwitchServer, onServerColorChange });
-    openPanel();
 
     // Action buttons are siblings of the option (sibling-of-button, not child),
     // so look them up globally by accessible name.
@@ -139,7 +134,6 @@ describe("ServerPanel", () => {
     const onKillServer = vi.fn();
     const onServerColorChange = vi.fn();
     renderPanel({ server: "default", onKillServer, onServerColorChange });
-    openPanel();
 
     expect(screen.getByRole("button", { name: /Kill server default/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Kill server work/ })).toBeInTheDocument();
@@ -150,7 +144,6 @@ describe("ServerPanel", () => {
     const onSwitchServer = vi.fn();
     const onKillServer = vi.fn();
     renderPanel({ server: "default", onSwitchServer, onKillServer, onServerColorChange: vi.fn() });
-    openPanel();
 
     const killBtn = screen.getByRole("button", { name: /Kill server work/ });
     fireEvent.click(killBtn);
@@ -159,16 +152,27 @@ describe("ServerPanel", () => {
     expect(onSwitchServer).not.toHaveBeenCalled();
   });
 
-  it("opening the panel triggers onRefreshServers", () => {
+  it("is open by default: the tile grid renders without any toggle click", () => {
+    renderPanel();
+
+    const grid = screen.getByRole("listbox", { name: /Tmux servers/ });
+    expect(grid).toBeInTheDocument();
+    const toggle = screen.getByRole("button", { name: /Server/ });
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("opening the panel (from a collapsed start) triggers onRefreshServers", () => {
+    seedCollapsed();
     const onRefreshServers = vi.fn().mockResolvedValue(undefined);
     renderPanel({ onRefreshServers });
-    openPanel();
+    expect(onRefreshServers).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: /Server/ }));
     expect(onRefreshServers).toHaveBeenCalled();
   });
 
   it("renders tile grid as listbox with server tiles as options (keyboard-focusable)", () => {
     renderPanel();
-    openPanel();
     const grid = screen.getByRole("listbox", { name: /Tmux servers/ });
     // Exactly three options inside the tile grid listbox.
     const options = within(grid).getAllByRole("option");
@@ -180,12 +184,12 @@ describe("ServerPanel", () => {
       servers: [{ name: "bench-really-long-name", sessionCount: 1 }],
       server: "bench-really-long-name",
     });
-    openPanel();
     const tile = screen.getByRole("option");
     expect(tile.getAttribute("title")).toBe("bench-really-long-name");
   });
 
   it("renders static title and active server name in the header while collapsed", () => {
+    seedCollapsed();
     renderPanel({ server: "work" });
 
     expect(screen.getByText("Server")).toBeInTheDocument();
@@ -203,7 +207,6 @@ describe("ServerPanel", () => {
         { name: "rk-test-e2e", sessionCount: 1 },
       ],
     });
-    openPanel();
 
     // Infra names render text-text-secondary, not text-text-primary.
     const daemonName = screen.getByText("rk-daemon");
@@ -230,7 +233,6 @@ describe("ServerPanel", () => {
       onKillServer: vi.fn(),
       onServerColorChange: vi.fn(),
     });
-    openPanel();
 
     // The infra tile is still fully attachable and killable.
     expect(screen.getByRole("option", { name: /rk-daemon/ })).toBeInTheDocument();
@@ -248,7 +250,6 @@ describe("ServerPanel", () => {
       ],
       waitingCounts: new Map([["work", 3]]),
     });
-    openPanel();
 
     // The badge lives inside the `work` tile (a descendant of its `option`
     // button), so scope the query to that tile — a global query would still
@@ -274,7 +275,6 @@ describe("ServerPanel", () => {
       ],
       waitingCounts: new Map([["work", 0]]),
     });
-    openPanel();
 
     // WaitingBadge returns null at count <= 0, so no badge is present for either.
     expect(screen.queryByTestId("waiting-badge")).not.toBeInTheDocument();

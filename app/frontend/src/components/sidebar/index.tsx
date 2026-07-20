@@ -14,7 +14,7 @@ import type { MergedSession } from "@/contexts/optimistic-context";
 import { useWindowStore } from "@/store/window-store";
 import { useWindowRename } from "@/hooks/use-window-rename";
 import { useWindowPins } from "@/hooks/use-window-pins";
-import { useLocalStorageBoolean } from "@/hooks/use-local-storage-boolean";
+import { useSessionsScope } from "@/hooks/use-sessions-scope";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useChromeState } from "@/contexts/chrome-context";
 import { useActiveBoardName } from "@/hooks/use-active-board";
@@ -115,13 +115,12 @@ export function Sidebar({
   const navigate = useNavigate();
   const { addToast } = useToast();
 
-  // Server Pane open state — read via the shared hook so the Sessions Pane
-  // re-renders in the same tab when the user toggles the panel. Default
-  // matches `ServerPanel`'s `defaultOpen={false}` (server-panel.tsx:107).
-  // When open AND a current server is resolved, the Sessions Pane filters
-  // to that server's group; when open AND `currentServer === null`, an
-  // empty-state hint replaces the group list.
-  const [serverPaneOpen] = useLocalStorageBoolean("runkit-panel-server", false);
+  // Sessions-pane scope — explicit persisted state (`runkit-panel-sessions-scope`),
+  // fully decoupled from the SERVER panel's expansion. `current` filters the
+  // tree to the resolved current server (falling back to all servers when none
+  // resolves); `all` (default) lists every server's group. The header chip,
+  // this list, and the palette entry are sibling subscribers of the same key.
+  const [sessionsScope, setSessionsScope] = useSessionsScope();
 
   // Server colors from settings.yaml (all servers) — color value descriptors
   // ("4" / "1+3").
@@ -1068,6 +1067,16 @@ export function Sidebar({
     );
   }, [addToast]);
 
+  // `current` scope narrows to the resolved current server. When no current
+  // server resolves — board route (`currentServer === null`) or a
+  // stale/deleted route param not in the list — fall back to showing all
+  // servers: never an empty pane or a dead-end hint. Shared by the scope
+  // chip's tooltip and the session-tree filter so they can't disagree.
+  const currentOnly =
+    sessionsScope === "current" &&
+    currentServer !== null &&
+    servers.some((s) => s.name === currentServer);
+
   return (
     <nav ref={navRef} aria-label="Sessions" className="flex flex-col h-full">
       {/* Boards — cross-server section, always visible at the top of the
@@ -1106,11 +1115,30 @@ export function Sidebar({
       <div className="border-t-[3px] border-border flex flex-col flex-1 min-h-0">
         <div className="flex items-center gap-1.5 w-full pl-1.5 pr-1.5 sm:pr-2 py-1 text-xs text-text-secondary shrink-0 border-b border-border">
           <TypedLabel text="Sessions" className="font-bold uppercase tracking-wide" />
-          {currentServer && currentSession && (
-            <span className="ml-auto flex items-center gap-1 min-w-0 truncate">
+          <span className="ml-auto flex items-center gap-1.5 min-w-0">
+            {currentServer && currentSession && (
               <span className="truncate text-text-primary font-mono">{currentSession}</span>
-            </span>
-          )}
+            )}
+            {/* Scope chip — readable at rest so a `current`-filtered list never
+                looks like servers vanished. Flips the persisted scope; the
+                session list re-renders via the shared hook's pub/sub. */}
+            <button
+              type="button"
+              onClick={() => setSessionsScope(sessionsScope === "all" ? "current" : "all")}
+              aria-label="Toggle sessions scope"
+              aria-pressed={sessionsScope === "current"}
+              title={
+                sessionsScope === "all"
+                  ? "Showing all servers — click to show current server only"
+                  : currentOnly
+                    ? "Showing current server only — click to show all servers"
+                    : "Current-server scope — no current server here, so showing all servers — click to switch scope to all"
+              }
+              className="shrink-0 font-mono text-[10px] leading-none tracking-wide px-1 py-0.5 border border-border rounded-sm text-text-secondary hover:text-text-primary hover:border-text-secondary transition-colors"
+            >
+              {sessionsScope === "all" ? "ALL" : "CUR"}
+            </button>
+          </span>
         </div>
         <div
           ref={treeRef}
@@ -1123,16 +1151,11 @@ export function Sidebar({
             if (servers.length === 0) {
               return <div className="text-text-secondary text-xs py-4 text-center">No servers</div>;
             }
-            const visibleServers = serverPaneOpen
+            // `currentOnly` (hoisted above the JSX) narrows to the resolved
+            // current server, with the no-current-server fallback to all.
+            const visibleServers = currentOnly
               ? servers.filter((s) => s.name === currentServer)
               : servers;
-            // When the Server Pane is open, show the hint both when no server is
-            // selected (board route) and when the selected server isn't present
-            // in the list (stale/deleted route param). Otherwise the filtered
-            // list would render an empty Sessions area with no explanation.
-            if (serverPaneOpen && visibleServers.length === 0) {
-              return <div className="text-text-secondary text-xs py-4 text-center">Select a server above to see its sessions.</div>;
-            }
             return visibleServers.map((srvInfo) => {
               // Derive the displayed order per server: override ?? SSE order.
               // Per-server SSE-echo clear (no whole-Map effect): once the SSE
@@ -1156,7 +1179,7 @@ export function Sidebar({
                 serverColor={serverColors[srvInfo.name]}
                 rowTints={rowTints}
                 rowBorders={rowBorders}
-                isOpen={serverPaneOpen ? true : readServerOpen(srvInfo.name)}
+                isOpen={currentOnly ? true : readServerOpen(srvInfo.name)}
                 onToggleOpen={toggleServerSection}
                 rawSessions={sessionsByServer.get(srvInfo.name) ?? []}
                 sessionOrder={sseOrder}

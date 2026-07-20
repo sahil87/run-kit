@@ -1,0 +1,57 @@
+id: rzg7
+name: 260720-rzg7-sessions-scope-toggle-delink
+created: 2026-07-20T12:27:21Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 11
+    acceptance_count: 16
+    acceptance_completed: 16
+confidence:
+    certain: 9
+    confident: 4
+    tentative: 0
+    unresolved: 0
+    score: 4.7
+    fuzzy: true
+    dimensions:
+        signal: 78.5
+        reversibility: 86.9
+        competence: 87.3
+        disambiguation: 81.2
+stage_metrics:
+    intake: {started_at: "2026-07-20T12:27:21Z", driver: fab-new, iterations: 1, completed_at: "2026-07-20T12:32:53Z"}
+    apply: {started_at: "2026-07-20T12:32:53Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-20T12:50:05Z"}
+    review: {started_at: "2026-07-20T12:50:05Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-20T12:54:35Z"}
+    hydrate: {started_at: "2026-07-20T12:54:35Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-20T12:58:26Z"}
+    ship: {started_at: "2026-07-20T12:58:26Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-20T13:00:31Z"}
+    review-pr: {started_at: "2026-07-20T13:00:31Z", driver: git-pr, iterations: 1, completed_at: "2026-07-20T13:10:50Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/428
+change_type_source: explicit
+true_impact:
+    added: 1019
+    deleted: 319
+    net: 700
+    excluding:
+        added: 631
+        deleted: 315
+        net: 316
+    tests:
+        added: 231
+        deleted: 120
+        net: 111
+    computed_at: "2026-07-20T13:00:31Z"
+    computed_at_stage: ship
+summary: Sidebar sessions-pane scope becomes explicit persisted state (runkit-panel-sessions-scope, ALL/CUR header chip + palette toggle), decoupled from the now-default-open SERVER panel; no-current-server falls back to all servers
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-07-20T13:10:50Z

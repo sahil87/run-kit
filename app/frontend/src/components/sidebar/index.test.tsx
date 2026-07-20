@@ -127,45 +127,69 @@ afterEach(() => {
   localStorage.clear();
 });
 
-describe("Sidebar — Server Pane / Sessions Pane coupling", () => {
-  it("renders all ServerGroups when the Server Pane is collapsed (default)", () => {
-    // No localStorage write → defaults to collapsed (defaultOpen=false).
+function getScopeChip(): HTMLElement {
+  return screen.getByRole("button", { name: "Toggle sessions scope" });
+}
+
+describe("Sidebar — sessions-pane scope (runkit-panel-sessions-scope)", () => {
+  it("renders all ServerGroups by default (scope `all`, no stored value)", () => {
     renderSidebar();
 
     expect(getServerGroupHeader("primary")).toBeInTheDocument();
     expect(getServerGroupHeader("alpha")).toBeInTheDocument();
     expect(getServerGroupHeader("beta")).toBeInTheDocument();
+    expect(getScopeChip()).toHaveTextContent("ALL");
   });
 
-  it("renders only the current server's ServerGroup when the Server Pane is open and currentServer is resolved", () => {
-    localStorage.setItem("runkit-panel-server", "true");
+  it("renders only the current server's ServerGroup in `current` scope, force-opened", () => {
+    localStorage.setItem("runkit-panel-sessions-scope", "current");
     renderSidebar({ currentServer: "primary" });
 
     expect(getServerGroupHeader("primary")).toBeInTheDocument();
     expect(getServerGroupHeader("alpha")).not.toBeInTheDocument();
     expect(getServerGroupHeader("beta")).not.toBeInTheDocument();
+    expect(getScopeChip()).toHaveTextContent("CUR");
 
     // Force-open: primary's group header reads "Collapse" (chevron points down).
     const primaryHeader = screen.getByRole("button", { name: /Collapse primary sessions/ });
     expect(primaryHeader).toHaveAttribute("aria-expanded", "true");
   });
 
-  it("renders the empty-state hint when the Server Pane is open and currentServer is null", () => {
-    localStorage.setItem("runkit-panel-server", "true");
+  it("falls back to all servers in `current` scope when currentServer is null (board route) — no hint", () => {
+    localStorage.setItem("runkit-panel-sessions-scope", "current");
     renderSidebar({ currentServer: null });
 
-    expect(getServerGroupHeader("primary")).not.toBeInTheDocument();
-    expect(getServerGroupHeader("alpha")).not.toBeInTheDocument();
+    expect(getServerGroupHeader("primary")).toBeInTheDocument();
+    expect(getServerGroupHeader("alpha")).toBeInTheDocument();
+    expect(getServerGroupHeader("beta")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Select a server above to see its sessions."),
+    ).not.toBeInTheDocument();
+  });
 
-    const hint = screen.getByText("Select a server above to see its sessions.");
-    expect(hint).toBeInTheDocument();
-    expect(hint).toHaveClass("text-text-secondary", "text-xs", "py-4", "text-center");
+  it("falls back to all servers in `current` scope when currentServer is missing from the list", () => {
+    localStorage.setItem("runkit-panel-sessions-scope", "current");
+    // Stale/deleted route param: currentServer names a server not in `servers`.
+    renderSidebar({ currentServer: "gone" });
+
+    expect(getServerGroupHeader("primary")).toBeInTheDocument();
+    expect(getServerGroupHeader("alpha")).toBeInTheDocument();
+    expect(getServerGroupHeader("beta")).toBeInTheDocument();
+  });
+
+  it("treats an unrecognized stored scope value as `all`", () => {
+    localStorage.setItem("runkit-panel-sessions-scope", "bogus");
+    renderSidebar({ currentServer: "primary" });
+
+    expect(getServerGroupHeader("primary")).toBeInTheDocument();
+    expect(getServerGroupHeader("alpha")).toBeInTheDocument();
+    expect(getScopeChip()).toHaveTextContent("ALL");
   });
 
   it("does not overwrite persisted per-server collapse keys when force-opening the current group", () => {
     // User has the primary group collapsed in the multi-server tree.
     localStorage.setItem("runkit-panel-sessions-primary", "false");
-    localStorage.setItem("runkit-panel-server", "true");
+    localStorage.setItem("runkit-panel-sessions-scope", "current");
     renderSidebar({ currentServer: "primary" });
 
     // The persisted value is unchanged after rendering with force-open in effect.
@@ -176,32 +200,51 @@ describe("Sidebar — Server Pane / Sessions Pane coupling", () => {
     expect(primaryHeader).toHaveAttribute("aria-expanded", "true");
   });
 
-  it("re-renders the Sessions Pane within the same tab when the Server Pane is toggled", () => {
+  it("chip click narrows the tree, persists `current`, and a second click restores `all`", () => {
     renderSidebar({ currentServer: "primary" });
 
-    // Initially collapsed → all groups visible.
-    expect(getServerGroupHeader("primary")).toBeInTheDocument();
+    // Initially scope `all` → all groups visible.
     expect(getServerGroupHeader("alpha")).toBeInTheDocument();
     expect(getServerGroupHeader("beta")).toBeInTheDocument();
 
-    // Toggle the Server Pane open by clicking its header.
-    const serverPaneToggle = screen.getByRole("button", { name: /^Server/ });
-    fireEvent.click(serverPaneToggle);
+    fireEvent.click(getScopeChip());
 
-    // Tree narrows to the current server only — in-module pub/sub propagates.
+    // Narrowed to the current server; value persisted; chip reflects state.
+    expect(localStorage.getItem("runkit-panel-sessions-scope")).toBe("current");
+    expect(getScopeChip()).toHaveTextContent("CUR");
     expect(getServerGroupHeader("primary")).toBeInTheDocument();
     expect(getServerGroupHeader("alpha")).not.toBeInTheDocument();
     expect(getServerGroupHeader("beta")).not.toBeInTheDocument();
 
-    // Toggle it closed again → all groups return.
-    fireEvent.click(serverPaneToggle);
-    expect(getServerGroupHeader("primary")).toBeInTheDocument();
+    fireEvent.click(getScopeChip());
+
+    // Restored: all groups return, value persisted back to `all`.
+    expect(localStorage.getItem("runkit-panel-sessions-scope")).toBe("all");
+    expect(getScopeChip()).toHaveTextContent("ALL");
     expect(getServerGroupHeader("alpha")).toBeInTheDocument();
     expect(getServerGroupHeader("beta")).toBeInTheDocument();
   });
 
-  it("falls back to 'No servers' when the server list is empty regardless of Server Pane state", () => {
+  it("SERVER panel expansion no longer affects the sessions tree (delink regression)", () => {
+    // The old coupling filtered the tree when the SERVER panel was open. The
+    // scope state is now the only filter input — the panel key must be inert.
     localStorage.setItem("runkit-panel-server", "true");
+    renderSidebar({ currentServer: "primary" });
+
+    expect(getServerGroupHeader("primary")).toBeInTheDocument();
+    expect(getServerGroupHeader("alpha")).toBeInTheDocument();
+    expect(getServerGroupHeader("beta")).toBeInTheDocument();
+
+    // Toggling the SERVER panel live changes nothing in the tree either.
+    const serverPaneToggle = screen.getByRole("button", { name: /^Server/ });
+    fireEvent.click(serverPaneToggle);
+    expect(getServerGroupHeader("alpha")).toBeInTheDocument();
+    fireEvent.click(serverPaneToggle);
+    expect(getServerGroupHeader("alpha")).toBeInTheDocument();
+  });
+
+  it("falls back to 'No servers' when the server list is empty regardless of scope", () => {
+    localStorage.setItem("runkit-panel-sessions-scope", "current");
     renderSidebar({ servers: [], currentServer: null });
 
     // Two "No servers" empty-states render: ServerPanel's tile grid and the
@@ -211,23 +254,6 @@ describe("Sidebar — Server Pane / Sessions Pane coupling", () => {
       (el) => el.className.includes("py-4") && el.className.includes("text-center"),
     );
     expect(sessionsEmpty).toBeDefined();
-    expect(screen.queryByText("Select a server above to see its sessions.")).not.toBeInTheDocument();
-  });
-
-  it("propagates Server Pane state via the in-module pub/sub to sibling subscribers", () => {
-    renderSidebar({ currentServer: "primary" });
-
-    // The Server Pane header (ServerPanel's CollapsiblePanel chevron) and the
-    // Sessions Pane list are sibling subscribers to the same `runkit-panel-server`
-    // key via the shared hook's in-module pub/sub. Clicking the header writes
-    // through that hook; the Sessions Pane must observe the change and re-render.
-    // Asserting both the persisted value and the Sessions Pane DOM confirms the
-    // pub/sub fans the update out to a non-clicking subscriber in the same tick.
-    const serverPaneToggle = screen.getByRole("button", { name: /^Server/ });
-    fireEvent.click(serverPaneToggle);
-
-    expect(localStorage.getItem("runkit-panel-server")).toBe("true");
-    expect(getServerGroupHeader("alpha")).not.toBeInTheDocument();
   });
 });
 

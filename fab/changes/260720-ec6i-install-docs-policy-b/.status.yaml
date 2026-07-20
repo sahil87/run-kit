@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 6
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-07-20T07:34:08Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-20T07:37:07Z"}
     review: {started_at: "2026-07-20T07:37:07Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-20T07:39:19Z"}
     hydrate: {started_at: "2026-07-20T07:39:19Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-20T07:43:05Z"}
-    ship: {started_at: "2026-07-20T07:43:05Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-07-20T07:43:05Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-20T07:45:10Z"}
+    review-pr: {started_at: "2026-07-20T07:45:10Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/422
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 382
+    deleted: 9
+    net: 373
     excluding:
-        added: 0
-        deleted: 0
+        added: 3
+        deleted: 3
         net: 0
     tests:
         added: 0
         deleted: 0
         net: 0
-    computed_at: "2026-07-20T07:43:05Z"
-    computed_at_stage: hydrate
+    computed_at: "2026-07-20T07:45:10Z"
+    computed_at_stage: ship
 summary: 'install-composition Policy B (docs half) PASS: install docs centralized to the shll.ai pointer, per-formula brew lines + retired all meta-formula removed from README.md and docs/site/install.md'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-07-20T07:43:05Z
+last_updated: 2026-07-20T07:45:10Z

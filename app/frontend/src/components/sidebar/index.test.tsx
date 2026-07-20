@@ -9,6 +9,13 @@ import { ThemeProvider } from "@/contexts/theme-context";
 import { ChromeProvider } from "@/contexts/chrome-context";
 import { ToastProvider } from "@/components/toast";
 import { useWindowStore } from "@/store/window-store";
+import { getAllServerColors } from "@/api/client";
+import {
+  computeRowTints,
+  computeRowBorders,
+  UNCOLORED_SELECTED_KEY,
+  DEFAULT_DARK_THEME,
+} from "@/themes";
 import type { MetricsSnapshot, ProjectSession } from "@/types";
 
 const mockNavigate = vi.fn();
@@ -933,5 +940,132 @@ describe("BottomPanels — board-route focused-pane fallback + HOST dot (zx4i)",
       hostMetricsConnected: false,
     });
     expect(screen.getByTitle("SSE disconnected")).toBeInTheDocument();
+  });
+});
+
+describe("Sidebar — tinted server-group header fill (t1ca)", () => {
+  // Variant D: each SESSIONS-pane server-group header is a filled bar carrying
+  // the server's color, resolved through the SAME precomputed maps the SERVER
+  // panel tiles use (computeRowTints/computeRowBorders — dual-keyed under
+  // family names and legacy descriptors). Expected values are computed from
+  // the default dark theme (the theme the jsdom matchMedia stub resolves), so
+  // no hex is hardcoded here either.
+  const palette = DEFAULT_DARK_THEME.palette;
+  const tints = computeRowTints(palette);
+  const borders = computeRowBorders(palette, DEFAULT_DARK_THEME.category);
+
+  /** jsdom normalizes inline style colors to `rgb(r, g, b)`. */
+  function rgb(hex: string): string {
+    const h = hex.replace("#", "");
+    return `rgb(${parseInt(h.slice(0, 2), 16)}, ${parseInt(h.slice(2, 4), 16)}, ${parseInt(h.slice(4, 6), 16)})`;
+  }
+
+  function headerContainer(server: string): HTMLElement {
+    const el = document.querySelector<HTMLElement>(`[data-server='${server}']`);
+    expect(el, `header container for ${server}`).toBeTruthy();
+    return el!;
+  }
+
+  function toggleButton(server: string): HTMLElement {
+    return within(headerContainer(server)).getByRole("button", {
+      name: new RegExp(`(Collapse|Expand) ${server} sessions`),
+    });
+  }
+
+  /** Render and flush the getAllServerColors effect promise. */
+  async function renderWithColors(colors: Record<string, string>, currentServer = "primary") {
+    vi.mocked(getAllServerColors).mockResolvedValue(colors);
+    renderSidebar({ currentServer });
+    await act(async () => {});
+  }
+
+  afterEach(() => {
+    // Restore the file-default empty color map so this block's colors never
+    // leak into other suites.
+    vi.mocked(getAllServerColors).mockResolvedValue({});
+  });
+
+  it("colored non-current header carries the base tint fill, accent text, and accent top border", async () => {
+    await renderWithColors({ alpha: "4" });
+
+    const container = headerContainer("alpha");
+    expect(container.style.backgroundColor).toBe(rgb(tints.get("4")!.base));
+    expect(container.style.borderTopWidth).toBe("1px");
+    expect(container.style.borderTopColor).toBe(rgb(borders.get("4")!));
+
+    // Header text is the contrast-guarded accent, not text-secondary classes.
+    const button = toggleButton("alpha");
+    expect(button.style.color).toBe(rgb(borders.get("4")!));
+    expect(button.className).not.toContain("text-text-primary");
+  });
+
+  it("current server reads deeper: selected tint fill + text-text-primary (no inline accent)", async () => {
+    await renderWithColors({ primary: "4", alpha: "1" });
+
+    // Current server: deeper selected shade + brightest text.
+    const current = headerContainer("primary");
+    expect(current.style.backgroundColor).toBe(rgb(tints.get("4")!.selected));
+    const currentButton = toggleButton("primary");
+    expect(currentButton.className).toContain("text-text-primary");
+    expect(currentButton.style.color).toBe("");
+
+    // Non-current sits at base with accent text — the strength distinction.
+    expect(headerContainer("alpha").style.backgroundColor).toBe(rgb(tints.get("1")!.base));
+    expect(toggleButton("alpha").style.color).toBe(rgb(borders.get("1")!));
+  });
+
+  it("uncolored server falls back to the gray sentinel with the same heavier treatment", async () => {
+    await renderWithColors({}); // no colors assigned at all
+
+    const container = headerContainer("beta");
+    const grayTint = tints.get(UNCOLORED_SELECTED_KEY)!;
+    const grayBorder = borders.get(UNCOLORED_SELECTED_KEY)!;
+    expect(container.style.backgroundColor).toBe(rgb(grayTint.base));
+    expect(container.style.borderTopColor).toBe(rgb(grayBorder));
+
+    // Identical heavier element class: taller header, weight 600, coarse floor.
+    const button = toggleButton("beta");
+    expect(button.className).toContain("min-h-[26px]");
+    expect(button.className).toContain("coarse:min-h-[28px]");
+    expect(button.className).toContain("font-semibold");
+  });
+
+  it("unrecognized color descriptors degrade to the gray sentinel, never an unstyled header", async () => {
+    await renderWithColors({ alpha: "bogus-color" });
+
+    const container = headerContainer("alpha");
+    expect(container.style.backgroundColor).toBe(rgb(tints.get(UNCOLORED_SELECTED_KEY)!.base));
+    expect(container.style.borderTopColor).toBe(rgb(borders.get(UNCOLORED_SELECTED_KEY)!));
+  });
+
+  it("non-current header deepens to the hover shade on mouseenter and restores on leave; current stays flat", async () => {
+    await renderWithColors({ primary: "4", alpha: "1" });
+
+    const alpha = headerContainer("alpha");
+    fireEvent.mouseEnter(alpha);
+    expect(alpha.style.backgroundColor).toBe(rgb(tints.get("1")!.hover));
+    fireEvent.mouseLeave(alpha);
+    expect(alpha.style.backgroundColor).toBe(rgb(tints.get("1")!.base));
+
+    // Current server: no hover swap — selected is already the deepest shade.
+    const primary = headerContainer("primary");
+    fireEvent.mouseEnter(primary);
+    expect(primary.style.backgroundColor).toBe(rgb(tints.get("4")!.selected));
+  });
+
+  it("keeps header semantics: aria labels, expand/collapse, and the + button on the tinted bar", async () => {
+    await renderWithColors({ alpha: "4" });
+
+    // Toggle still works on the tinted header.
+    const toggle = screen.getByRole("button", { name: /Expand alpha sessions/ });
+    fireEvent.click(toggle);
+    expect(
+      screen.getByRole("button", { name: /Collapse alpha sessions/ }),
+    ).toHaveAttribute("aria-expanded", "true");
+
+    // The + new-session button still renders inside the tinted container.
+    expect(
+      within(headerContainer("alpha")).getByRole("button", { name: "New session on alpha" }),
+    ).toBeInTheDocument();
   });
 });

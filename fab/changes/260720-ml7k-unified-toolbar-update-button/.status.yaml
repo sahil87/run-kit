@@ -1,0 +1,57 @@
+id: ml7k
+name: 260720-ml7k-unified-toolbar-update-button
+created: 2026-07-20T06:45:51Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 5
+    acceptance_count: 11
+    acceptance_completed: 11
+confidence:
+    certain: 7
+    confident: 4
+    tentative: 0
+    unresolved: 0
+    score: 4.7
+    fuzzy: true
+    dimensions:
+        signal: 71.4
+        reversibility: 86.4
+        competence: 86.8
+        disambiguation: 80.5
+stage_metrics:
+    intake: {started_at: "2026-07-20T06:45:51Z", driver: fab-new, iterations: 1, completed_at: "2026-07-20T06:50:07Z"}
+    apply: {started_at: "2026-07-20T06:50:07Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-20T07:02:19Z"}
+    review: {started_at: "2026-07-20T07:02:19Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-20T07:06:19Z"}
+    hydrate: {started_at: "2026-07-20T07:06:19Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-20T07:09:34Z"}
+    ship: {started_at: "2026-07-20T07:09:34Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-20T07:11:55Z"}
+    review-pr: {started_at: "2026-07-20T07:11:55Z", driver: git-pr, iterations: 1, completed_at: "2026-07-20T07:20:34Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/421
+change_type_source: explicit
+true_impact:
+    added: 637
+    deleted: 35
+    net: 602
+    excluding:
+        added: 311
+        deleted: 32
+        net: 279
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-07-20T07:11:55Z"
+    computed_at_stage: ship
+summary: Overflow menu resting version row gains a dev-gated ⟳ Check-for-updates affordance (useUpdateCheck checking single-flight); update-surface placement is verdict-derived and now covers dismissed-pending
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-07-20T07:20:34Z

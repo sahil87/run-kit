@@ -585,9 +585,13 @@ export function TopBar({
     },
     // L3 — always (all four modes): update chip · notification · theme · refresh · help.
     // The UpdateChip has NO menu row: when overflowed, its function merges into
-    // the version row (the menu component owns that). `hidden` keeps it out of
-    // the candidate set entirely when it wouldn't render (not qualifying / dev /
-    // dismissed) so it never reserves width or an empty slot.
+    // the version row (the menu component owns that — including the dismissed-
+    // pending update surface and the resting version + ⟳ check affordance,
+    // 260720-ml7k). `hidden` keeps it out of the candidate set entirely when it
+    // wouldn't render (not qualifying / dev / dismissed) so it never reserves
+    // width or an empty slot. The chip IS the unified update button's promoted
+    // form; promotion/demotion is pure derivation from `showChip` + fit — never
+    // imperative movement.
     {
       id: "update-chip",
       modes: ["terminal", "board", "server", "host"],
@@ -703,8 +707,10 @@ export function TopBar({
   const overflowRows: OverflowMenuRow[] = overflowItems
     .map((e) => ({ id: e.id, node: e.menuRender() }))
     .filter((r) => r.node != null);
-  // The version row becomes the update surface (and the chevron badges) only
-  // when the update chip qualifies AND its entry is currently overflowed.
+  // True when the undismissed chip's entry is currently overflowed into the
+  // menu — drives the chevron attention badge, and is one of the menu's two
+  // update-surface derivations (the other, dismissed-pending, is computed
+  // inside TopBarOverflowMenu from context — 260720-ml7k).
   const updateOverflowed = showChip && overflowItems.some((e) => e.id === "update-chip");
 
   return (

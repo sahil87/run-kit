@@ -466,11 +466,14 @@ function WindowRowInner({
  *  sidebar edge), so the zone is a plain `left-0` overlay spanning the 26px
  *  left of the status dot at `pl-[30px]` — 4px clear of the zone's inner edge,
  *  so the zone never steals the dot's hover-card/click (must-fix-3). The
- *  leftmost 12px is the hover palette-icon zone; the marker stripe anchors
- *  near-flush at the sidebar edge (`STRIPE_EDGE_INSET`), sharing that 12px —
- *  the icon renders ABOVE the stripe (explicit layering below). */
+ *  marker stripe anchors near-flush at the sidebar edge (`STRIPE_EDGE_INSET`);
+ *  the hover palette-icon zone is inset `ICON_EDGE_INSET`px off that edge,
+ *  spanning to `ICON_EDGE_INSET + ICON_ZONE_WIDTH` so the icon has breathing
+ *  room from the physical edge. Stripe and icon still overlap — the icon
+ *  renders ABOVE the stripe (explicit layering below). */
 const LABEL_ZONE_WIDTH = 26; // full zone: icon home + clearance before the dot
-const ICON_ZONE_WIDTH = 12; // leftmost 12px: home of the hover palette icon
+const ICON_ZONE_WIDTH = 12; // 12px icon zone: home of the hover palette icon
+const ICON_EDGE_INSET = 4; // icon-zone inset off the physical sidebar edge (hover icon breathing room)
 const STRIPE_EDGE_INSET = 2; // stripe inset from the zone's/sidebar's left edge (near-flush per the full-bleed spec)
 
 type LabelZoneProps = {
@@ -491,7 +494,9 @@ type LabelZoneProps = {
  *  A hover-revealed PaletteIcon in the 12px icon zone + a family-tinted zone glow
  *  make it discoverable (two-stage: row-hover ~65%/12% → zone-hover 100%/24%).
  *  The marker stripe is DISPLAY-ONLY, anchored near-flush at the sidebar's left
- *  edge (`STRIPE_EDGE_INSET`px). Stripe and icon share the leftmost 12px, so the
+ *  edge (`STRIPE_EDGE_INSET`px). The icon zone is inset `ICON_EDGE_INSET`px off
+ *  the physical edge (spanning to `ICON_EDGE_INSET + ICON_ZONE_WIDTH`) so the
+ *  hover icon clears the sidebar boundary; it still overlaps the stripe, so the
  *  icon is layered explicitly ABOVE the stripe (`z-10` on the icon container;
  *  the zone's own `z-20` scopes the stack). `cursor: pointer` (menu-opener
  *  semantics). Active on coarse pointers — touch gets direct label access.
@@ -523,20 +528,22 @@ function LabelZone({ marker, markerColor, colored, hover, onEnter, onLeave, onCl
       />
       {/* Display-only marker stripe, anchored `STRIPE_EDGE_INSET`px from the
           zone's (= the sidebar's) left edge. Rendered BEFORE the icon container
-          so the hover icon paints on top where they share the leftmost 12px. */}
+          so the hover icon paints on top where the two overlap. */}
       {stripeStyle && (
         <div
           className="absolute inset-y-0"
           style={{ left: STRIPE_EDGE_INSET, right: 0, ...stripeStyle }}
         />
       )}
-      {/* Palette icon in the leftmost 12px (the true sidebar edge), family-
-          tinted on colored rows / inherited monochrome otherwise. Fades in on
-          row hover (~65%) and reaches full opacity when the zone is hovered.
-          Explicit `z-10` keeps it ABOVE the marker stripe it now overlaps. */}
+      {/* Palette icon in the 12px icon zone, inset `ICON_EDGE_INSET`px off the
+          physical sidebar edge so it doesn't hug the boundary; family-tinted on
+          colored rows / inherited monochrome otherwise. Fades in on row hover
+          (~65%) and reaches full opacity when the zone is hovered. Explicit
+          `z-10` keeps it ABOVE the marker stripe it overlaps. */}
       <div
-        className="absolute inset-y-0 left-0 z-10 flex items-center justify-center transition-opacity opacity-0 group-hover:opacity-65"
+        className="absolute inset-y-0 z-10 flex items-center justify-center transition-opacity opacity-0 group-hover:opacity-65"
         style={{
+          left: ICON_EDGE_INSET,
           width: ICON_ZONE_WIDTH,
           color: colored ? markerColor : undefined,
           ...(hover ? { opacity: 1 } : {}),

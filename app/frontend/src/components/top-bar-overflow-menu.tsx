@@ -13,6 +13,13 @@ import { copyToClipboard } from "@/lib/clipboard";
 import { useToast } from "@/components/toast";
 import { LogoSpinner } from "@/components/logo-spinner";
 import { useUpdateClick } from "@/hooks/use-update-click";
+import { useUpdateCheck } from "@/hooks/use-update-check";
+
+/** Sentinel running version for local (non-ldflags) builds — the version row's
+ *  check-again affordance is hidden for it (a dev daemon never checks; the same
+ *  gate as the palette check entries). Kept local, same pattern as
+ *  lib/palette-update.ts / hooks/use-update-check.ts. */
+const DEV_VERSION = "dev";
 
 /** Vertical gap between the chevron's bottom edge and the menu's top (matches
  *  BreadcrumbDropdown's MENU_GAP_PX — 4px). */
@@ -56,8 +63,13 @@ type Props = {
   /** Overflowed controls, already in pyramid order, each pre-rendered as a row. */
   rows: OverflowMenuRow[];
   /** True when a qualifying, undismissed update is pending AND the UpdateChip is
-   *  currently overflowed into this menu — flips the version row into the update
-   *  surface (R11) and lights the chevron attention badge (R7). */
+   *  currently overflowed into this menu. Lights the chevron attention badge
+   *  (R7) and is one of the two derivations that flip the version row into the
+   *  update surface (R11) — the other (260720-ml7k) is a dismissed pending
+   *  update (`qualifies && !showChip`, read from context here), which shows the
+   *  surface WITHOUT the badge: dismissal silences ambient chrome only, and the
+   *  menu is deliberate discovery (same posture as the palette's `qualifies`
+   *  gate). */
   updateOverflowed: boolean;
 };
 
@@ -73,15 +85,24 @@ type Props = {
  * new dependency is needed).
  *
  * The menu always contains the fixed version row (last), so the chevron renders
- * even when nothing is overflowed. When `updateOverflowed` is true the version
- * row doubles as the update surface (R11) and the chevron carries an accent
- * attention badge (R7).
+ * even when nothing is overflowed. When a qualifying pending update has no
+ * in-bar chip (its entry is overflowed here, or it was dismissed) the version
+ * row doubles as the update surface (R11); only the undismissed-overflowed case
+ * also lights the chevron's accent attention badge (R7). At rest the row is the
+ * unified update button's resting form (260720-ml7k): version + a dev-gated ⟳
+ * "Check for updates" affordance running the plain notable check — placement
+ * between this row and the in-bar chip is always DERIVED from the verdict
+ * state, never imperatively moved.
  */
 export function TopBarOverflowMenu({ rows, updateOverflowed }: Props) {
-  const { daemonVersion, tools, singleRunKit, latest, current } = useUpdateNotification();
+  const { daemonVersion, tools, singleRunKit, latest, current, qualifies, showChip } =
+    useUpdateNotification();
   const { addToast } = useToast();
   // Shared one-click-update behavior with the in-bar UpdateChip (review M5).
   const { updating, triggerUpdate } = useUpdateClick();
+  // Shared check flow with the palette check commands (260720-ml7k) — POST →
+  // one result toast, fail-loud error toast; `checking` drives the ⟳ spinner.
+  const { runUpdateCheck, checking } = useUpdateCheck();
 
   const [open, setOpen] = useState(false);
   // True once the version row currently holds keyboard focus — drives its roving
@@ -223,9 +244,19 @@ export function TopBarOverflowMenu({ rows, updateOverflowed }: Props) {
     setOpen(false);
   }, [daemonVersion, addToast]);
 
-  // The version row becomes the update surface only when a qualifying update is
-  // pending AND the UpdateChip is overflowed into this menu.
-  const asUpdateSurface = updateOverflowed && tools.length > 0;
+  // Chevron attention badge: ONLY the undismissed-overflowed case — a dismissed
+  // update must not light ambient chrome (the dismissal contract).
+  const showBadge = updateOverflowed && tools.length > 0;
+  // The version row becomes the update surface whenever a qualifying update is
+  // pending AND the chip is not in-bar: its entry is overflowed into this menu,
+  // OR the update is dismissed (`qualifies && !showChip`, 260720-ml7k — the
+  // update surface is the stronger affordance than the ⟳ when a verdict is
+  // already known; the menu is deliberate discovery, like the palette).
+  const asUpdateSurface = tools.length > 0 && (updateOverflowed || (qualifies && !showChip));
+  // Resting-row check-again affordance (260720-ml7k): shown whenever no update
+  // surface is showing, EXCEPT on the dev sentinel (a dev daemon never checks —
+  // same gate as the palette check entries; a null version counts as non-dev).
+  const showCheck = !asUpdateSurface && daemonVersion !== DEV_VERSION;
   // Single run-kit match keeps today's `Run Kit v{current} → v{latest} ⬆` row +
   // aria; any other single tool or multiple tools show a count row naming each
   // per-tool transition in the aria (R15). The row triggers a SCOPED update of
@@ -290,8 +321,10 @@ export function TopBarOverflowMenu({ rows, updateOverflowed }: Props) {
           <polyline points="6 9 12 15 18 9" />
         </svg>
         {/* Attention badge (R7): a small accent dot when an overflowed
-            attention-bearing item (the pending update chip) is in the menu. */}
-        {asUpdateSurface && (
+            attention-bearing item (the pending update chip) is in the menu.
+            Deliberately NOT keyed on the dismissed-pending update surface —
+            dismissal silences ambient chrome. */}
+        {showBadge && (
           <span
             data-testid="overflow-attention"
             aria-hidden="true"
@@ -335,19 +368,59 @@ export function TopBarOverflowMenu({ rows, updateOverflowed }: Props) {
               )}
             </button>
           ) : (
-            <button
-              type="button"
-              role="menuitem"
-              tabIndex={versionRowFocused ? 0 : -1}
-              onFocus={() => setVersionRowFocused(true)}
-              onBlur={() => setVersionRowFocused(false)}
-              onClick={handleCopy}
-              aria-label={daemonVersion ? `${versionText} (copy)` : "Run Kit"}
-              title={daemonVersion ? "Copy version" : undefined}
-              className="w-full text-left block px-3 py-2 text-sm text-text-secondary hover:text-text-primary hover:bg-bg-card transition-colors"
-            >
-              {versionText}
-            </button>
+            // Resting row: version copy button + the check-again ⟳ (260720-ml7k).
+            // The ⟳ is a PLAIN control (no role="menuitem", tabIndex -1) so the
+            // container's role-keyed close handler does not fire — the menu stays
+            // open across the ~1-2s check and the spinner/single-flight state is
+            // visible (the font-stepper precedent for non-terminal menu actions).
+            // Arrow-nav still reaches it via the `button:not([disabled])`
+            // focusables selector.
+            <div className="flex items-center gap-1 pr-2">
+              <button
+                type="button"
+                role="menuitem"
+                tabIndex={versionRowFocused ? 0 : -1}
+                onFocus={() => setVersionRowFocused(true)}
+                onBlur={() => setVersionRowFocused(false)}
+                onClick={handleCopy}
+                aria-label={daemonVersion ? `${versionText} (copy)` : "Run Kit"}
+                title={daemonVersion ? "Copy version" : undefined}
+                className="flex-1 min-w-0 text-left px-3 py-2 text-sm text-text-secondary hover:text-text-primary hover:bg-bg-card transition-colors"
+              >
+                {versionText}
+              </button>
+              {showCheck && (
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  disabled={checking}
+                  onClick={() => runUpdateCheck(false)}
+                  aria-label="Check for updates"
+                  title="Check for updates"
+                  className="shrink-0 min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border border-border text-text-secondary hover:border-text-secondary hover:text-text-primary transition-colors flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-border"
+                >
+                  {checking ? (
+                    <LogoSpinner size={12} />
+                  ) : (
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      {/* lucide rotate-cw — the refresh vocabulary (RefreshButton) */}
+                      <path d="M21 12a9 9 0 1 1-3-6.7L21 8" />
+                      <path d="M21 3v5h-5" />
+                    </svg>
+                  )}
+                </button>
+              )}
+            </div>
           )}
         </div>
       )}

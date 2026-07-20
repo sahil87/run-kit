@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useUpdateNotification } from "@/contexts/session-context";
 import { useToast } from "@/components/toast";
 import { checkForUpdates } from "@/api/client";
@@ -29,13 +29,29 @@ const DEV_VERSION = "dev";
  *   - on a failed check (502 shll-missing, 409 dev, network) an error toast
  *     surfaces the server's message — a deliberate invocation deserves an
  *     honest answer, unlike the fail-silent ambient loop.
+ *
+ * In-flight state (260720-ml7k): `checking` is true while a check request is
+ * pending — the overflow menu's ⟳ affordance renders its spinner/disabled form
+ * off it. Repeat `runUpdateCheck` calls while in flight are no-ops
+ * (single-flight). The synchronous guard is a ref — NOT the state value — so a
+ * same-tick double-click can't slip past the not-yet-flushed state, and
+ * `runUpdateCheck` keeps a stable identity across the in-flight transition
+ * (board-page.tsx memoizes a large palette-action array on it).
  */
-export function useUpdateCheck(): { runUpdateCheck: (includePatches: boolean) => void } {
+export function useUpdateCheck(): {
+  runUpdateCheck: (includePatches: boolean) => void;
+  checking: boolean;
+} {
   const { brew, daemonVersion, forceUpdateNow } = useUpdateNotification();
   const { addToast } = useToast();
+  const [checking, setChecking] = useState(false);
+  const checkingRef = useRef(false);
 
   const runUpdateCheck = useCallback(
     (includePatches: boolean) => {
+      if (checkingRef.current) return;
+      checkingRef.current = true;
+      setChecking(true);
       void checkForUpdates()
         .then((result) => {
           const { message, updatable } = composeCheckToast(result.tools, includePatches);
@@ -55,10 +71,14 @@ export function useUpdateCheck(): { runUpdateCheck: (includePatches: boolean) =>
         })
         .catch((err: unknown) => {
           addToast(err instanceof Error ? err.message : "Update check failed", "error");
+        })
+        .finally(() => {
+          checkingRef.current = false;
+          setChecking(false);
         });
     },
     [brew, daemonVersion, forceUpdateNow, addToast],
   );
 
-  return { runUpdateCheck };
+  return { runUpdateCheck, checking };
 }

@@ -1,0 +1,57 @@
+id: zx4i
+name: 260720-zx4i-board-route-pane-host-panels
+created: 2026-07-20T16:05:15Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 13
+    acceptance_count: 18
+    acceptance_completed: 18
+confidence:
+    certain: 10
+    confident: 1
+    tentative: 0
+    unresolved: 0
+    score: 5.0
+    fuzzy: true
+    dimensions:
+        signal: 89.1
+        reversibility: 88.6
+        competence: 89.1
+        disambiguation: 85.9
+stage_metrics:
+    intake: {started_at: "2026-07-20T16:05:15Z", driver: fab-new, iterations: 1, completed_at: "2026-07-20T16:09:37Z"}
+    apply: {started_at: "2026-07-20T16:09:37Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-20T16:28:49Z"}
+    review: {started_at: "2026-07-20T16:28:49Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-20T16:33:57Z"}
+    hydrate: {started_at: "2026-07-20T16:33:57Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-20T16:37:25Z"}
+    ship: {started_at: "2026-07-20T16:37:25Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-20T16:38:46Z"}
+    review-pr: {started_at: "2026-07-20T16:38:46Z", driver: git-pr, iterations: 1, completed_at: "2026-07-20T16:46:38Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/430
+change_type_source: explicit
+true_impact:
+    added: 1229
+    deleted: 69
+    net: 1160
+    excluding:
+        added: 870
+        deleted: 68
+        net: 802
+    tests:
+        added: 154
+        deleted: 0
+        net: 154
+    computed_at: "2026-07-20T16:38:46Z"
+    computed_at_stage: ship
+summary: Board-route sidebar PANE follows the focused tile (focused-pane context + windowId lookup, pin-only thin render); HOST falls back to host-global metrics + host-health dot
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-07-20T16:46:38Z

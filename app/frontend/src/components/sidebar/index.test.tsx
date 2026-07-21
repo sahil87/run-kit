@@ -3,12 +3,13 @@ import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, fireEvent, cleanup, within, act } from "@testing-library/react";
 import { Sidebar } from "./index";
 import { OptimisticProvider } from "@/contexts/optimistic-context";
-import { MetricsProvider, StandaloneSessionContextProvider } from "@/contexts/session-context";
+import { HostMetricsProvider, MetricsProvider, StandaloneSessionContextProvider } from "@/contexts/session-context";
+import { FocusedPaneProvider, useRegisterFocusedPane, type FocusedPane } from "@/contexts/focused-pane-context";
 import { ThemeProvider } from "@/contexts/theme-context";
 import { ChromeProvider } from "@/contexts/chrome-context";
 import { ToastProvider } from "@/components/toast";
 import { useWindowStore } from "@/store/window-store";
-import type { ProjectSession } from "@/types";
+import type { MetricsSnapshot, ProjectSession } from "@/types";
 
 const mockNavigate = vi.fn();
 vi.mock("@tanstack/react-router", () => ({
@@ -69,12 +70,28 @@ type RenderOpts = {
    *  double-invocation the real app gets via main.tsx). Off by default so the
    *  coupling tests keep their single-pass render. */
   strict?: boolean;
+  /** Publish a focused board pane into the FocusedPaneProvider (260720-zx4i) —
+   *  simulates BoardPage's registration. `undefined` = no registrant mounted. */
+  focusedPane?: FocusedPane;
+  /** Override the derived per-server sessions map (board-route tests need
+   *  session data on a NON-current server). */
+  sessionsByServer?: Map<string, ProjectSession[]>;
+  /** Host-metrics source health for the HOST dot (defaults false). */
+  hostMetricsConnected?: boolean;
+  /** Host-global metrics snapshot fed to HostMetricsProvider (defaults null). */
+  hostMetrics?: MetricsSnapshot | null;
 };
+
+/** Mounts BoardPage's registration seam inside the provider (260720-zx4i). */
+function FocusedPaneRegistrant({ pane }: { pane: FocusedPane }) {
+  useRegisterFocusedPane(pane);
+  return null;
+}
 
 function renderSidebar(opts: RenderOpts = {}) {
   const currentServer = opts.currentServer === undefined ? "primary" : opts.currentServer;
   const servers = opts.servers ?? SERVERS;
-  const sessionsByServer = new Map(
+  const sessionsByServer = opts.sessionsByServer ?? new Map(
     servers.map((s) => [s.name, s.name === currentServer ? PRIMARY_SESSIONS : []]),
   );
   const tree = (
@@ -86,6 +103,7 @@ function renderSidebar(opts: RenderOpts = {}) {
               sessionsByServer,
               sessionOrderByServer: new Map(servers.map((s) => [s.name, []])),
               isConnectedByServer: new Map(servers.map((s) => [s.name, false])),
+              hostMetricsConnected: opts.hostMetricsConnected ?? false,
               metricsByServer: new Map(),
               currentServer,
               servers,
@@ -93,18 +111,25 @@ function renderSidebar(opts: RenderOpts = {}) {
             }}
           >
             <MetricsProvider value={null}>
-              <ChromeProvider>
-                <Sidebar
-                  currentServer={currentServer}
-                  currentSession={currentServer ? "main" : null}
-                  currentWindowId={currentServer ? "@0" : null}
-                  onSelectWindow={vi.fn()}
-                  onCreateWindow={vi.fn()}
-                  onCreateSession={vi.fn()}
-                  onCreateServer={vi.fn()}
-                  onKillServer={vi.fn()}
-                />
-              </ChromeProvider>
+              <HostMetricsProvider value={opts.hostMetrics ?? null}>
+                <FocusedPaneProvider>
+                  {opts.focusedPane !== undefined && (
+                    <FocusedPaneRegistrant pane={opts.focusedPane} />
+                  )}
+                  <ChromeProvider>
+                    <Sidebar
+                      currentServer={currentServer}
+                      currentSession={currentServer ? "main" : null}
+                      currentWindowId={currentServer ? "@0" : null}
+                      onSelectWindow={vi.fn()}
+                      onCreateWindow={vi.fn()}
+                      onCreateSession={vi.fn()}
+                      onCreateServer={vi.fn()}
+                      onKillServer={vi.fn()}
+                    />
+                  </ChromeProvider>
+                </FocusedPaneProvider>
+              </HostMetricsProvider>
             </MetricsProvider>
           </StandaloneSessionContextProvider>
         </OptimisticProvider>
@@ -404,18 +429,22 @@ describe("Sidebar — tree ARIA + roving keyboard navigation (wt1v)", () => {
               }}
             >
               <MetricsProvider value={null}>
-                <ChromeProvider>
-                  <Sidebar
-                    currentServer="primary"
-                    currentSession="main"
-                    currentWindowId={null}
-                    onSelectWindow={onSelectWindow}
-                    onCreateWindow={vi.fn()}
-                    onCreateSession={vi.fn()}
-                    onCreateServer={vi.fn()}
-                    onKillServer={vi.fn()}
-                  />
-                </ChromeProvider>
+                <HostMetricsProvider value={null}>
+                  <FocusedPaneProvider>
+                    <ChromeProvider>
+                      <Sidebar
+                        currentServer="primary"
+                        currentSession="main"
+                        currentWindowId={null}
+                        onSelectWindow={onSelectWindow}
+                        onCreateWindow={vi.fn()}
+                        onCreateSession={vi.fn()}
+                        onCreateServer={vi.fn()}
+                        onKillServer={vi.fn()}
+                      />
+                    </ChromeProvider>
+                  </FocusedPaneProvider>
+                </HostMetricsProvider>
               </MetricsProvider>
             </StandaloneSessionContextProvider>
           </OptimisticProvider>
@@ -737,5 +766,172 @@ describe("Sidebar — session-reorder self-target drop acceptance (i41e snap-bac
       notPrevented = fireEvent.dragOver(row!, { dataTransfer });
     });
     expect(notPrevented!).toBe(true); // default NOT prevented → not accepted
+  });
+});
+
+describe("BottomPanels — board-route focused-pane fallback + HOST dot (zx4i)", () => {
+  // Sessions live on server "boardsrv" (NOT the current server — the board
+  // route has currentServer=null). The enriched window @9 carries fab data the
+  // thin fallback could never synthesize, so its presence proves the lookup hit.
+  const BOARD_SESSIONS: ProjectSession[] = [
+    {
+      name: "home",
+      windows: [
+        {
+          index: 0,
+          windowId: "@9",
+          name: "pinned-live",
+          worktreePath: "/home/u/code/live",
+          activity: "idle",
+          isActiveWindow: false,
+          activityTimestamp: 0,
+          fabChange: "260720-zx4i-board-route-pane-host-panels",
+          fabStage: "apply",
+          panes: [
+            {
+              paneId: "%77",
+              paneIndex: 0,
+              cwd: "/home/u/code/live",
+              command: "zsh",
+              isActive: true,
+              gitBranch: "zx4i-branch",
+            },
+          ],
+        },
+      ],
+    },
+  ];
+
+  const boardServers = [{ name: "boardsrv", sessionCount: 1 }];
+  const boardSessionsMap = new Map([["boardsrv", BOARD_SESSIONS]]);
+
+  function paneHeader(): HTMLElement {
+    return screen.getByRole("button", { name: /^Pane/ });
+  }
+
+  it("renders the ENRICHED home-session copy when the focused pane resolves by windowId", () => {
+    renderSidebar({
+      currentServer: null,
+      servers: boardServers,
+      sessionsByServer: boardSessionsMap,
+      focusedPane: {
+        server: "boardsrv",
+        windowId: "@9",
+        windowName: "pinned-live",
+        panes: [
+          { paneId: "%77", paneIndex: 0, cwd: "/tmp/thin", command: "zsh", isActive: true },
+        ],
+      },
+    });
+    expect(screen.queryByText("No window selected")).not.toBeInTheDocument();
+    // The fab register renders — only the enriched SSE copy carries fabChange,
+    // so this proves the windowId lookup (not the thin fallback) supplied it.
+    expect(screen.getByText(/zx4i board-route-pane-host-panels · apply/)).toBeInTheDocument();
+    // Identity from the enriched copy, not the thin panes (cwd differs:
+    // /home/u/code/live shortens to ~/code/live; the thin pane cwd is /tmp/thin).
+    expect(screen.getByText("~/code/live")).toBeInTheDocument();
+    expect(screen.queryByText("/tmp/thin")).not.toBeInTheDocument();
+  });
+
+  it("thin-renders from the board entry's panes when the lookup misses (pin-only window)", () => {
+    renderSidebar({
+      currentServer: null,
+      servers: boardServers,
+      sessionsByServer: boardSessionsMap,
+      focusedPane: {
+        server: "boardsrv",
+        windowId: "@404", // absent from BOARD_SESSIONS
+        windowName: "pin-only",
+        panes: [
+          {
+            paneId: "%88",
+            paneIndex: 0,
+            cwd: "/srv/pin-only",
+            command: "vim",
+            isActive: true,
+            gitBranch: "orphan-branch",
+          },
+        ],
+      },
+    });
+    expect(screen.queryByText("No window selected")).not.toBeInTheDocument();
+    // Identity rows from the entry's own pane data.
+    expect(paneHeader().textContent).toContain("pin-only");
+    expect(screen.getByText(/%88/)).toBeInTheDocument();
+    expect(screen.getByText("orphan-branch")).toBeInTheDocument();
+    // Enrichment-only registers honestly absent.
+    expect(screen.queryByTestId("register-agent")).not.toBeInTheDocument();
+    expect(screen.queryByText(/· apply/)).not.toBeInTheDocument();
+  });
+
+  it("never falls back to the focused pane on a server route (unresolved route window)", () => {
+    // Server route (currentServer set) whose route window can't resolve yet —
+    // the sessions snapshot hasn't arrived (empty list). A stale focused pane
+    // is still published (clear-on-unmount lands a commit later). The PANE
+    // panel must show the empty state, NOT the board-focused window: the
+    // fallback is gated on the board route itself, not on `!routeWindow`.
+    renderSidebar({
+      currentServer: "primary",
+      servers: [{ name: "primary", sessionCount: 0 }, ...boardServers],
+      sessionsByServer: new Map([["primary", []], ["boardsrv", BOARD_SESSIONS]]),
+      focusedPane: {
+        server: "boardsrv",
+        windowId: "@9",
+        windowName: "pinned-live",
+        panes: [
+          { paneId: "%77", paneIndex: 0, cwd: "/tmp/thin", command: "zsh", isActive: true },
+        ],
+      },
+    });
+    expect(screen.getByText("No window selected")).toBeInTheDocument();
+    expect(paneHeader().textContent).not.toContain("pinned-live");
+  });
+
+  it("keeps 'No window selected' when no focused pane is published (empty board)", () => {
+    renderSidebar({
+      currentServer: null,
+      servers: boardServers,
+      sessionsByServer: boardSessionsMap,
+      focusedPane: null,
+    });
+    expect(screen.getByText("No window selected")).toBeInTheDocument();
+  });
+
+  const HOST_METRICS: MetricsSnapshot = {
+    hostname: "board-host",
+    cpu: { samples: [10], current: 10, cores: 4 },
+    memory: { used: 1024 ** 3, total: 8 * 1024 ** 3 },
+    load: { avg1: 0.1, avg5: 0.1, avg15: 0.1, cpus: 4 },
+    disk: { used: 10 * 1024 ** 3, total: 100 * 1024 ** 3 },
+    uptime: 60,
+  };
+
+  it("HOST dot follows hostMetricsConnected when currentServer is null (board route)", () => {
+    renderSidebar({
+      currentServer: null,
+      servers: boardServers,
+      sessionsByServer: boardSessionsMap,
+      focusedPane: null,
+      hostMetrics: HOST_METRICS,
+      hostMetricsConnected: true,
+    });
+    // The host-global fallback fills the panel (no server-scoped metrics on a
+    // board route) and the dot reads the host-metrics source health, not the
+    // always-false server-scoped signal.
+    expect(screen.getByText("board-host")).toBeInTheDocument();
+    expect(screen.getByTitle("SSE connected")).toBeInTheDocument();
+    expect(screen.queryByText("No metrics")).not.toBeInTheDocument();
+  });
+
+  it("HOST dot shows disconnected when host metrics are stale on the board route", () => {
+    renderSidebar({
+      currentServer: null,
+      servers: boardServers,
+      sessionsByServer: boardSessionsMap,
+      focusedPane: null,
+      hostMetrics: HOST_METRICS,
+      hostMetricsConnected: false,
+    });
+    expect(screen.getByTitle("SSE disconnected")).toBeInTheDocument();
   });
 });

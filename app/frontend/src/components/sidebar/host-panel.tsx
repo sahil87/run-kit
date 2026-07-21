@@ -1,13 +1,23 @@
 import { CollapsiblePanel } from "./collapsible-panel";
 import { HostMetrics } from "../host-metrics";
-import { useMetrics } from "@/contexts/session-context";
+import { useHostMetrics, useMetrics } from "@/contexts/session-context";
 
 type HostPanelProps = {
+  /** Health of whatever source feeds this panel: the current server's
+   *  subscription on server routes, the host-metrics source on the board route
+   *  (where no server-scoped signal exists) — derived by `BottomPanels`. */
   isConnected: boolean;
 };
 
 export function HostPanel({ isConnected }: HostPanelProps) {
-  const metrics = useMetrics();
+  // Server-scoped metrics win when present; fall back to the host-global
+  // metrics broadcast (available on EVERY route) when they are null — the
+  // board route has no `currentServer`, so the server-scoped slice is null by
+  // construction there (260720-zx4i). The two arrive on the same tick when a
+  // server is attached, so the fallback is harmless on server routes too.
+  const serverMetrics = useMetrics();
+  const hostMetrics = useHostMetrics();
+  const metrics = serverMetrics ?? hostMetrics;
   const hostnameHeader = metrics ? (
     <>
       <span className="truncate text-text-primary font-mono">{metrics.hostname}</span>

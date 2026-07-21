@@ -80,6 +80,29 @@ reload.
    reappears within 8s.
 7. Clean up the `runkit-panel-host` localStorage key for the next test.
 
+### `board route populates PANE (focused tile) and HOST (host-metrics fallback)`
+
+**What it proves:** On `/board/$name` — where the route provides no server
+param and both bottom panels used to render empty by construction — the PANE
+panel follows the board's focused tile (resolving the pinned window's
+enriched home-session copy by `windowId` from the sessions stream) and the
+HOST panel falls back to the host-global metrics broadcast, with its dot
+reflecting host-metrics health (260720-zx4i).
+
+**Steps:**
+1. Resolve the test session's window id via `tmux list-windows` and pin it
+   to a fresh board (`panels<suffix>`) via `POST /api/boards/{name}/pin`.
+2. Navigate to `/board/${boardName}` (`domcontentloaded`).
+3. Locate the Pane header button, walk up to the outer panel, and assert
+   `^tmx ` and `^cwd ` rows appear (within 10s) while
+   `No window selected` is absent — the focused-tile fallback filled the
+   panel.
+4. Locate the Host outer panel and assert `cpu` (within 8s, first metrics
+   tick) and `mem` rows render, `No metrics` is absent, and the header dot
+   carries `title="SSE connected"` (host-metrics health source).
+5. `finally`: unpin the window via the API so the shared server carries no
+   leftover board.
+
 ### `Host panel metrics update over multiple SSE ticks`
 
 **What it proves:** Metrics don't stop rendering after the first tick —

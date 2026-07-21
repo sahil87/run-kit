@@ -1285,6 +1285,19 @@ export function MetricsProvider({
   return <MetricsContext.Provider value={value}>{children}</MetricsContext.Provider>;
 }
 
+/** Standalone provider for tests and storybook — supplies a `null` or fake
+ *  host-global metrics value without requiring the full SessionProvider.
+ *  Counterpart to `MetricsProvider` above, for the `useHostMetrics()` seam. */
+export function HostMetricsProvider({
+  value,
+  children,
+}: {
+  value: MetricsSnapshot | null;
+  children: React.ReactNode;
+}) {
+  return <HostMetricsContext.Provider value={value}>{children}</HostMetricsContext.Provider>;
+}
+
 /** Standalone provider for tests — supplies a static SessionContext value
  *  without opening the state socket. Counterpart to `MetricsProvider` above.
  *  Accepts a partial multi-server shape and fills missing fields with safe

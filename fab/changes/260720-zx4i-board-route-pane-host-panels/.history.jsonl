@@ -1,0 +1,15 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-20T16:05:15Z"}
+{"args":"Board route /board/$name: populate the sidebar's empty PANE and HOST bottom panels — HOST falls back to host-global metrics, PANE follows the board's focused tile via a new focused-pane context with windowId lookup in sessionsByServer (frontend-only)","cmd":"fab-new","event":"command","ts":"2026-07-20T16:05:15Z"}
+{"delta":"+5.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-07-20T16:06:43Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-07-20T16:07:08Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-07-20T16:07:28Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-07-20T16:08:21Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-20T16:09:27Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-20T16:09:37Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-20T16:10:43Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-20T16:28:49Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-20T16:33:57Z"}
+{"event":"review","result":"passed","ts":"2026-07-20T16:33:57Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-20T16:37:25Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-07-20T16:38:46Z"}
+{"event":"review","result":"passed","ts":"2026-07-20T16:46:38Z"}

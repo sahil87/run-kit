@@ -2,6 +2,8 @@ import { useState, useCallback, useRef, useEffect, useMemo, useReducer, memo } f
 import { useNavigate } from "@tanstack/react-router";
 import { killSession as killSessionApi, killWindow as killWindowApi, renameSession, moveWindow, moveWindowToSession, setSessionColor as setSessionColorApi, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, getAllServerColors, setServerColor as setServerColorApi, setSessionOrder, type ServerInfo } from "@/api/client";
 import { useSessionContext } from "@/contexts/session-context";
+import { useFocusedPane } from "@/contexts/focused-pane-context";
+import { resolveFocusedWindow, thinWindowFromFocusedPane } from "@/lib/focused-pane-window";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useOptimisticContext } from "@/contexts/optimistic-context";
 import { useToast } from "@/components/toast";
@@ -1260,7 +1262,11 @@ export function Sidebar({
 }
 
 /** Bottom of sidebar: WindowPanel (selected window status) + HostPanel (metrics).
- *  Pulls from context so the data follows `currentServer`. */
+ *  Pulls from context so the data follows `currentServer`. On the board route
+ *  (`currentServer === null`) the route provides no window, so the PANE panel
+ *  follows the board's focused tile via the focused-pane context instead
+ *  (260720-zx4i), and the HOST dot reflects host-metrics health rather than the
+ *  always-false server-scoped signal. */
 function BottomPanels({
   currentServer,
   currentSessionName,
@@ -1271,12 +1277,33 @@ function BottomPanels({
   currentWindowId: string | null;
 }) {
   const ctx = useSessionContext();
+  const focusedPane = useFocusedPane();
   const sessions = currentServer ? ctx.sessionsByServer.get(currentServer) ?? [] : [];
-  const isConnected = currentServer ? ctx.isConnectedByServer.get(currentServer) ?? false : false;
-  const selectedWindow = currentSessionName && currentWindowId != null
+  // HOST dot source: the current server's subscription health when a server
+  // route is active; otherwise (board route) the host-metrics source health
+  // that feeds HostPanel's host-global fallback.
+  const isConnected = currentServer
+    ? ctx.isConnectedByServer.get(currentServer) ?? false
+    : ctx.hostMetricsConnected;
+  const routeWindow = currentSessionName && currentWindowId != null
     ? sessions.find((s) => s.name === currentSessionName)
         ?.windows.find((w) => w.windowId === currentWindowId) ?? null
     : null;
+  // Focused-tile fallback (board route): resolve the published focused pane to
+  // its fully-enriched home-session copy by windowId (dual home+pin membership
+  // keeps it in the sessions stream); a miss means a pin-only window (home
+  // session died), which gets a thin render from the board entry's own pane
+  // data — registers honestly absent. Gated on the board route itself
+  // (`currentServer === null`), NOT on `!routeWindow` — on a server route a
+  // temporarily-unresolved route window (sessions snapshot not yet arrived)
+  // must show the empty state, never a stale board-focused window.
+  const fallbackWindow = !currentServer && focusedPane
+    ? resolveFocusedWindow(
+        ctx.sessionsByServer.get(focusedPane.server) ?? [],
+        focusedPane.windowId,
+      ) ?? thinWindowFromFocusedPane(focusedPane)
+    : null;
+  const selectedWindow = routeWindow ?? fallbackWindow;
   return (
     <>
       <WindowPanel window={selectedWindow} />

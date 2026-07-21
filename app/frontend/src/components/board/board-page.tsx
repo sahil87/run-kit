@@ -17,6 +17,7 @@ import { Shell } from "@/components/shell/shell";
 import { Sidebar } from "@/components/sidebar";
 import { HELP_URL } from "@/components/top-bar";
 import { useRegisterTopBarSlot } from "@/contexts/top-bar-slot-context";
+import { useRegisterFocusedPane } from "@/contexts/focused-pane-context";
 import { createSession, createWindow as createWindowApi, killServer as killServerApi, createServer, splitWindow, killWindow } from "@/api/client";
 import { setBoardOrder } from "@/api/boards";
 import { computeMoveOrder } from "@/lib/palette-move";
@@ -459,14 +460,17 @@ function BoardPageContent({ name }: { name: string }) {
   // focused window shared by the top-bar SplitButtons + ✕ slot AND the three
   // board split/close palette actions below (260715-6jwn). `cwd` comes from the
   // focused entry's ACTIVE pane (fallback: first pane; else undefined →
-  // splitWindow omits it and tmux uses its default). Pinned windows live in
-  // `_rk-pin-*` sessions filtered out of every session list (incl. the SSE
-  // stream), so we can NOT look the window up in `ctx.sessionsByServer`;
-  // `BoardEntry.panes` already carries per-pane cwd + isActive from the getBoard
-  // join, matching terminal-mode's active-pane worktreePath semantics. Null when
-  // the board is empty (no focused tile). Declared ABOVE `boardRouteActions` so
-  // the palette handlers consume it directly instead of re-deriving the
-  // active-pane cwd (parsimony — one derivation, one source of truth).
+  // splitWindow omits it and tmux uses its default). Board pins are LINK-based
+  // with dual home+pin membership: only the `_rk-pin-*` pin-session copy is
+  // filtered from session lists — the HOME-session copy of a pinned window IS
+  // in `ctx.sessionsByServer` (see the waitingWindowIds/homeSessionByKey joins
+  // below). `BoardEntry.panes` is used here anyway because it already carries
+  // per-pane cwd + isActive from the getBoard join (matching terminal-mode's
+  // active-pane worktreePath semantics) and stays available even for a
+  // pin-only window whose home session died. Null when the board is empty (no
+  // focused tile). Declared ABOVE `boardRouteActions` so the palette handlers
+  // consume it directly instead of re-deriving the active-pane cwd (parsimony
+  // — one derivation, one source of truth).
   const focusedPane = useMemo(() => {
     const e = entries[focusedIndex];
     if (!e) return null;
@@ -474,6 +478,29 @@ function BoardPageContent({ name }: { name: string }) {
     const active = panes.find((p) => p.isActive) ?? panes[0];
     return { server: e.server, windowId: e.windowId, cwd: active?.cwd };
   }, [entries, focusedIndex]);
+
+  // Publish the focused tile into the shared focused-pane context (260720-zx4i)
+  // so the sidebar's bottom PANE panel can follow it on the board route (where
+  // the route provides no selected window). Carries the entry's `windowName` +
+  // `panes` alongside the identity — the thin-fallback data for a pin-only
+  // window absent from the sessions stream. Memoized on the focused entry so
+  // the registration effect re-runs only when focus (or that entry's data)
+  // changes; `null` while the board is empty. Cleared on unmount by the hook.
+  const focusedEntry = entries[focusedIndex];
+  useRegisterFocusedPane(
+    useMemo(
+      () =>
+        focusedEntry
+          ? {
+              server: focusedEntry.server,
+              windowId: focusedEntry.windowId,
+              windowName: focusedEntry.windowName,
+              panes: focusedEntry.panes ?? [],
+            }
+          : null,
+      [focusedEntry],
+    ),
+  );
 
   // Unpin the focused tile (non-destructive move-out). The board ✕ became a
   // REAL close-pane in 260715-6jwn (uniform with terminal mode — it kills the

@@ -944,9 +944,9 @@ describe("WindowRow", () => {
       const stripe = zone.querySelector('[style*="border-left"]') as HTMLElement | null;
       expect(stripe).not.toBeNull();
       expect(stripe!.style.borderLeft).toContain("solid");
-      // Edge-anchored: a small 2px inset from the sidebar edge (full-bleed
+      // Edge-anchored: a small 4px inset from the sidebar edge (full-bleed
       // rows), not the old 17px post-icon-zone placement.
-      expect(stripe!.style.left).toBe("2px");
+      expect(stripe!.style.left).toBe("4px");
       // No next-state ghost preview element exists anymore.
       expect(zone.querySelectorAll('[style*="border-left"]').length).toBe(1);
       // Container must not be present twice (single stripe).
@@ -961,10 +961,10 @@ describe("WindowRow", () => {
       // stripe carry no aria-hidden).
       const icon = zone.querySelector('[aria-hidden="true"]') as HTMLElement | null;
       expect(icon).not.toBeNull();
-      // Inset ICON_EDGE_INSET (10px) off the sidebar edge — past the widest
-      // (double) stripe's 8px right edge — with the 12px icon-zone width
+      // Inset ICON_EDGE_INSET (12px) off the sidebar edge — past the widest
+      // (double) stripe's 10px right edge — with the 12px icon-zone width
       // unchanged, so the hover icon sits beside the stripe, not over it.
-      expect(icon!.style.left).toBe("10px");
+      expect(icon!.style.left).toBe("12px");
       expect(icon!.style.width).toBe("12px");
     });
   });

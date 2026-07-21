@@ -469,13 +469,13 @@ function WindowRowInner({
  *  marker stripe anchors near-flush at the sidebar edge (`STRIPE_EDGE_INSET`);
  *  the hover palette-icon zone is inset `ICON_EDGE_INSET`px off that edge,
  *  spanning to `ICON_EDGE_INSET + ICON_ZONE_WIDTH` — past the widest (double,
- *  2+6=8px) stripe, so the hover icon sits beside the stripe rather than over
+ *  4+6=10px) stripe, so the hover icon sits beside the stripe rather than over
  *  it. The icon keeps an explicit `z-10` (layering below) as a guard for any
  *  residual sub-pixel overlap. */
 const LABEL_ZONE_WIDTH = 26; // full zone: icon home + clearance before the dot
 const ICON_ZONE_WIDTH = 12; // 12px icon zone: home of the hover palette icon
-const ICON_EDGE_INSET = 10; // icon-zone inset off the physical sidebar edge — clears the widest (double, 2+6=8px) marker stripe so the hover icon sits beside it, not over it
-const STRIPE_EDGE_INSET = 2; // stripe inset from the zone's/sidebar's left edge (near-flush per the full-bleed spec)
+const ICON_EDGE_INSET = 12; // icon-zone inset off the physical sidebar edge — clears the widest (double, 4+6=10px) marker stripe so the hover icon sits beside it, not over it
+const STRIPE_EDGE_INSET = 4; // stripe inset from the zone's/sidebar's left edge (near-flush per the full-bleed spec)
 
 type LabelZoneProps = {
   marker?: string;
@@ -497,7 +497,7 @@ type LabelZoneProps = {
  *  The marker stripe is DISPLAY-ONLY, anchored near-flush at the sidebar's left
  *  edge (`STRIPE_EDGE_INSET`px). The icon zone is inset `ICON_EDGE_INSET`px off
  *  the physical edge (spanning to `ICON_EDGE_INSET + ICON_ZONE_WIDTH`) so the
- *  hover icon clears both the sidebar boundary and the widest (8px) stripe,
+ *  hover icon clears both the sidebar boundary and the widest (10px) stripe,
  *  sitting beside it (explicit `z-10` on the icon container guards residual
  *  overlap; the zone's own `z-20` scopes the stack). `cursor: pointer` (menu-opener
  *  semantics). Active on coarse pointers — touch gets direct label access.

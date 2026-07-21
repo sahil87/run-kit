@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
+// Import from the leaf module, NOT "./router" — the route tree transitively
+// imports xterm's unicode-graphemes addon, whose import-time init is a
+// documented CI flake ("Data error") that killed this suite before any test
+// ran. The leaf import keeps this suite xterm-free by construction.
 import {
   urlSegmentToWindowId,
   windowIdToUrlSegment,
   validateTerminalSearch,
-} from "./router";
+} from "./router-url";
 
 // The terminal route serializes the tmux window id (@N) as its numeric part
 // only in the URL. These cover both directions of that mapping and the

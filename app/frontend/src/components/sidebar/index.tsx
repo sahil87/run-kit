@@ -9,7 +9,7 @@ import { useOptimisticContext } from "@/contexts/optimistic-context";
 import { useToast } from "@/components/toast";
 import { TypedLabel } from "@/components/typed-label";
 import { useTheme } from "@/contexts/theme-context";
-import { computeRowTints, computeRowBorders } from "@/themes";
+import { computeRowTints, computeRowBorders, UNCOLORED_SELECTED_KEY } from "@/themes";
 import type { ProjectSession } from "@/types";
 import { isGhostWindow } from "@/contexts/optimistic-context";
 import type { MergedSession } from "@/contexts/optimistic-context";
@@ -1536,20 +1536,53 @@ function ServerGroupInner(props: ServerGroupProps) {
     registerGroupRows(server, rowSignature, rowSlice);
   }, [registerGroupRows, server, rowSignature, rowSlice]);
 
+  // Server-group header tint (Variant D): the header renders as a filled bar
+  // carrying the server's color. Colors resolve through the shared precomputed
+  // maps (dual-keyed: family name + legacy descriptor) — the same entries the
+  // SERVER panel tiles use. Servers without an assigned color (or with an
+  // unrecognized descriptor) fall back to the gray sentinel so colored and
+  // uncolored groups read as the same element class. The current server reads
+  // deeper (selected shade) with brighter text; others rest at base and hover
+  // to the hover shade. The current header stays flat on hover — the hover
+  // shade (22%) is lighter than selected (40%) and would read as an inverted
+  // effect (the same rule CollapsiblePanel applies to its selected-shade
+  // header).
+  const headerTintKey =
+    serverColor != null && rowTints.has(serverColor) ? serverColor : UNCOLORED_SELECTED_KEY;
+  const headerTint = rowTints.get(headerTintKey);
+  const headerAccent = rowBorders.get(headerTintKey);
+  const headerBg = headerTint ? (isCurrent ? headerTint.selected : headerTint.base) : undefined;
+  const headerHoverBg = headerTint && !isCurrent ? headerTint.hover : undefined;
+
   return (
     <section
       className="border-b border-border last:border-b-0"
       aria-labelledby={`server-header-${server}`}
     >
-      {/* Server header — thin section break with a chevron disclosure marker
-          to match the rest of the sidebar's collapse/expand convention.
-          Active server gets brighter + medium-weight text; inactive stays
-          dim. */}
+      {/* Server header — a tinted filled bar carrying the server's color, with
+          a chevron disclosure marker to match the rest of the sidebar's
+          collapse/expand convention. The active server gets the deeper
+          selected fill + brighter text; inactive rests at the base fill with
+          the guarded accent text and deepens on hover. */}
       <div
-        className="flex items-stretch w-full"
+        className="flex items-stretch w-full transition-colors"
         aria-current={isCurrent ? "true" : undefined}
         data-current-server={isCurrent ? "true" : undefined}
         data-server={server}
+        style={{
+          backgroundColor: headerBg,
+          borderTop: headerAccent ? `1px solid ${headerAccent}` : undefined,
+        }}
+        onMouseEnter={
+          headerHoverBg
+            ? (e) => { (e.currentTarget as HTMLElement).style.backgroundColor = headerHoverBg; }
+            : undefined
+        }
+        onMouseLeave={
+          headerHoverBg && headerBg
+            ? (e) => { (e.currentTarget as HTMLElement).style.backgroundColor = headerBg; }
+            : undefined
+        }
       >
         <button
           id={`server-header-${server}`}
@@ -1557,11 +1590,10 @@ function ServerGroupInner(props: ServerGroupProps) {
           onClick={() => onToggleOpen(server)}
           aria-expanded={isOpen}
           aria-label={isOpen ? `Collapse ${server} sessions` : `Expand ${server} sessions`}
-          className={`flex-1 min-w-0 flex items-center gap-1.5 pl-2 pr-1.5 text-left text-[10px] uppercase tracking-wider min-h-[20px] coarse:min-h-[28px] transition-colors hover:bg-bg-card/30 ${
-            isCurrent
-              ? "text-text-primary font-medium"
-              : "text-text-secondary hover:text-text-primary"
+          className={`flex-1 min-w-0 flex items-center gap-1.5 pl-2 pr-1.5 text-left text-[10px] uppercase tracking-wider font-semibold min-h-[26px] coarse:min-h-[28px] transition-colors ${
+            isCurrent ? "text-text-primary" : ""
           }`}
+          style={!isCurrent && headerAccent ? { color: headerAccent } : undefined}
         >
           <span
             className="inline-block transition-transform duration-150 shrink-0"

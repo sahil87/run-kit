@@ -2368,6 +2368,13 @@ function AppShell() {
     },
     [server, handleCreateSessionInstant, executeCreateSessionInstant],
   );
+  // Stable kill-server handler (260721-x4sf): `onKillServer` now threads into
+  // the memoized `ServerGroup` header cluster, so an inline arrow here would
+  // hand every group a fresh identity per SSE tick and defeat the memo skip.
+  // `setKillServerTarget` is a stable state setter — no deps.
+  const handleSidebarKillServer = useCallback((name: string) => {
+    setKillServerTarget(name);
+  }, []);
 
   // Waiting-badge click (260714-r7rq): navigate to the NEXT waiting window
   // within the clicked session's scope, reusing the `nextWaitingTarget` cycle
@@ -2510,7 +2517,7 @@ function AppShell() {
       onCreateSession={handleSidebarCreateSession}
       onSpawnAgent={handleOpenSpawnAgent}
       onCreateServer={() => setShowCreateServerDialog(true)}
-      onKillServer={(name) => setKillServerTarget(name)}
+      onKillServer={handleSidebarKillServer}
       onSidebarResizeStart={isMobile ? undefined : (e) => handleDragStart(e.clientX)}
     />
   );

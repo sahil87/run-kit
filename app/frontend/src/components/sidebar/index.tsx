@@ -1,4 +1,5 @@
-import { useState, useCallback, useRef, useEffect, useMemo, useReducer, memo } from "react";
+import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo, useReducer, memo } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "@tanstack/react-router";
 import { killSession as killSessionApi, killWindow as killWindowApi, renameSession, moveWindow, moveWindowToSession, setSessionColor as setSessionColorApi, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, getAllServerColors, setServerColor as setServerColorApi, setSessionOrder, type ServerInfo } from "@/api/client";
 import { useSessionContext } from "@/contexts/session-context";
@@ -8,6 +9,8 @@ import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useOptimisticContext } from "@/contexts/optimistic-context";
 import { useToast } from "@/components/toast";
 import { TypedLabel } from "@/components/typed-label";
+import { SwatchPopover } from "@/components/swatch-popover";
+import { PaletteIcon } from "./icons";
 import { useTheme } from "@/contexts/theme-context";
 import { computeRowTints, computeRowBorders, UNCOLORED_SELECTED_KEY } from "@/themes";
 import type { ProjectSession } from "@/types";
@@ -1069,6 +1072,23 @@ export function Sidebar({
     );
   }, [addToast]);
 
+  // Server color write seam — the SINGLE implementation both the SERVER-panel
+  // tiles and the session-tree group headers funnel through (x4sf): optimistic
+  // `serverColors` update (the local repaint — server user-option mutations
+  // emit no control-mode event, so covered servers otherwise wait on the 12s
+  // safety poll) + POST + failure toast. Stable identity-arg callback so it
+  // rides the ServerGroup memo contract like the other row handlers.
+  const handleServerColorChange = useCallback((targetServer: string, c: string | null) => {
+    setServerColors((prev) => {
+      const next = { ...prev };
+      if (c == null) { delete next[targetServer]; } else { next[targetServer] = c; }
+      return next;
+    });
+    setServerColorApi(targetServer, c).catch((err) =>
+      addToast(err.message || "Failed to set server color"),
+    );
+  }, [addToast]);
+
   // `current` scope narrows to the resolved current server. When no current
   // server resolves — board route (`currentServer === null`) or a
   // stale/deleted route param not in the list — fall back to showing all
@@ -1101,16 +1121,7 @@ export function Sidebar({
         onKillServer={onKillServer}
         onRefreshServers={refreshServers}
         onSidebarResizeStart={onSidebarResizeStart}
-        onServerColorChange={(targetServer, c) => {
-          setServerColors((prev) => {
-            const next = { ...prev };
-            if (c == null) { delete next[targetServer]; } else { next[targetServer] = c; }
-            return next;
-          });
-          setServerColorApi(targetServer, c).catch((err) =>
-            addToast(err.message || "Failed to set server color"),
-          );
-        }}
+        onServerColorChange={handleServerColorChange}
       />
 
       {/* Sessions — flex-grows to fill remaining space; per-server groups inside */}
@@ -1226,6 +1237,8 @@ export function Sidebar({
                 onWindowRenameKeyDown={handleWindowRenameKeyDown}
                 onWindowRenameBlur={handleWindowRenameBlur}
                 onSessionColorChange={handleSessionColorChange}
+                onServerColorChange={handleServerColorChange}
+                onKillServer={onKillServer}
                 onWindowColorChange={handleWindowColorChange}
                 onWindowMarkerChange={handleWindowMarkerChange}
                 onWindowDragStart={handleDragStart}
@@ -1381,6 +1394,12 @@ type ServerGroupProps = {
   onWindowRenameKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
   onWindowRenameBlur: () => void;
   onSessionColorChange: (server: string, name: string, color: string | null) => void;
+  /** Server color write seam (x4sf) — the same shared handler `ServerPanel`
+   *  receives (optimistic update + POST + toast). Stable identity. */
+  onServerColorChange: (server: string, color: string | null) => void;
+  /** Kill-server request (x4sf) — routes to the parent's confirmation dialog
+   *  (`killServerTarget` in app.tsx / board-page.tsx); never kills directly. */
+  onKillServer: (name: string) => void;
   onWindowColorChange: (server: string, session: string, windowId: string, color: string | null) => void;
   onWindowMarkerChange: (server: string, session: string, windowId: string, marker: string | null) => void;
   onWindowDragStart: (e: React.DragEvent, server: string, session: string, index: number, windowId: string, name: string) => void;
@@ -1446,6 +1465,8 @@ function ServerGroupInner(props: ServerGroupProps) {
     onWindowRenameKeyDown,
     onWindowRenameBlur,
     onSessionColorChange,
+    onServerColorChange,
+    onKillServer,
     onWindowColorChange,
     onWindowMarkerChange,
     onWindowDragStart,
@@ -1554,6 +1575,31 @@ function ServerGroupInner(props: ServerGroupProps) {
   const headerBg = headerTint ? (isCurrent ? headerTint.selected : headerTint.base) : undefined;
   const headerHoverBg = headerTint && !isCurrent ? headerTint.hover : undefined;
 
+  // Header color picker (x4sf). Local per-group boolean — each group renders
+  // exactly one header, so the ServerPanel's keyed `colorPickerFor` map isn't
+  // needed (the session-row precedent). The popover is portalled to
+  // document.body with fixed coordinates anchored at the palette button,
+  // escaping the session list's overflow-y clip — the same reason (and flip
+  // heuristic) as the ServerTile portal in server-panel.tsx.
+  const [showColorPicker, setShowColorPicker] = useState(false);
+  const paletteBtnRef = useRef<HTMLButtonElement>(null);
+  const [popoverPos, setPopoverPos] = useState<{ top: number; right: number } | null>(null);
+  useLayoutEffect(() => {
+    if (!showColorPicker || !paletteBtnRef.current) {
+      setPopoverPos(null);
+      return;
+    }
+    const rect = paletteBtnRef.current.getBoundingClientRect();
+    const approxPopoverHeight = 100; // rough; fine for flip heuristic
+    const below = rect.bottom + 4;
+    const fitsBelow = below + approxPopoverHeight <= window.innerHeight;
+    const top = fitsBelow ? below : Math.max(4, rect.top - approxPopoverHeight - 4);
+    setPopoverPos({
+      top,
+      right: Math.max(4, window.innerWidth - rect.right),
+    });
+  }, [showColorPicker]);
+
   return (
     <section
       className="border-b border-border last:border-b-0"
@@ -1565,7 +1611,7 @@ function ServerGroupInner(props: ServerGroupProps) {
           selected fill + brighter text; inactive rests at the base fill with
           the guarded accent text and deepens on hover. */}
       <div
-        className="flex items-stretch w-full transition-colors"
+        className="group flex items-stretch w-full transition-colors"
         aria-current={isCurrent ? "true" : undefined}
         data-current-server={isCurrent ? "true" : undefined}
         data-server={server}
@@ -1604,13 +1650,67 @@ function ServerGroupInner(props: ServerGroupProps) {
           </span>
           <span className="truncate">{server}</span>
         </button>
-        <button
-          onClick={() => onCreateSession(server)}
-          aria-label={`New session on ${server}`}
-          className="text-text-secondary hover:text-text-primary transition-colors text-[13px] px-1.5 sm:pr-2 flex items-center justify-center"
+        {/* Server action cluster (x4sf): palette → plus → close. The wrapper
+            carries the header's text treatment (inline contrast-guarded accent
+            for non-current headers / text-text-primary for the current one) so
+            the icons stay legible on the tinted fill; buttons INHERIT it at
+            rest, which lets their own Tailwind hover: classes win on hover
+            (an inline color on the buttons themselves would beat any class).
+            The palette is hover-revealed with the coarse touch fallback (the
+            session-row convention — NOT the SERVER-tile mobile hide); + and ✕
+            are always visible, exactly like the session row's + ✕ pair. */}
+        <div
+          className={`flex items-stretch ${isCurrent ? "text-text-primary" : ""}`}
+          style={!isCurrent && headerAccent ? { color: headerAccent } : undefined}
         >
-          +
-        </button>
+          <button
+            ref={paletteBtnRef}
+            type="button"
+            onClick={() => setShowColorPicker((v) => !v)}
+            aria-label={`Set color for server ${server}`}
+            className="opacity-0 group-hover:opacity-100 coarse:opacity-100 focus-visible:opacity-100 transition-opacity px-1 flex items-center justify-center"
+          >
+            <PaletteIcon />
+          </button>
+          <button
+            type="button"
+            onClick={() => onCreateSession(server)}
+            aria-label={`New session on ${server}`}
+            className="hover:text-text-primary transition-colors text-[13px] px-1 flex items-center justify-center"
+          >
+            +
+          </button>
+          <button
+            type="button"
+            onClick={() => onKillServer(server)}
+            aria-label={`Kill server ${server}`}
+            className="hover:text-red-400 transition-colors text-[13px] px-1 pr-1.5 sm:pr-2 flex items-center justify-center"
+          >
+            {"✕"}
+          </button>
+        </div>
+        {/* Color picker portalled to body so it escapes the sessions list's
+            overflow-y: auto clip (the ServerTile precedent). */}
+        {showColorPicker && popoverPos && createPortal(
+          <div
+            style={{
+              position: "fixed",
+              top: popoverPos.top,
+              right: popoverPos.right,
+              zIndex: 100,
+            }}
+          >
+            <SwatchPopover
+              selectedColor={serverColor}
+              onSelect={(c) => {
+                onServerColorChange(server, c);
+                setShowColorPicker(false);
+              }}
+              onClose={() => setShowColorPicker(false)}
+            />
+          </div>,
+          document.body,
+        )}
       </div>
 
       {isOpen && (
@@ -1795,7 +1895,13 @@ function ServerGroupInner(props: ServerGroupProps) {
  *  identity-arg `useCallback` and the context Map/array props (`rowTints`,
  *  `rowBorders`, `allBoards`, `pinnedSet`, `pinnedToBoard`,
  *  `isPinnedToActiveBoardFor`) are stable refs — so a tick on server B does not
- *  re-render server A's group at all. The group whose `rawSessions`/order/
+ *  re-render server A's group at all. The header action-cluster props added by
+ *  x4sf ride the same contract: `onServerColorChange` is a stable identity-arg
+ *  `useCallback` in `Sidebar` (shared with `ServerPanel`) and `onKillServer` is
+ *  the Sidebar prop passed through unchanged — itself stabilized at BOTH
+ *  parents as an identity-arg `useCallback` (`handleSidebarKillServer` in
+ *  app.tsx and board-page.tsx), so the stability holds end-to-end from the
+ *  `setKillServerTarget` source. The group whose `rawSessions`/order/
  *  connection actually changed still re-renders (correct). (`boardsLoading` is a
  *  primitive that flips true→false once when the board list finishes loading —
  *  a legitimate one-time re-render of every group, not per-tick churn.) */

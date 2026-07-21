@@ -1040,6 +1040,14 @@ function BoardPageContent({ name }: { name: string }) {
     [navigate, isMobile, setSidebarOpen],
   );
 
+  // Stable kill-server handler — same R6a reasoning as handleSelectWindow:
+  // `onKillServer` threads into the memoized `ServerGroup` header cluster
+  // (260721-x4sf), so an inline arrow would defeat the memo skip on every SSE
+  // tick. `setKillServerTarget` is a stable state setter — no deps.
+  const handleSidebarKillServer = useCallback((name: string) => {
+    setKillServerTarget(name);
+  }, []);
+
   // Sidebar element shared between desktop grid placement and mobile overlay.
   // `currentServer = null` because the board route has no `$server` param —
   // no group is marked current and all server groups follow persisted toggles.
@@ -1052,7 +1060,7 @@ function BoardPageContent({ name }: { name: string }) {
       onCreateWindow={handleCreateWindow}
       onCreateSession={handleCreateSession}
       onCreateServer={() => setShowCreateServerDialog(true)}
-      onKillServer={(n) => setKillServerTarget(n)}
+      onKillServer={handleSidebarKillServer}
     />
   );
 

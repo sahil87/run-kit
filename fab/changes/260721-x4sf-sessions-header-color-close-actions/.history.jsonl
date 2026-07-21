@@ -1,0 +1,22 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-21T05:10:08Z"}
+{"args":"Sidebar SESSIONS pane — color-picker and close buttons on server-group header rows. Order: color palette, plus, close. Follow-on to t1ca (PR #431 tinted headers).","cmd":"fab-new","event":"command","ts":"2026-07-21T05:10:08Z"}
+{"delta":"+4.1","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-07-21T05:12:23Z"}
+{"cmd":"fab-proceed:create-intake","event":"command","ts":"2026-07-21T05:12:31Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-07-21T05:13:09Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-21T05:14:21Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-21T05:14:21Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-21T05:15:22Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-21T05:25:07Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-21T05:25:48Z"}
+{"event":"review","result":"failed","ts":"2026-07-21T05:30:06Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-21T05:30:06Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-21T05:31:26Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-21T05:34:50Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-21T05:35:30Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-21T05:38:46Z"}
+{"event":"review","result":"passed","ts":"2026-07-21T05:38:46Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-21T05:39:27Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-21T05:42:29Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-07-21T05:44:28Z"}
+{"cmd":"git-pr-review","event":"command","ts":"2026-07-21T05:46:02Z"}
+{"event":"review","result":"passed","ts":"2026-07-21T05:51:47Z"}

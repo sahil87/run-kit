@@ -1131,7 +1131,7 @@ describe("Sidebar — server-group header action cluster (x4sf)", () => {
     expect(container.className).toContain("group");
 
     const paletteBtn = within(container).getByRole("button", { name: "Set color for server alpha" });
-    for (const cls of ["opacity-0", "group-hover:opacity-100", "coarse:opacity-100"]) {
+    for (const cls of ["opacity-0", "group-hover:opacity-100", "coarse:opacity-100", "focus-visible:opacity-100"]) {
       expect(paletteBtn.className).toContain(cls);
     }
     const plus = within(container).getByRole("button", { name: "New session on alpha" });

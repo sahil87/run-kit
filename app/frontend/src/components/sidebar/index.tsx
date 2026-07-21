@@ -1668,7 +1668,7 @@ function ServerGroupInner(props: ServerGroupProps) {
             type="button"
             onClick={() => setShowColorPicker((v) => !v)}
             aria-label={`Set color for server ${server}`}
-            className="opacity-0 group-hover:opacity-100 coarse:opacity-100 transition-opacity px-1 flex items-center justify-center"
+            className="opacity-0 group-hover:opacity-100 coarse:opacity-100 focus-visible:opacity-100 transition-opacity px-1 flex items-center justify-center"
           >
             <PaletteIcon />
           </button>

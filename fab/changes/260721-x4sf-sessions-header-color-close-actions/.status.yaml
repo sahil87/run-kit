@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 5
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-07-21T05:30:06Z", driver: fab-fff, iterations: 2, completed_at: "2026-07-21T05:34:50Z"}
     review: {started_at: "2026-07-21T05:34:50Z", driver: fab-fff, iterations: 2, completed_at: "2026-07-21T05:38:46Z"}
     hydrate: {started_at: "2026-07-21T05:38:46Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-21T05:42:29Z"}
-    ship: {started_at: "2026-07-21T05:42:29Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-07-21T05:42:29Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-21T05:44:28Z"}
+    review-pr: {started_at: "2026-07-21T05:44:28Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/432
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 677
+    deleted: 26
+    net: 651
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 318
+        deleted: 23
+        net: 295
     tests:
         added: 0
         deleted: 0
         net: 0
-    computed_at: "2026-07-21T05:42:29Z"
-    computed_at_stage: hydrate
+    computed_at: "2026-07-21T05:44:28Z"
+    computed_at_stage: ship
 summary: SESSIONS-pane server-group header gains a palette/plus/close action cluster sharing the ServerTile color write seam and lifted kill-confirmation flow
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-07-21T05:42:29Z
+last_updated: 2026-07-21T05:44:28Z

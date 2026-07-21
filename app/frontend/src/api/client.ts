@@ -591,6 +591,10 @@ export async function setSessionColor(
 export type ServerInfo = {
   name: string;
   sessionCount: number;
+  /** Total window count across the server's sessions (summed server-side from
+   *  `#{session_windows}`; group copies excluded). Optional mirroring `rank` —
+   *  the backend always sends it, but test fixtures may omit it. */
+  windowCount?: number;
   /** User-defined display rank (@rk_server_rank). null/undefined when unset —
    *  unranked servers sort after ranked ones within the regular class. */
   rank?: number | null;

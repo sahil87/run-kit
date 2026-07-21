@@ -1118,10 +1118,8 @@ export function Sidebar({
         rowBorders={rowBorders}
         onSwitchServer={handleSwitchServer}
         onCreateServer={onCreateServer}
-        onKillServer={onKillServer}
         onRefreshServers={refreshServers}
         onSidebarResizeStart={onSidebarResizeStart}
-        onServerColorChange={handleServerColorChange}
       />
 
       {/* Sessions — flex-grows to fill remaining space; per-server groups inside */}

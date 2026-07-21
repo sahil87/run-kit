@@ -1,0 +1,11 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-21T19:44:27Z"}
+{"args":"Sidebar SERVER panel: tighten tiles in place (~48px→~38px, h-0.5 stripe, h-3.5 count reserve), replace 'N sess' with bare window count + tooltip, backend windowCount via #{session_windows}, remove tile hover palette/kill cluster, add Server: Kill… palette listing, grid floor 88→72px, drop redundant header server name, lower panel height constants","cmd":"fab-new","event":"command","ts":"2026-07-21T19:44:27Z"}
+{"delta":"+3.9","event":"confidence","score":3.9,"trigger":"calc-score","ts":"2026-07-21T19:47:02Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-07-21T19:48:02Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-21T19:49:38Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-21T19:49:50Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-21T19:50:31Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-21T20:07:38Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-21T20:13:17Z"}
+{"event":"review","result":"passed","ts":"2026-07-21T20:13:17Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-21T20:18:46Z"}

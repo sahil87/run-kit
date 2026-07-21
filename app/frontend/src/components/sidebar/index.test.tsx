@@ -9,7 +9,7 @@ import { ThemeProvider } from "@/contexts/theme-context";
 import { ChromeProvider } from "@/contexts/chrome-context";
 import { ToastProvider } from "@/components/toast";
 import { useWindowStore } from "@/store/window-store";
-import { getAllServerColors } from "@/api/client";
+import { getAllServerColors, setServerColor } from "@/api/client";
 import {
   computeRowTints,
   computeRowBorders,
@@ -87,6 +87,9 @@ type RenderOpts = {
   hostMetricsConnected?: boolean;
   /** Host-global metrics snapshot fed to HostMetricsProvider (defaults null). */
   hostMetrics?: MetricsSnapshot | null;
+  /** Override the Sidebar's onKillServer prop (x4sf) — the header ✕ routes
+   *  through it; tests assert the invocation, never a direct kill call. */
+  onKillServer?: (name: string) => void;
 };
 
 /** Mounts BoardPage's registration seam inside the provider (260720-zx4i). */
@@ -132,7 +135,7 @@ function renderSidebar(opts: RenderOpts = {}) {
                       onCreateWindow={vi.fn()}
                       onCreateSession={vi.fn()}
                       onCreateServer={vi.fn()}
-                      onKillServer={vi.fn()}
+                      onKillServer={opts.onKillServer ?? vi.fn()}
                     />
                   </ChromeProvider>
                 </FocusedPaneProvider>
@@ -1067,5 +1070,176 @@ describe("Sidebar — tinted server-group header fill (t1ca)", () => {
     expect(
       within(headerContainer("alpha")).getByRole("button", { name: "New session on alpha" }),
     ).toBeInTheDocument();
+  });
+});
+
+describe("Sidebar — server-group header action cluster (x4sf)", () => {
+  // The header hosts a three-button server action cluster — palette, plus,
+  // close, in that fixed order — reusing the SERVER-tile machinery wholesale:
+  // SwatchPopover + the shared onServerColorChange seam for color, the lifted
+  // onKillServer confirmation flow for kill. Queries are scoped WITHIN the
+  // header container ([data-server]) because the SERVER-panel tiles carry the
+  // same aria wording for the same actions.
+  const palette = DEFAULT_DARK_THEME.palette;
+  const tints = computeRowTints(palette);
+  const borders = computeRowBorders(palette, DEFAULT_DARK_THEME.category);
+
+  /** jsdom normalizes inline style colors to `rgb(r, g, b)`. */
+  function rgb(hex: string): string {
+    const h = hex.replace("#", "");
+    return `rgb(${parseInt(h.slice(0, 2), 16)}, ${parseInt(h.slice(2, 4), 16)}, ${parseInt(h.slice(4, 6), 16)})`;
+  }
+
+  function headerContainer(server: string): HTMLElement {
+    const el = document.querySelector<HTMLElement>(`[data-server='${server}']`);
+    expect(el, `header container for ${server}`).toBeTruthy();
+    return el!;
+  }
+
+  /** Render and flush the getAllServerColors effect promise. */
+  async function renderWithColors(
+    colors: Record<string, string>,
+    opts: { currentServer?: string; onKillServer?: (name: string) => void } = {},
+  ) {
+    vi.mocked(getAllServerColors).mockResolvedValue(colors);
+    renderSidebar({ currentServer: opts.currentServer ?? "primary", onKillServer: opts.onKillServer });
+    await act(async () => {});
+  }
+
+  afterEach(() => {
+    // Restore the file-default mocks so this block's state never leaks.
+    vi.mocked(getAllServerColors).mockResolvedValue({});
+    vi.mocked(setServerColor).mockClear();
+  });
+
+  it("renders the cluster in palette → plus → close DOM order after the toggle", async () => {
+    await renderWithColors({ alpha: "4" });
+
+    const buttons = within(headerContainer("alpha")).getAllByRole("button");
+    expect(buttons).toHaveLength(4);
+    expect(buttons[0]).toHaveAccessibleName(/(Expand|Collapse) alpha sessions/);
+    expect(buttons[1]).toHaveAccessibleName("Set color for server alpha");
+    expect(buttons[2]).toHaveAccessibleName("New session on alpha");
+    expect(buttons[3]).toHaveAccessibleName("Kill server alpha");
+  });
+
+  it("hover-reveals the palette with the coarse touch fallback; + and ✕ stay always visible", async () => {
+    await renderWithColors({ alpha: "4" });
+
+    const container = headerContainer("alpha");
+    // The reveal is driven by group-hover on the header container itself.
+    expect(container.className).toContain("group");
+
+    const paletteBtn = within(container).getByRole("button", { name: "Set color for server alpha" });
+    for (const cls of ["opacity-0", "group-hover:opacity-100", "coarse:opacity-100"]) {
+      expect(paletteBtn.className).toContain(cls);
+    }
+    const plus = within(container).getByRole("button", { name: "New session on alpha" });
+    const close = within(container).getByRole("button", { name: "Kill server alpha" });
+    for (const btn of [plus, close]) {
+      expect(btn.className).not.toContain("opacity-0");
+      expect(btn.className).not.toContain("group-hover:opacity-100");
+    }
+  });
+
+  it("cluster rest color follows the header text treatment (accent wrapper, inherited by buttons)", async () => {
+    await renderWithColors({ primary: "4", alpha: "1" });
+
+    // Non-current: the cluster wrapper carries the contrast-guarded accent as
+    // an inline color; the buttons themselves carry NO inline color so their
+    // hover: classes (text-text-primary / text-red-400) can win on hover.
+    const alphaPalette = within(headerContainer("alpha")).getByRole("button", {
+      name: "Set color for server alpha",
+    });
+    const alphaWrapper = alphaPalette.parentElement as HTMLElement;
+    expect(alphaWrapper.style.color).toBe(rgb(borders.get("1")!));
+    const alphaClose = within(headerContainer("alpha")).getByRole("button", {
+      name: "Kill server alpha",
+    });
+    expect(alphaClose.style.color).toBe("");
+    expect(alphaClose.className).toContain("hover:text-red-400");
+
+    // Current: brightest text via class, no inline accent.
+    const primaryPalette = within(headerContainer("primary")).getByRole("button", {
+      name: "Set color for server primary",
+    });
+    const primaryWrapper = primaryPalette.parentElement as HTMLElement;
+    expect(primaryWrapper.className).toContain("text-text-primary");
+    expect(primaryWrapper.style.color).toBe("");
+  });
+
+  it("palette toggle opens a color-only SwatchPopover portalled to document.body", async () => {
+    await renderWithColors({ alpha: "4" });
+
+    const container = headerContainer("alpha");
+    fireEvent.click(within(container).getByRole("button", { name: "Set color for server alpha" }));
+
+    // Color-only picker (no marker column) — distinguished from the SERVER
+    // panel's role=listbox tile grid by its accessible name.
+    const popover = screen.getByRole("listbox", { name: "Color picker" });
+    // Portalled: escapes the header (and the sessions list's overflow clip).
+    expect(container.contains(popover)).toBe(false);
+    expect(document.body.contains(popover)).toBe(true);
+  });
+
+  it("a swatch pick funnels through the shared seam: optimistic tint repaint + POST, then closes", async () => {
+    await renderWithColors({}); // alpha starts uncolored (gray sentinel)
+
+    const container = headerContainer("alpha");
+    expect(container.style.backgroundColor).toBe(rgb(tints.get(UNCOLORED_SELECTED_KEY)!.base));
+
+    fireEvent.click(within(container).getByRole("button", { name: "Set color for server alpha" }));
+    const popover = screen.getByRole("listbox", { name: "Color picker" });
+    fireEvent.click(within(popover).getByRole("option", { name: "Color blue" }));
+
+    // The single write seam maps the family to its legacy descriptor ("4")
+    // and the shared handler POSTs + repaints the header tint optimistically
+    // (non-current ⇒ base shade) without waiting for any poll.
+    expect(vi.mocked(setServerColor)).toHaveBeenCalledExactlyOnceWith("alpha", "4");
+    expect(container.style.backgroundColor).toBe(rgb(tints.get("4")!.base));
+    expect(screen.queryByRole("listbox", { name: "Color picker" })).not.toBeInTheDocument();
+  });
+
+  it("Clear color clears the optimistic entry back to the gray sentinel and POSTs null", async () => {
+    await renderWithColors({ alpha: "4" });
+
+    const container = headerContainer("alpha");
+    expect(container.style.backgroundColor).toBe(rgb(tints.get("4")!.base));
+
+    fireEvent.click(within(container).getByRole("button", { name: "Set color for server alpha" }));
+    fireEvent.click(
+      within(screen.getByRole("listbox", { name: "Color picker" })).getByRole("option", {
+        name: "Clear color",
+      }),
+    );
+
+    expect(vi.mocked(setServerColor)).toHaveBeenCalledExactlyOnceWith("alpha", null);
+    expect(container.style.backgroundColor).toBe(rgb(tints.get(UNCOLORED_SELECTED_KEY)!.base));
+  });
+
+  it("✕ invokes the lifted onKillServer prop with the server name (confirmation is the parent's)", async () => {
+    const onKillServer = vi.fn();
+    await renderWithColors({ alpha: "4" }, { onKillServer });
+
+    fireEvent.click(
+      within(headerContainer("alpha")).getByRole("button", { name: "Kill server alpha" }),
+    );
+
+    expect(onKillServer).toHaveBeenCalledExactlyOnceWith("alpha");
+    // No sidebar-owned dialog: the kill confirmation lives in the parent
+    // (app.tsx / board-page.tsx killServerTarget), so nothing renders here.
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("keeps the toggle dominant and the existing header semantics intact", async () => {
+    await renderWithColors({ alpha: "4" });
+
+    const container = headerContainer("alpha");
+    const toggle = within(container).getByRole("button", { name: /Expand alpha sessions/ });
+    expect(toggle.className).toContain("flex-1");
+    fireEvent.click(toggle);
+    expect(
+      within(container).getByRole("button", { name: /Collapse alpha sessions/ }),
+    ).toHaveAttribute("aria-expanded", "true");
   });
 });

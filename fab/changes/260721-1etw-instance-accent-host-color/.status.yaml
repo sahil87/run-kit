@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 10
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-07-21T19:58:08Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-21T20:31:53Z"}
     review: {started_at: "2026-07-21T20:31:53Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-21T20:37:29Z"}
     hydrate: {started_at: "2026-07-21T20:37:29Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-21T20:44:42Z"}
-    ship: {started_at: "2026-07-21T20:44:42Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-07-21T20:44:42Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-21T20:46:20Z"}
+    review-pr: {started_at: "2026-07-21T20:46:20Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/435
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 1558
+    deleted: 41
+    net: 1517
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 1124
+        deleted: 29
+        net: 1095
     tests:
-        added: 0
+        added: 325
         deleted: 0
-        net: 0
-    computed_at: "2026-07-21T20:44:42Z"
-    computed_at_stage: hydrate
+        net: 325
+    computed_at: "2026-07-21T20:46:20Z"
+    computed_at_stage: ship
 summary: 'Add per-instance accent color: instance_color settings field + GET/POST /api/settings/instance-color, top-bar stripe/wash + HOST-panel hostname tint/picker, hostname-hash fallback, single theme-color meta writer for the PWA titlebar bridge'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-07-21T20:44:42Z
+last_updated: 2026-07-21T20:46:20Z

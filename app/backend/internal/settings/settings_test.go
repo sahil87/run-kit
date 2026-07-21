@@ -323,6 +323,117 @@ func TestBoardOrderCoexistsWithServerColors(t *testing.T) {
 	}
 }
 
+func TestParseInstanceColor(t *testing.T) {
+	// Tolerant read: quoted string descriptors, blends, and a legacy bare
+	// integer all parse; malformed values are dropped (empty field).
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"instance_color: \"4\"\n", "4"},
+		{"instance_color: \"1+3\"\n", "1+3"},
+		{"instance_color: 4\n", "4"},        // legacy bare int
+		{"instance_color: \"01\"\n", "1"},   // normalized
+		{"instance_color: \"99\"\n", ""},    // out of range → dropped
+		{"instance_color: \"1+2+3\"\n", ""}, // malformed → dropped
+		{"theme: system\n", ""},             // absent → empty
+	}
+	for _, c := range cases {
+		s := parse(c.in)
+		if s.InstanceColor != c.want {
+			t.Errorf("parse(%q).InstanceColor = %q, want %q", c.in, s.InstanceColor, c.want)
+		}
+	}
+}
+
+func TestSerializeInstanceColor(t *testing.T) {
+	s := Settings{
+		Theme: "system", ThemeDark: "default-dark", ThemeLight: "default-light",
+		InstanceColor: "1+3",
+	}
+	got := serialize(s)
+	want := "theme: system\ntheme_dark: default-dark\ntheme_light: default-light\ninstance_color: \"1+3\"\n"
+	if got != want {
+		t.Errorf("serialize = %q, want %q", got, want)
+	}
+}
+
+func TestSerializeEmptyInstanceColorIsByteIdentical(t *testing.T) {
+	// A Settings with no instance color must serialize exactly as before (no
+	// instance_color: line), guarding the existing exact-string assertions.
+	got := serialize(Settings{Theme: "system", ThemeDark: "default-dark", ThemeLight: "default-light"})
+	want := "theme: system\ntheme_dark: default-dark\ntheme_light: default-light\n"
+	if got != want {
+		t.Errorf("serialize (empty InstanceColor) = %q, want %q", got, want)
+	}
+}
+
+func TestInstanceColorRoundTrip(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	// Unset → nil.
+	if got := GetInstanceColor(); got != nil {
+		t.Errorf("GetInstanceColor (unset) = %v, want nil", got)
+	}
+
+	color := "5"
+	if err := SetInstanceColor(&color); err != nil {
+		t.Fatalf("SetInstanceColor: %v", err)
+	}
+	got := GetInstanceColor()
+	if got == nil || *got != "5" {
+		t.Errorf("GetInstanceColor = %v, want \"5\"", got)
+	}
+
+	// Blend round-trips through write→read as a string.
+	blend := "1+3"
+	if err := SetInstanceColor(&blend); err != nil {
+		t.Fatalf("SetInstanceColor blend: %v", err)
+	}
+	got = GetInstanceColor()
+	if got == nil || *got != "1+3" {
+		t.Errorf("GetInstanceColor = %v, want \"1+3\"", got)
+	}
+
+	// Clear.
+	if err := SetInstanceColor(nil); err != nil {
+		t.Fatalf("SetInstanceColor nil: %v", err)
+	}
+	if got := GetInstanceColor(); got != nil {
+		t.Errorf("GetInstanceColor after clear = %v, want nil", got)
+	}
+}
+
+// TestInstanceColorCoexists verifies the scalar instance color persists and
+// loads alongside the nested server_colors map and board_order sequence.
+func TestInstanceColorCoexists(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	serverColor := "4"
+	if err := SetServerColor("default", &serverColor); err != nil {
+		t.Fatalf("SetServerColor: %v", err)
+	}
+	instColor := "2"
+	if err := SetInstanceColor(&instColor); err != nil {
+		t.Fatalf("SetInstanceColor: %v", err)
+	}
+	if err := SetBoardOrder([]string{"x"}); err != nil {
+		t.Fatalf("SetBoardOrder: %v", err)
+	}
+	loaded := Load()
+	if loaded.InstanceColor != "2" {
+		t.Errorf("InstanceColor = %q, want \"2\"", loaded.InstanceColor)
+	}
+	if loaded.ServerColors["default"] != "4" {
+		t.Errorf("ServerColors[default] = %q, want \"4\"", loaded.ServerColors["default"])
+	}
+	if len(loaded.BoardOrder) != 1 || loaded.BoardOrder[0] != "x" {
+		t.Errorf("BoardOrder = %v, want [x]", loaded.BoardOrder)
+	}
+}
+
 func TestServerColorRoundTrip(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)

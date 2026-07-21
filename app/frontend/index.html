@@ -20,8 +20,18 @@
           resolved = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
         }
         document.documentElement.dataset.theme = resolved;
+        // Instance-accent tint (paint cache): the runtime echoes the resolved
+        // accent's theme-color hex to localStorage on every load, so an
+        // installed PWA window opens already tinted (no flash). Malformed or
+        // absent echo falls back to the per-mode defaults; the runtime
+        // resolution corrects/rewrites both the meta tag and the echo.
+        var tint = null;
+        try {
+          var echo = JSON.parse(localStorage.getItem("runkit-instance-color"));
+          if (echo && typeof echo.hex === "string" && /^#[0-9a-fA-F]{6}$/.test(echo.hex)) tint = echo.hex;
+        } catch(e) {}
         var tc = document.querySelector('meta[name="theme-color"]');
-        if (tc) tc.setAttribute('content', resolved === 'dark' ? '#0f1117' : '#f8f9fb');
+        if (tc) tc.setAttribute('content', tint || (resolved === 'dark' ? '#0f1117' : '#f8f9fb'));
       })();
     </script>
     <link rel="icon" type="image/svg+xml" href="/generated-icons/favicon.svg" />

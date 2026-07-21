@@ -114,6 +114,100 @@ func TestSetServerColor_rejectsMalformed(t *testing.T) {
 	}
 }
 
+// --- GET/POST /api/settings/instance-color ---
+
+func getInstanceColorViaAPI(t *testing.T, router http.Handler) *string {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/api/settings/instance-color", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var result struct {
+		Color *string `json:"color"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	return result.Color
+}
+
+func TestInstanceColor_getUnsetReturnsNull(t *testing.T) {
+	isolateSettings(t)
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	if got := getInstanceColorViaAPI(t, router); got != nil {
+		t.Errorf("color = %q, want null", *got)
+	}
+}
+
+func TestSetInstanceColor_persistsAndRoundTrips(t *testing.T) {
+	isolateSettings(t)
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	for _, color := range []string{"5", "1+3"} {
+		body := `{"color":"` + color + `"}`
+		req := httptest.NewRequest(http.MethodPost, "/api/settings/instance-color", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("color %s: status = %d, want %d; body=%s", color, rec.Code, http.StatusOK, rec.Body.String())
+		}
+		if got := settings.GetInstanceColor(); got == nil || *got != color {
+			t.Errorf("persisted color = %v, want %q", got, color)
+		}
+		if got := getInstanceColorViaAPI(t, router); got == nil || *got != color {
+			t.Errorf("GET round-trip = %v, want %q", got, color)
+		}
+	}
+}
+
+func TestSetInstanceColor_nullClears(t *testing.T) {
+	isolateSettings(t)
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	color := "4"
+	if err := settings.SetInstanceColor(&color); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	body := `{"color":null}`
+	req := httptest.NewRequest(http.MethodPost, "/api/settings/instance-color", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if got := settings.GetInstanceColor(); got != nil {
+		t.Errorf("color after clear = %q, want nil", *got)
+	}
+	if got := getInstanceColorViaAPI(t, router); got != nil {
+		t.Errorf("GET after clear = %q, want null", *got)
+	}
+}
+
+func TestSetInstanceColor_rejectsMalformed(t *testing.T) {
+	for _, bad := range []string{`{"color":"99"}`, `{"color":"1+"}`, `{"color":"x"}`, `{"color":"1+2+3"}`} {
+		isolateSettings(t)
+		router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+		req := httptest.NewRequest(http.MethodPost, "/api/settings/instance-color", strings.NewReader(bad))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("body %s: status = %d, want %d", bad, rec.Code, http.StatusBadRequest)
+		}
+		if got := settings.GetInstanceColor(); got != nil {
+			t.Errorf("body %s: malformed value persisted as %q, want nil", bad, *got)
+		}
+	}
+}
+
 func TestSetServerColor_missingServer(t *testing.T) {
 	isolateSettings(t)
 	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})

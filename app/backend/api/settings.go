@@ -100,6 +100,39 @@ func (s *Server) handleGetServerColor(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"color": color})
 }
 
+// handleGetInstanceColor returns the instance accent color.
+// GET /api/settings/instance-color → {"color": "4"} or {"color": null}
+// Returns the explicit setting only — the hostname-hash fallback is client-side.
+func (s *Server) handleGetInstanceColor(w http.ResponseWriter, r *http.Request) {
+	color := settings.GetInstanceColor()
+	writeJSON(w, http.StatusOK, map[string]any{"color": color})
+}
+
+// handleSetInstanceColor sets or clears the instance accent color.
+// POST /api/settings/instance-color ← {"color": "4"} or {"color": "1+3"} or {"color": null}
+func (s *Server) handleSetInstanceColor(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Color *string `json:"color"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body")
+		return
+	}
+	if body.Color != nil {
+		if errMsg := validate.ValidateColorValue(*body.Color); errMsg != "" {
+			writeError(w, http.StatusBadRequest, errMsg)
+			return
+		}
+	}
+
+	if err := settings.SetInstanceColor(body.Color); err != nil {
+		s.logger.Error("failed to save instance color", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to save setting")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
 // handleSetServerColor sets or clears the color for a server.
 // POST /api/settings/server-color ← {"server": "...", "color": 4} or {"server": "...", "color": null}
 func (s *Server) handleSetServerColor(w http.ResponseWriter, r *http.Request) {

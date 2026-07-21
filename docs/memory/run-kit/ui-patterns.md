@@ -1,5 +1,5 @@
 ---
-description: "Frontend UI patterns: URL/route structure and canonical page names; persistent full-width top-bar chrome (PageType:name center heading, overflow-chevron menu, breadcrumb + hover-animation vocabulary); window-view lens model (tty/web/chat); boards view + pinning; sidebar (perf, keyboard nav, color, labels); status dot, PR registers, waiting surfacing; session tiles; spawn-agent dialog; update chip; terminal relay/font/theme; window-switch slide; mobile + keyboard support; optimistic UI."
+description: "Frontend UI patterns: URL/route structure and page names; persistent top-bar chrome (PageType:name heading, chevron menu, breadcrumb, hover vocabulary, instance-accent stripe/wash); window-view lens (tty/web/chat); boards view + pinning; sidebar (perf, keyboard nav, color, labels, HOST-panel accent picker); status dot, PR registers, waiting; session tiles; spawn dialog; update chip; terminal relay/font/theme; instance accent + PWA theme-color; mobile + keyboard; optimistic UI."
 type: memory
 ---
 # run-kit UI Patterns
@@ -1434,6 +1434,22 @@ Selection is carried by tint **depth** alone (no left border — § Row Anatomy)
 
 **Storage**: stored color values are the **legacy descriptor** (`"4"` / `"1+3"`); frontend wire types are `WindowInfo.color?: string` and `ProjectSession.sessionColor?: string` (`src/types.ts`). Window and session colors are ephemeral tmux user options (`@color` per window, `@session_color` per session — survive session lifetime, not tmux-server restarts), set via `setWindowColor`/`setSessionColor` in `client.ts`. Server colors persist in `~/.rk/settings.yaml`. **No color storage/API/backend migration** — the owned-palette rewrite is frontend-only for color. See architecture.md § Data Model for the backend storage/validation contract.
 
+### Instance Accent ("host color")
+
+A per-instance accent color makes multiple run-kit instances (laptop, Mac mini, GCP server) viewed as visually-identical installed Chrome PWA windows tell each other apart at a glance. It is an **axis orthogonal to the owned-palette color tinting above**: server/window/session colors saturate the sidebar and mean "which tmux server"; the instance accent means "which run-kit instance" and owns surfaces the sidebar colors never touch (the top bar and the HOST panel). The accent is a property of the **instance**, not the viewer — stored authoritatively on the instance's host (`~/.rk/settings.yaml` `instance_color`, see architecture.md § `internal/settings` and § `/api/settings/instance-color`), so every device viewing that instance sees the same accent. (`260721-1etw-instance-accent-host-color`)
+
+**Resolution chain** (frontend, in the `InstanceAccentProvider`): (1) the explicit `instance_color` setting from `getInstanceColor()` — authoritative; (2) the localStorage echo (`runkit-instance-color`) — a **paint cache only, never authoritative**, used as the first-frame seed before the fetches land; (3) a deterministic **hostname hash** — zero-config identity default (Constitution §VII). The hash (`hashHostnameColor` in `src/instance-accent.ts`) is FNV-1a 32-bit over the hostname `→ 1 + (h % 6)`, yielding legacy descriptors `"1".."6"` (the six owned families red/green/amber/blue/magenta/teal via `resolveFamily`); it is stable across loads and devices (pure function of hostname) and returns `null` for an empty hostname. Hostname comes from the existing `getHealth()` fetch. With 6 hues and few hosts, collisions are likely (~45% at 3 hosts) — which is why the manual picker matters. When the hostname is not yet known and nothing explicit/echoed exists, **no accent renders** (no crash, no flash of a wrong color). An `authoritative` flag (explicit resolved OR hostname known) gates clearing the echo/meta on a null accent, so the paint seed is never wiped before the real resolution replaces it.
+
+**Provider + consumers** — `InstanceAccentProvider` / `useInstanceAccent()` (`contexts/instance-accent-context.tsx`) mounts once in `RootWrapper` inside `ThemeProvider` > `ToastProvider` and above `ChromeProvider`, so it can read `useTheme()` for the theme-derived hexes and `useToast()` for the write-failure toast. It fetches `getInstanceColor()` + `getHealth()` once on mount (StrictMode-guarded via a `didFetchRef`), seeds the first paint from the echo, resolves per the chain, derives `{stripeHex, washHex}` from the active theme, keeps the echo + theme-color meta in sync on every accent/theme change, and exposes `{color, isExplicit, stripeHex, washHex, setColor}`. `setColor(descriptor | null)` updates state optimistically then POSTs via `setInstanceColor`, toasting on failure. Both rendering surfaces read from this ONE instance — one fetch, one state, so a pick in the HOST panel repaints the top-bar stripe without a reload. A test seam `InstanceAccentValueProvider` injects a fixed value (mirroring the session-context value-injection pattern).
+
+**Theme-derived hexes** (`deriveAccentHexes(value, theme)` in `src/instance-accent.ts`, never hardcoded): `stripeHex` is the **contrast-guarded** family hex — `colorValueToHex(value, palette)` then `adjustBorderForContrast(src, bg, isDark, BORDER_MIN_CONTRAST)` (the same guarded-hex derivation server tiles/stripes use, § Color Tinting) — used for the top-bar stripe, the HOST hostname tint, AND the theme-color meta content. `washHex` is a subtle `blendHex(src, bg, INSTANCE_WASH_RATIO = 0.065)` (~6.5%) accent-into-background blend for the top-bar wash. Blend descriptors (`"1+3"`) render through the same `resolveFamily`-based owned-family mapping as single indices — no new blend scheme. Both recompute on a theme switch; nothing hardcoded survives.
+
+**Top-bar stripe + wash** (`AppLayout`, `app.tsx`) — the persistent top bar's `shrink-0` wrapper (above `RootTopBar`) carries a 2px accent stripe (an `aria-hidden` `<div style={{height:"2px", backgroundColor: stripeHex}}>`) plus the `washHex` as its `backgroundColor` (the `TopBar` header has no background of its own, so the wash on the wrapper shows through). Both render only when their hex is non-null (no accent resolved ⇒ neither renders). This is the "which instance" channel living where the sidebar colors do not.
+
+**HOST panel — accent hostname tint + swatch picker** (`components/sidebar/host-panel.tsx`) — the hostname in the panel's `headerRight` slot renders in `stripeHex` (the contrast-guarded accent) when resolved, else the default `text-text-primary`. A palette swatch button rides the `CollapsiblePanel` **`headerAction` slot** (a sibling of the toggle button — a nested button would be invalid markup; the `headerAction` seam's clicks don't toggle the panel), hover-revealed with the touch/keyboard fallbacks `opacity-0 group-hover/panel:opacity-100 coarse:opacity-100 focus-visible:opacity-100` (`CollapsiblePanel`'s header gained a `group/panel` class to drive it) and an `aria-label="Set instance color"`. Clicking it opens a **color-only** `SwatchPopover` (no `onSelectMarker`) portalled to `document.body` at fixed coordinates anchored at the button — right-aligned, with a **flip-above** `useLayoutEffect` heuristic (the HOST panel sits at the sidebar bottom, so flip-above is the norm) — escaping the panel's overflow clip. This is the x4sf ServerGroup-header picker precedent (§ Server-group header action cluster). A pick calls `useInstanceAccent().setColor` (which POSTs and repaints every surface); `Clear color` sends `null`, restoring the hash default.
+
+**PWA titlebar bridge — single theme-color meta writer** (`src/instance-accent.ts`) — the `<meta name="theme-color">` tag is accent-aware through ONE shared writer holding module-level state (`currentAccentHex` + `lastBackground`, content = accent hex when set, else the theme background): (a) the blocking pre-paint script in `index.html` (§ PWA Meta Tags & Theme Color) reads the echoed `hex` from `runkit-instance-color`, validates the `#rrggbb` shape, and applies it as the initial theme-color (falling back to the per-mode defaults) so an installed PWA window opens already tinted with no flash; (b) at runtime the provider calls `setAccentThemeColor(stripeHex)` on accent/theme change; (c) `theme-context.tsx`'s `applyThemeToDOM` calls `applyThemeColorMeta(theme.palette.background)` instead of writing the meta directly, so a theme switch cannot clobber the accent tint. Desktop Chrome retints installed-PWA titlebars live on meta changes. **Out of scope** (follow-up): dynamically-served `manifest.json`, tinted manifest/dock icons, the Badging API — dock icons snapshot at PWA install time and refresh only on Chrome's lazy manifest-update cycle (an accepted, documented limitation); this change lays only the settings.yaml groundwork they need.
+
 ### Row Anatomy — Selection & Board-Pin Cues (`window-row.tsx`)
 
 The window row's visual channels are orthogonal: **hue = label** (family tint), **tint depth = selection**, **left-edge zone = the independent marker axis + the Label-picker trigger** (§ Left-Edge Label Zone). Selection and the board-pin cue are borderless — the sidebar window row carries no left accent border.
@@ -1798,7 +1814,7 @@ Preference persisted to backend API (`PUT /api/settings/theme` → `~/.rk/settin
 
 ### No-Flicker Initialization
 
-A blocking inline `<script>` in `index.html` `<head>` reads `localStorage("runkit-theme")`, resolves system preference via `matchMedia`, and sets `data-theme` on `<html>` before first paint. Static fallback: `data-theme="dark"` on the `<html>` tag.
+A blocking inline `<script>` in `index.html` `<head>` reads `localStorage("runkit-theme")`, resolves system preference via `matchMedia`, and sets `data-theme` on `<html>` before first paint. Static fallback: `data-theme="dark"` on the `<html>` tag. The same script also seeds the `theme-color` meta from the echoed instance-accent hex (§ PWA Meta Tags & Theme Color / § Instance Accent).
 
 ### PWA Meta Tags & Theme Color
 
@@ -1810,11 +1826,11 @@ A blocking inline `<script>` in `index.html` `<head>` reads `localStorage("runki
 
 The `<link rel="manifest">` tag is injected automatically by `vite-plugin-pwa` during build.
 
-**Theme-color synchronization**: The `theme-color` meta tag value is kept in sync with the active theme via two mechanisms:
-1. **Initial load** — the blocking inline script in `index.html` sets the `theme-color` meta tag alongside `data-theme` before first paint
-2. **Runtime switch** — `applyThemeToDOM` in `ThemeProvider` sets `theme-color` to `theme.palette.background` when the user changes theme
+**Theme-color synchronization**: The `theme-color` meta tag value is kept in sync via a **single shared writer** (`src/instance-accent.ts`, § Instance Accent) that resolves the content to the instance-accent hex when an accent is resolved, else the active theme background:
+1. **Initial load** — the blocking inline script in `index.html` sets `theme-color` alongside `data-theme` before first paint; it first tries the echoed instance-accent hex from `runkit-instance-color` (validated `#rrggbb`), falling back to the per-mode default (`#0f1117` dark / `#f8f9fb` light) so an installed PWA window opens already tinted with no flash
+2. **Runtime switch** — `applyThemeToDOM` in `ThemeProvider` calls `applyThemeColorMeta(theme.palette.background)` (NOT a direct `setAttribute`), and the `InstanceAccentProvider` calls `setAccentThemeColor(hex)`; both funnel through the one writer's module state so a theme switch cannot clobber the accent tint (§ Instance Accent → PWA titlebar bridge)
 
-Theme color is per-theme (derived from `palette.background`), not a fixed dark/light pair.
+Theme color is per-theme (derived from `palette.background`) when no accent is set, else the contrast-guarded accent hex — not a fixed dark/light pair.
 
 **Icon set**: Canonical mark at `app/frontend/public/icon.svg` (hexagonal cube, transparent). Generated variants in `app/frontend/public/generated-icons/`:
 - `favicon.svg` — copy of `icon.svg` (transparent, used as browser favicon)
@@ -1828,9 +1844,9 @@ Generated by `scripts/generate-icons.sh` (Node + sharp). Run via `just icons`.
 
 ### ThemeProvider Context
 
-`app/frontend/src/contexts/theme-context.tsx` — split context (ThemeStateContext + ThemeActionsContext) following ChromeContext pattern. Provides `useTheme()` (preference + resolved + theme object) and `useThemeActions()` (setTheme, previewTheme, cancelPreview). Listens to `matchMedia("(prefers-color-scheme: dark)")` change events when preference is "system" for real-time OS theme tracking. On init: calls `getThemePreference()` from API, falls back to localStorage / `"system"` if API fails. `setTheme` writes localStorage immediately and calls `setThemePreference(id)` fire-and-forget. `applyThemeToDOM` computes CSS values via `deriveUIColors(theme.palette, theme.category)` and sets `theme-color` meta tag to `theme.palette.background`.
+`app/frontend/src/contexts/theme-context.tsx` — split context (ThemeStateContext + ThemeActionsContext) following ChromeContext pattern. Provides `useTheme()` (preference + resolved + theme object) and `useThemeActions()` (setTheme, previewTheme, cancelPreview). Listens to `matchMedia("(prefers-color-scheme: dark)")` change events when preference is "system" for real-time OS theme tracking. On init: calls `getThemePreference()` from API, falls back to localStorage / `"system"` if API fails. `setTheme` writes localStorage immediately and calls `setThemePreference(id)` fire-and-forget. `applyThemeToDOM` computes CSS values via `deriveUIColors(theme.palette, theme.category)` and writes the `theme-color` meta tag through the shared `applyThemeColorMeta(theme.palette.background)` writer (§ Instance Accent → PWA titlebar bridge — the instance accent wins over the bare background when resolved).
 
-Provider order: `ThemeProvider > ChromeProvider > SessionProvider > AppShell`.
+Provider order: `ThemeProvider > ToastProvider > InstanceAccentProvider > ChromeProvider > SessionProvider > AppShell` (`InstanceAccentProvider` inside the theme so it can read `useTheme()`; § Instance Accent).
 
 ### xterm Terminal Theme
 
@@ -2368,3 +2384,15 @@ The regression test in `app/frontend/src/hooks/use-dialog-state.test.tsx` flips 
 **Why**: keeps the terminal rendering immediately while giving each visual state an honest, distinct signal.
 **Rejected**: pessimistic navigation (waits for confirmation before flipping); a dimmed overlay.
 *Introduced by*: 260715-38kg-window-switch-confirmed-motion
+
+### Single theme-color meta writer module
+**Decision**: All `meta[name="theme-color"]` writes funnel through one module (`src/instance-accent.ts`) holding module-level `currentAccentHex` + `lastBackground` state; `theme-context.tsx` (`applyThemeColorMeta`) and the instance-accent provider (`setAccentThemeColor`) both write through it, and the content resolves to the accent hex when set, else the theme background.
+**Why**: React passive effects run child-first, so `ThemeProvider`'s `applyThemeToDOM` effect fires AFTER any child accent effect on a theme switch and would clobber an accent-tinted meta tag with the bare background. One writer with shared state removes the ordering race at its root rather than papering over it.
+**Rejected**: having the accent provider re-write the meta in its own effect after theme changes — loses deterministically to the parent effect's ordering (fixes the symptom, not the cause).
+*Introduced by*: 260721-1etw-instance-accent-host-color
+
+### Instance-accent echo carries the precomputed meta hex, not just the descriptor
+**Decision**: `runkit-instance-color` stores `{"value","hex"}` where `hex` is the final computed theme-color meta content; the `index.html` blocking pre-paint script applies `hex` verbatim. The echo is a paint cache only — never authoritative (the runtime resolution overwrites it every load).
+**Why**: deriving a hex from a descriptor needs the OKLCH/palette machinery (`colorValueToHex` + contrast guard), far too heavy to inline in a blocking script; precomputing at echo time keeps the script a validate-and-apply read. A cross-theme-mode load shows a transient mismatch that self-corrects post-fetch (accepted).
+**Rejected**: inlining the derivation in `index.html` (duplicates themes.ts logic in unlintable inline JS); echoing only the descriptor (leaves the script unable to tint).
+*Introduced by*: 260721-1etw-instance-accent-host-color

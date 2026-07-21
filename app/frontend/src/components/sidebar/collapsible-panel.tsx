@@ -266,7 +266,7 @@ export function CollapsiblePanel({
     <div className="border-t-[3px] border-border first:border-t-0">
       {/* Header — always visible */}
       <div
-        className="flex items-center gap-1.5 w-full px-1.5 sm:px-2 py-1 text-xs text-text-secondary shrink-0 transition-colors"
+        className="group/panel flex items-center gap-1.5 w-full px-1.5 sm:px-2 py-1 text-xs text-text-secondary shrink-0 transition-colors"
         style={headerBg ? { backgroundColor: headerBg } : undefined}
         onMouseEnter={headerHoverBg && headerBg ? (e) => { (e.currentTarget as HTMLElement).style.backgroundColor = headerHoverBg; } : undefined}
         onMouseLeave={headerHoverBg && headerBg ? (e) => { (e.currentTarget as HTMLElement).style.backgroundColor = headerBg; } : undefined}

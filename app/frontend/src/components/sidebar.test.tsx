@@ -5,10 +5,22 @@ import { OptimisticProvider, useOptimisticContext } from "@/contexts/optimistic-
 import { HostMetricsProvider, MetricsProvider, StandaloneSessionContextProvider } from "@/contexts/session-context";
 import { FocusedPaneProvider } from "@/contexts/focused-pane-context";
 import { ThemeProvider } from "@/contexts/theme-context";
+import { InstanceAccentValueProvider, type InstanceAccent } from "@/contexts/instance-accent-context";
 import { ChromeProvider } from "@/contexts/chrome-context";
 import { ToastProvider } from "@/components/toast";
 import { useWindowStore, entryKey } from "@/store/window-store";
 import type { ProjectSession } from "@/types";
+
+// HostPanel (inside Sidebar) consumes the instance-accent context; inject a
+// static null accent so sidebar tests need no fetching provider (1etw).
+const NULL_ACCENT: InstanceAccent = {
+  color: null,
+  isExplicit: false,
+  stripeHex: null,
+  washHex: null,
+  setColor: () => {},
+};
+
 
 const mockNavigate = vi.fn();
 vi.mock("@tanstack/react-router", () => ({
@@ -130,6 +142,7 @@ function buildTree(overrides: SidebarTestOverrides) {
   } = overrides;
   return (
     <ThemeProvider>
+    <InstanceAccentValueProvider value={NULL_ACCENT}>
     <ToastProvider>
       <OptimisticProvider>
         <StandaloneSessionContextProvider
@@ -165,6 +178,7 @@ function buildTree(overrides: SidebarTestOverrides) {
         </StandaloneSessionContextProvider>
       </OptimisticProvider>
     </ToastProvider>
+    </InstanceAccentValueProvider>
     </ThemeProvider>
   );
 }
@@ -963,6 +977,7 @@ describe("Sidebar", () => {
 
       render(
         <ThemeProvider>
+        <InstanceAccentValueProvider value={NULL_ACCENT}>
         <ToastProvider>
           <OptimisticProvider>
             <StandaloneSessionContextProvider
@@ -998,6 +1013,7 @@ describe("Sidebar", () => {
             </StandaloneSessionContextProvider>
           </OptimisticProvider>
         </ToastProvider>
+        </InstanceAccentValueProvider>
         </ThemeProvider>,
       );
 

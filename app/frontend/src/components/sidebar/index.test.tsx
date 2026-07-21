@@ -6,6 +6,7 @@ import { OptimisticProvider } from "@/contexts/optimistic-context";
 import { HostMetricsProvider, MetricsProvider, StandaloneSessionContextProvider } from "@/contexts/session-context";
 import { FocusedPaneProvider, useRegisterFocusedPane, type FocusedPane } from "@/contexts/focused-pane-context";
 import { ThemeProvider } from "@/contexts/theme-context";
+import { InstanceAccentValueProvider, type InstanceAccent } from "@/contexts/instance-accent-context";
 import { ChromeProvider } from "@/contexts/chrome-context";
 import { ToastProvider } from "@/components/toast";
 import { useWindowStore } from "@/store/window-store";
@@ -17,6 +18,17 @@ import {
   DEFAULT_DARK_THEME,
 } from "@/themes";
 import type { MetricsSnapshot, ProjectSession } from "@/types";
+
+// HostPanel (inside Sidebar) consumes the instance-accent context; inject a
+// static null accent so sidebar tests need no fetching provider (1etw).
+const NULL_ACCENT: InstanceAccent = {
+  color: null,
+  isExplicit: false,
+  stripeHex: null,
+  washHex: null,
+  setColor: () => {},
+};
+
 
 const mockNavigate = vi.fn();
 vi.mock("@tanstack/react-router", () => ({
@@ -106,6 +118,7 @@ function renderSidebar(opts: RenderOpts = {}) {
   );
   const tree = (
     <ThemeProvider>
+      <InstanceAccentValueProvider value={NULL_ACCENT}>
       <ToastProvider>
         <OptimisticProvider>
           <StandaloneSessionContextProvider
@@ -144,6 +157,7 @@ function renderSidebar(opts: RenderOpts = {}) {
           </StandaloneSessionContextProvider>
         </OptimisticProvider>
       </ToastProvider>
+    </InstanceAccentValueProvider>
     </ThemeProvider>
   );
   return render(opts.strict ? <StrictMode>{tree}</StrictMode> : tree);
@@ -425,6 +439,7 @@ describe("Sidebar — tree ARIA + roving keyboard navigation (wt1v)", () => {
     const sessionsByServer = new Map([["primary", sessions]]);
     return (
       <ThemeProvider>
+        <InstanceAccentValueProvider value={NULL_ACCENT}>
         <ToastProvider>
           <OptimisticProvider>
             <StandaloneSessionContextProvider
@@ -459,6 +474,7 @@ describe("Sidebar — tree ARIA + roving keyboard navigation (wt1v)", () => {
             </StandaloneSessionContextProvider>
           </OptimisticProvider>
         </ToastProvider>
+        </InstanceAccentValueProvider>
       </ThemeProvider>
     );
   }

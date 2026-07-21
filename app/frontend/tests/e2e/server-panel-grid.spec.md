@@ -2,15 +2,17 @@
 
 Behavioural contract for the redesigned `ServerPanel` — a swatch-style grid
 of tile buttons that replaces the previous vertical list. Validates that
-tiles render per server, active-tile state, click-to-switch behaviour, and
-the mobile single-row horizontal-swipe layout. The panel defaults **open**
-(`defaultOpen={true}` since `260720-rzg7-sessions-scope-toggle-delink`), so
-tests assert the grid directly without an expand click.
+tiles render per server (bare window-count meta + tooltip wording since
+`260721-bylc-server-tile-diet-window-counts`), active-tile state,
+click-to-switch behaviour, and the mobile single-row horizontal-swipe
+layout. The panel defaults **open** (`defaultOpen={true}` since
+`260720-rzg7-sessions-scope-toggle-delink`), so tests assert the grid
+directly without an expand click.
 
 ## Shared setup
 
 - `beforeAll` creates two temporary sessions on the e2e tmux server so
-  that the session count shown on the active server's tile is non-zero and
+  that the window count shown on the active server's tile is non-zero and
   there is enough content to exercise the grid. `afterAll` kills them.
 - The spec uses `E2E_TMUX_SERVER` (default `rk-test-e2e`) and verifies that
   `/api/servers` surfaces at least that server in its `ServerInfo[]`
@@ -21,9 +23,10 @@ tests assert the grid directly without an expand click.
 ### `Desktop: tile grid renders with session counts`
 
 **What it proves:** On desktop viewport (1024×768), the Server panel is
-open by default and renders a grid of server tiles, each with the expected
-name and `N sess` meta, including a count that reflects the sessions
-created in setup.
+open by default and renders a grid of server tiles. The e2e server's tile
+carries the singular-aware full wording (`N windows across M sessions`) in
+its button `title` tooltip — the tile's visible count line is a bare
+window-count number — and the old `N sess` meta line no longer renders.
 
 **Steps:**
 1. Navigate to `/${TMUX_SERVER}` and wait for `Connected`.
@@ -32,7 +35,10 @@ created in setup.
 3. Locate the grid listbox via `getByRole('listbox', { name: /Tmux servers/ })`.
 4. Within the grid, assert at least one `option` tile whose name includes
    the e2e server.
-5. Assert the meta line `/\d+ sess/` is rendered in the grid.
+5. Assert that tile's `title` attribute matches
+   `/\d+ windows? across \d+ sessions?/` (the tooltip is the stable text
+   seam for the count — the visible line is a bare number).
+6. Assert the old meta line `/\d+ sess/` has zero matches in the grid.
 
 ### `Desktop: active tile has aria-current`
 

@@ -527,11 +527,14 @@ func withTimeout() (context.Context, context.CancelFunc) {
 type SessionInfo struct {
 	Name  string  `json:"name"`
 	Color *string `json:"color,omitempty"`
+	// Windows is the session's window count (#{session_windows}), used for
+	// the per-server rollup on GET /api/servers. Additive JSON key.
+	Windows int `json:"windows"`
 }
 
 // parseSessions parses tmux list-sessions output lines into SessionInfo structs,
 // filtering out session-group copies.
-// Format: name, grouped, group, group_size, @color (5 fields).
+// Format: name, grouped, group, group_size, @color, windows (6 fields).
 // Exported for testing.
 func parseSessions(lines []string) []SessionInfo {
 	type rawEntry struct {
@@ -540,6 +543,7 @@ func parseSessions(lines []string) []SessionInfo {
 		group     string
 		groupSize int
 		colorStr  string
+		windows   int
 	}
 
 	// Pass 1: parse all valid lines.
@@ -579,6 +583,9 @@ func parseSessions(lines []string) []SessionInfo {
 		if len(parts) >= 5 {
 			e.colorStr = parts[4]
 		}
+		if len(parts) >= 6 {
+			e.windows, _ = strconv.Atoi(parts[5])
+		}
 		entries = append(entries, e)
 	}
 
@@ -610,7 +617,7 @@ func parseSessions(lines []string) []SessionInfo {
 			keep = true
 		}
 		if keep {
-			si := SessionInfo{Name: e.name}
+			si := SessionInfo{Name: e.name, Windows: e.windows}
 			// Color is a value descriptor ("4" / "1+3"); normalize the raw
 			// option token, dropping anything malformed.
 			if normalized, ok := validate.NormalizeColorValue(e.colorStr); ok {
@@ -654,7 +661,7 @@ func ListSessions(ctx context.Context, server string) ([]SessionInfo, error) {
 	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
 	defer cancel()
 
-	format := fmt.Sprintf("#{session_name}%s#{session_grouped}%s#{session_group}%s#{session_group_size}%s#{@session_color}", listDelim, listDelim, listDelim, listDelim)
+	format := fmt.Sprintf("#{session_name}%s#{session_grouped}%s#{session_group}%s#{session_group_size}%s#{@session_color}%s#{session_windows}", listDelim, listDelim, listDelim, listDelim, listDelim)
 
 	lines, err := tmuxExecServer(ctx, server, "list-sessions", "-F", format)
 	if err != nil {

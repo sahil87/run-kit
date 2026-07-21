@@ -1,9 +1,6 @@
-import { useState, useCallback, useRef, useEffect, useLayoutEffect } from "react";
-import { createPortal } from "react-dom";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { CollapsiblePanel } from "./collapsible-panel";
 import { LogoSpinner } from "@/components/logo-spinner";
-import { SwatchPopover } from "@/components/swatch-popover";
-import { PaletteIcon } from "./icons";
 import { UNCOLORED_SELECTED_KEY, type RowTint } from "@/themes";
 import { isInfraServer, type ServerInfo } from "@/api/client";
 import { useServerReorder, type ServerTileDragProps } from "@/hooks/use-server-reorder";
@@ -24,9 +21,7 @@ type ServerPanelProps = {
   rowBorders?: Map<string, string>;
   onSwitchServer: (name: string) => void;
   onCreateServer: () => void;
-  onKillServer: (name: string) => void;
   onRefreshServers: () => void;
-  onServerColorChange?: (server: string, color: string | null) => void;
   /** Forwarded to CollapsiblePanel's corner affordance. When supplied, a corner
    *  element renders at the bottom-right of the drag handle and initiates a
    *  sidebar-width drag in addition to the panel's vertical resize. */
@@ -55,6 +50,13 @@ function useIsMobileLayout(): boolean {
   return matches;
 }
 
+/** Singular-aware tooltip wording: "5 windows across 2 sessions". */
+function windowCountTooltip(windowCount: number, sessionCount: number): string {
+  const w = `${windowCount} window${windowCount === 1 ? "" : "s"}`;
+  const s = `${sessionCount} session${sessionCount === 1 ? "" : "s"}`;
+  return `${w} across ${s}`;
+}
+
 export function ServerPanel({
   server,
   servers,
@@ -64,13 +66,10 @@ export function ServerPanel({
   rowBorders,
   onSwitchServer,
   onCreateServer,
-  onKillServer,
   onRefreshServers,
-  onServerColorChange,
   onSidebarResizeStart,
 }: ServerPanelProps) {
   const [refreshing, setRefreshing] = useState(false);
-  const [colorPickerFor, setColorPickerFor] = useState<string | null>(null);
   const isMobile = useIsMobileLayout();
   const activeTileRef = useRef<HTMLButtonElement>(null);
   const { addToast } = useToast();
@@ -97,26 +96,25 @@ export function ServerPanel({
     el.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [isMobile, server]);
 
-  const headerRight = (
-    <>
-      <span className="truncate text-text-primary font-mono">{server}</span>
-      {refreshing && <LogoSpinner size={10} />}
-    </>
-  );
+  // The active server's name is NOT repeated here — the highlighted tile and
+  // the top-bar page heading already show it. Only the refresh spinner rides
+  // the header-right slot.
+  const headerRight = <>{refreshing && <LogoSpinner size={10} />}</>;
 
   const gridStyle: React.CSSProperties = isMobile
     ? {
         gridAutoFlow: "column",
-        gridAutoColumns: "88px",
+        gridAutoColumns: "72px",
         overflowX: "auto",
         overflowY: "hidden",
         scrollSnapType: "x mandatory",
       }
     : {
-        // 88px floor (matching the mobile column width): the tile's count row
-        // must fit "N sess" plus the waiting rollup badge side by side — at the
-        // old 72px floor that pair exactly overflowed the padded content box.
-        gridTemplateColumns: "repeat(auto-fill, minmax(88px, 1fr))",
+        // 72px floor (matching the mobile column width): the tile's count row
+        // holds a bare window-count number plus the waiting rollup badge — the
+        // old 88px floor existed only to fit the wider "N sess" text beside
+        // the badge.
+        gridTemplateColumns: "repeat(auto-fill, minmax(72px, 1fr))",
       };
 
   return (
@@ -137,9 +135,9 @@ export function ServerPanel({
         </button>
       }
       resizable
-      defaultHeight={56}
-      minHeight={56}
-      mobileHeight={56}
+      defaultHeight={50}
+      minHeight={50}
+      mobileHeight={50}
       onCornerPointerDown={onSidebarResizeStart}
     >
       {servers.length === 0 ? (
@@ -151,7 +149,7 @@ export function ServerPanel({
           role="listbox"
           aria-label="Tmux servers"
         >
-          {orderedServers.map(({ name, sessionCount }) => {
+          {orderedServers.map(({ name, sessionCount, windowCount }) => {
             const color = serverColors[name];
             const tint = color != null && rowTints ? rowTints.get(color) ?? null : null;
             const uncoloredSelectedTint = rowTints?.get(UNCOLORED_SELECTED_KEY) ?? null;
@@ -171,6 +169,7 @@ export function ServerPanel({
                 key={name}
                 name={name}
                 sessionCount={sessionCount}
+                windowCount={windowCount ?? 0}
                 waitingCount={waitingCounts?.get(name) ?? 0}
                 tint={tint}
                 uncoloredSelectedTint={uncoloredSelectedTint}
@@ -181,25 +180,6 @@ export function ServerPanel({
                 isDragSource={isDragging && draggingName === name}
                 tileRef={isActive ? activeTileRef : undefined}
                 onClick={() => onSwitchServer(name)}
-                onKill={() => onKillServer(name)}
-                onColorClick={
-                  onServerColorChange
-                    ? () => setColorPickerFor((prev) => (prev === name ? null : name))
-                    : undefined
-                }
-                colorPickerOpen={colorPickerFor === name}
-                colorPickerNode={
-                  colorPickerFor === name && onServerColorChange ? (
-                    <SwatchPopover
-                      selectedColor={serverColors[name]}
-                      onSelect={(c) => {
-                        onServerColorChange(name, c);
-                        setColorPickerFor(null);
-                      }}
-                      onClose={() => setColorPickerFor(null)}
-                    />
-                  ) : null
-                }
               />
             );
           })}
@@ -212,6 +192,8 @@ export function ServerPanel({
 type ServerTileProps = {
   name: string;
   sessionCount: number;
+  /** Total windows across the server's sessions — the tile's count number. */
+  windowCount: number;
   /** Count of waiting windows on this server; 0 renders no badge. */
   waitingCount: number;
   tint: RowTint | null;
@@ -227,15 +209,12 @@ type ServerTileProps = {
   isDragSource: boolean;
   tileRef?: React.Ref<HTMLButtonElement>;
   onClick: () => void;
-  onKill?: () => void;
-  onColorClick?: () => void;
-  colorPickerOpen: boolean;
-  colorPickerNode: React.ReactNode;
 };
 
 function ServerTile({
   name,
   sessionCount,
+  windowCount,
   waitingCount,
   tint,
   uncoloredSelectedTint,
@@ -246,10 +225,6 @@ function ServerTile({
   isDragSource,
   tileRef,
   onClick,
-  onKill,
-  onColorClick,
-  colorPickerOpen,
-  colorPickerNode,
 }: ServerTileProps) {
   // Body background follows the window-row convention:
   //   - Colored: tint.selected (active) or tint.base (not active)
@@ -259,37 +234,14 @@ function ServerTile({
     ? tint?.selected ?? uncoloredSelectedTint?.selected
     : tint?.base;
   const uncoloredHoverClass = !tint && !isActive ? "hover:bg-bg-card/50" : "";
-  const showActions = !isMobile && (onColorClick || onKill);
   // De-emphasize infrastructure servers (daemon + test sockets): grey the name,
-  // not disabled. Hover/click/active-selection/kill stay unchanged so the tile
+  // not disabled. Hover/click/active-selection stay unchanged so the tile
   // remains fully attachable and never reads as dead/disconnected.
   const nameClass = isInfraServer(name) ? "text-text-secondary" : "text-text-primary";
 
-  const tileWrapperRef = useRef<HTMLDivElement>(null);
-  const [popoverPos, setPopoverPos] = useState<{ top: number; right: number } | null>(null);
-
-  // Position the portalled color picker relative to the tile. Flip above when
-  // there isn't enough room below (e.g., tile near the bottom of the viewport).
-  useLayoutEffect(() => {
-    if (!colorPickerOpen || !tileWrapperRef.current) {
-      setPopoverPos(null);
-      return;
-    }
-    const rect = tileWrapperRef.current.getBoundingClientRect();
-    const approxPopoverHeight = 100; // rough; fine for flip heuristic
-    const below = rect.bottom + 4;
-    const fitsBelow = below + approxPopoverHeight <= window.innerHeight;
-    const top = fitsBelow ? below : Math.max(4, rect.top - approxPopoverHeight - 4);
-    setPopoverPos({
-      top,
-      right: Math.max(4, window.innerWidth - rect.right),
-    });
-  }, [colorPickerOpen]);
-
   return (
     <div
-      ref={tileWrapperRef}
-      className={`relative group focus-within:z-10${isDragSource ? " opacity-50" : ""}`}
+      className={`relative${isDragSource ? " opacity-50" : ""}`}
       style={{ scrollSnapAlign: isMobile ? "start" : undefined }}
       draggable={dragProps.draggable}
       onDragStart={dragProps.onDragStart}
@@ -303,82 +255,35 @@ function ServerTile({
         aria-current={isActive ? "true" : undefined}
         role="option"
         aria-selected={isActive}
-        title={name}
+        title={`${name} — ${windowCountTooltip(windowCount, sessionCount)}`}
         className={`relative block w-full text-left border border-border overflow-hidden transition-colors hover:border-text-secondary ${uncoloredHoverClass}`}
         style={bodyBg ? { backgroundColor: bodyBg } : undefined}
       >
-        {/* Top color stripe */}
-        <div className="h-1" style={{ backgroundColor: stripeBg }} />
+        {/* Top color stripe — the server signature/active marker (top border =
+            server, left border = window rows). */}
+        <div className="h-0.5" style={{ backgroundColor: stripeBg }} />
         {/* Body */}
-        <div className="px-1.5 pt-1 pb-1.5">
+        <div className="px-1.5 pt-0.5 pb-1.5">
           <div className={`text-[11px] leading-tight font-medium ${nameClass} whitespace-nowrap overflow-hidden text-ellipsis`}>
             {name}
           </div>
-          {/* Session count + waiting rollup (260708-4li7). The badge rides the
-              same flex row as the "N sess" count, right-aligned, so it never
-              collides with the hover-revealed palette/kill action cluster at the
-              tile's top-right (this is why the Host tile's absolute top-right
-              placement is not copied). WaitingBadge renders null at count <= 0,
-              so the common (nothing-waiting) layout is unchanged. */}
-          {/* h-4 reserves the badge's full height even when no badge renders:
+          {/* Window count + waiting rollup (260708-4li7): a bare window-count
+              number (full wording lives in the tile button's title tooltip)
+              with the badge right-aligned on the same flex row — the count row
+              is the badge's home. WaitingBadge renders null at count <= 0, so
+              the common (nothing-waiting) layout is unchanged. */}
+          {/* h-3.5 reserves the badge's full height even when no badge renders:
               the pill is taller than the count text, so without the reserve the
               tile (and its whole grid row) would jump in height every time an
               agent starts/stops waiting. */}
-          <div className="flex h-4 items-center justify-between mt-0.5">
+          <div className="flex h-3.5 items-center justify-between mt-0.5">
             <div className="text-[10px] leading-tight text-text-secondary">
-              {sessionCount} sess
+              {windowCount}
             </div>
             <WaitingBadge count={waitingCount} />
           </div>
         </div>
       </button>
-
-      {/* Hover-revealed actions — sibling of the tile button to avoid nested buttons.
-          Opacity-based reveal keeps the buttons in the DOM and in tab order. Visibility
-          matches window-row: mouse hover only (no focus-within) so clicking a tile
-          doesn't leave the icons visible while the button retains focus. */}
-      {showActions && (
-        <div className="absolute top-1 right-1 flex gap-0.5 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
-          {onColorClick && (
-            <button
-              type="button"
-              aria-label={`Set color for server ${name}`}
-              onClick={onColorClick}
-              className="text-text-secondary hover:text-text-primary leading-none px-0.5 py-0.5 flex items-center justify-center"
-            >
-              <PaletteIcon size={12} />
-            </button>
-          )}
-          {onKill && (
-            <button
-              type="button"
-              aria-label={`Kill server ${name}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                onKill();
-              }}
-              className="text-text-secondary hover:text-red-400 text-[11px] leading-none px-0.5 py-0.5"
-            >
-              &#x2715;
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* Color picker portalled to body so it escapes the panel's overflow-y: auto clip. */}
-      {colorPickerOpen && colorPickerNode && popoverPos && createPortal(
-        <div
-          style={{
-            position: "fixed",
-            top: popoverPos.top,
-            right: popoverPos.right,
-            zIndex: 100,
-          }}
-        >
-          {colorPickerNode}
-        </div>,
-        document.body,
-      )}
     </div>
   );
 }

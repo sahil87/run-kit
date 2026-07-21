@@ -137,6 +137,62 @@ func TestHandleServersList_MultipleWithOneFailure(t *testing.T) {
 	}
 }
 
+func TestHandleServersList_WindowCountSummation(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	// The mock returns what parseSessions would KEEP — group copies are
+	// already filtered upstream, so the handler sums exactly these.
+	mock := &serversTmuxMock{
+		servers: []string{"default", "work", "broken"},
+		sessions: map[string][]tmux.SessionInfo{
+			"default": {{Name: "s1", Windows: 3}, {Name: "s2", Windows: 2}},
+			"work":    {{Name: "s1", Windows: 1}},
+		},
+		errs: map[string]error{
+			"broken": errors.New("no server running"),
+		},
+	}
+	router := NewTestRouter(logger, nil, mock, "test-host")
+
+	req := httptest.NewRequest("GET", "/api/servers", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != 200 {
+		t.Fatalf("status = %d, want 200 (per-server failure must not surface as 5xx). body=%s", rec.Code, rec.Body.String())
+	}
+
+	var got []serverInfo
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("len = %d, want 3", len(got))
+	}
+
+	byName := map[string]serverInfo{}
+	for _, e := range got {
+		byName[e.Name] = e
+	}
+	if byName["default"].WindowCount != 5 {
+		t.Errorf("default windowCount = %d, want 5 (3+2)", byName["default"].WindowCount)
+	}
+	if byName["work"].WindowCount != 1 {
+		t.Errorf("work windowCount = %d, want 1", byName["work"].WindowCount)
+	}
+	if byName["broken"].WindowCount != 0 {
+		t.Errorf("broken windowCount = %d, want 0 (error -> 0)", byName["broken"].WindowCount)
+	}
+	// sessionCount is kept alongside windowCount (no rename).
+	if byName["default"].SessionCount != 2 {
+		t.Errorf("default sessionCount = %d, want 2", byName["default"].SessionCount)
+	}
+
+	// The wire format carries the windowCount key explicitly.
+	if !strings.Contains(rec.Body.String(), "\"windowCount\":5") {
+		t.Errorf("body missing windowCount:5. body=%s", rec.Body.String())
+	}
+}
+
 // The test-socket hide filter was DELETED: /api/servers now surfaces EVERY
 // tmux server, including leaked rk-test-* orphans (and the unified
 // rk-test-e2e-* Playwright servers). `rk reaper` is the sole mechanism that

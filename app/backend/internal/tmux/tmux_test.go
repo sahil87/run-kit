@@ -31,6 +31,12 @@ func sessionLineColor(name, grouped, group, color string) string {
 	return strings.Join([]string{name, grouped, group, "0", color}, listDelim)
 }
 
+// sessionLineWindows builds a full 6-field line including the trailing
+// #{session_windows} count (@color left empty).
+func sessionLineWindows(name, grouped, group string, groupSize, windows int) string {
+	return strings.Join([]string{name, grouped, group, strconv.Itoa(groupSize), "", strconv.Itoa(windows)}, listDelim)
+}
+
 func strPtr(s string) *string { return &s }
 
 func windowLine(windowID string, index int, name, path string, activityTs int64, active int, paneCmd string) string {
@@ -221,6 +227,37 @@ func TestParseSessions(t *testing.T) {
 				sessionLine("_rk-pin-2", "0", "_rk-pin-2"),
 			},
 			want: nil,
+		},
+		{
+			name: "6-field line parses session_windows count",
+			lines: []string{
+				sessionLineWindows("alpha", "0", "alpha", 0, 5),
+				sessionLineWindows("beta", "0", "beta", 0, 1),
+			},
+			want: []SessionInfo{{Name: "alpha", Windows: 5}, {Name: "beta", Windows: 1}},
+		},
+		{
+			name: "missing windows field (5-field line) defaults to 0",
+			lines: []string{
+				sessionLineColor("alpha", "0", "alpha", "4"),
+			},
+			want: []SessionInfo{{Name: "alpha", Color: strPtr("4")}},
+		},
+		{
+			name: "group-copy filtering keeps the leader's windows only",
+			lines: []string{
+				sessionLineWindows("proj", "1", "proj", 3, 4),
+				sessionLineWindows("proj-1", "1", "proj", 3, 4),
+				sessionLineWindows("proj-2", "1", "proj", 3, 4),
+			},
+			want: []SessionInfo{{Name: "proj", Windows: 4}},
+		},
+		{
+			name: "malformed windows field parses as 0",
+			lines: []string{
+				strings.Join([]string{"alpha", "0", "alpha", "0", "", "not-a-number"}, listDelim),
+			},
+			want: []SessionInfo{{Name: "alpha"}},
 		},
 	}
 
@@ -2039,6 +2076,9 @@ func sessionInfoSliceEqual(a, b []SessionInfo) bool {
 	}
 	for i := range a {
 		if a[i].Name != b[i].Name {
+			return false
+		}
+		if a[i].Windows != b[i].Windows {
 			return false
 		}
 		if (a[i].Color == nil) != (b[i].Color == nil) {

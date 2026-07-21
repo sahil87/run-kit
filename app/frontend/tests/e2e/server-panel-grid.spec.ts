@@ -55,8 +55,14 @@ test.describe("Server Panel Tile Grid", () => {
     const activeOption = grid.getByRole("option", { name: new RegExp(TMUX_SERVER) });
     await expect(activeOption).toBeVisible();
 
-    // A session-count meta line is rendered somewhere in the grid.
-    await expect(grid.locator("text=/\\d+ sess/").first()).toBeVisible();
+    // The tile count is a bare window-count number; the full singular-aware
+    // wording lives in the tile button's title tooltip (the stable text seam).
+    await expect(activeOption).toHaveAttribute(
+      "title",
+      /\d+ windows? across \d+ sessions?/,
+    );
+    // The old "N sess" meta line is gone from the grid.
+    await expect(grid.locator("text=/\\d+ sess/")).toHaveCount(0);
   });
 
   test("Desktop: active tile has aria-current", async ({ page }) => {

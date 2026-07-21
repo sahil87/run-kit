@@ -21,6 +21,7 @@ import { copyToClipboard } from "@/lib/clipboard";
 import { buildViewActions } from "@/lib/palette-view";
 import { buildStatusRefreshAction } from "@/lib/palette-status-refresh";
 import { buildPinActions } from "@/lib/palette-pin";
+import { buildServerKillActions } from "@/lib/palette-server-kill";
 import { readLastPinnedBoard } from "@/lib/last-pinned-board";
 import { buildNavActions } from "@/lib/palette-nav";
 import { nextWaitingTarget, chatSearchForTarget, type WaitingTarget } from "@/lib/palette-agent-nav";
@@ -2150,11 +2151,17 @@ function AppShell() {
         label: "Server: Create",
         onSelect: () => setShowCreateServerDialog(true),
       },
-      {
-        id: "kill-server",
-        label: "Server: Kill",
-        onSelect: () => setKillServerTarget(server),
-      },
+      // Per-server kill entries (bylc): with the hover ✕ removed from the
+      // SERVER-panel tiles, this listing is the keyboard escape hatch that
+      // keeps every server killable — including non-current servers, which
+      // have no SESSIONS-pane group header under the `current` scope mode.
+      // Each entry funnels through the existing killServerTarget confirm
+      // Dialog (incl. its DAEMON_SERVER warning) → executeKillServer.
+      ...buildServerKillActions(
+        servers.map(({ name }) => name),
+        server,
+        setKillServerTarget,
+      ),
       // Move up/down act on the CURRENT server within the regular class. Hidden
       // when the current server is infra (not reorderable) or at the boundary
       // (no wraparound).

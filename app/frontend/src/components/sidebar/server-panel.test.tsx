@@ -24,25 +24,21 @@ function renderPanel(overrides: {
   serverColors?: Record<string, string>;
   waitingCounts?: Map<string, number>;
   onSwitchServer?: (name: string) => void;
-  onKillServer?: (name: string) => void;
   onCreateServer?: () => void;
   onRefreshServers?: () => void;
-  onServerColorChange?: (server: string, color: string | null) => void;
 } = {}) {
   const props = {
     server: overrides.server ?? "default",
     servers: overrides.servers ?? [
-      { name: "default", sessionCount: 4 },
-      { name: "work", sessionCount: 2 },
-      { name: "e2e", sessionCount: 1 },
+      { name: "default", sessionCount: 4, windowCount: 9 },
+      { name: "work", sessionCount: 2, windowCount: 5 },
+      { name: "e2e", sessionCount: 1, windowCount: 1 },
     ],
     serverColors: overrides.serverColors ?? {},
     waitingCounts: overrides.waitingCounts,
     onSwitchServer: overrides.onSwitchServer ?? vi.fn(),
-    onKillServer: overrides.onKillServer ?? vi.fn(),
     onCreateServer: overrides.onCreateServer ?? vi.fn(),
     onRefreshServers: overrides.onRefreshServers ?? vi.fn(),
-    onServerColorChange: overrides.onServerColorChange,
   };
   return render(
     <ThemeProvider>
@@ -69,17 +65,25 @@ afterEach(() => {
 });
 
 describe("ServerPanel", () => {
-  it("renders a tile per server with name and session count", () => {
+  it("renders a tile per server with name and bare window count", () => {
     renderPanel();
 
     expect(screen.getByRole("option", { name: /default/ })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /work/ })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /e2e/ })).toBeInTheDocument();
 
-    // Session count meta lines
-    expect(screen.getByText("4 sess")).toBeInTheDocument();
-    expect(screen.getByText("2 sess")).toBeInTheDocument();
-    expect(screen.getByText("1 sess")).toBeInTheDocument();
+    // The count line is a bare window-count number — no "sess"/"win" suffix.
+    const workTile = screen.getByRole("option", { name: /work/ });
+    expect(within(workTile).getByText("5")).toBeInTheDocument();
+    expect(screen.queryByText(/\d+ sess/)).not.toBeInTheDocument();
+  });
+
+  it("renders 0 when windowCount is absent (backend always sends it; fixtures may not)", () => {
+    renderPanel({
+      servers: [{ name: "default", sessionCount: 1 }],
+    });
+    const tile = screen.getByRole("option");
+    expect(within(tile).getByText("0")).toBeInTheDocument();
   });
 
   it("marks the active server tile with aria-current", () => {
@@ -116,40 +120,14 @@ describe("ServerPanel", () => {
     expect(onCreateServer).toHaveBeenCalled();
   });
 
-  it("color-picker button click opens SwatchPopover without firing onSwitchServer", () => {
-    const onSwitchServer = vi.fn();
-    const onServerColorChange = vi.fn();
-    renderPanel({ server: "default", onSwitchServer, onServerColorChange });
+  it("renders no hover action cluster on tiles (kill/color live in the SESSIONS-pane group headers)", () => {
+    renderPanel({ server: "default" });
 
-    // Action buttons are siblings of the option (sibling-of-button, not child),
-    // so look them up globally by accessible name.
-    const colorBtn = screen.getByRole("button", { name: /Set color for server work/ });
-    fireEvent.click(colorBtn);
-
-    expect(onSwitchServer).not.toHaveBeenCalled();
-    expect(screen.getByRole("listbox", { name: /Color picker/i })).toBeInTheDocument();
-  });
-
-  it("kill button renders on every tile", () => {
-    const onKillServer = vi.fn();
-    const onServerColorChange = vi.fn();
-    renderPanel({ server: "default", onKillServer, onServerColorChange });
-
-    expect(screen.getByRole("button", { name: /Kill server default/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Kill server work/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Kill server e2e/ })).toBeInTheDocument();
-  });
-
-  it("kill button fires onKillServer with the tile's name and does not switch servers", () => {
-    const onSwitchServer = vi.fn();
-    const onKillServer = vi.fn();
-    renderPanel({ server: "default", onSwitchServer, onKillServer, onServerColorChange: vi.fn() });
-
-    const killBtn = screen.getByRole("button", { name: /Kill server work/ });
-    fireEvent.click(killBtn);
-
-    expect(onKillServer).toHaveBeenCalledWith("work");
-    expect(onSwitchServer).not.toHaveBeenCalled();
+    // The palette + kill buttons were removed from the tile surface (bylc):
+    // those actions live in the SESSIONS-pane server-group headers and the
+    // command palette's per-server `Server: Kill <name>` entries.
+    expect(screen.queryByRole("button", { name: /Kill server/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Set color for server/ })).not.toBeInTheDocument();
   });
 
   it("is open by default: the tile grid renders without any toggle click", () => {
@@ -179,32 +157,41 @@ describe("ServerPanel", () => {
     expect(options).toHaveLength(3);
   });
 
-  it("uses full server name as the tile title attribute for tooltip fallback", () => {
+  it("tile title carries the name plus singular-aware window/session wording", () => {
     renderPanel({
-      servers: [{ name: "bench-really-long-name", sessionCount: 1 }],
+      servers: [
+        { name: "bench-really-long-name", sessionCount: 2, windowCount: 5 },
+        { name: "solo", sessionCount: 1, windowCount: 1 },
+      ],
       server: "bench-really-long-name",
     });
-    const tile = screen.getByRole("option");
-    expect(tile.getAttribute("title")).toBe("bench-really-long-name");
+    const tile = screen.getByRole("option", { name: /bench-really-long-name/ });
+    expect(tile.getAttribute("title")).toBe(
+      "bench-really-long-name — 5 windows across 2 sessions",
+    );
+    const soloTile = screen.getByRole("option", { name: /solo/ });
+    expect(soloTile.getAttribute("title")).toBe("solo — 1 window across 1 session");
   });
 
-  it("renders static title and active server name in the header while collapsed", () => {
+  it("does not repeat the active server name in the header (spinner slot only)", () => {
     seedCollapsed();
     renderPanel({ server: "work" });
 
     expect(screen.getByText("Server")).toBeInTheDocument();
 
+    // The name is shown by the highlighted tile and the top-bar heading — the
+    // headerRight slot no longer duplicates it.
     const toggle = screen.getByRole("button", { name: /Server/ });
-    expect(within(toggle).getByText("work")).toBeInTheDocument();
+    expect(within(toggle).queryByText("work")).not.toBeInTheDocument();
   });
 
   it("de-emphasizes infra server names (grey), leaves regular names primary", () => {
     renderPanel({
       server: "work",
       servers: [
-        { name: "work", sessionCount: 2 },
-        { name: "rk-daemon", sessionCount: 1 },
-        { name: "rk-test-e2e", sessionCount: 1 },
+        { name: "work", sessionCount: 2, windowCount: 3 },
+        { name: "rk-daemon", sessionCount: 1, windowCount: 1 },
+        { name: "rk-test-e2e", sessionCount: 1, windowCount: 1 },
       ],
     });
 
@@ -223,30 +210,12 @@ describe("ServerPanel", () => {
     expect(workName).not.toHaveClass("text-text-secondary");
   });
 
-  it("keeps the kill button on infra tiles (de-emphasized, not disabled)", () => {
-    renderPanel({
-      server: "work",
-      servers: [
-        { name: "work", sessionCount: 2 },
-        { name: "rk-daemon", sessionCount: 1 },
-      ],
-      onKillServer: vi.fn(),
-      onServerColorChange: vi.fn(),
-    });
-
-    // The infra tile is still fully attachable and killable.
-    expect(screen.getByRole("option", { name: /rk-daemon/ })).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /Kill server rk-daemon/ }),
-    ).toBeInTheDocument();
-  });
-
   it("renders a waiting badge with the count on a server that has waiting windows", () => {
     renderPanel({
       server: "default",
       servers: [
-        { name: "default", sessionCount: 4 },
-        { name: "work", sessionCount: 2 },
+        { name: "default", sessionCount: 4, windowCount: 8 },
+        { name: "work", sessionCount: 2, windowCount: 4 },
       ],
       waitingCounts: new Map([["work", 3]]),
     });
@@ -270,8 +239,8 @@ describe("ServerPanel", () => {
     renderPanel({
       server: "default",
       servers: [
-        { name: "default", sessionCount: 4 }, // no map entry → count 0
-        { name: "work", sessionCount: 2 }, // explicit 0
+        { name: "default", sessionCount: 4, windowCount: 8 }, // no map entry → count 0
+        { name: "work", sessionCount: 2, windowCount: 4 }, // explicit 0
       ],
       waitingCounts: new Map([["work", 0]]),
     });

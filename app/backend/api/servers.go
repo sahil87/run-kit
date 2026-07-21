@@ -14,6 +14,11 @@ import (
 type serverInfo struct {
 	Name         string `json:"name"`
 	SessionCount int    `json:"sessionCount"`
+	// WindowCount is the total window count across this server's sessions
+	// (#{session_windows} summed over the sessions parseSessions keeps —
+	// group copies are already filtered, so shared windows are not
+	// double-counted). Derived from tmux at request time, no cache.
+	WindowCount int `json:"windowCount"`
 	// Rank is this server's user-defined display rank (@rk_server_rank).
 	// nil (JSON null) when unset or unreadable — the frontend sorts unranked
 	// servers after ranked ones. The array's alphabetical order is unchanged
@@ -39,10 +44,13 @@ func (s *Server) handleServersList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Fan out ListSessions + GetServerRank calls concurrently. A failure for
-	// one server yields sessionCount: 0 / rank: null for that entry; no 5xx to
-	// the client. The rank read joins this existing fan-out (one extra tmux
-	// call per server, same concurrency pattern).
+	// one server yields sessionCount: 0 / windowCount: 0 / rank: null for that
+	// entry; no 5xx to the client. The rank read joins this existing fan-out
+	// (one extra tmux call per server, same concurrency pattern). The window
+	// count sums #{session_windows} over the sessions ListSessions already
+	// returns — no extra subprocess.
 	counts := make(map[string]int, len(names))
+	windowCounts := make(map[string]int, len(names))
 	ranks := make(map[string]*int, len(names))
 	var mu sync.Mutex
 	var wg sync.WaitGroup
@@ -51,9 +59,12 @@ func (s *Server) handleServersList(w http.ResponseWriter, r *http.Request) {
 		go func(name string) {
 			defer wg.Done()
 			sessions, err := s.tmux.ListSessions(r.Context(), name)
-			n := 0
+			n, windows := 0, 0
 			if err == nil {
 				n = len(sessions)
+				for _, sess := range sessions {
+					windows += sess.Windows
+				}
 			} else {
 				s.logger.Warn("servers: ListSessions failed", "server", name, "err", err)
 			}
@@ -64,6 +75,7 @@ func (s *Server) handleServersList(w http.ResponseWriter, r *http.Request) {
 			}
 			mu.Lock()
 			counts[name] = n
+			windowCounts[name] = windows
 			ranks[name] = rank
 			mu.Unlock()
 		}(name)
@@ -72,7 +84,7 @@ func (s *Server) handleServersList(w http.ResponseWriter, r *http.Request) {
 
 	out := make([]serverInfo, 0, len(names))
 	for _, name := range names {
-		out = append(out, serverInfo{Name: name, SessionCount: counts[name], Rank: ranks[name]})
+		out = append(out, serverInfo{Name: name, SessionCount: counts[name], WindowCount: windowCounts[name], Rank: ranks[name]})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 

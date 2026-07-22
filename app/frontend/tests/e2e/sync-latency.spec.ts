@@ -80,7 +80,9 @@ test.describe("Sync Latency Audit", () => {
     const names = [
       SESSION_A,
       SESSION_B,
-      `${SESSION_A}-renamed`,
+      // Test 2's UI rename commits the underscored form (the session-kind
+      // live transform converts hyphens — 260722-ln4n).
+      `${SESSION_A}-renamed`.replace(/-/g, "_"),
       `e2e-kill-${SESSION_A}`,
       "session",
     ];
@@ -147,8 +149,12 @@ test.describe("Sync Latency Audit", () => {
     const input = sidebar.locator("input[type='text']").first();
     await expect(input).toBeVisible({ timeout: 2_000 });
     await input.clear();
-    const newName = `${SESSION_A}-renamed`;
-    await input.fill(newName);
+    // The session rename input live-converts unsafe/steered chars as they land
+    // (260722-ln4n): the session-kind transform converts hyphens to "_", so
+    // filling the hyphenated string commits its underscored form.
+    await input.fill(`${SESSION_A}-renamed`);
+    const newName = `${SESSION_A}-renamed`.replace(/-/g, "_");
+    await expect(input).toHaveValue(newName);
 
     const t0 = Date.now();
     await input.press("Enter");

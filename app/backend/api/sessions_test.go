@@ -703,6 +703,80 @@ func TestSessionCreateForbiddenChars(t *testing.T) {
 	}
 }
 
+func TestSessionCreateSpaceRejected(t *testing.T) {
+	// The tightened new-name rule (validate.ValidateNewName): a to-be-created
+	// session name with a space is rejected — spaces bite tmux CLI targeting,
+	// session-group naming, and the /$server/$window routes.
+	ops := &mockTmuxOps{}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	body := `{"name":"My problem"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+	if ops.createSessionCalled {
+		t.Error("CreateSession must NOT be called for a spacey name")
+	}
+	var result map[string]string
+	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if !strings.Contains(result["error"], "cannot contain spaces") {
+		t.Errorf("error = %q, want containing %q", result["error"], "cannot contain spaces")
+	}
+}
+
+func TestSessionRenameSpaceyNewNameRejected(t *testing.T) {
+	// The renamed-TO name is held to the tightened rule.
+	ops := &mockTmuxOps{}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	body := `{"name":"My problem"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/main/rename", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+	if ops.renameSessionCalled {
+		t.Error("RenameSession must NOT be called for a spacey new name")
+	}
+}
+
+func TestSessionRenameSpaceyOldNameAccepted(t *testing.T) {
+	// The rename SOURCE (URL param) stays on the permissive ValidateName so a
+	// pre-existing spacey session (created outside run-kit via raw tmux) can
+	// still be renamed TO a safe name.
+	ops := &mockTmuxOps{}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	body := `{"name":"My_problem"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/My%20problem/rename", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if !ops.renameSessionCalled {
+		t.Fatal("RenameSession was not called")
+	}
+	if ops.renameSessionSession != "My problem" {
+		t.Errorf("old name = %q, want %q", ops.renameSessionSession, "My problem")
+	}
+	if ops.renameSessionName != "My_problem" {
+		t.Errorf("new name = %q, want %q", ops.renameSessionName, "My_problem")
+	}
+}
+
 func TestSessionCreateInvalidJSON(t *testing.T) {
 	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
 

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { spawnRiff, getRiffPresets, type RiffPreset, type RiffWhere } from "@/api/client";
 import { Dialog } from "@/components/dialog";
 import { LogoSpinner } from "@/components/logo-spinner";
+import { finalizeSafeName, toSafeWorktreeName } from "@/lib/names";
 
 type SpawnAgentDialogProps = {
   /** The target tmux server — the server that OWNS the target session. Supplied
@@ -115,8 +116,9 @@ export function SpawnAgentDialog({ server, session, onSpawned, onClose }: SpawnA
       preset: preset || undefined,
       where,
       // Worktree name only applies to worktree mode; the backend rejects it with
-      // checkout, so drop it there.
-      worktreeName: where === "worktree" ? worktreeName.trim() || undefined : undefined,
+      // checkout, so drop it there. Commit-time finalize trims the trailing
+      // separator the live transform keeps visible while typing.
+      worktreeName: where === "worktree" ? finalizeSafeName(worktreeName.trim()) || undefined : undefined,
       // The tier is sent ONLY when the Agent Tier field is shown (a fab project
       // — non-empty tiers). When the field is hidden (non-fab repo) `tier` is
       // omitted entirely, matching the gate: rk never sends an inert tier.
@@ -231,7 +233,9 @@ export function SpawnAgentDialog({ server, session, onSpawned, onClose }: SpawnA
             type="text"
             value={worktreeName}
             onChange={(e) => {
-              setWorktreeName(e.target.value);
+              // Live safe-name conversion (worktree kind — hyphens kept, no
+              // leading hyphen, slash converts).
+              setWorktreeName(toSafeWorktreeName(e.target.value));
               setError("");
             }}
             onKeyDown={handleKeyDown}

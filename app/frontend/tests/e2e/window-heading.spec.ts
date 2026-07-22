@@ -197,6 +197,37 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
     ).toBeVisible({ timeout: 10_000 });
   });
 
+  test("typing a space live-converts to underscore and commits the safe name", async ({
+    page,
+  }) => {
+    const name = `head-safe-${Date.now()}`;
+    execSync(`tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${name}"`, {
+      stdio: "ignore",
+    });
+    const id = await resolveWindow(page, name);
+    await gotoWindow(page, id);
+
+    await page.getByRole("button", { name: `Rename window ${name}` }).click();
+    const input = page.getByRole("textbox", { name: "Window name" });
+    await expect(input).toBeVisible();
+    // Type character-by-character: the live safe-name transform (260722-ln4n)
+    // converts the pressed space to "_" as it lands — WYSIWYG, the input never
+    // shows a space.
+    await input.fill("");
+    await input.pressSequentially("my problem");
+    await expect(input).toHaveValue("my_problem");
+    await input.press("Enter");
+
+    // The committed name is exactly the displayed (converted) name.
+    const sidebar = page.locator("nav[aria-label='Sessions']");
+    await expect(sidebar.locator("text=my_problem").first()).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(
+      page.getByRole("button", { name: "Rename window my_problem" }),
+    ).toBeVisible({ timeout: 10_000 });
+  });
+
   test("Escape cancels the edit and restores the original name", async ({
     page,
   }) => {

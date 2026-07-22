@@ -5,6 +5,7 @@ import type { RowTint } from "@/themes";
 import { SwatchPopover } from "@/components/swatch-popover";
 import { WaitingBadge } from "@/components/waiting-badge";
 import { countWaitingWindows } from "@/lib/waiting";
+import { toSafeSessionName } from "@/lib/names";
 import { PaletteIcon, BotIcon } from "./icons";
 
 type SessionRowProps = {
@@ -186,7 +187,7 @@ function SessionRowInner({
               ref={sessionInputRef}
               type="text"
               value={editingSessionName}
-              onChange={(e) => onSessionNameChange(e.target.value)}
+              onChange={(e) => onSessionNameChange(toSafeSessionName(e.target.value))}
               onKeyDown={onSessionRenameKeyDown}
               onBlur={onSessionRenameBlur}
               onClick={(e) => e.stopPropagation()}

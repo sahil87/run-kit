@@ -13,6 +13,7 @@ import { displayVersion } from "@/lib/palette-version";
 import { updateChipToolSummary } from "@/lib/palette-update";
 import { splitWindow, closePane } from "@/api/client";
 import { useWindowRename } from "@/hooks/use-window-rename";
+import { finalizeSafeName, toSafeWindowName } from "@/lib/names";
 import { prefersReducedMotion } from "@/lib/motion";
 import { WaitingBadge } from "@/components/waiting-badge";
 import { ViewSwitcher, ViewSwitcherMenuRows } from "@/components/view-switcher";
@@ -1510,9 +1511,11 @@ function WindowHeading({
   }, [editing]);
 
   const commit = useCallback(() => {
-    const trimmed = draft.trim();
+    // The edit input applies the live window transform; commit trims the
+    // trailing separator the live transform keeps visible while typing.
+    const trimmed = finalizeSafeName(draft.trim());
     setEditing(false);
-    // Empty/whitespace-only commit = cancel (matches the dialog's trim guard).
+    // Empty-after-conversion commit = cancel (matches the dialog's trim guard).
     if (!trimmed || trimmed === name) {
       sweep.resolve();
       setDraft(name);
@@ -1537,7 +1540,9 @@ function WindowHeading({
           ref={inputRef}
           type="text"
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          // Live safe-name conversion (window kind — hyphens kept): a typed
+          // space appears as "_" so the committed name is the displayed name.
+          onChange={(e) => setDraft(toSafeWindowName(e.target.value))}
           onBlur={() => {
             // A key (Enter/Escape) already committed/cancelled and is tearing
             // the input down — swallow the trailing blur so it doesn't re-commit

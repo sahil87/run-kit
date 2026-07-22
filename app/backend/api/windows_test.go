@@ -487,6 +487,26 @@ func TestWindowCreateNonEmptyInvalidNameRejected(t *testing.T) {
 	}
 }
 
+func TestWindowCreateSpaceyNameRejected(t *testing.T) {
+	// The tightened new-name rule (validate.ValidateNewName) applies to a
+	// non-empty to-be-created window name.
+	ops := &mockTmuxOps{}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	body := `{"name":"my window"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/run-kit/windows", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+	if ops.createWindowCalled {
+		t.Error("CreateWindow must NOT be called for a spacey name")
+	}
+}
+
 func TestWindowKill(t *testing.T) {
 	ops := &mockTmuxOps{}
 	router := newTestRouter(&mockSessionFetcher{}, ops)
@@ -595,6 +615,25 @@ func TestWindowRenameEmptyName(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestWindowRenameSpaceyNameRejected(t *testing.T) {
+	// The renamed-TO window name is held to the tightened rule.
+	ops := &mockTmuxOps{}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	body := `{"name":"my window"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/windows/@1/rename", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+	if ops.renameWindowCalled {
+		t.Error("RenameWindow must NOT be called for a spacey name")
 	}
 }
 

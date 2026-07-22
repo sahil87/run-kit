@@ -33,6 +33,26 @@ func ValidateName(name, label string) string {
 	return ""
 }
 
+// ValidateNewName validates a name for a to-be-created or renamed-to session
+// or window: the permissive ValidateName rule tightened with "no spaces", so
+// the safe charset the frontend's live transforms steer toward is a real
+// backend contract, not just UI steering. Existing-name lookups (URL params,
+// rename/kill/upload targets, session-order entries) deliberately stay on
+// ValidateName — sessions created outside run-kit (raw `tmux rename-session`)
+// can carry spaces and must remain operable. Hyphens stay legal here: internal
+// sessions (`_rk-pin-*`, `rk-test-e2e`, group names) rely on them; the session
+// hyphen→underscore rule is UI-only steering.
+// Returns empty string if valid, error message if invalid.
+func ValidateNewName(name, label string) string {
+	if msg := ValidateName(name, label); msg != "" {
+		return msg
+	}
+	if strings.Contains(name, " ") {
+		return fmt.Sprintf("%s cannot contain spaces", label)
+	}
+	return ""
+}
+
 // ValidateColorValue validates a swatch color-value descriptor: a single ANSI
 // index ("4") or a two-hue blend of two indices joined by '+' ("1+3"). Every
 // index must be an integer in [0, 15]. Returns empty string if valid, an error

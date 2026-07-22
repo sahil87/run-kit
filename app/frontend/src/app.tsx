@@ -75,7 +75,13 @@ import { selectWindow, createSession, createWindow, splitWindow, closePane, move
 import { useBoards } from "@/hooks/use-boards";
 import { useWindowPins } from "@/hooks/use-window-pins";
 import { usePinActions } from "@/hooks/use-pin-actions";
-import { deriveNameFromPath } from "@/components/create-session-dialog";
+import {
+  deriveNameFromPath,
+  finalizeSafeName,
+  toSafeServerName,
+  toSafeSessionName,
+  toSafeWindowName,
+} from "@/lib/names";
 import { useSessionContext, useUpdateNotification } from "@/contexts/session-context";
 import { useOptimisticContext, useMergedSessions } from "@/contexts/optimistic-context";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
@@ -1438,7 +1444,7 @@ function AppShell() {
 
 
   const handleCreateIframeWindow = useCallback(() => {
-    const name = iframeWindowName.trim();
+    const name = finalizeSafeName(iframeWindowName.trim());
     const url = iframeWindowUrl.trim();
     if (!name || !url || !sessionName) return;
     createWindow(server, sessionName, name, undefined, "iframe", url)
@@ -1520,7 +1526,7 @@ function AppShell() {
   });
 
   const handleCreateServer = useCallback(() => {
-    const trimmed = createServerName.trim();
+    const trimmed = finalizeSafeName(createServerName.trim());
     if (!trimmed || !/^[a-zA-Z0-9_-]+$/.test(trimmed)) return;
     executeCreateServer(trimmed);
     // Mark the just-created server pending so the route guard shows the brief
@@ -2775,7 +2781,7 @@ function AppShell() {
             autoFocus
             type="text"
             value={iframeWindowName}
-            onChange={(e) => setIframeWindowName(e.target.value)}
+            onChange={(e) => setIframeWindowName(toSafeWindowName(e.target.value))}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault();
@@ -2814,7 +2820,7 @@ function AppShell() {
             autoFocus
             type="text"
             value={dialogs.renameSessionName}
-            onChange={(e) => dialogs.setRenameSessionName(e.target.value)}
+            onChange={(e) => dialogs.setRenameSessionName(toSafeSessionName(e.target.value))}
             onKeyDown={(e) => e.key === "Enter" && dialogs.handleRenameSession()}
             onFocus={(e) => e.target.select()}
             aria-label="Session name"
@@ -2880,7 +2886,7 @@ function AppShell() {
             autoFocus
             type="text"
             value={createServerName}
-            onChange={(e) => setCreateServerName(e.target.value)}
+            onChange={(e) => setCreateServerName(toSafeServerName(e.target.value))}
             onKeyDown={(e) => e.key === "Enter" && handleCreateServer()}
             onFocus={(e) => e.target.select()}
             aria-label="Server name"

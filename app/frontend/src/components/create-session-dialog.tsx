@@ -2,6 +2,7 @@ import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { createSession, createWindow, getDirectories } from "@/api/client";
 import { Dialog } from "@/components/dialog";
 import { LogoSpinner } from "@/components/logo-spinner";
+import { deriveNameFromPath, finalizeSafeName, toSafeSessionName } from "@/lib/names";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useOptimisticContext } from "@/contexts/optimistic-context";
 import { useSessionContext } from "@/contexts/session-context";
@@ -17,24 +18,6 @@ type CreateSessionDialogProps = {
   /** Required when mode === "window": the session to create the window in. */
   session?: string;
 };
-
-/** Convert a directory name into a tmux-safe session name.
- *  Strip colons and periods (tmux forbids them), replace hyphens with
- *  underscores to avoid collisions with session-group naming. */
-export function toTmuxSafeName(dirName: string): string {
-  return dirName
-    .replace(/[-]/g, "_")
-    .replace(/[:.]/g, "_")
-    .replace(/_{2,}/g, "_")
-    .replace(/^_|_$/g, "");
-}
-
-export function deriveNameFromPath(p: string): string {
-  const trimmed = p.replace(/\/+$/, "");
-  if (trimmed === "~" || trimmed === "") return "";
-  const segment = trimmed.split("/").pop() ?? "";
-  return toTmuxSafeName(segment);
-}
 
 export function CreateSessionDialog({ sessions, onClose, defaultPath, mode = "session", session }: CreateSessionDialogProps) {
   const [name, setName] = useState("");
@@ -76,9 +59,14 @@ export function CreateSessionDialog({ sessions, onClose, defaultPath, mode = "se
     return [];
   }, [suggestions, path, quickPicks]);
 
+  // The name the create will actually submit: the live-transformed input with
+  // the trailing separator trimmed (commit shape). Collision-checked so the
+  // warning matches what would be created.
+  const finalName = useMemo(() => finalizeSafeName(name.trim()), [name]);
+
   const nameCollision = useMemo(
-    () => name.trim() !== "" && existingNames.has(name.trim()),
-    [name, existingNames],
+    () => finalName !== "" && existingNames.has(finalName),
+    [finalName, existingNames],
   );
 
   function selectPath(p: string) {
@@ -214,7 +202,7 @@ export function CreateSessionDialog({ sessions, onClose, defaultPath, mode = "se
       return;
     }
 
-    let trimmedName = name.trim();
+    let trimmedName = finalName;
     if (!trimmedName && path.trim()) {
       trimmedName = deriveNameFromPath(path.trim());
     }
@@ -231,7 +219,7 @@ export function CreateSessionDialog({ sessions, onClose, defaultPath, mode = "se
   const dialogTitle = mode === "window" ? "Create window at folder" : "Create session";
   const isCreateDisabled = mode === "window"
     ? !session
-    : (!name.trim() && !path.trim()) || nameCollision;
+    : (!finalName && !path.trim()) || nameCollision;
 
   return (
     <Dialog title={dialogTitle} onClose={onClose}>
@@ -307,7 +295,9 @@ export function CreateSessionDialog({ sessions, onClose, defaultPath, mode = "se
             type="text"
             value={name}
             onChange={(e) => {
-              setName(e.target.value);
+              // Live safe-name conversion: the user watches "My problem"
+              // become "My_problem" as they type (WYSIWYG).
+              setName(toSafeSessionName(e.target.value));
               setError("");
             }}
             onKeyDown={(e) => e.key === "Enter" && handleCreate()}
@@ -320,7 +310,7 @@ export function CreateSessionDialog({ sessions, onClose, defaultPath, mode = "se
           />
           {nameCollision && (
             <p className="text-xs text-red-400 mt-1">
-              Session "{name.trim()}" already exists
+              Session "{finalName}" already exists
             </p>
           )}
         </div>

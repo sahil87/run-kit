@@ -1516,6 +1516,43 @@ CWD display (line 1) uses `shortenPath()` to shorten the active pane's `cwd` (fa
 - Examples: `/home/sahil/code/org/repo/src` → `…/repo/src`; `/home/sahil/code/org` → `~/code/org`; `/var/log/nginx` → `…/log/nginx`.
 - The `title` attribute on the CWD element always contains the original unmodified `activePaneCwd` — hover to see the full path.
 
+## Live Safe-Name Conversion
+
+Every naming entry point converts a user-typed name to its safe/canonical form **live, in the input's `onChange`** — the user watches "My problem" become "My_problem" as they type (WYSIWYG), so the optimistic-update name is identical to the committed name. The conversion is **per name kind**, sourced from the shared pure module `app/frontend/src/lib/names.ts` (the established `src/lib/*.ts` + colocated `*.test.ts` home for shared pure logic), which exports one transform per kind plus a commit finisher:
+
+| Export | Rule |
+|--------|------|
+| `toSafeSessionName(raw)` | spaces, **hyphens**, colons, periods, and the backend forbidden set (`; & | ` backtick ` $ ( ) { } [ ] < > ! # * ?` + control chars) → `_`; collapse `_` runs; strip leading `_`; **preserve case**; cap 128 (`MaxNameLength`). Hyphen→`_` is session-specific (session-group collision avoidance). |
+| `toSafeWindowName(raw)` | same as session but **keeps hyphens** — `riff-*` windows use them legitimately and the group-collision rationale does not apply. |
+| `toSafeServerName(raw)` | anything outside `[a-zA-Z0-9_-]` → `_`; collapse; strip leading `_`; cap 64 (`MaxServerNameLength`). Matches backend `ValidateServerName`. |
+| `toSafeWorktreeName(raw)` | the window rule plus `/`→`_` and a leading `-` dropped (matching `ValidateWorktreeName`). |
+| `finalizeSafeName(name)` | commit-time finisher — strips leading **and trailing** `_` runs. |
+| `deriveNameFromPath(p)` | path-derived session-name suggestion — extracts the last path segment, composes the session transform + `finalizeSafeName` (both ends trimmed, matching the old `toTmuxSafeName`). |
+
+Case is preserved ("My problem" → "My_problem", never lowercased). Chars outside a kind's unsafe set (e.g. `@`, `%`, `+` for session/window names) pass through unchanged — this is conversion, not stripping.
+
+**Live-typing edges** (§ Design Decisions → Live transform + commit finalizer split): the live `onChange` transform strips **leading** unsafe chars as typed (a space pressed in an empty field produces nothing) and collapses `_` runs live, but a **trailing** `_` stays visible while typing — trimming it live would delete the separator the user just typed ("My " + "p" would become "Myp"). Commit/submit sites run `finalizeSafeName` to trim the trailing `_`. An input that is empty after conversion falls through to the existing empty-name submit guards — no new error surface. There is no caret-position management beyond React-controlled-input defaults; a mid-string length-changing edit may move the caret to the end (an accepted edge).
+
+**Wired entry points** (each applies the kind's transform in `onChange` and `finalizeSafeName` at commit):
+
+| Surface | File | Kind |
+|---------|------|------|
+| Create-session dialog typed-name field | `create-session-dialog.tsx` | session |
+| Session rename dialog input | `app.tsx` (state in `use-dialog-state.ts`) | session |
+| Sidebar inline session rename | `sidebar/session-row.tsx` | session |
+| Top-bar `WindowHeading` inline rename (also the palette's "Window: Rename" CustomEvent path — § Window Heading) | `top-bar.tsx` | window |
+| Sidebar inline window rename (commits via shared `use-window-rename.ts`) | `sidebar/window-row.tsx` | window |
+| "New iframe window" name field | `app.tsx` (`handleCreateIframeWindow`) | window |
+| Host Overview create-server dialog | `host-overview-page.tsx` | server |
+| AppShell create-server dialog | `app.tsx` (`handleCreateServer`) | server |
+| Spawn/riff worktree-name field | `spawn-agent-dialog.tsx` | worktree |
+
+The create dialog's **window mode has no name input** (windows are created unnamed and tmux auto-names them — § Unnamed `+ New Window`), so there is nothing to wire there.
+
+**Known gap — board-route create-server dialog is NOT wired.** The third server-name input, the board-route create-server dialog (`src/components/board/board-page.tsx`, input at `board-page.tsx:1179`), still does a raw `setCreateServerName(e.target.value)` with no live `toSafeServerName`, and its `handleCreateServerSubmit` skips `finalizeSafeName` — it only gates submit on the pre-existing regex disabled-guard (`/^[a-zA-Z0-9_-]+$/.test(trimmed)`). So on that one surface a typed space still produces the old hard-rejection UX (submit blocked) rather than live conversion. This diverges from the "every naming entry point converts" intent and is a tracked should-fix, not shipped behavior — the other two server inputs (host-overview + AppShell) do convert live. (`260722-ln4n-auto-safe-name-conversion`)
+
+The backend enforcement side of this contract (the tightened `ValidateNewName` for created/renamed-to names, permissive lookups for existing names) lives in [tmux-sessions](/run-kit/tmux-sessions.md) § Name-Validation Charset Contract and [architecture](/run-kit/architecture.md) § API Layer.
+
 ## Session Creation Pattern
 
 ### Instant Creation (Primary)
@@ -1523,7 +1560,7 @@ CWD display (line 1) uses `shortenPath()` to shorten the active pane's `cwd` (fa
 All primary session creation entry points create a session immediately without a dialog. Implemented by `executeCreateSessionInstant` in `app.tsx`.
 
 **Algorithm**:
-1. Derive a name from the active window's `worktreePath` using `deriveNameFromPath(worktreePath)` (exported from `create-session-dialog.tsx`). If the result is empty (CWD is `/`, `~`, or `worktreePath` is undefined), the name is `session`.
+1. Derive a name from the active window's `worktreePath` using `deriveNameFromPath(worktreePath)` (from the shared `@/lib/names` module — § Live Safe-Name Conversion). If the result is empty (CWD is `/`, `~`, or `worktreePath` is undefined), the name is `session`.
 2. Deduplicate against `sessions`: if the name is taken, try `{name}-2`, `{name}-3`, … up to `{name}-10`. If all are taken, use `{name}-11` (best-effort).
 3. Call `createSession(server, derivedName, worktreePath)`. If no active window exists, call `createSession(server, "session")` (no `cwd` — tmux defaults to server CWD).
 4. The session appears in the sidebar via the existing optimistic/ghost mechanism.
@@ -1535,7 +1572,7 @@ All primary session creation entry points create a session immediately without a
 - Top-bar breadcrumb session dropdown `+ New Session` item
 - Cmd+K "Session: Create" action
 
-**Name derivation utilities**: `deriveNameFromPath` and `toTmuxSafeName` are exported from `app/frontend/src/components/create-session-dialog.tsx` so `app.tsx` can import them without duplicating logic.
+**Name derivation utilities**: `deriveNameFromPath` and the per-kind safe-name transforms live in the shared `app/frontend/src/lib/names.ts` module (§ Live Safe-Name Conversion), imported by `app.tsx` and every naming surface. Name conversion is split per kind (`toSafeSessionName`/`toSafeWindowName`/`toSafeServerName`/`toSafeWorktreeName`) — there is no single `toTmuxSafeName`.
 
 ### Folder-Prompted Creation (Secondary, via Cmd+K)
 
@@ -1559,7 +1596,7 @@ The `+ New Window` action does **not** pin the window name to `"zsh"` — it cal
 
 **All three unnamed-window call sites:**
 
-1. **Sidebar `+ New Window`** (`app.tsx`, the `create-window` "Window: Create" palette action) — `createWindow(srv, session, undefined, activeWin?.worktreePath)`. Its optimistic-ghost label becomes the **raw** (unsanitized) basename of the creation cwd via the local `rawBasename(cwd)` helper (falls back to `"window"` when no cwd). This is deliberately **NOT** `deriveNameFromPath` — that runs `toTmuxSafeName` (`.`→`_` etc.), but tmux's `#{b:pane_current_path}` uses the unsanitized basename, so the ghost must match the raw form tmux will actually display.
+1. **Sidebar `+ New Window`** (`app.tsx`, the `create-window` "Window: Create" palette action) — `createWindow(srv, session, undefined, activeWin?.worktreePath)`. Its optimistic-ghost label becomes the **raw** (unsanitized) basename of the creation cwd via the local `rawBasename(cwd)` helper (falls back to `"window"` when no cwd). This is deliberately **NOT** `deriveNameFromPath` — that runs the session safe-name transform (`.`→`_` etc.), but tmux's `#{b:pane_current_path}` uses the unsanitized basename, so the ghost must match the raw form tmux will actually display.
 2. **Palette "Window: Create at Folder"** (`create-session-dialog.tsx`, `mode="window"`) — `createWindow(server, session, undefined, cwd)`; this flow sets **no** optimistic ghost, so no label is derived.
 3. **Board-route `+ New Window`** (`board-page.tsx`) — `createWindowApi(srv, sess)` (no name, no cwd — the backend resolves a default; this action registers no ghost). Identical behavior to the same button on `/$server`.
 
@@ -1996,9 +2033,9 @@ The "Create session" dialog (breadcrumb `+ New Session` action, sidebar empty st
 
 2. **Path input with autocomplete** — Text input that calls `GET /api/directories?prefix=...` with ~300ms debounce. Results appear as a dropdown below the input. Selecting a result fills the path and triggers a new autocomplete for children. Hidden directories (`.`-prefixed) are excluded from results.
 
-3. **Session name** — Auto-derived from the last segment of the selected path (e.g., `~/code/sahil87/run-kit` yields `run_kit`). Editable — auto-derivation is a convenience, not a lock. When the name field is left empty at submit time, the name is derived from the path automatically via `deriveNameFromPath()`. The Create button is enabled when either a name or a path is provided.
+3. **Session name** — Auto-derived from the last segment of the selected path (e.g., `~/code/sahil87/run-kit` yields `run_kit`). Editable — auto-derivation is a convenience, not a lock. The typed name field converts **live** as the user types via `toSafeSessionName` (§ Live Safe-Name Conversion) — a typed space appears as `_`. When the name field is left empty at submit time, the name is derived from the path automatically via `deriveNameFromPath()`. The Create button is enabled when either a name or a path is provided.
 
-On submit, the dialog calls `createSession(server, name, cwd)` which sends `POST /api/sessions?server={server}` with `{ name, cwd }`. If the name field is empty but a path is set, the name is derived from the path's last segment (sanitized for tmux/byobu: hyphens→underscores, colons/periods replaced with underscores). Collision with existing session names is checked on the derived name and shows an error. The `cwd` field is omitted when no path is selected, preserving the original name-only behavior. Accessible from breadcrumb `+ New Session` dropdown action, sidebar empty state button, and command palette.
+On submit, the dialog calls `createSession(server, name, cwd)` (the typed name run through `finalizeSafeName` first — trailing `_` trimmed, § Live Safe-Name Conversion) which sends `POST /api/sessions?server={server}` with `{ name, cwd }`. If the name field is empty but a path is set, the name is derived from the path's last segment via `deriveNameFromPath` (the session transform: hyphens→underscores, spaces and colons/periods and the forbidden set → underscores). Collision with existing session names is checked on the finalized/derived name and shows an error. The `cwd` field is omitted when no path is selected, preserving the original name-only behavior. Accessible from breadcrumb `+ New Session` dropdown action, sidebar empty state button, and command palette.
 
 ## Spawn-Agent Dialog
 
@@ -2009,7 +2046,7 @@ On submit, the dialog calls `createSession(server, name, cwd)` which sends `POST
 1. **Task** — free text, optional, autofocused; empty spawns a blank agent session.
 2. **Preset** — a dropdown fetched on open (see preflight below), shown **only when the repo defines presets** (`presets.length > 0`); each option renders `name — layout (N panes)`.
 3. **Where** — a `role="radiogroup"` with two options: **new worktree** (default, `where="worktree"`) and **this checkout** (`where="checkout"`, roots the window in the existing checkout — no worktree created). State is the typed `RiffWhere = "worktree" | "checkout"` union (no `as` casts).
-4. **Worktree** — a text input, blank by default, placeholder `auto-named (e.g. swift-fox)`; **hidden when `where === "checkout"`** (it has no meaning there). Blank = wt auto-names; a typed name rides `worktreeName` through to `wt create --worktree-name`. No pre-filled suggestion — `wt` exposes no name-suggest seam and constitution §III forbids reimplementing its generator, so the placeholder is the honest fallback.
+4. **Worktree** — a text input, blank by default, placeholder `auto-named (e.g. swift-fox)`; **hidden when `where === "checkout"`** (it has no meaning there). Converts **live** via `toSafeWorktreeName` as the user types (§ Live Safe-Name Conversion) — spaces → `_`, `/` → `_`, a leading `-` dropped (matching `ValidateWorktreeName`), hyphens kept. Blank = wt auto-names; a typed name rides `worktreeName` through to `wt create --worktree-name`. No pre-filled suggestion — `wt` exposes no name-suggest seam and constitution §III forbids reimplementing its generator, so the placeholder is the honest fallback.
 5. **Agent** — a tier dropdown populated from the preflight's `tiers` (built-ins ∪ the repo's `agent.tiers`, `default` first), defaulting to the `DEFAULT_TIER = "default"` constant. Displays tier **names only** (no model IDs — brittle to parse out of command strings). **FAB-GATED**: the field renders **only when `tiers.length > 0`**. The backend fab-gates the presets response (`tiers: []` for a non-fab repo — see [architecture](/run-kit/architecture.md) § API Layer `/api/riff/presets`), so an empty list HIDES the field entirely — no label, no hint text, no disabled control — because in a non-fab repo every tier resolves to the same `DefaultLauncher` (inert noise). When hidden, `tier` is omitted from the spawn body (see § Defaults). Non-fab-repo hiding does NOT enumerate system agents (claude/codex/gemini) — tiers remain fab's abstraction (constitution §III). (`gsmu`)
 
 **Enter submits from any field** (`handleKeyDown` wired on all inputs incl. the radios and both selects). **Preflight fetch** (`getRiffPresets(server, session)`) is **best-effort**, with two branches: (`gsmu`)
@@ -2250,6 +2287,12 @@ The regression test in `app/frontend/src/hooks/use-dialog-state.test.tsx` flips 
 
 
 ## Design Decisions
+
+### Live safe-name transform + commit finalizer split
+**Decision**: The live `onChange` transform strips leading separators but keeps a trailing `_` visible; a separate `finalizeSafeName` trims leading+trailing `_` at commit. Name conversion happens live in the input (not silently at submit), per name kind, in one shared `src/lib/names.ts` module.
+**Why**: Converting live gives WYSIWYG — the user sees exactly the name that will exist, so the optimistic-update name equals the committed name. Keeping the trailing `_` visible while typing is required so "My " + "p" does not collapse to "Myp" (trimming the trailing separator live would delete the separator the user just typed and break mid-word entry); commit-trim is the one minimal WYSIWYG deviation. One transform per kind in `src/lib/` (the shared-pure-logic home) keeps every entry point on one canonical rule with colocated Vitest coverage.
+**Rejected**: (a) backend-side conversion — breaks WYSIWYG and optimistic-update parity (the backend stays reject-only, constitution §I); (b) submit-time silent conversion — the user commits a name they never saw; (c) keeping reject-only frontend errors (the old server-name UX) — explicitly the experience this moves away from; (d) strict-WYSIWYG commit (trailing `_` included) — leaves awkward trailing separators for no benefit.
+*Introduced by*: 260722-ln4n-auto-safe-name-conversion
 
 ### Sessions-pane scope is explicit state, not the SERVER panel's expansion
 **Decision**: The sessions-pane scope (`all | current`) is its own persisted state (`runkit-panel-sessions-scope`), read via `useSessionsScope`, with no migration from the old `runkit-panel-server` coupling; the SERVER panel defaults open and its expansion no longer affects the session list.

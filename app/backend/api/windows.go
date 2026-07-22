@@ -37,7 +37,8 @@ func (s *Server) handleWindowCreate(w http.ResponseWriter, r *http.Request) {
 	// in the embedded configs). Only a non-empty name is validated. The rename
 	// path (handleWindowRename) still requires a non-empty, validated name.
 	if body.Name != "" {
-		if errMsg := validate.ValidateName(body.Name, "Window name"); errMsg != "" {
+		// Tightened new-name rule (no spaces) — this names a to-be-created window.
+		if errMsg := validate.ValidateNewName(body.Name, "Window name"); errMsg != "" {
 			writeError(w, http.StatusBadRequest, errMsg)
 			return
 		}
@@ -172,7 +173,8 @@ func (s *Server) handleWindowRename(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if errMsg := validate.ValidateName(body.Name, "Window name"); errMsg != "" {
+	// Tightened new-name rule (no spaces) — this is the renamed-TO name.
+	if errMsg := validate.ValidateNewName(body.Name, "Window name"); errMsg != "" {
 		writeError(w, http.StatusBadRequest, errMsg)
 		return
 	}

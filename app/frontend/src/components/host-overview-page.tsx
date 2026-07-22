@@ -2,6 +2,7 @@ import { useState, useCallback, useMemo, useRef } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { createServer, createSession, createWindow, getSessions, isInfraServer } from "@/api/client";
 import { Dialog } from "@/components/dialog";
+import { finalizeSafeName, toSafeServerName } from "@/lib/names";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useToast } from "@/components/toast";
 import { useHostMetrics, useHostServices, useSessionContext } from "@/contexts/session-context";
@@ -153,7 +154,10 @@ export function HostOverviewPage() {
   });
 
   const handleCreate = useCallback(() => {
-    const trimmed = createName.trim();
+    // The input applies the live server transform; commit trims the trailing
+    // separator. The regex stays as defense in depth (always passes post-
+    // transform).
+    const trimmed = finalizeSafeName(createName.trim());
     if (!trimmed || !/^[a-zA-Z0-9_-]+$/.test(trimmed)) return;
     executeCreateServer(trimmed);
     // Mark the just-created server pending BEFORE navigating so the route guard
@@ -474,7 +478,8 @@ export function HostOverviewPage() {
             autoFocus
             type="text"
             value={createName}
-            onChange={(e) => setCreateName(e.target.value)}
+            // Live safe-name conversion (server kind — strictest charset).
+            onChange={(e) => setCreateName(toSafeServerName(e.target.value))}
             onKeyDown={(e) => e.key === "Enter" && handleCreate()}
             onFocus={(e) => e.target.select()}
             aria-label="Server name"

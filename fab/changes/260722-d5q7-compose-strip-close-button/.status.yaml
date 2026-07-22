@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 7
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-07-22T17:42:45Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-22T17:50:16Z"}
     review: {started_at: "2026-07-22T17:50:16Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-22T17:54:19Z"}
     hydrate: {started_at: "2026-07-22T17:54:19Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-22T17:56:36Z"}
-    ship: {started_at: "2026-07-22T17:56:36Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-07-22T17:56:36Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-22T17:58:17Z"}
+    review-pr: {started_at: "2026-07-22T17:58:17Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/444
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 436
+    deleted: 13
+    net: 423
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 149
+        deleted: 11
+        net: 138
     tests:
-        added: 0
+        added: 35
         deleted: 0
-        net: 0
-    computed_at: "2026-07-22T17:56:36Z"
-    computed_at_stage: hydrate
+        net: 35
+    computed_at: "2026-07-22T17:58:17Z"
+    computed_at_stage: ship
 summary: Add on-strip × close button to the docked compose strip header row, wired to the same toggleComposeStrip action as the >_ chip and palette entry
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-07-22T17:56:36Z
+last_updated: 2026-07-22T17:58:17Z

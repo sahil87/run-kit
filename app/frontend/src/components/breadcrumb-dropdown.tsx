@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
+import { Tip } from "@/components/tip";
 import type { BreadcrumbDropdownItem } from "@/contexts/chrome-context";
 
 type DropdownAction = { label: string; onAction: () => void };
@@ -19,7 +20,11 @@ type Props = {
    *  keeps its single-action behavior unchanged. */
   secondaryAction?: DropdownAction;
   triggerClassName?: string;
-  /** Native tooltip on the trigger — names the crumb's level (e.g. "Session"). */
+  /** Trigger tooltip — names the crumb's level (e.g. "Session"). Rendered as a
+   *  tier-1 `Tip` around the trigger (260722-73al), not a native `title=`
+   *  attribute; the prop keeps its name (it is a component prop, like
+   *  `Dialog title=`). Suppressed while the menu is open so the tip never
+   *  paints over the menu's first rows. */
   title?: string;
 };
 
@@ -152,33 +157,34 @@ export function BreadcrumbDropdown({ items, label, icon, onNavigate, action, sec
 
   return (
     <div ref={containerRef} className="relative inline-flex items-center">
-      <button
-        ref={buttonRef}
-        aria-haspopup="true"
-        aria-expanded={open}
-        aria-label={label ? `Switch ${label}` : "Switch"}
-        title={title}
-        onClick={toggle}
-        // rk-glint / trigger `overflow:hidden` is safe: the open menu is
-        // `position: fixed` (anchored to this trigger's viewport rect, below),
-        // so it lives OUTSIDE both this trigger's box and the breadcrumb nav's
-        // `overflow-hidden` clip — no ancestor overflow can clip or displace it.
-        className={`min-w-[24px] min-h-[24px] flex items-center gap-1 transition-colors ${triggerClassName ?? "text-text-secondary hover:text-text-primary"}`}
-      >
-        <span className="min-w-0 truncate">{icon ?? "\u25BE"}</span>
-        {/* Persistent caret: the always-visible "opens a menu" affordance,
-            distinguishing dropdown crumbs from link crumbs (which navigate).
-            Only rendered alongside a label \u2014 a label-less trigger already IS
-            a bare caret. */}
-        {icon != null && (
-          <span
-            aria-hidden="true"
-            className="shrink-0 text-base leading-none"
-          >
-            {"\u25BE"}
-          </span>
-        )}
-      </button>
+      <Tip label={open ? undefined : title}>
+        <button
+          ref={buttonRef}
+          aria-haspopup="true"
+          aria-expanded={open}
+          aria-label={label ? `Switch ${label}` : "Switch"}
+          onClick={toggle}
+          // rk-glint / trigger `overflow:hidden` is safe: the open menu is
+          // `position: fixed` (anchored to this trigger's viewport rect, below),
+          // so it lives OUTSIDE both this trigger's box and the breadcrumb nav's
+          // `overflow-hidden` clip — no ancestor overflow can clip or displace it.
+          className={`min-w-[24px] min-h-[24px] flex items-center gap-1 transition-colors ${triggerClassName ?? "text-text-secondary hover:text-text-primary"}`}
+        >
+          <span className="min-w-0 truncate">{icon ?? "\u25BE"}</span>
+          {/* Persistent caret: the always-visible "opens a menu" affordance,
+              distinguishing dropdown crumbs from link crumbs (which navigate).
+              Only rendered alongside a label \u2014 a label-less trigger already IS
+              a bare caret. */}
+          {icon != null && (
+            <span
+              aria-hidden="true"
+              className="shrink-0 text-base leading-none"
+            >
+              {"\u25BE"}
+            </span>
+          )}
+        </button>
+      </Tip>
       {open && menuPos && (
         <div
           ref={menuRef}

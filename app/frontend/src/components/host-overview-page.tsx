@@ -14,6 +14,7 @@ import { useBoardListReorder } from "@/hooks/use-board-list-reorder";
 import { useServerReorder } from "@/hooks/use-server-reorder";
 import { useRegisterTopBarSlot } from "@/contexts/top-bar-slot-context";
 import { SectionHeading } from "@/components/section-heading";
+import { Tip } from "@/components/tip";
 import { displayVersion } from "@/lib/palette-version";
 
 /** Well-known / system ports (< 1024, the reserved range) — sshd:22, smtp:25,
@@ -434,16 +435,17 @@ export function HostOverviewPage() {
                       </span>
                     )}
                   </div>
-                  <button
-                    onClick={() => handleOpenInWindow(svc.port)}
-                    disabled={servers.length === 0}
-                    title={
-                      servers.length === 0 ? "Create a server first" : undefined
-                    }
-                    className="shrink-0 text-xs px-2 py-1 border border-border rounded text-text-secondary hover:text-text-primary hover:border-text-secondary transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-text-secondary disabled:hover:border-border"
-                  >
-                    Open in window
-                  </button>
+                  {/* Conditional tip: only the disabled state needs the "why"
+                      (label undefined otherwise → child renders untouched). */}
+                  <Tip label={servers.length === 0 ? "Create a server first" : undefined}>
+                    <button
+                      onClick={() => handleOpenInWindow(svc.port)}
+                      disabled={servers.length === 0}
+                      className="shrink-0 text-xs px-2 py-1 border border-border rounded text-text-secondary hover:text-text-primary hover:border-text-secondary transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-text-secondary disabled:hover:border-border"
+                    >
+                      Open in window
+                    </button>
+                  </Tip>
                 </div>
               ))}
             </div>

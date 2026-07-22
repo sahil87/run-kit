@@ -14,6 +14,8 @@
  * color-only. No pulse here (the pulse lives on the per-window dot/seam); the
  * rollup is a quiet count.
  */
+import { Tip } from "@/components/tip";
+
 export function WaitingBadge({
   count,
   label,
@@ -35,34 +37,42 @@ export function WaitingBadge({
   const resolvedLabel = label ?? `${count} agent${count === 1 ? "" : "s"} waiting for input`;
   const className =
     "shrink-0 text-xs leading-none px-1.5 py-0.5 rounded bg-yellow-400/15 text-yellow-400 font-medium tabular-nums";
+  // Placement `right` — the sidebar-row tooltip convention (the badge's mount
+  // sites are row/tile trailing chips); flip()/shift() handle tight edges.
   if (onClick) {
+    // The old "— go to next waiting" title suffix becomes the dim modifier
+    // note so the label stays inside the tier-1 one-line ≤40ch cap.
     return (
-      <button
-        type="button"
-        data-testid="waiting-badge"
-        className={`${className} rk-glint hover:bg-yellow-400/25 transition-colors cursor-pointer`}
-        aria-label={`${resolvedLabel} — go to next waiting`}
-        title={`${resolvedLabel} — go to next waiting`}
-        onClick={(e) => {
-          // Don't let the click bubble to a parent row/tile navigation.
-          e.stopPropagation();
-          onClick();
-        }}
-      >
-        {count}
-        <span aria-hidden="true">{"⚠"}</span>
-      </button>
+      <Tip label={resolvedLabel} note="click: next waiting" placement="right">
+        <button
+          type="button"
+          data-testid="waiting-badge"
+          className={`${className} rk-glint hover:bg-yellow-400/25 transition-colors cursor-pointer`}
+          aria-label={`${resolvedLabel} — go to next waiting`}
+          onClick={(e) => {
+            // Don't let the click bubble to a parent row/tile navigation.
+            e.stopPropagation();
+            onClick();
+          }}
+        >
+          {count}
+          <span aria-hidden="true">{"⚠"}</span>
+        </button>
+      </Tip>
     );
   }
   return (
-    <span
-      data-testid="waiting-badge"
-      className={className}
-      aria-label={resolvedLabel}
-      title={resolvedLabel}
-    >
-      {count}
-      <span aria-hidden="true">{"⚠"}</span>
-    </span>
+    // Display-only variant: non-focusable span, hover-only tip (matches the
+    // native-title behavior it replaces).
+    <Tip label={resolvedLabel} placement="right">
+      <span
+        data-testid="waiting-badge"
+        className={className}
+        aria-label={resolvedLabel}
+      >
+        {count}
+        <span aria-hidden="true">{"⚠"}</span>
+      </span>
+    </Tip>
   );
 }

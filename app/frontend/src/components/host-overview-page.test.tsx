@@ -107,19 +107,21 @@ beforeEach(() => {
   mockServers = [];
   mockBoards = [];
   mockSessionsByServer = new Map();
-  // ThemeProvider reads matchMedia on mount.
+  // ThemeProvider reads matchMedia on mount. Query-sensitive on ONE query:
+  // everything matches EXCEPT `(pointer: coarse)` (false), or every Tip would
+  // self-suppress (fine-pointer is the test default; tip.test.tsx covers coarse).
   vi.stubGlobal(
     "matchMedia",
-    vi.fn().mockReturnValue({
-      matches: true,
-      media: "(prefers-color-scheme: dark)",
+    vi.fn().mockImplementation((query: string) => ({
+      matches: query !== "(pointer: coarse)",
+      media: query,
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
       addListener: vi.fn(),
       removeListener: vi.fn(),
       onchange: null,
       dispatchEvent: vi.fn(),
-    }),
+    })),
   );
 });
 
@@ -152,7 +154,11 @@ describe("HostOverviewPage — Services zone", () => {
 
     const btn = screen.getByRole("button", { name: "Open in window" }) as HTMLButtonElement;
     expect(btn.disabled).toBe(true);
-    expect(btn.title).toBe("Create a server first");
+    // The "why disabled" hint is a styled Tip now (260722-73al) — no native
+    // title attribute on the button in either state.
+    expect(btn.title).toBe("");
+    fireEvent.focus(btn);
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Create a server first");
   });
 
   it("creates an instant session + iframe window and navigates when a server genuinely has no sessions", async () => {

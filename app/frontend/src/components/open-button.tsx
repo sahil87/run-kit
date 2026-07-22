@@ -11,6 +11,7 @@ import {
   writeLastUsedOpenTarget,
   type OpenTarget,
 } from "@/lib/open-in-app";
+import { Tip } from "@/components/tip";
 
 /**
  * OpenButton — the Conductor-style "Open in app" split-button for the top-bar
@@ -104,23 +105,25 @@ export function OpenButton({
           ViewSwitcher segment-group treatment) so the pair reads as ONE
           control at cluster scale. */}
       <span className="inline-flex items-stretch rounded border border-border overflow-hidden">
-        <button
-          ref={triggerRef}
-          type="button"
-          onClick={handlePrimary}
-          aria-label={primaryLabel}
-          title={primaryLabel}
-          className="rk-glint px-1.5 min-h-[24px] coarse:min-h-[30px] text-[11px] font-mono flex items-center justify-center text-text-secondary hover:text-text-primary transition-colors"
-        >
-          Open
-        </button>
+        <Tip label={primaryLabel}>
+          <button
+            ref={triggerRef}
+            type="button"
+            onClick={handlePrimary}
+            aria-label={primaryLabel}
+            className="rk-glint px-1.5 min-h-[24px] coarse:min-h-[30px] text-[11px] font-mono flex items-center justify-center text-text-secondary hover:text-text-primary transition-colors"
+          >
+            Open
+          </button>
+        </Tip>
+        {/* Tip suppressed while the menu is open (trigger convention). */}
+        <Tip label={open ? undefined : "Open in… (choose app)"}>
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
           aria-haspopup="menu"
           aria-expanded={open}
           aria-label="Open in… (choose app)"
-          title="Open in… (choose app)"
           className="rk-glint px-1 min-h-[24px] coarse:min-h-[30px] border-l border-border flex items-center justify-center text-text-secondary hover:text-text-primary transition-colors"
         >
           <svg
@@ -137,6 +140,7 @@ export function OpenButton({
             <polyline points="2,3.5 5,6.5 8,3.5" />
           </svg>
         </button>
+        </Tip>
       </span>
       {open && (
         <div

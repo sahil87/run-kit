@@ -4,6 +4,7 @@ import {
   MENU_ROW_REST,
   MENU_ROW_ACTIVE,
 } from "@/components/top-bar-overflow-menu";
+import { Tip } from "@/components/tip";
 
 /**
  * ViewSwitcher — the ONE switcher UX shared by every window-view lens (spec R4;
@@ -104,21 +105,21 @@ export function ViewSwitcher({ views, active, onSelect }: ViewSwitcherProps) {
       {ordered.map((view) => {
         const isActive = view === active;
         return (
-          <button
-            key={view}
-            type="button"
-            onClick={() => onSelect(view)}
-            aria-pressed={isActive}
-            aria-label={`${VIEW_LABEL[view]} view`}
-            title={`${VIEW_LABEL[view]} view`}
-            className={`rk-glint px-1.5 min-h-[24px] coarse:min-h-[30px] text-[11px] font-mono flex items-center justify-center transition-colors ${
-              isActive
-                ? "bg-accent-green text-bg-primary"
-                : "text-text-secondary hover:text-text-primary"
-            }`}
-          >
-            {VIEW_SHORT[view]}
-          </button>
+          <Tip key={view} label={`${VIEW_LABEL[view]} view`}>
+            <button
+              type="button"
+              onClick={() => onSelect(view)}
+              aria-pressed={isActive}
+              aria-label={`${VIEW_LABEL[view]} view`}
+              className={`rk-glint px-1.5 min-h-[24px] coarse:min-h-[30px] text-[11px] font-mono flex items-center justify-center transition-colors ${
+                isActive
+                  ? "bg-accent-green text-bg-primary"
+                  : "text-text-secondary hover:text-text-primary"
+              }`}
+            >
+              {VIEW_SHORT[view]}
+            </button>
+          </Tip>
         );
       })}
     </span>

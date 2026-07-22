@@ -12,6 +12,7 @@ import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import { useFileUpload } from "@/hooks/use-file-upload";
 import { classifyComposeEnter } from "@/lib/compose-keys";
 import { useWindowStore, entryKey } from "@/store/window-store";
+import { Tip, TipGroup } from "@/components/tip";
 import {
   COMPOSE_STRIP_ATTACH_EVENT,
   drainComposeStripAttachments,
@@ -423,6 +424,9 @@ export function ComposeStrip() {
         </div>
       )}
 
+      {/* One warm-tip cluster for the strip's buttons (260722-73al);
+          placement `top` — the strip sits at the bottom of the screen. */}
+      <TipGroup>
       <div className="flex items-end gap-1.5">
         <textarea
           ref={textareaRef}
@@ -465,31 +469,38 @@ export function ComposeStrip() {
         >
           <span aria-hidden="true">{"📎"}</span>
         </button>
-        <button
-          type="button"
-          aria-label="Insert text without submitting"
-          title="Insert into the terminal input without submitting (Alt+Enter)"
-          disabled={!canSend}
-          onMouseDown={preventFocusSteal}
-          onClick={() => send(false)}
-          data-testid="compose-strip-insert"
-          className="rk-glint shrink-0 rounded border border-border px-2 py-1.5 text-xs text-text-secondary transition-colors hover:border-text-secondary disabled:opacity-40 disabled:cursor-not-allowed coarse:min-h-[36px]"
-        >
-          Insert
-        </button>
-        <button
-          type="button"
-          aria-label="Send text"
-          title={coarse ? "Send (Ctrl/⌘+Enter)" : "Send (Enter)"}
-          disabled={!canSend}
-          onMouseDown={preventFocusSteal}
-          onClick={() => send(true)}
-          data-testid="compose-strip-send"
-          className="rk-glint shrink-0 rounded border border-accent bg-accent/20 px-3 py-1.5 text-xs text-accent transition-colors hover:bg-accent/30 disabled:opacity-40 disabled:cursor-not-allowed coarse:min-h-[36px]"
-        >
-          Send
-        </button>
+        {/* Old parenthesized-shortcut titles become label + keycap chips
+            (tier-1 kbd slot). The coarse "Ctrl/⌘+Enter" title branch is gone:
+            tips never render on coarse pointers, so only the fine-pointer
+            shortcut is ever shown. */}
+        <Tip label="Insert without submitting" kbd="Alt+Enter" placement="top">
+          <button
+            type="button"
+            aria-label="Insert text without submitting"
+            disabled={!canSend}
+            onMouseDown={preventFocusSteal}
+            onClick={() => send(false)}
+            data-testid="compose-strip-insert"
+            className="rk-glint shrink-0 rounded border border-border px-2 py-1.5 text-xs text-text-secondary transition-colors hover:border-text-secondary disabled:opacity-40 disabled:cursor-not-allowed coarse:min-h-[36px]"
+          >
+            Insert
+          </button>
+        </Tip>
+        <Tip label="Send" kbd="Enter" placement="top">
+          <button
+            type="button"
+            aria-label="Send text"
+            disabled={!canSend}
+            onMouseDown={preventFocusSteal}
+            onClick={() => send(true)}
+            data-testid="compose-strip-send"
+            className="rk-glint shrink-0 rounded border border-accent bg-accent/20 px-3 py-1.5 text-xs text-accent transition-colors hover:bg-accent/30 disabled:opacity-40 disabled:cursor-not-allowed coarse:min-h-[36px]"
+          >
+            Send
+          </button>
+        </Tip>
       </div>
+      </TipGroup>
     </div>
   );
 }

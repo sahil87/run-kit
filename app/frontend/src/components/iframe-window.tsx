@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { updateWindowUrl } from "@/api/client";
 import { useSessionContext } from "@/contexts/session-context";
+import { Tip, TipGroup } from "@/components/tip";
 
 interface IframeWindowProps {
   windowId: string;
@@ -70,16 +71,18 @@ export function IframeWindow({ windowId, rkUrl, onSwitchToTty }: IframeWindowPro
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
-      {/* URL Bar */}
+      {/* URL Bar — one warm-tip cluster (260722-73al). */}
+      <TipGroup>
       <div className="flex items-center gap-1.5 px-2 py-1 border-b border-border bg-bg-primary shrink-0">
-        <button
-          onClick={handleRefresh}
-          className="shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-bg-card text-text-secondary"
-          aria-label="Refresh"
-          title="Refresh"
-        >
-          <span className="text-sm">&#x21bb;</span>
-        </button>
+        <Tip label="Refresh">
+          <button
+            onClick={handleRefresh}
+            className="shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-bg-card text-text-secondary"
+            aria-label="Refresh"
+          >
+            <span className="text-sm">&#x21bb;</span>
+          </button>
+        </Tip>
         <input
           type="text"
           value={inputUrl}
@@ -92,15 +95,17 @@ export function IframeWindow({ windowId, rkUrl, onSwitchToTty }: IframeWindowPro
         <span className="shrink-0 text-text-secondary text-xs select-none" aria-hidden="true">
           &#x23ce;
         </span>
-        <button
-          onClick={onSwitchToTty}
-          className="shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-bg-card text-text-secondary"
-          aria-label="Switch to terminal"
-          title="Switch to terminal"
-        >
-          <span className="text-xs font-mono">&gt;_</span>
-        </button>
+        <Tip label="Switch to terminal">
+          <button
+            onClick={onSwitchToTty}
+            className="shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-bg-card text-text-secondary"
+            aria-label="Switch to terminal"
+          >
+            <span className="text-xs font-mono">&gt;_</span>
+          </button>
+        </Tip>
       </div>
+      </TipGroup>
 
       {/* Iframe */}
       <iframe

@@ -10,6 +10,7 @@ import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useOptimisticContext } from "@/contexts/optimistic-context";
 import { useToast } from "@/components/toast";
 import { TypedLabel } from "@/components/typed-label";
+import { Tip, TipGroup } from "@/components/tip";
 import { SwatchPopover } from "@/components/swatch-popover";
 import { PaletteIcon } from "./icons";
 import { useTheme } from "@/contexts/theme-context";
@@ -1104,6 +1105,10 @@ export function Sidebar({
     servers.some((s) => s.name === currentServer);
 
   return (
+    // TipGroup: the sidebar is one warm-tip cluster (260722-73al) — sweeping
+    // across its tipped controls (scope chip, PANE refresh, waiting badges)
+    // opens sibling tips instantly.
+    <TipGroup>
     <nav ref={navRef} aria-label="Sessions" className="flex flex-col h-full">
       {/* Boards — cross-server section, always visible at the top of the
           sidebar (renders an empty-state hint when no boards exist). Boards
@@ -1137,22 +1142,24 @@ export function Sidebar({
             {/* Scope chip — readable at rest so a `current`-filtered list never
                 looks like servers vanished. Flips the persisted scope; the
                 session list re-renders via the shared hook's pub/sub. */}
-            <button
-              type="button"
-              onClick={() => setSessionsScope(sessionsScope === "all" ? "current" : "all")}
-              aria-label="Toggle sessions scope"
-              aria-pressed={sessionsScope === "current"}
-              title={
-                sessionsScope === "all"
-                  ? "Showing all servers — click to show current server only"
-                  : currentOnly
-                    ? "Showing current server only — click to show all servers"
-                    : "Current-server scope — no current server here, so showing all servers — click to switch scope to all"
+            {/* The old three-way sentence title is rewritten to a short
+                action label (tier-1 ≤40ch cap, 260722-73al): the tip names
+                what a CLICK does, the chip text (ALL/CUR) shows the state. */}
+            <Tip
+              label={
+                sessionsScope === "all" ? "Show current server only" : "Show all servers"
               }
-              className="shrink-0 font-mono text-[10px] leading-none tracking-wide px-1 py-0.5 border border-border rounded-sm text-text-secondary hover:text-text-primary hover:border-text-secondary transition-colors"
             >
-              {sessionsScope === "all" ? "ALL" : "CUR"}
-            </button>
+              <button
+                type="button"
+                onClick={() => setSessionsScope(sessionsScope === "all" ? "current" : "all")}
+                aria-label="Toggle sessions scope"
+                aria-pressed={sessionsScope === "current"}
+                className="shrink-0 font-mono text-[10px] leading-none tracking-wide px-1 py-0.5 border border-border rounded-sm text-text-secondary hover:text-text-primary hover:border-text-secondary transition-colors"
+              >
+                {sessionsScope === "all" ? "ALL" : "CUR"}
+              </button>
+            </Tip>
           </span>
         </div>
         <div
@@ -1273,6 +1280,7 @@ export function Sidebar({
         />
       )}
     </nav>
+    </TipGroup>
   );
 }
 

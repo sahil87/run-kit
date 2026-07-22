@@ -123,17 +123,20 @@ describe("TopBar", () => {
     getPushState.mockResolvedValue("default");
     enablePushSubscription.mockResolvedValue("subscribed");
     sendTestNotification.mockResolvedValue(true);
-    // ThemeProvider needs matchMedia
-    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({
-      matches: true,
-      media: "(prefers-color-scheme: dark)",
+    // ThemeProvider needs matchMedia. Query-sensitive on ONE query: everything
+    // matches (dark scheme, reduced motion — keeps sweeps skipped) EXCEPT
+    // `(pointer: coarse)`, which must be false or every Tip suppresses itself
+    // (fine-pointer is the test default; tip.test.tsx covers coarse).
+    vi.stubGlobal("matchMedia", vi.fn().mockImplementation((query: string) => ({
+      matches: query !== "(pointer: coarse)",
+      media: query,
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
       onchange: null,
       addListener: vi.fn(),
       removeListener: vi.fn(),
       dispatchEvent: vi.fn(),
-    }));
+    })));
   });
 
   afterEach(() => {
@@ -408,12 +411,24 @@ describe("TopBar", () => {
     expect(screen.queryByText("\u276F")).not.toBeInTheDocument();
   });
 
-  it("names each crumb's level via a native title tooltip (Host / tmux Server / Session / Window)", () => {
+  it("names each crumb's level via a styled Tip — no native title attributes (260722-73al)", () => {
     renderTopBar();
-    expect(screen.getByLabelText("RunKit home")).toHaveAttribute("title", "Host");
-    expect(screen.getByText("runkit").closest("a")).toHaveAttribute("title", "tmux Server");
-    expect(screen.getByLabelText("Switch session")).toHaveAttribute("title", "Session");
-    expect(screen.getByLabelText("Switch window")).toHaveAttribute("title", "Window");
+    const brand = screen.getByLabelText("RunKit home");
+    const serverCrumb = screen.getByText("runkit").closest("a");
+    const sessionSwitch = screen.getByLabelText("Switch session");
+    const windowSwitch = screen.getByLabelText("Switch window");
+    // Native `title=` is removed wherever Tip lands (never both, or the OS
+    // bubble doubles the styled tip). Tooltip behavior itself is pinned once
+    // in tip.test.tsx; here we assert the migration contract per crumb.
+    for (const el of [brand, serverCrumb, sessionSwitch, windowSwitch]) {
+      expect(el).not.toHaveAttribute("title");
+    }
+    // Representative behavior check: keyboard focus opens the styled tier-1
+    // tip naming the crumb's level.
+    act(() => {
+      fireEvent.focus(brand);
+    });
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Host");
   });
 
   it("carries the tmux Server identity on the centered heading in server mode (no window)", () => {
@@ -606,9 +621,10 @@ describe("TopBar", () => {
       const rel = help.getAttribute("rel") ?? "";
       expect(rel).toContain("noopener");
       expect(rel).toContain("noreferrer");
-      // The native tooltip mirrors the accessible name so mouse + AT users see
-      // the same label.
-      expect(help).toHaveAttribute("title", "Help — run-kit docs");
+      // The hover hint is a styled Tip now (260722-73al) — no native title
+      // (never both, or the OS bubble doubles the styled tip). The accessible
+      // name stays on the aria-label.
+      expect(help).not.toHaveAttribute("title");
     });
   });
 
@@ -1383,16 +1399,18 @@ describe("WindowHeading (centered, editable, terminal mode)", () => {
     getPushState.mockResolvedValue("default");
     enablePushSubscription.mockResolvedValue("subscribed");
     sendTestNotification.mockResolvedValue(true);
-    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({
-      matches: true,
-      media: "(prefers-color-scheme: dark)",
+    // Same query-sensitive stub as the suite root: all-match EXCEPT
+    // `(pointer: coarse)` (false), or Tips would self-suppress.
+    vi.stubGlobal("matchMedia", vi.fn().mockImplementation((query: string) => ({
+      matches: query !== "(pointer: coarse)",
+      media: query,
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
       onchange: null,
       addListener: vi.fn(),
       removeListener: vi.fn(),
       dispatchEvent: vi.fn(),
-    }));
+    })));
   });
   afterEach(() => {
     cleanup();

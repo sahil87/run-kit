@@ -16,6 +16,7 @@ import { useWindowRename } from "@/hooks/use-window-rename";
 import { finalizeSafeName, toSafeWindowName } from "@/lib/names";
 import { prefersReducedMotion } from "@/lib/motion";
 import { WaitingBadge } from "@/components/waiting-badge";
+import { Tip, TipGroup } from "@/components/tip";
 import { ViewSwitcher, ViewSwitcherMenuRows } from "@/components/view-switcher";
 import { OpenButton, OpenMenuRows } from "@/components/open-button";
 import { useOpenTargets } from "@/hooks/use-open-targets";
@@ -242,30 +243,32 @@ function HistoryNav() {
     // not grow, or names near the band edge start drifting the anchor (see the
     // stable-anchor e2e in window-heading.spec.ts).
     <span className="flex items-center gap-1 mr-2.5 shrink-0">
-      <button
-        type="button"
-        onClick={() => router.history.back()}
-        aria-label="Go back"
-        title="Back"
-        className={arrowClass}
-      >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          {/* chevron-left */}
-          <polyline points="15 18 9 12 15 6" />
-        </svg>
-      </button>
-      <button
-        type="button"
-        onClick={() => router.history.forward()}
-        aria-label="Go forward"
-        title="Forward"
-        className={arrowClass}
-      >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          {/* chevron-right */}
-          <polyline points="9 18 15 12 9 6" />
-        </svg>
-      </button>
+      <Tip label="Back">
+        <button
+          type="button"
+          onClick={() => router.history.back()}
+          aria-label="Go back"
+          className={arrowClass}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            {/* chevron-left */}
+            <polyline points="15 18 9 12 15 6" />
+          </svg>
+        </button>
+      </Tip>
+      <Tip label="Forward">
+        <button
+          type="button"
+          onClick={() => router.history.forward()}
+          aria-label="Go forward"
+          className={arrowClass}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            {/* chevron-right */}
+            <polyline points="9 18 15 12 9 6" />
+          </svg>
+        </button>
+      </Tip>
     </span>
   );
 }
@@ -785,6 +788,10 @@ export function TopBar({
             breadcrumb nav landmark, with the nav beside it inside the `1fr`
             left cell (the center heading's true centering is untouched).
             `min-w-0` lets the nav shrink below its content inside `1fr`. */}
+        {/* One warm-tip cluster per chrome region (260722-73al): the left
+            breadcrumb cluster shares a TipGroup so sweeping across crumbs
+            opens sibling tips instantly (macOS-menu behavior). */}
+        <TipGroup>
         <div className="flex items-center gap-1.5 min-w-0">
           {/* Hamburger icon — toggles sidebarOpen (one boolean covers both
               desktop grid column and mobile overlay). First element of the left
@@ -824,10 +831,10 @@ export function TopBar({
                 after it); IS the home affordance (no separate "Host" crumb).
                 Wordmark collapses to the bare icon below `sm` so long crumbs
                 still fit the single-line 375px topbar. */}
+            <Tip label="Host">
             <a
               href="/"
               aria-label="RunKit home"
-              title="Host"
               className={`flex items-center gap-2 shrink-0 rk-brand-glitch ${LINK_CRUMB_CLASS}`}
             >
               {/* Inline SVG (LogoSpinner at rest), not the /icon.svg img — the
@@ -840,6 +847,7 @@ export function TopBar({
                   wordmark without it. No-op for non-underline variants. */}
               <span className="hidden sm:inline text-xs [text-decoration:inherit]">RunKit</span>
             </a>
+            </Tip>
 
             {mode === "board" ? (
               // Board mode keeps ONLY the counts/hint on the left (move-don't-copy,
@@ -866,13 +874,14 @@ export function TopBar({
                 {showServerCrumb && (
                   <span className="hidden md:flex items-center gap-1.5 min-w-0">
                     <BreadcrumbSeparator />
-                    <a
-                      href={serverHref}
-                      title="tmux Server"
-                      className={`rk-glint truncate max-w-[16ch] ${LINK_CRUMB_CLASS}`}
-                    >
-                      {server}
-                    </a>
+                    <Tip label="tmux Server">
+                      <a
+                        href={serverHref}
+                        className={`rk-glint truncate max-w-[16ch] ${LINK_CRUMB_CLASS}`}
+                      >
+                        {server}
+                      </a>
+                    </Tip>
                   </span>
                 )}
 
@@ -897,6 +906,7 @@ export function TopBar({
             )}
           </nav>
         </div>
+        </TipGroup>
 
         {/* Center cell — the universal `PageType: name` page heading, filled on
             EVERY mode (260704-pr0p): terminal = editable window heading + ▾
@@ -924,6 +934,10 @@ export function TopBar({
             dropping `min-w-0` protects the center without a magic pixel min. Do
             NOT re-add `min-w-0` here. */}
         <div className="flex items-center justify-center">
+          {/* Center heading cluster's warm-tip group (260722-73al): history
+              arrows + hierarchy ▾ + rename heading + window switcher sweep
+              as one cluster. */}
+          <TipGroup>
           <div className="flex items-center justify-start min-w-0 sm:min-w-[28ch]">
             {/* Browser-history ◀ ▶ arrows (260714-uco1) — fixed-width so they
                 never shift the heading's text anchor, rendered on ALL four modes
@@ -1016,6 +1030,7 @@ export function TopBar({
               />
             )}
           </div>
+          </TipGroup>
         </div>
 
         {/* Right cluster — registry-driven overflow (260715-h1ck). The ordered
@@ -1048,6 +1063,10 @@ export function TopBar({
             (violating R6/(e) "exempt items always visible"). Letting the exempt
             block paint (unclipped) keeps it usable; `.app-shell`/`header` still
             clip any horizontal PAGE overflow, so no scrollbar appears. */}
+        {/* Right control cluster's warm-tip group (260722-73al) — includes the
+            overflow menu and every registry control's popover rows, so the
+            whole cluster sweeps as one warm group. */}
+        <TipGroup>
         <div
           ref={rightCellRef}
           data-testid="top-bar-right"
@@ -1101,16 +1120,20 @@ export function TopBar({
                 host-metrics stream health; Board = AND over attached servers'
                 streams (derived by each caller and passed as `isConnected`). */}
             <span role="status" aria-live="polite" className="inline-flex">
-              <span
-                className={`block w-2 h-2 rounded-full ${
-                  isConnected ? "bg-accent-green" : "bg-text-secondary"
-                }`}
-                aria-label={isConnected ? "Connected" : "Disconnected"}
-                title={dotTitle}
-              />
+              {/* Hover-only tip: the dot stays a non-focusable span (a status
+                  readout, not an actionable control — no tab stop added). */}
+              <Tip label={dotTitle}>
+                <span
+                  className={`block w-2 h-2 rounded-full ${
+                    isConnected ? "bg-accent-green" : "bg-text-secondary"
+                  }`}
+                  aria-label={isConnected ? "Connected" : "Disconnected"}
+                />
+              </Tip>
             </span>
           </div>
         </div>
+        </TipGroup>
       </div>
     </header>
   );
@@ -1632,11 +1655,11 @@ function WindowHeading({
           name). Its content rides the same sweep so the one cursor crosses it,
           but it is NOT a click target — only the button below enters edit. */}
       <HeadingPrefix cells={prefixCells} scrambling={sweep.scrambling} caret={caret} />
+      <Tip label="Click to rename">
       <button
         type="button"
         onClick={startEdit}
         aria-label={`Rename window ${name}`}
-        title="Click to rename"
         // The heading is the mobile leaf and the primary rename affordance
         // there, so give it a touch-sized tap target on coarse pointers
         // (matches the top-bar control convention `coarse:min-h-[30px]`);
@@ -1657,6 +1680,7 @@ function WindowHeading({
           <SweepCells cells={nameCells} scrambling={sweep.scrambling} />
         </span>
       </button>
+      </Tip>
     </span>
   );
 }
@@ -1879,12 +1903,12 @@ function ThemeToggle() {
   const label = mode === "system" ? "System theme" : mode === "light" ? "Light theme" : "Dark theme";
 
   return (
+    <Tip label={label}>
     <button
       type="button"
       onClick={handleClick}
       aria-label={label}
       className="rk-glint min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center"
-      title={label}
     >
       {mode === "system" ? (
         <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
@@ -1912,6 +1936,7 @@ function ThemeToggle() {
         </svg>
       )}
     </button>
+    </Tip>
   );
 }
 
@@ -1925,12 +1950,12 @@ export const HELP_URL = "https://shll.ai/run-kit";
 // rel="noopener noreferrer" keeps the live dashboard (terminals, SSE) mounted.
 function HelpLink() {
   return (
+    <Tip label="Help — run-kit docs">
     <a
       href={HELP_URL}
       target="_blank"
       rel="noopener noreferrer"
       aria-label="Help — run-kit docs"
-      title="Help — run-kit docs"
       className="rk-glint min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center"
     >
       <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -1943,6 +1968,7 @@ function HelpLink() {
         <circle cx="8" cy="12.25" r="0.9" fill="currentColor" />
       </svg>
     </a>
+    </Tip>
   );
 }
 
@@ -1969,13 +1995,13 @@ function SplitButton({
   });
 
   return (
+    <Tip label={label}>
     <button
       type="button"
       onClick={() => execute()}
       disabled={isPending}
       aria-label={label}
       className="rk-glint min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
-      title={label}
     >
       {isPending ? (
         <LogoSpinner size={14} />
@@ -2009,6 +2035,7 @@ function SplitButton({
         </svg>
       )}
     </button>
+    </Tip>
   );
 }
 
@@ -2055,13 +2082,13 @@ function ClosePaneButton({
   const effectiveLabel = onRequestKill ? label : "Close pane";
 
   return (
+    <Tip label={effectiveLabel}>
     <button
       type="button"
       onClick={() => (onRequestKill ? onRequestKill() : execute())}
       disabled={isDisabled}
       aria-label={effectiveLabel}
       className="rk-glint min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
-      title={effectiveLabel}
     >
       {isPending ? (
         <LogoSpinner size={14} />
@@ -2082,6 +2109,7 @@ function ClosePaneButton({
         </svg>
       )}
     </button>
+    </Tip>
   );
 }
 
@@ -2129,11 +2157,13 @@ export function forceReload() {
  */
 function RefreshButton() {
   return (
+    // The old "(Shift+click: force reload)" parenthetical becomes the tip's
+    // dim modifier note (the intake's canonical label + note example).
+    <Tip label="Refresh page" note="⇧click: force">
     <button
       type="button"
       onClick={(e) => (e.shiftKey ? forceReload() : window.location.reload())}
       aria-label="Refresh page"
-      title="Refresh page (Shift+click: force reload)"
       className="rk-glint min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center"
     >
       <svg
@@ -2152,6 +2182,7 @@ function RefreshButton() {
         <path d="M21 3v5h-5" />
       </svg>
     </button>
+    </Tip>
   );
 }
 
@@ -2215,6 +2246,9 @@ function TerminalFontControl() {
 
   return (
     <div ref={containerRef} className="relative inline-flex items-center">
+      {/* Tip suppressed while the popover is open so it never paints over the
+          stepper (the BreadcrumbDropdown trigger convention). */}
+      <Tip label={open ? undefined : "Terminal font size"}>
       <button
         ref={triggerRef}
         type="button"
@@ -2222,7 +2256,6 @@ function TerminalFontControl() {
         aria-haspopup="true"
         aria-expanded={open}
         aria-label="Terminal font size"
-        title="Terminal font size"
         className={`rk-glint min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border transition-colors flex items-center justify-center text-xs font-semibold leading-none ${
           open
             ? "border-accent text-accent bg-accent/10"
@@ -2232,6 +2265,7 @@ function TerminalFontControl() {
         {/* "Aa" reads as "text size" without a separate label */}
         <span aria-hidden="true">Aa</span>
       </button>
+      </Tip>
       {open && (
         <div
           role="group"
@@ -2239,52 +2273,55 @@ function TerminalFontControl() {
           className="absolute top-full right-0 mt-1 bg-bg-primary border border-border rounded-lg shadow-2xl p-2 z-50 flex flex-col gap-2"
         >
           <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={decreaseTerminalFont}
-              disabled={atMin}
-              aria-label="Decrease terminal font"
-              title="Decrease terminal font"
-              className={stepButtonClass}
-            >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
-                <line x1="3" y1="7" x2="11" y2="7" />
-              </svg>
-            </button>
+            <Tip label="Decrease terminal font">
+              <button
+                type="button"
+                onClick={decreaseTerminalFont}
+                disabled={atMin}
+                aria-label="Decrease terminal font"
+                className={stepButtonClass}
+              >
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
+                  <line x1="3" y1="7" x2="11" y2="7" />
+                </svg>
+              </button>
+            </Tip>
             <span
               className="min-w-[4ch] text-center text-xs text-text-primary tabular-nums select-none"
               aria-label={`Terminal font size ${terminalFontSize} pixels`}
             >
               {terminalFontSize}px
             </span>
+            <Tip label="Increase terminal font">
+              <button
+                type="button"
+                onClick={increaseTerminalFont}
+                disabled={atMax}
+                aria-label="Increase terminal font"
+                className={stepButtonClass}
+              >
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
+                  <line x1="3" y1="7" x2="11" y2="7" />
+                  <line x1="7" y1="3" x2="7" y2="11" />
+                </svg>
+              </button>
+            </Tip>
+          </div>
+          <Tip label="Reset terminal font (device default)">
             <button
               type="button"
-              onClick={increaseTerminalFont}
-              disabled={atMax}
-              aria-label="Increase terminal font"
-              title="Increase terminal font"
-              className={stepButtonClass}
+              onClick={resetTerminalFont}
+              aria-label="Reset terminal font"
+              className="w-full text-xs text-text-secondary hover:text-text-primary transition-colors py-1 rounded hover:bg-bg-card flex items-center justify-center gap-1.5"
             >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
-                <line x1="3" y1="7" x2="11" y2="7" />
-                <line x1="7" y1="3" x2="7" y2="11" />
+              <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                {/* circular-arrow reset glyph */}
+                <path d="M11.5 7a4.5 4.5 0 1 1-1.32-3.18" />
+                <polyline points="11.5,1.5 11.5,4 9,4" />
               </svg>
+              Reset
             </button>
-          </div>
-          <button
-            type="button"
-            onClick={resetTerminalFont}
-            aria-label="Reset terminal font"
-            title="Reset terminal font (device default)"
-            className="w-full text-xs text-text-secondary hover:text-text-primary transition-colors py-1 rounded hover:bg-bg-card flex items-center justify-center gap-1.5"
-          >
-            <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              {/* circular-arrow reset glyph */}
-              <path d="M11.5 7a4.5 4.5 0 1 1-1.32-3.18" />
-              <polyline points="11.5,1.5 11.5,4 9,4" />
-            </svg>
-            Reset
-          </button>
+          </Tip>
         </div>
       )}
     </div>
@@ -2331,12 +2368,12 @@ function UpdateChip() {
   // copy corrupting the fit input and render in NEITHER bar nor menu.
   return (
     <span className="flex items-center">
+      <Tip label={updating ? "Updating\u2026" : restLabel}>
       <button
         type="button"
         onClick={triggerUpdate}
         disabled={updating}
         aria-label={updating ? "Updating run-kit" : restLabel}
-        title={updating ? "Updating\u2026" : restLabel}
         className="rk-glint flex items-center gap-1 h-[24px] coarse:h-[30px] px-1.5 rounded border border-accent-green text-accent-green hover:border-accent-green transition-colors text-xs disabled:opacity-60 disabled:cursor-not-allowed"
       >
         {updating ? (
@@ -2348,16 +2385,18 @@ function UpdateChip() {
           <span>{visibleLabel}</span>
         )}
       </button>
+      </Tip>
       {!updating && (
-        <button
-          type="button"
-          onClick={dismissUpdate}
-          aria-label="Dismiss update notice"
-          title="Dismiss update notice"
-          className="ml-0.5 h-[24px] coarse:h-[30px] w-[16px] coarse:w-[20px] flex items-center justify-center rounded text-text-secondary hover:text-text-primary transition-colors text-xs"
-        >
-          {"\u2715"}
-        </button>
+        <Tip label="Dismiss update notice">
+          <button
+            type="button"
+            onClick={dismissUpdate}
+            aria-label="Dismiss update notice"
+            className="ml-0.5 h-[24px] coarse:h-[30px] w-[16px] coarse:w-[20px] flex items-center justify-center rounded text-text-secondary hover:text-text-primary transition-colors text-xs"
+          >
+            {"\u2715"}
+          </button>
+        </Tip>
       )}
     </span>
   );
@@ -2436,6 +2475,9 @@ function NotificationControl() {
     // instead of vanishing. The registry `hidden` predicate (pushUnsupported)
     // still removes it entirely where push can't work.
     <div ref={containerRef} className="relative inline-flex items-center">
+      {/* Tip suppressed while the dropdown is open (the status line repeats
+          inside the menu anyway). */}
+      <Tip label={open ? undefined : statusLabel}>
       <button
         ref={triggerRef}
         type="button"
@@ -2443,7 +2485,6 @@ function NotificationControl() {
         aria-haspopup="true"
         aria-expanded={open}
         aria-label={ariaLabel}
-        title={statusLabel}
         className={`rk-glint min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border transition-colors flex items-center justify-center leading-none ${
           open
             ? "border-accent text-accent bg-accent/10"
@@ -2456,6 +2497,7 @@ function NotificationControl() {
           {subscribed ? BELL_ON : BELL_OFF}
         </span>
       </button>
+      </Tip>
       {open && (
         <div
           role="menu"
@@ -2478,35 +2520,38 @@ function NotificationControl() {
               Enable notifications
             </button>
           )}
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              setOpen(false);
-              void sendTest();
-            }}
-            disabled={!subscribed}
-            title={subscribed ? "Send a local test notification" : "Enable notifications first"}
-            className={menuItemClass}
-          >
-            Send test notification
-          </button>
+          <Tip label={subscribed ? "Send a local test notification" : "Enable notifications first"}>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                void sendTest();
+              }}
+              disabled={!subscribed}
+              className={menuItemClass}
+            >
+              Send test notification
+            </button>
+          </Tip>
           {denied && (
             <div className="px-2 py-1 text-[11px] text-text-secondary select-none">
               Re-allow notifications for this site in your browser/OS settings.
             </div>
           )}
-          <a
-            href={NOTIFICATIONS_HELP_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            role="menuitem"
-            onClick={() => setOpen(false)}
-            title="Open the notifications setup & troubleshooting guide on GitHub"
-            className={`${menuItemClass} border-t border-border mt-0.5 pt-1.5`}
-          >
-            Notifications help…
-          </a>
+          {/* Old 55ch title rewritten to fit the tier-1 ≤40ch one-line cap. */}
+          <Tip label="Setup & troubleshooting guide">
+            <a
+              href={NOTIFICATIONS_HELP_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              role="menuitem"
+              onClick={() => setOpen(false)}
+              className={`${menuItemClass} border-t border-border mt-0.5 pt-1.5`}
+            >
+              Notifications help…
+            </a>
+          </Tip>
         </div>
       )}
     </div>
@@ -2518,6 +2563,7 @@ function FixedWidthToggle() {
   const { toggleFixedWidth } = useChromeDispatch();
 
   return (
+    <Tip label={fixedWidth ? "Full width" : "Fixed width (900px)"}>
     <button
       onClick={toggleFixedWidth}
       aria-label="Toggle fixed terminal width"
@@ -2527,7 +2573,6 @@ function FixedWidthToggle() {
           ? "border-accent text-accent bg-accent/10"
           : "border-border text-text-secondary hover:border-text-secondary"
       }`}
-      title={fixedWidth ? "Full width" : "Fixed width (900px)"}
     >
       <svg
         width="14"
@@ -2557,6 +2602,7 @@ function FixedWidthToggle() {
         )}
       </svg>
     </button>
+    </Tip>
   );
 }
 
@@ -2579,6 +2625,7 @@ function BoardAutofitToggle({
   onToggle: () => void;
 }) {
   return (
+    <Tip label={autofit ? "Autofit on (panes fill the row)" : "Autofit off (fixed pane widths)"}>
     <button
       type="button"
       onClick={onToggle}
@@ -2589,7 +2636,6 @@ function BoardAutofitToggle({
           ? "border-accent text-accent bg-accent/10"
           : "border-border text-text-secondary hover:border-text-secondary"
       }`}
-      title={autofit ? "Autofit on (panes fill the row)" : "Autofit off (fixed pane widths)"}
     >
       <svg
         width="14"
@@ -2616,6 +2662,7 @@ function BoardAutofitToggle({
         )}
       </svg>
     </button>
+    </Tip>
   );
 }
 
@@ -2778,17 +2825,18 @@ function NotificationMenuRows() {
           Enable notifications
         </button>
       )}
-      <button
-        type="button"
-        role="menuitem"
-        tabIndex={-1}
-        disabled={!subscribed}
-        onClick={() => void sendTest()}
-        title={subscribed ? "Send a local test notification" : "Enable notifications first"}
-        className={MENU_ROW_CLASS}
-      >
-        Send test notification
-      </button>
+      <Tip label={subscribed ? "Send a local test notification" : "Enable notifications first"}>
+        <button
+          type="button"
+          role="menuitem"
+          tabIndex={-1}
+          disabled={!subscribed}
+          onClick={() => void sendTest()}
+          className={MENU_ROW_CLASS}
+        >
+          Send test notification
+        </button>
+      </Tip>
     </>
   );
 }
@@ -2819,16 +2867,17 @@ function ThemeMenuRow() {
  *  `Status: Refresh` palette action (260715-jykd), assumption #12. */
 function RefreshMenuRow() {
   return (
-    <button
-      type="button"
-      role="menuitem"
-      tabIndex={-1}
-      onClick={(e) => (e.shiftKey ? forceReload() : window.location.reload())}
-      title="Refresh page (Shift+click: force reload)"
-      className={MENU_ROW_CLASS}
-    >
-      Refresh page
-    </button>
+    <Tip label="Refresh page" note="⇧click: force">
+      <button
+        type="button"
+        role="menuitem"
+        tabIndex={-1}
+        onClick={(e) => (e.shiftKey ? forceReload() : window.location.reload())}
+        className={MENU_ROW_CLASS}
+      >
+        Refresh page
+      </button>
+    </Tip>
   );
 }
 

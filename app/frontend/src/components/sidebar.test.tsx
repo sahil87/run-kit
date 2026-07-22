@@ -525,13 +525,24 @@ describe("Sidebar", () => {
       renderSidebar();
       fireEvent.doubleClick(getSessionRowNameSpan("run-kit"));
       const input = screen.getByLabelText("Rename session");
+      // The typed hyphen live-converts to "_" (session-kind safe-name rule,
+      // 260722-ln4n) — the committed name is the converted one.
       fireEvent.change(input, { target: { value: "blur-session" } });
       await act(async () => {
         fireEvent.blur(input);
       });
 
       expect(screen.queryByLabelText("Rename session")).not.toBeInTheDocument();
-      expect(renameSessionMock).toHaveBeenCalledWith("runkit", "run-kit", "blur-session");
+      expect(renameSessionMock).toHaveBeenCalledWith("runkit", "run-kit", "blur_session");
+    });
+
+    it("live-converts unsafe chars as the user types (space → underscore)", () => {
+      renderSidebar();
+      fireEvent.doubleClick(getSessionRowNameSpan("run-kit"));
+      const input = screen.getByLabelText("Rename session");
+      fireEvent.change(input, { target: { value: "My problem" } });
+      // WYSIWYG: the input itself shows the safe form (260722-ln4n).
+      expect(input).toHaveValue("My_problem");
     });
 
     it("empty input cancels without API call", async () => {

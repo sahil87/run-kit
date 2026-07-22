@@ -9,6 +9,7 @@ import { StatusDot } from "@/components/status-dot";
 import { PinPopover } from "./pin-popover";
 import { PaletteIcon } from "./icons";
 import { PinIcon } from "@/components/pin-icon";
+import { toSafeWindowName } from "@/lib/names";
 
 type ProjectWindow = ProjectSession["windows"][number];
 type GhostWindow = MergedSession["windows"][number];
@@ -356,7 +357,7 @@ function WindowRowInner({
               ref={inputRef}
               type="text"
               value={editingName}
-              onChange={(e) => onWindowNameChange(e.target.value)}
+              onChange={(e) => onWindowNameChange(toSafeWindowName(e.target.value))}
               onKeyDown={onRenameKeyDown}
               onBlur={onRenameBlur}
               onClick={(e) => e.stopPropagation()}

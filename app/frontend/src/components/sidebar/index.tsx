@@ -5,6 +5,7 @@ import { killSession as killSessionApi, killWindow as killWindowApi, renameSessi
 import { useSessionContext } from "@/contexts/session-context";
 import { useFocusedPane } from "@/contexts/focused-pane-context";
 import { resolveFocusedWindow, thinWindowFromFocusedPane } from "@/lib/focused-pane-window";
+import { finalizeSafeName } from "@/lib/names";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useOptimisticContext } from "@/contexts/optimistic-context";
 import { useToast } from "@/components/toast";
@@ -526,7 +527,9 @@ export function Sidebar({
 
   const handleSessionRenameCommit = useCallback(() => {
     if (!editingSession) return;
-    const trimmed = editingSessionName.trim();
+    // The row input applies the live session transform; commit trims the
+    // trailing separator the live transform keeps visible while typing.
+    const trimmed = finalizeSafeName(editingSessionName.trim());
     const originalName = sessionOriginalNameRef.current;
     const { server: srv, name: sessionName } = editingSession;
     setEditingSession(null);
@@ -567,7 +570,8 @@ export function Sidebar({
 
   const handleRenameCommit = useCallback(() => {
     if (!editingWindow) return;
-    const trimmed = editingName.trim();
+    // Same commit-time finalize as the session rename above (window kind).
+    const trimmed = finalizeSafeName(editingName.trim());
     const originalName = originalNameRef.current;
     const { server: srv, session, windowId } = editingWindow;
     setEditingWindow(null);

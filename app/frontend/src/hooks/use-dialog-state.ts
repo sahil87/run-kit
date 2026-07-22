@@ -1,5 +1,6 @@
 import { useState, useCallback, useMemo, useRef } from "react";
 import { renameSession, killSession, killWindow } from "@/api/client";
+import { finalizeSafeName } from "@/lib/names";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useOptimisticContext } from "@/contexts/optimistic-context";
 import { useSessionContext } from "@/contexts/session-context";
@@ -73,8 +74,10 @@ export function useDialogState({ sessionName, windowId, onKillComplete, onSessio
   });
 
   const handleRenameSession = useCallback(() => {
-    if (!renameSessionName.trim() || !sessionName) return;
-    const newName = renameSessionName.trim();
+    // The input applies the live session transform; commit trims the trailing
+    // separator the live transform deliberately keeps visible.
+    const newName = finalizeSafeName(renameSessionName.trim());
+    if (!newName || !sessionName) return;
     executeRenameSession(server, sessionName, newName);
     onSessionRenamed?.(newName);
     setShowRenameSessionDialog(false);

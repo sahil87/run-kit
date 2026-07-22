@@ -1345,6 +1345,21 @@ describe("WindowHeading (centered, editable, terminal mode)", () => {
     expect(screen.queryByRole("textbox", { name: "Window name" })).not.toBeInTheDocument();
   });
 
+  it("live-converts typed unsafe chars (space → underscore, hyphen kept)", async () => {
+    const { renameWindow } = await import("@/api/client");
+    renderTopBar();
+    act(() => fireEvent.click(screen.getByRole("button", { name: "Rename window main" })));
+    const input = screen.getByRole("textbox", { name: "Window name" }) as HTMLInputElement;
+    // WYSIWYG (260722-ln4n): the input shows the safe form as the user types —
+    // spaces convert to "_", hyphens are KEPT (window-kind rule).
+    act(() => fireEvent.change(input, { target: { value: "riff-my problem" } }));
+    expect(input.value).toBe("riff-my_problem");
+    act(() => fireEvent.keyDown(input, { key: "Enter" }));
+    await waitFor(() => {
+      expect(renameWindow).toHaveBeenCalledWith("runkit", "@0", "riff-my_problem");
+    });
+  });
+
   it("Escape cancels with no API call and restores the original name", async () => {
     const { renameWindow } = await import("@/api/client");
     renderTopBar();

@@ -51,16 +51,20 @@ name) and a ghost entry renders in the sidebar in ≤500ms.
 
 **What it proves:** Double-clicking a session name opens an inline input;
 pressing Enter commits an optimistic rename and the new name renders in
-≤500ms.
+≤500ms. The input applies the live session-kind safe-name transform
+(260722-ln4n — hyphens convert to `_`), so the committed name is the
+underscored form of what was filled.
 
 **Steps:**
 1. `setup`.
 2. Wait for the `Navigate to ${SESSION_A}` button to exist (this test runs
    before any rename, so SESSION_A's original name is still present).
 3. Double-click the session name to enter edit mode.
-4. Clear and fill the input with `${SESSION_A}-renamed`.
+4. Clear and fill the input with `${SESSION_A}-renamed`; assert the input
+   value is its underscored form (the live transform converted the hyphens).
 5. Start timer, press Enter.
-6. Wait for the new name text to appear; `record`.
+6. Wait for the new (underscored) name text to appear; `record`. (The
+   `afterAll` sweep kills the underscored name.)
 
 ### `3. Create window via sidebar + button`
 

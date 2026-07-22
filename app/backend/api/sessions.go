@@ -28,7 +28,8 @@ func (s *Server) handleSessionCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if errMsg := validate.ValidateName(body.Name, "Session name"); errMsg != "" {
+	// Tightened new-name rule (no spaces) — this names a to-be-created session.
+	if errMsg := validate.ValidateNewName(body.Name, "Session name"); errMsg != "" {
 		writeError(w, http.StatusBadRequest, errMsg)
 		return
 	}
@@ -70,7 +71,11 @@ func (s *Server) handleSessionRename(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if errMsg := validate.ValidateName(body.Name, "Session name"); errMsg != "" {
+	// Tightened new-name rule (no spaces) — this is the renamed-TO name. The
+	// URL-param `session` above stays on the permissive ValidateName so a
+	// pre-existing spacey session (created outside run-kit) can still be the
+	// rename SOURCE.
+	if errMsg := validate.ValidateNewName(body.Name, "Session name"); errMsg != "" {
 		writeError(w, http.StatusBadRequest, errMsg)
 		return
 	}

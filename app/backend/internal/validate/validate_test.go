@@ -355,6 +355,62 @@ func TestValidateToolName(t *testing.T) {
 	}
 }
 
+func TestValidateNewName(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		label    string
+		wantErr  bool
+		contains string
+	}{
+		// The tightened rule: spaces rejected on NEW names.
+		{"space rejected", "My problem", "Session name", true, "cannot contain spaces"},
+		{"leading space rejected", " name", "Session name", true, "cannot contain spaces"},
+		{"trailing space rejected", "name ", "Session name", true, "cannot contain spaces"},
+		{"label in space error", "a b", "Window name", true, "Window name"},
+		// Inherited from the permissive ValidateName rule.
+		{"empty rejected", "", "Session name", true, "cannot be empty"},
+		{"forbidden semicolon", "my;session", "Session name", true, "forbidden characters"},
+		{"contains colon", "my:session", "Session name", true, "colons or periods"},
+		{"contains period", "my.session", "Session name", true, "colons or periods"},
+		// Hyphens stay legal on the backend (UI-only steering): internal
+		// sessions (_rk-pin-*, rk-test-e2e, group names) rely on them.
+		{"hyphens allowed", "my-session", "Session name", false, ""},
+		{"underscores allowed", "My_problem", "Session name", false, ""},
+		{"alphanumeric allowed", "session123", "Session name", false, ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ValidateNewName(tt.input, tt.label)
+			if tt.wantErr && result == "" {
+				t.Errorf("ValidateNewName(%q) = valid, want error", tt.input)
+			}
+			if !tt.wantErr && result != "" {
+				t.Errorf("ValidateNewName(%q) = %q, want valid", tt.input, result)
+			}
+			if tt.contains != "" && result != "" && !contains(result, tt.contains) {
+				t.Errorf("ValidateNewName(%q) = %q, want error containing %q", tt.input, result, tt.contains)
+			}
+		})
+	}
+}
+
+// TestValidateNewNameMaxLength pins that the length bound is inherited from
+// ValidateName (128), not redefined.
+func TestValidateNewNameMaxLength(t *testing.T) {
+	long := make([]byte, 129)
+	for i := range long {
+		long[i] = 'a'
+	}
+	if result := ValidateNewName(string(long), "Session name"); result == "" {
+		t.Error("expected max-length error, got valid")
+	}
+	if result := ValidateNewName(string(long[:128]), "Session name"); result != "" {
+		t.Errorf("128-char name should be valid, got %q", result)
+	}
+}
+
 func TestValidateWorktreeName(t *testing.T) {
 	tests := []struct {
 		name     string

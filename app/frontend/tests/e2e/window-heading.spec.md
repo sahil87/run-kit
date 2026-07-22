@@ -132,6 +132,22 @@ the heading reflect the new name.
 4. Assert the sidebar shows the new name (rename API + SSE round-trip).
 5. Assert the heading button now carries the new name.
 
+### `typing a space live-converts to underscore and commits the safe name`
+
+**What it proves:** The live safe-name conversion (260722-ln4n): the inline
+window-name input converts unsafe characters AS THE USER TYPES — a pressed
+space appears as `_` (window-kind transform: hyphens kept) — so the input is
+WYSIWYG and the committed name is exactly the displayed one.
+
+**Steps:**
+1. Create + navigate to a window; click the heading to open the inline edit.
+2. Clear the input, then type `my problem` character-by-character
+   (`pressSequentially` — real keystrokes, so each `onChange` runs the live
+   transform).
+3. Assert the input value is `my_problem` (the space never appears).
+4. Press Enter; assert the sidebar shows `my_problem` (rename API + SSE
+   round-trip) and the heading button carries the converted name.
+
 ### `Escape cancels the edit and restores the original name`
 
 **What it proves:** Escape abandons the edit — no rename call, original name

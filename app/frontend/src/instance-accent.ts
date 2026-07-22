@@ -31,9 +31,9 @@ export const INSTANCE_COLOR_STORAGE_KEY = "runkit-instance-color";
 export const INSTANCE_WASH_RATIO = 0.065;
 
 /** Ratio of the accent blended into the theme background for the PWA titlebar
- *  (theme-color meta) tint — mock parity ≈ 12% within the granted ~0.12–0.15
- *  band; a taste constant, trivially tunable. */
-export const INSTANCE_TITLEBAR_RATIO = 0.12;
+ *  (theme-color meta) tint — user-tuned to 35% (the mock-parity 12% read
+ *  nearly black); a taste constant, trivially tunable. */
+export const INSTANCE_TITLEBAR_RATIO = 0.35;
 
 export type InstanceColorEcho = { value: string; hex: string };
 

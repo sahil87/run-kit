@@ -178,15 +178,16 @@ test.describe("Sidebar Host & Window Panels", () => {
       await expect(panePanel.locator("text=No window selected")).not.toBeVisible();
 
       // HOST panel — no currentServer on the board route, so the panel falls
-      // back to the host-global metrics broadcast (and the dot to host-metrics
-      // health) instead of "No metrics".
+      // back to the host-global metrics broadcast instead of "No metrics".
+      // The header carries no connection dot (the top-bar dot owns that
+      // signal), so its absence is asserted rather than an "SSE" title.
       const hostButton = page.getByRole("button", { name: /^Host/ });
       await expect(hostButton).toBeVisible();
       const hostPanel = hostButton.locator("../..");
       await expect(hostPanel.locator("text=cpu")).toBeVisible({ timeout: 8_000 });
       await expect(hostPanel.locator("text=mem")).toBeVisible();
       await expect(hostPanel.locator("text=No metrics")).not.toBeVisible();
-      await expect(hostPanel.locator("[title='SSE connected']")).toBeVisible();
+      await expect(hostPanel.locator("[title*='SSE']")).toHaveCount(0);
     } finally {
       // Unpin so the shared server carries no leftover board (empty boards are
       // reaped server-side).

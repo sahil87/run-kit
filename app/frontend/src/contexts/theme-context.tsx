@@ -8,6 +8,7 @@ import {
 } from "@/themes";
 import type { Theme, UIColors } from "@/themes";
 import { getThemePreference, setThemePreference } from "@/api/client";
+import { applyThemeColorMeta } from "@/instance-accent";
 
 export type ResolvedTheme = "light" | "dark";
 
@@ -86,9 +87,11 @@ function applyThemeToDOM(theme: Theme): void {
   // Set color-scheme
   root.style.setProperty("color-scheme", theme.category);
 
-  // Update meta theme-color
-  const tc = document.querySelector('meta[name="theme-color"]');
-  if (tc) tc.setAttribute("content", theme.palette.background);
+  // Update meta theme-color through the shared single writer — the instance
+  // accent (when resolved) wins over the bare background, and funneling both
+  // writers through one module removes the child-vs-parent effect-ordering
+  // race that would otherwise let a theme switch clobber the accent tint.
+  applyThemeColorMeta(theme.palette.background);
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {

@@ -48,6 +48,7 @@ import {
   type PendingSwitchTarget,
 } from "@/lib/window-transition";
 import { ThemeProvider, useTheme, useThemeActions } from "@/contexts/theme-context";
+import { InstanceAccentProvider, useInstanceAccent } from "@/contexts/instance-accent-context";
 import { SessionProvider } from "@/contexts/session-context";
 import { ToastProvider } from "@/components/toast";
 import { OptimisticProvider } from "@/contexts/optimistic-context";
@@ -146,19 +147,21 @@ export function RootWrapper() {
   return (
     <ThemeProvider>
       <ToastProvider>
-        <ChromeProvider>
-          <SessionProvider>
-            <FocusedTerminalProvider>
-              <OptimisticProvider>
-                <TopBarSlotProvider>
-                  <FocusedPaneProvider>
-                    <Outlet />
-                  </FocusedPaneProvider>
-                </TopBarSlotProvider>
-              </OptimisticProvider>
-            </FocusedTerminalProvider>
-          </SessionProvider>
-        </ChromeProvider>
+        <InstanceAccentProvider>
+          <ChromeProvider>
+            <SessionProvider>
+              <FocusedTerminalProvider>
+                <OptimisticProvider>
+                  <TopBarSlotProvider>
+                    <FocusedPaneProvider>
+                      <Outlet />
+                    </FocusedPaneProvider>
+                  </TopBarSlotProvider>
+                </OptimisticProvider>
+              </FocusedTerminalProvider>
+            </SessionProvider>
+          </ChromeProvider>
+        </InstanceAccentProvider>
       </ToastProvider>
     </ThemeProvider>
   );
@@ -185,6 +188,12 @@ export function RootWrapper() {
  * lazy-chunk load (e.g. the board) blanks the body while the bar stays painted.
  */
 export function AppLayout() {
+  // Instance accent (1etw): a 2px stripe across the top of the persistent top
+  // bar plus a subtle wash behind it — the "which run-kit instance is this"
+  // color channel (server colors own the sidebar). Both hexes are theme-derived
+  // (contrast-guarded stripe, ~6.5% background blend wash); nothing renders
+  // until an accent is resolved.
+  const { stripeHex, washHex } = useInstanceAccent();
   return (
     <div
       className="app-root flex flex-col"
@@ -194,8 +203,13 @@ export function AppLayout() {
           (the banner landmark), so wrapping it in a second `<header>` would
           nest two `role="banner"` landmarks. This wrapper only owns the
           `shrink-0` sizing that keeps the bar at its natural height above the
-          `flex-1` content region. */}
-      <div className="shrink-0">
+          `flex-1` content region (plus the instance-accent stripe/wash — the
+          TopBar header has no background of its own, so the wash on this
+          wrapper shows through). */}
+      <div className="shrink-0" style={washHex ? { backgroundColor: washHex } : undefined}>
+        {stripeHex && (
+          <div aria-hidden="true" style={{ height: "2px", backgroundColor: stripeHex }} />
+        )}
         <RootTopBar />
       </div>
       <div className="flex-1 min-h-0">

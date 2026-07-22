@@ -14,6 +14,13 @@ type Settings struct {
 	Theme      string
 	ThemeDark  string
 	ThemeLight string
+	// InstanceColor is the per-instance accent color ("host color") — a color
+	// value descriptor ("4" for a single ANSI index, "1+3" for a two-hue
+	// blend). Scalar (one color per instance), unlike the ServerColors map.
+	// Empty means "no explicit color set" — the frontend falls back to a
+	// hostname-hash default. Stored as a string so a blend can round-trip;
+	// reads tolerate a legacy bare integer (normalized on load).
+	InstanceColor string
 	// server name → color value descriptor ("4" for a single ANSI index,
 	// "1+3" for a two-hue blend). Stored as a string so a blend can round-trip;
 	// reads tolerate a legacy bare integer (normalized on load).
@@ -149,6 +156,13 @@ func parse(data string) Settings {
 			if value != "" {
 				s.ThemeLight = value
 			}
+		case "instance_color":
+			// Tolerant read: accept a legacy bare integer OR the quoted string
+			// descriptor ("1+3"); normalize and drop anything malformed.
+			colorStr := strings.Trim(value, "\"")
+			if normalized, ok := validate.NormalizeColorValue(colorStr); ok {
+				s.InstanceColor = normalized
+			}
 		case "server_colors":
 			inServerColors = true
 		case "board_order":
@@ -163,6 +177,13 @@ func serialize(s Settings) string {
 	out := "theme: " + s.Theme + "\n" +
 		"theme_dark: " + s.ThemeDark + "\n" +
 		"theme_light: " + s.ThemeLight + "\n"
+
+	// Instance color — emitted only when non-empty so a settings file without
+	// an instance color serializes byte-identically to the pre-change output.
+	// Always quoted so a blend ("1+3") round-trips unambiguously.
+	if s.InstanceColor != "" {
+		out += "instance_color: \"" + s.InstanceColor + "\"\n"
+	}
 
 	if len(s.ServerColors) > 0 {
 		out += "server_colors:\n"
@@ -210,6 +231,28 @@ func SetServerColor(server string, color *string) error {
 			s.ServerColors = make(map[string]string)
 		}
 		s.ServerColors[server] = *color
+	}
+	return Save(s)
+}
+
+// GetInstanceColor returns the instance accent color-value descriptor, or nil
+// when no explicit color is set. Mirrors GetServerColor.
+func GetInstanceColor() *string {
+	s := Load()
+	if s.InstanceColor == "" {
+		return nil
+	}
+	return &s.InstanceColor
+}
+
+// SetInstanceColor sets or clears the instance accent color-value descriptor
+// (nil clears). Mirrors SetServerColor (load-then-save).
+func SetInstanceColor(color *string) error {
+	s := Load()
+	if color == nil {
+		s.InstanceColor = ""
+	} else {
+		s.InstanceColor = *color
 	}
 	return Save(s)
 }

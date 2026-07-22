@@ -1276,8 +1276,7 @@ export function Sidebar({
  *  Pulls from context so the data follows `currentServer`. On the board route
  *  (`currentServer === null`) the route provides no window, so the PANE panel
  *  follows the board's focused tile via the focused-pane context instead
- *  (260720-zx4i), and the HOST dot reflects host-metrics health rather than the
- *  always-false server-scoped signal. */
+ *  (260720-zx4i). */
 function BottomPanels({
   currentServer,
   currentSessionName,
@@ -1290,12 +1289,6 @@ function BottomPanels({
   const ctx = useSessionContext();
   const focusedPane = useFocusedPane();
   const sessions = currentServer ? ctx.sessionsByServer.get(currentServer) ?? [] : [];
-  // HOST dot source: the current server's subscription health when a server
-  // route is active; otherwise (board route) the host-metrics source health
-  // that feeds HostPanel's host-global fallback.
-  const isConnected = currentServer
-    ? ctx.isConnectedByServer.get(currentServer) ?? false
-    : ctx.hostMetricsConnected;
   const routeWindow = currentSessionName && currentWindowId != null
     ? sessions.find((s) => s.name === currentSessionName)
         ?.windows.find((w) => w.windowId === currentWindowId) ?? null
@@ -1318,7 +1311,7 @@ function BottomPanels({
   return (
     <>
       <WindowPanel window={selectedWindow} />
-      <HostPanel isConnected={isConnected} />
+      <HostPanel />
     </>
   );
 }

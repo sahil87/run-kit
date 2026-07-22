@@ -10,6 +10,13 @@ type CollapsiblePanelProps = {
   headerRight?: React.ReactNode;
   /** Action element rendered at the right side of the header (e.g. "+" button). Click events are stopped from toggling the panel. */
   headerAction?: React.ReactNode;
+  /** Action element rendered immediately after the title (e.g. the Host panel's
+   *  instance-color picker). A button here must be a SIBLING of the toggle
+   *  button — nesting would be invalid markup — so when this is set the header
+   *  splits into [toggle: chevron+title][titleAction][toggle region: headerRight].
+   *  The trailing region still toggles on click (mouse parity with the default
+   *  single-button layout); keyboard toggling stays on the title button. */
+  titleAction?: React.ReactNode;
   /** Override the default content padding classes. */
   contentClassName?: string;
   /** Called after the panel is toggled. */
@@ -92,6 +99,7 @@ export function CollapsiblePanel({
   defaultOpen = true,
   headerRight,
   headerAction,
+  titleAction,
   contentClassName,
   onToggle,
   tint,
@@ -266,14 +274,14 @@ export function CollapsiblePanel({
     <div className="border-t-[3px] border-border first:border-t-0">
       {/* Header — always visible */}
       <div
-        className="flex items-center gap-1.5 w-full px-1.5 sm:px-2 py-1 text-xs text-text-secondary shrink-0 transition-colors"
+        className="group/panel flex items-center gap-1.5 w-full px-1.5 sm:px-2 py-1 text-xs text-text-secondary shrink-0 transition-colors"
         style={headerBg ? { backgroundColor: headerBg } : undefined}
         onMouseEnter={headerHoverBg && headerBg ? (e) => { (e.currentTarget as HTMLElement).style.backgroundColor = headerHoverBg; } : undefined}
         onMouseLeave={headerHoverBg && headerBg ? (e) => { (e.currentTarget as HTMLElement).style.backgroundColor = headerBg; } : undefined}
       >
         <button
           type="button"
-          className="flex items-center gap-1.5 flex-1 min-w-0 hover:text-text-primary transition-colors"
+          className={`flex items-center gap-1.5 min-w-0 hover:text-text-primary transition-colors ${titleAction ? "" : "flex-1"}`}
           onClick={toggle}
           aria-expanded={isOpen}
         >
@@ -286,7 +294,7 @@ export function CollapsiblePanel({
             &#x25BC;
           </span>
           <TypedLabel text={title} className="font-bold uppercase tracking-wide" />
-          {headerRight && (
+          {!titleAction && headerRight && (
             /* No `truncate` here: the Pane panel's headerRight leads with a
                StatusDot whose waiting halo is a box-shadow painting OUTSIDE
                the dot — an overflow-hidden wrapper clips it into a half-moon
@@ -299,6 +307,20 @@ export function CollapsiblePanel({
             </span>
           )}
         </button>
+        {titleAction}
+        {titleAction && (
+          /* Split layout (titleAction set): the trailing region keeps the
+             default layout's click-to-toggle for the mouse; keyboard toggling
+             lives on the title button, so this is a convenience duplicate, not
+             the primary control. Same no-`truncate` rule as above. */
+          <div className="flex items-center flex-1 min-w-0 cursor-pointer" onClick={toggle}>
+            {headerRight && (
+              <span className="ml-auto flex items-center gap-1 min-w-0">
+                {headerRight}
+              </span>
+            )}
+          </div>
+        )}
         {headerAction}
       </div>
 

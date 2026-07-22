@@ -765,6 +765,26 @@ export async function setServerColor(server: string, color: string | null): Prom
   if (!res.ok) await throwOnError(res);
 }
 
+// --- Instance accent color (per-instance "host color", scalar) ---
+
+/** The explicit instance accent color descriptor ("4" / "1+3"), or null when
+ *  unset (the frontend then falls back to the hostname-hash default). */
+export async function getInstanceColor(): Promise<string | null> {
+  const res = await deduplicatedFetch("/api/settings/instance-color");
+  if (!res.ok) await throwOnError(res);
+  const data: { color: string | null } = await res.json();
+  return data.color;
+}
+
+export async function setInstanceColor(color: string | null): Promise<void> {
+  const res = await fetch("/api/settings/instance-color", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ color }),
+  });
+  if (!res.ok) await throwOnError(res);
+}
+
 // --- Web Push ---
 
 /** Fetch the server's VAPID public key (base64url) for pushManager.subscribe. */

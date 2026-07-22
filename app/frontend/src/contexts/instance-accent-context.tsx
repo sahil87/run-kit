@@ -1,9 +1,8 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useTheme } from "@/contexts/theme-context";
 import { useToast } from "@/components/toast";
-import { getInstanceColor, setInstanceColor as setInstanceColorApi, getHealth } from "@/api/client";
+import { getInstanceColor, setInstanceColor as setInstanceColorApi } from "@/api/client";
 import {
-  hashHostnameColor,
   readInstanceColorEcho,
   writeInstanceColorEcho,
   deriveAccentHexes,
@@ -13,24 +12,24 @@ import {
 /**
  * Instance accent ("host color") — root-mounted provider owning the accent
  * resolution chain (explicit `instance_color` setting → localStorage echo as a
- * pre-fetch paint seed → hostname hash), the localStorage echo, and the PWA
- * theme-color meta bridge. Both rendering surfaces (the top-bar stripe/wash in
- * AppLayout and the HOST panel hostname/picker) consume `useInstanceAccent()`
- * from this single instance — one fetch, one state, and a pick in the HOST
- * panel repaints the top bar without a reload.
+ * pre-fetch paint seed → none; there is no derived default), the localStorage
+ * echo, and the PWA theme-color meta bridge. Both rendering surfaces (the
+ * top-bar stripe/wash in AppLayout and the HOST panel hostname/picker) consume
+ * `useInstanceAccent()` from this single instance — one fetch, one state, and
+ * a pick in the HOST panel repaints the top bar without a reload.
  */
 export type InstanceAccent = {
-  /** Resolved accent descriptor ("4" / "1+3"), or null when no accent applies
-   *  (hostname unknown and nothing explicit/echoed). */
+  /** Resolved accent descriptor ("4" / "1+3"), or null when no accent is set
+   *  (the default — a fresh instance has no color until the user picks one). */
   color: string | null;
-  /** True when an explicit instance color is set (vs the hash default). */
+  /** True when an explicit instance color is set. */
   isExplicit: boolean;
   /** Contrast-guarded accent hex — top-bar stripe, HOST hostname tint, and
    *  the theme-color meta content. Null when no accent is resolved. */
   stripeHex: string | null;
   /** Subtle accent-into-background blend for the top-bar wash. */
   washHex: string | null;
-  /** Set (descriptor) or clear (null → hash default) the instance color.
+  /** Set (descriptor) or clear (null → no accent) the instance color.
    *  Optimistic; POSTs to the instance host, toasting on failure. */
   setColor: (color: string | null) => void;
 };
@@ -43,14 +42,12 @@ export function InstanceAccentProvider({ children }: { children: React.ReactNode
 
   // undefined = fetch pending; null = fetched, no explicit color set.
   const [explicit, setExplicit] = useState<string | null | undefined>(undefined);
-  // null = fetch pending; "" = fetched but unknown (health failed / empty).
-  const [hostname, setHostname] = useState<string | null>(null);
   // Pre-fetch paint seed from the last load's echo (paint cache only — the
-  // authoritative resolution below overwrites it as soon as fetches land).
+  // authoritative resolution below overwrites it as soon as the fetch lands).
   const [echoSeed] = useState<string | null>(() => readInstanceColorEcho()?.value ?? null);
 
-  // Fetch the explicit setting + hostname once on mount (guarded for
-  // StrictMode double-invoke, matching the AppShell getHealth pattern).
+  // Fetch the explicit setting once on mount (guarded for StrictMode
+  // double-invoke, matching the AppShell getHealth pattern).
   const didFetchRef = useRef(false);
   useEffect(() => {
     if (didFetchRef.current) return;
@@ -58,21 +55,14 @@ export function InstanceAccentProvider({ children }: { children: React.ReactNode
     getInstanceColor()
       .then((color) => setExplicit(color))
       .catch(() => setExplicit(null));
-    getHealth()
-      .then((data) => setHostname(data.hostname ?? ""))
-      .catch(() => setHostname(""));
   }, []);
 
-  // Resolution chain: explicit setting → (while pending) echo seed → hostname
-  // hash. `authoritative` marks the point where the chain no longer depends on
-  // the paint seed — only then may the echo/meta be cleared on a null accent.
-  const resolved =
-    typeof explicit === "string"
-      ? explicit
-      : explicit === null && hostname !== null
-        ? hashHostnameColor(hostname)
-        : echoSeed;
-  const authoritative = typeof explicit === "string" || (explicit === null && hostname !== null);
+  // Resolution chain: explicit setting → (while pending) echo seed → none.
+  // There is no derived default — an unset instance renders no accent.
+  // `authoritative` marks the point where the chain no longer depends on the
+  // paint seed — only then may the echo/meta be cleared on a null accent.
+  const resolved = explicit === undefined ? echoSeed : explicit;
+  const authoritative = explicit !== undefined;
 
   const hexes = useMemo(
     () => (resolved != null ? deriveAccentHexes(resolved, theme) : null),

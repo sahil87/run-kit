@@ -15,7 +15,9 @@ import type { Theme } from "@/themes";
  * The accent is a property of the INSTANCE (stored on its host in
  * ~/.rk/settings.yaml `instance_color`), not the viewer — every device viewing
  * the instance sees the same accent. Resolution order: explicit setting →
- * localStorage echo (paint cache only, never authoritative) → hostname hash.
+ * localStorage echo (paint cache only, never authoritative) → none. There is
+ * no derived default: a fresh instance starts with no accent until the user
+ * picks one.
  */
 
 /** localStorage key echoing the resolved accent (paint cache only). The value
@@ -27,21 +29,6 @@ export const INSTANCE_COLOR_STORAGE_KEY = "runkit-instance-color";
 /** Ratio of the accent blended into the theme background for the top-bar wash
  *  (intake latitude: ~6-7%; one trivially-tunable constant). */
 export const INSTANCE_WASH_RATIO = 0.065;
-
-/** Zero-config identity default: hash the hostname onto one of the six
- *  standard ANSI hues — legacy descriptors "1".."6" (red/green/amber/blue/
- *  magenta/teal via the owned-family mapping). FNV-1a 32-bit: tiny, stable
- *  across loads and devices (pure function of hostname). Returns null for an
- *  empty hostname (no accent rather than a misleading constant color). */
-export function hashHostnameColor(hostname: string): string | null {
-  if (!hostname) return null;
-  let h = 0x811c9dc5;
-  for (let i = 0; i < hostname.length; i++) {
-    h ^= hostname.charCodeAt(i);
-    h = Math.imul(h, 0x01000193) >>> 0;
-  }
-  return String(1 + (h % 6));
-}
 
 export type InstanceColorEcho = { value: string; hex: string };
 

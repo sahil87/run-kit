@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
-  hashHostnameColor,
   readInstanceColorEcho,
   writeInstanceColorEcho,
   deriveAccentHexes,
@@ -25,28 +24,6 @@ afterEach(() => {
 function metaContent(): string | null {
   return document.querySelector('meta[name="theme-color"]')?.getAttribute("content") ?? null;
 }
-
-describe("hashHostnameColor", () => {
-  it("is deterministic and lands in descriptors 1-6", () => {
-    const hosts = ["laptop", "mac-mini.local", "gcp-box", "a", "very-long-hostname.example.com"];
-    for (const h of hosts) {
-      const first = hashHostnameColor(h);
-      expect(first).toBe(hashHostnameColor(h));
-      expect(first).toMatch(/^[1-6]$/);
-    }
-  });
-
-  it("returns null for an empty hostname", () => {
-    expect(hashHostnameColor("")).toBeNull();
-  });
-
-  it("distinguishes at least some distinct hostnames", () => {
-    const colors = new Set(
-      ["laptop", "mac-mini", "gcp-box", "pi", "nas"].map((h) => hashHostnameColor(h)),
-    );
-    expect(colors.size).toBeGreaterThan(1);
-  });
-});
 
 describe("instance color echo", () => {
   it("round-trips a {value, hex} payload", () => {

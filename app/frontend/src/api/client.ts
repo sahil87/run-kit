@@ -35,9 +35,14 @@ export interface HealthResponse {
   status: string;
   hostname: string;
   /** Optional RK_SSH_HOST — the SSH alias remote clients use to reach this
-   *  host. Feeds the Open button's editor ssh-remote deeplinks; absent when
-   *  unset (the deeplink section is hidden then). */
+   *  host. Feeds the Open button's editor ssh-remote deeplinks (used verbatim
+   *  when set); absent when unset (remote clients then derive
+   *  `${sshUser}@${location.hostname}`). */
   sshHost?: string;
+  /** The username the daemon runs as (os/user.Current, derived server-side).
+   *  Composes the derived deeplink host when RK_SSH_HOST is unset; absent
+   *  when the lookup failed (the `user@` prefix is omitted then). */
+  sshUser?: string;
 }
 
 export async function getHealth(): Promise<HealthResponse> {

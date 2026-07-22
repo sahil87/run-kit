@@ -1,16 +1,21 @@
 # open-in-app.spec.ts
 
-Verifies the top-bar **Open-in-App split-button** (260722-6d0f): with a stubbed
-wt host-app registry it renders on a terminal route, its chevron menu lists the
-host apps and launching one POSTs the active pane's cwd to `/api/open`; every
-target is palette-reachable as an `Open: <label>` entry (Constitution V); and in
-the default deployment (empty registry, no `RK_SSH_HOST`) the control is fully
-absent — no bar button, no overflow rows, no palette entries.
+Verifies the top-bar **Open-in-App split-button** (260722-6d0f; row icons +
+SSH-host fallback 260722-fc3b): with a stubbed wt host-app registry it renders
+on a terminal route, its chevron menu lists the host apps with a leading
+monochrome glyph per row (the wt id `code` maps to the VS Code brand glyph;
+unknown ids fall back by kind) and launching one POSTs the active pane's cwd
+to `/api/open`; every target is palette-reachable as an `Open: <label>` entry
+(Constitution V); and in the default local deployment (empty registry) the
+control is fully absent — no bar button, no overflow rows, no palette entries.
 
 The e2e client is `localhost`, so only the LOCAL view (host section) is
 exercisable here — the remote deeplink branch keys on `location.hostname`,
-which cannot be non-local against the e2e server, and is covered by Vitest
-(`lib/open-in-app.test.ts`, `components/open-button.test.tsx`).
+which cannot be non-local against the e2e server. That covers the whole
+260722-fc3b resolution chain (RK_SSH_HOST verbatim, else derived
+`${sshUser}@${location.hostname}`) and its remote-shows-deeplinks visibility
+gate, all covered by Vitest (`lib/open-in-app.test.ts`,
+`components/open-button.test.tsx`, `hooks/use-open-targets.test.tsx`).
 
 ## Shared setup
 
@@ -21,10 +26,11 @@ which cannot be non-local against the e2e server, and is covered by Vitest
     "feature-work" whose ACTIVE pane carries cwd `/tmp/wt/sub` (distinct from
     the window's `worktreePath` `/tmp/wt`, so the launch-body assertion pins
     the active-pane-cwd derivation).
-  - `**/api/open-apps*` → the stubbed registry (`wt open --list --json` does
-    not exist wt-side yet — backlog [qj66] — so the real backend always serves
-    `[]`; the stub is what lights the control up). Test 3 stubs `[]` to
-    reproduce the default deployment deterministically.
+  - `**/api/open-apps*` → the stubbed registry (deterministic regardless of
+    the e2e host's wt version — `wt open --list --json` shipped in wt v0.1.5).
+    The VS Code entry uses the REAL wt registry id `code` (not `vscode`), so
+    the test also pins the `code` → VS Code glyph mapping. Test 3 stubs `[]`
+    to reproduce the default local deployment deterministically.
   - `**/api/windows/*/select*` → `{ok:true}` (trailing `*` — the query string).
   - the `/ws/terminals` mux WebSocket is accepted and held open.
 - Each test navigates to the percent-encoded window route `/default/%401` and
@@ -40,25 +46,31 @@ which cannot be non-local against the e2e server, and is covered by Vitest
 "Open in app" + chevron "Open in… (choose app)") renders in the right cluster
 at a wide viewport; the chevron menu lists each registry app as a flat
 menuitem row with NO "on host" section header (a local client sees a
-single-kind list); clicking a target POSTs `{path: <active pane cwd>, app:
-<wt app id>}` to `/api/open` and closes the menu; and the primary segment
-relabels to the last-used target ("Open in iTerm") after a launch.
+single-kind list); each row leads with its resolved monochrome icon (`code` →
+the VS Code brand glyph via `data-icon="vscode"`, iTerm → the generic
+terminal-prompt glyph via `data-icon="terminal"` — kind fallback); clicking a
+target POSTs `{path: <active pane cwd>, app: <wt app id>}` to `/api/open` and
+closes the menu; and the primary segment relabels to the last-used target
+("Open in iTerm") after a launch.
 
 **Steps:**
-1. Install the mocked backend with a two-app registry (VS Code, iTerm) and a
-   recording stub on `**/api/open?*`.
+1. Install the mocked backend with a two-app registry (`code`/VS Code,
+   `iterm`/iTerm) and a recording stub on `**/api/open?*`.
 2. Set a 1440px viewport, navigate to `/default/%401`, wait for Close pane.
 3. Assert the primary and chevron segments are visible in-bar.
 4. Click the chevron; assert the "Open in app" menu shows `VS Code` and
    `iTerm` rows and no "on host" text.
-5. Click `iTerm`; poll the recorded POST body until it equals
+5. Assert the VS Code row contains an `svg[data-icon='vscode']` glyph and the
+   iTerm row an `svg[data-icon='terminal']` glyph (260722-fc3b row icons).
+6. Click `iTerm`; poll the recorded POST body until it equals
    `{path: "/tmp/wt/sub", app: "iterm"}`; assert the menu closed.
-6. Assert the primary segment now reads "Open in iTerm" (last-used persisted).
+7. Assert the primary segment now reads "Open in iTerm" (last-used persisted).
 
 ### `every target is palette-reachable as an Open: entry (Constitution V)`
 
 **What it proves:** each available open target registers a command-palette
 entry (`Open: VS Code`, `Open: iTerm`), keeping the control keyboard-first.
+(Palette rows stay text-only — icons are a menu-row affordance.)
 
 **Steps:**
 1. Install the mocked backend with the two-app registry; navigate and wait for
@@ -66,13 +78,14 @@ entry (`Open: VS Code`, `Open: iTerm`), keeping the control keyboard-first.
 2. Open the palette (`Meta+k`), type `Open:`.
 3. Assert both `Open: VS Code` and `Open: iTerm` options are listed.
 
-### `absent in the default deployment (empty registry, no sshHost): no button, no menu rows, no palette entries`
+### `absent in the default local deployment (empty registry): no button, no menu rows, no palette entries`
 
-**What it proves:** the zero-target state (wt without `--list` → `[]`, no
-`RK_SSH_HOST`, local client) renders NO Open surface anywhere — bar, overflow
-chevron menu, and palette all stay clean, so the existing top-bar chrome specs
-(overflow pyramid, overlap sweep) are unaffected by this feature in the
-default e2e environment.
+**What it proves:** the zero-target state on a local client (empty registry —
+sshHost/sshUser never mattered locally, and the 260722-fc3b
+remote-shows-deeplinks gate cannot fire on `localhost`) renders NO Open
+surface anywhere — bar, overflow chevron menu, and palette all stay clean, so
+the existing top-bar chrome specs (overflow pyramid, overlap sweep) are
+unaffected by this feature in the default e2e environment.
 
 **Steps:**
 1. Install the mocked backend with an EMPTY registry; navigate and wait for

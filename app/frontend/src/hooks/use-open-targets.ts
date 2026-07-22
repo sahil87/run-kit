@@ -3,19 +3,23 @@ import { getHealth, getOpenApps, type OpenApp } from "@/api/client";
 
 /**
  * The Open button's bootstrap data: the host's optional SSH alias
- * (RK_SSH_HOST, riding GET /api/health) and the wt host-app registry
- * (GET /api/open-apps). Both are effectively static per page load, so they
- * are fetched ONCE per page load through a module-level cache and shared by
- * every consumer (the TopBar registry entry AND the palette builder in
- * app.tsx) — no client polling (state changes arrive by reload, matching the
- * registry's change cadence), no TopBar prop churn.
+ * (RK_SSH_HOST) plus the derived daemon username (both riding GET
+ * /api/health) and the wt host-app registry (GET /api/open-apps). All are
+ * effectively static per page load, so they are fetched ONCE per page load
+ * through a module-level cache and shared by every consumer (the TopBar
+ * registry entry AND the palette builder in app.tsx) — no client polling
+ * (state changes arrive by reload, matching the registry's change cadence),
+ * no TopBar prop churn.
  */
 export type OpenContext = {
   sshHost: string;
+  /** The daemon's username (server-derived) — composes the fallback deeplink
+   *  host `${sshUser}@${location.hostname}` when sshHost is unset. */
+  sshUser: string;
   hostApps: OpenApp[];
 };
 
-const EMPTY: OpenContext = { sshHost: "", hostApps: [] };
+const EMPTY: OpenContext = { sshHost: "", sshUser: "", hostApps: [] };
 
 /** Module-level cache: resolved context after the first successful fetch. */
 let cached: OpenContext | null = null;
@@ -29,11 +33,11 @@ function fetchOpenContext(): Promise<OpenContext> {
       // Both halves are individually fail-silent: a failing health read means
       // "no sshHost" (deeplinks hidden), never a thrown error — the Open
       // control degrades to whatever sections still have data.
-      getHealth().catch(() => ({ status: "", hostname: "", sshHost: "" })),
+      getHealth().catch(() => ({ status: "", hostname: "", sshHost: "", sshUser: "" })),
       getOpenApps(), // fail-silent [] internally
     ])
       .then(([health, hostApps]) => {
-        cached = { sshHost: health.sshHost ?? "", hostApps };
+        cached = { sshHost: health.sshHost ?? "", sshUser: health.sshUser ?? "", hostApps };
         return cached;
       })
       .finally(() => {

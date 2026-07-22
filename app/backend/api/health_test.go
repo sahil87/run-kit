@@ -107,3 +107,45 @@ func TestHealthEndpointSSHHost(t *testing.T) {
 		}
 	})
 }
+
+// The derived sshUser field (os/user.Current at startup) rides the health
+// response beside sshHost: present when the lookup succeeded, absent (not
+// empty-valued) when it failed — remote clients derive
+// `${sshUser}@${location.hostname}` when RK_SSH_HOST is unset.
+func TestHealthEndpointSSHUser(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+
+	t.Run("present when derived", func(t *testing.T) {
+		s := &Server{logger: logger, hostname: "test-host"}
+		s.SetSSHUser("sahil")
+		router := s.buildRouter()
+
+		req := httptest.NewRequest(http.MethodGet, "/api/health", nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		var body map[string]string
+		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+			t.Fatalf("failed to decode response: %v", err)
+		}
+		if body["sshUser"] != "sahil" {
+			t.Errorf("body.sshUser = %q, want %q", body["sshUser"], "sahil")
+		}
+	})
+
+	t.Run("absent when the lookup failed (empty)", func(t *testing.T) {
+		router := NewTestRouter(logger, nil, nil, "test-host")
+
+		req := httptest.NewRequest(http.MethodGet, "/api/health", nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		var body map[string]string
+		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+			t.Fatalf("failed to decode response: %v", err)
+		}
+		if _, present := body["sshUser"]; present {
+			t.Errorf("body.sshUser present (%q), want absent", body["sshUser"])
+		}
+	})
+}

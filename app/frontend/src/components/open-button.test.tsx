@@ -133,6 +133,56 @@ describe("OpenButton", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "iTerm" }));
     expect(await screen.findByText("unknown app")).toBeInTheDocument();
   });
+
+  it("leads every menu row with its resolved glyph (260722-fc3b)", () => {
+    renderButton([deeplinkTarget, hostTarget]);
+    fireEvent.click(screen.getByRole("button", { name: "Open in… (choose app)" }));
+    // Deeplink vscode → the VS Code brand glyph; host iTerm (kind terminal,
+    // carried as appKind) has no appKind on this fixture → neutral fallback.
+    const vscodeRow = screen.getByRole("menuitem", { name: "VS Code" });
+    expect(vscodeRow.querySelector("svg[data-icon='vscode']")).not.toBeNull();
+    const itermRow = screen.getByRole("menuitem", { name: "iTerm" });
+    expect(itermRow.querySelector("svg[data-icon='app']")).not.toBeNull();
+  });
+
+  it("maps the wt host id `code` to the VS Code glyph and falls back by kind for unknown ids", () => {
+    const codeHost: OpenTarget = {
+      kind: "host",
+      id: "host:code",
+      label: "VSCode",
+      appId: "code",
+      appKind: "editor",
+    };
+    const ghostty: OpenTarget = {
+      kind: "host",
+      id: "host:ghostty_macos",
+      label: "Ghostty",
+      appId: "ghostty_macos",
+      appKind: "terminal",
+    };
+    const finder: OpenTarget = {
+      kind: "host",
+      id: "host:finder",
+      label: "Finder",
+      appId: "finder",
+      appKind: "file-manager",
+    };
+    renderButton([codeHost, ghostty, finder]);
+    fireEvent.click(screen.getByRole("button", { name: "Open in app" }));
+    expect(
+      screen.getByRole("menuitem", { name: "VSCode" }).querySelector("svg[data-icon='vscode']"),
+    ).not.toBeNull();
+    expect(
+      screen
+        .getByRole("menuitem", { name: "Ghostty" })
+        .querySelector("svg[data-icon='terminal']"),
+    ).not.toBeNull();
+    expect(
+      screen
+        .getByRole("menuitem", { name: "Finder" })
+        .querySelector("svg[data-icon='file-manager']"),
+    ).not.toBeNull();
+  });
 });
 
 describe("OpenMenuRows", () => {
@@ -177,5 +227,19 @@ describe("OpenMenuRows", () => {
     renderRows([hostTarget]);
     fireEvent.click(screen.getByRole("menuitem", { name: "Open: iTerm" }));
     expect(openInApp).toHaveBeenCalledWith("runkit", "/Users/x/proj", "iterm");
+  });
+
+  it("leads overflow rows with the same resolved glyphs (260722-fc3b)", () => {
+    renderRows([deeplinkTarget, hostTarget]);
+    expect(
+      screen
+        .getByRole("menuitem", { name: "Open: VS Code" })
+        .querySelector("svg[data-icon='vscode']"),
+    ).not.toBeNull();
+    expect(
+      screen
+        .getByRole("menuitem", { name: "Open: iTerm (on host)" })
+        .querySelector("svg[data-icon='app']"),
+    ).not.toBeNull();
   });
 });

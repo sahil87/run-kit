@@ -25,7 +25,7 @@ import { buildServerKillActions } from "@/lib/palette-server-kill";
 import { readLastPinnedBoard } from "@/lib/last-pinned-board";
 import { buildNavActions } from "@/lib/palette-nav";
 import { buildOpenActions } from "@/lib/palette-open";
-import { activePaneCwd, buildOpenTargets, isLocalHostname } from "@/lib/open-in-app";
+import { activePaneCwd, buildOpenTargets } from "@/lib/open-in-app";
 import { useOpenTargets } from "@/hooks/use-open-targets";
 import { useRunOpenTarget } from "@/components/open-button";
 import { nextWaitingTarget, chatSearchForTarget, type WaitingTarget } from "@/lib/palette-agent-nav";
@@ -2010,8 +2010,9 @@ function AppShell() {
       buildOpenActions(
         windowParam
           ? buildOpenTargets({
-              local: isLocalHostname(window.location.hostname),
+              hostname: window.location.hostname,
               sshHost: openCtx.sshHost,
+              sshUser: openCtx.sshUser,
               hostApps: openCtx.hostApps,
               path: openPath,
             })

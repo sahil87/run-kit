@@ -23,7 +23,7 @@ export function HostPanel() {
   const { color, isExplicit, stripeHex, setColor } = useInstanceAccent();
   const [showColorPicker, setShowColorPicker] = useState(false);
   const paletteBtnRef = useRef<HTMLButtonElement>(null);
-  const [popoverPos, setPopoverPos] = useState<{ top: number; left: number } | null>(null);
+  const [popoverPos, setPopoverPos] = useState<{ top?: number; bottom?: number; left: number } | null>(null);
   // Portal the popover to document.body at fixed coordinates anchored at the
   // palette button (left-aligned since the button now sits beside the title,
   // flip-above heuristic) so it escapes the panel's overflow clip — the x4sf
@@ -35,15 +35,20 @@ export function HostPanel() {
       return;
     }
     const rect = paletteBtnRef.current.getBoundingClientRect();
-    const approxPopoverHeight = 190; // color-only grid: Clear row + 3 swatch rows
+    const approxPopoverHeight = 110; // color-only grid — used ONLY to pick the branch
     const approxPopoverWidth = 170; // 4 swatch columns + padding
     const below = rect.bottom + 4;
     const fitsBelow = below + approxPopoverHeight <= window.innerHeight;
-    const top = fitsBelow ? below : Math.max(4, rect.top - approxPopoverHeight - 4);
-    setPopoverPos({
-      top,
-      left: Math.max(4, Math.min(rect.left, window.innerWidth - approxPopoverWidth - 4)),
-    });
+    const left = Math.max(4, Math.min(rect.left, window.innerWidth - approxPopoverWidth - 4));
+    // Below-placement anchors the popover's top under the button (exact).
+    // Flip-above anchors its BOTTOM edge just over the button via CSS `bottom`,
+    // so the placement is exact regardless of the popover's real height — an
+    // estimated `top` would leave a gap whenever the estimate overshoots.
+    setPopoverPos(
+      fitsBelow
+        ? { top: below, left }
+        : { bottom: window.innerHeight - rect.top + 4, left },
+    );
   }, [showColorPicker]);
 
   // No connection dot here: the top-bar dot already reflects the same
@@ -79,6 +84,7 @@ export function HostPanel() {
           style={{
             position: "fixed",
             top: popoverPos.top,
+            bottom: popoverPos.bottom,
             left: popoverPos.left,
             zIndex: 100,
           }}

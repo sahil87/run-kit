@@ -11,19 +11,39 @@ import { mockStateSocket } from "./_state-socket-mock";
 // Chat read frontend (260714-r7rq — Change 3 of the agent-chat-view plan): a
 // read-only HTML chat view over the same agent pane, toggled via `?view=chat`
 // on the existing terminal route. The view toggle is the UNIFIED window-view
-// lens `ViewSwitcher` (spec R4, `web-view-lens`) — a chat-capable window with no
-// `@rk_url` offers `[tty|chat]` segments; the chip carries `data-testid=
-// "view-toggle"` and lowercase segment glyphs.
+// lens switcher (spec R4, `web-view-lens`) — MENU-ONLY as of 260722-n2n4: the
+// segmented pill never renders in-bar (the registry entry is `menuOnly`), and
+// a chat-capable window with no `@rk_url` offers `View: Terminal` /
+// `View: Chat` menuitemradio rows in the "More controls" chevron menu, which
+// are the switcher's only rendering at every width.
 
 const SERVER = "default";
 const MOBILE = { width: 375, height: 812 };
 
+// The menu-only switcher surface (260722-n2n4) — mirrors web-view-lens.spec.ts.
+const menuButton = (page: Page) =>
+  page.getByRole("button", { name: "More controls" });
+const controlsMenu = (page: Page) =>
+  page.getByRole("menu", { name: "More controls" });
+const viewRow = (page: Page, label: "Terminal" | "Chat") =>
+  controlsMenu(page).getByRole("menuitemradio", { name: `View: ${label}` });
+
+/** Open the chevron menu, click the `View: {label}` row, and wait for the menu
+ *  to close (a `menuitemradio` activation is a single-shot menu action). */
+async function switchLens(page: Page, label: "Terminal" | "Chat"): Promise<void> {
+  await menuButton(page).click();
+  const row = viewRow(page, label);
+  await expect(row).toBeVisible({ timeout: 10_000 });
+  await row.click();
+  await expect(controlsMenu(page)).toBeHidden();
+}
+
 // Two windows: @1 is a chat-capable claude window; @2 is a plain (no
 // chatProvider) window used to prove the toggle is gated. `winName` overrides
-// @1's window name — the overflow test passes a long worktree-style name so the
-// center heading deterministically claims enough width to push the ViewSwitcher
-// pill (the first overflow-registry candidate, 260717-6anu) into the menu at
-// 375px.
+// @1's window name — the 375px test passes a long worktree-style name to prove
+// the center heading keeps its room (the switcher is menu-only at every width
+// as of 260722-n2n4, so the long name exercises heading space, not a pill drop
+// threshold).
 function sessionsPayload(winName = "agent-win"): string {
   return JSON.stringify([
     {
@@ -175,26 +195,36 @@ async function mockChatSend(
 }
 
 test.describe("Chat read frontend — view toggle, heading, rendering", () => {
-  test("the tty|chat switcher appears only on a chatProvider window", async ({ page }) => {
+  test("the `View: Chat` menu row appears only on a chatProvider window (no in-bar pill ever)", async ({ page }) => {
     await mockBackend(page, backfillCleared());
 
-    // @1 is chat-capable → the toggle renders in-bar. Use the accessibility-tree
-    // group locator (name "Window view"), NOT getByTestId: since 260717-6anu the
-    // ViewSwitcher is an overflow-registry candidate, so the aria-hidden
-    // measurement probe ALSO carries a `view-toggle` copy — `getByTestId` would
-    // match two elements (strict-mode violation). `getByRole` excludes the
-    // aria-hidden probe, so it resolves to the single in-bar pill.
+    // @1 is chat-capable → the switcher renders as `View:` rows in the chevron
+    // menu, and ONLY there (260722-n2n4 menuOnly): no in-bar "Window view"
+    // group and no `view-toggle` testid anywhere in the DOM (bar or probe).
     await page.goto(`/${SERVER}/1`);
-    await expect(page.getByRole("group", { name: "Window view" })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText("Window", { exact: true })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole("group", { name: "Window view" })).toHaveCount(0);
+    await expect(page.getByTestId("view-toggle")).toHaveCount(0);
+    await menuButton(page).click();
+    await expect(viewRow(page, "Terminal")).toBeVisible({ timeout: 10_000 });
+    await expect(viewRow(page, "Chat")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(controlsMenu(page)).toBeHidden();
 
-    // @2 has no chatProvider → no toggle (single-view → the registry entry is
-    // hidden everywhere, so no in-bar group AND no probe copy).
+    // @2 has no chatProvider → single-view → the registry entry is hidden
+    // everywhere: no in-bar group, no probe copy, and no `View:` menu rows.
     await page.goto(`/${SERVER}/2`);
     await expect(page.getByText("plain-win").first()).toBeVisible({ timeout: 10_000 });
     await expect(page.getByRole("group", { name: "Window view" })).toHaveCount(0);
+    await menuButton(page).click();
+    await expect(controlsMenu(page)).toBeVisible();
+    await expect(
+      controlsMenu(page).getByRole("menuitemradio", { name: /^View:/ }),
+    ).toHaveCount(0);
+    await page.keyboard.press("Escape");
 
     // Chat-less deep-link degradation: `?view=chat` on @2 is inert — the
-    // terminal renders (no chat view, no toggle). The heading is the static
+    // terminal renders (no chat view, no switcher). The heading is the static
     // `Window:` prefix (260714-uco1 — no longer lens-following).
     await page.goto(`/${SERVER}/2?view=chat`);
     await expect(page.getByText("plain-win").first()).toBeVisible({ timeout: 10_000 });
@@ -206,17 +236,14 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
   test("flipping to chat preserves the window and updates the URL (heading stays `Window:`)", async ({ page }) => {
     await mockBackend(page, backfillCleared());
     await page.goto(`/${SERVER}/1`);
-    // Accessibility-tree group locator (excludes the aria-hidden overflow probe
-    // copy, 260717-6anu) — see the switcher-gating test for why not getByTestId.
-    await expect(page.getByRole("group", { name: "Window view" })).toBeVisible({ timeout: 10_000 });
 
     // The heading is a static `Window:` prefix (260714-uco1) — the lens is shown
-    // by the ViewSwitcher chip, not the heading.
-    await expect(page.getByText("Window", { exact: true })).toBeVisible();
+    // by the switcher's `View:` menu rows, not the heading.
+    await expect(page.getByText("Window", { exact: true })).toBeVisible({ timeout: 10_000 });
 
-    // Click the chat segment of the unified switcher (its accessible name is
-    // "Chat view"; the visible glyph is the lowercase "chat").
-    await page.getByRole("button", { name: "Chat view" }).click();
+    // Switch via the chevron menu's `View: Chat` row — the switcher's only
+    // rendering (menu-only, 260722-n2n4).
+    await switchLens(page, "Chat");
 
     // Same window (@1 → segment `1`), now with ?view=chat.
     await expect(page).toHaveURL(new RegExp(`/${SERVER}/1\\?view=chat`));
@@ -230,10 +257,9 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
   test("Ctrl+` toggles tty↔chat (the shipped keyboard binding)", async ({ page }) => {
     await mockBackend(page, backfillCleared());
     await page.goto(`/${SERVER}/1`);
-    // Accessibility-tree group locator (excludes the aria-hidden overflow probe
-    // copy, 260717-6anu) — see the switcher-gating test for why not getByTestId.
-    await expect(page.getByRole("group", { name: "Window view" })).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText("Window", { exact: true })).toBeVisible();
+    // Gate on the heading — the always-present readiness surface (the switcher
+    // has no in-bar pill to gate on since 260722-n2n4).
+    await expect(page.getByText("Window", { exact: true })).toBeVisible({ timeout: 10_000 });
 
     // Ctrl+` (plain Ctrl on both platforms — the VS-Code "toggle terminal"
     // association) flips into the chat lens: URL gains ?view=chat, chat mounts.
@@ -294,11 +320,10 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
     await expect(page.getByTestId("chat-pending")).toHaveCount(0, { timeout: 5_000 });
   });
 
-  test("375px: the chat toggle overflows into the More-controls menu with a long window name (no horizontal overflow)", async ({ page }) => {
-    // 260717-6anu: the ViewSwitcher is the first overflow-registry candidate, so
-    // at phone width with a realistically long window name it yields into the
-    // "More controls" menu (as per-view `View:` rows) to give the heading room —
-    // it no longer stays pinned inline via a `hidden sm:*`-exempt slot.
+  test("375px: the chat toggle lives in the More-controls menu with a long window name (no horizontal overflow)", async ({ page }) => {
+    // 260722-n2n4: the switcher is menu-only at every width, so at phone width
+    // with a realistically long window name the heading keeps its room and the
+    // per-view `View:` rows in the "More controls" menu are the toggle surface.
     await mockBackend(page, backfillCleared(), undefined, "riff-gallant-jackal-worktree-mobile");
     await page.setViewportSize(MOBILE);
     await page.goto(`/${SERVER}/1?view=chat`);
@@ -306,17 +331,18 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
     // The chat view itself renders (lens resolved), proving the window is loaded.
     await expect(page.getByTestId("chat-view")).toBeVisible({ timeout: 10_000 });
 
-    // The in-bar pill overflowed → `getByRole` (accessibility tree, excludes the
-    // aria-hidden measurement probe) finds no in-bar switcher group.
+    // No in-bar pill and no probe copy (menuOnly): neither the accessible
+    // "Window view" group nor the raw `view-toggle` testid exists anywhere.
     await expect(page.getByRole("group", { name: "Window view" })).toHaveCount(0);
+    await expect(page.getByTestId("view-toggle")).toHaveCount(0);
 
     // The switcher is reachable in the chevron menu as per-view rows, and the
     // active (chat) row is marked.
-    await page.getByRole("button", { name: "More controls" }).click();
-    const menu = page.getByRole("menu", { name: "More controls" });
+    await menuButton(page).click();
+    const menu = controlsMenu(page);
     await expect(menu).toBeVisible();
-    await expect(menu.getByRole("menuitemradio", { name: "View: Terminal" })).toBeVisible();
-    const chatRow = menu.getByRole("menuitemradio", { name: "View: Chat" });
+    await expect(viewRow(page, "Terminal")).toBeVisible();
+    const chatRow = viewRow(page, "Chat");
     await expect(chatRow).toBeVisible();
     await expect(chatRow).toHaveAttribute("aria-checked", "true");
 

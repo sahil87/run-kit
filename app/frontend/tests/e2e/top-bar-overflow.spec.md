@@ -20,19 +20,20 @@ visible; (f) a menu action (theme cycle) works from the menu.
   terminal route renders the control-rich right cluster (L1 splits + fixed-width,
   L2 Aa + close, L3 theme/refresh/help). The ViewSwitcher block adds a SECOND,
   **web-capable** long-named window (`overflow-view-long-worktree-<ts>` with a
-  non-empty `@rk_url` ⇒ `[tty|web]`) so the lens pill actually renders (it is
-  terminal-only and gated on a multi-view window; the tty-only window above has
-  no view-switcher candidate, so the pyramid tests are unaffected by this change).
+  non-empty `@rk_url` ⇒ `[tty|web]`) so the switcher's `View:` menu rows actually
+  render (the entry is terminal-only and gated on a multi-view window; the
+  tty-only window above contributes no view-switcher rows, so the pyramid tests
+  are unaffected).
 - `resolveWindow`/`gotoWindow` (from `_ready.ts`) resolve the window id and
   navigate to `/${server}/${id}`.
 - In-bar control visibility is measured via accessible-name ROLE queries
   (`getByRole`/`getByLabel`), which exclude the always-present off-screen `inert`
   + `aria-hidden` measurement-probe copy — a match means the control is in-bar.
-  The ViewSwitcher's in-bar presence is likewise checked via its
-  `role="group"` name `Window view` (the probe copy is aria-hidden, so
-  `getByRole` never matches it — unlike `getByTestId("view-toggle")`, which
-  would). `intersects()` is the standard rect-overlap helper (shared shape with
-  `top-bar-overlap.spec.ts`).
+  The ViewSwitcher is `menuOnly` as of 260722-n2n4, so its absence is checked two
+  ways: no accessible `role="group"` named `Window view` (no in-bar pill) AND no
+  `view-toggle` testid anywhere in the DOM (the probe carries no pill copy either
+  — fit candidates only). `intersects()` is the standard rect-overlap helper
+  (shared shape with `top-bar-overlap.spec.ts`).
 
 ## Tests
 
@@ -94,47 +95,58 @@ control row plus the always-present version row (c).
 2. Click the theme row (cycles system → light → dark → …).
 3. Reopen the menu and assert the theme row label changed.
 
-## Tests — ViewSwitcher is the first-to-drop candidate (260717-6anu)
+## Tests — ViewSwitcher is menu-only (260722-n2n4)
 
-Uses the web-capable long-named window (see Shared setup) so the `[tty|web]` lens
-pill renders. `@rk_url` is stamped via `tmux set-option -w` before navigating.
+Uses the web-capable long-named window (see Shared setup) so the `[tty|web]`
+multi-view gate passes. `@rk_url` is stamped via `tmux set-option -w` before
+navigating. The `view-switcher` registry entry carries `menuOnly: true`: the
+segmented pill never renders in-bar (the chat lens isn't ready, so the pill must
+not advertise itself inline), and the per-view `View:` rows in the "More
+controls" chevron menu are the switcher's ONLY rendering at every width.
 
-### `the ViewSwitcher pill is present in-bar at a wide width`
+### `the pill never renders in-bar at any width; the `View:` rows are always in the menu`
 
-**What it proves:** the pill is the widest control and the first registry
-candidate, so it fits in-bar only when the WHOLE terminal cluster fits — a
-generous desktop width (1440px) clears it, so the lens pill renders in-bar (the
-`Window view` group is in the accessibility tree). At the 1280px "Desktop Chrome"
-default the pill has already correctly yielded.
-
-**Steps:**
-1. Navigate to the web-capable window; set 1440×800.
-2. Assert the renamable heading is visible, then assert the `Window view` group
-   (accessibility-tree query) is visible.
-
-### `the ViewSwitcher drops FIRST — before any L1 split — as width shrinks`
-
-**What it proves:** the pill is the first registry candidate, so it yields before
-any L1 split — whenever the pill is still in-bar, EVERY L1 split must also be
-in-bar (equivalently, the pill leaves before L1 does).
+**What it proves:** the menu-only contract — the pill has no bar slot and no
+measurement-probe copy at ANY width (including 1440px, where the whole cluster
+has room and the pre-n2n4 pill rendered in-bar), while the `View:` menuitemradio
+rows are present in the chevron menu at both extremes of the sweep.
 
 **Steps:**
 1. Navigate to the web-capable window.
 2. Sweep 1440 → 1280 → … → 375 (`[1440, ...WIDTHS]`), gating on the renamable
-   heading each iteration. At each width, if the in-bar `Window view` group is
-   present assert every L1 split is also in-bar (in-bar L1 count == `L1.length`);
-   record whether the pill was seen both in-bar and dropped across the sweep.
-3. Assert the sweep exercised both sides of the threshold (pill seen in-bar at
-   some wide width AND dropped at some narrow width).
-4. At 375px assert the in-bar `Window view` group has count 0 (definitely dropped).
+   heading each iteration. At each width assert the accessible `Window view`
+   group has count 0 (no in-bar pill) AND `getByTestId("view-toggle")` has count
+   0 (no pill copy anywhere in the DOM — bar or probe).
+3. At 1440px and 375px open the `More controls` menu and assert the
+   `View: Terminal` and `View: Web` rows are visible; Escape-close between
+   widths.
 
-### `the collapsed switcher renders per-view rows and a row activation switches the lens`
+### `split-vertical is the first fit candidate to yield — the menuOnly pill costs zero fit pixels`
 
-**What it proves:** when collapsed, the pill is represented as per-view `View:`
-menu rows (active row marked), and clicking a row switches the lens.
+**What it proves:** with the view-switcher excluded from the fit, the leftmost L1
+split is the new FIRST fit candidate — whenever `Split vertically` is still
+in-bar, nothing has dropped yet, so every L1/L2/L3 control is also in-bar (the
+surviving set is a suffix of the fit order). Retargets the former first-to-drop
+coverage (the pre-n2n4 pill) onto the new first candidate.
 
 **Steps:**
-1. Navigate to the web-capable window; set 375×800 (the pill is overflowed).
+1. Navigate to the web-capable window.
+2. Sweep `[1440, ...WIDTHS]`, gating on the renamable heading each iteration; at
+   1440px gate on a RETRYING `Split vertically` visibility expect (post-resize
+   re-fit settle). At each width, if `Split vertically` is in-bar assert the full
+   L1+L2+L3 in-bar count.
+3. Assert split-vertical was seen in-bar at some wide width; then at 375px assert
+   a RETRYING in-bar count of 0 (definitely dropped at the mobile leaf).
+
+### `a `View:` row activation switches the lens and closes the menu — even at a wide width`
+
+**What it proves:** the menu rows are a fully functional lens switcher at a WIDE
+width — the distinguishing menu-only case (the bar has room, yet the switcher
+lives only in the menu): the active row is marked, activation switches the lens,
+and the menu closes.
+
+**Steps:**
+1. Navigate to the web-capable window; set 1440×800.
 2. Open the `More controls` chevron menu.
 3. Assert the `View: Terminal` and `View: Web` rows (each a `role="menuitemradio"`)
    are visible; the default tty lens marks `View: Terminal` `aria-checked="true"`
@@ -142,4 +154,4 @@ menu rows (active row marked), and clicking a row switches the lens.
 4. Click `View: Web`; assert the URL gains `?view=web` and the proxied iframe
    (`title="Proxied content"`) renders.
 5. Assert the chevron menu closed (the `View:` row is a `menuitemradio` activation,
-   a single-shot menu action).
+   a single-shot menu action) and no in-bar pill appeared after the switch.

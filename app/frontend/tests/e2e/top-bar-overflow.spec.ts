@@ -269,16 +269,20 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
   });
 });
 
-// The ViewSwitcher lens pill is terminal-only and gated on a multi-view window,
-// so it never appears on the tty-only WINDOW_NAME window above. This block uses
-// a web-capable window (a non-empty `@rk_url` ⇒ `[tty|web]`) with a long name to
-// prove the 260717-6anu contract: the pill is the FIRST overflow candidate
-// (drops before any L1 split), is represented as per-view `View:` menu rows when
-// collapsed, and a row activation switches the lens.
+// The ViewSwitcher lens control is terminal-only and gated on a multi-view
+// window, so it never contributes rows on the tty-only WINDOW_NAME window above.
+// This block uses a web-capable window (a non-empty `@rk_url` ⇒ `[tty|web]`)
+// with a long name to prove the 260722-n2n4 MENU-ONLY contract: the registry
+// entry carries `menuOnly: true`, so the pill NEVER renders in-bar (no bar slot,
+// no measurement-probe copy — the `view-toggle` testid is absent from the DOM at
+// ANY width), the per-view `View:` menuitemradio rows are ALWAYS in the chevron
+// menu, a row activation switches the lens even at a wide width, and the fit
+// pyramid over the remaining candidates is intact with `split-vertical` as the
+// new first-to-yield candidate.
 const VIEW_WINDOW_NAME = `overflow-view-long-worktree-${Date.now().toString().slice(-6)}`;
 const VIEW_URL = "http://localhost:8080/";
 
-test.describe("Top-bar overflow: ViewSwitcher is the first-to-drop candidate (260717-6anu)", () => {
+test.describe("Top-bar overflow: ViewSwitcher is menu-only (260722-n2n4)", () => {
   test.beforeAll(() => {
     try {
       execSync(
@@ -290,15 +294,17 @@ test.describe("Top-bar overflow: ViewSwitcher is the first-to-drop candidate (26
     }
   });
 
-  // The switcher group in the accessibility tree (excludes the aria-hidden
-  // measurement probe copy — same in-bar-vs-probe distinction the pyramid tests
-  // use). `getByTestId("view-toggle")` would also match the probe.
+  // The in-bar switcher group in the accessibility tree. Under the menuOnly
+  // flag this must NEVER match; the stricter DOM-wide check below is
+  // `getByTestId("view-toggle")`, which as of 260722-n2n4 must also be empty
+  // (the probe no longer carries a pill copy either).
   const inBarSwitcher = (page: Page) => page.getByRole("group", { name: "Window view" });
 
   async function gotoViewWindow(page: Page): Promise<void> {
     const id = await resolveWindow(page, VIEW_WINDOW_NAME);
-    // Stamp `@rk_url` so the window offers the `web` lens → the ViewSwitcher pill
-    // renders (`[tty|web]`). Set before navigating so the first snapshot carries it.
+    // Stamp `@rk_url` so the window offers the `web` lens (`[tty|web]` → the
+    // multi-view gate passes and the `View:` menu rows render). Set before
+    // navigating so the first snapshot carries it.
     execSync(
       `tmux -L ${TMUX_SERVER} set-option -w -t ${id} @rk_url "${VIEW_URL}"`,
       { stdio: "ignore" },
@@ -306,73 +312,100 @@ test.describe("Top-bar overflow: ViewSwitcher is the first-to-drop candidate (26
     await gotoWindow(page, id);
   }
 
-  test("the ViewSwitcher pill is present in-bar at a wide width", async ({ page }) => {
-    await gotoViewWindow(page);
-    const heading = page.getByRole("button", { name: `Rename window ${VIEW_WINDOW_NAME}` });
-    // The pill is the WIDEST control and the first registry candidate, so it
-    // fits in-bar only when the WHOLE cluster fits. A generous desktop width
-    // (1440px) clears the whole terminal cluster (view-switcher + 3 L1 + Aa +
-    // close + theme/refresh/help) — at the 1280px "Desktop Chrome" default the
-    // pill has already correctly yielded (it drops before any L1 control).
-    await page.setViewportSize({ width: 1440, height: 800 });
-    await expect(heading).toBeVisible({ timeout: 10_000 });
-    await expect(inBarSwitcher(page)).toBeVisible({ timeout: 10_000 });
-  });
-
-  test("the ViewSwitcher drops FIRST — before any L1 split — as width shrinks", async ({
+  test("the pill never renders in-bar at any width; the `View:` rows are always in the menu", async ({
     page,
   }) => {
     await gotoViewWindow(page);
     const heading = page.getByRole("button", { name: `Rename window ${VIEW_WINDOW_NAME}` });
 
-    // The switcher is the FIRST registry candidate, so overflow consumes it
-    // before any L1 split — the surviving in-bar set is a SUFFIX of the registry
-    // order. The invariant, checked across the sweep: whenever the pill is still
-    // in-bar, EVERY L1 split must also be in-bar (the pill can only survive when
-    // the whole cluster fits). Equivalently, the pill leaves before L1 does.
-    const wideToNarrow = [1440, ...WIDTHS];
-    let sawPillInBar = false;
-    let sawPillDropped = false;
-    for (const width of wideToNarrow) {
+    // Sweep wide → narrow. The menuOnly entry contributes no bar slot AND no
+    // probe copy, so both the accessible in-bar group and the raw `view-toggle`
+    // testid (which would match the aria-hidden probe copy on pre-n2n4 code at
+    // wide widths) must be absent at EVERY width — including 1440px, where the
+    // whole cluster has room (the pre-n2n4 pill rendered in-bar there).
+    for (const width of [1440, ...WIDTHS]) {
       await page.setViewportSize({ width, height: 800 });
       await expect(heading).toBeVisible({ timeout: 10_000 });
-      // At the widest width the pill MUST be in-bar — gate on a RETRYING
-      // visibility expect so the post-resize re-fit (ResizeObserver → layout
-      // effect) has settled before the plain `count()` branch below reads it.
-      // A bare `count()` right after `setViewportSize` can race that async re-fit
-      // and read 0, corrupting `sawPillInBar` and the L1 invariant.
-      if (width === 1440) {
-        await expect(inBarSwitcher(page)).toBeVisible({ timeout: 10_000 });
-      }
-      const switcherInBar = (await inBarSwitcher(page).count()) > 0;
-      if (switcherInBar) {
-        sawPillInBar = true;
-        expect(
-          await inBarCount(page, L1),
-          `every L1 split must be in-bar while the pill is still in-bar at ${width}px`,
-        ).toBe(L1.length);
-      } else {
-        sawPillDropped = true;
-      }
+      await expect(inBarSwitcher(page), `no in-bar pill at ${width}px`).toHaveCount(0);
+      await expect(
+        page.getByTestId("view-toggle"),
+        `no view-toggle in the DOM (bar or probe) at ${width}px`,
+      ).toHaveCount(0);
     }
-    // The sweep genuinely exercised both sides of the pill's drop threshold.
-    expect(sawPillInBar, "pill was in-bar at some (wide) width").toBe(true);
-    expect(sawPillDropped, "pill overflowed at some (narrow) width").toBe(true);
-    // At the narrowest width the switcher has definitely overflowed.
-    await page.setViewportSize({ width: 375, height: 800 });
-    await expect(heading).toBeVisible({ timeout: 10_000 });
-    await expect(inBarSwitcher(page)).toHaveCount(0);
+
+    // The `View:` rows are present in the chevron menu at BOTH extremes of the
+    // sweep — the menu is the switcher's only rendering, independent of width.
+    for (const width of [1440, 375]) {
+      await page.setViewportSize({ width, height: 800 });
+      await expect(heading).toBeVisible({ timeout: 10_000 });
+      await page.getByRole("button", { name: "More controls" }).click();
+      const menu = page.getByRole("menu", { name: "More controls" });
+      await expect(menu).toBeVisible();
+      await expect(
+        menu.getByRole("menuitemradio", { name: "View: Terminal" }),
+        `View: Terminal row at ${width}px`,
+      ).toBeVisible();
+      await expect(
+        menu.getByRole("menuitemradio", { name: "View: Web" }),
+        `View: Web row at ${width}px`,
+      ).toBeVisible();
+      // Close before the next resize so the fixed-position panel never straddles it.
+      await page.keyboard.press("Escape");
+      await expect(menu).toBeHidden();
+    }
   });
 
-  test("the collapsed switcher renders per-view rows and a row activation switches the lens", async ({
+  test("split-vertical is the first fit candidate to yield — the menuOnly pill costs zero fit pixels", async ({
     page,
   }) => {
     await gotoViewWindow(page);
     const heading = page.getByRole("button", { name: `Rename window ${VIEW_WINDOW_NAME}` });
+
+    // With the view-switcher out of the fit entirely, the FIRST fit candidate is
+    // the leftmost L1 split. The invariant across the sweep: whenever `Split
+    // vertically` is still in-bar nothing has dropped yet, so every L1/L2/L3
+    // control must also be in-bar (the surviving set is a suffix of the fit
+    // order). This retargets the former first-to-drop coverage (the pre-n2n4
+    // pill) onto the new first candidate.
+    const splitVertical = () => byRoleName(page, "Split vertically");
+    let sawInBar = false;
+    for (const width of [1440, ...WIDTHS]) {
+      await page.setViewportSize({ width, height: 800 });
+      await expect(heading).toBeVisible({ timeout: 10_000 });
+      // At the widest width the whole cluster MUST fit — gate on a RETRYING
+      // visibility expect so the post-resize re-fit (ResizeObserver → layout
+      // effect) has settled before the plain `count()` reads below.
+      if (width === 1440) {
+        await expect(splitVertical()).toBeVisible({ timeout: 10_000 });
+      }
+      const inBar = (await splitVertical().count()) > 0;
+      if (inBar) {
+        sawInBar = true;
+        expect(
+          await inBarCount(page, [...L1, ...L2, ...L3]),
+          `every fit candidate in-bar while split-vertical survives at ${width}px`,
+        ).toBe(L1.length + L2.length + L3.length);
+      }
+    }
+    // The sweep genuinely exercised both sides of the drop threshold: in-bar at
+    // some wide width (gated above), and definitely dropped at the mobile leaf —
+    // a RETRYING count so a still-settling re-fit can't flake the dropped side.
+    expect(sawInBar, "split-vertical was in-bar at some (wide) width").toBe(true);
     await page.setViewportSize({ width: 375, height: 800 });
     await expect(heading).toBeVisible({ timeout: 10_000 });
+    await expect(splitVertical()).toHaveCount(0, { timeout: 10_000 });
+  });
 
-    // The pill overflowed; open the chevron menu and assert the per-view rows.
+  test("a `View:` row activation switches the lens and closes the menu — even at a wide width", async ({
+    page,
+  }) => {
+    await gotoViewWindow(page);
+    const heading = page.getByRole("button", { name: `Rename window ${VIEW_WINDOW_NAME}` });
+    // A wide width is the distinguishing case: the bar has room, yet the
+    // switcher still lives ONLY in the menu (menu-only, not space-driven).
+    await page.setViewportSize({ width: 1440, height: 800 });
+    await expect(heading).toBeVisible({ timeout: 10_000 });
+
     await page.getByRole("button", { name: "More controls" }).click();
     const menu = page.getByRole("menu", { name: "More controls" });
     await expect(menu).toBeVisible();
@@ -390,7 +423,8 @@ test.describe("Top-bar overflow: ViewSwitcher is the first-to-drop candidate (26
     await expect(page).toHaveURL(/\?view=web/, { timeout: 10_000 });
     await expect(page.getByTitle("Proxied content")).toBeVisible({ timeout: 10_000 });
     // The `View:` row is a `role="menuitemradio"` activation, so the chevron menu
-    // closes (single-shot menu action) — the pill stays collapsed at 375px.
+    // closes (single-shot menu action). No in-bar pill appears after the switch.
     await expect(menu).toBeHidden();
+    await expect(inBarSwitcher(page)).toHaveCount(0);
   });
 });

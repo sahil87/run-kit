@@ -8,10 +8,12 @@ single-row budget, and reduced-motion honoring. Send: the input footer (replacin
 the old read-only disabled footer) POSTs to the chat-send endpoint, clears on
 success, surfaces a 409 probe failure inline while keeping the text, and shows a
 non-blocking busy hint while the window agent is active. The chat lens is reached
-through the UNIFIED window-view `ViewSwitcher` (spec R4, `web-view-lens`): a
-chat-capable window with no `@rk_url` offers `[tty|chat]` segments in the L1 chip
-(`data-testid="view-toggle"`, gated on a non-empty `chatProvider`), the `Chat view`
-segment flips into chat, and the shipped `Ctrl+\`` binding toggles tty↔chat.
+through the UNIFIED window-view switcher (spec R4, `web-view-lens`), which is
+MENU-ONLY as of `260722-n2n4`: the segmented pill never renders in-bar, and a
+chat-capable window (gated on a non-empty `chatProvider`) offers `View: Terminal`
+/ `View: Chat` `menuitemradio` rows in the "More controls" chevron menu — the
+`View: Chat` row flips into chat, and the shipped `Ctrl+\`` binding toggles
+tty↔chat.
 
 ## Shared setup
 
@@ -48,23 +50,25 @@ segment flips into chat, and the shipped `Ctrl+\`` binding toggles tty↔chat.
 
 ## Tests
 
-### `the tty|chat switcher appears only on a chatProvider window`
+### `the `View: Chat` menu row appears only on a chatProvider window (no in-bar pill ever)`
 
-**What it proves:** the unified L1 ViewSwitcher chip (`view-toggle`) is gated on
-the current window carrying a non-empty `chatProvider` — present on `@1`
-(claude), absent on `@2` (plain, which offers only `tty` so the chip renders
-null) — and a `?view=chat` deep link on a chat-less window degrades gracefully to
-the terminal (param inert, dropped by `resolveView`'s availability check).
+**What it proves:** the unified switcher's `View:` menu rows are gated on the
+current window carrying a non-empty `chatProvider` — present on `@1` (claude),
+absent on `@2` (plain, which offers only `tty` so the registry entry is hidden
+everywhere) — and the menu-only contract (`260722-n2n4`): even on the capable
+window there is no in-bar pill and no `view-toggle` testid anywhere in the DOM
+(bar or probe). A `?view=chat` deep link on a chat-less window degrades
+gracefully to the terminal (param inert, dropped by `resolveView`'s availability
+check).
 
 **Steps:**
-1. Mock the backend; navigate to `/default/1` and assert the in-bar switcher is
-   visible via the `role="group"` name `Window view` (NOT `getByTestId(view-toggle)`:
-   since `260717-6anu` the switcher is an overflow-registry candidate, so the
-   aria-hidden measurement probe carries a second `view-toggle` copy — the role
-   query excludes the probe and resolves to the single in-bar pill).
+1. Mock the backend; navigate to `/default/1`; gate on the `Window:` heading.
+   Assert the `Window view` group has count 0 AND `view-toggle` has count 0
+   (menuOnly — no bar slot, no probe copy). Open the "More controls" menu and
+   assert the `View: Terminal` and `View: Chat` rows are visible; Escape-close.
 2. Navigate to `/default/2`; assert "plain-win" is visible and the `Window view`
-   group has count 0 (single-view → the registry entry is hidden everywhere, no
-   probe copy either).
+   group has count 0; open the menu and assert it carries NO `View:` rows
+   (single-view → the registry entry is hidden everywhere); Escape-close.
 3. Navigate to `/default/2?view=chat`; assert no `chat-view` renders, no
    `Window view` group renders, and the static `Window:` heading prefix shows (the
    terminal branch mounted despite the param; 260714-uco1 — the heading is
@@ -72,18 +76,18 @@ the terminal (param inert, dropped by `resolveView`'s availability check).
 
 ### `flipping to chat preserves the window and updates the URL (heading stays Window:)`
 
-**What it proves:** clicking the switcher's chat segment flips the view without
-changing the window — the URL gains `?view=chat` on the same `@1` and the chat
-renderer mounts. The center heading is a static `Window:` throughout (260714-uco1
-— it no longer changes with the lens; the ViewSwitcher chip is the lens
+**What it proves:** activating the chevron menu's `View: Chat` row (the
+switcher's only rendering, `260722-n2n4`) flips the view without changing the
+window — the URL gains `?view=chat` on the same `@1` and the chat renderer
+mounts. The center heading is a static `Window:` throughout (260714-uco1 — it
+does not change with the lens; the marked `View:` menu row is the lens
 indicator), so the heading anchor does not jump on the switch. The window rename
 affordance carries over.
 
 **Steps:**
-1. Navigate to `/default/1`; assert the in-bar switcher (via the `Window view`
-   role="group", which excludes the aria-hidden overflow probe copy — `260717-6anu`)
-   and the `Window:` prefix.
-2. Click the `Chat view` segment (by its accessible role/name).
+1. Navigate to `/default/1`; gate on the `Window:` prefix.
+2. `switchLens("Chat")` — open the "More controls" menu, click the `View: Chat`
+   row, and wait for the menu to close.
 3. Assert the URL is `/default/1?view=chat`, the `chat-view` renderer is visible,
    the heading still shows the `Window:` prefix, and the `Rename window agent-win`
    heading button is present.
@@ -96,9 +100,8 @@ the URL `?view=` param in sync, exactly like the switcher segment. The heading
 stays the static `Window:` throughout (it does not vary with the lens).
 
 **Steps:**
-1. Navigate to `/default/1`; assert the in-bar switcher (via the `Window view`
-   role="group", which excludes the aria-hidden overflow probe copy — `260717-6anu`)
-   and the `Window:` prefix.
+1. Navigate to `/default/1`; gate on the `Window:` prefix (the always-present
+   readiness surface — there is no in-bar pill to gate on since `260722-n2n4`).
 2. Press `Control+\``; assert the URL is `/default/1?view=chat` and `chat-view`
    is visible.
 3. Press `Control+\`` again; assert the `?view` param is dropped and the
@@ -143,18 +146,18 @@ pending bubble (the retractable-state contract — always applied, incl. null).
 2. Assert the `chat-view` is visible, then assert the `chat-pending` bubble has
    count 0.
 
-### `375px: the chat toggle overflows into the More-controls menu with a long window name (no horizontal overflow)`
+### `375px: the chat toggle lives in the More-controls menu with a long window name (no horizontal overflow)`
 
 **What it proves:** at 375px with a realistically long window name, the
-ViewSwitcher (the first overflow-registry candidate since `260717-6anu`) yields
-into the "More controls" chevron menu as per-view `View:` rows — giving the
-center heading room — instead of staying pinned inline; the top-bar single-row
-budget still holds (no wrap, no horizontal page overflow).
+menu-only switcher (`260722-n2n4`) is reachable as per-view `View:` rows in the
+"More controls" chevron menu — the center heading keeps its room because there
+is never an inline pill — and the top-bar single-row budget still holds (no
+wrap, no horizontal page overflow).
 
 **Steps:**
 1. Mock the backend with a long `@1` window name (`riff-gallant-jackal-worktree-mobile`); set the viewport to 375×812; navigate to `/default/1?view=chat`.
 2. Assert the `chat-view` is visible (the lens resolved / window loaded).
-3. Assert the in-bar switcher group ("Window view", accessibility-tree query — excludes the aria-hidden measurement probe) has count 0 (the pill overflowed).
+3. Assert the in-bar switcher group ("Window view") has count 0 AND the `view-toggle` testid has count 0 (menuOnly — no bar slot, no probe copy).
 4. Open the "More controls" chevron; assert the menu carries `View: Terminal` and `View: Chat` rows (each a `role="menuitemradio"`), and the active `View: Chat` row has `aria-checked="true"`.
 5. Assert `document.body.scrollWidth <= 375`.
 6. Assert the header's bounding-box height is < 56px (a wrap would ~double it).

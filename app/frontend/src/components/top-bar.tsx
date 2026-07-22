@@ -39,6 +39,12 @@ export type TopBarMode = "terminal" | "board" | "server" | "host";
  *  - `hidden`    — optional per-item opt-out: when true the entry renders
  *                  NOWHERE (not bar, not menu, not probe) — e.g. push
  *                  unsupported, no current window, no qualifying update.
+ *  - `menuOnly`  — optional placement demotion (260722-n2n4): the entry NEVER
+ *                  renders in-bar (not in the visible row, not in the
+ *                  measurement probe, not in the fit computation — zero fit
+ *                  pixels) while its `menuRender()` rows ALWAYS render in the
+ *                  overflow menu, in registry order. `hidden` keeps its
+ *                  "renders nowhere" priority over `menuOnly`.
  *  - `barRender` — the in-bar icon-button form (may return null).
  *  - `menuRender`— the labeled menu-row form (may return null; the update chip
  *                  returns null because its function merges into the version row).
@@ -47,6 +53,10 @@ type RegistryEntry = {
   id: string;
   modes: TopBarMode[];
   hidden?: boolean;
+  /** When true the entry NEVER renders in-bar (not in the visible row, not in
+   *  the measurement probe, not in the fit computation) — its menuRender()
+   *  rows ALWAYS render in the overflow menu (subject to `hidden`). */
+  menuOnly?: boolean;
   barRender: () => ReactNode;
   menuRender: () => ReactNode;
 };
@@ -437,8 +447,9 @@ export function TopBar({
   // never drift. Order encodes drop priority: L1 first, then L2, then L3, and
   // within a tier leftmost drops first (overflow consumes FROM THE FRONT). Only
   // the trailing chevron + connection dot are EXEMPT (never overflow) and render
-  // outside this candidate list; the ViewSwitcher is now the FIRST candidate
-  // (260717-6anu), not exempt. Each entry gates on `modes` (the current mode
+  // outside this candidate list; the ViewSwitcher is the first REGISTRY entry
+  // but is `menuOnly` (260722-n2n4) — it never renders in-bar and its menu rows
+  // lead the chevron menu. Each entry gates on `modes` (the current mode
   // must be listed) and an optional `hidden` predicate (renders nowhere).
   // Board-mode split/close target (260715-6jwn, merged into the registry): the
   // two SplitButtons AND the ✕ act on the focused tile's window (`focusedPane`,
@@ -447,19 +458,21 @@ export function TopBar({
   // the tile header + the `Board: Unpin Focused Pane` palette action. Splits are
   // absent when the board is empty (no `focusedPane`); the ✕ is disabled then.
   const rightItems: RegistryEntry[] = [
-    // View-switcher (260717-6anu) — the window-view lens pill. It is the FIRST
-    // registry entry, so it keeps its current leftmost in-bar position AND is the
-    // FIRST candidate to yield when the right cluster is squeezed (before any L1
-    // split) — giving the center heading room on narrow viewports (the common
-    // phone case). Formerly a leading EXEMPT control reserved ahead of fitting;
-    // now measured like every other candidate via the hidden probe row. `hidden`
-    // mirrors the full former render gate so a single-view (tty-only) window, a
-    // non-terminal mode, or an unwired callback contributes no bar slot, menu
-    // row, or probe width. When overflowed it renders per-view `View: …` rows
-    // (ViewSwitcherMenuRows) carrying the lens-indicator role.
+    // View-switcher — the window-view lens control. MENU-ONLY as of 260722-n2n4:
+    // the chat lens isn't fully functional yet, so the `[tty|chat]` (and, by the
+    // one-switcher contract, `[tty|web]`) segmented pill must not advertise
+    // itself inline in the navbar. The entry keeps its FIRST registry position —
+    // its per-view `View: …` rows (ViewSwitcherMenuRows, carrying the
+    // lens-indicator role) lead the chevron-menu rows at every width — but
+    // `menuOnly` excludes it from the bar, the measurement probe, and the fit
+    // budget entirely. The pill (`barRender`/ViewSwitcher) stays intact but
+    // unreachable, so reverting when chat ships is deleting the one flag.
+    // `hidden` mirrors the full render gate so a single-view (tty-only) window,
+    // a non-terminal mode, or an unwired callback contributes no menu row.
     {
       id: "view-switcher",
       modes: ["terminal"],
+      menuOnly: true,
       hidden: !(
         mode === "terminal" &&
         currentWindow &&
@@ -628,29 +641,33 @@ export function TopBar({
 
   // Candidate (non-exempt) entries for the current mode, minus any `hidden` ones.
   const candidates = rightItems.filter((e) => e.modes.includes(mode) && !e.hidden);
+  // Fit candidates — the entries eligible for IN-BAR placement. `menuOnly`
+  // entries (260722-n2n4: the view-switcher) never render in-bar: they are
+  // excluded from the visible row, the measurement probe, and the fit budget
+  // (zero pixels). The probe's children must stay index-aligned with the widths
+  // array the fit reads, so the probe renders exactly this list.
+  const fitCandidates = candidates.filter((e) => !e.menuOnly);
 
   // Measurement: one ResizeObserver on the right cell + a hidden probe row that
-  // renders every candidate's BAR form so we always know each real width
-  // (buttons vary — ViewSwitcher, UpdateChip, coarse sizing — so nothing is
-  // hardcoded). `computeVisibleCount` decides how many leading candidates fit
-  // after reserving the trailing exempt block (chevron + dot + gap). The
-  // ViewSwitcher is a candidate now (260717-6anu), measured via the probe row
-  // rather than reserved.
+  // renders every FIT candidate's BAR form so we always know each real width
+  // (buttons vary — UpdateChip label, coarse sizing — so nothing is hardcoded).
+  // `computeVisibleCount` decides how many leading fit candidates fit after
+  // reserving the trailing exempt block (chevron + dot + gap). `menuOnly`
+  // entries are not probed or fitted (260722-n2n4) — they live in the menu.
   // Collapse-first: `visibleCount` starts at 0 and is set in a layout effect
   // before paint, so no flash of overflowing buttons is shown.
   const rightCellRef = useRef<HTMLDivElement>(null);
   const probeRef = useRef<HTMLDivElement>(null);
   // Exempt-block ref whose measured width is RESERVED before fitting candidates:
   // the trailing chevron+dot block (always present). Nothing is hardcoded —
-  // every reserved pixel is measured. (The ViewSwitcher is no longer exempt as
-  // of 260717-6anu — it is the first overflow-registry candidate, measured via
-  // the probe row like every other control.)
+  // every reserved pixel is measured.
   const trailingRef = useRef<HTMLDivElement>(null);
   const [visibleCount, setVisibleCount] = useState(0);
-  // Serialize the candidate ids into a dependency key so the measure effect
-  // re-runs when the candidate SET changes (mode switch, a control appearing/
-  // disappearing) — not on every render.
-  const candidateKey = candidates.map((c) => c.id).join(",");
+  // Serialize the FIT-candidate ids into a dependency key so the measure effect
+  // re-runs when the probed SET changes (mode switch, a control appearing/
+  // disappearing) — not on every render. `menuOnly` entries never affect the
+  // fit, so they are deliberately absent from this key.
+  const candidateKey = fitCandidates.map((c) => c.id).join(",");
 
   useLayoutEffect(() => {
     const cell = rightCellRef.current;
@@ -662,8 +679,7 @@ export function TopBar({
     const measure = () => {
       const available = cell.clientWidth;
       // Reserve the exempt width (measured): the trailing chevron+dot block,
-      // joined to the candidate run by one gap. The ViewSwitcher is NO LONGER
-      // reserved (260717-6anu) — it is a candidate now, measured via the probe.
+      // joined to the candidate run by one gap.
       const trailing = trailingRef.current?.offsetWidth ?? 0;
       const reserved =
         trailing +
@@ -681,29 +697,34 @@ export function TopBar({
 
     measure();
     // Observe the cell AND the probe/trailing nodes (review S2): a candidate's
-    // own width can change (e.g. the ViewSwitcher gaining a segment when
-    // `availableViews` grows, or the UpdateChip's label width when the matched
+    // own width can change (e.g. the UpdateChip's label width when the matched
     // set — hence the composite `updateKey` — changes) without resizing the
     // OUTER cell (its width is grid-determined). Observing the probe (which
-    // renders every candidate's bar form, ViewSwitcher included) + the trailing
-    // chevron/dot block re-fits on any of those. The
-    // `availableViews`/`activeView`/`updateKey`/`showChip` deps additionally
+    // renders every fit candidate's bar form) + the trailing chevron/dot block
+    // re-fits on any of those. The `updateKey`/`showChip` deps additionally
     // re-run the whole effect when the candidate set or membership changes.
+    // (The former `availableViews`/`activeView` deps are gone with 260722-n2n4:
+    // the menuOnly ViewSwitcher is no longer probed, so its segment/active
+    // changes can't affect the fit.)
     const ro = new ResizeObserver(measure);
     ro.observe(cell);
     ro.observe(probe);
     if (trailingRef.current) ro.observe(trailingRef.current);
     return () => ro.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [candidateKey, mode, availableViews, activeView, updateKey, showChip]);
+  }, [candidateKey, mode, updateKey, showChip]);
 
-  // Keep the LAST `visibleCount` candidates in-bar (the L3-end suffix); the rest
-  // (L1-end prefix) overflow. Surviving buttons keep their screen positions —
-  // dropping L1 leftward never shifts the L2/L3 tail. Menu rows list the
-  // overflowed controls in pyramid order (registry order = L1 → L2 → L3).
-  const splitAt = candidates.length - visibleCount;
-  const overflowItems = candidates.slice(0, splitAt);
-  const visibleItems = candidates.slice(splitAt);
+  // Keep the LAST `visibleCount` fit candidates in-bar (the L3-end suffix); the
+  // rest (L1-end prefix) overflow. Surviving buttons keep their screen positions
+  // — dropping L1 leftward never shifts the L2/L3 tail. Menu rows list the
+  // menuOnly entries (260722-n2n4) plus the overflowed controls in pyramid order
+  // (registry order = L1 → L2 → L3): deriving the overflow list by filtering the
+  // FULL candidate list against the visible set keeps registry order for free,
+  // so the view-switcher's `View:` rows stay the first menu rows.
+  const splitAt = fitCandidates.length - visibleCount;
+  const visibleItems = fitCandidates.slice(splitAt);
+  const visibleIds = new Set(visibleItems.map((e) => e.id));
+  const overflowItems = candidates.filter((e) => !visibleIds.has(e.id));
   const overflowRows: OverflowMenuRow[] = overflowItems
     .map((e) => ({ id: e.id, node: e.menuRender() }))
     .filter((r) => r.node != null);
@@ -968,9 +989,10 @@ export function TopBar({
             the left and surviving buttons keep their positions.
 
             Only the trailing chevron + connection dot are EXEMPT (never
-            overflow); the ViewSwitcher is the first candidate now (260717-6anu),
-            not exempt. The `hidden sm:flex` breakpoint cliff is GONE: below `sm`,
-            controls overflow into the menu instead of vanishing. */}
+            overflow); the ViewSwitcher is `menuOnly` (260722-n2n4) — never
+            in-bar, its `View:` rows always in the menu. The `hidden sm:flex`
+            breakpoint cliff is GONE: below `sm`, controls overflow into the
+            menu instead of vanishing. */}
         {/* The cell must FILL its `1fr` grid track (NOT `justify-self-end`,
             which would size the box to its own content and both (a) deadlock
             `computeVisibleCount` — a content-sized box measures only the exempt
@@ -993,19 +1015,21 @@ export function TopBar({
           data-testid="top-bar-right"
           className="flex items-center justify-end gap-3 text-xs text-text-secondary min-w-0"
         >
-          {/* The window-view lens switcher is NO LONGER a leading exempt block
-              (260717-6anu): it is the first entry of `rightItems`, so it renders
-              here as a normal candidate (leftmost when it fits) and overflows
-              into the chevron menu first when the cluster is squeezed. */}
+          {/* The window-view lens switcher never renders here (260722-n2n4):
+              its registry entry is `menuOnly`, so its ONLY rendering is the
+              per-view `View: …` rows inside the chevron menu — the pill is
+              excluded from the visible row, the probe, and the fit budget. */}
 
-          {/* Visible candidates — the leading N that fit, as icon buttons. */}
+          {/* Visible fit candidates — the leading N that fit, as icon buttons. */}
           {visibleItems.map((e) => (
             <span key={e.id} className="flex items-center shrink-0">
               {e.barRender()}
             </span>
           ))}
 
-          {/* Hidden measurement probe — renders every candidate's bar form so we
+          {/* Hidden measurement probe — renders every FIT candidate's bar form
+              (menuOnly entries are excluded, 260722-n2n4 — the probe's children
+              must stay index-aligned with the widths array the fit reads) so we
               always know each real width (never hardcoded), regardless of how
               many are currently visible. It is `inert` (React 19) + `aria-hidden`
               + off-screen (`absolute`, off the left edge): invisible, untabbable,
@@ -1020,7 +1044,7 @@ export function TopBar({
             inert
             className="absolute -left-[9999px] top-0 flex items-center gap-3 pointer-events-none"
           >
-            {candidates.map((e) => (
+            {fitCandidates.map((e) => (
               <span key={e.id} className="flex items-center shrink-0">
                 {e.barRender()}
               </span>

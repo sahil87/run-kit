@@ -181,7 +181,7 @@ describe("TopBar", () => {
       const heading = screen.getByRole("button", { name: "Rename window main" });
       // The prefix is a static `Window:` in every lens (260714-uco1 — the
       // lens-following `Terminal:`/`Web:`/`Chat:` prefix was retired; the lens
-      // is shown by the ViewSwitcher, not the heading). The hierarchy ▾ splits
+      // is shown by the switcher's `View:` menu rows, not the heading). The hierarchy ▾ splits
       // the prefix DOM between the word and its colon (`Window ▾:` — intake §3),
       // so the word ("Window") and the colon (":") render as separate text runs
       // rather than a single contiguous `Window:` node; assert the word run.
@@ -1237,19 +1237,16 @@ describe("TopBar", () => {
       }
     });
 
-    it("represents the overflowed ViewSwitcher as per-view `View:` menu rows on a multi-view window (260717-6anu)", () => {
+    it("represents the menu-only ViewSwitcher as per-view `View:` menu rows on a multi-view window (260722-n2n4)", () => {
       const onSelectView = vi.fn();
       renderTopBar({ availableViews: ["tty", "web"], activeView: "tty", onSelectView });
-      // jsdom reports zero widths → everything (incl. the first-to-drop
-      // view-switcher) overflows into the menu, so no ACCESSIBLE in-bar pill is
-      // shown. The only `view-toggle` in the DOM is the aria-hidden measurement
-      // probe copy — scope the in-bar check to the accessibility tree (mirrors
-      // the e2e getByRole approach): a group named "Window view" that is NOT
-      // inside the aria-hidden probe would be the in-bar pill.
-      const bars = screen
-        .queryAllByRole("group", { name: "Window view" })
-        .filter((g) => g.closest('[aria-hidden="true"]') === null);
-      expect(bars).toHaveLength(0);
+      // The view-switcher entry is `menuOnly` (260722-n2n4): the pill renders
+      // NOWHERE — not in the bar and, unlike the former overflow-candidate state
+      // (260717-6anu), not even in the aria-hidden measurement probe. So there
+      // is no `view-toggle` testid anywhere in the DOM and no group named
+      // "Window view" in or out of the accessibility tree.
+      expect(screen.queryByTestId("view-toggle")).not.toBeInTheDocument();
+      expect(screen.queryAllByRole("group", { name: "Window view" })).toHaveLength(0);
       // …and the switcher is represented as one `View: {label}` row per view.
       act(() => fireEvent.click(screen.getByLabelText("More controls")));
       const menu = screen.getByRole("menu", { name: "More controls" });
@@ -1263,6 +1260,38 @@ describe("TopBar", () => {
       // Clicking a non-active row switches the lens via the same onSelectView.
       act(() => fireEvent.click(webRow));
       expect(onSelectView).toHaveBeenCalledWith("web");
+    });
+
+    it("keeps the menuOnly view-switcher out of the measurement probe and leads the menu with its rows (260722-n2n4)", () => {
+      renderTopBar({ availableViews: ["tty", "web"], activeView: "web", onSelectView: vi.fn() });
+      // Probe exclusion: the probe renders only FIT candidates, index-aligned
+      // with the widths array the fit reads — a menuOnly entry contributes no
+      // probe child. The probe is the aria-hidden off-screen row inside the
+      // right cluster; it must carry the other candidates' copies (e.g. the
+      // splits) but no `view-toggle`.
+      const cluster = screen.getByTestId("top-bar-right");
+      const probe = cluster.querySelector('[aria-hidden="true"][inert]');
+      expect(probe).not.toBeNull();
+      expect(probe!.querySelector('[data-testid="view-toggle"]')).toBeNull();
+      expect(probe!.querySelector('[aria-label="Split vertically"]')).not.toBeNull();
+      // Registry order: the view-switcher is the FIRST registry entry, so its
+      // `View:` rows lead the menu-row order (before the split rows that jsdom's
+      // zero widths also overflow).
+      act(() => fireEvent.click(screen.getByLabelText("More controls")));
+      const menu = screen.getByRole("menu", { name: "More controls" });
+      // querySelectorAll preserves DOM order across the mixed menuitem/
+      // menuitemradio/menuitemcheckbox row roles (getAllByRole takes one role).
+      const rows = Array.from(menu.querySelectorAll('[role^="menuitem"]'));
+      const texts = rows.map((r) => r.textContent ?? "");
+      const firstView = texts.findIndex((t) => t.startsWith("View:"));
+      const firstSplit = texts.findIndex((t) => t.startsWith("Split"));
+      expect(firstView).toBeGreaterThanOrEqual(0);
+      expect(firstSplit).toBeGreaterThan(firstView);
+      // The active (web) lens row is marked even though no pill exists.
+      expect(within(menu).getByRole("menuitemradio", { name: "View: Web" })).toHaveAttribute(
+        "aria-checked",
+        "true",
+      );
     });
 
     it("contributes no `View:` menu row for a single-view (tty-only) window (260717-6anu)", () => {

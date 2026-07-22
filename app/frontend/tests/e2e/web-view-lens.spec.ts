@@ -5,11 +5,13 @@ const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
 // Own session so this file never collides with other specs (fullyParallel off).
 const TEST_SESSION = `e2e-webview-${Date.now()}`;
 const MOBILE_VIEWPORT = { width: 375, height: 812 };
-// Since 260717-6anu the ViewSwitcher is the FIRST overflow-registry candidate —
-// the widest control and the first to yield — so it renders in-bar only when the
-// whole terminal cluster fits. The 1280px "Desktop Chrome" default sits right at
-// its drop threshold (marginal/flaky), so the in-bar-chip tests use a generous
-// 1440px width that clears the whole cluster deterministically.
+// Since 260722-n2n4 the ViewSwitcher registry entry is MENU-ONLY: the segmented
+// pill never renders in-bar at ANY width, and the per-view `View:` menuitemradio
+// rows in the "More controls" chevron menu are the switcher's only rendering.
+// Lens switching in this suite therefore routes through the menu rows (or
+// `?view=` deep links where the lens itself is under test). The generous 1440px
+// desktop width predates the flag (it cleared the pre-n2n4 pill's drop
+// threshold) and remains a valid "everything fits" width.
 const DESKTOP_VIEWPORT = { width: 1440, height: 800 };
 
 // A URL that the proxy converts to a same-origin `/proxy/<port>/…` path — the
@@ -85,11 +87,44 @@ async function gotoWindow(
   });
 }
 
-const webChip = (page: Page) => page.getByRole("button", { name: "Web view" });
-const ttyChip = (page: Page) =>
-  page.getByRole("button", { name: "Terminal view" });
 const iframe = (page: Page) => page.getByTitle("Proxied content");
 const terminal = (page: Page) => page.locator(".xterm").first();
+
+// The switcher's menu-only surface (260722-n2n4): the chevron menu's per-view
+// `View:` rows. There is no in-bar pill — `inBarSwitcher` must always be empty.
+const menuButton = (page: Page) =>
+  page.getByRole("button", { name: "More controls" });
+const controlsMenu = (page: Page) =>
+  page.getByRole("menu", { name: "More controls" });
+const viewRow = (page: Page, label: "Terminal" | "Web") =>
+  controlsMenu(page).getByRole("menuitemradio", { name: `View: ${label}` });
+const inBarSwitcher = (page: Page) =>
+  page.getByRole("group", { name: "Window view" });
+
+/** Open the chevron menu, click the `View: {label}` row, and wait for the menu
+ *  to close (a `menuitemradio` activation is a single-shot menu action). */
+async function switchLens(page: Page, label: "Terminal" | "Web"): Promise<void> {
+  await menuButton(page).click();
+  const row = viewRow(page, label);
+  await expect(row).toBeVisible({ timeout: 10_000 });
+  await row.click();
+  await expect(controlsMenu(page)).toBeHidden();
+}
+
+/** Open the chevron menu and assert the `View: {label}` row's checked state —
+ *  the menu row is the lens indicator now — then Escape-close the menu. */
+async function expectLensMarked(
+  page: Page,
+  label: "Terminal" | "Web",
+  checked: boolean,
+): Promise<void> {
+  await menuButton(page).click();
+  const row = viewRow(page, label);
+  await expect(row).toBeVisible({ timeout: 10_000 });
+  await expect(row).toHaveAttribute("aria-checked", String(checked));
+  await page.keyboard.press("Escape");
+  await expect(controlsMenu(page)).toBeHidden();
+}
 
 test.beforeAll(() => {
   try {
@@ -113,27 +148,39 @@ test.afterAll(() => {
 });
 
 test.describe("Web view lens — iframe as a per-viewer lens", () => {
-  // Default every test in this describe to a wide desktop width so the in-bar
-  // ViewSwitcher chip fits (260717-6anu made it the first-to-overflow candidate;
-  // the 1280px default is at its drop threshold). The mobile test overrides this
-  // to 375px at its own start.
+  // Default every test in this describe to a wide desktop width — the
+  // distinguishing menu-only case (260722-n2n4): the bar has room, yet the
+  // switcher lives only in the chevron menu. The mobile test overrides this to
+  // 375px at its own start.
   test.beforeEach(async ({ page }) => {
     await page.setViewportSize(DESKTOP_VIEWPORT);
   });
 
-  test("switcher chip appears only on a web-capable window", async ({ page }) => {
-    // A plain terminal window (no @rk_url) offers only tty → no chip.
+  test("the `View:` menu rows appear only on a web-capable window (no in-bar pill ever)", async ({ page }) => {
+    // A plain terminal window (no @rk_url) offers only tty → the multi-view gate
+    // fails, so the chevron menu carries no `View:` rows.
     const plain = await makeWindow(page, `wv-plain-${Date.now()}`);
     await gotoWindow(page, plain);
-    await expect(webChip(page)).toHaveCount(0);
-    await expect(ttyChip(page)).toHaveCount(0);
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
+    await menuButton(page).click();
+    await expect(controlsMenu(page)).toBeVisible();
+    await expect(
+      controlsMenu(page).getByRole("menuitemradio", { name: /^View:/ }),
+    ).toHaveCount(0);
+    await page.keyboard.press("Escape");
 
-    // A window with @rk_url offers tty + web → the two-segment chip renders.
+    // A window with @rk_url offers tty + web → the `View: Terminal` and
+    // `View: Web` rows render in the menu — and there is STILL no in-bar pill
+    // (menuOnly: no bar slot, no probe copy, no `view-toggle` testid anywhere).
     const web = await makeWindow(page, `wv-cap-${Date.now()}`, { url: IFRAME_URL });
     await gotoWindow(page, web);
-    await expect(webChip(page)).toBeVisible({ timeout: 10_000 });
-    await expect(ttyChip(page)).toBeVisible();
+    await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
+    await expect(inBarSwitcher(page)).toHaveCount(0);
+    await expect(page.getByTestId("view-toggle")).toHaveCount(0);
+    await menuButton(page).click();
+    await expect(viewRow(page, "Terminal")).toBeVisible({ timeout: 10_000 });
+    await expect(viewRow(page, "Web")).toBeVisible();
+    await page.keyboard.press("Escape");
   });
 
   test("flipping web↔tty preserves the window and never POSTs an option mutation", async ({
@@ -155,13 +202,14 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     await gotoWindow(page, id);
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
 
-    // Flip to web via the chip → iframe renders, URL carries ?view=web.
-    await webChip(page).click();
+    // Flip to web via the menu's `View: Web` row → iframe renders, URL carries
+    // ?view=web.
+    await switchLens(page, "Web");
     await expect(iframe(page)).toBeVisible({ timeout: 10_000 });
     await expect(page).toHaveURL(/\?view=web/);
 
-    // Flip back to tty via the chip → terminal renders, ?view param dropped.
-    await ttyChip(page).click();
+    // Flip back to tty via `View: Terminal` → terminal renders, ?view dropped.
+    await switchLens(page, "Terminal");
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
     await expect(page).not.toHaveURL(/\?view=/);
 
@@ -178,13 +226,14 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
   test("deep link ?view=web cold-loads the iframe", async ({ page }) => {
     const id = await makeWindow(page, `wv-deep-${Date.now()}`, { url: IFRAME_URL });
     await gotoWindow(page, id, "web");
-    // Cold load resolves straight to the web lens.
+    // Cold load resolves straight to the web lens; the menu's `View: Web` row is
+    // the lens indicator (marked aria-checked).
     await expect(iframe(page)).toBeVisible({ timeout: 10_000 });
-    await expect(webChip(page)).toHaveAttribute("aria-pressed", "true");
+    await expectLensMarked(page, "Web", true);
     // The center heading is a STATIC `Window:` in every lens (260714-uco1 — the
-    // heading no longer follows the lens; the ViewSwitcher chip, asserted above,
-    // is the lens indicator). The hierarchy ▾ splits the prefix between the word
-    // and its colon (`Window ▾:`), so assert the word run ("Window").
+    // heading no longer follows the lens; the marked `View:` menu row, asserted
+    // above, is the lens indicator). The hierarchy ▾ splits the prefix between
+    // the word and its colon (`Window ▾:`), so assert the word run ("Window").
     await expect(page.getByText("Window", { exact: true })).toBeVisible();
   });
 
@@ -196,11 +245,16 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     await gotoWindow(page, id, "web");
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
     await expect(iframe(page)).toHaveCount(0);
-    // No chip (single available view).
-    await expect(webChip(page)).toHaveCount(0);
+    // Single available view → no `View:` rows in the menu.
+    await menuButton(page).click();
+    await expect(controlsMenu(page)).toBeVisible();
+    await expect(
+      controlsMenu(page).getByRole("menuitemradio", { name: /^View:/ }),
+    ).toHaveCount(0);
+    await page.keyboard.press("Escape");
   });
 
-  test("legacy @rk_type=iframe window defaults to web with the chip present", async ({
+  test("legacy @rk_type=iframe window defaults to web with the `View: Web` row marked", async ({
     page,
   }) => {
     const id = await makeWindow(page, `wv-legacy-${Date.now()}`, {
@@ -210,9 +264,12 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     // No ?view param, no localStorage → the iframe-typed default hint wins → web.
     await gotoWindow(page, id);
     await expect(iframe(page)).toBeVisible({ timeout: 10_000 });
-    await expect(webChip(page)).toBeVisible();
-    await expect(ttyChip(page)).toBeVisible();
-    await expect(webChip(page)).toHaveAttribute("aria-pressed", "true");
+    await menuButton(page).click();
+    await expect(viewRow(page, "Terminal")).toBeVisible({ timeout: 10_000 });
+    const webRow = viewRow(page, "Web");
+    await expect(webRow).toBeVisible();
+    await expect(webRow).toHaveAttribute("aria-checked", "true");
+    await page.keyboard.press("Escape");
   });
 
   test("last-view persists across a window switch away and back", async ({
@@ -221,9 +278,9 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     const a = await makeWindow(page, `wv-persist-a-${Date.now()}`, { url: IFRAME_URL });
     const b = await makeWindow(page, `wv-persist-b-${Date.now()}`);
 
-    // On A, switch to web (writes localStorage + ?view=web).
+    // On A, switch to web via the menu row (writes localStorage + ?view=web).
     await gotoWindow(page, a);
-    await webChip(page).click();
+    await switchLens(page, "Web");
     await expect(iframe(page)).toBeVisible({ timeout: 10_000 });
 
     // Switch to B via a REAL client-side navigation (sidebar row click), not a
@@ -248,18 +305,18 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     // Back to A WITHOUT a ?view param — the persisted last-view (web) resolves.
     await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(a)}`);
     await expect(iframe(page)).toBeVisible({ timeout: 10_000 });
-    await expect(webChip(page)).toHaveAttribute("aria-pressed", "true");
+    await expectLensMarked(page, "Web", true);
   });
 
-  test("375px mobile: the switcher overflows into the menu with a long name; inline on desktop", async ({
+  test("375px mobile: the switcher is reachable via the menu rows; menu-only at desktop too", async ({
     page,
   }) => {
-    // 260717-6anu: the ViewSwitcher is the first overflow-registry candidate, so
-    // at 375px with a realistically long window name it yields into the "More
-    // controls" chevron menu (as per-view `View:` rows) to give the heading room
-    // — superseding the former `hidden sm:*`-exempt "visible at all breakpoints"
-    // contract. Space-driven, so it returns to the bar at desktop width. The
-    // lens itself still resolves + renders on mobile without horizontal overflow.
+    // 260722-n2n4: the switcher is menu-only at EVERY width — at 375px with a
+    // realistically long window name the `View:` rows in the "More controls"
+    // chevron menu are its rendering (the heading keeps its room), and unlike
+    // the former space-driven contract (260717-6anu) the pill does NOT return to
+    // the bar at desktop width. The lens itself still resolves + renders on
+    // mobile without horizontal overflow.
     await page.setViewportSize(MOBILE_VIEWPORT);
     const id = await makeWindow(page, `wv-mobile-long-worktree-name-${Date.now()}`, {
       url: IFRAME_URL,
@@ -271,16 +328,15 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(id)}?view=web`);
     await expect(iframe(page)).toBeVisible({ timeout: 10_000 });
 
-    // The in-bar pill overflowed at 375px → `getByRole` (accessibility tree,
-    // excludes the aria-hidden measurement probe) finds no in-bar chip.
-    await expect(page.getByRole("group", { name: "Window view" })).toHaveCount(0);
+    // No in-bar pill (menuOnly — no bar slot, no probe copy).
+    await expect(inBarSwitcher(page)).toHaveCount(0);
+    await expect(page.getByTestId("view-toggle")).toHaveCount(0);
     // The switcher is reachable in the chevron menu as per-view rows; the active
     // (web) row is marked.
-    await page.getByRole("button", { name: "More controls" }).click();
-    const menu = page.getByRole("menu", { name: "More controls" });
-    await expect(menu).toBeVisible();
-    await expect(menu.getByRole("menuitemradio", { name: "View: Terminal" })).toBeVisible();
-    const webRow = menu.getByRole("menuitemradio", { name: "View: Web" });
+    await menuButton(page).click();
+    await expect(controlsMenu(page)).toBeVisible();
+    await expect(viewRow(page, "Terminal")).toBeVisible();
+    const webRow = viewRow(page, "Web");
     await expect(webRow).toBeVisible();
     await expect(webRow).toHaveAttribute("aria-checked", "true");
     // Close the menu before the resize assertion.
@@ -290,9 +346,12 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     const bodyWidth = await page.evaluate(() => document.body.scrollWidth);
     expect(bodyWidth).toBeLessThanOrEqual(MOBILE_VIEWPORT.width);
 
-    // Space-driven: at desktop width the pill returns to the bar (inline chip).
+    // Menu-only, not space-driven: at desktop width the pill does NOT return to
+    // the bar — the `View:` rows remain the switching surface.
     await page.setViewportSize(DESKTOP_VIEWPORT);
-    await expect(webChip(page)).toBeVisible({ timeout: 10_000 });
-    await expect(ttyChip(page)).toBeVisible();
+    await expect(page.getByText("Window", { exact: true })).toBeVisible({ timeout: 10_000 });
+    await expect(inBarSwitcher(page)).toHaveCount(0);
+    await expect(page.getByTestId("view-toggle")).toHaveCount(0);
+    await expectLensMarked(page, "Web", true);
   });
 });

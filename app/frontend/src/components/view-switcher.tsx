@@ -8,14 +8,18 @@ import {
 /**
  * ViewSwitcher — the ONE switcher UX shared by every window-view lens (spec R4;
  * change 260714-t97o-web-view-lens, chat folded in from 260714-r7rq). A compact
- * segmented chip in the top-bar right cluster's L1 (terminal) tier, rendered
- * ONLY when a window's capability set exceeds `{tty}`. Two views render
- * `[tty|web]` / `[tty|chat]`; more views grow the segment group (desktop adds a
- * segment here, NOT a new component). The chip is a first-class overflow-registry
- * candidate (260717-6anu — the FIRST entry of `rightItems`, so the first to yield):
- * it stays inline while the right cluster has room and, under width pressure (the
- * common phone case), collapses into the "More controls" chevron menu as per-view
- * rows (`ViewSwitcherMenuRows`) so the center heading gets its space back.
+ * segmented chip rendered ONLY when a window's capability set exceeds `{tty}`.
+ * Two views render `[tty|web]` / `[tty|chat]`; more views grow the segment group
+ * (desktop adds a segment here, NOT a new component).
+ *
+ * MENU-ONLY as of 260722-n2n4: the `view-switcher` overflow-registry entry in
+ * `top-bar.tsx` carries `menuOnly: true` (the chat lens isn't fully functional
+ * yet, so the pill must not advertise itself inline in the navbar), which makes
+ * `ViewSwitcherMenuRows` — the per-view `View: …` rows in the "More controls"
+ * chevron menu — the switcher's ONLY rendering at every width. This pill
+ * component and its `barRender` wiring stay intact but UNREACHABLE, so the
+ * revert when chat ships is deleting that one flag (the pill returns to its
+ * former space-driven inline placement, 260717-6anu).
  *
  * The active segment is inverse-video (accent-green fill), matching the spec's
  * "active segment inverse-video". Hover uses the house `rk-glint` vocabulary
@@ -89,11 +93,11 @@ export function ViewSwitcher({ views, active, onSelect }: ViewSwitcherProps) {
     <span
       role="group"
       aria-label="Window view"
-      // No `hidden sm:*` gate — visibility is space-driven via the overflow
-      // registry (260717-6anu), not a breakpoint cliff: the chip renders inline
-      // while the right cluster has room and otherwise overflows into the chevron
-      // menu (`ViewSwitcherMenuRows`). `view-toggle` testid is the unified chip's
-      // e2e handle (superseding #351's toggle).
+      // No `hidden sm:*` gate — placement is registry-driven, not a breakpoint
+      // cliff. Under the `menuOnly` flag (260722-n2n4) this pill is unreachable
+      // (the registry never bar-renders it); when the flag is removed it resumes
+      // the space-driven inline/overflow behavior (260717-6anu). `view-toggle`
+      // testid is the unified chip's e2e handle (superseding #351's toggle).
       data-testid="view-toggle"
       className="inline-flex items-center rounded border border-border overflow-hidden"
     >
@@ -122,21 +126,22 @@ export function ViewSwitcher({ views, active, onSelect }: ViewSwitcherProps) {
 }
 
 /**
- * ViewSwitcherMenuRows — the overflow-menu representation of the ViewSwitcher
- * pill (260717-6anu). When the `view-switcher` registry entry collapses into the
- * top-bar "More controls" chevron menu, the segmented chip is represented as ONE
- * `role="menuitemradio"` row per available view (`View: Terminal` / `View: Web` /
- * `View: Chat`), following the multi-row `menuRender` precedent (NotificationMenuRows)
- * and the palette's `View:` naming vocabulary. Rows render in the pill's fixed
- * `DISPLAY_ORDER` (tty-first), reusing the same `VIEW_LABEL` map + ordering logic
- * as the pill so bar↔menu can never drift.
+ * ViewSwitcherMenuRows — the menu representation of the view switcher
+ * (260717-6anu), and — while the registry entry is `menuOnly` (260722-n2n4) —
+ * its ONLY rendering: at every width the switcher appears in the top-bar "More
+ * controls" chevron menu as ONE `role="menuitemradio"` row per available view
+ * (`View: Terminal` / `View: Web` / `View: Chat`), following the multi-row
+ * `menuRender` precedent (NotificationMenuRows) and the palette's `View:`
+ * naming vocabulary. Rows render in the pill's fixed `DISPLAY_ORDER`
+ * (tty-first), reusing the same `VIEW_LABEL` map + ordering logic as the pill
+ * so the two representations can never drift.
  *
  * The ACTIVE view's row is visually marked with the pill's active-segment
  * accent-green treatment and carries `aria-checked` (the single-select radio
  * state supported by `menuitemradio` — `aria-pressed` is NOT valid on a
- * `menuitem`, so the in-bar pill's toggle-button aria does not carry over
- * verbatim), so the menu row keeps the lens-indicator role while the pill is
- * collapsed. Clicking a row calls the same `onSelect(view)` callback the pill
+ * `menuitem`, so the pill's toggle-button aria does not carry over
+ * verbatim), so the menu row carries the lens-indicator role in the pill's
+ * absence. Clicking a row calls the same `onSelect(view)` callback the pill
  * uses (the menu's role-keyed click handler closes the panel on a
  * `menuitemradio` activation). Presentational — owns no view/URL/localStorage
  * logic.

@@ -111,6 +111,41 @@ test.describe("Docked compose strip", () => {
     await expect(page.getByTestId("compose-strip")).toHaveCount(0);
   });
 
+  test("the on-strip × closes the strip; the draft survives close→reopen (260722-d5q7)", async ({ page }) => {
+    test.setTimeout(60_000);
+    const windowId = await resolveWindowId(page, TERM_SESSION);
+    await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(windowId)}`, {
+      waitUntil: "domcontentloaded",
+    });
+    await expect(page.locator(".xterm-screen")).toBeVisible({ timeout: 15_000 });
+    // Wait for the relay stream to attach so the strip has a live target (the
+    // textarea is disabled without one).
+    await expect
+      .poll(() => page.evaluate((w) => Boolean(window.__rkTerminals?.[w]), windowId), {
+        timeout: 15_000,
+      })
+      .toBe(true);
+
+    // Enable the strip via the `>_` chip and type a draft.
+    const chip = page.getByRole("button", { name: "Compose text" });
+    await chip.click();
+    const input = page.getByTestId("compose-strip-input");
+    await expect(input).toBeVisible();
+    const draft = `CS_CLOSE_${Date.now()}`;
+    await input.click();
+    await input.fill(draft);
+
+    // The header-row × closes the strip — same toggle as the chip, so the chip
+    // reads unpressed. No confirmation dialog appears.
+    await page.getByTestId("compose-strip-close").click();
+    await expect(page.getByTestId("compose-strip")).toHaveCount(0);
+    await expect(chip).toHaveAttribute("aria-pressed", "false");
+
+    // Reopen via the chip: the unsent draft survived the close (module store).
+    await chip.click();
+    await expect(page.getByTestId("compose-strip-input")).toHaveValue(draft);
+  });
+
   test("Enter sends text + carriage return to the focused pane; Escape blurs", async ({ page }) => {
     test.setTimeout(60_000);
     const windowId = await resolveWindowId(page, TERM_SESSION);

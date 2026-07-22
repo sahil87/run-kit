@@ -7,7 +7,7 @@ import {
   useFocusedTerminal,
   type FocusedTerminal,
 } from "@/contexts/focused-terminal-context";
-import { ChromeProvider } from "@/contexts/chrome-context";
+import { ChromeProvider, useChromeState } from "@/contexts/chrome-context";
 import { useWindowStore, entryKey } from "@/store/window-store";
 import type { UploadedFile } from "@/hooks/use-file-upload";
 import { clearComposeDraft } from "@/lib/compose-draft-store";
@@ -606,6 +606,64 @@ describe("ComposeStrip", () => {
     rerender(<Tree paneMounted={false} />);
     expect(screen.getByTestId("compose-strip-target").textContent).toBe("no target");
     expect(input().disabled).toBe(true);
+  });
+
+  // ── On-strip × close button (260722-d5q7) ──────────────────────────────────
+
+  /** Mirrors the production gating (`{composeStripEnabled && <ComposeStrip />}`
+   * in app.tsx / board-page.tsx): the strip mounts only while the chrome
+   * preference is on, so clicking the header-row × (which fires the real
+   * `toggleComposeStrip` from the real ChromeProvider) unmounts it. */
+  function GatedStrip() {
+    const { composeStripEnabled } = useChromeState();
+    return composeStripEnabled ? <ComposeStrip /> : null;
+  }
+
+  function GatedHarness({ focus }: { focus: FocusedTerminal }) {
+    return (
+      <ChromeProvider>
+        <FocusedTerminalProvider>
+          <FocusSetter focus={focus} />
+          <GatedStrip />
+        </FocusedTerminalProvider>
+      </ChromeProvider>
+    );
+  }
+
+  it("the header-row × closes the strip via toggleComposeStrip; the draft survives close→reopen", () => {
+    // Seed the preference ON so the gated strip mounts (readComposeStrip reads
+    // localStorage at provider mount).
+    localStorage.setItem("runkit-compose-strip", "true");
+    render(<GatedHarness focus={{ wsRef: makeWs().ref, server: "srv", session: "sess", windowId: "@1" }} />);
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+
+    // The × renders in the strip with its accessible name.
+    const close = screen.getByTestId("compose-strip-close");
+    expect(close).toBe(screen.getByRole("button", { name: "Close compose strip" }));
+
+    // Type a draft, then close via the ×: the strip unmounts (preference off)…
+    act(() => fireEvent.change(input(), { target: { value: "before-close" } }));
+    act(() => fireEvent.click(close));
+    expect(screen.queryByTestId("compose-strip")).toBeNull();
+    expect(localStorage.getItem("runkit-compose-strip")).toBe("false");
+
+    // …and reopening (same toggle, e.g. the `>_` chip) restores the strip with
+    // the draft intact — closing is lossless, no confirmation needed.
+    localStorage.setItem("runkit-compose-strip", "true");
+    render(<GatedHarness focus={{ wsRef: makeWs().ref, server: "srv", session: "sess", windowId: "@1" }} />);
+    expect(input().value).toBe("before-close");
+  });
+
+  it("the × does not steal focus (mousedown is default-prevented)", () => {
+    render(<Harness focus={{ wsRef: makeWs().ref, server: "srv", session: "sess", windowId: "@1" }} />);
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+    // fireEvent returns false when preventDefault() was called — the strip's
+    // no-focus-steal invariant (same contract as 📎 / Insert / Send).
+    let notPrevented = true;
+    act(() => {
+      notPrevented = fireEvent.mouseDown(screen.getByTestId("compose-strip-close"));
+    });
+    expect(notPrevented).toBe(false);
   });
 
   it("focusComposeStrip focuses the mounted textarea and declines when no target", () => {

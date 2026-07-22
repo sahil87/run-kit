@@ -24,6 +24,10 @@ import { buildPinActions } from "@/lib/palette-pin";
 import { buildServerKillActions } from "@/lib/palette-server-kill";
 import { readLastPinnedBoard } from "@/lib/last-pinned-board";
 import { buildNavActions } from "@/lib/palette-nav";
+import { buildOpenActions } from "@/lib/palette-open";
+import { activePaneCwd, buildOpenTargets, isLocalHostname } from "@/lib/open-in-app";
+import { useOpenTargets } from "@/hooks/use-open-targets";
+import { useRunOpenTarget } from "@/components/open-button";
 import { nextWaitingTarget, chatSearchForTarget, type WaitingTarget } from "@/lib/palette-agent-nav";
 import { isWaiting } from "@/lib/waiting";
 import { useChatSubscription } from "@/hooks/use-chat-subscription";
@@ -1988,6 +1992,36 @@ function AppShell() {
     [windowParam, server, router, navigate],
   );
 
+  // Open-in-App actions (260722-6d0f) — Constitution V palette parity for the
+  // top-bar Open split-button: one `Open: <label>` entry per available target
+  // (deeplinks when remote + sshHost set; host apps when the wt registry is
+  // non-empty). Terminal route only (the folder is the current window's
+  // active-pane cwd); an empty target set contributes no entries, mirroring
+  // the hidden button. No keyboard chord is registered — the target set is
+  // data-driven per deployment, so the palette entries themselves are the
+  // keyboard path (documented per the code-review shortcut rule; see
+  // lib/palette-open.ts). Data comes from the same module-cached
+  // useOpenTargets fetch the TopBar entry uses (one fetch per page load).
+  const openCtx = useOpenTargets(!!windowParam);
+  const openPath = windowParam ? activePaneCwd(currentWindow) : "";
+  const { runTarget: runOpenTarget } = useRunOpenTarget(server, openPath);
+  const openActions: PaletteAction[] = useMemo(
+    () =>
+      buildOpenActions(
+        windowParam
+          ? buildOpenTargets({
+              local: isLocalHostname(window.location.hostname),
+              sshHost: openCtx.sshHost,
+              hostApps: openCtx.hostApps,
+              path: openPath,
+            })
+          : [],
+        runOpenTarget,
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [windowParam, openCtx, openPath, server],
+  );
+
   // Terminal font-size actions. No `shortcut` — Cmd +/- is deliberately not
   // intercepted (native browser zoom stays available); the palette + the
   // top-bar combo are the only font levers. Global setting → applies to every
@@ -2334,8 +2368,8 @@ function AppShell() {
   const { actions: pushActions } = usePushSubscription();
 
   const paletteActions: PaletteAction[] = useMemo(
-    () => [...sessionActions, ...sessionsScopeActions, ...windowActions, ...boardActions, ...viewActions, ...navActions, ...terminalFontActions, ...themeActions, ...configActions, ...statusRefreshActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions, ...serverActions, ...pushActions, ...windowSwitchActions, ...agentActions, ...agentSpawnActions],
-    [sessionActions, sessionsScopeActions, windowActions, boardActions, viewActions, navActions, terminalFontActions, themeActions, configActions, statusRefreshActions, updateActions, checkActions, maintenanceActions, versionActions, serverActions, pushActions, windowSwitchActions, agentActions, agentSpawnActions],
+    () => [...sessionActions, ...sessionsScopeActions, ...windowActions, ...boardActions, ...viewActions, ...openActions, ...navActions, ...terminalFontActions, ...themeActions, ...configActions, ...statusRefreshActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions, ...serverActions, ...pushActions, ...windowSwitchActions, ...agentActions, ...agentSpawnActions],
+    [sessionActions, sessionsScopeActions, windowActions, boardActions, viewActions, openActions, navActions, terminalFontActions, themeActions, configActions, statusRefreshActions, updateActions, checkActions, maintenanceActions, versionActions, serverActions, pushActions, windowSwitchActions, agentActions, agentSpawnActions],
   );
 
   const displayName = currentWindow?.name ?? windowParam ?? "";

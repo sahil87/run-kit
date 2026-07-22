@@ -34,10 +34,57 @@ export async function throwOnError(res: Response): Promise<never> {
 export interface HealthResponse {
   status: string;
   hostname: string;
+  /** Optional RK_SSH_HOST — the SSH alias remote clients use to reach this
+   *  host. Feeds the Open button's editor ssh-remote deeplinks; absent when
+   *  unset (the deeplink section is hidden then). */
+  sshHost?: string;
 }
 
 export async function getHealth(): Promise<HealthResponse> {
   const res = await deduplicatedFetch("/api/health");
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
+/** One host-detected launch target from GET /api/open-apps (wt registry). */
+export interface OpenApp {
+  id: string;
+  label: string;
+  kind?: string;
+}
+
+/**
+ * Fetch the host app registry for the Open button's "on host" section.
+ * Fail-silent end to end (mirrors the server's own degradation): any network
+ * error, non-200, or non-array body resolves to `[]` — an absent/old wt on
+ * the host must never surface as a client error.
+ */
+export async function getOpenApps(): Promise<OpenApp[]> {
+  try {
+    const res = await deduplicatedFetch("/api/open-apps");
+    if (!res.ok) return [];
+    const body: unknown = await res.json();
+    return Array.isArray(body) ? (body as OpenApp[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Launch a host app on a folder via POST /api/open. `path` must be a
+ * server-derived pane cwd / worktree path — the backend validates it against
+ * live tmux state and rejects anything else.
+ */
+export async function openInApp(
+  server: string,
+  path: string,
+  app: string,
+): Promise<{ ok: boolean }> {
+  const res = await fetch(withServer("/api/open", server), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path, app }),
+  });
   if (!res.ok) await throwOnError(res);
   return res.json();
 }

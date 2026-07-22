@@ -83,4 +83,22 @@ func TestLoad(t *testing.T) {
 			t.Errorf("host = %q, want default %q", cfg.Host, defaults.Host)
 		}
 	})
+
+	t.Run("reads ssh host from env", func(t *testing.T) {
+		t.Setenv("RK_SSH_HOST", "devbox")
+
+		cfg := Load()
+		if cfg.SSHHost != "devbox" {
+			t.Errorf("sshHost = %q, want devbox", cfg.SSHHost)
+		}
+	})
+
+	t.Run("ssh host empty when unset", func(t *testing.T) {
+		os.Unsetenv("RK_SSH_HOST")
+
+		cfg := Load()
+		if cfg.SSHHost != "" {
+			t.Errorf("sshHost = %q, want empty", cfg.SSHHost)
+		}
+	})
 }

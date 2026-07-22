@@ -67,3 +67,43 @@ func TestHealthEndpointEmptyHostname(t *testing.T) {
 		t.Errorf("body.hostname = %q, want %q", body["hostname"], "")
 	}
 }
+
+// The optional sshHost field (RK_SSH_HOST) rides the health response: present
+// when configured, absent (not empty-valued) when unset.
+func TestHealthEndpointSSHHost(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+
+	t.Run("present when configured", func(t *testing.T) {
+		s := &Server{logger: logger, hostname: "test-host"}
+		s.SetSSHHost("devbox")
+		router := s.buildRouter()
+
+		req := httptest.NewRequest(http.MethodGet, "/api/health", nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		var body map[string]string
+		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+			t.Fatalf("failed to decode response: %v", err)
+		}
+		if body["sshHost"] != "devbox" {
+			t.Errorf("body.sshHost = %q, want %q", body["sshHost"], "devbox")
+		}
+	})
+
+	t.Run("absent when unset", func(t *testing.T) {
+		router := NewTestRouter(logger, nil, nil, "test-host")
+
+		req := httptest.NewRequest(http.MethodGet, "/api/health", nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		var body map[string]string
+		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+			t.Fatalf("failed to decode response: %v", err)
+		}
+		if _, present := body["sshHost"]; present {
+			t.Errorf("body.sshHost present (%q), want absent", body["sshHost"])
+		}
+	})
+}

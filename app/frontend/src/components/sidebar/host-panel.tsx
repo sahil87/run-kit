@@ -7,14 +7,7 @@ import { SwatchPopover } from "@/components/swatch-popover";
 import { useHostMetrics, useMetrics } from "@/contexts/session-context";
 import { useInstanceAccent } from "@/contexts/instance-accent-context";
 
-type HostPanelProps = {
-  /** Health of whatever source feeds this panel: the current server's
-   *  subscription on server routes, the host-metrics source on the board route
-   *  (where no server-scoped signal exists) — derived by `BottomPanels`. */
-  isConnected: boolean;
-};
-
-export function HostPanel({ isConnected }: HostPanelProps) {
+export function HostPanel() {
   // Server-scoped metrics win when present; fall back to the host-global
   // metrics broadcast (available on EVERY route) when they are null — the
   // board route has no `currentServer`, so the server-scoped slice is null by
@@ -30,11 +23,12 @@ export function HostPanel({ isConnected }: HostPanelProps) {
   const { color, isExplicit, stripeHex, setColor } = useInstanceAccent();
   const [showColorPicker, setShowColorPicker] = useState(false);
   const paletteBtnRef = useRef<HTMLButtonElement>(null);
-  const [popoverPos, setPopoverPos] = useState<{ top: number; right: number } | null>(null);
+  const [popoverPos, setPopoverPos] = useState<{ top: number; left: number } | null>(null);
   // Portal the popover to document.body at fixed coordinates anchored at the
-  // palette button (right-aligned, flip-above heuristic) so it escapes the
-  // panel's overflow clip — the x4sf ServerGroup-header precedent. The HOST
-  // panel sits at the sidebar's bottom, so the flip-above branch is the norm.
+  // palette button (left-aligned since the button now sits beside the title,
+  // flip-above heuristic) so it escapes the panel's overflow clip — the x4sf
+  // ServerGroup-header precedent. The HOST panel sits at the sidebar's bottom,
+  // so the flip-above branch is the norm.
   useLayoutEffect(() => {
     if (!showColorPicker || !paletteBtnRef.current) {
       setPopoverPos(null);
@@ -42,35 +36,33 @@ export function HostPanel({ isConnected }: HostPanelProps) {
     }
     const rect = paletteBtnRef.current.getBoundingClientRect();
     const approxPopoverHeight = 190; // color-only grid: Clear row + 3 swatch rows
+    const approxPopoverWidth = 170; // 4 swatch columns + padding
     const below = rect.bottom + 4;
     const fitsBelow = below + approxPopoverHeight <= window.innerHeight;
     const top = fitsBelow ? below : Math.max(4, rect.top - approxPopoverHeight - 4);
     setPopoverPos({
       top,
-      right: Math.max(4, window.innerWidth - rect.right),
+      left: Math.max(4, Math.min(rect.left, window.innerWidth - approxPopoverWidth - 4)),
     });
   }, [showColorPicker]);
 
+  // No connection dot here: the top-bar dot already reflects the same
+  // current-server subscription health (session-context wires
+  // `setChromeConnected(slice.isConnected)`), and the old "SSE" wording
+  // predated the /ws/state socket.
   const hostnameHeader = metrics ? (
-    <>
-      <span
-        className={`truncate font-mono ${stripeHex ? "" : "text-text-primary"}`}
-        style={stripeHex ? { color: stripeHex } : undefined}
-      >
-        {metrics.hostname}
-      </span>
-      <span
-        className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${
-          isConnected ? "bg-accent-green" : "bg-text-secondary"
-        }`}
-        title={isConnected ? "SSE connected" : "SSE disconnected"}
-      />
-    </>
+    <span
+      className={`truncate font-mono ${stripeHex ? "" : "text-text-primary"}`}
+      style={stripeHex ? { color: stripeHex } : undefined}
+    >
+      {metrics.hostname}
+    </span>
   ) : null;
 
-  // Sibling of the header toggle button (the `headerAction` slot) — a button
-  // nested inside the toggle would be invalid markup. Hover-revealed with the
-  // touch/keyboard fallbacks (the session-row convention).
+  // Sibling of the header toggle button (the `titleAction` slot, right of the
+  // HOST title) — a button nested inside the toggle would be invalid markup.
+  // Hover-revealed with the touch/keyboard fallbacks (the session-row
+  // convention).
   const paletteAction = (
     <>
       <button
@@ -87,7 +79,7 @@ export function HostPanel({ isConnected }: HostPanelProps) {
           style={{
             position: "fixed",
             top: popoverPos.top,
-            right: popoverPos.right,
+            left: popoverPos.left,
             zIndex: 100,
           }}
         >
@@ -111,7 +103,7 @@ export function HostPanel({ isConnected }: HostPanelProps) {
       storageKey="runkit-panel-host"
       defaultOpen={true}
       headerRight={hostnameHeader}
-      headerAction={paletteAction}
+      titleAction={paletteAction}
     >
       {!metrics ? (
         <div className="text-xs text-text-secondary">No metrics</div>

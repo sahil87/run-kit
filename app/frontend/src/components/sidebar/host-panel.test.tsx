@@ -57,12 +57,10 @@ function accentValue(overrides: Partial<InstanceAccent> = {}): InstanceAccent {
 function renderPanel({
   server,
   host,
-  isConnected = true,
   accent = accentValue(),
 }: {
   server: MetricsSnapshot | null;
   host: MetricsSnapshot | null;
-  isConnected?: boolean;
   accent?: InstanceAccent;
 }) {
   return render(
@@ -70,7 +68,7 @@ function renderPanel({
       <InstanceAccentValueProvider value={accent}>
         <MetricsProvider value={server}>
           <HostMetricsProvider value={host}>
-            <HostPanel isConnected={isConnected} />
+            <HostPanel />
           </HostMetricsProvider>
         </MetricsProvider>
       </InstanceAccentValueProvider>
@@ -110,12 +108,9 @@ describe("HostPanel metrics fallback (260720-zx4i)", () => {
     expect(screen.getByText("No metrics")).toBeInTheDocument();
   });
 
-  it("dot reflects the isConnected prop in the fallback state too", () => {
-    renderPanel({ server: null, host: snapshot("h"), isConnected: true });
-    expect(screen.getByTitle("SSE connected")).toBeInTheDocument();
-    cleanup();
-    renderPanel({ server: null, host: snapshot("h"), isConnected: false });
-    expect(screen.getByTitle("SSE disconnected")).toBeInTheDocument();
+  it("renders no connection dot — the top-bar dot owns that signal", () => {
+    renderPanel({ server: null, host: snapshot("h") });
+    expect(screen.queryByTitle(/connected/i)).not.toBeInTheDocument();
   });
 });
 

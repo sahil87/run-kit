@@ -932,7 +932,7 @@ describe("BottomPanels — board-route focused-pane fallback + HOST dot (zx4i)",
     uptime: 60,
   };
 
-  it("HOST dot follows hostMetricsConnected when currentServer is null (board route)", () => {
+  it("HOST panel fills from the host-global broadcast on the board route, with no connection dot", () => {
     renderSidebar({
       currentServer: null,
       servers: boardServers,
@@ -942,23 +942,11 @@ describe("BottomPanels — board-route focused-pane fallback + HOST dot (zx4i)",
       hostMetricsConnected: true,
     });
     // The host-global fallback fills the panel (no server-scoped metrics on a
-    // board route) and the dot reads the host-metrics source health, not the
-    // always-false server-scoped signal.
+    // board route). The HOST header carries no connection dot — the top-bar
+    // dot owns that signal (same current-server subscription health).
     expect(screen.getByText("board-host")).toBeInTheDocument();
-    expect(screen.getByTitle("SSE connected")).toBeInTheDocument();
     expect(screen.queryByText("No metrics")).not.toBeInTheDocument();
-  });
-
-  it("HOST dot shows disconnected when host metrics are stale on the board route", () => {
-    renderSidebar({
-      currentServer: null,
-      servers: boardServers,
-      sessionsByServer: boardSessionsMap,
-      focusedPane: null,
-      hostMetrics: HOST_METRICS,
-      hostMetricsConnected: false,
-    });
-    expect(screen.getByTitle("SSE disconnected")).toBeInTheDocument();
+    expect(screen.queryByTitle(/SSE (dis)?connected/)).not.toBeInTheDocument();
   });
 });
 

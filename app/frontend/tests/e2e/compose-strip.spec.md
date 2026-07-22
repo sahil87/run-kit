@@ -2,8 +2,9 @@
 
 Validates the docked compose strip (260718-dhdj) — the sticky, global text-input
 surface that replaces the modal ComposeBuffer. Covers the toggle affordances
-(`>_` chip + palette parity), the persisted chrome preference, the live-target
-send semantics (Enter + trailing `\r` to the focused pane), the
+(`>_` chip + palette parity), the persisted chrome preference, the on-strip ×
+close button (260722-d5q7 — same toggle as the chip, lossless draft), the
+live-target send semantics (Enter + trailing `\r` to the focused pane), the
 insert-without-submit affordance + universal Cmd/Ctrl+Enter chord +
 fine-pointer `enterkeyhint` (260719-mxvw — coarse-pointer Enter behavior is
 unit-tested in `compose-strip.test.tsx`), Escape-blurs focus routing, and the
@@ -44,6 +45,26 @@ palette parity).
    (the `runkit-compose-strip` preference was persisted and rehydrated).
 6. Open the palette (`Meta+k`), click `View: Text Input`; assert the chip
    returns to `aria-pressed="false"` and the strip is gone.
+
+### `the on-strip × closes the strip; the draft survives close→reopen (260722-d5q7)`
+
+**What it proves:** The × close button in the strip's header row fires the same
+`toggleComposeStrip` action as the `>_` chip — clicking it unmounts the strip
+and returns the chip to `aria-pressed="false"` — with no confirmation dialog,
+and the unsent draft survives the close (module store) so reopening restores it.
+
+**Steps:**
+
+1. Navigate to the `cat` session's window; wait for `.xterm-screen` and for the
+   relay stream to attach (`window.__rkTerminals[windowId]` present) so the
+   strip has a live target.
+2. Enable the strip via the `>_` chip; fill the input with a unique draft
+   marker.
+3. Click the × (`compose-strip-close`); assert the strip
+   (`[data-testid=compose-strip]`) is gone and the chip reads
+   `aria-pressed="false"` (same preference the chip toggles).
+4. Click the chip to reopen; assert the input still holds the draft marker
+   (closing was lossless — no confirmation needed).
 
 ### `Enter sends text + carriage return to the focused pane; Escape blurs`
 

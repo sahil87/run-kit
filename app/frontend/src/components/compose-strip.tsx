@@ -8,6 +8,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { useFocusedTerminal, type FocusedTerminal } from "@/contexts/focused-terminal-context";
+import { useChromeDispatch } from "@/contexts/chrome-context";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import { useFileUpload } from "@/hooks/use-file-upload";
 import { classifyComposeEnter } from "@/lib/compose-keys";
@@ -61,6 +62,10 @@ import {
  *
  * Rendered only when the `composeStripEnabled` chrome preference is on; the
  * caller (the shell footer in `app.tsx` / `board-page.tsx`) gates the mount.
+ * The header row carries an on-strip × close button firing the SAME
+ * `toggleComposeStrip()` as the `>_` chip / palette entry (260722-d5q7) — a
+ * pointer convenience only (Escape still blurs, never closes; no confirmation
+ * needed because closing is lossless via the module store).
  * Because that mount is conditional AND per-route (the two footers are distinct
  * subtrees), the draft text + pending attachments live in a MODULE store
  * (`compose-draft-store.ts`, a `useSyncExternalStore` seam) rather than
@@ -81,6 +86,12 @@ function focusedKey(f: NonNullable<FocusedTerminal>): string {
 
 export function ComposeStrip() {
   const { focused } = useFocusedTerminal();
+  // The header-row × fires the exact same toggle as the bottom-bar `>_` chip
+  // and the `View: Text Input` palette entry. Consumed here (not threaded as a
+  // prop) so both footer mounts (app.tsx / board-page.tsx) inherit the close
+  // affordance with zero per-route work. Closing is lossless — the draft lives
+  // in the module store — so no confirmation is needed.
+  const { toggleComposeStrip } = useChromeDispatch();
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   // Draft text + pending attachments live in the module store so they survive
@@ -368,15 +379,28 @@ export function ComposeStrip() {
         <span data-testid="compose-strip-target" className={hasTarget ? "text-text-primary" : "italic"}>
           {hasTarget ? targetName : "no target"}
         </span>
-        {uploading && (
-          <span
-            role="status"
-            className="ml-auto text-accent"
-            data-testid="compose-strip-uploading"
+        {/* Far-right cluster: the conditional uploading status sits immediately
+            left of the always-present × close button. Grouping both in a single
+            ml-auto container keeps the × right-aligned whether or not the
+            uploading status renders. */}
+        <div className="ml-auto flex items-center gap-2">
+          {uploading && (
+            <span role="status" className="text-accent" data-testid="compose-strip-uploading">
+              Uploading…
+            </span>
+          )}
+          <button
+            type="button"
+            aria-label="Close compose strip"
+            title="Close compose strip"
+            onMouseDown={preventFocusSteal}
+            onClick={toggleComposeStrip}
+            data-testid="compose-strip-close"
+            className="rk-glint shrink-0 rounded border border-border px-1.5 py-0.5 text-xs leading-none text-text-secondary transition-colors hover:border-text-secondary coarse:min-h-[36px] coarse:min-w-[36px]"
           >
-            Uploading…
-          </span>
-        )}
+            ×
+          </button>
+        </div>
       </div>
 
       {error && (

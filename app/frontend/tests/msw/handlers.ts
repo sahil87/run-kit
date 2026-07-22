@@ -56,6 +56,11 @@ export const handlers = [
     return HttpResponse.json({ status: "ok", hostname: "test-host" });
   }),
 
+  // GET /api/open-apps — default: no wt registry (fail-silent empty)
+  http.get("/api/open-apps", () => {
+    return HttpResponse.json([]);
+  }),
+
   // GET /api/sessions
   http.get("/api/sessions", () => {
     return HttpResponse.json(sessions);

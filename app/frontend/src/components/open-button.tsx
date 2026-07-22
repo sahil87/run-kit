@@ -1,0 +1,246 @@
+import { useEffect, useRef, useState } from "react";
+import { openInApp } from "@/api/client";
+import { useToast } from "@/components/toast";
+import {
+  MENU_ROW_CLASS,
+} from "@/components/top-bar-overflow-menu";
+import {
+  readLastUsedOpenTarget,
+  resolveLastUsedTarget,
+  writeLastUsedOpenTarget,
+  type OpenTarget,
+} from "@/lib/open-in-app";
+
+/**
+ * OpenButton — the Conductor-style "Open in app" split-button for the top-bar
+ * right cluster (260722-6d0f), Terminal route only. Presentational by
+ * contract: it takes the prebuilt target list (from `buildOpenTargets` — the
+ * local/remote branch and section-visibility rules live in
+ * `lib/open-in-app.ts`) plus the launch coordinates, and owns only the
+ * split-button interaction:
+ *
+ *  - PRIMARY segment: re-runs the last-used target (localStorage
+ *    `runkit-open-last-used`); with no stored — or no longer available —
+ *    preference it opens the menu instead.
+ *  - CHEVRON segment: always opens the full menu.
+ *  - Deeplink targets navigate via a plain `window.location.href` user-gesture
+ *    assignment — the browser shows its own "Open <app>?" confirm; a dead
+ *    scheme no-ops. Host targets POST /api/open (toast on failure).
+ *
+ * On a REMOTE client the menu labels the server-exec entries under an
+ * "on host" section header (the escape hatch stays clearly host-side); local
+ * clients see a flat list (server exec is the only mechanism there).
+ *
+ * The caller hides the whole control when `targets` is empty (zero sections
+ * ⇒ nothing to open with) — mirroring how the ViewSwitcher entry hides on
+ * single-view windows.
+ */
+export function OpenButton({
+  targets,
+  server,
+  path,
+}: {
+  targets: OpenTarget[];
+  server: string;
+  path: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const { runTarget } = useRunOpenTarget(server, path);
+
+  // Outside-click + Escape close (the TerminalFontControl popover pattern).
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        setOpen(false);
+        triggerRef.current?.focus();
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    document.addEventListener("keydown", handleKey, { capture: true });
+    return () => {
+      document.removeEventListener("mousedown", handleClick);
+      document.removeEventListener("keydown", handleKey, { capture: true });
+    };
+  }, [open]);
+
+  if (targets.length === 0) return null;
+
+  const lastUsed = resolveLastUsedTarget(targets, readLastUsedOpenTarget());
+
+  const run = (target: OpenTarget) => {
+    setOpen(false);
+    runTarget(target);
+  };
+
+  const handlePrimary = () => {
+    if (lastUsed) {
+      run(lastUsed);
+    } else {
+      setOpen((v) => !v);
+    }
+  };
+
+  const primaryLabel = lastUsed ? `Open in ${lastUsed.label}` : "Open in app";
+  const deeplinks = targets.filter((t) => t.kind === "deeplink");
+  const hostTargets = targets.filter((t) => t.kind === "host");
+  // The "on host" section header renders only when the menu carries BOTH
+  // sections — i.e. a remote client with deeplinks — so the escape hatch is
+  // clearly labeled; a flat single-mechanism list needs no header.
+  const showHostHeader = deeplinks.length > 0 && hostTargets.length > 0;
+
+  return (
+    <div ref={containerRef} className="relative inline-flex items-center">
+      {/* Split button: primary + chevron share one bordered chip (the
+          ViewSwitcher segment-group treatment) so the pair reads as ONE
+          control at cluster scale. */}
+      <span className="inline-flex items-stretch rounded border border-border overflow-hidden">
+        <button
+          ref={triggerRef}
+          type="button"
+          onClick={handlePrimary}
+          aria-label={primaryLabel}
+          title={primaryLabel}
+          className="rk-glint px-1.5 min-h-[24px] coarse:min-h-[30px] text-[11px] font-mono flex items-center justify-center text-text-secondary hover:text-text-primary transition-colors"
+        >
+          Open
+        </button>
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-label="Open in… (choose app)"
+          title="Open in… (choose app)"
+          className="rk-glint px-1 min-h-[24px] coarse:min-h-[30px] border-l border-border flex items-center justify-center text-text-secondary hover:text-text-primary transition-colors"
+        >
+          <svg
+            width="10"
+            height="10"
+            viewBox="0 0 10 10"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <polyline points="2,3.5 5,6.5 8,3.5" />
+          </svg>
+        </button>
+      </span>
+      {open && (
+        <div
+          role="menu"
+          aria-label="Open in app"
+          className="absolute top-full right-0 mt-1 min-w-[160px] bg-bg-primary border border-border rounded-lg shadow-2xl py-1 z-50"
+        >
+          {deeplinks.map((t) => (
+            <OpenTargetRow key={t.id} target={t} onRun={run} />
+          ))}
+          {showHostHeader && (
+            <div
+              aria-hidden="true"
+              className="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wider text-text-secondary select-none"
+            >
+              on host
+            </div>
+          )}
+          {hostTargets.map((t) => (
+            <OpenTargetRow key={t.id} target={t} onRun={run} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** One target row in the split-button's own dropdown menu. */
+function OpenTargetRow({
+  target,
+  onRun,
+}: {
+  target: OpenTarget;
+  onRun: (target: OpenTarget) => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={() => onRun(target)}
+      className="w-full text-left flex items-center gap-2 px-3 py-1.5 text-[11px] text-text-secondary hover:text-text-primary hover:bg-bg-card transition-colors"
+    >
+      {target.label}
+    </button>
+  );
+}
+
+/**
+ * OpenMenuRows — the overflow-menu representation of the Open control
+ * (the ViewSwitcherMenuRows precedent): when the `open` registry entry
+ * collapses into the top-bar "More controls" chevron menu, each target
+ * renders as one `Open: <label>` menuitem row (host targets suffixed
+ * `(on host)` when the menu also carries deeplink rows — the collapsed
+ * equivalent of the popover's "on host" section header). `tabIndex={-1}`
+ * per the menu's roving-focus model.
+ */
+export function OpenMenuRows({
+  targets,
+  server,
+  path,
+}: {
+  targets: OpenTarget[];
+  server: string;
+  path: string;
+}) {
+  const { runTarget } = useRunOpenTarget(server, path);
+  if (targets.length === 0) return null;
+  const hasBothKinds =
+    targets.some((t) => t.kind === "deeplink") && targets.some((t) => t.kind === "host");
+  return (
+    <>
+      {targets.map((t) => (
+        <button
+          key={t.id}
+          type="button"
+          role="menuitem"
+          tabIndex={-1}
+          onClick={() => runTarget(t)}
+          className={MENU_ROW_CLASS}
+        >
+          {t.kind === "host" && hasBothKinds ? `Open: ${t.label} (on host)` : `Open: ${t.label}`}
+        </button>
+      ))}
+    </>
+  );
+}
+
+/**
+ * Shared run-a-target behavior for the split-button, its overflow rows, and
+ * the palette wiring: persist the last-used preference, then either navigate
+ * (deeplink — the browser handles the confirm; a dead scheme no-ops) or POST
+ * /api/open (host — toast on failure, matching the Split/Close error
+ * vocabulary).
+ */
+export function useRunOpenTarget(server: string, path: string) {
+  const { addToast } = useToast();
+  const runTarget = (target: OpenTarget) => {
+    writeLastUsedOpenTarget(target.id);
+    if (target.kind === "deeplink") {
+      window.location.href = target.url;
+      return;
+    }
+    openInApp(server, path, target.appId).catch((err: Error) => {
+      addToast(err.message || `Failed to open in ${target.label}`);
+    });
+  };
+  return { runTarget };
+}

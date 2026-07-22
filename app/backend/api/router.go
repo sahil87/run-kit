@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 
+	"rk/internal/config"
 	"rk/internal/metrics"
 	"rk/internal/ports"
 	"rk/internal/prstatus"
@@ -21,6 +22,7 @@ import (
 	"rk/internal/tmux"
 	"rk/internal/updatecheck"
 	"rk/internal/validate"
+	"rk/internal/wt"
 )
 
 const (
@@ -112,13 +114,39 @@ func (prodRiffEngine) Spawn(ctx context.Context, opts riff.Options) (riff.Result
 	return riff.Spawn(ctx, opts)
 }
 
+// WtOps is the seam onto the internal/wt wrapper (Constitution III) used by
+// the Open-in-App handlers. A DEDICATED dependency like RiffEngine — not
+// folded into TmuxOps — so the shared mockTmuxOps stays untouched and the
+// open handlers get their own focused stub.
+type WtOps interface {
+	ListApps(ctx context.Context) ([]wt.App, error)
+	Open(ctx context.Context, path, app string) error
+}
+
+// prodWtOps wraps the internal/wt package for production use.
+type prodWtOps struct{}
+
+func (prodWtOps) ListApps(ctx context.Context) ([]wt.App, error) {
+	return wt.ListApps(ctx)
+}
+
+func (prodWtOps) Open(ctx context.Context, path, app string) error {
+	return wt.Open(ctx, path, app)
+}
+
 // Server holds handler dependencies.
 type Server struct {
 	logger        *slog.Logger
 	sessions      SessionFetcher
 	tmux          TmuxOps
 	riff          RiffEngine
+	wt            WtOps
 	hostname      string
+	// sshHost is the optional RK_SSH_HOST alias remote clients use to reach
+	// this host, surfaced on GET /api/health for the frontend's ssh-remote
+	// deeplinks. Seeded from config at startup (or SetSSHHost in tests);
+	// empty = unset = deeplink section hidden client-side.
+	sshHost string
 	metrics       *metrics.Collector
 	services      *ports.Collector
 	prStatus      *prstatus.Collector
@@ -460,7 +488,9 @@ func NewRouterAndServer(ctx context.Context, logger *slog.Logger) (chi.Router, *
 		sessions: &prodSessionFetcher{},
 		tmux:     &prodTmuxOps{},
 		riff:     prodRiffEngine{},
+		wt:       prodWtOps{},
 		hostname: hostname,
+		sshHost:  config.Load().SSHHost,
 		metrics:  mc,
 		services: svc,
 		prStatus: pc,
@@ -503,6 +533,26 @@ func NewTestRouterWithRiff(logger *slog.Logger, sf SessionFetcher, ops TmuxOps, 
 		hostname: hostname,
 	}
 	return s.buildRouter()
+}
+
+// NewTestRouterWithWt is NewTestRouter plus an injected WtOps, used by the
+// open handler tests to stub the wt wrapper (mirrors NewTestRouterWithRiff).
+func NewTestRouterWithWt(logger *slog.Logger, sf SessionFetcher, ops TmuxOps, wtOps WtOps, hostname string) chi.Router {
+	s := &Server{
+		logger:   logger,
+		sessions: sf,
+		tmux:     ops,
+		wt:       wtOps,
+		hostname: hostname,
+	}
+	return s.buildRouter()
+}
+
+// SetSSHHost seeds the optional RK_SSH_HOST value surfaced on GET /api/health.
+// Production wiring reads it from config in NewRouterAndServer; tests use this
+// seam directly (mirrors SetVersion).
+func (s *Server) SetSSHHost(host string) {
+	s.sshHost = host
 }
 
 func (s *Server) buildRouter() chi.Router {
@@ -559,6 +609,11 @@ func (s *Server) buildRouter() chi.Router {
 	// Riff — web-UI agent spawn (POST) + preset list (GET). See api/riff.go.
 	r.Post("/api/riff", s.handleRiffSpawn)
 	r.Get("/api/riff/presets", s.handleRiffPresets)
+
+	// Open-in-App — host app registry (GET, fail-silent) + validated launch
+	// (POST per §IX). See api/open.go.
+	r.Get("/api/open-apps", s.handleOpenApps)
+	r.Post("/api/open", s.handleOpen)
 
 	// Server management routes
 	r.Get("/api/servers", s.handleServersList)

@@ -28,6 +28,17 @@ vi.mock("@/api/client", async () => {
   };
 });
 
+// Drive the Open-in-App entry deterministically: mock the fetch-once hook so
+// each test seeds the sshHost/registry context directly (no real fetch). The
+// default is the empty context — the common deployment where the entry hides.
+const mockOpenCtx: { sshHost: string; hostApps: { id: string; label: string; kind?: string }[] } = {
+  sshHost: "",
+  hostApps: [],
+};
+vi.mock("@/hooks/use-open-targets", () => ({
+  useOpenTargets: () => ({ sshHost: mockOpenCtx.sshHost, hostApps: mockOpenCtx.hostApps }),
+}));
+
 // Drive the NotificationControl deterministically: mock the push lib so each
 // test picks the reported state without touching real serviceWorker / Notification.
 const getPushState = vi.fn();
@@ -1133,6 +1144,54 @@ describe("TopBar", () => {
       act(() => fireEvent.keyDown(document, { key: "Escape" }));
       expect(screen.queryByText("Send test notification")).not.toBeInTheDocument();
       expect(trigger).toHaveFocus();
+    });
+  });
+
+  describe("Open-in-App entry (260722-6d0f)", () => {
+    afterEach(() => {
+      mockOpenCtx.sshHost = "";
+      mockOpenCtx.hostApps = [];
+      localStorage.clear();
+    });
+
+    // jsdom overflows every candidate into the chevron menu (zero widths), so
+    // the entry's rendered form here is its OpenMenuRows representation — the
+    // deterministic assertion surface, same as the overflow describe below.
+    it("renders Open: rows when host targets are available (terminal mode)", () => {
+      mockOpenCtx.hostApps = [{ id: "vscode", label: "VS Code", kind: "editor" }];
+      renderTopBar();
+      act(() => fireEvent.click(screen.getByLabelText("More controls")));
+      const menu = screen.getByRole("menu", { name: "More controls" });
+      // jsdom's hostname is localhost → local view → host section only, no
+      // "(on host)" suffix (single-kind list).
+      expect(within(menu).getByRole("menuitem", { name: "Open: VS Code" })).toBeInTheDocument();
+    });
+
+    it("renders nothing with zero targets (empty registry, no sshHost — the default deployment)", () => {
+      renderTopBar();
+      act(() => fireEvent.click(screen.getByLabelText("More controls")));
+      const menu = screen.getByRole("menu", { name: "More controls" });
+      expect(within(menu).queryByRole("menuitem", { name: /^Open:/ })).not.toBeInTheDocument();
+      // Nor an in-bar/probe split-button.
+      expect(screen.queryByTitle("Open in app")).not.toBeInTheDocument();
+    });
+
+    it("is local-gated: sshHost alone yields no targets on a localhost client", () => {
+      // Deeplinks are remote-only; jsdom's localhost hostname means the
+      // deeplink section stays hidden even with sshHost configured.
+      mockOpenCtx.sshHost = "devbox";
+      renderTopBar();
+      act(() => fireEvent.click(screen.getByLabelText("More controls")));
+      const menu = screen.getByRole("menu", { name: "More controls" });
+      expect(within(menu).queryByRole("menuitem", { name: /^Open:/ })).not.toBeInTheDocument();
+    });
+
+    it("does not render on the board route (terminal-only v1)", () => {
+      mockOpenCtx.hostApps = [{ id: "vscode", label: "VS Code" }];
+      renderTopBar({ mode: "board", currentWindow: null, boardName: "b", paneCount: 1, serverCount: 1, boards: [{ name: "b" }] });
+      act(() => fireEvent.click(screen.getByLabelText("More controls")));
+      const menu = screen.getByRole("menu", { name: "More controls" });
+      expect(within(menu).queryByRole("menuitem", { name: /^Open:/ })).not.toBeInTheDocument();
     });
   });
 

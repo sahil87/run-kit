@@ -1,0 +1,12 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-22T10:10:56Z"}
+{"args":"navbar Open button — open current worktree/pane folder in an app: server-side exec via wt open when local, client-side ssh-remote deeplinks (vscode/cursor/windsurf) when remote","cmd":"fab-new","event":"command","ts":"2026-07-22T10:10:56Z"}
+{"delta":"+3.7","event":"confidence","score":3.7,"trigger":"calc-score","ts":"2026-07-22T10:12:58Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-22T10:58:13Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-22T10:58:27Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-22T11:06:08Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-22T11:54:46Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-22T12:02:20Z"}
+{"event":"review","result":"passed","ts":"2026-07-22T12:02:20Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-22T12:03:05Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-22T12:08:25Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-07-22T12:10:15Z"}

@@ -4,6 +4,8 @@ import { server as mswServer } from "../../tests/msw/server";
 import { resetMockSessions } from "../../tests/msw/handlers";
 import {
   getHealth,
+  getOpenApps,
+  openInApp,
   getSessions,
   getSessionOrder,
   setSessionOrder,
@@ -45,6 +47,67 @@ describe("API client", () => {
     const health = await getHealth();
     expect(health.status).toBe("ok");
     expect(health.hostname).toBe("test-host");
+  });
+
+  it("getHealth surfaces the optional sshHost field when present", async () => {
+    mswServer.use(
+      http.get("/api/health", () =>
+        HttpResponse.json({ status: "ok", hostname: "test-host", sshHost: "devbox" }),
+      ),
+    );
+    const health = await getHealth();
+    expect(health.sshHost).toBe("devbox");
+  });
+
+  it("getOpenApps returns the registry array", async () => {
+    mswServer.use(
+      http.get("/api/open-apps", () =>
+        HttpResponse.json([{ id: "vscode", label: "VS Code", kind: "editor" }]),
+      ),
+    );
+    const apps = await getOpenApps();
+    expect(apps).toEqual([{ id: "vscode", label: "VS Code", kind: "editor" }]);
+  });
+
+  it("getOpenApps is fail-silent: non-200 resolves to []", async () => {
+    mswServer.use(
+      http.get("/api/open-apps", () =>
+        HttpResponse.json({ error: "boom" }, { status: 500 }),
+      ),
+    );
+    await expect(getOpenApps()).resolves.toEqual([]);
+  });
+
+  it("getOpenApps is fail-silent: non-array body resolves to []", async () => {
+    mswServer.use(
+      http.get("/api/open-apps", () => HttpResponse.json({ nope: true })),
+    );
+    await expect(getOpenApps()).resolves.toEqual([]);
+  });
+
+  it("openInApp POSTs path+app to /api/open with the server query", async () => {
+    let capturedUrl = "";
+    let capturedBody: unknown = null;
+    mswServer.use(
+      http.post("/api/open", async ({ request }) => {
+        capturedUrl = request.url;
+        capturedBody = await request.json();
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    const res = await openInApp("runkit", "/Users/x/code/proj", "vscode");
+    expect(res.ok).toBe(true);
+    expect(capturedUrl).toContain("?server=runkit");
+    expect(capturedBody).toEqual({ path: "/Users/x/code/proj", app: "vscode" });
+  });
+
+  it("openInApp throws the server's error message on failure", async () => {
+    mswServer.use(
+      http.post("/api/open", () =>
+        HttpResponse.json({ error: "unknown app" }, { status: 400 }),
+      ),
+    );
+    await expect(openInApp("runkit", "/x", "nope")).rejects.toThrow("unknown app");
   });
 
   it("getSessions fetches GET /api/sessions with server query", async () => {

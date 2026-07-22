@@ -100,8 +100,11 @@ var serveCmd = &cobra.Command{
 	Long: `Start the HTTP server in the foreground.
 
 Environment variables:
-  RK_HOST    Host to bind (default "127.0.0.1")
-  RK_PORT    Port to bind (default 3000)
+  RK_HOST      Host to bind (default "127.0.0.1")
+  RK_PORT      Port to bind (default 3000)
+  RK_SSH_HOST  Optional SSH host alias remote clients use to reach this host;
+               enables the Open button's editor ssh-remote deeplinks (unset:
+               the deeplink section is hidden)
 
 Examples:
   run-kit serve                              # foreground on 127.0.0.1:3000

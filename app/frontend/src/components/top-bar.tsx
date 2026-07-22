@@ -17,6 +17,9 @@ import { finalizeSafeName, toSafeWindowName } from "@/lib/names";
 import { prefersReducedMotion } from "@/lib/motion";
 import { WaitingBadge } from "@/components/waiting-badge";
 import { ViewSwitcher, ViewSwitcherMenuRows } from "@/components/view-switcher";
+import { OpenButton, OpenMenuRows } from "@/components/open-button";
+import { useOpenTargets } from "@/hooks/use-open-targets";
+import { activePaneCwd, buildOpenTargets, isLocalHostname } from "@/lib/open-in-app";
 import {
   TopBarOverflowMenu,
   type OverflowMenuRow,
@@ -440,6 +443,24 @@ export function TopBar({
   const showServerCrumb = mode === "terminal" && !!server;
   const serverHref = `/${encodeURIComponent(server)}`;
 
+  // Open-in-App data (260722-6d0f): sshHost + host-app registry, fetched once
+  // per page load via the module-cached hook (enabled only where the control
+  // can render — the Terminal route). The target list composes the local/
+  // remote branch + section-visibility rules in `lib/open-in-app.ts`; the
+  // folder is the current window's active-pane cwd. Zero targets (empty
+  // registry + no sshHost, or a pathless window) hides the entry entirely.
+  const openCtx = useOpenTargets(mode === "terminal");
+  const openPath = mode === "terminal" ? activePaneCwd(currentWindow) : "";
+  const openTargets =
+    mode === "terminal"
+      ? buildOpenTargets({
+          local: isLocalHostname(window.location.hostname),
+          sshHost: openCtx.sshHost,
+          hostApps: openCtx.hostApps,
+          path: openPath,
+        })
+      : [];
+
   // ── Right-cluster overflow registry (260715-h1ck) ──────────────────────────
   //
   // The ordered registry replaces the hardcoded right-cluster JSX. It is the
@@ -495,6 +516,19 @@ export function TopBar({
           onSelect={onSelectView ?? (() => {})}
         />
       ),
+    },
+    // Open-in-App split-button (260722-6d0f) — terminal-only, second candidate
+    // so it yields to overflow right after the ViewSwitcher and BEFORE any L1
+    // split (keeping the documented L1→L2→L3 pyramid sweep intact). Hidden
+    // when the window is absent or zero targets are available (no sshHost +
+    // empty host registry — the common default deployment). When overflowed it
+    // renders per-target `Open: …` rows (OpenMenuRows).
+    {
+      id: "open",
+      modes: ["terminal"],
+      hidden: !(mode === "terminal" && currentWindow && openTargets.length > 0),
+      barRender: () => <OpenButton targets={openTargets} server={server} path={openPath} />,
+      menuRender: () => <OpenMenuRows targets={openTargets} server={server} path={openPath} />,
     },
     // L1 — split vertical · split horizontal (terminal+board) · fixed-width (terminal-only).
     {

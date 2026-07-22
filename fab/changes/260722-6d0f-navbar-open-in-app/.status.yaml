@@ -1,0 +1,57 @@
+id: 6d0f
+name: 260722-6d0f-navbar-open-in-app
+created: 2026-07-22T10:10:56Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: active
+plan:
+    generated: true
+    task_count: 13
+    acceptance_count: 21
+    acceptance_completed: 21
+confidence:
+    certain: 5
+    confident: 6
+    tentative: 0
+    unresolved: 0
+    score: 3.7
+    fuzzy: true
+    dimensions:
+        signal: 68.2
+        reversibility: 84.1
+        competence: 76.8
+        disambiguation: 71.8
+stage_metrics:
+    intake: {started_at: "2026-07-22T10:10:56Z", driver: fab-new, iterations: 1, completed_at: "2026-07-22T10:58:27Z"}
+    apply: {started_at: "2026-07-22T10:58:27Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-22T11:54:46Z"}
+    review: {started_at: "2026-07-22T11:54:46Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-22T12:02:20Z"}
+    hydrate: {started_at: "2026-07-22T12:02:20Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-22T12:08:25Z"}
+    ship: {started_at: "2026-07-22T12:08:25Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-22T12:10:15Z"}
+    review-pr: {started_at: "2026-07-22T12:10:15Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/442
+change_type_source: explicit
+true_impact:
+    added: 2861
+    deleted: 13
+    net: 2848
+    excluding:
+        added: 2365
+        deleted: 7
+        net: 2358
+    tests:
+        added: 989
+        deleted: 0
+        net: 989
+    computed_at: "2026-07-22T12:10:15Z"
+    computed_at_stage: ship
+summary: Add top-bar Open split-button (host wt-launch via /api/open-apps + /api/open, remote editor ssh-remote deeplinks) with internal/wt wrapper and RK_SSH_HOST
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-07-22T12:10:15Z

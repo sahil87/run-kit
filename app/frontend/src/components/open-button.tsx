@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { openInApp } from "@/api/client";
+import { OpenTargetIcon } from "@/components/open-app-icons";
 import { useToast } from "@/components/toast";
 import {
   MENU_ROW_CLASS,
@@ -163,7 +164,9 @@ export function OpenButton({
   );
 }
 
-/** One target row in the split-button's own dropdown menu. */
+/** One target row in the split-button's own dropdown menu. The leading glyph
+ *  (260722-fc3b) is `currentColor` decoration — it rides the row's
+ *  secondary→primary hover flip and stays out of the accessible name. */
 function OpenTargetRow({
   target,
   onRun,
@@ -178,6 +181,7 @@ function OpenTargetRow({
       onClick={() => onRun(target)}
       className="w-full text-left flex items-center gap-2 px-3 py-1.5 text-[11px] text-text-secondary hover:text-text-primary hover:bg-bg-card transition-colors"
     >
+      <OpenTargetIcon target={target} />
       {target.label}
     </button>
   );
@@ -216,6 +220,7 @@ export function OpenMenuRows({
           onClick={() => runTarget(t)}
           className={MENU_ROW_CLASS}
         >
+          <OpenTargetIcon target={t} />
           {t.kind === "host" && hasBothKinds ? `Open: ${t.label} (on host)` : `Open: ${t.label}`}
         </button>
       ))}

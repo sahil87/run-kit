@@ -1,14 +1,16 @@
 import { test, expect, type Page } from "@playwright/test";
 import { mockStateSocket } from "./_state-socket-mock";
 
-// Open-in-App split-button (260722-6d0f). Fully mocked — no tmux server, no
-// wt on the host: the sessions payload rides the state-socket mock and the
-// `wt open --list --json` registry is stubbed via page.route (`wt` has not
-// shipped the flag yet — backlog [qj66] — so the real backend always serves
-// `[]` here; the stub is what lights the control up). The e2e client is
-// localhost, so the LOCAL view renders (host section only; the deeplink
-// branch is remote-only and covered by Vitest — `location.hostname` cannot
-// be non-local against the e2e server). See open-in-app.spec.md.
+// Open-in-App split-button (260722-6d0f; row icons + host fallback
+// 260722-fc3b). Fully mocked — no tmux server, no wt on the host: the
+// sessions payload rides the state-socket mock and the `wt open --list
+// --json` registry is stubbed via page.route (the e2e host may not carry a
+// wt new enough for the flag — shipped in wt v0.1.5; the stub is what lights
+// the control up deterministically). The e2e client is localhost, so the
+// LOCAL view renders (host section only; the deeplink branch — including the
+// 260722-fc3b derived `user@hostname` fallback and its remote-shows-deeplinks
+// gate — is remote-only and covered by Vitest: `location.hostname` cannot be
+// non-local against the e2e server). See open-in-app.spec.md.
 
 const SERVER = "default";
 
@@ -43,8 +45,10 @@ const sessionsPayload = JSON.stringify([
 
 const WINDOW_URL = `/${SERVER}/%401`;
 
+// The wt host registry uses `code` (not `vscode`) for VS Code — mirroring the
+// live wt v0.1.5 registry — so this also pins the code→VS-Code glyph mapping.
 const REGISTRY = [
-  { id: "vscode", label: "VS Code", kind: "editor" },
+  { id: "code", label: "VS Code", kind: "editor" },
   { id: "iterm", label: "iTerm", kind: "terminal" },
 ];
 
@@ -124,6 +128,16 @@ test.describe("Open-in-App split-button (260722-6d0f)", () => {
     await expect(menu.getByRole("menuitem", { name: "iTerm" })).toBeVisible();
     await expect(menu.getByText("on host")).toHaveCount(0);
 
+    // Each host row leads with its resolved monochrome glyph (260722-fc3b):
+    // the wt id `code` maps to the VS Code brand glyph; iTerm (unknown id,
+    // kind terminal) falls back to the generic prompt glyph.
+    await expect(
+      menu.getByRole("menuitem", { name: "VS Code" }).locator("svg[data-icon='vscode']"),
+    ).toBeVisible();
+    await expect(
+      menu.getByRole("menuitem", { name: "iTerm" }).locator("svg[data-icon='terminal']"),
+    ).toBeVisible();
+
     // Launching a target POSTs the ACTIVE PANE's cwd (not the worktree path)
     // plus the wt app id, and closes the menu.
     await menu.getByRole("menuitem", { name: "iTerm" }).click();
@@ -152,7 +166,11 @@ test.describe("Open-in-App split-button (260722-6d0f)", () => {
     await expect(page.getByRole("option", { name: "Open: iTerm" })).toBeVisible();
   });
 
-  test("absent in the default deployment (empty registry, no sshHost): no button, no menu rows, no palette entries", async ({
+  // NOTE (260722-fc3b): the zero-target state on a LOCAL client is purely
+  // "empty registry" — sshHost/sshUser never mattered locally, and the new
+  // remote-shows-deeplinks gate cannot fire here (localhost). The remote gate
+  // is covered by Vitest.
+  test("absent in the default local deployment (empty registry): no button, no menu rows, no palette entries", async ({
     page,
   }) => {
     await mockBackend(page, []);

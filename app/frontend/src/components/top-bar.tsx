@@ -19,7 +19,7 @@ import { WaitingBadge } from "@/components/waiting-badge";
 import { ViewSwitcher, ViewSwitcherMenuRows } from "@/components/view-switcher";
 import { OpenButton, OpenMenuRows } from "@/components/open-button";
 import { useOpenTargets } from "@/hooks/use-open-targets";
-import { activePaneCwd, buildOpenTargets, isLocalHostname } from "@/lib/open-in-app";
+import { activePaneCwd, buildOpenTargets } from "@/lib/open-in-app";
 import {
   TopBarOverflowMenu,
   type OverflowMenuRow,
@@ -443,19 +443,22 @@ export function TopBar({
   const showServerCrumb = mode === "terminal" && !!server;
   const serverHref = `/${encodeURIComponent(server)}`;
 
-  // Open-in-App data (260722-6d0f): sshHost + host-app registry, fetched once
-  // per page load via the module-cached hook (enabled only where the control
-  // can render — the Terminal route). The target list composes the local/
-  // remote branch + section-visibility rules in `lib/open-in-app.ts`; the
-  // folder is the current window's active-pane cwd. Zero targets (empty
-  // registry + no sshHost, or a pathless window) hides the entry entirely.
+  // Open-in-App data (260722-6d0f): sshHost/sshUser + host-app registry,
+  // fetched once per page load via the module-cached hook (enabled only where
+  // the control can render — the Terminal route). The target list composes
+  // the local/remote branch + deeplink-host resolution chain (RK_SSH_HOST
+  // verbatim, else derived `user@location.hostname` when remote — 260722-fc3b)
+  // + section-visibility rules in `lib/open-in-app.ts`; the folder is the
+  // current window's active-pane cwd. Zero targets (local + empty registry,
+  // or a pathless window) hides the entry entirely.
   const openCtx = useOpenTargets(mode === "terminal");
   const openPath = mode === "terminal" ? activePaneCwd(currentWindow) : "";
   const openTargets =
     mode === "terminal"
       ? buildOpenTargets({
-          local: isLocalHostname(window.location.hostname),
+          hostname: window.location.hostname,
           sshHost: openCtx.sshHost,
+          sshUser: openCtx.sshUser,
           hostApps: openCtx.hostApps,
           path: openPath,
         })

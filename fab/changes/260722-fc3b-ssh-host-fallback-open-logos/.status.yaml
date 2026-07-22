@@ -1,0 +1,55 @@
+id: fc3b
+name: 260722-fc3b-ssh-host-fallback-open-logos
+created: 2026-07-22T14:48:28Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 13
+    acceptance_count: 14
+    acceptance_completed: 14
+confidence:
+    certain: 6
+    confident: 3
+    tentative: 0
+    unresolved: 0
+    score: 4.5
+    fuzzy: true
+    dimensions:
+        signal: 69.4
+        reversibility: 86.1
+        competence: 81.1
+        disambiguation: 77.2
+stage_metrics:
+    intake: {started_at: "2026-07-22T14:48:28Z", driver: fab-new, iterations: 1, completed_at: "2026-07-22T15:45:19Z"}
+    apply: {started_at: "2026-07-22T15:45:19Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-22T16:01:15Z"}
+    review: {started_at: "2026-07-22T16:01:15Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-22T16:05:43Z"}
+    hydrate: {started_at: "2026-07-22T16:05:43Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-22T16:10:27Z"}
+    ship: {started_at: "2026-07-22T16:10:27Z", driver: fab-fff, iterations: 1}
+prs: []
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-07-22T16:10:27Z"
+    computed_at_stage: hydrate
+change_type_source: explicit
+summary: SSH-host deeplink fallback (derived user@hostname when RK_SSH_HOST unset), remote-gate replaces config-gate, and monochrome currentColor row icons on Open menu rows
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-07-22T16:10:27Z

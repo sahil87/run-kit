@@ -15,11 +15,12 @@ describe("useOpenTargets", () => {
     vi.mocked(getOpenApps).mockReset();
   });
 
-  it("fetches sshHost + registry when enabled", async () => {
+  it("fetches sshHost + sshUser + registry when enabled", async () => {
     vi.mocked(getHealth).mockResolvedValue({
       status: "ok",
       hostname: "h",
       sshHost: "devbox",
+      sshUser: "sahil",
     });
     vi.mocked(getOpenApps).mockResolvedValue([{ id: "vscode", label: "VS Code" }]);
 
@@ -28,7 +29,20 @@ describe("useOpenTargets", () => {
     await waitFor(() => {
       expect(result.current.sshHost).toBe("devbox");
     });
+    expect(result.current.sshUser).toBe("sahil");
     expect(result.current.hostApps).toEqual([{ id: "vscode", label: "VS Code" }]);
+  });
+
+  it("defaults sshUser to empty when the health response omits it", async () => {
+    vi.mocked(getHealth).mockResolvedValue({ status: "ok", hostname: "h" });
+    vi.mocked(getOpenApps).mockResolvedValue([]);
+
+    const { result } = renderHook(() => useOpenTargets(true));
+
+    await waitFor(() => {
+      expect(getOpenApps).toHaveBeenCalledTimes(1);
+    });
+    expect(result.current.sshUser).toBe("");
   });
 
   it("does not fetch when disabled", async () => {
@@ -53,7 +67,7 @@ describe("useOpenTargets", () => {
     b.unmount();
   });
 
-  it("degrades to empty sshHost when the health read fails", async () => {
+  it("degrades to empty sshHost + sshUser when the health read fails", async () => {
     vi.mocked(getHealth).mockRejectedValue(new Error("network down"));
     vi.mocked(getOpenApps).mockResolvedValue([{ id: "iterm", label: "iTerm" }]);
 
@@ -63,5 +77,6 @@ describe("useOpenTargets", () => {
       expect(result.current.hostApps).toEqual([{ id: "iterm", label: "iTerm" }]);
     });
     expect(result.current.sshHost).toBe("");
+    expect(result.current.sshUser).toBe("");
   });
 });

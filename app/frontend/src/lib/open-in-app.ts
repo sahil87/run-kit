@@ -15,8 +15,9 @@ import type { OpenApp } from "@/api/client";
 import type { WindowInfo } from "@/types";
 
 /** One editor deeplink template. `url` composes the client-side URI that opens
- *  `path` on `host` (an SSH alias from the client's ~/.ssh/config) in the
- *  client-local editor. */
+ *  `path` on `host` — an SSH destination: either the RK_SSH_HOST alias from
+ *  the client's ~/.ssh/config or the derived `user@hostname` fallback (see
+ *  `resolveDeeplinkHost`) — in the client-local editor. */
 export type DeeplinkApp = {
   id: string;
   label: string;
@@ -50,17 +51,45 @@ export function isLocalHostname(hostname: string): boolean {
 }
 
 /**
+ * The effective SSH destination the editor deeplinks embed — the
+ * RK_SSH_HOST-unset fallback chain (260722-fc3b):
+ *
+ *  1. `sshHost` set → use it VERBATIM, never `user@`-prefixed — an alias
+ *     carries user/port/key from the client's ~/.ssh/config.
+ *  2. Unset AND the client is remote → derive `${sshUser}@${hostname}` from
+ *     the name the browser reached this host by (on a tailnet it is
+ *     SSH-reachable too) plus the server-derived username; the `user@`
+ *     prefix is omitted when `sshUser` is empty. The hostname is used
+ *     as-given — no reachability guessing (behind an HTTP-only tunnel the
+ *     editor shows its own connect error; the accepted trade is "shown ⇒
+ *     works on tailnets, errors on tunnels").
+ *  3. Local client → empty (deeplinks are pointless on the host itself).
+ */
+export function resolveDeeplinkHost(opts: {
+  sshHost: string;
+  sshUser: string;
+  hostname: string;
+}): string {
+  const { sshHost, sshUser, hostname } = opts;
+  if (sshHost) return sshHost;
+  if (isLocalHostname(hostname) || !hostname) return "";
+  return sshUser ? `${sshUser}@${hostname}` : hostname;
+}
+
+/**
  * One actionable entry in the Open menu / palette. `id` is kind-qualified
  * (`deeplink:vscode` / `host:vscode`) so a deeplink and a host app for the
  * same editor never collide in the last-used preference.
  *
  *  - `deeplink`: navigate the client to `url` (browser shows its own
- *    "Open <app>?" confirm).
- *  - `host`: POST /api/open with `appId` (server-side `wt open` launch).
+ *    "Open <app>?" confirm). Always editors (the vscode-remote grammar).
+ *  - `host`: POST /api/open with `appId` (server-side `wt open` launch);
+ *    `appKind` is the wt registry `kind` (editor/terminal/file-manager),
+ *    feeding the row icon's generic fallback.
  */
 export type OpenTarget =
   | { kind: "deeplink"; id: string; label: string; url: string }
-  | { kind: "host"; id: string; label: string; appId: string };
+  | { kind: "host"; id: string; label: string; appId: string; appKind?: string };
 
 /**
  * Build the available open targets from the section-visibility rules:
@@ -68,30 +97,34 @@ export type OpenTarget =
  *  - local client → host section only (server exec is THE mechanism; no
  *    deeplink section even when sshHost is set — the folder is already on
  *    this machine).
- *  - remote client → deeplink section (only when `sshHost` is configured —
- *    every template needs the host) plus the host section as an explicitly
- *    labeled "on host" escape hatch.
+ *  - remote client → deeplink section (always — the effective host comes
+ *    from `resolveDeeplinkHost`, deriving `user@hostname` when RK_SSH_HOST
+ *    is unset) plus the host section as an explicitly labeled "on host"
+ *    escape hatch.
  *  - host section hidden whenever the registry is empty.
  *
  * Zero returned targets ⇒ the Open control renders nothing.
  */
 export function buildOpenTargets(opts: {
-  local: boolean;
+  hostname: string;
   sshHost: string;
+  sshUser: string;
   hostApps: OpenApp[];
   path: string;
 }): OpenTarget[] {
-  const { local, sshHost, hostApps, path } = opts;
+  const { hostname, sshHost, sshUser, hostApps, path } = opts;
   const targets: OpenTarget[] = [];
   if (!path) return targets;
 
-  if (!local && sshHost) {
+  const local = isLocalHostname(hostname);
+  const deeplinkHost = resolveDeeplinkHost({ sshHost, sshUser, hostname });
+  if (!local && deeplinkHost) {
     for (const app of DEEPLINK_APPS) {
       targets.push({
         kind: "deeplink",
         id: `deeplink:${app.id}`,
         label: app.label,
-        url: app.url(sshHost, path),
+        url: app.url(deeplinkHost, path),
       });
     }
   }
@@ -102,6 +135,7 @@ export function buildOpenTargets(opts: {
       id: `host:${app.id}`,
       label: app.label,
       appId: app.id,
+      appKind: app.kind,
     });
   }
 

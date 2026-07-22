@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/user"
 	"sync"
 	"time"
 
@@ -145,8 +146,15 @@ type Server struct {
 	// sshHost is the optional RK_SSH_HOST alias remote clients use to reach
 	// this host, surfaced on GET /api/health for the frontend's ssh-remote
 	// deeplinks. Seeded from config at startup (or SetSSHHost in tests);
-	// empty = unset = deeplink section hidden client-side.
+	// empty = unset = the frontend falls back to deriving
+	// `${sshUser}@${location.hostname}` on remote clients.
 	sshHost string
+	// sshUser is the username the daemon runs as (os/user.Current at startup,
+	// or SetSSHUser in tests), surfaced on GET /api/health so remote clients
+	// can derive an SSH destination (`user@location.hostname`) when
+	// RK_SSH_HOST is unset. Pure derivation per Constitution X — no config.
+	// Empty on lookup failure = the frontend omits the `user@` prefix.
+	sshUser string
 	metrics       *metrics.Collector
 	services      *ports.Collector
 	prStatus      *prstatus.Collector
@@ -468,6 +476,14 @@ func NewRouter(ctx context.Context, logger *slog.Logger) chi.Router {
 func NewRouterAndServer(ctx context.Context, logger *slog.Logger) (chi.Router, *Server) {
 	hostname, _ := os.Hostname()
 
+	// The daemon's own username, for the frontend's derived SSH destination
+	// (RK_SSH_HOST-unset fallback). Best-effort: a failed lookup leaves it
+	// empty and the health response omits the field.
+	sshUser := ""
+	if u, err := user.Current(); err == nil {
+		sshUser = u.Username
+	}
+
 	mc := metrics.NewCollector(metricsPollInterval)
 	mc.Start(ctx)
 
@@ -491,6 +507,7 @@ func NewRouterAndServer(ctx context.Context, logger *slog.Logger) (chi.Router, *
 		wt:       prodWtOps{},
 		hostname: hostname,
 		sshHost:  config.Load().SSHHost,
+		sshUser:  sshUser,
 		metrics:  mc,
 		services: svc,
 		prStatus: pc,
@@ -553,6 +570,13 @@ func NewTestRouterWithWt(logger *slog.Logger, sf SessionFetcher, ops TmuxOps, wt
 // seam directly (mirrors SetVersion).
 func (s *Server) SetSSHHost(host string) {
 	s.sshHost = host
+}
+
+// SetSSHUser seeds the derived daemon username surfaced on GET /api/health.
+// Production wiring reads it from os/user.Current in NewRouterAndServer;
+// tests use this seam directly (mirrors SetSSHHost).
+func (s *Server) SetSSHUser(user string) {
+	s.sshUser = user
 }
 
 func (s *Server) buildRouter() chi.Router {

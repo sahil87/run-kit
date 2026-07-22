@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-22T14:48:28Z"}
+{"args":"derive deeplink ssh host from location.hostname + server user when RK_SSH_HOST unset; add editor logos to the Open section","cmd":"fab-new","event":"command","ts":"2026-07-22T14:48:28Z"}
+{"delta":"+4.5","event":"confidence","score":4.5,"trigger":"calc-score","ts":"2026-07-22T14:49:27Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-22T15:45:11Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-22T15:45:19Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-22T15:48:18Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-22T16:01:15Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-22T16:05:43Z"}
+{"event":"review","result":"passed","ts":"2026-07-22T16:05:43Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-22T16:10:27Z"}

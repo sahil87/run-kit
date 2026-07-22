@@ -3,6 +3,7 @@ import type { WindowInfo } from "@/types";
 import {
   DEEPLINK_APPS,
   isLocalHostname,
+  resolveDeeplinkHost,
   buildOpenTargets,
   activePaneCwd,
   readLastUsedOpenTarget,
@@ -40,27 +41,61 @@ describe("isLocalHostname", () => {
   );
 });
 
+describe("resolveDeeplinkHost", () => {
+  const REMOTE = "mymac.tail1234.ts.net";
+
+  it("uses a configured sshHost VERBATIM — never user@alias", () => {
+    expect(resolveDeeplinkHost({ sshHost: "devbox", sshUser: "sahil", hostname: REMOTE })).toBe(
+      "devbox",
+    );
+  });
+
+  it("derives user@location.hostname when sshHost is unset and remote", () => {
+    expect(resolveDeeplinkHost({ sshHost: "", sshUser: "sahil", hostname: REMOTE })).toBe(
+      "sahil@mymac.tail1234.ts.net",
+    );
+  });
+
+  it("omits the user@ prefix when sshUser is empty", () => {
+    expect(resolveDeeplinkHost({ sshHost: "", sshUser: "", hostname: REMOTE })).toBe(REMOTE);
+  });
+
+  it("resolves empty on a local client (no fallback host)", () => {
+    expect(resolveDeeplinkHost({ sshHost: "", sshUser: "sahil", hostname: "localhost" })).toBe("");
+    expect(resolveDeeplinkHost({ sshHost: "", sshUser: "sahil", hostname: "127.0.0.1" })).toBe("");
+  });
+
+  it("uses a tunnel hostname as-given — no reachability guessing", () => {
+    expect(
+      resolveDeeplinkHost({ sshHost: "", sshUser: "sahil", hostname: "rk.example.dev" }),
+    ).toBe("sahil@rk.example.dev");
+  });
+});
+
 describe("buildOpenTargets", () => {
   const hostApps = [
-    { id: "vscode", label: "VS Code", kind: "editor" },
+    { id: "code", label: "VSCode", kind: "editor" },
     { id: "iterm", label: "iTerm", kind: "terminal" },
   ];
+  const REMOTE = "mymac.tail1234.ts.net";
 
-  it("local: host section only, even with sshHost set", () => {
+  it("local: host section only, even with sshHost + sshUser set", () => {
     const targets = buildOpenTargets({
-      local: true,
+      hostname: "localhost",
       sshHost: "devbox",
+      sshUser: "sahil",
       hostApps,
       path: "/p",
     });
-    expect(targets.map((t) => t.id)).toEqual(["host:vscode", "host:iterm"]);
+    expect(targets.map((t) => t.id)).toEqual(["host:code", "host:iterm"]);
     expect(targets.every((t) => t.kind === "host")).toBe(true);
   });
 
-  it("remote with sshHost: deeplinks first, then host escape hatch", () => {
+  it("remote with sshHost: deeplinks embed the alias verbatim, then host escape hatch", () => {
     const targets = buildOpenTargets({
-      local: false,
+      hostname: REMOTE,
       sshHost: "devbox",
+      sshUser: "sahil",
       hostApps,
       path: "/Users/x/proj",
     });
@@ -68,7 +103,7 @@ describe("buildOpenTargets", () => {
       "deeplink:vscode",
       "deeplink:cursor",
       "deeplink:windsurf",
-      "host:vscode",
+      "host:code",
       "host:iterm",
     ]);
     const first = targets[0];
@@ -76,20 +111,44 @@ describe("buildOpenTargets", () => {
     expect(first.url).toBe("vscode://vscode-remote/ssh-remote+devbox/Users/x/proj");
   });
 
-  it("remote without sshHost: deeplink section hidden", () => {
+  it("remote WITHOUT sshHost: deeplinks now shown with the derived user@hostname (260722-fc3b gate change)", () => {
     const targets = buildOpenTargets({
-      local: false,
+      hostname: REMOTE,
       sshHost: "",
+      sshUser: "sahil",
       hostApps,
       path: "/p",
     });
-    expect(targets.map((t) => t.kind)).toEqual(["host", "host"]);
+    expect(targets.map((t) => t.kind)).toEqual([
+      "deeplink",
+      "deeplink",
+      "deeplink",
+      "host",
+      "host",
+    ]);
+    const first = targets[0];
+    if (first.kind !== "deeplink") throw new Error("expected deeplink target");
+    expect(first.url).toBe(`vscode://vscode-remote/ssh-remote+sahil@${REMOTE}/p`);
+  });
+
+  it("remote without sshHost AND empty sshUser: bare-hostname deeplinks", () => {
+    const targets = buildOpenTargets({
+      hostname: REMOTE,
+      sshHost: "",
+      sshUser: "",
+      hostApps: [],
+      path: "/p",
+    });
+    const first = targets[0];
+    if (first.kind !== "deeplink") throw new Error("expected deeplink target");
+    expect(first.url).toBe(`vscode://vscode-remote/ssh-remote+${REMOTE}/p`);
   });
 
   it("empty registry hides the host section", () => {
     const targets = buildOpenTargets({
-      local: false,
+      hostname: REMOTE,
       sshHost: "devbox",
+      sshUser: "sahil",
       hostApps: [],
       path: "/p",
     });
@@ -98,21 +157,34 @@ describe("buildOpenTargets", () => {
 
   it("zero targets when local + empty registry", () => {
     expect(
-      buildOpenTargets({ local: true, sshHost: "devbox", hostApps: [], path: "/p" }),
+      buildOpenTargets({
+        hostname: "localhost",
+        sshHost: "devbox",
+        sshUser: "sahil",
+        hostApps: [],
+        path: "/p",
+      }),
     ).toEqual([]);
   });
 
   it("zero targets when the path is empty (nothing to open)", () => {
     expect(
-      buildOpenTargets({ local: false, sshHost: "devbox", hostApps, path: "" }),
+      buildOpenTargets({ hostname: REMOTE, sshHost: "devbox", sshUser: "", hostApps, path: "" }),
     ).toEqual([]);
   });
 
-  it("host targets carry the raw wt app id for POST /api/open", () => {
-    const targets = buildOpenTargets({ local: true, sshHost: "", hostApps, path: "/p" });
+  it("host targets carry the raw wt app id + kind for POST /api/open and icons", () => {
+    const targets = buildOpenTargets({
+      hostname: "localhost",
+      sshHost: "",
+      sshUser: "",
+      hostApps,
+      path: "/p",
+    });
     const host = targets[0];
     if (host.kind !== "host") throw new Error("expected host target");
-    expect(host.appId).toBe("vscode");
+    expect(host.appId).toBe("code");
+    expect(host.appKind).toBe("editor");
   });
 });
 

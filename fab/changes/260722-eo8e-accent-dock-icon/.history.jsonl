@@ -1,0 +1,14 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-22T09:58:17Z"}
+{"args":"Apply the instance accent color to the PWA app icon (Dock / Cmd-Tab) so run-kit instances are visually distinguishable — dynamic /manifest.json + tinted generated-icons/favicon served from Go, follow-up to 260721-1etw","cmd":"fab-new","event":"command","ts":"2026-07-22T09:58:17Z"}
+{"delta":"+4.2","event":"confidence","score":4.2,"trigger":"calc-score","ts":"2026-07-22T10:00:25Z"}
+{"cmd":"_intake","event":"command","ts":"2026-07-22T10:00:33Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-07-22T10:01:22Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-22T10:02:32Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-22T10:02:32Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-22T10:03:31Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-22T10:34:56Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-22T10:41:47Z"}
+{"event":"review","result":"passed","ts":"2026-07-22T10:41:47Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-22T10:42:20Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-22T10:46:27Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-07-22T10:48:05Z"}

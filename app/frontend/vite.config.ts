@@ -42,6 +42,18 @@ export default defineConfig({
         changeOrigin: true,
         ws: true,
       },
+      // PWA identity assets — served dynamically by the Go backend so the
+      // instance accent can tint the manifest/icons in dev too. `server.proxy`
+      // runs before Vite's public-dir middleware, so these shadow the static
+      // copies in public/.
+      "/manifest.json": {
+        target: `http://127.0.0.1:${(parseInt(process.env.RK_PORT ?? "3000") + 1)}`,
+        changeOrigin: true,
+      },
+      "/generated-icons": {
+        target: `http://127.0.0.1:${(parseInt(process.env.RK_PORT ?? "3000") + 1)}`,
+        changeOrigin: true,
+      },
     },
   },
 });

@@ -152,6 +152,15 @@ type Server struct {
 	// nowFn is a clock seam (defaults to time.Now) so throttle behavior is
 	// deterministically testable without real sleeps.
 	nowFn func() time.Time
+
+	// tintCacheMu guards tintCache.
+	tintCacheMu sync.Mutex
+	// tintCache memoizes accent-tinted PWA assets (see api/pwa.go) keyed
+	// "asset|descriptor". Each entry is a pure function of the fixed stock
+	// bytes + descriptor — a memoization, not persistent state (Constitution
+	// §II) — and the key space is bounded (10 owned families × 4 assets).
+	// Lazily initialized by tintCached.
+	tintCache map[string][]byte
 }
 
 // now returns the server clock, defaulting to time.Now when unseeded (the test
@@ -585,6 +594,16 @@ func (s *Server) buildRouter() chi.Router {
 	// pane relay streams (replaces the retired per-pane GET /relay/{windowId} +
 	// handleRelay; see api/terminals_ws.go).
 	r.Get("/ws/terminals", s.handleTerminalsWS)
+
+	// PWA identity assets — explicit GET routes registered BEFORE the SPA
+	// catch-all so the instance accent (settings.yaml instance_color, read per
+	// request) can tint the manifest, Dock icons, and tab favicon; with no
+	// owned accent these serve the stock bytes byte-identically. See api/pwa.go.
+	r.Get("/manifest.json", s.handleManifest)
+	r.Get("/generated-icons/favicon.svg", s.handleFavicon)
+	r.Get("/generated-icons/icon-192.png", s.handleGeneratedIcon)
+	r.Get("/generated-icons/icon-512.png", s.handleGeneratedIcon)
+	r.Get("/generated-icons/icon-512-maskable.png", s.handleGeneratedIcon)
 
 	// SPA static serving — catch-all, must be last
 	s.mountSPA(r)

@@ -51,15 +51,20 @@ describe("instance color echo", () => {
 });
 
 describe("deriveAccentHexes", () => {
-  it("derives stripe and wash hexes for single and blend descriptors, per theme", () => {
+  it("derives stripe, wash, and titlebar hexes for single and blend descriptors, per theme", () => {
     for (const value of ["4", "1+3"]) {
       for (const theme of [DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME]) {
         const hexes = deriveAccentHexes(value, theme);
         expect(hexes).not.toBeNull();
         expect(hexes?.stripeHex).toMatch(/^#[0-9a-f]{6}$/i);
         expect(hexes?.washHex).toMatch(/^#[0-9a-f]{6}$/i);
+        expect(hexes?.titlebarHex).toMatch(/^#[0-9a-f]{6}$/i);
         // The wash is a near-background blend, never the raw accent.
         expect(hexes?.washHex).not.toBe(hexes?.stripeHex);
+        // The titlebar tint is its own blend — stronger than the wash,
+        // far dimmer than the full-hue stripe.
+        expect(hexes?.titlebarHex).not.toBe(hexes?.stripeHex);
+        expect(hexes?.titlebarHex).not.toBe(hexes?.washHex);
       }
     }
   });
@@ -72,6 +77,7 @@ describe("deriveAccentHexes", () => {
     const dark = deriveAccentHexes("4", DEFAULT_DARK_THEME);
     const light = deriveAccentHexes("4", DEFAULT_LIGHT_THEME);
     expect(dark?.washHex).not.toBe(light?.washHex);
+    expect(dark?.titlebarHex).not.toBe(light?.titlebarHex);
   });
 });
 

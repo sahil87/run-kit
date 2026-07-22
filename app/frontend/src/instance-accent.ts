@@ -30,6 +30,11 @@ export const INSTANCE_COLOR_STORAGE_KEY = "runkit-instance-color";
  *  (intake latitude: ~6-7%; one trivially-tunable constant). */
 export const INSTANCE_WASH_RATIO = 0.065;
 
+/** Ratio of the accent blended into the theme background for the PWA titlebar
+ *  (theme-color meta) tint — mock parity ≈ 12% within the granted ~0.12–0.15
+ *  band; a taste constant, trivially tunable. */
+export const INSTANCE_TITLEBAR_RATIO = 0.12;
+
 export type InstanceColorEcho = { value: string; hex: string };
 
 function isEcho(v: unknown): v is InstanceColorEcho {
@@ -65,20 +70,23 @@ export function writeInstanceColorEcho(echo: InstanceColorEcho | null): void {
 }
 
 /** Theme-derived hexes for the accent surfaces: `stripeHex` is the
- *  contrast-guarded family hex (top-bar stripe, HOST hostname tint, and the
- *  theme-color meta content), `washHex` the subtle top-bar background blend.
- *  Accepts family names and legacy descriptors incl. blends ("1+3") via the
- *  owned-family mapping. Null when the value maps to no owned family. */
+ *  contrast-guarded family hex (top-bar stripe and HOST hostname tint),
+ *  `washHex` the subtle top-bar background blend, and `titlebarHex` the
+ *  slightly stronger blend that becomes the theme-color meta content (the
+ *  installed-PWA titlebar tint — subtle wash above, full-brightness stripe
+ *  below). Accepts family names and legacy descriptors incl. blends ("1+3")
+ *  via the owned-family mapping. Null when the value maps to no owned family. */
 export function deriveAccentHexes(
   value: string,
   theme: Theme,
-): { stripeHex: string; washHex: string } | null {
+): { stripeHex: string; washHex: string; titlebarHex: string } | null {
   const src = colorValueToHex(value, theme.palette);
   if (src == null) return null;
   const bg = theme.palette.background;
   return {
     stripeHex: adjustBorderForContrast(src, bg, theme.category === "dark", BORDER_MIN_CONTRAST),
     washHex: blendHex(src, bg, INSTANCE_WASH_RATIO),
+    titlebarHex: blendHex(src, bg, INSTANCE_TITLEBAR_RATIO),
   };
 }
 

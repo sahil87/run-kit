@@ -3,7 +3,8 @@ import { render, screen, cleanup, waitFor, fireEvent } from "@testing-library/re
 import { ThemeProvider } from "@/contexts/theme-context";
 import { ToastProvider } from "@/components/toast";
 import { InstanceAccentProvider, useInstanceAccent } from "./instance-accent-context";
-import { readInstanceColorEcho, writeInstanceColorEcho } from "@/instance-accent";
+import { readInstanceColorEcho, writeInstanceColorEcho, deriveAccentHexes } from "@/instance-accent";
+import { DEFAULT_DARK_THEME } from "@/themes";
 
 // Mock the API client module so no real HTTP calls happen in tests.
 vi.mock("@/api/client", () => ({
@@ -83,9 +84,13 @@ describe("InstanceAccentProvider resolution chain", () => {
     expect(screen.getByTestId("stripe").textContent).toMatch(/^#[0-9a-f]{6}$/i);
     // Echo rewritten with the authoritative value.
     await waitFor(() => expect(readInstanceColorEcho()?.value).toBe("5"));
-    // Meta carries the accent hex, not the bare background.
+    // Meta carries the subtle titlebar blend (mock parity) — NOT the full-hue
+    // stripe hex — and the echo's hex matches it for the pre-paint script.
     const meta = document.querySelector('meta[name="theme-color"]');
-    expect(meta?.getAttribute("content")).toBe(screen.getByTestId("stripe").textContent);
+    const titlebarHex = deriveAccentHexes("5", DEFAULT_DARK_THEME)?.titlebarHex;
+    expect(meta?.getAttribute("content")).toBe(titlebarHex);
+    expect(meta?.getAttribute("content")).not.toBe(screen.getByTestId("stripe").textContent);
+    expect(readInstanceColorEcho()?.hex).toBe(meta?.getAttribute("content"));
   });
 
   it("defaults to no accent when no explicit color is set (no derived default)", async () => {

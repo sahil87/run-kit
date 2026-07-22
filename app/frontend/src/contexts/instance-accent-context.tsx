@@ -24,8 +24,9 @@ export type InstanceAccent = {
   color: string | null;
   /** True when an explicit instance color is set. */
   isExplicit: boolean;
-  /** Contrast-guarded accent hex — top-bar stripe, HOST hostname tint, and
-   *  the theme-color meta content. Null when no accent is resolved. */
+  /** Contrast-guarded accent hex — top-bar stripe and HOST hostname tint
+   *  (the theme-color meta takes the subtler `titlebarHex` blend instead).
+   *  Null when no accent is resolved. */
   stripeHex: string | null;
   /** Subtle accent-into-background blend for the top-bar wash. */
   washHex: string | null;
@@ -70,11 +71,13 @@ export function InstanceAccentProvider({ children }: { children: React.ReactNode
   );
 
   // Bridge: keep the theme-color meta and the localStorage echo in sync with
-  // the resolved accent under the active theme.
+  // the resolved accent under the active theme. The meta (installed-PWA
+  // titlebar) carries the subtle titlebar blend — NOT the full-hue stripeHex —
+  // so the 2px stripe below the titlebar stays visible (mock parity).
   useEffect(() => {
     if (resolved != null && hexes != null) {
-      setAccentThemeColor(hexes.stripeHex);
-      writeInstanceColorEcho({ value: resolved, hex: hexes.stripeHex });
+      setAccentThemeColor(hexes.titlebarHex);
+      writeInstanceColorEcho({ value: resolved, hex: hexes.titlebarHex });
     } else if (authoritative) {
       setAccentThemeColor(null);
       writeInstanceColorEcho(null);

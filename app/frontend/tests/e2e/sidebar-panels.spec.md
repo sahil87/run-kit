@@ -86,8 +86,9 @@ reload.
 param and both bottom panels used to render empty by construction — the PANE
 panel follows the board's focused tile (resolving the pinned window's
 enriched home-session copy by `windowId` from the sessions stream) and the
-HOST panel falls back to the host-global metrics broadcast, with its dot
-reflecting host-metrics health (260720-zx4i).
+HOST panel falls back to the host-global metrics broadcast (260720-zx4i).
+The HOST header carries no connection dot — the top-bar dot owns that
+signal (260721-1etw).
 
 **Steps:**
 1. Resolve the test session's window id via `tmux list-windows` and pin it
@@ -98,8 +99,8 @@ reflecting host-metrics health (260720-zx4i).
    `No window selected` is absent — the focused-tile fallback filled the
    panel.
 4. Locate the Host outer panel and assert `cpu` (within 8s, first metrics
-   tick) and `mem` rows render, `No metrics` is absent, and the header dot
-   carries `title="SSE connected"` (host-metrics health source).
+   tick) and `mem` rows render, `No metrics` is absent, and no element with
+   an `SSE` title exists (the header connection dot was removed).
 5. `finally`: unpin the window via the API so the shared server carries no
    leftover board.
 

@@ -57,6 +57,23 @@ type Subscription =
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_CAP_MS = 15000;
 
+// Client-side liveness (change 260723-rma2-websocket-liveness). After machine
+// sleep the TCP connection can die silently (half-open): `onclose` never fires
+// and readyState stays OPEN, so the reconnect machinery never runs and the
+// socket is deaf forever. Detection is a client-initiated app-level heartbeat —
+// {op:"ping"} every HEARTBEAT_INTERVAL_MS, answered by {op:"pong"} — where ANY
+// inbound frame counts as proof of life (pongs are not correlated). Silence is
+// judged only against pings actually sent (an outstanding-ping clock), so
+// background-tab timer throttling delaying our OWN pings can never force-close
+// a healthy socket. Protocol-level WS pings cannot do this job: browsers
+// auto-answer them in the network stack, invisibly to JS.
+export const HEARTBEAT_INTERVAL_MS = 30000;
+export const LIVENESS_TIMEOUT_MS = 2 * HEARTBEAT_INTERVAL_MS;
+// Wake probes (visibilitychange→visible / online / pageshow) ping an OPEN
+// socket and force-close it if nothing arrives within this deadline — the
+// sleep/wake fast path that doesn't wait out a full heartbeat interval.
+export const WAKE_PROBE_TIMEOUT_MS = 3000;
+
 /** Build the `/ws/state` URL from the current origin (ws/wss per protocol),
  *  mirroring terminal-client.tsx's relay URL construction. */
 function stateSocketURL(): string {
@@ -88,6 +105,20 @@ export class StateSocket {
   private backoff = RECONNECT_BASE_MS;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private closed = false;
+  // Liveness (260723-rma2). `outstandingPingSince` is the outstanding-ping
+  // clock: set when a ping goes out with no prior ping outstanding, cleared by
+  // ANY inbound frame. A ping outstanding ≥ LIVENESS_TIMEOUT_MS ⇒ the socket is
+  // presumed half-open dead ⇒ forceClose() into the existing reconnect path.
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private outstandingPingSince: number | null = null;
+  private wakeProbeTimer: ReturnType<typeof setTimeout> | null = null;
+  private wakeListenersRegistered = false;
+  private readonly onWakeEvent = () => this.handleWake();
+  private readonly onVisibilityEvent = () => {
+    if (typeof document !== "undefined" && document.visibilityState === "visible") {
+      this.handleWake();
+    }
+  };
 
   constructor(handlers: StateSocketHandlers, connID?: string) {
     this.handlers = handlers;
@@ -102,6 +133,7 @@ export class StateSocket {
    *  no-op. */
   connect(): void {
     if (this.closed) return;
+    this.registerWakeListeners();
     if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
       return;
     }
@@ -116,10 +148,12 @@ export class StateSocket {
       for (const sub of this.subs.values()) {
         this.sendSubscribe(sub);
       }
+      this.startHeartbeat();
       this.handlers.onConnectionChange?.(true);
     };
 
     ws.onmessage = (e: MessageEvent) => {
+      this.noteInbound();
       this.handleFrame(e.data);
     };
 
@@ -131,6 +165,7 @@ export class StateSocket {
       // composition on reconnect (chat is not blindly resubscribed here).
       this.reqToKey.clear();
       this.reqToChatWindow.clear();
+      this.stopHeartbeat();
       this.handlers.onConnectionChange?.(false);
       this.scheduleReconnect();
     };
@@ -142,9 +177,12 @@ export class StateSocket {
     };
   }
 
-  /** Close permanently (tab unload / provider unmount). No reconnect after. */
+  /** Close permanently (tab unload / provider unmount). No reconnect after.
+   *  Also tears down the heartbeat/wake-probe timers and listeners. */
   close(): void {
     this.closed = true;
+    this.removeWakeListeners();
+    this.stopHeartbeat();
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -257,6 +295,123 @@ export class StateSocket {
       this.reconnectTimer = null;
       this.connect();
     }, delay);
+  }
+
+  // --- Liveness: heartbeat + wake probes (260723-rma2) ----------------------
+
+  /** Record proof of life: ANY inbound frame clears the outstanding-ping clock
+   *  and cancels a pending wake-probe deadline (pongs are not correlated —
+   *  events/acks/gone/error all count). */
+  private noteInbound(): void {
+    this.outstandingPingSince = null;
+    if (this.wakeProbeTimer) {
+      clearTimeout(this.wakeProbeTimer);
+      this.wakeProbeTimer = null;
+    }
+  }
+
+  private startHeartbeat(): void {
+    if (this.heartbeatTimer) return;
+    this.outstandingPingSince = null;
+    this.heartbeatTimer = setInterval(() => this.heartbeatTick(), HEARTBEAT_INTERVAL_MS);
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+    this.outstandingPingSince = null;
+    if (this.wakeProbeTimer) {
+      clearTimeout(this.wakeProbeTimer);
+      this.wakeProbeTimer = null;
+    }
+  }
+
+  /** One heartbeat tick: enforce liveness against the outstanding ping, then
+   *  send this tick's ping. The clock starts only when a ping ACTUALLY goes out
+   *  (hidden-tab guard: browser timer throttling delaying our own pings can
+   *  never force-close a healthy socket — a live server answers whenever the
+   *  ping is finally sent, and any inbound frame clears the clock). */
+  private heartbeatTick(): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    if (
+      this.outstandingPingSince !== null &&
+      Date.now() - this.outstandingPingSince >= LIVENESS_TIMEOUT_MS
+    ) {
+      this.forceClose();
+      return;
+    }
+    this.sendPing();
+  }
+
+  /** Send a liveness ping, starting the outstanding-ping clock if no ping is
+   *  already outstanding (the clock tracks the OLDEST unanswered ping). */
+  private sendPing(): void {
+    this.send({ op: "ping" });
+    if (this.outstandingPingSince === null) {
+      this.outstandingPingSince = Date.now();
+    }
+  }
+
+  /** Force-close a presumed half-open dead socket so the EXISTING reconnect
+   *  machinery takes over. Deliberately distinct from public close(): it does
+   *  NOT set `closed` and does NOT null `ws.onclose` — a local ws.close() fires
+   *  `onclose` client-side even when the TCP peer is gone, which drives cleanup
+   *  + scheduleReconnect() + blind resubscribe. */
+  private forceClose(): void {
+    if (this.closed || !this.ws) return;
+    this.ws.close();
+  }
+
+  /** Wake probe (visibilitychange→visible / online / pageshow). A pending
+   *  reconnect backoff timer fires immediately with backoff reset to base
+   *  (waking mid-backoff must not wait out the 15s cap); an OPEN socket gets a
+   *  probe ping with a short deadline — any inbound frame cancels it, silence
+   *  force-closes into the reconnect path. */
+  private handleWake(): void {
+    if (this.closed) return;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+      this.backoff = RECONNECT_BASE_MS;
+      this.connect();
+      return;
+    }
+    if (this.ws && this.ws.readyState === WebSocket.OPEN && !this.wakeProbeTimer) {
+      this.sendPing();
+      this.wakeProbeTimer = setTimeout(() => {
+        this.wakeProbeTimer = null;
+        this.forceClose();
+      }, WAKE_PROBE_TIMEOUT_MS);
+    }
+  }
+
+  /** Register the instance-owned wake-probe listeners (idempotent; removed on
+   *  permanent close()). Environment-guarded — jsdom test stubs and non-browser
+   *  contexts without addEventListener are silently skipped. */
+  private registerWakeListeners(): void {
+    if (this.wakeListenersRegistered) return;
+    if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
+      document.addEventListener("visibilitychange", this.onVisibilityEvent);
+    }
+    if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+      window.addEventListener("online", this.onWakeEvent);
+      window.addEventListener("pageshow", this.onWakeEvent);
+    }
+    this.wakeListenersRegistered = true;
+  }
+
+  private removeWakeListeners(): void {
+    if (!this.wakeListenersRegistered) return;
+    if (typeof document !== "undefined" && typeof document.removeEventListener === "function") {
+      document.removeEventListener("visibilitychange", this.onVisibilityEvent);
+    }
+    if (typeof window !== "undefined" && typeof window.removeEventListener === "function") {
+      window.removeEventListener("online", this.onWakeEvent);
+      window.removeEventListener("pageshow", this.onWakeEvent);
+    }
+    this.wakeListenersRegistered = false;
   }
 
   private handleFrame(raw: string): void {

@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { RelayMux } from "./relay-mux";
+import {
+  RelayMux,
+  HEARTBEAT_INTERVAL_MS,
+  LIVENESS_TIMEOUT_MS,
+  WAKE_PROBE_TIMEOUT_MS,
+} from "./relay-mux";
 
 // MockWebSocket — the terminals-mux transport. Captures the client's frames
 // (JSON control text + binary `[u32 BE id][payload]` data) and lets tests drive
@@ -34,7 +39,11 @@ class MockWebSocket {
     else this.sentBinary.push(data);
   }
   close() {
+    // A local close() fires the close event (as real browsers do — even when
+    // the TCP peer is gone). Callers that must suppress the reconnect path
+    // (mux.close()) null onclose before calling close(), same as production.
     this.readyState = MockWebSocket.CLOSED;
+    this.onclose?.();
   }
   // Test drivers ---------------------------------------------------------
   /** Push a JSON control frame server→client. */
@@ -257,5 +266,204 @@ describe("RelayMux reconnect", () => {
     await vi.runAllTicks();
     expect(MockWebSocket.instances).toHaveLength(1); // no reconnect
     mux.close();
+  });
+});
+
+// Liveness: heartbeat + wake probes (260723-rma2). The heartbeat is stream-
+// gated (socket OPEN and ≥1 live stream). This block stubs a window that DOES
+// carry addEventListener (unlike the minimal stub above, which proves the
+// environment guard) so the wake-probe listeners register and events can be
+// dispatched. visibilitychange rides jsdom's real document.
+describe("RelayMux liveness + wake probes", () => {
+  // An EventTarget-backed window stub so the mux's window listeners
+  // (online/pageshow) register and can be dispatched.
+  let windowTarget: EventTarget;
+
+  beforeEach(() => {
+    MockWebSocket.instances = [];
+    vi.useFakeTimers();
+    vi.stubGlobal("WebSocket", MockWebSocket);
+    windowTarget = new EventTarget();
+    vi.stubGlobal("window", {
+      location: { protocol: "http:", host: "localhost:3000" },
+      addEventListener: windowTarget.addEventListener.bind(windowTarget),
+      removeEventListener: windowTarget.removeEventListener.bind(windowTarget),
+    });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("heartbeats {op:\"ping\"} while a stream is live and stops when the last stream closes", async () => {
+    const mux = new RelayMux();
+    const s = mux.openStream({ server: "default", windowId: "@1", cols: 80, rows: 24 });
+    await vi.runAllTicks(); // onopen → stream-gated heartbeat starts
+    const ws = MockWebSocket.instances[0];
+
+    vi.advanceTimersByTime(HEARTBEAT_INTERVAL_MS);
+    expect(controlsOfOp(ws, "ping")).toHaveLength(1);
+
+    // Closing the last stream stops the heartbeat — the idle socket is never
+    // pinged (and never reconnected by liveness).
+    s.close();
+    vi.advanceTimersByTime(3 * HEARTBEAT_INTERVAL_MS);
+    expect(controlsOfOp(ws, "ping")).toHaveLength(1); // no further pings
+    mux.close();
+  });
+
+  it("binary data frames count as liveness — a busy terminal with unanswered pings never force-closes", async () => {
+    const mux = new RelayMux();
+    mux.openStream({ server: "default", windowId: "@1", cols: 80, rows: 24 });
+    await vi.runAllTicks();
+    const ws = MockWebSocket.instances[0];
+
+    for (let i = 0; i < 3; i++) {
+      vi.advanceTimersByTime(HEARTBEAT_INTERVAL_MS);
+      ws.emitData(1, new TextEncoder().encode("output")); // data, never a pong
+    }
+    vi.advanceTimersByTime(HEARTBEAT_INTERVAL_MS);
+
+    expect(ws.readyState).toBe(MockWebSocket.OPEN);
+    expect(MockWebSocket.instances).toHaveLength(1); // no reconnect
+    mux.close();
+  });
+
+  it("silence past LIVENESS_TIMEOUT_MS force-closes and the reconnect re-issues open for live streams", async () => {
+    const mux = new RelayMux();
+    mux.openStream({ server: "default", windowId: "@3", cols: 80, rows: 24 });
+    await vi.runAllTicks();
+    const ws = MockWebSocket.instances[0];
+
+    // Tick 1 pings (outstanding clock starts); tick 2 within timeout; tick 3
+    // sees outstanding ≥ LIVENESS_TIMEOUT_MS → force-close.
+    vi.advanceTimersByTime(HEARTBEAT_INTERVAL_MS);
+    vi.advanceTimersByTime(HEARTBEAT_INTERVAL_MS);
+    expect(ws.readyState).toBe(MockWebSocket.OPEN);
+    vi.advanceTimersByTime(HEARTBEAT_INTERVAL_MS);
+    expect(ws.readyState).toBe(MockWebSocket.CLOSED);
+
+    // forceClose did NOT set `closed` — the existing reconnect path re-opens
+    // the live stream on a fresh socket.
+    vi.advanceTimersByTime(1000);
+    await vi.runAllTicks();
+    expect(MockWebSocket.instances).toHaveLength(2);
+    const reopen = controlsOfOp(MockWebSocket.instances[1], "open");
+    expect(reopen).toHaveLength(1);
+    expect(reopen[0]).toMatchObject({ id: 1, windowId: "@3" });
+    mux.close();
+  });
+
+  it("an id-less {op:\"pong\"} is swallowed before the stream-id guard (no stream callback)", async () => {
+    const mux = new RelayMux();
+    const s = mux.openStream({ server: "default", windowId: "@1", cols: 80, rows: 24 });
+    await vi.runAllTicks();
+    const ws = MockWebSocket.instances[0];
+
+    const closed: number[] = [];
+    let opened = 0;
+    s.onClosed((code) => closed.push(code));
+    s.onOpened(() => opened++);
+
+    ws.emitControl({ op: "pong" }); // no id — must not throw or hit a stream
+    expect(closed).toHaveLength(0);
+    expect(opened).toBe(0);
+
+    // And it counts as liveness: an outstanding ping answered only by pongs
+    // never force-closes.
+    for (let i = 0; i < 3; i++) {
+      vi.advanceTimersByTime(HEARTBEAT_INTERVAL_MS);
+      ws.emitControl({ op: "pong" });
+    }
+    expect(ws.readyState).toBe(MockWebSocket.OPEN);
+    mux.close();
+  });
+
+  it("wake probes no-op for an idle mux (zero streams, no socket) — never resurrects the socket", async () => {
+    const mux = new RelayMux();
+    const s = mux.openStream({ server: "default", windowId: "@1", cols: 80, rows: 24 });
+    await vi.runAllTicks();
+    const ws = MockWebSocket.instances[0];
+
+    // Idle: last stream closed, then the socket drops → scheduleReconnect's
+    // zero-stream branch deliberately leaves it closed.
+    s.close();
+    ws.drop();
+    expect(MockWebSocket.instances).toHaveLength(1);
+
+    windowTarget.dispatchEvent(new Event("online"));
+    windowTarget.dispatchEvent(new Event("pageshow"));
+    document.dispatchEvent(new Event("visibilitychange"));
+    vi.advanceTimersByTime(LIVENESS_TIMEOUT_MS);
+
+    expect(MockWebSocket.instances).toHaveLength(1); // still no socket
+    mux.close();
+  });
+
+  it("wake probe pings an OPEN socket and force-closes on deadline silence; inbound data cancels it", async () => {
+    const mux = new RelayMux();
+    mux.openStream({ server: "default", windowId: "@1", cols: 80, rows: 24 });
+    await vi.runAllTicks();
+    const ws = MockWebSocket.instances[0];
+
+    // Probe answered by a data frame → alive, no close.
+    windowTarget.dispatchEvent(new Event("online"));
+    expect(controlsOfOp(ws, "ping")).toHaveLength(1);
+    ws.emitData(1, new TextEncoder().encode("x"));
+    vi.advanceTimersByTime(WAKE_PROBE_TIMEOUT_MS + 1000);
+    expect(ws.readyState).toBe(MockWebSocket.OPEN);
+
+    // Probe with dead silence → force-close → reconnect re-opens the stream.
+    windowTarget.dispatchEvent(new Event("pageshow"));
+    expect(controlsOfOp(ws, "ping")).toHaveLength(2);
+    vi.advanceTimersByTime(WAKE_PROBE_TIMEOUT_MS);
+    expect(ws.readyState).toBe(MockWebSocket.CLOSED);
+    vi.advanceTimersByTime(1000);
+    await vi.runAllTicks();
+    expect(MockWebSocket.instances).toHaveLength(2);
+    mux.close();
+  });
+
+  it("wake probe fires a pending reconnect timer immediately with backoff reset to base", async () => {
+    const mux = new RelayMux();
+    mux.openStream({ server: "default", windowId: "@1", cols: 80, rows: 24 });
+    await vi.runAllTicks();
+
+    // Two drops grow the backoff (1s spent; next delay 2s).
+    MockWebSocket.instances[0].drop();
+    vi.advanceTimersByTime(1000);
+    await vi.runAllTicks();
+    expect(MockWebSocket.instances).toHaveLength(2);
+    MockWebSocket.instances[1].drop();
+
+    // Mid-backoff wake: reconnects NOW (no timer advance) with backoff reset.
+    windowTarget.dispatchEvent(new Event("online"));
+    expect(MockWebSocket.instances).toHaveLength(3);
+    await vi.runAllTicks();
+
+    // Backoff was reset: the next drop reconnects after the 1s base, not 4s.
+    MockWebSocket.instances[2].drop();
+    vi.advanceTimersByTime(999);
+    expect(MockWebSocket.instances).toHaveLength(3);
+    vi.advanceTimersByTime(1);
+    expect(MockWebSocket.instances).toHaveLength(4);
+    mux.close();
+  });
+
+  it("close() tears down the heartbeat and wake-probe listeners permanently", async () => {
+    const mux = new RelayMux();
+    mux.openStream({ server: "default", windowId: "@1", cols: 80, rows: 24 });
+    await vi.runAllTicks();
+    const ws = MockWebSocket.instances[0];
+
+    mux.close();
+    vi.advanceTimersByTime(3 * HEARTBEAT_INTERVAL_MS);
+    expect(controlsOfOp(ws, "ping")).toHaveLength(0);
+
+    windowTarget.dispatchEvent(new Event("online"));
+    document.dispatchEvent(new Event("visibilitychange"));
+    vi.advanceTimersByTime(LIVENESS_TIMEOUT_MS);
+    expect(MockWebSocket.instances).toHaveLength(1); // no reconnect, no probe socket
   });
 });

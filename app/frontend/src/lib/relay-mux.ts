@@ -63,6 +63,21 @@ type StreamState = {
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_CAP_MS = 30000;
 
+// Client-side liveness (change 260723-rma2-websocket-liveness), mirroring
+// state-socket.ts. After machine sleep the TCP connection can die silently
+// (half-open): `onclose` never fires and readyState stays OPEN, so the
+// reconnect machinery never runs. Detection is a client-initiated app-level
+// heartbeat — {op:"ping"} / {op:"pong"} as JSON control ops carrying NO stream
+// id — where ANY inbound frame (binary data AND text control both) counts as
+// proof of life, so a busy terminal never needs a pong. Silence is judged only
+// against pings actually sent (an outstanding-ping clock), immune to
+// background-tab timer throttling. The heartbeat runs only while the socket is
+// open AND ≥1 live stream exists — it never resurrects the deliberately-closed
+// idle socket.
+export const HEARTBEAT_INTERVAL_MS = 30000;
+export const LIVENESS_TIMEOUT_MS = 2 * HEARTBEAT_INTERVAL_MS;
+export const WAKE_PROBE_TIMEOUT_MS = 3000;
+
 /** Build the `/ws/terminals` URL from the current origin (ws/wss per protocol),
  *  mirroring state-socket.ts's stateSocketURL(). */
 function terminalsSocketURL(): string {
@@ -85,6 +100,21 @@ export class RelayMux {
   private backoff = RECONNECT_BASE_MS;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private closed = false;
+  // Liveness (260723-rma2), mirroring state-socket.ts: `outstandingPingSince`
+  // is set when a ping goes out with no prior ping outstanding and cleared by
+  // ANY inbound frame; outstanding ≥ LIVENESS_TIMEOUT_MS ⇒ forceClose() into
+  // the existing reconnect path. The heartbeat is stream-gated (OPEN ∧
+  // streams.size > 0) via syncHeartbeat().
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private outstandingPingSince: number | null = null;
+  private wakeProbeTimer: ReturnType<typeof setTimeout> | null = null;
+  private wakeListenersRegistered = false;
+  private readonly onWakeEvent = () => this.handleWake();
+  private readonly onVisibilityEvent = () => {
+    if (typeof document !== "undefined" && document.visibilityState === "visible") {
+      this.handleWake();
+    }
+  };
 
   /** Open a new pane stream. Idempotently connects the socket on first use. */
   openStream(opts: OpenStreamOpts): RelayStream {
@@ -96,6 +126,9 @@ export class RelayMux {
     // If the socket is already open, issue the open op now; otherwise it is
     // (re)issued in ws.onopen for every live stream.
     this.sendOpen(state);
+    // First stream on an already-open socket restarts the stream-gated
+    // heartbeat (onopen handles the fresh-connect case).
+    this.syncHeartbeat();
 
     return {
       send: (data) => this.sendData(id, data),
@@ -131,9 +164,12 @@ export class RelayMux {
     };
   }
 
-  /** Permanently close the mux (tab unload). No reconnect after. */
+  /** Permanently close the mux (tab unload). No reconnect after. Also tears
+   *  down the heartbeat/wake-probe timers and listeners. */
   close(): void {
     this.closed = true;
+    this.removeWakeListeners();
+    this.stopHeartbeat();
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -154,6 +190,7 @@ export class RelayMux {
 
   private connect(): void {
     if (this.closed) return;
+    this.registerWakeListeners();
     if (
       this.ws &&
       (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)
@@ -173,9 +210,13 @@ export class RelayMux {
       for (const s of this.streams.values()) {
         this.sendOpen(s);
       }
+      this.syncHeartbeat();
     };
 
     ws.onmessage = (e: MessageEvent) => {
+      // ANY inbound frame — binary data or text control — is proof of life
+      // (a busy terminal never needs a pong to prove liveness).
+      this.noteInbound();
       if (typeof e.data === "string") {
         this.handleControl(e.data);
       } else {
@@ -184,6 +225,7 @@ export class RelayMux {
     };
 
     ws.onclose = () => {
+      this.stopHeartbeat();
       this.scheduleReconnect();
     };
 
@@ -208,6 +250,130 @@ export class RelayMux {
     }, delay);
   }
 
+  // --- Liveness: heartbeat + wake probes (260723-rma2) ----------------------
+
+  /** Record proof of life: ANY inbound frame clears the outstanding-ping clock
+   *  and cancels a pending wake-probe deadline. */
+  private noteInbound(): void {
+    this.outstandingPingSince = null;
+    if (this.wakeProbeTimer) {
+      clearTimeout(this.wakeProbeTimer);
+      this.wakeProbeTimer = null;
+    }
+  }
+
+  /** Reconcile the stream-gated heartbeat with the current state: running iff
+   *  the socket is OPEN and ≥1 live stream exists. Idempotent — called from
+   *  every gate transition (onopen, openStream, closeStream, a stream-level
+   *  `closed`, onclose, close()). Never connects a closed socket. */
+  private syncHeartbeat(): void {
+    const shouldRun =
+      !this.closed && this.ws !== null && this.ws.readyState === WebSocket.OPEN && this.streams.size > 0;
+    if (shouldRun && !this.heartbeatTimer) {
+      this.outstandingPingSince = null;
+      this.heartbeatTimer = setInterval(() => this.heartbeatTick(), HEARTBEAT_INTERVAL_MS);
+    } else if (!shouldRun && this.heartbeatTimer) {
+      this.stopHeartbeat();
+    }
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+    this.outstandingPingSince = null;
+    if (this.wakeProbeTimer) {
+      clearTimeout(this.wakeProbeTimer);
+      this.wakeProbeTimer = null;
+    }
+  }
+
+  /** One heartbeat tick: enforce liveness against the outstanding ping, then
+   *  send this tick's ping. The clock starts only when a ping ACTUALLY goes out
+   *  (hidden-tab guard — timer throttling delaying our own pings can never
+   *  force-close a healthy socket) and any inbound frame clears it. */
+  private heartbeatTick(): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || this.streams.size === 0) return;
+    if (
+      this.outstandingPingSince !== null &&
+      Date.now() - this.outstandingPingSince >= LIVENESS_TIMEOUT_MS
+    ) {
+      this.forceClose();
+      return;
+    }
+    this.sendPing();
+  }
+
+  /** Send a liveness ping (a JSON control op with NO stream id), starting the
+   *  outstanding-ping clock if none is outstanding. */
+  private sendPing(): void {
+    this.sendControl({ op: "ping" });
+    if (this.outstandingPingSince === null) {
+      this.outstandingPingSince = Date.now();
+    }
+  }
+
+  /** Force-close a presumed half-open dead socket so the EXISTING reconnect
+   *  machinery takes over. Distinct from public close(): does NOT set `closed`
+   *  and does NOT null `ws.onclose` — a local ws.close() fires `onclose`
+   *  client-side even when the TCP peer is gone, driving scheduleReconnect()
+   *  and the re-`open` of every live stream. */
+  private forceClose(): void {
+    if (this.closed || !this.ws) return;
+    this.ws.close();
+  }
+
+  /** Wake probe (visibilitychange→visible / online / pageshow). No-ops with
+   *  zero live streams — the idle socket deliberately stays closed and is never
+   *  resurrected. Otherwise: a pending reconnect timer fires immediately with
+   *  backoff reset to base; an OPEN socket gets a probe ping with a short
+   *  deadline (any inbound frame cancels; silence force-closes). */
+  private handleWake(): void {
+    if (this.closed || this.streams.size === 0) return;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+      this.backoff = RECONNECT_BASE_MS;
+      this.connect();
+      return;
+    }
+    if (this.ws && this.ws.readyState === WebSocket.OPEN && !this.wakeProbeTimer) {
+      this.sendPing();
+      this.wakeProbeTimer = setTimeout(() => {
+        this.wakeProbeTimer = null;
+        this.forceClose();
+      }, WAKE_PROBE_TIMEOUT_MS);
+    }
+  }
+
+  /** Register the instance-owned wake-probe listeners (idempotent; removed on
+   *  permanent close()). Environment-guarded — test stubs and non-browser
+   *  contexts without addEventListener are silently skipped. */
+  private registerWakeListeners(): void {
+    if (this.wakeListenersRegistered) return;
+    if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
+      document.addEventListener("visibilitychange", this.onVisibilityEvent);
+    }
+    if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+      window.addEventListener("online", this.onWakeEvent);
+      window.addEventListener("pageshow", this.onWakeEvent);
+    }
+    this.wakeListenersRegistered = true;
+  }
+
+  private removeWakeListeners(): void {
+    if (!this.wakeListenersRegistered) return;
+    if (typeof document !== "undefined" && typeof document.removeEventListener === "function") {
+      document.removeEventListener("visibilitychange", this.onVisibilityEvent);
+    }
+    if (typeof window !== "undefined" && typeof window.removeEventListener === "function") {
+      window.removeEventListener("online", this.onWakeEvent);
+      window.removeEventListener("pageshow", this.onWakeEvent);
+    }
+    this.wakeListenersRegistered = false;
+  }
+
   private sendOpen(s: StreamState): void {
     this.sendControl({
       op: "open",
@@ -224,6 +390,9 @@ export class RelayMux {
     if (!s) return;
     this.streams.delete(id);
     this.sendControl({ op: "close", id });
+    // Last stream gone ⇒ the stream-gated heartbeat stops (the idle socket is
+    // deliberately left alone).
+    this.syncHeartbeat();
   }
 
   private sendControl(msg: Record<string, unknown>): void {
@@ -254,6 +423,10 @@ export class RelayMux {
     } catch {
       return; // malformed control frame — skip
     }
+    // The id-less `pong` control op MUST be handled before the stream-id guard
+    // below (it addresses the socket, not a stream). The liveness bookkeeping
+    // already happened in onmessage (any frame counts) — just swallow it.
+    if (msg.op === "pong") return;
     if (typeof msg.id !== "number") return;
     const s = this.streams.get(msg.id);
     if (!s) return;
@@ -267,6 +440,8 @@ export class RelayMux {
         // re-open it (unlike a socket-level drop, handled in ws.onopen).
         this.streams.delete(msg.id);
         s.onClosed?.(typeof msg.code === "number" ? msg.code : 1000, msg.reason ?? "closed");
+        // The stream-gated heartbeat stops when the last stream retires.
+        this.syncHeartbeat();
         break;
       }
       default:

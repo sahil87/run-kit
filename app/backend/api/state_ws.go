@@ -34,6 +34,13 @@ const (
 	opSubscribe    = "subscribe"
 	opUnsubscribe  = "unsubscribe"
 	opPreviewScope = "preview-scope"
+	// opPing is the client's application-level liveness probe (change
+	// 260723-rma2). The client heartbeats {op:"ping"} every ~30s and treats ANY
+	// inbound frame as proof of life; the server answers {op:"pong"}. Protocol-
+	// level WS pings cannot serve this purpose — browsers auto-answer them in
+	// the network stack, invisibly to JS, so only a client-initiated app-level
+	// ping lets the CLIENT detect a half-open (silently dead) TCP connection.
+	opPing = "ping"
 )
 
 // State-socket subscription kinds. `server` is a per-tmux-server subscription
@@ -110,6 +117,14 @@ type errorFrame struct {
 	Op      string `json:"op"` // "error"
 	Req     int64  `json:"req"`
 	Message string `json:"message"`
+}
+
+// pongFrame answers a client `ping` (change 260723-rma2). The same shape serves
+// both muxed sockets: `/ws/state` here and the id-less `/ws/terminals` control
+// pong (terminals_ws.go). Pongs are not correlated — the client counts ANY
+// inbound frame as liveness — so the frame carries nothing but the op.
+type pongFrame struct {
+	Op string `json:"op"` // "pong"
 }
 
 // hubEvent is the structured unit the hub's producers fan out to each
@@ -282,6 +297,19 @@ func (s *Server) handleStateWS(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 			hub.setPreviewScope(msg.Server, sc.connID, msg.Expanded)
+		case opPing:
+			// Client liveness probe — reply {op:"pong"} through the send channel so
+			// ONLY the writer pump ever writes to the socket (gorilla forbids
+			// concurrent writes). Best-effort non-blocking enqueue (mirrors the
+			// unknown-op error path): a full channel means event frames are already
+			// flowing, and any inbound frame counts as liveness client-side, so a
+			// dropped pong is harmless.
+			if b, e := json.Marshal(pongFrame{Op: "pong"}); e == nil {
+				select {
+				case sc.ch <- hubEvent{raw: b}:
+				default:
+				}
+			}
 		case opHello:
 			// A second hello is a no-op (idempotent); ignore.
 		default:

@@ -661,3 +661,73 @@ func TestStateWS_SubscribeAckNotStaleUnderPollInterleave(t *testing.T) {
 		hub.dropStateConn(sc)
 	}
 }
+
+// TestStateWS_PingRepliesPong proves the client's application-level liveness
+// probe (260723-rma2): after hello, a {"op":"ping"} frame is answered with
+// {"op":"pong"} through the writer pump, and the connection stays live (a
+// subsequent subscribe still acks).
+func TestStateWS_PingRepliesPong(t *testing.T) {
+	router := newTestRouter(&slowSessionFetcher{}, &mockTmuxOps{})
+	srv := httptest.NewServer(router)
+	defer srv.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws/state"
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn, _, err := websocket.DefaultDialer.DialContext(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+
+	if err := conn.WriteJSON(clientMsg{Op: opHello, Conn: "conn-ping"}); err != nil {
+		t.Fatalf("write hello: %v", err)
+	}
+	if err := conn.WriteJSON(clientMsg{Op: opPing}); err != nil {
+		t.Fatalf("write ping: %v", err)
+	}
+
+	// Read frames until the pong arrives (global slot replays may arrive first).
+	// A ping must NOT draw an `error` frame — it is a known op now.
+	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	gotPong := false
+	for !gotPong {
+		_, raw, err := conn.ReadMessage()
+		if err != nil {
+			t.Fatalf("read (no pong seen): %v", err)
+		}
+		var m map[string]json.RawMessage
+		if json.Unmarshal(raw, &m) != nil {
+			continue
+		}
+		switch rawStr(m, "op") {
+		case "pong":
+			gotPong = true
+		case "error":
+			t.Fatalf("ping drew an error frame: %s", raw)
+		}
+	}
+
+	// The connection stays live: a subscribe after the ping still acks.
+	if err := conn.WriteJSON(clientMsg{Op: opSubscribe, Kind: kindServer, Key: "default", Req: 7}); err != nil {
+		t.Fatalf("write subscribe: %v", err)
+	}
+	gotAck := false
+	for !gotAck {
+		_, raw, err := conn.ReadMessage()
+		if err != nil {
+			t.Fatalf("read (no ack seen): %v", err)
+		}
+		var m map[string]json.RawMessage
+		if json.Unmarshal(raw, &m) != nil {
+			continue
+		}
+		if rawStr(m, "op") == "ack" {
+			var req int64
+			_ = json.Unmarshal(m["req"], &req)
+			if req == 7 {
+				gotAck = true
+			}
+		}
+	}
+}

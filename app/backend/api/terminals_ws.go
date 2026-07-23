@@ -267,6 +267,14 @@ func (s *Server) handleTerminalsWS(w http.ResponseWriter, r *http.Request) {
 			tc.resizeStream(ctl.ID, ctl.Cols, ctl.Rows)
 		case "close":
 			tc.closeStream(ctl.ID, closeNormal, "closed")
+		case "ping":
+			// Client liveness probe (change 260723-rma2): an app-level ping/pong
+			// control op carrying NO stream id. Reply {op:"pong"} through the
+			// reserved control pseudo-stream so the single writer performs the
+			// write (gorilla forbids concurrent writes) with short-frame priority.
+			if b, e := json.Marshal(pongFrame{Op: "pong"}); e == nil {
+				tc.enqueueControl(b)
+			}
 		default:
 			// Unknown op — ignore (forward-compat; the socket stays live).
 		}

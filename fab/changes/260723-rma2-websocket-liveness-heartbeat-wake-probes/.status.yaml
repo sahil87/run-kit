@@ -1,0 +1,55 @@
+id: rma2
+name: 260723-rma2-websocket-liveness-heartbeat-wake-probes
+created: 2026-07-23T01:53:54Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 11
+    acceptance_count: 19
+    acceptance_completed: 19
+confidence:
+    certain: 6
+    confident: 6
+    tentative: 0
+    unresolved: 0
+    score: 4.3
+    fuzzy: true
+    dimensions:
+        signal: 77.1
+        reversibility: 82.1
+        competence: 83.3
+        disambiguation: 77.9
+stage_metrics:
+    intake: {started_at: "2026-07-23T01:53:54Z", driver: fab-new, iterations: 1, completed_at: "2026-07-23T01:59:23Z"}
+    apply: {started_at: "2026-07-23T01:59:23Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-23T02:17:44Z"}
+    review: {started_at: "2026-07-23T02:17:44Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-23T02:23:59Z"}
+    hydrate: {started_at: "2026-07-23T02:23:59Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-23T02:28:53Z"}
+    ship: {started_at: "2026-07-23T02:28:53Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-07-23T02:28:53Z"
+    computed_at_stage: hydrate
+summary: Add client-initiated WebSocket heartbeat (op:ping/pong), any-frame liveness force-close-into-reconnect, and visibilitychange/online/pageshow wake probes to the /ws/state socket and /ws/terminals relay mux (server pongs ride each handler's single writer).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-07-23T02:28:53Z

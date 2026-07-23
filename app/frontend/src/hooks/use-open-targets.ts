@@ -1,15 +1,17 @@
-import { useEffect, useState } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 import { getHealth, getOpenApps, type OpenApp } from "@/api/client";
 
 /**
  * The Open button's bootstrap data: the host's optional SSH alias
- * (RK_SSH_HOST) plus the derived daemon username (both riding GET
- * /api/health) and the wt host-app registry (GET /api/open-apps). All are
- * effectively static per page load, so they are fetched ONCE per page load
- * through a module-level cache and shared by every consumer (the TopBar
- * registry entry AND the palette builder in app.tsx) — no client polling
- * (state changes arrive by reload, matching the registry's change cadence),
- * no TopBar prop churn.
+ * (settings-first, else RK_SSH_HOST) plus the derived daemon username (both
+ * riding GET /api/health) and the wt host-app registry (GET /api/open-apps).
+ * The bundle is fetched ONCE and held in a small module-level external store
+ * shared by every consumer (the TopBar registry entry AND the palette builder
+ * in app.tsx) — no client polling, no per-render refetching, no TopBar prop
+ * churn. The context is static BETWEEN settings commits: the ONE runtime seam
+ * where it changes is the Settings dialog's successful SSH-host commit, which
+ * calls `invalidateOpenContext()` to refresh it (mounted consumers re-render
+ * with the fresh data — no reload needed).
  */
 export type OpenContext = {
   sshHost: string;
@@ -21,14 +23,35 @@ export type OpenContext = {
 
 const EMPTY: OpenContext = { sshHost: "", sshUser: "", hostApps: [] };
 
-/** Module-level cache: resolved context after the first successful fetch. */
+/** Resolved context after the last successful fetch (null ⇒ needs a fetch). */
 let cached: OpenContext | null = null;
-/** In-flight fetch, shared by concurrent first consumers. */
+/** In-flight fetch, shared by concurrent consumers. */
 let pending: Promise<OpenContext> | null = null;
+/** Bumped on invalidation — a fetch started before the bump resolves stale
+ *  and must not write the cache (the rapid-double-commit race). */
+let epoch = 0;
+/** Mounted-consumer notifiers (useSyncExternalStore subscriptions). */
+const listeners = new Set<() => void>();
+
+function subscribe(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+function getSnapshot(): OpenContext {
+  return cached ?? EMPTY;
+}
+
+function notify(): void {
+  for (const listener of listeners) listener();
+}
 
 function fetchOpenContext(): Promise<OpenContext> {
   if (cached) return Promise.resolve(cached);
   if (!pending) {
+    const fetchedAt = epoch;
     pending = Promise.all([
       // Both halves are individually fail-silent: a failing health read means
       // "no sshHost" (deeplinks hidden), never a thrown error — the Open
@@ -37,18 +60,44 @@ function fetchOpenContext(): Promise<OpenContext> {
       getOpenApps(), // fail-silent [] internally
     ])
       .then(([health, hostApps]) => {
-        cached = { sshHost: health.sshHost ?? "", sshUser: health.sshUser ?? "", hostApps };
-        return cached;
+        const ctx: OpenContext = {
+          sshHost: health.sshHost ?? "",
+          sshUser: health.sshUser ?? "",
+          hostApps,
+        };
+        // Discard a result fetched before an invalidation — it predates the
+        // settings commit that invalidated it, so caching it would resurrect
+        // exactly the stale value the invalidation dropped.
+        if (epoch === fetchedAt) {
+          cached = ctx;
+          notify();
+        }
+        return cached ?? ctx;
       })
       .finally(() => {
-        pending = null;
+        if (epoch === fetchedAt) pending = null;
       });
   }
   return pending;
 }
 
-/** Test-only: drop the module cache so each test starts cold. */
+/**
+ * Drop the cached open context and refresh it. Called at the ONE seam where
+ * the data changes at runtime — the Settings dialog's successful SSH-host
+ * commit. With mounted consumers the bundle is eagerly refetched and pushed
+ * to them when it resolves; with none, the stale cache is simply dropped so
+ * the next `useOpenTargets(true)` mount fetches fresh.
+ */
+export function invalidateOpenContext(): void {
+  epoch += 1;
+  cached = null;
+  pending = null;
+  if (listeners.size > 0) void fetchOpenContext();
+}
+
+/** Test-only: drop the module store so each test starts cold. */
 export function resetOpenTargetsCacheForTest(): void {
+  epoch += 1;
   cached = null;
   pending = null;
 }
@@ -59,18 +108,12 @@ export function resetOpenTargetsCacheForTest(): void {
  * consumer already populated the cache.
  */
 export function useOpenTargets(enabled: boolean): OpenContext {
-  const [ctx, setCtx] = useState<OpenContext>(cached ?? EMPTY);
+  const ctx = useSyncExternalStore(subscribe, getSnapshot);
 
   useEffect(() => {
     if (!enabled || cached) return;
-    let alive = true;
-    fetchOpenContext().then((data) => {
-      if (alive) setCtx(data);
-    });
-    return () => {
-      alive = false;
-    };
+    void fetchOpenContext();
   }, [enabled]);
 
-  return cached ?? ctx;
+  return ctx;
 }

@@ -9,6 +9,7 @@ import { useChromeState, useChromeDispatch, TERMINAL_FONT_BOUNDS } from "@/conte
 import { useTheme, useThemeActions } from "@/contexts/theme-context";
 import { THEMES } from "@/themes";
 import { getSSHHost, setSSHHost } from "@/api/client";
+import { invalidateOpenContext } from "@/hooks/use-open-targets";
 
 /**
  * VS Code-style settings dialog (260723-o7q8), rendered ONCE in `AppLayout`
@@ -346,6 +347,11 @@ function SettingsDialogBody({ onClose }: { onClose: () => void }) {
             commit={async (trimmed) => {
               await setSSHHost(trimmed === "" ? null : trimmed);
               setSSHHostState(trimmed);
+              // The Open control's cached context embeds the SSH host in
+              // editor deeplinks — refresh it at the one seam where it
+              // changes. Success only: a rejected commit left the server
+              // value unchanged, so the cache is still correct.
+              invalidateOpenContext();
             }}
           />
           <AccentColorControl />

@@ -126,6 +126,7 @@ Unit tests MUST cover the added/changed behavior: `themes.test.ts` (new marker c
 ### Phase 4: Verification
 
 - [x] T012 Run the gates: `just test-backend`, `cd app/frontend && npx tsc --noEmit`, `just test-frontend`, scoped e2e `just pw test window-marker-gutter`, then `just build` <!-- R8 -->
+- [x] T013 `app/backend/internal/icontint/icontint.go` (+ test): extend the frozen accent-hex map to the widened vocabulary — `familyHexByLegacy` → `familyHexByValue` (30 entries: 10 legacy + 10 family names + 10 `-dark` hexes at mean-L − 0.14) so `Resolve` tints the PWA dock icon/favicon for family-name and dark-shade instance accents (integration gap vs main's #449 settings dialog, which reuses `SwatchPopover` for the accent picker; found post-rebase) <!-- R6 -->
 
 ## Execution Order
 

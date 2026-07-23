@@ -63,8 +63,9 @@ describe("SwatchPopover", () => {
     renderWithTheme(<SwatchPopover onSelect={onSelect} onClose={onClose} />);
 
     const options = screen.getAllByRole("option");
-    // 20 family/shade swatches + 1 Clear color button
-    expect(options).toHaveLength(21);
+    // 20 family/shade swatches + Clear + the ✕ close cell (an
+    // option-as-command, keeping the listbox's children ARIA-valid)
+    expect(options).toHaveLength(22);
   });
 
   it("renders a swatch for every family/shade value", () => {
@@ -215,11 +216,13 @@ describe("SwatchPopover", () => {
       expect(clear.parentElement!.className).toContain("grid-cols-4");
       fireEvent.click(clear);
       expect(onSelect).toHaveBeenCalledWith(null);
-      // The ✕ close cell fills the freed col 4 — an 18px action cell, NOT an
-      // option (it selects nothing; role=option would inflate option counts).
+      // The ✕ close cell fills the freed col 4 — an 18px option-as-command
+      // (role=option keeps the listbox's children ARIA-valid; it is never
+      // aria-selected, matching Clear's existing option-as-command pattern).
       const close = screen.getByLabelText("Close picker");
       expect(close.className).toContain("w-[18px]");
-      expect(close.getAttribute("role")).toBeNull();
+      expect(close.getAttribute("role")).toBe("option");
+      expect(close.getAttribute("aria-selected")).toBe("false");
     });
   });
 
@@ -465,8 +468,8 @@ describe("SwatchPopover", () => {
       const { container } = renderWithTheme(
         <SwatchPopover onSelect={onSelect} onClose={onClose} />,
       );
-      // Color-only: 20 swatches + Clear color = 21 options, no marker cells.
-      expect(screen.getAllByRole("option")).toHaveLength(21);
+      // Color-only: 20 swatches + Clear + ✕ = 22 options, no marker cells.
+      expect(screen.getAllByRole("option")).toHaveLength(22);
       expect(screen.queryByRole("option", { name: /^Marker / })).toBeNull();
       // No vertical hairline divider.
       expect(container.querySelector(".w-px")).toBeNull();
@@ -475,8 +478,8 @@ describe("SwatchPopover", () => {
 
     it("renders 6 marker cells (none + the 5 states in display order) beside a vertical hairline", () => {
       const { container } = renderLabelPicker();
-      // 20 color swatches + Clear color + 6 marker cells = 27 options.
-      expect(screen.getAllByRole("option")).toHaveLength(27);
+      // 20 color swatches + Clear + ✕ + 6 marker cells = 28 options.
+      expect(screen.getAllByRole("option")).toHaveLength(28);
       for (const state of ["none", "dotted", "dashed", "solid", "double", "thick"]) {
         expect(screen.getByRole("option", { name: `Marker ${state}` })).toBeTruthy();
       }

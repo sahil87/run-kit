@@ -382,9 +382,13 @@ export function SwatchPopover({
           >
             Clear
           </button>
-          {/* ✕ — the explicit dismiss. NOT role=option (it selects nothing);
-              Escape and outside-click remain the other two close paths. */}
+          {/* ✕ — the explicit dismiss. role=option (never aria-selected) so
+              the listbox holds only ARIA-valid children — an option-as-command,
+              the same pattern Clear already uses. Escape and outside-click
+              remain the other two close paths. */}
           <button
+            role="option"
+            aria-selected={false}
             aria-label="Close picker"
             onClick={onClose}
             className={`w-[18px] h-[18px] text-[10px] text-text-secondary hover:text-text-primary transition-colors flex items-center justify-center ${

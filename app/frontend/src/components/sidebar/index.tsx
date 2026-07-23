@@ -904,6 +904,43 @@ export function Sidebar({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rovingKey, rowsVersion]);
 
+  // Desktop autoscroll: bring the selected window row into view when the
+  // selection identity (`${server}:${windowId}`) changes — click, palette, or
+  // deep link. Scroll-only: NO focus() (stealing focus on navigation would
+  // break terminal typing — the mobile drawer effect above focuses only to
+  // beat the focus trap's first-focus) and NO rovingKey write, so roving/focus
+  // state is untouched (trivially preserving the Wave-2 #262 invariant).
+  //
+  // Deep-link retry: on a direct URL load the route resolves before SSE data
+  // lands, so the row may not exist yet. `pendingScrollKeyRef` arms when the
+  // selection identity changes and clears once the row is found and scrolled;
+  // `rowsVersion` (bumped ONLY on visible-row SET changes, never on passive
+  // SSE activity ticks) re-runs the attempt. One scroll per selection change —
+  // a passive SSE tick can neither re-run this effect nor re-arm the ref.
+  // A collapsed group keeps the row out of the DOM: no scroll, no auto-expand
+  // (expanding would fight the user's explicit collapse); the armed ref then
+  // completes the one deferred scroll if the row later appears.
+  const selectionKey =
+    currentServer !== null && currentWindowId !== null
+      ? `${currentServer}:${currentWindowId}`
+      : null;
+  const pendingScrollKeyRef = useRef<string | null>(null);
+  const lastSelectionKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (selectionKey !== lastSelectionKeyRef.current) {
+      lastSelectionKeyRef.current = selectionKey;
+      pendingScrollKeyRef.current = selectionKey; // null selection disarms
+    }
+    if (pendingScrollKeyRef.current === null) return;
+    // Same scoped selector as the mobile drawer effect: the selected window
+    // row's button carries aria-current="page" under a [data-window-id]
+    // wrapper; the active BoardsSection row (no such ancestor) is excluded.
+    const row = navRef.current?.querySelector<HTMLElement>('[data-window-id] [aria-current="page"]');
+    if (!row) return; // not rendered yet (SSE pending / collapsed group) — retry on rowsVersion
+    pendingScrollKeyRef.current = null;
+    if (typeof row.scrollIntoView === "function") row.scrollIntoView({ block: "nearest" });
+  }, [selectionKey, rowsVersion]);
+
   // Move the roving cursor to the row at `nextIndex` in the visible-rows list,
   // updating both the key (drives `tabIndex`) and DOM focus.
   const moveRovingTo = useCallback((rows: HTMLElement[], nextIndex: number) => {

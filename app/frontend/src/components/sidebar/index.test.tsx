@@ -1205,7 +1205,7 @@ describe("Sidebar — server-group header action cluster (x4sf)", () => {
     expect(document.body.contains(popover)).toBe(true);
   });
 
-  it("a swatch pick funnels through the shared seam: optimistic tint repaint + POST, then closes", async () => {
+  it("a swatch pick funnels through the shared seam: optimistic tint repaint + POST, popover stays open (live toggling)", async () => {
     await renderWithColors({}); // alpha starts uncolored (gray sentinel)
 
     const container = headerContainer("alpha");
@@ -1220,10 +1220,14 @@ describe("Sidebar — server-group header action cluster (x4sf)", () => {
     // (non-current ⇒ base shade) without waiting for any poll.
     expect(vi.mocked(setServerColor)).toHaveBeenCalledExactlyOnceWith("alpha", "4");
     expect(container.style.backgroundColor).toBe(rgb(tints.get("4")!.base));
+    // Selection does NOT dismiss (the picker's dismissal contract) — the ✕
+    // cell is the explicit close, so tint combos can be compared live.
+    expect(screen.getByRole("listbox", { name: "Color picker" })).toBeInTheDocument();
+    fireEvent.click(within(popover).getByLabelText("Close picker"));
     expect(screen.queryByRole("listbox", { name: "Color picker" })).not.toBeInTheDocument();
   });
 
-  it("Clear color clears the optimistic entry back to the gray sentinel and POSTs null", async () => {
+  it("Clear clears the optimistic entry back to the gray sentinel and POSTs null", async () => {
     await renderWithColors({ alpha: "4" });
 
     const container = headerContainer("alpha");
@@ -1232,7 +1236,7 @@ describe("Sidebar — server-group header action cluster (x4sf)", () => {
     fireEvent.click(within(container).getByRole("button", { name: "Set color for server alpha" }));
     fireEvent.click(
       within(screen.getByRole("listbox", { name: "Color picker" })).getByRole("option", {
-        name: "Clear color",
+        name: "Clear",
       }),
     );
 

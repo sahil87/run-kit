@@ -233,10 +233,8 @@ function AccentColorControl() {
           <div className="absolute left-0 top-full mt-1 z-50">
             <SwatchPopover
               selectedColor={isExplicit && color != null ? color : undefined}
-              onSelect={(c) => {
-                setColor(c);
-                setShowPicker(false);
-              }}
+              // Selection does NOT close (the picker's dismissal contract).
+              onSelect={(c) => setColor(c)}
               onClose={() => setShowPicker(false)}
             />
           </div>

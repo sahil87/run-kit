@@ -267,6 +267,7 @@ function WindowRowInner({
   // Thick pairs with the STATIC hazard wedge (completed / "taped off" cue) —
   // never animated in any state, unlike double's selected crawl.
   const isThick = marker === "thick";
+  const isDashed = marker === "dashed";
 
   return (
     <div
@@ -301,7 +302,9 @@ function WindowRowInner({
       onDrop={dragEnabled && onDrop ? (e) => onDrop(e, srv, session, win.index) : undefined}
       onDragEnd={dragEnabled ? onDragEnd : undefined}
       style={{
-        ...(isDouble || isThick ? ({ "--rk-marker-color": markerColor } as React.CSSProperties) : {}),
+        ...(isDouble || isThick || isDashed
+          ? ({ "--rk-marker-color": markerColor } as React.CSSProperties)
+          : {}),
         ...(isDragOver ? { boxShadow: "0 -2px 0 0 var(--color-accent)" } : {}),
       }}
     >
@@ -329,6 +332,19 @@ function WindowRowInner({
         <div
           aria-hidden="true"
           className="absolute inset-0 z-[5] overflow-hidden pointer-events-none rk-hazard"
+        />
+      )}
+      {/* Data-rain overlay for SELECTED dashed-marker rows (the working
+          marker's selection flourish — the dashed twin of double's scanline
+          crawl): two sparse dash tracks streaming left→right. Mounted only
+          while selected (the rain is motion-only, so there is no rest form);
+          the gutter stripe itself stays static in every state. Same overlay
+          discipline (dedicated clipped inner element, never the root,
+          pointer-events-none, z-5); reads `--rk-marker-color` from the root. */}
+      {isDashed && isSelected && (
+        <div
+          aria-hidden="true"
+          className="absolute inset-0 z-[5] overflow-hidden pointer-events-none rk-dash-rain"
         />
       )}
       {labelZoneEnabled && (
@@ -461,15 +477,12 @@ function WindowRowInner({
         <div className="absolute left-0 top-full z-50">
           <SwatchPopover
             selectedColor={color}
-            onSelect={(c) => {
-              onColorChange(srv, session, win.windowId, c);
-              setShowLabelPicker(false);
-            }}
+            // Selection does NOT close (the picker's dismissal contract) — the
+            // user can toggle color + marker combos and watch the row update
+            // live. Dismissal is the picker's ✕ / outside click / Escape.
+            onSelect={(c) => onColorChange(srv, session, win.windowId, c)}
             selectedMarker={marker}
-            onSelectMarker={(m) => {
-              onMarkerChange(srv, session, win.windowId, m === "" ? null : m);
-              setShowLabelPicker(false);
-            }}
+            onSelectMarker={(m) => onMarkerChange(srv, session, win.windowId, m === "" ? null : m)}
             onClose={() => setShowLabelPicker(false)}
           />
         </div>
@@ -545,7 +558,9 @@ function LabelZone({ marker, markerColor, colored, hover, onEnter, onLeave, onCl
       />
       {/* Display-only marker stripe, anchored `STRIPE_EDGE_INSET`px from the
           zone's (= the sidebar's) left edge. Rendered BEFORE the icon container
-          so the hover icon paints on top where the two overlap. */}
+          so the hover icon paints on top where the two overlap. ALWAYS static —
+          the dashed marker's motion lives on the row's data-rain overlay
+          (globals.css § Dashed-marker data rain), never on the stripe. */}
       {stripeStyle && (
         <div
           className="absolute inset-y-0"

@@ -443,6 +443,46 @@ summary {
   mask-image: linear-gradient(to right, #000, transparent 38%);
 }
 
+/* ── Dashed-marker data rain (260723, SELECTION-ONLY) ────────────────────────
+   A SELECTED window row whose left-gutter marker is `dashed` carries a "data
+   rain": two sparse 1px dash tracks streaming LEFT→RIGHT across the row's
+   full width in the guarded marker color (--rk-marker-color) — the working
+   marker's selection flourish (the dashed twin of the double marker's
+   scanline crawl). The overlay is MOUNTED ONLY while the row is selected
+   (window-row.tsx gates on `isDashed && isSelected`); the gutter stripe
+   itself stays static in every state.
+
+   Each track is a horizontal dash gradient with its own rhythm (7/29 on a
+   36px period at y 8px; 5/23 on a 28px period at y 16px), so the lanes drift
+   at different speeds and read as rain rather than a marquee. SEAMLESS LOOP:
+   each layer's tile is ONE FIXED PERIOD wide (36px/28px — never "100%", which
+   makes the tile element-width-dependent and snaps at the loop boundary), and
+   the keyframes displace each layer by an integer multiple of its own period
+   (72 = 2×36, 56 = 2×28), so the cycle point is invisible.
+   background-position only — never transform (the drag-ghost rule). The
+   picker's marker preview cells never carry it.
+
+   ORDER MATTERS: precedes the reduced-motion block so its override wins by
+   source order (the rain is motion-only and hides entirely there — the static
+   label cue is the dashed stripe itself, which always remains). */
+@keyframes rk-dash-rain {
+  from { background-position: 0 8px, 0 16px; }
+  to { background-position: 72px 8px, 56px 16px; }
+}
+.rk-dash-rain::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, var(--rk-marker-color) 22%, transparent) 0 7px, transparent 7px 36px),
+    linear-gradient(to right, color-mix(in srgb, var(--rk-marker-color) 16%, transparent) 0 5px, transparent 5px 28px);
+  background-size: 36px 1px, 28px 1px;
+  background-repeat: repeat-x, repeat-x;
+  background-position: 0 8px, 0 16px;
+  animation: rk-dash-rain 2.8s linear infinite;
+}
+
 /* Reduced-motion gate — disable EVERY treatment above (Parts A and B). The
    decode scramble is skipped in JS (top-bar.tsx reads the same media query). */
 @media (prefers-reduced-motion: reduce) {
@@ -469,6 +509,9 @@ summary {
   .rk-scanlines-crawl::after { animation: none; display: none; }
   /* Thick-marker hazard wedge (.rk-hazard): static in every state by design —
      nothing to zero here; listed so the reduced-motion audit stays complete. */
+  /* Dashed-marker data rain: motion-only overlay — hidden entirely (the
+     static label cue is the dashed stripe itself, which always remains). */
+  .rk-dash-rain::before { animation: none; display: none; }
 }
 
 /* Prevent iOS Safari page scroll/bounce — fullbleed always on in single-view. */

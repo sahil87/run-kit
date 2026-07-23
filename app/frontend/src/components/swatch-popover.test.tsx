@@ -63,8 +63,9 @@ describe("SwatchPopover", () => {
     renderWithTheme(<SwatchPopover onSelect={onSelect} onClose={onClose} />);
 
     const options = screen.getAllByRole("option");
-    // 20 family/shade swatches + 1 Clear color button
-    expect(options).toHaveLength(21);
+    // 20 family/shade swatches + Clear + the ✕ close cell (an
+    // option-as-command, keeping the listbox's children ARIA-valid)
+    expect(options).toHaveLength(22);
   });
 
   it("renders a swatch for every family/shade value", () => {
@@ -152,14 +153,14 @@ describe("SwatchPopover", () => {
     expect(legacyOf("green")).toBe("2");
   });
 
-  it("calls onSelect with null when Clear color clicked", () => {
+  it("calls onSelect with null when Clear clicked", () => {
     const onSelect = vi.fn();
     const onClose = vi.fn();
     renderWithTheme(
       <SwatchPopover selectedColor="blue" onSelect={onSelect} onClose={onClose} />,
     );
 
-    fireEvent.click(screen.getByText("Clear color"));
+    fireEvent.click(screen.getByText("Clear"));
     expect(onSelect).toHaveBeenCalledWith(null);
   });
 
@@ -205,16 +206,82 @@ describe("SwatchPopover", () => {
       expect(swatch.className).toContain("h-[18px]");
     });
 
-    it("Clear color is a full-width first row spanning the 4 color columns (no col-span-2 corner cell)", () => {
+    it("the removal row is Clear (spanning cols 1–3) beside the ✕ close cell (col 4)", () => {
       const onSelect = vi.fn();
       const onClose = vi.fn();
       renderWithTheme(<SwatchPopover onSelect={onSelect} onClose={onClose} />);
-      const clear = screen.getByText("Clear color");
-      expect(clear.className).toContain("col-span-4");
-      // The color grid itself is 4-wide (rows of 4/4/2 below the removal row).
+      const clear = screen.getByText("Clear");
+      expect(clear.className).toContain("col-span-3");
+      // The color grid itself is 4-wide below the removal row.
       expect(clear.parentElement!.className).toContain("grid-cols-4");
       fireEvent.click(clear);
       expect(onSelect).toHaveBeenCalledWith(null);
+      // The ✕ close cell fills the freed col 4 — an 18px option-as-command
+      // (role=option keeps the listbox's children ARIA-valid; it is never
+      // aria-selected, matching Clear's existing option-as-command pattern).
+      const close = screen.getByLabelText("Close picker");
+      expect(close.className).toContain("w-[18px]");
+      expect(close.getAttribute("role")).toBe("option");
+      expect(close.getAttribute("aria-selected")).toBe("false");
+    });
+  });
+
+  // ── Dismissal model: selection never closes; ✕ / outside / Escape do. ──
+  describe("dismissal model", () => {
+    it("selection NEVER closes: swatch, Clear, and marker picks leave onClose uncalled", () => {
+      const onSelect = vi.fn();
+      const onSelectMarker = vi.fn();
+      const onClose = vi.fn();
+      renderWithTheme(
+        <SwatchPopover onSelect={onSelect} onSelectMarker={onSelectMarker} onClose={onClose} />,
+      );
+      fireEvent.click(screen.getByRole("option", { name: "Color blue" }));
+      fireEvent.click(screen.getByRole("option", { name: "Color blue-dark" }));
+      fireEvent.click(screen.getByRole("option", { name: "Marker thick" }));
+      fireEvent.click(screen.getByText("Clear"));
+      expect(onSelect).toHaveBeenCalledTimes(3);
+      expect(onSelectMarker).toHaveBeenCalledTimes(1);
+      expect(onClose).not.toHaveBeenCalled();
+    });
+
+    it("clicking the ✕ cell closes", () => {
+      const onSelect = vi.fn();
+      const onClose = vi.fn();
+      renderWithTheme(<SwatchPopover onSelect={onSelect} onClose={onClose} />);
+      fireEvent.click(screen.getByLabelText("Close picker"));
+      expect(onClose).toHaveBeenCalledOnce();
+      expect(onSelect).not.toHaveBeenCalled();
+    });
+
+    it("keyboard: ArrowRight from Clear reaches ✕ (Enter closes); ArrowLeft returns to Clear", () => {
+      const onSelect = vi.fn();
+      const onClose = vi.fn();
+      renderWithTheme(<SwatchPopover onSelect={onSelect} onClose={onClose} />);
+      const listbox = screen.getByRole("listbox");
+      // Uncolored initial focus = Clear (0,1). ArrowRight jumps the spanning
+      // target straight to the ✕ (0,4).
+      fireEvent.keyDown(listbox, { key: "ArrowRight" });
+      fireEvent.keyDown(listbox, { key: "ArrowLeft" }); // back on Clear
+      fireEvent.keyDown(listbox, { key: "Enter" });
+      expect(onSelect).toHaveBeenLastCalledWith(null);
+      expect(onClose).not.toHaveBeenCalled();
+      fireEvent.keyDown(listbox, { key: "ArrowRight" });
+      fireEvent.keyDown(listbox, { key: "Enter" });
+      expect(onClose).toHaveBeenCalledOnce();
+    });
+
+    it("keyboard: ArrowUp from a col-4 swatch lands on the ✕, not Clear", () => {
+      const onSelect = vi.fn();
+      const onClose = vi.fn();
+      renderWithTheme(<SwatchPopover onSelect={onSelect} onClose={onClose} />);
+      const listbox = screen.getByRole("listbox");
+      // Clear (0,1) → (1,1) → walk to (1,4), then ArrowUp → ✕ (0,4).
+      fireEvent.keyDown(listbox, { key: "ArrowDown" });
+      for (let i = 0; i < 3; i++) fireEvent.keyDown(listbox, { key: "ArrowRight" });
+      fireEvent.keyDown(listbox, { key: "ArrowUp" });
+      fireEvent.keyDown(listbox, { key: "Enter" });
+      expect(onClose).toHaveBeenCalledOnce();
+      expect(onSelect).not.toHaveBeenCalled();
     });
   });
 
@@ -240,11 +307,11 @@ describe("SwatchPopover", () => {
       expect(listbox.querySelectorAll(".ring-text-secondary")).toHaveLength(1);
     });
 
-    it("the uncolored state highlights Clear color as selected (bright ring), not any swatch", () => {
+    it("the uncolored state highlights Clear as selected (bright ring), not any swatch", () => {
       const onSelect = vi.fn();
       const onClose = vi.fn();
       renderWithTheme(<SwatchPopover onSelect={onSelect} onClose={onClose} />);
-      const clear = screen.getByText("Clear color");
+      const clear = screen.getByText("Clear");
       expect(clear.getAttribute("aria-selected")).toBe("true");
       expect(clear.className).toContain("ring-text-primary");
       // No color swatch carries the selection ring.
@@ -401,8 +468,8 @@ describe("SwatchPopover", () => {
       const { container } = renderWithTheme(
         <SwatchPopover onSelect={onSelect} onClose={onClose} />,
       );
-      // Color-only: 20 swatches + Clear color = 21 options, no marker cells.
-      expect(screen.getAllByRole("option")).toHaveLength(21);
+      // Color-only: 20 swatches + Clear + ✕ = 22 options, no marker cells.
+      expect(screen.getAllByRole("option")).toHaveLength(22);
       expect(screen.queryByRole("option", { name: /^Marker / })).toBeNull();
       // No vertical hairline divider.
       expect(container.querySelector(".w-px")).toBeNull();
@@ -411,8 +478,8 @@ describe("SwatchPopover", () => {
 
     it("renders 6 marker cells (none + the 5 states in display order) beside a vertical hairline", () => {
       const { container } = renderLabelPicker();
-      // 20 color swatches + Clear color + 6 marker cells = 27 options.
-      expect(screen.getAllByRole("option")).toHaveLength(27);
+      // 20 color swatches + Clear + ✕ + 6 marker cells = 28 options.
+      expect(screen.getAllByRole("option")).toHaveLength(28);
       for (const state of ["none", "dotted", "dashed", "solid", "double", "thick"]) {
         expect(screen.getByRole("option", { name: `Marker ${state}` })).toBeTruthy();
       }
@@ -516,10 +583,10 @@ describe("SwatchPopover", () => {
       fireEvent.click(screen.getByRole("option", { name: "Color blue-dark" }));
       expect(onSelect).toHaveBeenCalledWith("blue-dark");
       // The preview column repaints from the pick, without any parent
-      // re-render (the caller may close the popover on pick).
+      // re-render (the popover stays open — live toggling is the point).
       expect(dotted.style.backgroundColor).toBe(rgb(tints.get("blue-dark")!.base));
-      // Clear color reverts the previews to the gray sentinel.
-      fireEvent.click(screen.getByText("Clear color"));
+      // Clear reverts the previews to the gray sentinel.
+      fireEvent.click(screen.getByText("Clear"));
       expect(dotted.style.backgroundColor).toBe(rgb(tints.get(UNCOLORED_SELECTED_KEY)!.base));
     });
 
@@ -538,8 +605,10 @@ describe("SwatchPopover", () => {
         screen.getByRole("option", { name: "Marker solid" }).querySelector(".rk-hazard, .rk-scanlines"),
       ).toBeNull();
       // NEVER animated — even with double SELECTED, the crawl class is absent
-      // everywhere in the picker (motion belongs to real rows only).
+      // everywhere in the picker, and the dashed preview never carries the
+      // data-rain overlay (motion belongs to real rows only).
       expect(listbox.querySelector(".rk-scanlines-crawl")).toBeNull();
+      expect(listbox.querySelector(".rk-dash-rain")).toBeNull();
     });
 
     it("ArrowLeft crosses the hairline into the marker column; ArrowUp/Down move within it", () => {
@@ -602,8 +671,9 @@ describe("SwatchPopover", () => {
       const swatch = screen.getByRole("option", { name: "Color orange" });
       expect(swatch.className).toContain("w-[18px]");
       expect(swatch.className).toContain("h-[18px]");
-      // Clear color spans the 4 color columns of the removal row.
-      expect(screen.getByText("Clear color").className).toContain("col-span-4");
+      // Clear spans cols 1–3 of the removal row, beside the ✕ close cell.
+      expect(screen.getByText("Clear").className).toContain("col-span-3");
+      expect(screen.getByLabelText("Close picker")).toBeTruthy();
     });
   });
 });

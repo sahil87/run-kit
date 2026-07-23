@@ -1774,10 +1774,8 @@ function ServerGroupInner(props: ServerGroupProps) {
           >
             <SwatchPopover
               selectedColor={serverColor}
-              onSelect={(c) => {
-                onServerColorChange(server, c);
-                setShowColorPicker(false);
-              }}
+              // Selection does NOT close (the picker's dismissal contract).
+              onSelect={(c) => onServerColorChange(server, c)}
               onClose={() => setShowColorPicker(false)}
             />
           </div>,

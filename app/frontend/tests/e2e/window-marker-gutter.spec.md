@@ -7,10 +7,12 @@ marker state (5-state closed set: dotted/dashed/solid/double/thick) persists via
 the `@rk_marker` window option; picking a NORMAL-shade color persists via
 `@color` in the legacy vocabulary (`familyToLegacy` write seam) while a
 DARK-shade color persists as the verbatim `{family}-dark` value (no legacy form
-exists); the zone click does not select the row (`stopPropagation`); and
-selecting a colored window renders a real family tint (deep-tint background +
-bold text) with NO left border (the axis split removed the 4px selection
-border).
+exists); the picker STAYS OPEN across picks (the dismissal contract — selection
+never closes; the ✕ cell, an outside click, or Escape dismisses), so combos are
+toggled live in one open session; the zone click does not select the row
+(`stopPropagation`); and selecting a colored window renders a real family tint
+(deep-tint background + bold text) with NO left border (the axis split removed
+the 4px selection border).
 
 ## Shared setup
 
@@ -42,24 +44,29 @@ border).
 
 **What it proves:** The left-edge zone opens the combined picker (not a cycle);
 picking a marker state directly persists it as `@rk_marker`, ANY state is
-reachable in one pick (no stepping through intermediate states), and the two
+reachable in one pick (no stepping through intermediate states), the two
 260723-wwoi additions (`dashed` = "working", `thick` = "completed") round-trip
-through the widened backend closed set exactly like the original three.
+through the widened backend closed set exactly like the original three, and the
+picker stays open across every pick (one open session), closing only via the ✕
+cell.
 
 **Steps:**
 1. Create `marker-win-<ts>` via `execSync`.
 2. Navigate to `/${TMUX_SERVER}` and wait for `Connected`.
 3. `resolveWindow` the window; assert its row is visible and its marker is empty.
 4. Click the row's `Set window label` zone; assert the `Label picker` listbox is
-   visible.
+   visible. (The picker is opened ONCE — all following picks happen inside this
+   one open session.)
 5. Click the `Marker solid` option; `expectMarker` → `solid`.
-6. Re-open the picker; click `Marker double`; `expectMarker` → `double` (reached
-   directly, not by cycling through intermediate states).
-7. Re-open the picker; click `Marker dashed`; `expectMarker` → `dashed` (new
-   state persists through the widened closed set).
-8. Re-open the picker; click `Marker thick`; `expectMarker` → `thick` (the
-   hazard-wedge pairing's state persists too).
-9. Re-open the picker; click `Marker none`; `expectMarker` → `` (cleared).
+6. Click `Marker double`; `expectMarker` → `double` (reached directly, not by
+   cycling through intermediate states).
+7. Click `Marker dashed`; `expectMarker` → `dashed` (new state persists through
+   the widened closed set).
+8. Click `Marker thick`; `expectMarker` → `thick` (the hazard-wedge pairing's
+   state persists too).
+9. Click `Marker none`; `expectMarker` → `` (cleared) — the picker is still
+   open.
+10. Click the `Close picker` (✕) cell; assert the listbox is no longer visible.
 
 ### `picking a color persists via @color — normal shade through the legacy seam, dark shade verbatim`
 
@@ -77,8 +84,9 @@ verbatim `orange-dark` value: dark shades have no legacy form and the backend's
    visible.
 4. Click the `Color orange` option (`exact: true` — `Color orange-dark` sits
    beside it in the paired grid); `expectColor` → `1+3`.
-5. Re-open the picker; click `Color orange-dark` (`exact: true`); `expectColor`
-   → `orange-dark`.
+5. In the SAME open session (the picker stays open after a pick), click
+   `Color orange-dark` (`exact: true`); `expectColor` → `orange-dark`.
+6. Click the `Close picker` (✕) cell; assert the listbox is no longer visible.
 
 ### `clicking the label zone does not select the row (stopPropagation)`
 

@@ -7,7 +7,9 @@ import { HostMetricsProvider, MetricsProvider, StandaloneSessionContextProvider 
 import { FocusedPaneProvider, useRegisterFocusedPane, type FocusedPane } from "@/contexts/focused-pane-context";
 import { ThemeProvider } from "@/contexts/theme-context";
 import { InstanceAccentValueProvider, type InstanceAccent } from "@/contexts/instance-accent-context";
+import { InstanceNameValueProvider, type InstanceName } from "@/contexts/instance-name-context";
 import { ChromeProvider } from "@/contexts/chrome-context";
+import { SettingsDialogProvider } from "@/contexts/settings-dialog-context";
 import { ToastProvider } from "@/components/toast";
 import { useWindowStore } from "@/store/window-store";
 import { getAllServerColors, setServerColor } from "@/api/client";
@@ -27,6 +29,15 @@ const NULL_ACCENT: InstanceAccent = {
   stripeHex: null,
   washHex: null,
   setColor: () => {},
+};
+
+// HostPanel also consumes the instance-name context (o7q8); inject a static
+// empty value so these tests need no fetching provider.
+const NULL_NAME: InstanceName = {
+  hostname: "",
+  instanceName: null,
+  displayName: "",
+  setInstanceName: () => {},
 };
 
 
@@ -119,6 +130,7 @@ function renderSidebar(opts: RenderOpts = {}) {
   const tree = (
     <ThemeProvider>
       <InstanceAccentValueProvider value={NULL_ACCENT}>
+      <InstanceNameValueProvider value={NULL_NAME}>
       <ToastProvider>
         <OptimisticProvider>
           <StandaloneSessionContextProvider
@@ -140,16 +152,18 @@ function renderSidebar(opts: RenderOpts = {}) {
                     <FocusedPaneRegistrant pane={opts.focusedPane} />
                   )}
                   <ChromeProvider>
-                    <Sidebar
-                      currentServer={currentServer}
-                      currentSession={currentServer ? "main" : null}
-                      currentWindowId={currentServer ? "@0" : null}
-                      onSelectWindow={vi.fn()}
-                      onCreateWindow={vi.fn()}
-                      onCreateSession={vi.fn()}
-                      onCreateServer={vi.fn()}
-                      onKillServer={opts.onKillServer ?? vi.fn()}
-                    />
+                    <SettingsDialogProvider>
+                      <Sidebar
+                        currentServer={currentServer}
+                        currentSession={currentServer ? "main" : null}
+                        currentWindowId={currentServer ? "@0" : null}
+                        onSelectWindow={vi.fn()}
+                        onCreateWindow={vi.fn()}
+                        onCreateSession={vi.fn()}
+                        onCreateServer={vi.fn()}
+                        onKillServer={opts.onKillServer ?? vi.fn()}
+                      />
+                    </SettingsDialogProvider>
                   </ChromeProvider>
                 </FocusedPaneProvider>
               </HostMetricsProvider>
@@ -157,6 +171,7 @@ function renderSidebar(opts: RenderOpts = {}) {
           </StandaloneSessionContextProvider>
         </OptimisticProvider>
       </ToastProvider>
+      </InstanceNameValueProvider>
     </InstanceAccentValueProvider>
     </ThemeProvider>
   );
@@ -440,6 +455,7 @@ describe("Sidebar — tree ARIA + roving keyboard navigation (wt1v)", () => {
     return (
       <ThemeProvider>
         <InstanceAccentValueProvider value={NULL_ACCENT}>
+        <InstanceNameValueProvider value={NULL_NAME}>
         <ToastProvider>
           <OptimisticProvider>
             <StandaloneSessionContextProvider
@@ -457,6 +473,7 @@ describe("Sidebar — tree ARIA + roving keyboard navigation (wt1v)", () => {
                 <HostMetricsProvider value={null}>
                   <FocusedPaneProvider>
                     <ChromeProvider>
+                      <SettingsDialogProvider>
                       <Sidebar
                         currentServer="primary"
                         currentSession="main"
@@ -467,6 +484,7 @@ describe("Sidebar — tree ARIA + roving keyboard navigation (wt1v)", () => {
                         onCreateServer={vi.fn()}
                         onKillServer={vi.fn()}
                       />
+                      </SettingsDialogProvider>
                     </ChromeProvider>
                   </FocusedPaneProvider>
                 </HostMetricsProvider>
@@ -474,6 +492,7 @@ describe("Sidebar — tree ARIA + roving keyboard navigation (wt1v)", () => {
             </StandaloneSessionContextProvider>
           </OptimisticProvider>
         </ToastProvider>
+        </InstanceNameValueProvider>
         </InstanceAccentValueProvider>
       </ThemeProvider>
     );
@@ -1245,5 +1264,14 @@ describe("Sidebar — server-group header action cluster (x4sf)", () => {
     expect(
       within(container).getByRole("button", { name: /Collapse alpha sessions/ }),
     ).toHaveAttribute("aria-expanded", "true");
+  });
+});
+
+describe("sidebar footer settings gear (260723-o7q8)", () => {
+  it("renders the gear with an aria-label and NO native title (Tip-named)", () => {
+    renderSidebar();
+    const gear = screen.getByRole("button", { name: "Open settings" });
+    expect(gear).toBeInTheDocument();
+    expect(gear.getAttribute("title")).toBeNull();
   });
 });

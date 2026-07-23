@@ -6,6 +6,7 @@ import { finalizeSafeName, toSafeServerName } from "@/lib/names";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useToast } from "@/components/toast";
 import { useHostMetrics, useHostServices, useSessionContext } from "@/contexts/session-context";
+import { useInstanceName } from "@/contexts/instance-name-context";
 import { WaitingBadge } from "@/components/waiting-badge";
 import { countWaitingInSessions } from "@/lib/waiting";
 import { HostMetrics } from "@/components/host-metrics";
@@ -48,6 +49,9 @@ export function HostOverviewPage() {
   const navigate = useNavigate();
   const { addToast } = useToast();
   const hostMetrics = useHostMetrics();
+  // Instance display name (o7q8): the HOST HEALTH hostname line prefers the
+  // settings override; null falls back to the metrics hostname below.
+  const { instanceName } = useInstanceName();
   const hostServices = useHostServices();
   // De-emphasize system/infra listeners (mirrors the isInfraServer treatment on
   // server tiles): well-known ports (< 1024, the reserved/system range —
@@ -260,7 +264,10 @@ export function HostOverviewPage() {
           <SectionHeading label="Host Health" className="mb-2" />
           {hostMetrics && (
             <div className="text-xs text-text-secondary font-mono truncate mb-2">
-              {hostMetrics.hostname}
+              {/* Display name (o7q8): the settings override wins over the
+                  metrics-reported hostname — display-only, the accent hash
+                  and SSH deeplinks keep the real hostname. */}
+              {instanceName ?? hostMetrics.hostname}
             </div>
           )}
           {hostMetrics ? (

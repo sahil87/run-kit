@@ -10,6 +10,7 @@ import { useUpdateCheck } from "@/hooks/use-update-check";
 import { useOptimisticContext } from "@/contexts/optimistic-context";
 import { useSessionContext, useUpdateNotification } from "@/contexts/session-context";
 import { useChromeState, useChromeDispatch } from "@/contexts/chrome-context";
+import { useSettingsDialog } from "@/contexts/settings-dialog-context";
 import { useToast } from "@/components/toast";
 import { BottomBar } from "@/components/bottom-bar";
 import { ComposeStrip } from "@/components/compose-strip";
@@ -423,6 +424,11 @@ function BoardPageContent({ name }: { name: string }) {
   const { sidebarOpen, composeStripEnabled } = useChromeState();
   const { setSidebarOpen, increaseTerminalFont, decreaseTerminalFont, resetTerminalFont, toggleComposeStrip } = useChromeDispatch();
 
+  // Settings dialog trigger (o7q8) — the dialog mounts once in AppLayout;
+  // this palette only registers the opener (lifted above boardRouteActions
+  // for the memo dep).
+  const { openSettings } = useSettingsDialog();
+
   // Update notification (lifted above boardRouteActions so the qualify state +
   // triggers are in scope for the palette memo). Below `sm` the top-bar L3
   // cluster — including the UpdateChip — is hidden, so a phone user on
@@ -666,6 +672,16 @@ function BoardPageContent({ name }: { name: string }) {
       onSelect: () => window.open(HELP_URL, "_blank", "noopener,noreferrer"),
     };
 
+    // Settings dialog (o7q8) — the one-line registration duplicated from
+    // AppShell's `settingsActions` for the same DD-8 reason as the entries
+    // above. The dialog itself mounts ONCE in AppLayout (never here);
+    // `openSettings` is the shared context trigger.
+    const settingsEntry: PaletteAction = {
+      id: "settings-open",
+      label: "Settings: Open",
+      onSelect: openSettings,
+    };
+
     // Update actions — duplicated from AppShell's `updateActions` (app.tsx) for
     // the same reason as refreshEntry/helpEntry: the board route mounts its OWN
     // palette and does NOT render AppShell (DD-8). Critically, below `sm` the
@@ -848,8 +864,8 @@ function BoardPageContent({ name }: { name: string }) {
       }
     }
 
-    return [...switchEntries, ...conditional, ...navEntries, ...fontEntries, refreshEntry, helpEntry, ...updateEntries, ...checkEntries, ...maintenanceEntries, ...versionEntries];
-  }, [boards, name, entries, focusedIndex, autofit, toggleAutofit, unpinFocused, requestKillFocused, focusedPane, reorderWithFollow, executeSplit, navigate, router, addToast, increaseTerminalFont, decreaseTerminalFont, resetTerminalFont, updateQualifies, updateTools, runUpdateCheck, dismissUpdate, brew, daemonVersion, forceUpdateNow, restartNow]);
+    return [...switchEntries, ...conditional, ...navEntries, ...fontEntries, refreshEntry, helpEntry, settingsEntry, ...updateEntries, ...checkEntries, ...maintenanceEntries, ...versionEntries];
+  }, [boards, name, entries, focusedIndex, autofit, toggleAutofit, unpinFocused, requestKillFocused, focusedPane, reorderWithFollow, executeSplit, navigate, router, addToast, increaseTerminalFont, decreaseTerminalFont, resetTerminalFont, openSettings, updateQualifies, updateTools, runUpdateCheck, dismissUpdate, brew, daemonVersion, forceUpdateNow, restartNow]);
 
   // Pane-server count (distinct servers) used by TopBar board-mode info.
   const serverCount = useMemo(() => {

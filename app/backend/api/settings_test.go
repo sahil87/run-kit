@@ -222,3 +222,178 @@ func TestSetServerColor_missingServer(t *testing.T) {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
 	}
 }
+
+// --- GET/POST /api/settings/ssh-host + /api/settings/instance-name (260723-o7q8) ---
+
+// getScalarSettingViaAPI reads a per-key scalar settings endpoint and returns
+// the named JSON field (nil = null). Shared by the ssh-host and instance-name
+// round-trip tests.
+func getScalarSettingViaAPI(t *testing.T, router http.Handler, path, field string) *string {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET %s status = %d, want %d; body=%s", path, rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var result map[string]*string
+	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	return result[field]
+}
+
+func postJSON(t *testing.T, router http.Handler, path, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	return rec
+}
+
+func TestSSHHost_getUnsetReturnsNull(t *testing.T) {
+	isolateSettings(t)
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	if got := getScalarSettingViaAPI(t, router, "/api/settings/ssh-host", "sshHost"); got != nil {
+		t.Errorf("sshHost = %q, want null", *got)
+	}
+}
+
+func TestSetSSHHost_persistsAndRoundTrips(t *testing.T) {
+	isolateSettings(t)
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	for _, host := range []string{"devbox", "user@host.example.com"} {
+		rec := postJSON(t, router, "/api/settings/ssh-host", `{"sshHost":"`+host+`"}`)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("host %s: status = %d, want %d; body=%s", host, rec.Code, http.StatusOK, rec.Body.String())
+		}
+		if got := settings.GetSSHHost(); got == nil || *got != host {
+			t.Errorf("persisted sshHost = %v, want %q", got, host)
+		}
+		if got := getScalarSettingViaAPI(t, router, "/api/settings/ssh-host", "sshHost"); got == nil || *got != host {
+			t.Errorf("GET round-trip = %v, want %q", got, host)
+		}
+	}
+}
+
+func TestSetSSHHost_trimsSurroundingWhitespace(t *testing.T) {
+	isolateSettings(t)
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	rec := postJSON(t, router, "/api/settings/ssh-host", `{"sshHost":"  devbox  "}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if got := settings.GetSSHHost(); got == nil || *got != "devbox" {
+		t.Errorf("persisted sshHost = %v, want trimmed \"devbox\"", got)
+	}
+}
+
+func TestSetSSHHost_clears(t *testing.T) {
+	isolateSettings(t)
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	// Both a JSON null and a trimmed-to-empty string clear the setting.
+	for _, clearBody := range []string{`{"sshHost":null}`, `{"sshHost":"   "}`} {
+		host := "devbox"
+		if err := settings.SetSSHHost(&host); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+		rec := postJSON(t, router, "/api/settings/ssh-host", clearBody)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("body %s: status = %d, want %d; body=%s", clearBody, rec.Code, http.StatusOK, rec.Body.String())
+		}
+		if got := settings.GetSSHHost(); got != nil {
+			t.Errorf("body %s: sshHost after clear = %q, want nil", clearBody, *got)
+		}
+	}
+}
+
+func TestSetSSHHost_rejectsInvalid(t *testing.T) {
+	longHost := strings.Repeat("a", 254)
+	for _, bad := range []string{
+		`{"sshHost":"dev box"}`,          // embedded whitespace
+		`{"sshHost":"dev\tbox"}`,         // tab (JSON escape → real tab)
+		`{"sshHost":"dev\u0007box"}`,     // control char (JSON escape)
+		`{"sshHost":"` + longHost + `"}`, // >253 chars
+	} {
+		isolateSettings(t)
+		router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+		rec := postJSON(t, router, "/api/settings/ssh-host", bad)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("body %s: status = %d, want %d", bad, rec.Code, http.StatusBadRequest)
+		}
+		if got := settings.GetSSHHost(); got != nil {
+			t.Errorf("body %s: invalid value persisted as %q, want nil", bad, *got)
+		}
+	}
+}
+
+func TestInstanceName_getUnsetReturnsNull(t *testing.T) {
+	isolateSettings(t)
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	if got := getScalarSettingViaAPI(t, router, "/api/settings/instance-name", "name"); got != nil {
+		t.Errorf("name = %q, want null", *got)
+	}
+}
+
+func TestSetInstanceName_persistsAndRoundTrips(t *testing.T) {
+	isolateSettings(t)
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	// Inner spaces are legal in a display name.
+	for _, name := range []string{"my-box", "dev mini"} {
+		rec := postJSON(t, router, "/api/settings/instance-name", `{"name":"`+name+`"}`)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("name %s: status = %d, want %d; body=%s", name, rec.Code, http.StatusOK, rec.Body.String())
+		}
+		if got := settings.GetInstanceName(); got == nil || *got != name {
+			t.Errorf("persisted name = %v, want %q", got, name)
+		}
+		if got := getScalarSettingViaAPI(t, router, "/api/settings/instance-name", "name"); got == nil || *got != name {
+			t.Errorf("GET round-trip = %v, want %q", got, name)
+		}
+	}
+}
+
+func TestSetInstanceName_clears(t *testing.T) {
+	isolateSettings(t)
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	for _, clearBody := range []string{`{"name":null}`, `{"name":"   "}`} {
+		name := "my-box"
+		if err := settings.SetInstanceName(&name); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+		rec := postJSON(t, router, "/api/settings/instance-name", clearBody)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("body %s: status = %d, want %d; body=%s", clearBody, rec.Code, http.StatusOK, rec.Body.String())
+		}
+		if got := settings.GetInstanceName(); got != nil {
+			t.Errorf("body %s: name after clear = %q, want nil", clearBody, *got)
+		}
+	}
+}
+
+func TestSetInstanceName_rejectsInvalid(t *testing.T) {
+	longName := strings.Repeat("a", 254)
+	for _, bad := range []string{
+		`{"name":"my\u0007box"}`,      // control char (JSON escape)
+		`{"name":"my\nbox"}`,          // newline (JSON escape)
+		`{"name":"` + longName + `"}`, // >253 chars
+	} {
+		isolateSettings(t)
+		router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+		rec := postJSON(t, router, "/api/settings/instance-name", bad)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("body %s: status = %d, want %d", bad, rec.Code, http.StatusBadRequest)
+		}
+		if got := settings.GetInstanceName(); got != nil {
+			t.Errorf("body %s: invalid value persisted as %q, want nil", bad, *got)
+		}
+	}
+}

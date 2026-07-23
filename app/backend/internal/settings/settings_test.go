@@ -473,3 +473,148 @@ func TestServerColorRoundTrip(t *testing.T) {
 		t.Errorf("GetServerColor after clear = %v, want nil", got)
 	}
 }
+
+// --- ssh_host + instance_name (260723-o7q8) ---
+
+func TestParseSSHHostAndInstanceName(t *testing.T) {
+	// Tolerant read: quoted and unquoted values parse; surrounding whitespace
+	// is trimmed; absent keys stay empty.
+	cases := []struct {
+		in           string
+		wantSSH      string
+		wantInstName string
+	}{
+		{"ssh_host: \"devbox\"\n", "devbox", ""},
+		{"ssh_host: devbox\n", "devbox", ""}, // unquoted tolerated
+		{"ssh_host: \"user@host\"\n", "user@host", ""},
+		{"instance_name: \"my-box\"\n", "", "my-box"},
+		{"instance_name: \"dev mini\"\n", "", "dev mini"}, // inner spaces kept
+		{"ssh_host: \"devbox\"\ninstance_name: \"my-box\"\n", "devbox", "my-box"},
+		{"theme: system\n", "", ""}, // absent → empty
+	}
+	for _, c := range cases {
+		s := parse(c.in)
+		if s.SSHHost != c.wantSSH {
+			t.Errorf("parse(%q).SSHHost = %q, want %q", c.in, s.SSHHost, c.wantSSH)
+		}
+		if s.InstanceName != c.wantInstName {
+			t.Errorf("parse(%q).InstanceName = %q, want %q", c.in, s.InstanceName, c.wantInstName)
+		}
+	}
+}
+
+func TestSerializeSSHHostAndInstanceName(t *testing.T) {
+	s := Settings{
+		Theme: "system", ThemeDark: "default-dark", ThemeLight: "default-light",
+		InstanceColor: "4", SSHHost: "devbox", InstanceName: "my-box",
+	}
+	got := serialize(s)
+	want := "theme: system\ntheme_dark: default-dark\ntheme_light: default-light\n" +
+		"instance_color: \"4\"\nssh_host: \"devbox\"\ninstance_name: \"my-box\"\n"
+	if got != want {
+		t.Errorf("serialize = %q, want %q", got, want)
+	}
+}
+
+func TestSerializeEmptySSHHostAndInstanceNameIsByteIdentical(t *testing.T) {
+	// A Settings without the new keys must serialize exactly as before (no
+	// ssh_host:/instance_name: lines), guarding the exact-string assertions.
+	got := serialize(Settings{Theme: "system", ThemeDark: "default-dark", ThemeLight: "default-light"})
+	want := "theme: system\ntheme_dark: default-dark\ntheme_light: default-light\n"
+	if got != want {
+		t.Errorf("serialize (empty ssh_host/instance_name) = %q, want %q", got, want)
+	}
+}
+
+func TestSSHHostRoundTrip(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	if got := GetSSHHost(); got != nil {
+		t.Errorf("GetSSHHost (unset) = %v, want nil", got)
+	}
+
+	host := "devbox"
+	if err := SetSSHHost(&host); err != nil {
+		t.Fatalf("SetSSHHost: %v", err)
+	}
+	got := GetSSHHost()
+	if got == nil || *got != "devbox" {
+		t.Errorf("GetSSHHost = %v, want \"devbox\"", got)
+	}
+
+	if err := SetSSHHost(nil); err != nil {
+		t.Fatalf("SetSSHHost nil: %v", err)
+	}
+	if got := GetSSHHost(); got != nil {
+		t.Errorf("GetSSHHost after clear = %v, want nil", got)
+	}
+}
+
+func TestInstanceNameRoundTrip(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	if got := GetInstanceName(); got != nil {
+		t.Errorf("GetInstanceName (unset) = %v, want nil", got)
+	}
+
+	name := "my-box"
+	if err := SetInstanceName(&name); err != nil {
+		t.Fatalf("SetInstanceName: %v", err)
+	}
+	got := GetInstanceName()
+	if got == nil || *got != "my-box" {
+		t.Errorf("GetInstanceName = %v, want \"my-box\"", got)
+	}
+
+	if err := SetInstanceName(nil); err != nil {
+		t.Fatalf("SetInstanceName nil: %v", err)
+	}
+	if got := GetInstanceName(); got != nil {
+		t.Errorf("GetInstanceName after clear = %v, want nil", got)
+	}
+}
+
+// TestSSHHostInstanceNameCoexist verifies the new scalar keys persist and load
+// alongside the instance color, server_colors map, and board_order sequence.
+func TestSSHHostInstanceNameCoexist(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	serverColor := "4"
+	if err := SetServerColor("default", &serverColor); err != nil {
+		t.Fatalf("SetServerColor: %v", err)
+	}
+	instColor := "2"
+	if err := SetInstanceColor(&instColor); err != nil {
+		t.Fatalf("SetInstanceColor: %v", err)
+	}
+	host := "devbox"
+	if err := SetSSHHost(&host); err != nil {
+		t.Fatalf("SetSSHHost: %v", err)
+	}
+	name := "my-box"
+	if err := SetInstanceName(&name); err != nil {
+		t.Fatalf("SetInstanceName: %v", err)
+	}
+	if err := SetBoardOrder([]string{"x"}); err != nil {
+		t.Fatalf("SetBoardOrder: %v", err)
+	}
+	loaded := Load()
+	if loaded.SSHHost != "devbox" {
+		t.Errorf("SSHHost = %q, want \"devbox\"", loaded.SSHHost)
+	}
+	if loaded.InstanceName != "my-box" {
+		t.Errorf("InstanceName = %q, want \"my-box\"", loaded.InstanceName)
+	}
+	if loaded.InstanceColor != "2" {
+		t.Errorf("InstanceColor = %q, want \"2\"", loaded.InstanceColor)
+	}
+	if loaded.ServerColors["default"] != "4" {
+		t.Errorf("ServerColors[default] = %q, want \"4\"", loaded.ServerColors["default"])
+	}
+	if len(loaded.BoardOrder) != 1 || loaded.BoardOrder[0] != "x" {
+		t.Errorf("BoardOrder = %v, want [x]", loaded.BoardOrder)
+	}
+}

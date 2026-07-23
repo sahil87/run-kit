@@ -50,10 +50,11 @@ vi.mock("@/components/toast", () => ({
 let mockServices: Service[] = [];
 let mockServers: ServerInfo[] = [];
 let mockSessionsByServer: Map<string, ProjectSession[]> = new Map();
+let mockHostMetrics: { hostname: string } | null = null;
 const refreshServersMock = vi.fn();
 const markServerPendingMock = vi.fn();
 vi.mock("@/contexts/session-context", () => ({
-  useHostMetrics: () => null,
+  useHostMetrics: () => mockHostMetrics,
   useHostServices: () => mockServices,
   useSessionContext: () => ({
     servers: mockServers,
@@ -83,19 +84,35 @@ vi.mock("@/hooks/use-boards", () => ({
 
 import { HostOverviewPage } from "./host-overview-page";
 import { createSession, createWindow, getSessions } from "@/api/client";
+import {
+  InstanceNameValueProvider,
+  type InstanceName,
+} from "@/contexts/instance-name-context";
+
+function nameValue(overrides: Partial<InstanceName> = {}): InstanceName {
+  return {
+    hostname: "",
+    instanceName: null,
+    displayName: "",
+    setInstanceName: vi.fn(),
+    ...overrides,
+  };
+}
 
 /**
  * Render the page inside the providers the shared host-mode TopBar depends on
  * (Theme + Chrome). Toast + router are module-mocked above; the push lib is
  * mocked so NotificationControl mounts cleanly.
  */
-function renderPage() {
+function renderPage(instanceNameValue: InstanceName = nameValue()) {
   return render(
     <ThemeProvider>
       <ChromeProvider>
-        <TopBarSlotProvider>
-          <HostOverviewPage />
-        </TopBarSlotProvider>
+        <InstanceNameValueProvider value={instanceNameValue}>
+          <TopBarSlotProvider>
+            <HostOverviewPage />
+          </TopBarSlotProvider>
+        </InstanceNameValueProvider>
       </ChromeProvider>
     </ThemeProvider>,
   );
@@ -107,6 +124,7 @@ beforeEach(() => {
   mockServers = [];
   mockBoards = [];
   mockSessionsByServer = new Map();
+  mockHostMetrics = null;
   // ThemeProvider reads matchMedia on mount. Query-sensitive on ONE query:
   // everything matches EXCEPT `(pointer: coarse)` (false), or every Tip would
   // self-suppress (fine-pointer is the test default; tip.test.tsx covers coarse).
@@ -404,5 +422,20 @@ describe("HostOverviewPage — BOARDS zone", () => {
     expect(mainTile).toHaveAttribute("draggable", "true");
     const reviewTile = screen.getByText("review").closest("button");
     expect(reviewTile).toHaveAttribute("draggable", "true");
+  });
+});
+
+describe("HOST HEALTH hostname line — instance display name (260723-o7q8)", () => {
+  it("prefers the instance-name override over the metrics hostname", () => {
+    mockHostMetrics = { hostname: "mac-mini" };
+    renderPage(nameValue({ hostname: "mac-mini", instanceName: "my-box", displayName: "my-box" }));
+    expect(screen.getByText("my-box")).toBeInTheDocument();
+    expect(screen.queryByText("mac-mini")).not.toBeInTheDocument();
+  });
+
+  it("falls back to the metrics hostname when no override is set", () => {
+    mockHostMetrics = { hostname: "mac-mini" };
+    renderPage();
+    expect(screen.getByText("mac-mini")).toBeInTheDocument();
   });
 });

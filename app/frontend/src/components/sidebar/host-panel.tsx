@@ -6,6 +6,7 @@ import { HostMetrics } from "../host-metrics";
 import { SwatchPopover } from "@/components/swatch-popover";
 import { useHostMetrics, useMetrics } from "@/contexts/session-context";
 import { useInstanceAccent } from "@/contexts/instance-accent-context";
+import { useInstanceName } from "@/contexts/instance-name-context";
 
 export function HostPanel() {
   // Server-scoped metrics win when present; fall back to the host-global
@@ -21,6 +22,11 @@ export function HostPanel() {
   // and the header hosts the accent picker — the HOST panel is the "which
   // run-kit instance is this" surface (server colors own the sidebar rows).
   const { color, isExplicit, stripeHex, setColor } = useInstanceAccent();
+
+  // Instance display name (o7q8): the header line prefers the settings
+  // override over the metrics-reported hostname. The accent hash + SSH
+  // deeplinks deliberately keep the REAL hostname — this is display-only.
+  const { instanceName } = useInstanceName();
   const [showColorPicker, setShowColorPicker] = useState(false);
   const paletteBtnRef = useRef<HTMLButtonElement>(null);
   const [popoverPos, setPopoverPos] = useState<{ top?: number; bottom?: number; left: number } | null>(null);
@@ -60,7 +66,7 @@ export function HostPanel() {
       className={`truncate font-mono ${stripeHex ? "" : "text-text-primary"}`}
       style={stripeHex ? { color: stripeHex } : undefined}
     >
-      {metrics.hostname}
+      {instanceName ?? metrics.hostname}
     </span>
   ) : null;
 

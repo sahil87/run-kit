@@ -1,0 +1,15 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-23T01:53:54Z"}
+{"args":"WebSocket liveness detection — client heartbeat ping/pong + sleep/wake probes for /ws/state (StateSocket) and /ws/terminals (RelayMux) so half-open sockets after laptop sleep are detected and force-closed into the existing reconnect path","cmd":"fab-new","event":"command","ts":"2026-07-23T01:53:54Z"}
+{"delta":"+4.3","event":"confidence","score":4.3,"trigger":"calc-score","ts":"2026-07-23T01:56:59Z"}
+{"cmd":"fab-proceed","event":"command","ts":"2026-07-23T01:57:08Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-07-23T01:57:54Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-23T01:58:56Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-23T01:59:23Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-23T02:00:06Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-23T02:17:44Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-23T02:18:32Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-23T02:23:59Z"}
+{"event":"review","result":"passed","ts":"2026-07-23T02:23:59Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-23T02:24:28Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-23T02:28:53Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-07-23T02:30:30Z"}

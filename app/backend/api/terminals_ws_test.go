@@ -2,9 +2,14 @@ package api
 
 import (
 	"encoding/binary"
+	"encoding/json"
+	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/gorilla/websocket"
 )
 
 // payload returns the frame's wire bytes regardless of tier — a test-only
@@ -232,5 +237,53 @@ func TestScheduler_RoundRobinNoStarvation(t *testing.T) {
 	}
 	if !(seenA && seenB) {
 		t.Errorf("expected round-robin interleave in the first 2 frames, got %v", order[:2])
+	}
+}
+
+// TestTerminals_PingRepliesPong proves the client's application-level liveness
+// probe on the terminals mux (260723-rma2): a {"op":"ping"} control frame (no
+// stream id) is answered with the id-less {"op":"pong"} text frame through the
+// single writer's control pseudo-stream. No tmux server is needed — the ping
+// path never touches tmux — so this runs against the mock-tmux test router.
+func TestTerminals_PingRepliesPong(t *testing.T) {
+	router := newTestRouter(&slowSessionFetcher{}, &mockTmuxOps{})
+	srv := httptest.NewServer(router)
+	defer srv.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws/terminals"
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+
+	if err := conn.WriteMessage(websocket.TextMessage, []byte(`{"op":"ping"}`)); err != nil {
+		t.Fatalf("write ping: %v", err)
+	}
+
+	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	for {
+		msgType, raw, err := conn.ReadMessage()
+		if err != nil {
+			t.Fatalf("read (no pong seen): %v", err)
+		}
+		if msgType != websocket.TextMessage {
+			continue
+		}
+		var m map[string]json.RawMessage
+		if json.Unmarshal(raw, &m) != nil {
+			continue
+		}
+		var op string
+		_ = json.Unmarshal(m["op"], &op)
+		if op != "pong" {
+			continue
+		}
+		// The pong carries no stream id (the client handles it before its
+		// per-stream id guard).
+		if _, hasID := m["id"]; hasID {
+			t.Errorf("pong carries an id field: %s", raw)
+		}
+		return
 	}
 }

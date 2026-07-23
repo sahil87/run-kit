@@ -3012,6 +3012,8 @@ function AppShell() {
                     ? currentSession?.sessionColor
                     : currentWindow?.color
                 }
+                // Selection does NOT close (the picker's dismissal contract) —
+                // dismissal is the ✕ cell, the backdrop click, or Escape.
                 onSelect={(c) => {
                   if (showColorPicker === "session" && sessionName) {
                     setSessionColorApi(server, sessionName, c).catch((err) =>
@@ -3022,7 +3024,6 @@ function AppShell() {
                       addToast(err.message || "Failed to set window color"),
                     );
                   }
-                  setShowColorPicker(null);
                 }}
                 onClose={() => setShowColorPicker(null)}
               />

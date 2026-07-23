@@ -859,6 +859,52 @@ describe("WindowRow", () => {
       expect(onColorChange).toHaveBeenCalledWith("srv", "alpha", "@0", "2");
     });
 
+    it("picking markers/colors keeps the Label picker OPEN (live toggling); the ✕ cell closes it", () => {
+      const win = makeWindow({ windowId: "@0", index: 0, color: "orange" });
+      const onColorChange = vi.fn();
+      const onMarkerChange = vi.fn();
+      renderAxis(win, { onColorChange, onMarkerChange });
+      act(() => { screen.getByLabelText("Set window label").click(); });
+      // Toggle a marker AND a color — the picker stays open through both, so
+      // combos can be compared live against the row.
+      act(() => { screen.getByRole("option", { name: "Marker double" }).click(); });
+      act(() => { screen.getByRole("option", { name: "Color green" }).click(); });
+      expect(onMarkerChange).toHaveBeenCalledTimes(1);
+      expect(onColorChange).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole("listbox", { name: "Label picker" })).toBeInTheDocument();
+      // The explicit dismiss is the ✕ cell (outside click and Escape also work).
+      act(() => { screen.getByLabelText("Close picker").click(); });
+      expect(screen.queryByRole("listbox", { name: "Label picker" })).toBeNull();
+    });
+
+    it("a dashed-marker row gets the data-rain overlay (clipped inner element, NOT the root) + marker color var; the stripe stays static", () => {
+      const win = makeWindow({ windowId: "@0", index: 0, color: "green", marker: "dashed" });
+      const { container } = renderAxis(win);
+      const row = container.querySelector('[data-window-id="@0"]') as HTMLElement;
+      // Same overlay discipline as scanlines/hazard: the clip lives on a
+      // dedicated inner overlay, never the root (must-fix 4).
+      expect(row.className).not.toContain("rk-dash-rain");
+      const overlay = row.querySelector(".rk-dash-rain") as HTMLElement;
+      expect(overlay).toBeTruthy();
+      expect(overlay.className).toContain("overflow-hidden");
+      expect(overlay.className).toContain("pointer-events-none");
+      // The marker color rides on the ROOT (the overlay pseudo inherits it).
+      expect(row.style.getPropertyValue("--rk-marker-color")).not.toBe("");
+      // The gutter stripe itself is STATIC — the rain is a row treatment, the
+      // stripe never animates.
+      const zone = container.querySelector('[aria-label="Set window label"]')!;
+      expect(zone.querySelector(".rk-dash-rain")).toBeNull();
+    });
+
+    it("non-dashed markers carry no data-rain overlay (the rain is dashed-only)", () => {
+      for (const marker of ["dotted", "solid", "double", "thick"]) {
+        const win = makeWindow({ windowId: "@0", index: 0, color: "green", marker });
+        const { container, unmount } = renderAxis(win);
+        expect(container.querySelector(".rk-dash-rain")).toBeNull();
+        unmount();
+      }
+    });
+
     it("the Window: Label palette action (label-popover:open) opens this row's picker", () => {
       const win = makeWindow({ windowId: "@0", index: 0, color: "orange" });
       renderAxis(win);

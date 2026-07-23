@@ -30,6 +30,12 @@ type SwatchPopoverProps = {
    *  (window/session/server rows + the palette "Set Color" actions) funnels
    *  through. */
   onSelect: (color: string | null) => void;
+  /** Dismissal model (260723): selection NEVER dismisses — the picker stays
+   *  open so color + marker combos can be toggled and previewed live against
+   *  the row. It closes only via the explicit ✕ cell (row 0, col 4), a click
+   *  outside, or Escape. Callers therefore must NOT close in their
+   *  onSelect/onSelectMarker handlers — closing is this component's contract,
+   *  funneled through onClose. */
   onClose: () => void;
   /** ── Combined-label extension ── When `onSelectMarker` is supplied, the
    *  popover renders the side-by-side Label picker: a marker column (∅ /
@@ -75,10 +81,10 @@ const MARKER_CELLS = MARKER_STATES;
 const GRID_ROWS = 1 + Math.ceil(PICKER_COLOR_VALUES.length / COLOR_COLS); // 6
 
 /** Keyboard focus position on the conceptual 5-column grid.
- *  - `row`: 0 = removal row (∅ | Clear color), 1–5 = color rows.
+ *  - `row`: 0 = removal row (∅ | Clear | ✕), 1–5 = color rows.
  *  - `col`: 0 = marker column (only valid when markers shown); 1–4 = color
- *    columns. The `Clear color` button spans cols 1–4 of row 0 as a SINGLE
- *    focus target, canonicalized to col 1. */
+ *    columns. On row 0 the `Clear` button spans cols 1–3 as a SINGLE focus
+ *    target canonicalized to col 1, and the ✕ close cell sits at col 4. */
 type GridPos = { row: number; col: number };
 
 /** Color-array index for a grid position (rows 1–5, cols 1–4). */
@@ -123,8 +129,9 @@ export function SwatchPopover({
 
   // Live preview color for the marker row previews. Derived from the selection
   // prop, but a swatch pick ALSO updates this local override so the marker
-  // column repaints immediately regardless of whether the caller re-renders
-  // (the window row closes the popover on pick). `undefined` = no override;
+  // column repaints immediately regardless of whether (or how fast) the caller
+  // echoes the selection back through props — the popover stays open on pick,
+  // and the preview must not lag the click. `undefined` = no override;
   // `null` = cleared (gray sentinel).
   const [previewOverride, setPreviewOverride] = useState<string | null | undefined>(undefined);
   const previewValue = previewOverride === undefined ? selectedValue : previewOverride ?? undefined;
@@ -169,7 +176,8 @@ export function SwatchPopover({
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Activate the cell at a grid position (Enter/Space). The marker column maps
-  // to onSelectMarker; row 0's color side is Clear; color cells map to onSelect.
+  // to onSelectMarker; row 0's color side is Clear (cols 1–3) and the ✕ close
+  // cell (col 4); color cells map to onSelect.
   const activate = useCallback(
     (pos: GridPos) => {
       if (pos.col === 0) {
@@ -180,13 +188,14 @@ export function SwatchPopover({
         const marker = MARKER_CELLS[pos.row];
         if (onSelectMarker && marker !== undefined) onSelectMarker(marker);
       } else if (pos.row === 0) {
-        emit(null); // Clear color
+        if (pos.col === COLOR_COLS) onClose(); // ✕ — the explicit dismiss
+        else emit(null); // Clear color
       } else {
         const idx = colorIndexAt(pos.row, pos.col);
         if (idx >= 0 && idx < PICKER_COLOR_VALUES.length) emit(PICKER_COLOR_VALUES[idx]);
       }
     },
-    [emit, showMarkers, onSelectMarker],
+    [emit, showMarkers, onSelectMarker, onClose],
   );
 
   // Close on Escape
@@ -239,13 +248,14 @@ export function SwatchPopover({
         e.preventDefault();
         setFocus((f) => {
           if (f.col === 0) return { row: f.row, col: 1 }; // cross the hairline
-          if (f.row === 0) return f; // Clear spans to the right edge
+          if (f.row === 0) return { row: 0, col: COLOR_COLS }; // Clear → ✕ (Clear spans cols 1–3)
           return { row: f.row, col: Math.min(f.col + 1, maxColorCol(f.row)) };
         });
       } else if (e.key === "ArrowLeft") {
         e.preventDefault();
         setFocus((f) => {
           if (f.col === 0) return f; // already at the left edge
+          if (f.row === 0 && f.col === COLOR_COLS) return { row: 0, col: 1 }; // ✕ → Clear
           if (f.col === 1) return showMarkers ? { row: f.row, col: 0 } : f; // cross the hairline
           return { row: f.row, col: f.col - 1 };
         });
@@ -263,7 +273,9 @@ export function SwatchPopover({
           if (f.row === 0) return f; // top row
           const row = f.row - 1;
           if (f.col === 0) return { row, col: 0 }; // within the marker column
-          if (row === 0) return { row: 0, col: 1 }; // Clear — single spanning target
+          // Into the removal row: cols 1–3 land on Clear (single spanning
+          // target, canonical col 1); col 4 lands on the ✕ close cell.
+          if (row === 0) return { row: 0, col: f.col === COLOR_COLS ? COLOR_COLS : 1 };
           return { row, col: f.col };
         });
       } else if (e.key === "Enter" || e.key === " ") {
@@ -274,7 +286,8 @@ export function SwatchPopover({
     [focus, activate, showMarkers],
   );
 
-  const focusOnClear = keyboardActive && focus.row === 0 && focus.col >= 1;
+  const focusOnClear = keyboardActive && focus.row === 0 && focus.col >= 1 && focus.col < COLOR_COLS;
+  const focusOnClose = keyboardActive && focus.row === 0 && focus.col === COLOR_COLS;
 
   return (
     // TipGroup: the marker cells are a warm-tip cluster (260722-73al) —
@@ -354,7 +367,8 @@ export function SwatchPopover({
             <div className="w-px bg-border mx-1.5 self-stretch" aria-hidden="true" />
           </>
         )}
-        {/* Color section (cols 1–4): the removal row's full-width Clear color,
+        {/* Color section (cols 1–4): the removal row — Clear (cols 1–3) + the
+            ✕ close cell (col 4, the explicit dismiss; selection never closes) —
             then the 20 family/shade swatches laid out 4-wide in PAIRED order —
             each family's normal|dark shades adjacent (5 full rows). */}
         <div className="grid grid-cols-4 gap-[3px]">
@@ -362,11 +376,22 @@ export function SwatchPopover({
             role="option"
             aria-selected={selectedValue == null}
             onClick={() => emit(null)}
-            className={`col-span-4 h-[18px] text-[10px] text-text-secondary hover:text-text-primary transition-colors flex items-center justify-center ${
+            className={`col-span-3 h-[18px] text-[10px] text-text-secondary hover:text-text-primary transition-colors flex items-center justify-center ${
               focusOnClear ? "ring-1 ring-text-secondary" : ""
             } ${selectedValue == null ? "ring-1 ring-text-primary" : ""}`}
           >
-            Clear color
+            Clear
+          </button>
+          {/* ✕ — the explicit dismiss. NOT role=option (it selects nothing);
+              Escape and outside-click remain the other two close paths. */}
+          <button
+            aria-label="Close picker"
+            onClick={onClose}
+            className={`w-[18px] h-[18px] text-[10px] text-text-secondary hover:text-text-primary transition-colors flex items-center justify-center ${
+              focusOnClose ? "ring-1 ring-text-secondary" : ""
+            }`}
+          >
+            &#x2715;
           </button>
           {PICKER_COLOR_VALUES.map((value, i) => {
             const tint = rowTints.get(value);

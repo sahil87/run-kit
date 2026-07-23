@@ -184,8 +184,8 @@ describe("SettingsDialog", () => {
   it("opens the color-only SwatchPopover from the accent control", async () => {
     renderDialog();
     fireEvent.click(screen.getByRole("button", { name: "Set instance color" }));
-    // The popover's removal row is the color-only marker ("Clear color").
-    expect(await screen.findByText("Clear color")).toBeInTheDocument();
+    // The popover's removal row is the color-only marker ("Clear" + ✕).
+    expect(await screen.findByText("Clear")).toBeInTheDocument();
   });
 
   it("Escape closes the dialog (focus-trap contract)", async () => {

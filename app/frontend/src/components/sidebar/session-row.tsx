@@ -271,10 +271,8 @@ function SessionRowInner({
         <div className="absolute right-0 top-full z-50">
           <SwatchPopover
             selectedColor={sessionColor}
-            onSelect={(c) => {
-              onColorChange(server, name, c);
-              setShowColorPicker(false);
-            }}
+            // Selection does NOT close (the picker's dismissal contract).
+            onSelect={(c) => onColorChange(server, name, c)}
             onClose={() => setShowColorPicker(false)}
           />
         </div>

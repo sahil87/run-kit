@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 11
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-07-23T01:59:23Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-23T02:17:44Z"}
     review: {started_at: "2026-07-23T02:17:44Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-23T02:23:59Z"}
     hydrate: {started_at: "2026-07-23T02:23:59Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-23T02:28:53Z"}
-    ship: {started_at: "2026-07-23T02:28:53Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-07-23T02:28:53Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-23T02:30:30Z"}
+    review-pr: {started_at: "2026-07-23T02:30:30Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/446
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 1266
+    deleted: 11
+    net: 1255
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 850
+        deleted: 4
+        net: 846
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-07-23T02:28:53Z"
-    computed_at_stage: hydrate
+        added: 482
+        deleted: 2
+        net: 480
+    computed_at: "2026-07-23T02:30:30Z"
+    computed_at_stage: ship
 summary: Add client-initiated WebSocket heartbeat (op:ping/pong), any-frame liveness force-close-into-reconnect, and visibilitychange/online/pageshow wake probes to the /ws/state socket and /ws/terminals relay mux (server pongs ride each handler's single writer).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-07-23T02:28:53Z
+last_updated: 2026-07-23T02:30:30Z

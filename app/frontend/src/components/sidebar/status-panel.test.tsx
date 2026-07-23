@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, cleanup, fireEvent, act } from "@testing-library/react";
 import { StatusPanel } from "./status-panel";
+import { TIP_OPEN_DELAY_MS } from "@/components/tip";
 import type { WindowInfo } from "@/types";
 
 vi.mock("@/lib/clipboard", () => ({
@@ -878,5 +879,68 @@ describe("PANE header refresh button (260715-jykd; feedback 260715-nwla)", () =>
     });
     // CollapsiblePanel stops headerAction clicks from toggling — content stays.
     expect(screen.getByText("zsh")).toBeInTheDocument();
+  });
+});
+
+describe("Register-label tips (260723-fm08)", () => {
+  // Tier-1 Tip wiring on the register LABELS (tmx/cwd/git/pr/out/agt/fab).
+  // Deep tooltip behavior is pinned once in tip.test.tsx; these tests assert
+  // the per-site label wiring plus that the copy affordance survives the wrap.
+  // jsdom has no matchMedia → useCoarsePointer reads a fine pointer, so Tip
+  // is active by default.
+  function makeRegisterWindow(overrides: Partial<WindowInfo> = {}): WindowInfo {
+    return {
+      windowId: "@0",
+      index: 0,
+      name: "zsh",
+      worktreePath: "/home/user/code/run-kit",
+      activity: "idle",
+      isActiveWindow: false,
+      activityTimestamp: 0,
+      panes: [
+        { paneId: "%5", paneIndex: 0, cwd: "/home/user/code/run-kit", command: "zsh", isActive: true, gitBranch: "main" },
+      ],
+      ...overrides,
+    };
+  }
+
+  it("hovering the out register label opens its tip after the delay", () => {
+    render(<StatusPanel window={makeRegisterWindow()} />);
+    const label = screen.getByText("out");
+    act(() => {
+      fireEvent.mouseEnter(label);
+    });
+    // Not yet — the 300ms open delay is pending (hover-only, no warm group here).
+    expect(screen.queryByRole("tooltip")).toBeNull();
+    act(() => {
+      vi.advanceTimersByTime(TIP_OPEN_DELAY_MS);
+    });
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Output activity");
+    // The label stays a non-focusable span — no new tab stop was added.
+    expect(label.tagName).toBe("SPAN");
+    expect(label).not.toHaveAttribute("tabindex");
+  });
+
+  it("cwd prefix tip names the register while the row keeps copy-on-click", async () => {
+    const { copyToClipboard } = await import("@/lib/clipboard");
+    vi.mocked(copyToClipboard).mockClear();
+    render(<StatusPanel window={makeRegisterWindow()} />);
+
+    const label = screen.getByText("cwd");
+    act(() => {
+      fireEvent.mouseEnter(label);
+      vi.advanceTimersByTime(TIP_OPEN_DELAY_MS);
+    });
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Working directory");
+
+    // The Tip wraps the prefix span only — the row button's click still
+    // copies, and the prefix swaps to the transient "copied ✓" feedback.
+    const row = label.closest("button") as HTMLButtonElement;
+    expect(row).not.toBeNull();
+    fireEvent.click(row);
+    expect(copyToClipboard).toHaveBeenCalledWith("/home/user/code/run-kit");
+    expect(screen.getByText(/copied ✓/)).toBeInTheDocument();
+    // The cwd state-reveal stays a native title on the row (73al promotion rule).
+    expect(row).toHaveAttribute("title", "/home/user/code/run-kit");
   });
 });

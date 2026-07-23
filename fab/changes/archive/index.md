@@ -1,5 +1,6 @@
 # Archived Changes
 
+- **260722-73al-tip-tooltip-system** — App-Wide Tier-1 Tooltip System (`Tip` Component)
 - **260720-t1ca-sidebar-server-group-header-tint** — Sidebar SESSIONS Pane — Tinted Server-Group Header Fill
 - **260720-2vpn-full-bleed-sidebar-window-rows** — Full-Bleed Sidebar Window Rows
 - **260719-yxi0-chat-send-single-line-collapse-probe** — Chat-Send Long-Single-Line Paste-Collapse Probe Fix

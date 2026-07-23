@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { mockStateSocket } from "./_state-socket-mock";
 
 /**
  * Tier-1 tooltip system (260722-73al): the styled `Tip` replaces native
@@ -102,5 +103,83 @@ test.describe("Tier-1 tooltips (Tip)", () => {
     await expect(page.getByRole("tooltip")).toHaveCount(0);
     // Suppressed means UNWIRED: no aria-describedby is attached either.
     await expect(refresh).not.toHaveAttribute("aria-describedby", /.*/);
+  });
+});
+
+/**
+ * Register-label + bottom-bar chip tips (260723-fm08): the two chrome
+ * surfaces the 73al migration left bare. Fully mocked (no tmux/gh) — the
+ * terminal route needs a selected window for the PANE registers and the
+ * bottom bar, so the state socket is mocked with one session/window (the
+ * pane-register-panel.spec.ts idiom).
+ */
+
+const MOCK_SERVER = "default";
+
+const mockSessions = JSON.stringify([
+  {
+    name: "dev",
+    windows: [
+      {
+        windowId: "@1",
+        index: 0,
+        name: "shell",
+        worktreePath: "/tmp/wt",
+        activity: "idle",
+        isActiveWindow: true,
+        activityTimestamp: 0,
+        panes: [{ paneId: "%1", paneIndex: 0, cwd: "/tmp/wt", command: "zsh", isActive: true }],
+      },
+    ],
+  },
+]);
+
+async function mockBackend(page: Page) {
+  await page.routeWebSocket(/\/ws\/terminals/, () => {});
+  await page.route("**/api/windows/*/select*", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: '{"ok":true}' }),
+  );
+  await page.route("**/api/servers", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([{ name: MOCK_SERVER, sessionCount: 1 }]),
+    }),
+  );
+  await mockStateSocket(page, { sessions: mockSessions });
+}
+
+test.describe("Register-label and chip tips (260723-fm08)", () => {
+  test.beforeEach(async ({ page }) => {
+    await mockBackend(page);
+  });
+
+  test("hovering a PANE register label opens its plain-words tip", async ({ page }) => {
+    await page.goto(`/${MOCK_SERVER}/1`);
+    const output = page.getByTestId("register-output");
+    await expect(output).toBeVisible({ timeout: 10_000 });
+
+    // The register KEY is a non-focusable span — hover-only (no new tab
+    // stops, the 73al connection-dot precedent). Hover past the open delay.
+    await output.getByText("out", { exact: true }).hover();
+    const tooltip = page.getByRole("tooltip");
+    await expect(tooltip).toBeVisible();
+    await expect(tooltip).toHaveText(/Output activity/);
+  });
+
+  test("hovering the ⌘K chip shows its tip with the keycap slot", async ({ page }) => {
+    await page.goto(`/${MOCK_SERVER}/1`);
+    const chip = page.getByRole("button", { name: "Open command palette" });
+    await expect(chip).toBeVisible({ timeout: 10_000 });
+
+    // Migration rule holds on the chips too: styled tip, no native title.
+    await expect(chip).not.toHaveAttribute("title", /.*/);
+
+    await chip.hover();
+    const tooltip = page.getByRole("tooltip");
+    await expect(tooltip).toBeVisible();
+    await expect(tooltip).toContainText("Command palette");
+    // The canonical palette shortcut renders as a real <kbd> keycap chip.
+    await expect(tooltip.locator("kbd")).toHaveText("⌘K");
   });
 });

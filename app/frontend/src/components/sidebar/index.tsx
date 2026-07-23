@@ -1666,31 +1666,41 @@ function ServerGroupInner(props: ServerGroupProps) {
           className={`flex items-stretch ${isCurrent ? "text-text-primary" : ""}`}
           style={!isCurrent && headerAccent ? { color: headerAccent } : undefined}
         >
-          <button
-            ref={paletteBtnRef}
-            type="button"
-            onClick={() => setShowColorPicker((v) => !v)}
-            aria-label={`Set color for server ${server}`}
-            className="opacity-0 group-hover:opacity-100 coarse:opacity-100 focus-visible:opacity-100 transition-opacity px-1 flex items-center justify-center"
-          >
-            <PaletteIcon />
-          </button>
-          <button
-            type="button"
-            onClick={() => onCreateSession(server)}
-            aria-label={`New session on ${server}`}
-            className="hover:text-text-primary transition-colors text-[13px] px-1 flex items-center justify-center"
-          >
-            +
-          </button>
-          <button
-            type="button"
-            onClick={() => onKillServer(server)}
-            aria-label={`Kill server ${server}`}
-            className="hover:text-red-400 transition-colors text-[13px] px-1 pr-1.5 sm:pr-2 flex items-center justify-center"
-          >
-            {"✕"}
-          </button>
+          {/* Tier-1 tips on the icon action cluster (260723-fm08): short
+              generic labels (the aria-labels keep the per-server specificity);
+              default bottom placement (the sidebar button convention — the
+              scope chip precedent). Joins the sidebar-root TipGroup. */}
+          <Tip label="Set server color">
+            <button
+              ref={paletteBtnRef}
+              type="button"
+              onClick={() => setShowColorPicker((v) => !v)}
+              aria-label={`Set color for server ${server}`}
+              className="opacity-0 group-hover:opacity-100 coarse:opacity-100 focus-visible:opacity-100 transition-opacity px-1 flex items-center justify-center"
+            >
+              <PaletteIcon />
+            </button>
+          </Tip>
+          <Tip label="New session">
+            <button
+              type="button"
+              onClick={() => onCreateSession(server)}
+              aria-label={`New session on ${server}`}
+              className="hover:text-text-primary transition-colors text-[13px] px-1 flex items-center justify-center"
+            >
+              +
+            </button>
+          </Tip>
+          <Tip label="Kill server">
+            <button
+              type="button"
+              onClick={() => onKillServer(server)}
+              aria-label={`Kill server ${server}`}
+              className="hover:text-red-400 transition-colors text-[13px] px-1 pr-1.5 sm:pr-2 flex items-center justify-center"
+            >
+              {"✕"}
+            </button>
+          </Tip>
         </div>
         {/* Color picker portalled to body so it escapes the sessions list's
             overflow-y: auto clip (the ServerTile precedent). */}

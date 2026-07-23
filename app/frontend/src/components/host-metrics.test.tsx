@@ -1,6 +1,7 @@
-import { describe, it, expect, afterEach } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { describe, it, expect, afterEach, vi } from "vitest";
+import { render, screen, cleanup, fireEvent, act } from "@testing-library/react";
 import { HostMetrics, formatUptime, formatDisk } from "./host-metrics";
+import { TIP_OPEN_DELAY_MS } from "@/components/tip";
 import type { MetricsSnapshot } from "@/types";
 
 afterEach(cleanup);
@@ -46,5 +47,29 @@ describe("formatUptime", () => {
 describe("formatDisk", () => {
   it("rounds bytes to whole GB used/total", () => {
     expect(formatDisk(100 * 1024 ** 3, 500 * 1024 ** 3)).toBe("100/500G");
+  });
+});
+
+describe("HostMetrics metric-label tips (260723-fm08)", () => {
+  // Tier-1 Tip wiring on the metric labels; deep tooltip behavior is pinned
+  // once in tip.test.tsx. jsdom has no matchMedia → fine pointer → Tip active.
+  it("hovering the cpu label opens a 'CPU usage' tip after the delay", () => {
+    vi.useFakeTimers();
+    try {
+      render(<HostMetrics metrics={METRICS} />);
+      const label = screen.getByText("cpu");
+      act(() => {
+        fireEvent.mouseEnter(label);
+        vi.advanceTimersByTime(TIP_OPEN_DELAY_MS);
+      });
+      expect(screen.getByRole("tooltip")).toHaveTextContent("CPU usage");
+      // The label stays a non-focusable span with unchanged text (e2e
+      // selectors match on `text=cpu`).
+      expect(label.tagName).toBe("SPAN");
+      expect(label).not.toHaveAttribute("tabindex");
+      expect(label).not.toHaveAttribute("title");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

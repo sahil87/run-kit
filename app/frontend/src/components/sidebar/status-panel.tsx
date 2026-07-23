@@ -332,13 +332,20 @@ export function WindowPanel({ window: win }: WindowPanelProps) {
 
 /** Reusable interactive row that copies a value on click and shows inline "copied" feedback.
  *  The `group` class enables `group-hover:text-accent` on the value span so callers can
- *  reveal the accent color on hover as a clickability affordance. */
-function CopyableRow({ prefix, copied, onCopy, children, title }: {
+ *  reveal the accent color on hover as a clickability affordance.
+ *  `tipLabel` names the register in plain words via a tier-1 `Tip` on the
+ *  prefix span ONLY (260723-fm08) — never on the row button, whose click
+ *  stays copy. Hover-only: the span remains non-focusable (the 73al
+ *  connection-dot precedent — no new tab stops for non-actionable elements).
+ *  The wrap survives the transient `copied ✓` swap (the tip describes the
+ *  register, not the feedback state); a falsy label is Tip's pass-through. */
+function CopyableRow({ prefix, copied, onCopy, children, title, tipLabel }: {
   prefix: string;
   copied: boolean;
   onCopy: () => void;
   children: ReactNode;
   title?: string;
+  tipLabel?: string;
 }) {
   return (
     <button
@@ -347,7 +354,9 @@ function CopyableRow({ prefix, copied, onCopy, children, title }: {
       className="group truncate text-left w-full cursor-pointer hover:bg-bg-inset focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent bg-transparent border-0 p-0 m-0 font-inherit text-inherit"
       title={title}
     >
-      <span className="text-text-secondary">{copied ? "copied \u2713 " : `${prefix} `}</span>
+      <Tip label={tipLabel} placement="right">
+        <span className="text-text-secondary">{copied ? "copied \u2713 " : `${prefix} `}</span>
+      </Tip>
       {children}
     </button>
   );
@@ -361,12 +370,16 @@ function CopyableRow({ prefix, copied, onCopy, children, title }: {
  *  row-body vs hover-icon split the sidebar window row uses. Takes `prUrl` as a
  *  typed `string` so neither the anchor nor the copy handler needs a non-null
  *  assertion (type narrowing over `!`). */
-function PrLinkRow({ prUrl, prNumber, copied, onCopy, children }: {
+function PrLinkRow({ prUrl, prNumber, copied, onCopy, children, tipLabel }: {
   prUrl: string;
   prNumber: number | undefined;
   copied: boolean;
   onCopy: (url: string) => void;
   children: ReactNode;
+  /** Tier-1 register-name tip on the prefix span only (260723-fm08) — the
+   *  same seam as CopyableRow's `tipLabel`; the anchor's `title={prUrl}`
+   *  state-reveal stays native per the 73al promotion rule. */
+  tipLabel?: string;
 }) {
   return (
     <div className="group/pr relative">
@@ -390,9 +403,11 @@ function PrLinkRow({ prUrl, prNumber, copied, onCopy, children }: {
             lowercase vocabulary (tmx/cwd/git/out/agt/fab/pr). The
             "copied \u2713"+NBSP feedback is 9 advances, matching CopyableRow's
             "copied \u2713 " copied rendering. */}
-        <span className="text-text-secondary shrink-0">
-          {copied ? "copied \u2713\u00a0" : "pr\u00a0\u00a0"}
-        </span>
+        <Tip label={tipLabel} placement="right">
+          <span className="text-text-secondary shrink-0">
+            {copied ? "copied \u2713\u00a0" : "pr\u00a0\u00a0"}
+          </span>
+        </Tip>
         <span className={`${ICON_CLASS} shrink-0`} aria-hidden="true">{"\uf407\u00a0"}</span>
         <span data-testid="pr-line" className="min-w-0 truncate">
           {children}
@@ -499,7 +514,7 @@ function WindowContent({ win }: { win: WindowInfo }) {
     <div className="flex flex-col gap-0 text-xs">
       {/* tmx */}
       {paneId ? (
-        <CopyableRow prefix="tmx" copied={copiedRow === "tmx"} onCopy={() => handleCopy("tmx", paneId)}>
+        <CopyableRow prefix="tmx" tipLabel="tmux pane" copied={copiedRow === "tmx"} onCopy={() => handleCopy("tmx", paneId)}>
           <span className={ICON_CLASS} aria-hidden="true">{"\uF489"}</span>
           {" "}
           <span className="text-text-secondary group-hover:text-accent">
@@ -508,7 +523,9 @@ function WindowContent({ win }: { win: WindowInfo }) {
         </CopyableRow>
       ) : (
         <div className="truncate">
-          <span className="text-text-secondary">tmx </span>
+          <Tip label="tmux pane" placement="right">
+            <span className="text-text-secondary">tmx </span>
+          </Tip>
           <span className={ICON_CLASS} aria-hidden="true">{"\uF489"}</span>
           {" "}
           <span className="text-text-secondary">
@@ -520,6 +537,7 @@ function WindowContent({ win }: { win: WindowInfo }) {
       {/* cwd */}
       <CopyableRow
         prefix="cwd"
+        tipLabel="Working directory"
         copied={copiedRow === "cwd"}
         onCopy={() => handleCopy("cwd", activePaneCwd)}
         title={cwdMissing ? `${activePaneCwd} (no longer exists)` : activePaneCwd}
@@ -537,7 +555,7 @@ function WindowContent({ win }: { win: WindowInfo }) {
 
       {/* git */}
       {gitBranch && (
-        <CopyableRow prefix="git" copied={copiedRow === "git"} onCopy={() => handleCopy("git", gitBranch)}>
+        <CopyableRow prefix="git" tipLabel="Git branch" copied={copiedRow === "git"} onCopy={() => handleCopy("git", gitBranch)}>
           <span className={ICON_CLASS} aria-hidden="true">{"\uF418"}</span>
           {" "}
           <span className="text-text-primary group-hover:text-accent">{gitBranch}</span>
@@ -560,13 +578,14 @@ function WindowContent({ win }: { win: WindowInfo }) {
           <PrLinkRow
             prUrl={win.prUrl}
             prNumber={win.prNumber}
+            tipLabel="Pull request"
             copied={copiedRow === "pr"}
             onCopy={(url) => handleCopy("pr", url)}
           >
             {segmentSpans}
           </PrLinkRow>
         ) : (
-          <CopyableRow prefix={"pr\u00A0"} copied={copiedRow === "pr"} onCopy={() => handleCopy("pr", prText)}>
+          <CopyableRow prefix={"pr\u00A0"} tipLabel="Pull request" copied={copiedRow === "pr"} onCopy={() => handleCopy("pr", prText)}>
             <span className={ICON_CLASS} aria-hidden="true">{"\uF407"}</span>
             {" "}
             <span data-testid="pr-line">
@@ -590,7 +609,9 @@ function WindowContent({ win }: { win: WindowInfo }) {
           a plain shell pane still shows. Its elapsed is never muted here (the
           register view is uncontested for space — the waiting-pierce rule). */}
       <div className="truncate" data-testid="register-output">
-        <span className="text-text-secondary">out </span>
+        <Tip label="Output activity" placement="right">
+          <span className="text-text-secondary">out </span>
+        </Tip>
         <BrailleSnake className={`${ICON_CLASS} font-normal`} />{" "}
         <span className="text-text-secondary">{outputLine}</span>
       </div>
@@ -598,7 +619,9 @@ function WindowContent({ win }: { win: WindowInfo }) {
       {/* agt (L1) — agentState + epoch duration. Absent when no agent. */}
       {agentLine && (
         <div className="truncate" data-testid="register-agent">
-          <span className="text-text-secondary">agt </span>
+          <Tip label="Agent state" placement="right">
+            <span className="text-text-secondary">agt </span>
+          </Tip>
           <StarTwinkle className={`${ICON_CLASS} font-normal`} />{" "}
           <span className="text-text-secondary">{agentLine}</span>
         </div>
@@ -606,7 +629,7 @@ function WindowContent({ win }: { win: WindowInfo }) {
 
       {/* fab (L2) — change · stage · displayState. Absent when no fab change. */}
       {fabLine && (
-        <CopyableRow prefix="fab" copied={copiedRow === "fab"} onCopy={() => handleCopy("fab", fabChange!.id)}>
+        <CopyableRow prefix="fab" tipLabel="Fab change" copied={copiedRow === "fab"} onCopy={() => handleCopy("fab", fabChange!.id)}>
           <ClockSpinner className={`${ICON_CLASS} font-normal`} />{" "}
           <span className="text-text-primary group-hover:text-accent">{fabLine}</span>
         </CopyableRow>

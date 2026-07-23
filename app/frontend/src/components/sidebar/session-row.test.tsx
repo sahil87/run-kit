@@ -216,4 +216,39 @@ describe("SessionRow", () => {
       expect(nameReads).toBe(afterMount); // memo bailed → body did not re-run
     });
   });
+
+  // 260723-fm08: tier-1 tips on the icon action cluster. Deep tooltip behavior
+  // is pinned in tip.test.tsx; these assert the per-site wiring — short
+  // generic tip labels while the aria-labels keep per-session specificity —
+  // and that click behavior survives the Tip wrap.
+  describe("action-cluster tips (260723-fm08)", () => {
+    it("each action button opens its generic-label tip on focus", () => {
+      const cases: Array<[string, string]> = [
+        ["Set color for agent-work", "Set session color"],
+        ["Spawn agent in agent-work", "Spawn agent"],
+        ["New window in agent-work", "New window"],
+        ["Kill session agent-work", "Kill session"],
+      ];
+      // Fresh render per case: blur closes the tip on a floating-ui timeout,
+      // so sequential focuses in one tree would accumulate open tooltips.
+      for (const [ariaName, tipLabel] of cases) {
+        const session = makeSession({ name: "agent-work" });
+        const view = render(<SessionRow {...rowProps(session)} onSpawnAgent={noop} />);
+        const btn = screen.getByLabelText(ariaName);
+        act(() => { fireEvent.focus(btn); });
+        expect(screen.getByRole("tooltip")).toHaveTextContent(tipLabel);
+        expect(btn.getAttribute("aria-describedby")).toBe(screen.getByRole("tooltip").id);
+        view.unmount();
+      }
+    });
+
+    it("kill click still reaches onKillClick through the Tip wrap", () => {
+      const onKillClick = vi.fn();
+      const session = makeSession({ name: "agent-work" });
+      render(<SessionRow {...rowProps(session)} onKillClick={onKillClick} />);
+
+      fireEvent.click(screen.getByLabelText("Kill session agent-work"));
+      expect(onKillClick).toHaveBeenCalledWith("srv", "agent-work", 1, false);
+    });
+  });
 });

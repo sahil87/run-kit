@@ -406,6 +406,43 @@ summary {
   animation: rk-scanline-band 7s linear infinite;
 }
 
+/* ── Thick-marker hazard wedge (260723-wwoi) ─────────────────────────────────
+   A window row whose left-gutter marker is `thick` gets a static "hazard
+   wedge" — a 45° weave in the row's guarded marker color (--rk-marker-color,
+   the same custom property the scanlines read) at 13% alpha, confined by a
+   mask to a left-edge wedge fading out by ~38% of the row width: a taped-off
+   corner, not full-row wallpaper (full-width was tried in the design mocks and
+   rejected as louder than the selected row). The 12px square tile makes
+   adjacent thick rows weld seamlessly (24/36px row heights are multiples).
+
+   NEVER ANIMATED — IN ANY STATE (rest, hover, selected): an explicit user
+   decision after seeing animated variants. There is no `-crawl` twin and no
+   keyframes may ever reference this class; the completed/"taped off" cue is
+   purely static. No prefers-reduced-motion gate is therefore needed (see the
+   audit note in the reduced-motion block below).
+
+   Same overlay discipline as .rk-scanlines: applied to a dedicated
+   absolutely-positioned inner element (inset-0, overflow-hidden,
+   pointer-events-none, z-index 5 — above the tint/button bg, below the z-10
+   icon cluster / z-20 gutter), NEVER the row root (whose `top-full` popovers
+   must stay unclipped). */
+.rk-hazard::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: linear-gradient(
+    45deg,
+    color-mix(in srgb, var(--rk-marker-color) 13%, transparent) 25%,
+    transparent 25% 50%,
+    color-mix(in srgb, var(--rk-marker-color) 13%, transparent) 50% 75%,
+    transparent 75%
+  );
+  background-size: 12px 12px;
+  -webkit-mask-image: linear-gradient(to right, #000, transparent 38%);
+  mask-image: linear-gradient(to right, #000, transparent 38%);
+}
+
 /* Reduced-motion gate — disable EVERY treatment above (Parts A and B). The
    decode scramble is skipped in JS (top-bar.tsx reads the same media query). */
 @media (prefers-reduced-motion: reduce) {
@@ -430,6 +467,8 @@ summary {
      is hidden entirely — attention/effect is never encoded in motion alone. */
   .rk-scanlines-crawl::before { animation: none; }
   .rk-scanlines-crawl::after { animation: none; display: none; }
+  /* Thick-marker hazard wedge (.rk-hazard): static in every state by design —
+     nothing to zero here; listed so the reduced-motion audit stays complete. */
 }
 
 /* Prevent iOS Safari page scroll/bounce — fullbleed always on in single-view. */

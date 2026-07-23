@@ -110,16 +110,35 @@ func TestWindowOptionsColorOutOfRange(t *testing.T) {
 	}
 }
 
-// Non-numeric @color → 400 and zero tmux calls.
+// Out-of-vocabulary @color (neither a family name nor numeric) → 400 and zero
+// tmux calls. Family names themselves ("red", "red-dark") are VALID — see
+// TestWindowOptionsColorFamilyName.
 func TestWindowOptionsColorNonNumeric(t *testing.T) {
 	ops := &mockTmuxOps{}
-	rec := postOptions(t, ops, "@0", `{"options":{"@color":"red"}}`)
+	rec := postOptions(t, ops, "@0", `{"options":{"@color":"bluish"}}`)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
 	}
 	if ops.setWindowOptionsCalled {
-		t.Error("SetWindowOptions must NOT be called for non-numeric color")
+		t.Error("SetWindowOptions must NOT be called for an out-of-vocabulary color")
+	}
+}
+
+// Family-name @color values (both shades) are accepted alongside the numeric
+// vocabulary — dark shades have no legacy numeric form and are stored verbatim.
+func TestWindowOptionsColorFamilyName(t *testing.T) {
+	for _, v := range []string{"red", "blue-dark"} {
+		ops := &mockTmuxOps{}
+		rec := postOptions(t, ops, "@2", `{"options":{"@color":"`+v+`"}}`)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status(%q) = %d, want %d; body=%s", v, rec.Code, http.StatusOK, rec.Body.String())
+		}
+		op, ok := findOp(ops.setWindowOptionsOps, "@color")
+		if !ok || op.Value == nil || *op.Value != v {
+			t.Errorf("@color op = %+v, want value %q", op, v)
+		}
 	}
 }
 
@@ -184,16 +203,33 @@ func TestWindowOptionsMarkerEmptyUnsets(t *testing.T) {
 	}
 }
 
-// Invalid @rk_marker → 400 and zero tmux calls (validate-all-then-execute).
+// Invalid @rk_marker (outside the 5-state closed set) → 400 and zero tmux
+// calls (validate-all-then-execute).
 func TestWindowOptionsMarkerInvalid(t *testing.T) {
 	ops := &mockTmuxOps{}
-	rec := postOptions(t, ops, "@0", `{"options":{"@rk_marker":"dashed"}}`)
+	rec := postOptions(t, ops, "@0", `{"options":{"@rk_marker":"wavy"}}`)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
 	}
 	if ops.setWindowOptionsCalled {
 		t.Error("SetWindowOptions must NOT be called for invalid marker")
+	}
+}
+
+// The two 260723-wwoi marker states round-trip through the widened closed set.
+func TestWindowOptionsMarkerDashedThick(t *testing.T) {
+	for _, v := range []string{"dashed", "thick"} {
+		ops := &mockTmuxOps{}
+		rec := postOptions(t, ops, "@2", `{"options":{"@rk_marker":"`+v+`"}}`)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status(%q) = %d, want %d; body=%s", v, rec.Code, http.StatusOK, rec.Body.String())
+		}
+		op, ok := findOp(ops.setWindowOptionsOps, "@rk_marker")
+		if !ok || op.Value == nil || *op.Value != v {
+			t.Errorf("@rk_marker op = %+v, want value %q", op, v)
+		}
 	}
 }
 

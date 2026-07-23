@@ -910,6 +910,64 @@ describe("WindowRow", () => {
       expect(row.querySelector(".rk-scanlines")).toBeNull();
     });
 
+    it("a thick-marker row gets the static hazard-wedge overlay (clipped inner element, NOT the root) + marker color var", () => {
+      const win = makeWindow({ windowId: "@0", index: 0, color: "green", marker: "thick" });
+      const { container } = renderAxis(win);
+      const row = container.querySelector('[data-window-id="@0"]') as HTMLElement;
+      // Same overlay discipline as the scanlines: the clip lives on a dedicated
+      // inner element so the root stays free to overflow for the `top-full`
+      // popovers — the root carries NEITHER the hazard class NOR overflow-hidden.
+      expect(row.className).not.toContain("rk-hazard");
+      expect(row.className).not.toContain("overflow-hidden");
+      const overlay = row.querySelector(".rk-hazard") as HTMLElement;
+      expect(overlay).toBeTruthy();
+      expect(overlay.className).toContain("overflow-hidden");
+      expect(overlay.className).toContain("pointer-events-none");
+      // The marker color rides on the ROOT (the overlay's ::before inherits it).
+      expect(row.style.getPropertyValue("--rk-marker-color")).not.toBe("");
+    });
+
+    it("the hazard wedge is STATIC in every state — no animation class even when selected", () => {
+      const win = makeWindow({ windowId: "@0", index: 0, color: "green", marker: "thick" });
+      const { container } = renderAxis(win, { isSelected: true });
+      const row = container.querySelector('[data-window-id="@0"]') as HTMLElement;
+      const overlay = row.querySelector(".rk-hazard") as HTMLElement;
+      expect(overlay).toBeTruthy();
+      // No animated twin exists for thick (explicit design decision) — a
+      // selected thick row renders exactly the same static overlay, and no
+      // scanline/crawl classes leak in.
+      expect(overlay.className).not.toContain("crawl");
+      expect(row.querySelector(".rk-scanlines")).toBeNull();
+      expect(row.querySelector(".rk-scanlines-crawl")).toBeNull();
+    });
+
+    it("a non-thick row renders no hazard overlay", () => {
+      const win = makeWindow({ windowId: "@0", index: 0, marker: "double" });
+      const { container } = renderAxis(win);
+      const row = container.querySelector('[data-window-id="@0"]') as HTMLElement;
+      expect(row.querySelector(".rk-hazard")).toBeNull();
+    });
+
+    it("dashed and thick stripes render display-only in the label zone", () => {
+      const dashed = makeWindow({ windowId: "@0", index: 0, marker: "dashed", color: "orange" });
+      const { unmount } = renderAxis(dashed);
+      let zone = screen.getByLabelText("Set window label");
+      // Dashed: a fixed-rhythm one-period gradient tile (element-height
+      // independent), not a border.
+      const dashedStripe = zone.querySelector('[style*="background-image"]') as HTMLElement | null;
+      expect(dashedStripe).not.toBeNull();
+      expect(dashedStripe!.style.backgroundSize).toBe("3px 12px");
+      expect(dashedStripe!.style.backgroundRepeat).toBe("repeat-y");
+      unmount();
+      const thick = makeWindow({ windowId: "@1", index: 1, marker: "thick", color: "orange" });
+      renderAxis(thick);
+      zone = screen.getByLabelText("Set window label");
+      const thickStripe = zone.querySelector('[style*="border-left"]') as HTMLElement | null;
+      expect(thickStripe).not.toBeNull();
+      // Thick = 6px continuous solid bar.
+      expect(thickStripe!.style.borderLeft).toContain("6px solid");
+    });
+
     it("ghost rows get no label zone", () => {
       const ghost = makeGhostWindow();
       render(

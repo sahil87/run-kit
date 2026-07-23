@@ -1,13 +1,31 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { SwatchPopover } from "./swatch-popover";
-import { PICKER_COLOR_VALUES, HUE_FAMILIES } from "@/themes";
+import {
+  PICKER_COLOR_VALUES,
+  MARKER_STATES,
+  HUE_FAMILIES,
+  DEFAULT_DARK_THEME,
+  UNCOLORED_SELECTED_KEY,
+  computeRowTints,
+  computeRowBorders,
+} from "@/themes";
 
-/** The LEGACY descriptor the write seam maps a family name to. The popover
- *  presents family names but emits the legacy vocabulary the backend stores
- *  (familyToLegacy), so onSelect assertions expect the legacy value. */
+/** The STORED value the write seam maps a picked display value to: a NORMAL
+ *  shade maps to its legacy descriptor ("orange" → "1+3", the vocabulary
+ *  pre-existing colors are stored in), while a DARK shade has no legacy form
+ *  and is stored verbatim ("orange-dark"). onSelect assertions expect this. */
+const storedOf = (value: string): string =>
+  HUE_FAMILIES.find((f) => f.name === value)?.legacy ?? value;
+/** Legacy descriptor of a normal-shade family name (write-seam vocabulary). */
 const legacyOf = (familyName: string): string =>
   HUE_FAMILIES.find((f) => f.name === familyName)!.legacy;
+
+/** jsdom serializes inline hex colors to rgb() — mirror that for assertions. */
+const rgb = (hex: string): string => {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`;
+};
 
 // Minimal ThemeProvider wrapper for tests
 import { ThemeProvider } from "@/contexts/theme-context";
@@ -39,17 +57,17 @@ describe("SwatchPopover", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders 10 owned-family swatches + Clear color", () => {
+  it("renders 20 family/shade swatches + Clear color", () => {
     const onSelect = vi.fn();
     const onClose = vi.fn();
     renderWithTheme(<SwatchPopover onSelect={onSelect} onClose={onClose} />);
 
     const options = screen.getAllByRole("option");
-    // 10 family swatches + 1 Clear color button
-    expect(options).toHaveLength(11);
+    // 20 family/shade swatches + 1 Clear color button
+    expect(options).toHaveLength(21);
   });
 
-  it("renders a swatch for every owned family name", () => {
+  it("renders a swatch for every family/shade value", () => {
     const onSelect = vi.fn();
     const onClose = vi.fn();
     renderWithTheme(<SwatchPopover onSelect={onSelect} onClose={onClose} />);
@@ -68,6 +86,46 @@ describe("SwatchPopover", () => {
     const selected = screen.getByRole("option", { name: "Color orange" });
     expect(selected.getAttribute("aria-selected")).toBe("true");
     expect(selected.textContent).toContain("✓");
+    // The adjacent dark shade of the SAME family is NOT selected — the ring/✓
+    // must be unambiguous between same-family shades.
+    expect(
+      screen.getByRole("option", { name: "Color orange-dark" }).getAttribute("aria-selected"),
+    ).toBe("false");
+  });
+
+  it("a dark-stored value highlights the DARK swatch, not its normal sibling", () => {
+    const onSelect = vi.fn();
+    const onClose = vi.fn();
+    renderWithTheme(
+      <SwatchPopover selectedColor="orange-dark" onSelect={onSelect} onClose={onClose} />,
+    );
+    const dark = screen.getByRole("option", { name: "Color orange-dark" });
+    expect(dark.getAttribute("aria-selected")).toBe("true");
+    expect(dark.textContent).toContain("✓");
+    expect(
+      screen.getByRole("option", { name: "Color orange" }).getAttribute("aria-selected"),
+    ).toBe("false");
+  });
+
+  it("swatches are uniform SOLID squares filled with the selected-tint blend (no split halves)", () => {
+    const onSelect = vi.fn();
+    const onClose = vi.fn();
+    renderWithTheme(<SwatchPopover onSelect={onSelect} onClose={onClose} />);
+    const tints = computeRowTints(DEFAULT_DARK_THEME.palette);
+    for (const value of ["blue", "blue-dark"]) {
+      const swatch = screen.getByRole("option", { name: `Color ${value}` });
+      expect(swatch.style.backgroundColor).toBe(rgb(tints.get(value)!.selected));
+      // Single fill on the button itself — no inner base/selected half spans.
+      expect(swatch.querySelectorAll("span")).toHaveLength(0);
+    }
+  });
+
+  it("clicking a DARK swatch emits the {family}-dark value verbatim (no legacy form)", () => {
+    const onSelect = vi.fn();
+    const onClose = vi.fn();
+    renderWithTheme(<SwatchPopover onSelect={onSelect} onClose={onClose} />);
+    fireEvent.click(screen.getByRole("option", { name: "Color green-dark" }));
+    expect(onSelect).toHaveBeenCalledWith("green-dark");
   });
 
   it("highlights the family swatch when selectedColor is a LEGACY descriptor (1+3 → orange)", () => {
@@ -123,9 +181,11 @@ describe("SwatchPopover", () => {
     expect(document.activeElement).toBe(screen.getByRole("listbox"));
   });
 
-  it("the 10 families are the display-ordered picker values (no weight variants)", () => {
-    expect(PICKER_COLOR_VALUES).toEqual(HUE_FAMILIES.map((f) => f.name));
-    expect(PICKER_COLOR_VALUES).toHaveLength(10);
+  it("the 20 picker values are the families in PAIRED shade order (normal | dark adjacent)", () => {
+    expect(PICKER_COLOR_VALUES).toEqual(
+      HUE_FAMILIES.flatMap((f) => [f.name, `${f.name}-dark`]),
+    );
+    expect(PICKER_COLOR_VALUES).toHaveLength(20);
   });
 
   // ── Universal square style (maya): the ONLY style — no `square` prop. ──
@@ -195,7 +255,7 @@ describe("SwatchPopover", () => {
       }
     });
 
-    it("initial focus lands on the selected swatch (magenta, row 3)", () => {
+    it("initial focus lands on the selected swatch (magenta, row 5)", () => {
       const onSelect = vi.fn();
       const onClose = vi.fn();
       renderWithTheme(
@@ -203,46 +263,49 @@ describe("SwatchPopover", () => {
       );
       fireEvent.keyDown(screen.getByRole("listbox"), { key: "Enter" });
       expect(onSelect).toHaveBeenLastCalledWith(legacyOf("magenta"));
-      expect(PICKER_COLOR_VALUES[8]).toBe("magenta");
+      expect(PICKER_COLOR_VALUES[16]).toBe("magenta");
     });
 
-    it("ArrowRight walks a color row and clamps at its right edge", () => {
+    it("ArrowRight walks a color row (normal|dark pairs) and clamps at its right edge", () => {
       const onSelect = vi.fn();
       const onClose = vi.fn();
       renderWithTheme(<SwatchPopover onSelect={onSelect} onClose={onClose} />);
       const listbox = screen.getByRole("listbox");
       // Uncolored → initial focus is Clear (row 0); descend into row 1 first.
       fireEvent.keyDown(listbox, { key: "ArrowDown" });
-      // Row 1: colors 0–3. Three ArrowRights reach the row end (col 4).
+      // Row 1: red, red-dark, orange, orange-dark. Three ArrowRights reach the
+      // row end (col 4 = orange-dark, a DARK value stored verbatim).
       for (let i = 0; i < 3; i++) fireEvent.keyDown(listbox, { key: "ArrowRight" });
       fireEvent.keyDown(listbox, { key: "Enter" });
-      expect(onSelect).toHaveBeenLastCalledWith(legacyOf(PICKER_COLOR_VALUES[3]));
+      expect(PICKER_COLOR_VALUES[3]).toBe("orange-dark");
+      expect(onSelect).toHaveBeenLastCalledWith("orange-dark");
       // A fourth ArrowRight clamps (no wrap into the next row).
       fireEvent.keyDown(listbox, { key: "ArrowRight" });
       fireEvent.keyDown(listbox, { key: "Enter" });
-      expect(onSelect).toHaveBeenLastCalledWith(legacyOf(PICKER_COLOR_VALUES[3]));
+      expect(onSelect).toHaveBeenLastCalledWith("orange-dark");
     });
 
-    it("ArrowDown moves down a column; from the dead cells' columns it clamps to the last color of row 3", () => {
+    it("ArrowDown moves down a column to the bottom row (20 colors fill 5×4 — no dead cells)", () => {
       const onSelect = vi.fn();
       const onClose = vi.fn();
       renderWithTheme(<SwatchPopover onSelect={onSelect} onClose={onClose} />);
       const listbox = screen.getByRole("listbox");
-      // Descend from Clear, then walk to (row 1, col 4), down to (row 2, col 4) = color 7.
+      // Descend from Clear into (1,1), walk to (1,4), then down the col-4
+      // column: (2,4) = index 7, … (5,4) = index 19 (slate-dark) — every cell
+      // on the way is a real color (the former dead cells are gone).
       fireEvent.keyDown(listbox, { key: "ArrowDown" });
       for (let i = 0; i < 3; i++) fireEvent.keyDown(listbox, { key: "ArrowRight" });
       fireEvent.keyDown(listbox, { key: "ArrowDown" });
       fireEvent.keyDown(listbox, { key: "Enter" });
-      expect(onSelect).toHaveBeenLastCalledWith(legacyOf(PICKER_COLOR_VALUES[7]));
-      // Row 3 holds only colors 8–9 (cols 1–2): ArrowDown from col 4 lands on
-      // the nearest valid cell — color 9 (col 2), not a dead cell.
-      fireEvent.keyDown(listbox, { key: "ArrowDown" });
+      expect(onSelect).toHaveBeenLastCalledWith(storedOf(PICKER_COLOR_VALUES[7]));
+      for (let i = 0; i < 3; i++) fireEvent.keyDown(listbox, { key: "ArrowDown" });
       fireEvent.keyDown(listbox, { key: "Enter" });
-      expect(onSelect).toHaveBeenLastCalledWith(legacyOf(PICKER_COLOR_VALUES[9]));
+      expect(PICKER_COLOR_VALUES[19]).toBe("slate-dark");
+      expect(onSelect).toHaveBeenLastCalledWith("slate-dark");
       // ArrowDown at the bottom row is a no-op.
       fireEvent.keyDown(listbox, { key: "ArrowDown" });
       fireEvent.keyDown(listbox, { key: "Enter" });
-      expect(onSelect).toHaveBeenLastCalledWith(legacyOf(PICKER_COLOR_VALUES[9]));
+      expect(onSelect).toHaveBeenLastCalledWith("slate-dark");
     });
 
     it("ArrowUp from row 1 lands on the single Clear color target; Enter clears", () => {
@@ -301,10 +364,15 @@ describe("SwatchPopover", () => {
     });
   });
 
-  // ── Combined Label picker (maya): side-by-side marker column | hairline |
-  //    color grid. Marker section gated on onSelectMarker alone; stripes draw
-  //    in the theme foreground (NOT the row's color — independent axes). ──
+  // ── Combined Label picker: side-by-side marker column | hairline | paired
+  //    color grid. Marker section gated on onSelectMarker alone; the non-∅
+  //    cells are LIVE ROW PREVIEWS of the currently selected color (tint.base
+  //    background, guarded stripe with a 2px inset, paired texture) and never
+  //    animate. ──
   describe("combined Label picker (side-by-side marker column)", () => {
+    const tints = computeRowTints(DEFAULT_DARK_THEME.palette);
+    const borders = computeRowBorders(DEFAULT_DARK_THEME.palette, DEFAULT_DARK_THEME.category);
+
     function renderLabelPicker(extra: Partial<React.ComponentProps<typeof SwatchPopover>> = {}) {
       const onSelect = vi.fn();
       const onSelectMarker = vi.fn();
@@ -320,25 +388,32 @@ describe("SwatchPopover", () => {
       return { onSelect, onSelectMarker, onClose, ...utils };
     }
 
+    /** The 5 non-∅ marker preview cells (dotted/dashed/solid/double/thick). */
+    function previewCells(): HTMLElement[] {
+      return MARKER_STATES.filter((s) => s !== "").map(
+        (s) => screen.getByRole("option", { name: `Marker ${s}` }) as HTMLElement,
+      );
+    }
+
     it("renders NO marker column and NO hairline when the marker props are absent", () => {
       const onSelect = vi.fn();
       const onClose = vi.fn();
       const { container } = renderWithTheme(
         <SwatchPopover onSelect={onSelect} onClose={onClose} />,
       );
-      // Color-only: 10 swatches + Clear color = 11 options, no marker cells.
-      expect(screen.getAllByRole("option")).toHaveLength(11);
+      // Color-only: 20 swatches + Clear color = 21 options, no marker cells.
+      expect(screen.getAllByRole("option")).toHaveLength(21);
       expect(screen.queryByRole("option", { name: /^Marker / })).toBeNull();
       // No vertical hairline divider.
       expect(container.querySelector(".w-px")).toBeNull();
       expect(screen.getByRole("listbox").getAttribute("aria-label")).toBe("Color picker");
     });
 
-    it("renders 4 marker cells (none/dotted/solid/double) in a left column beside a vertical hairline", () => {
+    it("renders 6 marker cells (none + the 5 states in display order) beside a vertical hairline", () => {
       const { container } = renderLabelPicker();
-      // 10 color swatches + Clear color + 4 marker cells = 15 options.
-      expect(screen.getAllByRole("option")).toHaveLength(15);
-      for (const state of ["none", "dotted", "solid", "double"]) {
+      // 20 color swatches + Clear color + 6 marker cells = 27 options.
+      expect(screen.getAllByRole("option")).toHaveLength(27);
+      for (const state of ["none", "dotted", "dashed", "solid", "double", "thick"]) {
         expect(screen.getByRole("option", { name: `Marker ${state}` })).toBeTruthy();
       }
       // The listbox is labelled "Label picker" once markers are present.
@@ -346,19 +421,30 @@ describe("SwatchPopover", () => {
       // The vertical hairline divides the two sections.
       expect(container.querySelector(".w-px")).not.toBeNull();
       // The marker cells live in a single left column, ∅ first (the removal
-      // row), then dotted/solid/double beside the three color rows.
+      // row), then the five states beside the five color rows.
       const markerCol = screen.getByRole("option", { name: "Marker none" }).parentElement!;
       expect(markerCol.className).toContain("flex-col");
       const cells = Array.from(markerCol.querySelectorAll("[data-marker-value]"));
       expect(cells.map((c) => c.getAttribute("data-marker-value"))).toEqual([
         "",
         "dotted",
+        "dashed",
         "solid",
         "double",
+        "thick",
       ]);
       // Marker cells share the 18px square metric so rows align 1:1.
       expect((cells[0] as HTMLElement).className).toContain("w-[18px]");
       expect((cells[0] as HTMLElement).className).toContain("h-[18px]");
+    });
+
+    it("the marker-cell ↔ grid-row pairing is a deliberate invariant (6 cells, 6 rows)", () => {
+      // GRID_ROWS (1 removal row + 20 colors / 4 per row) must equal the
+      // marker column's cell count — extend MARKER_STATES and
+      // PICKER_COLOR_VALUES together (supersedes the old "load-bearing
+      // coincidence").
+      expect(MARKER_STATES.length).toBe(1 + PICKER_COLOR_VALUES.length / 4);
+      expect(MARKER_STATES.length).toBe(6);
     });
 
     it("clicking a marker cell calls onSelectMarker with that state (no cycling)", () => {
@@ -376,22 +462,84 @@ describe("SwatchPopover", () => {
       expect(onSelectMarker).toHaveBeenCalledWith("");
     });
 
-    it("marker stripes draw in the THEME FOREGROUND, not a row-dependent color", () => {
-      renderLabelPicker();
-      // Default Dark foreground (#e8eaf0) — bright and theme-adaptive, so the
-      // marker column is legible on uncolored rows (no gray-sentinel stripes)
-      // and never repaints when the color axis changes.
-      const dotted = screen
-        .getByRole("option", { name: "Marker dotted" })
-        .querySelector("span")!;
-      // Dotted is a fixed-rhythm gradient (seam-free across stacked rows), not
-      // a dotted border. #e8eaf0 — jsdom normalizes the inline hex to rgb().
-      expect(dotted.style.backgroundImage).toContain("repeating-linear-gradient");
-      expect(dotted.style.backgroundImage).toContain("rgb(232, 234, 240)");
-      const solid = screen
+    it("marker cells are LIVE ROW PREVIEWS of the selected color (tint.base bg + guarded stripe, 2px inset)", () => {
+      renderLabelPicker({ selectedColor: "green" });
+      const guarded = borders.get("green")!;
+      for (const cell of previewCells()) {
+        // Mini window row: the cell's background is the selected value's BASE
+        // tint (what a real green row shows at rest).
+        expect(cell.style.backgroundColor).toBe(rgb(tints.get("green")!.base));
+        // The texture pseudos read the same guarded color via the custom prop.
+        expect(cell.style.getPropertyValue("--rk-marker-color")).toBe(guarded);
+      }
+      // Stripes draw in the guarded family color with a 2px left inset (the
+      // marker must not kiss the cell edge — the cell reads as a mini row).
+      const solidStripe = screen
         .getByRole("option", { name: "Marker solid" })
-        .querySelector("span")!;
-      expect(solid.style.borderLeft).toContain("rgb(232, 234, 240)");
+        .querySelector("span")! as HTMLElement;
+      expect(solidStripe.style.borderLeft).toContain(rgb(guarded));
+      expect(solidStripe.style.left).toBe("2px");
+      const dottedStripe = screen
+        .getByRole("option", { name: "Marker dotted" })
+        .querySelector("span")! as HTMLElement;
+      // Fixed one-period tile (seam-free at the 18px cell height too).
+      expect(dottedStripe.style.backgroundImage).toContain("linear-gradient");
+      expect(dottedStripe.style.backgroundImage).toContain(rgb(guarded));
+      expect(dottedStripe.style.backgroundSize).toBe("3px 6px");
+      // The ∅ cell is NOT a preview — it keeps the inset glyph cell.
+      const none = screen.getByRole("option", { name: "Marker none" });
+      expect(none.className).toContain("bg-bg-inset");
+      expect(none.style.backgroundColor).toBe("");
+    });
+
+    it("a DARK selected color previews with its own tint/border (not the normal sibling's)", () => {
+      renderLabelPicker({ selectedColor: "green-dark" });
+      const [dotted] = previewCells();
+      expect(dotted.style.backgroundColor).toBe(rgb(tints.get("green-dark")!.base));
+      expect(dotted.style.getPropertyValue("--rk-marker-color")).toBe(borders.get("green-dark"));
+    });
+
+    it("uncolored previews fall back to the gray sentinel tint/border", () => {
+      renderLabelPicker();
+      for (const cell of previewCells()) {
+        expect(cell.style.backgroundColor).toBe(rgb(tints.get(UNCOLORED_SELECTED_KEY)!.base));
+        expect(cell.style.getPropertyValue("--rk-marker-color")).toBe(
+          borders.get(UNCOLORED_SELECTED_KEY),
+        );
+      }
+    });
+
+    it("picking a swatch repaints the marker previews immediately", () => {
+      const { onSelect } = renderLabelPicker({ selectedColor: "green" });
+      const [dotted] = previewCells();
+      expect(dotted.style.backgroundColor).toBe(rgb(tints.get("green")!.base));
+      fireEvent.click(screen.getByRole("option", { name: "Color blue-dark" }));
+      expect(onSelect).toHaveBeenCalledWith("blue-dark");
+      // The preview column repaints from the pick, without any parent
+      // re-render (the caller may close the popover on pick).
+      expect(dotted.style.backgroundColor).toBe(rgb(tints.get("blue-dark")!.base));
+      // Clear color reverts the previews to the gray sentinel.
+      fireEvent.click(screen.getByText("Clear color"));
+      expect(dotted.style.backgroundColor).toBe(rgb(tints.get(UNCOLORED_SELECTED_KEY)!.base));
+    });
+
+    it("preview cells carry the paired STATIC row textures and never animate", () => {
+      renderLabelPicker({ selectedColor: "green", selectedMarker: "double" });
+      const listbox = screen.getByRole("listbox");
+      // Thick pairs with the hazard wedge; double with the scanline wash.
+      expect(
+        screen.getByRole("option", { name: "Marker thick" }).querySelector(".rk-hazard"),
+      ).not.toBeNull();
+      expect(
+        screen.getByRole("option", { name: "Marker double" }).querySelector(".rk-scanlines"),
+      ).not.toBeNull();
+      // Other cells carry no texture.
+      expect(
+        screen.getByRole("option", { name: "Marker solid" }).querySelector(".rk-hazard, .rk-scanlines"),
+      ).toBeNull();
+      // NEVER animated — even with double SELECTED, the crawl class is absent
+      // everywhere in the picker (motion belongs to real rows only).
+      expect(listbox.querySelector(".rk-scanlines-crawl")).toBeNull();
     });
 
     it("ArrowLeft crosses the hairline into the marker column; ArrowUp/Down move within it", () => {
@@ -403,15 +551,19 @@ describe("SwatchPopover", () => {
       fireEvent.keyDown(listbox, { key: "ArrowLeft" });
       fireEvent.keyDown(listbox, { key: "Enter" });
       expect(onSelectMarker).toHaveBeenLastCalledWith("dotted");
-      // ArrowDown within the column: solid, then double.
+      // ArrowDown within the column walks the display order: dashed, solid,
+      // double, thick.
+      for (const state of ["dashed", "solid", "double", "thick"]) {
+        fireEvent.keyDown(listbox, { key: "ArrowDown" });
+        fireEvent.keyDown(listbox, { key: "Enter" });
+        expect(onSelectMarker).toHaveBeenLastCalledWith(state);
+      }
+      // ArrowDown at the bottom of the column clamps on thick.
       fireEvent.keyDown(listbox, { key: "ArrowDown" });
       fireEvent.keyDown(listbox, { key: "Enter" });
-      expect(onSelectMarker).toHaveBeenLastCalledWith("solid");
-      fireEvent.keyDown(listbox, { key: "ArrowDown" });
-      fireEvent.keyDown(listbox, { key: "Enter" });
-      expect(onSelectMarker).toHaveBeenLastCalledWith("double");
+      expect(onSelectMarker).toHaveBeenLastCalledWith("thick");
       // ArrowUp back to the top of the column reaches ∅ (clears).
-      for (let i = 0; i < 3; i++) fireEvent.keyDown(listbox, { key: "ArrowUp" });
+      for (let i = 0; i < 5; i++) fireEvent.keyDown(listbox, { key: "ArrowUp" });
       fireEvent.keyDown(listbox, { key: "Enter" });
       expect(onSelectMarker).toHaveBeenLastCalledWith("");
     });
@@ -419,14 +571,15 @@ describe("SwatchPopover", () => {
     it("ArrowRight crosses back from a marker cell to its row's first color", () => {
       const { onSelect, onSelectMarker } = renderLabelPicker();
       const listbox = screen.getByRole("listbox");
-      // Clear (0,1) → (1,1) → marker "dotted" (1,0), down to "solid" (2,0),
-      // then back across the hairline → (2,1) = color 5 (index 4).
+      // Clear (0,1) → (1,1) → marker "dotted" (1,0), down to "dashed" (2,0),
+      // then back across the hairline → (2,1) = index 4 ("amber").
       fireEvent.keyDown(listbox, { key: "ArrowDown" });
       fireEvent.keyDown(listbox, { key: "ArrowLeft" });
       fireEvent.keyDown(listbox, { key: "ArrowDown" });
       fireEvent.keyDown(listbox, { key: "ArrowRight" });
       fireEvent.keyDown(listbox, { key: "Enter" });
-      expect(onSelect).toHaveBeenLastCalledWith(legacyOf(PICKER_COLOR_VALUES[4]));
+      expect(PICKER_COLOR_VALUES[4]).toBe("amber");
+      expect(onSelect).toHaveBeenLastCalledWith(legacyOf("amber"));
       expect(onSelectMarker).not.toHaveBeenCalled();
     });
 

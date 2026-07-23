@@ -43,6 +43,10 @@ export interface HealthResponse {
    *  Composes the derived deeplink host when RK_SSH_HOST is unset; absent
    *  when the lookup failed (the `user@` prefix is omitted then). */
   sshUser?: string;
+  /** Optional instance display-name override (settings.yaml `instance_name`).
+   *  Display surfaces prefer it over `hostname`; absent when unset. The real
+   *  hostname stays authoritative for the accent hash and SSH deeplinks. */
+  instanceName?: string;
 }
 
 export async function getHealth(): Promise<HealthResponse> {
@@ -833,6 +837,45 @@ export async function setInstanceColor(color: string | null): Promise<void> {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ color }),
+  });
+  if (!res.ok) await throwOnError(res);
+}
+
+// --- SSH host + instance name (host-scoped scalar settings) ---
+
+/** The stored SSH destination SETTING (alias or user@host), or null when
+ *  unset. This is the raw setting the settings dialog edits — the EFFECTIVE
+ *  value (settings-first with the RK_SSH_HOST env fallback) rides getHealth().sshHost. */
+export async function getSSHHost(): Promise<string | null> {
+  const res = await deduplicatedFetch("/api/settings/ssh-host");
+  if (!res.ok) await throwOnError(res);
+  const data: { sshHost: string | null } = await res.json();
+  return data.sshHost;
+}
+
+export async function setSSHHost(host: string | null): Promise<void> {
+  const res = await fetch("/api/settings/ssh-host", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sshHost: host }),
+  });
+  if (!res.ok) await throwOnError(res);
+}
+
+/** The stored instance display-name override, or null when unset (display
+ *  surfaces then fall back to the health-reported hostname). */
+export async function getInstanceName(): Promise<string | null> {
+  const res = await deduplicatedFetch("/api/settings/instance-name");
+  if (!res.ok) await throwOnError(res);
+  const data: { name: string | null } = await res.json();
+  return data.name;
+}
+
+export async function setInstanceName(name: string | null): Promise<void> {
+  const res = await fetch("/api/settings/instance-name", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
   });
   if (!res.ok) await throwOnError(res);
 }

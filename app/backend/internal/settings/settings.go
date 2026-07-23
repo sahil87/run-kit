@@ -21,6 +21,15 @@ type Settings struct {
 	// hostname-hash default. Stored as a string so a blend can round-trip;
 	// reads tolerate a legacy bare integer (normalized on load).
 	InstanceColor string
+	// SSHHost is the verbatim SSH destination remote clients use to reach this
+	// host — an alias from the client's ~/.ssh/config or a `user@host` form.
+	// Empty means "unset": /api/health then falls back to the RK_SSH_HOST env
+	// var. Scalar, like InstanceColor.
+	SSHHost string
+	// InstanceName is the display-name override for this run-kit instance.
+	// Empty means "unset": display surfaces derive the name from os.Hostname()
+	// (via /api/health `hostname`). Scalar, like InstanceColor.
+	InstanceName string
 	// server name → color value descriptor ("4" for a single ANSI index,
 	// "1+3" for a two-hue blend). Stored as a string so a blend can round-trip;
 	// reads tolerate a legacy bare integer (normalized on load).
@@ -163,6 +172,12 @@ func parse(data string) Settings {
 			if normalized, ok := validate.NormalizeColorValue(colorStr); ok {
 				s.InstanceColor = normalized
 			}
+		case "ssh_host":
+			// Tolerant read: quote-stripped and trimmed (serialize always
+			// quotes so the value round-trips unambiguously).
+			s.SSHHost = strings.TrimSpace(strings.Trim(value, "\""))
+		case "instance_name":
+			s.InstanceName = strings.TrimSpace(strings.Trim(value, "\""))
 		case "server_colors":
 			inServerColors = true
 		case "board_order":
@@ -183,6 +198,16 @@ func serialize(s Settings) string {
 	// Always quoted so a blend ("1+3") round-trips unambiguously.
 	if s.InstanceColor != "" {
 		out += "instance_color: \"" + s.InstanceColor + "\"\n"
+	}
+
+	// SSH host + instance name — each emitted only when non-empty so a settings
+	// file without them serializes byte-identically to the pre-change output.
+	// Always quoted so any value round-trips unambiguously.
+	if s.SSHHost != "" {
+		out += "ssh_host: \"" + s.SSHHost + "\"\n"
+	}
+	if s.InstanceName != "" {
+		out += "instance_name: \"" + s.InstanceName + "\"\n"
 	}
 
 	if len(s.ServerColors) > 0 {
@@ -253,6 +278,50 @@ func SetInstanceColor(color *string) error {
 		s.InstanceColor = ""
 	} else {
 		s.InstanceColor = *color
+	}
+	return Save(s)
+}
+
+// GetSSHHost returns the stored SSH destination, or nil when unset. Mirrors
+// GetInstanceColor.
+func GetSSHHost() *string {
+	s := Load()
+	if s.SSHHost == "" {
+		return nil
+	}
+	return &s.SSHHost
+}
+
+// SetSSHHost sets or clears the stored SSH destination (nil clears). Mirrors
+// SetInstanceColor (load-then-save).
+func SetSSHHost(host *string) error {
+	s := Load()
+	if host == nil {
+		s.SSHHost = ""
+	} else {
+		s.SSHHost = *host
+	}
+	return Save(s)
+}
+
+// GetInstanceName returns the stored instance display-name override, or nil
+// when unset. Mirrors GetInstanceColor.
+func GetInstanceName() *string {
+	s := Load()
+	if s.InstanceName == "" {
+		return nil
+	}
+	return &s.InstanceName
+}
+
+// SetInstanceName sets or clears the stored instance display-name override
+// (nil clears). Mirrors SetInstanceColor (load-then-save).
+func SetInstanceName(name *string) error {
+	s := Load()
+	if name == nil {
+		s.InstanceName = ""
+	} else {
+		s.InstanceName = *name
 	}
 	return Save(s)
 }

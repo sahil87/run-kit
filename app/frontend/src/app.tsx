@@ -53,6 +53,8 @@ import {
 } from "@/lib/window-transition";
 import { ThemeProvider, useTheme, useThemeActions } from "@/contexts/theme-context";
 import { InstanceAccentProvider, useInstanceAccent } from "@/contexts/instance-accent-context";
+import { InstanceNameProvider, useInstanceName } from "@/contexts/instance-name-context";
+import { SettingsDialogProvider, useSettingsDialog } from "@/contexts/settings-dialog-context";
 import { SessionProvider } from "@/contexts/session-context";
 import { ToastProvider } from "@/components/toast";
 import { OptimisticProvider } from "@/contexts/optimistic-context";
@@ -75,7 +77,7 @@ import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 import { LogoSpinner } from "@/components/logo-spinner";
 import type { ServerInfo } from "@/api/client";
 
-import { selectWindow, createSession, createWindow, splitWindow, closePane, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, getHealth, createServer, killServer as killServerApi, setWindowColor as setWindowColorApi, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, sendChatMessage, refreshStatus, isInfraServer, DAEMON_SERVER } from "@/api/client";
+import { selectWindow, createSession, createWindow, splitWindow, closePane, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, createServer, killServer as killServerApi, setWindowColor as setWindowColorApi, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, sendChatMessage, refreshStatus, isInfraServer, DAEMON_SERVER } from "@/api/client";
 import { useBoards } from "@/hooks/use-boards";
 import { useWindowPins } from "@/hooks/use-window-pins";
 import { usePinActions } from "@/hooks/use-pin-actions";
@@ -100,6 +102,7 @@ const ThemeSelector = lazy(() => import("@/components/theme-selector").then(m =>
 const CreateSessionDialog = lazy(() => import("@/components/create-session-dialog").then(m => ({ default: m.CreateSessionDialog })));
 const SpawnAgentDialog = lazy(() => import("@/components/spawn-agent-dialog").then(m => ({ default: m.SpawnAgentDialog })));
 const SwatchPopover = lazy(() => import("@/components/swatch-popover").then(m => ({ default: m.SwatchPopover })));
+const SettingsDialog = lazy(() => import("@/components/settings-dialog").then(m => ({ default: m.SettingsDialog })));
 
 const { min: SIDEBAR_MIN_WIDTH, max: SIDEBAR_MAX_WIDTH } = SIDEBAR_WIDTH_BOUNDS;
 
@@ -158,6 +161,7 @@ export function RootWrapper() {
     <ThemeProvider>
       <ToastProvider>
         <InstanceAccentProvider>
+          <InstanceNameProvider>
           <ChromeProvider>
             <SessionProvider>
               <FocusedTerminalProvider>
@@ -171,6 +175,7 @@ export function RootWrapper() {
               </FocusedTerminalProvider>
             </SessionProvider>
           </ChromeProvider>
+          </InstanceNameProvider>
         </InstanceAccentProvider>
       </ToastProvider>
     </ThemeProvider>
@@ -205,6 +210,12 @@ export function AppLayout() {
   // until an accent is resolved.
   const { stripeHex, washHex } = useInstanceAccent();
   return (
+    // Settings dialog (o7q8): provided HERE — the true every-page layer — so
+    // any descendant (AppShell palette, board palette, sidebar gear) can call
+    // `openSettings()` while the dialog renders exactly once below. AppShell
+    // is server-scoped and `/board/$name` doesn't render it, so a lower mount
+    // would either miss boards or duplicate the dialog.
+    <SettingsDialogProvider>
     <div
       className="app-root flex flex-col"
       style={{ height: "var(--app-height, 100vh)" }}
@@ -227,7 +238,12 @@ export function AppLayout() {
           <Outlet />
         </Suspense>
       </div>
+      {/* The ONE settings-dialog mount (o7q8) — never duplicated per page. */}
+      <Suspense fallback={null}>
+        <SettingsDialog />
+      </Suspense>
     </div>
+    </SettingsDialogProvider>
   );
 }
 
@@ -525,7 +541,6 @@ function AppShell() {
   // `composeStripEnabled` chrome preference, toggled by the `>_` chip and the
   // `View: Text Input` palette action. No per-terminal compose-open state.
   const [scrollLocked, setScrollLocked] = useState(false);
-  const [hostname, setHostname] = useState("");
   const [showCreateServerDialog, setShowCreateServerDialog] = useState(false);
   const [createServerName, setCreateServerName] = useState("");
   const [killServerTarget, setKillServerTarget] = useState<string | null>(null);
@@ -573,17 +588,12 @@ function AppShell() {
     onError: (err) => addToast(err.message || "Failed to close pane"),
   });
 
-  // Fetch hostname once on mount (guarded for StrictMode double-invoke)
-  const didFetchHostnameRef = useRef(false);
-  useEffect(() => {
-    if (didFetchHostnameRef.current) return;
-    didFetchHostnameRef.current = true;
-    getHealth()
-      .then((data) => setHostname(data.hostname ?? ""))
-      .catch(() => {});
-  }, []);
-
-  useBrowserTitle(sessionName, windowParam, hostname);
+  // Browser-title host label: the instance display name (settings override
+  // when set, else the health hostname) from the root InstanceNameProvider —
+  // the provider owns the one-shot health fetch, and a settings-dialog rename
+  // retitles the tab live (o7q8).
+  const { displayName: instanceDisplayName } = useInstanceName();
+  useBrowserTitle(sessionName, windowParam, instanceDisplayName);
 
   // Sidebar drag-resize handler (desktop only). Width state lives in
   // `ChromeContext` (lifted from per-route local state) so AppShell and
@@ -2048,6 +2058,17 @@ function AppShell() {
     onError: () => addToast("Failed to reset tmux config", "error"),
   });
 
+  // Settings dialog (o7q8): the palette is the primary keyboard path (no
+  // dedicated shortcut — Cmd+, is browser-reserved). The dialog itself mounts
+  // once in AppLayout; this is just the one-line trigger. The board palette
+  // (board-page.tsx) registers its own identical one-liner (dual-mount
+  // duplication until [239r]).
+  const { openSettings } = useSettingsDialog();
+  const settingsActions: PaletteAction[] = useMemo(
+    () => [{ id: "settings-open", label: "Settings: Open", onSelect: openSettings }],
+    [openSettings],
+  );
+
   const configActions: PaletteAction[] = useMemo(
     () => [
       {
@@ -2369,8 +2390,8 @@ function AppShell() {
   const { actions: pushActions } = usePushSubscription();
 
   const paletteActions: PaletteAction[] = useMemo(
-    () => [...sessionActions, ...sessionsScopeActions, ...windowActions, ...boardActions, ...viewActions, ...openActions, ...navActions, ...terminalFontActions, ...themeActions, ...configActions, ...statusRefreshActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions, ...serverActions, ...pushActions, ...windowSwitchActions, ...agentActions, ...agentSpawnActions],
-    [sessionActions, sessionsScopeActions, windowActions, boardActions, viewActions, openActions, navActions, terminalFontActions, themeActions, configActions, statusRefreshActions, updateActions, checkActions, maintenanceActions, versionActions, serverActions, pushActions, windowSwitchActions, agentActions, agentSpawnActions],
+    () => [...sessionActions, ...sessionsScopeActions, ...windowActions, ...boardActions, ...viewActions, ...openActions, ...navActions, ...terminalFontActions, ...themeActions, ...settingsActions, ...configActions, ...statusRefreshActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions, ...serverActions, ...pushActions, ...windowSwitchActions, ...agentActions, ...agentSpawnActions],
+    [sessionActions, sessionsScopeActions, windowActions, boardActions, viewActions, openActions, navActions, terminalFontActions, themeActions, settingsActions, configActions, statusRefreshActions, updateActions, checkActions, maintenanceActions, versionActions, serverActions, pushActions, windowSwitchActions, agentActions, agentSpawnActions],
   );
 
   const displayName = currentWindow?.name ?? windowParam ?? "";

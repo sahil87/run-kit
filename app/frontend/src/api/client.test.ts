@@ -21,6 +21,10 @@ import {
   killServer,
   setThemePreference,
   setServerColor,
+  getSSHHost,
+  setSSHHost,
+  getInstanceName,
+  setInstanceName,
   setWindowColor,
   updateWindowUrl,
   updateWindowType,
@@ -910,5 +914,102 @@ describe("rank-aware server ordering (compareServersRanked)", () => {
     const plain = [...input].sort(compareServers).map((s) => s.name);
     expect(ranked).toEqual(["alpha", "bravo", "charlie"]);
     expect(ranked).toEqual(plain);
+  });
+});
+
+describe("ssh-host + instance-name settings client (260723-o7q8)", () => {
+  it("getHealth surfaces the optional instanceName field when present", async () => {
+    mswServer.use(
+      http.get("/api/health", () =>
+        HttpResponse.json({ status: "ok", hostname: "test-host", instanceName: "my-box" }),
+      ),
+    );
+    const health = await getHealth();
+    expect(health.instanceName).toBe("my-box");
+    expect(health.hostname).toBe("test-host");
+  });
+
+  it("getSSHHost resolves the stored setting", async () => {
+    mswServer.use(
+      http.get("/api/settings/ssh-host", () => HttpResponse.json({ sshHost: "devbox" })),
+    );
+    await expect(getSSHHost()).resolves.toBe("devbox");
+  });
+
+  it("getSSHHost resolves null when unset", async () => {
+    mswServer.use(
+      http.get("/api/settings/ssh-host", () => HttpResponse.json({ sshHost: null })),
+    );
+    await expect(getSSHHost()).resolves.toBeNull();
+  });
+
+  it("setSSHHost POSTs the value and resolves on ok", async () => {
+    let capturedBody: unknown = null;
+    mswServer.use(
+      http.post("/api/settings/ssh-host", async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json({ status: "ok" });
+      }),
+    );
+    await setSSHHost("devbox");
+    expect(capturedBody).toEqual({ sshHost: "devbox" });
+  });
+
+  it("setSSHHost POSTs null to clear", async () => {
+    let capturedBody: unknown = null;
+    mswServer.use(
+      http.post("/api/settings/ssh-host", async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json({ status: "ok" });
+      }),
+    );
+    await setSSHHost(null);
+    expect(capturedBody).toEqual({ sshHost: null });
+  });
+
+  it("setSSHHost rejects with the server's structured error on 400", async () => {
+    mswServer.use(
+      http.post("/api/settings/ssh-host", () =>
+        HttpResponse.json({ error: "SSH host cannot contain whitespace or control characters" }, { status: 400 }),
+      ),
+    );
+    await expect(setSSHHost("dev box")).rejects.toThrow(
+      "SSH host cannot contain whitespace or control characters",
+    );
+  });
+
+  it("getInstanceName resolves the stored setting (null when unset)", async () => {
+    mswServer.use(
+      http.get("/api/settings/instance-name", () => HttpResponse.json({ name: "my-box" })),
+    );
+    await expect(getInstanceName()).resolves.toBe("my-box");
+
+    mswServer.use(
+      http.get("/api/settings/instance-name", () => HttpResponse.json({ name: null })),
+    );
+    await expect(getInstanceName()).resolves.toBeNull();
+  });
+
+  it("setInstanceName POSTs the value; null clears; 400 rejects with message", async () => {
+    let capturedBody: unknown = null;
+    mswServer.use(
+      http.post("/api/settings/instance-name", async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json({ status: "ok" });
+      }),
+    );
+    await setInstanceName("my-box");
+    expect(capturedBody).toEqual({ name: "my-box" });
+    await setInstanceName(null);
+    expect(capturedBody).toEqual({ name: null });
+
+    mswServer.use(
+      http.post("/api/settings/instance-name", () =>
+        HttpResponse.json({ error: "Instance name cannot contain control characters" }, { status: 400 }),
+      ),
+    );
+    await expect(setInstanceName("bad")).rejects.toThrow(
+      "Instance name cannot contain control characters",
+    );
   });
 });

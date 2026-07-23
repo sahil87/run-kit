@@ -6,6 +6,10 @@ import {
   InstanceAccentValueProvider,
   type InstanceAccent,
 } from "@/contexts/instance-accent-context";
+import {
+  InstanceNameValueProvider,
+  type InstanceName,
+} from "@/contexts/instance-name-context";
 import { ThemeProvider } from "@/contexts/theme-context";
 import type { MetricsSnapshot } from "@/types";
 
@@ -54,23 +58,37 @@ function accentValue(overrides: Partial<InstanceAccent> = {}): InstanceAccent {
   };
 }
 
+function nameValue(overrides: Partial<InstanceName> = {}): InstanceName {
+  return {
+    hostname: "",
+    instanceName: null,
+    displayName: "",
+    setInstanceName: vi.fn(),
+    ...overrides,
+  };
+}
+
 function renderPanel({
   server,
   host,
   accent = accentValue(),
+  name = nameValue(),
 }: {
   server: MetricsSnapshot | null;
   host: MetricsSnapshot | null;
   accent?: InstanceAccent;
+  name?: InstanceName;
 }) {
   return render(
     <ThemeProvider>
       <InstanceAccentValueProvider value={accent}>
-        <MetricsProvider value={server}>
-          <HostMetricsProvider value={host}>
-            <HostPanel />
-          </HostMetricsProvider>
-        </MetricsProvider>
+        <InstanceNameValueProvider value={name}>
+          <MetricsProvider value={server}>
+            <HostMetricsProvider value={host}>
+              <HostPanel />
+            </HostMetricsProvider>
+          </MetricsProvider>
+        </InstanceNameValueProvider>
       </InstanceAccentValueProvider>
     </ThemeProvider>,
   );
@@ -173,5 +191,22 @@ describe("HostPanel instance accent (1etw)", () => {
   it("the picker is available even when no metrics have arrived", async () => {
     renderPanel({ server: null, host: null, accent: accentValue() });
     expect(screen.getByLabelText("Set instance color")).toBeInTheDocument();
+  });
+});
+
+describe("HostPanel instance display name (260723-o7q8)", () => {
+  it("prefers the instance-name override over the metrics hostname", () => {
+    renderPanel({
+      server: snapshot("mac-mini"),
+      host: null,
+      name: nameValue({ hostname: "mac-mini", instanceName: "my-box", displayName: "my-box" }),
+    });
+    expect(screen.getByText("my-box")).toBeInTheDocument();
+    expect(screen.queryByText("mac-mini")).not.toBeInTheDocument();
+  });
+
+  it("falls back to the metrics hostname when no override is set", () => {
+    renderPanel({ server: snapshot("mac-mini"), host: null });
+    expect(screen.getByText("mac-mini")).toBeInTheDocument();
   });
 });

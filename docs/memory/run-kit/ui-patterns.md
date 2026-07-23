@@ -1,5 +1,5 @@
 ---
-description: "Frontend UI patterns: routes + page names; top-bar chrome (heading, chevron menu, breadcrumb, hover vocabulary); window-view lens (tty/web/chat); boards + pinning; sidebar (perf, keyboard nav, color, labels, accent picker); status dot, PR registers, waiting; two-tier tooltips (tier-1 Tip vs tier-2 hover-cards, TipGroup warm clusters, no native title= on chrome); session tiles; spawn dialog; update chip; terminal relay/font/theme; instance accent + PWA; mobile; optimistic UI."
+description: "Frontend UI patterns: routes + page names; top-bar chrome (heading, chevron menu, breadcrumb, hover vocabulary); window-view lens (tty/web/chat); boards + pinning; sidebar (perf, keyboard nav, color, labels, accent picker); status dot, PR registers, waiting; two-tier tooltips (tier-1 Tip vs tier-2 hover-cards, no native title= on chrome); session tiles; spawn + settings dialogs; update chip; terminal relay/font/theme; instance accent + display name + PWA; mobile; optimistic UI."
 type: memory
 ---
 # run-kit UI Patterns
@@ -2124,6 +2124,44 @@ All three entry points call `AppShell`'s `handleOpenSpawnAgent(server, session)`
 
 **Cross-server nav on success** (`gsmu`): `onSpawned(windowId)` branches on whether the target IS the current route server. Same-server → reuse `navigateToWindow` (inherits the window-switch slide transition). Cross-server → `navigate({ to: "/$server/$window", params: { server: target, window: windowId } })` (+ close the mobile sidebar), mirroring `handleSidebarSelectWindow`. The falsy-`windowId` guard is preserved on both branches.
 
+## Settings Dialog
+
+A VS Code-style settings **dialog** (not a routed page — constitution §IV keeps "no settings pages") gathers the instance's scattered preferences into one keyboard-first surface: `app/frontend/src/components/settings-dialog.tsx` on the shared `Dialog` shell (focus trap, `role="dialog"`, Escape closes). It is the single edit surface for the host-scoped settings (SSH host, instance display name) alongside second surfaces for controls that also live in-context (theme pair, instance accent color, terminal font size).
+
+**Mounted once at `AppLayout`, not `AppShell`** — `AppShell` is server-scoped (assumes a non-null `currentServer` throughout `app.tsx`), while `AppLayout` is the true every-page layer (the persistent `RootTopBar` mounts there; `/board/$name` renders inside it without `AppShell`). So the dialog, its state, and its logic exist exactly once and it is available on every route including boards. `SettingsDialog` is lazy-imported and rendered inside a `SettingsDialogProvider` at the `AppLayout` level; the body (`SettingsDialogBody`) mounts only while open, so the per-open SSH-host fetch runs on mount with no reopen-staleness bookkeeping.
+
+**`SettingsDialogContext` (`contexts/settings-dialog-context.tsx`)** — a deliberately small open/close context `{ isOpen, openSettings, closeSettings }` provided at `AppLayout` so any descendant (palette actions, sidebar gear) calls `openSettings()` while the dialog renders once. Instance data (display name, accent) lives in its own contexts, not here.
+
+**Two labeled sections make the persistence scope visible** (a device-local value not syncing across devices reads as designed, not broken):
+
+- **This host** ("stored on this instance, shared by every device") — persisted to `~/.rk/settings.yaml`: **instance display name**, **SSH host**, **instance accent color**, **theme pair**.
+- **This device** ("stored in this browser only") — localStorage: **terminal font size** only.
+
+**Controls reuse existing models, never rebuilt** (the second-surface rule):
+
+- **Instance display name** — a `TextSetting` (Enter/blur commits, Escape cancels the edit only; a second Escape closes the dialog — the window-rename vocabulary) reading `useInstanceName().instanceName`, committing via the context's optimistic `setInstanceName` (empty clears). Placeholder is the real hostname.
+- **SSH host** — a single free-form `TextSetting` used verbatim (alias or `user@host`, never split into username/hostname fields — preserves the `open-in-app.ts` verbatim-alias contract). It reads the stored **setting** via `getSSHHost()` (NOT the effective health value, which may be an env fallback), commits via `setSSHHost` (empty clears), and surfaces a backend `400` as an inline `role="alert"` error without clobbering the stored value.
+- **Instance accent color** (`AccentColorControl`) — reuses the HOST-panel `SwatchPopover` (color-only) + `useInstanceAccent().setColor` descriptor model ("4" / "1+3"; NOT a free RGB picker — the color model is descriptor-based end-to-end, see § Instance Accent). A pick POSTs and repaints the top-bar stripe without reload; the popover's Clear row clears.
+- **Theme pair** (`ThemePairControl`) — a second surface reusing `useTheme()`/`useThemeActions()` (`/api/settings/theme` partial-merge POST): a System/Light/Dark mode control plus preferred dark-theme and light-theme `<select>`s. The top-bar `ThemeSelector` stays; the dialog is additive.
+- **Terminal font size** (`TerminalFontControl`, under This device) — the shared `ChromeContext.terminalFontSize` control: a `[−] {size}px [+]` stepper + Reset wired to `increaseTerminalFont`/`decreaseTerminalFont`/`resetTerminalFont` (localStorage `runkit-terminal-font-size`, clamped by `TERMINAL_FONT_BOUNDS`). No new persistence (see § Terminal Font Size).
+
+**Triggers — palette action in both palettes + a sidebar-footer gear; no dedicated keyboard shortcut in v1** (`Cmd+,` is browser-reserved, so the palette is the primary keyboard path — constitution §V):
+
+- **Command palette** — a `Settings: Open` action registered in **both** palettes, each a one-liner calling `openSettings()`: `AppShell`'s `paletteActions` (`app.tsx`) and `board-page.tsx`'s `boardRouteActions`. The dialog itself is never duplicated — this two-line palette-registration concession to the board-twin problem holds until the broader AppShell-chrome-to-AppLayout migration (backlog `[239r]`) lands. See § Design Decisions → Palette actions are duplicated across the two mounts.
+- **Sidebar footer gear** — a slim right-aligned footer row at the very bottom of the sidebar nav (`components/sidebar/index.tsx`, `GearIcon` from `sidebar/icons.tsx`), consuming `useSettingsDialog()`. The Sidebar renders on server routes AND boards, so the gear works everywhere. Per the tier-1 tooltip system (§ Tier-1 `Tip`), the gear is named via a `Tip label="Settings"` (placement `top`, since the row hugs the viewport bottom) with an `aria-label="Open settings"` retained — never a native `title=`. The same Tip-not-title rule applies to icon-only controls inside the dialog (the accent-picker button, the font steppers).
+
+**Instance display name has THREE display consumers, delivered via a root context** — see § Instance Display Name below.
+
+## Instance Display Name
+
+An optional per-instance display-name override lets a user label a run-kit instance ("dev mini") instead of showing its raw hostname. Stored host-side (`~/.rk/settings.yaml` `instance_name`, see architecture.md § `internal/settings` and § `/api/settings/instance-name`); empty means "derive from the hostname". Delivered frontend-side by **`InstanceNameProvider` / `useInstanceName()`** (`contexts/instance-name-context.tsx`), mounted once in `RootWrapper` beside `InstanceAccentProvider`.
+
+The provider fetches `getHealth()` once on mount (StrictMode-guarded via a `didFetchRef`; `deduplicatedFetch` coalesces it with other same-tick `/api/health` consumers), owns the `{hostname, instanceName}` pair plus the optimistic `setInstanceName` write seam, and exposes `{ hostname, instanceName, displayName, setInstanceName }` where `displayName = instanceName ?? hostname`. `setInstanceName(name | null)` updates state optimistically then POSTs via `setInstanceName` client, toasting on write failure — so the settings-dialog edit repaints every consumer live and clearing the field reverts them to the hostname. This mirrors `InstanceAccentProvider` (fetch once, optimistic set, toast on failure).
+
+**Three display surfaces prefer the display name** over the health-reported hostname: the browser tab title (`use-browser-title.ts` — `AppShell`'s local hostname fetch was replaced by `useInstanceName().displayName`), the HOST panel hostname line (`sidebar/host-panel.tsx` — `instanceName ?? metrics.hostname`), and the host-overview HOST HEALTH hostname line (`host-overview-page.tsx` — `instanceName ?? hostMetrics.hostname`).
+
+**Two surfaces deliberately keep the REAL hostname**, NOT the display name, and are NOT consumers of this provider: the instance-accent hash fallback (`instance-accent.ts` — renaming the instance must not silently change its color) and the SSH deeplink derivation (`open-in-app.ts` `resolveDeeplinkHost` — deeplinks need the reachable hostname, not a vanity label).
+
 ## Session-to-Project Mapping
 
 Every tmux session is a project — derived from tmux, no config file needed. Project root derived from window 0's `pane_current_path`.
@@ -2563,3 +2601,15 @@ The regression test in `app/frontend/src/hooks/use-dialog-state.test.tsx` flips 
 **Why**: full-color brand marks would clash with the terminal aesthetic, and `currentColor` lets the existing accent-green hover treatments apply to the glyph for free with no new dependency and no image fetches. The kind fallback keeps unknown/future registry entries rendering; both `vscode` (deeplink id) and `code` (wt's VS Code host id) must map to the same glyph because wt's registry id for VS Code is `code`, not `vscode`.
 **Rejected**: full-color brand assets (aesthetic clash, licensing/asset pipeline); asserting raw SVG path data (brittle) or per-glyph `aria-label` (icons are decorative — `aria-hidden` keeps row accessible names clean); adding icons to the command palette (no icon affordance today, separate change).
 *Introduced by*: 260722-fc3b-ssh-host-fallback-open-logos
+
+### Settings dialog mounts at `AppLayout`, not `AppShell`
+**Decision**: The settings dialog + its `SettingsDialogContext` mount once at `AppLayout` (the persistent every-page layer), not `AppShell`. Instance display-name delivery lives in a separate root-mounted `InstanceNameProvider` (in `RootWrapper` beside `InstanceAccentProvider`), not in `SettingsDialogContext`.
+**Why**: `AppShell` is server-scoped (assumes non-null `currentServer` throughout `app.tsx`), so mounting there would leave the dialog unavailable on `/board/$name`, which renders inside `AppLayout` without `AppShell` — and board coverage is the whole point of the every-page mount. Three display surfaces plus the dialog editor need one live-updating `{hostname, instanceName}` state — the exact fetch-once + optimistic-set + multi-surface-repaint shape `InstanceAccentProvider` already established; keeping it out of the chrome-only `SettingsDialogContext` avoids mixing chrome state with instance data and keeps the provider above the `RootTopBar` consumers anyway.
+**Rejected**: mounting at `AppShell` (dead on boards); migrating all AppShell chrome (Sidebar, create/kill dialogs, palette) to `AppLayout` now (separate backlog `[239r]` — the two-line duplicate palette registration is the accepted concession until then); a module-level name cache (no reactivity path for the dialog's live edit); putting the name pair in `SettingsDialogContext` (mixes chrome and instance data).
+*Introduced by*: 260723-o7q8-settings-dialog
+
+### Dialog theme controls are self-contained, not the `ThemeSelector` modal
+**Decision**: The dialog's theme-pair surface is self-contained — a System/Light/Dark mode control plus two `<select>`s (preferred dark / preferred light) driving the existing `setTheme()` — rather than dispatching the `"theme-selector:open"` event to reuse the top-bar `ThemeSelector`.
+**Why**: `ThemeSelector` is mounted only inside `AppShell` (`app.tsx`), so the event has no listener on `/board/$name` — the dialog's core every-page-mount promise. `setTheme(id)` already owns slot updates + the partial-merge POST + localStorage sync, so the dialog reuses that wiring (the intake's second-surface requirement) without the modal. The top-bar selector stays; the dialog is additive.
+**Rejected**: moving the `ThemeSelector` mount to `AppLayout` (a behavior change to an unrelated surface, out of scope); live-preview machinery inside the dialog (the selector modal already owns preview UX).
+*Introduced by*: 260723-o7q8-settings-dialog

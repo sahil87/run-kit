@@ -12,7 +12,8 @@ import { useToast } from "@/components/toast";
 import { TypedLabel } from "@/components/typed-label";
 import { Tip, TipGroup } from "@/components/tip";
 import { SwatchPopover } from "@/components/swatch-popover";
-import { PaletteIcon } from "./icons";
+import { PaletteIcon, GearIcon } from "./icons";
+import { useSettingsDialog } from "@/contexts/settings-dialog-context";
 import { useTheme } from "@/contexts/theme-context";
 import { computeRowTints, computeRowBorders, UNCOLORED_SELECTED_KEY } from "@/themes";
 import type { ProjectSession } from "@/types";
@@ -121,6 +122,10 @@ export function Sidebar({
   }, [sessionsByServer]);
   const navigate = useNavigate();
   const { addToast } = useToast();
+
+  // Settings dialog trigger for the footer gear (o7q8) — the dialog itself
+  // mounts once in AppLayout; the sidebar only opens it.
+  const { openSettings } = useSettingsDialog();
 
   // Sessions-pane scope — explicit persisted state (`runkit-panel-sessions-scope`),
   // fully decoupled from the SERVER panel's expansion. `current` filters the
@@ -1270,6 +1275,23 @@ export function Sidebar({
       {/* Status panels — pinned at bottom. Show metrics + selected window
           status only when there's a current server. */}
       <BottomPanels currentServer={currentServer} currentSessionName={currentSession} currentWindowId={currentWindowId} />
+
+      {/* Footer — settings gear (o7q8). The Sidebar renders on server routes
+          AND boards, so this affordance works everywhere; the dialog itself
+          mounts once in AppLayout. Tip-named (no native title=), placement
+          `top` since the row hugs the viewport bottom. */}
+      <div className="shrink-0 border-t border-border px-2 py-1 flex justify-end">
+        <Tip label="Settings" placement="top">
+          <button
+            type="button"
+            onClick={openSettings}
+            aria-label="Open settings"
+            className="min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] flex items-center justify-center rounded text-text-secondary hover:text-text-primary transition-colors"
+          >
+            <GearIcon />
+          </button>
+        </Tip>
+      </div>
 
       {/* Kill confirmation */}
       {killTarget && (

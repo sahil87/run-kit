@@ -133,6 +133,91 @@ func (s *Server) handleSetInstanceColor(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// handleGetSSHHost returns the stored SSH destination setting.
+// GET /api/settings/ssh-host → {"sshHost": "devbox"} or {"sshHost": null}
+// Returns the stored SETTING only — the effective value (settings-first with
+// the RK_SSH_HOST env fallback) rides GET /api/health.
+func (s *Server) handleGetSSHHost(w http.ResponseWriter, r *http.Request) {
+	host := settings.GetSSHHost()
+	writeJSON(w, http.StatusOK, map[string]any{"sshHost": host})
+}
+
+// handleSetSSHHost sets or clears the stored SSH destination.
+// POST /api/settings/ssh-host ← {"sshHost": "devbox"} or {"sshHost": null}
+// The value is trimmed; a trimmed-to-empty value clears (same as null). It is
+// spliced verbatim into vscode-remote deeplink URLs client-side, so whitespace
+// and control characters are rejected (400) before anything persists.
+func (s *Server) handleSetSSHHost(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		SSHHost *string `json:"sshHost"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body")
+		return
+	}
+	// Trim; treat a trimmed-to-empty value as a clear (same as null).
+	if body.SSHHost != nil {
+		v := strings.TrimSpace(*body.SSHHost)
+		if v == "" {
+			body.SSHHost = nil
+		} else {
+			if errMsg := validate.ValidateSSHHost(v); errMsg != "" {
+				writeError(w, http.StatusBadRequest, errMsg)
+				return
+			}
+			body.SSHHost = &v
+		}
+	}
+
+	if err := settings.SetSSHHost(body.SSHHost); err != nil {
+		s.logger.Error("failed to save ssh host", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to save setting")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// handleGetInstanceName returns the stored instance display-name override.
+// GET /api/settings/instance-name → {"name": "my-box"} or {"name": null}
+func (s *Server) handleGetInstanceName(w http.ResponseWriter, r *http.Request) {
+	name := settings.GetInstanceName()
+	writeJSON(w, http.StatusOK, map[string]any{"name": name})
+}
+
+// handleSetInstanceName sets or clears the instance display-name override.
+// POST /api/settings/instance-name ← {"name": "my-box"} or {"name": null}
+// The value is trimmed; a trimmed-to-empty value clears (same as null). It is
+// a display label, so inner spaces are legal but control characters are
+// rejected (400) and the length is capped.
+func (s *Server) handleSetInstanceName(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Name *string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body")
+		return
+	}
+	if body.Name != nil {
+		v := strings.TrimSpace(*body.Name)
+		if v == "" {
+			body.Name = nil
+		} else {
+			if errMsg := validate.ValidateInstanceName(v); errMsg != "" {
+				writeError(w, http.StatusBadRequest, errMsg)
+				return
+			}
+			body.Name = &v
+		}
+	}
+
+	if err := settings.SetInstanceName(body.Name); err != nil {
+		s.logger.Error("failed to save instance name", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to save setting")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
 // handleSetServerColor sets or clears the color for a server.
 // POST /api/settings/server-color ← {"server": "...", "color": 4} or {"server": "...", "color": null}
 func (s *Server) handleSetServerColor(w http.ResponseWriter, r *http.Request) {

@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 // Characters that are never valid in tmux session/window names.
@@ -110,6 +111,56 @@ func NormalizeColorValue(value string) (string, bool) {
 		parts[i] = strconv.Itoa(n)
 	}
 	return strings.Join(parts, "+"), true
+}
+
+// MaxSettingValueLength caps the ssh_host / instance_name settings values —
+// 253 is the DNS hostname maximum, a comfortable bound for both an SSH
+// destination and a display name.
+const MaxSettingValueLength = 253
+
+// ValidateSSHHost validates a (already-trimmed, non-empty) ssh_host settings
+// value: the verbatim SSH destination spliced into
+// `vscode://vscode-remote/ssh-remote+{host}` editor deeplink URLs client-side.
+// Whitespace and control characters are rejected outright (an SSH alias or
+// user@host form never contains them, and they would corrupt the deeplink);
+// length is capped at MaxSettingValueLength. Returns an empty string if valid,
+// an error message otherwise.
+func ValidateSSHHost(value string) string {
+	if len(value) > MaxSettingValueLength {
+		return fmt.Sprintf("SSH host exceeds maximum length of %d characters", MaxSettingValueLength)
+	}
+	for _, r := range value {
+		if unicode.IsSpace(r) || unicode.IsControl(r) {
+			return "SSH host cannot contain whitespace or control characters"
+		}
+	}
+	// The settings serializer wraps values in double quotes; an embedded quote
+	// would corrupt the quoted round-trip (and never appears in a real SSH
+	// destination).
+	if strings.Contains(value, "\"") {
+		return "SSH host cannot contain double quotes"
+	}
+	return ""
+}
+
+// ValidateInstanceName validates a (already-trimmed, non-empty) instance_name
+// settings value: a display label, so inner spaces are legal but control
+// characters are not; length is capped at MaxSettingValueLength. Returns an
+// empty string if valid, an error message otherwise.
+func ValidateInstanceName(value string) string {
+	if len(value) > MaxSettingValueLength {
+		return fmt.Sprintf("Instance name exceeds maximum length of %d characters", MaxSettingValueLength)
+	}
+	for _, r := range value {
+		if unicode.IsControl(r) {
+			return "Instance name cannot contain control characters"
+		}
+	}
+	// Same quoted-round-trip guard as ValidateSSHHost.
+	if strings.Contains(value, "\"") {
+		return "Instance name cannot contain double quotes"
+	}
+	return ""
 }
 
 // MarkerValues is the closed set of accepted @rk_marker window-option values.

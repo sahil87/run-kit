@@ -655,6 +655,10 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/settings/server-color", s.handleSetServerColor)
 	r.Get("/api/settings/instance-color", s.handleGetInstanceColor)
 	r.Post("/api/settings/instance-color", s.handleSetInstanceColor)
+	r.Get("/api/settings/ssh-host", s.handleGetSSHHost)
+	r.Post("/api/settings/ssh-host", s.handleSetSSHHost)
+	r.Get("/api/settings/instance-name", s.handleGetInstanceName)
+	r.Post("/api/settings/instance-name", s.handleSetInstanceName)
 
 	// Web Push: VAPID key (read), subscribe + notify (mutations, POST per §IX)
 	r.Get("/api/push/vapid-public-key", s.handlePushVAPIDPublicKey)

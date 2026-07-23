@@ -2,6 +2,7 @@ package validate
 
 import (
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -257,7 +258,7 @@ func TestValidateTier(t *testing.T) {
 		{"forbidden slash", "a/b", true, "alphanumeric"},
 		{"forbidden semicolon", "a;b", true, "alphanumeric"},
 		{"forbidden dollar", "a$b", true, "alphanumeric"},
-		{"at max length", "", false, ""},   // filled below
+		{"at max length", "", false, ""},                   // filled below
 		{"exceeds max length", "", true, "maximum length"}, // filled below
 	}
 
@@ -491,22 +492,72 @@ func TestNormalizeColorValue(t *testing.T) {
 		want string
 		ok   bool
 	}{
-		"4":      {"4", true},
-		" 4 ":    {"4", true},
-		"1+3":    {"1+3", true},
+		"4":       {"4", true},
+		" 4 ":     {"4", true},
+		"1+3":     {"1+3", true},
 		" 1 + 3 ": {"1+3", true}, // internal whitespace collapses to canonical form
-		"01":     {"1", true},    // leading zeros re-serialized
-		"0+15":   {"0+15", true},
-		"":       {"", false},
-		"  ":     {"", false},
-		"99":     {"", false},
-		"1+2+3":  {"", false},
-		"x":      {"", false},
+		"01":      {"1", true},   // leading zeros re-serialized
+		"0+15":    {"0+15", true},
+		"":        {"", false},
+		"  ":      {"", false},
+		"99":      {"", false},
+		"1+2+3":   {"", false},
+		"x":       {"", false},
 	}
 	for in, exp := range cases {
 		got, ok := NormalizeColorValue(in)
 		if got != exp.want || ok != exp.ok {
 			t.Errorf("NormalizeColorValue(%q) = (%q, %v), want (%q, %v)", in, got, ok, exp.want, exp.ok)
+		}
+	}
+}
+
+// --- ValidateSSHHost / ValidateInstanceName (260723-o7q8) ---
+
+func TestValidateSSHHost(t *testing.T) {
+	valid := []string{"devbox", "user@host.example.com", "192.168.1.10", "my-alias_1"}
+	for _, v := range valid {
+		if msg := ValidateSSHHost(v); msg != "" {
+			t.Errorf("ValidateSSHHost(%q) = %q, want valid", v, msg)
+		}
+	}
+
+	invalid := []string{
+		"dev box",    // space
+		"dev\tbox",   // tab
+		"dev\nbox",   // newline
+		"dev\x07box", // control char
+		strings.Repeat("a", MaxSettingValueLength+1), // over cap
+	}
+	for _, v := range invalid {
+		if msg := ValidateSSHHost(v); msg == "" {
+			t.Errorf("ValidateSSHHost(%q) accepted, want rejection", v)
+		}
+	}
+
+	// Exactly at the cap is legal.
+	if msg := ValidateSSHHost(strings.Repeat("a", MaxSettingValueLength)); msg != "" {
+		t.Errorf("ValidateSSHHost(cap-length) = %q, want valid", msg)
+	}
+}
+
+func TestValidateInstanceName(t *testing.T) {
+	valid := []string{"my-box", "dev mini", "Mac Studio (office)"}
+	for _, v := range valid {
+		if msg := ValidateInstanceName(v); msg != "" {
+			t.Errorf("ValidateInstanceName(%q) = %q, want valid", v, msg)
+		}
+	}
+
+	invalid := []string{
+		"my\nbox",    // newline
+		"my\x07box",  // control char
+		"my \"box\"", // double quote (quoted round-trip guard)
+		strings.Repeat("a", MaxSettingValueLength+1), // over cap
+	}
+	for _, v := range invalid {
+		if msg := ValidateInstanceName(v); msg == "" {
+			t.Errorf("ValidateInstanceName(%q) accepted, want rejection", v)
 		}
 	}
 }

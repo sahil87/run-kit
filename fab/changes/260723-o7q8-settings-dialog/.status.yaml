@@ -1,0 +1,56 @@
+id: o7q8
+name: 260723-o7q8-settings-dialog
+created: 2026-07-23T01:58:06Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: active
+plan:
+    generated: true
+    task_count: 13
+    acceptance_count: 22
+    acceptance_completed: 22
+confidence:
+    certain: 8
+    confident: 5
+    tentative: 1
+    unresolved: 0
+    score: 4.1
+    fuzzy: true
+    dimensions:
+        signal: 77.1
+        reversibility: 78.9
+        competence: 83.9
+        disambiguation: 81.8
+stage_metrics:
+    intake: {started_at: "2026-07-23T01:58:06Z", driver: fab-new, iterations: 1, completed_at: "2026-07-23T05:46:20Z"}
+    apply: {started_at: "2026-07-23T05:46:20Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-23T06:35:35Z"}
+    review: {started_at: "2026-07-23T06:35:35Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-23T06:43:15Z"}
+    hydrate: {started_at: "2026-07-23T06:43:15Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-23T06:49:21Z"}
+    ship: {started_at: "2026-07-23T06:49:21Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-23T06:50:57Z"}
+    review-pr: {started_at: "2026-07-23T06:50:57Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/449
+change_type_source: explicit
+true_impact:
+    added: 2775
+    deleted: 87
+    net: 2688
+    excluding:
+        added: 2285
+        deleted: 81
+        net: 2204
+    tests:
+        added: 800
+        deleted: 14
+        net: 786
+    computed_at: "2026-07-23T06:50:57Z"
+    computed_at_stage: ship
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-07-23T06:50:57Z

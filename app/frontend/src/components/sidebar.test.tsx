@@ -6,7 +6,9 @@ import { HostMetricsProvider, MetricsProvider, StandaloneSessionContextProvider 
 import { FocusedPaneProvider } from "@/contexts/focused-pane-context";
 import { ThemeProvider } from "@/contexts/theme-context";
 import { InstanceAccentValueProvider, type InstanceAccent } from "@/contexts/instance-accent-context";
+import { InstanceNameValueProvider, type InstanceName } from "@/contexts/instance-name-context";
 import { ChromeProvider } from "@/contexts/chrome-context";
+import { SettingsDialogProvider } from "@/contexts/settings-dialog-context";
 import { ToastProvider } from "@/components/toast";
 import { useWindowStore, entryKey } from "@/store/window-store";
 import type { ProjectSession } from "@/types";
@@ -19,6 +21,15 @@ const NULL_ACCENT: InstanceAccent = {
   stripeHex: null,
   washHex: null,
   setColor: () => {},
+};
+
+// HostPanel also consumes the instance-name context (o7q8); inject a static
+// empty value so sidebar tests need no fetching provider.
+const NULL_NAME: InstanceName = {
+  hostname: "",
+  instanceName: null,
+  displayName: "",
+  setInstanceName: () => {},
 };
 
 
@@ -143,6 +154,7 @@ function buildTree(overrides: SidebarTestOverrides) {
   return (
     <ThemeProvider>
     <InstanceAccentValueProvider value={NULL_ACCENT}>
+    <InstanceNameValueProvider value={NULL_NAME}>
     <ToastProvider>
       <OptimisticProvider>
         <StandaloneSessionContextProvider
@@ -160,17 +172,19 @@ function buildTree(overrides: SidebarTestOverrides) {
             <HostMetricsProvider value={null}>
               <FocusedPaneProvider>
                 <ChromeProvider>
-                  <Sidebar
-                    currentServer={currentServer}
-                    currentSession="run-kit"
-                    currentWindowId="@0"
-                    onSelectWindow={vi.fn()}
-                    onCreateWindow={vi.fn()}
-                    onCreateSession={vi.fn()}
-                    onCreateServer={vi.fn()}
-                    onKillServer={vi.fn()}
-                    {...sidebarOverrides}
-                  />
+                  <SettingsDialogProvider>
+                    <Sidebar
+                      currentServer={currentServer}
+                      currentSession="run-kit"
+                      currentWindowId="@0"
+                      onSelectWindow={vi.fn()}
+                      onCreateWindow={vi.fn()}
+                      onCreateSession={vi.fn()}
+                      onCreateServer={vi.fn()}
+                      onKillServer={vi.fn()}
+                      {...sidebarOverrides}
+                    />
+                  </SettingsDialogProvider>
                 </ChromeProvider>
               </FocusedPaneProvider>
             </HostMetricsProvider>
@@ -178,6 +192,7 @@ function buildTree(overrides: SidebarTestOverrides) {
         </StandaloneSessionContextProvider>
       </OptimisticProvider>
     </ToastProvider>
+    </InstanceNameValueProvider>
     </InstanceAccentValueProvider>
     </ThemeProvider>
   );
@@ -989,6 +1004,7 @@ describe("Sidebar", () => {
       render(
         <ThemeProvider>
         <InstanceAccentValueProvider value={NULL_ACCENT}>
+        <InstanceNameValueProvider value={NULL_NAME}>
         <ToastProvider>
           <OptimisticProvider>
             <StandaloneSessionContextProvider
@@ -1007,16 +1023,18 @@ describe("Sidebar", () => {
                   <FocusedPaneProvider>
                     <KilledCountDisplay />
                     <ChromeProvider>
-                      <Sidebar
-                        currentServer="runkit"
-                        currentSession="run-kit"
-                        currentWindowId="@0"
-                        onSelectWindow={vi.fn()}
-                        onCreateWindow={vi.fn()}
-                        onCreateSession={vi.fn()}
-                        onCreateServer={vi.fn()}
-                        onKillServer={vi.fn()}
-                      />
+                      <SettingsDialogProvider>
+                        <Sidebar
+                          currentServer="runkit"
+                          currentSession="run-kit"
+                          currentWindowId="@0"
+                          onSelectWindow={vi.fn()}
+                          onCreateWindow={vi.fn()}
+                          onCreateSession={vi.fn()}
+                          onCreateServer={vi.fn()}
+                          onKillServer={vi.fn()}
+                        />
+                      </SettingsDialogProvider>
                     </ChromeProvider>
                   </FocusedPaneProvider>
                 </HostMetricsProvider>
@@ -1024,6 +1042,7 @@ describe("Sidebar", () => {
             </StandaloneSessionContextProvider>
           </OptimisticProvider>
         </ToastProvider>
+        </InstanceNameValueProvider>
         </InstanceAccentValueProvider>
         </ThemeProvider>,
       );

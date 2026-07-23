@@ -11,6 +11,7 @@ import { copyToClipboard } from "@/lib/clipboard";
 import { formatDuration, parseFabChange } from "@/lib/format";
 import { PR_STATE_COLORS, PR_CHECKS_COLORS, PR_REVIEW_COLORS } from "@/components/pr-status-model";
 import { StatusDot } from "@/components/status-dot";
+import { Tip } from "@/components/tip";
 import type { WindowInfo } from "@/types";
 
 type CopyableRowKey = "tmx" | "cwd" | "git" | "fab" | "pr";
@@ -254,12 +255,12 @@ function PaneRefreshButton() {
   const showCheck = state === "check";
 
   return (
+    <Tip label="Refresh PR status">
     <button
       type="button"
       onClick={handleClick}
       disabled={spinning}
       aria-label="Refresh PR status"
-      title="Refresh PR status"
       data-testid="pane-refresh"
       data-state={state}
       className="rk-glint min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center disabled:opacity-60"
@@ -300,6 +301,7 @@ function PaneRefreshButton() {
         </svg>
       )}
     </button>
+    </Tip>
   );
 }
 

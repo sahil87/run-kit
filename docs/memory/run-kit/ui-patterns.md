@@ -1,5 +1,5 @@
 ---
-description: "Frontend UI patterns: URL/route structure and page names; persistent top-bar chrome (PageType:name heading, chevron menu, breadcrumb, hover vocabulary, instance-accent stripe/wash); window-view lens (tty/web/chat); boards view + pinning; sidebar (perf, keyboard nav, color, labels, HOST-panel accent picker); status dot, PR registers, waiting; session tiles; spawn dialog; update chip; terminal relay/font/theme; instance accent + PWA theme-color/dock-icon; mobile; optimistic UI."
+description: "Frontend UI patterns: routes + page names; top-bar chrome (heading, chevron menu, breadcrumb, hover vocabulary); window-view lens (tty/web/chat); boards + pinning; sidebar (perf, keyboard nav, color, labels, accent picker); status dot, PR registers, waiting; two-tier tooltips (tier-1 Tip vs tier-2 hover-cards, TipGroup warm clusters, no native title= on chrome); session tiles; spawn dialog; update chip; terminal relay/font/theme; instance accent + PWA; mobile; optimistic UI."
 type: memory
 ---
 # run-kit UI Patterns
@@ -248,6 +248,37 @@ The dot's tooltip is a custom `StatusDotTip` hover-card, built on `@floating-ui/
 **Freshness line — "checked Xs ago"**: `dotTipContent` carries a fourth field `fetchedAtEpoch: number | null` — the window's `prFetchedAt` (the collector-join `PrFetchedAt` timestamp, architecture.md § PR-Status SSE Join) parsed to **epoch SECONDS** (`Date.parse(win.prFetchedAt)` → `Math.floor(/1000)`), or `null` when `prFetchedAt` is absent OR unparseable (`Date.parse` → `NaN`), so the card omits the line rather than rendering "checked NaNs ago". Rendered by a dedicated **`FreshnessLine` leaf component** (NOT inline in `StatusDotTip`): it owns a live `useNow()` clock (epoch seconds) and displays `checked ${formatDuration(nowSeconds - fetchedAtEpoch)} ago` (`data-testid="dot-tip-checked"`, styled like the agent line) — reusing `formatDuration` (`lib/format.ts`, the Ns/Nm/Nh convention) rather than adding a relative-time formatter, and returning `null` when `fetchedAtEpoch === null`. **Why its own component**: `FreshnessLine` is mounted ONLY inside the open hover-card (`{open && …}`), so its per-second `useNow()` re-render is leaf-scoped to a card that is actually open — the dot wrapper never ticks (the leaf-scoped-`useNow` contract, § Render Performance / use-now.ts). After a manual refresh the timestamp visibly resets — the ambient version of the same trust signal the refresh-button checkmark gives, useful without clicking. (`260715-nwla`)
 
 **Tests** — `status-dot.test.tsx` covers `dotTipContent` (PR-phase → one link with correct `href`; fab/tmux → zero links; `label === dotLabel`) and asserts the dot has no `title` (`aria-label` instead). `status-dot-tip.test.tsx` (added `260715-nwla`) covers the freshness line: the "checked Xs ago" line renders with the formatted relative time when `prFetchedAt` is present and is omitted when absent/unparseable. New e2e `tests/e2e/status-dot-tip.spec.ts` (+ sibling `.spec.md`) proves hover-open, focus-open, Escape-dismiss, PR-link + docs-icon presence, and link click-through.
+
+## Tooltips — Two-Tier Taxonomy
+
+Tooltips are a two-tier system with a **hard boundary and no middle species** (§ Design Decisions → Two-tier tooltip boundary):
+
+- **Tier-1 — `Tip`** (`components/tip.tsx`): **names a control**. One-line plain-text label + optional keycap chip (`kbd`) + optional dim modifier note. Carries the W3C tooltip pattern — `role="tooltip"` on the floating element, `aria-describedby` on the anchor while open. NEVER interactive content. This is the app-wide replacement for native `title=` on interactive chrome controls.
+- **Tier-2 — hover-cards** (`StatusDotTip`, § Status Dot hover-card): hold a second line of **state** and/or **interactive content** (real `<a>` links). Deliberately role-less (§ Design Decisions → No `role="tooltip"` on the StatusDot hover-card).
+
+**Promotion rule**: a tooltip that needs a second line of state or anything clickable is tier-2, not a fatter tier-1. Consequence at the `title=` migration boundary: native titles whose value is *state or a content reveal* rather than a control name stay native `title=` — they are neither converted to `Tip` nor promoted to new hover-cards. Left native by this rule: the server-tile window-count summary (`sidebar/server-panel.tsx`), the PR-URL reveal and cwd reveal (`sidebar/status-panel.tsx`). (`260722-73al`)
+
+### Tier-1 `Tip` (`components/tip.tsx`)
+
+`Tip` wraps a **single child element** and clones it with the floating reference props/ref merged (`useMergeRefs`) — **no wrapper DOM node** is added, so layouts and the top-bar overflow fit's hidden width-measurement probe are unaffected (§ Design Decisions → Clone-child reference API). Built on `@floating-ui/react` (already a dependency via `StatusDotTip` — no new dependency). A falsy `label` renders the child untouched (the conditional-tooltip idiom, e.g. "Copy version", "Create a server first").
+
+**Visual shell — "quiet card"**: `bg-bg-card`, 1px `border-border`, 5px radius, soft shadow, 11px mono, `text-text-primary` label. The floating element is `pointer-events-none` (tier-1 holds nothing interactive, so it can never intercept a click) and `max-w-[40ch]` + `whitespace-nowrap` + truncate backstop the one-line ≤40ch cap. Optional slots: a `note` (dim `text-text-secondary` modifier, e.g. "⇧click: force") and a `kbd` keycap chip (`bg-bg-inset`, 1px border with a 2px bottom edge for the "key" read, 3px radius, 10px type). The `kbd` value is a **static string prop per call site** — there is no shortcut-registry wiring (deferred follow-up).
+
+**Behavior contract** (user-approved design session):
+
+- **Open delay** — 300ms on hover (`TIP_OPEN_DELAY_MS`); **0ms while the cluster is "warm"** (a sibling tip in the same group closed <500ms ago, `TIP_WARM_WINDOW_MS`) — macOS-menu sweep behavior. Delays ride `useDelayGroup`; outside any group the group context is `delay: 0`, so `Tip` falls back to its standalone 300ms open.
+- **Warm clusters** — `TipGroup` (exported; a `FloatingDelayGroup` preset with `delay={{open: 300, close: 0}}`, `timeoutMs={500}`) wraps one chrome region: the top-bar's three regions (left breadcrumb cluster, center heading cluster, right control cluster — the latter contains the overflow menu and every registry control's popover), the sidebar root, the iframe URL bar, and the chat/compose button rows. A single-tip region needs no provider.
+- **Keyboard** — opens immediately on `:focus-visible` (`useFocus` `visibleOnly` default), never on mouse-down focus (Constitution V).
+- **Dismiss** — pointer-leave, Escape (`useDismiss`), and activating the control (`referencePress: true` — the tip never sits over the click's result).
+- **Touch** — suppressed under `pointer: coarse` (via `useCoarsePointer`). The child renders unchanged with no reference props, portal, or ARIA wiring — the control's `aria-label` carries the name (§ Design Decisions → Suppress-by-early-return on coarse pointers).
+- **Placement** — per-site `placement` prop, default `bottom` (top-bar convention); bottom-of-screen strips pass `top`, sidebar rows pass `right`. `offset(6)` / `flip()` / `shift({padding: 8})` / `autoUpdate` — the `StatusDotTip` middleware set — flip and shift at viewport edges.
+- **Reduced motion** — trivially satisfied: no fade, instant show/hide.
+
+Named constants carry every magic value: `TIP_OPEN_DELAY_MS`, `TIP_WARM_WINDOW_MS`, `TIP_OFFSET_PX`, `TIP_SHIFT_PADDING_PX`.
+
+**Migration — no native `title=` on chrome controls**: native `title=` is **REMOVED wherever `Tip` lands** (never both — the OS bubble would double the styled tip); `aria-label`s stay untouched. `Tip` covers the interactive chrome controls across ~15 component files: `top-bar.tsx`, `top-bar-overflow-menu.tsx`, `breadcrumb-dropdown.tsx` (the `title` prop — a component prop like `Dialog title=`, so kept under that name — renders as an internal `Tip` around the trigger), `view-switcher.tsx`, `open-button.tsx`, `waiting-badge.tsx`, `sidebar/index.tsx` (scope chip, over-cap copy rewritten to ≤40ch action labels), `sidebar/status-panel.tsx`, `iframe-window.tsx`, `chat-view.tsx` + `compose-strip.tsx` (the natural `kbd`-slot users — Send + `Enter`, Insert + `Alt+Enter`), `host-overview-page.tsx`, `swatch-popover.tsx`, and the board-route twin `board/board-header.tsx` (the `/board/$name` route re-implements chrome and does not render AppShell — see [tmux-sessions](/run-kit/tmux-sessions.md); its one real native tooltip is the unpin button, migrated; its three other `title=` matches are `Dialog` props, untouched). **Untouched seams**: `Dialog title=` component props everywhere; `title="Proxied content"` on the proxied iframe (its accessible name, asserted by `top-bar-overflow.spec.ts` and `web-view-lens.spec.ts`); `CollapsiblePanel`-style heading `title` props; and `StatusDotTip` (byte-identical). (`260722-73al`)
+
+**Tests** — `tip.test.tsx` covers label/note/kbd render, `role="tooltip"` + `aria-describedby` wiring on open, focus-open, no render / no `aria-describedby` under a mocked coarse pointer, and label-less pass-through (7 tests). E2e `tests/e2e/tooltips.spec.ts` (+ sibling `tooltips.spec.md`) proves keyboard-focus open, hover open, and coarse-pointer absence. Per-site unit tests on migrated controls (`top-bar.test.tsx`, `top-bar-overflow-menu.test.tsx`, `update-chip.test.tsx`, `board/board-header.test.tsx`, `host-overview-page.test.tsx`) assert the native `title` is gone and the `aria-label` preserved — deep tooltip behavior lives once in `tip.test.tsx`.
 
 ## Attention Surfacing (`waiting` rollups + nav)
 
@@ -2358,6 +2389,24 @@ The regression test in `app/frontend/src/hooks/use-dialog-state.test.tsx` flips 
 **Why**: the W3C tooltip pattern requires a tooltip to contain NO interactive content, but this card holds real `<a>` links (PR + docs). Advertising `role="tooltip"` would lie to AT and wire a misleading `aria-describedby`.
 **Rejected**: `role="tooltip"` (present in the plan, removed in review).
 *Introduced by*: 260616-37ub-status-dot-tooltip
+
+### Two-tier tooltip boundary
+**Decision**: tooltips are exactly two species with a hard boundary — tier-1 `Tip` (names a control: plain text + optional kbd/note, `role="tooltip"` + `aria-describedby`, never interactive) and tier-2 hover-cards (`StatusDotTip`: state and/or real links, role-less). A tooltip needing a second line of state or anything clickable is tier-2; there is no fatter tier-1. Native `title=` values that are state or a content reveal (not a control name) stay native `title=` — neither converted to tier-1 nor promoted to new hover-cards.
+**Why**: the two shells already had incompatible ARIA needs (§ No `role="tooltip"` on the StatusDot hover-card) — one visual language across both tiers, one clear rule for which to reach for, and no accidental middle species that lies to AT. Promoting state/content titles to new tier-2 cards is scope beyond naming a control, and two e2e specs assert those exact `title=` seams.
+**Rejected**: a single configurable tooltip spanning both roles (re-introduces the role/interactivity conflict); promoting every native `title=` to a styled surface (builds hover-cards nobody asked for and breaks the asserted state-title seams).
+*Introduced by*: 260722-73al-tip-tooltip-system
+
+### Clone-child reference API
+**Decision**: `Tip` clones its single child element and merges the floating reference props/ref onto it (`useMergeRefs`), rather than rendering a wrapper element or a render-prop API.
+**Why**: ~40 migrated call sites demand minimal churn; the top-bar's overflow fit measures `barRender()` widths in a hidden probe, so any wrapper element would distort measured widths; the codebase already uses the floating-ui reference-props idiom (`StatusDotTip`'s `renderDot`).
+**Rejected**: a wrapper `<span>` (distorts probe widths and flex layouts); `StatusDotTip`'s render-prop shape (far noisier across 40 call sites).
+*Introduced by*: 260722-73al-tip-tooltip-system
+
+### Suppress-by-early-return on coarse pointers
+**Decision**: under `pointer: coarse` (live via `useCoarsePointer`), `Tip` returns its child unchanged — no reference props, no portal, no ARIA wiring. Hooks still run unconditionally (parameterized on an `enabled` flag); only the render return is short-circuited.
+**Why**: the approved spec gives touch no tooltip layer at all; not attaching the machinery is the cheapest correct implementation and makes the "no render under coarse pointer" assertion direct. The control's `aria-label` carries the name on touch.
+**Rejected**: `enabled: false` on the hover/focus hooks only (still wires the `aria-describedby` machinery and keeps dead listeners).
+*Introduced by*: 260722-73al-tip-tooltip-system
 
 ### Heading identifies the window, not the lens
 **Decision**: the terminal-route center heading is a static `Window: <window>` in every lens (tty/web/chat); the active lens is shown by the `ViewSwitcher`, not the heading.

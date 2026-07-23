@@ -28,11 +28,13 @@ describe("BoardHeader unpin glyph (260715-6jwn)", () => {
     expect(container.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
   });
 
-  it("preserves the title, no-drag, and click-unpin (stopPropagation) contract", () => {
+  it("preserves the tip, no-drag, and click-unpin (stopPropagation) contract", () => {
     const onUnpin = vi.fn();
     render(<BoardHeader entry={entry} onUnpin={onUnpin} />);
     const button = screen.getByRole("button", { name: "Unpin win-a from board" });
-    expect(button.getAttribute("title")).toBe("Unpin from board");
+    // Hover hint is a styled Tip now (260722-73al) — no native title (never
+    // both). The accessible name stays on the aria-label above.
+    expect(button.getAttribute("title")).toBeNull();
     // Non-draggable so a grab on the button never starts a header drag.
     expect(button.getAttribute("draggable")).toBe("false");
     // Clicking unpins (no confirmation dialog) and stops propagation so the

@@ -10,6 +10,7 @@ import {
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
+import { Tip, TipGroup } from "@/components/tip";
 import { classifyComposeEnter } from "@/lib/compose-keys";
 import {
   groupEventsByTurn,
@@ -258,6 +259,9 @@ function ChatSendForm({
           agent is working — message will be queued
         </div>
       )}
+      {/* One warm-tip cluster for the send row (260722-73al); placement `top`
+          — the form sits at the bottom of the chat lens. */}
+      <TipGroup>
       <div className="flex items-end gap-2">
         <textarea
           ref={textareaRef}
@@ -273,29 +277,36 @@ function ChatSendForm({
           data-testid="chat-send-input"
           className="rk-chat-input flex-1 min-h-0 resize-none rounded border border-border bg-bg-inset px-3 py-2 font-mono text-sm text-text-primary placeholder:text-text-secondary focus:outline-none focus:border-accent"
         />
-        <button
-          type="button"
-          onClick={() => void submit(false)}
-          disabled={!canSend}
-          aria-label="Insert message without submitting"
-          title="Insert into the agent's input without submitting (Alt+Enter)"
-          data-testid="chat-send-insert"
-          className="rk-glint shrink-0 rounded border border-border px-3 py-2 font-mono text-sm text-text-secondary select-none transition-colors hover:border-text-secondary active:bg-bg-card focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40 disabled:cursor-not-allowed coarse:min-h-[36px]"
-        >
-          Insert
-        </button>
-        <button
-          type="button"
-          onClick={() => void submit(true)}
-          disabled={!canSend}
-          aria-label="Send message"
-          title={coarse ? "Send (Ctrl/⌘+Enter)" : "Send (Enter)"}
-          data-testid="chat-send-button"
-          className="rk-glint shrink-0 rounded border border-border px-3 py-2 font-mono text-sm text-text-primary select-none transition-colors hover:border-text-secondary active:bg-bg-card focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40 disabled:cursor-not-allowed coarse:min-h-[36px]"
-        >
-          {sending ? "…" : "Send"}
-        </button>
+        {/* Old parenthesized-shortcut titles become label + keycap chips
+            (tier-1 kbd slot). The coarse "Ctrl/⌘+Enter" title branch is gone:
+            tips never render on coarse pointers, so only the fine-pointer
+            shortcut is ever shown. */}
+        <Tip label="Insert without submitting" kbd="Alt+Enter" placement="top">
+          <button
+            type="button"
+            onClick={() => void submit(false)}
+            disabled={!canSend}
+            aria-label="Insert message without submitting"
+            data-testid="chat-send-insert"
+            className="rk-glint shrink-0 rounded border border-border px-3 py-2 font-mono text-sm text-text-secondary select-none transition-colors hover:border-text-secondary active:bg-bg-card focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40 disabled:cursor-not-allowed coarse:min-h-[36px]"
+          >
+            Insert
+          </button>
+        </Tip>
+        <Tip label="Send" kbd="Enter" placement="top">
+          <button
+            type="button"
+            onClick={() => void submit(true)}
+            disabled={!canSend}
+            aria-label="Send message"
+            data-testid="chat-send-button"
+            className="rk-glint shrink-0 rounded border border-border px-3 py-2 font-mono text-sm text-text-primary select-none transition-colors hover:border-text-secondary active:bg-bg-card focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40 disabled:cursor-not-allowed coarse:min-h-[36px]"
+          >
+            {sending ? "…" : "Send"}
+          </button>
+        </Tip>
       </div>
+      </TipGroup>
     </div>
   );
 }

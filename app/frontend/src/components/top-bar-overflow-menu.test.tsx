@@ -59,7 +59,8 @@ describe("version-row check affordance (260720-ml7k)", () => {
     expect(within(menu).getByText("RunKit v0.6.2")).toBeInTheDocument();
     const check = within(menu).getByLabelText("Check for updates");
     expect(check).toBeInTheDocument();
-    expect(check).toHaveAttribute("title", "Check for updates");
+    // Hover hint is a styled Tip now (260722-73al) — no native title.
+    expect(check).not.toHaveAttribute("title");
     // A plain control, not a terminal menu action: no menuitem role, so a click
     // must not close the menu (the spinner state stays visible).
     expect(check).not.toHaveAttribute("role");

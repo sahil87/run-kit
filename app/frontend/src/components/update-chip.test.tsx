@@ -89,11 +89,12 @@ describe("UpdateChip", () => {
       daemonVersion: "0.5.3",
       updateAvailable: updateAvailable([runKit("0.5.3", "0.6.0")]),
     });
-    // The rest-state title/aria show the transition (both versions), not only
-    // the target (260715-ifco R9).
+    // The rest-state aria shows the transition (both versions), not only
+    // the target (260715-ifco R9). The hover hint is a styled Tip now
+    // (260722-73al) — no native title attribute.
     const chip = screen.getByLabelText("Update run-kit: v0.5.3 → v0.6.0");
     expect(chip).toBeInTheDocument();
-    expect(chip).toHaveAttribute("title", "Update run-kit: v0.5.3 → v0.6.0");
+    expect(chip).not.toHaveAttribute("title");
     // The visible chip label is unchanged — still `⬆ v{latest}`.
     expect(screen.getByText("⬆ v0.6.0")).toBeInTheDocument();
   });

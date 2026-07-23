@@ -1,6 +1,7 @@
 import type { BoardEntry } from "@/api/boards";
 import type { BoardPaneDragProps } from "@/hooks/use-board-pane-reorder";
 import { PinIcon } from "@/components/pin-icon";
+import { Tip } from "@/components/tip";
 
 interface BoardHeaderProps {
   entry: BoardEntry;
@@ -69,24 +70,25 @@ export function BoardHeader({ entry, onUnpin, homeSession, dragHandleProps }: Bo
           <span className="text-text-secondary truncate">{entry.server}</span>
         </div>
       )}
-      <button
-        type="button"
-        draggable={false}
-        onClick={(e) => {
-          // Stop the click from bubbling to the pane (which would refocus) and
-          // unpin. The button is non-draggable so a grab here never starts a
-          // header drag.
-          e.stopPropagation();
-          onUnpin();
-        }}
-        aria-label={`Unpin ${entry.windowName || entry.windowId} from board`}
-        className="text-text-secondary hover:text-text-primary px-1 flex items-center justify-center"
-        title="Unpin from board"
-      >
-        {/* Slashed thumbtack = "remove the pin" — the shared PinIcon in its
-            unpin variant, matching the sidebar's pin glyph. */}
-        <PinIcon slashed />
-      </button>
+      <Tip label="Unpin from board">
+        <button
+          type="button"
+          draggable={false}
+          onClick={(e) => {
+            // Stop the click from bubbling to the pane (which would refocus) and
+            // unpin. The button is non-draggable so a grab here never starts a
+            // header drag.
+            e.stopPropagation();
+            onUnpin();
+          }}
+          aria-label={`Unpin ${entry.windowName || entry.windowId} from board`}
+          className="text-text-secondary hover:text-text-primary px-1 flex items-center justify-center"
+        >
+          {/* Slashed thumbtack = "remove the pin" — the shared PinIcon in its
+              unpin variant, matching the sidebar's pin glyph. */}
+          <PinIcon slashed />
+        </button>
+      </Tip>
     </div>
   );
 }

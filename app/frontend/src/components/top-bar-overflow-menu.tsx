@@ -14,6 +14,7 @@ import { useToast } from "@/components/toast";
 import { LogoSpinner } from "@/components/logo-spinner";
 import { useUpdateClick } from "@/hooks/use-update-click";
 import { useUpdateCheck } from "@/hooks/use-update-check";
+import { Tip } from "@/components/tip";
 
 /** Sentinel running version for local (non-ldflags) builds — the version row's
  *  check-again affordance is hidden for it (a dev daemon never checks; the same
@@ -296,6 +297,9 @@ export function TopBarOverflowMenu({ rows, updateOverflowed }: Props) {
         }
       }}
     >
+      {/* Tip suppressed while the menu is open (BreadcrumbDropdown trigger
+          convention — the tip must not paint over the first menu rows). */}
+      <Tip label={open ? undefined : "More controls"}>
       <button
         ref={buttonRef}
         type="button"
@@ -303,7 +307,6 @@ export function TopBarOverflowMenu({ rows, updateOverflowed }: Props) {
         aria-haspopup="true"
         aria-expanded={open}
         aria-label="More controls"
-        title="More controls"
         className="rk-glint relative min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center"
       >
         <svg
@@ -332,6 +335,7 @@ export function TopBarOverflowMenu({ rows, updateOverflowed }: Props) {
           />
         )}
       </button>
+      </Tip>
       {open && menuPos && (
         <div
           ref={menuRef}
@@ -376,27 +380,28 @@ export function TopBarOverflowMenu({ rows, updateOverflowed }: Props) {
             // Arrow-nav still reaches it via the `button:not([disabled])`
             // focusables selector.
             <div className="flex items-center gap-1 pr-2">
-              <button
-                type="button"
-                role="menuitem"
-                tabIndex={versionRowFocused ? 0 : -1}
-                onFocus={() => setVersionRowFocused(true)}
-                onBlur={() => setVersionRowFocused(false)}
-                onClick={handleCopy}
-                aria-label={daemonVersion ? `${versionText} (copy)` : "RunKit"}
-                title={daemonVersion ? "Copy version" : undefined}
-                className="flex-1 min-w-0 text-left px-3 py-2 text-sm text-text-secondary hover:text-text-primary hover:bg-bg-card transition-colors"
-              >
-                {versionText}
-              </button>
+              <Tip label={daemonVersion ? "Copy version" : undefined}>
+                <button
+                  type="button"
+                  role="menuitem"
+                  tabIndex={versionRowFocused ? 0 : -1}
+                  onFocus={() => setVersionRowFocused(true)}
+                  onBlur={() => setVersionRowFocused(false)}
+                  onClick={handleCopy}
+                  aria-label={daemonVersion ? `${versionText} (copy)` : "RunKit"}
+                  className="flex-1 min-w-0 text-left px-3 py-2 text-sm text-text-secondary hover:text-text-primary hover:bg-bg-card transition-colors"
+                >
+                  {versionText}
+                </button>
+              </Tip>
               {showCheck && (
+                <Tip label="Check for updates">
                 <button
                   type="button"
                   tabIndex={-1}
                   disabled={checking}
                   onClick={() => runUpdateCheck(false)}
                   aria-label="Check for updates"
-                  title="Check for updates"
                   className="shrink-0 min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border border-border text-text-secondary hover:border-text-secondary hover:text-text-primary transition-colors flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-border"
                 >
                   {checking ? (
@@ -419,6 +424,7 @@ export function TopBarOverflowMenu({ rows, updateOverflowed }: Props) {
                     </svg>
                   )}
                 </button>
+                </Tip>
               )}
             </div>
           )}

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useTheme } from "@/contexts/theme-context";
+import { Tip, TipGroup } from "@/components/tip";
 import { PICKER_COLOR_VALUES, MARKER_STATES, markerStripeStyle, computeRowTints, colorValueToHex, resolveFamily, familyToLegacy } from "@/themes";
 
 type SwatchPopoverProps = {
@@ -230,6 +231,9 @@ export function SwatchPopover({
   const focusOnClear = keyboardActive && focus.row === 0 && focus.col >= 1;
 
   return (
+    // TipGroup: the marker cells are a warm-tip cluster (260722-73al) —
+    // sweeping down the tiny 18px cells names each marker instantly.
+    <TipGroup>
     <div
       ref={containerRef}
       role="listbox"
@@ -254,8 +258,8 @@ export function SwatchPopover({
                 // the prop docs on the combined-label extension.
                 const stripe = markerStripeStyle(state, theme.palette.foreground);
                 return (
+                  <Tip key={state || "none"} label={state || "none"}>
                   <button
-                    key={state || "none"}
                     role="option"
                     aria-selected={isSelected}
                     aria-label={`Marker ${state || "none"}`}
@@ -264,7 +268,6 @@ export function SwatchPopover({
                     className={`w-[18px] h-[18px] bg-bg-inset overflow-hidden transition-all relative ${
                       isFocused ? "ring-1 ring-text-secondary" : ""
                     } ${isSelected ? "ring-1 ring-text-primary" : ""}`}
-                    title={state || "none"}
                   >
                     {stripe && <span className="absolute inset-0" style={stripe} />}
                     {state === "" && (
@@ -273,6 +276,7 @@ export function SwatchPopover({
                       </span>
                     )}
                   </button>
+                  </Tip>
                 );
               })}
             </div>
@@ -327,5 +331,6 @@ export function SwatchPopover({
         </div>
       </div>
     </div>
+    </TipGroup>
   );
 }

@@ -1,0 +1,16 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-22T17:52:13Z"}
+{"args":"App-wide tier-1 tooltip system (Tip component) replacing native title= attributes — quiet-card shell + keycap content model on @floating-ui/react, approved from four-variant design session","cmd":"fab-new","event":"command","ts":"2026-07-22T17:52:13Z"}
+{"delta":"+0.0","event":"confidence","score":4.3,"trigger":"calc-score","ts":"2026-07-22T17:53:40Z"}
+{"delta":"+0.0","event":"confidence","score":4.3,"trigger":"calc-score","ts":"2026-07-22T17:53:49Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-07-22T17:54:38Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-22T17:55:45Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-22T17:56:06Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-22T17:56:46Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-22T18:57:14Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-22T19:16:53Z"}
+{"event":"review","result":"passed","ts":"2026-07-22T19:16:53Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-22T19:17:34Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-22T19:21:57Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-07-22T19:23:28Z"}
+{"cmd":"git-pr-review","event":"command","ts":"2026-07-22T19:24:36Z"}
+{"event":"review","result":"passed","ts":"2026-07-22T19:25:24Z"}

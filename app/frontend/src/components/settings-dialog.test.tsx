@@ -19,6 +19,13 @@ vi.mock("@/api/client", () => ({
 }));
 import { getSSHHost, setSSHHost } from "@/api/client";
 
+// Mock the open-context store so the commit→invalidate seam is observable
+// without dragging the real store (and its fetches) into dialog tests.
+vi.mock("@/hooks/use-open-targets", () => ({
+  invalidateOpenContext: vi.fn(),
+}));
+import { invalidateOpenContext } from "@/hooks/use-open-targets";
+
 function mockMatchMedia() {
   vi.stubGlobal(
     "matchMedia",
@@ -88,6 +95,7 @@ beforeEach(() => {
   vi.mocked(getSSHHost).mockResolvedValue(null);
   vi.mocked(setSSHHost).mockClear();
   vi.mocked(setSSHHost).mockResolvedValue(undefined);
+  vi.mocked(invalidateOpenContext).mockClear();
 });
 
 afterEach(() => {
@@ -131,6 +139,29 @@ describe("SettingsDialog", () => {
     fireEvent.change(input, { target: { value: "  " } });
     fireEvent.blur(input);
     await waitFor(() => expect(setSSHHost).toHaveBeenCalledWith(null));
+  });
+
+  it("a successful SSH host commit invalidates the open context (260723-l317)", async () => {
+    vi.mocked(getSSHHost).mockResolvedValue("devbox");
+    renderDialog();
+    const input = screen.getByLabelText("SSH host") as HTMLInputElement;
+    await waitFor(() => expect(input.value).toBe("devbox"));
+
+    fireEvent.change(input, { target: { value: "sahil@mini" } });
+    fireEvent.blur(input);
+    await waitFor(() => expect(setSSHHost).toHaveBeenCalledWith("sahil@mini"));
+    await waitFor(() => expect(invalidateOpenContext).toHaveBeenCalledTimes(1));
+  });
+
+  it("a rejected SSH host commit does NOT invalidate the open context", async () => {
+    vi.mocked(setSSHHost).mockRejectedValue(new Error("bad host"));
+    renderDialog();
+    const input = screen.getByLabelText("SSH host") as HTMLInputElement;
+
+    fireEvent.change(input, { target: { value: "dev box" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(screen.getByText("bad host")).toBeInTheDocument());
+    expect(invalidateOpenContext).not.toHaveBeenCalled();
   });
 
   it("a rejected SSH host commit surfaces an inline error and keeps the typed value", async () => {

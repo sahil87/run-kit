@@ -1291,3 +1291,202 @@ describe("sidebar footer settings gear (260723-o7q8)", () => {
     expect(gear.getAttribute("title")).toBeNull();
   });
 });
+
+describe("Sidebar — desktop selected-row autoscroll (nris)", () => {
+  // The file-default matchMedia stub reports DESKTOP (fine pointer, wide), so
+  // the mobile drawer scroll+focus effect never runs here — every scroll call
+  // observed in this block comes from the selection-keyed desktop effect.
+  //
+  // jsdom has no scrollIntoView — define a prototype-level spy so the effect's
+  // `typeof row.scrollIntoView === "function"` guard passes.
+  let scrollSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    scrollSpy = vi.fn();
+    Object.defineProperty(window.HTMLElement.prototype, "scrollIntoView", {
+      value: scrollSpy,
+      configurable: true,
+      writable: true,
+    });
+    useWindowStore.setState({ entries: new Map(), ghosts: [] });
+  });
+
+  afterEach(() => {
+    delete (window.HTMLElement.prototype as unknown as Record<string, unknown>).scrollIntoView;
+    useWindowStore.setState({ entries: new Map(), ghosts: [] });
+  });
+
+  const SCROLL_SESSIONS: ProjectSession[] = [
+    {
+      name: "main",
+      windows: [
+        { index: 0, windowId: "@0", name: "edit", worktreePath: "~/a", activity: "idle", isActiveWindow: false, activityTimestamp: 0 },
+        { index: 1, windowId: "@1", name: "test", worktreePath: "~/a", activity: "idle", isActiveWindow: false, activityTimestamp: 0 },
+      ],
+    },
+  ];
+
+  /** Provider tree parameterized on sessions + selected window id so tests can
+   *  rerender across selection changes, passive SSE ticks, and data arrival. */
+  function scrollTreeUI(sessions: ProjectSession[], currentWindowId: string | null) {
+    const servers = [{ name: "primary", sessionCount: 1 }];
+    return (
+      <ThemeProvider>
+        <InstanceAccentValueProvider value={NULL_ACCENT}>
+        <InstanceNameValueProvider value={NULL_NAME}>
+        <ToastProvider>
+          <OptimisticProvider>
+            <StandaloneSessionContextProvider
+              value={{
+                sessionsByServer: new Map([["primary", sessions]]),
+                sessionOrderByServer: new Map([["primary", []]]),
+                isConnectedByServer: new Map([["primary", true]]),
+                metricsByServer: new Map(),
+                currentServer: "primary",
+                servers,
+                refreshServers: vi.fn(),
+              }}
+            >
+              <MetricsProvider value={null}>
+                <HostMetricsProvider value={null}>
+                  <FocusedPaneProvider>
+                    <ChromeProvider>
+                      <SettingsDialogProvider>
+                        <Sidebar
+                          currentServer="primary"
+                          currentSession="main"
+                          currentWindowId={currentWindowId}
+                          onSelectWindow={vi.fn()}
+                          onCreateWindow={vi.fn()}
+                          onCreateSession={vi.fn()}
+                          onCreateServer={vi.fn()}
+                          onKillServer={vi.fn()}
+                        />
+                      </SettingsDialogProvider>
+                    </ChromeProvider>
+                  </FocusedPaneProvider>
+                </HostMetricsProvider>
+              </MetricsProvider>
+            </StandaloneSessionContextProvider>
+          </OptimisticProvider>
+        </ToastProvider>
+        </InstanceNameValueProvider>
+        </InstanceAccentValueProvider>
+      </ThemeProvider>
+    );
+  }
+
+  /** The selected window row's button (the desktop effect's query target). */
+  function selectedRowButton(): HTMLElement | null {
+    return document.querySelector<HTMLElement>('[data-window-id] [aria-current="page"]');
+  }
+
+  /** Calls whose `this` was a WINDOW-ROW button (scoped like the effect's own
+   *  selector) — the ServerPanel active-tile effect also scrolls via the same
+   *  prototype spy, so tile calls are filtered out. */
+  function rowScrollCalls(): unknown[] {
+    return scrollSpy.mock.instances.filter(
+      (el) => el instanceof HTMLElement && el.closest("[data-window-id]") !== null,
+    );
+  }
+
+  it("scrolls the selected row into view on mount without moving focus or the roving tab stop", () => {
+    render(scrollTreeUI(SCROLL_SESSIONS, "@0"));
+
+    const row = selectedRowButton();
+    expect(row).not.toBeNull();
+    expect(rowScrollCalls()).toHaveLength(1);
+    expect(rowScrollCalls()[0]).toBe(row);
+    expect(scrollSpy).toHaveBeenCalledWith({ block: "nearest" });
+    // Scroll-only: focus stays outside the tree (no focus() call)...
+    expect(screen.getByRole("tree").contains(document.activeElement)).toBe(false);
+    // ...and the roving tab stop is untouched (still the first visible row —
+    // the "main" session header — NOT the selected window row).
+    const tabbable = Array.from(
+      screen.getByRole("tree").querySelectorAll('[role="treeitem"][tabindex="0"]'),
+    );
+    expect(tabbable).toHaveLength(1);
+    expect(tabbable[0].getAttribute("data-session-row")).toBe("primary:main");
+  });
+
+  it("scrolls once per selection change and never again on passive SSE ticks", () => {
+    const { rerender } = render(scrollTreeUI(SCROLL_SESSIONS, "@0"));
+    expect(rowScrollCalls()).toHaveLength(1);
+
+    // Selection change → exactly one more scroll, targeting the new row.
+    act(() => { rerender(scrollTreeUI(SCROLL_SESSIONS, "@1")); });
+    expect(rowScrollCalls()).toHaveLength(2);
+    expect((rowScrollCalls()[1] as HTMLElement).closest("[data-window-id]"))
+      .toHaveAttribute("data-window-id", "@1");
+
+    // Passive SSE tick: fresh Map + fresh window objects, SAME visible-row set,
+    // SAME selection — must not scroll (Wave-2 #262: no scroll state churn).
+    const ticked: ProjectSession[] = SCROLL_SESSIONS.map((s) => ({
+      ...s,
+      windows: s.windows.map((w) => ({ ...w, activityTimestamp: w.activityTimestamp + 1 })),
+    }));
+    act(() => { rerender(scrollTreeUI(ticked, "@1")); });
+    expect(rowScrollCalls()).toHaveLength(2);
+  });
+
+  it("deep-link retry: no row at mount, scrolls exactly once when the SSE data lands", () => {
+    // Route resolved before SSE: selection is set but no rows exist yet.
+    const { rerender } = render(scrollTreeUI([], "@1"));
+    expect(selectedRowButton()).toBeNull();
+    expect(rowScrollCalls()).toHaveLength(0);
+
+    // SSE snapshot lands → rows render, rowsVersion bumps → one deferred scroll.
+    act(() => { rerender(scrollTreeUI(SCROLL_SESSIONS, "@1")); });
+    expect(rowScrollCalls()).toHaveLength(1);
+    expect((rowScrollCalls()[0] as HTMLElement).closest("[data-window-id]"))
+      .toHaveAttribute("data-window-id", "@1");
+
+    // The pending ref is cleared: a later passive tick does not re-scroll.
+    const ticked: ProjectSession[] = SCROLL_SESSIONS.map((s) => ({
+      ...s,
+      windows: s.windows.map((w) => ({ ...w, activityTimestamp: w.activityTimestamp + 1 })),
+    }));
+    act(() => { rerender(scrollTreeUI(ticked, "@1")); });
+    expect(rowScrollCalls()).toHaveLength(1);
+  });
+
+  it("collapsed group: no scroll, no auto-expand; the deferred scroll fires on expand", () => {
+    const { rerender } = render(scrollTreeUI(SCROLL_SESSIONS, "@0"));
+    expect(rowScrollCalls()).toHaveLength(1);
+
+    // Collapse the "main" session — the window rows leave the DOM.
+    act(() => { fireEvent.click(screen.getByRole("button", { name: /Collapse main/ })); });
+    expect(selectedRowButton()).toBeNull();
+
+    // Select a different window while collapsed: row not queryable → no scroll,
+    // and the group is NOT auto-expanded.
+    act(() => { rerender(scrollTreeUI(SCROLL_SESSIONS, "@1")); });
+    expect(rowScrollCalls()).toHaveLength(1);
+    expect(screen.getByRole("button", { name: /Expand main/ })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+
+    // User expands the group → the armed pending scroll completes once.
+    act(() => { fireEvent.click(screen.getByRole("button", { name: /Expand main/ })); });
+    expect(rowScrollCalls()).toHaveLength(2);
+    expect((rowScrollCalls()[1] as HTMLElement).closest("[data-window-id]"))
+      .toHaveAttribute("data-window-id", "@1");
+  });
+
+  it("stays disarmed with no URL window selection (currentWindowId null)", () => {
+    // isActiveWindow fallback may still paint aria-current on a row, but the
+    // effect keys on the URL selection identity — null disarms it.
+    const withActive: ProjectSession[] = [
+      {
+        name: "main",
+        windows: [
+          { index: 0, windowId: "@0", name: "edit", worktreePath: "~/a", activity: "idle", isActiveWindow: true, activityTimestamp: 0 },
+        ],
+      },
+    ];
+    render(scrollTreeUI(withActive, null));
+    expect(selectedRowButton()).not.toBeNull(); // fallback highlight exists
+    expect(rowScrollCalls()).toHaveLength(0); // but no scroll fires
+  });
+});

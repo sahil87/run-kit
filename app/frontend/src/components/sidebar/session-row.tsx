@@ -7,6 +7,7 @@ import { WaitingBadge } from "@/components/waiting-badge";
 import { countWaitingWindows } from "@/lib/waiting";
 import { toSafeSessionName } from "@/lib/names";
 import { PaletteIcon, BotIcon } from "./icons";
+import { Tip } from "@/components/tip";
 
 type SessionRowProps = {
   /** Tmux server this session belongs to — bound into the identity-arg
@@ -213,46 +214,58 @@ function SessionRowInner({
           }
         />
       </div>
+      {/* Tier-1 tips on the icon action cluster (260723-fm08): short generic
+          labels (the aria-labels keep the per-session specificity); default
+          bottom placement (the sidebar button convention \u2014 the scope chip
+          precedent). Rows render inside the sidebar-root TipGroup. */}
       <div className="flex items-center pr-2">
         {onColorChange && (
-          <button
-            ref={colorBtnRef}
-            onClick={(e) => {
-              e.stopPropagation();
-              setShowColorPicker((v) => !v);
-            }}
-            aria-label={`Set color for ${session.name}`}
-            className="text-text-secondary hover:text-text-primary transition-opacity opacity-0 group-hover:opacity-100 coarse:opacity-100 px-0.5 min-h-[24px] coarse:min-h-[36px] flex items-center justify-center"
-          >
-            <PaletteIcon />
-          </button>
+          <Tip label="Set session color">
+            <button
+              ref={colorBtnRef}
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowColorPicker((v) => !v);
+              }}
+              aria-label={`Set color for ${session.name}`}
+              className="text-text-secondary hover:text-text-primary transition-opacity opacity-0 group-hover:opacity-100 coarse:opacity-100 px-0.5 min-h-[24px] coarse:min-h-[36px] flex items-center justify-center"
+            >
+              <PaletteIcon />
+            </button>
+          </Tip>
         )}
         {onSpawnAgent && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onSpawnAgent(server, name);
-            }}
-            aria-label={`Spawn agent in ${session.name}`}
-            className="text-text-secondary hover:text-text-primary transition-opacity opacity-0 group-hover:opacity-100 coarse:opacity-100 px-0.5 min-h-[24px] coarse:min-h-[36px] flex items-center justify-center"
-          >
-            <BotIcon />
-          </button>
+          <Tip label="Spawn agent">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onSpawnAgent(server, name);
+              }}
+              aria-label={`Spawn agent in ${session.name}`}
+              className="text-text-secondary hover:text-text-primary transition-opacity opacity-0 group-hover:opacity-100 coarse:opacity-100 px-0.5 min-h-[24px] coarse:min-h-[36px] flex items-center justify-center"
+            >
+              <BotIcon />
+            </button>
+          </Tip>
         )}
-        <button
-          onClick={() => onCreateWindow(server, name)}
-          aria-label={`New window in ${session.name}`}
-          className="text-text-secondary hover:text-text-primary transition-colors text-[16px] px-1 min-h-[24px] coarse:min-h-[36px] flex items-center justify-center"
-        >
-          +
-        </button>
-        <button
-          onClick={(e) => onKillClick(server, name, session.windows.length, e.ctrlKey || e.metaKey)}
-          aria-label={`Kill session ${session.name}`}
-          className="text-text-secondary hover:text-red-400 transition-colors text-[16px] px-1 min-h-[24px] coarse:min-h-[36px] flex items-center justify-center"
-        >
-          {"\u2715"}
-        </button>
+        <Tip label="New window">
+          <button
+            onClick={() => onCreateWindow(server, name)}
+            aria-label={`New window in ${session.name}`}
+            className="text-text-secondary hover:text-text-primary transition-colors text-[16px] px-1 min-h-[24px] coarse:min-h-[36px] flex items-center justify-center"
+          >
+            +
+          </button>
+        </Tip>
+        <Tip label="Kill session">
+          <button
+            onClick={(e) => onKillClick(server, name, session.windows.length, e.ctrlKey || e.metaKey)}
+            aria-label={`Kill session ${session.name}`}
+            className="text-text-secondary hover:text-red-400 transition-colors text-[16px] px-1 min-h-[24px] coarse:min-h-[36px] flex items-center justify-center"
+          >
+            {"\u2715"}
+          </button>
+        </Tip>
       </div>
       {showColorPicker && onColorChange && (
         <div className="absolute right-0 top-full z-50">

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, cleanup, fireEvent, act } from "@testing-library/react";
 import { BottomBar } from "./bottom-bar";
+import { TIP_OPEN_DELAY_MS } from "@/components/tip";
 import { FocusedTerminalProvider } from "@/contexts/focused-terminal-context";
 import { ChromeProvider } from "@/contexts/chrome-context";
 
@@ -207,7 +208,16 @@ describe("BottomBar scroll-lock", () => {
 
   it("calls navigator.vibrate on long-press toggle", () => {
     const vibrateMock = vi.fn();
-    vi.stubGlobal("navigator", { ...navigator, vibrate: vibrateMock });
+    // Spread (`{ ...navigator }`) would drop jsdom's prototype getters
+    // (platform/userAgent), which floating-ui reads now that the chips carry
+    // Tips (260723-fm08) — carry the string fields over explicitly instead.
+    vi.stubGlobal("navigator", {
+      userAgent: navigator.userAgent,
+      platform: navigator.platform,
+      vendor: navigator.vendor,
+      maxTouchPoints: navigator.maxTouchPoints,
+      vibrate: vibrateMock,
+    });
 
     renderBottomBar();
 
@@ -216,5 +226,67 @@ describe("BottomBar scroll-lock", () => {
     act(() => { vi.advanceTimersByTime(500); });
 
     expect(vibrateMock).toHaveBeenCalledWith(50);
+  });
+});
+
+describe("BottomBar chip tips (260723-fm08)", () => {
+  // Tier-1 Tip wiring on the symbol-glyph chips (⇥ ^ ⌥ F▴ >_ ⌘K + the
+  // ArrowPad trigger). Deep tooltip behavior is pinned once in tip.test.tsx;
+  // here we assert the per-site label wiring, the ⌘K keycap slot, the
+  // migration contract (no native title), and that the latch behavior
+  // survives the clone-child wrap. jsdom has no matchMedia → fine pointer.
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+  });
+
+  it("hovering the ⌘K chip shows 'Command palette' with a ⌘K keycap chip", () => {
+    renderBottomBar({ onOpenCompose: vi.fn() });
+    const chip = screen.getByLabelText("Open command palette");
+    act(() => {
+      fireEvent.mouseEnter(chip);
+      vi.advanceTimersByTime(TIP_OPEN_DELAY_MS);
+    });
+    const tooltip = screen.getByRole("tooltip");
+    expect(tooltip).toHaveTextContent("Command palette");
+    // The kbd slot renders as a real <kbd> keycap chip inside the tooltip.
+    const kbd = tooltip.querySelector("kbd");
+    expect(kbd).not.toBeNull();
+    expect(kbd).toHaveTextContent("⌘K");
+  });
+
+  it("modifier chips carry latch-describing tips and still toggle aria-pressed", () => {
+    renderBottomBar({ onOpenCompose: vi.fn() });
+    const ctrl = screen.getByLabelText("Control");
+    act(() => {
+      fireEvent.mouseEnter(ctrl);
+      vi.advanceTimersByTime(TIP_OPEN_DELAY_MS);
+    });
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Ctrl for next key");
+
+    // The one-shot latch behavior survives the Tip wrap: clicking arms it.
+    expect(ctrl).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(ctrl);
+    expect(ctrl).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("tipped chips carry no native title and keep their aria-labels", () => {
+    renderBottomBar({ onOpenCompose: vi.fn() });
+    for (const name of [
+      "Tab",
+      "Control",
+      "Option",
+      "Function keys",
+      "Arrow keys",
+      "Compose text",
+      "Open command palette",
+    ]) {
+      const chip = screen.getByLabelText(name);
+      expect(chip).not.toHaveAttribute("title");
+    }
   });
 });

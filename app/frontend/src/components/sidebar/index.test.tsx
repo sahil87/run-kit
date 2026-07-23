@@ -1235,6 +1235,22 @@ describe("Sidebar — server-group header action cluster (x4sf)", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
+  it("cluster buttons carry tier-1 tips with short generic labels (260723-fm08)", async () => {
+    await renderWithColors({ alpha: "4" });
+
+    // Focus opens immediately (tip.test.tsx focus idiom). The tip label is
+    // the short generic name; the aria-label keeps per-server specificity.
+    const kill = within(headerContainer("alpha")).getByRole("button", { name: "Kill server alpha" });
+    fireEvent.focus(kill);
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Kill server");
+    expect(kill.getAttribute("aria-describedby")).toBe(screen.getByRole("tooltip").id);
+    fireEvent.blur(kill);
+
+    const plus = within(headerContainer("alpha")).getByRole("button", { name: "New session on alpha" });
+    fireEvent.focus(plus);
+    expect(screen.getByRole("tooltip")).toHaveTextContent("New session");
+  });
+
   it("keeps the toggle dominant and the existing header semantics intact", async () => {
     await renderWithColors({ alpha: "4" });
 

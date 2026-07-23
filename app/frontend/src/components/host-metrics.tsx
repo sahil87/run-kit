@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { ICON_CLASS } from "./sidebar/icons";
 import { sparkline } from "@/lib/sparkline";
 import { gaugeBar, gaugeColor, formatMemory } from "@/lib/gauge";
+import { Tip } from "@/components/tip";
 import type { MetricsSnapshot } from "@/types";
 
 /** Format uptime seconds as "Nd Nh" or "Nh Nm" if < 1 day. */
@@ -29,13 +30,25 @@ export function formatDisk(used: number, total: number): string {
  * the shared `lib/sparkline.ts` + `lib/gauge.ts` primitives. Callers own the
  * surrounding layout chrome (sidebar `CollapsiblePanel`, dashboard header) and
  * the `!metrics` empty state — this component always receives a snapshot.
+ *
+ * Each metric LABEL carries a tier-1 `Tip` naming it in plain words
+ * (260723-fm08) — hover-only on the non-focusable span, `placement="right"`
+ * (the sidebar register convention; flip() handles the dashboard edge).
+ * Because the component is shared, both render surfaces (sidebar HOST panel,
+ * Host overview dashboard) gain the tips with no per-surface gating. No
+ * TipGroup here: the sidebar instance joins the sidebar-root warm cluster;
+ * the dashboard instance runs standalone (a nested group would split the
+ * sidebar's cluster). The inline `up` sub-label on the dsk row is not a row
+ * prefix and gets no tip.
  */
 export function HostMetrics({ metrics }: { metrics: MetricsSnapshot }) {
   return (
     <div className="flex flex-col gap-0 text-xs font-mono">
       {/* CPU sparkline — label+pct fixed, sparkline clips oldest (left) data on narrow panels */}
       <div className="flex items-baseline gap-[1ch]">
-        <span className="text-text-secondary shrink-0">cpu</span>
+        <Tip label="CPU usage" placement="right">
+          <span className="text-text-secondary shrink-0">cpu</span>
+        </Tip>
         <span className={`${ICON_CLASS} shrink-0`} aria-hidden="true">{"\uF2DB"}</span>
         <div className="text-accent flex-1 min-w-0 overflow-hidden" dir="rtl">
           <span className="whitespace-nowrap" dir="ltr">{sparkline(metrics.cpu.samples)}</span>
@@ -48,7 +61,9 @@ export function HostMetrics({ metrics }: { metrics: MetricsSnapshot }) {
 
       {/* Disk + Uptime */}
       <div className="text-text-secondary truncate">
-        <span>dsk </span>
+        <Tip label="Disk usage" placement="right">
+          <span>dsk </span>
+        </Tip>
         <span className={ICON_CLASS} aria-hidden="true">{"\uF0A0"}</span>
         {" "}
         <span>{formatDisk(metrics.disk.used, metrics.disk.total)}</span>
@@ -90,7 +105,9 @@ function MemoryLine({ used, total }: { used: number; total: number }) {
 
   return (
     <div className="flex items-baseline gap-[1ch]">
-      <span className="text-text-secondary shrink-0">mem</span>
+      <Tip label="Memory usage" placement="right">
+        <span className="text-text-secondary shrink-0">mem</span>
+      </Tip>
       <span className={`${ICON_CLASS} shrink-0`} aria-hidden="true">{"\u{F035B}"}</span>
       <div ref={gaugeRef} className="flex-1 min-w-0 overflow-hidden whitespace-nowrap">
         <span className={color}>{gaugeBar(ratio, charCount)}</span>
@@ -119,7 +136,9 @@ function LoadLine({
 
   return (
     <div className="truncate">
-      <span className="text-text-secondary">ld&nbsp; </span>
+      <Tip label="Load average" placement="right">
+        <span className="text-text-secondary">ld&nbsp; </span>
+      </Tip>
       <span className={ICON_CLASS} aria-hidden="true">{"\uF0E4"}</span>
       {" "}
       <span className={p1 > 90 ? redClass : "text-text-primary"}>{p1}%</span>

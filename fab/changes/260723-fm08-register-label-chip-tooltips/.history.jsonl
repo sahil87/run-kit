@@ -1,0 +1,8 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-23T06:15:10Z"}
+{"args":"Tooltips for sidebar PANE/HOST register labels and bottom-bar key chips — tier-1 Tip follow-up to 260722-73al","cmd":"fab-new","event":"command","ts":"2026-07-23T06:15:10Z"}
+{"delta":"+0.0","event":"confidence","score":4.6,"trigger":"calc-score","ts":"2026-07-23T06:18:09Z"}
+{"cmd":"fab-proceed:create-intake","event":"command","ts":"2026-07-23T06:18:15Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-07-23T06:19:10Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-23T06:19:39Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-23T06:19:40Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-23T06:20:18Z"}

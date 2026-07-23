@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
+import { Tip } from "@/components/tip";
 
 /** Minimum drag distance (px) to register a swipe vs a tap. */
 const DRAG_THRESHOLD = 20;
@@ -96,19 +97,25 @@ export function ArrowPad({ onArrow, className }: ArrowPadProps) {
 
   return (
     <div ref={padRef} className={`relative ${className ?? ""}`}>
-      <button
-        aria-label="Arrow keys"
-        aria-haspopup="true"
-        aria-expanded={open}
-        className="rk-glint h-8 w-8 flex items-center justify-center text-sm text-text-secondary border border-border rounded select-none transition-colors hover:border-text-secondary active:bg-bg-card focus-visible:outline-2 focus-visible:outline-accent touch-none"
-        onTouchStart={handleTouchStart}
-        onTouchEnd={handleTouchEnd}
-        onMouseDown={handleMouseDown}
-        onMouseUp={handleMouseUp}
-        onClick={handleClick}
-      >
-        <kbd aria-hidden="true">{"\u2191"}</kbd>
-      </button>
+      {/* Tier-1 tip on the trigger only (260723-fm08) — joins BottomBar's
+          TipGroup warm cluster; the popup's ↑←↓→ buttons show self-evident
+          glyphs and get no tips. Tip's clone-child API merges the drag/tap
+          handlers unchanged. */}
+      <Tip label="Arrow keys" placement="top">
+        <button
+          aria-label="Arrow keys"
+          aria-haspopup="true"
+          aria-expanded={open}
+          className="rk-glint h-8 w-8 flex items-center justify-center text-sm text-text-secondary border border-border rounded select-none transition-colors hover:border-text-secondary active:bg-bg-card focus-visible:outline-2 focus-visible:outline-accent touch-none"
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
+          onMouseDown={handleMouseDown}
+          onMouseUp={handleMouseUp}
+          onClick={handleClick}
+        >
+          <kbd aria-hidden="true">{"\u2191"}</kbd>
+        </button>
+      </Tip>
 
       {open && (
         <div

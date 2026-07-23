@@ -334,12 +334,14 @@ function WindowRowInner({
           className="absolute inset-0 z-[5] overflow-hidden pointer-events-none rk-hazard"
         />
       )}
-      {/* Data-rain overlay for dashed-marker rows (working / "agent busy"
-          cue): three faint dash tracks streaming left→right, ALWAYS-ON. Same
-          overlay discipline (dedicated clipped inner element, never the root,
-          pointer-events-none, z-5); the gutter stripe itself stays static.
-          Reads the `--rk-marker-color` custom property set on the root. */}
-      {isDashed && (
+      {/* Data-rain overlay for SELECTED dashed-marker rows (the working
+          marker's selection flourish — the dashed twin of double's scanline
+          crawl): two sparse dash tracks streaming left→right. Mounted only
+          while selected (the rain is motion-only, so there is no rest form);
+          the gutter stripe itself stays static in every state. Same overlay
+          discipline (dedicated clipped inner element, never the root,
+          pointer-events-none, z-5); reads `--rk-marker-color` from the root. */}
+      {isDashed && isSelected && (
         <div
           aria-hidden="true"
           className="absolute inset-0 z-[5] overflow-hidden pointer-events-none rk-dash-rain"

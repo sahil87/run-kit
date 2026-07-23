@@ -22,8 +22,8 @@ type WindowRowProps = {
   /** Color value: an owned family name ("orange") or a legacy numeric/blend
    *  descriptor ("4" / "1+3") — the row's hue (label axis). */
   color?: string;
-  /** Left-gutter marker state ("" | "dotted" | "solid" | "double") — an
-   *  independent label axis from `color`. */
+  /** Left-gutter marker state ("" | "dotted" | "dashed" | "solid" | "double"
+   *  | "thick") — an independent label axis from `color`. */
   marker?: string;
   rowTints?: Map<string, RowTint>;
   /** Contrast-adjusted full-saturation guarded color per color value. Used for
@@ -264,6 +264,9 @@ function WindowRowInner({
   };
   const isDouble = marker === "double";
   const scanlineAnimated = isDouble && isSelected;
+  // Thick pairs with the STATIC hazard wedge (completed / "taped off" cue) —
+  // never animated in any state, unlike double's selected crawl.
+  const isThick = marker === "thick";
 
   return (
     <div
@@ -298,7 +301,7 @@ function WindowRowInner({
       onDrop={dragEnabled && onDrop ? (e) => onDrop(e, srv, session, win.index) : undefined}
       onDragEnd={dragEnabled ? onDragEnd : undefined}
       style={{
-        ...(isDouble ? ({ "--rk-marker-color": markerColor } as React.CSSProperties) : {}),
+        ...(isDouble || isThick ? ({ "--rk-marker-color": markerColor } as React.CSSProperties) : {}),
         ...(isDragOver ? { boxShadow: "0 -2px 0 0 var(--color-accent)" } : {}),
       }}
     >
@@ -314,6 +317,18 @@ function WindowRowInner({
           className={`absolute inset-0 z-[5] overflow-hidden pointer-events-none rk-scanlines${
             scanlineAnimated ? " rk-scanlines-crawl" : ""
           }`}
+        />
+      )}
+      {/* Hazard-wedge overlay for thick-marker rows (completed / "taped off"
+          cue). Mirrors the scanlines discipline exactly — dedicated clipped
+          inner element (never the root), pointer-events-none, z-5 — but is
+          STATIC in every state (rest, hover, selected): no animated twin
+          exists by explicit design decision. The wedge reads the same
+          `--rk-marker-color` custom property set on the root above. */}
+      {isThick && (
+        <div
+          aria-hidden="true"
+          className="absolute inset-0 z-[5] overflow-hidden pointer-events-none rk-hazard"
         />
       )}
       {labelZoneEnabled && (

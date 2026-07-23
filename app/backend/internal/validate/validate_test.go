@@ -451,17 +451,31 @@ func TestValidateWorktreeName(t *testing.T) {
 }
 
 func TestValidateColorValue(t *testing.T) {
-	// Canonical and whitespace-tolerant forms (parts are trimmed, matching the
-	// frontend parseColorValue), plus leading-zero indices.
+	// Canonical and whitespace-tolerant numeric forms (parts are trimmed,
+	// matching the frontend parseColorValue), plus leading-zero indices. The
+	// legacy numeric vocabulary remains valid forever (read + write).
 	valid := []string{"0", "4", "15", "1+3", "0+15", "1+2", " 4 ", " 1 + 3 ", "01"}
+	// The owned-palette family-name vocabulary: all 10 names + their -dark
+	// shade variants (surrounding whitespace tolerated, matching the frontend
+	// resolveFamily trim rule).
+	families := []string{"red", "orange", "amber", "olive", "green", "teal", "blue", "purple", "magenta", "slate"}
+	for _, f := range families {
+		valid = append(valid, f, f+"-dark")
+	}
+	valid = append(valid, " blue-dark ")
 	for _, v := range valid {
 		if msg := ValidateColorValue(v); msg != "" {
 			t.Errorf("ValidateColorValue(%q) = %q, want valid", v, msg)
 		}
 	}
 	// Empty parts are rejected explicitly; "1 3" (space, no '+') is one part and
-	// fails strconv after trimming.
-	invalid := []string{"", "99", "-1", "16", "x", "1+", "+3", "1+2+3", "1.5", "1 3", "  +  ", "1 + "}
+	// fails strconv after trimming. Family near-misses (unknown names, wrong
+	// shade suffix, case variants — the frontend only writes canonical names)
+	// are rejected.
+	invalid := []string{
+		"", "99", "-1", "16", "x", "1+", "+3", "1+2+3", "1.5", "1 3", "  +  ", "1 + ",
+		"bluish", "blue-light", "Blue", "BLUE-DARK", "blue+red", "-dark", "dark",
+	}
 	for _, v := range invalid {
 		if msg := ValidateColorValue(v); msg == "" {
 			t.Errorf("ValidateColorValue(%q) = valid, want error", v)
@@ -470,8 +484,9 @@ func TestValidateColorValue(t *testing.T) {
 }
 
 func TestValidateMarkerValue(t *testing.T) {
-	// The empty string is valid — it means "unset" (no marker).
-	valid := []string{"", "dotted", "solid", "double"}
+	// The empty string is valid — it means "unset" (no marker). The closed set
+	// is the 5 named states (display order dotted/dashed/solid/double/thick).
+	valid := []string{"", "dotted", "dashed", "solid", "double", "thick"}
 	for _, v := range valid {
 		if msg := ValidateMarkerValue(v); msg != "" {
 			t.Errorf("ValidateMarkerValue(%q) = %q, want valid", v, msg)
@@ -479,7 +494,7 @@ func TestValidateMarkerValue(t *testing.T) {
 	}
 	// Anything outside the closed set is rejected (case-sensitive, no whitespace
 	// tolerance — the frontend only ever writes the canonical tokens).
-	invalid := []string{"Dotted", "DASHED", "dot", " solid ", "4", "1+3", "none", "true"}
+	invalid := []string{"Dotted", "Dashed", "DASHED", "THICK", "dot", "dash", " solid ", " thick ", "4", "1+3", "none", "true"}
 	for _, v := range invalid {
 		if msg := ValidateMarkerValue(v); msg == "" {
 			t.Errorf("ValidateMarkerValue(%q) = valid, want error", v)
@@ -498,11 +513,20 @@ func TestNormalizeColorValue(t *testing.T) {
 		" 1 + 3 ": {"1+3", true}, // internal whitespace collapses to canonical form
 		"01":      {"1", true},   // leading zeros re-serialized
 		"0+15":    {"0+15", true},
-		"":        {"", false},
-		"  ":      {"", false},
-		"99":      {"", false},
-		"1+2+3":   {"", false},
-		"x":       {"", false},
+		// Family-name vocabulary: canonical form is the trimmed verbatim name
+		// (both shades); near-misses are rejected like any malformed value.
+		"blue":         {"blue", true},
+		"blue-dark":    {"blue-dark", true},
+		" slate-dark ": {"slate-dark", true},
+		"orange":       {"orange", true},
+		"bluish":       {"", false},
+		"blue-light":   {"", false},
+		"Blue":         {"", false},
+		"":             {"", false},
+		"  ":           {"", false},
+		"99":           {"", false},
+		"1+2+3":        {"", false},
+		"x":            {"", false},
 	}
 	for in, exp := range cases {
 		got, ok := NormalizeColorValue(in)

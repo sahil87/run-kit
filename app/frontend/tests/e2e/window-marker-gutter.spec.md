@@ -1,13 +1,16 @@
 # window-marker-gutter.spec.ts
 
-Validates the window row's left-edge label zone (260719-hwtr): the whole 26px to
-the left of the status dot is ONE target that opens a combined Label picker
-(colors + marker) — it does NOT cycle. Picking a marker state persists via the
-`@rk_marker` window option; picking a color persists via `@color` in the legacy
-vocabulary (`familyToLegacy` write seam); the zone click does not select the row
-(`stopPropagation`); and selecting a colored window renders a real family tint
-(deep-tint background + bold text) with NO left border (the axis split removed the
-4px selection border).
+Validates the window row's left-edge label zone (260719-hwtr, extended by
+260723-wwoi): the whole 26px to the left of the status dot is ONE target that
+opens a combined Label picker (colors + marker) — it does NOT cycle. Picking a
+marker state (5-state closed set: dotted/dashed/solid/double/thick) persists via
+the `@rk_marker` window option; picking a NORMAL-shade color persists via
+`@color` in the legacy vocabulary (`familyToLegacy` write seam) while a
+DARK-shade color persists as the verbatim `{family}-dark` value (no legacy form
+exists); the zone click does not select the row (`stopPropagation`); and
+selecting a colored window renders a real family tint (deep-tint background +
+bold text) with NO left border (the axis split removed the 4px selection
+border).
 
 ## Shared setup
 
@@ -25,17 +28,23 @@ vocabulary (`familyToLegacy` write seam); the zone click does not select the row
   within a couple of poll cycles.
 - The left-edge label zone is a single target named for screen readers and test
   selection by its `aria-label` `Set window label` (`getByLabel`). Clicking it
-  opens the combined picker, a `role="listbox"` named `Label picker`, whose color
-  swatches are `role="option"` `Color <family>` and whose marker cells are
-  `role="option"` `Marker <state>` (`none`/`dotted`/`solid`/`double`).
+  opens the combined picker, a `role="listbox"` named `Label picker`, whose 20
+  color swatches (paired shade grid) are `role="option"` `Color <family>` /
+  `Color <family>-dark` and whose 6 marker cells are `role="option"`
+  `Marker <state>` (`none`/`dotted`/`dashed`/`solid`/`double`/`thick`). Color
+  locators use `exact: true` — Playwright's accessible-name matching is
+  substring-based, so `Color orange` would otherwise also match
+  `Color orange-dark`.
 
 ## Tests
 
 ### `the label zone opens the combined picker; picking a marker persists via @rk_marker (no cycling)`
 
 **What it proves:** The left-edge zone opens the combined picker (not a cycle);
-picking a marker state directly persists it as `@rk_marker`, and ANY state is
-reachable in one pick (no empty→dotted→solid→double stepping).
+picking a marker state directly persists it as `@rk_marker`, ANY state is
+reachable in one pick (no stepping through intermediate states), and the two
+260723-wwoi additions (`dashed` = "working", `thick` = "completed") round-trip
+through the widened backend closed set exactly like the original three.
 
 **Steps:**
 1. Create `marker-win-<ts>` via `execSync`.
@@ -46,21 +55,30 @@ reachable in one pick (no empty→dotted→solid→double stepping).
 5. Click the `Marker solid` option; `expectMarker` → `solid`.
 6. Re-open the picker; click `Marker double`; `expectMarker` → `double` (reached
    directly, not by cycling through intermediate states).
-7. Re-open the picker; click `Marker none`; `expectMarker` → `` (cleared).
+7. Re-open the picker; click `Marker dashed`; `expectMarker` → `dashed` (new
+   state persists through the widened closed set).
+8. Re-open the picker; click `Marker thick`; `expectMarker` → `thick` (the
+   hazard-wedge pairing's state persists too).
+9. Re-open the picker; click `Marker none`; `expectMarker` → `` (cleared).
 
-### `picking a color in the label picker persists via @color (legacy vocabulary seam)`
+### `picking a color persists via @color — normal shade through the legacy seam, dark shade verbatim`
 
 **What it proves:** The combined picker's color section writes through the
-`familyToLegacy` seam — picking the `orange` family persists `@color` as the
-legacy descriptor `1+3` (the vocabulary the backend validates), not the family
-name.
+`familyToLegacy` seam — picking the `orange` family (normal shade) persists
+`@color` as the legacy descriptor `1+3` (the vocabulary pre-existing colors are
+stored in), not the family name — while picking `orange-dark` persists the
+verbatim `orange-dark` value: dark shades have no legacy form and the backend's
+`ValidateColorValue`/`NormalizeColorValue` accept the family-name vocabulary.
 
 **Steps:**
 1. Create `marker-color-<ts>` via `execSync`; navigate + wait for `Connected`.
 2. `resolveWindow` it; assert its color is empty.
 3. Click the `Set window label` zone; assert the `Label picker` listbox is
    visible.
-4. Click the `Color orange` option; `expectColor` → `1+3`.
+4. Click the `Color orange` option (`exact: true` — `Color orange-dark` sits
+   beside it in the paired grid); `expectColor` → `1+3`.
+5. Re-open the picker; click `Color orange-dark` (`exact: true`); `expectColor`
+   → `orange-dark`.
 
 ### `clicking the label zone does not select the row (stopPropagation)`
 

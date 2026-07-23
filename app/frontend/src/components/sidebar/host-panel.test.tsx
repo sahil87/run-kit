@@ -168,8 +168,9 @@ describe("HostPanel instance accent (1etw)", () => {
       accent: accentValue({ color: "4", isExplicit: true, stripeHex: "#3355aa", setColor }),
     });
     fireEvent.click(screen.getByLabelText("Set instance color"));
-    // Pick the first color swatch (family names are the option labels).
-    fireEvent.click(screen.getByRole("option", { name: /red/i }));
+    // Pick the first color swatch (family/shade names are the option labels —
+    // exact match, since "Color red-dark" also exists in the 20-value grid).
+    fireEvent.click(screen.getByRole("option", { name: "Color red" }));
     expect(setColor).toHaveBeenCalledTimes(1);
     // The popover maps family → legacy descriptor at its write seam ("red" → "1").
     expect(setColor).toHaveBeenCalledWith("1");

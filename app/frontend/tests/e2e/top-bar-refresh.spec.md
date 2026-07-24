@@ -1,13 +1,15 @@
 # top-bar-refresh.spec.ts
 
-Verifies the top-bar **RefreshButton**: on a terminal route it renders in-bar at
-its L3 pyramid position (Theme → **Refresh** → Help), followed by the
-always-present overflow chevron and the connection dot as the right-most status
-element, and clicking it performs a full `window.location.reload()`. Since
-260715-h1ck the right cluster is registry-driven: controls render directly (no
-`hidden sm:flex` wrapper spans) and the dot lives inside a nested trailing exempt
-block, so ordering is asserted by document position at a wide viewport rather
-than by flat wrapper-sibling adjacency.
+Verifies the top-bar **RefreshButton**: on a terminal route it renders in-bar
+followed by the always-present overflow chevron as the right-most element, and
+clicking it performs a full `window.location.reload()`. Since 260715-h1ck the
+right cluster is registry-driven: controls render directly (no `hidden sm:flex`
+wrapper spans) and the chevron lives inside the trailing exempt block, so
+ordering is asserted by document position at a wide viewport rather than by
+flat wrapper-sibling adjacency. Since 260724-6j1v the theme toggle, help link,
+notification bell, and connection dot are GONE from the bar (theme/help/dot
+moved to the sidebar footer; the bell folded into the settings dialog) — the
+spec also asserts their absence.
 
 ## Shared setup
 
@@ -43,17 +45,18 @@ than by flat wrapper-sibling adjacency.
 
 ## Tests
 
-### `renders refresh in the L3 pyramid order (Theme → Refresh → Help), chevron then dot right-most, on a terminal route`
+### `renders refresh before the right-most chevron, with theme/help/bell/dot gone from the bar, on a terminal route`
 
 **What it proves:** the `/select` mock intercepted the window-selection POST fired
 during navigation (so no real backend read/write occurred — proving the "fully
 mocked" guarantee holds); and on a terminal route at a wide viewport the Refresh
-page button renders in-bar at its L3 pyramid position — Theme precedes Refresh
-precedes Help, followed by the always-present overflow chevron ("More controls"),
-and the connection dot (`role="status"`) is the deepest-last status element of the
-right cell (`data-testid="top-bar-right"`). Ordering is asserted by document
-position (coordinate-free), robust to the registry-driven structure where a
-control may render in-bar or in the hidden measurement probe.
+page button renders in-bar followed by the always-present overflow chevron
+("More controls") as the right-most element of the right cell
+(`data-testid="top-bar-right"`) — while the moved chrome (theme toggle, help
+anchor, notification bell, connection dot) renders NOWHERE in the bar
+(260724-6j1v). Ordering is asserted by document position (coordinate-free),
+robust to the registry-driven structure where a control may render in-bar or in
+the hidden measurement probe.
 
 **Steps:**
 1. Poll the `/select` route-mock hit counter until `> 0` — proof the trailing-`*`
@@ -62,9 +65,10 @@ control may render in-bar or in the hidden measurement probe.
    the close button renders).
 2. Set a wide 1280px viewport so the L3 controls stay in-bar.
 3. Assert the `Refresh page` button is visible.
-4. In the page, resolve theme/refresh/help/chevron and the dot, then assert the
-   document-position chain Theme → Refresh → Help → chevron → dot, and that the
-   dot is the last `role="status"` element within the right cell.
+4. In the page, assert the right cell contains NO theme button, help anchor,
+   bell, or `role="status"` dot; resolve refresh + chevron and assert the
+   document-position chain Refresh → chevron, with the chevron inside the
+   cluster's last child (the trailing exempt block).
 
 ### `clicking the refresh button reloads the page`
 

@@ -1,9 +1,10 @@
 # mobile-layout.spec.ts
 
 Responsive-layout guardrails: mobile viewports must not leak horizontal
-overflow, must keep top-bar controls REACHABLE (via the overflow chevron menu
-rather than vanishing — 260715-h1ck removed the `hidden sm:flex` cliff), and must
-expose a drawer-style navigation that sits *below* (not over) the top bar.
+overflow, must keep the moved theme control REACHABLE (since 260724-6j1v it
+lives in the SIDEBAR FOOTER — on mobile that means via the drawer, no longer
+via the top bar or its chevron menu), and must expose a drawer-style navigation
+that sits *below* (not over) the top bar.
 
 ## Shared setup
 
@@ -24,34 +25,36 @@ xterm.js canvas without `overflow: hidden` on its column.
 2. Read `document.body.scrollWidth` via `page.evaluate`.
 3. Assert it is `≤ 375` (the viewport width).
 
-### `theme is reachable via the overflow menu on mobile (not a bare in-bar button)`
+### `theme is reachable via the sidebar drawer footer on mobile (not in the top bar or menu)`
 
-**What it proves:** 260715-h1ck removed the `hidden sm:flex` cliff — below the sm
-breakpoint the theme control no longer VANISHES; it overflows into the
-always-visible chevron menu, so mobile gains theme/refresh/help access it used to
-lose entirely. There is no visible in-bar theme button at 375px, but opening the
-chevron surfaces a `Theme: {current}` menu row.
+**What it proves:** 260724-6j1v moved the theme toggle out of the top bar into
+the sidebar footer. On mobile the sidebar is a drawer: with the drawer closed no
+theme button exists anywhere (and the chevron menu carries no `Theme:` row
+anymore); opening the drawer via the hamburger surfaces the footer's theme
+button.
 
 **Steps:**
 1. Navigate to `/${TMUX_SERVER}` (viewport is 375px).
 2. Assert the `More controls` chevron is visible.
-3. Assert the in-bar theme button count is 0 via `getByRole` — the
-   accessibility-tree match excludes the always-present `aria-hidden` measurement
-   probe copy (a `:visible` CSS filter would wrongly match the sized off-screen
-   probe).
-4. Click the chevron and assert the `More controls` menu shows a `Theme:` menuitem.
+3. Assert the theme button count is 0 via `getByRole` (drawer closed — the
+   accessibility-tree match excludes the `aria-hidden` measurement probe copy).
+4. Open the chevron menu and assert it shows NO `Theme:` menuitem; Escape-close.
+5. Click `Toggle navigation` (the hamburger) and assert the footer theme button
+   is visible inside the drawer.
 
-### `theme renders as an in-bar button on desktop`
+### `theme renders in the sidebar footer on desktop (never in the top bar)`
 
-**What it proves:** At a wide desktop width the L3 controls fit in-bar
-(registry-driven overflow) — the theme toggle renders directly in the bar,
-visible without opening the chevron menu.
+**What it proves:** On desktop the sidebar is open by default, so the footer
+theme button is directly visible — and the top-bar right cell carries no theme
+control at any width (260724-6j1v).
 
 **Steps:**
 1. Resize viewport to 1024×768.
 2. Navigate to `/${TMUX_SERVER}`.
-3. Assert the in-bar theme button is visible via `getByRole` (the
-   accessibility-tree match excludes the `aria-hidden` measurement probe copy).
+3. Assert a theme button is visible, scoped inside `navigation[name='Sessions']`
+   (the sidebar footer).
+4. Assert the top-bar right cell (`data-testid="top-bar-right"`) contains zero
+   theme buttons.
 
 ### `mobile drawer opens below top bar`
 

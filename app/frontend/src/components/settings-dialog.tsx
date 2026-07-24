@@ -7,34 +7,88 @@ import { useInstanceName } from "@/contexts/instance-name-context";
 import { useInstanceAccent } from "@/contexts/instance-accent-context";
 import { useChromeState, useChromeDispatch, TERMINAL_FONT_BOUNDS } from "@/contexts/chrome-context";
 import { useTheme, useThemeActions } from "@/contexts/theme-context";
+import { usePushSubscription } from "@/hooks/use-push-subscription";
+import { NOTIFICATIONS_HELP_URL } from "@/components/global-chrome";
 import { THEMES } from "@/themes";
 import { getSSHHost, setSSHHost } from "@/api/client";
 import { invalidateOpenContext } from "@/hooks/use-open-targets";
 
 /**
- * VS Code-style settings dialog (260723-o7q8), rendered ONCE in `AppLayout`
- * so it exists on every page — server routes, terminals, boards, and the host
- * page. Two labeled sections make the persistence scope visible:
+ * VS Code-style settings dialog (260723-o7q8; desktop preference-pane layout
+ * 260724-6j1v), rendered ONCE in `AppLayout` so it exists on every page —
+ * server routes, terminals, boards, and the host page. Two labeled sections
+ * make the persistence scope visible:
  *
  *  - **This host** — settings stored on the instance's host
  *    (`~/.rk/settings.yaml`): instance display name, SSH host, instance
  *    accent color, theme pair. Every device viewing this instance sees them.
- *  - **This device** — browser-local ergonomics (localStorage): terminal
- *    font size. A value here deliberately does NOT sync across devices.
+ *  - **This device** — browser-local ergonomics (localStorage / this
+ *    browser's push subscription): terminal font size, notifications.
+ *
+ * Layout (6j1v): the dialog uses the wide `size="lg"` Dialog variant
+ * (~672px). Each setting is a PREFERENCE ROW — a `190px 1fr` CSS grid (label
+ * + sublabel hint left, control right) so all controls align on one vertical
+ * rule, with hairline separators between rows and scope headings as
+ * full-width rules carrying the storage hint right-aligned. Below 480px the
+ * row grid collapses to a single column (label above control) via the
+ * `min-[480px]:` variant — ONE code path, no second dialog.
  *
  * Controls REUSE the existing models rather than rebuilding them: the accent
  * picker is the HOST-panel `SwatchPopover` + descriptor model, the theme pair
- * drives the existing `setTheme()` wiring, and the font stepper is the shared
- * `ChromeContext` control. Open/close state lives in `SettingsDialogContext`
- * (palette actions + the sidebar gear call `openSettings()`).
+ * drives the existing `setTheme()` wiring, the font stepper is the shared
+ * `ChromeContext` control, and the Notifications block (moved here from the
+ * retired top-bar bell, 6j1v) is `usePushSubscription`. Open/close state
+ * lives in `SettingsDialogContext` (palette actions + the sidebar gear call
+ * `openSettings()`).
  */
 
-/** Small uppercase section label carrying the scope split. */
+/** Scope heading — a full-width underlined rule: uppercase scope name left,
+ *  storage hint right-aligned on the same line (6j1v). */
 function ScopeHeading({ label, hint }: { label: string; hint: string }) {
   return (
-    <div className="flex items-baseline gap-2 mb-2 mt-1">
-      <span className="text-[10px] uppercase tracking-wider text-text-primary font-medium">{label}</span>
-      <span className="text-[10px] text-text-secondary">{hint}</span>
+    <div className="flex items-baseline justify-between gap-3 border-b border-border pb-1.5 mb-1">
+      <span className="text-[10px] uppercase tracking-wider text-text-primary font-medium shrink-0">
+        {label}
+      </span>
+      <span className="text-[10px] text-text-secondary text-right">{hint}</span>
+    </div>
+  );
+}
+
+/**
+ * One preference row (6j1v): label column left (label + optional small
+ * sublabel hint underneath), control column right. `min-[480px]:` gates the
+ * two-column grid — below it the row stacks label-above-control (today's
+ * phone layout) from the same markup. `htmlFor` renders the label as a real
+ * `<label>` bound to the row's input; rows whose control has its own labeled
+ * elements (theme selects, steppers) pass none.
+ */
+function PreferenceRow({
+  label,
+  sublabel,
+  htmlFor,
+  children,
+}: {
+  label: string;
+  sublabel?: string;
+  htmlFor?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="grid grid-cols-1 min-[480px]:grid-cols-[190px_1fr] gap-x-6 gap-y-1.5 py-2.5 items-start">
+      <div className="min-[480px]:pt-1">
+        {htmlFor ? (
+          <label htmlFor={htmlFor} className="block text-xs text-text-primary">
+            {label}
+          </label>
+        ) : (
+          <p className="text-xs text-text-primary">{label}</p>
+        )}
+        {sublabel && (
+          <p className="text-[10px] text-text-secondary mt-0.5 leading-relaxed">{sublabel}</p>
+        )}
+      </div>
+      <div className="min-w-0">{children}</div>
     </div>
   );
 }
@@ -44,6 +98,7 @@ function ScopeHeading({ label, hint }: { label: string; hint: string }) {
  * vocabulary: Enter/blur commit, Escape cancels the edit without closing the
  * dialog). `commit` receives the trimmed value ("" = clear) and may reject —
  * the rejection message renders inline and the input keeps the typed value.
+ * The former below-input hint is the row's SUBLABEL now (6j1v).
  */
 function TextSetting({
   id,
@@ -89,10 +144,7 @@ function TextSetting({
   };
 
   return (
-    <div className="mb-3">
-      <label htmlFor={id} className="block text-xs text-text-secondary mb-1.5">
-        {label}
-      </label>
+    <PreferenceRow label={label} sublabel={hint} htmlFor={id}>
       <input
         id={id}
         type="text"
@@ -116,16 +168,14 @@ function TextSetting({
           }
         }}
         placeholder={placeholder}
-        className="w-full bg-transparent text-text-primary p-2 border border-border rounded outline-none placeholder:text-text-secondary focus:border-text-secondary"
+        className="w-full max-w-[320px] bg-transparent text-text-primary p-2 border border-border rounded outline-none placeholder:text-text-secondary focus:border-text-secondary"
       />
-      {error ? (
+      {error && (
         <p className="text-xs text-red-400 mt-1" role="alert">
           {error}
         </p>
-      ) : hint ? (
-        <p className="text-[10px] text-text-secondary mt-1">{hint}</p>
-      ) : null}
-    </div>
+      )}
+    </PreferenceRow>
   );
 }
 
@@ -157,14 +207,13 @@ function ThemePairControl() {
     "w-full bg-bg-primary text-text-primary p-1.5 border border-border rounded outline-none text-xs";
 
   return (
-    <div className="mb-3">
-      <p className="text-xs text-text-secondary mb-1.5">Theme</p>
+    <PreferenceRow label="Theme" sublabel="Mode plus the theme each mode resolves to">
       <div className="flex gap-1.5 mb-2" role="group" aria-label="Theme mode">
         {modeButton("system", "System", () => setTheme("system"))}
         {modeButton("light", "Light", () => setTheme(themeLight))}
         {modeButton("dark", "Dark", () => setTheme(themeDark))}
       </div>
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-2 gap-2 max-w-[420px]">
         <div>
           <label htmlFor="settings-theme-dark" className="block text-[10px] text-text-secondary mb-1">
             Dark theme
@@ -200,7 +249,7 @@ function ThemePairControl() {
           </select>
         </div>
       </div>
-    </div>
+    </PreferenceRow>
   );
 }
 
@@ -211,8 +260,7 @@ function AccentColorControl() {
   const [showPicker, setShowPicker] = useState(false);
 
   return (
-    <div className="mb-3">
-      <p className="text-xs text-text-secondary mb-1.5">Accent color</p>
+    <PreferenceRow label="Accent color">
       <div className="relative">
         <Tip label="Set instance color">
           <button
@@ -241,7 +289,7 @@ function AccentColorControl() {
           </div>
         )}
       </div>
-    </div>
+    </PreferenceRow>
   );
 }
 
@@ -253,8 +301,10 @@ function TerminalFontControl() {
     "min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] border border-border rounded text-text-secondary hover:border-text-secondary hover:text-text-primary transition-colors flex items-center justify-center";
 
   return (
-    <div className="mb-1">
-      <p className="text-xs text-text-secondary mb-1.5">Terminal font size</p>
+    <PreferenceRow
+      label="Terminal font size"
+      sublabel={`${TERMINAL_FONT_BOUNDS.min}–${TERMINAL_FONT_BOUNDS.max}px, stored in this browser only`}
+    >
       <div className="flex items-center gap-1.5">
         <Tip label="Decrease terminal font">
           <button
@@ -287,10 +337,80 @@ function TerminalFontControl() {
           Reset
         </button>
       </div>
-      <p className="text-[10px] text-text-secondary mt-1">
-        {TERMINAL_FONT_BOUNDS.min}–{TERMINAL_FONT_BOUNDS.max}px, stored in this browser only
-      </p>
-    </div>
+    </PreferenceRow>
+  );
+}
+
+/**
+ * Notifications row (260724-6j1v — moved here from the retired top-bar bell).
+ * Maps 1:1 from the bell popover's `usePushSubscription` model: subscription
+ * status line, Enable action, subscribed-gated test send, the denied re-allow
+ * note, and the setup-guide link. Unlike the bell (which rendered NOTHING
+ * where push can't work), a settings pane explains absence: the unsupported
+ * state keeps the row with a "Not supported in this browser" note.
+ */
+function NotificationsControl() {
+  const { state, enable, sendTest } = usePushSubscription();
+  const subscribed = state === "subscribed";
+  const denied = state === "denied";
+
+  const actionBtn =
+    "px-2 py-1 border border-border rounded text-xs text-text-secondary hover:border-text-secondary hover:text-text-primary transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-border disabled:hover:text-text-secondary";
+
+  return (
+    <PreferenceRow label="Notifications" sublabel="Web Push to this browser">
+      {state === "unsupported" ? (
+        // Push needs a secure context + service-worker support. The bell chip
+        // hid itself here; a settings pane explains the absence instead.
+        <p className="text-xs text-text-secondary pt-1">Not supported in this browser</p>
+      ) : (
+        <div className="flex flex-col gap-2">
+          <span className="flex items-center gap-2 text-xs text-text-primary" role="status">
+            <span
+              aria-hidden="true"
+              className={`inline-block w-1.5 h-1.5 rounded-full ${
+                subscribed ? "bg-accent-green" : "bg-text-secondary"
+              }`}
+            />
+            {subscribed
+              ? "Subscribed on this device"
+              : denied
+                ? "Blocked in browser settings"
+                : "Not subscribed"}
+          </span>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {!subscribed && (
+              <button type="button" onClick={() => void enable()} className={actionBtn}>
+                Enable notifications
+              </button>
+            )}
+            <Tip label={subscribed ? "Send a local test notification" : "Enable notifications first"}>
+              <button
+                type="button"
+                onClick={() => void sendTest()}
+                disabled={!subscribed}
+                className={actionBtn}
+              >
+                Send test notification
+              </button>
+            </Tip>
+          </div>
+          {denied && (
+            <p className="text-[10px] text-text-secondary">
+              Re-allow notifications for this site in your browser/OS settings.
+            </p>
+          )}
+          <a
+            href={NOTIFICATIONS_HELP_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[10px] text-accent hover:underline w-fit"
+          >
+            Setup &amp; troubleshooting guide ↗
+          </a>
+        </div>
+      )}
+    </PreferenceRow>
   );
 }
 
@@ -321,48 +441,52 @@ function SettingsDialogBody({ onClose }: { onClose: () => void }) {
   }, []);
 
   return (
-    <Dialog title="Settings" onClose={onClose}>
+    <Dialog title="Settings" onClose={onClose} size="lg">
       <TipGroup>
         <section aria-label="This host settings">
           <ScopeHeading label="This host" hint="stored on this instance, shared by every device" />
-          <TextSetting
-            id="settings-instance-name"
-            label="Instance name"
-            value={instanceName ?? ""}
-            placeholder={hostname || "hostname"}
-            hint="Display name for this instance; empty uses the hostname"
-            commit={(trimmed) => {
-              // Optimistic context write (failure toasts globally); resolve
-              // immediately so the field never shows a stale error.
-              setInstanceName(trimmed === "" ? null : trimmed);
-              return Promise.resolve();
-            }}
-          />
-          <TextSetting
-            id="settings-ssh-host"
-            label="SSH host"
-            value={sshHost}
-            placeholder="alias or user@host"
-            hint="Used verbatim in editor deeplinks; empty falls back to RK_SSH_HOST"
-            commit={async (trimmed) => {
-              await setSSHHost(trimmed === "" ? null : trimmed);
-              setSSHHostState(trimmed);
-              // The Open control's cached context embeds the SSH host in
-              // editor deeplinks — refresh it at the one seam where it
-              // changes. Success only: a rejected commit left the server
-              // value unchanged, so the cache is still correct.
-              invalidateOpenContext();
-            }}
-          />
-          <AccentColorControl />
-          <ThemePairControl />
+          {/* Hairline separators between rows — a low-opacity border (6j1v). */}
+          <div className="divide-y divide-border/40">
+            <TextSetting
+              id="settings-instance-name"
+              label="Instance name"
+              value={instanceName ?? ""}
+              placeholder={hostname || "hostname"}
+              hint="Display name for this instance; empty uses the hostname"
+              commit={(trimmed) => {
+                // Optimistic context write (failure toasts globally); resolve
+                // immediately so the field never shows a stale error.
+                setInstanceName(trimmed === "" ? null : trimmed);
+                return Promise.resolve();
+              }}
+            />
+            <TextSetting
+              id="settings-ssh-host"
+              label="SSH host"
+              value={sshHost}
+              placeholder="alias or user@host"
+              hint="Used verbatim in editor deeplinks; empty falls back to RK_SSH_HOST"
+              commit={async (trimmed) => {
+                await setSSHHost(trimmed === "" ? null : trimmed);
+                setSSHHostState(trimmed);
+                // The Open control's cached context embeds the SSH host in
+                // editor deeplinks — refresh it at the one seam where it
+                // changes. Success only: a rejected commit left the server
+                // value unchanged, so the cache is still correct.
+                invalidateOpenContext();
+              }}
+            />
+            <AccentColorControl />
+            <ThemePairControl />
+          </div>
         </section>
 
-        <div className="border-t border-border my-3" aria-hidden="true" />
-
-        <section aria-label="This device settings">
+        <section aria-label="This device settings" className="mt-4">
           <ScopeHeading label="This device" hint="stored in this browser only" />
-          <TerminalFontControl />
+          <div className="divide-y divide-border/40">
+            <TerminalFontControl />
+            <NotificationsControl />
+          </div>
         </section>
       </TipGroup>
     </Dialog>

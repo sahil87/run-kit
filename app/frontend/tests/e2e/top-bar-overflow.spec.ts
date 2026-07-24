@@ -34,8 +34,10 @@ function intersects(
 }
 
 // Right-cluster controls in pyramid order (L1 → L2 → L3), by accessible name.
-// Terminal route: L1 splits + fixed-width, L2 Aa (+ close), L3 theme/refresh/help
-// (update/notification are context-gated and omitted from the ordering assertion).
+// Terminal route: L1 splits + fixed-width, L2 Aa (+ close), L3 refresh (the
+// update chip is context-gated and omitted from the ordering assertion;
+// theme/help/bell/dot left the bar in 260724-6j1v — theme+help live in the
+// sidebar footer, notifications in the settings dialog).
 // The IN-BAR detection uses accessible-name ROLE queries (getByRole/getByLabel):
 // the always-present measurement probe is `aria-hidden`, so its duplicate
 // controls are OUTSIDE the accessibility tree and never matched — this is what
@@ -45,7 +47,7 @@ function intersects(
 type NameMatcher = string | RegExp;
 const L1: NameMatcher[] = ["Split vertically", "Split horizontally", "Toggle fixed terminal width"];
 const L2: NameMatcher[] = ["Terminal font size", "Close pane"];
-const L3: NameMatcher[] = [/ theme$/, "Refresh page", "Help — run-kit docs"];
+const L3: NameMatcher[] = ["Refresh page"];
 
 /** Locate a control by accessible name across button OR link roles. `getByRole`
  *  excludes the aria-hidden measurement probe subtree, so a match means the
@@ -64,6 +66,27 @@ async function inBarCount(page: Page, names: NameMatcher[]): Promise<number> {
     if ((await byRoleName(page, name).count()) > 0) n += 1;
   }
   return n;
+}
+
+/** Read the (L1, L2, L3) in-bar counts, SETTLED. The three tier reads are not
+ *  atomic — the ResizeObserver-driven overflow recompute can re-render between
+ *  them, producing an inconsistent split (seen flaky: L3 already overflowed
+ *  while L2 still read as in-bar mid-cascade after a resize). Re-read until two
+ *  consecutive snapshots agree (bounded), so invariants are asserted on a
+ *  stable layout, not a transient frame. */
+async function settledTierCounts(page: Page): Promise<[number, number, number]> {
+  const read = async (): Promise<[number, number, number]> => [
+    await inBarCount(page, L1),
+    await inBarCount(page, L2),
+    await inBarCount(page, L3),
+  ];
+  let prev = await read();
+  for (let i = 0; i < 20; i++) {
+    const next = await read();
+    if (next[0] === prev[0] && next[1] === prev[1] && next[2] === prev[2]) return next;
+    prev = next;
+  }
+  return prev;
 }
 
 test.beforeAll(() => {
@@ -92,7 +115,7 @@ test.afterAll(() => {
 });
 
 test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
-  test("the chevron + dot are always visible and the top bar never overlaps across the width sweep", async ({
+  test("the chevron is always visible (no bar dot) and the top bar never overlaps across the width sweep", async ({
     page,
   }) => {
     const id = await resolveWindow(page, WINDOW_NAME);
@@ -100,7 +123,6 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
 
     const cluster = page.getByTestId("top-bar-right");
     const chevron = page.getByRole("button", { name: "More controls" });
-    const dot = cluster.locator('[role="status"]');
     const nav = page.getByRole("navigation", { name: "Breadcrumb" });
     const heading = page.getByRole("button", { name: `Rename window ${WINDOW_NAME}` });
 
@@ -108,9 +130,11 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
       await page.setViewportSize({ width, height: 800 });
       await expect(heading).toBeVisible({ timeout: 10_000 });
 
-      // (e) Exempt items always visible: chevron + dot at every width.
+      // (e) The exempt chevron is always visible at every width; the
+      // connection dot is GONE from the bar (260724-6j1v — it lives in the
+      // sidebar footer now).
       await expect(chevron, `chevron visible at ${width}px`).toBeVisible();
-      await expect(dot, `dot visible at ${width}px`).toBeVisible();
+      await expect(cluster.locator('[role="status"]'), `no bar dot at ${width}px`).toHaveCount(0);
 
       // (a) No overlap: the right cell must not intersect the center heading nor
       // the breadcrumb nav (the overflow is what keeps the cluster within its
@@ -171,9 +195,7 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
     for (const width of WIDTHS) {
       await page.setViewportSize({ width, height: 800 });
       await expect(heading).toBeVisible({ timeout: 10_000 });
-      const l1 = await inBarCount(page, L1);
-      const l2 = await inBarCount(page, L2);
-      const l3 = await inBarCount(page, L3);
+      const [l1, l2, l3] = await settledTierCounts(page);
 
       // Monotonic non-increasing as width shrinks (each tier only loses members).
       expect(l1, `L1 in-bar non-increasing at ${width}px`).toBeLessThanOrEqual(prevL1);
@@ -216,9 +238,12 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
     await expect(menu.getByRole("menuitem", { name: "Split horizontal" })).toBeVisible();
     await expect(menu.getByRole("menuitemcheckbox", { name: /Fixed width/ })).toBeVisible();
     await expect(menu.getByRole("menuitem", { name: "Close pane" })).toBeVisible();
-    await expect(menu.getByRole("menuitem", { name: /Theme:/ })).toBeVisible();
     await expect(menu.getByRole("menuitem", { name: "Refresh page" })).toBeVisible();
-    await expect(menu.getByRole("menuitem", { name: "Help / Documentation" })).toBeVisible();
+    // Theme / Help / Notifications rows are GONE (260724-6j1v): theme + help
+    // moved to the sidebar footer, the bell folded into the settings dialog.
+    await expect(menu.getByRole("menuitem", { name: /Theme:/ })).toHaveCount(0);
+    await expect(menu.getByRole("menuitem", { name: "Help / Documentation" })).toHaveCount(0);
+    await expect(menu.getByRole("menuitem", { name: /notification/i })).toHaveCount(0);
     // The fixed version row is always present (plain `RunKit` or `RunKit v…`).
     await expect(menu.getByRole("menuitem", { name: /RunKit/ })).toBeVisible();
   });
@@ -247,7 +272,9 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
     }
   });
 
-  test("a menu action (theme cycle) works from the menu", async ({ page }) => {
+  test("a menu action (fixed-width toggle) works from the menu", async ({ page }) => {
+    // The theme row left the menu (260724-6j1v — the footer owns theme now);
+    // the fixed-width checkbox row is the representative stateful menu action.
     const id = await resolveWindow(page, WINDOW_NAME);
     await gotoWindow(page, id);
     const heading = page.getByRole("button", { name: `Rename window ${WINDOW_NAME}` });
@@ -256,16 +283,19 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
 
     await page.getByRole("button", { name: "More controls" }).click();
     const menu = page.getByRole("menu", { name: "More controls" });
-    const themeRow = menu.getByRole("menuitem", { name: /Theme:/ });
-    const before = (await themeRow.textContent())?.trim() ?? "";
-    await themeRow.click();
+    const row = menu.getByRole("menuitemcheckbox", { name: /Fixed width/ });
+    const before = await row.getAttribute("aria-checked");
+    await row.click();
 
-    // Reopen and confirm the theme label cycled (System → Light → Dark → …).
+    // The checkbox toggle closes the menu (role-keyed close); reopen and
+    // confirm the checked state flipped.
     await page.getByRole("button", { name: "More controls" }).click();
     const menu2 = page.getByRole("menu", { name: "More controls" });
-    const themeRow2 = menu2.getByRole("menuitem", { name: /Theme:/ });
-    const after = (await themeRow2.textContent())?.trim() ?? "";
-    expect(after, `theme cycled from "${before}"`).not.toBe(before);
+    const row2 = menu2.getByRole("menuitemcheckbox", { name: /Fixed width/ });
+    const after = await row2.getAttribute("aria-checked");
+    expect(after, `fixed-width toggled from "${before}"`).not.toBe(before);
+    // Restore the preference so later specs see the default full-width state.
+    await row2.click();
   });
 });
 

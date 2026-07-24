@@ -1,6 +1,6 @@
 import { StrictMode } from "react";
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { render, screen, fireEvent, cleanup, within, act } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, within, act, waitFor } from "@testing-library/react";
 import { Sidebar } from "./index";
 import { OptimisticProvider } from "@/contexts/optimistic-context";
 import { HostMetricsProvider, MetricsProvider, StandaloneSessionContextProvider } from "@/contexts/session-context";
@@ -57,6 +57,13 @@ vi.mock("@/api/client", async (importOriginal) => {
   };
 });
 
+// Footer version click-to-copy (260724-6j1v) — deterministic clipboard seam
+// (jsdom has no navigator.clipboard).
+vi.mock("@/lib/clipboard", () => ({
+  copyToClipboard: vi.fn().mockResolvedValue(true),
+}));
+import { copyToClipboard } from "@/lib/clipboard";
+
 // jsdom does not implement matchMedia — ThemeProvider + media-query hooks need it.
 vi.stubGlobal("matchMedia", vi.fn().mockImplementation((query: string) => ({
   matches: query.includes("prefers-color-scheme: dark"),
@@ -106,8 +113,10 @@ type RenderOpts = {
   /** Override the derived per-server sessions map (board-route tests need
    *  session data on a NON-current server). */
   sessionsByServer?: Map<string, ProjectSession[]>;
-  /** Host-metrics source health for the HOST dot (defaults false). */
-  hostMetricsConnected?: boolean;
+  /** Per-page connection state fed to the footer dot (defaults false). */
+  isConnected?: boolean;
+  /** Daemon version fed to the footer version readout (defaults null = hidden). */
+  daemonVersion?: string | null;
   /** Host-global metrics snapshot fed to HostMetricsProvider (defaults null). */
   hostMetrics?: MetricsSnapshot | null;
   /** Override the Sidebar's onKillServer prop (x4sf) — the header ✕ routes
@@ -138,7 +147,7 @@ function renderSidebar(opts: RenderOpts = {}) {
               sessionsByServer,
               sessionOrderByServer: new Map(servers.map((s) => [s.name, []])),
               isConnectedByServer: new Map(servers.map((s) => [s.name, false])),
-              hostMetricsConnected: opts.hostMetricsConnected ?? false,
+              daemonVersion: opts.daemonVersion ?? null,
               metricsByServer: new Map(),
               currentServer,
               servers,
@@ -157,6 +166,7 @@ function renderSidebar(opts: RenderOpts = {}) {
                         currentServer={currentServer}
                         currentSession={currentServer ? "main" : null}
                         currentWindowId={currentServer ? "@0" : null}
+                        isConnected={opts.isConnected ?? false}
                         onSelectWindow={vi.fn()}
                         onCreateWindow={vi.fn()}
                         onCreateSession={vi.fn()}
@@ -478,6 +488,7 @@ describe("Sidebar — tree ARIA + roving keyboard navigation (wt1v)", () => {
                         currentServer="primary"
                         currentSession="main"
                         currentWindowId={null}
+                        isConnected={false}
                         onSelectWindow={onSelectWindow}
                         onCreateWindow={vi.fn()}
                         onCreateSession={vi.fn()}
@@ -958,11 +969,10 @@ describe("BottomPanels — board-route focused-pane fallback + HOST dot (zx4i)",
       sessionsByServer: boardSessionsMap,
       focusedPane: null,
       hostMetrics: HOST_METRICS,
-      hostMetricsConnected: true,
     });
     // The host-global fallback fills the panel (no server-scoped metrics on a
-    // board route). The HOST header carries no connection dot — the top-bar
-    // dot owns that signal (same current-server subscription health).
+    // board route). The HOST header carries no connection dot — the sidebar
+    // FOOTER dot owns the per-page signal (260724-6j1v).
     expect(screen.getByText("board-host")).toBeInTheDocument();
     expect(screen.queryByText("No metrics")).not.toBeInTheDocument();
     expect(screen.queryByTitle(/SSE (dis)?connected/)).not.toBeInTheDocument();
@@ -1287,12 +1297,98 @@ describe("Sidebar — server-group header action cluster (x4sf)", () => {
   });
 });
 
-describe("sidebar footer settings gear (260723-o7q8)", () => {
+describe("sidebar footer chrome (260723-o7q8 gear; 260724-6j1v cluster)", () => {
   it("renders the gear with an aria-label and NO native title (Tip-named)", () => {
     renderSidebar();
     const gear = screen.getByRole("button", { name: "Open settings" });
     expect(gear).toBeInTheDocument();
     expect(gear.getAttribute("title")).toBeNull();
+  });
+
+  it("renders the connection dot as a left readout with the top-bar dot's exact semantics", () => {
+    renderSidebar({ isConnected: true });
+    const dot = screen.getByLabelText("Connected");
+    expect(dot).toBeInTheDocument();
+    expect(dot.className).toContain("bg-accent-green");
+    // Status readout, not a control: role="status" live region, no tab stop.
+    const region = dot.closest('[role="status"]')!;
+    expect(region).toHaveAttribute("aria-live", "polite");
+    expect(dot.tagName).toBe("SPAN");
+  });
+
+  it("flips the dot to disconnected grey when the page's stream is down", () => {
+    renderSidebar({ isConnected: false });
+    const dot = screen.getByLabelText("Disconnected");
+    expect(dot.className).toContain("bg-text-secondary");
+    expect(screen.queryByLabelText("Connected")).not.toBeInTheDocument();
+  });
+
+  it("renders the version readout beside the dot and copies the displayed form on click", async () => {
+    renderSidebar({ daemonVersion: "0.9.3" });
+    const version = screen.getByRole("button", { name: "RunKit v0.9.3 (copy)" });
+    expect(version).toHaveTextContent("v0.9.3");
+    fireEvent.click(version);
+    await waitFor(() => expect(vi.mocked(copyToClipboard)).toHaveBeenCalledWith("v0.9.3"));
+  });
+
+  it("renders NO version element until the daemon reports a version (never vundefined)", () => {
+    renderSidebar({ daemonVersion: null });
+    expect(screen.queryByRole("button", { name: /copy/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/vundefined/)).not.toBeInTheDocument();
+  });
+
+  it("renders the Help anchor with the shared HELP_URL and safe new-tab attrs", () => {
+    renderSidebar();
+    const help = screen.getByLabelText("Help — run-kit docs");
+    expect(help.tagName).toBe("A");
+    expect(help).toHaveAttribute("href", "https://shll.ai/run-kit");
+    expect(help).toHaveAttribute("target", "_blank");
+    const rel = help.getAttribute("rel") ?? "";
+    expect(rel).toContain("noopener");
+    expect(rel).toContain("noreferrer");
+    expect(help).not.toHaveAttribute("title");
+  });
+
+  it("cycles the theme on click (system → light) and keeps the borderless footer idiom", () => {
+    renderSidebar();
+    const theme = screen.getByRole("button", { name: "System theme" });
+    // Borderless footer idiom — no bordered rk-glint chip.
+    expect(theme.className).not.toContain("border-border");
+    expect(theme.className).not.toContain("rk-glint");
+    fireEvent.click(theme);
+    expect(screen.getByRole("button", { name: "Light theme" })).toBeInTheDocument();
+  });
+
+  it("Ctrl/Cmd-click on the theme button opens the theme selector instead of cycling", () => {
+    renderSidebar();
+    const openListener = vi.fn();
+    document.addEventListener("theme-selector:open", openListener);
+    try {
+      fireEvent.click(screen.getByRole("button", { name: "System theme" }), { ctrlKey: true });
+      expect(openListener).toHaveBeenCalledTimes(1);
+      // No cycle happened — the label is still the system mode.
+      expect(screen.getByRole("button", { name: "System theme" })).toBeInTheDocument();
+    } finally {
+      document.removeEventListener("theme-selector:open", openListener);
+    }
+  });
+
+  it("lays the footer out readouts-left / actions-right in Help · Theme · Gear order", () => {
+    renderSidebar({ isConnected: true, daemonVersion: "0.9.3" });
+    const dot = screen.getByLabelText("Connected");
+    const version = screen.getByRole("button", { name: "RunKit v0.9.3 (copy)" });
+    const help = screen.getByLabelText("Help — run-kit docs");
+    const theme = screen.getByRole("button", { name: "System theme" });
+    const gear = screen.getByRole("button", { name: "Open settings" });
+    const follows = (a: Element, b: Element) =>
+      Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(follows(dot, version)).toBe(true);
+    expect(follows(version, help)).toBe(true);
+    expect(follows(help, theme)).toBe(true);
+    expect(follows(theme, gear)).toBe(true);
+    // One justify-between row: readout segment left, action cluster right.
+    const row = gear.closest(".justify-between")!;
+    expect(row).toContainElement(dot as HTMLElement);
   });
 });
 
@@ -1360,6 +1456,7 @@ describe("Sidebar — desktop selected-row autoscroll (nris)", () => {
                           currentServer="primary"
                           currentSession="main"
                           currentWindowId={currentWindowId}
+                          isConnected={false}
                           onSelectWindow={vi.fn()}
                           onCreateWindow={vi.fn()}
                           onCreateSession={vi.fn()}

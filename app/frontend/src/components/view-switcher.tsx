@@ -132,7 +132,7 @@ export function ViewSwitcher({ views, active, onSelect }: ViewSwitcherProps) {
  * its ONLY rendering: at every width the switcher appears in the top-bar "More
  * controls" chevron menu as ONE `role="menuitemradio"` row per available view
  * (`View: Terminal` / `View: Web` / `View: Chat`), following the multi-row
- * `menuRender` precedent (NotificationMenuRows) and the palette's `View:`
+ * `menuRender` precedent (see `OpenMenuRows`) and the palette's `View:`
  * naming vocabulary. Rows render in the pill's fixed `DISPLAY_ORDER`
  * (tty-first), reusing the same `VIEW_LABEL` map + ordering logic as the pill
  * so the two representations can never drift.

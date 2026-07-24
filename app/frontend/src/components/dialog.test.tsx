@@ -71,6 +71,47 @@ describe("Dialog", () => {
     expect(screen.getByRole("button", { name: "Kill" })).toHaveFocus();
   });
 
+  it("defaults to the sm width variant (max-w-sm) when no size is passed", () => {
+    render(
+      <Dialog title="Confirm" onClose={() => {}}>
+        <p>body</p>
+      </Dialog>,
+    );
+    const panel = screen.getByRole("dialog");
+    expect(panel.className).toContain("max-w-sm");
+    expect(panel.className).not.toContain("max-w-2xl");
+  });
+
+  it("renders the lg width variant (max-w-2xl) when size='lg' (260724-6j1v)", () => {
+    render(
+      <Dialog title="Settings" onClose={() => {}} size="lg">
+        <p>body</p>
+      </Dialog>,
+    );
+    const panel = screen.getByRole("dialog");
+    expect(panel.className).toContain("max-w-2xl");
+    expect(panel.className).not.toContain("max-w-sm");
+  });
+
+  it("carries the short-viewport scroll path on both size variants (260724-6j1v)", () => {
+    // Tall dialogs (the lg settings pane) must scroll inside short viewports
+    // instead of clipping off-screen: the panel caps its height and scrolls,
+    // and the backdrop container keeps padding so the panel never touches the
+    // viewport edges.
+    for (const size of ["sm", "lg"] as const) {
+      const { container, unmount } = render(
+        <Dialog title="Confirm" onClose={() => {}} size={size}>
+          <p>body</p>
+        </Dialog>,
+      );
+      const panel = screen.getByRole("dialog");
+      expect(panel.className).toContain("max-h-[calc(100vh-2rem)]");
+      expect(panel.className).toContain("overflow-y-auto");
+      expect((container.firstElementChild as HTMLElement).className).toContain("p-4");
+      unmount();
+    }
+  });
+
   it("calls onClose on backdrop click but not on dialog-body click", () => {
     const onClose = vi.fn();
     const { container } = render(

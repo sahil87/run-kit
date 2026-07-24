@@ -641,7 +641,7 @@ describe("SessionProvider — StrictMode double-mount re-subscribes on the new s
   // its cleanup so the metrics/diff effects re-subscribe on the NEW socket. The
   // pre-fix bug: the guards survived the remount and the effects saw them already
   // true, so the metrics subscription was NEVER opened on the live socket —
-  // permanently dead Host dot / poll loop on `/`.
+  // permanently dead host metrics / poll loop on `/`.
   //
   // NOTE: this uses render(<StrictMode>…) with a context-capturing probe, NOT
   // renderHook({ wrapper: <StrictMode> }). Testing Library's renderHook does NOT
@@ -651,9 +651,13 @@ describe("SessionProvider — StrictMode double-mount re-subscribes on the new s
 
   it("re-establishes the metrics subscription on the live socket after remount (/ host case)", async () => {
     setMockMatches([{ params: {} }]); // `/` — no server, metrics subscription is the source
-    const captured: { ctx: ReturnType<typeof useSessionContext> | null } = { ctx: null };
+    const captured: {
+      ctx: ReturnType<typeof useSessionContext> | null;
+      host: MetricsSnapshot | null;
+    } = { ctx: null, host: null };
     function Probe() {
       captured.ctx = useSessionContext();
+      captured.host = useHostMetrics();
       return null;
     }
     render(
@@ -677,13 +681,13 @@ describe("SessionProvider — StrictMode double-mount re-subscribes on the new s
     expect(live.active.has("metrics")).toBe(true);
     expect(WS.forHostMetrics()).toBeDefined();
 
-    // And it functions end-to-end: a metrics event on the live socket flips the
-    // Host dot connected.
-    expect(captured.ctx!.hostMetricsConnected).toBe(false);
+    // And it functions end-to-end: a metrics event on the live socket reaches
+    // the useHostMetrics() consumer seam.
+    expect(captured.host).toBeNull();
     act(() => {
       WS.forHostMetrics()!.emit("metrics", FAKE_METRICS);
     });
-    expect(captured.ctx!.hostMetricsConnected).toBe(true);
+    expect(captured.host).toEqual(FAKE_METRICS);
   });
 
   it("re-subscribes the current server on the live socket after remount", async () => {
@@ -716,59 +720,6 @@ describe("SessionProvider — StrictMode double-mount re-subscribes on the new s
     });
     expect((captured.ctx!.sessionsByServer.get("runkit") ?? []).map((s) => s.name)).toEqual(["A"]);
     expect(captured.ctx!.isConnectedByServer.get("runkit")).toBe(true);
-  });
-});
-
-describe("SessionProvider — hostMetricsConnected (Host dot, 260704-9o7k)", () => {
-  it("is false before the first metrics ack, true after (no server attached)", async () => {
-    setMockMatches([{ params: {} }]);
-    const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
-    await settle();
-
-    expect(result.current.hostMetricsConnected).toBe(false);
-
-    act(() => {
-      WS.forHostMetrics()!.emit("metrics", FAKE_METRICS);
-    });
-
-    expect(result.current.hostMetricsConnected).toBe(true);
-  });
-
-  it("flips back to false after a 3s disconnect debounce on socket drop", async () => {
-    vi.useFakeTimers();
-    try {
-      setMockMatches([{ params: {} }]);
-      const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
-      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
-
-      act(() => { WS.forHostMetrics()!.emit("metrics", FAKE_METRICS); });
-      expect(result.current.hostMetricsConnected).toBe(true);
-
-      MockWebSocket.outage = true;
-      act(() => { MockWebSocket.current!.close(); });
-      expect(result.current.hostMetricsConnected).toBe(true);
-
-      await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
-      expect(result.current.hostMetricsConnected).toBe(false);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("derives from per-server connectedness (fan-out fallback) when a server is attached", async () => {
-    vi.mocked(listServers).mockResolvedValue([{ name: "runkit", sessionCount: 0 }]);
-    setMockMatches([{ params: { server: "runkit" } }]);
-    const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
-    await settle();
-
-    expect(result.current.hostMetricsConnected).toBe(false);
-
-    act(() => {
-      WS.forServer("runkit")!.emit("sessions", []);
-    });
-
-    expect(result.current.isConnectedByServer.get("runkit")).toBe(true);
-    expect(result.current.hostMetricsConnected).toBe(true);
   });
 });
 

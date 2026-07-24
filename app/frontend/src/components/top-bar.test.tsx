@@ -39,16 +39,6 @@ vi.mock("@/hooks/use-open-targets", () => ({
   useOpenTargets: () => ({ sshHost: mockOpenCtx.sshHost, hostApps: mockOpenCtx.hostApps }),
 }));
 
-// Drive the NotificationControl deterministically: mock the push lib so each
-// test picks the reported state without touching real serviceWorker / Notification.
-const getPushState = vi.fn();
-const enablePushSubscription = vi.fn();
-const sendTestNotification = vi.fn();
-vi.mock("@/lib/push", () => ({
-  getPushState: (...a: unknown[]) => getPushState(...a),
-  enablePushSubscription: (...a: unknown[]) => enablePushSubscription(...a),
-  sendTestNotification: (...a: unknown[]) => sendTestNotification(...a),
-}));
 
 const nowSeconds = Math.floor(Date.now() / 1000);
 
@@ -99,7 +89,6 @@ function renderTopBar(overrides: Partial<React.ComponentProps<typeof TopBar>> = 
             currentWindow={fabWindow}
             sessionName="run-kit"
             windowName="main"
-            isConnected={true}
             sidebarOpen={false}
             server="runkit"
             onNavigate={vi.fn()}
@@ -116,13 +105,6 @@ function renderTopBar(overrides: Partial<React.ComponentProps<typeof TopBar>> = 
 
 describe("TopBar", () => {
   beforeEach(() => {
-    // NotificationControl's hook calls getPushState() on mount; default it to a
-    // resolved promise so every render is safe even in tests that don't touch
-    // notifications (afterEach's restoreAllMocks would otherwise leave it
-    // returning undefined → `undefined.then` on the next render).
-    getPushState.mockResolvedValue("default");
-    enablePushSubscription.mockResolvedValue("subscribed");
-    sendTestNotification.mockResolvedValue(true);
     // ThemeProvider needs matchMedia. Query-sensitive on ONE query: everything
     // matches (dark scheme, reduced motion — keeps sweeps skipped) EXCEPT
     // `(pointer: coarse)`, which must be false or every Tip suppresses itself
@@ -481,12 +463,11 @@ describe("TopBar", () => {
     expect(screen.queryByText("disconnected")).not.toBeInTheDocument();
   });
 
-  it("shows connection dot without text label", () => {
-    renderTopBar({ isConnected: false });
-    expect(screen.queryByText("live")).not.toBeInTheDocument();
-    expect(screen.queryByText("disconnected")).not.toBeInTheDocument();
-    // The dot exists with an aria-label
-    expect(screen.getByLabelText("Disconnected")).toBeInTheDocument();
+  it("renders no connection dot — it moved to the sidebar footer (260724-6j1v)", () => {
+    renderTopBar();
+    expect(screen.queryByLabelText("Connected")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Disconnected")).not.toBeInTheDocument();
+    expect(screen.getByTestId("top-bar-right").querySelector('[role="status"]')).toBeNull();
   });
 
   it("renders FixedWidthToggle in terminal mode (L1 terminal-only button)", () => {
@@ -507,36 +488,29 @@ describe("TopBar", () => {
     expect(screen.queryByLabelText("Toggle fixed terminal width")).not.toBeInTheDocument();
   });
 
-  it("keeps the L3 pyramid order (Notification → Theme → Refresh → Help) and the dot as the right-most element (260715-h1ck registry)", () => {
-    // The right cluster is now registry-driven (260715-h1ck): the ordered
-    // registry places L3 last in pyramid order (Notification · Theme · Refresh ·
-    // Help), then the overflow chevron, then the connection dot as the right-most
-    // status terminator. Order is asserted via document position (robust to
-    // whether each control is currently in-bar or in the hidden measurement
-    // probe — jsdom reports zero widths, so everything is "overflowed", but the
-    // registry order is preserved in the probe).
+  it("keeps the L3 pyramid order (Refresh → chevron, right-most) with theme/help/bell gone from the bar (260724-6j1v)", () => {
+    // The right cluster is registry-driven (260715-h1ck). After 260724-6j1v the
+    // L3 tier is UpdateChip (context-gated) + Refresh only — theme/help moved to
+    // the sidebar footer and the bell folded into the settings dialog. The
+    // always-present overflow chevron is the right-most element (the trailing
+    // exempt block; the connection dot left the bar too). Order is asserted via
+    // document position (robust to whether each control is currently in-bar or
+    // in the hidden measurement probe).
     renderTopBar();
     const cluster = screen.getByTestId("top-bar-right");
-    const bell = screen.getByLabelText(/Notifications/);
-    const theme = screen.getByLabelText(/theme/i);
     const refresh = screen.getByLabelText("Refresh page");
-    const help = screen.getByLabelText("Help — run-kit docs");
     const chevron = screen.getByLabelText("More controls");
-    const dot = cluster.querySelector('[role="status"]')!;
     // DOCUMENT_POSITION_FOLLOWING (4) means the arg comes AFTER the node.
     const follows = (a: Element, b: Element) =>
       Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(follows(bell, theme)).toBe(true);
-    expect(follows(theme, refresh)).toBe(true);
-    expect(follows(refresh, help)).toBe(true);
-    // The exempt chevron + dot trail the candidate controls; the dot is last.
-    expect(follows(help, chevron)).toBe(true);
-    expect(follows(chevron, dot)).toBe(true);
-    // The dot is the deepest-last element of the right cluster (nested in the
-    // trailing exempt block rather than a direct child — the flat pyramid layout
-    // is gone).
-    const statuses = cluster.querySelectorAll('[role="status"]');
-    expect(statuses[statuses.length - 1]).toBe(dot);
+    expect(follows(refresh, chevron)).toBe(true);
+    // The chevron is the deepest-last element of the trailing exempt block.
+    expect(cluster.lastElementChild!.contains(chevron)).toBe(true);
+    // The moved chrome renders NOWHERE in the top bar (bar, probe, or menu).
+    expect(screen.queryByLabelText(/Notifications/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/theme/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Help — run-kit docs")).not.toBeInTheDocument();
+    expect(cluster.querySelector('[role="status"]')).toBeNull();
   });
 
   it("renders the hamburger toggle on terminal/server/board but NOT on the host", () => {
@@ -548,25 +522,22 @@ describe("TopBar", () => {
     expect(screen.queryByLabelText("Toggle navigation")).not.toBeInTheDocument();
   });
 
-  it("renders the connection dot as the right-most element in ALL four modes (260704-9o7k: dot everywhere)", () => {
+  it("renders NO connection dot in ANY of the four modes (260724-6j1v: the dot moved to the sidebar footer)", () => {
     // Terminal.
     const { container } = renderTopBar();
-    const dotStatus = container.querySelector('[role="status"]')!;
-    expect(dotStatus).toBeInTheDocument();
-    const cluster = dotStatus.parentElement!;
-    expect(cluster.lastElementChild).toBe(dotStatus);
+    expect(container.querySelector('[role="status"]')).toBeNull();
     cleanup();
     // Server (tmux Server).
     renderTopBar({ mode: "server", currentWindow: null, windowName: "" });
-    expect(screen.getByRole("status")).toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
     cleanup();
-    // Board — dot now renders (per-page "live data flowing"; caller derives it).
+    // Board.
     renderTopBar({ mode: "board", currentWindow: null, boardName: "b", paneCount: 1, serverCount: 1, boards: [{ name: "b" }] });
-    expect(screen.getByRole("status")).toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
     cleanup();
-    // Host — dot now renders (host-metrics stream health).
+    // Host — loses its indicator entirely (`/` has no sidebar; intake assumption).
     renderTopBar({ mode: "host", sessions: [], currentSession: null, currentWindow: null, sessionName: "", windowName: "", server: "" });
-    expect(screen.getByRole("status")).toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
   describe("host mode (Server List home)", () => {
@@ -583,48 +554,29 @@ describe("TopBar", () => {
       });
     }
 
-    it("renders the brand link and the L3 always-block controls, without erroring on empty props", () => {
+    it("renders the brand link and the surviving L3 always-block (Refresh), without erroring on empty props", () => {
       renderHost();
       // Brand root crumb links home.
       expect(screen.getByLabelText("RunKit home")).toHaveAttribute("href", "/");
-      // L3 always-block controls stay (Refresh + Help promoted here; Theme).
-      expect(screen.getByLabelText(/theme/i)).toBeInTheDocument();
+      // Refresh is the surviving L3 always-block control; theme + help moved to
+      // the sidebar footer (260724-6j1v) and never render in the bar.
       expect(screen.getByLabelText("Refresh page")).toBeInTheDocument();
-      expect(screen.getByLabelText("Help — run-kit docs")).toBeInTheDocument();
+      expect(screen.queryByLabelText(/theme/i)).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("Help — run-kit docs")).not.toBeInTheDocument();
       // The fixed-width BUTTON is terminal-only now (260704-9o7k).
       expect(screen.queryByLabelText("Toggle fixed terminal width")).not.toBeInTheDocument();
     });
 
-    it("renders no hamburger, no terminal-font control, no split/close/fixed-width buttons; dot IS present (host-metrics health)", () => {
+    it("renders no hamburger, no terminal-font control, no split/close/fixed-width buttons, and no dot (260724-6j1v)", () => {
       renderHost();
       expect(screen.queryByLabelText("Toggle navigation")).not.toBeInTheDocument();
-      // 260704-9o7k: the dot now renders on Host (host-metrics stream health).
-      expect(screen.getByRole("status")).toBeInTheDocument();
+      // The dot moved to the sidebar footer; the Host page has no sidebar.
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
       expect(screen.queryByLabelText("Terminal font size")).not.toBeInTheDocument();
       expect(screen.queryByLabelText("Split vertically")).not.toBeInTheDocument();
       expect(screen.queryByLabelText("Split horizontally")).not.toBeInTheDocument();
       expect(screen.queryByLabelText("Close pane")).not.toBeInTheDocument();
       expect(screen.queryByLabelText("Toggle fixed terminal width")).not.toBeInTheDocument();
-    });
-  });
-
-  describe("HelpLink", () => {
-    it("renders a help anchor pointing at the run-kit docs, opening in a new tab safely", () => {
-      renderTopBar();
-      const help = screen.getByLabelText("Help — run-kit docs");
-      // Anchor (not button) so external nav never unloads the live dashboard.
-      expect(help.tagName).toBe("A");
-      expect(help).toHaveAttribute("href", "https://shll.ai/run-kit");
-      expect(help).toHaveAttribute("target", "_blank");
-      // rel must carry both tokens: noopener severs window.opener, noreferrer
-      // strips the Referer header — both needed for a safe external new tab.
-      const rel = help.getAttribute("rel") ?? "";
-      expect(rel).toContain("noopener");
-      expect(rel).toContain("noreferrer");
-      // The hover hint is a styled Tip now (260722-73al) — no native title
-      // (never both, or the OS bubble doubles the styled tip). The accessible
-      // name stays on the aria-label.
-      expect(help).not.toHaveAttribute("title");
     });
   });
 
@@ -1070,99 +1022,6 @@ describe("TopBar", () => {
     expect(btn.querySelector("svg[viewBox='7 10 50 44']")).toBeFalsy();
   });
 
-  describe("NotificationControl", () => {
-    beforeEach(() => {
-      getPushState.mockReset().mockResolvedValue("default");
-      enablePushSubscription.mockReset().mockResolvedValue("subscribed");
-      sendTestNotification.mockReset().mockResolvedValue(true);
-    });
-
-    /** Render and flush the mount-time getPushState() promise. */
-    async function renderWithState(state: string) {
-      getPushState.mockResolvedValue(state);
-      let utils!: ReturnType<typeof renderTopBar>;
-      await act(async () => {
-        utils = renderTopBar();
-        await Promise.resolve();
-      });
-      return utils;
-    }
-
-    it("renders the bell trigger labeled 'off' when not subscribed", async () => {
-      await renderWithState("default");
-      expect(screen.getByLabelText("Notifications off")).toBeInTheDocument();
-      expect(screen.queryByLabelText("Notifications on")).not.toBeInTheDocument();
-    });
-
-    it("renders the bell labeled 'on' when subscribed", async () => {
-      await renderWithState("subscribed");
-      expect(screen.getByLabelText("Notifications on")).toBeInTheDocument();
-    });
-
-    it("announces the blocked state distinctly to screen readers when denied", async () => {
-      await renderWithState("denied");
-      expect(screen.getByLabelText("Notifications blocked")).toBeInTheDocument();
-      expect(screen.queryByLabelText("Notifications off")).not.toBeInTheDocument();
-    });
-
-    it("hides itself entirely when push is unsupported", async () => {
-      await renderWithState("unsupported");
-      expect(screen.queryByLabelText("Notifications off")).not.toBeInTheDocument();
-      expect(screen.queryByLabelText("Notifications on")).not.toBeInTheDocument();
-    });
-
-    it("opens a dropdown with Enable + (disabled) Test when not subscribed", async () => {
-      await renderWithState("default");
-      act(() => fireEvent.click(screen.getByLabelText("Notifications off")));
-      expect(screen.getByText("Enable notifications")).toBeInTheDocument();
-      // Test is present but disabled until subscribed.
-      expect(screen.getByText("Send test notification").closest("button")).toBeDisabled();
-    });
-
-    it("calls enablePushSubscription when Enable is clicked", async () => {
-      await renderWithState("default");
-      act(() => fireEvent.click(screen.getByLabelText("Notifications off")));
-      await act(async () => {
-        fireEvent.click(screen.getByText("Enable notifications"));
-        await Promise.resolve();
-      });
-      expect(enablePushSubscription).toHaveBeenCalledTimes(1);
-    });
-
-    it("enables the Test action and calls sendTestNotification when subscribed", async () => {
-      await renderWithState("subscribed");
-      act(() => fireEvent.click(screen.getByLabelText("Notifications on")));
-      // No Enable item when already subscribed.
-      expect(screen.queryByText("Enable notifications")).not.toBeInTheDocument();
-      const testBtn = screen.getByText("Send test notification").closest("button")!;
-      expect(testBtn).not.toBeDisabled();
-      await act(async () => {
-        fireEvent.click(testBtn);
-        await Promise.resolve();
-      });
-      expect(sendTestNotification).toHaveBeenCalledTimes(1);
-    });
-
-    it("includes a Notifications help link to the GitHub guide (new tab)", async () => {
-      await renderWithState("default");
-      act(() => fireEvent.click(screen.getByLabelText("Notifications off")));
-      const help = screen.getByText("Notifications help…").closest("a")!;
-      expect(help).toHaveAttribute("href", expect.stringContaining("docs/site/notifications.md"));
-      expect(help).toHaveAttribute("target", "_blank");
-      expect(help).toHaveAttribute("rel", "noopener noreferrer");
-    });
-
-    it("closes the dropdown on Escape and returns focus to the bell", async () => {
-      await renderWithState("subscribed");
-      const trigger = screen.getByLabelText("Notifications on");
-      act(() => fireEvent.click(trigger));
-      expect(screen.getByText("Send test notification")).toBeInTheDocument();
-      act(() => fireEvent.keyDown(document, { key: "Escape" }));
-      expect(screen.queryByText("Send test notification")).not.toBeInTheDocument();
-      expect(trigger).toHaveFocus();
-    });
-  });
-
   describe("Open-in-App entry (260722-6d0f)", () => {
     afterEach(() => {
       mockOpenCtx.sshHost = "";
@@ -1228,17 +1087,14 @@ describe("TopBar", () => {
       expect(screen.getByLabelText("More controls")).toBeInTheDocument();
     });
 
-    it("places the chevron immediately left of the connection dot", () => {
+    it("places the chevron as the right-most element of the cluster (no dot after it, 260724-6j1v)", () => {
       renderTopBar();
       const cluster = screen.getByTestId("top-bar-right");
       const chevron = screen.getByLabelText("More controls");
-      const dot = cluster.querySelector('[role="status"]')!;
-      const follows = (a: Element, b: Element) =>
-        Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
-      // Chevron precedes the dot, and the dot is the last status element.
-      expect(follows(chevron, dot)).toBe(true);
-      const statuses = cluster.querySelectorAll('[role="status"]');
-      expect(statuses[statuses.length - 1]).toBe(dot);
+      // The trailing exempt block is the cluster's last child and holds ONLY
+      // the chevron — the connection dot moved to the sidebar footer.
+      expect(cluster.lastElementChild!.contains(chevron)).toBe(true);
+      expect(cluster.querySelector('[role="status"]')).toBeNull();
     });
 
     it("carries menu-button a11y (aria-haspopup / aria-expanded) and toggles expanded on open", () => {
@@ -1259,9 +1115,12 @@ describe("TopBar", () => {
       expect(within(menu).getByText("Split vertical")).toBeInTheDocument();
       expect(within(menu).getByText("Split horizontal")).toBeInTheDocument();
       expect(within(menu).getByRole("menuitemcheckbox", { name: /Fixed width/ })).toBeInTheDocument();
-      expect(within(menu).getByText("Theme: System")).toBeInTheDocument();
       expect(within(menu).getByText("Refresh page")).toBeInTheDocument();
-      expect(within(menu).getByText("Help / Documentation")).toBeInTheDocument();
+      // Theme / Help / Notifications rows are GONE (260724-6j1v — theme+help
+      // moved to the sidebar footer, the bell folded into the settings dialog).
+      expect(within(menu).queryByText(/Theme:/)).not.toBeInTheDocument();
+      expect(within(menu).queryByText("Help / Documentation")).not.toBeInTheDocument();
+      expect(within(menu).queryByText("Enable notifications")).not.toBeInTheDocument();
       // The fixed version row is always present (last).
       expect(within(menu).getByText("RunKit")).toBeInTheDocument();
     });
@@ -1276,17 +1135,22 @@ describe("TopBar", () => {
       expect(chevron).toHaveFocus();
     });
 
-    it("runs a menu action (Theme cycle) from the menu", () => {
+    it("runs a menu action (fixed-width toggle) from the menu", () => {
+      // The theme row left the menu (260724-6j1v) — the fixed-width checkbox
+      // row is the representative stateful menu action now.
       renderTopBar();
       act(() => fireEvent.click(screen.getByLabelText("More controls")));
       const menu = screen.getByRole("menu", { name: "More controls" });
-      // System → Light on first click (matches ThemeToggle's cycle).
-      const themeRow = within(menu).getByText("Theme: System").closest("button")!;
-      act(() => fireEvent.click(themeRow));
-      // The theme change re-renders the row label; reopen to observe the cycle.
+      const row = within(menu).getByRole("menuitemcheckbox", { name: /Fixed width/ });
+      expect(row).toHaveAttribute("aria-checked", "false");
+      act(() => fireEvent.click(row));
+      // The checkbox toggle closes the menu (role-keyed close); reopen to
+      // observe the flipped state.
       act(() => fireEvent.click(screen.getByLabelText("More controls")));
       const menu2 = screen.getByRole("menu", { name: "More controls" });
-      expect(within(menu2).getByText("Theme: Light")).toBeInTheDocument();
+      expect(
+        within(menu2).getByRole("menuitemcheckbox", { name: /Fixed width/ }),
+      ).toHaveAttribute("aria-checked", "true");
     });
 
     it("Refresh page row reloads the page", () => {
@@ -1394,11 +1258,8 @@ describe("TopBar", () => {
 describe("WindowHeading (centered, editable, terminal mode)", () => {
   beforeEach(() => {
     // Clear call history between tests (the renameWindow module mock persists
-    // its calls across tests otherwise), then re-arm the push-lib fns.
+    // its calls across tests otherwise).
     vi.clearAllMocks();
-    getPushState.mockResolvedValue("default");
-    enablePushSubscription.mockResolvedValue("subscribed");
-    sendTestNotification.mockResolvedValue(true);
     // Same query-sensitive stub as the suite root: all-match EXCEPT
     // `(pointer: coarse)` (false), or Tips would self-suppress.
     vi.stubGlobal("matchMedia", vi.fn().mockImplementation((query: string) => ({

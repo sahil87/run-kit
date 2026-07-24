@@ -10,15 +10,6 @@ import {
 } from "@/contexts/session-context";
 import type { SessionContextType, UpdateAvailable, UpdateTool } from "@/contexts/session-context";
 
-// Silence the push lib so NotificationControl doesn't touch real serviceWorker.
-// getPushState returns a Promise (the hook calls .then), and "unsupported"
-// makes NotificationControl render nothing — keeping the DOM focused on the chip.
-vi.mock("@/lib/push", () => ({
-  getPushState: vi.fn().mockResolvedValue("unsupported"),
-  enablePushSubscription: vi.fn().mockResolvedValue("subscribed"),
-  sendTestNotification: vi.fn().mockResolvedValue(true),
-}));
-
 beforeEach(() => {
   // ThemeProvider reads matchMedia; jsdom doesn't provide it.
   vi.stubGlobal(
@@ -68,7 +59,6 @@ function renderChip(sessionValue: Partial<SessionContextType>) {
               currentWindow={null}
               sessionName=""
               windowName=""
-              isConnected={true}
               sidebarOpen={false}
               server="runkit"
               onNavigate={vi.fn()}
@@ -306,7 +296,6 @@ describe("UpdateChip", () => {
                 currentWindow={null}
                 sessionName=""
                 windowName=""
-                isConnected={true}
                 sidebarOpen={false}
                 server="runkit"
                 onNavigate={vi.fn()}
@@ -351,7 +340,6 @@ describe("UpdateChip", () => {
                 currentWindow={null}
                 sessionName=""
                 windowName=""
-                isConnected={true}
                 sidebarOpen={false}
                 server="runkit"
                 onNavigate={vi.fn()}

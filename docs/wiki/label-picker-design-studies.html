@@ -209,11 +209,13 @@
   .egg-hazard::before {
     content: ""; position: absolute; inset: 0;
     background-image: linear-gradient(45deg,
-      color-mix(in srgb, var(--mkc) 13%, transparent) 25%, transparent 25% 50%,
-      color-mix(in srgb, var(--mkc) 13%, transparent) 50% 75%, transparent 75%);
+      color-mix(in srgb, var(--mkc) 18%, transparent) 25%, transparent 25% 50%,
+      color-mix(in srgb, var(--mkc) 18%, transparent) 50% 75%, transparent 75%);
     background-size: 12px 12px;
-    -webkit-mask-image: linear-gradient(to right, #000, transparent 38%);
-    mask-image: linear-gradient(to right, #000, transparent 38%);
+    /* Full strength for the first ~22%, gone by ~55% — the original
+       fade-from-zero-to-38% tapered too aggressively to make out. */
+    -webkit-mask-image: linear-gradient(to right, #000 22%, transparent 55%);
+    mask-image: linear-gradient(to right, #000 22%, transparent 55%);
   }
 
   /* ── candidate row animations (Study 3 gallery) ─────────────────────── */
@@ -412,13 +414,17 @@
   <!-- ═══════════════ STUDY 3 · EASTER EGGS ═══════════════ -->
   <section>
     <div class="shead"><span class="br">[</span> <b>STUDY 3</b> · ROW TREATMENTS — THE PAIRING TABLE <span class="br">]</span></div>
-    <p class="note">The working pairing:</p>
+    <p class="note">The working pairing. Semantics: <em>dashed</em> = working (agent active),
+    <em>thick</em> = completed, <em>double</em> = different (what "different" means is the
+    user's call); none / dotted / solid are entirely free per-user conventions. All markers
+    and row colors are <em>user preferences</em> — what the user thinks about a task —
+    deliberately distinct from the DERIVED status-dot states; the two axes never mix.</p>
     <div style="overflow-x:auto; margin: 0 0 16px">
     <table style="border-collapse:collapse; font-size:11.5px">
       <tr style="color:var(--fg3)">
         <td style="padding:3px 14px 3px 0; letter-spacing:.1em">MARKER</td>
         <td style="padding:3px 16px">dotted</td><td style="padding:3px 16px">dashed <span style="color:var(--green)">working</span></td>
-        <td style="padding:3px 16px">solid</td><td style="padding:3px 16px">double</td>
+        <td style="padding:3px 16px">solid</td><td style="padding:3px 16px">double <span style="color:var(--green)">different</span></td>
         <td style="padding:3px 16px">thick <span style="color:var(--green)">completed</span></td>
       </tr>
       <tr style="color:var(--fg2); border-top:1px solid #232836">

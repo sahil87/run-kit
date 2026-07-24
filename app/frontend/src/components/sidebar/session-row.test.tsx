@@ -62,6 +62,20 @@ describe("SessionRow", () => {
     expect(screen.getByLabelText("Kill session agent-work")).toBeInTheDocument();
   });
 
+  // One icon system (260724-2bmy): + and ✕ are stroke SVGs (PlusIcon/CloseIcon)
+  // matching PaletteIcon/BotIcon, so the row's icon cluster reads at one ink
+  // weight — the former text glyphs made even center gaps look uneven.
+  it("renders the + and ✕ actions as stroke SVG icons, not text glyphs", () => {
+    const session = makeSession({ name: "agent-work" });
+    render(<SessionRow {...rowProps(session)} />);
+    const plus = screen.getByLabelText("New window in agent-work");
+    const kill = screen.getByLabelText("Kill session agent-work");
+    for (const btn of [plus, kill]) {
+      expect(btn.querySelector("svg")).not.toBeNull();
+      expect(btn.textContent).toBe("");
+    }
+  });
+
   // gsmu: the spawn-agent bot button is an OPTIONAL affordance (mirrors
   // onColorChange) — present only when an onSpawnAgent handler is supplied, and
   // positioned immediately LEFT of the "+" create-window button so +/✕ keep

@@ -6,7 +6,7 @@ import { SwatchPopover } from "@/components/swatch-popover";
 import { WaitingBadge } from "@/components/waiting-badge";
 import { countWaitingWindows } from "@/lib/waiting";
 import { toSafeSessionName } from "@/lib/names";
-import { PaletteIcon, BotIcon } from "./icons";
+import { PaletteIcon, BotIcon, PlusIcon, CloseIcon } from "./icons";
 import { Tip } from "@/components/tip";
 
 type SessionRowProps = {
@@ -228,7 +228,7 @@ function SessionRowInner({
                 setShowColorPicker((v) => !v);
               }}
               aria-label={`Set color for ${session.name}`}
-              className="text-text-secondary hover:text-text-primary transition-opacity opacity-0 group-hover:opacity-100 coarse:opacity-100 px-0.5 min-h-[24px] coarse:min-h-[36px] flex items-center justify-center"
+              className="text-text-secondary hover:text-text-primary transition-opacity opacity-0 group-hover:opacity-100 coarse:opacity-100 px-0.5 min-w-[24px] coarse:min-w-[32px] min-h-[24px] coarse:min-h-[36px] flex items-center justify-center"
             >
               <PaletteIcon />
             </button>
@@ -242,7 +242,7 @@ function SessionRowInner({
                 onSpawnAgent(server, name);
               }}
               aria-label={`Spawn agent in ${session.name}`}
-              className="text-text-secondary hover:text-text-primary transition-opacity opacity-0 group-hover:opacity-100 coarse:opacity-100 px-0.5 min-h-[24px] coarse:min-h-[36px] flex items-center justify-center"
+              className="text-text-secondary hover:text-text-primary transition-opacity opacity-0 group-hover:opacity-100 coarse:opacity-100 px-0.5 min-w-[24px] coarse:min-w-[32px] min-h-[24px] coarse:min-h-[36px] flex items-center justify-center"
             >
               <BotIcon />
             </button>
@@ -252,18 +252,18 @@ function SessionRowInner({
           <button
             onClick={() => onCreateWindow(server, name)}
             aria-label={`New window in ${session.name}`}
-            className="text-text-secondary hover:text-text-primary transition-colors text-[16px] px-1 min-h-[24px] coarse:min-h-[36px] flex items-center justify-center"
+            className="text-text-secondary hover:text-text-primary transition-colors px-0.5 min-w-[24px] coarse:min-w-[32px] min-h-[24px] coarse:min-h-[36px] flex items-center justify-center"
           >
-            +
+            <PlusIcon />
           </button>
         </Tip>
         <Tip label="Kill session">
           <button
             onClick={(e) => onKillClick(server, name, session.windows.length, e.ctrlKey || e.metaKey)}
             aria-label={`Kill session ${session.name}`}
-            className="text-text-secondary hover:text-red-400 transition-colors text-[16px] px-1 min-h-[24px] coarse:min-h-[36px] flex items-center justify-center"
+            className="text-text-secondary hover:text-red-400 transition-colors px-0.5 min-w-[24px] coarse:min-w-[32px] min-h-[24px] coarse:min-h-[36px] flex items-center justify-center"
           >
-            {"\u2715"}
+            <CloseIcon />
           </button>
         </Tip>
       </div>

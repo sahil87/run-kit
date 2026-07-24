@@ -7,7 +7,7 @@ import { UNCOLORED_SELECTED_KEY, markerStripeStyle, type RowTint } from "@/theme
 import { SwatchPopover } from "@/components/swatch-popover";
 import { StatusDot } from "@/components/status-dot";
 import { PinPopover } from "./pin-popover";
-import { PaletteIcon } from "./icons";
+import { PaletteIcon, CloseIcon } from "./icons";
 import { PinIcon } from "@/components/pin-icon";
 import { toSafeWindowName } from "@/lib/names";
 
@@ -442,7 +442,7 @@ function WindowRowInner({
                 : isPinnedToAny
                 ? "opacity-100 text-text-secondary hover:text-text-primary"
                 : "opacity-0 group-hover:opacity-100 coarse:opacity-100 focus-visible:opacity-100 text-text-secondary hover:text-text-primary"
-            } px-0.5 min-h-[24px] coarse:min-h-[36px] flex items-center justify-center`}
+            } px-0.5 min-w-[24px] coarse:min-w-[32px] min-h-[24px] coarse:min-h-[36px] flex items-center justify-center`}
           >
             <PinIcon filled={isPinnedToAny} />
           </button>
@@ -454,9 +454,9 @@ function WindowRowInner({
             e.stopPropagation();
             if (!ghost) onKillClick(srv, session, win.windowId, e.ctrlKey || e.metaKey);
           }}
-          className="text-[14px] text-text-secondary hover:text-red-400 transition-opacity cursor-pointer opacity-0 group-hover:opacity-100 coarse:opacity-100 focus-visible:opacity-100 px-1 min-h-[24px] coarse:min-h-[36px] flex items-center justify-center"
+          className="text-text-secondary hover:text-red-400 transition-opacity cursor-pointer opacity-0 group-hover:opacity-100 coarse:opacity-100 focus-visible:opacity-100 px-0.5 min-w-[24px] coarse:min-w-[32px] min-h-[24px] coarse:min-h-[36px] flex items-center justify-center"
         >
-          {"\u2715"}
+          <CloseIcon />
         </button>
       </div>
       {showPinPopover && server && (

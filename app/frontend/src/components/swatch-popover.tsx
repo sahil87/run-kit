@@ -45,10 +45,13 @@ type SwatchPopoverProps = {
    *  background = that value's `tint.base` (gray sentinel when uncolored),
    *  stripe in the guarded border color with a 2px left inset (so the marker
    *  does not kiss the cell edge and the cell reads as a mini row), plus the
-   *  paired row texture (static hazard wedge on thick, static scanline wash on
-   *  double). Picking a different swatch repaints the marker column
-   *  immediately. PREVIEW CELLS NEVER ANIMATE — motion belongs to real rows
-   *  only; the double cell never gets the scanline crawl, even when selected.
+   *  paired row texture: hazard weave on thick (mask dropped via
+   *  rk-hazard-preview — the 18px cell reads as the row's full-strength left
+   *  corner), scanline wash on double, data rain on dashed. Picking a
+   *  different swatch repaints the marker column immediately. PREVIEWS MIRROR
+   *  THE ROW'S RESTING LOOK: the dashed rain animates (it is always-on on real
+   *  rows), but the double cell never gets the scanline crawl — that is
+   *  selected-state motion, absent even when double is selected.
    *  Selection calls `onSelectMarker` DIRECTLY (no cycling — any state is one
    *  click) with `""` clearing the marker. Keyboard nav crosses the hairline
    *  (ArrowLeft/Right). When `onSelectMarker` is ABSENT the component renders
@@ -309,8 +312,10 @@ export function SwatchPopover({
             thick beside the five color rows. Non-∅ cells are LIVE ROW PREVIEWS
             of the currently selected color: tint.base background (gray sentinel
             when uncolored), guarded-color stripe with a 2px left inset, and the
-            paired row texture (static scanline wash on double, static hazard
-            wedge on thick). NEVER animated — no rk-scanlines-crawl here. */}
+            paired row texture (scanline wash on double, hazard weave on thick,
+            data rain on dashed). Previews mirror the row's RESTING look — the
+            always-on rain animates, but never rk-scanlines-crawl (selected-
+            state motion) here. */}
         {showMarkers && (
           <>
             <div className="flex flex-col gap-[3px]">
@@ -341,13 +346,20 @@ export function SwatchPopover({
                         : undefined
                     }
                   >
-                    {/* Paired row texture — static only (preview cells never
-                        animate: no crawl class, even when double is selected). */}
+                    {/* Paired row texture — the row's RESTING look: the dashed
+                        rain animates (always-on on real rows), but no crawl
+                        class ever, even when double is selected. The thick
+                        cell drops the hazard's left-wedge mask (preview
+                        modifier) — masked at 18px the weave fades out under
+                        the 6px stripe and is invisible. */}
                     {state === "double" && (
                       <span aria-hidden="true" className="rk-scanlines absolute inset-0 pointer-events-none" />
                     )}
+                    {state === "dashed" && (
+                      <span aria-hidden="true" className="rk-dash-rain absolute inset-0 pointer-events-none" />
+                    )}
                     {state === "thick" && (
-                      <span aria-hidden="true" className="rk-hazard absolute inset-0 pointer-events-none" />
+                      <span aria-hidden="true" className="rk-hazard rk-hazard-preview absolute inset-0 pointer-events-none" />
                     )}
                     {/* Mini-row stripe: guarded color, 2px inset off the cell's
                         left edge so the marker doesn't kiss the boundary. */}

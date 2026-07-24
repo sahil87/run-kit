@@ -443,14 +443,15 @@ summary {
   mask-image: linear-gradient(to right, #000, transparent 38%);
 }
 
-/* ── Dashed-marker data rain (260723, SELECTION-ONLY) ────────────────────────
-   A SELECTED window row whose left-gutter marker is `dashed` carries a "data
-   rain": two sparse 1px dash tracks streaming LEFT→RIGHT across the row's
-   full width in the guarded marker color (--rk-marker-color) — the working
-   marker's selection flourish (the dashed twin of the double marker's
-   scanline crawl). The overlay is MOUNTED ONLY while the row is selected
-   (window-row.tsx gates on `isDashed && isSelected`); the gutter stripe
-   itself stays static in every state.
+/* ── Dashed-marker data rain (260723, ALWAYS-ON) ─────────────────────────────
+   A window row whose left-gutter marker is `dashed` carries a "data rain":
+   two sparse 1px dash tracks streaming LEFT→RIGHT across the row's full
+   width in the guarded marker color (--rk-marker-color) — the ambient
+   "agent is working" cue. Runs in every state (window-row.tsx mounts it on
+   `isDashed` alone): "working" is inherently live, and the thinned two-lane
+   rain proved quiet enough to run ambiently — a deliberate user call after
+   watching the selection-gated version. The gutter stripe itself stays
+   static in every state.
 
    Each track is a horizontal dash gradient with its own rhythm (7/29 on a
    36px period at y 8px; 5/23 on a 28px period at y 16px), so the lanes drift

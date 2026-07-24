@@ -877,9 +877,9 @@ describe("WindowRow", () => {
       expect(screen.queryByRole("listbox", { name: "Label picker" })).toBeNull();
     });
 
-    it("a SELECTED dashed-marker row gets the data-rain overlay (clipped inner element, NOT the root) + marker color var; the stripe stays static", () => {
+    it("a dashed-marker row gets the data-rain overlay (clipped inner element, NOT the root) + marker color var; the stripe stays static", () => {
       const win = makeWindow({ windowId: "@0", index: 0, color: "green", marker: "dashed" });
-      const { container } = renderAxis(win, { isSelected: true });
+      const { container } = renderAxis(win);
       const row = container.querySelector('[data-window-id="@0"]') as HTMLElement;
       // Same overlay discipline as scanlines/hazard: the clip lives on a
       // dedicated inner overlay, never the root (must-fix 4).
@@ -896,10 +896,10 @@ describe("WindowRow", () => {
       expect(zone.querySelector(".rk-dash-rain")).toBeNull();
     });
 
-    it("an UNSELECTED dashed row carries no rain (selection-only; motion-only treatments have no rest form)", () => {
+    it("the rain is ALWAYS-ON — present on selected dashed rows too (not selection-gated)", () => {
       const win = makeWindow({ windowId: "@0", index: 0, color: "green", marker: "dashed" });
-      const { container } = renderAxis(win);
-      expect(container.querySelector(".rk-dash-rain")).toBeNull();
+      const { container } = renderAxis(win, { isSelected: true });
+      expect(container.querySelector(".rk-dash-rain")).toBeTruthy();
     });
 
     it("non-dashed markers carry no data-rain overlay even when selected (the rain is dashed-only)", () => {

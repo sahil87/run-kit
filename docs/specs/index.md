@@ -37,3 +37,4 @@
 | Page | Description |
 |------|-------------|
 | [Competitive Landscape](../wiki/competitive-landscape.md) | Where run-kit sits among tmux dashboards, agent orchestrators, mobile clients, and server consoles — the two-lineages positioning and closest competitors |
+| [Label Picker Design Studies](../wiki/label-picker-design-studies.html) | Interactive HTML design reference behind the 5-marker vocabulary, shade axis, paired-grid picker, and row textures (260723-wwoi + #452) — live OKLCH-derived swatches, the final pairing table, and the tried-and-rejected treatment gallery with rationale. Self-contained; open in a browser |

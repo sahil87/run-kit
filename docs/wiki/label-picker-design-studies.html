@@ -160,25 +160,24 @@
   @keyframes morse-march { from { background-position-y: 0; } to { background-position-y: 6px; } }
   .sel .stripe.mk-dotted, .forcesel .stripe.mk-dotted { animation: morse-march 1.6s linear infinite; }
 
-  /* dashed → DATA RAIN (SELECTION-ONLY): the STRIPE stays static; a SELECTED
-     dashed row carries two sparse 1px dash tracks streaming LEFT→RIGHT in the
-     marker color — the working marker's selection flourish (dashed's twin of
-     double's scanline crawl). Distinct rhythms per lane (7/36px at y 8;
-     5/28px at y 16) read as rain, not a marquee. SEAMLESS LOOP: each layer's
-     tile is ONE FIXED PERIOD wide (36px/28px — never "100%", which snaps at
-     the loop boundary), and the keyframes move each layer by an integer
-     multiple of its own period (72/56). Picker preview cells never show it. */
+  /* dashed → DATA RAIN (ALWAYS-ON): the STRIPE stays static; the row carries
+     two sparse 1px dash tracks streaming LEFT→RIGHT in the marker color — the
+     ambient "agent is working" cue. Runs in every state: "working" is
+     inherently live, and the thinned two-lane rain proved quiet enough to run
+     ambiently (settled after watching the selection-gated variant). Distinct
+     rhythms per lane (7/36px at y 8; 5/28px at y 16) read as rain, not a
+     marquee. SEAMLESS LOOP: each layer's tile is ONE FIXED PERIOD wide
+     (36px/28px — never "100%", which snaps at the loop boundary), and the
+     keyframes move each layer by an integer multiple of its own period
+     (72/56). Picker preview cells never show it. */
   .egg-rain::before {
-    content: ""; position: absolute; inset: 0; opacity: 0;
+    content: ""; position: absolute; inset: 0;
     background-image:
       linear-gradient(to right, color-mix(in srgb, var(--mkc) 22%, transparent) 0 7px, transparent 7px 36px),
       linear-gradient(to right, color-mix(in srgb, var(--mkc) 16%, transparent) 0 5px, transparent 5px 28px);
     background-size: 36px 1px, 28px 1px;
     background-repeat: repeat-x, repeat-x;
     background-position: 0 8px, 0 16px;
-  }
-  .sel .egg-rain::before, .forcesel .egg-rain::before {
-    opacity: 1;
     animation: rain-flow 2.8s linear infinite;
   }
   @keyframes rain-flow {
@@ -424,7 +423,7 @@
       </tr>
       <tr style="color:var(--fg2); border-top:1px solid #232836">
         <td style="padding:3px 14px 3px 0; letter-spacing:.1em; color:var(--fg3)">BACKGROUND</td>
-        <td style="padding:3px 16px">—</td><td style="padding:3px 16px">data rain <span style="color:var(--amber)">on sel</span></td>
+        <td style="padding:3px 16px">—</td><td style="padding:3px 16px">data rain <span style="color:var(--green)">always-on</span></td>
         <td style="padding:3px 16px">—</td><td style="padding:3px 16px">scanlines</td>
         <td style="padding:3px 16px">hazard wedge <span style="color:var(--amber)">static</span></td>
       </tr>
@@ -433,10 +432,10 @@
     <p class="note">Discipline unchanged — <code>background-position</code>/<code>opacity</code>
     only (never transform, the drag-ghost rule), static under
     <code>prefers-reduced-motion</code>, colored through <code>--rk-marker-color</code>, all
-    rhythms on a 12px module so 24/36px rows weld. <em>Nothing moves at rest</em> —
-    motion is selection-gated only: double's scanline crawl + band, and dashed's DATA RAIN
-    (the stripe stays static; a selected dashed row streams two sparse dash tracks
-    left→right — the early data-stream idea revived, then thinned and gated to selection).
+    rhythms on a 12px module so 24/36px rows weld. <em>One treatment moves at rest</em>:
+    dashed's DATA RAIN, always-on — the stripe stays static while two sparse dash tracks
+    stream left→right ("working" is inherently live; the thinned rain proved quiet enough
+    after watching both gatings). Double's scanline crawl + band stays selection-gated.
     The hazard wedge never moves in any state — completed is the most resting
     state, so it gets the quietest treatment: the weave fades out by a third of the row, a
     taped-off corner rather than wallpaper. Picker preview cells never animate.</p>
@@ -796,8 +795,8 @@ buildCards("gallery", [
    d:"No background, no motion — the quiet end of the vocabulary. (The Morse march below remains available if it ever wants a selected-state egg.)",
    rows:[{color:"purple", marker:"dotted", name:"riff-dotted-rest"},
          {color:"purple", marker:"dotted", name:"riff-dotted-selected", selected:1}]},
-  {t:"dashed — Data rain", tag:"ON SELECT",
-   d:"The stripe stays static; SELECTING a dashed row streams two sparse dash tracks left→right at different rhythms (36/28px lanes) — rain, not a marquee, with a seamless fixed-period loop. The working marker's selection flourish, twin to double's crawl. Picker previews never show it.",
+  {t:"dashed — Data rain", tag:"ALWAYS-ON",
+   d:"The stripe stays static; the row streams two sparse dash tracks left→right at different rhythms (36/28px lanes) — rain, not a marquee, with a seamless fixed-period loop. Ambient 'working' cue, on in every state (settled after trying selection-gating). Picker previews never show it.",
    rows:[{color:"slate", marker:"dashed", name:"riff-agent-1"},
          {color:"slate", marker:"dashed", name:"riff-agent-2"},
          {color:"slate", marker:"dashed", name:"riff-agent-3", selected:1}]},

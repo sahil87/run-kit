@@ -409,10 +409,12 @@ summary {
 /* ── Thick-marker hazard wedge (260723-wwoi) ─────────────────────────────────
    A window row whose left-gutter marker is `thick` gets a static "hazard
    wedge" — a 45° weave in the row's guarded marker color (--rk-marker-color,
-   the same custom property the scanlines read) at 13% alpha, confined by a
-   mask to a left-edge wedge fading out by ~38% of the row width: a taped-off
-   corner, not full-row wallpaper (full-width was tried in the design mocks and
-   rejected as louder than the selected row). The 12px square tile makes
+   the same custom property the scanlines read) at 18% alpha, confined by a
+   mask to a left-edge wedge: full strength for the first ~22% of the row,
+   fading out by ~55% — a taped-off corner, not full-row wallpaper (full-width
+   was tried in the design mocks and rejected as louder than the selected row;
+   an earlier 13% / fade-from-zero-to-38% wedge tapered so aggressively it was
+   hard to make out and was re-tuned by user request). The 12px square tile makes
    adjacent thick rows weld seamlessly (24/36px row heights are multiples).
 
    NEVER ANIMATED — IN ANY STATE (rest, hover, selected): an explicit user
@@ -433,14 +435,14 @@ summary {
   pointer-events: none;
   background-image: linear-gradient(
     45deg,
-    color-mix(in srgb, var(--rk-marker-color) 13%, transparent) 25%,
+    color-mix(in srgb, var(--rk-marker-color) 18%, transparent) 25%,
     transparent 25% 50%,
-    color-mix(in srgb, var(--rk-marker-color) 13%, transparent) 50% 75%,
+    color-mix(in srgb, var(--rk-marker-color) 18%, transparent) 50% 75%,
     transparent 75%
   );
   background-size: 12px 12px;
-  -webkit-mask-image: linear-gradient(to right, #000, transparent 38%);
-  mask-image: linear-gradient(to right, #000, transparent 38%);
+  -webkit-mask-image: linear-gradient(to right, #000 22%, transparent 55%);
+  mask-image: linear-gradient(to right, #000 22%, transparent 55%);
 }
 
 /* ── Dashed-marker data rain (260723, ALWAYS-ON) ─────────────────────────────

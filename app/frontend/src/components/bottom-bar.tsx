@@ -3,6 +3,7 @@ import { useModifierState, type ModifierSnapshot } from "@/hooks/use-modifier-st
 import { useFocusedTerminal } from "@/contexts/focused-terminal-context";
 import { useChromeState } from "@/contexts/chrome-context";
 import { ArrowPad } from "@/components/arrow-pad";
+import { KBD_CLASS } from "@/components/kbd-chip";
 import { Tip, TipGroup } from "@/components/tip";
 import { focusComposeStrip } from "@/lib/compose-strip-events";
 
@@ -47,12 +48,6 @@ const EXT_KEYS = [
   { label: "Ins", plain: "\x1b[2~", mod: (p: number) => `\x1b[2;${p}~` },
   { label: "Del", plain: "\x1b[3~", mod: (p: number) => `\x1b[3;${p}~` },
 ] as const;
-
-// Chip size splits by pointer: 33×35 on fine pointers (lighter bar, more air
-// between chips) while coarse pointers keep the full 36×36 touch target and
-// the tighter 4px gap so the 375px single-row budget is unchanged.
-const KBD_CLASS =
-  "rk-glint min-h-[33px] min-w-[35px] coarse:min-h-[36px] coarse:min-w-[36px] flex items-center justify-center px-1 py-0 text-xs border border-border rounded select-none transition-colors hover:border-text-secondary active:bg-bg-card focus-visible:outline-2 focus-visible:outline-accent";
 
 /** Long-press duration (ms) to toggle scroll-lock. */
 const LONG_PRESS_MS = 500;

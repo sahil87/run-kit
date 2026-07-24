@@ -1,6 +1,7 @@
 # settings-dialog.spec.ts
 
-Validates the VS Code-style settings dialog (260723-o7q8): mounted once at
+Validates the VS Code-style settings dialog (260723-o7q8; desktop
+preference-pane layout + Notifications row 260724-6j1v): mounted once at
 `AppLayout` so it opens on every route (server routes AND `/board/$name`,
 which renders no AppShell), triggered from the command palette and the
 sidebar-footer gear, with a visible This-host/This-device persistence-scope
@@ -23,6 +24,10 @@ trigger, and persistence contracts that unit tests can't cover.
   `rk-test-e2e` with one named window (`win-a`); `afterAll` kills it.
 - A unique board name (`set<digits>`) and instance name
   (`e2e-name-<digits>`) are used per run so reruns don't collide.
+- `openPaletteSettings` RETRIES the `Meta+K` hotkey (toPass, 15s budget): a
+  keypress fired before the global keydown listener attaches (cold dev-server
+  first navigation) is dropped forever, so a single long wait on the palette
+  input could never recover.
 
 ## Tests
 
@@ -42,6 +47,50 @@ pair, terminal font), and Escape closes it (keyboard-first contract).
 5. Assert the Instance name input, SSH host input, `Set instance color`
    button, Dark theme select, and `Increase terminal font` button render.
 6. Press Escape; assert the dialog is gone.
+
+### `desktop preference-pane layout with the Notifications row (260724-6j1v)`
+
+**What it proves:** The dialog uses the wide `lg` Dialog variant (`max-w-2xl`,
+not the phone-card `max-w-sm`); each setting is a preference row — a
+`min-[480px]:grid-cols-[190px_1fr]` grid (label column left, control column
+right); and the Notifications row (moved from the retired top-bar bell) renders
+under This device with its test-send button and setup-guide link. Status text
+varies by browser permission state, so only state-independent contents are
+asserted here (state-by-state behavior is unit-tested).
+
+**Steps:**
+
+1. Navigate to `/rk-test-e2e` and wait for the Connected indicator.
+2. Open the dialog via the palette (`Settings: Open`).
+3. Assert the dialog panel's class carries `max-w-2xl` and not `max-w-sm`.
+4. Resolve the Instance-name input's closest `.grid` ancestor and assert its
+   class contains `min-[480px]:grid-cols-[190px_1fr]`.
+5. Assert the `Notifications` label, the `Send test notification` button, and
+   the `Setup & troubleshooting guide` link (GitHub notifications doc, new
+   tab) are visible.
+6. Press Escape; assert the dialog is gone.
+
+### `short viewport (375x667): the dialog fits and its last row is reachable by scroll (260724-6j1v)`
+
+**What it proves:** On a short viewport the (taller, `lg`) settings dialog
+does not clip off-screen with no scroll path: the panel's border box fits
+entirely inside the viewport, the panel itself is the scroll container
+(`scrollHeight > clientHeight`), and the last row's control (the
+Notifications setup-guide link) is reachable by scrolling within it. Guards
+the rework finding M1 regression class. The `Connected` readiness gate is
+deliberately not used — at a mobile viewport the sidebar (which hosts the
+dot) is an unmounted drawer, so the top-bar chevron is the readiness signal.
+
+**Steps:**
+
+1. Set the viewport to 375×667 and navigate to `/rk-test-e2e`; wait for the
+   top-bar `More controls` chevron.
+2. Open the dialog via the palette (`Settings: Open`).
+3. Assert the dialog `boundingBox()` lies fully within `[0,0]–[375,667]`.
+4. Assert `scrollHeight > clientHeight` on the dialog panel (content
+   overflows into a scroll path).
+5. `scrollIntoViewIfNeeded()` the `Setup & troubleshooting guide` link;
+   assert it is visible and its box sits inside the viewport.
 
 ### `palette opens the same dialog on /board/$name (no AppShell there)`
 

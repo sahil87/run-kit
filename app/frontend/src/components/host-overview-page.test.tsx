@@ -28,15 +28,6 @@ vi.mock("@/api/client", async () => {
   };
 });
 
-// --- Push lib mock: the shared TopBar (host mode) mounts NotificationControl,
-// which calls getPushState() on mount. Keep it deterministic + supported-off so
-// the bell renders without touching real serviceWorker / Notification. ---
-vi.mock("@/lib/push", () => ({
-  getPushState: vi.fn().mockResolvedValue("default"),
-  enablePushSubscription: vi.fn().mockResolvedValue("subscribed"),
-  sendTestNotification: vi.fn().mockResolvedValue(true),
-}));
-
 // --- Toast mock. ---
 const addToastMock = vi.fn();
 vi.mock("@/components/toast", () => ({
@@ -62,9 +53,6 @@ vi.mock("@/contexts/session-context", () => ({
     refreshServers: refreshServersMock,
     markServerPending: markServerPendingMock,
     sessionsByServer: mockSessionsByServer,
-    // Host connection dot source (260704-9o7k) — gray in these tests; the
-    // dot's presence (not its color) is what the TopBar tests assert.
-    hostMetricsConnected: false,
   }),
 }));
 
@@ -101,8 +89,7 @@ function nameValue(overrides: Partial<InstanceName> = {}): InstanceName {
 
 /**
  * Render the page inside the providers the shared host-mode TopBar depends on
- * (Theme + Chrome). Toast + router are module-mocked above; the push lib is
- * mocked so NotificationControl mounts cleanly.
+ * (Theme + Chrome). Toast + router are module-mocked above.
  */
 function renderPage(instanceNameValue: InstanceName = nameValue()) {
   return render(
@@ -337,7 +324,9 @@ describe("HostOverviewPage — Services zone", () => {
 describe("HostOverviewPage — TopBar mount moved to root (260707-4vq2)", () => {
   // The host-mode TopBar mount was lifted to the persistent root layout
   // (`RootTopBar` in app.tsx). `HostOverviewPage` no longer renders a TopBar of
-  // its own — it only publishes the connection-dot data into the slot context.
+  // its own and (since 260724-6j1v) publishes nothing into the slot context —
+  // the connection dot it used to feed moved to the sidebar footer, and `/`
+  // has no sidebar.
   // The TopBar's own rendering (brand crumb, controls, `Host` heading,
   // no-hamburger) is now covered by top-bar.test.tsx (which renders TopBar in
   // host mode directly) and the top-bar-persistence e2e; asserting those

@@ -122,9 +122,10 @@ Steps:
 1. Set the 375×812 viewport; create a window with `@rk_url` and a long
    worktree-style name.
 2. Navigate to `…?view=web` and gate on the **iframe** (not the `Connected`
-   dot — that dot is `hidden sm:inline`, so it is `display:none` at 375px and
-   never becomes visible; window-heading.spec.ts's mobile test gates on the
-   heading for the same reason). Assert the iframe renders.
+   dot — it lives in the sidebar footer (260724-6j1v), and at 375px the
+   sidebar is an unmounted drawer, so the dot never becomes visible;
+   window-heading.spec.ts's mobile test gates on the heading for the same
+   reason). Assert the iframe renders.
 3. Assert no in-bar switcher group ("Window view") AND no `view-toggle` testid
    anywhere in the DOM (menuOnly — no bar slot, no probe copy).
 4. Open the "More controls" chevron; assert the menu carries `View: Terminal`

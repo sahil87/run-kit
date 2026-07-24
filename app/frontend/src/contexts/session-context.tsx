@@ -28,10 +28,6 @@ export type ChatFrameHandlers = {
   onAck: (offset: number) => void;
 };
 
-// Internal ref-set key for the host-metrics subscription (distinct from any
-// real tmux server name, which never contains a NUL).
-const METRICS_SUB = "\x00metrics";
-
 const SERVER_STORAGE_KEY = "runkit-server";
 // localStorage key for composite update-notice dismissal. The value is the
 // dismissed composite `key` — the sorted `tool@latest` pairs (e.g.
@@ -123,13 +119,6 @@ export type SessionContextType = {
   sessionsByServer: Map<string, ProjectSession[]>;
   sessionOrderByServer: Map<string, string[]>;
   isConnectedByServer: Map<string, boolean>;
-  /** Health of the host-metrics source that feeds `useHostMetrics()` — true
-   *  when host metrics are flowing (260704-9o7k, for the Host connection
-   *  dot). Keys on the state socket: when no server is attached it is (socket
-   *  connected AND the dedicated `metrics` subscription acked); otherwise it
-   *  derives from whether any attached server's subscription is acked (the
-   *  metrics fan-out source, since metrics ride every subscription). */
-  hostMetricsConnected: boolean;
   metricsByServer: Map<string, MetricsSnapshot | null>;
   /** Per-server map of `windowId → pane-text preview` for the tile grid. Only
    *  windows in sessions the client declared expanded (via `setPreviewScope`)
@@ -312,14 +301,6 @@ export function SessionProvider({ children }: SessionProviderProps) {
   // Latest host-global metrics snapshot from the state socket's `metrics` global
   // event (see the StateSocket handlers below). `null` until the first tick.
   const [hostMetrics, setHostMetrics] = useState<MetricsSnapshot | null>(null);
-  // Health of the DEDICATED `metrics` subscription (260704-9o7k). Set true when
-  // that subscription acks over a connected socket, cleared via a 3s debounce on
-  // socket disconnect — mirrors the per-server slice `isConnected` lifecycle.
-  // Only meaningful while the dedicated metrics subscription is the host-metrics
-  // source (attached set empty); when a server subscription carries the fan-out
-  // the derived value below reads from per-server connectedness instead. `false`
-  // until the first metrics ack.
-  const [dedicatedMetricsConnected, setDedicatedMetricsConnected] = useState(false);
   // Undebounced state-socket open/closed signal (260717-vhvz). Exposed so the
   // chat-lens owner hook can compose the chat dot = (socket connected) AND (chat
   // acked) and apply its own 3s disconnect debounce. Distinct from
@@ -663,7 +644,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
   const socketRef = useRef<StateSocket | null>(null);
   // Socket-level connection state — true between onopen and onclose. The
   // per-server dot derives from (socket connected AND that server's subscription
-  // acked); host-metrics health derives from the metrics subscription's ack.
+  // acked).
   const socketConnectedRef = useRef(false);
   // 3s disconnect debounce (mirrors the old per-server `onerror` debounce) so a
   // transient socket blip doesn't flicker the connection dots gray.
@@ -830,7 +811,6 @@ export function SessionProvider({ children }: SessionProviderProps) {
       for (const name of ackedServersRef.current) {
         updateSlice(name, { isConnected: up }, true);
       }
-      setDedicatedMetricsConnected(up && ackedServersRef.current.has(METRICS_SUB));
     };
 
     const socket = new StateSocket({
@@ -848,8 +828,6 @@ export function SessionProvider({ children }: SessionProviderProps) {
       },
       onAck: (_req, kind, key, snapshot, offset) => {
         if (kind === "metrics") {
-          ackedServersRef.current.add(METRICS_SUB);
-          setDedicatedMetricsConnected(socketConnectedRef.current);
           // The metrics ack snapshot is the cached metrics payload (or null).
           if (snapshot) {
             eventRef.current.handleGlobalEvent("metrics", snapshot);
@@ -935,13 +913,11 @@ export function SessionProvider({ children }: SessionProviderProps) {
       // reset, mount 2's diff effect (`subscribedServersRef`) and metrics effect
       // (`metricsSubscribedRef`) would see their guards already true and never
       // subscribe on the fresh socket — permanently losing the metrics
-      // subscription on `/` (Host dot dead, poll loop never started when this is
-      // the hub's only client). `ackedServersRef` is cleared too since nothing
-      // is acked on the new socket until fresh acks arrive. These effects re-run
-      // on every remount regardless of dep changes, so cleared guards make them
-      // re-subscribe. (`dedicatedMetricsConnected` is React state, reset by the
-      // metrics effect's own `setDedicatedMetricsConnected(false)` path when it
-      // re-runs; the fresh metrics ack re-establishes it.)
+      // subscription on `/` (host-metrics data dead, poll loop never started
+      // when this is the hub's only client). `ackedServersRef` is cleared too
+      // since nothing is acked on the new socket until fresh acks arrive. These
+      // effects re-run on every remount regardless of dep changes, so cleared
+      // guards make them re-subscribe.
       metricsSubscribedRef.current = false;
       subscribedServersRef.current.clear();
       ackedServersRef.current.clear();
@@ -993,8 +969,6 @@ export function SessionProvider({ children }: SessionProviderProps) {
       socket.subscribeMetrics();
     } else if (!hostMetricsWanted && metricsSubscribedRef.current) {
       metricsSubscribedRef.current = false;
-      ackedServersRef.current.delete(METRICS_SUB);
-      setDedicatedMetricsConnected(false);
       socket.unsubscribeMetrics();
     }
   }, [hostMetricsWanted]);
@@ -1022,20 +996,6 @@ export function SessionProvider({ children }: SessionProviderProps) {
     return m;
   }, [slicesByServer]);
 
-  // Host-metrics source health (260704-9o7k) — the Host connection dot.
-  // When no server is attached the dedicated `metrics` subscription IS the
-  // source, so use its debounced health. Otherwise the host-global metrics
-  // broadcast rides every server subscription, so derive from whether ANY
-  // attached server slice is connected — that subscription is delivering the
-  // host-global `metrics` event.
-  const hostMetricsConnected = useMemo(() => {
-    if (hostMetricsWanted) return dedicatedMetricsConnected;
-    for (const slice of slicesByServer.values()) {
-      if (slice.isConnected) return true;
-    }
-    return false;
-  }, [hostMetricsWanted, dedicatedMetricsConnected, slicesByServer]);
-
   const metricsByServer = useMemo(() => {
     const m = new Map<string, MetricsSnapshot | null>();
     for (const [name, slice] of slicesByServer) m.set(name, slice.metrics);
@@ -1061,7 +1021,6 @@ export function SessionProvider({ children }: SessionProviderProps) {
       sessionsByServer,
       sessionOrderByServer,
       isConnectedByServer,
-      hostMetricsConnected,
       metricsByServer,
       previewsByServer,
       setPreviewScope,
@@ -1092,7 +1051,6 @@ export function SessionProvider({ children }: SessionProviderProps) {
       sessionsByServer,
       sessionOrderByServer,
       isConnectedByServer,
-      hostMetricsConnected,
       metricsByServer,
       previewsByServer,
       setPreviewScope,
@@ -1197,8 +1155,8 @@ export function useUpdateNotification(): {
 } {
   // Tolerant of a missing provider: the update chip/palette are chrome that must
   // degrade to "no update" (never crash) when mounted outside SessionProvider
-  // — e.g. isolated component tests. Mirrors how NotificationControl's
-  // usePushSubscription never throws without a provider.
+  // — e.g. isolated component tests. Mirrors how usePushSubscription (the
+  // settings dialog's Notifications row) never throws without a provider.
   const ctx = useContext(SessionContext);
   const daemonVersion = ctx?.daemonVersion ?? null;
   const updateAvailable = ctx?.updateAvailable ?? null;
@@ -1313,7 +1271,6 @@ export function StandaloneSessionContextProvider({
     sessionsByServer: value.sessionsByServer ?? new Map(),
     sessionOrderByServer: value.sessionOrderByServer ?? new Map(),
     isConnectedByServer: value.isConnectedByServer ?? new Map(),
-    hostMetricsConnected: value.hostMetricsConnected ?? false,
     metricsByServer: value.metricsByServer ?? new Map(),
     previewsByServer: value.previewsByServer ?? new Map(),
     setPreviewScope: value.setPreviewScope ?? (() => {}),

@@ -19,6 +19,13 @@ export const READY_TIMEOUT = process.env.CI ? 20_000 : 10_000;
  * populated. Returns the Sessions nav locator. Pass `expectSession` to also
  * gate on a specific session row being rendered (the strongest signal that the
  * SSE payload has actually landed).
+ *
+ * PRECONDITION (260724-6j1v): the `[aria-label='Connected']` dot lives in the
+ * sidebar FOOTER, and Shell unmounts the sidebar when it is collapsed or at a
+ * mobile viewport (closed drawer). Specs using this gate — or gating on the
+ * dot directly — must run at a desktop viewport with the sidebar open
+ * (Playwright's 1280px `Desktop Chrome` default qualifies). For mobile-viewport
+ * tests, gate on an always-mounted element (heading, chevron, iframe) instead.
  */
 export async function gotoServerReady(
   page: Page,
@@ -74,7 +81,9 @@ export async function resolveWindow(
   return id!;
 }
 
-/** Navigate to a specific window's terminal route and wait for connection. */
+/** Navigate to a specific window's terminal route and wait for connection.
+ *  Same sidebar-mount precondition as `gotoServerReady` (the dot is in the
+ *  sidebar footer — desktop viewport, sidebar open). */
 export async function gotoWindow(
   page: Page,
   server: string,

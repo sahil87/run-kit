@@ -13,7 +13,6 @@ import { HostMetrics } from "@/components/host-metrics";
 import { useBoards } from "@/hooks/use-boards";
 import { useBoardListReorder } from "@/hooks/use-board-list-reorder";
 import { useServerReorder } from "@/hooks/use-server-reorder";
-import { useRegisterTopBarSlot } from "@/contexts/top-bar-slot-context";
 import { SectionHeading } from "@/components/section-heading";
 import { Tip } from "@/components/tip";
 import { displayVersion } from "@/lib/palette-version";
@@ -65,32 +64,11 @@ export function HostOverviewPage() {
       a.port - b.port;
     return regular.sort(byPort).concat(wellKnown.sort(byPort));
   }, [hostServices]);
-  // Host connection dot (260704-9o7k): reflects host-metrics stream health.
-  const { hostMetricsConnected } = useSessionContext();
-
-  // Publish the host TopBar's page-owned prop into the persistent root bar's
-  // slot (260707-4vq2). Host mode is otherwise entirely tolerant-empty (no
-  // sessions/handlers), so the connection dot's data source is the only page
-  // input the slot needs. `mode` is derived at root from the route.
-  useRegisterTopBarSlot(
-    useMemo(
-      () => ({
-        sessions: [],
-        currentSession: null,
-        currentWindow: null,
-        sessionName: "",
-        windowName: "",
-        isConnected: hostMetricsConnected,
-        sidebarOpen: false,
-        server: "",
-        onNavigate: () => {},
-        onToggleSidebar: () => {},
-        onCreateSession: () => {},
-        onCreateWindow: () => {},
-      }),
-      [hostMetricsConnected],
-    ),
-  );
+  // No TopBar slot registration (260724-6j1v): the connection dot — the only
+  // page input the Host page ever published — moved to the sidebar footer, and
+  // the Host page has no sidebar. RootTopBar's tolerant-empty defaults cover
+  // every other host-mode prop, so the route deliberately loses its connection
+  // indicator (intake assumption: no host-route special case).
   // Cross-server pane boards for the BOARDS zone. useBoards is self-contained
   // (plain /api/boards fetch + the shared SSE pool) and boards aggregate
   // windows across servers, so the box-level Host is their natural home.
@@ -236,10 +214,11 @@ export function HostOverviewPage() {
       {/* The host-mode TopBar mount moved to the persistent root layout
           (260707-4vq2). Its route-derived mode is `host` (brand root crumb +
           the solo `Host` center heading + route-agnostic controls; no
-          hamburger). This page only publishes the connection-dot source
-          (`hostMetricsConnected`) into the slot — see the registration effect
-          above. `h-full` (was `h-screen`) because the root layout now owns the
-          viewport height; the list below still scrolls within `flex-1`. */}
+          hamburger). The page publishes nothing into the TopBar slot
+          (260724-6j1v — the connection dot it used to feed moved to the
+          sidebar footer, and `/` has no sidebar). `h-full` (was `h-screen`)
+          because the root layout now owns the viewport height; the list below
+          still scrolls within `flex-1`. */}
 
       {/* Server list. `pt-6` matches the `mb-6` inter-section rhythm so the
           gap below the TopBar equals the gap between sections. The Host's

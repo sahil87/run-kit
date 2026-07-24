@@ -3,13 +3,10 @@ import { useNavigate, useRouter } from "@tanstack/react-router";
 import { BreadcrumbDropdown } from "@/components/breadcrumb-dropdown";
 import { LogoSpinner } from "@/components/logo-spinner";
 import { useChromeState, useChromeDispatch, TERMINAL_FONT_BOUNDS } from "@/contexts/chrome-context";
-import { useTheme, useThemeActions } from "@/contexts/theme-context";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useToast } from "@/components/toast";
-import { usePushSubscription } from "@/hooks/use-push-subscription";
 import { useUpdateClick } from "@/hooks/use-update-click";
 import { useUpdateNotification } from "@/contexts/session-context";
-import { displayVersion } from "@/lib/palette-version";
 import { updateChipToolSummary } from "@/lib/palette-update";
 import { splitWindow, closePane } from "@/api/client";
 import { useWindowRename } from "@/hooks/use-window-rename";
@@ -98,7 +95,6 @@ type TopBarProps = {
   currentWindow: WindowInfo | null;
   sessionName: string;
   windowName: string;
-  isConnected: boolean;
   sidebarOpen: boolean;
   server: string;
   onNavigate: (windowId: string) => void;
@@ -352,7 +348,6 @@ export function TopBar({
   currentWindow,
   sessionName,
   windowName,
-  isConnected,
   sidebarOpen,
   server,
   onNavigate,
@@ -373,29 +368,11 @@ export function TopBar({
   activeView,
   onSelectView,
 }: TopBarProps) {
-  // The connection dot represents "the daemon's stream" — extend its hover title
-  // with the running version. `daemonVersion` comes from the same
-  // SSE-fed session context the UpdateChip reads (tolerant of a missing
-  // provider). Omit the version fragment until the first `event: version` so we
-  // never render `vundefined`; the aria-label stays the concise Connected/
-  // Disconnected on the live region (version is hover-discovery detail only).
   // `showChip` tells us whether the UpdateChip WOULD render in the bar (a
   // qualifying, undismissed, non-dev update). When it does but the chip's
   // registry entry is overflowed into the menu, the version row becomes the
   // update surface and the chevron shows an attention badge (change areas 2–3).
-  const { daemonVersion, showChip, key: updateKey } = useUpdateNotification();
-  const dotTitle = !isConnected
-    ? "Disconnected"
-    : daemonVersion
-      ? `Connected — run-kit ${displayVersion(daemonVersion)}`
-      : "Connected";
-
-  // Push support gates the notification entry out of the registry entirely when
-  // unsupported (insecure context / no service worker) — the same "no bell where
-  // it can't work" rule NotificationControl enforces internally, lifted to the
-  // registry so it never reserves a bar slot or an empty menu row.
-  const { state: pushState } = usePushSubscription();
-  const pushUnsupported = pushState === "unsupported";
+  const { showChip, key: updateKey } = useUpdateNotification();
 
   // Breadcrumb hrefs use the 2-segment route shape /$server/$window — the
   // window id (@N) is the only identity in the URL. Selecting a session jumps
@@ -474,8 +451,8 @@ export function TopBar({
   // buttons) and the overflow menu (the rest render as rows) — so bar↔menu can
   // never drift. Order encodes drop priority: L1 first, then L2, then L3, and
   // within a tier leftmost drops first (overflow consumes FROM THE FRONT). Only
-  // the trailing chevron + connection dot are EXEMPT (never overflow) and render
-  // outside this candidate list; the ViewSwitcher is the first REGISTRY entry
+  // the trailing chevron is EXEMPT (never overflows) and renders outside this
+  // candidate list; the ViewSwitcher is the first REGISTRY entry
   // but is `menuOnly` (260722-n2n4) — it never renders in-bar and its menu rows
   // lead the chevron menu. Each entry gates on `modes` (the current mode
   // must be listed) and an optional `hidden` predicate (renders nowhere).
@@ -637,7 +614,9 @@ export function TopBar({
           <ClosePaneMenuRow server={server} windowId={currentWindow.windowId} label="Close pane" />
         ) : null,
     },
-    // L3 — always (all four modes): update chip · notification · theme · refresh · help.
+    // L3 — always (all four modes): update chip · refresh. Theme, help, and the
+    // notification bell LEFT the bar in 260724-6j1v — theme/help live in the
+    // sidebar footer, notifications in the settings dialog.
     // The UpdateChip has NO menu row: when overflowed, its function merges into
     // the version row (the menu component owns that — including the dismissed-
     // pending update surface and the resting version + ⟳ check affordance,
@@ -654,29 +633,10 @@ export function TopBar({
       menuRender: () => null,
     },
     {
-      id: "notification",
-      modes: ["terminal", "board", "server", "host"],
-      hidden: pushUnsupported,
-      barRender: () => <NotificationControl />,
-      menuRender: () => <NotificationMenuRows />,
-    },
-    {
-      id: "theme",
-      modes: ["terminal", "board", "server", "host"],
-      barRender: () => <ThemeToggle />,
-      menuRender: () => <ThemeMenuRow />,
-    },
-    {
       id: "refresh",
       modes: ["terminal", "board", "server", "host"],
       barRender: () => <RefreshButton />,
       menuRender: () => <RefreshMenuRow />,
-    },
-    {
-      id: "help",
-      modes: ["terminal", "board", "server", "host"],
-      barRender: () => <HelpLink />,
-      menuRender: () => <HelpMenuRow />,
     },
   ];
 
@@ -700,8 +660,9 @@ export function TopBar({
   const rightCellRef = useRef<HTMLDivElement>(null);
   const probeRef = useRef<HTMLDivElement>(null);
   // Exempt-block ref whose measured width is RESERVED before fitting candidates:
-  // the trailing chevron+dot block (always present). Nothing is hardcoded —
-  // every reserved pixel is measured.
+  // the trailing chevron block (always present; the connection dot moved to the
+  // sidebar footer, 260724-6j1v). Nothing is hardcoded — every reserved pixel
+  // is measured.
   const trailingRef = useRef<HTMLDivElement>(null);
   const [visibleCount, setVisibleCount] = useState(0);
   // Serialize the FIT-candidate ids into a dependency key so the measure effect
@@ -719,12 +680,12 @@ export function TopBar({
 
     const measure = () => {
       const available = cell.clientWidth;
-      // Reserve the exempt width (measured): the trailing chevron+dot block,
+      // Reserve the exempt width (measured): the trailing chevron block,
       // joined to the candidate run by one gap.
       const trailing = trailingRef.current?.offsetWidth ?? 0;
       const reserved =
         trailing +
-        RIGHT_GAP_PX; // gap between the last candidate and the chevron/dot block
+        RIGHT_GAP_PX; // gap between the last candidate and the chevron block
       // Overflow consumes the pyramid FROM THE LEFT (L1 drops first, L3 last —
       // the documented invariant). In the bar L1 is leftmost and L3 is pinned
       // rightmost, so the SURVIVING in-bar set is a SUFFIX of the registry
@@ -746,7 +707,8 @@ export function TopBar({
     // re-run the whole effect when the candidate set or membership changes.
     // (The former `availableViews`/`activeView` deps are gone with 260722-n2n4:
     // the menuOnly ViewSwitcher is no longer probed, so its segment/active
-    // changes can't affect the fit.)
+    // changes can't affect the fit.) The trailing block (chevron) is observed
+    // too so a chevron size change re-fits.
     const ro = new ResizeObserver(measure);
     ro.observe(cell);
     ro.observe(probe);
@@ -1041,11 +1003,12 @@ export function TopBar({
             loop). The pyramid invariant holds — overflow consumes L1→L2→L3 from
             the left and surviving buttons keep their positions.
 
-            Only the trailing chevron + connection dot are EXEMPT (never
-            overflow); the ViewSwitcher is `menuOnly` (260722-n2n4) — never
-            in-bar, its `View:` rows always in the menu. The `hidden sm:flex`
-            breakpoint cliff is GONE: below `sm`, controls overflow into the
-            menu instead of vanishing. */}
+            Only the trailing chevron is EXEMPT (never overflows; the
+            connection dot moved to the sidebar footer, 260724-6j1v); the
+            ViewSwitcher is `menuOnly` (260722-n2n4) — never in-bar, its
+            `View:` rows always in the menu. The `hidden sm:flex` breakpoint
+            cliff is GONE: below `sm`, controls overflow into the menu instead
+            of vanishing. */}
         {/* The cell must FILL its `1fr` grid track (NOT `justify-self-end`,
             which would size the box to its own content and both (a) deadlock
             `computeVisibleCount` — a content-sized box measures only the exempt
@@ -1058,8 +1021,8 @@ export function TopBar({
             deadlock the fit). NO `overflow-hidden` here: the candidate buttons
             that don't fit are moved to the menu (never rendered in-bar), so the
             only content that can exceed a very-narrow track is the ALWAYS-present
-            exempt block (chevron + dot). Clipping it would make the chevron
-            un-clickable / hide the dot at tight widths with a long center heading
+            exempt block (the chevron). Clipping it would make the chevron
+            un-clickable at tight widths with a long center heading
             (violating R6/(e) "exempt items always visible"). Letting the exempt
             block paint (unclipped) keeps it usable; `.app-shell`/`header` still
             clip any horizontal PAGE overflow, so no scrollbar appears. */}
@@ -1108,29 +1071,12 @@ export function TopBar({
             ))}
           </div>
 
-          {/* Trailing exempt block — the always-present overflow chevron/menu
-              followed by the connection dot (the right-most status terminator in
-              every mode). Its measured width is reserved before fitting. */}
+          {/* Trailing exempt block — the always-present overflow chevron/menu,
+              the right-most element in every mode (the connection dot moved to
+              the sidebar footer, 260724-6j1v). Its measured width is reserved
+              before fitting. */}
           <div ref={trailingRef} className="flex items-center gap-3 shrink-0">
             <TopBarOverflowMenu rows={overflowRows} updateOverflowed={updateOverflowed} />
-
-            {/* Connection dot — the right-most element in ALL four modes
-                (260704-9o7k). Per-page "this page's live data is flowing":
-                Terminal/tmux Server = the current server's SSE stream; Host =
-                host-metrics stream health; Board = AND over attached servers'
-                streams (derived by each caller and passed as `isConnected`). */}
-            <span role="status" aria-live="polite" className="inline-flex">
-              {/* Hover-only tip: the dot stays a non-focusable span (a status
-                  readout, not an actionable control — no tab stop added). */}
-              <Tip label={dotTitle}>
-                <span
-                  className={`block w-2 h-2 rounded-full ${
-                    isConnected ? "bg-accent-green" : "bg-text-secondary"
-                  }`}
-                  aria-label={isConnected ? "Connected" : "Disconnected"}
-                />
-              </Tip>
-            </span>
           </div>
         </div>
         </TipGroup>
@@ -1868,110 +1814,11 @@ function BoardSwitcher({
   );
 }
 
-/**
- * Shared theme-cycle step: system → light → dark → system. Extracted so the
- * in-bar ThemeToggle and the overflow menu's ThemeMenuRow cycle IDENTICALLY and
- * can't drift (review M5 / A-021). `mode` is the current effective mode.
- */
-function cycleTheme(
-  mode: "system" | "light" | "dark",
-  themeLight: string,
-  themeDark: string,
-  setTheme: (preference: string) => void,
-) {
-  if (mode === "system") setTheme(themeLight);
-  else if (mode === "light") setTheme(themeDark);
-  else setTheme("system");
-}
-
-function ThemeToggle() {
-  const { preference, resolved, themeDark, themeLight } = useTheme();
-  const { setTheme } = useThemeActions();
-
-  // Derive current mode: system, light, or dark
-  const mode = preference === "system" ? "system" : resolved;
-
-  const handleClick = (e: React.MouseEvent) => {
-    if (e.ctrlKey || e.metaKey) {
-      e.preventDefault();
-      document.dispatchEvent(new CustomEvent("theme-selector:open"));
-      return;
-    }
-    cycleTheme(mode, themeLight, themeDark, setTheme);
-  };
-
-  const label = mode === "system" ? "System theme" : mode === "light" ? "Light theme" : "Dark theme";
-
-  return (
-    <Tip label={label}>
-    <button
-      type="button"
-      onClick={handleClick}
-      aria-label={label}
-      className="rk-glint min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center"
-    >
-      {mode === "system" ? (
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-          <rect x="1" y="2" width="14" height="9" rx="1" fill="none" stroke="currentColor" strokeWidth="1.5" />
-          <line x1="5" y1="14" x2="11" y2="14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-          <line x1="8" y1="11" x2="8" y2="14" stroke="currentColor" strokeWidth="1.5" />
-        </svg>
-      ) : resolved === "light" ? (
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-          <circle cx="8" cy="8" r="3" />
-          <g stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-            <line x1="8" y1="1" x2="8" y2="2.5" />
-            <line x1="8" y1="13.5" x2="8" y2="15" />
-            <line x1="1" y1="8" x2="2.5" y2="8" />
-            <line x1="13.5" y1="8" x2="15" y2="8" />
-            <line x1="3.05" y1="3.05" x2="4.11" y2="4.11" />
-            <line x1="11.89" y1="11.89" x2="12.95" y2="12.95" />
-            <line x1="3.05" y1="12.95" x2="4.11" y2="11.89" />
-            <line x1="11.89" y1="4.11" x2="12.95" y2="3.05" />
-          </g>
-        </svg>
-      ) : (
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-          <path d="M6 2a6 6 0 1 0 8 8c-3.3 0-6-2.7-6-6a6 6 0 0 0-2-2z" />
-        </svg>
-      )}
-    </button>
-    </Tip>
-  );
-}
-
-// Help — external docs/landing page. Opens in a new tab. Exported so the
-// command-palette "Help: Documentation" action (app.tsx) shares the same URL
-// and the two can never drift (pattern: NOTIFICATIONS_HELP_URL below).
-export const HELP_URL = "https://shll.ai/run-kit";
-
-// Help link chip — route-agnostic, sits after ThemeToggle in the right cluster.
-// Anchor (not button): it navigates externally, so target="_blank" +
-// rel="noopener noreferrer" keeps the live dashboard (terminals, SSE) mounted.
-function HelpLink() {
-  return (
-    <Tip label="Help — run-kit docs">
-    <a
-      href={HELP_URL}
-      target="_blank"
-      rel="noopener noreferrer"
-      aria-label="Help — run-kit docs"
-      className="rk-glint min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center"
-    >
-      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-        <path
-          d="M5.75 6a2.25 2.25 0 1 1 3.2 2.04c-.62.29-.95.79-.95 1.35v.36"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-        />
-        <circle cx="8" cy="12.25" r="0.9" fill="currentColor" />
-      </svg>
-    </a>
-    </Tip>
-  );
-}
-
+// ThemeToggle, HelpLink, and NotificationControl LEFT this file in 260724-6j1v:
+// theme + help chrome moved to the sidebar footer (`sidebar/index.tsx`
+// SidebarFooter) and notifications folded into the settings dialog. The shared
+// definitions (HELP_URL, NOTIFICATIONS_HELP_URL, cycleTheme, the theme/help
+// SVGs) live in `components/global-chrome.tsx`.
 
 function SplitButton({
   horizontal,
@@ -2331,8 +2178,8 @@ function TerminalFontControl() {
 /**
  * Top-bar update chip (L3 right cluster). Self-contained — reads the
  * update-notification state from SessionContext via `useUpdateNotification`
- * (no props threaded through TopBar), mirroring NotificationControl /
- * ThemeToggle. In-app only: NO Web Push (update notices must not buzz phones).
+ * (no props threaded through TopBar), mirroring TerminalFontControl. In-app
+ * only: NO Web Push (update notices must not buzz phones).
  *
  * Rest: `⬆ v{latest}` with accent styling + CRT-glint hover (`rk-glint`, the
  * button hover vocabulary). Clicking the chip body triggers POST /api/update and
@@ -2399,162 +2246,6 @@ function UpdateChip() {
         </Tip>
       )}
     </span>
-  );
-}
-
-// Nerd Font bell glyphs (same icon system as the sidebar status panel):
-// U+F0F3 bell (notifications on), U+F1F6 bell-slash (off / available).
-const BELL_ON = "\uF0F3";
-const BELL_OFF = "\uF1F6";
-
-// Notifications help page (rendered by GitHub). Opens in a new tab from the
-// bell dropdown \u2014 the canonical "it says sent but nothing shows" guide.
-const NOTIFICATIONS_HELP_URL =
-  "https://github.com/sahil87/run-kit/blob/main/docs/site/notifications.md";
-
-/**
- * Top-bar notification control: a bell icon button (filled when subscribed,
- * bell-slash otherwise) opening a small dropdown to enable push and send a
- * local test notification. Self-contained — calls `usePushSubscription`
- * directly (no props threaded through TopBar), mirroring TerminalFontControl /
- * ThemeToggle. Renders nothing when push is unsupported (insecure context or no
- * service-worker support) so the bell never appears where it can't work.
- */
-function NotificationControl() {
-  const { state, enable, sendTest } = usePushSubscription();
-  const [open, setOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    function handleClick(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    }
-    function handleKey(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        setOpen(false);
-        triggerRef.current?.focus();
-      }
-    }
-    document.addEventListener("mousedown", handleClick);
-    document.addEventListener("keydown", handleKey, { capture: true });
-    return () => {
-      document.removeEventListener("mousedown", handleClick);
-      document.removeEventListener("keydown", handleKey, { capture: true });
-    };
-  }, [open]);
-
-  // No bell at all where push can't work — keeps the affordance honest.
-  if (state === "unsupported") return null;
-
-  const subscribed = state === "subscribed";
-  const denied = state === "denied";
-
-  const statusLabel = subscribed
-    ? "Notifications: on"
-    : denied
-      ? "Blocked in browser settings"
-      : "Notifications: off";
-  const ariaLabel = subscribed
-    ? "Notifications on"
-    : denied
-      ? "Notifications blocked"
-      : "Notifications off";
-
-  const menuItemClass =
-    "w-full text-left text-xs text-text-secondary hover:text-text-primary transition-colors py-1.5 px-2 rounded hover:bg-bg-card disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-text-secondary";
-
-  return (
-    // No `hidden sm:inline-flex` (review M2 / R14): the notification entry's
-    // responsive gating is registry-driven — below `sm` it overflows into the
-    // chevron menu ("Enable notifications" / "Send test notification" rows)
-    // instead of vanishing. The registry `hidden` predicate (pushUnsupported)
-    // still removes it entirely where push can't work.
-    <div ref={containerRef} className="relative inline-flex items-center">
-      {/* Tip suppressed while the dropdown is open (the status line repeats
-          inside the menu anyway). */}
-      <Tip label={open ? undefined : statusLabel}>
-      <button
-        ref={triggerRef}
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-haspopup="true"
-        aria-expanded={open}
-        aria-label={ariaLabel}
-        className={`rk-glint min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border transition-colors flex items-center justify-center leading-none ${
-          open
-            ? "border-accent text-accent bg-accent/10"
-            : subscribed
-              ? "border-border text-accent-bright hover:border-text-secondary"
-              : "border-border text-text-secondary hover:border-text-secondary"
-        }`}
-      >
-        <span aria-hidden="true" className="text-[13px] font-bold">
-          {subscribed ? BELL_ON : BELL_OFF}
-        </span>
-      </button>
-      </Tip>
-      {open && (
-        <div
-          role="menu"
-          aria-label="Notifications"
-          className="absolute top-full right-0 mt-1 min-w-[180px] bg-bg-primary border border-border rounded-lg shadow-2xl p-1.5 z-50 flex flex-col gap-0.5"
-        >
-          <div className="px-2 py-1 text-[11px] text-text-secondary select-none">
-            {statusLabel}
-          </div>
-          {!subscribed && (
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setOpen(false);
-                void enable();
-              }}
-              className={menuItemClass}
-            >
-              Enable notifications
-            </button>
-          )}
-          <Tip label={subscribed ? "Send a local test notification" : "Enable notifications first"}>
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setOpen(false);
-                void sendTest();
-              }}
-              disabled={!subscribed}
-              className={menuItemClass}
-            >
-              Send test notification
-            </button>
-          </Tip>
-          {denied && (
-            <div className="px-2 py-1 text-[11px] text-text-secondary select-none">
-              Re-allow notifications for this site in your browser/OS settings.
-            </div>
-          )}
-          {/* Old 55ch title rewritten to fit the tier-1 ≤40ch one-line cap. */}
-          <Tip label="Setup & troubleshooting guide">
-            <a
-              href={NOTIFICATIONS_HELP_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              role="menuitem"
-              onClick={() => setOpen(false)}
-              className={`${menuItemClass} border-t border-border mt-0.5 pt-1.5`}
-            >
-              Notifications help…
-            </a>
-          </Tip>
-        </div>
-      )}
-    </div>
   );
 }
 
@@ -2811,57 +2502,6 @@ function ClosePaneMenuRow({
   );
 }
 
-/** Notification rows — flattens the bell dropdown into direct menu rows
- *  ("Enable notifications" / "Send test notification") per current subscription
- *  state. Returns a fragment (may render two rows); the parent slot resolves the
- *  first focusable element for keyboard nav. */
-function NotificationMenuRows() {
-  const { state, enable, sendTest } = usePushSubscription();
-  const subscribed = state === "subscribed";
-  return (
-    <>
-      {!subscribed && (
-        <button type="button" role="menuitem" tabIndex={-1} onClick={() => void enable()} className={MENU_ROW_CLASS}>
-          Enable notifications
-        </button>
-      )}
-      <Tip label={subscribed ? "Send a local test notification" : "Enable notifications first"}>
-        <button
-          type="button"
-          role="menuitem"
-          tabIndex={-1}
-          disabled={!subscribed}
-          onClick={() => void sendTest()}
-          className={MENU_ROW_CLASS}
-        >
-          Send test notification
-        </button>
-      </Tip>
-    </>
-  );
-}
-
-/** Theme cycle row — `Theme: {current}`, cycling system → light → dark on click
- *  (same mutation vocabulary as the in-bar ThemeToggle). */
-function ThemeMenuRow() {
-  const { preference, resolved, themeDark, themeLight } = useTheme();
-  const { setTheme } = useThemeActions();
-  const mode = preference === "system" ? "system" : resolved;
-  const label = mode === "system" ? "System" : mode === "light" ? "Light" : "Dark";
-  // Shared cycle step with ThemeToggle (review M5) — no duplicated branch.
-  return (
-    <button
-      type="button"
-      role="menuitem"
-      tabIndex={-1}
-      onClick={() => cycleTheme(mode, themeLight, themeDark, setTheme)}
-      className={MENU_ROW_CLASS}
-    >
-      {`Theme: ${label}`}
-    </button>
-  );
-}
-
 /** Refresh-page row — plain click reloads, Shift+click force-reloads (same as
  *  the in-bar RefreshButton). Labeled "Refresh page" to disambiguate from the
  *  `Status: Refresh` palette action (260715-jykd), assumption #12. */
@@ -2878,22 +2518,5 @@ function RefreshMenuRow() {
         Refresh page
       </button>
     </Tip>
-  );
-}
-
-/** Help / Documentation external-link row — same HELP_URL + safe-new-tab attrs
- *  as the in-bar HelpLink. */
-function HelpMenuRow() {
-  return (
-    <a
-      href={HELP_URL}
-      target="_blank"
-      rel="noopener noreferrer"
-      role="menuitem"
-      tabIndex={-1}
-      className={MENU_ROW_CLASS}
-    >
-      Help / Documentation
-    </a>
   );
 }

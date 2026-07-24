@@ -13,10 +13,12 @@ import type { ViewName } from "@/lib/window-view";
  *     changes and never waits on the incoming page's mount (important for the
  *     lazily-loaded board).
  *   - Page-registered (this context): the data/handler props a page owns —
- *     `sessions`, current session/window, connection state, and the create/
- *     navigate/toggle handlers whose heavy logic (View-Transitions gate,
- *     optimistic ghosts) stays in `AppShell`/`BoardPage`. Pages publish these
- *     via `useRegisterTopBarSlot(...)` in an effect and clear on unmount.
+ *     `sessions`, current session/window, and the create/navigate/toggle
+ *     handlers whose heavy logic (View-Transitions gate, optimistic ghosts)
+ *     stays in `AppShell`/`BoardPage`. Pages publish these via
+ *     `useRegisterTopBarSlot(...)` in an effect and clear on unmount.
+ *     (Connection state left the slot in 260724-6j1v — the dot moved to the
+ *     sidebar footer and reaches the Sidebar as a prop.)
  *
  * Precedent: `FocusedTerminalProvider` — a root-level provider that pages
  * register into. Same referentially-stable-dispatcher + `useMemo`-value shape.
@@ -31,7 +33,6 @@ export type TopBarSlot = {
   currentWindow: WindowInfo | null;
   sessionName: string;
   windowName: string;
-  isConnected: boolean;
   sidebarOpen: boolean;
   server: string;
   onNavigate: (windowId: string) => void;

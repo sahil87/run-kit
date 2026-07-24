@@ -177,6 +177,7 @@ function buildTree(overrides: SidebarTestOverrides) {
                       currentServer={currentServer}
                       currentSession="run-kit"
                       currentWindowId="@0"
+                      isConnected={false}
                       onSelectWindow={vi.fn()}
                       onCreateWindow={vi.fn()}
                       onCreateSession={vi.fn()}
@@ -1028,6 +1029,7 @@ describe("Sidebar", () => {
                           currentServer="runkit"
                           currentSession="run-kit"
                           currentWindowId="@0"
+                          isConnected={false}
                           onSelectWindow={vi.fn()}
                           onCreateWindow={vi.fn()}
                           onCreateSession={vi.fn()}

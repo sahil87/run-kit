@@ -15,14 +15,14 @@ function SlotView() {
   const slot = useTopBarSlot();
   return (
     <span data-testid="slot">
-      {slot ? `${slot.server}:${slot.sessionName}:${slot.isConnected}` : "null"}
+      {slot ? `${slot.server}:${slot.sessionName}:${slot.sidebarOpen}` : "null"}
     </span>
   );
 }
 
 /** A minimal registering page. Publishes a memoized slot on mount, clears on
  *  unmount (via the hook's effect cleanup). */
-function Registrant({ server, isConnected }: { server: string; isConnected: boolean }) {
+function Registrant({ server, sidebarOpen }: { server: string; sidebarOpen: boolean }) {
   const slot = useMemo<NonNullable<TopBarSlot>>(
     () => ({
       sessions: [],
@@ -30,15 +30,14 @@ function Registrant({ server, isConnected }: { server: string; isConnected: bool
       currentWindow: null,
       sessionName: "",
       windowName: "",
-      isConnected,
-      sidebarOpen: false,
+      sidebarOpen,
       server,
       onNavigate: () => {},
       onToggleSidebar: () => {},
       onCreateSession: () => {},
       onCreateWindow: () => {},
     }),
-    [server, isConnected],
+    [server, sidebarOpen],
   );
   useRegisterTopBarSlot(slot);
   return null;
@@ -59,7 +58,7 @@ describe("TopBarSlotContext", () => {
   it("useRegisterTopBarSlot publishes the page's props into the read hook", () => {
     render(
       <TopBarSlotProvider>
-        <Registrant server="rk" isConnected={true} />
+        <Registrant server="rk" sidebarOpen={true} />
         <SlotView />
       </TopBarSlotProvider>,
     );
@@ -69,7 +68,7 @@ describe("TopBarSlotContext", () => {
   it("clears the slot back to null when the registering page unmounts", () => {
     const { rerender } = render(
       <TopBarSlotProvider>
-        <Registrant server="rk" isConnected={false} />
+        <Registrant server="rk" sidebarOpen={false} />
         <SlotView />
       </TopBarSlotProvider>,
     );
@@ -87,7 +86,7 @@ describe("TopBarSlotContext", () => {
   it("is last-writer-wins — a re-registered slot overwrites the prior value", () => {
     const { rerender } = render(
       <TopBarSlotProvider>
-        <Registrant server="alpha" isConnected={true} />
+        <Registrant server="alpha" sidebarOpen={true} />
         <SlotView />
       </TopBarSlotProvider>,
     );
@@ -95,7 +94,7 @@ describe("TopBarSlotContext", () => {
     act(() => {
       rerender(
         <TopBarSlotProvider>
-          <Registrant server="beta" isConnected={false} />
+          <Registrant server="beta" sidebarOpen={false} />
           <SlotView />
         </TopBarSlotProvider>,
       );
@@ -171,7 +170,6 @@ describe("TopBarSlotContext", () => {
         currentWindow: null,
         sessionName: "",
         windowName: "",
-        isConnected: false,
         sidebarOpen: false,
         server: "",
         onNavigate: () => {},

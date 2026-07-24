@@ -61,7 +61,8 @@ import { OptimisticProvider } from "@/contexts/optimistic-context";
 import { useDialogState } from "@/hooks/use-dialog-state";
 import { useSessionsScope } from "@/hooks/use-sessions-scope";
 import { useIsMobile } from "@/hooks/use-is-mobile";
-import { TopBar, HELP_URL, type TopBarMode } from "@/components/top-bar";
+import { TopBar, type TopBarMode } from "@/components/top-bar";
+import { HELP_URL } from "@/components/global-chrome";
 import { useVisualViewport } from "@/hooks/use-visual-viewport";
 import { Shell } from "@/components/shell/shell";
 import { Sidebar } from "@/components/sidebar";
@@ -311,7 +312,6 @@ function RootTopBar() {
       currentWindow={slot?.currentWindow ?? null}
       sessionName={slot?.sessionName ?? ""}
       windowName={slot?.windowName ?? ""}
-      isConnected={slot?.isConnected ?? false}
       sidebarOpen={slot?.sidebarOpen ?? false}
       // Prefer the page-registered server (the confirmed value), but fall back
       // to the route-derived `serverParam` so the `tmux Server: <server>`
@@ -2514,7 +2514,8 @@ function AppShell() {
   );
   // Connection dot semantics (R9): in chat view the dot reports the chat
   // stream's health; in terminal/root view it keeps the per-server sessions-SSE
-  // slice ("dot-everywhere = per-page live-data health").
+  // slice ("per-page live-data health"). The dot renders in the SIDEBAR FOOTER
+  // (260724-6j1v — it left the top bar), so this feeds the Sidebar prop below.
   const dotConnected = chatViewActive ? chatStream.connected : isConnected;
   // The window-switcher `+ New Agent` (TopBar `onSpawnAgent(session)`) targets
   // the CURRENT server; bind `server` here so the slot handler keeps the
@@ -2531,7 +2532,6 @@ function AppShell() {
       currentWindow,
       sessionName: displaySession,
       windowName: displayName,
-      isConnected: dotConnected,
       sidebarOpen,
       server,
       onNavigate: navigateToWindow,
@@ -2552,7 +2552,6 @@ function AppShell() {
       currentWindow,
       displaySession,
       displayName,
-      dotConnected,
       sidebarOpen,
       server,
       navigateToWindow,
@@ -2594,6 +2593,7 @@ function AppShell() {
       currentServer={server || null}
       currentSession={sessionName ?? null}
       currentWindowId={windowParam ?? null}
+      isConnected={dotConnected}
       onSelectWindow={handleSidebarSelectWindow}
       onWaitingBadgeClick={handleWaitingBadgeClick}
       onCreateWindow={handleSidebarCreateWindow}

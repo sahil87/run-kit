@@ -1,0 +1,15 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-24T19:12:03Z"}
+{"args":"Move global chrome (help, theme, connection dot) from top bar to sidebar footer with version line; fold notifications into settings dialog; desktop-width settings dialog layout","cmd":"fab-new","event":"command","ts":"2026-07-24T19:12:03Z"}
+{"delta":"+4.5","event":"confidence","score":4.5,"trigger":"calc-score","ts":"2026-07-24T19:13:16Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-24T19:13:54Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-24T19:14:09Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-24T20:03:19Z"}
+{"event":"review","result":"failed","ts":"2026-07-24T20:13:51Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-24T20:13:51Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-24T20:16:16Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-24T20:33:49Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-24T20:42:35Z"}
+{"event":"review","result":"passed","ts":"2026-07-24T20:42:35Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-24T20:56:32Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-07-24T20:58:48Z"}
+{"event":"review","result":"passed","ts":"2026-07-24T21:05:11Z"}

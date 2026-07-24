@@ -65,12 +65,14 @@ const MODIFIER_LABELS: Record<string, string> = {
   alt: "Option",
 };
 
-/** Tier-1 tip copy for the modifier latch chips (260723-fm08): describes the
- *  verified one-shot latch — the armed modifier applies to the NEXT key sent
- *  (chip or physical keystroke) and is consumed. */
+/** Tier-1 tip copy for the modifier latch chips: plain key names in terminal
+ *  vocabulary ("Ctrl"/"Alt" — what the chip SENDS), while the aria-labels
+ *  above keep the mac key names matching the glyphs. The one-shot latch
+ *  behavior isn't spelled out — the pressed/accent state teaches it on first
+ *  tap, and every other chip tip likewise just names its key. */
 const MODIFIER_TIP_LABELS: Record<string, string> = {
-  ctrl: "Ctrl for next key",
-  alt: "Alt for next key",
+  ctrl: "Ctrl",
+  alt: "Alt",
 };
 
 /** Prevent mousedown from stealing focus away from the terminal. */

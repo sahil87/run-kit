@@ -131,6 +131,19 @@ describe("ComposeStrip", () => {
     expect(sendBtn().disabled).toBe(true);
   });
 
+  // Two-row stack (260724-2bmy): the textarea gets the whole first row at a
+  // 2-line default (desktop too, explicit user direction), with 📎/Insert/Send
+  // on their own row below — previously all four shared one flex row and the
+  // input got ~half the width at 375px.
+  it("stacks a 2-line default textarea above a separate button row", () => {
+    render(<Harness focus={null} />);
+    expect(input()).toHaveAttribute("rows", "2");
+    // The buttons no longer share the textarea's flex row…
+    expect(sendBtn().parentElement).not.toBe(input().parentElement);
+    // …but Insert and Send still sit together (right-aligned cluster).
+    expect(insertBtn().parentElement).toBe(sendBtn().parentElement);
+  });
+
   it("shows the focused window name as the target label", () => {
     seedWindow("srv", "@1", "my-window");
     render(<Harness focus={{ wsRef: makeWs().ref, server: "srv", session: "sess", windowId: "@1" }} />);

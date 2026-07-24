@@ -290,7 +290,13 @@ export function BottomBar({ onOpenCompose, onFocusTerminal, onScrollLockChange }
     // and the coarse-only ⌨/🔒 chip could never render a tip (Tip
     // self-suppresses under pointer: coarse).
     <TipGroup>
-    <div className="flex items-center gap-1.5 coarse:gap-1 py-1.5 flex-wrap" role="toolbar" aria-label="Terminal keys">
+    {/* pb = max(6px, safe-area-inset-bottom): with viewport-fit=cover the OS
+        reports the corner-arc/home-indicator inset while the keyboard is
+        collapsed, lifting the extreme chips above the phone's curved edge;
+        when the keyboard opens, interactive-widget=resizes-content shrinks the
+        layout viewport past the inset so env() → 0 and the padding returns to
+        6px. CSS-only — no JS keyboard detection. (260724-2bmy) */}
+    <div className="flex items-center gap-1.5 coarse:gap-1 pt-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))] flex-wrap" role="toolbar" aria-label="Terminal keys">
       <Tip label="Tab" placement="top">
         <button aria-label="Tab" className={`${KBD_CLASS} text-text-secondary`} onMouseDown={preventFocusSteal} onClick={() => sendSpecial("\t")}>
           <kbd aria-hidden="true">{"\u21E5"}</kbd>

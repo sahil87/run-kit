@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-24T18:52:58Z"}
+{"args":"Mobile screen optimization: top-bar toggle alignment, compose-strip two-row stack, session/window-row icon cluster alignment + touch targets, bottom-bar safe-area inset","cmd":"fab-new","event":"command","ts":"2026-07-24T18:52:58Z"}
+{"delta":"+0.0","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-07-24T18:54:36Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-24T18:56:19Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-24T18:56:25Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-24T18:57:28Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-24T19:10:44Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-24T19:26:26Z"}
+{"event":"review","result":"passed","ts":"2026-07-24T19:26:26Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-24T19:33:11Z"}

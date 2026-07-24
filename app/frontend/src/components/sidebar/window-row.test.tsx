@@ -144,6 +144,16 @@ describe("WindowRow", () => {
     expect(screen.getByText("my-shell")).toBeInTheDocument();
   });
 
+  // One icon system (260724-2bmy): the kill ✕ is a stroke SVG (CloseIcon), not
+  // a text glyph, so it reads at the same ink weight as the sibling pin icon.
+  it("renders the kill button as a stroke SVG icon, not a text glyph", () => {
+    const win = makeWindow({ windowId: "@0", index: 0, name: "my-shell" });
+    renderRow(win);
+    const kill = screen.getByLabelText("Kill window my-shell");
+    expect(kill.querySelector("svg")).not.toBeNull();
+    expect(kill.textContent).toBe("");
+  });
+
   it("does not render tooltip (removed in favor of status panel)", () => {
     const win = makeWindow({ windowId: "@0", index: 0 });
     const { container } = renderRow(win);

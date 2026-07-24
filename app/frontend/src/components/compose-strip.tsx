@@ -450,11 +450,17 @@ export function ComposeStrip() {
 
       {/* One warm-tip cluster for the strip's buttons (260722-73al);
           placement `top` — the strip sits at the bottom of the screen. */}
+      {/* Two-row stack (260724-2bmy): the textarea gets the full row width —
+          typing space is the strip's whole purpose — and the buttons drop to
+          their own row (📎 left; Insert + Send right). rows={2} is the default
+          on desktop too (explicit user direction); the bounded auto-grow's
+          `height = "auto"` measurement falls back to the rows attribute, so
+          the 2-row floor holds after typing + deleting. */}
       <TipGroup>
-      <div className="flex items-end gap-1.5">
+      <div className="flex flex-col gap-1.5">
         <textarea
           ref={textareaRef}
-          rows={1}
+          rows={2}
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={onKeyDown}
@@ -469,60 +475,64 @@ export function ComposeStrip() {
           aria-label="Compose text to send to terminal"
           placeholder={hasTarget ? "Compose text…" : "No focused terminal"}
           data-testid="compose-strip-input"
-          className="flex-1 min-h-0 resize-none rounded border border-border bg-bg-card px-2 py-1.5 font-mono text-xs text-text-primary placeholder:text-text-secondary outline-none focus:border-accent disabled:opacity-50"
+          className="w-full min-h-0 resize-none rounded border border-border bg-bg-card px-2 py-1.5 font-mono text-xs text-text-primary placeholder:text-text-secondary outline-none focus:border-accent disabled:opacity-50"
         />
-        <input
-          ref={uploadInputRef}
-          type="file"
-          multiple
-          className="hidden"
-          onChange={(e) => {
-            if (e.target.files && e.target.files.length > 0) {
-              void handleUpload(e.target.files);
-              e.target.value = "";
-            }
-          }}
-        />
-        <button
-          type="button"
-          aria-label="Upload file"
-          disabled={!hasTarget}
-          onMouseDown={preventFocusSteal}
-          onClick={() => uploadInputRef.current?.click()}
-          className="rk-glint shrink-0 rounded border border-border px-2 py-1.5 text-xs text-text-secondary transition-colors hover:border-text-secondary disabled:opacity-50 coarse:min-h-[36px]"
-        >
-          <span aria-hidden="true">{"📎"}</span>
-        </button>
-        {/* Old parenthesized-shortcut titles become label + keycap chips
-            (tier-1 kbd slot). The coarse "Ctrl/⌘+Enter" title branch is gone:
-            tips never render on coarse pointers, so only the fine-pointer
-            shortcut is ever shown. */}
-        <Tip label="Insert without submitting" kbd="Alt+Enter" placement="top">
+        <div className="flex items-center gap-1.5">
+          <input
+            ref={uploadInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              if (e.target.files && e.target.files.length > 0) {
+                void handleUpload(e.target.files);
+                e.target.value = "";
+              }
+            }}
+          />
           <button
             type="button"
-            aria-label="Insert text without submitting"
-            disabled={!canSend}
+            aria-label="Upload file"
+            disabled={!hasTarget}
             onMouseDown={preventFocusSteal}
-            onClick={() => send(false)}
-            data-testid="compose-strip-insert"
-            className="rk-glint shrink-0 rounded border border-border px-2 py-1.5 text-xs text-text-secondary transition-colors hover:border-text-secondary disabled:opacity-40 disabled:cursor-not-allowed coarse:min-h-[36px]"
+            onClick={() => uploadInputRef.current?.click()}
+            className="rk-glint shrink-0 rounded border border-border px-2 py-1.5 text-xs text-text-secondary transition-colors hover:border-text-secondary disabled:opacity-50 coarse:min-h-[36px]"
           >
-            Insert
+            <span aria-hidden="true">{"📎"}</span>
           </button>
-        </Tip>
-        <Tip label="Send" kbd="Enter" placement="top">
-          <button
-            type="button"
-            aria-label="Send text"
-            disabled={!canSend}
-            onMouseDown={preventFocusSteal}
-            onClick={() => send(true)}
-            data-testid="compose-strip-send"
-            className="rk-glint shrink-0 rounded border border-accent bg-accent/20 px-3 py-1.5 text-xs text-accent transition-colors hover:bg-accent/30 disabled:opacity-40 disabled:cursor-not-allowed coarse:min-h-[36px]"
-          >
-            Send
-          </button>
-        </Tip>
+          {/* Old parenthesized-shortcut titles become label + keycap chips
+              (tier-1 kbd slot). The coarse "Ctrl/⌘+Enter" title branch is gone:
+              tips never render on coarse pointers, so only the fine-pointer
+              shortcut is ever shown. */}
+          <div className="ml-auto flex items-center gap-1.5">
+            <Tip label="Insert without submitting" kbd="Alt+Enter" placement="top">
+              <button
+                type="button"
+                aria-label="Insert text without submitting"
+                disabled={!canSend}
+                onMouseDown={preventFocusSteal}
+                onClick={() => send(false)}
+                data-testid="compose-strip-insert"
+                className="rk-glint shrink-0 rounded border border-border px-2 py-1.5 text-xs text-text-secondary transition-colors hover:border-text-secondary disabled:opacity-40 disabled:cursor-not-allowed coarse:min-h-[36px]"
+              >
+                Insert
+              </button>
+            </Tip>
+            <Tip label="Send" kbd="Enter" placement="top">
+              <button
+                type="button"
+                aria-label="Send text"
+                disabled={!canSend}
+                onMouseDown={preventFocusSteal}
+                onClick={() => send(true)}
+                data-testid="compose-strip-send"
+                className="rk-glint shrink-0 rounded border border-accent bg-accent/20 px-3 py-1.5 text-xs text-accent transition-colors hover:bg-accent/30 disabled:opacity-40 disabled:cursor-not-allowed coarse:min-h-[36px]"
+              >
+                Send
+              </button>
+            </Tip>
+          </div>
+        </div>
       </div>
       </TipGroup>
     </div>

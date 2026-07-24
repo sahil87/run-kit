@@ -156,8 +156,8 @@ function HamburgerIcon({ isOpen }: { isOpen: boolean }) {
   // flips, so the icon's identity ("this is a sidebar toggle") never changes.
   return (
     <svg
-      width="20"
-      height="20"
+      width="16"
+      height="16"
       viewBox="0 0 18 18"
       fill="none"
       stroke="currentColor"
@@ -776,7 +776,10 @@ export function TopBar({
   const updateOverflowed = showChip && overflowItems.some((e) => e.id === "update-chip");
 
   return (
-    <header className="px-3 border-b-[3px] border-border">
+    // pt guard: viewport-fit=cover (safe-area work, 260724-2bmy) can expose the
+    // status-bar area in standalone PWA mode; env() is 0 in browsers/desktop so
+    // this is a no-op there.
+    <header className="px-3 pt-[env(safe-area-inset-top)] border-b-[3px] border-border">
       {/* 3-column grid `1fr auto 1fr`: the center cell is truly centered
           regardless of asymmetric left/right widths. Left = left cluster
           (hamburger + breadcrumb nav, 260720-ap63), center = the universal
@@ -797,15 +800,15 @@ export function TopBar({
               desktop grid column and mobile overlay). First element of the left
               cluster (standard drawer-toggle position). Not rendered on the
               Host page, which has no sidebar — the brand shifts left there (no
-              ghost slot reserved). rk-glint: borderless at rest, so hover =
-              green icon + sweep only (the glint border flip is a no-op without
-              a border). Coarse pointers get the top-bar button-control 30px
-              target (24px fine). */}
+              ghost slot reserved). Bordered chip like its siblings (HistoryNav
+              arrows / LINK_CRUMB_CLASS) so the toggle reads as the same control
+              family; rk-glint flips the border green on hover. Coarse pointers
+              get the top-bar button-control 30px target (24px fine). */}
           {hasSidebar && (
             <button
               onClick={onToggleSidebar}
               aria-label="Toggle navigation"
-              className="rk-glint text-text-primary transition-colors min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] flex items-center justify-center shrink-0"
+              className="rk-glint rounded border border-border hover:border-text-secondary text-text-primary transition-colors min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] flex items-center justify-center shrink-0"
             >
               <HamburgerIcon isOpen={hamburgerOpen} />
             </button>
@@ -835,7 +838,10 @@ export function TopBar({
             <a
               href="/"
               aria-label="RunKit home"
-              className={`flex items-center gap-2 shrink-0 rk-brand-glitch ${LINK_CRUMB_CLASS}`}
+              // min-h normalizes the crumb to the shared control height so the
+              // left cluster sits on one horizontal axis (24px fine / 30px
+              // coarse — the same box as the toggle + HistoryNav arrows).
+              className={`flex items-center gap-2 shrink-0 rk-brand-glitch min-h-[24px] coarse:min-h-[30px] ${LINK_CRUMB_CLASS}`}
             >
               {/* Inline SVG (LogoSpinner at rest), not the /icon.svg img — the
                   hover spin rotates the border ring (.rk-logo-ring) while the

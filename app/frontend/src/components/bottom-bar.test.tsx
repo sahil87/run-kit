@@ -259,14 +259,16 @@ describe("BottomBar chip tips (260723-fm08)", () => {
     expect(kbd).toHaveTextContent("⌘K");
   });
 
-  it("modifier chips carry latch-describing tips and still toggle aria-pressed", () => {
+  it("modifier chips carry plain key-name tips and still toggle aria-pressed", () => {
     renderBottomBar({ onOpenCompose: vi.fn() });
     const ctrl = screen.getByLabelText("Control");
     act(() => {
       fireEvent.mouseEnter(ctrl);
       vi.advanceTimersByTime(TIP_OPEN_DELAY_MS);
     });
-    expect(screen.getByRole("tooltip")).toHaveTextContent("Ctrl for next key");
+    // Terminal vocabulary ("Ctrl"), not the mac aria-name ("Control") — and no
+    // latch prose: the pressed state teaches the one-shot behavior.
+    expect(screen.getByRole("tooltip")).toHaveTextContent(/^Ctrl$/);
 
     // The one-shot latch behavior survives the Tip wrap: clicking arms it.
     expect(ctrl).toHaveAttribute("aria-pressed", "false");

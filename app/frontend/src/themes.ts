@@ -454,9 +454,9 @@ export const UNCOLORED_SELECTED_KEY = `${UNCOLORED_SELECTED_ANSI}`;
  *  set (validate.MarkerValues) minus the empty string, with `""` at the front
  *  followed by the display order dotted → dashed → solid → double → thick.
  *  `dashed` ("working") and `thick` ("completed") are LABEL CONVENTIONS only —
- *  no wiring to @rk_agent_state or the status pyramid, and no marker state is
- *  ever animated (the shipped double-marker selection crawl stays the label
- *  system's only motion). */
+ *  no wiring to @rk_agent_state or the status pyramid. The stripe itself never
+ *  animates; the label system's only motion is the row-overlay pair — the
+ *  always-on dashed data rain and the double selection crawl. */
 export const MARKER_STATES = ["", "dotted", "dashed", "solid", "double", "thick"] as const;
 
 /** Inline style rendering a marker state as a left-edge stripe in the given

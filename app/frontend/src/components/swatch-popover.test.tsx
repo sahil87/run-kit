@@ -434,8 +434,9 @@ describe("SwatchPopover", () => {
   // ── Combined Label picker: side-by-side marker column | hairline | paired
   //    color grid. Marker section gated on onSelectMarker alone; the non-∅
   //    cells are LIVE ROW PREVIEWS of the currently selected color (tint.base
-  //    background, guarded stripe with a 2px inset, paired texture) and never
-  //    animate. ──
+  //    background, guarded stripe with a 2px inset, paired texture) mirroring
+  //    the row's RESTING look — always-on rain animates, the selection crawl
+  //    never appears. ──
   describe("combined Label picker (side-by-side marker column)", () => {
     const tints = computeRowTints(DEFAULT_DARK_THEME.palette);
     const borders = computeRowBorders(DEFAULT_DARK_THEME.palette, DEFAULT_DARK_THEME.category);
@@ -590,25 +591,34 @@ describe("SwatchPopover", () => {
       expect(dotted.style.backgroundColor).toBe(rgb(tints.get(UNCOLORED_SELECTED_KEY)!.base));
     });
 
-    it("preview cells carry the paired STATIC row textures and never animate", () => {
+    it("preview cells carry the paired row textures (resting look) — never the selection crawl", () => {
       renderLabelPicker({ selectedColor: "green", selectedMarker: "double" });
       const listbox = screen.getByRole("listbox");
-      // Thick pairs with the hazard wedge; double with the scanline wash.
-      expect(
-        screen.getByRole("option", { name: "Marker thick" }).querySelector(".rk-hazard"),
-      ).not.toBeNull();
+      // Thick pairs with the hazard weave — with the preview modifier that
+      // drops the left-wedge mask (masked at 18px the weave fades out under
+      // the 6px stripe and is invisible); double with the scanline wash;
+      // dashed with the data rain (always-on on real rows — the resting look —
+      // so the preview carries it, animation included).
+      const hazard = screen
+        .getByRole("option", { name: "Marker thick" })
+        .querySelector(".rk-hazard");
+      expect(hazard).not.toBeNull();
+      expect((hazard as HTMLElement).classList.contains("rk-hazard-preview")).toBe(true);
       expect(
         screen.getByRole("option", { name: "Marker double" }).querySelector(".rk-scanlines"),
       ).not.toBeNull();
+      expect(
+        screen.getByRole("option", { name: "Marker dashed" }).querySelector(".rk-dash-rain"),
+      ).not.toBeNull();
       // Other cells carry no texture.
       expect(
-        screen.getByRole("option", { name: "Marker solid" }).querySelector(".rk-hazard, .rk-scanlines"),
+        screen
+          .getByRole("option", { name: "Marker solid" })
+          .querySelector(".rk-hazard, .rk-scanlines, .rk-dash-rain"),
       ).toBeNull();
-      // NEVER animated — even with double SELECTED, the crawl class is absent
-      // everywhere in the picker, and the dashed preview never carries the
-      // data-rain overlay (motion belongs to real rows only).
+      // The scanline crawl is SELECTED-STATE motion, not the resting look —
+      // absent everywhere in the picker even with double selected.
       expect(listbox.querySelector(".rk-scanlines-crawl")).toBeNull();
-      expect(listbox.querySelector(".rk-dash-rain")).toBeNull();
     });
 
     it("ArrowLeft crosses the hairline into the marker column; ArrowUp/Down move within it", () => {

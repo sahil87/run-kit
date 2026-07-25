@@ -1,5 +1,5 @@
 ---
-description: "Frontend UI patterns: routes; top-bar chrome (heading, chevron menu, breadcrumb, hover vocabulary, bordered chips); sidebar-footer global chrome (dot, version, theme/help/gear); window-view lens (tty/web/chat); boards + pinning; sidebar (perf, keyboard nav, color, labels, stroke-SVG row icons); status dot, PR registers, waiting; two-tier tooltips (Tip vs hover-cards); session tiles; spawn + settings dialogs; update chip; terminal relay/font/theme; accent + PWA; mobile touch + safe-area; optimistic UI."
+description: "Frontend UI patterns: routes; top-bar chrome (heading, chevron menu, breadcrumb, hover vocabulary, bordered chips); sidebar-footer global chrome (dot, version, theme/help/gear); window-view lens (tty/web/chat); boards + pinning; sidebar (perf, keyboard nav, color, labels, stroke-SVG row icons); status dot, PR registers, waiting; two-tier tooltips (Tip vs hover-cards); session tiles; spawn + settings dialogs; update chip; terminal relay/font/theme; accent + PWA; mobile safe-area; optimistic UI."
 type: memory
 ---
 # run-kit UI Patterns

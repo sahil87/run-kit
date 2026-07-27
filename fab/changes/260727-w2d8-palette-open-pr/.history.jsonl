@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-27T10:59:25Z"}
+{"args":"Cmd+K palette command to open the current window's PR in the browser — Open: PR #123 label, client-side window.open only, no host spoke","cmd":"fab-new","event":"command","ts":"2026-07-27T10:59:25Z"}
+{"delta":"+5.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-07-27T11:00:17Z"}
+{"cmd":"fab-ff","event":"command","ts":"2026-07-27T11:03:50Z"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"apply","ts":"2026-07-27T11:03:50Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-27T11:04:34Z"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"review","ts":"2026-07-27T11:13:18Z"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"hydrate","ts":"2026-07-27T11:17:44Z"}
+{"event":"review","result":"passed","ts":"2026-07-27T11:17:44Z"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"ship","ts":"2026-07-27T11:21:24Z"}

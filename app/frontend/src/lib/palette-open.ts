@@ -52,3 +52,29 @@ export function buildOpenActions(
     onSelect: () => onRun(t),
   }));
 }
+
+/**
+ * Build the `Open: PR #{n}` palette action for the current terminal window
+ * (260727-w2d8). Client-side only: `onSelect` delegates the public PR URL to
+ * `onOpen` (the caller does `window.open`, the Help: Documentation pattern) —
+ * no host spoke, no server exec. Deliberately NOT an OpenTarget: the
+ * palette↔menu mirror above covers Open *targets* only, so the top-bar Open
+ * split-button menu is untouched. No PR bound to the window (`prUrl` unset)
+ * → no action, mirroring the sidebar PrLinkRow's absence. As with the target
+ * actions, no keyboard chord is registered — the palette entry itself is the
+ * keyboard path (documented per the code-review shortcut rule).
+ */
+export function buildOpenPrAction(
+  prUrl: string | undefined,
+  prNumber: number | undefined,
+  onOpen: (url: string) => void,
+): OpenPaletteAction[] {
+  if (!prUrl) return [];
+  return [
+    {
+      id: "open-pr",
+      label: prNumber != null ? `Open: PR #${prNumber}` : "Open: PR",
+      onSelect: () => onOpen(prUrl),
+    },
+  ];
+}

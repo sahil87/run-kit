@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { buildOpenActions, openActionLabel } from "./palette-open";
+import { buildOpenActions, buildOpenPrAction, openActionLabel } from "./palette-open";
 import type { OpenTarget } from "./open-in-app";
 
 const deeplink: OpenTarget = {
@@ -54,5 +54,30 @@ describe("buildOpenActions", () => {
 describe("openActionLabel", () => {
   it("never suffixes deeplink targets", () => {
     expect(openActionLabel(deeplink, true)).toBe("Open: VS Code");
+  });
+});
+
+describe("buildOpenPrAction", () => {
+  const prUrl = "https://github.com/acme/run-kit/pull/123123";
+
+  it("yields no action without a prUrl (no PR, no palette entry)", () => {
+    expect(buildOpenPrAction(undefined, 123123, vi.fn())).toEqual([]);
+  });
+
+  it("bakes the PR number into the label", () => {
+    const actions = buildOpenPrAction(prUrl, 123123, vi.fn());
+    expect(actions).toHaveLength(1);
+    expect(actions[0].id).toBe("open-pr");
+    expect(actions[0].label).toBe("Open: PR #123123");
+  });
+
+  it("falls back to a numberless label when prNumber is absent", () => {
+    expect(buildOpenPrAction(prUrl, undefined, vi.fn())[0].label).toBe("Open: PR");
+  });
+
+  it("onSelect delegates the PR url to onOpen", () => {
+    const onOpen = vi.fn();
+    buildOpenPrAction(prUrl, 123123, onOpen)[0].onSelect();
+    expect(onOpen).toHaveBeenCalledWith(prUrl);
   });
 });

@@ -24,7 +24,7 @@ import { buildPinActions } from "@/lib/palette-pin";
 import { buildServerKillActions } from "@/lib/palette-server-kill";
 import { readLastPinnedBoard } from "@/lib/last-pinned-board";
 import { buildNavActions } from "@/lib/palette-nav";
-import { buildOpenActions } from "@/lib/palette-open";
+import { buildOpenActions, buildOpenPrAction } from "@/lib/palette-open";
 import { activePaneCwd, buildOpenTargets } from "@/lib/open-in-app";
 import { useOpenTargets } from "@/hooks/use-open-targets";
 import { useRunOpenTarget } from "@/components/open-button";
@@ -2016,8 +2016,8 @@ function AppShell() {
   const openPath = windowParam ? activePaneCwd(currentWindow) : "";
   const { runTarget: runOpenTarget } = useRunOpenTarget(server, openPath);
   const openActions: PaletteAction[] = useMemo(
-    () =>
-      buildOpenActions(
+    () => [
+      ...buildOpenActions(
         windowParam
           ? buildOpenTargets({
               hostname: window.location.hostname,
@@ -2029,8 +2029,19 @@ function AppShell() {
           : [],
         runOpenTarget,
       ),
+      // `Open: PR #{n}` (260727-w2d8) — the keyboard path to the current
+      // window's PR (Constitution V; the sidebar PrLinkRow anchor is
+      // mouse-only). Client-side only: window.open in THIS viewer's browser
+      // (the Help: Documentation pattern) — no host spoke, no OpenTarget
+      // entry (the top-bar Open menu mirrors targets only, untouched). Off
+      // the terminal route currentWindow is null, and no PR → no entry. No
+      // keyboard chord — this palette entry is the keyboard path.
+      ...buildOpenPrAction(currentWindow?.prUrl, currentWindow?.prNumber, (url) =>
+        window.open(url, "_blank", "noopener,noreferrer"),
+      ),
+    ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [windowParam, openCtx, openPath, server],
+    [windowParam, openCtx, openPath, server, currentWindow?.prUrl, currentWindow?.prNumber],
   );
 
   // Terminal font-size actions. No `shortcut` — Cmd +/- is deliberately not

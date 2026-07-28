@@ -1915,6 +1915,8 @@ The sidebar session/window tree is a **third consumer** (see § Sidebar → Keyb
 
 No single-key shortcuts (`j`/`k`/`c`/`r`) or `Esc Esc` — these conflicted with xterm.js terminal input. All actions are accessible via `Cmd+K` command palette or top bar buttons.
 
+The browser-reserved `⌘` tier (⌘1–9, ⌘W, ⌘T, …) is reachable only inside the Electron desktop shell; no SPA code binds it yet — future bindings gate on `isShell()` (`lib/shell.ts`, the `window.runkitShell` detection seam). See [desktop-shell](/run-kit/desktop-shell.md) § ⌘-Tier Menu Seam.
+
 Command palette actions include: create/rename/kill session, create/rename/kill window, move up/down for the current server/session/window (`260705-bpnr` — see § Command Palette Move up/down), theme switching, "Reload tmux config" (targets the active server via `?server=` param), "Create tmux server" (opens name dialog, creates session "0" in $HOME), "Kill tmux server" (confirmation dialog, kills active server, switches to next available — the dialog carries a daemon-specific warning when the target is `rk-daemon`; see § Infra-server de-emphasis → kill guard), "Switch tmux server: {name}" (one entry per available server, current marked), "Keyboard Shortcuts" (opens modal showing curated tmux keybindings from `GET /api/keybindings` + hardcoded `Cmd+K`), "Copy: tmux Commands" (opens tmux commands dialog — only visible on terminal route when `currentWindow` is available), "Notifications: Enable push" / "Notifications: Enabled ✓" (the Web Push opt-in gesture — terminal-themed label, NOT a bell; see § Notifications (Web Push opt-in)), and terminal navigation (jump to any session/window).
 
 **Session/window creation actions in the palette**:

@@ -156,6 +156,10 @@ keys/
 bin/
 dist/
 
+# electron-builder output (desktop shell DMGs); compiled TS output is covered
+# by the bare `dist` entry above
+app/desktop/release/
+
 
 .fab-*
 

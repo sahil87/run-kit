@@ -12,6 +12,7 @@ if [ ! -f "$SVG" ]; then
 fi
 
 mkdir -p "$OUT"
+mkdir -p "$REPO_ROOT/app/desktop/build"
 
 # Copy favicon (plain file copy, not symlink)
 cp "$SVG" "$OUT/favicon.svg"
@@ -52,6 +53,41 @@ for (const { name, size, padding } of variants) {
     .toFile(join(out, name));
 
   console.log(`  ${name} (${size}x${size}, ${Math.round(padding * 100)}% padding)`);
+}
+
+// Desktop shell icon (app/desktop/build/icon.png): 1024px with a rounded-rect
+// dest-in mask so the flat square sits closer to the macOS squircle when
+// electron-builder converts png -> icns. Corner radius ~22.37% of size matches
+// Apple's app-icon corner ratio. Committed so desktop builds need neither sharp
+// nor the frontend package.
+{
+  const size = 1024;
+  const padding = 0.20;
+  const desktopOut = join(root, "app/desktop/build/icon.png");
+  const innerSize = Math.round(size * (1 - padding));
+  const offset = Math.round((size - innerSize) / 2);
+
+  const resized = await sharp(svgBuf)
+    .resize(innerSize, innerSize, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } })
+    .png()
+    .toBuffer();
+
+  const composed = await sharp({ create: { width: size, height: size, channels: 4, background: bg } })
+    .composite([{ input: resized, left: offset, top: offset }])
+    .png()
+    .toBuffer();
+
+  const radius = Math.round(size * 0.2237);
+  const mask = Buffer.from(
+    `<svg width="${size}" height="${size}"><rect x="0" y="0" width="${size}" height="${size}" rx="${radius}" ry="${radius}" fill="#fff"/></svg>`,
+  );
+
+  await sharp(composed)
+    .composite([{ input: mask, blend: "dest-in" }])
+    .png()
+    .toFile(desktopOut);
+
+  console.log(`  app/desktop/build/icon.png (${size}x${size}, ${Math.round(padding * 100)}% padding, rounded)`);
 }
 SCRIPT
 

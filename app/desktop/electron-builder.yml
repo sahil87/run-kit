@@ -1,0 +1,27 @@
+# Packaging config for the desktop viewer shell.
+# Version is NOT read from package.json (0.0.0 placeholder) — it is injected at
+# build time: electron-builder --config.extraMetadata.version=$VERSION
+# (see scripts/build-desktop.sh; CI passes the release tag the same way).
+appId: ai.shll.run-kit
+productName: Run Kit
+directories:
+  buildResources: build
+  output: release
+files:
+  - dist/**
+  - "!dist/**/*.test.js"
+mac:
+  category: public.app-category.developer-tools
+  # Per-arch DMGs (mirrors the rk-darwin-{arm64,amd64} artifact convention);
+  # a universal binary would be ~2x the size for no benefit.
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+  # Ad-hoc signing only — no Developer ID, no notarization (accepted Gatekeeper
+  # "Open Anyway" friction). electron-builder ad-hoc-signs automatically when
+  # identity is null; arm64 macOS refuses to launch fully unsigned binaries.
+  identity: null
+artifactName: "run-kit-desktop-${version}-${arch}.${ext}"
+npmRebuild: false

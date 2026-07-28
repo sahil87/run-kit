@@ -68,6 +68,16 @@ restart:
     just build
     ./dist/rk serve --restart
 
+# ─── Desktop shell ───────────────────────────────────────────
+
+# Compile + launch the Electron desktop shell (RK_DESKTOP_URL=http://… loads a URL directly)
+dev-desktop:
+    scripts/dev-desktop.sh
+
+# Build ad-hoc-signed macOS DMGs into app/desktop/release/ (requires a Mac)
+build-desktop:
+    scripts/build-desktop.sh
+
 # ─── Test ────────────────────────────────────────────────────
 
 # Run all tests (backend + frontend + e2e)

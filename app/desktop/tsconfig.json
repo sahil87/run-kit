@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    // nodenext + no "type":"module" in package.json = CommonJS emit (what
+    // Electron's main/preload need); TS7 removed the old node10 resolution.
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    // "auto" (not the TS7 default "force") so src/welcome/welcome.ts — which
+    // has no imports/exports by design — compiles as a global SCRIPT with
+    // browser-runnable emit (no `exports` reference; it loads via <script src>).
+    "moduleDetection": "auto",
+    "lib": ["ES2022", "DOM"],
+    "strict": true,
+    "rootDir": "src",
+    "outDir": "dist",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["src"]
+}

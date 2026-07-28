@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Run Kit — Connect</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: #0f1117;
+        color: #e5e7eb;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 14px;
+      }
+      main.card {
+        width: min(420px, calc(100vw - 48px));
+        padding: 32px;
+        border: 1px solid #262b36;
+        border-radius: 8px;
+        background: #131722;
+      }
+      h1 {
+        margin: 0 0 4px;
+        font-size: 18px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+      }
+      p.tagline {
+        margin: 0 0 24px;
+        color: #9ca3af;
+      }
+      label {
+        display: block;
+        margin: 16px 0 6px;
+        color: #9ca3af;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+      span.hint {
+        text-transform: none;
+        letter-spacing: normal;
+      }
+      input {
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid #2d3340;
+        border-radius: 6px;
+        background: #0f1117;
+        color: #e5e7eb;
+        font: inherit;
+      }
+      input:focus {
+        outline: none;
+        border-color: #34d399;
+      }
+      button {
+        width: 100%;
+        margin-top: 24px;
+        padding: 10px 12px;
+        border: 1px solid #34d399;
+        border-radius: 6px;
+        background: transparent;
+        color: #34d399;
+        font: inherit;
+        cursor: pointer;
+      }
+      button:hover:not(:disabled) {
+        background: #34d399;
+        color: #0f1117;
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+      p.error {
+        margin: 16px 0 0;
+        color: #f87171;
+      }
+      a#cancel {
+        display: block;
+        margin-top: 16px;
+        text-align: center;
+        color: #9ca3af;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <h1>run-kit</h1>
+      <p class="tagline">Connect to a running <span>rk serve</span> instance.</p>
+      <form id="connect-form">
+        <label for="url">Server URL</label>
+        <input
+          id="url"
+          type="text"
+          placeholder="http://100.101.2.3:3000"
+          autofocus
+          spellcheck="false"
+          autocomplete="off"
+        />
+        <label for="name">Display name <span class="hint">(optional — pre-filled from the server)</span></label>
+        <input id="name" type="text" placeholder="studio-mac" spellcheck="false" autocomplete="off" />
+        <p id="error" hidden class="error"></p>
+        <button id="connect" type="submit">Connect</button>
+        <a id="cancel" href="#" hidden>Cancel</a>
+      </form>
+    </main>
+    <script src="./welcome.js"></script>
+  </body>
+</html>

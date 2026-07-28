@@ -1,0 +1,23 @@
+{
+  "name": "run-kit-desktop",
+  "version": "0.0.0",
+  "private": true,
+  "description": "run-kit desktop viewer shell — loads an existing rk serve URL (client only, never spawns or supervises the daemon)",
+  "main": "dist/main.js",
+  "scripts": {
+    "compile": "tsc && mkdir -p dist/welcome && cp src/welcome/welcome.html dist/welcome/",
+    "test": "node --test \"dist/**/*.test.js\"",
+    "dev": "pnpm run compile && electron .",
+    "dist": "electron-builder --mac --publish never"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron"
+    ]
+  },
+  "devDependencies": {
+    "electron": "^43.2.0",
+    "electron-builder": "^26.15.3",
+    "typescript": "^7.0.2"
+  }
+}

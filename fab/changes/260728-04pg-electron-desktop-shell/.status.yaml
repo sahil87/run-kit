@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 12
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-07-28T15:01:59Z", driver: fab-fff, iterations: 2, completed_at: "2026-07-28T15:11:53Z"}
     hydrate: {started_at: "2026-07-28T15:11:53Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-28T15:22:02Z"}
     ship: {started_at: "2026-07-28T15:22:02Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-28T15:24:01Z"}
-    review-pr: {started_at: "2026-07-28T15:24:01Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-07-28T15:24:01Z", driver: git-pr, iterations: 1, completed_at: "2026-07-28T15:36:12Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/462
 change_type_source: explicit
@@ -54,4 +54,4 @@ true_impact:
     computed_at_stage: ship
 summary: Added the app/desktop Electron viewer shell (servers.json store, welcome flow + main-process health ping, ⌘-tier accelerator-avoidance menu, sandboxed runkitShell bridge, ad-hoc per-arch DMG packaging) plus the SPA isShell() seam, dev-desktop/build-desktop tooling, and the committed 1024px icon variant
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-07-28T15:24:01Z
+last_updated: 2026-07-28T15:36:12Z

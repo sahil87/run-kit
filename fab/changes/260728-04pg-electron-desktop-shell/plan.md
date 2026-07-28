@@ -15,7 +15,7 @@ Compilation SHALL be plain `tsc` (strict, CommonJS, ES2022, `src/` → `dist/`, 
 package `main` SHALL be `dist/main.js`; the `compile` script SHALL also copy
 `src/welcome/welcome.html` to `dist/welcome/`.
 
-- **GIVEN** a clean checkout with Node 20+ and pnpm 9+
+- **GIVEN** a clean checkout with Node 22.12+ (Electron 43's engine floor, declared in the package `engines`) and pnpm 9+
 - **WHEN** `pnpm install --frozen-lockfile && pnpm run compile` runs in `app/desktop`
 - **THEN** `dist/main.js`, `dist/preload.js`, `dist/welcome/welcome.js`, and
   `dist/welcome/welcome.html` exist and `pnpm exec tsc --noEmit` reports no errors

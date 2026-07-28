@@ -92,12 +92,10 @@ The sandboxed preload exposes exactly one bridge via `contextBridge.exposeInMain
 
 - **Renderer isolation**: `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`, preload path, `additionalArguments` version pass-through.
 - **Window-open**: `setWindowOpenHandler` always denies — a registered-server origin loads in-window (`contents.loadURL`), any other http(s) URL opens via `shell.openExternal`, everything else is dropped.
-- **Navigation allowlist**: `will-navigate` allows only registered server origins (plus the `RK_DESKTOP_URL` origin in dev) and the welcome `file://` URL; blocked http(s) targets are handed to the system browser.
+- **Navigation allowlist**: `will-navigate` and `will-redirect` share one guard allowing only registered server origins (plus the `RK_DESKTOP_URL` origin in dev) and the welcome `file://` URL; blocked http(s) targets are handed to the system browser — a server-issued redirect cannot escape the registered-origin set in-window.
 - **Permissions**: `setPermissionRequestHandler` allows exactly `clipboard-read`, `clipboard-sanitized-write`, `notifications`; everything else is denied.
 - **TLS fails closed**: no `certificate-error` bypass handler exists.
 - **IPC hardening**: sender-frame gating on all `welcome:*` handlers (§ Bridge above).
-
-Accepted gap (recorded nice-to-have): only `will-navigate` is guarded — a server-issued HTTP redirect (`will-redirect`) to an unregistered origin is not intercepted.
 
 ## Packaging (`electron-builder.yml` + `scripts/build-desktop.sh`)
 

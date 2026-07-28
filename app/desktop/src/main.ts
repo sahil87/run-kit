@@ -272,11 +272,18 @@ app.on("web-contents-created", (_event, contents) => {
     return { action: "deny" };
   });
 
-  contents.on("will-navigate", (event, url) => {
+  // One guard for both user navigation and server-issued redirects — a
+  // registered server must not be able to escape in-window via a redirect.
+  const guardNavigation = (
+    event: { preventDefault: () => void },
+    url: string,
+  ): void => {
     if (isAllowedNavigation(url)) return;
     event.preventDefault();
     if (isHttpUrl(url)) void shell.openExternal(url);
-  });
+  };
+  contents.on("will-navigate", guardNavigation);
+  contents.on("will-redirect", guardNavigation);
 });
 
 // No 'certificate-error' handler: TLS errors fail closed (no bypass).

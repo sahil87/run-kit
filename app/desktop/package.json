@@ -4,6 +4,9 @@
   "private": true,
   "description": "run-kit desktop viewer shell — loads an existing rk serve URL (client only, never spawns or supervises the daemon)",
   "main": "dist/main.js",
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "scripts": {
     "compile": "tsc && mkdir -p dist/welcome && cp src/welcome/welcome.html dist/welcome/",
     "test": "node --test \"dist/**/*.test.js\"",

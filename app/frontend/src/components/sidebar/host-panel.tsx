@@ -97,10 +97,8 @@ export function HostPanel() {
         >
           <SwatchPopover
             selectedColor={isExplicit && color != null ? color : undefined}
-            onSelect={(c) => {
-              setColor(c);
-              setShowColorPicker(false);
-            }}
+            // Selection does NOT close (the picker's dismissal contract).
+            onSelect={(c) => setColor(c)}
             onClose={() => setShowColorPicker(false)}
           />
         </div>,

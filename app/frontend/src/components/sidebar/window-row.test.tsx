@@ -144,6 +144,16 @@ describe("WindowRow", () => {
     expect(screen.getByText("my-shell")).toBeInTheDocument();
   });
 
+  // One icon system (260724-2bmy): the kill ✕ is a stroke SVG (CloseIcon), not
+  // a text glyph, so it reads at the same ink weight as the sibling pin icon.
+  it("renders the kill button as a stroke SVG icon, not a text glyph", () => {
+    const win = makeWindow({ windowId: "@0", index: 0, name: "my-shell" });
+    renderRow(win);
+    const kill = screen.getByLabelText("Kill window my-shell");
+    expect(kill.querySelector("svg")).not.toBeNull();
+    expect(kill.textContent).toBe("");
+  });
+
   it("does not render tooltip (removed in favor of status panel)", () => {
     const win = makeWindow({ windowId: "@0", index: 0 });
     const { container } = renderRow(win);
@@ -859,6 +869,58 @@ describe("WindowRow", () => {
       expect(onColorChange).toHaveBeenCalledWith("srv", "alpha", "@0", "2");
     });
 
+    it("picking markers/colors keeps the Label picker OPEN (live toggling); the ✕ cell closes it", () => {
+      const win = makeWindow({ windowId: "@0", index: 0, color: "orange" });
+      const onColorChange = vi.fn();
+      const onMarkerChange = vi.fn();
+      renderAxis(win, { onColorChange, onMarkerChange });
+      act(() => { screen.getByLabelText("Set window label").click(); });
+      // Toggle a marker AND a color — the picker stays open through both, so
+      // combos can be compared live against the row.
+      act(() => { screen.getByRole("option", { name: "Marker double" }).click(); });
+      act(() => { screen.getByRole("option", { name: "Color green" }).click(); });
+      expect(onMarkerChange).toHaveBeenCalledTimes(1);
+      expect(onColorChange).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole("listbox", { name: "Label picker" })).toBeInTheDocument();
+      // The explicit dismiss is the ✕ cell (outside click and Escape also work).
+      act(() => { screen.getByLabelText("Close picker").click(); });
+      expect(screen.queryByRole("listbox", { name: "Label picker" })).toBeNull();
+    });
+
+    it("a dashed-marker row gets the data-rain overlay (clipped inner element, NOT the root) + marker color var; the stripe stays static", () => {
+      const win = makeWindow({ windowId: "@0", index: 0, color: "green", marker: "dashed" });
+      const { container } = renderAxis(win);
+      const row = container.querySelector('[data-window-id="@0"]') as HTMLElement;
+      // Same overlay discipline as scanlines/hazard: the clip lives on a
+      // dedicated inner overlay, never the root (must-fix 4).
+      expect(row.className).not.toContain("rk-dash-rain");
+      const overlay = row.querySelector(".rk-dash-rain") as HTMLElement;
+      expect(overlay).toBeTruthy();
+      expect(overlay.className).toContain("overflow-hidden");
+      expect(overlay.className).toContain("pointer-events-none");
+      // The marker color rides on the ROOT (the overlay pseudo inherits it).
+      expect(row.style.getPropertyValue("--rk-marker-color")).not.toBe("");
+      // The gutter stripe itself is STATIC — the rain is a row treatment, the
+      // stripe never animates.
+      const zone = container.querySelector('[aria-label="Set window label"]')!;
+      expect(zone.querySelector(".rk-dash-rain")).toBeNull();
+    });
+
+    it("the rain is ALWAYS-ON — present on selected dashed rows too (not selection-gated)", () => {
+      const win = makeWindow({ windowId: "@0", index: 0, color: "green", marker: "dashed" });
+      const { container } = renderAxis(win, { isSelected: true });
+      expect(container.querySelector(".rk-dash-rain")).toBeTruthy();
+    });
+
+    it("non-dashed markers carry no data-rain overlay even when selected (the rain is dashed-only)", () => {
+      for (const marker of ["dotted", "solid", "double", "thick"]) {
+        const win = makeWindow({ windowId: "@0", index: 0, color: "green", marker });
+        const { container, unmount } = renderAxis(win, { isSelected: true });
+        expect(container.querySelector(".rk-dash-rain")).toBeNull();
+        unmount();
+      }
+    });
+
     it("the Window: Label palette action (label-popover:open) opens this row's picker", () => {
       const win = makeWindow({ windowId: "@0", index: 0, color: "orange" });
       renderAxis(win);
@@ -908,6 +970,64 @@ describe("WindowRow", () => {
       const row = container.querySelector('[data-window-id="@0"]') as HTMLElement;
       expect(row.className).not.toContain("rk-scanlines");
       expect(row.querySelector(".rk-scanlines")).toBeNull();
+    });
+
+    it("a thick-marker row gets the static hazard-wedge overlay (clipped inner element, NOT the root) + marker color var", () => {
+      const win = makeWindow({ windowId: "@0", index: 0, color: "green", marker: "thick" });
+      const { container } = renderAxis(win);
+      const row = container.querySelector('[data-window-id="@0"]') as HTMLElement;
+      // Same overlay discipline as the scanlines: the clip lives on a dedicated
+      // inner element so the root stays free to overflow for the `top-full`
+      // popovers — the root carries NEITHER the hazard class NOR overflow-hidden.
+      expect(row.className).not.toContain("rk-hazard");
+      expect(row.className).not.toContain("overflow-hidden");
+      const overlay = row.querySelector(".rk-hazard") as HTMLElement;
+      expect(overlay).toBeTruthy();
+      expect(overlay.className).toContain("overflow-hidden");
+      expect(overlay.className).toContain("pointer-events-none");
+      // The marker color rides on the ROOT (the overlay's ::before inherits it).
+      expect(row.style.getPropertyValue("--rk-marker-color")).not.toBe("");
+    });
+
+    it("the hazard wedge is STATIC in every state — no animation class even when selected", () => {
+      const win = makeWindow({ windowId: "@0", index: 0, color: "green", marker: "thick" });
+      const { container } = renderAxis(win, { isSelected: true });
+      const row = container.querySelector('[data-window-id="@0"]') as HTMLElement;
+      const overlay = row.querySelector(".rk-hazard") as HTMLElement;
+      expect(overlay).toBeTruthy();
+      // No animated twin exists for thick (explicit design decision) — a
+      // selected thick row renders exactly the same static overlay, and no
+      // scanline/crawl classes leak in.
+      expect(overlay.className).not.toContain("crawl");
+      expect(row.querySelector(".rk-scanlines")).toBeNull();
+      expect(row.querySelector(".rk-scanlines-crawl")).toBeNull();
+    });
+
+    it("a non-thick row renders no hazard overlay", () => {
+      const win = makeWindow({ windowId: "@0", index: 0, marker: "double" });
+      const { container } = renderAxis(win);
+      const row = container.querySelector('[data-window-id="@0"]') as HTMLElement;
+      expect(row.querySelector(".rk-hazard")).toBeNull();
+    });
+
+    it("dashed and thick stripes render display-only in the label zone", () => {
+      const dashed = makeWindow({ windowId: "@0", index: 0, marker: "dashed", color: "orange" });
+      const { unmount } = renderAxis(dashed);
+      let zone = screen.getByLabelText("Set window label");
+      // Dashed: a fixed-rhythm one-period gradient tile (element-height
+      // independent), not a border.
+      const dashedStripe = zone.querySelector('[style*="background-image"]') as HTMLElement | null;
+      expect(dashedStripe).not.toBeNull();
+      expect(dashedStripe!.style.backgroundSize).toBe("3px 12px");
+      expect(dashedStripe!.style.backgroundRepeat).toBe("repeat-y");
+      unmount();
+      const thick = makeWindow({ windowId: "@1", index: 1, marker: "thick", color: "orange" });
+      renderAxis(thick);
+      zone = screen.getByLabelText("Set window label");
+      const thickStripe = zone.querySelector('[style*="border-left"]') as HTMLElement | null;
+      expect(thickStripe).not.toBeNull();
+      // Thick = 6px continuous solid bar.
+      expect(thickStripe!.style.borderLeft).toContain("6px solid");
     });
 
     it("ghost rows get no label zone", () => {

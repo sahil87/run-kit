@@ -134,6 +134,31 @@ describe("OpenButton", () => {
     expect(await screen.findByText("unknown app")).toBeInTheDocument();
   });
 
+  it("primary segment leads with the last-used target's glyph (260723-l317)", () => {
+    localStorage.setItem(LAST_USED_OPEN_TARGET_KEY, "deeplink:vscode");
+    renderButton([deeplinkTarget, hostTarget]);
+    // Accessible name unchanged — the glyph is aria-hidden decoration.
+    const primary = screen.getByRole("button", { name: "Open in VS Code" });
+    const icon = primary.querySelector("svg[data-icon='vscode']");
+    expect(icon).not.toBeNull();
+    expect(icon!.getAttribute("aria-hidden")).toBe("true");
+    // The "Open" text label is kept — the icon is additive.
+    expect(primary).toHaveTextContent("Open");
+  });
+
+  it("primary segment carries no glyph when no last-used preference is stored", () => {
+    renderButton([deeplinkTarget, hostTarget]);
+    const primary = screen.getByRole("button", { name: "Open in app" });
+    expect(primary.querySelector("svg")).toBeNull();
+  });
+
+  it("primary segment carries no glyph when the stored last-used id is stale", () => {
+    localStorage.setItem(LAST_USED_OPEN_TARGET_KEY, "deeplink:windsurf");
+    renderButton([deeplinkTarget, hostTarget]);
+    const primary = screen.getByRole("button", { name: "Open in app" });
+    expect(primary.querySelector("svg")).toBeNull();
+  });
+
   it("leads every menu row with its resolved glyph (260722-fc3b)", () => {
     renderButton([deeplinkTarget, hostTarget]);
     fireEvent.click(screen.getByRole("button", { name: "Open in… (choose app)" }));

@@ -16,42 +16,48 @@ import (
 	"rk/internal/validate"
 )
 
-// familyHexByLegacy maps the 10 owned hue families' LEGACY color-value
-// descriptors (the storage vocabulary — see themes.ts HUE_FAMILIES) to their
-// default-dark family hexes. A Dock icon is theme-independent, so the hexes
-// are frozen from the default-dark palette rather than derived per active
-// theme: each value is colorValueToHex(family, DEFAULT_DARK_THEME.palette)
-// from app/frontend/src/themes.ts — the OKLCH owned-family rendering at the
+// familyHexByValue maps every canonical color value that resolves to an owned
+// hue family/shade to its default-dark hex: the LEGACY numeric descriptors and
+// the family NAMES (both the normal-shade vocabulary — the frontend write seam
+// stores normal picks as legacy, but names are valid stored values too), plus
+// the "-dark" shade variants (which have no legacy form and are stored as
+// names verbatim — see themes.ts HUE_FAMILIES / SHADE_DARK_SUFFIX). A Dock
+// icon is theme-independent, so the hexes are frozen from the default-dark
+// palette rather than derived per active theme: each value is
+// colorValueToHex(value, DEFAULT_DARK_THEME.palette) from
+// app/frontend/src/themes.ts — the OKLCH owned-family rendering at the
 // default-dark theme's mean L/C (L≈0.7059, C≈0.1470 over ansi[1..6]) in the
-// family's own hue, brought into the sRGB gamut by chroma reduction.
+// family's own hue (dark shade at mean-L − 0.14), brought into the sRGB gamut
+// by chroma reduction.
 //
 // Descriptors that validate but map to no owned family (e.g. "7", "2+5")
 // deliberately resolve to nothing — mirroring the frontend's resolveFamily,
 // which renders no accent for values outside the 10 owned families.
-var familyHexByLegacy = map[string]string{
-	"1":   "#ee7871", // red    (hue 25)
-	"1+3": "#e58439", // orange (hue 55)
-	"3":   "#c19b22", // amber  (hue 90)
-	"1+2": "#95ad33", // olive  (hue 120)
-	"2":   "#51b96d", // green  (hue 150)
-	"6":   "#00b9aa", // teal   (hue 185)
-	"4":   "#4fa5f8", // blue   (hue 250)
-	"1+4": "#a08ef5", // purple (hue 290)
-	"5":   "#d37ccb", // magenta (hue 330)
-	"3+4": "#95a2b0", // slate  (hue 250, near-neutral chroma)
+var familyHexByValue = map[string]string{
+	"1":   "#ee7871", "red": "#ee7871", "red-dark": "#bd4c48", //     hue 25
+	"1+3": "#e58439", "orange": "#e58439", "orange-dark": "#b15c0e", // hue 55
+	"3":   "#c19b22", "amber": "#c19b22", "amber-dark": "#907204", //  hue 90
+	"1+2": "#95ad33", "olive": "#95ad33", "olive-dark": "#6d8019", //  hue 120
+	"2":   "#51b96d", "green": "#51b96d", "green-dark": "#198d44", //  hue 150
+	"6":   "#00b9aa", "teal": "#00b9aa", "teal-dark": "#0f887e", //    hue 185
+	"4":   "#4fa5f8", "blue": "#4fa5f8", "blue-dark": "#1d79c8", //    hue 250
+	"1+4": "#a08ef5", "purple": "#a08ef5", "purple-dark": "#7763c5", // hue 290
+	"5":   "#d37ccb", "magenta": "#d37ccb", "magenta-dark": "#a5519f", // hue 330
+	"3+4": "#95a2b0", "slate": "#95a2b0", "slate-dark": "#6b7885", //  hue 250, near-neutral chroma
 }
 
 // Resolve maps an instance-accent color-value descriptor to its owned-family
 // default-dark hex. The descriptor is normalized via
 // validate.NormalizeColorValue first (so "04" and " 1 + 3 " resolve like "4"
-// and "1+3"). Returns the family hex, the canonical descriptor (stable cache/
-// URL key), and ok=false when the value is malformed or owned by no family.
+// and "1+3", and family names trim to their verbatim form). Returns the
+// family/shade hex, the canonical descriptor (stable cache/URL key), and
+// ok=false when the value is malformed or owned by no family.
 func Resolve(descriptor string) (hex string, canonical string, ok bool) {
 	normalized, valid := validate.NormalizeColorValue(descriptor)
 	if !valid {
 		return "", "", false
 	}
-	h, owned := familyHexByLegacy[normalized]
+	h, owned := familyHexByValue[normalized]
 	if !owned {
 		return "", "", false
 	}

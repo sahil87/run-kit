@@ -321,9 +321,10 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     const id = await makeWindow(page, `wv-mobile-long-worktree-name-${Date.now()}`, {
       url: IFRAME_URL,
     });
-    // Do NOT gate on the `Connected` dot here: it is `hidden sm:inline`, so at
-    // 375px it is `display:none` and never becomes visible (same reason
-    // window-heading.spec.ts's mobile test gates on the heading, not the dot).
+    // Do NOT gate on the `Connected` dot here: it lives in the sidebar footer
+    // (260724-6j1v), and at 375px the sidebar is an unmounted drawer, so the
+    // dot never becomes visible (same reason window-heading.spec.ts's mobile
+    // test gates on the heading, not the dot).
     // Gate directly on the iframe — the thing under test.
     await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(id)}?view=web`);
     await expect(iframe(page)).toBeVisible({ timeout: 10_000 });

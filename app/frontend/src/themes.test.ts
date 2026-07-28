@@ -11,6 +11,8 @@ import {
   computeRowBorders,
   HUE_FAMILIES,
   PICKER_COLOR_VALUES,
+  MARKER_STATES,
+  markerStripeStyle,
   UNCOLORED_SELECTED_KEY,
   parseColorValue,
   formatColorValue,
@@ -239,8 +241,13 @@ describe("owned hue families", () => {
     expect(HUE_FAMILIES.map((f) => f.name)).toEqual([
       "red", "orange", "amber", "olive", "green", "teal", "blue", "purple", "magenta", "slate",
     ]);
+    // The picker values are the 20 family/shade values in PAIRED order — each
+    // family's normal|dark shades adjacent, so the 4-wide grid pairs them.
     expect(PICKER_COLOR_VALUES).toEqual([
-      "red", "orange", "amber", "olive", "green", "teal", "blue", "purple", "magenta", "slate",
+      "red", "red-dark", "orange", "orange-dark", "amber", "amber-dark",
+      "olive", "olive-dark", "green", "green-dark", "teal", "teal-dark",
+      "blue", "blue-dark", "purple", "purple-dark", "magenta", "magenta-dark",
+      "slate", "slate-dark",
     ]);
     expect(new Set(HUE_FAMILIES.map((f) => f.name)).size).toBe(10);
     // slate is the only near-neutral family.
@@ -320,6 +327,116 @@ describe("owned hue families", () => {
   });
 });
 
+describe("shade axis (normal + dark)", () => {
+  it("parseColorValue/formatColorValue round-trip both shades; legacy is always normal", () => {
+    const dark = parseColorValue("blue-dark");
+    expect(dark?.family.name).toBe("blue");
+    expect(dark?.shade).toBe("dark");
+    expect(formatColorValue(dark!)).toBe("blue-dark");
+    const normal = parseColorValue("blue");
+    expect(normal?.shade).toBe("normal");
+    expect(formatColorValue(normal!)).toBe("blue");
+    // Legacy descriptors have no shade slot — they parse as the normal shade.
+    const legacy = parseColorValue("1+3");
+    expect(legacy?.family.name).toBe("orange");
+    expect(legacy?.shade).toBe("normal");
+    expect(formatColorValue(legacy!)).toBe("orange");
+    // Whitespace tolerated like every other stored form.
+    expect(parseColorValue(" slate-dark ")?.shade).toBe("dark");
+  });
+
+  it("resolveFamily accepts -dark names (hue identity — the shade is dropped)", () => {
+    expect(resolveFamily("blue-dark")?.name).toBe("blue");
+    expect(resolveFamily("slate-dark")?.name).toBe("slate");
+  });
+
+  it("rejects shade near-misses", () => {
+    for (const bad of ["blue-light", "bluish-dark", "-dark", "dark", "1+3-dark"]) {
+      expect(parseColorValue(bad)).toBeNull();
+      expect(resolveFamily(bad)).toBeNull();
+    }
+  });
+
+  it("familyToLegacy passes dark values through verbatim (no legacy form exists)", () => {
+    expect(familyToLegacy("blue-dark")).toBe("blue-dark");
+    expect(familyToLegacy("slate-dark")).toBe("slate-dark");
+    // Normal picks keep the legacy write mapping (zero migration).
+    expect(familyToLegacy("blue")).toBe("4");
+  });
+
+  it("dark shades render at mean-L − 0.14 with the family hue preserved", () => {
+    const p = DEFAULT_DARK_THEME.palette;
+    const stats = themeColorStats(p);
+    for (const name of ["red", "teal", "purple"]) {
+      const normal = hexToOklab(colorValueToHex(name, p)!);
+      const dark = hexToOklab(colorValueToHex(`${name}-dark`, p)!);
+      // Lightness drops by ≈ 0.14 from the theme mean (8-bit rounding + any
+      // gamut chroma-reduction keep L itself exact, so a tight tolerance).
+      expect(dark.L).toBeCloseTo(stats.L - 0.14, 1);
+      expect(dark.L).toBeLessThan(normal.L);
+      // Hue angle preserved (chroma may reduce for gamut, hue must not move).
+      const hue = (c: { a: number; b: number }) => (Math.atan2(c.b, c.a) * 180) / Math.PI;
+      const diff = Math.abs(hue(dark) - hue(normal));
+      expect(Math.min(diff, 360 - diff)).toBeLessThan(6);
+    }
+  });
+
+  it("slate-dark keeps the near-neutral chroma rule (an intentional gray ramp)", () => {
+    const p = DEFAULT_DARK_THEME.palette;
+    const slateDark = hexToOklab(colorValueToHex("slate-dark", p)!);
+    const blueDark = hexToOklab(colorValueToHex("blue-dark", p)!);
+    expect(Math.hypot(slateDark.a, slateDark.b)).toBeLessThan(Math.hypot(blueDark.a, blueDark.b));
+  });
+
+  it("dark rendering is in-gamut on every theme (chroma-reduced, never clamped)", () => {
+    for (const theme of THEMES) {
+      const stats = themeColorStats(theme.palette);
+      for (const family of HUE_FAMILIES) {
+        const hex = colorValueToHex(`${family.name}-dark`, theme.palette)!;
+        expect(hex).toMatch(HEX_RE);
+        // The encoded result reconstructs to (about) the intended lightness —
+        // proof no sRGB channel-clamping shifted it.
+        const lab = hexToOklab(hex);
+        expect(Math.abs(lab.L - (stats.L - 0.14))).toBeLessThan(0.05);
+      }
+    }
+  });
+});
+
+describe("markerStripeStyle", () => {
+  const color = "#123456";
+
+  it("covers all six states with the documented widths", () => {
+    expect(markerStripeStyle("", color)).toBeUndefined();
+    expect(markerStripeStyle("solid", color)).toEqual({ borderLeft: `3px solid ${color}` });
+    expect(markerStripeStyle("double", color)).toEqual({ borderLeft: `6px double ${color}` });
+    expect(markerStripeStyle("thick", color)).toEqual({ borderLeft: `6px solid ${color}` });
+    expect(markerStripeStyle("unknown", color)).toBeUndefined();
+  });
+
+  it("dotted is a one-period fixed tile (3px 6px, repeat-y) — element-height independent", () => {
+    const s = markerStripeStyle("dotted", color)!;
+    // A plain linear-gradient of ONE period repeated with repeat-y: the tile
+    // height is fixed (6px), so the rhythm holds at ANY element height (the
+    // 18px picker preview cells included) — not just the 24/36px rows the old
+    // `3px 100%` + no-repeat form happened to weld on.
+    expect(s.backgroundImage).toBe(`linear-gradient(to bottom, ${color} 0 3px, transparent 3px 6px)`);
+    expect(s.backgroundSize).toBe("3px 6px");
+    expect(s.backgroundRepeat).toBe("repeat-y");
+  });
+
+  it("dashed is a one-period fixed tile (8px dash / 4px gap, 12px period)", () => {
+    const s = markerStripeStyle("dashed", color)!;
+    expect(s.backgroundImage).toBe(`linear-gradient(to bottom, ${color} 0 8px, transparent 8px 12px)`);
+    expect(s.backgroundSize).toBe("3px 12px");
+    expect(s.backgroundRepeat).toBe("repeat-y");
+  });
+
+  it("MARKER_STATES is the closed set in display order (empty first)", () => {
+    expect(MARKER_STATES).toEqual(["", "dotted", "dashed", "solid", "double", "thick"]);
+  });
+});
+
 describe("OKLCH helpers", () => {
   it("oklchToHex round-trips a mid hue/chroma through OKLab back to a close OKLCH", () => {
     const hex = oklchToHex(0.6, 0.1, 55); // orange-ish
@@ -363,15 +480,28 @@ describe("OKLCH helpers", () => {
 });
 
 describe("computeRowTints", () => {
-  it("returns an entry for every family value plus the uncolored sentinel", () => {
+  it("returns an entry for every family/shade value plus the uncolored sentinel", () => {
     const tints = computeRowTints(DEFAULT_DARK_THEME.palette);
-    // Each of the 10 families is keyed under BOTH its family name AND its legacy
-    // descriptor (20 keys), plus the 1 uncolored-selected sentinel.
-    expect(tints.size).toBe(PICKER_COLOR_VALUES.length * 2 + 1);
+    // Each of the 10 families' NORMAL shade is keyed under BOTH its family name
+    // AND its legacy descriptor (20 keys); each DARK shade under its
+    // `{family}-dark` value only (10 keys — no legacy form exists); plus the 1
+    // uncolored-selected sentinel = 31 entries.
+    expect(tints.size).toBe(HUE_FAMILIES.length * 3 + 1);
     for (const value of PICKER_COLOR_VALUES) {
       expect(tints.has(value)).toBe(true);
     }
     expect(tints.has(UNCOLORED_SELECTED_KEY)).toBe(true);
+  });
+
+  it("dark tints derive from the dark source hex through the same pipeline (distinct from normal)", () => {
+    const p = DEFAULT_DARK_THEME.palette;
+    const tints = computeRowTints(p);
+    const fg = saturateHex(colorValueToHex("blue-dark", p)!, 1.5);
+    expect(tints.get("blue-dark")!.base).toBe(blendHex(fg, p.background, 0.14));
+    expect(tints.get("blue-dark")!.selected).toBe(blendHex(fg, p.background, 0.4));
+    // The dark entry is its own tint, not an alias of the normal one.
+    expect(tints.get("blue-dark")).not.toBe(tints.get("blue"));
+    expect(tints.get("blue-dark")!.base).not.toBe(tints.get("blue")!.base);
   });
 
   it("keys tints under BOTH the family name AND its legacy descriptor (same entry)", () => {
@@ -480,17 +610,22 @@ describe("adjustBorderForContrast", () => {
 });
 
 describe("computeRowBorders", () => {
-  it("returns a contrast-adjusted border per family under BOTH vocabularies + sentinel", () => {
+  it("returns a contrast-adjusted border per family/shade under every stored vocabulary + sentinel", () => {
     const borders = computeRowBorders(DEFAULT_DARK_THEME.palette, DEFAULT_DARK_THEME.category);
-    // Each family keyed under its name AND its legacy descriptor (20 keys) + the
+    // Each family's normal shade keyed under its name AND its legacy descriptor
+    // (20 keys), each dark shade under `{family}-dark` (10 keys), + the
     // uncolored-selected sentinel — mirroring computeRowTints so consumers keyed
     // by the raw stored value hit regardless of the stored vocabulary.
-    expect(borders.size).toBe(PICKER_COLOR_VALUES.length * 2 + 1);
+    expect(borders.size).toBe(HUE_FAMILIES.length * 3 + 1);
+    for (const value of PICKER_COLOR_VALUES) {
+      expect(borders.has(value)).toBe(true);
+    }
     for (const [, hex] of borders) {
       expect(hex).toMatch(HEX_RE);
     }
-    // The two vocabularies point at the same border.
+    // The two normal-shade vocabularies point at the same border; dark is its own.
     expect(borders.get("1+3")).toBe(borders.get("orange"));
+    expect(borders.get("orange-dark")).not.toBe(borders.get("orange"));
   });
 
   it("every border clears the min contrast (or improves on the raw source) across all themes", () => {

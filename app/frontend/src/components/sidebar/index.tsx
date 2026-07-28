@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo, use
 import { createPortal } from "react-dom";
 import { useNavigate } from "@tanstack/react-router";
 import { killSession as killSessionApi, killWindow as killWindowApi, renameSession, moveWindow, moveWindowToSession, setSessionColor as setSessionColorApi, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, getAllServerColors, setServerColor as setServerColorApi, setSessionOrder, type ServerInfo } from "@/api/client";
-import { useSessionContext } from "@/contexts/session-context";
+import { useSessionContext, useUpdateNotification } from "@/contexts/session-context";
 import { useFocusedPane } from "@/contexts/focused-pane-context";
 import { resolveFocusedWindow, thinWindowFromFocusedPane } from "@/lib/focused-pane-window";
 import { finalizeSafeName } from "@/lib/names";
@@ -14,7 +14,10 @@ import { Tip, TipGroup } from "@/components/tip";
 import { SwatchPopover } from "@/components/swatch-popover";
 import { PaletteIcon, GearIcon } from "./icons";
 import { useSettingsDialog } from "@/contexts/settings-dialog-context";
-import { useTheme } from "@/contexts/theme-context";
+import { useTheme, useThemeActions } from "@/contexts/theme-context";
+import { HELP_URL, cycleTheme, HelpIcon, ThemeModeIcon } from "@/components/global-chrome";
+import { displayVersion } from "@/lib/palette-version";
+import { copyToClipboard } from "@/lib/clipboard";
 import { computeRowTints, computeRowBorders, UNCOLORED_SELECTED_KEY } from "@/themes";
 import type { ProjectSession } from "@/types";
 import { isGhostWindow } from "@/contexts/optimistic-context";
@@ -61,6 +64,11 @@ export type SidebarProps = {
   currentServer: string | null;
   currentSession: string | null;
   currentWindowId: string | null;
+  /** Per-page "this page's live data is flowing" (260724-6j1v) — the same
+   *  value the top-bar connection dot carried before it moved to the sidebar
+   *  footer. AppShell passes its chat-aware `dotConnected`; BoardPage passes
+   *  `boardConnected` (AND over attached servers). */
+  isConnected: boolean;
   /** Session/window navigation. The `server` argument carries the source
    *  server so callers can route across servers. The window is addressed by
    *  its stable tmux window ID (@N). */
@@ -90,6 +98,7 @@ export function Sidebar({
   currentServer,
   currentSession,
   currentWindowId,
+  isConnected,
   onSelectWindow,
   onCreateWindow,
   onCreateSession,
@@ -904,6 +913,43 @@ export function Sidebar({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rovingKey, rowsVersion]);
 
+  // Desktop autoscroll: bring the selected window row into view when the
+  // selection identity (`${server}:${windowId}`) changes — click, palette, or
+  // deep link. Scroll-only: NO focus() (stealing focus on navigation would
+  // break terminal typing — the mobile drawer effect above focuses only to
+  // beat the focus trap's first-focus) and NO rovingKey write, so roving/focus
+  // state is untouched (trivially preserving the Wave-2 #262 invariant).
+  //
+  // Deep-link retry: on a direct URL load the route resolves before SSE data
+  // lands, so the row may not exist yet. `pendingScrollKeyRef` arms when the
+  // selection identity changes and clears once the row is found and scrolled;
+  // `rowsVersion` (bumped ONLY on visible-row SET changes, never on passive
+  // SSE activity ticks) re-runs the attempt. One scroll per selection change —
+  // a passive SSE tick can neither re-run this effect nor re-arm the ref.
+  // A collapsed group keeps the row out of the DOM: no scroll, no auto-expand
+  // (expanding would fight the user's explicit collapse); the armed ref then
+  // completes the one deferred scroll if the row later appears.
+  const selectionKey =
+    currentServer !== null && currentWindowId !== null
+      ? `${currentServer}:${currentWindowId}`
+      : null;
+  const pendingScrollKeyRef = useRef<string | null>(null);
+  const lastSelectionKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (selectionKey !== lastSelectionKeyRef.current) {
+      lastSelectionKeyRef.current = selectionKey;
+      pendingScrollKeyRef.current = selectionKey; // null selection disarms
+    }
+    if (pendingScrollKeyRef.current === null) return;
+    // Same scoped selector as the mobile drawer effect: the selected window
+    // row's button carries aria-current="page" under a [data-window-id]
+    // wrapper; the active BoardsSection row (no such ancestor) is excluded.
+    const row = navRef.current?.querySelector<HTMLElement>('[data-window-id] [aria-current="page"]');
+    if (!row) return; // not rendered yet (SSE pending / collapsed group) — retry on rowsVersion
+    pendingScrollKeyRef.current = null;
+    if (typeof row.scrollIntoView === "function") row.scrollIntoView({ block: "nearest" });
+  }, [selectionKey, rowsVersion]);
+
   // Move the roving cursor to the row at `nextIndex` in the visible-rows list,
   // updating both the key (drives `tabIndex`) and DOM focus.
   const moveRovingTo = useCallback((rows: HTMLElement[], nextIndex: number) => {
@@ -1276,22 +1322,13 @@ export function Sidebar({
           status only when there's a current server. */}
       <BottomPanels currentServer={currentServer} currentSessionName={currentSession} currentWindowId={currentWindowId} />
 
-      {/* Footer — settings gear (o7q8). The Sidebar renders on server routes
-          AND boards, so this affordance works everywhere; the dialog itself
-          mounts once in AppLayout. Tip-named (no native title=), placement
-          `top` since the row hugs the viewport bottom. */}
-      <div className="shrink-0 border-t border-border px-2 py-1 flex justify-end">
-        <Tip label="Settings" placement="top">
-          <button
-            type="button"
-            onClick={openSettings}
-            aria-label="Open settings"
-            className="min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] flex items-center justify-center rounded text-text-secondary hover:text-text-primary transition-colors"
-          >
-            <GearIcon />
-          </button>
-        </Tip>
-      </div>
+      {/* Footer — the app-global chrome row (o7q8 gear; 6j1v full cluster).
+          The Sidebar renders on server routes AND boards, so these affordances
+          work everywhere; the settings dialog itself mounts once in AppLayout.
+          Split by role: LEFT = passive readouts (connection dot + version),
+          RIGHT = actions (Help · Theme · Gear). Tips placement `top` since the
+          row hugs the viewport bottom. */}
+      <SidebarFooter isConnected={isConnected} onOpenSettings={openSettings} />
 
       {/* Kill confirmation */}
       {killTarget && (
@@ -1303,6 +1340,140 @@ export function Sidebar({
       )}
     </nav>
     </TipGroup>
+  );
+}
+
+/** Borderless footer-action idiom (the gear's, o7q8) shared by every icon in
+ *  the footer's right cluster — deliberately NOT the top bar's bordered
+ *  `rk-glint` chips. */
+const FOOTER_ICON_CLASS =
+  "min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] flex items-center justify-center rounded text-text-secondary hover:text-text-primary transition-colors";
+
+/**
+ * Sidebar footer — the app-global chrome row (260724-6j1v). `justify-between`:
+ *
+ *  - LEFT — passive readouts (a status segment): the connection dot (moved
+ *    from the top bar; same per-page `isConnected` semantics, markup, and
+ *    aria) and the resting version line (`v0.9.3`, click-to-copy with the
+ *    overflow menu's toast pattern; renders nothing until the daemon reports
+ *    a version — never `vundefined`). The overflow menu's fixed version row is
+ *    unchanged and remains the update surface; this is a readout only.
+ *  - RIGHT — actions, in order Help · Theme · Gear, all in the gear's
+ *    borderless footer idiom. Help/Theme share the single `global-chrome.tsx`
+ *    definitions with the command palettes (no drift). The theme button keeps
+ *    the retired top-bar ThemeToggle's behavior: click cycles
+ *    system → light → dark → system; Ctrl/Cmd-click opens the theme selector.
+ *
+ * Tips use `placement="top"` since the row hugs the viewport bottom.
+ */
+function SidebarFooter({
+  isConnected,
+  onOpenSettings,
+}: {
+  isConnected: boolean;
+  onOpenSettings: () => void;
+}) {
+  const { daemonVersion } = useUpdateNotification();
+  const { preference, resolved, themeDark, themeLight } = useTheme();
+  const { setTheme } = useThemeActions();
+  const { addToast } = useToast();
+
+  // Same title derivation the top-bar dot carried: extend "Connected" with the
+  // running version once known (hover-discovery detail; the aria-label stays
+  // the concise Connected/Disconnected on the live region).
+  const dotTitle = !isConnected
+    ? "Disconnected"
+    : daemonVersion
+      ? `Connected — run-kit ${displayVersion(daemonVersion)}`
+      : "Connected";
+
+  const versionText = daemonVersion ? displayVersion(daemonVersion) : null;
+  const handleCopyVersion = () => {
+    if (!daemonVersion) return;
+    void copyToClipboard(displayVersion(daemonVersion)).then((ok) => {
+      addToast(ok ? "Version copied" : "Copy failed", ok ? "info" : "error");
+    });
+  };
+
+  // Effective theme mode drives the label, the glyph, and the cycle step.
+  const themeMode = preference === "system" ? "system" : resolved;
+  const themeLabel =
+    themeMode === "system" ? "System theme" : themeMode === "light" ? "Light theme" : "Dark theme";
+  const handleThemeClick = (e: React.MouseEvent) => {
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      document.dispatchEvent(new CustomEvent("theme-selector:open"));
+      return;
+    }
+    cycleTheme(themeMode, themeLight, themeDark, setTheme);
+  };
+
+  return (
+    <div className="shrink-0 border-t border-border px-2 py-1 flex items-center justify-between">
+      {/* LEFT — passive readouts: connection dot + version. */}
+      <span className="flex items-center gap-1.5 min-w-0">
+        {/* Connection dot — moved from the top bar (260724-6j1v). Hover-only
+            tip; the dot stays a non-focusable span (a status readout, not an
+            actionable control — no tab stop added). */}
+        <span role="status" aria-live="polite" className="inline-flex">
+          <Tip label={dotTitle} placement="top">
+            <span
+              className={`block w-2 h-2 rounded-full ${
+                isConnected ? "bg-accent-green" : "bg-text-secondary"
+              }`}
+              aria-label={isConnected ? "Connected" : "Disconnected"}
+            />
+          </Tip>
+        </span>
+        {versionText && (
+          <Tip label="Copy version" placement="top">
+            <button
+              type="button"
+              onClick={handleCopyVersion}
+              aria-label={`RunKit ${versionText} (copy)`}
+              className="text-[10px] text-text-secondary hover:text-text-primary transition-colors truncate"
+            >
+              {versionText}
+            </button>
+          </Tip>
+        )}
+      </span>
+
+      {/* RIGHT — actions: Help · Theme · Gear (the borderless footer idiom). */}
+      <span className="flex items-center gap-0.5">
+        <Tip label="Help — run-kit docs" placement="top">
+          <a
+            href={HELP_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Help — run-kit docs"
+            className={FOOTER_ICON_CLASS}
+          >
+            <HelpIcon />
+          </a>
+        </Tip>
+        <Tip label={themeLabel} placement="top">
+          <button
+            type="button"
+            onClick={handleThemeClick}
+            aria-label={themeLabel}
+            className={FOOTER_ICON_CLASS}
+          >
+            <ThemeModeIcon mode={themeMode} />
+          </button>
+        </Tip>
+        <Tip label="Settings" placement="top">
+          <button
+            type="button"
+            onClick={onOpenSettings}
+            aria-label="Open settings"
+            className={FOOTER_ICON_CLASS}
+          >
+            <GearIcon />
+          </button>
+        </Tip>
+      </span>
+    </div>
   );
 }
 
@@ -1737,10 +1908,8 @@ function ServerGroupInner(props: ServerGroupProps) {
           >
             <SwatchPopover
               selectedColor={serverColor}
-              onSelect={(c) => {
-                onServerColorChange(server, c);
-                setShowColorPicker(false);
-              }}
+              // Selection does NOT close (the picker's dismissal contract).
+              onSelect={(c) => onServerColorChange(server, c)}
               onClose={() => setShowColorPicker(false)}
             />
           </div>,

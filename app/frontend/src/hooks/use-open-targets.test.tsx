@@ -1,6 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { renderHook, waitFor } from "@testing-library/react";
-import { useOpenTargets, resetOpenTargetsCacheForTest } from "./use-open-targets";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+import {
+  invalidateOpenContext,
+  resetOpenTargetsCacheForTest,
+  useOpenTargets,
+} from "./use-open-targets";
 import { getHealth, getOpenApps } from "@/api/client";
 
 vi.mock("@/api/client", () => ({
@@ -13,6 +17,12 @@ describe("useOpenTargets", () => {
     resetOpenTargetsCacheForTest();
     vi.mocked(getHealth).mockReset();
     vi.mocked(getOpenApps).mockReset();
+  });
+
+  // Unmount leftover hooks so their store subscriptions don't leak across
+  // tests (the listener set is module-level, like the cache).
+  afterEach(() => {
+    cleanup();
   });
 
   it("fetches sshHost + sshUser + registry when enabled", async () => {
@@ -78,5 +88,70 @@ describe("useOpenTargets", () => {
     });
     expect(result.current.sshHost).toBe("");
     expect(result.current.sshUser).toBe("");
+  });
+
+  it("invalidateOpenContext refetches and pushes fresh data to mounted consumers", async () => {
+    vi.mocked(getHealth).mockResolvedValue({
+      status: "ok",
+      hostname: "h",
+      sshHost: "sahil@runner-mini.bat-ordinal.ts.net",
+      sshUser: "sahil",
+    });
+    vi.mocked(getOpenApps).mockResolvedValue([]);
+
+    const { result } = renderHook(() => useOpenTargets(true));
+    await waitFor(() => {
+      expect(result.current.sshHost).toBe("sahil@runner-mini.bat-ordinal.ts.net");
+    });
+
+    // The settings commit changed the SSH host server-side; invalidation must
+    // deliver the fresh value to the still-mounted consumer without a reload.
+    vi.mocked(getHealth).mockResolvedValue({
+      status: "ok",
+      hostname: "h",
+      sshHost: "sahil@mini",
+      sshUser: "sahil",
+    });
+    act(() => {
+      invalidateOpenContext();
+    });
+
+    await waitFor(() => {
+      expect(result.current.sshHost).toBe("sahil@mini");
+    });
+    expect(getHealth).toHaveBeenCalledTimes(2);
+    expect(getOpenApps).toHaveBeenCalledTimes(2);
+  });
+
+  it("zero-subscriber invalidation drops the cache so the next mount fetches fresh", async () => {
+    vi.mocked(getHealth).mockResolvedValue({
+      status: "ok",
+      hostname: "h",
+      sshHost: "stale-host",
+      sshUser: "sahil",
+    });
+    vi.mocked(getOpenApps).mockResolvedValue([]);
+
+    const first = renderHook(() => useOpenTargets(true));
+    await waitFor(() => {
+      expect(first.result.current.sshHost).toBe("stale-host");
+    });
+    first.unmount();
+
+    vi.mocked(getHealth).mockResolvedValue({
+      status: "ok",
+      hostname: "h",
+      sshHost: "fresh-host",
+      sshUser: "sahil",
+    });
+    invalidateOpenContext();
+    // No consumer is mounted — no eager refetch, just the cache drop.
+    expect(getHealth).toHaveBeenCalledTimes(1);
+
+    const second = renderHook(() => useOpenTargets(true));
+    await waitFor(() => {
+      expect(second.result.current.sshHost).toBe("fresh-host");
+    });
+    expect(getHealth).toHaveBeenCalledTimes(2);
   });
 });

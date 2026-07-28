@@ -3,6 +3,7 @@ import { useModifierState, type ModifierSnapshot } from "@/hooks/use-modifier-st
 import { useFocusedTerminal } from "@/contexts/focused-terminal-context";
 import { useChromeState } from "@/contexts/chrome-context";
 import { ArrowPad } from "@/components/arrow-pad";
+import { KBD_CLASS } from "@/components/kbd-chip";
 import { Tip, TipGroup } from "@/components/tip";
 import { focusComposeStrip } from "@/lib/compose-strip-events";
 
@@ -48,12 +49,6 @@ const EXT_KEYS = [
   { label: "Del", plain: "\x1b[3~", mod: (p: number) => `\x1b[3;${p}~` },
 ] as const;
 
-// Chip size splits by pointer: 33×35 on fine pointers (lighter bar, more air
-// between chips) while coarse pointers keep the full 36×36 touch target and
-// the tighter 4px gap so the 375px single-row budget is unchanged.
-const KBD_CLASS =
-  "rk-glint min-h-[33px] min-w-[35px] coarse:min-h-[36px] coarse:min-w-[36px] flex items-center justify-center px-1 py-0 text-xs border border-border rounded select-none transition-colors hover:border-text-secondary active:bg-bg-card focus-visible:outline-2 focus-visible:outline-accent";
-
 /** Long-press duration (ms) to toggle scroll-lock. */
 const LONG_PRESS_MS = 500;
 
@@ -65,12 +60,14 @@ const MODIFIER_LABELS: Record<string, string> = {
   alt: "Option",
 };
 
-/** Tier-1 tip copy for the modifier latch chips (260723-fm08): describes the
- *  verified one-shot latch — the armed modifier applies to the NEXT key sent
- *  (chip or physical keystroke) and is consumed. */
+/** Tier-1 tip copy for the modifier latch chips: plain key names in terminal
+ *  vocabulary ("Ctrl"/"Alt" — what the chip SENDS), while the aria-labels
+ *  above keep the mac key names matching the glyphs. The one-shot latch
+ *  behavior isn't spelled out — the pressed/accent state teaches it on first
+ *  tap, and every other chip tip likewise just names its key. */
 const MODIFIER_TIP_LABELS: Record<string, string> = {
-  ctrl: "Ctrl for next key",
-  alt: "Alt for next key",
+  ctrl: "Ctrl",
+  alt: "Alt",
 };
 
 /** Prevent mousedown from stealing focus away from the terminal. */
@@ -293,7 +290,13 @@ export function BottomBar({ onOpenCompose, onFocusTerminal, onScrollLockChange }
     // and the coarse-only ⌨/🔒 chip could never render a tip (Tip
     // self-suppresses under pointer: coarse).
     <TipGroup>
-    <div className="flex items-center gap-1.5 coarse:gap-1 py-1.5 flex-wrap" role="toolbar" aria-label="Terminal keys">
+    {/* pb = max(6px, safe-area-inset-bottom): with viewport-fit=cover the OS
+        reports the corner-arc/home-indicator inset while the keyboard is
+        collapsed, lifting the extreme chips above the phone's curved edge;
+        when the keyboard opens, interactive-widget=resizes-content shrinks the
+        layout viewport past the inset so env() → 0 and the padding returns to
+        6px. CSS-only — no JS keyboard detection. (260724-2bmy) */}
+    <div className="flex items-center gap-1.5 coarse:gap-1 pt-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))] flex-wrap" role="toolbar" aria-label="Terminal keys">
       <Tip label="Tab" placement="top">
         <button aria-label="Tab" className={`${KBD_CLASS} text-text-secondary`} onMouseDown={preventFocusSteal} onClick={() => sendSpecial("\t")}>
           <kbd aria-hidden="true">{"\u21E5"}</kbd>

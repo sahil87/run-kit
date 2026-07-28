@@ -88,13 +88,16 @@ export function ServerPanel({
     [onRefreshServers],
   );
 
-  // Scroll active tile into view on mount (important for mobile single-row layout).
+  // Scroll the active tile into view on mount and on server change — both
+  // layouts: `block: "nearest"` handles the vertical desktop tile grid (which
+  // scrolls internally inside the resizable CollapsiblePanel), `inline:
+  // "nearest"` the horizontal mobile single-row strip. The `typeof` guard
+  // covers jsdom, which lacks scrollIntoView.
   useEffect(() => {
-    if (!isMobile) return;
     const el = activeTileRef.current;
     if (!el || typeof el.scrollIntoView !== "function") return;
     el.scrollIntoView({ block: "nearest", inline: "nearest" });
-  }, [isMobile, server]);
+  }, [server]);
 
   // The active server's name is NOT repeated here — the highlighted tile and
   // the top-bar page heading already show it. Only the refresh spinner rides

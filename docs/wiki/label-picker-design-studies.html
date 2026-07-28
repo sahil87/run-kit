@@ -1,0 +1,843 @@
+<!doctype html>
+<!-- Label Picker — Extension Studies (design reference, 2026-07-23/24).
+
+     The interactive design-study page iterated live with the user during the
+     260723-wwoi (markers + shades) and picker-dismissal / data-rain (#452)
+     design sessions. Every swatch and row tint is computed at load with a
+     faithful JS port of the themes.ts OKLCH pipeline (default-dark palette),
+     so what renders here is what the app renders. Kept as the reference for
+     future row-marker / row-background / picker-layout explorations: the
+     candidates gallery preserves the tried-and-rejected treatments (and why),
+     which is exactly the context a future iteration needs.
+
+     Self-contained — open directly in a browser, no build step. -->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Label Picker — Extension Studies</title>
+<style>
+  /* run-kit default-dark, deliberately single-theme: this page simulates the
+     app's own dark chrome, so a light rendering would falsify every swatch. */
+  :root {
+    --bg: #0f1117;
+    --panel: #151823;
+    --inset: #0a0c10;
+    --fg: #e8eaf0;
+    --fg2: #9aa1b2;
+    --fg3: #6b7280;
+    --border: #363c49;
+    --green: #22c55e;
+    --amber: #e8a84f;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { background: #0b0d12; }
+  body {
+    background: #0b0d12;
+    color: var(--fg);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    padding: 48px 20px 80px;
+  }
+  .wrap { max-width: 940px; margin: 0 auto; }
+
+  .eyebrow { color: var(--green); font-size: 10px; letter-spacing: 0.22em; }
+  h1 { font-size: 22px; font-weight: 600; margin: 6px 0 4px; letter-spacing: -0.01em; text-wrap: balance; }
+  .sub { color: var(--fg2); max-width: 64ch; }
+
+  section { margin-top: 56px; }
+  .shead {
+    display: flex; align-items: baseline; gap: 10px;
+    font-size: 11px; letter-spacing: 0.14em; color: var(--fg2);
+    margin-bottom: 6px;
+  }
+  .shead .br { color: var(--green); }
+  .shead b { color: var(--fg); font-weight: 600; }
+  .note { color: var(--fg2); max-width: 68ch; margin: 8px 0 20px; }
+  .note em { color: var(--fg); font-style: normal; }
+  .note code, p code, li code {
+    background: var(--inset); border: 1px solid #232836; padding: 0 4px;
+    font-size: 12px; color: var(--amber);
+  }
+
+  .board {
+    display: flex; flex-wrap: wrap; gap: 28px; align-items: flex-start;
+    background: var(--panel); border: 1px solid #232836; padding: 24px;
+    overflow-x: auto;
+  }
+  .cell-label { font-size: 10px; letter-spacing: 0.14em; color: var(--fg3); margin-bottom: 10px; }
+  .caveat { font-size: 11px; color: var(--fg2); max-width: 30ch; margin-top: 10px; line-height: 1.55; }
+  .caveat.ok { color: #7ed09a; }
+  .caveat.bad { color: #d98a8a; }
+
+  /* ── picker chrome (mirrors swatch-popover.tsx) ─────────────────────── */
+  .picker {
+    display: inline-flex; background: var(--bg); border: 1px solid var(--border);
+    padding: 6px; box-shadow: 3px 3px 0 rgba(0,0,0,.35); width: max-content;
+  }
+  .mcol { display: flex; flex-direction: column; gap: 3px; }
+  .mcell {
+    width: 18px; height: 18px; background: var(--inset);
+    position: relative; overflow: hidden; cursor: pointer; border: none;
+  }
+  .mcell.sel { outline: 1px solid var(--fg); }
+  /* 2px left inset so the marker previews read as mini rows (the stripe
+     doesn't kiss the cell border). The egg overlay shares the inset so the
+     thick/hazard diagonals stay phase-aligned inside the cell. */
+  .mcell .stripe { position: absolute; top: 0; bottom: 0; left: 2px; right: 0; }
+  .mcell .egg { inset: 0 0 0 2px; }
+  /* Picker previews are STATIC swatches — motion belongs to real rows only. */
+  .mcell .stripe, .mcell .egg::before, .mcell .egg::after { animation: none !important; }
+  .mcell .nul {
+    position: absolute; inset: 0; display: flex; align-items: center;
+    justify-content: center; color: var(--fg2); font-size: 10px;
+  }
+  .hair { width: 1px; background: var(--border); margin: 0 6px; align-self: stretch; }
+  .cgrid { display: grid; gap: 3px; }
+  .clearbtn {
+    height: 18px; font-size: 10px; color: var(--fg2); background: none; border: none;
+    font-family: inherit; cursor: pointer; display: flex; align-items: center; justify-content: center;
+  }
+  .clearbtn:hover { color: var(--fg); }
+  .clearbtn.sel { outline: 1px solid var(--fg); }
+  .sw { width: 18px; height: 18px; display: flex; flex-direction: column; cursor: pointer; border: none; padding: 0; position: relative; }
+  .sw.sel { outline: 1px solid var(--fg); }
+  .sw .h { flex: 1; width: 100%; }
+  .sw .h2 { flex: 1; width: 100%; display: flex; align-items: center; justify-content: center; }
+  .sw .ck { color: var(--fg); font-weight: 700; font-size: 7px; line-height: 1; }
+  .sw.tall { height: 22px; }
+  .sw .half { flex: 1; width: 100%; cursor: pointer; }
+  .sw .half:hover { outline: 1px solid var(--fg2); outline-offset: -1px; z-index: 1; }
+
+  /* ── sidebar mock (mirrors window-row.tsx geometry) ─────────────────── */
+  .sidebar {
+    width: 270px; background: var(--bg); border: 1px solid #232836;
+    padding: 8px 0 12px; flex: none;
+  }
+  .grouphead {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 2px 10px 4px; color: var(--fg); font-size: 12px;
+  }
+  .grouphead .plus { color: var(--fg3); letter-spacing: 0.2em; }
+  .row {
+    position: relative; min-height: 24px; display: flex; align-items: center;
+    padding: 1px 16px 1px 30px; font-size: 12px; color: var(--fg2);
+    cursor: pointer; user-select: none;
+  }
+  .row .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; position: relative; z-index: 10; }
+  .row.sel { color: var(--fg); font-weight: 600; }
+  .row .gutter { position: absolute; left: 0; top: 0; bottom: 0; width: 26px; z-index: 20; }
+  .row .gutter .stripe { position: absolute; left: 0; top: 0; bottom: 0; width: 8px; }
+  .row .dot {
+    width: 7px; height: 7px; border-radius: 50%; margin-right: 7px; flex: none;
+    position: relative; z-index: 10;
+  }
+  .dot.on { background: var(--green); }
+  .dot.off { background: none; box-shadow: inset 0 0 0 1.2px var(--fg3); }
+
+  /* overlay layer shared by all easter eggs — inner element owns the clip,
+     exactly like the shipped scanlines (never overflow-hidden on the row) */
+  .egg { position: absolute; inset: 0; z-index: 5; overflow: hidden; pointer-events: none; }
+
+  /* double → scanlines (SHIPPED, 260718-3prk) */
+  .egg-scan::before {
+    content: ""; position: absolute; inset: 0;
+    background-image: repeating-linear-gradient(to bottom,
+      color-mix(in srgb, var(--mkc) 24%, transparent) 0 1px, transparent 1px 3px);
+  }
+  @keyframes scan-crawl { from { background-position-y: 0; } to { background-position-y: 3px; } }
+  .sel .egg-scan::before, .forcesel .egg-scan::before { animation: scan-crawl 2.4s linear infinite; }
+  @keyframes scan-band { 0%, 60% { background-position-y: -12px; } 100% { background-position-y: calc(100% + 12px); } }
+  .sel .egg-scan::after, .forcesel .egg-scan::after {
+    content: ""; position: absolute; inset: 0; z-index: 6;
+    background-image: linear-gradient(to bottom, transparent,
+      color-mix(in srgb, var(--mkc) 45%, transparent), transparent);
+    background-repeat: no-repeat; background-size: 100% 12px;
+    background-position-y: -12px; animation: scan-band 7s linear infinite;
+  }
+
+  /* dotted → morse march (PROPOSAL): the gutter's own 6px dot rhythm crawls
+     downward while selected. No overlay — the stripe itself is the egg. */
+  @keyframes morse-march { from { background-position-y: 0; } to { background-position-y: 6px; } }
+  .sel .stripe.mk-dotted, .forcesel .stripe.mk-dotted { animation: morse-march 1.6s linear infinite; }
+
+  /* dashed → DATA RAIN (ALWAYS-ON): the STRIPE stays static; the row carries
+     two sparse 1px dash tracks streaming LEFT→RIGHT in the marker color — the
+     ambient "agent is working" cue. Runs in every state: "working" is
+     inherently live, and the thinned two-lane rain proved quiet enough to run
+     ambiently (settled after watching the selection-gated variant). Distinct
+     rhythms per lane (7/36px at y 8; 5/28px at y 16) read as rain, not a
+     marquee. SEAMLESS LOOP: each layer's tile is ONE FIXED PERIOD wide
+     (36px/28px — never "100%", which snaps at the loop boundary), and the
+     keyframes move each layer by an integer multiple of its own period
+     (72/56). Picker preview cells never show it. */
+  .egg-rain::before {
+    content: ""; position: absolute; inset: 0;
+    background-image:
+      linear-gradient(to right, color-mix(in srgb, var(--mkc) 22%, transparent) 0 7px, transparent 7px 36px),
+      linear-gradient(to right, color-mix(in srgb, var(--mkc) 16%, transparent) 0 5px, transparent 5px 28px);
+    background-size: 36px 1px, 28px 1px;
+    background-repeat: repeat-x, repeat-x;
+    background-position: 0 8px, 0 16px;
+    animation: rain-flow 2.8s linear infinite;
+  }
+  @keyframes rain-flow {
+    from { background-position: 0 8px, 0 16px; }
+    to { background-position: 72px 8px, 56px 16px; }
+  }
+  .mcell .egg-rain::before { display: none; } /* motion-only — no static ghost in previews */
+
+  /* phosphor bleed (CANDIDATE): glow spilling from the stripe — a bright core
+     hugging the bar that decays fast (like light emission), not a wide wash.
+     Breathes while selected. Opacity only — never transform (drag-ghost rule). */
+  .egg-bleed::before {
+    content: ""; position: absolute; inset: 0;
+    background-image: linear-gradient(to right,
+      color-mix(in srgb, var(--mkc) 60%, transparent),
+      color-mix(in srgb, var(--mkc) 22%, transparent) 8px,
+      transparent 34%);
+    opacity: 0.75;
+  }
+  @keyframes bleed-breathe { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
+  .sel .egg-bleed::before, .forcesel .egg-bleed::before { animation: bleed-breathe 3.2s ease-in-out infinite; }
+
+  /* thick → hazard wedge (PAIRED, semantic: COMPLETED): the 45° weave on a
+     12px tile, confined to a left-edge wedge — a mask fades it out by ~38% of
+     the row, so it reads as a taped-off corner, not wallpaper. NEVER animated
+     (in any state): completed is the most resting state in the vocabulary and
+     gets the quietest treatment. Tiling still welds across adjacent rows
+     inside the wedge. */
+  .egg-hazard::before {
+    content: ""; position: absolute; inset: 0;
+    background-image: linear-gradient(45deg,
+      color-mix(in srgb, var(--mkc) 13%, transparent) 25%, transparent 25% 50%,
+      color-mix(in srgb, var(--mkc) 13%, transparent) 50% 75%, transparent 75%);
+    background-size: 12px 12px;
+    -webkit-mask-image: linear-gradient(to right, #000, transparent 38%);
+    mask-image: linear-gradient(to right, #000, transparent 38%);
+  }
+
+  /* ── candidate row animations (Study 3 gallery) ─────────────────────── */
+
+  /* progress seam (CANDIDATE, selection-only): 2px indeterminate sweep along
+     the row's bottom edge — parked offscreen at rest. Tried on dashed, pulled:
+     an indeterminate sweep reads as "loading". */
+  .egg-seam::before {
+    content: ""; position: absolute; inset: 0;
+    background-image: linear-gradient(to right, transparent, var(--mkc), transparent);
+    background-size: 45% 2px; background-repeat: no-repeat;
+    background-position: -80% calc(100% - 1px);
+  }
+  .sel .egg-seam::before, .forcesel .egg-seam::before { animation: seam-sweep 2.1s linear infinite; }
+  @keyframes seam-sweep { from { background-position-x: -80%; } to { background-position-x: 180%; } }
+
+  /* block caret: blinking terminal cursor at the row's right edge */
+  .egg-caret::after {
+    content: ""; position: absolute; right: 9px; top: 50%; margin-top: -6px;
+    width: 7px; height: 12px; background: var(--mkc);
+    animation: caret-blink 1.06s steps(1) infinite;
+  }
+  @keyframes caret-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+
+  /* tint heartbeat: the family tint breathes between base and hover depth */
+  .egg-heart::before {
+    content: ""; position: absolute; inset: 0; background: var(--mkc); opacity: .05;
+    animation: heart-pulse 2.6s ease-in-out infinite;
+  }
+  @keyframes heart-pulse { 0%, 100% { opacity: .05; } 50% { opacity: .17; } }
+
+  /* CRT refresh solo: just the occasional top→bottom band, no scanlines */
+  .egg-band::after {
+    content: ""; position: absolute; inset: 0;
+    background-image: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--mkc) 45%, transparent), transparent);
+    background-repeat: no-repeat; background-size: 100% 12px; background-position-y: -12px;
+    animation: scan-band 5s linear infinite;
+  }
+
+  /* tide fill: determinate-progress metaphor — the tint fills left→right */
+  .egg-tide::before {
+    content: ""; position: absolute; inset: 0;
+    background-image: linear-gradient(to right,
+      color-mix(in srgb, var(--mkc) 12%, transparent),
+      color-mix(in srgb, var(--mkc) 26%, transparent));
+    background-repeat: no-repeat; background-size: 0% 100%;
+    animation: tide 4.5s ease-in-out infinite;
+  }
+  @keyframes tide { 0% { background-size: 3% 100%; } 88%, 100% { background-size: 100% 100%; } }
+
+  @media (prefers-reduced-motion: reduce) {
+    .egg::before, .egg::after, .stripe { animation: none !important; }
+    .egg-scan::after, .egg-band::after { display: none; }
+  }
+
+  /* ── stripe spec strip ──────────────────────────────────────────────── */
+  .specs { display: flex; gap: 18px; flex-wrap: wrap; }
+  .spec { text-align: left; }
+  .spec .chip {
+    width: 64px; height: 72px; background: var(--inset); border: 1px solid #232836;
+    position: relative; overflow: hidden;
+  }
+  .spec .chip .stripe { position: absolute; left: 10px; top: 0; bottom: 0; width: 8px; }
+  .spec .nm { font-size: 11px; margin-top: 6px; color: var(--fg); }
+  .spec .rh { font-size: 10px; color: var(--fg3); }
+  .spec.new .nm::after { content: " ·new"; color: var(--green); }
+
+  /* ── easter-egg gallery ─────────────────────────────────────────────── */
+  .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+  .card { background: var(--panel); border: 1px solid #232836; padding: 14px; }
+  .card h3 { font-size: 12px; font-weight: 600; letter-spacing: 0.06em; }
+  .card h3 .tag { font-size: 9px; letter-spacing: 0.14em; padding: 1px 5px; border: 1px solid; margin-left: 8px; vertical-align: 1px; }
+  .tag.ship { color: var(--green); border-color: color-mix(in srgb, var(--green) 45%, transparent); }
+  .tag.prop { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 45%, transparent); }
+  .card p { color: var(--fg2); font-size: 11.5px; margin: 6px 0 12px; }
+  .demo2 { background: var(--bg); border: 1px solid #232836; padding: 6px 0; }
+  .demo2 .row { cursor: default; }
+
+  .footer-note { margin-top: 64px; padding-top: 16px; border-top: 1px solid #232836; color: var(--fg3); font-size: 11px; max-width: 74ch; }
+  .footer-note b { color: var(--fg2); }
+  ol.plain { margin: 10px 0 0 18px; color: var(--fg2); }
+  ol.plain li { margin-bottom: 6px; max-width: 66ch; }
+  ol.plain b { color: var(--fg); font-weight: 600; }
+  .hint { color: var(--fg3); font-size: 10.5px; letter-spacing: 0.08em; margin-top: 10px; }
+</style>
+
+<div class="wrap">
+  <div class="eyebrow">RUN-KIT · DESIGN STUDY · LABEL PICKER</div>
+  <h1>Markers, a shade axis, and more easter eggs</h1>
+  <p class="sub">Three studies on the combined Label picker. Every swatch and row tint below is
+  computed live with the real pipeline from <code>themes.ts</code> — OKLCH hue families adapted
+  to default-dark's mean L/C, saturated ×1.5, blended at 14/22/40%.</p>
+
+  <!-- ═══════════════ STUDY 1 · MARKERS ═══════════════ -->
+  <section>
+    <div class="shead"><span class="br">[</span> <b>STUDY 1</b> · MARKERS — DASHED + THICK <span class="br">]</span></div>
+    <p class="note">The stripe vocabulary grows from 3 to 5 states, ordered thin→heavy. Both new
+    rhythms keep the seam-free rule: pattern periods must divide gcd(24, 36) = 12px so stacked
+    rows merge continuously (the lesson that made dotted a gradient, not a border).</p>
+
+    <div class="board">
+      <div>
+        <div class="cell-label">STRIPE VOCABULARY</div>
+        <div class="specs" id="specs"></div>
+      </div>
+    </div>
+
+    <div class="board" style="margin-top:14px">
+      <div>
+        <div class="cell-label">PICKER · CURRENT (4×4 ALIGNED)</div>
+        <div id="picker-current"></div>
+        <div class="caveat ok">Marker rows pair 1:1 with color rows — the load-bearing coincidence.</div>
+      </div>
+      <div>
+        <div class="cell-label">PICKER · +DASHED +THICK (BROKEN)</div>
+        <div id="picker-extended"></div>
+        <div class="caveat bad">6 marker cells vs 4 grid rows — the column outgrows the grid and the 1:1 pairing dies. Fixable… see Study&nbsp;2, Variant&nbsp;C.</div>
+      </div>
+      <div>
+        <div class="cell-label">LEFT PANEL · ALL 5 MARKERS <span style="color:var(--green)">← click rows</span></div>
+        <div class="sidebar" id="sidebar1"></div>
+        <div class="caveat">Everything is static at rest — and dashed (working) is now fully static in every state. Thick (completed) wears the static hazard wedge, a taped-off left corner; double remains the lone animated treatment, scanlines crawling on selection.</div>
+      </div>
+    </div>
+
+    <div class="board" style="margin-top:14px">
+      <div>
+        <div class="cell-label">LEFT PANEL · DENSITY CHECK — 20 ROWS <span style="color:var(--green)">← click around</span></div>
+        <div class="sidebar" id="sidebar20"></div>
+      </div>
+      <div class="caveat" style="max-width:38ch; align-self:center">A fuller panel for judging rest vs
+      selection at scale: three welded dashed rows, adjacent thick pairs welding their hazard
+      wedge, normal/dark shade neighbors (blue, slate, amber, teal), dead-pane hollow dots, and
+      plain rows as the baseline. Click any row — selection should read instantly from tint depth
+      and weight alone, since nothing here moves except double's scanlines.</div>
+    </div>
+  </section>
+
+  <!-- ═══════════════ STUDY 2 · SHADE AXIS ═══════════════ -->
+  <section>
+    <div class="shead"><span class="br">[</span> <b>STUDY 2</b> · COLOR — NORMAL / DARK SHADE AXIS <span class="br">]</span></div>
+    <p class="note">Each family renders at the theme's mean lightness L. The shade axis keeps
+    today's color as-is — <em>normal = mean L, dark = L−0.14</em>, chroma-reduced into gamut — so
+    hue identity stays stable and every existing colored row maps onto the normal shade untouched.
+    10 families become 20 values. Three ways to fit them:</p>
+
+    <div class="board">
+      <div>
+        <div class="cell-label">VARIANT A · SHADE ROWS (10×2)</div>
+        <div id="picker-a"></div>
+        <div class="caveat">Family = column, shade = row. The axis reads instantly, but the popover
+        doubles in width and the marker column can't row-pair with 2 color rows.</div>
+      </div>
+      <div>
+        <div class="cell-label">VARIANT B · SPLIT SWATCH (10, HALVES)</div>
+        <div id="picker-b"></div>
+        <div class="caveat bad">Same footprint; top half = normal, bottom = dark. But each click
+        target is 18×11px — fails the coarse-pointer budget, and halves read as the existing
+        base/selected preview split. Weakest option.</div>
+      </div>
+      <div>
+        <div class="cell-label">VARIANT C · PAIRED GRID — CHOSEN <span style="color:var(--green)">← click swatches &amp; markers</span></div>
+        <div id="picker-c"></div>
+        <div class="caveat ok">20 swatches 4-wide = 5 color rows (+ Clear = 6), pairing 1:1 with
+        the 6 marker cells. And the marker cells are now <b>live row previews</b>: pick any
+        color and they repaint with its row tint, guarded stripe color, and paired texture —
+        flowing dashes, hazard weave, scanlines.</div>
+      </div>
+    </div>
+
+    <div class="board" style="margin-top:14px">
+      <div>
+        <div class="cell-label">DOES THE AXIS SURVIVE THE TINT BLEND? · SELECTED ROWS, NORMAL VS DARK</div>
+        <div class="sidebar" style="width:300px" id="shaderows"></div>
+        <div class="caveat" style="max-width:44ch">At 14–40% blend into a dark background the shade gap
+        compresses — the axis mostly survives in the <em>selected</em> tint and the gutter stripe,
+        less in the resting tint. If shades read too close, boost the dark variant's blend ratio a
+        few points or let shade ride the stripe alone.</div>
+      </div>
+    </div>
+
+    <ol class="plain">
+      <li><b>Storage forces the vocabulary migration.</b> The legacy numeric descriptors
+      (<code>"4"</code>, <code>"1+3"</code>) have no shade slot. Either extend them
+      (<code>"4:d"</code>) or finally store family names (<code>"blue-dark"</code>) — the backend
+      <code>ValidateColorValue</code> changes either way, ending the zero-migration run.</li>
+      <li><b>Slate is a degenerate case.</b> Near-neutral chroma means its light/dark variants are
+      just two grays — arguably fine (it doubles as an archive shade ramp), but worth deciding
+      deliberately.</li>
+      <li><b>Selection highlight collision.</b> Adjacent light/dark cells of one family look similar
+      at 18px; the selected ring must be unambiguous. Variant C keeps pairs adjacent so the ring
+      position disambiguates.</li>
+    </ol>
+  </section>
+
+  <!-- ═══════════════ STUDY 3 · EASTER EGGS ═══════════════ -->
+  <section>
+    <div class="shead"><span class="br">[</span> <b>STUDY 3</b> · ROW TREATMENTS — THE PAIRING TABLE <span class="br">]</span></div>
+    <p class="note">The working pairing:</p>
+    <div style="overflow-x:auto; margin: 0 0 16px">
+    <table style="border-collapse:collapse; font-size:11.5px">
+      <tr style="color:var(--fg3)">
+        <td style="padding:3px 14px 3px 0; letter-spacing:.1em">MARKER</td>
+        <td style="padding:3px 16px">dotted</td><td style="padding:3px 16px">dashed <span style="color:var(--green)">working</span></td>
+        <td style="padding:3px 16px">solid</td><td style="padding:3px 16px">double</td>
+        <td style="padding:3px 16px">thick <span style="color:var(--green)">completed</span></td>
+      </tr>
+      <tr style="color:var(--fg2); border-top:1px solid #232836">
+        <td style="padding:3px 14px 3px 0; letter-spacing:.1em; color:var(--fg3)">BACKGROUND</td>
+        <td style="padding:3px 16px">—</td><td style="padding:3px 16px">data rain <span style="color:var(--green)">always-on</span></td>
+        <td style="padding:3px 16px">—</td><td style="padding:3px 16px">scanlines</td>
+        <td style="padding:3px 16px">hazard wedge <span style="color:var(--amber)">static</span></td>
+      </tr>
+    </table>
+    </div>
+    <p class="note">Discipline unchanged — <code>background-position</code>/<code>opacity</code>
+    only (never transform, the drag-ghost rule), static under
+    <code>prefers-reduced-motion</code>, colored through <code>--rk-marker-color</code>, all
+    rhythms on a 12px module so 24/36px rows weld. <em>One treatment moves at rest</em>:
+    dashed's DATA RAIN, always-on — the stripe stays static while two sparse dash tracks
+    stream left→right ("working" is inherently live; the thinned rain proved quiet enough
+    after watching both gatings). Double's scanline crawl + band stays selection-gated.
+    The hazard wedge never moves in any state — completed is the most resting
+    state, so it gets the quietest treatment: the weave fades out by a third of the row, a
+    taped-off corner rather than wallpaper. Picker preview cells never animate.</p>
+
+    <div class="gallery" id="gallery"></div>
+
+    <p class="note" style="margin-top:28px">More candidates — unassigned, pick freely (thick is
+    currently the open slot):</p>
+    <div class="gallery" id="gallery2"></div>
+
+    <p class="hint">EVERY TREATMENT: STATIC UNDER prefers-reduced-motion · OVERLAY OWNS THE CLIP, ROW ROOT STAYS FREE FOR POPOVERS · Z-5, BELOW ICON CLUSTER AND GUTTER</p>
+    <p class="note" style="margin-top:14px"><em>One design flag:</em> if dashed carries machine
+    state (busy), it stops being a user-owned label — the busy fact already flows through
+    <code>@rk_agent_state</code>, so the always-on stream could be <em>derived</em> from agent
+    state instead of set by hand, keeping the marker axis purely yours (Constitution X:
+    derivation wins). Worth deciding before wiring.</p>
+  </section>
+
+  <div class="footer-note">
+    <b>Cross-layer checklist before any of this ships:</b> backend closed set
+    <code>validate.MarkerValues</code> + error copy · <code>@rk_marker</code> docs in
+    <code>internal/tmux/tmux.go</code> · <code>MARKER_STATES</code> /
+    <code>markerStripeStyle</code> · picker keyboard grid (GRID_ROWS pairing) ·
+    swatch-popover unit tests · grep <code>tests/e2e</code> for chrome assertions ·
+    reduced-motion CSS gate ordering in <code>globals.css</code>.
+  </div>
+</div>
+
+<script>
+/* ═══ OKLCH pipeline — faithful port of themes.ts ═══ */
+const BG = "#0f1117", FG = "#e8eaf0";
+const ANSI = ["#0f1117","#e06c75","#22c55e","#e8a84f","#5b8af0","#c678dd","#56b6c2","#e8eaf0","#7a8394"];
+
+const s2l = c => { c /= 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+const l2s = c => { const v = c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055; return Math.round(Math.min(1, Math.max(0, v)) * 255); };
+const h2r = h => [parseInt(h.slice(1,3),16), parseInt(h.slice(3,5),16), parseInt(h.slice(5,7),16)];
+const r2h = (r,g,b) => "#" + [r,g,b].map(v => v.toString(16).padStart(2,"0")).join("");
+
+function hexToOklab(hex) {
+  const [r8,g8,b8] = h2r(hex), r = s2l(r8), g = s2l(g8), b = s2l(b8);
+  const l = Math.cbrt(0.4122214708*r + 0.5363325363*g + 0.0514459929*b);
+  const m = Math.cbrt(0.2119034982*r + 0.6806995451*g + 0.1073969566*b);
+  const s = Math.cbrt(0.0883024619*r + 0.2817188376*g + 0.6299787005*b);
+  return { L: 0.2104542553*l + 0.7936177850*m - 0.0040720468*s,
+           a: 1.9779984951*l - 2.4285922050*m + 0.4505937099*s,
+           b: 0.0259040371*l + 0.7827717662*m - 0.8086757660*s };
+}
+function oklabToLin({L,a,b}) {
+  const l = (L + 0.3963377774*a + 0.2158037573*b) ** 3;
+  const m = (L - 0.1055613458*a - 0.0638541728*b) ** 3;
+  const s = (L - 0.0894841775*a - 1.2914855480*b) ** 3;
+  return { lr:  4.0767416621*l - 3.3077115913*m + 0.2309699292*s,
+           lg: -1.2684380046*l + 2.6097574011*m - 0.3413193965*s,
+           lb: -0.0041960863*l - 0.7034186147*m + 1.7076147010*s };
+}
+const oklabToHex = lab => { const {lr,lg,lb} = oklabToLin(lab); return r2h(l2s(Math.max(0,lr)), l2s(Math.max(0,lg)), l2s(Math.max(0,lb))); };
+const oklchToHex = (L,C,h) => { const r = h*Math.PI/180; return oklabToHex({L, a: C*Math.cos(r), b: C*Math.sin(r)}); };
+function inGamut(L,C,h) {
+  const r = h*Math.PI/180, {lr,lg,lb} = oklabToLin({L, a: C*Math.cos(r), b: C*Math.sin(r)});
+  return [lr,lg,lb].every(c => c >= -1e-4 && c <= 1 + 1e-4);
+}
+function oklchGamut(L,C,h) { let c = C; for (let i = 0; i < 20 && !inGamut(L,c,h); i++) c *= 0.92; return oklchToHex(L,c,h); }
+
+let sumL = 0, sumC = 0;
+for (let i = 1; i <= 6; i++) { const l = hexToOklab(ANSI[i]); sumL += l.L; sumC += Math.hypot(l.a, l.b); }
+const STAT = { L: sumL/6, C: Math.max(sumC/6, 0.05) };
+
+const FAMILIES = [
+  {name:"red",hue:25},{name:"orange",hue:55},{name:"amber",hue:90},{name:"olive",hue:120},
+  {name:"green",hue:150},{name:"teal",hue:185},{name:"blue",hue:250},{name:"purple",hue:290},
+  {name:"magenta",hue:330},{name:"slate",hue:250,neutral:true},
+];
+const famHex = (f, L) => oklchGamut(L, f.neutral ? Math.min(STAT.C*0.2, 0.025) : STAT.C, f.hue);
+const saturate = (hex, k) => { const l = hexToOklab(hex); l.a *= k; l.b *= k; return oklabToHex(l); };
+const blend = (a, b, r) => { const A = h2r(a), B = h2r(b); return r2h(...A.map((v,i) => Math.round(v*r + B[i]*(1-r)))); };
+const tints = src => { const s = saturate(src, 1.5); return { base: blend(s, BG, 0.14), hover: blend(s, BG, 0.22), selected: blend(s, BG, 0.40) }; };
+const lum = hex => { const [r,g,b] = h2r(hex).map(s2l); return 0.2126*r + 0.7152*g + 0.0722*b; };
+const contrast = (a,b) => { const [x,y] = [lum(a), lum(b)].sort((p,q) => q-p); return (x+0.05)/(y+0.05); };
+function guard(src) { const l = hexToOklab(src); let hex = src;
+  while (contrast(hex, BG) < 2.2 && l.L < 0.85) { l.L += 0.04; hex = oklabToHex(l); } return hex; }
+
+const SHADE = { light: STAT.L + 0.14, mid: STAT.L, dark: STAT.L - 0.14 };
+const fam = (name, shade="mid") => { const f = FAMILIES.find(f => f.name === name); const src = famHex(f, SHADE[shade]);
+  return { src, tint: tints(src), border: guard(src) }; };
+
+/* ═══ stripe vocabulary (markerStripeStyle + the two proposals) ═══ */
+function stripeCSS(state, color) {
+  switch (state) {
+    // Fixed tile heights (one period), NOT "100%": a 100%-tall tile makes the
+    // rhythm element-height-dependent, so an 18px picker cell (not a multiple
+    // of 12) snapped at every loop boundary — the jitter. One-period tiles
+    // repeat identically in any element and the 0→12px loop is seamless.
+    case "dotted": return { backgroundImage: `linear-gradient(to bottom, ${color} 0 3px, transparent 3px 6px)`, backgroundSize: "3px 6px", backgroundRepeat: "repeat-y" };
+    case "dashed": return { backgroundImage: `linear-gradient(to bottom, ${color} 0 8px, transparent 8px 12px)`, backgroundSize: "3px 12px", backgroundRepeat: "repeat-y" };
+    case "solid":  return { borderLeft: `3px solid ${color}` };
+    case "thick":  return { borderLeft: `6px solid ${color}` };
+    case "double": return { borderLeft: `6px double ${color}` };
+    default: return null;
+  }
+}
+const applyStyle = (el, st) => { if (st) Object.assign(el.style, st); };
+
+/* marker → paired row background, per the pairing table. Dashed gets the
+   always-on data rain (its stripe stays static); thick the static hazard
+   wedge; double the scanlines. Dotted and solid stay bare. */
+const EGG_FOR = { dashed: "egg-rain", double: "egg-scan", thick: "egg-hazard" };
+
+function el(tag, cls, parent) { const e = document.createElement(tag); if (cls) e.className = cls; if (parent) parent.appendChild(e); return e; }
+
+/* ═══ Study 1: stripe spec chips ═══ */
+const SPEC = [
+  {s:"dotted", rh:"3px · 3/3 rhythm"},
+  {s:"dashed", rh:"3px · 8/4 rhythm", nw:1},
+  {s:"solid",  rh:"3px · continuous"},
+  {s:"double", rh:"6px · rail + gap"},
+  {s:"thick",  rh:"6px · continuous", nw:1},
+];
+{
+  const host = document.getElementById("specs");
+  const c = fam("blue");
+  for (const {s, rh, nw} of SPEC) {
+    const sp = el("div", "spec" + (nw ? " new" : ""), host);
+    const chip = el("div", "chip", sp);
+    const st = el("div", "stripe mk-" + s, chip);
+    applyStyle(st, stripeCSS(s, c.border));
+    el("div", "nm", sp).textContent = s;
+    el("div", "rh", sp).textContent = rh;
+  }
+}
+
+/* ═══ picker builders ═══ */
+function markerCell(state, sel) {
+  const b = el("button", "mcell" + (sel ? " sel" : ""));
+  b.title = state || "none";
+  if (state === "") el("span", "nul", b).textContent = "∅";
+  else { const st = el("span", "stripe", b); applyStyle(st, stripeCSS(state, FG)); }
+  return b;
+}
+function tintSwatch(name, shade, sel) {
+  const c = fam(name, shade);
+  const b = el("button", "sw" + (sel ? " sel" : ""));
+  b.title = shade === "mid" ? name : `${name}-${shade}`;
+  const h2 = el("span", "h2", b); h2.style.backgroundColor = c.tint.selected;
+  if (sel) el("span", "ck", h2).textContent = "✓";
+  return b;
+}
+function clearBtn(span, sel) {
+  const b = el("button", "clearbtn" + (sel ? " sel" : ""));
+  b.style.gridColumn = `span ${span}`; b.textContent = "Clear color";
+  return b;
+}
+function picker({markers, grid, cols}) {
+  const p = el("div", "picker");
+  if (markers) {
+    const mc = el("div", "mcol", p);
+    markers.forEach(m => mc.appendChild(markerCell(m.s, m.sel)));
+    el("div", "hair", p);
+  }
+  const g = el("div", "cgrid", p);
+  g.style.gridTemplateColumns = `repeat(${cols}, 18px)`;
+  grid(g);
+  return p;
+}
+const FAMNAMES = FAMILIES.map(f => f.name);
+
+/* current picker — 4 markers, 10 mid swatches */
+document.getElementById("picker-current").appendChild(picker({
+  markers: [{s:""},{s:"dotted"},{s:"solid"},{s:"double",sel:1}],
+  cols: 4,
+  grid: g => { g.appendChild(clearBtn(4)); FAMNAMES.forEach((n,i) => g.appendChild(tintSwatch(n, "mid", n === "amber"))); },
+}));
+
+/* extended picker — 6 markers vs same 4-row grid (broken pairing) */
+document.getElementById("picker-extended").appendChild(picker({
+  markers: [{s:""},{s:"dotted"},{s:"dashed",sel:1},{s:"solid"},{s:"double"},{s:"thick"}],
+  cols: 4,
+  grid: g => { g.appendChild(clearBtn(4)); FAMNAMES.forEach(n => g.appendChild(tintSwatch(n, "mid", n === "teal"))); },
+}));
+
+/* Variant A — 10 columns × 2 shade rows */
+document.getElementById("picker-a").appendChild(picker({
+  cols: 10,
+  grid: g => {
+    g.appendChild(clearBtn(10));
+    FAMNAMES.forEach(n => g.appendChild(tintSwatch(n, "mid", n === "blue")));
+    FAMNAMES.forEach(n => g.appendChild(tintSwatch(n, "dark")));
+  },
+}));
+
+/* Variant B — split swatch halves */
+{
+  const p = el("div", "picker");
+  const g = el("div", "cgrid", p); g.style.gridTemplateColumns = "repeat(4, 18px)";
+  g.appendChild(clearBtn(4));
+  FAMNAMES.forEach(n => {
+    const b = el("button", "sw tall"); b.title = n;
+    const top = el("span", "half", b); top.style.backgroundColor = fam(n, "mid").tint.selected; top.title = n;
+    const bot = el("span", "half", b); bot.style.backgroundColor = fam(n, "dark").tint.selected; bot.title = n + "-dark";
+    g.appendChild(b);
+  });
+  document.getElementById("picker-b").appendChild(p);
+}
+
+/* Variant C — CHOSEN. Paired grid, 20 swatches, 5 rows + Clear = 6 rows ↔ 6
+   marker cells. Fully interactive: marker cells render as MINI ROW PREVIEWS —
+   2px-inset stripe over the picked family's row tint in its guarded color,
+   plus the paired background (hazard weave on thick, scanlines on double).
+   Click any swatch and the column repaints. */
+{
+  const host = document.getElementById("picker-c");
+  const state = { color: "purple", shade: "mid", marker: "double" };
+  function render() {
+    host.innerHTML = "";
+    const p = el("div", "picker", host);
+    const mc = el("div", "mcol", p);
+    for (const m of ["", "dotted", "dashed", "solid", "double", "thick"]) {
+      const sel = state.marker === m;
+      const b = el("button", "mcell" + (sel ? " sel" : ""), mc);
+      b.title = m || "none";
+      if (m === "") el("span", "nul", b).textContent = "∅";
+      else {
+        const c = fam(state.color, state.shade);
+        b.style.backgroundColor = c.tint.base;
+        b.style.setProperty("--mkc", c.border);
+        const eggCls = EGG_FOR[m];
+        if (eggCls) el("span", "egg " + eggCls, b);
+        const st = el("span", "stripe mk-" + m, b);
+        applyStyle(st, stripeCSS(m, c.border));
+      }
+      b.addEventListener("click", () => { state.marker = m; render(); });
+    }
+    el("div", "hair", p);
+    const g = el("div", "cgrid", p);
+    g.style.gridTemplateColumns = "repeat(4, 18px)";
+    g.appendChild(clearBtn(4));
+    FAMNAMES.forEach(n => {
+      for (const s of ["mid", "dark"]) {
+        const sw = tintSwatch(n, s, state.color === n && state.shade === s);
+        sw.addEventListener("click", () => { state.color = n; state.shade = s; render(); });
+        g.appendChild(sw);
+      }
+    });
+  }
+  render();
+}
+
+/* ═══ sidebar row builder ═══ */
+function windowRow({name, color, shade="mid", marker="", active=1, selected, egg}) {
+  const c = color ? fam(color, shade) : null;
+  const row = el("div", "row" + (selected ? " sel" : ""));
+  row.dataset.tintBase = c ? c.tint.base : "";
+  row.dataset.tintHover = c ? c.tint.hover : "";
+  row.dataset.tintSel = c ? c.tint.selected : blend(ANSI[8], BG, 0.5);
+  row.style.setProperty("--mkc", c ? c.border : guard(ANSI[8]));
+  row.style.backgroundColor = selected ? row.dataset.tintSel : (c ? c.tint.base : "transparent");
+
+  const eggCls = egg || EGG_FOR[marker];
+  if (eggCls) el("div", "egg " + eggCls, row);
+
+  const gut = el("div", "gutter", row);
+  if (marker) {
+    const st = el("div", "stripe mk-" + marker, gut);
+    applyStyle(st, stripeCSS(marker, c ? c.border : guard(ANSI[8])));
+  }
+  el("span", "dot " + (active ? "on" : "off"), row);
+  el("span", "name", row).textContent = name;
+  return row;
+}
+
+/* interactive sidebar builder — click selects (single selection), hover tints */
+function interactiveSidebar(hostId, groups) {
+  const sb = document.getElementById(hostId);
+  const els = [];
+  for (const grp of groups) {
+    const gh = el("div", "grouphead", sb);
+    gh.innerHTML = `<span>▼ ${grp.head}</span><span class='plus'>+ ×</span>`;
+    for (const r of grp.rows) { const e = windowRow(r); sb.appendChild(e); els.push(e); }
+  }
+  els.forEach(e => {
+    e.addEventListener("click", () => {
+      els.forEach(o => { o.classList.remove("sel"); o.style.backgroundColor = o.dataset.tintBase || "transparent"; });
+      e.classList.add("sel"); e.style.backgroundColor = e.dataset.tintSel;
+    });
+    e.addEventListener("mouseenter", () => { if (!e.classList.contains("sel") && e.dataset.tintHover) e.style.backgroundColor = e.dataset.tintHover; });
+    e.addEventListener("mouseleave", () => { if (!e.classList.contains("sel")) e.style.backgroundColor = e.dataset.tintBase || "transparent"; });
+  });
+}
+
+/* Study 1 sidebar — one row per marker */
+interactiveSidebar("sidebar1", [
+  {head: "riff", rows: [
+    {name:"riff-bouncy-wren",   color:"amber",  marker:"double", selected:1},
+    {name:"riff-smart-penguin", color:"slate",  marker:"dashed"},
+    {name:"riff-brisk-otter",   color:"slate",  marker:"dashed"},
+    {name:"riff-daring-tiger",  color:"blue",   marker:"solid"},
+    {name:"riff-clever-bluff",  color:"purple", marker:"dotted", active:0},
+    {name:"riff-carved-grove",  color:"green",  marker:"thick", active:0},
+    {name:"riff-ardent-penguin", color:null,    marker:""},
+  ]},
+]);
+
+/* Density check — ~20 rows for judging selection vs rest at scale */
+interactiveSidebar("sidebar20", [
+  {head: "riff", rows: [
+    {name:"riff-bouncy-wren",   color:"amber",              marker:"double"},
+    {name:"riff-smart-penguin", color:"slate",              marker:"dashed", selected:1},
+    {name:"riff-brisk-otter",   color:"slate",              marker:"dashed"},
+    {name:"riff-quiet-heron",   color:"slate",              marker:"dashed"},
+    {name:"riff-daring-tiger",  color:"blue",               marker:"solid"},
+    {name:"riff-lucid-vale",    color:"blue", shade:"dark", marker:"solid"},
+    {name:"riff-clever-bluff",  color:"purple",             marker:"dotted", active:0},
+    {name:"riff-carved-grove",  color:"green",              marker:"thick", active:0},
+    {name:"riff-molten-crag",   color:"green",              marker:"thick", active:0},
+    {name:"riff-ardent-penguin", color:null,                marker:""},
+    {name:"riff-calm-mesa",     color:"teal",               marker:"dotted"},
+    {name:"riff-iron-crest",    color:"red",                marker:"double", active:0},
+  ]},
+  {head: "shll", rows: [
+    {name:"shll",           color:null,                    marker:""},
+    {name:"shll-docs",      color:"magenta",               marker:"dotted"},
+    {name:"shll-standards", color:"amber", shade:"dark",   marker:"solid", active:0},
+    {name:"shll-audit",     color:"olive",                 marker:"dashed"},
+    {name:"shll-idea-scan", color:"orange",                marker:"thick", active:0},
+    {name:"shll-relay",     color:"teal", shade:"dark",    marker:"double"},
+    {name:"shll-bench",     color:"slate",                 marker:"dotted", active:0},
+    {name:"shll-archive",   color:"slate", shade:"dark",   marker:"thick", active:0},
+  ]},
+]);
+
+/* shade-survival rows — Study 2 */
+{
+  const sb = document.getElementById("shaderows");
+  const pairs = [["blue","mid"],["blue","dark"],["red","mid"],["red","dark"],["teal","mid"],["teal","dark"]];
+  for (const [n, s] of pairs)
+    sb.appendChild(windowRow({name:`riff-${n}${s === "dark" ? "-dark" : ""}`, color:n, shade:s, marker:"solid", selected:1}));
+}
+
+/* ═══ Study 3 galleries ═══ */
+function buildCards(hostId, cards) {
+  const g = document.getElementById(hostId);
+  for (const c of cards) {
+    const card = el("div", "card", g);
+    const h = el("h3", "", card);
+    h.innerHTML = `${c.t}<span class="tag ${c.tag === "SHIPPED" ? "ship" : "prop"}">${c.tag || "CANDIDATE"}</span>`;
+    el("p", "", card).textContent = c.d;
+    const demo = el("div", "demo2", card);
+    for (const r of c.rows) {
+      const row = windowRow(r);
+      if (r.force) row.classList.add("forcesel");
+      demo.appendChild(row);
+    }
+  }
+}
+
+buildCards("gallery", [
+  {t:"dotted — plain label", tag:"PAIRED",
+   d:"No background, no motion — the quiet end of the vocabulary. (The Morse march below remains available if it ever wants a selected-state egg.)",
+   rows:[{color:"purple", marker:"dotted", name:"riff-dotted-rest"},
+         {color:"purple", marker:"dotted", name:"riff-dotted-selected", selected:1}]},
+  {t:"dashed — Data rain", tag:"ALWAYS-ON",
+   d:"The stripe stays static; the row streams two sparse dash tracks left→right at different rhythms (36/28px lanes) — rain, not a marquee, with a seamless fixed-period loop. Ambient 'working' cue, on in every state (settled after trying selection-gating). Picker previews never show it.",
+   rows:[{color:"slate", marker:"dashed", name:"riff-agent-1"},
+         {color:"slate", marker:"dashed", name:"riff-agent-2"},
+         {color:"slate", marker:"dashed", name:"riff-agent-3", selected:1}]},
+  {t:"solid — plain label", tag:"PAIRED",
+   d:"Bare 3px bar, no background. The strongest static 'important' mark — the phosphor bleed was tried here and pulled to keep rest-state texture scarce.",
+   rows:[{color:"blue", marker:"solid", name:"riff-solid-rest"},
+         {color:"blue", marker:"solid", name:"riff-solid-selected", selected:1}]},
+  {t:"double — Scanlines + CRT band", tag:"SHIPPED",
+   d:"Static wash at rest; selection adds the slow crawl plus the occasional refresh band. The reference implementation.",
+   rows:[{color:"amber", marker:"double", name:"riff-double-rest"},
+         {color:"amber", marker:"double", name:"riff-double-selected", selected:1, force:1}]},
+  {t:"thick — Bar + hazard wedge", tag:"COMPLETED",
+   d:"A plain 6px bar over the weave, now masked to a left-edge wedge that fades out by a third of the row — 'taped off, done'. Never animated, in any state: the most resting mark gets the quietest treatment.",
+   rows:[{color:"green", marker:"thick", name:"riff-thick-1"},
+         {color:"green", marker:"thick", name:"riff-thick-2"},
+         {color:"green", marker:"thick", name:"riff-thick-3", selected:1}]},
+]);
+
+buildCards("gallery2", [
+  {t:"Morse march",
+   d:"The dotted gutter's 6px rhythm crawls downward while selected. Cheapest possible egg — one keyframe on an existing gradient — if dotted ever wants a selected-state treatment.",
+   rows:[{color:"purple", marker:"dotted", name:"riff-morse-rest"},
+         {color:"purple", marker:"dotted", name:"riff-morse-selected", selected:1, force:1}]},
+  {t:"Progress seam",
+   d:"A 2px indeterminate sweep along the row's bottom edge, selection-only. Tried on dashed and pulled — an indeterminate sweep is the 'loading' idiom. Might still suit a genuinely loading state (spawn in progress).",
+   rows:[{color:"blue", egg:"egg-seam", name:"riff-seam", selected:1}]},
+  {t:"Block caret",
+   d:"A blinking block cursor at the row's right edge — the terminal's own sign of life. steps(1) blink, opacity only; collides with nothing in the gutter.",
+   rows:[{color:"teal", egg:"egg-caret", name:"riff-caret", selected:1}]},
+  {t:"Phosphor bleed",
+   d:"A bright glow core hugging the stripe, decaying within a third of the row; breathes on selection. Tried as solid's pairing, pulled to keep rest-state texture scarce — still the best candidate if any single-bar marker ever wants a background.",
+   rows:[{color:"blue", marker:"solid", egg:"egg-bleed", name:"riff-bleed-rest"},
+         {color:"blue", marker:"solid", egg:"egg-bleed", name:"riff-bleed-selected", selected:1, force:1}]},
+  {t:"Tint heartbeat",
+   d:"The row's family tint breathes between base and hover depth. The calmest possible motion — but it risks reading as attention, which the waiting halo owns.",
+   rows:[{color:"magenta", egg:"egg-heart", name:"riff-heart"}]},
+  {t:"CRT refresh solo",
+   d:"Just the occasional top→bottom refresh band, no scanlines. A periodic pulse of life every 5s — subtle enough to leave always-on.",
+   rows:[{color:"amber", egg:"egg-band", name:"riff-band", selected:1}]},
+  {t:"Tide fill",
+   d:"The tint fills left→right and resets — a determinate-progress metaphor (task % or context-window fill). Animates background-size, still transform-free; heavier repaint than the others.",
+   rows:[{color:"teal", egg:"egg-tide", name:"riff-tide", selected:1}]},
+]);
+</script>

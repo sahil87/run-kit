@@ -22,8 +22,10 @@ import { Tip } from "@/components/tip";
  * split-button interaction:
  *
  *  - PRIMARY segment: re-runs the last-used target (localStorage
- *    `runkit-open-last-used`); with no stored — or no longer available —
- *    preference it opens the menu instead.
+ *    `runkit-open-last-used`) and leads with that target's glyph (260723-l317
+ *    — `aria-hidden` decoration next to the kept "Open" text, so the segment
+ *    shows WHICH app a primary click launches); with no stored — or no longer
+ *    available — preference it opens the menu instead and carries no glyph.
  *  - CHEVRON segment: always opens the full menu.
  *  - Deeplink targets navigate via a plain `window.location.href` user-gesture
  *    assignment — the browser shows its own "Open <app>?" confirm; a dead
@@ -111,8 +113,13 @@ export function OpenButton({
             type="button"
             onClick={handlePrimary}
             aria-label={primaryLabel}
-            className="rk-glint px-1.5 min-h-[24px] coarse:min-h-[30px] text-[11px] font-mono flex items-center justify-center text-text-secondary hover:text-text-primary transition-colors"
+            className="rk-glint px-1.5 min-h-[24px] coarse:min-h-[30px] text-[11px] font-mono flex items-center justify-center gap-1 text-text-secondary hover:text-text-primary transition-colors"
           >
+            {/* Last-used glyph (260723-l317): `currentColor` decoration —
+                rides the segment's secondary→primary hover flip and stays
+                out of the accessible name. Absent when no last-used target
+                resolves (the primary click opens the menu then). */}
+            {lastUsed && <OpenTargetIcon target={lastUsed} />}
             Open
           </button>
         </Tip>

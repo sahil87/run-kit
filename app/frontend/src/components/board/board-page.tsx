@@ -16,7 +16,7 @@ import { BottomBar } from "@/components/bottom-bar";
 import { ComposeStrip } from "@/components/compose-strip";
 import { Shell } from "@/components/shell/shell";
 import { Sidebar } from "@/components/sidebar";
-import { HELP_URL } from "@/components/top-bar";
+import { HELP_URL } from "@/components/global-chrome";
 import { useRegisterTopBarSlot } from "@/contexts/top-bar-slot-context";
 import { useRegisterFocusedPane } from "@/contexts/focused-pane-context";
 import { createSession, createWindow as createWindowApi, killServer as killServerApi, createServer, splitWindow, killWindow } from "@/api/client";
@@ -662,10 +662,11 @@ function BoardPageContent({ name }: { name: string }) {
     // Help docs — duplicated from AppShell's `configActions` for the same
     // reason as refreshEntry: the board route mounts its OWN palette and does
     // NOT render AppShell (DD-8), so AppShell's "Help: Documentation" is
-    // unreachable here. The help affordance is route-agnostic (the top-bar
-    // HelpLink chip renders on every route), so keeping it keyboard-reachable
-    // on `/board/*` too honors constitution V. Shares the exported HELP_URL so
-    // the URL can never drift from the chip / AppShell action.
+    // unreachable here. The help affordance is route-agnostic (the sidebar
+    // footer's Help anchor, 260724-6j1v), so keeping it keyboard-reachable
+    // on `/board/*` too honors constitution V. Shares the HELP_URL exported
+    // from `global-chrome.tsx` so the URL can never drift from the footer /
+    // AppShell action.
     const helpEntry: PaletteAction = {
       id: "help-documentation",
       label: "Help: Documentation",
@@ -941,10 +942,12 @@ function BoardPageContent({ name }: { name: string }) {
   // one join, consumed by both the crumb and the kill dialog).
   homeSessionByKeyRef.current = homeSessionByKey;
 
-  // Connection dot (260704-9o7k): "this board's live data is flowing". Green
-  // only when the board has entries AND every distinct attached server's SSE
-  // slice is connected (binary AND — a single disconnected server flips it
-  // gray; a zero-entry board is gray, nothing is flowing).
+  // Connection dot (260704-9o7k; footer-hosted since 260724-6j1v): "this
+  // board's live data is flowing". Green only when the board has entries AND
+  // every distinct attached server's SSE slice is connected (binary AND — a
+  // single disconnected server flips it gray; a zero-entry board is gray,
+  // nothing is flowing). Feeds the Sidebar footer dot via the `isConnected`
+  // prop below (the dot left the top bar).
   const boardConnected = useMemo(() => {
     const servers = new Set<string>();
     for (const e of entries) servers.add(e.server);
@@ -980,7 +983,6 @@ function BoardPageContent({ name }: { name: string }) {
         currentWindow: null,
         sessionName: "",
         windowName: "",
-        isConnected: boardConnected,
         sidebarOpen,
         server: "",
         onNavigate: () => {},
@@ -1003,7 +1005,6 @@ function BoardPageContent({ name }: { name: string }) {
         onToggleAutofit: toggleAutofit,
       }),
       [
-        boardConnected,
         sidebarOpen,
         onToggleSidebar,
         entries.length,
@@ -1072,6 +1073,7 @@ function BoardPageContent({ name }: { name: string }) {
       currentServer={null}
       currentSession={null}
       currentWindowId={null}
+      isConnected={boardConnected}
       onSelectWindow={handleSelectWindow}
       onCreateWindow={handleCreateWindow}
       onCreateSession={handleCreateSession}

@@ -54,13 +54,37 @@ func ValidateNewName(name, label string) string {
 	return ""
 }
 
-// ValidateColorValue validates a swatch color-value descriptor: a single ANSI
-// index ("4") or a two-hue blend of two indices joined by '+' ("1+3"). Every
-// index must be an integer in [0, 15]. Returns empty string if valid, an error
-// message otherwise. This is the single shared color-value rule reused by the
-// window, session, and server color handlers (constitution §I — input validated
-// before it ever reaches `tmux set-option` or the settings file).
+// colorFamilyNames is the closed set of owned-palette family-name color values
+// accepted alongside the numeric vocabulary: the 10 hue-family names defined by
+// the frontend (themes.ts HUE_FAMILIES) plus their "-dark" shade variants
+// ("blue-dark"). Normal-shade picks are still written in the legacy numeric
+// vocabulary by the frontend write seam (familyToLegacy), but dark shades have
+// no legacy form and are stored as these names verbatim. A closed set bounds
+// the injection/abuse surface (constitution §I) exactly as the numeric rule
+// does — the value flows into `tmux set-option` and the settings file.
+var colorFamilyNames = func() map[string]bool {
+	families := []string{"red", "orange", "amber", "olive", "green", "teal", "blue", "purple", "magenta", "slate"}
+	m := make(map[string]bool, len(families)*2)
+	for _, f := range families {
+		m[f] = true
+		m[f+"-dark"] = true
+	}
+	return m
+}()
+
+// ValidateColorValue validates a swatch color value: an owned-palette family
+// name ("blue", optionally "-dark"-suffixed for the dark shade) OR a legacy
+// numeric descriptor — a single ANSI index ("4") or a two-hue blend of two
+// indices joined by '+' ("1+3"), every index an integer in [0, 15]. Legacy
+// numeric values remain valid forever (read + write). Returns empty string if
+// valid, an error message otherwise. This is the single shared color-value rule
+// reused by the window, session, and server color handlers (constitution §I —
+// input validated before it ever reaches `tmux set-option` or the settings
+// file).
 func ValidateColorValue(value string) string {
+	if colorFamilyNames[strings.TrimSpace(value)] {
+		return ""
+	}
 	_, msg := parseColorIndices(value)
 	return msg
 }
@@ -74,17 +98,17 @@ func ValidateColorValue(value string) string {
 func parseColorIndices(value string) ([]int, string) {
 	parts := strings.Split(value, "+")
 	if len(parts) < 1 || len(parts) > 2 {
-		return nil, "Color must be a single index (0-15) or a blend (a+b)"
+		return nil, "Color must be a palette family name, a single index (0-15), or a blend (a+b)"
 	}
 	indices := make([]int, 0, len(parts))
 	for _, p := range parts {
 		p = strings.TrimSpace(p)
 		if p == "" {
-			return nil, "Color must be a single index (0-15) or a blend (a+b)"
+			return nil, "Color must be a palette family name, a single index (0-15), or a blend (a+b)"
 		}
 		n, err := strconv.Atoi(p)
 		if err != nil {
-			return nil, "Color must be a single index (0-15) or a blend (a+b)"
+			return nil, "Color must be a palette family name, a single index (0-15), or a blend (a+b)"
 		}
 		if n < 0 || n > 15 {
 			return nil, "Color indices must be between 0 and 15"
@@ -94,14 +118,20 @@ func parseColorIndices(value string) ([]int, string) {
 	return indices, ""
 }
 
-// NormalizeColorValue parses a stored color value (which may be a legacy bare
-// integer or the string descriptor) and returns its canonical string form, or
-// ("", false) when malformed. The canonical form re-serializes the parsed
-// indices ("4" or "a+b"), so equivalent-but-noisy inputs ("01", " 1 + 3 ")
-// collapse to a single representation. Used by tolerant-read storage paths
-// (settings, run-kit.yaml) to accept int-or-string on read and always normalize
-// to the canonical string.
+// NormalizeColorValue parses a stored color value (a family-name value, a
+// legacy bare integer, or the string descriptor) and returns its canonical
+// string form, or ("", false) when malformed. Family-name values ("blue",
+// "blue-dark") canonicalize to their trimmed verbatim form (case-sensitive —
+// the frontend only ever writes the canonical names); numeric forms
+// re-serialize the parsed indices ("4" or "a+b"), so equivalent-but-noisy
+// inputs ("01", " 1 + 3 ") collapse to a single representation. Used by
+// tolerant-read storage paths (settings, run-kit.yaml) and the tmux option
+// readers to accept any stored vocabulary on read and always normalize to the
+// canonical string.
 func NormalizeColorValue(value string) (string, bool) {
+	if name := strings.TrimSpace(value); colorFamilyNames[name] {
+		return name, true
+	}
 	indices, msg := parseColorIndices(value)
 	if msg != "" {
 		return "", false
@@ -164,21 +194,25 @@ func ValidateInstanceName(value string) string {
 }
 
 // MarkerValues is the closed set of accepted @rk_marker window-option values.
-// The empty string means "unset" (no marker); the three named states drive the
-// left-gutter marker's border style in the UI (dotted/solid 3px, double 6px).
-// A closed set bounds the injection/abuse surface (constitution §I) exactly as
-// the color-value rule does — the value flows into `tmux set-option`.
-var MarkerValues = map[string]bool{"": true, "dotted": true, "solid": true, "double": true}
+// The empty string means "unset" (no marker); the five named states drive the
+// left-gutter marker's stripe style in the UI (dotted/dashed/solid 3px,
+// double/thick 6px). A closed set bounds the injection/abuse surface
+// (constitution §I) exactly as the color-value rule does — the value flows
+// into `tmux set-option`.
+var MarkerValues = map[string]bool{
+	"": true, "dotted": true, "dashed": true, "solid": true, "double": true, "thick": true,
+}
 
-// ValidateMarkerValue validates an @rk_marker value: one of ""/dotted/solid/
-// double. Returns an empty string if valid, an error message otherwise. An empty
-// value is valid (it means unset). Mirrors ValidateColorValue as the single
-// shared marker-value rule reused by the window-option handler.
+// ValidateMarkerValue validates an @rk_marker value: one of ""/dotted/dashed/
+// solid/double/thick. Returns an empty string if valid, an error message
+// otherwise. An empty value is valid (it means unset). Mirrors
+// ValidateColorValue as the single shared marker-value rule reused by the
+// window-option handler.
 func ValidateMarkerValue(value string) string {
 	if MarkerValues[value] {
 		return ""
 	}
-	return "Marker must be one of: dotted, solid, double (or empty to clear)"
+	return "Marker must be one of: dotted, dashed, solid, double, thick (or empty to clear)"
 }
 
 // windowIDPattern matches a tmux window ID: an '@' followed by one or more digits

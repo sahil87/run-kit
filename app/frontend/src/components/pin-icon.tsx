@@ -3,7 +3,7 @@
  *  thumbtack viewed face-on: round-cornered cap, narrow neck flaring into wide
  *  shoulders, centered needle. Native 16×16 viewBox so strokes pixel-align
  *  symmetrically when rendered at 12px. Hand-rolled inline SVG per the
- *  project's no-icon-library pattern (top-bar SplitButton/HelpLink).
+ *  project's no-icon-library pattern (top-bar SplitButton).
  *
  *  Variants:
  *  - `filled` — pinned-state indicator (sidebar rows: outline = not pinned,

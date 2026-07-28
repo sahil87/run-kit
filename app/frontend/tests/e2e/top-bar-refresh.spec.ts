@@ -118,7 +118,7 @@ test.describe("Top-bar RefreshButton", () => {
     await expect(closeButton(page)).toBeVisible({ timeout: 10_000 });
   });
 
-  test("renders refresh in the L3 pyramid order (Theme → Refresh → Help), chevron then dot right-most, on a terminal route", async ({
+  test("renders refresh before the right-most chevron, with theme/help/bell/dot gone from the bar, on a terminal route", async ({
     page,
   }) => {
     // The /select mock intercepted the window-selection POST fired during nav —
@@ -131,38 +131,35 @@ test.describe("Top-bar RefreshButton", () => {
     await expect.poll(selectHits).toBeGreaterThan(0);
 
     // Wide viewport so the L3 controls stay IN-BAR (registry-driven overflow,
-    // 260715-h1ck): the flat-wrapper pyramid is gone — each control renders
-    // directly (no `hidden sm:flex` span), the always-present overflow chevron
-    // precedes the dot, and the dot is the deepest-last status element of the
-    // right cell (nested in the trailing exempt block).
+    // 260715-h1ck). After 260724-6j1v the surviving L3 always-block is Refresh
+    // (+ the context-gated UpdateChip): theme/help moved to the sidebar footer,
+    // the bell folded into the settings dialog, and the connection dot moved to
+    // the footer too — the always-present overflow chevron is now the
+    // right-most element of the cluster (the trailing exempt block).
     await page.setViewportSize({ width: 1280, height: 800 });
 
     // Refresh renders in-bar on a terminal route at a wide width.
     await expect(refreshButton(page)).toBeVisible();
 
-    // Pyramid order via document position (coordinate-free, robust to whether a
-    // control is in-bar or the measurement probe): Theme → Refresh → Help →
-    // chevron → dot. Theme's aria-label is dynamic ("System theme" fresh) →
-    // suffix match; Help is a docs anchor.
+    // Order + absences via document position (coordinate-free, robust to
+    // whether a control is in-bar or the measurement probe): Refresh → chevron
+    // last; NO theme button, help anchor, bell, or status dot in the bar.
     const order = await page.evaluate(() => {
       const cluster = document.querySelector('[data-testid="top-bar-right"]');
       if (!cluster) return "no-cluster";
-      const theme = document.querySelector('button[aria-label$=" theme"]');
+      if (cluster.querySelector('button[aria-label$=" theme"]')) return "theme-still-in-bar";
+      if (cluster.querySelector('a[aria-label^="Help"]')) return "help-still-in-bar";
+      if (cluster.querySelector('button[aria-label^="Notifications"]')) return "bell-still-in-bar";
+      if (cluster.querySelector('[role="status"]')) return "dot-still-in-bar";
       const refresh = document.querySelector('button[aria-label="Refresh page"]');
-      const help = document.querySelector('a[aria-label^="Help"]');
       const chevron = document.querySelector('button[aria-label="More controls"]');
-      const dot = cluster.querySelector('[role="status"]');
-      if (!theme || !refresh || !help || !chevron || !dot) return "missing";
+      if (!refresh || !chevron) return "missing";
       const FOLLOWING = Node.DOCUMENT_POSITION_FOLLOWING;
       const follows = (a: Element, b: Element) =>
         Boolean(a.compareDocumentPosition(b) & FOLLOWING);
-      if (!follows(theme, refresh)) return "theme-not-before-refresh";
-      if (!follows(refresh, help)) return "refresh-not-before-help";
-      if (!follows(help, chevron)) return "help-not-before-chevron";
-      if (!follows(chevron, dot)) return "chevron-not-before-dot";
-      // The dot is the deepest-last status element of the right cell.
-      const statuses = cluster.querySelectorAll('[role="status"]');
-      return statuses[statuses.length - 1] === dot ? "pyramid" : "dot-not-last";
+      if (!follows(refresh, chevron)) return "refresh-not-before-chevron";
+      // The chevron rides the cluster's LAST child (the trailing exempt block).
+      return cluster.lastElementChild?.contains(chevron) ? "pyramid" : "chevron-not-last";
     });
     expect(order).toBe("pyramid");
   });

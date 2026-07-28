@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
+import { KBD_CLASS } from "@/components/kbd-chip";
 import { Tip } from "@/components/tip";
 
 /** Minimum drag distance (px) to register a swipe vs a tap. */
@@ -106,7 +107,7 @@ export function ArrowPad({ onArrow, className }: ArrowPadProps) {
           aria-label="Arrow keys"
           aria-haspopup="true"
           aria-expanded={open}
-          className="rk-glint h-8 w-8 flex items-center justify-center text-sm text-text-secondary border border-border rounded select-none transition-colors hover:border-text-secondary active:bg-bg-card focus-visible:outline-2 focus-visible:outline-accent touch-none"
+          className={`${KBD_CLASS} text-text-secondary touch-none`}
           onTouchStart={handleTouchStart}
           onTouchEnd={handleTouchEnd}
           onMouseDown={handleMouseDown}

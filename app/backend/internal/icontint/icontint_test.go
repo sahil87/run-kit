@@ -25,6 +25,13 @@ func TestResolve_ownedDescriptors(t *testing.T) {
 		{" 1 + 3 ", "#e58439", "1+3"}, // whitespace tolerated, normalized
 		{"1", "#ee7871", "1"},         // red
 		{"3+4", "#95a2b0", "3+4"},     // slate (near-neutral)
+		// Family-name vocabulary: a name resolves to the same hex as its
+		// legacy descriptor; "-dark" variants (no legacy form) get their own
+		// frozen hexes (mean-L − 0.14, same hue/chroma, gamut-reduced).
+		{"blue", "#4fa5f8", "blue"},
+		{"blue-dark", "#1d79c8", "blue-dark"},
+		{" slate-dark ", "#6b7885", "slate-dark"}, // trimmed to verbatim form
+		{"orange", "#e58439", "orange"},
 	}
 	for _, tc := range cases {
 		hex, canonical, ok := Resolve(tc.in)
@@ -42,21 +49,36 @@ func TestResolve_unownedAndMalformed(t *testing.T) {
 	// "7" and "2+5" validate per ValidateColorValue but map to no owned
 	// family — they must resolve to nothing (the frontend renders no accent
 	// for them, so the icon stays stock).
-	for _, in := range []string{"7", "0", "15", "2+5", "zzz", "", "1+2+3", "-1", "16", "+", "1+"} {
+	for _, in := range []string{"7", "0", "15", "2+5", "zzz", "", "1+2+3", "-1", "16", "+", "1+", "Blue", "blue-light", "bluish"} {
 		if _, _, ok := Resolve(in); ok {
 			t.Errorf("Resolve(%q) ok = true, want false", in)
 		}
 	}
 }
 
-func TestResolve_coversAllTenFamilies(t *testing.T) {
-	owned := []string{"1", "1+3", "3", "1+2", "2", "6", "4", "1+4", "5", "3+4"}
-	if len(familyHexByLegacy) != len(owned) {
-		t.Fatalf("familyHexByLegacy has %d entries, want %d", len(familyHexByLegacy), len(owned))
+func TestResolve_coversAllFamiliesAndShades(t *testing.T) {
+	legacy := []string{"1", "1+3", "3", "1+2", "2", "6", "4", "1+4", "5", "3+4"}
+	names := []string{"red", "orange", "amber", "olive", "green", "teal", "blue", "purple", "magenta", "slate"}
+	// 10 legacy + 10 names + 10 dark variants.
+	if want := len(legacy) + 2*len(names); len(familyHexByValue) != want {
+		t.Fatalf("familyHexByValue has %d entries, want %d", len(familyHexByValue), want)
 	}
-	for _, d := range owned {
+	for _, d := range legacy {
 		if _, _, ok := Resolve(d); !ok {
 			t.Errorf("Resolve(%q) ok = false, want true (owned family)", d)
+		}
+	}
+	for i, n := range names {
+		hexName, _, okName := Resolve(n)
+		hexLegacy, _, okLegacy := Resolve(legacy[i])
+		if !okName || !okLegacy || hexName != hexLegacy {
+			t.Errorf("Resolve(%q) = (%q, %v), want same hex as legacy %q (%q, %v)", n, hexName, okName, legacy[i], hexLegacy, okLegacy)
+		}
+		hexDark, _, okDark := Resolve(n + "-dark")
+		if !okDark {
+			t.Errorf("Resolve(%q) ok = false, want true (dark shade)", n+"-dark")
+		} else if hexDark == hexName {
+			t.Errorf("Resolve(%q) = %q, want a hex distinct from the normal shade", n+"-dark", hexDark)
 		}
 	}
 }

@@ -235,6 +235,71 @@ describe("ServerPanel", () => {
     expect(within(defaultTile).queryByTestId("waiting-badge")).not.toBeInTheDocument();
   });
 
+  describe("active-tile autoscroll (nris)", () => {
+    // jsdom has no scrollIntoView at all — define a spy on the prototype so
+    // the effect's `typeof el.scrollIntoView === "function"` guard passes.
+    let scrollSpy: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+      scrollSpy = vi.fn();
+      Object.defineProperty(window.HTMLElement.prototype, "scrollIntoView", {
+        value: scrollSpy,
+        configurable: true,
+        writable: true,
+      });
+    });
+
+    afterEach(() => {
+      delete (window.HTMLElement.prototype as unknown as Record<string, unknown>).scrollIntoView;
+    });
+
+    function panelUI(server: string) {
+      return (
+        <ThemeProvider>
+          <ToastProvider>
+            <ServerPanel
+              server={server}
+              servers={[
+                { name: "default", sessionCount: 4, windowCount: 9 },
+                { name: "work", sessionCount: 2, windowCount: 5 },
+              ]}
+              serverColors={{}}
+              onSwitchServer={vi.fn()}
+              onCreateServer={vi.fn()}
+              onRefreshServers={vi.fn()}
+            />
+          </ToastProvider>
+        </ThemeProvider>
+      );
+    }
+
+    it("scrolls the active tile into view on mount on desktop (mobile-only gate removed)", () => {
+      // The file-default matchMedia stub reports desktop (fine pointer, wide).
+      render(panelUI("work"));
+
+      expect(scrollSpy).toHaveBeenCalledTimes(1);
+      expect(scrollSpy).toHaveBeenCalledWith({ block: "nearest", inline: "nearest" });
+      // The call target is the ACTIVE tile's button (aria-current="true").
+      const activeTile = screen.getByRole("option", { name: /work/ });
+      expect(scrollSpy.mock.instances[0]).toBe(activeTile);
+    });
+
+    it("re-scrolls when the active server changes", () => {
+      const { rerender } = render(panelUI("default"));
+      expect(scrollSpy).toHaveBeenCalledTimes(1);
+
+      rerender(panelUI("work"));
+      expect(scrollSpy).toHaveBeenCalledTimes(2);
+      const activeTile = screen.getByRole("option", { name: /work/ });
+      expect(scrollSpy.mock.instances[1]).toBe(activeTile);
+    });
+
+    it("does not scroll when no tile is active (server not in the list)", () => {
+      render(panelUI("gone"));
+      expect(scrollSpy).not.toHaveBeenCalled();
+    });
+  });
+
   it("renders no waiting badge for a server with count 0 or no map entry", () => {
     renderPanel({
       server: "default",

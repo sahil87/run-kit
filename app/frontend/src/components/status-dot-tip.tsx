@@ -23,7 +23,7 @@ import type { WindowInfo } from "@/types";
  * hover-card's docs icon — the canonical "what does this dot mean" reference.
  * docs/site is NOT served by the backend, so we link the GitHub blob (no
  * anchor → lands at the top of the doc), matching the convention the only
- * other in-app docs link uses (top-bar.tsx NOTIFICATIONS_HELP_URL).
+ * other in-app docs link uses (global-chrome.tsx NOTIFICATIONS_HELP_URL).
  */
 const STATUS_DOT_DOCS_URL =
   "https://github.com/sahil87/run-kit/blob/main/docs/site/status-dot.md";

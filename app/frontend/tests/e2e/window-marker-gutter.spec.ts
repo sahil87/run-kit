@@ -132,22 +132,35 @@ test.describe("Window left-edge label zone + combined picker", () => {
     const picker = page.getByRole("listbox", { name: "Label picker" });
     await expect(picker).toBeVisible({ timeout: 5_000 });
 
+    // The picker STAYS OPEN across picks (the dismissal contract): every state
+    // below is reached inside ONE open session, live-toggling against the row.
     // Pick "solid" DIRECTLY (any state is one click — no cycling). Persists.
     await picker.getByRole("option", { name: "Marker solid" }).click();
     await expectMarker(page, winName, "solid");
 
-    // Re-open and pick "double" directly (still no cycling — reaches any state).
-    await row.getByLabel("Set window label").click();
-    await page.getByRole("listbox", { name: "Label picker" }).getByRole("option", { name: "Marker double" }).click();
+    // "double" directly (still no cycling — reaches any state).
+    await picker.getByRole("option", { name: "Marker double" }).click();
     await expectMarker(page, winName, "double");
 
-    // Re-open and pick "none" to clear.
-    await row.getByLabel("Set window label").click();
-    await page.getByRole("listbox", { name: "Label picker" }).getByRole("option", { name: "Marker none" }).click();
+    // The two NEW states (260723-wwoi) persist through the same closed set:
+    // "dashed" ("working" convention, the worker-stream stripe) …
+    await picker.getByRole("option", { name: "Marker dashed" }).click();
+    await expectMarker(page, winName, "dashed");
+
+    // … and "thick" ("completed" convention, the hazard-wedge pairing).
+    await picker.getByRole("option", { name: "Marker thick" }).click();
+    await expectMarker(page, winName, "thick");
+
+    // "none" clears — the picker is still open.
+    await picker.getByRole("option", { name: "Marker none" }).click();
     await expectMarker(page, winName, "");
+
+    // The ✕ cell is the explicit dismiss (selection never closes).
+    await picker.getByLabel("Close picker").click();
+    await expect(picker).not.toBeVisible();
   });
 
-  test("picking a color in the label picker persists via @color (legacy vocabulary seam)", async ({ page }) => {
+  test("picking a color persists via @color — normal shade through the legacy seam, dark shade verbatim", async ({ page }) => {
     const ts = Date.now();
     const winName = `marker-color-${ts}`;
     execSync(
@@ -164,15 +177,26 @@ test.describe("Window left-edge label zone + combined picker", () => {
     await expect(row).toBeVisible({ timeout: 5_000 });
     expect(target.color ?? "").toBe("");
 
-    // Open the picker from the left-edge zone and pick the "orange" family. The
-    // picker maps it to the LEGACY descriptor "1+3" at the write seam
-    // (familyToLegacy) — the vocabulary the backend validates — so @color
-    // persists as "1+3", not the family name.
+    // Open the picker from the left-edge zone and pick the "orange" family
+    // (NORMAL shade). The picker maps it to the LEGACY descriptor "1+3" at the
+    // write seam (familyToLegacy) — the vocabulary pre-existing colors are
+    // stored in — so @color persists as "1+3", not the family name. `exact`
+    // because the paired shade grid also contains "Color orange-dark", which
+    // Playwright's substring name matching would otherwise collide with.
     await row.getByLabel("Set window label").click();
     const picker = page.getByRole("listbox", { name: "Label picker" });
     await expect(picker).toBeVisible({ timeout: 5_000 });
-    await picker.getByRole("option", { name: "Color orange" }).click();
+    await picker.getByRole("option", { name: "Color orange", exact: true }).click();
     await expectColor(page, winName, "1+3");
+
+    // A DARK-shade pick has no legacy form: it persists as the verbatim
+    // "{family}-dark" value, which the backend validators now accept. The
+    // picker stayed open after the first pick (the dismissal contract), so
+    // this is the same open session.
+    await picker.getByRole("option", { name: "Color orange-dark", exact: true }).click();
+    await expectColor(page, winName, "orange-dark");
+    await picker.getByLabel("Close picker").click();
+    await expect(picker).not.toBeVisible();
   });
 
   test("clicking the label zone does not select the row (stopPropagation)", async ({ page }) => {

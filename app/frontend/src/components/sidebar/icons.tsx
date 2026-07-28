@@ -76,7 +76,11 @@ export function BotIcon({ size = 13 }: { size?: number }) {
     <svg
       width={size}
       height={size}
-      viewBox="0 0 24 24"
+      // viewBox y-shifted +1.5: the antenna is top weight, so the HEAD (the
+      // perceived body, spanning y=8..20, center 14) sat optically below the
+      // palette circle's center (~12). Shifting the view down moves the drawing
+      // up ~0.8px at 13px without changing the rendered box (260724-2bmy).
+      viewBox="0 1.5 24 24"
       fill="none"
       stroke="currentColor"
       strokeWidth={2}
@@ -95,6 +99,54 @@ export function BotIcon({ size = 13 }: { size?: number }) {
       {/* eyes */}
       <circle cx="9" cy="13.5" r="1" fill="currentColor" stroke="none" />
       <circle cx="15" cy="13.5" r="1" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+/** Small plus icon for the session-row create-window trigger — a lucide `plus`
+ *  cross. Replaces the former `+` text glyph so the row's icon cluster shares
+ *  ONE stroke system (equal ink width/weight is what makes the icons read as
+ *  equidistant — mixed text glyphs beside stroke SVGs looked uneven even at
+ *  even center gaps). Same idiom as the siblings: `currentColor` stroke,
+ *  `strokeWidth={2}`, `aria-hidden`, 24-unit viewBox, 13px default size.
+ *  (260724-2bmy) */
+export function PlusIcon({ size = 13 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M5 12h14" />
+      <path d="M12 5v14" />
+    </svg>
+  );
+}
+
+/** Small close/kill icon for the session- and window-row kill triggers — a
+ *  lucide `x` cross. Replaces the former U+2715 text glyph for the same
+ *  one-stroke-system reason as `PlusIcon`. (260724-2bmy) */
+export function CloseIcon({ size = 13 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M18 6 6 18" />
+      <path d="m6 6 12 12" />
     </svg>
   );
 }

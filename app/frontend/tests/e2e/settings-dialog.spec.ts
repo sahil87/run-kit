@@ -30,9 +30,14 @@ const BOARD_NAME = `set${Date.now().toString().slice(-6)}`;
 const TEST_INSTANCE_NAME = `e2e-name-${Date.now().toString().slice(-6)}`;
 
 async function openPaletteSettings(page: Page) {
-  await page.keyboard.press("Meta+k");
   const paletteInput = page.getByPlaceholder("Type a command...");
-  await expect(paletteInput).toBeVisible({ timeout: 5_000 });
+  // Retry the hotkey: a Meta+K pressed before the global keydown listener
+  // attaches (cold dev-server first navigation) is dropped forever — a single
+  // long wait on the input can never recover from that.
+  await expect(async () => {
+    await page.keyboard.press("Meta+k");
+    await expect(paletteInput).toBeVisible({ timeout: 2_000 });
+  }).toPass({ timeout: 15_000 });
   await paletteInput.fill("Settings: Open");
   await page.keyboard.press("Enter");
 }
@@ -111,6 +116,81 @@ test.describe("Settings dialog", () => {
     // Escape closes (keyboard-first contract).
     await page.keyboard.press("Escape");
     await expect(page.getByRole("dialog", { name: "Settings" })).not.toBeVisible();
+  });
+
+  test("desktop preference-pane layout with the Notifications row (260724-6j1v)", async ({ page }) => {
+    await page.goto(`/${TMUX_SERVER}`);
+    await expect(page.locator("[aria-label='Connected']")).toBeVisible({ timeout: 10_000 });
+
+    await openPaletteSettings(page);
+    await expectDialogOpen(page);
+    const dialog = page.getByRole("dialog", { name: "Settings" });
+
+    // Wide lg Dialog variant (~672px) instead of the phone-card max-w-sm.
+    await expect(dialog).toHaveClass(/max-w-2xl/);
+    await expect(dialog).not.toHaveClass(/max-w-sm/);
+
+    // Preference-row grid: each setting is a `190px 1fr` two-column grid at
+    // desktop width (label column left, control column right — one vertical
+    // rule). Checked on a representative row (Instance name).
+    const rowClass = await dialog
+      .locator("#settings-instance-name")
+      .evaluate((el) => el.closest(".grid")?.className ?? "");
+    expect(rowClass).toContain("min-[480px]:grid-cols-[190px_1fr]");
+
+    // Notifications row (moved from the retired top-bar bell) lives under the
+    // This-device scope: label, subscribed-gated test button, and the setup
+    // guide link. Status text varies by browser permission state, so only the
+    // state-independent contents are asserted.
+    await expect(dialog.getByText("Notifications", { exact: true })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Send test notification" })).toBeVisible();
+    const guide = dialog.getByRole("link", { name: /Setup & troubleshooting guide/ });
+    await expect(guide).toBeVisible();
+    await expect(guide).toHaveAttribute("href", /docs\/site\/notifications\.md/);
+    await expect(guide).toHaveAttribute("target", "_blank");
+
+    await page.keyboard.press("Escape");
+    await expect(dialog).not.toBeVisible();
+  });
+
+  test("short viewport (375x667): the dialog fits and its last row is reachable by scroll (260724-6j1v)", async ({ page }) => {
+    // The lg settings pane grew taller than a phone-landscape/short viewport;
+    // the Dialog panel must cap its height and scroll instead of clipping
+    // off-screen with no scroll path (rework finding M1).
+    await page.setViewportSize({ width: 375, height: 667 });
+    await page.goto(`/${TMUX_SERVER}`);
+    // No [aria-label='Connected'] gate here: the dot lives in the sidebar
+    // footer, and at a mobile viewport the drawer (and dot) is unmounted.
+    // The top-bar chevron is the readiness signal instead.
+    await expect(page.getByRole("button", { name: "More controls" })).toBeVisible({
+      timeout: 10_000,
+    });
+
+    await openPaletteSettings(page);
+    await expectDialogOpen(page);
+    const dialog = page.getByRole("dialog", { name: "Settings" });
+
+    // Geometry: the panel's border box fits entirely inside the viewport.
+    const box = await dialog.boundingBox();
+    expect(box).toBeTruthy();
+    expect(box!.x).toBeGreaterThanOrEqual(0);
+    expect(box!.y).toBeGreaterThanOrEqual(0);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(375);
+    expect(box!.y + box!.height).toBeLessThanOrEqual(667);
+
+    // The panel itself is the scroll container (its content overflows) …
+    const overflows = await dialog.evaluate((el) => el.scrollHeight > el.clientHeight);
+    expect(overflows).toBe(true);
+
+    // … and the LAST row's control (the Notifications setup-guide link) is
+    // reachable by scrolling within the panel.
+    const guide = dialog.getByRole("link", { name: /Setup & troubleshooting guide/ });
+    await guide.scrollIntoViewIfNeeded();
+    await expect(guide).toBeVisible();
+    const guideBox = await guide.boundingBox();
+    expect(guideBox).toBeTruthy();
+    expect(guideBox!.y).toBeGreaterThanOrEqual(0);
+    expect(guideBox!.y + guideBox!.height).toBeLessThanOrEqual(667);
   });
 
   test("palette opens the same dialog on /board/$name (no AppShell there)", async ({ page }) => {

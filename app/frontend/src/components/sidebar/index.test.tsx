@@ -1,6 +1,6 @@
 import { StrictMode } from "react";
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { render, screen, fireEvent, cleanup, within, act } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, within, act, waitFor } from "@testing-library/react";
 import { Sidebar } from "./index";
 import { OptimisticProvider } from "@/contexts/optimistic-context";
 import { HostMetricsProvider, MetricsProvider, StandaloneSessionContextProvider } from "@/contexts/session-context";
@@ -57,6 +57,13 @@ vi.mock("@/api/client", async (importOriginal) => {
   };
 });
 
+// Footer version click-to-copy (260724-6j1v) — deterministic clipboard seam
+// (jsdom has no navigator.clipboard).
+vi.mock("@/lib/clipboard", () => ({
+  copyToClipboard: vi.fn().mockResolvedValue(true),
+}));
+import { copyToClipboard } from "@/lib/clipboard";
+
 // jsdom does not implement matchMedia — ThemeProvider + media-query hooks need it.
 vi.stubGlobal("matchMedia", vi.fn().mockImplementation((query: string) => ({
   matches: query.includes("prefers-color-scheme: dark"),
@@ -106,8 +113,10 @@ type RenderOpts = {
   /** Override the derived per-server sessions map (board-route tests need
    *  session data on a NON-current server). */
   sessionsByServer?: Map<string, ProjectSession[]>;
-  /** Host-metrics source health for the HOST dot (defaults false). */
-  hostMetricsConnected?: boolean;
+  /** Per-page connection state fed to the footer dot (defaults false). */
+  isConnected?: boolean;
+  /** Daemon version fed to the footer version readout (defaults null = hidden). */
+  daemonVersion?: string | null;
   /** Host-global metrics snapshot fed to HostMetricsProvider (defaults null). */
   hostMetrics?: MetricsSnapshot | null;
   /** Override the Sidebar's onKillServer prop (x4sf) — the header ✕ routes
@@ -138,7 +147,7 @@ function renderSidebar(opts: RenderOpts = {}) {
               sessionsByServer,
               sessionOrderByServer: new Map(servers.map((s) => [s.name, []])),
               isConnectedByServer: new Map(servers.map((s) => [s.name, false])),
-              hostMetricsConnected: opts.hostMetricsConnected ?? false,
+              daemonVersion: opts.daemonVersion ?? null,
               metricsByServer: new Map(),
               currentServer,
               servers,
@@ -157,6 +166,7 @@ function renderSidebar(opts: RenderOpts = {}) {
                         currentServer={currentServer}
                         currentSession={currentServer ? "main" : null}
                         currentWindowId={currentServer ? "@0" : null}
+                        isConnected={opts.isConnected ?? false}
                         onSelectWindow={vi.fn()}
                         onCreateWindow={vi.fn()}
                         onCreateSession={vi.fn()}
@@ -478,6 +488,7 @@ describe("Sidebar — tree ARIA + roving keyboard navigation (wt1v)", () => {
                         currentServer="primary"
                         currentSession="main"
                         currentWindowId={null}
+                        isConnected={false}
                         onSelectWindow={onSelectWindow}
                         onCreateWindow={vi.fn()}
                         onCreateSession={vi.fn()}
@@ -958,11 +969,10 @@ describe("BottomPanels — board-route focused-pane fallback + HOST dot (zx4i)",
       sessionsByServer: boardSessionsMap,
       focusedPane: null,
       hostMetrics: HOST_METRICS,
-      hostMetricsConnected: true,
     });
     // The host-global fallback fills the panel (no server-scoped metrics on a
-    // board route). The HOST header carries no connection dot — the top-bar
-    // dot owns that signal (same current-server subscription health).
+    // board route). The HOST header carries no connection dot — the sidebar
+    // FOOTER dot owns the per-page signal (260724-6j1v).
     expect(screen.getByText("board-host")).toBeInTheDocument();
     expect(screen.queryByText("No metrics")).not.toBeInTheDocument();
     expect(screen.queryByTitle(/SSE (dis)?connected/)).not.toBeInTheDocument();
@@ -1205,7 +1215,7 @@ describe("Sidebar — server-group header action cluster (x4sf)", () => {
     expect(document.body.contains(popover)).toBe(true);
   });
 
-  it("a swatch pick funnels through the shared seam: optimistic tint repaint + POST, then closes", async () => {
+  it("a swatch pick funnels through the shared seam: optimistic tint repaint + POST, popover stays open (live toggling)", async () => {
     await renderWithColors({}); // alpha starts uncolored (gray sentinel)
 
     const container = headerContainer("alpha");
@@ -1220,10 +1230,14 @@ describe("Sidebar — server-group header action cluster (x4sf)", () => {
     // (non-current ⇒ base shade) without waiting for any poll.
     expect(vi.mocked(setServerColor)).toHaveBeenCalledExactlyOnceWith("alpha", "4");
     expect(container.style.backgroundColor).toBe(rgb(tints.get("4")!.base));
+    // Selection does NOT dismiss (the picker's dismissal contract) — the ✕
+    // cell is the explicit close, so tint combos can be compared live.
+    expect(screen.getByRole("listbox", { name: "Color picker" })).toBeInTheDocument();
+    fireEvent.click(within(popover).getByLabelText("Close picker"));
     expect(screen.queryByRole("listbox", { name: "Color picker" })).not.toBeInTheDocument();
   });
 
-  it("Clear color clears the optimistic entry back to the gray sentinel and POSTs null", async () => {
+  it("Clear clears the optimistic entry back to the gray sentinel and POSTs null", async () => {
     await renderWithColors({ alpha: "4" });
 
     const container = headerContainer("alpha");
@@ -1232,7 +1246,7 @@ describe("Sidebar — server-group header action cluster (x4sf)", () => {
     fireEvent.click(within(container).getByRole("button", { name: "Set color for server alpha" }));
     fireEvent.click(
       within(screen.getByRole("listbox", { name: "Color picker" })).getByRole("option", {
-        name: "Clear color",
+        name: "Clear",
       }),
     );
 
@@ -1283,11 +1297,297 @@ describe("Sidebar — server-group header action cluster (x4sf)", () => {
   });
 });
 
-describe("sidebar footer settings gear (260723-o7q8)", () => {
+describe("sidebar footer chrome (260723-o7q8 gear; 260724-6j1v cluster)", () => {
   it("renders the gear with an aria-label and NO native title (Tip-named)", () => {
     renderSidebar();
     const gear = screen.getByRole("button", { name: "Open settings" });
     expect(gear).toBeInTheDocument();
     expect(gear.getAttribute("title")).toBeNull();
+  });
+
+  it("renders the connection dot as a left readout with the top-bar dot's exact semantics", () => {
+    renderSidebar({ isConnected: true });
+    const dot = screen.getByLabelText("Connected");
+    expect(dot).toBeInTheDocument();
+    expect(dot.className).toContain("bg-accent-green");
+    // Status readout, not a control: role="status" live region, no tab stop.
+    const region = dot.closest('[role="status"]')!;
+    expect(region).toHaveAttribute("aria-live", "polite");
+    expect(dot.tagName).toBe("SPAN");
+  });
+
+  it("flips the dot to disconnected grey when the page's stream is down", () => {
+    renderSidebar({ isConnected: false });
+    const dot = screen.getByLabelText("Disconnected");
+    expect(dot.className).toContain("bg-text-secondary");
+    expect(screen.queryByLabelText("Connected")).not.toBeInTheDocument();
+  });
+
+  it("renders the version readout beside the dot and copies the displayed form on click", async () => {
+    renderSidebar({ daemonVersion: "0.9.3" });
+    const version = screen.getByRole("button", { name: "RunKit v0.9.3 (copy)" });
+    expect(version).toHaveTextContent("v0.9.3");
+    fireEvent.click(version);
+    await waitFor(() => expect(vi.mocked(copyToClipboard)).toHaveBeenCalledWith("v0.9.3"));
+  });
+
+  it("renders NO version element until the daemon reports a version (never vundefined)", () => {
+    renderSidebar({ daemonVersion: null });
+    expect(screen.queryByRole("button", { name: /copy/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/vundefined/)).not.toBeInTheDocument();
+  });
+
+  it("renders the Help anchor with the shared HELP_URL and safe new-tab attrs", () => {
+    renderSidebar();
+    const help = screen.getByLabelText("Help — run-kit docs");
+    expect(help.tagName).toBe("A");
+    expect(help).toHaveAttribute("href", "https://shll.ai/run-kit");
+    expect(help).toHaveAttribute("target", "_blank");
+    const rel = help.getAttribute("rel") ?? "";
+    expect(rel).toContain("noopener");
+    expect(rel).toContain("noreferrer");
+    expect(help).not.toHaveAttribute("title");
+  });
+
+  it("cycles the theme on click (system → light) and keeps the borderless footer idiom", () => {
+    renderSidebar();
+    const theme = screen.getByRole("button", { name: "System theme" });
+    // Borderless footer idiom — no bordered rk-glint chip.
+    expect(theme.className).not.toContain("border-border");
+    expect(theme.className).not.toContain("rk-glint");
+    fireEvent.click(theme);
+    expect(screen.getByRole("button", { name: "Light theme" })).toBeInTheDocument();
+  });
+
+  it("Ctrl/Cmd-click on the theme button opens the theme selector instead of cycling", () => {
+    renderSidebar();
+    const openListener = vi.fn();
+    document.addEventListener("theme-selector:open", openListener);
+    try {
+      fireEvent.click(screen.getByRole("button", { name: "System theme" }), { ctrlKey: true });
+      expect(openListener).toHaveBeenCalledTimes(1);
+      // No cycle happened — the label is still the system mode.
+      expect(screen.getByRole("button", { name: "System theme" })).toBeInTheDocument();
+    } finally {
+      document.removeEventListener("theme-selector:open", openListener);
+    }
+  });
+
+  it("lays the footer out readouts-left / actions-right in Help · Theme · Gear order", () => {
+    renderSidebar({ isConnected: true, daemonVersion: "0.9.3" });
+    const dot = screen.getByLabelText("Connected");
+    const version = screen.getByRole("button", { name: "RunKit v0.9.3 (copy)" });
+    const help = screen.getByLabelText("Help — run-kit docs");
+    const theme = screen.getByRole("button", { name: "System theme" });
+    const gear = screen.getByRole("button", { name: "Open settings" });
+    const follows = (a: Element, b: Element) =>
+      Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(follows(dot, version)).toBe(true);
+    expect(follows(version, help)).toBe(true);
+    expect(follows(help, theme)).toBe(true);
+    expect(follows(theme, gear)).toBe(true);
+    // One justify-between row: readout segment left, action cluster right.
+    const row = gear.closest(".justify-between")!;
+    expect(row).toContainElement(dot as HTMLElement);
+  });
+});
+
+describe("Sidebar — desktop selected-row autoscroll (nris)", () => {
+  // The file-default matchMedia stub reports DESKTOP (fine pointer, wide), so
+  // the mobile drawer scroll+focus effect never runs here — every scroll call
+  // observed in this block comes from the selection-keyed desktop effect.
+  //
+  // jsdom has no scrollIntoView — define a prototype-level spy so the effect's
+  // `typeof row.scrollIntoView === "function"` guard passes.
+  let scrollSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    scrollSpy = vi.fn();
+    Object.defineProperty(window.HTMLElement.prototype, "scrollIntoView", {
+      value: scrollSpy,
+      configurable: true,
+      writable: true,
+    });
+    useWindowStore.setState({ entries: new Map(), ghosts: [] });
+  });
+
+  afterEach(() => {
+    delete (window.HTMLElement.prototype as unknown as Record<string, unknown>).scrollIntoView;
+    useWindowStore.setState({ entries: new Map(), ghosts: [] });
+  });
+
+  const SCROLL_SESSIONS: ProjectSession[] = [
+    {
+      name: "main",
+      windows: [
+        { index: 0, windowId: "@0", name: "edit", worktreePath: "~/a", activity: "idle", isActiveWindow: false, activityTimestamp: 0 },
+        { index: 1, windowId: "@1", name: "test", worktreePath: "~/a", activity: "idle", isActiveWindow: false, activityTimestamp: 0 },
+      ],
+    },
+  ];
+
+  /** Provider tree parameterized on sessions + selected window id so tests can
+   *  rerender across selection changes, passive SSE ticks, and data arrival. */
+  function scrollTreeUI(sessions: ProjectSession[], currentWindowId: string | null) {
+    const servers = [{ name: "primary", sessionCount: 1 }];
+    return (
+      <ThemeProvider>
+        <InstanceAccentValueProvider value={NULL_ACCENT}>
+        <InstanceNameValueProvider value={NULL_NAME}>
+        <ToastProvider>
+          <OptimisticProvider>
+            <StandaloneSessionContextProvider
+              value={{
+                sessionsByServer: new Map([["primary", sessions]]),
+                sessionOrderByServer: new Map([["primary", []]]),
+                isConnectedByServer: new Map([["primary", true]]),
+                metricsByServer: new Map(),
+                currentServer: "primary",
+                servers,
+                refreshServers: vi.fn(),
+              }}
+            >
+              <MetricsProvider value={null}>
+                <HostMetricsProvider value={null}>
+                  <FocusedPaneProvider>
+                    <ChromeProvider>
+                      <SettingsDialogProvider>
+                        <Sidebar
+                          currentServer="primary"
+                          currentSession="main"
+                          currentWindowId={currentWindowId}
+                          isConnected={false}
+                          onSelectWindow={vi.fn()}
+                          onCreateWindow={vi.fn()}
+                          onCreateSession={vi.fn()}
+                          onCreateServer={vi.fn()}
+                          onKillServer={vi.fn()}
+                        />
+                      </SettingsDialogProvider>
+                    </ChromeProvider>
+                  </FocusedPaneProvider>
+                </HostMetricsProvider>
+              </MetricsProvider>
+            </StandaloneSessionContextProvider>
+          </OptimisticProvider>
+        </ToastProvider>
+        </InstanceNameValueProvider>
+        </InstanceAccentValueProvider>
+      </ThemeProvider>
+    );
+  }
+
+  /** The selected window row's button (the desktop effect's query target). */
+  function selectedRowButton(): HTMLElement | null {
+    return document.querySelector<HTMLElement>('[data-window-id] [aria-current="page"]');
+  }
+
+  /** Calls whose `this` was a WINDOW-ROW button (scoped like the effect's own
+   *  selector) — the ServerPanel active-tile effect also scrolls via the same
+   *  prototype spy, so tile calls are filtered out. */
+  function rowScrollCalls(): unknown[] {
+    return scrollSpy.mock.instances.filter(
+      (el) => el instanceof HTMLElement && el.closest("[data-window-id]") !== null,
+    );
+  }
+
+  it("scrolls the selected row into view on mount without moving focus or the roving tab stop", () => {
+    render(scrollTreeUI(SCROLL_SESSIONS, "@0"));
+
+    const row = selectedRowButton();
+    expect(row).not.toBeNull();
+    expect(rowScrollCalls()).toHaveLength(1);
+    expect(rowScrollCalls()[0]).toBe(row);
+    expect(scrollSpy).toHaveBeenCalledWith({ block: "nearest" });
+    // Scroll-only: focus stays outside the tree (no focus() call)...
+    expect(screen.getByRole("tree").contains(document.activeElement)).toBe(false);
+    // ...and the roving tab stop is untouched (still the first visible row —
+    // the "main" session header — NOT the selected window row).
+    const tabbable = Array.from(
+      screen.getByRole("tree").querySelectorAll('[role="treeitem"][tabindex="0"]'),
+    );
+    expect(tabbable).toHaveLength(1);
+    expect(tabbable[0].getAttribute("data-session-row")).toBe("primary:main");
+  });
+
+  it("scrolls once per selection change and never again on passive SSE ticks", () => {
+    const { rerender } = render(scrollTreeUI(SCROLL_SESSIONS, "@0"));
+    expect(rowScrollCalls()).toHaveLength(1);
+
+    // Selection change → exactly one more scroll, targeting the new row.
+    act(() => { rerender(scrollTreeUI(SCROLL_SESSIONS, "@1")); });
+    expect(rowScrollCalls()).toHaveLength(2);
+    expect((rowScrollCalls()[1] as HTMLElement).closest("[data-window-id]"))
+      .toHaveAttribute("data-window-id", "@1");
+
+    // Passive SSE tick: fresh Map + fresh window objects, SAME visible-row set,
+    // SAME selection — must not scroll (Wave-2 #262: no scroll state churn).
+    const ticked: ProjectSession[] = SCROLL_SESSIONS.map((s) => ({
+      ...s,
+      windows: s.windows.map((w) => ({ ...w, activityTimestamp: w.activityTimestamp + 1 })),
+    }));
+    act(() => { rerender(scrollTreeUI(ticked, "@1")); });
+    expect(rowScrollCalls()).toHaveLength(2);
+  });
+
+  it("deep-link retry: no row at mount, scrolls exactly once when the SSE data lands", () => {
+    // Route resolved before SSE: selection is set but no rows exist yet.
+    const { rerender } = render(scrollTreeUI([], "@1"));
+    expect(selectedRowButton()).toBeNull();
+    expect(rowScrollCalls()).toHaveLength(0);
+
+    // SSE snapshot lands → rows render, rowsVersion bumps → one deferred scroll.
+    act(() => { rerender(scrollTreeUI(SCROLL_SESSIONS, "@1")); });
+    expect(rowScrollCalls()).toHaveLength(1);
+    expect((rowScrollCalls()[0] as HTMLElement).closest("[data-window-id]"))
+      .toHaveAttribute("data-window-id", "@1");
+
+    // The pending ref is cleared: a later passive tick does not re-scroll.
+    const ticked: ProjectSession[] = SCROLL_SESSIONS.map((s) => ({
+      ...s,
+      windows: s.windows.map((w) => ({ ...w, activityTimestamp: w.activityTimestamp + 1 })),
+    }));
+    act(() => { rerender(scrollTreeUI(ticked, "@1")); });
+    expect(rowScrollCalls()).toHaveLength(1);
+  });
+
+  it("collapsed group: no scroll, no auto-expand; the deferred scroll fires on expand", () => {
+    const { rerender } = render(scrollTreeUI(SCROLL_SESSIONS, "@0"));
+    expect(rowScrollCalls()).toHaveLength(1);
+
+    // Collapse the "main" session — the window rows leave the DOM.
+    act(() => { fireEvent.click(screen.getByRole("button", { name: /Collapse main/ })); });
+    expect(selectedRowButton()).toBeNull();
+
+    // Select a different window while collapsed: row not queryable → no scroll,
+    // and the group is NOT auto-expanded.
+    act(() => { rerender(scrollTreeUI(SCROLL_SESSIONS, "@1")); });
+    expect(rowScrollCalls()).toHaveLength(1);
+    expect(screen.getByRole("button", { name: /Expand main/ })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+
+    // User expands the group → the armed pending scroll completes once.
+    act(() => { fireEvent.click(screen.getByRole("button", { name: /Expand main/ })); });
+    expect(rowScrollCalls()).toHaveLength(2);
+    expect((rowScrollCalls()[1] as HTMLElement).closest("[data-window-id]"))
+      .toHaveAttribute("data-window-id", "@1");
+  });
+
+  it("stays disarmed with no URL window selection (currentWindowId null)", () => {
+    // isActiveWindow fallback may still paint aria-current on a row, but the
+    // effect keys on the URL selection identity — null disarms it.
+    const withActive: ProjectSession[] = [
+      {
+        name: "main",
+        windows: [
+          { index: 0, windowId: "@0", name: "edit", worktreePath: "~/a", activity: "idle", isActiveWindow: true, activityTimestamp: 0 },
+        ],
+      },
+    ];
+    render(scrollTreeUI(withActive, null));
+    expect(selectedRowButton()).not.toBeNull(); // fallback highlight exists
+    expect(rowScrollCalls()).toHaveLength(0); // but no scroll fires
   });
 });

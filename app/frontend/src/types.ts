@@ -78,7 +78,8 @@ export type WindowInfo = {
    *  (label axis). */
   color?: string;
   /** Left-gutter marker state, from the `@rk_marker` window option:
-   *  ""/absent (no marker) | "dotted" | "solid" | "double". An INDEPENDENT
+   *  ""/absent (no marker) | "dotted" | "dashed" | "solid" | "double" |
+   *  "thick". An INDEPENDENT
    *  label axis from `color` — see docs/specs/themes.md. */
   marker?: string;
   /** Generic agent-lifecycle state from the `@rk_agent_state` pane option:

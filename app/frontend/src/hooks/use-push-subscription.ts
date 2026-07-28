@@ -11,8 +11,9 @@ import {
 /**
  * Push opt-in + test, surfaced both as command-palette actions (Cmd+K, per
  * Constitution §V Keyboard-First / §IV Minimal Surface Area) and as the
- * top-bar `NotificationControl` button+dropdown. Both surfaces are backed by
- * the same `enable` / `sendTest` handlers and `state` here, so they never drift.
+ * settings dialog's Notifications row (260724-6j1v). Both surfaces are backed
+ * by the same `enable` / `sendTest` handlers and `state` here, so they never
+ * drift.
  */
 export function usePushSubscription(): {
   state: PushState;

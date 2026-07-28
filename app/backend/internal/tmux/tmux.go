@@ -430,51 +430,51 @@ type PaneInfo struct {
 
 // WindowInfo describes a single tmux window within a session.
 type WindowInfo struct {
-	Index             int    `json:"index"`
-	WindowID          string `json:"windowId"`
-	Name              string `json:"name"`
-	WorktreePath      string `json:"worktreePath"`
-	Activity          string `json:"activity"` // "active" or "idle"
-	IsActiveWindow    bool   `json:"isActiveWindow"`
-	PaneCommand       string `json:"paneCommand,omitempty"`
+	Index             int     `json:"index"`
+	WindowID          string  `json:"windowId"`
+	Name              string  `json:"name"`
+	WorktreePath      string  `json:"worktreePath"`
+	Activity          string  `json:"activity"` // "active" or "idle"
+	IsActiveWindow    bool    `json:"isActiveWindow"`
+	PaneCommand       string  `json:"paneCommand,omitempty"`
 	ActivityTimestamp int64   `json:"activityTimestamp"`
 	Color             *string `json:"color,omitempty"`
 	AgentState        string  `json:"agentState,omitempty"`
-	AgentIdleDuration string `json:"agentIdleDuration,omitempty"`
+	AgentIdleDuration string  `json:"agentIdleDuration,omitempty"`
 	// ChatProvider / ChatSessionRef are the window-level rollup of the panes'
 	// reconciled @rk_chat (the active pane's chat if set, else the first pane
 	// carrying one), computed rk-side in FetchSessions by rollupChat. Per-pane
 	// truth is preserved on Panes[].ChatProvider/ChatSessionRef. See ChatOption.
-	ChatProvider      string `json:"chatProvider,omitempty"`
-	ChatSessionRef    string `json:"chatSessionRef,omitempty"`
-	FabChange         string `json:"fabChange,omitempty"`
-	FabStage          string `json:"fabStage,omitempty"`
-	FabDisplayState   string `json:"fabDisplayState,omitempty"` // pipeline state of the displayed stage; empty when fab reports null/omits the field
+	ChatProvider    string `json:"chatProvider,omitempty"`
+	ChatSessionRef  string `json:"chatSessionRef,omitempty"`
+	FabChange       string `json:"fabChange,omitempty"`
+	FabStage        string `json:"fabStage,omitempty"`
+	FabDisplayState string `json:"fabDisplayState,omitempty"` // pipeline state of the displayed stage; empty when fab reports null/omits the field
 	// PR fields. PrURL/PrNumber come from `fab pane map` (filesystem, cheap)
 	// via the sessions enrichment join (Layer 1). PrState/PrChecks/PrReview/
 	// PrIsDraft are attached by the SSE hub from the in-memory prstatus
 	// collector snapshot (Layer 3) — only for change-bound windows. Both
 	// layers are populated outside this package.
-	PrURL     *string    `json:"prUrl,omitempty"`
-	PrNumber  *int       `json:"prNumber,omitempty"`
-	PrState   string     `json:"prState,omitempty"`
-	PrChecks  string     `json:"prChecks,omitempty"`
-	PrReview  string     `json:"prReview,omitempty"`
-	PrIsDraft bool       `json:"prIsDraft,omitempty"`
+	PrURL     *string `json:"prUrl,omitempty"`
+	PrNumber  *int    `json:"prNumber,omitempty"`
+	PrState   string  `json:"prState,omitempty"`
+	PrChecks  string  `json:"prChecks,omitempty"`
+	PrReview  string  `json:"prReview,omitempty"`
+	PrIsDraft bool    `json:"prIsDraft,omitempty"`
 	// PrFetchedAt is when the joined PR status was last fetched by the viewer-wide
 	// collector (prstatus.PRStatus.FetchedAt). Collector-join-owned like
 	// PrChecks/PrReview/PrIsDraft: set on a URL-keyed snapshot hit, reset to nil on
 	// a miss. Surfaced in the StatusDotTip as an ambient "checked Xs ago" freshness
 	// line; a manual refresh visibly resets it.
 	PrFetchedAt *time.Time `json:"prFetchedAt,omitempty"`
-	RkType    string     `json:"rkType,omitempty"`
-	RkUrl     string     `json:"rkUrl,omitempty"`
+	RkType      string     `json:"rkType,omitempty"`
+	RkUrl       string     `json:"rkUrl,omitempty"`
 	// Marker is the window's left-gutter marker state, sourced from the
-	// @rk_marker window user option: "" (unset)/"dotted"/"solid"/"double". An
-	// independent label axis from Color — see docs/specs/themes.md. Unknown
-	// tokens are dropped to "" by parseWindows.
-	Marker    string     `json:"marker,omitempty"`
-	Panes     []PaneInfo `json:"panes,omitempty"`
+	// @rk_marker window user option: "" (unset)/"dotted"/"dashed"/"solid"/
+	// "double"/"thick". An independent label axis from Color — see
+	// docs/specs/themes.md. Unknown tokens are dropped to "" by parseWindows.
+	Marker string     `json:"marker,omitempty"`
+	Panes  []PaneInfo `json:"panes,omitempty"`
 }
 
 // tmuxExecServer runs a tmux command targeting the specified server and returns stdout lines (empty lines filtered).
@@ -818,8 +818,9 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 			rkUrl = strings.TrimSpace(parts[9])
 		}
 
-		// Marker is a closed-set token ("dotted"/"solid"/"double"); drop any
-		// value outside the set (including "") to the empty unset state.
+		// Marker is a closed-set token ("dotted"/"dashed"/"solid"/"double"/
+		// "thick"); drop any value outside the set (including "") to the
+		// empty unset state.
 		var marker string
 		if len(parts) >= 11 {
 			if m := strings.TrimSpace(parts[10]); validate.MarkerValues[m] {

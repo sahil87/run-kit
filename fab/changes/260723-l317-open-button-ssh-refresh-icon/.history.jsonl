@@ -1,0 +1,13 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-23T08:33:48Z"}
+{"args":"Two Open-in-App split-button fixes: (1) SSH-host setting doesn't reach editor deeplinks — use-open-targets module cache never invalidates after Settings-dialog ssh_host commit; add external store + invalidateOpenContext(). (2) Primary segment should show last-used app's logo via OpenTargetIcon.","cmd":"fab-new","event":"command","ts":"2026-07-23T08:33:48Z"}
+{"delta":"+4.8","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-07-23T08:35:29Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-23T08:37:33Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-23T08:37:51Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-23T08:39:34Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-23T08:47:14Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-23T08:51:54Z"}
+{"event":"review","result":"passed","ts":"2026-07-23T08:51:54Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-23T08:55:54Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-07-23T08:57:22Z"}
+{"cmd":"git-pr-review","event":"command","ts":"2026-07-23T08:58:42Z"}
+{"event":"review","result":"passed","ts":"2026-07-23T08:59:23Z"}

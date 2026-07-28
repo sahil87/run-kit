@@ -1,0 +1,56 @@
+id: 2bmy
+name: 260724-2bmy-mobile-chrome-polish
+created: 2026-07-24T18:52:58Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 9
+    acceptance_count: 13
+    acceptance_completed: 13
+confidence:
+    certain: 4
+    confident: 6
+    tentative: 0
+    unresolved: 0
+    score: 4.1
+    fuzzy: true
+    dimensions:
+        signal: 67.5
+        reversibility: 85.5
+        competence: 79.0
+        disambiguation: 74.0
+stage_metrics:
+    intake: {started_at: "2026-07-24T18:52:58Z", driver: fab-new, iterations: 1, completed_at: "2026-07-24T18:56:25Z"}
+    apply: {started_at: "2026-07-24T18:56:25Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-24T19:10:44Z"}
+    review: {started_at: "2026-07-24T19:10:44Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-24T19:26:26Z"}
+    hydrate: {started_at: "2026-07-24T19:26:26Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-24T19:33:11Z"}
+    ship: {started_at: "2026-07-24T19:33:11Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-24T20:42:33Z"}
+    review-pr: {started_at: "2026-07-24T20:42:33Z", driver: git-pr, iterations: 1, completed_at: "2026-07-24T20:48:41Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/458
+true_impact:
+    added: 535
+    deleted: 85
+    net: 450
+    excluding:
+        added: 184
+        deleted: 73
+        net: 111
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-07-24T20:42:33Z"
+    computed_at_stage: ship
+summary: 'Mobile chrome polish: bordered-chip panel toggle + one-axis left cluster, two-row compose strip with a 2-line textarea default, one stroke-SVG sidebar row icon system with both-axes touch targets, and a viewport-fit=cover safe-area inset convention on the bottom/top bars.'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-07-24T20:48:41Z

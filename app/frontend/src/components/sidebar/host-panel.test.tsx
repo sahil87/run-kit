@@ -157,10 +157,10 @@ describe("HostPanel instance accent (1etw)", () => {
       accent: accentValue({ color: "4", stripeHex: "#3355aa", washHex: "#111318" }),
     });
     fireEvent.click(screen.getByLabelText("Set instance color"));
-    expect(screen.getByText("Clear color")).toBeInTheDocument();
+    expect(screen.getByText("Clear")).toBeInTheDocument();
   });
 
-  it("a swatch pick writes through setColor and closes the popover", async () => {
+  it("a swatch pick writes through setColor and keeps the popover open (live toggling)", async () => {
     const setColor = vi.fn();
     renderPanel({
       server: snapshot("h"),
@@ -168,15 +168,20 @@ describe("HostPanel instance accent (1etw)", () => {
       accent: accentValue({ color: "4", isExplicit: true, stripeHex: "#3355aa", setColor }),
     });
     fireEvent.click(screen.getByLabelText("Set instance color"));
-    // Pick the first color swatch (family names are the option labels).
-    fireEvent.click(screen.getByRole("option", { name: /red/i }));
+    // Pick the first color swatch (family/shade names are the option labels —
+    // exact match, since "Color red-dark" also exists in the 20-value grid).
+    fireEvent.click(screen.getByRole("option", { name: "Color red" }));
     expect(setColor).toHaveBeenCalledTimes(1);
     // The popover maps family → legacy descriptor at its write seam ("red" → "1").
     expect(setColor).toHaveBeenCalledWith("1");
-    expect(screen.queryByText("Clear color")).not.toBeInTheDocument();
+    // Selection does NOT dismiss (the picker's dismissal contract) — the ✕
+    // cell is the explicit close.
+    expect(screen.getByText("Clear")).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("Close picker"));
+    expect(screen.queryByText("Clear")).not.toBeInTheDocument();
   });
 
-  it("Clear color sends null (restores the hash default)", async () => {
+  it("Clear sends null (restores the hash default)", async () => {
     const setColor = vi.fn();
     renderPanel({
       server: snapshot("h"),
@@ -184,7 +189,7 @@ describe("HostPanel instance accent (1etw)", () => {
       accent: accentValue({ color: "4", isExplicit: true, stripeHex: "#3355aa", setColor }),
     });
     fireEvent.click(screen.getByLabelText("Set instance color"));
-    fireEvent.click(screen.getByText("Clear color"));
+    fireEvent.click(screen.getByText("Clear"));
     expect(setColor).toHaveBeenCalledWith(null);
   });
 

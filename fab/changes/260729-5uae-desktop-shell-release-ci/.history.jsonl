@@ -1,0 +1,12 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-29T04:51:10Z"}
+{"args":"Desktop shell release CI (change 2 of fab/plans/sahil/electron-desktop-shell.md): job-level tag/version outputs on release job + desktop-macos job in release.yml building ad-hoc-signed DMGs (arm64+x64) and attaching via gh release upload; verify with test tag + one workflow_dispatch run. Depends on app/desktop shell change merged.","cmd":"fab-new","event":"command","ts":"2026-07-29T04:51:10Z"}
+{"delta":"+3.9","event":"confidence","score":3.9,"trigger":"calc-score","ts":"2026-07-29T04:53:38Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-29T04:56:31Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-29T04:56:37Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-29T05:00:34Z"}
+{"event":"review","result":"failed","ts":"2026-07-29T05:06:46Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-29T05:06:46Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-29T05:08:53Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-29T05:14:43Z"}
+{"event":"review","result":"passed","ts":"2026-07-29T05:14:43Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-29T05:19:41Z"}

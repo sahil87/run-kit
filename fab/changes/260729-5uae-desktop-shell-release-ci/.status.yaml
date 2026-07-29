@@ -1,0 +1,55 @@
+id: 5uae
+name: 260729-5uae-desktop-shell-release-ci
+created: 2026-07-29T04:51:10Z
+created_by: sahil-noon
+change_type: ci
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 6
+    acceptance_count: 11
+    acceptance_completed: 11
+confidence:
+    certain: 4
+    confident: 3
+    tentative: 1
+    unresolved: 0
+    score: 3.9
+    fuzzy: true
+    dimensions:
+        signal: 68.1
+        reversibility: 80.6
+        competence: 79.4
+        disambiguation: 75.0
+stage_metrics:
+    intake: {started_at: "2026-07-29T04:51:10Z", driver: fab-new, iterations: 1, completed_at: "2026-07-29T04:56:37Z"}
+    apply: {started_at: "2026-07-29T05:06:46Z", driver: fab-fff, iterations: 2, completed_at: "2026-07-29T05:08:53Z"}
+    review: {started_at: "2026-07-29T05:08:53Z", driver: fab-fff, iterations: 2, completed_at: "2026-07-29T05:14:43Z"}
+    hydrate: {started_at: "2026-07-29T05:14:43Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-29T05:19:41Z"}
+    ship: {started_at: "2026-07-29T05:19:41Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-07-29T05:19:41Z"
+    computed_at_stage: hydrate
+summary: Release CI attaches ad-hoc-signed macOS DMGs to every GitHub Release via a desktop-macos job consuming the release job's tag/version outputs
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-07-29T05:19:41Z

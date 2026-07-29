@@ -27,6 +27,9 @@ jobs:
     # workflow_dispatch must run from main; tag-push is allowed from any ref.
     if: github.event_name == 'push' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -156,3 +159,44 @@ jobs:
           git add Formula/run-kit.rb
           git commit -m "run-kit ${version}"
           git push
+
+  desktop-macos:
+    needs: release
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ needs.release.outputs.tag }}
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4
+        with:
+          version: 9
+
+      - name: Install desktop dependencies
+        run: cd app/desktop && pnpm install --frozen-lockfile
+
+      - name: Compile
+        run: cd app/desktop && pnpm run compile
+
+      - name: Build DMGs (ad-hoc signed)
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: |
+          cd app/desktop
+          pnpm exec electron-builder --mac --publish never \
+            --config.extraMetadata.version="${{ needs.release.outputs.version }}"
+
+      - name: Verify ad-hoc signature
+        run: |
+          for app in app/desktop/release/mac*/*.app; do
+            codesign -dv "$app"
+          done
+
+      - name: Attach DMGs to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ needs.release.outputs.tag }}" app/desktop/release/*.dmg --clobber

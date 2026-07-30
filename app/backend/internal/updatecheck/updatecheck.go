@@ -645,8 +645,9 @@ func minorOrMajorIncrease(installed, latest string) bool {
 // AnyIncrease reports whether latest is any increase (major, minor, or patch)
 // over installed. Exported for reuse by internal/desktop's update comparison
 // (the desktop-app installer), so the semver-increase logic lives in exactly
-// one place. Thin wrapper over anyIncrease — same tolerance for "v" prefixes
-// NOT included: callers normalize (see normalizeTag) before comparing.
+// one place. Thin wrapper over anyIncrease. No "v"-prefix handling: inputs
+// must be bare semver — callers strip any leading "v" before comparing (see
+// normalizeTag; internal/desktop strips it when parsing the release tag).
 func AnyIncrease(installed, latest string) bool {
 	return anyIncrease(installed, latest)
 }

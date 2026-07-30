@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 9
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-07-30T12:47:53Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-30T13:22:46Z"}
     review: {started_at: "2026-07-30T13:22:46Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-30T13:37:38Z"}
     hydrate: {started_at: "2026-07-30T13:37:38Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-30T13:43:45Z"}
-    ship: {started_at: "2026-07-30T13:43:45Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-07-30T13:43:45Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-30T13:45:26Z"}
+    review-pr: {started_at: "2026-07-30T13:45:26Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/476
 change_type_source: explicit
 true_impact:
-    added: 2901
-    deleted: 204
-    net: 2697
+    added: 4652
+    deleted: 217
+    net: 4435
     excluding:
-        added: 2508
-        deleted: 169
-        net: 2339
+        added: 3978
+        deleted: 170
+        net: 3808
     tests:
-        added: 872
+        added: 1459
         deleted: 38
-        net: 834
-    computed_at: "2026-07-30T13:43:45Z"
-    computed_at_stage: hydrate
+        net: 1421
+    computed_at: "2026-07-30T13:45:26Z"
+    computed_at_stage: ship
 summary: 'Macro shortcut bindings over riff presets: a lib/macros.ts model (riff-preset or palette-action targets only, never shell strings), keyless macro defaults in the keybinding registry with combos in the existing override diff map, an editable CUSTOM section in the shortcuts overlay (add flow, delete/rebind, missing-preset badge), Macro: palette entries, and execution through the existing POST /api/riff — zero backend changes.'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-07-30T13:43:45Z
+last_updated: 2026-07-30T13:45:26Z

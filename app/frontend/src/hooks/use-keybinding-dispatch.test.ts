@@ -104,4 +104,44 @@ describe("useKeybindingDispatch", () => {
     press({ code: "KeyL", shiftKey: true, ctrlKey: true });
     expect(next).not.toHaveBeenCalled();
   });
+
+  describe("scoped-beats-global precedence (260730-n789)", () => {
+    // jsdom is a non-mac host, so recreate the mac ⌘[ shape via an override:
+    // go-back (global) rebound onto the board pane-cycle's cmd+[ combo.
+    const shareBracketLeft = () =>
+      localStorage.setItem(
+        KEYBINDINGS_STORAGE_KEY,
+        JSON.stringify({ "go-back": { code: "BracketLeft", tier: "cmd" } }),
+      );
+
+    it("fires the scoped handler over the global one on a shared combo", () => {
+      shareBracketLeft();
+      const cyclePrev = vi.fn();
+      const goBack = vi.fn();
+      renderHook(() =>
+        useKeybindingDispatch({ "board-cycle-prev": cyclePrev, "go-back": goBack }),
+      );
+      const event = press({ code: "BracketLeft", ctrlKey: true });
+      expect(cyclePrev).toHaveBeenCalledTimes(1);
+      expect(goBack).not.toHaveBeenCalled();
+      expect(event.defaultPrevented).toBe(true);
+    });
+
+    it("falls back to the global handler when the scoped match has none (paneless board)", () => {
+      shareBracketLeft();
+      const goBack = vi.fn();
+      renderHook(() =>
+        useKeybindingDispatch({ "board-cycle-prev": undefined, "go-back": goBack }),
+      );
+      press({ code: "BracketLeft", ctrlKey: true });
+      expect(goBack).toHaveBeenCalledTimes(1);
+    });
+
+    it("falls through untouched when NO match has a handler", () => {
+      shareBracketLeft();
+      renderHook(() => useKeybindingDispatch({}));
+      const event = press({ code: "BracketLeft", ctrlKey: true });
+      expect(event.defaultPrevented).toBe(false);
+    });
+  });
 });

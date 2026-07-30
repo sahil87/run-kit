@@ -10,6 +10,7 @@ import {
   keyLabel,
   type BindingPlatform,
   type BindingScope,
+  type BindingTier,
   type EffectiveBinding,
 } from "@/lib/keybindings";
 import {
@@ -22,12 +23,14 @@ import {
 /**
  * The keyboard-shortcuts cheatsheet overlay (260730-g40a) — a focus-trapped
  * dialog (Constitution IV: NOT a route; the route set is fixed), opened by
- * ⇧CmdOrCtrl+/ (toggle) and the `Help: Shortcuts` palette action, mounted on
+ * the per-platform shortcuts chord (⌘/ on macOS, ⇧Ctrl+/ on Win/Linux —
+ * 260730-n789) and the `Help: Keyboard Shortcuts` palette action, mounted on
  * both AppShell and BoardPage.
  *
  * Per the reviewed design mock (`design-mock.html` in the change folder):
- * a shifted-tier keyboard visualization (bound / custom / claimed / free per
- * key), a platform display toggle (macOS ↔ Win·Linux keycap rendering,
+ * two tier-map keyboard visualizations (the shifted run-kit tier everywhere,
+ * plus the mac ⌘ page tier on the macOS display; bound / custom / claimed /
+ * free per key), a platform display toggle (macOS ↔ Win·Linux keycap rendering,
  * initialized from the detected platform), a filter input, grouped rows with
  * scope badges, click-to-rebind capture (Esc cancels) with steal warning,
  * modified-dot + per-row reset + unbound flag, shell-owned rows shown locked
@@ -149,8 +152,10 @@ export function ShortcutsOverlay({
       if (!combo) return; // modifier-only / tier-less press — keep capturing
       const self = byAction.get(actionId);
       const stolenFrom = setBinding(actionId, combo);
+      // Tier-aware claim match (260730-n789): the mac ⌘ tier carries its own
+      // claimed set (shell menu accelerators / browser-reserved keys).
       const claimed = claimedKeys(host.platform, host.shell).find(
-        (c) => combo.tier === "shifted" && c.code === combo.code,
+        (c) => c.tier === combo.tier && c.code === combo.code,
       );
       if (stolenFrom) {
         const victim = byAction.get(stolenFrom);
@@ -172,22 +177,35 @@ export function ShortcutsOverlay({
     return () => window.removeEventListener("keydown", onCaptureKey, { capture: true });
   }, [capturingId, host, byAction, setBinding]);
 
-  // Tier-map key states for the DISPLAY platform (shifted tier only). Claimed
-  // wins over bound/custom (a browser-reserved N shows claimed, not bound).
-  const keyStates = useMemo(() => {
-    const claimed = new Map(
-      claimedKeys(displayPlatform, host.shell).map((c) => [c.code, c] as const),
-    );
+  // Per-tier map key states: keycaps/claims follow the DISPLAY platform, the
+  // bound/custom states come from the HOST-effective map (the toggle is a
+  // rendering toggle — effective bindings are always the current host's).
+  // Claimed wins over bound/custom (a browser-reserved N shows claimed, not
+  // bound).
+  const tierKeyStates = (tier: BindingTier) => {
     const states = new Map<string, { cls: "bound" | "custom" | "claimed"; label: string }>();
     for (const b of bindings) {
-      if (b.tier !== "shifted" || !b.enabled) continue;
+      if (b.tier !== tier || !b.enabled) continue;
       states.set(b.code, { cls: b.isDefault ? "bound" : "custom", label: b.mapLabel ?? b.label });
     }
-    for (const [code, claim] of claimed) {
-      states.set(code, { cls: "claimed", label: claim.label });
+    for (const claim of claimedKeys(displayPlatform, host.shell)) {
+      if (claim.tier !== tier) continue;
+      states.set(claim.code, { cls: "claimed", label: claim.label });
     }
     return states;
-  }, [bindings, displayPlatform, host.shell]);
+  };
+  const keyStates = useMemo(
+    () => tierKeyStates("shifted"),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [bindings, displayPlatform, host.shell],
+  );
+  // The mac ⌘ page tier (260730-n789) — rendered only on the macOS display
+  // (the win/linux "cmd" tier is plain Ctrl, which belongs to the pane).
+  const cmdKeyStates = useMemo(
+    () => (displayPlatform === "mac" ? tierKeyStates("cmd") : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [bindings, displayPlatform, host.shell],
+  );
 
   const hasOverride = (actionId: string) =>
     Object.prototype.hasOwnProperty.call(overrides, actionId);
@@ -272,12 +290,25 @@ export function ShortcutsOverlay({
   if (!open) return null;
 
   const tierName = displayPlatform === "mac" ? "⇧ ⌘" : "Shift Ctrl";
-  const sheetChord = formatCombo({ code: "Slash", tier: "shifted" }, displayPlatform);
+  // The header hint advertises the HOST-effective overlay chord (260730-n789):
+  // the toggle demotes to ⌘/ on mac hosts and user overrides move it, so the
+  // effective map is the only accurate source. Formatted for the physical host
+  // (the display toggle restyles keycaps; it never changes what THIS host must
+  // press). Hidden when the binding is unbound/disabled — a hint advertising a
+  // dead chord would lie.
+  const sheetBinding = byAction.get("shortcuts-overlay");
+  const sheetChord = sheetBinding?.enabled
+    ? formatCombo({ code: sheetBinding.code, tier: sheetBinding.tier }, host.platform)
+    : null;
 
-  const keyCell = (code: string, idx: number) => {
+  const keyCell = (
+    states: Map<string, { cls: "bound" | "custom" | "claimed"; label: string }>,
+    code: string,
+    idx: number,
+  ) => {
     if (code === "…") {
       // Decorative digit-run ellipsis cell — claimed with the switcher digits.
-      const digitClaim = keyStates.get("Digit1");
+      const digitClaim = states.get("Digit1");
       return (
         <div
           key={`ellipsis-${idx}`}
@@ -288,7 +319,7 @@ export function ShortcutsOverlay({
         </div>
       );
     }
-    const state = keyStates.get(code);
+    const state = states.get(code);
     const base =
       "w-9 h-9 sm:w-11 sm:h-10 rounded border flex flex-col items-center justify-center text-xs transition-colors";
     const cls =
@@ -359,9 +390,11 @@ export function ShortcutsOverlay({
             aria-label="Filter shortcuts"
             className="flex-1 min-w-[120px] text-xs bg-bg-inset border border-border rounded px-2.5 py-1 outline-none text-text-primary placeholder:text-text-secondary focus:border-accent"
           />
-          <span className="hidden md:inline text-[11px] text-text-secondary whitespace-nowrap">
-            {sheetChord} toggles this sheet
-          </span>
+          {sheetChord && (
+            <span className="hidden md:inline text-[11px] text-text-secondary whitespace-nowrap">
+              {sheetChord} toggles this sheet
+            </span>
+          )}
           <button
             type="button"
             onClick={onClose}
@@ -376,18 +409,44 @@ export function ShortcutsOverlay({
         <div className="px-4 pt-4 pb-2">
           <div className="flex justify-between flex-wrap gap-1.5 text-[11px] text-text-secondary mb-2.5">
             <span>
-              run-kit tier — <b className="text-text-primary">{tierName}</b> + key · one tier,
-              every platform
+              run-kit tier — <b className="text-text-primary">{tierName}</b> + key
             </span>
             <span>plain Ctrl always reaches the pane</span>
           </div>
           <div className="flex flex-col items-center gap-1.5" aria-hidden="true">
             {KEY_ROWS.map((row, i) => (
               <div key={i} className="flex gap-1.5">
-                {row.map((code, j) => keyCell(code, j))}
+                {row.map((code, j) => keyCell(keyStates, code, j))}
               </div>
             ))}
           </div>
+          {/* macOS page tier (260730-n789): the unshifted ⌘ tier the desktop
+              shell frees — demoted defaults (⌘[/⌘]/⌘/ everywhere, ⌘N/T/W in
+              the shell), the legacy ⌘ chords, and the per-host claimed set
+              (shell menu accelerators inside the shell, browser-reserved keys
+              outside). Not rendered for the Win·Linux display — plain Ctrl
+              there belongs to the pane. */}
+          {cmdKeyStates && (
+            <>
+              <div className="flex justify-between flex-wrap gap-1.5 text-[11px] text-text-secondary mt-4 mb-2.5">
+                <span>
+                  page tier — <b className="text-text-primary">⌘</b> + key
+                </span>
+                <span>
+                  {host.shell
+                    ? "freed by the desktop shell"
+                    : "browser keys stay claimed — the desktop shell frees them"}
+                </span>
+              </div>
+              <div className="flex flex-col items-center gap-1.5" aria-hidden="true">
+                {KEY_ROWS.map((row, i) => (
+                  <div key={`cmd-${i}`} className="flex gap-1.5">
+                    {row.map((code, j) => keyCell(cmdKeyStates, code, j))}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
           <div className="flex flex-wrap gap-4 mt-3 text-[10.5px] text-text-secondary">
             <span><i className="inline-block w-2 h-2 mr-1 rounded-sm border border-accent-green bg-accent-green/25" />bound</span>
             <span><i className="inline-block w-2 h-2 mr-1 rounded-sm border border-accent bg-accent/25" />custom</span>

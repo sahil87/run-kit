@@ -64,6 +64,43 @@ describe("ShortcutsOverlay", () => {
     expect(screen.getAllByText("⇧").length).toBeGreaterThan(0);
   });
 
+  it("macOS display adds the ⌘ page-tier map; Win·Linux display omits it (260730-n789)", () => {
+    renderOverlay();
+    // jsdom host → Win·Linux display by default: no page-tier map (plain
+    // Ctrl belongs to the pane there).
+    expect(screen.queryByText(/page tier —/)).toBeNull();
+    fireEvent.click(screen.getByText("macOS"));
+    expect(screen.getByText(/page tier —/)).toBeInTheDocument();
+    // jsdom is a browser host → the mac-browser ⌘ claimed set renders (the
+    // desktop-shell hint names the freeing).
+    expect(
+      screen.getByText("browser keys stay claimed — the desktop shell frees them"),
+    ).toBeInTheDocument();
+  });
+
+  it("header hint shows the HOST-effective chord: ⌘/ on a mac host (260730-n789)", () => {
+    // jsdom detects as a win/linux browser host → the shifted base chord.
+    renderOverlay();
+    expect(screen.getByText(/^Shift\+Ctrl\+\/ toggles this sheet$/)).toBeInTheDocument();
+    cleanup();
+    // Spoof a mac host: the overlay toggle demotes to the ⌘ tier (macTier,
+    // no shell gate), so the header must advertise ⌘/ — never ⇧⌘/.
+    Object.defineProperty(navigator, "platform", { value: "MacIntel", configurable: true });
+    try {
+      renderOverlay();
+      expect(screen.getByText(/^⌘\/ toggles this sheet$/)).toBeInTheDocument();
+    } finally {
+      // Drop the instance shadow — jsdom's prototype getter resumes.
+      delete (navigator as { platform?: string }).platform;
+    }
+  });
+
+  it("hides the header hint when the overlay toggle is unbound", () => {
+    localStorage.setItem(KEYBINDINGS_STORAGE_KEY, JSON.stringify({ "shortcuts-overlay": null }));
+    renderOverlay();
+    expect(screen.queryByText(/toggles this sheet/)).toBeNull();
+  });
+
   it("click-to-capture rebinds, persists the diff, and shows the modified reset affordance", () => {
     renderOverlay();
     fireEvent.click(screen.getByLabelText("Change binding for Next window"));

@@ -6,8 +6,9 @@ import {
   captureFromEvent,
   claimedKeys,
   comboParts,
+  defaultComboFor,
   findConflicts,
-  findMatch,
+  findMatches,
   tiersCollide,
   formatCombo,
   keyLabel,
@@ -16,6 +17,7 @@ import {
   readStoredOverrides,
   resolveBindings,
   scopesOverlap,
+  shouldRefuseTerminalChord,
   shouldSuppressChord,
   withShortcutHints,
   writeStoredOverrides,
@@ -26,8 +28,10 @@ import {
 } from "./keybindings";
 
 const SHELL_MAC: BindingHost = { platform: "mac", shell: true };
+const BROWSER_MAC: BindingHost = { platform: "mac", shell: false };
 const SHELL_OTHER: BindingHost = { platform: "other", shell: true };
 const BROWSER_OTHER: BindingHost = { platform: "other", shell: false };
+const ALL_HOSTS = [SHELL_MAC, BROWSER_MAC, SHELL_OTHER, BROWSER_OTHER];
 
 function chord(partial: Partial<ChordEvent> & { code: string }): ChordEvent {
   return { metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, ...partial };
@@ -76,7 +80,7 @@ describe("DEFAULT_BINDINGS integrity", () => {
   });
 
   it("ships conflict-free defaults in every host", () => {
-    for (const host of [SHELL_MAC, SHELL_OTHER, BROWSER_OTHER]) {
+    for (const host of ALL_HOSTS) {
       expect(findConflicts(resolved(host))).toEqual([]);
     }
   });
@@ -122,15 +126,15 @@ describe("matchesCombo (tier modifier rules)", () => {
   });
 });
 
-describe("findMatch", () => {
+describe("findMatches (single-chord resolution)", () => {
   it("returns the enabled binding for a matching chord", () => {
-    const match = findMatch(chord({ code: "KeyL", shiftKey: true, ctrlKey: true }), resolved());
-    expect(match?.actionId).toBe("window-next");
+    const matches = findMatches(chord({ code: "KeyL", shiftKey: true, ctrlKey: true }), resolved());
+    expect(matches.map((b) => b.actionId)).toEqual(["window-next"]);
   });
 
   it("skips disabled bindings", () => {
     const bindings = resolved(SHELL_OTHER, { "window-next": null });
-    expect(findMatch(chord({ code: "KeyL", shiftKey: true, ctrlKey: true }), bindings)).toBeNull();
+    expect(findMatches(chord({ code: "KeyL", shiftKey: true, ctrlKey: true }), bindings)).toEqual([]);
   });
 });
 
@@ -142,9 +146,9 @@ describe("resolveBindings", () => {
     const next = byId(bindings, "window-next");
     expect(next).toMatchObject({ code: "KeyU", tier: "shifted", enabled: true, isDefault: false });
     // The default combo no longer matches anything.
-    expect(findMatch(chord({ code: "KeyL", shiftKey: true, ctrlKey: true }), bindings)).toBeNull();
+    expect(findMatches(chord({ code: "KeyL", shiftKey: true, ctrlKey: true }), bindings)).toEqual([]);
     // The override combo matches the action.
-    expect(findMatch(chord({ code: "KeyU", shiftKey: true, ctrlKey: true }), bindings)?.actionId).toBe("window-next");
+    expect(findMatches(chord({ code: "KeyU", shiftKey: true, ctrlKey: true }), bindings)[0]?.actionId).toBe("window-next");
   });
 
   it("null override disables with reason 'user'", () => {
@@ -190,28 +194,70 @@ describe("resolveBindings", () => {
 });
 
 describe("claimedKeys", () => {
-  it("claims the shell digits + R everywhere, I/C/V on win-linux, Q on mac", () => {
-    const mac = claimedKeys("mac", true).map((c) => c.code);
+  const codes = (platform: "mac" | "other", shell: boolean, tier: "shifted" | "cmd" | "ctrl") =>
+    claimedKeys(platform, shell)
+      .filter((c) => c.tier === tier)
+      .map((c) => c.code);
+
+  it("claims the shifted shell digits + R everywhere, I/C/V on win-linux, Q on mac", () => {
+    const mac = codes("mac", true, "shifted");
     expect(mac).toContain("Digit1");
     expect(mac).toContain("Digit9");
     expect(mac).toContain("KeyR");
     expect(mac).toContain("KeyQ");
     expect(mac).not.toContain("KeyI");
     expect(mac).not.toContain("KeyC");
-    const other = claimedKeys("other", true).map((c) => c.code);
+    const other = codes("other", true, "shifted");
     expect(other).toEqual(expect.arrayContaining(["KeyR", "KeyI", "KeyC", "KeyV"]));
     expect(other).not.toContain("KeyQ");
   });
 
-  it("adds browser-owned N/T/W only outside the shell", () => {
+  it("adds browser-owned shifted N/T/W only outside the shell", () => {
     const inShell = claimedKeys("other", true);
     expect(inShell.some((c) => c.owner === "browser")).toBe(false);
-    const inBrowser = claimedKeys("other", false);
-    expect(inBrowser.filter((c) => c.owner === "browser").map((c) => c.code).sort()).toEqual([
-      "KeyN",
-      "KeyT",
-      "KeyW",
-    ]);
+    const inBrowser = claimedKeys("other", false).filter(
+      (c) => c.owner === "browser" && c.tier === "shifted",
+    );
+    expect(inBrowser.map((c) => c.code).sort()).toEqual(["KeyN", "KeyT", "KeyW"]);
+  });
+
+  it("mac shell claims the ⌘ menu-accelerator set on the cmd tier (260730-n789)", () => {
+    const macShellCmd = claimedKeys("mac", true).filter((c) => c.tier === "cmd");
+    expect(macShellCmd.every((c) => c.owner === "shell")).toBe(true);
+    expect(macShellCmd.map((c) => c.code).sort()).toEqual(
+      ["Digit0", "Equal", "KeyA", "KeyC", "KeyH", "KeyM", "KeyQ", "KeyR", "KeyV", "KeyX", "KeyZ", "Minus"],
+    );
+    // The demoted defaults' keys are NOT shell-claimed: guaranteed fall-through.
+    for (const code of ["KeyN", "KeyT", "KeyW", "BracketLeft", "BracketRight", "Slash"]) {
+      expect(macShellCmd.map((c) => c.code)).not.toContain(code);
+    }
+  });
+
+  it("mac browser claims ⌘ N/T/W/L + tab digits as browser-owned, Q/H/M as system", () => {
+    const macBrowserCmd = claimedKeys("mac", false).filter((c) => c.tier === "cmd");
+    const browserOwned = macBrowserCmd.filter((c) => c.owner === "browser").map((c) => c.code);
+    expect(browserOwned).toEqual(
+      expect.arrayContaining(["KeyN", "KeyT", "KeyW", "KeyL", "Digit1", "Digit9"]),
+    );
+    const systemOwned = macBrowserCmd.filter((c) => c.owner === "system").map((c) => c.code).sort();
+    expect(systemOwned).toEqual(["KeyH", "KeyM", "KeyQ"]);
+    // ⌘[/⌘]/⌘/ stay free — that is the whole demotion premise.
+    for (const code of ["BracketLeft", "BracketRight", "Slash"]) {
+      expect(macBrowserCmd.map((c) => c.code)).not.toContain(code);
+    }
+  });
+
+  it("win/linux hosts carry NO cmd-tier claims (plain Ctrl is the pane's)", () => {
+    expect(codes("other", true, "cmd")).toEqual([]);
+    expect(codes("other", false, "cmd")).toEqual([]);
+  });
+
+  it("every pre-n789 claim carries tier 'shifted'", () => {
+    for (const host of [true, false]) {
+      for (const c of claimedKeys("other", host)) {
+        expect(c.tier).toBe("shifted");
+      }
+    }
   });
 });
 
@@ -278,17 +324,32 @@ describe("scopesOverlap / findConflicts", () => {
     expect(tiersCollide("shifted", "ctrl")).toBe(false);
   });
 
-  it("flags a cmd-tier binding masking a ctrl-tier one on the same code", () => {
+  it("flags a cmd-tier binding masking a ctrl-tier one on the same code and scope", () => {
     // A Ctrl chord captured on non-mac reads as `cmd`; on the same code it
-    // matches the same keydown as the `ctrl`-tier chat-toggle default.
+    // matches the same keydown as the `ctrl`-tier chat-toggle default. Both
+    // are terminal-scoped, so this is a real conflict, not a shadow.
+    const bindings = resolveBindings(
+      DEFAULT_BINDINGS,
+      { "view-cycle": { code: "Backquote", tier: "cmd" } },
+      SHELL_OTHER,
+    );
+    const conflicts = findConflicts(bindings);
+    expect(conflicts).toHaveLength(1);
+    expect([conflicts[0].a, conflicts[0].b].sort()).toEqual(["chat-toggle", "view-cycle"]);
+  });
+
+  it("treats a same-combo global↔scoped pair as a shadow, not a conflict (260730-n789)", () => {
+    // sidebar-toggle (global) onto chat-toggle's colliding combo: scopes
+    // differ with one global → dispatch precedence resolves it, no conflict.
     const bindings = resolveBindings(
       DEFAULT_BINDINGS,
       { "sidebar-toggle": { code: "Backquote", tier: "cmd" } },
       SHELL_OTHER,
     );
-    const conflicts = findConflicts(bindings);
-    expect(conflicts).toHaveLength(1);
-    expect([conflicts[0].a, conflicts[0].b].sort()).toEqual(["chat-toggle", "sidebar-toggle"]);
+    expect(findConflicts(bindings)).toEqual([]);
+    // The shipped mac default map carries exactly this shape: board ⌘[/⌘]
+    // (board scope) shadowing the demoted global back/forward.
+    expect(findConflicts(resolved(SHELL_MAC))).toEqual([]);
   });
 });
 
@@ -334,19 +395,25 @@ describe("captureFromEvent", () => {
 
 describe("applyCapture (steal-with-warning)", () => {
   it("assigns a free combo without a victim", () => {
-    const { overrides, stolenFrom } = applyCapture(resolved(), {}, "window-next", {
-      code: "KeyU",
-      tier: "shifted",
-    });
+    const { overrides, stolenFrom } = applyCapture(
+      resolved(),
+      {},
+      "window-next",
+      { code: "KeyU", tier: "shifted" },
+      SHELL_OTHER,
+    );
     expect(overrides).toEqual({ "window-next": { code: "KeyU", tier: "shifted" } });
     expect(stolenFrom).toBeNull();
   });
 
   it("steals from the enabled owner and unbinds it (null override)", () => {
-    const { overrides, stolenFrom } = applyCapture(resolved(), {}, "window-next", {
-      code: "KeyA",
-      tier: "shifted",
-    });
+    const { overrides, stolenFrom } = applyCapture(
+      resolved(),
+      {},
+      "window-next",
+      { code: "KeyA", tier: "shifted" },
+      SHELL_OTHER,
+    );
     expect(stolenFrom).toBe("agent-next-waiting");
     expect(overrides).toEqual({
       "window-next": { code: "KeyA", tier: "shifted" },
@@ -358,11 +425,15 @@ describe("applyCapture (steal-with-warning)", () => {
     // sidebar-toggle (global) captures cmd+Backquote — the chord a non-mac
     // Ctrl+` capture produces. It matches the same keydown as chat-toggle's
     // ctrl-tier default, so chat-toggle must be flagged and unbound instead
-    // of silently masked at dispatch.
-    const { overrides, stolenFrom } = applyCapture(resolved(), {}, "sidebar-toggle", {
-      code: "Backquote",
-      tier: "cmd",
-    });
+    // of silently masked at dispatch (chat-toggle listens component-locally
+    // and never sees `findMatches` precedence).
+    const { overrides, stolenFrom } = applyCapture(
+      resolved(),
+      {},
+      "sidebar-toggle",
+      { code: "Backquote", tier: "cmd" },
+      SHELL_OTHER,
+    );
     expect(stolenFrom).toBe("chat-toggle");
     expect(overrides).toEqual({
       "sidebar-toggle": { code: "Backquote", tier: "cmd" },
@@ -373,10 +444,13 @@ describe("applyCapture (steal-with-warning)", () => {
   it("does not steal across disjoint scopes", () => {
     // view-cycle is terminal-scope; board-cycle-next owns cmd+BracketRight in
     // board scope — capturing it for view-cycle must not unbind the board pair.
-    const { stolenFrom } = applyCapture(resolved(), {}, "view-cycle", {
-      code: "BracketRight",
-      tier: "cmd",
-    });
+    const { stolenFrom } = applyCapture(
+      resolved(),
+      {},
+      "view-cycle",
+      { code: "BracketRight", tier: "cmd" },
+      SHELL_OTHER,
+    );
     expect(stolenFrom).toBeNull();
   });
 
@@ -387,8 +461,79 @@ describe("applyCapture (steal-with-warning)", () => {
       prior,
       "window-next",
       { code: "KeyL", tier: "shifted" },
+      SHELL_OTHER,
     );
     expect(overrides).toEqual({});
+  });
+
+  it("own-default detection is host-aware: ⌘/ is shortcuts-overlay's mac default (260730-n789)", () => {
+    // On a mac host the demoted default is {Slash, cmd}; re-capturing it must
+    // drop the diff, not store a "modified" entry.
+    const prior = { "shortcuts-overlay": { code: "KeyO", tier: "shifted" as const } };
+    const { overrides, stolenFrom } = applyCapture(
+      resolveBindings(DEFAULT_BINDINGS, prior, SHELL_MAC),
+      prior,
+      "shortcuts-overlay",
+      { code: "Slash", tier: "cmd" },
+      SHELL_MAC,
+    );
+    expect(overrides).toEqual({});
+    expect(stolenFrom).toBeNull();
+    // On a win/linux host the same combo is NOT the default → stored as a diff.
+    const other = applyCapture(
+      resolveBindings(DEFAULT_BINDINGS, {}, SHELL_OTHER),
+      {},
+      "shortcuts-overlay",
+      { code: "Slash", tier: "cmd" },
+      SHELL_OTHER,
+    );
+    expect(other.overrides).toEqual({ "shortcuts-overlay": { code: "Slash", tier: "cmd" } });
+  });
+
+  it("re-capturing a shadowed mac default steals nothing from its shadow partner (260730-n789)", () => {
+    // On mac hosts go-back/board-cycle-prev share ⌘[ and go-forward/
+    // board-cycle-next share ⌘] (global↔board shadow, resolved by dispatch
+    // precedence). A no-op re-capture of either partner's own default must
+    // not unbind the other — all four directions.
+    const pairs = [
+      { actionId: "go-back", partner: "board-cycle-prev", code: "BracketLeft" },
+      { actionId: "board-cycle-prev", partner: "go-back", code: "BracketLeft" },
+      { actionId: "go-forward", partner: "board-cycle-next", code: "BracketRight" },
+      { actionId: "board-cycle-next", partner: "go-forward", code: "BracketRight" },
+    ] as const;
+    for (const { actionId, partner, code } of pairs) {
+      const { overrides, stolenFrom } = applyCapture(
+        resolved(SHELL_MAC),
+        {},
+        actionId,
+        { code, tier: "cmd" },
+        SHELL_MAC,
+      );
+      expect(overrides, `${actionId} re-capture must write no diff`).toEqual({});
+      expect(stolenFrom, `${actionId} re-capture must steal nothing`).toBeNull();
+      const after = byId(resolveBindings(DEFAULT_BINDINGS, overrides, SHELL_MAC), partner);
+      expect(after.enabled, `${partner} must stay bound`).toBe(true);
+      expect({ code: after.code, tier: after.tier }).toEqual({ code, tier: "cmd" });
+    }
+  });
+
+  it("a genuine capture onto a shadow partner's combo still steals (260730-n789)", () => {
+    // ⌘[ is NOT go-forward's own default (⌘] is), so capturing it for
+    // go-forward is a real rebind — the enabled owner is stolen from as usual
+    // (go-back first in registry order; scopesOverlap global↔board keeps the
+    // board partner a steal target too, per the Design Decision).
+    const { overrides, stolenFrom } = applyCapture(
+      resolved(SHELL_MAC),
+      {},
+      "go-forward",
+      { code: "BracketLeft", tier: "cmd" },
+      SHELL_MAC,
+    );
+    expect(stolenFrom).toBe("go-back");
+    expect(overrides).toEqual({
+      "go-forward": { code: "BracketLeft", tier: "cmd" },
+      "go-back": null,
+    });
   });
 });
 
@@ -515,7 +660,7 @@ describe("keyless (macro) defaults — 260730-hbyh", () => {
       isDefault: false,
       disabledReason: "user",
     });
-    expect(findMatch(chord({ code: "KeyD", shiftKey: true, ctrlKey: true }), bindings)).toBeNull();
+    expect(findMatches(chord({ code: "KeyD", shiftKey: true, ctrlKey: true }), bindings)).toEqual([]);
   });
 
   it("an override combo makes the macro live and matchable", () => {
@@ -531,7 +676,7 @@ describe("keyless (macro) defaults — 260730-hbyh", () => {
       kind: "macro",
     });
     expect(
-      findMatch(chord({ code: "KeyD", shiftKey: true, ctrlKey: true }), bindings)?.actionId,
+      findMatches(chord({ code: "KeyD", shiftKey: true, ctrlKey: true }), bindings)[0]?.actionId,
     ).toBe("macro:discuss");
   });
 
@@ -555,6 +700,7 @@ describe("keyless (macro) defaults — 260730-hbyh", () => {
       macroOwns,
       "window-next",
       { code: "KeyD", tier: "shifted" },
+      SHELL_OTHER,
       withMacro,
     );
     expect(stealByBuiltin.stolenFrom).toBe("macro:discuss");
@@ -569,12 +715,22 @@ describe("keyless (macro) defaults — 260730-hbyh", () => {
       {},
       "macro:discuss",
       { code: "KeyL", tier: "shifted" },
+      SHELL_OTHER,
       withMacro,
     );
     expect(stealByMacro.stolenFrom).toBe("window-next");
     expect(stealByMacro.overrides).toEqual({
       "window-next": null,
       "macro:discuss": { code: "KeyL", tier: "shifted" },
+    });
+  });
+
+  it("keyless macro defaults are unaffected by mac hosts (defaultComboFor passthrough)", () => {
+    const bindings = resolveBindings(withMacro, {}, SHELL_MAC);
+    expect(byId(bindings, "macro:discuss")).toMatchObject({
+      enabled: false,
+      isDefault: false,
+      disabledReason: "user",
     });
   });
 
@@ -600,5 +756,179 @@ describe("keyless (macro) defaults — 260730-hbyh", () => {
       "other",
     );
     expect(unhinted.shortcut).toBeUndefined();
+  });
+});
+
+describe("per-platform default tiers — 260730-n789", () => {
+  it("mac shell: N/T/W and [/]// demote to the ⌘ tier; H/L/A stay shifted", () => {
+    const bindings = resolved(SHELL_MAC);
+    for (const id of ["create-session", "create-window", "kill-window", "go-back", "go-forward", "shortcuts-overlay"]) {
+      expect(byId(bindings, id)).toMatchObject({ tier: "cmd", enabled: true, isDefault: true });
+    }
+    for (const id of ["window-prev", "window-next", "agent-next-waiting"]) {
+      expect(byId(bindings, id)).toMatchObject({ tier: "shifted", enabled: true, isDefault: true });
+    }
+    // Letters constant — only the modifier tier varies.
+    expect(byId(bindings, "create-session").code).toBe("KeyN");
+    expect(byId(bindings, "go-back").code).toBe("BracketLeft");
+  });
+
+  it("mac browser: [/]// demote; N/T/W keep the shifted default and stay browser-reserved", () => {
+    const bindings = resolved(BROWSER_MAC);
+    for (const id of ["go-back", "go-forward", "shortcuts-overlay"]) {
+      expect(byId(bindings, id)).toMatchObject({ tier: "cmd", enabled: true, isDefault: true });
+    }
+    for (const id of ["create-session", "create-window", "kill-window"]) {
+      expect(byId(bindings, id)).toMatchObject({
+        tier: "shifted",
+        enabled: false,
+        disabledReason: "reserved",
+      });
+    }
+    for (const id of ["window-prev", "window-next", "agent-next-waiting"]) {
+      expect(byId(bindings, id)).toMatchObject({ tier: "shifted", enabled: true });
+    }
+  });
+
+  it("win/linux resolution is byte-identical to the uniform shifted tier (both hosts)", () => {
+    for (const host of [SHELL_OTHER, BROWSER_OTHER]) {
+      const bindings = resolved(host);
+      for (const id of [
+        "create-session", "create-window", "kill-window", "window-prev", "window-next",
+        "go-back", "go-forward", "agent-next-waiting", "shortcuts-overlay",
+      ]) {
+        expect(byId(bindings, id).tier).toBe("shifted");
+      }
+    }
+    // Browser-host N/T/W reservation unchanged.
+    expect(byId(resolved(BROWSER_OTHER), "create-session").enabled).toBe(false);
+    expect(byId(resolved(SHELL_OTHER), "create-session").enabled).toBe(true);
+  });
+
+  it("defaultComboFor: macTier applies on mac (shell-gated by macShellOnly), base tier elsewhere", () => {
+    const goBack = DEFAULT_BINDINGS.find((b) => b.actionId === "go-back")!;
+    const createSession = DEFAULT_BINDINGS.find((b) => b.actionId === "create-session")!;
+    expect(defaultComboFor(goBack, SHELL_MAC)).toEqual({ code: "BracketLeft", tier: "cmd" });
+    expect(defaultComboFor(goBack, BROWSER_MAC)).toEqual({ code: "BracketLeft", tier: "cmd" });
+    expect(defaultComboFor(goBack, SHELL_OTHER)).toEqual({ code: "BracketLeft", tier: "shifted" });
+    expect(defaultComboFor(createSession, SHELL_MAC)).toEqual({ code: "KeyN", tier: "cmd" });
+    expect(defaultComboFor(createSession, BROWSER_MAC)).toEqual({ code: "KeyN", tier: "shifted" });
+    expect(defaultComboFor(createSession, BROWSER_OTHER)).toEqual({ code: "KeyN", tier: "shifted" });
+  });
+
+  it("stored-override shape is unchanged: a {code,tier} diff applies as-is on mac hosts", () => {
+    // A mac user pinning go-back BACK to the shifted tier: plain diff entry.
+    const bindings = resolveBindings(
+      DEFAULT_BINDINGS,
+      { "go-back": { code: "BracketLeft", tier: "shifted" } },
+      SHELL_MAC,
+    );
+    expect(byId(bindings, "go-back")).toMatchObject({
+      tier: "shifted",
+      enabled: true,
+      isDefault: false, // the mac default is the cmd tier
+    });
+  });
+
+  it("mac-browser ⌘ browser claims disable overrides tier-aware; the mac shell frees them", () => {
+    const overrides = { "window-next": { code: "KeyL", tier: "cmd" as const } };
+    expect(byId(resolveBindings(DEFAULT_BINDINGS, overrides, BROWSER_MAC), "window-next")).toMatchObject({
+      enabled: false,
+      disabledReason: "reserved",
+    });
+    expect(byId(resolveBindings(DEFAULT_BINDINGS, overrides, SHELL_MAC), "window-next")).toMatchObject({
+      enabled: true,
+    });
+    // Win/linux cmd-tier overrides are untouched by the mac claim set.
+    expect(byId(resolveBindings(DEFAULT_BINDINGS, overrides, BROWSER_OTHER), "window-next")).toMatchObject({
+      enabled: true,
+    });
+  });
+
+  it("mac defaults dispatch: ⌘[ matches (board shadow first), ⇧⌘[ matches nothing", () => {
+    const bindings = resolved(SHELL_MAC);
+    // ⌘[ matches BOTH go-back and the board pane-cycle — scoped-first order
+    // (the dispatcher then picks the first with a handler at its mount).
+    expect(
+      findMatches(chord({ code: "BracketLeft", metaKey: true }), bindings).map((b) => b.actionId),
+    ).toEqual(["board-cycle-prev", "go-back"]);
+    // ⌘/ is unshared: findMatches resolves the demoted overlay toggle alone.
+    expect(
+      findMatches(chord({ code: "Slash", metaKey: true }), bindings).map((b) => b.actionId),
+    ).toEqual(["shortcuts-overlay"]);
+    // The old shifted default no longer matches on mac (go-back moved tiers;
+    // board-cycle-prev is cmd-tier and shifted-disjoint).
+    expect(
+      findMatches(chord({ code: "BracketLeft", metaKey: true, shiftKey: true }), bindings),
+    ).toEqual([]);
+    // Shell-only demotions: ⌘N matches create-session inside the shell only.
+    expect(
+      findMatches(chord({ code: "KeyN", metaKey: true }), bindings)[0]?.actionId,
+    ).toBe("create-session");
+    expect(findMatches(chord({ code: "KeyN", metaKey: true }), resolved(BROWSER_MAC))).toEqual([]);
+  });
+});
+
+describe("findMatches — scoped-beats-global precedence (260730-n789)", () => {
+  it("orders a scoped match before the global one sharing the combo (mac ⌘[)", () => {
+    const matches = findMatches(chord({ code: "BracketLeft", metaKey: true }), resolved(SHELL_MAC));
+    expect(matches.map((b) => b.actionId)).toEqual(["board-cycle-prev", "go-back"]);
+  });
+
+  it("returns single matches untouched and [] for no match", () => {
+    expect(
+      findMatches(chord({ code: "KeyL", shiftKey: true, ctrlKey: true }), resolved()).map(
+        (b) => b.actionId,
+      ),
+    ).toEqual(["window-next"]);
+    expect(findMatches(chord({ code: "KeyL" }), resolved())).toEqual([]);
+  });
+});
+
+describe("shouldRefuseTerminalChord (260730-n789)", () => {
+  it("refuses enabled shifted-tier matches on every platform (the g40a rule)", () => {
+    const e = chord({ code: "KeyL", shiftKey: true, ctrlKey: true });
+    expect(shouldRefuseTerminalChord(e, resolved(SHELL_OTHER), "other")).toBe(true);
+    expect(shouldRefuseTerminalChord(e, resolved(SHELL_MAC), "mac")).toBe(true);
+  });
+
+  it("mac only: refuses a ⌘ (metaKey) cmd-tier match so demoted chords fire from the pane", () => {
+    const bindings = resolved(SHELL_MAC);
+    expect(
+      shouldRefuseTerminalChord(chord({ code: "BracketLeft", metaKey: true }), bindings, "mac"),
+    ).toBe(true);
+    expect(
+      shouldRefuseTerminalChord(chord({ code: "KeyN", metaKey: true }), bindings, "mac"),
+    ).toBe(true);
+  });
+
+  it("mac: NEVER refuses plain-Ctrl chords (Ctrl+[ is ESC and belongs to the pane)", () => {
+    const bindings = resolved(SHELL_MAC);
+    expect(
+      shouldRefuseTerminalChord(chord({ code: "BracketLeft", ctrlKey: true }), bindings, "mac"),
+    ).toBe(false);
+    // Unbound ⌘ keys pass through too (no enabled match).
+    expect(
+      shouldRefuseTerminalChord(chord({ code: "KeyF", metaKey: true }), bindings, "mac"),
+    ).toBe(false);
+  });
+
+  it("win/linux: cmd-tier matches are never refused (byte-identical seam)", () => {
+    const bindings = resolved(SHELL_OTHER);
+    // Ctrl+K matches the cmd-tier palette binding but must reach xterm's
+    // normal path exactly as before n789.
+    expect(
+      shouldRefuseTerminalChord(chord({ code: "KeyK", ctrlKey: true }), bindings, "other"),
+    ).toBe(false);
+    expect(
+      shouldRefuseTerminalChord(chord({ code: "BracketLeft", ctrlKey: true }), bindings, "other"),
+    ).toBe(false);
+  });
+
+  it("disabled bindings never trigger refusal (mac-browser ⌘N passes through)", () => {
+    const bindings = resolved(BROWSER_MAC);
+    expect(
+      shouldRefuseTerminalChord(chord({ code: "KeyN", metaKey: true }), bindings, "mac"),
+    ).toBe(false);
   });
 });

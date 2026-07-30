@@ -125,6 +125,7 @@ export function useKeybindings(): UseKeybindings {
         current,
         actionId,
         combo,
+        host,
         freshDefaults,
       );
       persist(next);

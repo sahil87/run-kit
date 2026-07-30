@@ -14,7 +14,7 @@ import { dispatchComposeStripAttach } from "@/lib/compose-strip-events";
 import { copyToClipboard } from "@/lib/clipboard";
 import { notifyFirstWrite } from "@/lib/window-transition";
 import { relayMux, type RelayStream } from "@/lib/relay-mux";
-import { findMatch } from "@/lib/keybindings";
+import { shouldRefuseTerminalChord } from "@/lib/keybindings";
 import { useKeybindings } from "@/hooks/use-keybindings";
 
 /**
@@ -130,9 +130,14 @@ export function TerminalClient({
   // App-owned chords (260730-g40a): the custom key handler below consults the
   // effective keybinding registry through this render-updated ref (the handler
   // attaches once at terminal init, but overrides can change at any time).
-  const { bindings: appKeybindings } = useKeybindings();
+  // The host platform feeds the seam's mac-only ⌘-tier refusal (260730-n789);
+  // it is immutable per page load but ref-mirrored for the same
+  // attach-once reason.
+  const { bindings: appKeybindings, host: keybindingHost } = useKeybindings();
   const appKeybindingsRef = useRef(appKeybindings);
   appKeybindingsRef.current = appKeybindings;
+  const keybindingPlatformRef = useRef(keybindingHost.platform);
+  keybindingPlatformRef.current = keybindingHost.platform;
 
   // Register this terminal as the BottomBar's focused input target. The
   // single-terminal route trivially has only one terminal — this is the
@@ -356,20 +361,28 @@ export function TerminalClient({
             return false;
           }
         }
-        // App-owned SHIFTED-tier chords (260730-g40a): a keydown matching an
-        // ENABLED `Shift+CmdOrCtrl` registry binding is refused here (`false`
-        // = xterm must not handle or transmit it — legacy TTY encoding cannot
-        // distinguish Ctrl+Shift+letter from Ctrl+letter, so xterm would emit
-        // the Ctrl-char). xterm does not preventDefault a refused key, so the
-        // event bubbles to the window-level dispatcher, which fires the action
-        // even while the terminal owns focus. Deliberately shifted-tier ONLY:
-        // all plain-Ctrl chords (Ctrl+W delete-word, Ctrl+L clear, Ctrl+T fzf,
-        // Ctrl+[ ESC) and the legacy cmd/ctrl-tier chords keep their exact
-        // pre-registry terminal-focus behavior — refusing a cmd-tier combo
-        // would steal its Ctrl alias from the pane on win/linux.
-        if (event.type === "keydown") {
-          const match = findMatch(event, appKeybindingsRef.current);
-          if (match?.tier === "shifted") return false;
+        // App-owned chords (260730-g40a / 260730-n789): a keydown matching an
+        // ENABLED registry binding on an app-owned tier is refused here
+        // (`false` = xterm must not handle or transmit it). xterm does not
+        // preventDefault a refused key, so the event bubbles to the
+        // window-level dispatcher, which fires the action even while the
+        // terminal owns focus. The refusal rule lives in
+        // `shouldRefuseTerminalChord`: shifted-tier matches on every platform
+        // (legacy TTY encoding cannot distinguish Ctrl+Shift+letter from
+        // Ctrl+letter, so xterm would emit the Ctrl-char), plus — on macOS
+        // only — cmd-tier matches pressed with metaKey (⌘ chords are never
+        // pane bytes). Plain-Ctrl chords (Ctrl+W delete-word, Ctrl+L clear,
+        // Ctrl+T fzf, Ctrl+[ ESC) always reach the pane on every platform —
+        // refusing a plain-Ctrl cmd-tier alias would steal them.
+        if (
+          event.type === "keydown" &&
+          shouldRefuseTerminalChord(
+            event,
+            appKeybindingsRef.current,
+            keybindingPlatformRef.current,
+          )
+        ) {
+          return false;
         }
         return true;
       });

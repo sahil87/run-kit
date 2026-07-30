@@ -84,7 +84,7 @@ export function KeyboardShortcuts({ onClose }: KeyboardShortcutsProps) {
     : [];
 
   return (
-    <Dialog title="Keyboard Shortcuts" onClose={onClose}>
+    <Dialog title="tmux Keybindings" onClose={onClose}>
       <div className="space-y-3 max-h-[60vh] overflow-y-auto">
         {/* App shortcuts */}
         <div>

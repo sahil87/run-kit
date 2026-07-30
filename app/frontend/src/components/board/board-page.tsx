@@ -685,11 +685,11 @@ function BoardPageContent({ name }: { name: string }) {
 
     // Shortcuts cheatsheet overlay (260730-g40a) — duplicated from AppShell's
     // `configActions` for the DD-8 reason above (the board mounts its OWN
-    // palette). The id doubles as the registry actionId, so the ⇧CmdOrCtrl+/
-    // hint renders on this entry.
+    // palette). The id doubles as the registry actionId, so the effective-chord
+    // hint (⌘/ on macOS, ⇧Ctrl+/ on win/linux) renders on this entry.
     const shortcutsEntry: PaletteAction = {
       id: "shortcuts-overlay",
-      label: "Help: Shortcuts",
+      label: "Help: Keyboard Shortcuts",
       onSelect: () => setShowShortcutsOverlay((prev) => !prev),
     };
 
@@ -1215,7 +1215,8 @@ function BoardPageContent({ name }: { name: string }) {
 
       {/* Shortcuts cheatsheet overlay (260730-g40a) — board-route mount, for
           the same DD-8 reason as the palette above (AppShell never renders
-          here). Toggled by ⇧CmdOrCtrl+/ and the `Help: Shortcuts` entry. */}
+          here). Toggled by ⌘/ on macOS / ⇧Ctrl+/ on win/linux and the
+          `Help: Keyboard Shortcuts` entry. */}
       <ShortcutsOverlay
         open={showShortcutsOverlay}
         onClose={() => setShowShortcutsOverlay(false)}

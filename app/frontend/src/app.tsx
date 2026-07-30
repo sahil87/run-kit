@@ -560,8 +560,9 @@ function AppShell() {
   const [createServerName, setCreateServerName] = useState("");
   const [killServerTarget, setKillServerTarget] = useState<string | null>(null);
   const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false);
-  // The registry cheatsheet overlay (260730-g40a) — toggled by ⇧CmdOrCtrl+/
-  // (via the keybinding dispatcher below) and the `Help: Shortcuts` palette
+  // The registry cheatsheet overlay (260730-g40a) — toggled by the per-platform
+  // shortcuts chord (⌘/ on macOS, ⇧Ctrl+/ on win/linux — 260730-n789, via the
+  // keybinding dispatcher below) and the `Help: Keyboard Shortcuts` palette
   // entry. Distinct from the tmux keybindings modal above.
   const [showShortcutsOverlay, setShowShortcutsOverlay] = useState(false);
   const [showTmuxCommands, setShowTmuxCommands] = useState(false);
@@ -2124,14 +2125,15 @@ function AppShell() {
       },
       {
         id: "keyboard-shortcuts",
-        label: "Help: Keyboard Shortcuts",
+        label: "Help: tmux Keybindings",
         onSelect: () => setShowKeyboardShortcuts(true),
       },
       {
         // The registry cheatsheet overlay (260730-g40a). The id doubles as the
-        // registry actionId, so the ⇧CmdOrCtrl+/ hint renders on this entry.
+        // registry actionId, so the effective-chord hint (⌘/ on macOS,
+        // ⇧Ctrl+/ on win/linux) renders on this entry.
         id: "shortcuts-overlay",
-        label: "Help: Shortcuts",
+        label: "Help: Keyboard Shortcuts",
         onSelect: () => setShowShortcutsOverlay((prev) => !prev),
       },
       {

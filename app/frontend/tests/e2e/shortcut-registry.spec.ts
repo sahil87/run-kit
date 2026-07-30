@@ -5,12 +5,14 @@ import { mockStateSocket } from "./_state-socket-mock";
 // server list via page.route, then drive the keyboard. See
 // shortcut-registry.spec.md for intent + steps.
 //
-// Keyboard shortcut registry (260730-g40a): the uniform `Shift+CmdOrCtrl`
-// run-kit tier, the window-level dispatcher, the cheatsheet overlay
+// Keyboard shortcut registry (260730-g40a): the `Shift+CmdOrCtrl+<key>`
+// run-kit action tier, the window-level dispatcher, the cheatsheet overlay
 // (⇧CmdOrCtrl+/), click-to-capture rebinding persisted to
 // localStorage["runkit-keybindings"], palette `shortcut` hints from the
 // effective map, and browser-reserved key inertness (Playwright runs a plain
-// browser host, so shifted N/T/W resolve disabled).
+// browser host, so shifted N/T/W resolve disabled). Also covers the macOS
+// ⌘-tier demotions (260730-n789) via a spoofed-platform block (deep mac
+// paths are unit-tested in lib/keybindings.test.ts — e2e runs on Linux).
 
 const SERVER = "default";
 
@@ -110,14 +112,14 @@ test.describe("shortcuts overlay", () => {
     await expect(overlay).toHaveCount(0);
   });
 
-  test("the Help: Shortcuts palette entry opens the overlay", async ({ page }) => {
+  test("the Help: Keyboard Shortcuts palette entry opens the overlay", async ({ page }) => {
     await mockBackend(page);
     await gotoWindowOne(page);
 
     await page.keyboard.press("Meta+k");
     const paletteInput = page.getByPlaceholder("Type a command...");
     await expect(paletteInput).toBeVisible();
-    await paletteInput.fill("Help: Shortcuts");
+    await paletteInput.fill("Help: Keyboard Shortcuts");
     await page.keyboard.press("Enter");
     await expect(page.getByTestId("shortcuts-overlay")).toBeVisible();
   });
@@ -160,6 +162,82 @@ test.describe("palette hints", () => {
     await paletteInput.fill("Agent: Next waiting");
     // Playwright runs a non-mac browser host → "Shift+Ctrl+A".
     await expect(page.getByText("Shift+Ctrl+A")).toBeVisible();
+  });
+});
+
+// Spoof macOS platform detection (260730-n789): `detectPlatform()` probes
+// `navigator.platform` + userAgent, so an init-script getter override makes
+// the SPA resolve the mac per-platform defaults on the Linux CI browser.
+// Deep mac behavior (shell-host demotions, claims) is unit-test territory —
+// this exercises the resolved wiring end-to-end where the platform is the
+// only mac-specific input.
+async function spoofMacPlatform(page: Page) {
+  await page.addInitScript(() => {
+    Object.defineProperty(Navigator.prototype, "platform", {
+      get: () => "MacIntel",
+      configurable: true,
+    });
+  });
+}
+
+test.describe("macOS per-platform defaults (spoofed platform)", () => {
+  test("⌘[ / ⌘] retrace history on a mac host; the shifted default is vacated", async ({ page }) => {
+    await spoofMacPlatform(page);
+    await mockBackend(page);
+    await gotoWindowOne(page);
+
+    // H/L stay shifted on macOS — window cycling is unchanged.
+    await page.keyboard.press("Shift+Control+KeyL");
+    await expect(page).toHaveURL(new RegExp(`/${SERVER}/2(?:$|[/?#])`));
+
+    // The demoted ⌘ tier drives history (pressed with Meta, while the
+    // terminal owns focus — exercising the mac seam refusal).
+    await page.keyboard.press("Meta+BracketLeft");
+    await expect(page).toHaveURL(new RegExp(`/${SERVER}/1(?:$|[/?#])`));
+    await page.keyboard.press("Meta+BracketRight");
+    await expect(page).toHaveURL(new RegExp(`/${SERVER}/2(?:$|[/?#])`));
+
+    // The old shifted combo no longer matches on a mac host.
+    await page.keyboard.press("Shift+Control+BracketLeft");
+    await page.waitForTimeout(300);
+    await expect(page).toHaveURL(new RegExp(`/${SERVER}/2(?:$|[/?#])`));
+  });
+
+  test("⌘/ toggles the overlay on a mac host and the ⌘ page-tier map renders", async ({ page }) => {
+    await spoofMacPlatform(page);
+    await mockBackend(page);
+    await gotoWindowOne(page);
+
+    await page.keyboard.press("Meta+Slash");
+    const overlay = page.getByTestId("shortcuts-overlay");
+    await expect(overlay).toBeVisible();
+    // Display initializes from the detected (spoofed mac) host → the page
+    // tier map is present, with the browser-host claim hint.
+    await expect(overlay.getByText(/page tier —/)).toBeVisible();
+    await page.keyboard.press("Meta+Slash");
+    await expect(overlay).toHaveCount(0);
+  });
+
+  test("⌘N and ⇧⌘N stay inert in a mac browser host (create-session palette-only)", async ({ page }) => {
+    await spoofMacPlatform(page);
+    await mockBackend(page);
+    let created = false;
+    await page.route("**/api/sessions*", (route) => {
+      if (route.request().method() === "POST") {
+        created = true;
+        return route.fulfill({ status: 200, contentType: "application/json", body: '{"ok":true}' });
+      }
+      return route.fallback();
+    });
+    await gotoWindowOne(page);
+
+    // N demotes only inside the desktop shell; a mac BROWSER keeps it
+    // reserved on both tiers.
+    await page.keyboard.press("Meta+KeyN");
+    await page.keyboard.press("Shift+Meta+KeyN");
+    await page.waitForTimeout(300);
+    expect(created).toBe(false);
+    await expect(page).toHaveURL(new RegExp(`/${SERVER}/1(?:$|[/?#])`));
   });
 });
 

@@ -2,20 +2,20 @@ id: hbyh
 name: 260730-hbyh-shortcut-macro-riff-bindings
 created: 2026-07-30T11:20:41Z
 created_by: sahil-noon
-change_type: refactor
+change_type: feat
 issues: []
 progress:
-    intake: ready
-    apply: pending
-    review: pending
-    hydrate: pending
-    ship: pending
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
     review-pr: pending
 plan:
-    generated: false
-    task_count: 0
-    acceptance_count: 0
-    acceptance_completed: 0
+    generated: true
+    task_count: 9
+    acceptance_count: 15
+    acceptance_completed: 15
 confidence:
     certain: 2
     confident: 2
@@ -29,7 +29,27 @@ confidence:
         competence: 75.0
         disambiguation: 71.0
 stage_metrics:
-    intake: {started_at: "2026-07-30T11:20:41Z", driver: fab-new, iterations: 1}
+    intake: {started_at: "2026-07-30T11:20:41Z", driver: fab-new, iterations: 1, completed_at: "2026-07-30T12:47:53Z"}
+    apply: {started_at: "2026-07-30T12:47:53Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-30T13:22:46Z"}
+    review: {started_at: "2026-07-30T13:22:46Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-30T13:37:38Z"}
+    hydrate: {started_at: "2026-07-30T13:37:38Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-30T13:43:45Z"}
+    ship: {started_at: "2026-07-30T13:43:45Z", driver: fab-fff, iterations: 1}
 prs: []
+change_type_source: explicit
+true_impact:
+    added: 2901
+    deleted: 204
+    net: 2697
+    excluding:
+        added: 2508
+        deleted: 169
+        net: 2339
+    tests:
+        added: 872
+        deleted: 38
+        net: 834
+    computed_at: "2026-07-30T13:43:45Z"
+    computed_at_stage: hydrate
+summary: 'Macro shortcut bindings over riff presets: a lib/macros.ts model (riff-preset or palette-action targets only, never shell strings), keyless macro defaults in the keybinding registry with combos in the existing override diff map, an editable CUSTOM section in the shortcuts overlay (add flow, delete/rebind, missing-preset badge), Macro: palette entries, and execution through the existing POST /api/riff — zero backend changes.'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-07-30T11:24:00Z
+last_updated: 2026-07-30T13:43:45Z

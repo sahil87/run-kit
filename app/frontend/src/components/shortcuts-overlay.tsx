@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useFocusTrap } from "@/hooks/use-focus-trap";
 import { useKeybindings } from "@/hooks/use-keybindings";
+import { useMacros } from "@/hooks/use-macros";
 import {
   captureFromEvent,
   claimedKeys,
@@ -11,6 +12,12 @@ import {
   type BindingScope,
   type EffectiveBinding,
 } from "@/lib/keybindings";
+import {
+  isMacroActionId,
+  macroCommandPreview,
+  type MacroAction,
+  type MacroTarget,
+} from "@/lib/macros";
 
 /**
  * The keyboard-shortcuts cheatsheet overlay (260730-g40a) — a focus-trapped
@@ -25,8 +32,15 @@ import {
  * scope badges, click-to-rebind capture (Esc cancels) with steal warning,
  * modified-dot + per-row reset + unbound flag, shell-owned rows shown locked
  * (the shell menu owns their accelerators), and a footer with the storage
- * note + reset-all. Export/import is deferred; macro rows belong to change
- * 260730-hbyh and do not render here.
+ * note + reset-all. Export/import is deferred.
+ *
+ * CUSTOM section (260730-hbyh): editable macro rows — label, resolved-command
+ * preview chip, the same click-to-rebind capture as builtins (macros ride the
+ * shared effective map), a delete affordance, and a `missing preset` error
+ * badge when a riff macro's preset is absent from the fetched preset list.
+ * The `+ bind a key…` add flow offers riff presets + the mount's palette
+ * actions as targets (via the `paletteTargets`/`riffPresetNames` props —
+ * mounts that pass none render the rows without the add flow).
  */
 
 const KEY_ROWS: string[][] = [
@@ -71,9 +85,26 @@ function ScopeBadge({ scope }: { scope: BindingScope }) {
   );
 }
 
-export function ShortcutsOverlay({ open, onClose }: { open: boolean; onClose: () => void }) {
+/** A palette action offered as a macro target in the add flow. */
+export type MacroPaletteTarget = { id: string; label: string };
+
+export function ShortcutsOverlay({
+  open,
+  onClose,
+  paletteTargets,
+  riffPresetNames,
+}: {
+  open: boolean;
+  onClose: () => void;
+  /** Palette actions offered as macro targets. Absent = no add flow here. */
+  paletteTargets?: readonly MacroPaletteTarget[];
+  /** Known riff preset names (best-effort fetch while open); null/undefined =
+   *  unknown (no missing-preset badges, no riff targets in the add flow). */
+  riffPresetNames?: readonly string[] | null;
+}) {
   const { bindings, byAction, overrides, host, setBinding, resetBinding, resetAll } =
     useKeybindings();
+  const { macros, addMacro, removeMacro } = useMacros();
   const sheetRef = useRef<HTMLDivElement>(null);
   useFocusTrap(sheetRef, open, onClose);
 
@@ -83,6 +114,11 @@ export function ShortcutsOverlay({ open, onClose }: { open: boolean; onClose: ()
   const [query, setQuery] = useState("");
   const [capturingId, setCapturingId] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ actionId: string; text: string } | null>(null);
+  // Add-macro flow state (260730-hbyh).
+  const [addOpen, setAddOpen] = useState(false);
+  const [addQuery, setAddQuery] = useState("");
+  const [addTarget, setAddTarget] = useState<{ label: string; target: MacroTarget } | null>(null);
+  const [addName, setAddName] = useState("");
 
   // Reset transient state whenever the overlay closes.
   useEffect(() => {
@@ -90,6 +126,10 @@ export function ShortcutsOverlay({ open, onClose }: { open: boolean; onClose: ()
     setQuery("");
     setCapturingId(null);
     setNotice(null);
+    setAddOpen(false);
+    setAddQuery("");
+    setAddTarget(null);
+    setAddName("");
   }, [open]);
 
   // Rebind capture: a capture-phase window listener while a combo is armed.
@@ -177,6 +217,57 @@ export function ShortcutsOverlay({ open, onClose }: { open: boolean; onClose: ()
       return !q || r.label.toLowerCase().includes(q);
     });
   }, [displayPlatform, query]);
+
+  // Add-flow target candidates: riff presets (when known) + the mount's
+  // palette actions, macros excluded (no macro→macro chains).
+  const macroTargetOptions = useMemo(() => {
+    const options: { key: string; label: string; target: MacroTarget }[] = [];
+    for (const preset of riffPresetNames ?? []) {
+      options.push({
+        key: `riff:${preset}`,
+        label: `riff: ${preset}`,
+        target: { type: "riff", preset },
+      });
+    }
+    for (const action of paletteTargets ?? []) {
+      if (isMacroActionId(action.id)) continue;
+      options.push({
+        key: `palette:${action.id}`,
+        label: `palette: ${action.label}`,
+        target: { type: "palette", paletteActionId: action.id },
+      });
+    }
+    return options;
+  }, [riffPresetNames, paletteTargets]);
+
+  const canAddMacro = paletteTargets != null;
+
+  const visibleMacros = macros.filter((m) => {
+    const q = query.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      m.label.toLowerCase().includes(q) ||
+      macroCommandPreview(m.target).toLowerCase().includes(q)
+    );
+  });
+
+  const handleAddMacro = () => {
+    if (!addTarget || !addName.trim()) return;
+    const actionId = addMacro(addName.trim(), addTarget.target);
+    setAddOpen(false);
+    setAddQuery("");
+    setAddTarget(null);
+    setAddName("");
+    setNotice(null);
+    // Arm capture on the fresh row — "name it, capture a key" in one flow.
+    setCapturingId(actionId);
+  };
+
+  const handleDeleteMacro = (macro: MacroAction) => {
+    removeMacro(macro.actionId); // also drops its runkit-keybindings diff
+    if (capturingId === macro.actionId) setCapturingId(null);
+    if (notice?.actionId === macro.actionId) setNotice(null);
+  };
 
   if (!open) return null;
 
@@ -308,7 +399,10 @@ export function ShortcutsOverlay({ open, onClose }: { open: boolean; onClose: ()
         {/* ── grouped rows ───────────────────────────────── */}
         <div className="px-4 pb-4">
           {GROUPS.map((group) => {
-            const rows = bindings.filter((b) => b.scope === group.scope && matchesQuery(b));
+            // Macros render in their own CUSTOM section below, not here.
+            const rows = bindings.filter(
+              (b) => b.kind !== "macro" && b.scope === group.scope && matchesQuery(b),
+            );
             if (rows.length === 0) return null;
             return (
               <section key={group.name} className="mt-4">
@@ -430,6 +524,172 @@ export function ShortcutsOverlay({ open, onClose }: { open: boolean; onClose: ()
                   </span>
                 </div>
               ))}
+            </section>
+          )}
+
+          {/* CUSTOM — user macros over riff presets / palette actions (260730-hbyh). */}
+          {(macros.length > 0 || canAddMacro) && (
+            <section className="mt-4" data-testid="macro-section">
+              <div className="flex items-center gap-3 mb-1">
+                <h3 className="text-[11.5px] font-bold tracking-wider text-text-secondary select-none">
+                  <span aria-hidden="true">[ </span>
+                  <span className="text-text-primary">CUSTOM</span>
+                  <span aria-hidden="true"> ]</span>
+                </h3>
+                <span className="flex-1 border-t border-border" aria-hidden="true" />
+              </div>
+              {visibleMacros.map((m) => {
+                const b = byAction.get(m.actionId);
+                if (!b) return null;
+                const combo = { code: b.code, tier: b.tier };
+                const missingPreset =
+                  m.target.type === "riff" &&
+                  riffPresetNames != null &&
+                  !riffPresetNames.includes(m.target.preset);
+                return (
+                  <div key={m.actionId} data-actionid={m.actionId}>
+                    <div className="group flex items-center gap-2.5 px-2 py-1.5 rounded hover:bg-bg-inset/70">
+                      <span className="w-1.5 h-1.5 rounded-full flex-none bg-transparent" />
+                      <span className="flex-1 min-w-0 truncate">{m.label}</span>
+                      <span
+                        className="flex-none max-w-[46ch] truncate font-mono text-[11px] text-text-secondary bg-bg-inset border border-border rounded px-2 py-px"
+                        title={macroCommandPreview(m.target)}
+                      >
+                        {macroCommandPreview(m.target)}
+                      </span>
+                      {missingPreset && (
+                        <span
+                          className="flex-none text-[9.5px] tracking-wider uppercase px-2 py-px rounded-full border border-red-500/60 text-red-500"
+                          title={`preset “${m.target.type === "riff" ? m.target.preset : ""}” is not defined in fab/project/config.yaml — the key does nothing`}
+                        >
+                          missing preset
+                        </span>
+                      )}
+                      {capturingId === m.actionId ? (
+                        <span className="flex gap-1 items-center px-1 py-0.5 rounded outline outline-1 outline-accent-green">
+                          <Keycaps parts={["press keys…"]} />
+                        </span>
+                      ) : b.disabledReason === "user" ? (
+                        <button
+                          type="button"
+                          onClick={() => setCapturingId(m.actionId)}
+                          className="flex-none text-[11px] px-2 py-0.5 rounded border border-amber-600/50 text-amber-600"
+                          title="unbound — click to bind"
+                        >
+                          unbound
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setNotice(null);
+                            setCapturingId(m.actionId);
+                          }}
+                          aria-label={`Change binding for ${m.label}`}
+                          title="click to rebind"
+                          className={`flex gap-1 items-center px-1 py-0.5 rounded hover:outline hover:outline-1 hover:outline-dashed hover:outline-accent-green/60 ${b.disabledReason === "reserved" ? "opacity-50" : ""}`}
+                        >
+                          <Keycaps parts={comboParts(combo, displayPlatform)} />
+                        </button>
+                      )}
+                      {b.disabledReason === "reserved" && (
+                        <span
+                          className="flex-none text-[9.5px] tracking-wider uppercase px-2 py-px rounded-full border border-amber-600/50 text-amber-600"
+                          title="browser-reserved — rebind; the desktop shell frees this key"
+                        >
+                          browser
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteMacro(m)}
+                        aria-label={`Delete macro ${m.label}`}
+                        title="delete this macro"
+                        className="flex-none text-text-secondary hover:text-red-500"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    {notice?.actionId === m.actionId && (
+                      <div className="mx-2 mb-1 px-2.5 py-1 text-[11px] rounded border border-amber-600/45 bg-amber-600/10 text-amber-600">
+                        {notice.text}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {canAddMacro && !addOpen && (
+                <button
+                  type="button"
+                  onClick={() => setAddOpen(true)}
+                  className="w-full text-left mt-1 px-2 py-1.5 text-[11px] text-text-secondary rounded border border-dashed border-border hover:text-accent-green hover:border-accent-green/60"
+                >
+                  + bind a key to a palette action or riff preset…
+                </button>
+              )}
+              {canAddMacro && addOpen && (
+                <div className="mt-1 px-2 py-2 rounded border border-dashed border-border flex flex-col gap-1.5">
+                  <input
+                    value={addQuery}
+                    onChange={(e) => setAddQuery(e.target.value)}
+                    placeholder="search riff presets + palette actions…"
+                    aria-label="Search macro targets"
+                    autoFocus
+                    className="w-full text-xs bg-bg-inset border border-border rounded px-2.5 py-1 outline-none text-text-primary placeholder:text-text-secondary focus:border-accent"
+                  />
+                  <div className="max-h-36 overflow-y-auto flex flex-col">
+                    {macroTargetOptions
+                      .filter((o) => o.label.toLowerCase().includes(addQuery.trim().toLowerCase()))
+                      .map((o) => (
+                        <button
+                          key={o.key}
+                          type="button"
+                          onClick={() => {
+                            setAddTarget({ label: o.label, target: o.target });
+                            setAddName(o.label);
+                          }}
+                          className={`text-left text-[11px] px-2 py-1 rounded font-mono ${addTarget?.label === o.label ? "bg-accent/15 text-text-primary" : "text-text-secondary hover:text-text-primary hover:bg-bg-inset/70"}`}
+                        >
+                          {o.label}
+                        </button>
+                      ))}
+                    {macroTargetOptions.length === 0 && (
+                      <span className="text-[11px] text-text-secondary px-2 py-1">
+                        no targets available here
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      value={addName}
+                      onChange={(e) => setAddName(e.target.value)}
+                      placeholder="macro name"
+                      aria-label="Macro name"
+                      className="flex-1 min-w-0 text-xs bg-bg-inset border border-border rounded px-2.5 py-1 outline-none text-text-primary placeholder:text-text-secondary focus:border-accent"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddMacro}
+                      disabled={!addTarget || !addName.trim()}
+                      className="rk-glint flex-none text-[11px] px-3 py-1 rounded border border-border text-text-primary disabled:opacity-40 hover:border-accent-green hover:text-accent-green"
+                    >
+                      add + capture key
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAddOpen(false);
+                        setAddQuery("");
+                        setAddTarget(null);
+                        setAddName("");
+                      }}
+                      className="flex-none text-[11px] px-2 py-1 text-text-secondary hover:text-text-primary"
+                    >
+                      cancel
+                    </button>
+                  </div>
+                </div>
+              )}
             </section>
           )}
         </div>

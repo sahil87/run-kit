@@ -9,8 +9,10 @@ import {
   type ViewName,
 } from "@/lib/window-view";
 import { matchesCombo, shouldSuppressChord, withShortcutHints, formatCombo } from "@/lib/keybindings";
+import { isMacroActionId, type MacroAction } from "@/lib/macros";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { useKeybindingDispatch } from "@/hooks/use-keybinding-dispatch";
+import { useMacros } from "@/hooks/use-macros";
 import { ShortcutsOverlay } from "@/components/shortcuts-overlay";
 import { ChromeProvider, useChromeState, useChromeDispatch, SIDEBAR_WIDTH_BOUNDS } from "@/contexts/chrome-context";
 import { FocusedTerminalProvider } from "@/contexts/focused-terminal-context";
@@ -84,7 +86,7 @@ import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 import { LogoSpinner } from "@/components/logo-spinner";
 import type { ServerInfo } from "@/api/client";
 
-import { selectWindow, createSession, createWindow, splitWindow, closePane, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, createServer, killServer as killServerApi, setWindowColor as setWindowColorApi, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, sendChatMessage, refreshStatus, isInfraServer, DAEMON_SERVER } from "@/api/client";
+import { selectWindow, createSession, createWindow, splitWindow, closePane, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, createServer, killServer as killServerApi, setWindowColor as setWindowColorApi, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, sendChatMessage, refreshStatus, isInfraServer, DAEMON_SERVER, spawnRiff, getRiffPresets } from "@/api/client";
 import { useBoards } from "@/hooks/use-boards";
 import { useWindowPins } from "@/hooks/use-window-pins";
 import { usePinActions } from "@/hooks/use-pin-actions";
@@ -2440,6 +2442,79 @@ function AppShell() {
     return [{ id: "agent-next-waiting", label: "Agent: Next waiting", onSelect }];
   }, [flatWindows, servers, server, windowParam, navigateToWindow, navigateToWaitingTarget, addToast]);
 
+  // ── macros over riff presets / palette actions (260730-hbyh) ─────────────
+  const { macros } = useMacros();
+
+  // Best-effort riff-preset names for the overlay's CUSTOM section (add-flow
+  // targets + missing-preset badges), fetched while the overlay is open on a
+  // route with a session (GET /api/riff/presets derives the repo from the
+  // session's active pane — the same preflight seam the spawn dialog uses).
+  // null = unknown: the overlay shows no badges and offers palette targets
+  // only.
+  const [riffPresetNames, setRiffPresetNames] = useState<string[] | null>(null);
+  useEffect(() => {
+    if (!showShortcutsOverlay || !sessionName) return;
+    let cancelled = false;
+    getRiffPresets(server, sessionName)
+      .then((data) => {
+        if (!cancelled) setRiffPresetNames(data.presets.map((p) => p.name));
+      })
+      .catch(() => {
+        if (!cancelled) setRiffPresetNames(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [showShortcutsOverlay, server, sessionName]);
+
+  // Macro execution. Palette targets dispatch the existing palette action
+  // body in-place (id lookup — the `fromPalette` convention; `macro:` ids are
+  // never resolved as targets, so no macro→macro recursion). Riff targets
+  // POST the existing validated spawn seam with the PRESET NAME only (no
+  // shell text, no new exec surface — Constitution I): success toasts and
+  // navigates to the spawned window (the spawn dialog's falsy-windowId guard
+  // preserved); failure — incl. a 400 for a preset gone from fabconfig —
+  // surfaces as an error toast. No fire-and-forget. The ref breaks the
+  // palette↔macro cycle: macro palette entries fold into `paletteActions`,
+  // while execution resolves targets against the same array at call time.
+  const paletteActionsRef = useRef<PaletteAction[]>([]);
+  const executeMacro = useCallback(
+    (macro: MacroAction) => {
+      if (macro.target.type === "palette") {
+        const targetId = macro.target.paletteActionId;
+        if (isMacroActionId(targetId)) return;
+        paletteActionsRef.current.find((a) => a.id === targetId)?.onSelect();
+        return;
+      }
+      if (!sessionName) return;
+      spawnRiff(server, sessionName, { preset: macro.target.preset })
+        .then((res) => {
+          addToast(`Spawned ${res.window}`, "info");
+          if (res.windowId) navigateToWindow(res.windowId);
+        })
+        .catch((err) =>
+          addToast(err instanceof Error ? err.message : "Macro spawn failed", "error"),
+        );
+    },
+    [server, sessionName, addToast, navigateToWindow],
+  );
+
+  // Macros are palette-reachable without their key (kind-tagged `Macro:`
+  // entries; actionId doubles as the palette id, so `withShortcutHints`
+  // decorates them with their effective combos automatically). Riff macros
+  // are session-gated, mirroring `Agent: Spawn`.
+  const macroPaletteActions: PaletteAction[] = useMemo(
+    () =>
+      macros
+        .filter((m) => m.target.type === "palette" || sessionName != null)
+        .map((m) => ({
+          id: m.actionId,
+          label: `Macro: ${m.label}`,
+          onSelect: () => executeMacro(m),
+        })),
+    [macros, sessionName, executeMacro],
+  );
+
   // Agent: Spawn — Cmd+K parity for the web-UI spawn flow (260713-sbk1;
   // Constitution V palette parity — the shortcut/registration is documented
   // here per code-review.md "New keyboard shortcuts must be documented in the
@@ -2462,11 +2537,24 @@ function AppShell() {
       // formatted per platform and reflecting overrides; disabled bindings
       // (user-disabled or browser-reserved) render no hint (260730-g40a).
       withShortcutHints(
-        [...sessionActions, ...sessionsScopeActions, ...windowActions, ...boardActions, ...viewActions, ...openActions, ...navActions, ...terminalFontActions, ...themeActions, ...settingsActions, ...configActions, ...statusRefreshActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions, ...serverActions, ...shellServerActions, ...pushActions, ...windowSwitchActions, ...agentActions, ...agentSpawnActions],
+        [...sessionActions, ...sessionsScopeActions, ...windowActions, ...boardActions, ...viewActions, ...openActions, ...navActions, ...terminalFontActions, ...themeActions, ...settingsActions, ...configActions, ...statusRefreshActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions, ...serverActions, ...shellServerActions, ...pushActions, ...windowSwitchActions, ...agentActions, ...agentSpawnActions, ...macroPaletteActions],
         bindingByAction,
         bindingHost.platform,
       ),
-    [sessionActions, sessionsScopeActions, windowActions, boardActions, viewActions, openActions, navActions, terminalFontActions, themeActions, settingsActions, configActions, statusRefreshActions, updateActions, checkActions, maintenanceActions, versionActions, serverActions, shellServerActions, pushActions, windowSwitchActions, agentActions, agentSpawnActions, bindingByAction, bindingHost],
+    [sessionActions, sessionsScopeActions, windowActions, boardActions, viewActions, openActions, navActions, terminalFontActions, themeActions, settingsActions, configActions, statusRefreshActions, updateActions, checkActions, maintenanceActions, versionActions, serverActions, shellServerActions, pushActions, windowSwitchActions, agentActions, agentSpawnActions, macroPaletteActions, bindingByAction, bindingHost],
+  );
+  // Render-updated ref: macro palette-target execution resolves against the
+  // final decorated array at invocation time (see `executeMacro` above).
+  paletteActionsRef.current = paletteActions;
+
+  // The overlay add-flow's palette-target candidates: every palette action
+  // except the macro entries themselves (no macro→macro chains).
+  const macroPaletteTargets = useMemo(
+    () =>
+      paletteActions
+        .filter((a) => !isMacroActionId(a.id))
+        .map((a) => ({ id: a.id, label: a.label })),
+    [paletteActions],
   );
 
   // ── keybinding dispatch (260730-g40a) ────────────────────────────────────
@@ -2487,7 +2575,23 @@ function AppShell() {
       navigateToWindow(target.windowId);
     };
     const canCycle = windowParam != null && windows.length > 0;
+    // Macro chords (260730-hbyh): palette targets reuse the palette body via
+    // the same `fromPalette` lookup (an absent action → no handler → the
+    // chord falls through untouched); riff targets are session-gated and run
+    // `executeMacro`. Builtin keys are spread last, so a (theoretical) id
+    // collision resolves builtin-first.
+    const macroHandlers: Record<string, (() => void) | undefined> = {};
+    for (const m of macros) {
+      if (m.target.type === "palette") {
+        macroHandlers[m.actionId] = isMacroActionId(m.target.paletteActionId)
+          ? undefined
+          : fromPalette(m.target.paletteActionId);
+      } else {
+        macroHandlers[m.actionId] = sessionName ? () => executeMacro(m) : undefined;
+      }
+    }
     return {
+      ...macroHandlers,
       "create-session": fromPalette("create-session"),
       "create-window": fromPalette("create-window"),
       "kill-window": fromPalette("kill-window"),
@@ -2498,7 +2602,7 @@ function AppShell() {
       "window-next": canCycle ? () => cycleWindow(1) : undefined,
       "shortcuts-overlay": () => setShowShortcutsOverlay((prev) => !prev),
     };
-  }, [paletteActions, currentSession, windowParam, navigateToWindow]);
+  }, [paletteActions, currentSession, windowParam, navigateToWindow, macros, sessionName, executeMacro]);
   useKeybindingDispatch(keybindingHandlers);
 
   const displayName = currentWindow?.name ?? windowParam ?? "";
@@ -3181,6 +3285,8 @@ function AppShell() {
       <ShortcutsOverlay
         open={showShortcutsOverlay}
         onClose={() => setShowShortcutsOverlay(false)}
+        paletteTargets={macroPaletteTargets}
+        riffPresetNames={riffPresetNames}
       />
     </Shell>
   );

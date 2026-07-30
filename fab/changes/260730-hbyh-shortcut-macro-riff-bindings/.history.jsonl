@@ -1,3 +1,10 @@
 {"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-30T11:20:41Z"}
 {"args":"macro shortcut bindings targeting riff presets / palette actions (follow-up to shortcut registry change)","cmd":"fab-new","event":"command","ts":"2026-07-30T11:20:41Z"}
 {"delta":"+4.1","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-07-30T11:23:56Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-30T12:46:49Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-30T12:47:53Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-30T12:48:44Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-30T13:22:46Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-30T13:37:38Z"}
+{"event":"review","result":"passed","ts":"2026-07-30T13:37:38Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-30T13:43:45Z"}

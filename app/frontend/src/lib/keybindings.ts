@@ -38,9 +38,10 @@ export type BindingTier = "shifted" | "cmd" | "ctrl";
  *  `sidebar` value is schema-reserved (no v1 binding uses it). */
 export type BindingScope = "global" | "terminal" | "board" | "sidebar";
 
-/** `builtin` only in this change; `"macro"` is the reserved schema slot for
- *  change 260730-hbyh (macro riff bindings) — no executor lands here. */
-export type BindingKind = "builtin";
+/** `builtin` = the shipped registry actions; `macro` = user-defined macro
+ *  bindings over riff presets / palette actions (260730-hbyh — model in
+ *  `lib/macros.ts`, executor in `app.tsx`). */
+export type BindingKind = "builtin" | "macro";
 
 /** Keycap rendering platform. `other` = Windows/Linux. */
 export type BindingPlatform = "mac" | "other";
@@ -279,6 +280,12 @@ export function writeStoredOverrides(overrides: BindingOverrides): void {
  * flagged in the overlay until rebound or reset). A shifted combo that is
  * browser-reserved in this host (N/T/W outside the shell) resolves disabled
  * (`reason: "reserved"`) — the action stays palette-reachable.
+ *
+ * KEYLESS defaults (`code: ""` — macro bindings, which ship no default combo;
+ * see `lib/macros.ts` `macroToBinding`) resolve UNBOUND unless an override
+ * supplies a combo: `enabled: false, disabledReason: "user"` — the same state
+ * a steal victim lands in, so the overlay's unbound affordance covers both.
+ * Builtins always carry a code and are unaffected.
  */
 export function resolveBindings(
   defaults: readonly KeyBinding[],
@@ -298,6 +305,9 @@ export function resolveBindings(
       return { ...def, enabled: false, isDefault: false, disabledReason: "user" as const };
     }
     const combo: BindingCombo = override ?? { code: def.code, tier: def.tier };
+    if (combo.code === "") {
+      return { ...def, enabled: false, isDefault: false, disabledReason: "user" as const };
+    }
     const isDefault = combo.code === def.code && combo.tier === def.tier;
     const isReserved = combo.tier === "shifted" && reserved.has(combo.code);
     return {

@@ -102,3 +102,66 @@ describe("useKeybindings", () => {
     expect(result.current.byAction.get("window-next")).toMatchObject({ code: "KeyU" });
   });
 });
+
+describe("useKeybindings macro-awareness (260730-hbyh)", () => {
+  const DISCUSS = {
+    actionId: "macro:discuss",
+    kind: "macro",
+    label: "riff: discuss",
+    target: { type: "riff", preset: "discuss" },
+  };
+
+  it("surfaces a stored macro in the effective map (unbound without a diff)", () => {
+    localStorage.setItem("runkit-macros", JSON.stringify([DISCUSS]));
+    const { result } = renderHook(() => useKeybindings());
+    expect(result.current.byAction.get("macro:discuss")).toMatchObject({
+      kind: "macro",
+      enabled: false,
+      disabledReason: "user",
+    });
+  });
+
+  it("a stored combo diff makes the macro live", () => {
+    localStorage.setItem("runkit-macros", JSON.stringify([DISCUSS]));
+    localStorage.setItem(
+      KEYBINDINGS_STORAGE_KEY,
+      JSON.stringify({ "macro:discuss": { code: "KeyD", tier: "shifted" } }),
+    );
+    const { result } = renderHook(() => useKeybindings());
+    expect(result.current.byAction.get("macro:discuss")).toMatchObject({
+      code: "KeyD",
+      tier: "shifted",
+      enabled: true,
+    });
+  });
+
+  it("capturing a macro-owned combo for a builtin steals from the macro", () => {
+    localStorage.setItem("runkit-macros", JSON.stringify([DISCUSS]));
+    localStorage.setItem(
+      KEYBINDINGS_STORAGE_KEY,
+      JSON.stringify({ "macro:discuss": { code: "KeyD", tier: "shifted" } }),
+    );
+    const { result } = renderHook(() => useKeybindings());
+    let stolen: string | null = null;
+    act(() => {
+      stolen = result.current.setBinding("window-next", { code: "KeyD", tier: "shifted" });
+    });
+    expect(stolen).toBe("macro:discuss");
+    expect(result.current.byAction.get("macro:discuss")).toMatchObject({
+      enabled: false,
+      disabledReason: "user",
+    });
+  });
+
+  it("setBinding binds a macro (stored as an ordinary diff entry)", () => {
+    localStorage.setItem("runkit-macros", JSON.stringify([DISCUSS]));
+    const { result } = renderHook(() => useKeybindings());
+    act(() => {
+      result.current.setBinding("macro:discuss", { code: "KeyD", tier: "shifted" });
+    });
+    expect(JSON.parse(localStorage.getItem(KEYBINDINGS_STORAGE_KEY) ?? "{}")).toEqual({
+      "macro:discuss": { code: "KeyD", tier: "shifted" },
+    });
+    expect(result.current.byAction.get("macro:discuss")).toMatchObject({ enabled: true, code: "KeyD" });
+  });
+});

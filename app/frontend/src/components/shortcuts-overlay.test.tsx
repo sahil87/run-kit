@@ -123,3 +123,123 @@ describe("ShortcutsOverlay", () => {
     expect(onClose).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("ShortcutsOverlay CUSTOM section (260730-hbyh)", () => {
+  const DISCUSS = {
+    actionId: "macro:discuss",
+    kind: "macro",
+    label: "riff: discuss",
+    target: { type: "riff", preset: "discuss" },
+  };
+
+  function renderWithTargets(opts?: {
+    presets?: string[] | null;
+    targets?: { id: string; label: string }[];
+  }) {
+    render(
+      <ShortcutsOverlay
+        open={true}
+        onClose={vi.fn()}
+        paletteTargets={opts?.targets ?? [{ id: "create-window", label: "Window: Create" }]}
+        riffPresetNames={opts?.presets ?? ["discuss"]}
+      />,
+    );
+  }
+
+  it("renders no CUSTOM section when no macros exist and no targets are provided", () => {
+    renderOverlay();
+    expect(screen.queryByTestId("macro-section")).toBeNull();
+  });
+
+  it("renders macro rows with the command preview and an unbound state", () => {
+    localStorage.setItem("runkit-macros", JSON.stringify([DISCUSS]));
+    renderWithTargets();
+    expect(screen.getByText("CUSTOM")).toBeInTheDocument();
+    expect(screen.getByText("riff: discuss")).toBeInTheDocument();
+    expect(screen.getByText("rk riff --preset discuss")).toBeInTheDocument();
+    // No combo diff stored → unbound affordance.
+    expect(screen.getByTitle("unbound — click to bind")).toBeInTheDocument();
+    expect(screen.queryByText("missing preset")).toBeNull();
+  });
+
+  it("shows the missing-preset badge when the preset is absent from the known list", () => {
+    localStorage.setItem(
+      "runkit-macros",
+      JSON.stringify([{ ...DISCUSS, target: { type: "riff", preset: "gone" } }]),
+    );
+    renderWithTargets({ presets: ["discuss"] });
+    expect(screen.getByText("missing preset")).toBeInTheDocument();
+  });
+
+  it("shows no missing-preset badge when the preset list is unknown (null)", () => {
+    localStorage.setItem("runkit-macros", JSON.stringify([DISCUSS]));
+    renderWithTargets({ presets: null });
+    expect(screen.queryByText("missing preset")).toBeNull();
+  });
+
+  it("add flow: pick a target, name it, add — macro persists and capture arms", () => {
+    renderWithTargets();
+    fireEvent.click(screen.getByText("+ bind a key to a palette action or riff preset…"));
+    // Target list offers riff presets + palette actions (macros excluded).
+    fireEvent.change(screen.getByLabelText("Search macro targets"), {
+      target: { value: "discuss" },
+    });
+    fireEvent.click(screen.getByText("riff: discuss"));
+    // Name pre-fills from the picked target; keep it and add.
+    expect(screen.getByLabelText("Macro name")).toHaveValue("riff: discuss");
+    fireEvent.click(screen.getByText("add + capture key"));
+
+    const stored = JSON.parse(localStorage.getItem("runkit-macros") ?? "[]");
+    expect(stored).toEqual([
+      {
+        actionId: "macro:riff-discuss",
+        kind: "macro",
+        label: "riff: discuss",
+        target: { type: "riff", preset: "discuss" },
+      },
+    ]);
+    // Capture armed on the fresh row.
+    expect(screen.getByText("press keys…")).toBeInTheDocument();
+    // Land a chord — the combo persists as an ordinary keybindings diff.
+    fireEvent.keyDown(window, { code: "KeyD", key: "D", shiftKey: true, ctrlKey: true });
+    expect(JSON.parse(localStorage.getItem(KEYBINDINGS_STORAGE_KEY) ?? "{}")).toEqual({
+      "macro:riff-discuss": { code: "KeyD", tier: "shifted" },
+    });
+  });
+
+  it("delete removes the macro definition and its keybindings diff", () => {
+    localStorage.setItem("runkit-macros", JSON.stringify([DISCUSS]));
+    localStorage.setItem(
+      KEYBINDINGS_STORAGE_KEY,
+      JSON.stringify({ "macro:discuss": { code: "KeyD", tier: "shifted" } }),
+    );
+    renderWithTargets();
+    fireEvent.click(screen.getByLabelText("Delete macro riff: discuss"));
+    expect(screen.queryByText("rk riff --preset discuss")).toBeNull();
+    expect(localStorage.getItem("runkit-macros")).toBeNull();
+    expect(localStorage.getItem(KEYBINDINGS_STORAGE_KEY)).toBeNull();
+  });
+
+  it("capturing a builtin's combo for a macro steals it and flags the victim", () => {
+    localStorage.setItem("runkit-macros", JSON.stringify([DISCUSS]));
+    renderWithTargets();
+    fireEvent.click(screen.getByTitle("unbound — click to bind"));
+    fireEvent.keyDown(window, { code: "KeyL", key: "L", shiftKey: true, ctrlKey: true });
+    // Steal warning names the victim; the builtin is now unbound.
+    expect(screen.getByText(/took Shift\+Ctrl\+L from “Next window”/)).toBeInTheDocument();
+    expect(JSON.parse(localStorage.getItem(KEYBINDINGS_STORAGE_KEY) ?? "{}")).toEqual({
+      "macro:discuss": { code: "KeyL", tier: "shifted" },
+      "window-next": null,
+    });
+  });
+
+  it("hides the add row when no paletteTargets prop is provided (board mount)", () => {
+    localStorage.setItem("runkit-macros", JSON.stringify([DISCUSS]));
+    renderOverlay();
+    // Rows still render (view/rebind/delete), but no add flow.
+    expect(screen.getByText("rk riff --preset discuss")).toBeInTheDocument();
+    expect(
+      screen.queryByText("+ bind a key to a palette action or riff preset…"),
+    ).toBeNull();
+  });
+});

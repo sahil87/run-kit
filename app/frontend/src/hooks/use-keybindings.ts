@@ -11,7 +11,10 @@ import {
   type BindingHost,
   type BindingOverrides,
   type EffectiveBinding,
+  type KeyBinding,
 } from "@/lib/keybindings";
+import { macroToBinding, readStoredMacros } from "@/lib/macros";
+import { useMacros } from "@/hooks/use-macros";
 import { isShell } from "@/lib/shell";
 
 /**
@@ -24,6 +27,13 @@ import { isShell } from "@/lib/shell";
  * `use-local-storage-enum.ts` pattern — the native `storage` event fires only
  * across tabs); cross-tab sync rides `storage` for free. All writes funnel
  * through `persist()` so subscribers can never miss an update.
+ *
+ * MACRO-AWARE (260730-hbyh): the effective map resolves over the builtin
+ * defaults PLUS the stored macros (`lib/macros.ts`, projected via
+ * `macroToBinding` — keyless defaults whose combos live solely in the
+ * override diffs). Because macros ride this one map, the dispatcher, palette
+ * hints, the overlay tier-map, the terminal seam, and steal-with-warning all
+ * see them with no consumer changes.
  */
 
 const subscribers = new Set<(overrides: BindingOverrides) => void>();
@@ -62,6 +72,7 @@ export function useKeybindings(): UseKeybindings {
   );
 
   const [overrides, setOverrides] = useState<BindingOverrides>(readStoredOverrides);
+  const { macros } = useMacros();
 
   useEffect(() => {
     const onNotify = (next: BindingOverrides) => setOverrides(next);
@@ -79,9 +90,21 @@ export function useKeybindings(): UseKeybindings {
     };
   }, []);
 
+  // A macro change can carry an override-store side effect (`removeMacro`
+  // drops the deleted macro's diff without a keybinding-store notification) —
+  // re-read override storage so the two stores can never drift in-memory.
+  useEffect(() => {
+    setOverrides(readStoredOverrides());
+  }, [macros]);
+
+  const defaults = useMemo<KeyBinding[]>(
+    () => [...DEFAULT_BINDINGS, ...macros.map(macroToBinding)],
+    [macros],
+  );
+
   const bindings = useMemo(
-    () => resolveBindings(DEFAULT_BINDINGS, overrides, host),
-    [overrides, host],
+    () => resolveBindings(defaults, overrides, host),
+    [defaults, overrides, host],
   );
 
   const byAction = useMemo(
@@ -91,11 +114,19 @@ export function useKeybindings(): UseKeybindings {
 
   const setBinding = useCallback(
     (actionId: string, combo: BindingCombo): string | null => {
-      // Compute against the CURRENT stored diffs (not the possibly-stale
-      // render snapshot) so rapid successive captures compose correctly.
+      // Compute against the CURRENT stored diffs AND macros (not the possibly-
+      // stale render snapshot) so rapid successive captures compose correctly
+      // and macro-owned combos are steal-detected.
       const current = readStoredOverrides();
-      const effective = resolveBindings(DEFAULT_BINDINGS, current, host);
-      const { overrides: next, stolenFrom } = applyCapture(effective, current, actionId, combo);
+      const freshDefaults = [...DEFAULT_BINDINGS, ...readStoredMacros().map(macroToBinding)];
+      const effective = resolveBindings(freshDefaults, current, host);
+      const { overrides: next, stolenFrom } = applyCapture(
+        effective,
+        current,
+        actionId,
+        combo,
+        freshDefaults,
+      );
       persist(next);
       return stolenFrom;
     },

@@ -57,6 +57,21 @@ export interface MenuCallbacks {
   onAddServer: () => void;
   onRenameServer: (id: string) => void;
   onRemoveServer: (id: string) => void;
+  /** Local Daemon submenu — starts the daemon when stopped, then connects. */
+  onDaemonConnect: () => void;
+  onDaemonRestart: () => void;
+  onDaemonStop: () => void;
+}
+
+/**
+ * Menu-relevant local-daemon state (cached in main, refreshed by detection).
+ * `null` hides the submenu entirely — rk not installed, win32, or not yet
+ * probed.
+ */
+export interface DaemonMenuInfo {
+  running: boolean;
+  /** Bare version from `rk --version` (no leading "v"); null when unparseable. */
+  version: string | null;
 }
 
 const MAX_SWITCHER_ACCELERATORS = 9;
@@ -159,10 +174,37 @@ function viewMenu(): MenuItemConstructorOptions {
   };
 }
 
+/**
+ * "Local Daemon" submenu — the persistent post-connect control surface for
+ * the machine's own daemon (the welcome page's "This Mac" section covers
+ * pre-connect). Every item is accelerator-less by design (like Rename/
+ * Remove) — the keyboard-tier seam is untouched. Connect shares the same
+ * main-side start-and-connect flow as the welcome card; Restart/Stop are
+ * disabled while the daemon is stopped.
+ */
+function localDaemonSubmenu(
+  daemon: DaemonMenuInfo,
+  callbacks: MenuCallbacks,
+): MenuItemConstructorOptions {
+  const versionSuffix = daemon.version !== null ? ` · v${daemon.version}` : "";
+  const statusLabel = daemon.running ? `● running${versionSuffix}` : `○ stopped${versionSuffix}`;
+  return {
+    label: "Local Daemon",
+    submenu: [
+      { label: statusLabel, enabled: false },
+      separator,
+      { label: "Connect", click: () => callbacks.onDaemonConnect() },
+      { label: "Restart", enabled: daemon.running, click: () => callbacks.onDaemonRestart() },
+      { label: "Stop", enabled: daemon.running, click: () => callbacks.onDaemonStop() },
+    ],
+  };
+}
+
 function serversMenu(
   servers: ServerEntry[],
   activeId: string | null,
   callbacks: MenuCallbacks,
+  daemon: DaemonMenuInfo | null,
 ): MenuItemConstructorOptions {
   const switcherItems: MenuItemConstructorOptions[] = servers.map((server, index) => ({
     label: server.name,
@@ -194,6 +236,8 @@ function serversMenu(
       { label: "Add Server…", click: () => callbacks.onAddServer() },
       ...renameItems,
       ...removeItems,
+      // Hidden when rk is not installed (and on win32) — daemon is null then.
+      ...(daemon !== null ? [separator, localDaemonSubmenu(daemon, callbacks)] : []),
     ],
   };
 }
@@ -215,17 +259,22 @@ function macWindowMenu(): MenuItemConstructorOptions {
   };
 }
 
-/** Build the full application menu; call again (and re-set) on every server-list change. */
+/**
+ * Build the full application menu; call again (and re-set) on every
+ * server-list change and whenever the cached daemon state changes.
+ * `daemon` null hides the Local Daemon submenu (not installed / win32).
+ */
 export function buildMenu(
   servers: ServerEntry[],
   activeId: string | null,
   callbacks: MenuCallbacks,
+  daemon: DaemonMenuInfo | null,
 ): Menu {
   const template: MenuItemConstructorOptions[] = [
     isMac ? macAppMenu() : fileMenu(),
     ...(isMac ? [macEditMenu()] : []),
     viewMenu(),
-    serversMenu(servers, activeId, callbacks),
+    serversMenu(servers, activeId, callbacks, daemon),
     ...(isMac ? [macWindowMenu()] : []),
   ];
 

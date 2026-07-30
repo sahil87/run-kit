@@ -102,12 +102,102 @@
         text-align: center;
         color: #9ca3af;
       }
+      /* ── "This Mac" local-daemon section ─────────────────────────────── */
+      section#local h2 {
+        margin: 0 0 10px;
+        color: #9ca3af;
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+      .local-status {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .dot {
+        flex: none;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #4b5563; /* stopped: grey */
+      }
+      .dot.running {
+        background: #34d399; /* green */
+      }
+      .dot.starting {
+        background: #fbbf24; /* amber */
+      }
+      p.local-detail {
+        margin: 6px 0 0;
+        color: #9ca3af;
+        font-size: 12px;
+      }
+      code {
+        color: #e5e7eb;
+        background: #0f1117;
+        border: 1px solid #2d3340;
+        border-radius: 4px;
+        padding: 1px 5px;
+      }
+      .local-actions {
+        display: flex;
+        gap: 8px;
+      }
+      .local-actions button {
+        margin-top: 16px;
+      }
+      button.ghost {
+        border-color: #2d3340;
+        color: #9ca3af;
+      }
+      button.ghost:hover:not(:disabled) {
+        background: #2d3340;
+        color: #e5e7eb;
+      }
+      .divider {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin: 24px 0 0;
+        color: #6b7280;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+      .divider::before,
+      .divider::after {
+        content: "";
+        flex: 1;
+        border-top: 1px solid #262b36;
+      }
     </style>
   </head>
   <body>
     <main class="card">
       <h1>run-kit</h1>
       <p id="tagline" class="tagline">Connect to a running <span>rk serve</span> instance.</p>
+      <!-- "This Mac" local-daemon section — hidden until the shell reports a
+           darwin/linux platform (suppressed on win32 and in rename mode);
+           states are driven by daemon:status polling in welcome.js. -->
+      <section id="local" hidden>
+        <h2 id="local-heading">This Mac</h2>
+        <div class="local-status" id="local-status-row">
+          <span id="local-dot" class="dot"></span>
+          <span id="local-status">checking…</span>
+        </div>
+        <p id="local-detail" class="local-detail"></p>
+        <p id="local-hint" class="local-detail" hidden>
+          Serve from this machine: <code>brew install sahil87/tap/run-kit</code>
+        </p>
+        <div class="local-actions">
+          <button id="local-connect" type="button" hidden>Connect</button>
+          <button id="local-stop" type="button" class="ghost" hidden>Stop</button>
+        </div>
+        <p id="local-error" hidden class="error"></p>
+        <div class="divider">or a remote server</div>
+      </section>
       <form id="connect-form">
         <label for="url" id="url-label">Server URL</label>
         <input
@@ -118,8 +208,10 @@
           spellcheck="false"
           autocomplete="off"
         />
-        <label for="name">Display name <span class="hint">(optional — pre-filled from the server)</span></label>
-        <input id="name" type="text" placeholder="studio-mac" spellcheck="false" autocomplete="off" />
+        <!-- Display name is rename-mode only: the connect flow auto-derives
+             the name from the health ping's hostname (origin fallback). -->
+        <label for="name" id="name-label" hidden>Display name</label>
+        <input id="name" type="text" placeholder="studio-mac" spellcheck="false" autocomplete="off" hidden />
         <p id="error" hidden class="error"></p>
         <button id="connect" type="submit">Connect</button>
         <a id="cancel" href="#" hidden>Cancel</a>

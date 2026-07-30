@@ -14,6 +14,10 @@
  *     every `welcome:*` handler in main.ts verifies `event.senderFrame.url`
  *     against the welcome file:// URL, so server-loaded pages calling these
  *     get a rejection, never a privileged action.
+ *   - `__daemon`: local-daemon invokers (status/start/stop) for the welcome
+ *     page's "This Mac" section — gated exactly like `__welcome` (main-side
+ *     sender-frame check on every `daemon:*` handler). Every daemon action
+ *     is explicit and user-initiated; the shell never auto-starts anything.
  *
  * The shell version arrives via `additionalArguments` (sandboxed preloads
  * read `process.argv`), keeping `app.getVersion()` out of renderer reach.
@@ -42,5 +46,10 @@ contextBridge.exposeInMainWorld("runkitShell", {
     renameServer: (id: string, name: string): Promise<unknown> =>
       ipcRenderer.invoke("welcome:rename-server", { id, name }),
     cancel: (): Promise<unknown> => ipcRenderer.invoke("welcome:cancel"),
+  },
+  __daemon: {
+    status: (): Promise<unknown> => ipcRenderer.invoke("daemon:status"),
+    start: (): Promise<unknown> => ipcRenderer.invoke("daemon:start"),
+    stop: (): Promise<unknown> => ipcRenderer.invoke("daemon:stop"),
   },
 });

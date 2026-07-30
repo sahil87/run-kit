@@ -1,10 +1,13 @@
 /**
- * Main process — lifecycle, BrowserWindow, security wiring, IPC, and the
- * welcome.html ↔ active-server-URL routing.
+ * Main process — lifecycle, BrowserWindow, security wiring, IPC, the
+ * welcome.html ↔ active-server-URL routing, and local-daemon control.
  *
- * This shell is a VIEWER ONLY (Constitution VI): it loads an existing
- * `rk serve` URL and NEVER spawns or supervises the rk daemon — no
- * child_process anywhere in this package.
+ * This shell is a VIEWER (Constitution VI): it loads an existing `rk serve`
+ * URL and NEVER spawns or supervises the rk daemon on its own initiative.
+ * child_process is used ONLY for explicit user-initiated `rk daemon` actions
+ * (start/stop/restart via the welcome card or the Local Daemon menu) and
+ * read-only detection (`rk url`, `rk --version`) — there is no auto-start
+ * anywhere; the tmux/server layer stays independent of this process.
  *
  * Dev override: `RK_DESKTOP_URL=http://localhost:3000 just dev-desktop`
  * loads that URL directly without persisting it to servers.json.
@@ -20,9 +23,21 @@ import {
   session,
   shell,
 } from "electron";
+import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
-import { buildMenu } from "./menu";
+import { promisify } from "node:util";
+import {
+  DaemonStatus,
+  isDaemonAlreadyRunning,
+  parseRkVersion,
+  parseSessionCount,
+  resolveRkBinary,
+  rkCandidatePaths,
+} from "./local-daemon";
+import { buildMenu, DaemonMenuInfo, MenuCallbacks } from "./menu";
 import { isHttpUrl, windowOpenAction } from "./window-open";
 import {
   addServer,
@@ -41,6 +56,13 @@ import {
 const WELCOME_PATH = join(__dirname, "welcome", "welcome.html");
 const WELCOME_URL = pathToFileURL(WELCOME_PATH).toString();
 const HEALTH_TIMEOUT_MS = 5000;
+/** Read-only rk queries (`rk url`, `rk --version`) — quick, config-derived. */
+const RK_QUERY_TIMEOUT_MS = 5000;
+/** Daemon lifecycle commands (`rk daemon start/stop/restart`) — tmux work. */
+const RK_DAEMON_TIMEOUT_MS = 30_000;
+/** Cadence + cap for the post-start "waiting for the port to answer" poll. */
+const DAEMON_START_POLL_MS = 1000;
+const DAEMON_START_WAIT_MS = 30_000;
 const ALLOWED_PERMISSIONS = new Set([
   "clipboard-read",
   "clipboard-sanitized-write",
@@ -62,6 +84,10 @@ type IpcResult = { ok: true } | { ok: false; error: string };
 
 type ServersListResult =
   | { ok: true; servers: ServerInfo[] }
+  | { ok: false; error: string };
+
+type DaemonStatusResult =
+  | { ok: true; status: DaemonStatus }
   | { ok: false; error: string };
 
 // ─── URL helpers ────────────────────────────────────────────────────────────
@@ -159,34 +185,45 @@ function switchToServer(id: string): IpcResult {
 
 function rebuildMenu(): void {
   const list = loadServers(userDataDir());
-  Menu.setApplicationMenu(
-    buildMenu(list.servers, list.activeId, {
-      onSwitchServer: (id) => {
-        switchToServer(id);
-      },
-      onAddServer: () => {
-        if (!mainWindow) return;
-        captureLastPath();
-        showWelcome(mainWindow, { mode: "add" });
-      },
-      onRenameServer: (id) => {
-        if (!mainWindow) return;
-        const entry = loadServers(userDataDir()).servers.find((s) => s.id === id);
-        if (!entry) return;
-        captureLastPath();
-        // Prefill context rides the query string — main-supplied, store-derived.
-        showWelcome(mainWindow, {
-          mode: "rename",
-          id: entry.id,
-          name: entry.name,
-          url: entry.url,
-        });
-      },
-      onRemoveServer: (id) => {
-        void confirmAndRemoveServer(id);
-      },
-    }),
-  );
+  const callbacks: MenuCallbacks = {
+    onSwitchServer: (id) => {
+      switchToServer(id);
+    },
+    onAddServer: () => {
+      if (!mainWindow) return;
+      captureLastPath();
+      showWelcome(mainWindow, { mode: "add" });
+    },
+    onRenameServer: (id) => {
+      if (!mainWindow) return;
+      const entry = loadServers(userDataDir()).servers.find((s) => s.id === id);
+      if (!entry) return;
+      captureLastPath();
+      // Prefill context rides the query string — main-supplied, store-derived.
+      showWelcome(mainWindow, {
+        mode: "rename",
+        id: entry.id,
+        name: entry.name,
+        url: entry.url,
+      });
+    },
+    onRemoveServer: (id) => {
+      void confirmAndRemoveServer(id);
+    },
+    onDaemonConnect: () => {
+      void (async () => {
+        const result = await startAndConnectLocal();
+        if (!result.ok) dialog.showErrorBox("Local Daemon", result.error);
+      })();
+    },
+    onDaemonRestart: () => {
+      void restartLocalDaemon();
+    },
+    onDaemonStop: () => {
+      void confirmAndStopDaemon();
+    },
+  };
+  Menu.setApplicationMenu(buildMenu(list.servers, list.activeId, callbacks, daemonMenuInfo));
 }
 
 async function confirmAndRemoveServer(id: string): Promise<void> {
@@ -245,6 +282,218 @@ async function pingServer(origin: string): Promise<PingResult> {
     return { ok: false, error: 'Health response missing status "ok" — is this an rk server?' };
   }
   return { ok: true, origin, hostname: health.hostname };
+}
+
+// ─── Local daemon control (explicit user-initiated actions only) ───────────
+//
+// Detection derives, never assumes: the local origin comes from `rk url`
+// (config-derived), health is checked with the SAME `pingServer` probe the
+// remote form uses, and a missing binary (ENOENT) is the not-installed state.
+// Every subprocess call is execFile with an argument slice and a timeout —
+// never a shell string (Constitution I applies to the Node side too).
+
+const execFileAsync = promisify(execFile);
+
+type RkRunResult =
+  | { ok: true; stdout: string }
+  | { ok: false; error: string; notInstalled: boolean };
+
+/** Resolve the rk binary: fixed candidates first (GUI PATH trap), then PATH. */
+function rkBinary(): string {
+  return resolveRkBinary(rkCandidatePaths(process.platform), existsSync);
+}
+
+/** Extract a useful message from an execFile rejection (stderr wins). */
+function execErrorMessage(err: unknown): string {
+  if (typeof err === "object" && err !== null) {
+    if ("stderr" in err && typeof err.stderr === "string" && err.stderr.trim() !== "") {
+      return err.stderr.trim();
+    }
+    if ("message" in err && typeof err.message === "string") return err.message;
+  }
+  return "rk invocation failed";
+}
+
+function isEnoent(err: unknown): boolean {
+  return typeof err === "object" && err !== null && "code" in err && err.code === "ENOENT";
+}
+
+async function runRk(args: string[], timeout: number): Promise<RkRunResult> {
+  try {
+    const { stdout } = await execFileAsync(rkBinary(), args, { timeout });
+    return { ok: true, stdout };
+  } catch (err) {
+    return { ok: false, error: execErrorMessage(err), notInstalled: isEnoent(err) };
+  }
+}
+
+/** Session count for the running detail line — decoration, so any failure is null. */
+async function fetchSessionCount(origin: string): Promise<number | null> {
+  try {
+    const res = await net.fetch(`${origin}/api/sessions`, {
+      signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS),
+    });
+    if (!res.ok) return null;
+    return parseSessionCount(await res.json());
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Derive the local daemon state: `rk --version` (existence + version) →
+ * `rk url` (config-derived origin) → health ping (running?) → session count.
+ * Also feeds the menu's cached status (rebuilt only on change).
+ */
+async function probeDaemonStatus(): Promise<DaemonStatusResult> {
+  const result = await probeDaemonStatusUncached();
+  if (result.ok) updateDaemonMenu(result.status);
+  return result;
+}
+
+async function probeDaemonStatusUncached(): Promise<DaemonStatusResult> {
+  if (process.platform === "win32") return { ok: true, status: { installed: false } };
+  const versionRun = await runRk(["--version"], RK_QUERY_TIMEOUT_MS);
+  if (!versionRun.ok) {
+    if (versionRun.notInstalled) return { ok: true, status: { installed: false } };
+    return { ok: false, error: versionRun.error };
+  }
+  const version = parseRkVersion(versionRun.stdout);
+  const urlRun = await runRk(["url"], RK_QUERY_TIMEOUT_MS);
+  if (!urlRun.ok) return { ok: false, error: urlRun.error };
+  const normalized = normalizeOrigin(urlRun.stdout.trim());
+  if (!normalized.ok) {
+    return { ok: false, error: `rk url printed "${urlRun.stdout.trim()}" — not a valid URL` };
+  }
+  const origin = normalized.origin;
+  const ping = await pingServer(origin);
+  if (!ping.ok) {
+    return { ok: true, status: { installed: true, running: false, version, origin } };
+  }
+  const sessions = await fetchSessionCount(origin);
+  return {
+    ok: true,
+    status: { installed: true, running: true, version, origin, hostname: ping.hostname, sessions },
+  };
+}
+
+/** Poll `/api/health` until it answers or the start-wait cap elapses. */
+async function waitForHealth(origin: string): Promise<PingResult> {
+  const deadline = Date.now() + DAEMON_START_WAIT_MS;
+  for (;;) {
+    const ping = await pingServer(origin);
+    if (ping.ok) return ping;
+    if (Date.now() >= deadline) {
+      return {
+        ok: false,
+        error: `Daemon started but ${origin} did not answer within ${DAEMON_START_WAIT_MS / 1000}s`,
+      };
+    }
+    await delay(DAEMON_START_POLL_MS);
+  }
+}
+
+/**
+ * Activate-or-add the local server — the connect tail shared by the card and
+ * the menu. An existing entry for the origin is activated (never duplicated,
+ * `addServer` does not dedupe); otherwise the existing add-server path runs
+ * with the name auto-derived from the ping hostname (origin fallback in the
+ * store).
+ */
+function connectLocalServer(origin: string, hostname: string): IpcResult {
+  const existing = findServerByOrigin(loadServers(userDataDir()), origin);
+  if (existing) return switchToServer(existing.id);
+  captureLastPath();
+  const added = addServer(userDataDir(), hostname, origin);
+  if (!added.ok) return added;
+  rebuildMenu();
+  if (mainWindow) void mainWindow.loadURL(added.server.url);
+  return { ok: true };
+}
+
+/**
+ * The ONE get-in flow (`daemon:start` + the menu's Connect): start the daemon
+ * when stopped (a `daemon already running` error is already-started success),
+ * wait for health, then connect. Never runs without an explicit user action.
+ */
+async function startAndConnectLocal(): Promise<IpcResult> {
+  const probe = await probeDaemonStatus();
+  if (!probe.ok) return probe;
+  const status = probe.status;
+  if (!status.installed) return { ok: false, error: "run-kit is not installed" };
+  let hostname: string;
+  if (status.running) {
+    hostname = status.hostname;
+  } else {
+    const started = await runRk(["daemon", "start"], RK_DAEMON_TIMEOUT_MS);
+    if (!started.ok && !isDaemonAlreadyRunning(started.error)) {
+      return { ok: false, error: started.error };
+    }
+    const ping = await waitForHealth(status.origin);
+    if (!ping.ok) {
+      void refreshDaemonMenu();
+      return ping;
+    }
+    hostname = ping.hostname;
+  }
+  const connected = connectLocalServer(status.origin, hostname);
+  void refreshDaemonMenu();
+  return connected;
+}
+
+/**
+ * Confirm-then-stop — ONE path shared by the welcome card's Stop button and
+ * the Local Daemon menu item. Cancel is the default (the Remove-server
+ * precedent); the copy states that tmux sessions survive (Constitution VI —
+ * the tmux layer is independent of the server, so stop is low-stakes).
+ */
+async function confirmAndStopDaemon(): Promise<IpcResult> {
+  const win = mainWindow;
+  if (!win) return { ok: false, error: "No window" };
+  const { response } = await dialog.showMessageBox(win, {
+    type: "question",
+    buttons: ["Stop Daemon", "Cancel"],
+    defaultId: 1,
+    cancelId: 1,
+    message: "Stop the local run-kit daemon?",
+    detail:
+      "Only the web server stops — tmux sessions and running agents survive and reattach when the daemon starts again.",
+  });
+  if (response !== 0) return { ok: true };
+  const stopped = await runRk(["daemon", "stop"], RK_DAEMON_TIMEOUT_MS);
+  await refreshDaemonMenu();
+  if (!stopped.ok) return { ok: false, error: stopped.error };
+  return { ok: true };
+}
+
+/** Menu Restart → `rk daemon restart` (the existing command; no stop+start composition). */
+async function restartLocalDaemon(): Promise<void> {
+  const restarted = await runRk(["daemon", "restart"], RK_DAEMON_TIMEOUT_MS);
+  await refreshDaemonMenu();
+  if (!restarted.ok) dialog.showErrorBox("Local Daemon", restarted.error);
+}
+
+// Cached menu-relevant daemon info. Application menus have no reliable
+// about-to-open event, so the cache refreshes on startup, window focus,
+// after daemon actions, and via the welcome page's status polls — and the
+// menu is rebuilt only when the relevant info actually changes.
+let daemonMenuInfo: DaemonMenuInfo | null = null;
+
+function toDaemonMenuInfo(status: DaemonStatus): DaemonMenuInfo | null {
+  if (!status.installed) return null;
+  return { running: status.running, version: status.version };
+}
+
+function updateDaemonMenu(status: DaemonStatus): void {
+  const next = toDaemonMenuInfo(status);
+  if (JSON.stringify(next) === JSON.stringify(daemonMenuInfo)) return;
+  daemonMenuInfo = next;
+  rebuildMenu();
+}
+
+/** Re-probe and rebuild the menu when the daemon state changed. */
+async function refreshDaemonMenu(): Promise<void> {
+  await probeDaemonStatus(); // updateDaemonMenu runs inside on success
 }
 
 // ─── IPC (sender-frame gated) ───────────────────────────────────────────────
@@ -325,6 +574,23 @@ function registerIpcHandlers(): void {
     return { ok: true };
   });
 
+  // daemon:* — welcome-page-only surface (the menu calls the same functions
+  // main-side). Every action is user-initiated; there is no auto-start.
+  ipcMain.handle("daemon:status", async (event): Promise<DaemonStatusResult> => {
+    if (!isWelcomeSender(event)) return { ok: false, error: "Not allowed" };
+    return probeDaemonStatus();
+  });
+
+  ipcMain.handle("daemon:start", async (event): Promise<IpcResult> => {
+    if (!isWelcomeSender(event)) return { ok: false, error: "Not allowed" };
+    return startAndConnectLocal();
+  });
+
+  ipcMain.handle("daemon:stop", async (event): Promise<IpcResult> => {
+    if (!isWelcomeSender(event)) return { ok: false, error: "Not allowed" };
+    return confirmAndStopDaemon();
+  });
+
   ipcMain.handle("servers:list", (event): ServersListResult => {
     if (!isServersSender(event)) return { ok: false, error: "Not allowed" };
     return { ok: true, servers: serverInfos(loadServers(userDataDir())) };
@@ -399,6 +665,13 @@ void app.whenReady().then(() => {
   registerIpcHandlers();
   rebuildMenu();
   openMainWindow();
+
+  // Seed the Local Daemon menu state (read-only detection — never a start),
+  // and keep it fresh on focus; the welcome page's polls also feed the cache.
+  void refreshDaemonMenu();
+  app.on("browser-window-focus", () => {
+    void refreshDaemonMenu();
+  });
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) openMainWindow();

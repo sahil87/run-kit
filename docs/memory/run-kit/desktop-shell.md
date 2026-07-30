@@ -1,12 +1,12 @@
 ---
-description: "The app/desktop Electron viewer shell — a BrowserWindow client of an rk serve URL that never spawns the daemon. Covers the servers.json store, welcome flow, last-path restore, the two-tier CmdOrCtrl menu seam per platform (page tier never shell-bound, partly spent by the SPA on mac; shifted tier split — shell digits 1–9 + R/I, SPA letters/punctuation), the sender-gated runkitShell bridge + isShell(), security wiring, mac/win/linux packaging + releases, `rk desktop install`/`update`."
+description: "The app/desktop Electron viewer shell — a BrowserWindow client of an rk serve URL that never auto-starts the daemon (child_process only for user-initiated rk daemon actions + read-only detection). Covers the servers.json store, welcome flow + 'This Mac' local section, local-daemon control + Local Daemon menu submenu, last-path restore, the menu tier seam (page tier never shell-bound, partly SPA-spent on mac; shifted split), the runkitShell bridge (welcome/daemon/servers), security wiring, packaging."
 type: memory
 ---
 # Desktop Viewer Shell (`app/desktop`)
 
 `app/desktop` is an Electron **viewer shell**: a BrowserWindow that loads an existing `rk serve` URL directly — the Slack "enter your workspace URL" model. It exists to remove the browser keyboard ceiling: the `⌘+letter` / `⌘1–9` tier is browser-reserved and can never reach a web page, which caps a keyboard-first product (Constitution V). Inside the shell, every key the shell does not claim reaches the SPA. Loading the server's own HTTP origin needs zero SPA changes for basic function because the SPA is 100% origin-relative (bare `fetch("/api/…")`, WS URLs built from `window.location`).
 
-The shell is a **client only** (Constitution VI): it never spawns or supervises the rk daemon — no `child_process` import exists anywhere in the package. The tmux/server layer stays fully independent of any desktop process.
+The shell is a **viewer** (Constitution VI): it never spawns or supervises the rk daemon **on its own initiative** — there is no auto-start path anywhere. `child_process` is used for exactly two things: **explicit user-initiated `rk daemon` actions** (start / stop / restart, reachable only from the welcome card's buttons or the Local Daemon menu items) and **read-only detection** (`rk url`, `rk --version`). Nothing schedules, supervises, or restarts the daemon; the tmux/server layer stays fully independent of any desktop process, which is why stopping the daemon is a low-stakes action (§ Local Daemon Control).
 
 ## Package Shape
 
@@ -20,19 +20,21 @@ app/desktop/
 ├── electron-builder.yml
 ├── build/icon.png          # committed 1024px raster (see § Packaging)
 └── src/
-    ├── main.ts             # lifecycle, BrowserWindow, security wiring, IPC, welcome ↔ server routing, last-path capture
+    ├── main.ts             # lifecycle, BrowserWindow, security wiring, IPC, welcome ↔ server routing, last-path capture, local-daemon control
     ├── servers.ts          # servers.json store (electron-free, directory-parameterized)
     ├── servers.test.ts     # node:test suite over the compiled store
     ├── window-open.ts      # new-window policy (electron-free): isHttpUrl + windowOpenAction
     ├── window-open.test.ts # node:test suite over the compiled policy
-    ├── menu.ts             # buildMenu(servers, activeId, callbacks) — the per-platform keyboard-tier seam
+    ├── local-daemon.ts     # local-daemon pure logic (electron-free): rk binary candidates, version/session parsing, already-running classification, DaemonStatus
+    ├── local-daemon.test.ts# node:test suite over the compiled pure logic
+    ├── menu.ts             # buildMenu(servers, activeId, callbacks, daemon) — the per-platform keyboard-tier seam + Local Daemon submenu
     ├── preload.ts          # contextBridge: window.runkitShell
     └── welcome/
         ├── welcome.html    # static first-run / add-server / rename page (CSP: default-src 'none')
         └── welcome.ts      # renderer script — structural bridge narrowing, no imports
 ```
 
-Package tests run via `node --test "dist/**/*.test.js"` after compile — the store and window-open-policy modules are electron-free precisely so Node's built-in runner covers them without adding a test dependency. Compiled test files are excluded from packaging (`files: ["dist/**", "!dist/**/*.test.js"]`).
+Package tests run via `node --test "dist/**/*.test.js"` after compile — the store, window-open-policy, and local-daemon modules are electron-free precisely so Node's built-in runner covers them without adding a test dependency. Compiled test files are excluded from packaging (`files: ["dist/**", "!dist/**/*.test.js"]`).
 
 ## Server-List Store (`src/servers.ts`)
 
@@ -62,17 +64,54 @@ Package tests run via `node --test "dist/**/*.test.js"` after compile — the st
 
 On `app.whenReady()`: empty list → `loadFile(welcome.html)`; else `showActive` loads `resolveActiveServer(...).url + (lastPath ?? "")` — cold-start reopens the route the user left, and an entry with no `lastPath` loads the bare origin. The dev override `RK_DESKTOP_URL` (see § Dev & Build Entrypoints) short-circuits routing entirely and is never persisted; its normalized origin also joins the allowed-navigation set. `window-all-closed` quits except on macOS; `activate` reopens the window.
 
-The welcome page (static HTML + compiled script, CSP `default-src 'none'; script-src 'self'; style-src 'unsafe-inline'`) implements **validate → test ping → add+switch**:
+The welcome page (static HTML + compiled script, CSP `default-src 'none'; script-src 'self'; style-src 'unsafe-inline'`) carries two connect paths — the local "This Mac" section (§ Welcome "This Mac" Local Section) above an "or a remote server" divider, then the remote form, which implements **validate → test ping → add+switch**:
 
-1. Connect submits the URL to IPC `welcome:test-server`; the **main process** pings `net.fetch(origin + "/api/health", { signal: AbortSignal.timeout(5000) })` — the renderer stays sandboxed and does no cross-origin fetch. Success requires HTTP 200 with body `status === "ok"` (`app/backend/api/health.go`); the returned `hostname` pre-fills the display-name field when it is empty. Failures (timeout, network error, non-200, non-JSON, wrong body) return a structured `{ ok: false, error }` rendered inline; nothing is persisted on failure.
-2. `welcome:add-server {name, url}` persists, sets active, rebuilds the menu, and `loadURL`s the new server.
+1. Connect submits the URL to IPC `welcome:test-server`; the **main process** pings `net.fetch(origin + "/api/health", { signal: AbortSignal.timeout(5000) })` — the renderer stays sandboxed and does no cross-origin fetch. Success requires HTTP 200 with body `status === "ok"` (`app/backend/api/health.go`). Failures (timeout, network error, non-200, non-JSON, wrong body) return a structured `{ ok: false, error }` rendered inline; nothing is persisted on failure.
+2. `welcome:add-server {name, url}` persists, sets active, rebuilds the menu, and `loadURL`s the new server. The connect form carries **no Display-name input**: the name is the ping's returned `hostname`, passed straight through (`addServer`'s existing empty-name rule falls back to the origin). The `#name` label + input stay in the markup `hidden` by default — rename mode reuses those same elements, so the `hidden` default is not dead markup.
 3. `?mode=add` (menu `Servers → Add Server…`) shows a cancel link → `welcome:cancel` returns to the active server.
 
-The page doubles as the **rename affordance** under `?mode=rename&id=<id>&name=<current>&url=<origin>` — Electron has no native text-input dialog, so the rename form reuses this card rather than adding a dialog window. Main supplies the prefill context on the `loadFile` query string (store-derived, `URLSearchParams`-encoded; both page sinks are `textContent`/`input.value`), so no read IPC exists. In rename mode the page hides the Server URL label + input, shows the origin in the tagline, pre-fills and focuses the name input, labels the submit button `Rename`, and shows the same cancel link as `?mode=add`. Submit invokes `welcome:rename-server {id, name}` with **no health ping** (the origin is unchanged); on success main persists via `renameServer`, rebuilds the menu, and returns the window to the active server through `showActive` (restoring its `lastPath`).
+The page doubles as the **rename affordance** under `?mode=rename&id=<id>&name=<current>&url=<origin>` — Electron has no native text-input dialog, so the rename form reuses this card rather than adding a dialog window. Main supplies the prefill context on the `loadFile` query string (store-derived, `URLSearchParams`-encoded; both page sinks are `textContent`/`input.value`), so no read IPC exists. In rename mode the page hides the Server URL label + input, shows the origin in the tagline, **reveals** the name label + input, pre-fills and focuses it, labels the submit button `Rename`, and shows the same cancel link as `?mode=add`. Rename mode also suppresses the local section and its polling entirely. Submit invokes `welcome:rename-server {id, name}` with **no health ping** (the origin is unchanged); on success main persists via `renameServer`, rebuilds the menu, and returns the window to the active server through `showActive` (restoring its `lastPath`).
 
 Post-first-run management lives in the menu: `Servers → Add Server…` reloads welcome with `?mode=add`; `Servers → Rename "<name>"…` (one accelerator-less item per server, between Add and the Remove items) reloads welcome with `?mode=rename`; `Servers → Remove "<name>"…` opens a native confirm dialog (Cancel is the default), and removing the active server switches to the first remaining server or welcome. Opened outside the shell, the welcome page degrades to an inline "bridge unavailable" error with the Connect button disabled.
 
 **The `hidden` attribute is authoritative on this page**: the style block carries `[hidden] { display: none !important; }`, because the author rules `label { display: block }` and `a#cancel { display: block }` are more specific than the UA sheet's `[hidden] { display: none }` and would otherwise keep a `hidden` element painted. JS-driven visibility is unaffected — clearing `hidden` removes the attribute, so the author `display` re-applies.
+
+## Welcome "This Mac" Local Section (`src/welcome/welcome.*`)
+
+The fastest first-run path on the machine that actually runs run-kit: a detection-driven local-server section **above** the remote form, separated by an "or a remote server" divider. The page shape is stable across all states, and the visual language matches the card (dark, monospace, `#34d399` accent, ghost secondary button).
+
+Four normative states, driven entirely by `daemon:status` (§ Local Daemon Control):
+
+| State | Dot | Status line | Detail line | Buttons |
+|-------|-----|-------------|-------------|---------|
+| **running** | green (`#34d399`) | `running · v{X}` | `{host}:{port} · N sessions` | **Connect** (accent) + **Stop** (ghost) |
+| **stopped** | grey | `stopped` | `` rk v{X} installed · runs `rk daemon start` `` | single accent **Start & connect** |
+| **starting…** | amber | `starting…` | `waiting for {host}:{port} to answer` | both disabled |
+| **not installed** | — | *(status row hidden)* | section collapses to `brew install sahil87/tap/run-kit` | none |
+
+**"Start & connect" is deliberately ONE button** — the intent behind starting a daemon is always to get in, so a separate start-then-connect pair would be two clicks for one intention. The running-state Connect is the same button in its other label; both invoke the one `daemon:start` channel. An unparseable version omits the `· v{X}` fragment rather than erroring (it is cosmetic), and a missing session count degrades the running detail to the bare `{host}:{port}`.
+
+**Polling** is 3s (`LOCAL_STATUS_POLL_MS`) via `window.setInterval`, so the interval dies with the page — no SSE exists for a server that may be down, so there is nothing to subscribe to. Two flags keep it honest: an `inFlight` guard prevents request pileup, and a `busy` flag held across a start/stop flow **suspends repainting** so a poll landing mid-start cannot clobber the transient starting… render. A failed or malformed probe keeps the previous rendering rather than flashing an error state.
+
+**Platform conditioning** is a render-time decision in `welcome.ts`, read from the bridge's `platform`: `darwin` → heading "This Mac", `linux` → "This Machine", anything else (`win32`) → the section, its divider, and its polling are absent entirely — `rk daemon`/tmux is not a Windows concept, so a brew hint there would mislead. The heading mapping lives inline in `welcome.ts` (which is deliberately import-free), not in `local-daemon.ts`.
+
+The script stays a vanilla-TS no-import/export browser script under the existing CSP, and the `__daemon` bridge is read by the same structural-narrowing pattern as `__welcome` (`Reflect.get(window, "runkitShell")`, no `as` casts) — an absent group simply leaves the section unwired.
+
+## Local Daemon Control (`src/main.ts` + `src/local-daemon.ts`)
+
+Two consumers — the welcome card and the Local Daemon menu submenu — over **one** main-side surface. The renderer only renders; every decision, subprocess call, and store mutation happens in main.
+
+**Detection derives, never assumes.** `probeDaemonStatus()` chains: `rk --version` (existence + version) → `rk url` (the config-derived origin; the URL is **never hardcoded**) → the shared `pingServer` probe (the same `/api/health` fetch the remote form uses) → `GET {origin}/api/sessions` for the count. An `ENOENT` on the binary is the not-installed state; `win32` short-circuits to not-installed without invoking anything. `rk url` output is validated through the shared `normalizeOrigin`.
+
+**The rk binary is resolved candidates-first, PATH second.** GUI-launched Electron does not inherit the login-shell PATH (it gets `/usr/bin:/bin:…`), so a Homebrew-installed `rk` never resolves via PATH on macOS. `rkCandidatePaths(platform)` returns `/opt/homebrew/bin/rk`, `/usr/local/bin/rk` on darwin and `/home/linuxbrew/.linuxbrew/bin/rk`, `/usr/local/bin/rk` on linux (empty on win32); `resolveRkBinary(candidates, exists)` takes the first existing one, else the bare `"rk"` PATH lookup whose absence surfaces as the ENOENT not-installed signal.
+
+**Every subprocess call is `execFile` with an argument slice and an explicit timeout** — never a shell string (Constitution I applies to the Node side too). Two named tiers: `RK_QUERY_TIMEOUT_MS` (5s) for the read-only queries, `RK_DAEMON_TIMEOUT_MS` (30s) for `rk daemon start/stop/restart`. `runRk()` is the single wrapper; it reports `notInstalled` from the ENOENT code and prefers `stderr` for the surfaced message.
+
+**One get-in flow.** `startAndConnectLocal()` backs both the `daemon:start` channel and the menu's Connect item: probe → if stopped, `rk daemon start` (a `daemon already running` failure is classified **already-started success** by `isDaemonAlreadyRunning`, because the user's intent is satisfied) → `waitForHealth` polls `/api/health` at 1s cadence with a 30s cap → connect. The connect tail (`connectLocalServer`) activates an existing same-origin entry through `switchToServer` when `findServerByOrigin` finds one and otherwise walks the existing `addServer` path with the ping hostname as the name — `addServer` never dedupes, so checking first is what makes a duplicate local entry impossible. A health-poll timeout returns an inline error rather than hanging.
+
+**Stop is one confirm-then-stop path** (`confirmAndStopDaemon()`) shared by the card button and the menu item: a native `dialog.showMessageBox` with **Cancel as the default** (the Remove-server precedent) whose detail copy states that tmux sessions and running agents survive and reattach — true by Constitution VI, which is what makes stop low-stakes. Only explicit confirmation runs `rk daemon stop`. Menu Restart maps to `rk daemon restart` directly rather than composing stop+start in the shell.
+
+**Menu status is a main-side cache, not a timer.** `daemonMenuInfo` (`{ running, version }`, or `null` for not-installed/win32/not-yet-probed) is refreshed on startup, on `browser-window-focus`, after every daemon action, and by the welcome page's polls — application menus have no reliable about-to-open event, and a perpetual main-side timer would poll forever for a rarely-opened menu. The menu is rebuilt **only when the cached info actually changes**.
 
 ## Last-Path Capture & Restore (`src/main.ts`)
 
@@ -111,7 +150,15 @@ The split is a standing constraint on both sides, across **both** tiers:
 
 The SPA's binding surface is otherwise host-independent by construction — renderer keydown listeners work identically in the shell and in a plain browser — with the host-conditional carve-outs concentrated in one resolver seam (`defaultComboFor`, gated on `isShell()`): outside the shell ⇧Cmd/Ctrl+N/T/W are browser-reserved (incognito / reopen-tab / close-window), so those three defaults resolve disabled there and their actions stay palette-reachable, and on a mac browser the unshifted ⌘N/T/W are reserved too, which is why they demote only inside the shell.
 
-The menu is applied **per platform** — symmetry of *rule*, not symmetry of accelerator table: `buildMenu` composes its template from per-menu builders (`macAppMenu` / `fileMenu`, `macEditMenu`, `viewMenu`, `serversMenu`, `macWindowMenu`) that branch on a module-level `isMac = process.platform === "darwin"`, because Chromium's native handling and role defaults differ per platform (the carve-outs below). The switcher accelerator itself is one `CmdOrCtrl` expression, identical everywhere. The exported `buildMenu(servers, activeId, callbacks)` signature is unchanged and is still rebuilt (and re-set via `Menu.setApplicationMenu`) on every server-list change.
+The menu is applied **per platform** — symmetry of *rule*, not symmetry of accelerator table: `buildMenu` composes its template from per-menu builders (`macAppMenu` / `fileMenu`, `macEditMenu`, `viewMenu`, `serversMenu`, `macWindowMenu`) that branch on a module-level `isMac = process.platform === "darwin"`, because Chromium's native handling and role defaults differ per platform (the carve-outs below). The switcher accelerator itself is one `CmdOrCtrl` expression, identical everywhere.
+
+The exported signature is `buildMenu(servers, activeId, callbacks, daemon)`, where `daemon: DaemonMenuInfo | null` carries the cached local-daemon state (`null` hides the Local Daemon submenu — rk not installed, win32, or not yet probed). The menu is rebuilt (and re-set via `Menu.setApplicationMenu`) on every server-list change **and** whenever that cached daemon state changes.
+
+### Local Daemon Submenu
+
+The Servers menu's last group — separated, below the server-management items — is a **"Local Daemon" submenu**: a disabled status line (`● running · v{X}` / `○ stopped · v{X}`, the version fragment omitted when unparseable) followed by **Connect / Restart / Stop**. It is the persistent post-connect control surface; the welcome card covers only pre-connect and `?mode=add`. Restart and Stop are disabled while the daemon is stopped (restarting a stopped daemon is a no-op with a confusing error), while Connect always starts-if-needed — the same one-intent rule as the card's single button. Callbacks route into the same main-side functions the `daemon:*` handlers call (`startAndConnectLocal`, `restartLocalDaemon`, `confirmAndStopDaemon`), so the menu and card paths cannot diverge.
+
+**Every item is accelerator-less by design** (the `Add Server…` / `Rename` / `Remove` precedent), so the whole submenu is added without narrowing the fall-through set or touching the keyboard-tier seam.
 
 ### macOS
 
@@ -120,7 +167,7 @@ The menu is applied **per platform** — symmetry of *rule*, not symmetry of acc
 | App | ⌘Q quit, ⌘H hide, ⌥⌘H hide-others |
 | Edit | roles ⌘Z/⇧⌘Z/⌘X/⌘C/⌘V/⌘A — a **macOS carve-out**, outside the cross-platform rule: clipboard in web content is dead on macOS without them, while Windows/Linux Chromium handles it natively (so the equivalents are not to be bound there) |
 | View | ⌘R reload, ⇧⌘R force-reload, ⌥⌘I devtools, ⌘0/⌘+/⌘− zoom roles, ⌃⌘F fullscreen — conventional shell chrome via role defaults, a carve-out that predates the rule |
-| Servers | radio items on `Shift+CmdOrCtrl+1`…`Shift+CmdOrCtrl+9` (⇧⌘1–9 on macOS) — the shell tier, capped at 9 by `MAX_SWITCHER_ACCELERATORS`; active server checked. The management items below them — `Add Server…`, per-server `Rename "<name>"…`, per-server `Remove "<name>"…` — are accelerator-less by design, so adding them never narrows the fall-through set |
+| Servers | radio items on `Shift+CmdOrCtrl+1`…`Shift+CmdOrCtrl+9` (⇧⌘1–9 on macOS) — the shell tier, capped at 9 by `MAX_SWITCHER_ACCELERATORS`; active server checked. Everything below them — `Add Server…`, per-server `Rename "<name>"…`, per-server `Remove "<name>"…`, and the `Local Daemon` submenu — is accelerator-less by design, so adding items never narrows the fall-through set |
 | Window | ⌘M minimize + zoom via a **custom template**, NOT `role: 'windowMenu'` (that role auto-binds ⌘W) |
 
 **⌘W is unbound by design** — it falls through to the page, where the SPA registry binds it to `kill-window` (close the tmux window, the confirm flow) inside the mac shell; mouse users get an accelerator-less "Close Window" item.
@@ -150,15 +197,17 @@ The sandboxed preload exposes exactly one bridge via `contextBridge.exposeInMain
 - **`platform`** — `process.platform`.
 - **`servers`** — `{ list(), switch(id) }`, thin invokers for the `servers:list` / `servers:switch` channels; the SPA command palette's server-switch path.
 - **`__welcome`** — `{ testServer(url), addServer(name, url), renameServer(id, name), cancel() }`, thin `ipcRenderer.invoke` wrappers for the `welcome:*` channels.
+- **`__daemon`** — `{ status(), start(), stop() }`, thin wrappers for the three `daemon:*` channels behind the welcome page's "This Mac" section. All three are argument-less: every parameter the flows need (the origin, the name, the dedupe target) is derived main-side, so the renderer hands over no payload at all.
 
-`version`/`platform` are readable by **every** page, including pages loaded from registered rk servers — this is the SPA's shell-detection seam. The two invoker groups are likewise exposed everywhere but privileged by **main-side sender-frame gating**, each against a different allowlist (IPC payloads are structurally validated in main — unknown-typed, narrowed — before use):
+`version`/`platform` are readable by **every** page, including pages loaded from registered rk servers — this is the SPA's shell-detection seam. The three invoker groups are likewise exposed everywhere but privileged by **main-side sender-frame gating**, each against an allowlist (IPC payloads are structurally validated in main — unknown-typed, narrowed — before use):
 
 | Channels | Privileged senders | Gate |
 |----------|--------------------|------|
 | `welcome:*` | the welcome page only | `isWelcomeSender` — `event.senderFrame.url` starts with the welcome `file://` URL |
+| `daemon:*` | the welcome page only | `isWelcomeSender` — the same gate as `welcome:*`; the menu reaches the identical functions main-side, never through IPC |
 | `servers:*` | registered server origins (the pages that host the SPA palette) **plus** the welcome page | `isServersSender` — delegates to `isAllowedNavigation`, the same set the navigation guard computes (so it also covers the `RK_DESKTOP_URL` dev origin) |
 
-Any sender outside a channel's allowlist gets `{ ok: false, error: "Not allowed" }` and no state change — so a server-loaded page can read shell metadata and switch servers, but never invoke a `welcome:*` call. `servers:list` answers the discriminated `{ ok: true, servers: ServerInfo[] } | { ok: false, error }` envelope; `servers:switch` rejects a non-string payload as `"Invalid request"` and an unregistered id as `"Unknown server"` without navigating.
+Any sender outside a channel's allowlist gets `{ ok: false, error: "Not allowed" }` and no state change — so a server-loaded page can read shell metadata and switch servers, but never invoke a `welcome:*` call, and **never reach a `daemon:*` channel** (a subprocess-spawning surface: the gate is what keeps a page loaded from a registered server origin from starting or stopping the daemon). `servers:list` answers the discriminated `{ ok: true, servers: ServerInfo[] } | { ok: false, error }` envelope; `servers:switch` rejects a non-string payload as `"Invalid request"` and an unregistered id as `"Unknown server"` without navigating. `daemon:status` answers `{ ok: true, status: DaemonStatus } | { ok: false, error }`; `daemon:start` / `daemon:stop` answer the same bare `IpcResult` ack shape the `welcome:*` mutators use.
 
 **SPA side** (`app/frontend/src/lib/shell.ts`, the only SPA file the shell touches): `RunkitShell` interface (`{ version, platform }`), a `declare global` Window typing that types `runkitShell` as `unknown` (the bridge is runtime-injected, so it is validated structurally — type-narrowing guards, no `as` casts), `shellInfo()` returning a plain `{ version, platform }` (never leaking `__welcome`) or `null`, `isShell()`, and the `servers`-group wrappers `listShellServers(): Promise<ShellServer[] | null>` / `switchShellServer(id): Promise<boolean>`. Both wrappers **never throw**: a plain browser, an older shell lacking the `servers` group, a malformed entry, an `{ ok: false }` denial, and a rejected invoke all resolve `null`/`false`. Covered by the sibling vitest suite `shell.test.ts` (present / absent / malformed shapes of both surfaces).
 
@@ -171,8 +220,9 @@ The first real SPA consumer of this seam is the palette's shell-gated `Server: S
 - **Navigation allowlist**: `will-navigate` and `will-redirect` share one guard allowing only registered server origins (plus the `RK_DESKTOP_URL` origin in dev) and the welcome `file://` URL; blocked http(s) targets are handed to the system browser — a server-issued redirect cannot escape the registered-origin set in-window.
 - **Permissions**: `setPermissionRequestHandler` allows exactly `clipboard-read`, `clipboard-sanitized-write`, `notifications`; everything else is denied.
 - **TLS fails closed**: no `certificate-error` bypass handler exists.
-- **IPC hardening**: sender-frame gating on every `welcome:*` and `servers:*` handler, each against its own allowlist (§ Bridge above) — always in main, never in the preload.
-- **One switch path**: `switchToServer(id)` (set active via the store → `loadURL` → rebuild menu) is the single seam shared by the Servers menu radio callback and the `servers:switch` handler, so the IPC and mouse paths cannot diverge.
+- **IPC hardening**: sender-frame gating on every `welcome:*`, `daemon:*`, and `servers:*` handler, each against its own allowlist (§ Bridge above) — always in main, never in the preload.
+- **Subprocess discipline**: every `rk` invocation is `execFile` with an argument slice and an explicit timeout, never a shell string (Constitution I), and reachable only from an explicit user action (§ Local Daemon Control). No auto-start path exists.
+- **One switch path**: `switchToServer(id)` (set active via the store → `loadURL` → rebuild menu) is the single seam shared by the Servers menu radio callback, the `servers:switch` handler, and the local-connect tail, so the IPC and mouse paths cannot diverge.
 
 ### Window-Open Policy Module (`src/window-open.ts`)
 
@@ -245,9 +295,9 @@ Constitution VIII one-liners in the `justfile`, logic in `scripts/`:
 - `just dev-desktop` → `scripts/dev-desktop.sh`: `pnpm install` when `node_modules` is missing, compile, `exec pnpm exec electron .`. `RK_DESKTOP_URL=http://localhost:3000 just dev-desktop` (against a running `just dev`) loads that URL directly without touching `servers.json`.
 - `just build-desktop [mac|win|linux]` → `scripts/build-desktop.sh`: takes an **optional explicit target** and otherwise derives it from the host via `uname -s` (`Darwin`→mac, `Linux`→linux, `MINGW*`/`MSYS*`/`CYGWIN*`→win; anything else errors telling the caller to pass a target). The target maps to `--mac`/`--win`/`--linux`; an unknown argument exits non-zero with `usage: build-desktop.sh [mac|win|linux]  (default: host platform)`. The rest is platform-neutral and unchanged: verify `build/icon.png` exists (pointing at `just icons` when missing), `pnpm install --frozen-lockfile`, compile, `electron-builder <flag> --publish never` with the extraMetadata version. Output lands in `app/desktop/release/` (gitignored; the repo's bare `dist` gitignore entry already covers compiled TS output). The justfile recipe stays a one-liner passing args through (`build-desktop *args:`, Constitution VIII).
 
-Verification split: compile, `tsc --noEmit`, node:test (store), and vitest (`shell.test.ts`) all run on Linux. Hardware-only items, per platform:
+Verification split: compile, `tsc --noEmit`, node:test (store, window-open policy, local-daemon pure logic), and vitest (`shell.test.ts`) all run on Linux. Playwright does not cover the Electron shell at all, so the pure-module suites plus the compile gates are the automated surface. Hardware-only items, per platform:
 
-- **mac** — the DMG build, Gatekeeper "Open Anyway" walkthrough, xterm ⌘C/⌘V interplay, ⌘-fall-through feel, and **⇧⌘1–9 server switching on a non-US layout** — shifted-digit accelerators are the flakiest class (Electron resolves accelerators by character, not scancode, and AZERTY digits already require Shift); no scancode workaround in v1.
+- **mac** — the DMG build, Gatekeeper "Open Anyway" walkthrough, xterm ⌘C/⌘V interplay, ⌘-fall-through feel, **⇧⌘1–9 server switching on a non-US layout** — shifted-digit accelerators are the flakiest class (Electron resolves accelerators by character, not scancode, and AZERTY digits already require Shift); no scancode workaround in v1 — and the **GUI-PATH-trap leg of local-daemon detection**, which only manifests in a Finder-launched (not terminal-launched) app.
 - **Windows** — the SmartScreen "unrecognized app" first-launch walkthrough of the unsigned NSIS installer, and Ctrl+C/Ctrl+V ↔ xterm.js interplay (load-bearing in a terminal product); the shifted-digit layout caveat applies to ⇧Ctrl+1–9 here too.
 - **Linux** — AppImage and deb launch on a real distro with a desktop session, plus the same Ctrl+C/Ctrl+V ↔ xterm.js interplay and the ⇧Ctrl+1–9 layout caveat.
 
@@ -258,10 +308,76 @@ The win/linux *menu* contract is nonetheless CI-provable without hardware: the c
 ## Design Decisions
 
 ### Viewer shell, not a bundled daemon
-**Decision**: The shell loads an existing `rk serve` URL and never spawns or supervises the daemon; Electron (not Tauri) is the shell runtime.
+**Decision**: The shell loads an existing `rk serve` URL and never bundles or supervises the daemon; Electron (not Tauri) is the shell runtime.
 **Why**: Constitution VI keeps the tmux/server layer independent of any supervisor; Electron's Chromium matches what the product is already debugged against (xterm rendering, connection-pool behavior).
 **Rejected**: Bundling the daemon inside Electron (violates Constitution VI); Tauri (a second browser engine to debug against for no capability gain here).
 *Introduced by*: 260728-04pg-electron-desktop-shell
+
+### Button-driven daemon lifecycle, never auto-start
+**Decision**: The shell may run `rk daemon start/stop/restart` — but only from an explicit user action (a welcome-card button or a Local Daemon menu item) — plus read-only `rk url` / `rk --version` detection. No launch hook, timer, watchdog, or failure handler starts the daemon.
+**Why**: The local-first user otherwise gets a worse first run than a remote one: they must know their local URL, start the daemon from a terminal, and type the URL by hand — the slowest path to the fastest target. Explicit button-driven lifecycle is the line that keeps the viewer posture intact: a user pressing "Start & connect" is not the shell supervising anything, and the tmux layer stays independent either way (Constitution VI), so the app becomes self-sufficient locally without becoming a supervisor.
+**Rejected**: Auto-starting the daemon on app launch (lifecycle coupling — the shell would then own daemon liveness, and a crash-restart loop becomes the shell's problem); keeping the absolute no-`child_process` rule and shipping only the remote form (the local-first case stays the worst-served one); launchd login autostart (the genuine "always up" answer, but an OS-integration change of its own, deliberately separate).
+*Introduced by*: 260730-ln1w-welcome-local-daemon-section
+
+### Start-and-connect is one button and one main-side flow
+**Decision**: `daemon:start` performs the entire get-in flow main-side — start when stopped → poll health → dedupe-or-add → navigate — and the running-state Connect button, plus the menu's Connect item, reuse that same function. The renderer only renders progress and errors.
+**Why**: The intent behind starting a daemon is always to get in, so splitting start from connect would charge two clicks for one intention. Keeping the whole flow in main is what makes the card and the menu structurally identical: the dedupe rule (`findServerByOrigin`) and the add-server path already live there, so one seam cannot drift from itself (the `switchToServer` precedent).
+**Rejected**: Separate Start and Connect buttons (two clicks for one intent, and a stopped-daemon Connect button that can only fail); renderer-orchestrated connect over `servers:list` + `welcome:add-server` (duplicates the dedupe rule renderer-side and splits one flow across two privilege gates for no gain).
+*Introduced by*: 260730-ln1w-welcome-local-daemon-section
+
+### Detection derives the local origin; nothing is hardcoded
+**Decision**: The local URL comes from `rk url` (config-derived, honoring `RK_HOST`/`RK_PORT`) and is health-checked with the *same* `pingServer` probe the remote form uses; the not-installed state is an ENOENT on the binary, not a guess.
+**Why**: Constitution VII — a hardcoded `127.0.0.1:3000` would silently be the wrong server for anyone who moved the port, and would report "stopped" for a daemon that is running fine. Reusing `pingServer` means "running" means exactly the same thing for a local and a remote server, with one definition of healthy.
+**Rejected**: Hardcoding the default origin with a config override (two sources of truth for one value, and the CLI already prints the answer); a bespoke local liveness check such as a port probe or pidfile read (a second definition of "running", and a listening socket is not a healthy server).
+*Introduced by*: 260730-ln1w-welcome-local-daemon-section
+
+### rk is resolved by fixed candidates before PATH
+**Decision**: `resolveRkBinary` tries platform-specific absolute candidates first (`/opt/homebrew/bin/rk`, `/usr/local/bin/rk` on darwin; the linuxbrew prefix plus `/usr/local` on linux) and falls back to a bare `"rk"` PATH lookup.
+**Why**: A GUI-launched Electron app does not inherit the login-shell PATH — it gets `/usr/bin:/bin:…` — so the single most common install location for `rk` is invisible to a plain PATH lookup, and the app would report "not installed" on a machine that has it. Fixed candidates are deterministic and add no process spawn.
+**Rejected**: Spawning a login shell (`$SHELL -lic`) to recover the user's PATH — a shell-string invocation of exactly the kind Constitution I forbids, plus per-probe shell-startup cost for coverage the candidate list already provides; PATH-only lookup (the bug this exists to fix).
+*Introduced by*: 260730-ln1w-welcome-local-daemon-section
+
+### A stopped-daemon poll, not a subscription
+**Decision**: The welcome page polls `daemon:status` on a 3s `setInterval` while it is visible, guarded by an in-flight flag and suspended during a start/stop flow; the interval dies with the page.
+**Why**: The SPA's no-polling rule assumes a live server pushing over SSE — and the entire point of this section is the case where no server is up to push anything, so there is nothing to subscribe to. Suspending repaints during a flow is what keeps the transient starting… state from being clobbered by a poll that resolves mid-start.
+**Rejected**: A one-shot probe on page load (the state goes stale the moment the user starts the daemon from a terminal, which is exactly the reader this section serves); a main-side perpetual timer (polls forever for a page that is usually not open).
+*Introduced by*: 260730-ln1w-welcome-local-daemon-section
+
+### Menu daemon status is a change-gated cache
+**Decision**: Main holds `daemonMenuInfo` and rebuilds the menu only when the menu-relevant fields change; the cache refreshes on startup, on window focus, after every daemon action, and off the welcome page's polls.
+**Why**: Electron application menus have no reliable about-to-open event, so a menu label can only ever be as fresh as the last cache write — and the four refresh points cover every moment a user could plausibly be about to open the menu. Gating the rebuild on an actual change avoids re-setting the whole application menu on every 3s poll.
+**Rejected**: A perpetual main-side status timer (polls forever for a rarely-opened menu); rebuilding on every probe (churns the application menu at poll cadence); reading status lazily inside the click handler (the status *label* is the point, and it must be right before the click).
+*Introduced by*: 260730-ln1w-welcome-local-daemon-section
+
+### `daemon already running` is already-started success
+**Decision**: A `rk daemon start` failure matching `daemon already running` is classified as success and the flow proceeds to the health poll.
+**Why**: `internal/daemon.Start()` errors on a live daemon, but the user's intent behind "Start & connect" is to get in — and a daemon that is already up satisfies it exactly. Surfacing the CLI's error would report a failure for the best possible outcome. Classifying it in one named predicate (`isDaemonAlreadyRunning`) keeps the tolerance narrow: every other start failure still surfaces its stderr.
+**Rejected**: Treating any non-zero start exit as failure (the most common race — user started the daemon elsewhere between probe and click — reads as an error); making the start unconditionally idempotent by skipping start whenever the probe says running (the probe is inherently stale by the time the command runs, so the race still needs handling).
+*Introduced by*: 260730-ln1w-welcome-local-daemon-section
+
+### Stop confirms natively, and the copy says tmux survives
+**Decision**: `confirmAndStopDaemon` is one main-side function shared by the card button and the menu item: a native `dialog.showMessageBox` with Cancel as the default, whose detail states that tmux sessions and running agents survive and reattach.
+**Why**: Stopping the web server is genuinely low-stakes *because* of Constitution VI — but a user cannot know that from a button labeled "Stop", and the plausible fear (killing running agents) is exactly what would stop them from using the control. Stating the guarantee in the confirm is what makes the action safe to take; the Remove-server dialog already sets the native-confirm-with-Cancel-default precedent.
+**Rejected**: Stopping with no confirmation (reads as destructive for an action whose safety is non-obvious); a tooltip instead of a confirm (unreachable by keyboard and absent from the menu path); an in-page HTML confirm (the card and the menu would need two implementations of one decision).
+*Introduced by*: 260730-ln1w-welcome-local-daemon-section
+
+### Display name auto-derives from the ping hostname
+**Decision**: The connect form has no Display-name input; the persisted name is the health ping's `hostname` (origin fallback in `addServer`). The `#name` label and input stay in the markup `hidden`, revealed only by `?mode=rename`.
+**Why**: The ping already returns the hostname, so the field only ever asked the user to confirm a value the app had already fetched — dead weight on the first screen of a first run. Keeping the elements for rename mode preserves the page-reuse rename affordance (Electron has no native text-input dialog) without a second card, and renaming stays available as an explicit later action.
+**Rejected**: Removing the elements outright (breaks the rename affordance, which reuses these exact elements); keeping the field as optional (the friction is the field's presence on a first-run screen, not its required-ness).
+*Introduced by*: 260730-ln1w-welcome-local-daemon-section
+
+### The local section is suppressed on Windows, not degraded
+**Decision**: On `win32` the local section, its divider, its polling, and the Local Daemon submenu are absent entirely; `darwin` and `linux` render it detection-driven with headings "This Mac" / "This Machine".
+**Why**: `rk daemon` is tmux-backed and tmux is not a Windows concept, so there is no local daemon to detect — and the not-installed state's brew hint would instruct a Windows user to install something that cannot serve them. Absence is the honest rendering. Linux keeps the section because the Homebrew tap works there and the GUI PATH trap has a linuxbrew analogue.
+**Rejected**: Rendering the section with a "not supported on Windows" message (occupies the first screen of a first run to say nothing actionable); showing the brew hint on all platforms (actively misleading on win32).
+*Introduced by*: 260730-ln1w-welcome-local-daemon-section
+
+### Local-daemon pure logic is a third electron-free module
+**Decision**: Binary-candidate resolution, `rk --version` parsing, session-count parsing, and already-running classification live in `src/local-daemon.ts` (filesystem access injected as an `exists` predicate) with a sibling `node --test` suite; the execFile/IPC/ping glue stays in `main.ts`.
+**Why**: `main.ts` imports `electron` at module top and cannot be loaded under `node --test`, so the third instance of the `servers.ts` / `window-open.ts` pattern is what makes this logic testable at all — and it keeps the exact three-dep pin (`node:child_process` and `node:fs` are stdlib). The parsers are also where the interesting edge cases are (unparseable version, non-array sessions body, which start errors count as success).
+**Rejected**: Testing through a mocked `electron` module against compiled `main.js` (drags the whole lifecycle module in to assert a regex); adding a test framework to reach `main.ts` directly (breaks the dep pin); exporting the platform→heading map from here too (`welcome.ts` is deliberately import-free, so it would be dead code).
+*Introduced by*: 260730-ln1w-welcome-local-daemon-section
 
 ### The tier seam is accelerator avoidance, not key interception
 **Decision**: Unlock the browser-reserved tier by simply not binding accelerators on keys the page should own; no `globalShortcut`, no `before-input-event`.

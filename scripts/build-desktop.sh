@@ -11,6 +11,11 @@ set -euo pipefail
 
 cd "$(dirname "$0")/../app/desktop"
 
+if [ "$#" -gt 1 ]; then
+  echo "usage: build-desktop.sh [mac|win|linux]  (default: host platform)" >&2
+  exit 1
+fi
+
 TARGET="${1:-}"
 if [ -z "$TARGET" ]; then
   case "$(uname -s)" in

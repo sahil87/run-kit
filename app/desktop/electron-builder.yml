@@ -20,8 +20,10 @@ mac:
         - arm64
         - x64
   # Ad-hoc signing only — no Developer ID, no notarization (accepted Gatekeeper
-  # "Open Anyway" friction). electron-builder ad-hoc-signs automatically when
-  # identity is null; arm64 macOS refuses to launch fully unsigned binaries.
+  # "Open Anyway" friction). identity: null makes electron-builder skip signing
+  # entirely (it does NOT ad-hoc sign); the afterPack hook applies the ad-hoc
+  # signature — arm64 macOS refuses to launch fully unsigned binaries.
   identity: null
+afterPack: ./after-pack.js
 artifactName: "run-kit-desktop-${version}-${arch}.${ext}"
 npmRebuild: false

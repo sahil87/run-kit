@@ -193,6 +193,7 @@ jobs:
       - name: Verify ad-hoc signature
         run: |
           for app in app/desktop/release/mac*/*.app; do
+            codesign --verify --deep --strict "$app"
             codesign -dv "$app"
           done
 

@@ -25,11 +25,14 @@ import { pathToFileURL } from "node:url";
 import { buildMenu } from "./menu";
 import {
   addServer,
+  findServerByOrigin,
   loadServers,
   normalizeOrigin,
   removeServer,
+  renameServer,
   resolveActiveServer,
   setActiveServer,
+  setServerLastPath,
 } from "./servers";
 
 const WELCOME_PATH = join(__dirname, "welcome", "welcome.html");
@@ -86,18 +89,45 @@ function isAllowedNavigation(url: string): boolean {
 
 // ─── Routing ────────────────────────────────────────────────────────────────
 
-function showWelcome(win: BrowserWindow, mode?: "add"): void {
-  void win.loadFile(WELCOME_PATH, mode ? { query: { mode } } : undefined);
+function showWelcome(win: BrowserWindow, query?: Record<string, string>): void {
+  void win.loadFile(WELCOME_PATH, query ? { query } : undefined);
 }
 
-/** Load the active server (dangling activeId → first server), else welcome. */
+/**
+ * Load the active server (dangling activeId → first server), else welcome.
+ * A remembered `lastPath` is restored as-is — staleness (removed window/board,
+ * dead server) is the SPA's failure mode, never validated shell-side.
+ */
 function showActive(win: BrowserWindow): void {
   const active = resolveActiveServer(loadServers(userDataDir()));
   if (active) {
-    void win.loadURL(active.url);
+    void win.loadURL(active.url + (active.lastPath ?? ""));
   } else {
     showWelcome(win);
   }
+}
+
+/**
+ * Persist the current SPA route (`pathname + search`) for the registered
+ * server whose origin the window is showing. Called at every shell-initiated
+ * navigation away from a server (switch, add, rename) and on window close.
+ * Guards: the welcome file:// page is never captured, and a URL whose origin
+ * matches no registered server (mid-navigation, foreign origin) is ignored —
+ * so one server's route can never pollute another server's entry. When several
+ * entries share the origin, the active entry wins (see `findServerByOrigin`).
+ */
+function captureLastPath(): void {
+  const current = mainWindow?.webContents.getURL();
+  if (!current || current.startsWith(WELCOME_URL)) return;
+  let url: URL;
+  try {
+    url = new URL(current);
+  } catch {
+    return;
+  }
+  const entry = findServerByOrigin(loadServers(userDataDir()), url.origin);
+  if (!entry) return;
+  setServerLastPath(userDataDir(), entry.id, url.pathname + url.search);
 }
 
 function showStartPage(win: BrowserWindow): void {
@@ -115,13 +145,29 @@ function rebuildMenu(): void {
   Menu.setApplicationMenu(
     buildMenu(list.servers, list.activeId, {
       onSwitchServer: (id) => {
+        captureLastPath();
         const next = setActiveServer(userDataDir(), id);
         const entry = next.servers.find((s) => s.id === id);
-        if (entry && mainWindow) void mainWindow.loadURL(entry.url);
+        if (entry && mainWindow) void mainWindow.loadURL(entry.url + (entry.lastPath ?? ""));
         rebuildMenu();
       },
       onAddServer: () => {
-        if (mainWindow) showWelcome(mainWindow, "add");
+        if (!mainWindow) return;
+        captureLastPath();
+        showWelcome(mainWindow, { mode: "add" });
+      },
+      onRenameServer: (id) => {
+        if (!mainWindow) return;
+        const entry = loadServers(userDataDir()).servers.find((s) => s.id === id);
+        if (!entry) return;
+        captureLastPath();
+        // Prefill context rides the query string — main-supplied, store-derived.
+        showWelcome(mainWindow, {
+          mode: "rename",
+          id: entry.id,
+          name: entry.name,
+          url: entry.url,
+        });
       },
       onRemoveServer: (id) => {
         void confirmAndRemoveServer(id);
@@ -206,6 +252,13 @@ function parseAddPayload(value: unknown): { name: string; url: string } | null {
   return { name, url: value.url };
 }
 
+function parseRenamePayload(value: unknown): { id: string; name: string } | null {
+  if (typeof value !== "object" || value === null) return null;
+  if (!("id" in value) || typeof value.id !== "string") return null;
+  const name = "name" in value && typeof value.name === "string" ? value.name : "";
+  return { id: value.id, name };
+}
+
 function registerIpcHandlers(): void {
   ipcMain.handle(
     "welcome:test-server",
@@ -226,6 +279,18 @@ function registerIpcHandlers(): void {
     if (!result.ok) return result;
     rebuildMenu();
     if (mainWindow) void mainWindow.loadURL(result.server.url);
+    return { ok: true };
+  });
+
+  ipcMain.handle("welcome:rename-server", (event, payload: unknown): IpcResult => {
+    if (!isWelcomeSender(event)) return { ok: false, error: "Not allowed" };
+    const parsed = parseRenamePayload(payload);
+    if (!parsed) return { ok: false, error: "Invalid request" };
+    // Only `name` changes — `id` (and therefore `lastPath`/`activeId` linkage)
+    // is untouched; an unknown id is a store-level no-op.
+    renameServer(userDataDir(), parsed.id, parsed.name);
+    rebuildMenu();
+    if (mainWindow) showActive(mainWindow);
     return { ok: true };
   });
 
@@ -251,6 +316,11 @@ function openMainWindow(): void {
       // Sandboxed preloads read process.argv — this carries app.getVersion().
       additionalArguments: [`--runkit-shell-version=${app.getVersion()}`],
     },
+  });
+  // Capture-on-quit: cold-start restore reflects the route at close, not just
+  // the last switch-away (webContents is still readable during 'close').
+  win.on("close", () => {
+    captureLastPath();
   });
   win.on("closed", () => {
     if (mainWindow === win) mainWindow = null;

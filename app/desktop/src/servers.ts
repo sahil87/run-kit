@@ -15,6 +15,8 @@ export interface ServerEntry {
   id: string;
   name: string;
   url: string;
+  /** Last-visited SPA route remainder (`pathname + search`), when known. */
+  lastPath?: string;
 }
 
 export interface ServerList {
@@ -55,22 +57,42 @@ export function normalizeOrigin(input: string): NormalizeResult {
   return { ok: true, origin: url.origin };
 }
 
-function isServerEntry(value: unknown): value is ServerEntry {
-  if (typeof value !== "object" || value === null) return false;
-  if (!("id" in value) || !("name" in value) || !("url" in value)) return false;
-  return (
-    typeof value.id === "string" &&
-    typeof value.name === "string" &&
-    typeof value.url === "string"
-  );
+/**
+ * Parse one stored entry. The required fields (id/name/url) must be strings —
+ * anything else rejects the entry (and, via parseServerList, the file). The
+ * optional `lastPath` is tolerant: absent → fine, string → kept, any other
+ * type → the field is dropped but the entry (and file) still loads.
+ */
+function parseServerEntry(value: unknown): ServerEntry | null {
+  if (typeof value !== "object" || value === null) return null;
+  if (!("id" in value) || !("name" in value) || !("url" in value)) return null;
+  if (
+    typeof value.id !== "string" ||
+    typeof value.name !== "string" ||
+    typeof value.url !== "string"
+  ) {
+    return null;
+  }
+  const entry: ServerEntry = { id: value.id, name: value.name, url: value.url };
+  if ("lastPath" in value && typeof value.lastPath === "string") {
+    entry.lastPath = value.lastPath;
+  }
+  return entry;
 }
 
-function isServerList(value: unknown): value is ServerList {
-  if (typeof value !== "object" || value === null) return false;
-  if (!("version" in value) || !("activeId" in value) || !("servers" in value)) return false;
-  if (value.version !== 1) return false;
-  if (value.activeId !== null && typeof value.activeId !== "string") return false;
-  return Array.isArray(value.servers) && value.servers.every(isServerEntry);
+function parseServerList(value: unknown): ServerList | null {
+  if (typeof value !== "object" || value === null) return null;
+  if (!("version" in value) || !("activeId" in value) || !("servers" in value)) return null;
+  if (value.version !== 1) return null;
+  if (value.activeId !== null && typeof value.activeId !== "string") return null;
+  if (!Array.isArray(value.servers)) return null;
+  const servers: ServerEntry[] = [];
+  for (const raw of value.servers) {
+    const entry = parseServerEntry(raw);
+    if (entry === null) return null;
+    servers.push(entry);
+  }
+  return { version: 1, activeId: value.activeId, servers };
 }
 
 /** Load the list; a missing, unreadable, corrupt, or wrong-shape file is an empty list. */
@@ -87,7 +109,7 @@ export function loadServers(dir: string): ServerList {
   } catch {
     return emptyList();
   }
-  return isServerList(parsed) ? parsed : emptyList();
+  return parseServerList(parsed) ?? emptyList();
 }
 
 /** Persist atomically: write a tmp file in the same directory, then rename over the target. */
@@ -137,6 +159,34 @@ export function setActiveServer(dir: string, id: string): ServerList {
   return next;
 }
 
+/** Record the last-visited SPA path for a server; unknown id is a no-op (nothing written). */
+export function setServerLastPath(dir: string, id: string, lastPath: string): ServerList {
+  const list = loadServers(dir);
+  if (!list.servers.some((s) => s.id === id)) return list;
+  const next: ServerList = {
+    ...list,
+    servers: list.servers.map((s) => (s.id === id ? { ...s, lastPath } : s)),
+  };
+  saveServers(dir, next);
+  return next;
+}
+
+/**
+ * Rename a server by id (trimmed; empty falls back to the origin — mirroring
+ * `addServer`). Only `name` changes; `id`, `url`, and `lastPath` are untouched
+ * so per-server state (keyed on `id`) survives. Unknown id is a no-op.
+ */
+export function renameServer(dir: string, id: string, name: string): ServerList {
+  const list = loadServers(dir);
+  if (!list.servers.some((s) => s.id === id)) return list;
+  const next: ServerList = {
+    ...list,
+    servers: list.servers.map((s) => (s.id === id ? { ...s, name: name.trim() || s.url } : s)),
+  };
+  saveServers(dir, next);
+  return next;
+}
+
 /**
  * Resolve the server to load at startup / after a mutation: the active entry,
  * falling back to the first server when `activeId` dangles, `null` when the
@@ -145,4 +195,14 @@ export function setActiveServer(dir: string, id: string): ServerList {
 export function resolveActiveServer(list: ServerList): ServerEntry | null {
   if (list.servers.length === 0) return null;
   return list.servers.find((s) => s.id === list.activeId) ?? list.servers[0];
+}
+
+/**
+ * Resolve which entry owns a displayed origin (last-path capture). Several
+ * entries can share one origin (`addServer` never dedupes) — the active entry
+ * wins among the matches, else the first match; `null` when nothing matches.
+ */
+export function findServerByOrigin(list: ServerList, origin: string): ServerEntry | null {
+  const matches = list.servers.filter((s) => s.url === origin);
+  return matches.find((s) => s.id === list.activeId) ?? matches[0] ?? null;
 }

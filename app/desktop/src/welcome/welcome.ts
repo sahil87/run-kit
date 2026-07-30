@@ -8,6 +8,12 @@
  * (persist + set active; main then loads the server URL). `?mode=add` shows a
  * cancel link back to the active server.
  *
+ * `?mode=rename&id=<id>&name=<current>&url=<origin>` reuses this page as the
+ * rename affordance (Electron has no native text-input dialog): the URL field
+ * is hidden (the origin shows in the tagline), the name input is pre-filled,
+ * and submit invokes `welcome:rename-server` — no health ping. The prefill
+ * context rides the query string, supplied by main from the store.
+ *
  * The preload bridge is read via structural narrowing (no Window global
  * augmentation, no `as` casts) — the page degrades to an inline error when
  * opened outside the shell.
@@ -16,11 +22,14 @@
 interface WelcomeBridge {
   testServer(url: string): Promise<unknown>;
   addServer(name: string, url: string): Promise<unknown>;
+  renameServer(id: string, name: string): Promise<unknown>;
   cancel(): Promise<unknown>;
 }
 
 interface WelcomeElements {
   form: HTMLFormElement;
+  tagline: HTMLElement;
+  urlLabel: HTMLElement;
   urlInput: HTMLInputElement;
   nameInput: HTMLInputElement;
   errorEl: HTMLElement;
@@ -40,15 +49,21 @@ function getWelcomeBridge(): WelcomeBridge | null {
   if (typeof shell !== "object" || shell === null || !("__welcome" in shell)) return null;
   const candidate = shell.__welcome;
   if (typeof candidate !== "object" || candidate === null) return null;
-  if (!("testServer" in candidate) || !("addServer" in candidate) || !("cancel" in candidate)) {
+  if (
+    !("testServer" in candidate) ||
+    !("addServer" in candidate) ||
+    !("renameServer" in candidate) ||
+    !("cancel" in candidate)
+  ) {
     return null;
   }
   // Bind narrowed consts — const narrowing (unlike property narrowing) is
   // preserved inside the closures below.
-  const { testServer, addServer, cancel } = candidate;
+  const { testServer, addServer, renameServer, cancel } = candidate;
   if (
     typeof testServer !== "function" ||
     typeof addServer !== "function" ||
+    typeof renameServer !== "function" ||
     typeof cancel !== "function"
   ) {
     return null;
@@ -57,12 +72,16 @@ function getWelcomeBridge(): WelcomeBridge | null {
     testServer: (url: string): Promise<unknown> => Promise.resolve(testServer(url)),
     addServer: (name: string, url: string): Promise<unknown> =>
       Promise.resolve(addServer(name, url)),
+    renameServer: (id: string, name: string): Promise<unknown> =>
+      Promise.resolve(renameServer(id, name)),
     cancel: (): Promise<unknown> => Promise.resolve(cancel()),
   };
 }
 
 function getWelcomeElements(): WelcomeElements | null {
   const form = document.getElementById("connect-form");
+  const tagline = document.getElementById("tagline");
+  const urlLabel = document.getElementById("url-label");
   const urlInput = document.getElementById("url");
   const nameInput = document.getElementById("name");
   const errorEl = document.getElementById("error");
@@ -70,6 +89,8 @@ function getWelcomeElements(): WelcomeElements | null {
   const cancelLink = document.getElementById("cancel");
   if (
     !(form instanceof HTMLFormElement) ||
+    !(tagline instanceof HTMLElement) ||
+    !(urlLabel instanceof HTMLElement) ||
     !(urlInput instanceof HTMLInputElement) ||
     !(nameInput instanceof HTMLInputElement) ||
     !(errorEl instanceof HTMLElement) ||
@@ -78,7 +99,7 @@ function getWelcomeElements(): WelcomeElements | null {
   ) {
     return null;
   }
-  return { form, urlInput, nameInput, errorEl, connectButton, cancelLink };
+  return { form, tagline, urlLabel, urlInput, nameInput, errorEl, connectButton, cancelLink };
 }
 
 /** Narrow an IPC result to the ping success shape. */
@@ -103,23 +124,54 @@ function errorOf(value: unknown): string {
 }
 
 function wireWelcomePage(els: WelcomeElements, bridge: WelcomeBridge): void {
+  const params = new URLSearchParams(location.search);
+  const mode = params.get("mode");
+  // ?mode=rename&id=…: this page doubles as the rename affordance.
+  const renameId = mode === "rename" ? (params.get("id") ?? "") : null;
+
+  const idleLabel = renameId !== null ? "Rename" : "Connect";
   const showError = (message: string): void => {
     els.errorEl.textContent = message;
     els.errorEl.hidden = false;
   };
   const setBusy = (label: string | null): void => {
     els.connectButton.disabled = label !== null;
-    els.connectButton.textContent = label ?? "Connect";
+    els.connectButton.textContent = label ?? idleLabel;
   };
 
-  // ?mode=add (menu "Add Server…"): a cancel link returns to the active server.
-  if (new URLSearchParams(location.search).get("mode") === "add") {
+  // ?mode=add (menu "Add Server…") and ?mode=rename (menu "Rename …"):
+  // a cancel link returns to the active server.
+  if (mode === "add" || renameId !== null) {
     els.cancelLink.hidden = false;
     els.cancelLink.addEventListener("click", (event) => {
       event.preventDefault();
       void bridge.cancel();
     });
   }
+
+  if (renameId !== null) {
+    // Rename variant: the server URL is fixed — hide its field, show the
+    // origin in the tagline, and pre-fill the current display name.
+    els.urlLabel.hidden = true;
+    els.urlInput.hidden = true;
+    els.tagline.textContent = params.get("url") ?? "";
+    els.nameInput.value = params.get("name") ?? "";
+    els.connectButton.textContent = idleLabel;
+    els.nameInput.focus();
+  }
+
+  const rename = async (): Promise<void> => {
+    els.errorEl.hidden = true;
+
+    setBusy("Renaming…");
+    const result = await bridge.renameServer(renameId ?? "", els.nameInput.value);
+    if (!isAckOk(result)) {
+      showError(errorOf(result));
+      setBusy(null);
+      return;
+    }
+    // Success: main persists, rebuilds the menu, and navigates back.
+  };
 
   const connect = async (): Promise<void> => {
     els.errorEl.hidden = true;
@@ -148,7 +200,7 @@ function wireWelcomePage(els: WelcomeElements, bridge: WelcomeBridge): void {
 
   els.form.addEventListener("submit", (event) => {
     event.preventDefault();
-    void connect();
+    void (renameId !== null ? rename() : connect());
   });
 }
 

@@ -31,6 +31,8 @@ contextBridge.exposeInMainWorld("runkitShell", {
       ipcRenderer.invoke("welcome:test-server", url),
     addServer: (name: string, url: string): Promise<unknown> =>
       ipcRenderer.invoke("welcome:add-server", { name, url }),
+    renameServer: (id: string, name: string): Promise<unknown> =>
+      ipcRenderer.invoke("welcome:rename-server", { id, name }),
     cancel: (): Promise<unknown> => ipcRenderer.invoke("welcome:cancel"),
   },
 });

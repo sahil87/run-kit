@@ -1,0 +1,55 @@
+id: n2y9
+name: 260730-n2y9-desktop-last-path-restore-rename
+created: 2026-07-30T07:32:34Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 11
+    acceptance_count: 19
+    acceptance_completed: 19
+confidence:
+    certain: 7
+    confident: 5
+    tentative: 0
+    unresolved: 0
+    score: 3.7
+    fuzzy: true
+    dimensions:
+        signal: 70.4
+        reversibility: 78.3
+        competence: 79.6
+        disambiguation: 77.9
+stage_metrics:
+    intake: {started_at: "2026-07-30T07:32:34Z", driver: fab-new, iterations: 1, completed_at: "2026-07-30T07:37:50Z"}
+    apply: {started_at: "2026-07-30T08:01:29Z", driver: fab-fff, iterations: 2, completed_at: "2026-07-30T08:06:41Z"}
+    review: {started_at: "2026-07-30T08:06:41Z", driver: fab-fff, iterations: 2, completed_at: "2026-07-30T08:11:41Z"}
+    hydrate: {started_at: "2026-07-30T08:11:41Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-30T08:17:19Z"}
+    ship: {started_at: "2026-07-30T08:17:19Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-07-30T08:17:19Z"
+    computed_at_stage: hydrate
+summary: Desktop shell remembers each server's last SPA route (optional id-keyed lastPath in servers.json, captured on switch/add/rename/close, restored on switch-in and startup) and gains Servers → Rename via a ?mode=rename welcome-page variant
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-07-30T08:17:19Z

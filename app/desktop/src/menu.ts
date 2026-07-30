@@ -26,6 +26,7 @@ import { ServerEntry } from "./servers";
 export interface MenuCallbacks {
   onSwitchServer: (id: string) => void;
   onAddServer: () => void;
+  onRenameServer: (id: string) => void;
   onRemoveServer: (id: string) => void;
 }
 
@@ -46,6 +47,12 @@ export function buildMenu(
     // Control (not CmdOrCtrl): ⌃1–⌃9 switches servers while ⌘1–9 falls through to the page.
     accelerator: index < MAX_SWITCHER_ACCELERATORS ? `Ctrl+${index + 1}` : undefined,
     click: () => callbacks.onSwitchServer(server.id),
+  }));
+
+  // Accelerator-less by design (like Remove) — the ⌘-tier seam is untouched.
+  const renameItems: MenuItemConstructorOptions[] = servers.map((server) => ({
+    label: `Rename "${server.name}"…`,
+    click: () => callbacks.onRenameServer(server.id),
   }));
 
   const removeItems: MenuItemConstructorOptions[] = servers.map((server) => ({
@@ -99,6 +106,7 @@ export function buildMenu(
         ...switcherItems,
         ...(switcherItems.length > 0 ? [separator] : []),
         { label: "Add Server…", click: () => callbacks.onAddServer() },
+        ...renameItems,
         ...removeItems,
       ],
     },

@@ -15,6 +15,12 @@
       * {
         box-sizing: border-box;
       }
+      /* Author `display` rules (label, a#cancel) would otherwise beat the UA
+         sheet's `[hidden] { display: none }` — keep the hidden attribute
+         authoritative for every element on this page. */
+      [hidden] {
+        display: none !important;
+      }
       body {
         margin: 0;
         min-height: 100vh;
@@ -101,9 +107,9 @@
   <body>
     <main class="card">
       <h1>run-kit</h1>
-      <p class="tagline">Connect to a running <span>rk serve</span> instance.</p>
+      <p id="tagline" class="tagline">Connect to a running <span>rk serve</span> instance.</p>
       <form id="connect-form">
-        <label for="url">Server URL</label>
+        <label for="url" id="url-label">Server URL</label>
         <input
           id="url"
           type="text"

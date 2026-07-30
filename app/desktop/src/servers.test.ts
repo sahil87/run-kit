@@ -11,12 +11,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   addServer,
+  findServerByOrigin,
   loadServers,
   normalizeOrigin,
   removeServer,
+  renameServer,
   resolveActiveServer,
   saveServers,
   setActiveServer,
+  setServerLastPath,
 } from "./servers";
 
 function tmpDataDir(): string {
@@ -126,6 +129,149 @@ test("setActiveServer switches active; unknown ids are a no-op", () => {
 
   assert.equal(setActiveServer(dir, a.server.id).activeId, a.server.id);
   assert.equal(setActiveServer(dir, "nope").activeId, a.server.id);
+});
+
+test("loadServers keeps a pre-lastPath file unchanged (no field added, no entry dropped)", () => {
+  const dir = tmpDataDir();
+  const stored = {
+    version: 1,
+    activeId: "s1",
+    servers: [{ id: "s1", name: "one", url: "http://one:1" }],
+  };
+  writeFileSync(join(dir, "servers.json"), JSON.stringify(stored), "utf8");
+  assert.deepEqual(loadServers(dir), stored);
+});
+
+test("loadServers keeps a string lastPath", () => {
+  const dir = tmpDataDir();
+  const stored = {
+    version: 1,
+    activeId: "s1",
+    servers: [{ id: "s1", name: "one", url: "http://one:1", lastPath: "/board/main" }],
+  };
+  writeFileSync(join(dir, "servers.json"), JSON.stringify(stored), "utf8");
+  assert.deepEqual(loadServers(dir), stored);
+});
+
+test("loadServers drops a wrong-typed lastPath but keeps the entry and the list", () => {
+  const dir = tmpDataDir();
+  const stored = {
+    version: 1,
+    activeId: "s1",
+    servers: [
+      { id: "s1", name: "one", url: "http://one:1", lastPath: 42 },
+      { id: "s2", name: "two", url: "http://two:2", lastPath: "/w" },
+    ],
+  };
+  writeFileSync(join(dir, "servers.json"), JSON.stringify(stored), "utf8");
+  assert.deepEqual(loadServers(dir), {
+    version: 1,
+    activeId: "s1",
+    servers: [
+      { id: "s1", name: "one", url: "http://one:1" },
+      { id: "s2", name: "two", url: "http://two:2", lastPath: "/w" },
+    ],
+  });
+});
+
+test("setServerLastPath sets, overwrites, and round-trips through load", () => {
+  const dir = tmpDataDir();
+  const a = addServer(dir, "a", "http://a:1");
+  assert.equal(a.ok, true);
+  if (!a.ok) return;
+
+  setServerLastPath(dir, a.server.id, "/s1/w1");
+  const next = setServerLastPath(dir, a.server.id, "/board/b?x=1");
+  assert.equal(next.servers[0].lastPath, "/board/b?x=1");
+  assert.deepEqual(loadServers(dir), next);
+  assert.deepEqual(loadServers(dir).servers[0], {
+    id: a.server.id,
+    name: "a",
+    url: "http://a:1",
+    lastPath: "/board/b?x=1",
+  });
+});
+
+test("setServerLastPath with an unknown id writes nothing", () => {
+  const dir = tmpDataDir();
+  const a = addServer(dir, "a", "http://a:1");
+  assert.equal(a.ok, true);
+  if (!a.ok) return;
+
+  const before = readFileSync(join(dir, "servers.json"), "utf8");
+  const result = setServerLastPath(dir, "nope", "/x");
+  assert.deepEqual(result, a.list);
+  assert.equal(readFileSync(join(dir, "servers.json"), "utf8"), before);
+});
+
+test("renameServer trims the name and changes nothing else", () => {
+  const dir = tmpDataDir();
+  const a = addServer(dir, "old", "http://a:1");
+  assert.equal(a.ok, true);
+  if (!a.ok) return;
+  setServerLastPath(dir, a.server.id, "/w");
+
+  const next = renameServer(dir, a.server.id, "  new  ");
+  assert.deepEqual(next.servers[0], {
+    id: a.server.id,
+    name: "new",
+    url: "http://a:1",
+    lastPath: "/w",
+  });
+  assert.equal(next.activeId, a.server.id);
+  assert.deepEqual(loadServers(dir), next);
+});
+
+test("renameServer falls back to the origin when the name is blank", () => {
+  const dir = tmpDataDir();
+  const a = addServer(dir, "old", "http://a:1");
+  assert.equal(a.ok, true);
+  if (!a.ok) return;
+
+  const next = renameServer(dir, a.server.id, "   ");
+  assert.equal(next.servers[0].name, "http://a:1");
+});
+
+test("renameServer with an unknown id writes nothing", () => {
+  const dir = tmpDataDir();
+  const a = addServer(dir, "a", "http://a:1");
+  assert.equal(a.ok, true);
+  if (!a.ok) return;
+
+  const before = readFileSync(join(dir, "servers.json"), "utf8");
+  const result = renameServer(dir, "nope", "new");
+  assert.deepEqual(result, a.list);
+  assert.equal(readFileSync(join(dir, "servers.json"), "utf8"), before);
+});
+
+test("findServerByOrigin prefers the active entry among same-origin duplicates", () => {
+  const first = { id: "s1", name: "one", url: "http://a:1" };
+  const second = { id: "s2", name: "two", url: "http://a:1" };
+  assert.equal(
+    findServerByOrigin({ version: 1, activeId: "s2", servers: [first, second] }, "http://a:1"),
+    second,
+  );
+});
+
+test("findServerByOrigin falls back to the first match when the active entry has another origin", () => {
+  const first = { id: "s1", name: "one", url: "http://a:1" };
+  const second = { id: "s2", name: "two", url: "http://a:1" };
+  const other = { id: "s3", name: "three", url: "http://b:2" };
+  assert.equal(
+    findServerByOrigin(
+      { version: 1, activeId: "s3", servers: [first, second, other] },
+      "http://a:1",
+    ),
+    first,
+  );
+});
+
+test("findServerByOrigin returns null when no entry matches the origin", () => {
+  const one = { id: "s1", name: "one", url: "http://a:1" };
+  assert.equal(
+    findServerByOrigin({ version: 1, activeId: "s1", servers: [one] }, "http://b:2"),
+    null,
+  );
 });
 
 test("resolveActiveServer: active entry, dangling-id fallback to first, null when empty", () => {

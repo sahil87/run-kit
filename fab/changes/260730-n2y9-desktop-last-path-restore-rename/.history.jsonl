@@ -1,0 +1,18 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-30T07:32:34Z"}
+{"args":"Desktop shell: per-server last-visited-page restore (persist lastPath in servers.json, restore on switch and cold start) plus a Servers menu rename affordance so per-server state survives without remove-and-re-add","cmd":"fab-new","event":"command","ts":"2026-07-30T07:32:34Z"}
+{"delta":"+3.7","event":"confidence","score":3.7,"trigger":"calc-score","ts":"2026-07-30T07:34:31Z"}
+{"cmd":"fab-draft","event":"command","ts":"2026-07-30T07:34:40Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-07-30T07:35:55Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-30T07:37:50Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-30T07:38:39Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-30T07:49:11Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-30T07:50:07Z"}
+{"event":"review","result":"failed","ts":"2026-07-30T08:01:29Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-30T08:01:29Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-30T08:02:54Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-30T08:06:41Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-30T08:07:23Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-30T08:11:41Z"}
+{"event":"review","result":"passed","ts":"2026-07-30T08:11:41Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-30T08:12:17Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-30T08:17:19Z"}

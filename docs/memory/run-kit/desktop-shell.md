@@ -1,5 +1,5 @@
 ---
-description: "The app/desktop Electron viewer shell — a BrowserWindow client of an existing rk serve URL that never spawns or supervises the daemon. Covers the servers.json store, welcome flow, the ⌘-tier accelerator-avoidance menu seam, the runkitShell preload bridge + isShell() seam, security wiring, ad-hoc per-arch DMG packaging + the desktop-macos release job, and `rk desktop install`/`update` as the primary quarantine-free install path (why a CLI fetch escapes quarantine and Cask does not)."
+description: "The app/desktop Electron viewer shell — a BrowserWindow client of an existing rk serve URL that never spawns or supervises the daemon. Covers the servers.json store (id-keyed state, optional lastPath, rename mutator), the welcome flow + ?mode=rename variant, last-path capture/restore on switch/add/rename/close, the ⌘-tier accelerator-avoidance menu seam, the runkitShell preload bridge, security wiring, per-arch DMG packaging, and rk desktop install/update as the quarantine-free install path."
 type: memory
 ---
 # Desktop Viewer Shell (`app/desktop`)
@@ -20,13 +20,13 @@ app/desktop/
 ├── electron-builder.yml
 ├── build/icon.png          # committed 1024px raster (see § Packaging)
 └── src/
-    ├── main.ts             # lifecycle, BrowserWindow, security wiring, IPC, welcome ↔ server routing
+    ├── main.ts             # lifecycle, BrowserWindow, security wiring, IPC, welcome ↔ server routing, last-path capture
     ├── servers.ts          # servers.json store (electron-free, directory-parameterized)
     ├── servers.test.ts     # node:test suite over the compiled store
     ├── menu.ts             # buildMenu(servers, activeId, callbacks) — the ⌘-tier seam
     ├── preload.ts          # contextBridge: window.runkitShell
     └── welcome/
-        ├── welcome.html    # static first-run/add-server page (CSP: default-src 'none')
+        ├── welcome.html    # static first-run / add-server / rename page (CSP: default-src 'none')
         └── welcome.ts      # renderer script — structural bridge narrowing, no imports
 ```
 
@@ -37,18 +37,27 @@ Package tests run via `node --test "dist/**/*.test.js"` after compile — the st
 `<userData>/servers.json`, schema version 1:
 
 ```json
-{ "version": 1, "activeId": "b3f1…", "servers": [{ "id": "<randomUUID>", "name": "studio-mac", "url": "http://100.101.2.3:3000" }] }
+{
+  "version": 1,
+  "activeId": "b3f1…",
+  "servers": [
+    { "id": "<randomUUID>", "name": "studio-mac", "url": "http://100.101.2.3:3000", "lastPath": "/utils2/rk-dev?x=1" }
+  ]
+}
 ```
 
 - **Origin normalization**: `url` is stored as `new URL(input).origin` — only `http:`/`https:` accepted; anything else (ftp:, file:, garbage) is a validation error and is never persisted. Path/query/case in the input are dropped by the origin reduction.
+- **`lastPath` is optional and additive**: the SPA-route remainder (`pathname + search`) last seen for that server, at schema **version 1** — the field carries no version bump because absence is a valid state.
 - **Atomic write**: tmp-file-then-rename in the same directory (`servers.json.tmp-<pid>` → `servers.json`).
-- **Corrupt → empty**: a missing, unreadable, corrupt, or wrong-shape file loads as an empty list without throwing (the full shape is structurally validated, including `version === 1`); startup then routes to the welcome page.
+- **Corrupt → empty, with per-field tolerance on the optional field**: a missing, unreadable, corrupt, or wrong-shape file loads as an empty list without throwing — the required shape is structurally validated (`version === 1`, `activeId` string-or-null, `servers` an array, and `id`/`name`/`url` strings on every entry), and any violation there rejects the whole file. The optional `lastPath` is the one tolerant field: absent → the entry loads unchanged, a string → kept, any other type → the field is dropped and the entry (and file) still loads. Startup routes to welcome only on the empty-list outcome.
 - **Active resolution**: `resolveActiveServer` returns the `activeId` entry, falls back to the **first** server when `activeId` dangles, `null` when the list is empty. `addServer` sets the new entry active (empty display name defaults to the origin); removing the active server promotes the first remaining entry.
+- **Origin ownership**: `findServerByOrigin(list, origin)` answers "which entry owns this displayed origin" — `addServer` never dedupes, so several entries can share one origin; the **active** entry wins among the matches, else the first match, else `null`. This is the pure targeting rule behind last-path capture (§ Last-Path Capture & Restore).
+- **Per-server mutators, all `id`-keyed**: `setActiveServer`, `setServerLastPath(dir, id, lastPath)`, and `renameServer(dir, id, name)` share one shape — load → membership guard (unknown `id` is a no-op that writes nothing) → `map` patch → atomic `saveServers`. `renameServer` trims the new name and falls back to the entry's origin when it is blank (mirroring `addServer`), and touches **only** `name`: `id`, `url`, `lastPath`, and the `activeId` linkage survive a rename. Per-server state keys on `id` and never on the name, which is what makes renaming lossless (`addServer` mints a fresh `randomUUID`, so anything id-keyed is scoped to one registration).
 - **Electron-free**: the data directory is a parameter (`main.ts` passes `app.getPath('userData')`), keeping the module unit-testable under plain `node --test`.
 
 ## Startup Routing & Welcome Flow
 
-On `app.whenReady()`: empty list → `loadFile(welcome.html)`; else `loadURL(resolveActiveServer(...).url)`. The dev override `RK_DESKTOP_URL` (see § Dev & Build Entrypoints) short-circuits routing entirely and is never persisted; its normalized origin also joins the allowed-navigation set. `window-all-closed` quits except on macOS; `activate` reopens the window.
+On `app.whenReady()`: empty list → `loadFile(welcome.html)`; else `showActive` loads `resolveActiveServer(...).url + (lastPath ?? "")` — cold-start reopens the route the user left, and an entry with no `lastPath` loads the bare origin. The dev override `RK_DESKTOP_URL` (see § Dev & Build Entrypoints) short-circuits routing entirely and is never persisted; its normalized origin also joins the allowed-navigation set. `window-all-closed` quits except on macOS; `activate` reopens the window.
 
 The welcome page (static HTML + compiled script, CSP `default-src 'none'; script-src 'self'; style-src 'unsafe-inline'`) implements **validate → test ping → add+switch**:
 
@@ -56,7 +65,26 @@ The welcome page (static HTML + compiled script, CSP `default-src 'none'; script
 2. `welcome:add-server {name, url}` persists, sets active, rebuilds the menu, and `loadURL`s the new server.
 3. `?mode=add` (menu `Servers → Add Server…`) shows a cancel link → `welcome:cancel` returns to the active server.
 
-Post-first-run management lives in the menu: `Servers → Add Server…` reloads welcome with `?mode=add`; `Servers → Remove "<name>"…` opens a native confirm dialog (Cancel is the default), and removing the active server switches to the first remaining server or welcome. Opened outside the shell, the welcome page degrades to an inline "bridge unavailable" error with the Connect button disabled.
+The page doubles as the **rename affordance** under `?mode=rename&id=<id>&name=<current>&url=<origin>` — Electron has no native text-input dialog, so the rename form reuses this card rather than adding a dialog window. Main supplies the prefill context on the `loadFile` query string (store-derived, `URLSearchParams`-encoded; both page sinks are `textContent`/`input.value`), so no read IPC exists. In rename mode the page hides the Server URL label + input, shows the origin in the tagline, pre-fills and focuses the name input, labels the submit button `Rename`, and shows the same cancel link as `?mode=add`. Submit invokes `welcome:rename-server {id, name}` with **no health ping** (the origin is unchanged); on success main persists via `renameServer`, rebuilds the menu, and returns the window to the active server through `showActive` (restoring its `lastPath`).
+
+Post-first-run management lives in the menu: `Servers → Add Server…` reloads welcome with `?mode=add`; `Servers → Rename "<name>"…` (one accelerator-less item per server, between Add and the Remove items) reloads welcome with `?mode=rename`; `Servers → Remove "<name>"…` opens a native confirm dialog (Cancel is the default), and removing the active server switches to the first remaining server or welcome. Opened outside the shell, the welcome page degrades to an inline "bridge unavailable" error with the Connect button disabled.
+
+**The `hidden` attribute is authoritative on this page**: the style block carries `[hidden] { display: none !important; }`, because the author rules `label { display: block }` and `a#cancel { display: block }` are more specific than the UA sheet's `[hidden] { display: none }` and would otherwise keep a `hidden` element painted. JS-driven visibility is unaffected — clearing `hidden` removes the attribute, so the author `display` re-applies.
+
+## Last-Path Capture & Restore (`src/main.ts`)
+
+The shell remembers where each server was left, so ⌃1–⌃9 switching and cold start land on the route the user was working in rather than the SPA root.
+
+**Capture** is one helper, `captureLastPath()`: read `mainWindow.webContents.getURL()`, then persist `pathname + search` via `setServerLastPath` for the entry `findServerByOrigin` resolves from the URL's origin. Two guards make it safe:
+
+- **Welcome guard** — a URL starting with the welcome `file://` URL is never captured (the welcome page is not a server route).
+- **Origin-match guard** — an unparseable URL, or one whose origin matches no registered server (mid-navigation, a foreign origin), persists nothing. One server's route therefore cannot pollinate another server's entry.
+
+Call sites are every shell-initiated navigation away from a server page plus window teardown: `onSwitchServer` (before loading the incoming server), `onAddServer` and `onRenameServer` (before navigating to welcome), and the main window's `close` event — capture-on-quit, so cold-start restore reflects the route at quit rather than only the last switch-away (`webContents` is still readable during `close`). No navigation-event tracking (`did-navigate-in-page` and friends) exists: the SPA is a history-API router, so `getURL()` is already current at capture time.
+
+**Restore** is the mirror: `onSwitchServer` loads `entry.url + (entry.lastPath ?? "")` and `showActive` loads `active.url + (active.lastPath ?? "")`. A restored deep route needs no security change — `isAllowedNavigation` is origin-membership only and already permits any path on a registered origin.
+
+**Staleness is the SPA's problem.** A remembered route pointing at a since-removed window or board, or at a dead server, is loaded as-is; the SPA's Not Found fallback and dead-server handling are the failure mode. The shell performs no validation, no health ping of the path, and no fallback-to-origin.
 
 ## ⌘-Tier Menu Seam (`src/menu.ts`)
 
@@ -69,7 +97,7 @@ The point of the shell. Electron steals a key from the page only via menu accele
 | App | ⌘Q quit, ⌘H hide, ⌥⌘H hide-others |
 | Edit | roles ⌘Z/⇧⌘Z/⌘X/⌘C/⌘V/⌘A — mandatory: clipboard in web content is dead on macOS without them |
 | View | ⌘R reload, ⇧⌘R force-reload, ⌥⌘I devtools, ⌘0/⌘+/⌘− zoom roles, ⌃⌘F fullscreen |
-| Servers | radio items on literal `Ctrl+1`…`Ctrl+9` (⌃, deliberately NOT CmdOrCtrl — ⌘1–9 stays free for the page); active server checked |
+| Servers | radio items on literal `Ctrl+1`…`Ctrl+9` (⌃, deliberately NOT CmdOrCtrl — ⌘1–9 stays free for the page); active server checked. The management items below them — `Add Server…`, per-server `Rename "<name>"…`, per-server `Remove "<name>"…` — are accelerator-less by design, so adding them never narrows the fall-through set |
 | Window | ⌘M minimize + zoom via a **custom template**, NOT `role: 'windowMenu'` (that role auto-binds ⌘W) |
 
 **⌘W is unbound by design** — it falls through to the page for future tab-close semantics; mouse users get an accelerator-less "Close Window" item. Guaranteed fall-through set: ⌘T ⌘W ⌘N ⌘L ⌘K ⌘F ⌘P ⌘1–9 ⌘[ ⌘] and all unlisted ⇧⌘ combos.
@@ -82,7 +110,7 @@ The sandboxed preload exposes exactly one bridge via `contextBridge.exposeInMain
 
 - **`version`** — the shell app version, read from the `--runkit-shell-version=` argv entry (passed via `webPreferences.additionalArguments`, since sandboxed preloads read `process.argv` but cannot call `app.getVersion()`).
 - **`platform`** — `process.platform`.
-- **`__welcome`** — `{ testServer(url), addServer(name, url), cancel() }`, thin `ipcRenderer.invoke` wrappers for the `welcome:*` channels.
+- **`__welcome`** — `{ testServer(url), addServer(name, url), renameServer(id, name), cancel() }`, thin `ipcRenderer.invoke` wrappers for the `welcome:*` channels.
 
 `version`/`platform` are readable by **every** page, including pages loaded from registered rk servers — this is the SPA's shell-detection seam. `__welcome` is exposed everywhere but **privileged nowhere except the welcome page**: every `welcome:*` handler in main verifies `event.senderFrame.url` starts with the welcome `file://` URL and answers `{ ok: false, error: "Not allowed" }` otherwise, so a server-loaded page can read shell metadata but never invoke a privileged call. IPC payloads are structurally validated in main (unknown-typed, narrowed) before use.
 
@@ -167,6 +195,42 @@ Verification split: compile, `tsc --noEmit`, node:test (store), and vitest (`she
 **Why**: One authoritative check at the trust boundary (main) instead of duplicating it in the preload; a renderer-side gate could not be trusted anyway.
 **Rejected**: Conditional preload exposure per page — duplicates the same check with more surface and no added security.
 *Introduced by*: 260728-04pg-electron-desktop-shell
+
+### Last path persisted per server, not a live view per server
+**Decision**: Per-server route memory is a single optional `lastPath` string in `servers.json`, captured at navigation-away/close and replayed on switch-in and startup; one BrowserWindow still shows one server at a time.
+**Why**: Cheap "reopen where I was" — the store already exists with atomic-write plumbing, and persisting (rather than holding routes in memory) is what makes cold start work at all.
+**Rejected**: A live `WebContentsView` per server (Slack-style workspaces — keeps scroll position, terminal state, and SSE connections alive): memory cost, N live connection sets per server (SSE plus per-pane relay WebSockets), and lifecycle complexity, all out of scope for a *viewer* shell. An in-memory-only `Map<id, path>`: fixes switching but not cold start, which is the stated point.
+*Introduced by*: 260730-n2y9-desktop-last-path-restore-rename
+
+### Capture target resolved by origin lookup, not by activeId
+**Decision**: `captureLastPath()` resolves which entry to write to via `findServerByOrigin` — matching the displayed URL's origin against the registered list (active entry wins among same-origin duplicates) — rather than trusting the store's `activeId` as "the outgoing server".
+**Why**: `setWindowOpenHandler` can load a registered origin in-window without updating `activeId`, so the displayed origin can differ from the active entry. Origin lookup writes the path to the server that actually owns it, subsuming the outgoing-origin match and making cross-pollination structurally impossible; keeping the rule as a pure function in `servers.ts` also puts the same-origin-duplicate tie-break under `node --test`.
+**Rejected**: Matching against `resolveActiveServer(...)` only — saves nothing, or the wrong thing, when the displayed page belongs to a non-active registered origin. A bare `.find()` on origin — targets the first same-origin entry rather than the one in view.
+*Introduced by*: 260730-n2y9-desktop-last-path-restore-rename
+
+### Per-server state keys on `id`; rename is a first-class store mutator
+**Decision**: Everything stored per server (`lastPath`, the `activeId` linkage) keys on the immutable `id`, and renaming goes through `renameServer`, which touches only `name`.
+**Why**: The pre-rename workaround for changing a display name was remove-and-re-add, and `addServer` mints a fresh `randomUUID` — so every id-keyed fact silently vanished. A dedicated rename makes the operation lossless by construction, and keying on `id` rather than the name is what lets it be.
+**Rejected**: Keying per-server state on the display name (renaming would orphan it, and names are not unique); leaving rename to remove-and-re-add (silent state loss on a routine operation).
+*Introduced by*: 260730-n2y9-desktop-last-path-restore-rename
+
+### Wrong-typed optional field drops the field, never the file
+**Decision**: On load, a non-string `lastPath` drops just that field; the entry and the rest of the file still load. Wrong types in the required fields (`id`/`name`/`url`/`version`/`activeId`/`servers`) still reject the whole file to the empty list.
+**Why**: Corrupt→empty is the right default for a shape the shell cannot interpret, but it wipes the user's server list — far too destructive a response to a junk value in a field that is allowed to be absent. Absence is already a valid state, so dropping is the least destructive reading that keeps a pre-existing valid file loading.
+**Rejected**: Treating a wrong-typed `lastPath` as whole-file corruption (loses every registered server over a cosmetic field); rejecting just the offending entry (still loses a server the user registered).
+*Introduced by*: 260730-n2y9-desktop-last-path-restore-rename
+
+### Rename UI reuses the welcome page, prefilled via the query string
+**Decision**: `?mode=rename&id=…&name=…&url=…` turns the welcome card into the rename form; main supplies the prefill context as `loadFile` query params, and the page reads them from `URLSearchParams`. No read IPC.
+**Why**: Electron has no native text-input dialog, and the welcome page already carries the name input, the cancel link, and the gated-IPC plumbing — plus the `?mode=add` precedent for query-driven variants. The prefill values originate in main (trusted, store-derived), and the page already parses `location.search`, so a `welcome:get-server` handler would add privileged surface for identical data.
+**Rejected**: A custom dialog window (new window, new lifecycle, new security wiring for one text field); a new gated read IPC (more privileged surface, same data).
+*Introduced by*: 260730-n2y9-desktop-last-path-restore-rename
+
+### `[hidden]` wins over author `display` rules on the welcome page
+**Decision**: The welcome page's style block declares `[hidden] { display: none !important; }`.
+**Why**: The page toggles visibility through the `hidden` attribute, but its author rules `label { display: block }` and `a#cancel { display: block }` outrank the UA sheet's `[hidden] { display: none }` — so a `hidden` element stayed painted. Making the attribute authoritative page-wide fixes every current and future toggle at once, and leaves JS-driven show paths intact (clearing `hidden` removes the attribute, restoring the author `display`).
+**Rejected**: Per-element `display: none` overrides or swapping to a class-based toggle — both leave the next `hidden` element on the page silently broken.
+*Introduced by*: 260730-n2y9-desktop-last-path-restore-rename
 
 ### Per-arch ad-hoc DMGs with build-time version injection
 **Decision**: Two DMGs (arm64, x64) with `identity: null`, versioned via `--config.extraMetadata.version` — from `git describe` locally, from the release job's `version` output in CI.

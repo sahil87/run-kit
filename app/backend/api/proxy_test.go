@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 )
 
@@ -108,6 +109,40 @@ func TestModifyResponseHTMLRewrite(t *testing.T) {
 	if string(result) != want {
 		t.Errorf("body = %q, want %q", string(result), want)
 	}
+	assertContentLength(t, resp, len(result))
+}
+
+// TestModifyResponseStaleContentLengthHeader is the regression test for the
+// blank-iframe bug: the rewrite shrinks the body, and the original upstream
+// Content-Length header must be overwritten to match the rewritten body —
+// httputil.ReverseProxy copies the header map (not resp.ContentLength) to the
+// client, so a stale header causes ERR_CONTENT_LENGTH_MISMATCH in browsers.
+func TestModifyResponseStaleContentLengthHeader(t *testing.T) {
+	fn := makeModifyResponse(8080)
+
+	body := `<img src="http://127.0.0.1:5000/logo.png">`
+	resp := &http.Response{
+		Header: http.Header{
+			"Content-Type":   []string{"text/html; charset=utf-8"},
+			"Content-Length": []string{strconv.Itoa(len(body))},
+		},
+		Body:          io.NopCloser(bytes.NewReader([]byte(body))),
+		ContentLength: int64(len(body)),
+	}
+
+	if err := fn(resp); err != nil {
+		t.Fatalf("ModifyResponse error: %v", err)
+	}
+
+	result, _ := io.ReadAll(resp.Body)
+	want := `<img src="/proxy/5000/logo.png">`
+	if string(result) != want {
+		t.Errorf("body = %q, want %q", string(result), want)
+	}
+	if len(result) >= len(body) {
+		t.Fatalf("rewrite did not shrink body: got %d, original %d", len(result), len(body))
+	}
+	assertContentLength(t, resp, len(result))
 }
 
 func TestModifyResponseNonHTMLPassthrough(t *testing.T) {
@@ -142,16 +177,23 @@ func TestModifyResponseGzipHTML(t *testing.T) {
 		Header: http.Header{
 			"Content-Type":     []string{"text/html"},
 			"Content-Encoding": []string{"gzip"},
+			"Content-Length":   []string{strconv.Itoa(buf.Len())},
 		},
-		Body: io.NopCloser(bytes.NewReader(buf.Bytes())),
+		Body:          io.NopCloser(bytes.NewReader(buf.Bytes())),
+		ContentLength: int64(buf.Len()),
 	}
 
 	if err := fn(resp); err != nil {
 		t.Fatalf("ModifyResponse error: %v", err)
 	}
 
+	// Content-Length must match the re-compressed wire bytes, not the
+	// decompressed HTML — read the raw body before decoding.
+	wire, _ := io.ReadAll(resp.Body)
+	assertContentLength(t, resp, len(wire))
+
 	// Result should be gzip-compressed
-	gr, err := gzip.NewReader(resp.Body)
+	gr, err := gzip.NewReader(bytes.NewReader(wire))
 	if err != nil {
 		t.Fatalf("gzip.NewReader error: %v", err)
 	}
@@ -161,6 +203,19 @@ func TestModifyResponseGzipHTML(t *testing.T) {
 	want := `<a href="/proxy/8080/docs">docs</a>`
 	if string(result) != want {
 		t.Errorf("body = %q, want %q", string(result), want)
+	}
+}
+
+// assertContentLength asserts that both the Content-Length header (what
+// httputil.ReverseProxy copies to the client) and the ContentLength field
+// equal the exact byte length of the final wire body.
+func assertContentLength(t *testing.T, resp *http.Response, wireLen int) {
+	t.Helper()
+	if got, want := resp.Header.Get("Content-Length"), strconv.Itoa(wireLen); got != want {
+		t.Errorf("Content-Length header = %q, want %q", got, want)
+	}
+	if resp.ContentLength != int64(wireLen) {
+		t.Errorf("ContentLength field = %d, want %d", resp.ContentLength, wireLen)
 	}
 }
 

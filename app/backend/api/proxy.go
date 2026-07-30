@@ -106,6 +106,7 @@ func makeModifyResponse(port int) func(*http.Response) error {
 				// Fall back to uncompressed
 				resp.Body = io.NopCloser(bytes.NewReader(rewritten))
 				resp.ContentLength = int64(len(rewritten))
+				resp.Header.Set("Content-Length", strconv.Itoa(len(rewritten)))
 				resp.Header.Del("Content-Encoding")
 				return nil
 			}
@@ -113,9 +114,11 @@ func makeModifyResponse(port int) func(*http.Response) error {
 			rewritten = buf.Bytes()
 			resp.Body = io.NopCloser(bytes.NewReader(rewritten))
 			resp.ContentLength = int64(len(rewritten))
+			resp.Header.Set("Content-Length", strconv.Itoa(len(rewritten)))
 		} else {
 			resp.Body = io.NopCloser(bytes.NewReader(rewritten))
 			resp.ContentLength = int64(len(rewritten))
+			resp.Header.Set("Content-Length", strconv.Itoa(len(rewritten)))
 		}
 
 		return nil

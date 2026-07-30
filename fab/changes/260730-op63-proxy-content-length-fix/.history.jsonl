@@ -1,0 +1,9 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-30T17:41:59Z"}
+{"args":"fix /proxy blank-iframe bug: makeModifyResponse rewrites HTML body but leaves Content-Length header stale -\u003e ERR_CONTENT_LENGTH_MISMATCH","cmd":"fab-new","event":"command","ts":"2026-07-30T17:41:59Z"}
+{"delta":"+4.9","event":"confidence","score":4.9,"trigger":"calc-score","ts":"2026-07-30T17:43:11Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-30T17:45:26Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-30T17:45:36Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-30T17:49:40Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-30T17:56:37Z"}
+{"event":"review","result":"passed","ts":"2026-07-30T17:56:37Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-30T18:01:23Z"}

@@ -276,8 +276,16 @@ export function TerminalClient({
       // Clipboard addon — enriched clipboard support
       terminal.loadAddon(new ClipboardAddon(undefined, clipboardProvider));
 
-      // Clickable URLs
-      terminal.loadAddon(new WebLinksAddon());
+      // Clickable URLs. The explicit handler matters: the addon's default
+      // opens a blank window and assigns location.href — inside the desktop
+      // shell that surfaces as "about:blank" (denied, link dead). Passing the
+      // URI through window.open keeps browser behavior identical and lets the
+      // shell's setWindowOpenHandler see the real URL and route it externally.
+      terminal.loadAddon(
+        new WebLinksAddon((_event, uri) => {
+          window.open(uri, "_blank", "noopener,noreferrer");
+        }),
+      );
 
       // xterm defaults to Unicode 6 width tables, but tmux lays out its buffer
       // using wcwidth (Unicode 14/15). Without this addon, emojis tmux treats

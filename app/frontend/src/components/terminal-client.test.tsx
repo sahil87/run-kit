@@ -5,6 +5,7 @@ import { ChromeProvider, useChrome } from "@/contexts/chrome-context";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { UnicodeGraphemesAddon } from "@xterm/addon-unicode-graphemes";
+import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { TerminalClient } from "./terminal-client";
 import type { OpenStreamOpts, RelayStream } from "@/lib/relay-mux";
@@ -882,6 +883,54 @@ describe("TerminalClient Unicode width init", () => {
       | { unicode: { activeVersion: string } }
       | undefined;
     expect(terminalInstance?.unicode.activeVersion).toBe("15-graphemes");
+  });
+});
+
+describe("TerminalClient clickable links (WebLinksAddon handler)", () => {
+  // The addon MUST be constructed with an explicit handler. Its default opens
+  // a blank window and assigns location.href — inside the desktop shell that
+  // surfaces to setWindowOpenHandler as "about:blank" (denied → dead links).
+  // The explicit handler passes the real URI through window.open with the
+  // codebase's universal "_blank"/"noopener,noreferrer" idiom.
+  beforeEach(() => {
+    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({
+      matches: false,
+      media: "",
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+    MockStream.instances = [];
+    mockRelayMux.openStream.mockClear();
+    vi.mocked(WebLinksAddon).mockClear();
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("constructs WebLinksAddon with a handler that opens the URI via window.open", async () => {
+    renderTerminalClient(false);
+
+    await waitFor(() => {
+      expect(vi.mocked(WebLinksAddon)).toHaveBeenCalled();
+    });
+
+    const handler = vi.mocked(WebLinksAddon).mock.calls[0]?.[0];
+    expect(typeof handler).toBe("function");
+
+    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+    handler?.(new MouseEvent("click"), "https://github.com/sahil87/run-kit/pull/1");
+    expect(openSpy).toHaveBeenCalledWith(
+      "https://github.com/sahil87/run-kit/pull/1",
+      "_blank",
+      "noopener,noreferrer",
+    );
   });
 });
 

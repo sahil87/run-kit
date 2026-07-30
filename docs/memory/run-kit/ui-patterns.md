@@ -1854,9 +1854,17 @@ Addons loaded in `init()` from **static top-of-file imports**, after `terminal.o
 |-------|---------|-------|
 | `@xterm/addon-fit` | Auto-resize columns/rows | Existing — loaded first, `fit()` called immediately |
 | `@xterm/addon-clipboard` | OSC 52 clipboard sequences | Custom `ClipboardProvider` accepts both `""` (empty/default, tmux's format) and `"c"` (explicit) selection targets. Rejects `"p"`, `"s"`, `"0"`–`"7"`. Provider exported as `clipboardProvider` for testability |
-| `@xterm/addon-web-links` | Clickable URLs in terminal output | |
+| `@xterm/addon-web-links` | Clickable URLs in terminal output | Constructed **with an explicit activation handler** — `new WebLinksAddon((_event, uri) => window.open(uri, "_blank", "noopener,noreferrer"))`. The handler-less default is not viable (§ WebLinksAddon Explicit Handler) |
 | `@xterm/addon-unicode-graphemes` | Unicode 15 + grapheme-cluster width tables | Requires `allowProposedApi: true` on the Terminal constructor; `terminal.unicode.activeVersion = "15-graphemes"` set after `loadAddon()`. Must load before the WebGL addon |
 | `@xterm/addon-webgl` | GPU-accelerated rendering | The `new WebglAddon()` / `loadAddon(...)` construction is wrapped in try/catch — silently falls back to canvas renderer on GPU/WebGL-context failure. The *module load* is static (resolved at chunk load, cannot fail at `init()` time), but context creation can still throw at runtime, so the runtime guard is required (`260531-m3pl`) |
+
+#### WebLinksAddon Explicit Handler
+
+`WebLinksAddon` is constructed with an explicit activation handler that calls `window.open(uri, "_blank", "noopener,noreferrer")` — the codebase's universal external-open idiom (`app.tsx`, `board-page.tsx`, `buildOpenPrAction`). **The handler is load-bearing for the desktop shell, not a stylistic preference.**
+
+The addon's default handler opens a window with **no URL** (to get a blank window whose `.opener` it can clear), then assigns `location.href = uri` on it. In a browser that works — `window.open()` succeeds on the click gesture. In the Electron shell it cannot: the main process's `setWindowOpenHandler` sees `url: "about:blank"`, which is not http(s), so the intent is denied (see [desktop-shell](/run-kit/desktop-shell.md) § Security Wiring); `window.open()` returns `null` and the addon bails with a console warning ("Opening link blocked as opener could not be cleared"). The failure mode is a dead link with nothing but that console warning as evidence, and the shell cannot fix it from its side: `about:blank` carries no URL by the time main sees it.
+
+Passing the URI through `window.open` directly makes the two environments agree: identical browser behavior (new tab, opener severed by `noopener,noreferrer` rather than the addon's manual `.opener = null` dance), and the shell's window-open policy receives the real URL and routes it to the system browser. Covered by a unit test in `terminal-client.test.tsx` asserting the addon is constructed *with* a function and that invoking it calls `window.open` with the three-arg idiom; there is no e2e — xterm renders links on a canvas, so link-region clicks are not reliably automatable. (`260730-e9lz`)
 
 ### Terminal Font Size (user-controllable global preference)
 
@@ -2814,3 +2822,9 @@ The regression test in `app/frontend/src/hooks/use-dialog-state.test.tsx` flips 
 **Why**: The toggle already shared the 24/30 box with its neighbors, but reading as a *different control family* — borderless with a 20px glyph beside bordered chips with 13–14px glyphs — is what made the row look misaligned; matching the established sibling convention (HistoryNav / `LINK_CRUMB_CLASS`) fixes the perception with one class list, and the border finally gives `rk-glint`'s border-flip something to flip. The brand `min-h` is the mechanical half: it was measurably 26px against the buttons' 30px.
 **Rejected**: keeping it borderless and only shrinking the icon (leaves two control families in one cluster); putting the `min-h` inside `LINK_CRUMB_CLASS` (inert on the inline server crumb, which is not a flex box).
 *Introduced by*: 260724-2bmy-mobile-chrome-polish
+
+### Terminal link-opening is the SPA's job, via the shared `window.open` idiom
+**Decision**: `WebLinksAddon` carries an explicit activation handler calling `window.open(uri, "_blank", "noopener,noreferrer")`; the addon's default handler is not used.
+**Why**: The default opens a URL-less blank window and then assigns `location.href`, so an embedding shell only ever sees `about:blank` — the URL is gone before any host-side policy can act on it. No amount of Electron-side work can recover it, which makes this a frontend fix by necessity rather than by preference. Routing through `window.open` also puts terminal links on the same three-arg external-open idiom as every other outbound link in the SPA, so the shell needs exactly one window-open policy rather than a per-affordance special case.
+**Rejected**: Fixing it in the desktop shell (impossible — `about:blank` carries no URL); a custom `linkHandler` on the `Terminal` options instead of the addon handler (reimplements the addon's URL detection for the same outcome); a Playwright e2e for the click path (xterm renders links on a canvas, so link-region clicks are not reliably automatable).
+*Introduced by*: 260730-e9lz-shell-terminal-links-external

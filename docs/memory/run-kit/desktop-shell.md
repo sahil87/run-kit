@@ -1,5 +1,5 @@
 ---
-description: "The app/desktop Electron viewer shell — a BrowserWindow client of an existing rk serve URL that never spawns or supervises the daemon. Covers the servers.json store (id-keyed, lastPath, rename), the welcome flow, last-path capture/restore, the two-tier CmdOrCtrl menu seam (unshifted page tier inviolable, shifted shell tier, ⇧⌘/⇧Ctrl 1–9 switcher) applied per platform, the runkitShell bridge (sender-gated servers + welcome groups) + isShell(), security wiring, mac/win/linux packaging + the three desktop release jobs, and the quarantine-free `rk desktop install`/`update` path."
+description: "The app/desktop Electron viewer shell — a BrowserWindow client of an rk serve URL that never spawns the daemon. Covers the servers.json store (id-keyed, lastPath, rename), welcome flow, last-path restore, the two-tier CmdOrCtrl menu seam (unshifted page tier inviolable, shifted shell tier, ⇧ 1–9 switcher), the sender-gated runkitShell bridge + isShell(), security wiring (all-external window-open policy, navigation allowlist), mac/win/linux packaging + releases, and `rk desktop install`/`update`."
 type: memory
 ---
 # Desktop Viewer Shell (`app/desktop`)
@@ -23,6 +23,8 @@ app/desktop/
     ├── main.ts             # lifecycle, BrowserWindow, security wiring, IPC, welcome ↔ server routing, last-path capture
     ├── servers.ts          # servers.json store (electron-free, directory-parameterized)
     ├── servers.test.ts     # node:test suite over the compiled store
+    ├── window-open.ts      # new-window policy (electron-free): isHttpUrl + windowOpenAction
+    ├── window-open.test.ts # node:test suite over the compiled policy
     ├── menu.ts             # buildMenu(servers, activeId, callbacks) — the per-platform keyboard-tier seam
     ├── preload.ts          # contextBridge: window.runkitShell
     └── welcome/
@@ -30,7 +32,7 @@ app/desktop/
         └── welcome.ts      # renderer script — structural bridge narrowing, no imports
 ```
 
-Package tests run via `node --test "dist/**/*.test.js"` after compile — the store module is electron-free precisely so Node's built-in runner covers it without adding a test dependency. Compiled test files are excluded from packaging (`files: ["dist/**", "!dist/**/*.test.js"]`).
+Package tests run via `node --test "dist/**/*.test.js"` after compile — the store and window-open-policy modules are electron-free precisely so Node's built-in runner covers them without adding a test dependency. Compiled test files are excluded from packaging (`files: ["dist/**", "!dist/**/*.test.js"]`).
 
 ## Server-List Store (`src/servers.ts`)
 
@@ -154,12 +156,23 @@ The first real SPA consumer of this seam is the palette's shell-gated `Server: S
 ## Security Wiring (`src/main.ts`)
 
 - **Renderer isolation**: `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`, preload path, `additionalArguments` version pass-through.
-- **Window-open**: `setWindowOpenHandler` always denies — a registered-server origin loads in-window (`contents.loadURL`), any other http(s) URL opens via `shell.openExternal`, everything else is dropped.
+- **Window-open**: `setWindowOpenHandler` always returns `{ action: "deny" }`, and the policy is **all-external** — every http(s) URL, registered-server origins included, opens via `shell.openExternal`; everything else (`about:blank`, `file:`, `smb:`, garbage) is dropped. A new-window intent never navigates the shell window. The decision lives in `src/window-open.ts` as the pure electron-free `windowOpenAction(url): "open-external" | "deny"`, covered by the colocated `window-open.test.ts` node:test suite (§ Window-Open Policy Module).
 - **Navigation allowlist**: `will-navigate` and `will-redirect` share one guard allowing only registered server origins (plus the `RK_DESKTOP_URL` origin in dev) and the welcome `file://` URL; blocked http(s) targets are handed to the system browser — a server-issued redirect cannot escape the registered-origin set in-window.
 - **Permissions**: `setPermissionRequestHandler` allows exactly `clipboard-read`, `clipboard-sanitized-write`, `notifications`; everything else is denied.
 - **TLS fails closed**: no `certificate-error` bypass handler exists.
 - **IPC hardening**: sender-frame gating on every `welcome:*` and `servers:*` handler, each against its own allowlist (§ Bridge above) — always in main, never in the preload.
 - **One switch path**: `switchToServer(id)` (set active via the store → `loadURL` → rebuild menu) is the single seam shared by the Servers menu radio callback and the `servers:switch` handler, so the IPC and mouse paths cannot diverge.
+
+### Window-Open Policy Module (`src/window-open.ts`)
+
+The new-window decision is a pure electron-free module — the second instance of the `servers.ts` pattern — exporting two functions:
+
+- **`isHttpUrl(url): boolean`** — the http(s) gate, and the **single definition** in the package. `main.ts` imports it and uses it directly in `guardNavigation`; `windowOpenAction` uses it internally. Nothing else may reach `shell.openExternal`: handing arbitrary schemes (`file:`, `smb:`) to `openExternal` is a known injection vector (Constitution I).
+- **`windowOpenAction(url): "open-external" | "deny"`** — `isHttpUrl(url) ? "open-external" : "deny"`. It takes **no origin set at all**, which is the structural statement that registered origins get no special treatment.
+
+`main.ts`'s handler is therefore one line — `if (windowOpenAction(url) === "open-external") void shell.openExternal(url);` before the unconditional `return { action: "deny" }`. `main.ts` imports `electron` at module top and cannot be loaded under `node --test`, so extracting the decision is what makes it testable at all; `window-open.test.ts` asserts the scheme matrix (https/http → external; `about:blank`, `file:///…`, `smb://…` → deny) plus a registered-origin-shaped http URL → external, which is the regression guard on the all-external policy.
+
+`originOf` and `registeredOrigins` stay in `main.ts` and remain live via `isAllowedNavigation` — the navigation allowlist is where origin membership matters, and it is untouched by this policy.
 
 ## Packaging (`electron-builder.yml` + `scripts/build-desktop.sh`)
 
@@ -295,7 +308,7 @@ The win/linux *menu* contract is nonetheless CI-provable without hardware: the c
 
 ### Capture target resolved by origin lookup, not by activeId
 **Decision**: `captureLastPath()` resolves which entry to write to via `findServerByOrigin` — matching the displayed URL's origin against the registered list (active entry wins among same-origin duplicates) — rather than trusting the store's `activeId` as "the outgoing server".
-**Why**: `setWindowOpenHandler` can load a registered origin in-window without updating `activeId`, so the displayed origin can differ from the active entry. Origin lookup writes the path to the server that actually owns it, subsuming the outgoing-origin match and making cross-pollination structurally impossible; keeping the rule as a pure function in `servers.ts` also puts the same-origin-duplicate tie-break under `node --test`.
+**Why**: The displayed origin can differ from the active entry — the `RK_DESKTOP_URL` dev override short-circuits routing without touching `servers.json` at all, and `addServer` never dedupes, so several entries can share one origin while only one is active. Origin lookup writes the path to the server that actually owns what is on screen, subsuming the outgoing-origin match and making cross-pollination structurally impossible; keeping the rule as a pure function in `servers.ts` also puts the same-origin-duplicate tie-break under `node --test`.
 **Rejected**: Matching against `resolveActiveServer(...)` only — saves nothing, or the wrong thing, when the displayed page belongs to a non-active registered origin. A bare `.find()` on origin — targets the first same-origin entry rather than the one in view.
 *Introduced by*: 260730-n2y9-desktop-last-path-restore-rename
 
@@ -376,3 +389,15 @@ The win/linux *menu* contract is nonetheless CI-provable without hardware: the c
 **Why**: The common local case is "build for the machine I am on", and electron-builder cannot meaningfully cross-build these targets anyway — so the host default is right almost always, while the explicit argument keeps the script usable as the single named entrypoint. Constitution VIII keeps the branching in the script, not the justfile.
 **Rejected**: A required target argument (breaks the existing argless `just build-desktop` habit for no benefit); three separate scripts (triplicates the version-derivation and icon-check preamble); branching inside the justfile recipe (Constitution VIII).
 *Introduced by*: 260730-ler1-desktop-windows-linux-packaging
+
+### Every new-window intent opens externally; no in-window branch
+**Decision**: `setWindowOpenHandler` routes **all** http(s) URLs to `shell.openExternal` — registered-server origins included — and denies everything else. There is no `contents.loadURL` branch for registered origins. The `will-navigate`/`will-redirect` guard is untouched.
+**Why**: A "new window" branch that calls `loadURL` does not open a new surface — it *replaces the page the user is on*, which is never what a `window.open` / `target="_blank"` click asks for. Nothing in the SPA wanted it: every `window.open` and `target="_blank"` in `app/frontend/src` targets an external URL (GitHub PR links, HELP_URL, doc links). Collapsing the policy also removes the origin lookup from the new-window path entirely, so the handler has no reason to read the server list. In-window navigation is a *navigation* concern and stays with the navigation guard, which is why that guard is deliberately unchanged.
+**Rejected**: Keeping the registered-origin in-window branch (hijacks the current page, and no caller depends on it); dropping the http(s) gate and passing every scheme to `shell.openExternal` (`file:`/`smb:` to `openExternal` is a known injection vector — Constitution I).
+*Introduced by*: 260730-e9lz-shell-terminal-links-external
+
+### The window-open decision is a pure module owning the single `isHttpUrl`
+**Decision**: `windowOpenAction` lives in the electron-free `src/window-open.ts` covered by `node --test`, and that module holds the package's single `isHttpUrl` definition, imported by `main.ts` for `guardNavigation`.
+**Why**: `main.ts` imports `electron` at module top, so nothing in it is reachable from `node --test`; a separate pure module is the only way to test the policy without adding a test dependency to the three-dep package (the `servers.ts` precedent). `isHttpUrl` belongs with it rather than being duplicated because it is a security-relevant gate used by both the policy and the navigation guard, and two copies of an injection-vector predicate invite drift.
+**Rejected**: Asserting the policy through a mocked `electron` module loaded against compiled `main.js` (tests the wiring but drags the whole lifecycle module in for one branch); keeping `isHttpUrl` private in `main.ts` and re-implementing the check inside `windowOpenAction` (two copies of the same gate).
+*Introduced by*: 260730-e9lz-shell-terminal-links-external

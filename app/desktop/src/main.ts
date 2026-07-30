@@ -23,6 +23,7 @@ import {
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { buildMenu } from "./menu";
+import { isHttpUrl, windowOpenAction } from "./window-open";
 import {
   addServer,
   findServerByOrigin,
@@ -71,10 +72,6 @@ function originOf(url: string): string | null {
   } catch {
     return null;
   }
-}
-
-function isHttpUrl(url: string): boolean {
-  return url.startsWith("http://") || url.startsWith("https://");
 }
 
 /** Origins the window may show in-place: registered servers + the dev override. */
@@ -369,15 +366,12 @@ function openMainWindow(): void {
 }
 
 app.on("web-contents-created", (_event, contents) => {
-  // New windows are always denied; registered origins load in-window,
-  // any other http(s) target goes to the system browser.
+  // New windows are always denied; every http(s) target — registered origins
+  // included — goes to the system browser (policy in ./window-open, covered by
+  // node:test). There is no in-window branch: a new-window intent never
+  // navigates the shell window.
   contents.setWindowOpenHandler(({ url }) => {
-    const origin = originOf(url);
-    if (origin !== null && registeredOrigins().has(origin)) {
-      void contents.loadURL(url);
-    } else if (isHttpUrl(url)) {
-      void shell.openExternal(url);
-    }
+    if (windowOpenAction(url) === "open-external") void shell.openExternal(url);
     return { action: "deny" };
   });
 

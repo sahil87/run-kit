@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 15
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-07-30T12:11:24Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-30T12:22:05Z"}
     hydrate: {started_at: "2026-07-30T12:22:05Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-30T12:31:18Z"}
     ship: {started_at: "2026-07-30T12:31:18Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-30T12:32:51Z"}
-    review-pr: {started_at: "2026-07-30T12:32:51Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-07-30T12:32:51Z", driver: git-pr, iterations: 1, completed_at: "2026-07-30T12:43:59Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/475
 true_impact:
@@ -54,4 +54,4 @@ true_impact:
 change_type_source: explicit
 summary: adds the declarative keybinding registry — uniform Shift+CmdOrCtrl action tier, localStorage override diffs, cheatsheet overlay, palette hints — and records the shell/SPA shifted-tier ownership split
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-07-30T12:32:51Z
+last_updated: 2026-07-30T12:43:59Z

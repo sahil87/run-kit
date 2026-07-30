@@ -337,8 +337,14 @@ function wireLocalSection(els: WelcomeElements, daemon: DaemonBridge, heading: s
   const refresh = async (): Promise<void> => {
     if (busy || inFlight) return;
     inFlight = true;
-    const result = await daemon.status();
-    inFlight = false;
+    let result: unknown = null;
+    try {
+      result = await daemon.status();
+    } catch {
+      // A rejected invoke is transient — fall through to the null-status path.
+    } finally {
+      inFlight = false; // never leave the flag stuck (polling would stop for good)
+    }
     if (busy) return; // a flow started while the request was out
     const status = daemonStatusOf(result);
     // A failed/malformed probe keeps the previous rendering (transient).
@@ -363,7 +369,12 @@ function wireLocalSection(els: WelcomeElements, daemon: DaemonBridge, heading: s
     } else {
       renderStarting(lastStatus !== null && lastStatus.installed ? lastStatus.origin : null);
     }
-    const result = await daemon.start();
+    let result: unknown = null;
+    try {
+      result = await daemon.start();
+    } catch {
+      // A rejected invoke surfaces the generic error below — never stay stuck busy.
+    }
     if (isAckOk(result)) return; // success: main is navigating away — stay busy
     showLocalError(errorOf(result));
     busy = false;
@@ -376,7 +387,12 @@ function wireLocalSection(els: WelcomeElements, daemon: DaemonBridge, heading: s
     busy = true;
     els.localError.hidden = true;
     els.localStop.disabled = true;
-    const result = await daemon.stop(); // main confirms (tmux sessions survive)
+    let result: unknown = null;
+    try {
+      result = await daemon.stop(); // main confirms (tmux sessions survive)
+    } catch {
+      // A rejected invoke surfaces the generic error below — never stay stuck busy.
+    }
     busy = false;
     if (!isAckOk(result)) showLocalError(errorOf(result));
     if (lastStatus !== null) render(lastStatus);

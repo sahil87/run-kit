@@ -484,9 +484,14 @@ function toDaemonMenuInfo(status: DaemonStatus): DaemonMenuInfo | null {
   return { running: status.running, version: status.version };
 }
 
+function sameDaemonMenuInfo(a: DaemonMenuInfo | null, b: DaemonMenuInfo | null): boolean {
+  if (a === null || b === null) return a === b;
+  return a.running === b.running && a.version === b.version;
+}
+
 function updateDaemonMenu(status: DaemonStatus): void {
   const next = toDaemonMenuInfo(status);
-  if (JSON.stringify(next) === JSON.stringify(daemonMenuInfo)) return;
+  if (sameDaemonMenuInfo(next, daemonMenuInfo)) return;
   daemonMenuInfo = next;
   rebuildMenu();
 }

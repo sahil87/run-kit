@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 12
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-07-30T19:29:39Z", driver: fab-fff, iterations: 3, completed_at: "2026-07-30T19:33:23Z"}
     review: {started_at: "2026-07-30T19:33:23Z", driver: fab-fff, iterations: 3, completed_at: "2026-07-30T19:37:42Z"}
     hydrate: {started_at: "2026-07-30T19:37:42Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-30T19:48:15Z"}
-    ship: {started_at: "2026-07-30T19:48:15Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-07-30T19:48:15Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-30T19:50:13Z"}
+    review-pr: {started_at: "2026-07-30T19:50:13Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/479
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 1374
+    deleted: 222
+    net: 1152
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 920
+        deleted: 165
+        net: 755
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-07-30T19:48:15Z"
-    computed_at_stage: hydrate
+        added: 494
+        deleted: 46
+        net: 448
+    computed_at: "2026-07-30T19:50:13Z"
+    computed_at_stage: ship
 change_type_source: explicit
 summary: macOS demotes the action tier's N/T/W (shell-only) and [/]// to the unshifted ⌘ tier via macTier/macShellOnly + defaultComboFor; tier-stamped claimed keys, scoped-beats-global dispatch precedence, mac metaKey-gated terminal-seam refusal, host-aware overlay with a ⌘ page-tier map, and the Help palette renames (Keyboard Shortcuts = overlay, tmux Keybindings = tmux modal).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-07-30T19:48:15Z
+last_updated: 2026-07-30T19:50:13Z

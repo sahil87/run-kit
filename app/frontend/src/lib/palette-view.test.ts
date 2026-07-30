@@ -75,4 +75,23 @@ describe("buildViewActions (View: palette parity)", () => {
       expect(onSwitch).toHaveBeenCalledWith("chat");
     });
   });
+
+  describe("effective-binding hints (260730-g40a)", () => {
+    it("renders caller-supplied hint strings (registry-effective combos)", () => {
+      const actions = buildViewActions(["chat", "web", "tty"], "tty", () => {}, {
+        cycle: "Ctrl+.",
+        chat: "Shift+Ctrl+B",
+      });
+      expect(actions.find((a) => a.id === "view-chat")!.shortcut).toBe("Shift+Ctrl+B");
+      expect(actions.find((a) => a.id === "view-web")!.shortcut).toBe("Ctrl+.");
+    });
+
+    it("an empty hint (disabled binding) yields an empty shortcut string", () => {
+      const [action] = buildViewActions(["web", "tty"], "tty", () => {}, {
+        cycle: "",
+        chat: "",
+      });
+      expect(action.shortcut).toBe("");
+    });
+  });
 });

@@ -11,7 +11,7 @@ function makeActions(labels: string[]): PaletteAction[] {
 }
 
 function openPalette() {
-  fireEvent.keyDown(document, { key: "k", metaKey: true });
+  fireEvent.keyDown(document, { key: "k", code: "KeyK", metaKey: true });
 }
 
 describe("CommandPalette", () => {
@@ -40,7 +40,7 @@ describe("CommandPalette", () => {
   it("opens on Ctrl+K", () => {
     const actions = makeActions(["New Session"]);
     render(<CommandPalette actions={actions} />);
-    fireEvent.keyDown(document, { key: "k", ctrlKey: true });
+    fireEvent.keyDown(document, { key: "k", code: "KeyK", ctrlKey: true });
     expect(screen.getByPlaceholderText("Type a command...")).toBeInTheDocument();
   });
 
@@ -176,7 +176,7 @@ describe("CommandPalette", () => {
     openPalette();
     expect(screen.getByPlaceholderText("Type a command...")).toBeInTheDocument();
 
-    fireEvent.keyDown(document, { key: "k", metaKey: true });
+    fireEvent.keyDown(document, { key: "k", code: "KeyK", metaKey: true });
     expect(screen.queryByPlaceholderText("Type a command...")).not.toBeInTheDocument();
   });
 

@@ -1,3 +1,10 @@
 {"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-30T11:20:41Z"}
 {"args":"keyboard shortcut registry + Shift+CmdOrCtrl tier (B) + cheatsheet overlay + per-device overrides (from /fab-discuss session)","cmd":"fab-new","event":"command","ts":"2026-07-30T11:20:41Z"}
 {"delta":"+4.6","event":"confidence","score":4.6,"trigger":"calc-score","ts":"2026-07-30T11:23:56Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-30T11:29:23Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-30T11:30:17Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-30T11:31:10Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-30T12:11:24Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-30T12:22:05Z"}
+{"event":"review","result":"passed","ts":"2026-07-30T12:22:05Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-30T12:31:18Z"}

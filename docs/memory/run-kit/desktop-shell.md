@@ -1,5 +1,5 @@
 ---
-description: "The app/desktop Electron viewer shell — a BrowserWindow client of an rk serve URL that never spawns the daemon. Covers the servers.json store (id-keyed, lastPath, rename), welcome flow, last-path restore, the two-tier CmdOrCtrl menu seam (unshifted page tier inviolable, shifted shell tier, ⇧ 1–9 switcher), the sender-gated runkitShell bridge + isShell(), security wiring (all-external window-open policy, navigation allowlist), mac/win/linux packaging + releases, and `rk desktop install`/`update`."
+description: "The app/desktop Electron viewer shell — a BrowserWindow client of an rk serve URL that never spawns the daemon. Covers the servers.json store, welcome flow, last-path restore, the two-tier CmdOrCtrl menu seam per platform (page tier inviolable; shifted tier split — shell digits 1–9 + R/I, SPA registry letters/punctuation), the sender-gated runkitShell bridge + isShell(), security wiring (window-open policy, nav allowlist), mac/win/linux packaging + releases, and `rk desktop install`/`update`."
 type: memory
 ---
 # Desktop Viewer Shell (`app/desktop`)
@@ -99,6 +99,13 @@ The contract is a platform-neutral **two-tier rule**:
 - **Shell tier — `Shift+CmdOrCtrl+<any>`**: shell chrome MAY claim keys here, sparingly. Today's only claim is the Servers switcher (1–9).
 
 Guaranteed fall-through therefore reads: **the unshifted Cmd/Ctrl tier is inviolable** (⌘T ⌘W ⌘N ⌘L ⌘K ⌘F ⌘P ⌘1–9 ⌘[ ⌘] …); the shifted tier is shell-claimable.
+
+**The shifted tier is split by key class, and the SPA owns half of it.** The SPA claims `Shift+CmdOrCtrl+<letter>` and `+<punctuation>` for its own action tier — a declarative keybinding registry in the renderer, not menu accelerators (see [ui-patterns](/run-kit/ui-patterns.md) § Keyboard Shortcuts). The shell's claims are the **shifted digits 1–9** (Servers switcher), **⇧CmdOrCtrl+R** (force reload), and **⇧Ctrl+I** (DevTools, win/linux). The two halves are disjoint, and the split is a standing constraint on both sides:
+
+- A **new shell menu accelerator** in the shifted tier MUST first check the SPA registry's `DEFAULT_BINDINGS` and claimed-key map (`app/frontend/src/lib/keybindings.ts`) — an accelerator wins over the page unconditionally, so claiming a key the registry already binds silently kills an SPA action inside the shell only, with no error anywhere.
+- The registry mirrors the shell's claims as **data** (`claimedKeys(platform, shell)`, `owner: "shell"`), so the shortcuts overlay renders them as locked rows and a rebind capture onto one warns. That mirror is hand-maintained: it must be updated in the same change that adds or drops a shell accelerator.
+
+The SPA's binding surface is host-independent by construction — renderer keydown listeners work identically in the shell and in a plain browser — with one host-conditional carve-out: outside the shell, ⇧Cmd/Ctrl+N/T/W are browser-reserved (incognito / reopen-tab / close-window), so those three defaults resolve disabled there and their actions stay palette-reachable. Inside the shell all of them are live, which is the shell's keyboard-ceiling premise paying off.
 
 The menu is applied **per platform** — symmetry of *rule*, not symmetry of accelerator table: `buildMenu` composes its template from per-menu builders (`macAppMenu` / `fileMenu`, `macEditMenu`, `viewMenu`, `serversMenu`, `macWindowMenu`) that branch on a module-level `isMac = process.platform === "darwin"`, because Chromium's native handling and role defaults differ per platform (the carve-outs below). The switcher accelerator itself is one `CmdOrCtrl` expression, identical everywhere. The exported `buildMenu(servers, activeId, callbacks)` signature is unchanged and is still rebuilt (and re-set via `Menu.setApplicationMenu`) on every server-list change.
 
@@ -263,6 +270,12 @@ The win/linux *menu* contract is nonetheless CI-provable without hardware: the c
 **Why**: Symmetry is the governing principle — whatever is Cmd+X on macOS is Ctrl+X elsewhere — so the tier a browser reserves is the tier the shell must leave alone on *every* platform. Literal `Ctrl+1–9` was safe only on macOS; on Windows/Linux it would steal exactly the keys the shell exists to hand the SPA. macOS behavior is unchanged by the re-expression alone.
 **Rejected**: Per-platform *switcher* chords (two bindings to keep in sync, and the documented fall-through promise stops being one promise) — distinct from the per-platform carve-out builders the menu legitimately has (see "The menu is symmetric in rule, not in accelerator table" below); keeping `Ctrl+1–9` as a macOS legacy alias (two bindings for one item days after the feature shipped, for no muscle-memory install base); menu-only switching with no chord (fails Constitution V).
 *Introduced by*: 260730-9lez-shell-keyboard-tier-symmetry
+
+### The shifted tier is split by key class: shell takes digits + R/I, the SPA takes letters and punctuation
+**Decision**: Within the shell tier, menu accelerators are confined to the digits 1–9 plus R (and I on win/linux); every shifted letter and punctuation key belongs to the SPA's renderer-side keybinding registry, which mirrors the shell's claims as locked data.
+**Why**: The SPA needs a coherent, cross-host action tier — the same chord must work in a browser and in the shell — and the renderer is the only place a binding can live and satisfy both. Confining the shell to digits plus two chrome keys leaves the whole letter space free for that registry, and the digits are a natural fit for a positional switcher. Making the boundary explicit is what lets a future menu addition be checked against the registry instead of silently shadowing an SPA action inside the shell only.
+**Rejected**: Moving SPA actions onto menu accelerators (they would then work only in the shell, and a browser user would lose the entire action tier); a `before-input-event` arbitration layer between shell and page (the tier seam exists precisely to avoid interception — see "The tier seam is accelerator avoidance, not key interception"); leaving the boundary undocumented and resolving collisions when they appear (the failure is silent and shell-only, so it would be found by a user, not a test).
+*Introduced by*: 260730-g40a-keyboard-shortcut-registry-overlay
 
 ### `servers:*` privilege gate reuses the navigation allowlist
 **Decision**: `isServersSender` delegates to the existing `isAllowedNavigation` (welcome `file://` URL + registered server origins + dev-override origin) rather than computing its own set.

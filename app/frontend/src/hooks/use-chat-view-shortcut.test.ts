@@ -9,6 +9,7 @@ function pressBacktick(
 ) {
   const event = new KeyboardEvent("keydown", {
     key: "`",
+    code: "Backquote",
     ctrlKey: true,
     bubbles: true,
     cancelable: true,

@@ -2,6 +2,8 @@ import { useEffect, useRef, type ReactNode } from "react";
 import { useChromeState, useChromeDispatch } from "@/contexts/chrome-context";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useFocusTrap } from "@/hooks/use-focus-trap";
+import { useKeybindings } from "@/hooks/use-keybindings";
+import { matchesCombo, shouldSuppressChord } from "@/lib/keybindings";
 
 /**
  * `Cmd+\` (macOS) / `Ctrl+\` (Linux/Windows) toggles the sidebar. Constitution V
@@ -9,29 +11,22 @@ import { useFocusTrap } from "@/hooks/use-focus-trap";
  * the sidebar's visibility now is one such action. We register at Shell level
  * so the chord works on every route that mounts a `<Shell>` (AppShell + BoardPage).
  *
- * Suppressed when an input/textarea/contenteditable has focus to avoid
- * stealing the chord from the user's text editing.
+ * The chord comes from the keybinding registry (`sidebar-toggle`, default ⌘\,
+ * per-device rebindable — 260730-g40a); the input gating is the shared
+ * `shouldSuppressChord` predicate (real text inputs suppress; the `.xterm`
+ * helper textarea and `.rk-chat-input` carve-outs pass through). Binding held
+ * in a ref so the listener registers once per mount.
  */
 function useSidebarKeyboardToggle(toggle: () => void) {
+  const { byAction } = useKeybindings();
+  const bindingRef = useRef(byAction.get("sidebar-toggle"));
+  bindingRef.current = byAction.get("sidebar-toggle");
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      // Match `\` (Backslash) — `e.key` reads the resolved character.
-      if (e.key !== "\\") return;
-      if (!(e.metaKey || e.ctrlKey)) return;
-
-      // Suppress only when a "real" text input has focus. xterm.js focuses a
-      // hidden `.xterm-helper-textarea` whenever a terminal is mounted —
-      // that's the user's most-common focus state, so naïvely skipping every
-      // TEXTAREA would silently break the toggle in the typical case. We only
-      // bail when the focused element is NOT inside the xterm container.
-      const target = e.target;
-      if (target instanceof HTMLElement) {
-        const insideXterm = target.closest(".xterm") != null;
-        if (!insideXterm) {
-          const tag = target.tagName;
-          if (tag === "INPUT" || tag === "TEXTAREA" || target.isContentEditable) return;
-        }
-      }
+      const binding = bindingRef.current;
+      if (!binding?.enabled || !matchesCombo(e, binding)) return;
+      if (shouldSuppressChord(e.target)) return;
 
       e.preventDefault();
       toggle();

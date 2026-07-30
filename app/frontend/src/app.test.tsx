@@ -14,7 +14,7 @@ import type { ServerInfo } from "@/api/client";
  */
 
 function openPalette() {
-  fireEvent.keyDown(document, { key: "k", metaKey: true });
+  fireEvent.keyDown(document, { key: "k", code: "KeyK", metaKey: true });
 }
 
 /** Build windowActions matching the pattern in app.tsx. */

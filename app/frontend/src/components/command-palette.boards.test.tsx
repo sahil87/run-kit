@@ -47,7 +47,7 @@ import { buildUpdateActions } from "@/lib/palette-update";
  */
 
 function openPalette() {
-  fireEvent.keyDown(document, { key: "k", metaKey: true });
+  fireEvent.keyDown(document, { key: "k", code: "KeyK", metaKey: true });
 }
 
 interface BuildOpts {

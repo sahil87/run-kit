@@ -27,40 +27,48 @@ const VIEW_ACTION_LABEL: Record<ViewName, string> = {
   chat: "View: Chat",
 };
 
-/** The chat toggle's binding (VS-Code-style "toggle terminal"). */
+/** Default hint strings — the registry defaults for `chat-toggle` and
+ *  `view-cycle`. Callers wired to the keybinding registry (260730-g40a) pass
+ *  the EFFECTIVE formatted combos instead, so hints track overrides; an empty
+ *  string means "no working chord" and renders no hint. */
 const CHAT_SHORTCUT = "Ctrl+`";
-/** The `Cmd/Ctrl+.` view cycle. */
 const CYCLE_SHORTCUT = "⌘.";
+
+/** The per-entry hints for the two bindings that reach the view switches. */
+export type ViewShortcutHints = { cycle: string; chat: string };
 
 /**
  * The keyboard hint shown on a view-switch entry — the binding that reaches it.
  * `View: Chat` and (when leaving chat) `View: Terminal` are the two ends of the
- * `Ctrl+\`` toggle, so they show `Ctrl+\``; every other switch is only reachable
- * via the `⌘.` cycle. `current` is the view being switched AWAY from.
+ * chat toggle, so they show its combo; every other switch is only reachable
+ * via the lens cycle. `current` is the view being switched AWAY from.
  */
-function shortcutFor(target: ViewName, current: ViewName): string {
-  if (target === "chat") return CHAT_SHORTCUT;
-  if (target === "tty" && current === "chat") return CHAT_SHORTCUT;
-  return CYCLE_SHORTCUT;
+function shortcutFor(target: ViewName, current: ViewName, hints: ViewShortcutHints): string {
+  if (target === "chat") return hints.chat;
+  if (target === "tty" && current === "chat") return hints.chat;
+  return hints.cycle;
 }
 
 /**
  * Build the view-switch palette actions. Returns one action per view that is
  * available AND is not the current (`resolved`) view. A single-view window
  * (only `tty` available) yields an empty array — there is nothing to switch to.
- * Each entry carries the shortcut hint for the binding that reaches it.
+ * Each entry carries the shortcut hint for the binding that reaches it,
+ * sourced from `hints` (the caller's effective keybinding combos; defaults
+ * match the registry defaults for legacy callers/tests).
  */
 export function buildViewActions(
   available: ViewName[],
   resolved: ViewName,
   onSwitch: (view: ViewName) => void,
+  hints: ViewShortcutHints = { cycle: CYCLE_SHORTCUT, chat: CHAT_SHORTCUT },
 ): ViewPaletteAction[] {
   return available
     .filter((v) => v !== resolved)
     .map((v) => ({
       id: `view-${v}`,
       label: VIEW_ACTION_LABEL[v],
-      shortcut: shortcutFor(v, resolved),
+      shortcut: shortcutFor(v, resolved, hints),
       onSelect: () => onSwitch(v),
     }));
 }

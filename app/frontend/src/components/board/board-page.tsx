@@ -34,6 +34,10 @@ import { selectLivePanes } from "./select-live-panes";
 import { useBoardPaneReorder } from "@/hooks/use-board-pane-reorder";
 import { computeMoveNeighbors, focusedIndexForKey, shouldFocusPane } from "@/lib/board-reorder";
 import { isWaiting } from "@/lib/waiting";
+import { withShortcutHints } from "@/lib/keybindings";
+import { useKeybindings } from "@/hooks/use-keybindings";
+import { useKeybindingDispatch } from "@/hooks/use-keybinding-dispatch";
+import { ShortcutsOverlay } from "@/components/shortcuts-overlay";
 import { NotFoundPage } from "@/router";
 
 const CommandPalette = lazy(() =>
@@ -328,27 +332,33 @@ function BoardPageContent({ name }: { name: string }) {
     [reorder],
   );
 
-  // Keyboard cycle: Cmd/Ctrl + ] / [
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey)) return;
+  // Keyboard chords (260730-g40a): the pane-cycle ⌘[/⌘] pair migrated into
+  // the keybinding registry (`board-cycle-prev`/`board-cycle-next`, combos
+  // unchanged, per-device rebindable), joined by the global shifted-tier
+  // back/forward + shortcuts-overlay chords. One dispatcher mount per route
+  // shell — AppShell mounts its own; the two never co-mount. A missing
+  // handler (no panes) falls through untouched, matching the old
+  // `entries.length === 0` early-return.
+  const [showShortcutsOverlay, setShowShortcutsOverlay] = useState(false);
+  const { byAction: bindingByAction, host: bindingHost } = useKeybindings();
+  const boardKeyHandlers = useMemo(() => {
+    const cycle = (delta: -1 | 1) => {
       if (entries.length === 0) return;
-      if (e.key === "]") {
-        e.preventDefault();
-        // Skip the intent set when a modulo cycle over a single pane leaves the
-        // index unchanged — no re-render would consume the flag, so it would go
-        // stale and steal focus on the next passive refetch (stale-flag rule).
-        if (entries.length >= 2) focusIntentRef.current = true;
-        setFocusedIndex((prev) => (prev + 1) % entries.length);
-      } else if (e.key === "[") {
-        e.preventDefault();
-        if (entries.length >= 2) focusIntentRef.current = true;
-        setFocusedIndex((prev) => (prev - 1 + entries.length) % entries.length);
-      }
+      // Skip the intent set when a modulo cycle over a single pane leaves the
+      // index unchanged — no re-render would consume the flag, so it would go
+      // stale and steal focus on the next passive refetch (stale-flag rule).
+      if (entries.length >= 2) focusIntentRef.current = true;
+      setFocusedIndex((prev) => (prev + delta + entries.length) % entries.length);
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [entries.length]);
+    return {
+      "board-cycle-next": entries.length > 0 ? () => cycle(1) : undefined,
+      "board-cycle-prev": entries.length > 0 ? () => cycle(-1) : undefined,
+      "go-back": () => router.history.back(),
+      "go-forward": () => router.history.forward(),
+      "shortcuts-overlay": () => setShowShortcutsOverlay((prev) => !prev),
+    };
+  }, [entries.length, router]);
+  useKeybindingDispatch(boardKeyHandlers);
 
   // Drag-resize state — separate from the persisted widths; live during drag.
   // Handlers live in refs so an unmount cleanup or a `pointercancel` (e.g.
@@ -673,6 +683,16 @@ function BoardPageContent({ name }: { name: string }) {
       onSelect: () => window.open(HELP_URL, "_blank", "noopener,noreferrer"),
     };
 
+    // Shortcuts cheatsheet overlay (260730-g40a) — duplicated from AppShell's
+    // `configActions` for the DD-8 reason above (the board mounts its OWN
+    // palette). The id doubles as the registry actionId, so the ⇧CmdOrCtrl+/
+    // hint renders on this entry.
+    const shortcutsEntry: PaletteAction = {
+      id: "shortcuts-overlay",
+      label: "Help: Shortcuts",
+      onSelect: () => setShowShortcutsOverlay((prev) => !prev),
+    };
+
     // Settings dialog (o7q8) — the one-line registration duplicated from
     // AppShell's `settingsActions` for the same DD-8 reason as the entries
     // above. The dialog itself mounts ONCE in AppLayout (never here);
@@ -865,8 +885,15 @@ function BoardPageContent({ name }: { name: string }) {
       }
     }
 
-    return [...switchEntries, ...conditional, ...navEntries, ...fontEntries, refreshEntry, helpEntry, settingsEntry, ...updateEntries, ...checkEntries, ...maintenanceEntries, ...versionEntries];
-  }, [boards, name, entries, focusedIndex, autofit, toggleAutofit, unpinFocused, requestKillFocused, focusedPane, reorderWithFollow, executeSplit, navigate, router, addToast, increaseTerminalFont, decreaseTerminalFont, resetTerminalFont, openSettings, updateQualifies, updateTools, runUpdateCheck, dismissUpdate, brew, daemonVersion, forceUpdateNow, restartNow]);
+    // Palette hints (260730-g40a): registered actions with palette entries
+    // (`go-back`/`go-forward`, the pane-cycle pair, `shortcuts-overlay`)
+    // render their EFFECTIVE combos per platform, reflecting overrides.
+    return withShortcutHints(
+      [...switchEntries, ...conditional, ...navEntries, ...fontEntries, refreshEntry, helpEntry, shortcutsEntry, settingsEntry, ...updateEntries, ...checkEntries, ...maintenanceEntries, ...versionEntries],
+      bindingByAction,
+      bindingHost.platform,
+    );
+  }, [boards, name, entries, focusedIndex, autofit, toggleAutofit, unpinFocused, requestKillFocused, focusedPane, reorderWithFollow, executeSplit, navigate, router, addToast, increaseTerminalFont, decreaseTerminalFont, resetTerminalFont, openSettings, updateQualifies, updateTools, runUpdateCheck, dismissUpdate, brew, daemonVersion, forceUpdateNow, restartNow, bindingByAction, bindingHost]);
 
   // Pane-server count (distinct servers) used by TopBar board-mode info.
   const serverCount = useMemo(() => {
@@ -1185,6 +1212,14 @@ function BoardPageContent({ name }: { name: string }) {
       <Suspense fallback={null}>
         <CommandPalette actions={boardRouteActions} />
       </Suspense>
+
+      {/* Shortcuts cheatsheet overlay (260730-g40a) — board-route mount, for
+          the same DD-8 reason as the palette above (AppShell never renders
+          here). Toggled by ⇧CmdOrCtrl+/ and the `Help: Shortcuts` entry. */}
+      <ShortcutsOverlay
+        open={showShortcutsOverlay}
+        onClose={() => setShowShortcutsOverlay(false)}
+      />
 
       {/* Server create/kill dialogs — wired so the unified Sidebar's "+ tmux
           server" and "kill server" affordances work on the board route too. */}

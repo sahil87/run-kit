@@ -14,6 +14,8 @@ import { dispatchComposeStripAttach } from "@/lib/compose-strip-events";
 import { copyToClipboard } from "@/lib/clipboard";
 import { notifyFirstWrite } from "@/lib/window-transition";
 import { relayMux, type RelayStream } from "@/lib/relay-mux";
+import { findMatch } from "@/lib/keybindings";
+import { useKeybindings } from "@/hooks/use-keybindings";
 
 /**
  * Custom ClipboardProvider for the xterm.js ClipboardAddon.
@@ -124,6 +126,13 @@ export function TerminalClient({
   const { terminalFontSize, composeStripEnabled } = useChromeState();
   const { toggleComposeStrip } = useChromeDispatch();
   const { setFocused } = useFocusedTerminal();
+
+  // App-owned chords (260730-g40a): the custom key handler below consults the
+  // effective keybinding registry through this render-updated ref (the handler
+  // attaches once at terminal init, but overrides can change at any time).
+  const { bindings: appKeybindings } = useKeybindings();
+  const appKeybindingsRef = useRef(appKeybindings);
+  appKeybindingsRef.current = appKeybindings;
 
   // Register this terminal as the BottomBar's focused input target. The
   // single-terminal route trivially has only one terminal — this is the
@@ -346,6 +355,21 @@ export function TerminalClient({
             });
             return false;
           }
+        }
+        // App-owned SHIFTED-tier chords (260730-g40a): a keydown matching an
+        // ENABLED `Shift+CmdOrCtrl` registry binding is refused here (`false`
+        // = xterm must not handle or transmit it — legacy TTY encoding cannot
+        // distinguish Ctrl+Shift+letter from Ctrl+letter, so xterm would emit
+        // the Ctrl-char). xterm does not preventDefault a refused key, so the
+        // event bubbles to the window-level dispatcher, which fires the action
+        // even while the terminal owns focus. Deliberately shifted-tier ONLY:
+        // all plain-Ctrl chords (Ctrl+W delete-word, Ctrl+L clear, Ctrl+T fzf,
+        // Ctrl+[ ESC) and the legacy cmd/ctrl-tier chords keep their exact
+        // pre-registry terminal-focus behavior — refusing a cmd-tier combo
+        // would steal its Ctrl alias from the pane on win/linux.
+        if (event.type === "keydown") {
+          const match = findMatch(event, appKeybindingsRef.current);
+          if (match?.tier === "shifted") return false;
         }
         return true;
       });

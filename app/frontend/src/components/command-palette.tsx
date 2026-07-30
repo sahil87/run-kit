@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useId } from "react";
 import { useFocusTrap } from "@/hooks/use-focus-trap";
+import { useKeybindings } from "@/hooks/use-keybindings";
+import { matchesCombo } from "@/lib/keybindings";
 
 export type PaletteAction = {
   id: string;
@@ -29,9 +31,19 @@ export function CommandPalette({ actions }: CommandPaletteProps) {
     a.label.toLowerCase().includes(query.toLowerCase()),
   );
 
+  // The toggle chord comes from the keybinding registry (260730-g40a): default
+  // ⌘K / Ctrl+K (`command-palette`, cmd tier, `ignoreInputs` — it keeps firing
+  // inside text inputs, byte-identical to the pre-registry listener), and a
+  // per-device override rebinds it. Held in a ref so the listener effect
+  // registers once — override changes swap the ref, not the listener.
+  const { byAction } = useKeybindings();
+  const toggleBindingRef = useRef(byAction.get("command-palette"));
+  toggleBindingRef.current = byAction.get("command-palette");
+
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+      const binding = toggleBindingRef.current;
+      if (binding?.enabled && matchesCombo(e, binding)) {
         e.preventDefault();
         setOpen((prev) => !prev);
         setQuery("");

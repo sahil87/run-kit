@@ -6,7 +6,6 @@ import {
   defaultView,
   resolveView,
   nextView,
-  shouldSuppressViewChord,
   windowViewStorageKey,
   readStoredView,
   writeStoredView,
@@ -197,43 +196,6 @@ describe("nextView (Cmd/Ctrl+. cycle)", () => {
   });
 });
 
-describe("shouldSuppressViewChord (non-xterm input gating)", () => {
-  afterEach(() => {
-    document.body.innerHTML = "";
-  });
-
-  it("does NOT suppress on a null / non-element target", () => {
-    expect(shouldSuppressViewChord(null)).toBe(false);
-    expect(shouldSuppressViewChord(new EventTarget())).toBe(false);
-  });
-
-  it("suppresses on a real (non-xterm) INPUT / TEXTAREA / contenteditable", () => {
-    const input = document.createElement("input");
-    const textarea = document.createElement("textarea");
-    const editable = document.createElement("div");
-    editable.contentEditable = "true";
-    document.body.append(input, textarea, editable);
-    expect(shouldSuppressViewChord(input)).toBe(true);
-    expect(shouldSuppressViewChord(textarea)).toBe(true);
-    expect(shouldSuppressViewChord(editable)).toBe(true);
-  });
-
-  it("does NOT suppress on xterm's own helper textarea (the terminal's normal focus)", () => {
-    const xterm = document.createElement("div");
-    xterm.className = "xterm";
-    const helper = document.createElement("textarea");
-    xterm.appendChild(helper);
-    document.body.appendChild(xterm);
-    // The helper textarea lives inside `.xterm`, so the chord must pass through.
-    expect(shouldSuppressViewChord(helper)).toBe(false);
-  });
-
-  it("does NOT suppress on a plain non-input element", () => {
-    const div = document.createElement("div");
-    document.body.appendChild(div);
-    expect(shouldSuppressViewChord(div)).toBe(false);
-  });
-});
 
 describe("localStorage helpers (value-bearing key, try/catch-noop)", () => {
   beforeEach(() => {

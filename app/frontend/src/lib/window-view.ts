@@ -152,26 +152,6 @@ export function nextView(
 }
 
 /**
- * Input-gating predicate for the `Cmd/Ctrl+.` view-cycle chord — the same rule
- * as `shell.tsx`'s sidebar toggle. Suppress the chord only when a "real"
- * (non-xterm) text input has focus: xterm's hidden helper textarea is the
- * terminal's NORMAL focus state, so bailing on every TEXTAREA would break the
- * chord in the common case. Returns `true` when the chord SHOULD be suppressed.
- * Pure over the event target (no DOM globals) so the gating is unit-testable.
- */
-export function shouldSuppressViewChord(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  const insideXterm = target.closest(".xterm") != null;
-  if (insideXterm) return false;
-  const tag = target.tagName;
-  if (tag === "INPUT" || tag === "TEXTAREA") return true;
-  // `isContentEditable` is the browser truth; fall back to the attribute value
-  // (`"true"` / `""`) since jsdom does not implement the `isContentEditable`
-  // getter. Coerced to a boolean so the predicate never leaks `undefined`.
-  return target.isContentEditable || target.contentEditable === "true";
-}
-
-/**
  * Value-bearing per-window localStorage key (spec R2). Stores the chosen view
  * NAME; absence means "use the window's default view". Supersedes the chat
  * plan's key-present `board-autofit`-style convention — value-bearing

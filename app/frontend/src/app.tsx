@@ -6,9 +6,12 @@ import {
   readStoredView,
   writeStoredView,
   nextView,
-  shouldSuppressViewChord,
   type ViewName,
 } from "@/lib/window-view";
+import { matchesCombo, shouldSuppressChord, withShortcutHints, formatCombo } from "@/lib/keybindings";
+import { useKeybindings } from "@/hooks/use-keybindings";
+import { useKeybindingDispatch } from "@/hooks/use-keybinding-dispatch";
+import { ShortcutsOverlay } from "@/components/shortcuts-overlay";
 import { ChromeProvider, useChromeState, useChromeDispatch, SIDEBAR_WIDTH_BOUNDS } from "@/contexts/chrome-context";
 import { FocusedTerminalProvider } from "@/contexts/focused-terminal-context";
 import { TopBarSlotProvider, useTopBarSlot, useTopBarNotFound, useRegisterTopBarSlot } from "@/contexts/top-bar-slot-context";
@@ -507,28 +510,35 @@ function AppShell() {
     [server, windowParam, navigate],
   );
 
+  // The effective keybinding map (260730-g40a): drives the migrated `⌘.` lens
+  // cycle below, the shifted-tier dispatch mount (see the `useKeybindingDispatch`
+  // call further down, after the palette actions it reuses), the shortcuts
+  // overlay, and the palette `shortcut` hints.
+  const keybindings = useKeybindings();
+  const { byAction: bindingByAction, host: bindingHost } = keybindings;
+
   // `Cmd/Ctrl+.` cycles the current window's lenses (Constitution V — every view
   // action is keyboard-reachable; palette parity is the `View:` actions above).
-  // Chosen against the live chord registry (`⌘K` palette, `⌘\` sidebar, `⌘]`/
-  // `⌘[` board pane-cycle) — a free binding in the `⌘<punctuation>` family;
-  // `Ctrl+.` is inert in readline (unlike `Ctrl+/`→undo or `Ctrl+<letter>`
-  // control chars). Window-level with `preventDefault()` so xterm doesn't also
-  // receive it — the same working pattern as `shell.tsx`'s `⌘\` sidebar toggle,
-  // including its non-xterm-input suppression. The live view/window values are
-  // read via a ref so the listener is stable across SSE ticks.
+  // The chord comes from the registry (`view-cycle`, default ⌘. — a free binding
+  // in the `⌘<punctuation>` family; `Ctrl+.` is inert in readline, unlike
+  // `Ctrl+/`→undo or `Ctrl+<letter>` control chars) and is per-device
+  // rebindable. Kept at its own listener (not the shifted-tier dispatcher):
+  // its enablement is lens-local state. Window-level with `preventDefault()` so
+  // xterm doesn't also receive it; input gating is the shared
+  // `shouldSuppressChord` predicate. The live view/window values and binding are
+  // read via refs so the listener is stable across SSE ticks.
   const viewCycleRef = useRef<{ views: ViewName[]; active: ViewName }>({
     views: currentViews,
     active: resolvedView,
   });
   viewCycleRef.current = { views: currentViews, active: resolvedView };
+  const viewCycleBindingRef = useRef(bindingByAction.get("view-cycle"));
+  viewCycleBindingRef.current = bindingByAction.get("view-cycle");
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key !== ".") return;
-      if (!(e.metaKey || e.ctrlKey)) return;
-      // Suppress only when a "real" (non-xterm) text input has focus — same
-      // rule as shell.tsx's sidebar toggle (extracted to a pure predicate so
-      // the gating is unit-tested).
-      if (shouldSuppressViewChord(e.target)) return;
+      const binding = viewCycleBindingRef.current;
+      if (!binding?.enabled || !matchesCombo(e, binding)) return;
+      if (shouldSuppressChord(e.target)) return;
       const { views, active } = viewCycleRef.current;
       const next = nextView(views, active); // null when nothing to cycle
       if (!next) return;
@@ -548,6 +558,10 @@ function AppShell() {
   const [createServerName, setCreateServerName] = useState("");
   const [killServerTarget, setKillServerTarget] = useState<string | null>(null);
   const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false);
+  // The registry cheatsheet overlay (260730-g40a) — toggled by ⇧CmdOrCtrl+/
+  // (via the keybinding dispatcher below) and the `Help: Shortcuts` palette
+  // entry. Distinct from the tmux keybindings modal above.
+  const [showShortcutsOverlay, setShowShortcutsOverlay] = useState(false);
   const [showTmuxCommands, setShowTmuxCommands] = useState(false);
   const [showCreateSessionAtFolderDialog, setShowCreateSessionAtFolderDialog] = useState(false);
   const [showCreateWindowAtFolderDialog, setShowCreateWindowAtFolderDialog] = useState(false);
@@ -1957,14 +1971,25 @@ function AppShell() {
       // L1 ViewSwitcher; chat folded in from 260714-r7rq). Each lens is offered
       // only when it is AVAILABLE for the current window AND is not the current
       // view — so the palette shows the destination, never the current lens. The
-      // per-entry shortcut hint tracks the binding that reaches it (`Ctrl+\`` for
-      // the chat toggle, `⌘.` for the cycle). These REPLACE the retired
+      // per-entry shortcut hint tracks the binding that reaches it — the
+      // EFFECTIVE `chat-toggle` / `view-cycle` combos from the keybinding
+      // registry (260730-g40a), so overrides are reflected; a disabled binding
+      // contributes an empty hint (rendered as none). These REPLACE the retired
       // `toggle-iframe-terminal` action, which mutated `@rk_type`; switching a
       // lens now never touches the window's identity. The gating (available AND
       // not-current) + hint composition live in the pure `buildViewActions`
       // (lib/palette-view.ts) so they are unit-testable without mounting the
       // shell.
-      ...buildViewActions(currentViews, resolvedView, switchView),
+      ...buildViewActions(currentViews, resolvedView, switchView, {
+        cycle: (() => {
+          const b = bindingByAction.get("view-cycle");
+          return b?.enabled ? formatCombo(b, bindingHost.platform) : "";
+        })(),
+        chat: (() => {
+          const b = bindingByAction.get("chat-toggle");
+          return b?.enabled ? formatCombo(b, bindingHost.platform) : "";
+        })(),
+      }),
       {
         id: "toggle-fixed-width",
         label: fixedWidth ? "View: Full Width" : "View: Fixed Width (900px)",
@@ -1983,7 +2008,7 @@ function AppShell() {
         onSelect: () => window.location.reload(),
       },
     ],
-    [sessionName, fixedWidth, toggleFixedWidth, toggleComposeStrip, currentViews, resolvedView, switchView],
+    [sessionName, fixedWidth, toggleFixedWidth, toggleComposeStrip, currentViews, resolvedView, switchView, bindingByAction, bindingHost],
   );
 
   // Navigation actions (260714-uco1) — palette parity (Constitution V) for the
@@ -2099,6 +2124,13 @@ function AppShell() {
         id: "keyboard-shortcuts",
         label: "Help: Keyboard Shortcuts",
         onSelect: () => setShowKeyboardShortcuts(true),
+      },
+      {
+        // The registry cheatsheet overlay (260730-g40a). The id doubles as the
+        // registry actionId, so the ⇧CmdOrCtrl+/ hint renders on this entry.
+        id: "shortcuts-overlay",
+        label: "Help: Shortcuts",
+        onSelect: () => setShowShortcutsOverlay((prev) => !prev),
       },
       {
         id: "help-documentation",
@@ -2424,9 +2456,50 @@ function AppShell() {
   const { actions: pushActions } = usePushSubscription();
 
   const paletteActions: PaletteAction[] = useMemo(
-    () => [...sessionActions, ...sessionsScopeActions, ...windowActions, ...boardActions, ...viewActions, ...openActions, ...navActions, ...terminalFontActions, ...themeActions, ...settingsActions, ...configActions, ...statusRefreshActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions, ...serverActions, ...shellServerActions, ...pushActions, ...windowSwitchActions, ...agentActions, ...agentSpawnActions],
-    [sessionActions, sessionsScopeActions, windowActions, boardActions, viewActions, openActions, navActions, terminalFontActions, themeActions, settingsActions, configActions, statusRefreshActions, updateActions, checkActions, maintenanceActions, versionActions, serverActions, shellServerActions, pushActions, windowSwitchActions, agentActions, agentSpawnActions],
+    () =>
+      // Every registered action with a palette entry renders its EFFECTIVE
+      // combo as the `shortcut` hint (actionId doubles as the palette id),
+      // formatted per platform and reflecting overrides; disabled bindings
+      // (user-disabled or browser-reserved) render no hint (260730-g40a).
+      withShortcutHints(
+        [...sessionActions, ...sessionsScopeActions, ...windowActions, ...boardActions, ...viewActions, ...openActions, ...navActions, ...terminalFontActions, ...themeActions, ...settingsActions, ...configActions, ...statusRefreshActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions, ...serverActions, ...shellServerActions, ...pushActions, ...windowSwitchActions, ...agentActions, ...agentSpawnActions],
+        bindingByAction,
+        bindingHost.platform,
+      ),
+    [sessionActions, sessionsScopeActions, windowActions, boardActions, viewActions, openActions, navActions, terminalFontActions, themeActions, settingsActions, configActions, statusRefreshActions, updateActions, checkActions, maintenanceActions, versionActions, serverActions, shellServerActions, pushActions, windowSwitchActions, agentActions, agentSpawnActions, bindingByAction, bindingHost],
   );
+
+  // ── keybinding dispatch (260730-g40a) ────────────────────────────────────
+  // The shifted-tier chords reuse the PALETTE ACTION BODIES (actionId doubles
+  // as the palette id), so chord and palette behavior can never drift — and
+  // palette gating (e.g. `kill-window` exists only when a session is active)
+  // gates the chord for free: a missing handler falls through untouched.
+  // `window-prev`/`window-next` have no palette entries; they cycle the
+  // CURRENT session's windows in sidebar order with wraparound, via the rich
+  // `navigateToWindow` path (tmux align + transition + writeback suppression).
+  const keybindingHandlers = useMemo(() => {
+    const fromPalette = (id: string) => paletteActions.find((a) => a.id === id)?.onSelect;
+    const windows = currentSession?.windows ?? [];
+    const cycleWindow = (delta: -1 | 1) => {
+      const idx = windows.findIndex((w) => w.windowId === windowParam);
+      if (idx < 0) return;
+      const target = windows[(idx + delta + windows.length) % windows.length];
+      navigateToWindow(target.windowId);
+    };
+    const canCycle = windowParam != null && windows.length > 0;
+    return {
+      "create-session": fromPalette("create-session"),
+      "create-window": fromPalette("create-window"),
+      "kill-window": fromPalette("kill-window"),
+      "agent-next-waiting": fromPalette("agent-next-waiting"),
+      "go-back": fromPalette("go-back"),
+      "go-forward": fromPalette("go-forward"),
+      "window-prev": canCycle ? () => cycleWindow(-1) : undefined,
+      "window-next": canCycle ? () => cycleWindow(1) : undefined,
+      "shortcuts-overlay": () => setShowShortcutsOverlay((prev) => !prev),
+    };
+  }, [paletteActions, currentSession, windowParam, navigateToWindow]);
+  useKeybindingDispatch(keybindingHandlers);
 
   const displayName = currentWindow?.name ?? windowParam ?? "";
   const displaySession = sessionName ?? "";
@@ -3104,6 +3177,11 @@ function AppShell() {
       {showKeyboardShortcuts && (
         <KeyboardShortcuts onClose={() => setShowKeyboardShortcuts(false)} />
       )}
+
+      <ShortcutsOverlay
+        open={showShortcutsOverlay}
+        onClose={() => setShowShortcutsOverlay(false)}
+      />
     </Shell>
   );
 }

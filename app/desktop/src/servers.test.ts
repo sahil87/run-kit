@@ -18,6 +18,7 @@ import {
   renameServer,
   resolveActiveServer,
   saveServers,
+  serverInfos,
   setActiveServer,
   setServerLastPath,
 } from "./servers";
@@ -299,4 +300,27 @@ test("resolveActiveServer: active entry, dangling-id fallback to first, null whe
     one,
   );
   assert.equal(resolveActiveServer({ version: 1, activeId: null, servers: [] }), null);
+});
+
+test("serverInfos flags the active entry", () => {
+  const one = { id: "s1", name: "one", url: "http://one:1" };
+  const two = { id: "s2", name: "two", url: "http://two:2" };
+  assert.deepEqual(serverInfos({ version: 1, activeId: "s2", servers: [one, two] }), [
+    { id: "s1", name: "one", url: "http://one:1", active: false },
+    { id: "s2", name: "two", url: "http://two:2", active: true },
+  ]);
+});
+
+test("serverInfos marks the first server active when activeId dangles", () => {
+  const one = { id: "s1", name: "one", url: "http://one:1" };
+  const two = { id: "s2", name: "two", url: "http://two:2" };
+  const infos = serverInfos({ version: 1, activeId: "gone", servers: [one, two] });
+  assert.deepEqual(
+    infos.map((s) => s.active),
+    [true, false],
+  );
+});
+
+test("serverInfos of an empty list is empty", () => {
+  assert.deepEqual(serverInfos({ version: 1, activeId: null, servers: [] }), []);
 });

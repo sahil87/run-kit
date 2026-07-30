@@ -1,5 +1,5 @@
 ---
-description: "The app/desktop Electron viewer shell — a BrowserWindow client of an existing rk serve URL that never spawns or supervises the daemon. Covers the servers.json store (id-keyed, lastPath, rename), the welcome flow + rename variant, last-path capture/restore, the per-platform accelerator-avoidance menu seam (⌘ on mac, unshifted Ctrl on win/linux), the runkitShell bridge + isShell(), security wiring, mac/win/linux packaging + signing posture, the three desktop release jobs, and the quarantine-free `rk desktop install`/`update` path."
+description: "The app/desktop Electron viewer shell — a BrowserWindow client of an existing rk serve URL that never spawns or supervises the daemon. Covers the servers.json store (id-keyed, lastPath, rename), the welcome flow, last-path capture/restore, the two-tier CmdOrCtrl menu seam (unshifted page tier inviolable, shifted shell tier, ⇧⌘/⇧Ctrl 1–9 switcher) applied per platform, the runkitShell bridge (sender-gated servers + welcome groups) + isShell(), security wiring, mac/win/linux packaging + the three desktop release jobs, and the quarantine-free `rk desktop install`/`update` path."
 type: memory
 ---
 # Desktop Viewer Shell (`app/desktop`)
@@ -54,6 +54,7 @@ Package tests run via `node --test "dist/**/*.test.js"` after compile — the st
 - **Origin ownership**: `findServerByOrigin(list, origin)` answers "which entry owns this displayed origin" — `addServer` never dedupes, so several entries can share one origin; the **active** entry wins among the matches, else the first match, else `null`. This is the pure targeting rule behind last-path capture (§ Last-Path Capture & Restore).
 - **Per-server mutators, all `id`-keyed**: `setActiveServer`, `setServerLastPath(dir, id, lastPath)`, and `renameServer(dir, id, name)` share one shape — load → membership guard (unknown `id` is a no-op that writes nothing) → `map` patch → atomic `saveServers`. `renameServer` trims the new name and falls back to the entry's origin when it is blank (mirroring `addServer`), and touches **only** `name`: `id`, `url`, `lastPath`, and the `activeId` linkage survive a rename. Per-server state keys on `id` and never on the name, which is what makes renaming lossless (`addServer` mints a fresh `randomUUID`, so anything id-keyed is scoped to one registration).
 - **Electron-free**: the data directory is a parameter (`main.ts` passes `app.getPath('userData')`), keeping the module unit-testable under plain `node --test`.
+- **IPC projection**: `serverInfos(list)` is the read-only projection to the `{ id, name, url, active }[]` shape the `servers:list` channel returns (§ Bridge). `active` is derived via `resolveActiveServer`, so a dangling `activeId` flags the **first** server — the same fallback startup would load — and an empty list projects to `[]`.
 
 ## Startup Routing & Welcome Flow
 
@@ -90,23 +91,32 @@ Call sites are every shell-initiated navigation away from a server page plus win
 
 The point of the shell. Electron steals a key from the page only via menu accelerators, `globalShortcut` (none registered), or the OS — so the seam is: **do not bind accelerators on keys the page should own**. Unclaimed keys already reach the loaded SPA; there is no `before-input-event` interception, and none should be added — if the SPA later needs page-first handling of a key that IS menu-bound, the fix is to **remove that menu item's accelerator, never to intercept input events** (documented in the `menu.ts` header comment).
 
-The **page tier** — the modifier tier browsers reserve, which the shell exists to liberate — is **⌘ on macOS and unshifted Ctrl on Windows/Linux**. The menu is therefore applied **per platform**: `buildMenu` composes its template from per-menu builders (`macAppMenu` / `fileMenu`, `macEditMenu`, `viewMenu`, `serversMenu`, `macWindowMenu`) that branch on a module-level `isMac = process.platform === "darwin"`. The exported `buildMenu(servers, activeId, callbacks)` signature is unchanged and is still rebuilt (and re-set via `Menu.setApplicationMenu`) on every server-list change. Symmetry of *rule*, not symmetry of accelerator table: the two platforms deliberately bind different sets because Chromium's native handling and role defaults differ.
+The contract is a platform-neutral **two-tier rule**:
+
+- **Page tier — unshifted `CmdOrCtrl+<any>`**: the shell NEVER binds it, on any platform. This is the shell's premise — the tier a browser reserves (macOS ⌘, Windows/Linux Ctrl) belongs to the SPA.
+- **Shell tier — `Shift+CmdOrCtrl+<any>`**: shell chrome MAY claim keys here, sparingly. Today's only claim is the Servers switcher (1–9).
+
+Guaranteed fall-through therefore reads: **the unshifted Cmd/Ctrl tier is inviolable** (⌘T ⌘W ⌘N ⌘L ⌘K ⌘F ⌘P ⌘1–9 ⌘[ ⌘] …); the shifted tier is shell-claimable.
+
+The menu is applied **per platform** — symmetry of *rule*, not symmetry of accelerator table: `buildMenu` composes its template from per-menu builders (`macAppMenu` / `fileMenu`, `macEditMenu`, `viewMenu`, `serversMenu`, `macWindowMenu`) that branch on a module-level `isMac = process.platform === "darwin"`, because Chromium's native handling and role defaults differ per platform (the carve-outs below). The switcher accelerator itself is one `CmdOrCtrl` expression, identical everywhere. The exported `buildMenu(servers, activeId, callbacks)` signature is unchanged and is still rebuilt (and re-set via `Menu.setApplicationMenu`) on every server-list change.
 
 ### macOS
 
 | Menu | Bound accelerators |
 |------|--------------------|
 | App | ⌘Q quit, ⌘H hide, ⌥⌘H hide-others |
-| Edit | roles ⌘Z/⇧⌘Z/⌘X/⌘C/⌘V/⌘A — mandatory: clipboard in web content is dead on macOS without them |
-| View | ⌘R reload, ⇧⌘R force-reload, ⌥⌘I devtools, ⌘0/⌘+/⌘− zoom roles, ⌃⌘F fullscreen |
-| Servers | radio items on literal `Ctrl+1`…`Ctrl+9` (⌃, deliberately NOT CmdOrCtrl — ⌘1–9 stays free for the page); active server checked. The management items below them — `Add Server…`, per-server `Rename "<name>"…`, per-server `Remove "<name>"…` — are accelerator-less by design, so adding them never narrows the fall-through set |
+| Edit | roles ⌘Z/⇧⌘Z/⌘X/⌘C/⌘V/⌘A — a **macOS carve-out**, outside the cross-platform rule: clipboard in web content is dead on macOS without them, while Windows/Linux Chromium handles it natively (so the equivalents are not to be bound there) |
+| View | ⌘R reload, ⇧⌘R force-reload, ⌥⌘I devtools, ⌘0/⌘+/⌘− zoom roles, ⌃⌘F fullscreen — conventional shell chrome via role defaults, a carve-out that predates the rule |
+| Servers | radio items on `Shift+CmdOrCtrl+1`…`Shift+CmdOrCtrl+9` (⇧⌘1–9 on macOS) — the shell tier, capped at 9 by `MAX_SWITCHER_ACCELERATORS`; active server checked. The management items below them — `Add Server…`, per-server `Rename "<name>"…`, per-server `Remove "<name>"…` — are accelerator-less by design, so adding them never narrows the fall-through set |
 | Window | ⌘M minimize + zoom via a **custom template**, NOT `role: 'windowMenu'` (that role auto-binds ⌘W) |
 
-**⌘W is unbound by design** — it falls through to the page for future tab-close semantics; mouse users get an accelerator-less "Close Window" item. Guaranteed fall-through set: ⌘T ⌘W ⌘N ⌘L ⌘K ⌘F ⌘P ⌘1–9 ⌘[ ⌘] and all unlisted ⇧⌘ combos.
+**⌘W is unbound by design** — it falls through to the page for future tab-close semantics; mouse users get an accelerator-less "Close Window" item.
+
+Menu radios are the mouse path for the same items the accelerators reach, not alternatives to them; the radio `click` bodies route through the one shared switch seam (§ Security Wiring → `switchToServer`).
 
 ### Windows / Linux
 
-The unshifted Ctrl tier is **entirely unbound** — the page tier there is completely clean. Top menus are `File | View | Servers`, and the exhaustive bound set is **⇧Ctrl+R force-reload, ⇧Ctrl+I devtools, F11 fullscreen** (shifted-tier and function-key defaults, which the shell may claim).
+The unshifted Ctrl tier is **entirely unbound** — the page tier there is completely clean. Top menus are `File | View | Servers`, and the exhaustive bound set is **⇧Ctrl+1–9 Servers switcher, ⇧Ctrl+R force-reload, ⇧Ctrl+I devtools, F11 fullscreen** (shifted-tier and function-key defaults, which the shell may claim).
 
 | Divergence from mac | Why |
 |---------------------|-----|
@@ -114,7 +124,8 @@ The unshifted Ctrl tier is **entirely unbound** — the page tier there is compl
 | **File → Quit** (labelled "Exit" on `win32`) as a plain `click: () => app.quit()` item, replacing the mac App menu | `role: 'quit'` default-binds Ctrl+Q on Linux — page tier. `window-all-closed` already quits on non-mac |
 | **No Window menu** | Native window chrome covers minimize/close, and `role: 'minimize'` default-binds Ctrl+M |
 | **View keeps item parity** but `reload` / `resetZoom` / `zoomIn` / `zoomOut` are rebuilt as plain accelerator-less items over a shared `focusedWebContents()` helper (`zoomBy(±0.5)`, `setZoomLevel(0)` — replicating the Electron role bodies exactly); `forceReload`, `toggleDevTools`, `togglefullscreen` stay roles | A role's default accelerator can be overridden but not removed, and `registerAccelerator: false` still *displays* the dead accelerator |
-| **Servers switcher radios ship accelerator-less** (menu-click switching) | Literal Ctrl+1–9 is exactly the page tier there. The `MAX_SWITCHER_ACCELERATORS` guard is gated `isMac && index < …`, so the accelerators bind on macOS only |
+
+The Servers switcher does **not** diverge: the radios bind `Shift+CmdOrCtrl+1–9` on every platform (⇧Ctrl+1–9 here) — the shell tier, one un-gated `CmdOrCtrl` expression capped by `MAX_SWITCHER_ACCELERATORS`.
 
 Accepted gap (recorded nice-to-have): switcher radios check by exact `activeId` match, so in the dangling-`activeId` state startup loads the first server (store fallback) while no radio renders checked until the next list mutation rebuilds the menu.
 
@@ -124,11 +135,21 @@ The sandboxed preload exposes exactly one bridge via `contextBridge.exposeInMain
 
 - **`version`** — the shell app version, read from the `--runkit-shell-version=` argv entry (passed via `webPreferences.additionalArguments`, since sandboxed preloads read `process.argv` but cannot call `app.getVersion()`).
 - **`platform`** — `process.platform`.
+- **`servers`** — `{ list(), switch(id) }`, thin invokers for the `servers:list` / `servers:switch` channels; the SPA command palette's server-switch path.
 - **`__welcome`** — `{ testServer(url), addServer(name, url), renameServer(id, name), cancel() }`, thin `ipcRenderer.invoke` wrappers for the `welcome:*` channels.
 
-`version`/`platform` are readable by **every** page, including pages loaded from registered rk servers — this is the SPA's shell-detection seam. `__welcome` is exposed everywhere but **privileged nowhere except the welcome page**: every `welcome:*` handler in main verifies `event.senderFrame.url` starts with the welcome `file://` URL and answers `{ ok: false, error: "Not allowed" }` otherwise, so a server-loaded page can read shell metadata but never invoke a privileged call. IPC payloads are structurally validated in main (unknown-typed, narrowed) before use.
+`version`/`platform` are readable by **every** page, including pages loaded from registered rk servers — this is the SPA's shell-detection seam. The two invoker groups are likewise exposed everywhere but privileged by **main-side sender-frame gating**, each against a different allowlist (IPC payloads are structurally validated in main — unknown-typed, narrowed — before use):
 
-**SPA side** (`app/frontend/src/lib/shell.ts`, the only SPA file the shell touches): `RunkitShell` interface (`{ version, platform }`), a `declare global` Window typing that types `runkitShell` as `unknown` (the bridge is runtime-injected, so it is validated structurally — type-narrowing guard, no `as` casts), `shellInfo()` returning a plain `{ version, platform }` (never leaking `__welcome`) or `null`, and `isShell()`. Covered by the sibling vitest suite `shell.test.ts` (present / absent / malformed bridge shapes). `isShell()` is consumed nowhere critical yet — actual page-tier SPA keyboard bindings are future work gated on it (see [ui-patterns](/run-kit/ui-patterns.md) § Keyboard Shortcuts). The welcome page's own script narrows the bridge the same structural way (`Reflect.get(window, "runkitShell")`, no global augmentation).
+| Channels | Privileged senders | Gate |
+|----------|--------------------|------|
+| `welcome:*` | the welcome page only | `isWelcomeSender` — `event.senderFrame.url` starts with the welcome `file://` URL |
+| `servers:*` | registered server origins (the pages that host the SPA palette) **plus** the welcome page | `isServersSender` — delegates to `isAllowedNavigation`, the same set the navigation guard computes (so it also covers the `RK_DESKTOP_URL` dev origin) |
+
+Any sender outside a channel's allowlist gets `{ ok: false, error: "Not allowed" }` and no state change — so a server-loaded page can read shell metadata and switch servers, but never invoke a `welcome:*` call. `servers:list` answers the discriminated `{ ok: true, servers: ServerInfo[] } | { ok: false, error }` envelope; `servers:switch` rejects a non-string payload as `"Invalid request"` and an unregistered id as `"Unknown server"` without navigating.
+
+**SPA side** (`app/frontend/src/lib/shell.ts`, the only SPA file the shell touches): `RunkitShell` interface (`{ version, platform }`), a `declare global` Window typing that types `runkitShell` as `unknown` (the bridge is runtime-injected, so it is validated structurally — type-narrowing guards, no `as` casts), `shellInfo()` returning a plain `{ version, platform }` (never leaking `__welcome`) or `null`, `isShell()`, and the `servers`-group wrappers `listShellServers(): Promise<ShellServer[] | null>` / `switchShellServer(id): Promise<boolean>`. Both wrappers **never throw**: a plain browser, an older shell lacking the `servers` group, a malformed entry, an `{ ok: false }` denial, and a rejected invoke all resolve `null`/`false`. Covered by the sibling vitest suite `shell.test.ts` (present / absent / malformed shapes of both surfaces).
+
+The first real SPA consumer of this seam is the palette's shell-gated `Server: Switch to "<name>"` block — which gates on the `servers` group's own emptiness (`listShellServers()` resolving `null`/`[]` outside the shell) rather than calling `isShell()`, since an older shell exposes `version`/`platform` without the group (see [ui-patterns](/run-kit/ui-patterns.md) § Keyboard Shortcuts). `isShell()` itself remains the seam for future page-tier SPA keyboard bindings. The welcome page's own script narrows the bridge the same structural way (`Reflect.get(window, "runkitShell")`, no global augmentation).
 
 ## Security Wiring (`src/main.ts`)
 
@@ -137,7 +158,8 @@ The sandboxed preload exposes exactly one bridge via `contextBridge.exposeInMain
 - **Navigation allowlist**: `will-navigate` and `will-redirect` share one guard allowing only registered server origins (plus the `RK_DESKTOP_URL` origin in dev) and the welcome `file://` URL; blocked http(s) targets are handed to the system browser — a server-issued redirect cannot escape the registered-origin set in-window.
 - **Permissions**: `setPermissionRequestHandler` allows exactly `clipboard-read`, `clipboard-sanitized-write`, `notifications`; everything else is denied.
 - **TLS fails closed**: no `certificate-error` bypass handler exists.
-- **IPC hardening**: sender-frame gating on all `welcome:*` handlers (§ Bridge above).
+- **IPC hardening**: sender-frame gating on every `welcome:*` and `servers:*` handler, each against its own allowlist (§ Bridge above) — always in main, never in the preload.
+- **One switch path**: `switchToServer(id)` (set active via the store → `loadURL` → rebuild menu) is the single seam shared by the Servers menu radio callback and the `servers:switch` handler, so the IPC and mouse paths cannot diverge.
 
 ## Packaging (`electron-builder.yml` + `scripts/build-desktop.sh`)
 
@@ -201,11 +223,13 @@ Constitution VIII one-liners in the `justfile`, logic in `scripts/`:
 
 Verification split: compile, `tsc --noEmit`, node:test (store), and vitest (`shell.test.ts`) all run on Linux. Hardware-only items, per platform:
 
-- **mac** — the DMG build, Gatekeeper "Open Anyway" walkthrough, xterm ⌘C/⌘V interplay, and ⌘-fall-through feel.
-- **Windows** — the SmartScreen "unrecognized app" first-launch walkthrough of the unsigned NSIS installer, and Ctrl+C/Ctrl+V ↔ xterm.js interplay (load-bearing in a terminal product).
-- **Linux** — AppImage and deb launch on a real distro with a desktop session, plus the same Ctrl+C/Ctrl+V ↔ xterm.js interplay.
+- **mac** — the DMG build, Gatekeeper "Open Anyway" walkthrough, xterm ⌘C/⌘V interplay, ⌘-fall-through feel, and **⇧⌘1–9 server switching on a non-US layout** — shifted-digit accelerators are the flakiest class (Electron resolves accelerators by character, not scancode, and AZERTY digits already require Shift); no scancode workaround in v1.
+- **Windows** — the SmartScreen "unrecognized app" first-launch walkthrough of the unsigned NSIS installer, and Ctrl+C/Ctrl+V ↔ xterm.js interplay (load-bearing in a terminal product); the shifted-digit layout caveat applies to ⇧Ctrl+1–9 here too.
+- **Linux** — AppImage and deb launch on a real distro with a desktop session, plus the same Ctrl+C/Ctrl+V ↔ xterm.js interplay and the ⇧Ctrl+1–9 layout caveat.
 
 The win/linux *menu* contract is nonetheless CI-provable without hardware: the compiled `dist/menu.js` can be loaded under a mocked `electron` module with `process.platform` forced, and the built template's accelerators asserted — that is how the "nothing in the unshifted Ctrl tier" invariant was verified.
+
+(The vitest column of the split now also covers `palette-shell.test.ts`, the palette-side suite of the `servers` bridge group.)
 
 ## Design Decisions
 
@@ -215,11 +239,35 @@ The win/linux *menu* contract is nonetheless CI-provable without hardware: the c
 **Rejected**: Bundling the daemon inside Electron (violates Constitution VI); Tauri (a second browser engine to debug against for no capability gain here).
 *Introduced by*: 260728-04pg-electron-desktop-shell
 
-### ⌘-tier seam is accelerator avoidance, not key interception
-**Decision**: Unlock the ⌘ tier by simply not binding accelerators on keys the page should own; no `globalShortcut`, no `before-input-event`.
+### The tier seam is accelerator avoidance, not key interception
+**Decision**: Unlock the browser-reserved tier by simply not binding accelerators on keys the page should own; no `globalShortcut`, no `before-input-event`.
 **Why**: Electron only steals keys via accelerators/globalShortcut/OS — unclaimed keys already reach the page; zero interception code to maintain.
 **Rejected**: `before-input-event` routing — a fragile dispatch layer v1 doesn't need; the documented future path for a menu-bound key is un-binding, not intercepting.
 *Introduced by*: 260728-04pg-electron-desktop-shell
+
+### Two accelerator tiers expressed with `CmdOrCtrl`; portable chords are one expression on every platform
+**Decision**: State the contract as page tier (unshifted `CmdOrCtrl+<any>`, never bound) vs. shell tier (`Shift+CmdOrCtrl+<any>`, sparingly claimable), and express every portable accelerator with `CmdOrCtrl` — the Servers switcher on `Shift+CmdOrCtrl+1–9`, with the literal `Ctrl+1–9` bindings dropped outright rather than kept as an alias.
+**Why**: Symmetry is the governing principle — whatever is Cmd+X on macOS is Ctrl+X elsewhere — so the tier a browser reserves is the tier the shell must leave alone on *every* platform. Literal `Ctrl+1–9` was safe only on macOS; on Windows/Linux it would steal exactly the keys the shell exists to hand the SPA. macOS behavior is unchanged by the re-expression alone.
+**Rejected**: Per-platform *switcher* chords (two bindings to keep in sync, and the documented fall-through promise stops being one promise) — distinct from the per-platform carve-out builders the menu legitimately has (see "The menu is symmetric in rule, not in accelerator table" below); keeping `Ctrl+1–9` as a macOS legacy alias (two bindings for one item days after the feature shipped, for no muscle-memory install base); menu-only switching with no chord (fails Constitution V).
+*Introduced by*: 260730-9lez-shell-keyboard-tier-symmetry
+
+### `servers:*` privilege gate reuses the navigation allowlist
+**Decision**: `isServersSender` delegates to the existing `isAllowedNavigation` (welcome `file://` URL + registered server origins + dev-override origin) rather than computing its own set.
+**Why**: The intended allowlist — registered server origins plus the welcome page — is exactly the set the navigation guard already computes; one authoritative set cannot drift from itself.
+**Rejected**: A second hand-rolled origin set — duplicates the `registeredOrigins()` composition and would diverge on the dev-override case.
+*Introduced by*: 260730-9lez-shell-keyboard-tier-symmetry
+
+### One discriminated envelope for `servers:list`
+**Decision**: `servers:list` returns `{ ok: true, servers: [...] } | { ok: false, error }`; the SPA lib unwraps it to a plain `ShellServer[]` (or `null`).
+**Why**: The gating contract needs an `{ ok: false }` error shape anyway, and a single discriminated union matches the handlers' existing `PingResult`/`IpcResult` pattern while the SPA-facing API still hands callers a plain array.
+**Rejected**: Bare-array success plus an object failure — two unrelated top-level shapes for one channel to narrow.
+*Introduced by*: 260730-9lez-shell-keyboard-tier-symmetry
+
+### Shared `switchToServer` seam in main
+**Decision**: The menu radio callback's body (set active → `loadURL` → rebuild menu) is extracted into one function called by both the radio callback and the `servers:switch` handler.
+**Why**: The IPC switch must behave identically to clicking the radio; a shared function makes divergence structurally impossible instead of merely intended.
+**Rejected**: Duplicating the three calls inside the handler — invites drift the moment the switch path grows a step.
+*Introduced by*: 260730-9lez-shell-keyboard-tier-symmetry
 
 ### Plain servers.json with atomic write, no electron-store
 **Decision**: Hand-rolled `<userData>/servers.json` (version 1 schema), tmp-file-then-rename writes, corrupt→empty recovery.

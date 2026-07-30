@@ -31,6 +31,8 @@ import {
   removeServer,
   renameServer,
   resolveActiveServer,
+  ServerInfo,
+  serverInfos,
   setActiveServer,
   setServerLastPath,
 } from "./servers";
@@ -56,6 +58,10 @@ type PingResult =
   | { ok: false; error: string };
 
 type IpcResult = { ok: true } | { ok: false; error: string };
+
+type ServersListResult =
+  | { ok: true; servers: ServerInfo[] }
+  | { ok: false; error: string };
 
 // ─── URL helpers ────────────────────────────────────────────────────────────
 
@@ -140,16 +146,26 @@ function showStartPage(win: BrowserWindow): void {
 
 // ─── Menu ───────────────────────────────────────────────────────────────────
 
+/**
+ * Set active + load its URL + rebuild the menu — the ONE switch path, shared
+ * by the Servers menu radio and the `servers:switch` IPC handler.
+ */
+function switchToServer(id: string): IpcResult {
+  captureLastPath();
+  const next = setActiveServer(userDataDir(), id);
+  const entry = next.servers.find((s) => s.id === id);
+  if (!entry) return { ok: false, error: "Unknown server" };
+  if (mainWindow) void mainWindow.loadURL(entry.url + (entry.lastPath ?? ""));
+  rebuildMenu();
+  return { ok: true };
+}
+
 function rebuildMenu(): void {
   const list = loadServers(userDataDir());
   Menu.setApplicationMenu(
     buildMenu(list.servers, list.activeId, {
       onSwitchServer: (id) => {
-        captureLastPath();
-        const next = setActiveServer(userDataDir(), id);
-        const entry = next.servers.find((s) => s.id === id);
-        if (entry && mainWindow) void mainWindow.loadURL(entry.url + (entry.lastPath ?? ""));
-        rebuildMenu();
+        switchToServer(id);
       },
       onAddServer: () => {
         if (!mainWindow) return;
@@ -234,7 +250,7 @@ async function pingServer(origin: string): Promise<PingResult> {
   return { ok: true, origin, hostname: health.hostname };
 }
 
-// ─── IPC (welcome page only — sender-frame gated) ──────────────────────────
+// ─── IPC (sender-frame gated) ───────────────────────────────────────────────
 
 /**
  * Privilege gate: `welcome:*` calls are honored only from the welcome
@@ -243,6 +259,17 @@ async function pingServer(origin: string): Promise<PingResult> {
  */
 function isWelcomeSender(event: IpcMainInvokeEvent): boolean {
   return event.senderFrame?.url.startsWith(WELCOME_URL) ?? false;
+}
+
+/**
+ * Privilege gate for `servers:*` — a wider allowlist than `welcome:*`:
+ * registered server origins (the pages that host the SPA palette) plus the
+ * welcome page. Same set as the navigation guard; any other sender gets a
+ * rejection, never a privileged action.
+ */
+function isServersSender(event: IpcMainInvokeEvent): boolean {
+  const url = event.senderFrame?.url;
+  return url !== undefined && isAllowedNavigation(url);
 }
 
 function parseAddPayload(value: unknown): { name: string; url: string } | null {
@@ -299,6 +326,17 @@ function registerIpcHandlers(): void {
     if (!isWelcomeSender(event)) return { ok: false, error: "Not allowed" };
     if (mainWindow) showActive(mainWindow);
     return { ok: true };
+  });
+
+  ipcMain.handle("servers:list", (event): ServersListResult => {
+    if (!isServersSender(event)) return { ok: false, error: "Not allowed" };
+    return { ok: true, servers: serverInfos(loadServers(userDataDir())) };
+  });
+
+  ipcMain.handle("servers:switch", (event, id: unknown): IpcResult => {
+    if (!isServersSender(event)) return { ok: false, error: "Not allowed" };
+    if (typeof id !== "string") return { ok: false, error: "Invalid request" };
+    return switchToServer(id);
   });
 }
 

@@ -1,3 +1,10 @@
 {"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-30T07:32:59Z"}
 {"args":"Shell keyboard-tier symmetry: Shift+CmdOrCtrl+1-9 server switcher, two-tier accelerator rule, command-palette server switching via bridge","cmd":"fab-new","event":"command","ts":"2026-07-30T07:32:59Z"}
 {"delta":"+4.5","event":"confidence","score":4.5,"trigger":"calc-score","ts":"2026-07-30T07:36:32Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-30T07:58:41Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-30T07:59:53Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-30T08:01:04Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-30T08:16:40Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-30T08:27:47Z"}
+{"event":"review","result":"passed","ts":"2026-07-30T08:27:47Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-30T08:34:48Z"}

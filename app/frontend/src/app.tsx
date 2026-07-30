@@ -22,6 +22,9 @@ import { buildViewActions } from "@/lib/palette-view";
 import { buildStatusRefreshAction } from "@/lib/palette-status-refresh";
 import { buildPinActions } from "@/lib/palette-pin";
 import { buildServerKillActions } from "@/lib/palette-server-kill";
+import { buildShellServerActions } from "@/lib/palette-shell";
+import { switchShellServer } from "@/lib/shell";
+import { useShellServers } from "@/hooks/use-shell-servers";
 import { readLastPinnedBoard } from "@/lib/last-pinned-board";
 import { buildNavActions } from "@/lib/palette-nav";
 import { buildOpenActions, buildOpenPrAction } from "@/lib/palette-open";
@@ -2279,6 +2282,26 @@ function AppShell() {
     [servers, server, handleSwitchServer, currentRegularIdx, regularOrder, moveCurrentServer],
   );
 
+  // Desktop-shell server switching (Constitution V): `Server: Switch to
+  // "<name>"` — one entry per SHELL-registered rk server (quoted name; whole
+  // rk instances by URL, distinct from the tmux entries above), active one
+  // marked (current). Present ONLY inside the desktop shell — useShellServers
+  // resolves [] in a plain browser, the first real isShell()-gated palette
+  // consumer. The shell-side paths are the ⇧⌘1–9 accelerators + Servers menu
+  // radios; selecting an entry hands off to the shell, which loads the target
+  // server's URL (a full page swap), so no SPA-side navigation follows. A
+  // denied/failed bridge call surfaces as an error toast.
+  const shellServers = useShellServers();
+  const shellServerActions: PaletteAction[] = useMemo(
+    () =>
+      buildShellServerActions(shellServers, (id) => {
+        void switchShellServer(id).then((ok) => {
+          if (!ok) addToast("Shell server switch failed", "error");
+        });
+      }),
+    [shellServers, addToast],
+  );
+
   // Navigate to a waiting target while PRESERVING `?view=chat` (260714-r7rq).
   // A chat-capable target can't reuse `navigateToWindow` (that path hardcodes
   // `search: {}`, stripping the deep-link), so it navigates directly — but a
@@ -2401,8 +2424,8 @@ function AppShell() {
   const { actions: pushActions } = usePushSubscription();
 
   const paletteActions: PaletteAction[] = useMemo(
-    () => [...sessionActions, ...sessionsScopeActions, ...windowActions, ...boardActions, ...viewActions, ...openActions, ...navActions, ...terminalFontActions, ...themeActions, ...settingsActions, ...configActions, ...statusRefreshActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions, ...serverActions, ...pushActions, ...windowSwitchActions, ...agentActions, ...agentSpawnActions],
-    [sessionActions, sessionsScopeActions, windowActions, boardActions, viewActions, openActions, navActions, terminalFontActions, themeActions, settingsActions, configActions, statusRefreshActions, updateActions, checkActions, maintenanceActions, versionActions, serverActions, pushActions, windowSwitchActions, agentActions, agentSpawnActions],
+    () => [...sessionActions, ...sessionsScopeActions, ...windowActions, ...boardActions, ...viewActions, ...openActions, ...navActions, ...terminalFontActions, ...themeActions, ...settingsActions, ...configActions, ...statusRefreshActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions, ...serverActions, ...shellServerActions, ...pushActions, ...windowSwitchActions, ...agentActions, ...agentSpawnActions],
+    [sessionActions, sessionsScopeActions, windowActions, boardActions, viewActions, openActions, navActions, terminalFontActions, themeActions, settingsActions, configActions, statusRefreshActions, updateActions, checkActions, maintenanceActions, versionActions, serverActions, shellServerActions, pushActions, windowSwitchActions, agentActions, agentSpawnActions],
   );
 
   const displayName = currentWindow?.name ?? windowParam ?? "";

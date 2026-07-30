@@ -9,20 +9,30 @@
  * handling of a key that IS menu-bound here, the fix is to REMOVE that menu
  * item's accelerator, never to intercept input events.
  *
+ * Two-tier rule (platform-neutral, the governing contract):
+ *   - Page tier — unshifted `CmdOrCtrl+<any>`: the shell NEVER binds it, on
+ *     any platform. This is the shell's premise: the tier a browser reserves
+ *     (macOS: ⌘; Windows/Linux: Ctrl) belongs to the SPA.
+ *   - Shell tier — `Shift+CmdOrCtrl+<any>`: shell chrome MAY claim keys here,
+ *     sparingly. Today's only claim: the Servers switcher (1–9).
+ *
  * The menu is applied PER PLATFORM — symmetry of rule, not symmetry of
- * accelerator table. The page tier (the modifier tier browsers reserve, which
- * this shell exists to liberate) is ⌘ on macOS and Ctrl on Windows/Linux.
+ * accelerator table. Carve-outs the rule tolerates (documented, never
+ * silently violated): the macOS Edit roles and the conventional View/App
+ * shell chrome, itemized per platform below.
  *
  * macOS — bound accelerators (exhaustive): ⌘Q quit, ⌘H/⌥⌘H hide; Edit roles
- * ⌘Z/⇧⌘Z/⌘X/⌘C/⌘V/⌘A (mandatory — clipboard in web content is dead on macOS
- * without them, a macOS quirk); View ⌘R/⇧⌘R reload, ⌥⌘I devtools, ⌘+/⌘−/⌘0
- * zoom, ⌃⌘F fullscreen; Servers radios ⌃1–⌃9 (Control deliberately — ⌘1–9
- * stays free for the page); Window ⌘M minimize. Guaranteed fall-through set
- * (never bind these): ⌘T ⌘W ⌘N ⌘L ⌘K ⌘F ⌘P ⌘1–9 ⌘[ ⌘] and all unlisted ⇧⌘
- * combos. ⌘W is unbound BY DESIGN — it falls through for future tab-close
- * semantics; mouse users get the accelerator-less "Close Window" item (which
- * is also why the Window menu is a custom template and NOT `role:
- * 'windowMenu'` — that role auto-binds ⌘W).
+ * ⌘Z/⇧⌘Z/⌘X/⌘C/⌘V/⌘A (a macOS carve-out, NOT part of the cross-platform
+ * rule — clipboard in web content is dead on macOS without them); View
+ * ⌘R/⇧⌘R reload, ⌥⌘I devtools, ⌘+/⌘−/⌘0 zoom, ⌃⌘F fullscreen (conventional
+ * shell chrome via role defaults, predating the rule); Servers radios
+ * ⇧⌘1–⇧⌘9 (the shell tier); Window ⌘M minimize. Guaranteed fall-through set
+ * (never bind these): ⌘T ⌘W ⌘N ⌘L ⌘K ⌘F ⌘P ⌘1–9 ⌘[ ⌘] — the unshifted ⌘
+ * tier is inviolable; the shifted tier is shell-claimable. ⌘W is unbound BY
+ * DESIGN — it falls through for future tab-close semantics; mouse users get
+ * the accelerator-less "Close Window" item (which is also why the Window
+ * menu is a custom template and NOT `role: 'windowMenu'` — that role
+ * auto-binds ⌘W).
  *
  * Windows/Linux — NOTHING in the unshifted Ctrl tier is bound; the page tier
  * is completely clean. Chromium handles Ctrl+C/V/X/A/Z natively there, so
@@ -31,9 +41,13 @@
  * chrome covers minimize/close; the `minimize` role default-binds Ctrl+M);
  * View roles whose defaults sit in the unshifted Ctrl tier (reload Ctrl+R,
  * zoom Ctrl+0/±) are rebuilt as accelerator-less plain items. Bound there
- * (exhaustive): ⇧Ctrl+R force-reload, ⇧Ctrl+I devtools, F11 fullscreen.
- * The Servers radios are accelerator-less (menu-click switching) until
- * 260730-9lez claims Shift+CmdOrCtrl+1–9 as the cross-platform switcher.
+ * (exhaustive): ⇧Ctrl+1–9 Servers switcher (the shell tier), ⇧Ctrl+R
+ * force-reload, ⇧Ctrl+I devtools, F11 fullscreen.
+ *
+ * Hardware-verify caveat: shifted-digit accelerators are the flakiest
+ * accelerator class (Electron resolves accelerators by character, not
+ * scancode; AZERTY digits already require Shift). ⇧⌘1–9 switching on a
+ * non-US layout is a manual-verify item; no scancode workaround in v1.
  */
 import { app, BrowserWindow, Menu, MenuItemConstructorOptions, WebContents } from "electron";
 import { ServerEntry } from "./servers";
@@ -154,16 +168,14 @@ function serversMenu(
     label: server.name,
     type: "radio",
     checked: server.id === activeId,
-    // macOS: Control (not CmdOrCtrl) — ⌃1–⌃9 switches servers while ⌘1–9
-    // falls through to the page. Windows/Linux: NO accelerator — literal
-    // Ctrl+1–9 is exactly the page tier there; menu clicks switch until
-    // 260730-9lez claims Shift+CmdOrCtrl+1–9 on all platforms.
-    accelerator:
-      isMac && index < MAX_SWITCHER_ACCELERATORS ? `Ctrl+${index + 1}` : undefined,
+    // Shell tier (see the two-tier rule above): ⇧⌘1–9 (mac) / ⇧Ctrl+1–9
+    // (win/linux) switches servers while the unshifted Cmd/Ctrl digits fall
+    // through to the page on every platform.
+    accelerator: index < MAX_SWITCHER_ACCELERATORS ? `Shift+CmdOrCtrl+${index + 1}` : undefined,
     click: () => callbacks.onSwitchServer(server.id),
   }));
 
-  // Accelerator-less by design (like Remove) — the ⌘-tier seam is untouched.
+  // Accelerator-less by design (like Remove) — the keyboard-tier seam is untouched.
   const renameItems: MenuItemConstructorOptions[] = servers.map((server) => ({
     label: `Rename "${server.name}"…`,
     click: () => callbacks.onRenameServer(server.id),

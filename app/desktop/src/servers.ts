@@ -211,3 +211,25 @@ export function findServerByOrigin(list: ServerList, origin: string): ServerEntr
   const matches = list.servers.filter((s) => s.url === origin);
   return matches.find((s) => s.id === list.activeId) ?? matches[0] ?? null;
 }
+
+export interface ServerInfo {
+  id: string;
+  name: string;
+  url: string;
+  active: boolean;
+}
+
+/**
+ * Read-only projection of the list for the `servers:list` IPC surface: every
+ * entry plus an `active` flag derived via `resolveActiveServer`, so a dangling
+ * `activeId` marks the same first-server fallback that startup would load.
+ */
+export function serverInfos(list: ServerList): ServerInfo[] {
+  const activeId = resolveActiveServer(list)?.id ?? null;
+  return list.servers.map(({ id, name, url }) => ({
+    id,
+    name,
+    url,
+    active: id === activeId,
+  }));
+}

@@ -7,7 +7,8 @@ import { mockStateSocket } from "./_state-socket-mock";
 //
 // Keyboard shortcut registry (260730-g40a): the `Shift+CmdOrCtrl+<key>`
 // run-kit action tier, the window-level dispatcher, the cheatsheet overlay
-// (⇧CmdOrCtrl+/), click-to-capture rebinding persisted to
+// (⇧CmdOrCtrl+/ on Win/Linux hosts, demoted to ⌘/ on mac — 260730-n789),
+// click-to-capture rebinding persisted to
 // localStorage["runkit-keybindings"], palette `shortcut` hints from the
 // effective map, and browser-reserved key inertness (Playwright runs a plain
 // browser host, so shifted N/T/W resolve disabled). Also covers the macOS

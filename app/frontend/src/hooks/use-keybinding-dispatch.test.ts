@@ -143,5 +143,26 @@ describe("useKeybindingDispatch", () => {
       const event = press({ code: "BracketLeft", ctrlKey: true });
       expect(event.defaultPrevented).toBe(false);
     });
+
+    it("a suppressed scoped match yields to a shared-chord ignoreInputs binding in an input", () => {
+      // Rebind the scoped board pane-cycle onto the overlay's shifted+Slash
+      // chord: in a text input the scoped match is suppressed (no
+      // ignoreInputs) and must yield, letting the overlay toggle fire.
+      localStorage.setItem(
+        KEYBINDINGS_STORAGE_KEY,
+        JSON.stringify({ "board-cycle-prev": { code: "Slash", tier: "shifted" } }),
+      );
+      const cyclePrev = vi.fn();
+      const toggle = vi.fn();
+      renderHook(() =>
+        useKeybindingDispatch({ "board-cycle-prev": cyclePrev, "shortcuts-overlay": toggle }),
+      );
+      const input = document.createElement("input");
+      document.body.appendChild(input);
+      const event = press({ code: "Slash", shiftKey: true, ctrlKey: true }, input);
+      expect(cyclePrev).not.toHaveBeenCalled();
+      expect(toggle).toHaveBeenCalledTimes(1);
+      expect(event.defaultPrevented).toBe(true);
+    });
   });
 });

@@ -26,7 +26,10 @@ export type KeybindingHandlers = Record<string, (() => void) | undefined>;
  *     has no context for an action (e.g. ⇧⌘H on the board route).
  *  4. `shouldSuppressChord` gates real text inputs (with the `.xterm` and
  *     `.rk-chat-input` carve-outs) unless the binding opts out via
- *     `ignoreInputs` (⌘K, the overlay toggle).
+ *     `ignoreInputs` (⌘K, the overlay toggle). A suppressed match YIELDS to
+ *     later matches (exactly like a handler-less one), so a shared-chord
+ *     `ignoreInputs` binding still fires inside inputs instead of being
+ *     shadowed by a suppressed higher-precedence match.
  *
  * Handlers and bindings live in refs so the listener registers once per mount
  * — SSE ticks re-rendering the shell never churn the window listener.
@@ -45,7 +48,7 @@ export function useKeybindingDispatch(handlers: KeybindingHandlers): void {
       for (const binding of findMatches(e, bindingsRef.current)) {
         const handler = handlersRef.current[binding.actionId];
         if (!handler) continue;
-        if (!binding.ignoreInputs && shouldSuppressChord(e.target)) return;
+        if (!binding.ignoreInputs && shouldSuppressChord(e.target)) continue;
         e.preventDefault();
         handler();
         return;

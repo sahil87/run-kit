@@ -2,8 +2,9 @@
 
 Verifies the **keyboard shortcut registry** (260730-g40a): the
 `Shift+CmdOrCtrl+<key>` run-kit action tier dispatched by the window-level
-registry dispatcher, the shortcuts cheatsheet overlay (⇧CmdOrCtrl+/, a dialog
-— not a route), click-to-capture rebinding persisted as diffs to
+registry dispatcher, the shortcuts cheatsheet overlay (⇧CmdOrCtrl+/ on
+Win/Linux hosts, demoted to ⌘/ on mac — 260730-n789; a dialog — not a
+route), click-to-capture rebinding persisted as diffs to
 `localStorage["runkit-keybindings"]`, palette `shortcut` hints sourced from
 the effective map, and browser-reserved key inertness (Playwright is a plain
 browser host, so the shifted N/T/W defaults resolve disabled while their

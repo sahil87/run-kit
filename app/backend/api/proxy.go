@@ -70,6 +70,13 @@ func getOrCreateProxy(port int) *httputil.ReverseProxy {
 // responses, replacing localhost:{port} references with /proxy/{port} paths.
 func makeModifyResponse(port int) func(*http.Response) error {
 	return func(resp *http.Response) error {
+		// HEAD responses have no body to rewrite; pass through so the upstream
+		// Content-Length (the GET entity length) is preserved rather than
+		// overwritten with 0 for the empty body.
+		if resp.Request != nil && resp.Request.Method == http.MethodHead {
+			return nil
+		}
+
 		ct := resp.Header.Get("Content-Type")
 		if !strings.Contains(ct, "text/html") {
 			return nil

@@ -145,6 +145,40 @@ func TestModifyResponseStaleContentLengthHeader(t *testing.T) {
 	assertContentLength(t, resp, len(result))
 }
 
+// TestModifyResponseHEADPassthrough guards HTTP HEAD semantics: a HEAD
+// response has an empty body while its Content-Length header advertises the
+// GET entity length. The rewrite must pass HEAD through untouched — an
+// unconditional header sync would overwrite the entity length with 0.
+func TestModifyResponseHEADPassthrough(t *testing.T) {
+	fn := makeModifyResponse(8080)
+
+	const entityLength = "1234"
+	resp := &http.Response{
+		Request: &http.Request{Method: http.MethodHead},
+		Header: http.Header{
+			"Content-Type":   []string{"text/html; charset=utf-8"},
+			"Content-Length": []string{entityLength},
+		},
+		Body:          io.NopCloser(bytes.NewReader(nil)),
+		ContentLength: 1234,
+	}
+
+	if err := fn(resp); err != nil {
+		t.Fatalf("ModifyResponse error: %v", err)
+	}
+
+	if got := resp.Header.Get("Content-Length"); got != entityLength {
+		t.Errorf("Content-Length header = %q, want %q (upstream entity length preserved)", got, entityLength)
+	}
+	if resp.ContentLength != 1234 {
+		t.Errorf("ContentLength field = %d, want 1234 (untouched)", resp.ContentLength)
+	}
+	result, _ := io.ReadAll(resp.Body)
+	if len(result) != 0 {
+		t.Errorf("body length = %d, want 0 (HEAD body stays empty)", len(result))
+	}
+}
+
 func TestModifyResponseNonHTMLPassthrough(t *testing.T) {
 	fn := makeModifyResponse(8080)
 

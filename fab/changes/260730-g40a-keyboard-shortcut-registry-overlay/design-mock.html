@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shortcuts: keyboard — run-kit</title>
+<style>
+  :root, html[data-theme="dark"] {
+    color-scheme: dark;
+    --bg-primary: #0f1117; --bg-card: #171b24; --bg-inset: #0a0c12;
+    --text-primary: #e8eaf0; --text-secondary: #7a8394;
+    --border: #454d66; --accent: #5b8af0; --accent-bright: #82a8f7; --green: #22c55e;
+    --amber: #d97706; --red: #ef4444;
+  }
+  html[data-theme="light"] {
+    color-scheme: light;
+    --bg-primary: #f8f9fb; --bg-card: #ffffff; --bg-inset: #e8eaef;
+    --text-primary: #1a1d24; --text-secondary: #6b7280;
+    --border: #d1d5db; --accent: #4a7ae8; --accent-bright: #3b66d6; --green: #16a34a;
+    --amber: #b45309; --red: #dc2626;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    font-family: "MonaspiceNe Nerd Font Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    background: var(--bg-primary); color: var(--text-primary);
+    font-size: 13px; line-height: 1.5; min-height: 100vh;
+    display: flex; align-items: flex-start; justify-content: center;
+    padding: 28px 16px 60px;
+    background-image: radial-gradient(ellipse 80% 50% at 50% -10%, color-mix(in srgb, var(--accent) 7%, transparent), transparent);
+  }
+  .sheet {
+    width: 100%; max-width: 860px; background: var(--bg-card);
+    border: 1px solid var(--border); border-radius: 8px;
+    box-shadow: 0 24px 80px rgba(0,0,0,.5), 0 0 0 1px rgba(0,0,0,.3);
+    overflow: hidden;
+  }
+
+  /* ── header ─────────────────────────────────────── */
+  .hdr {
+    display: flex; align-items: center; gap: 14px;
+    padding: 14px 18px; border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, color-mix(in srgb, var(--bg-inset) 60%, transparent), transparent);
+  }
+  .title { font-weight: 700; letter-spacing: .02em; white-space: nowrap; }
+  .title .ptype { color: var(--text-secondary); font-weight: 400; }
+  .title .brk { color: var(--text-secondary); }
+  .title .caret { display:inline-block; width: 7px; height: 14px; background: var(--green); vertical-align: -2px; margin: 0 2px 0 4px; animation: blink 1.1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  .seg { display: flex; border: 1px solid var(--border); border-radius: 5px; overflow: hidden; flex: none; }
+  .seg button {
+    font: inherit; font-size: 11px; padding: 4px 10px; border: 0; cursor: pointer;
+    background: transparent; color: var(--text-secondary); letter-spacing: .02em;
+  }
+  .seg button.on { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--text-primary); }
+  .seg button:not(.on):hover { color: var(--green); }
+
+  .search { flex: 1; min-width: 120px; position: relative; }
+  .search input {
+    width: 100%; font: inherit; font-size: 12px; color: var(--text-primary);
+    background: var(--bg-inset); border: 1px solid var(--border); border-radius: 5px;
+    padding: 5px 10px 5px 26px; outline: none;
+  }
+  .search input:focus { border-color: var(--accent); }
+  .search::before { content: "/"; position: absolute; left: 10px; top: 4px; color: var(--text-secondary); }
+
+  .hint { color: var(--text-secondary); font-size: 11px; white-space: nowrap; }
+  .x { background: none; border: 0; color: var(--text-secondary); font: inherit; font-size: 15px; cursor: pointer; padding: 2px 6px; }
+  .x:hover { color: var(--red); }
+
+  /* ── tier map ───────────────────────────────────── */
+  .tiermap { padding: 18px 18px 8px; }
+  .tierlabel { font-size: 11px; color: var(--text-secondary); margin-bottom: 10px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px;}
+  .tierlabel b { color: var(--text-primary); font-weight: 700; }
+  .kb { display: flex; flex-direction: column; gap: 5px; align-items: center; }
+  .krow { display: flex; gap: 5px; }
+  .key {
+    width: 44px; height: 40px; border-radius: 5px; border: 1px solid var(--border);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    font-size: 12px; color: var(--text-secondary); position: relative; cursor: default;
+    background: var(--bg-inset); transition: transform .08s, border-color .12s;
+  }
+  .key small { font-size: 7.5px; letter-spacing: .01em; line-height: 1.1; text-align: center; padding: 0 2px; }
+  .key.bound { border-color: color-mix(in srgb, var(--green) 60%, var(--border)); background: color-mix(in srgb, var(--green) 12%, var(--bg-inset)); color: var(--text-primary); }
+  .key.bound small { color: var(--green); }
+  .key.custom { border-color: color-mix(in srgb, var(--accent) 70%, var(--border)); background: color-mix(in srgb, var(--accent) 13%, var(--bg-inset)); color: var(--text-primary); }
+  .key.custom small { color: var(--accent-bright); }
+  .key.claimed { opacity: .55; background: repeating-linear-gradient(45deg, var(--bg-inset) 0 4px, color-mix(in srgb, var(--amber) 10%, var(--bg-inset)) 4px 8px); }
+  .key.claimed small { color: var(--amber); }
+  .key.free:hover { border-color: var(--green); color: var(--green); transform: translateY(-1px); }
+  .legend { display: flex; gap: 16px; margin: 12px 2px 4px; font-size: 10.5px; color: var(--text-secondary); flex-wrap: wrap; }
+  .legend i { display:inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; border: 1px solid var(--border); vertical-align: -1px; font-style: normal; }
+  .legend .b i { background: color-mix(in srgb, var(--green) 25%, transparent); border-color: var(--green); }
+  .legend .c i { background: color-mix(in srgb, var(--accent) 25%, transparent); border-color: var(--accent); }
+  .legend .cl i { background: repeating-linear-gradient(45deg, transparent 0 3px, color-mix(in srgb, var(--amber) 45%, transparent) 3px 5px); }
+
+  /* ── sections ───────────────────────────────────── */
+  .body { padding: 6px 18px 18px; }
+  .sec { margin-top: 18px; }
+  .sechead { font-size: 11.5px; font-weight: 700; letter-spacing: .04em; color: var(--text-secondary); user-select: none; }
+  .sechead .ob, .sechead .cb { color: var(--text-secondary); transition: transform .12s, color .12s; display: inline-block; }
+  .sechead:hover .ob { transform: translateX(-3px); color: var(--green); }
+  .sechead:hover .cb { transform: translateX(3px); color: var(--green); }
+  .sechead .lbl { color: var(--text-primary); margin: 0 6px; }
+  .sechead .scaret { display: inline-block; width: 6px; height: 11px; background: var(--green); margin-right: 6px; vertical-align: -1px; animation: blink 1.3s steps(1) infinite; }
+
+  .row {
+    display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 5px;
+    border: 1px solid transparent;
+  }
+  .row:hover { background: color-mix(in srgb, var(--bg-inset) 70%, transparent); }
+  .row .act { flex: 1; }
+  .row .desc { color: var(--text-secondary); font-size: 11px; }
+  .scope {
+    font-size: 9.5px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--border);
+    color: var(--text-secondary); letter-spacing: .05em; flex: none;
+  }
+  .scope.term { border-color: color-mix(in srgb, var(--green) 50%, var(--border)); color: var(--green); }
+  .scope.board { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); color: var(--accent-bright); }
+
+  .combo { display: flex; gap: 4px; align-items: center; cursor: pointer; padding: 2px 4px; border-radius: 5px; }
+  .combo:hover { outline: 1px dashed color-mix(in srgb, var(--green) 60%, transparent); }
+  kbd {
+    font: inherit; font-size: 11.5px; padding: 2px 7px; min-width: 24px; text-align: center;
+    background: var(--bg-inset); border: 1px solid var(--border); border-bottom-width: 2px;
+    border-radius: 4px; color: var(--text-primary); display: inline-block;
+  }
+  .combo.capturing { outline: 1px solid var(--green); animation: pulse 1s ease-in-out infinite; }
+  .combo.capturing kbd { border-color: var(--green); color: var(--green); background: color-mix(in srgb, var(--green) 8%, var(--bg-inset)); }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--green) 15%, transparent); } }
+
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex: none; opacity: 0; }
+  .row.modified .dot { opacity: 1; }
+  .reset { visibility: hidden; background: none; border: 0; color: var(--text-secondary); font: inherit; font-size: 11px; cursor: pointer; padding: 0 2px; }
+  .row.modified:hover .reset { visibility: visible; }
+  .reset:hover { color: var(--amber); }
+  .lock { color: var(--text-secondary); font-size: 11px; flex:none; }
+
+  .conflict {
+    margin: 2px 8px 4px; padding: 5px 10px; font-size: 11px; border-radius: 5px; display: none;
+    color: var(--amber); border: 1px solid color-mix(in srgb, var(--amber) 45%, transparent);
+    background: color-mix(in srgb, var(--amber) 8%, transparent);
+  }
+  .conflict.show { display: block; }
+
+  /* macro rows */
+  .macro-cmd { color: var(--text-secondary); font-size: 11px; background: var(--bg-inset); border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px; overflow-x: auto; white-space: nowrap; max-width: 46ch; }
+  .macro-cmd b { color: var(--green); font-weight: 400; }
+  .addrow { display: flex; align-items:center; gap: 8px; padding: 7px 8px; color: var(--text-secondary); cursor: pointer; border-radius: 5px; border: 1px dashed color-mix(in srgb, var(--border) 80%, transparent); margin-top: 4px; font-size: 12px;}
+  .addrow:hover { color: var(--green); border-color: var(--green); }
+
+  /* ── footer ─────────────────────────────────────── */
+  .ftr {
+    display: flex; align-items: center; gap: 10px; padding: 12px 18px;
+    border-top: 1px solid var(--border); color: var(--text-secondary); font-size: 11px;
+    flex-wrap: wrap;
+  }
+  .ftr .grow { flex: 1; }
+  .btn {
+    font: inherit; font-size: 11px; padding: 4px 12px; cursor: pointer; border-radius: 5px;
+    background: transparent; border: 1px solid var(--border); color: var(--text-primary);
+    position: relative; overflow: hidden;
+  }
+  .btn:hover { border-color: var(--green); color: var(--green); }
+  .btn:hover::after {
+    content: ""; position: absolute; inset: -4px; pointer-events: none;
+    background: linear-gradient(105deg, transparent 40%, color-mix(in srgb, var(--green) 40%, transparent) 50%, transparent 60%);
+    animation: glint .45s ease-out 1;
+  }
+  @keyframes glint { from { transform: translateX(-110%);} to { transform: translateX(110%);} }
+  .btn.danger:hover { border-color: var(--red); color: var(--red); }
+  .row.hidden, .sec.hidden { display: none; }
+
+  @media (max-width: 700px) {
+    .hint { display: none; }
+    .key { width: 30px; height: 34px; }
+    .key small { display: none; }
+    .macro-cmd { max-width: 24ch; }
+  }
+</style>
+</head>
+<body>
+<div class="sheet" role="dialog" aria-label="Keyboard shortcuts">
+
+  <div class="hdr">
+    <div class="title"><span class="brk">[</span><span class="caret"></span><span class="ptype">Shortcuts:&nbsp;</span>keyboard <span class="brk">]</span></div>
+    <div class="seg" id="plat">
+      <button class="on" data-p="mac">macOS</button><button data-p="win">Win · Linux</button>
+    </div>
+    <div class="search"><input id="q" placeholder="filter actions…" aria-label="Filter shortcuts"></div>
+    <span class="hint" id="sheetHint">⇧⌘/ toggles this sheet</span>
+    <button class="x" aria-label="Close">✕</button>
+  </div>
+
+  <div class="tiermap">
+    <div class="tierlabel">
+      <span>run-kit tier — <b id="tierName">⇧ ⌘</b> + key · one tier, every platform</span>
+      <span id="tierNote">plain Ctrl always reaches the pane</span>
+    </div>
+    <div class="kb" id="kb"></div>
+    <div class="legend">
+      <span class="b"><i></i>bound</span>
+      <span class="c"><i></i>custom / macro</span>
+      <span class="cl"><i></i>claimed (shell · system)</span>
+      <span><i></i>free</span>
+    </div>
+  </div>
+
+  <div class="body" id="list"></div>
+
+  <div class="ftr">
+    <span>overrides stored on this device <span style="opacity:.6">(localStorage · runkit-keybindings)</span></span>
+    <span class="grow"></span>
+    <button class="btn">export</button>
+    <button class="btn">import</button>
+    <button class="btn danger">reset all</button>
+  </div>
+</div>
+
+<script>
+  // ── data ──────────────────────────────────────────
+  const T = "tier";           // run-kit tier: Shift+CmdOrCtrl
+  const state = { plat: "mac", capturing: null };
+  const M = { tier: p => p==="mac" ? ["⇧","⌘"] : ["Shift","Ctrl"],
+              cmd:  p => p==="mac" ? ["⌘"] : ["Ctrl"] };
+
+  const sections = [
+    { name: "GLOBAL", rows: [
+      { act:"New session",            key:"N", mod:T, desc:"create a tmux session" },
+      { act:"New window",             key:"T", mod:T, desc:"tab-analog in current session" },
+      { act:"Close window",           key:"W", mod:T, desc:"confirm unless ⌘-click" },
+      { act:"Previous window",        key:"H", mod:T },
+      { act:"Next window",            key:"L", mod:T },
+      { act:"Back",                   key:"[", mod:T, desc:"history" },
+      { act:"Forward",                key:"]", mod:T, desc:"history" },
+      { act:"Next waiting agent",     key:"A", mod:T, desc:"jump to agent blocked on input", modified:true },
+      { act:"Command palette",        key:"K", mod:"cmd", legacy:true },
+      { act:"Toggle sidebar",         key:"\\", mod:"cmd", legacy:true },
+      { act:"This cheatsheet",        key:"/", mod:T },
+    ]},
+    { name: "TERMINAL", scope:"term", rows: [
+      { act:"Cycle view lens",        key:".", mod:"cmd", desc:"tty → web → chat", legacy:true },
+      { act:"Chat lens toggle",       key:"`", mod:"ctrl", desc:"tty ↔ chat", legacy:true },
+      { act:"Copy selection",         key:"C", mod:"cmd", desc:"falls through to SIGINT when empty", fixed:true },
+    ]},
+    { name: "BOARD", scope:"board", rows: [
+      { act:"Cycle pane focus →",     key:"]", mod:"cmd", legacy:true },
+      { act:"Cycle pane focus ←",     key:"[", mod:"cmd", legacy:true },
+    ]},
+    { name: "SHELL — desktop app", rows: [
+      { act:"Switch to server 1–9",   key:"1…9", mod:T, locked:true, desc:"owned by the shell menu" },
+      { act:"Force reload",           key:"R", mod:T, locked:true },
+      { act:"DevTools",               key:"I", mod:T, locked:true, winOnly:true },
+    ]},
+    { name: "CUSTOM", rows: [
+      { act:"riff: worktree + fab-discuss", key:"D", mod:T, custom:true,
+        cmd:'rk riff <b>--preset discuss</b>  · wt create --command "/fab-discuss"' },
+      { act:"riff: codex loop @a",    key:"G", mod:T, custom:true,
+        cmd:'rk riff <b>--preset codex-loop</b> "@a"' },
+    ]},
+  ];
+
+  // tier-map key states, per platform
+  const rows_keys = [["Q","W","E","R","T","Y","U","I","O","P","[","]"],
+                     ["A","S","D","F","G","H","J","K","L",";","/"],
+                     ["Z","X","C","V","B","N","M","1","2","…","9","0"]];
+  const bound  = { N:"new session", T:"new window", W:"close win", H:"prev win", L:"next win",
+                   "[":"back", "]":"fwd", A:"agent ⏳", "/":"cheatsheet" };
+  const custom = { D:"riff:discuss", G:"riff:codex" };
+  const claimedMac = { Q:"logout ⇧⌘Q", R:"reload", "1":"server", "2":"server", "…":"server", "9":"server" };
+  const claimedWin = { R:"reload", I:"devtools", C:"copy", V:"paste", "1":"server", "2":"server", "…":"server", "9":"server" };
+
+  function renderKb() {
+    const claimed = state.plat==="mac" ? claimedMac : claimedWin;
+    document.getElementById("kb").innerHTML = rows_keys.map(r =>
+      `<div class="krow">` + r.map(k => {
+        let cls="free", label="";
+        if (bound[k])  { cls="bound";  label=bound[k]; }
+        if (custom[k]) { cls="custom"; label=custom[k]; }
+        if (claimed[k]){ cls="claimed";label=claimed[k]; }
+        return `<div class="key ${cls}" title="${label||'free'}">${k}${label?`<small>${label}</small>`:""}</div>`;
+      }).join("") + `</div>`).join("");
+    document.getElementById("tierName").textContent = state.plat==="mac" ? "⇧ ⌘" : "Shift Ctrl";
+    document.getElementById("sheetHint").textContent = (state.plat==="mac" ? "⇧⌘/" : "Shift+Ctrl+/") + " toggles this sheet";
+  }
+
+  // ── rows ──────────────────────────────────────────
+  function comboHtml(row) {
+    const p = state.plat;
+    let parts;
+    if (row.mod===T) parts = [...M.tier(p), row.key];
+    else if (row.mod==="cmd") parts = [...M.cmd(p), row.key];
+    else parts = ["Ctrl", row.key];
+    return parts.map(x=>`<kbd>${x}</kbd>`).join("");
+  }
+  function renderList() {
+    document.getElementById("list").innerHTML = sections.map((s,si) => `
+      <div class="sec" data-sec="${si}">
+        <div class="sechead"><span class="ob">[</span><span class="lbl">${s.name}</span><span class="scaret"></span><span class="cb">]</span></div>
+        ${s.rows.filter(r=>!(r.winOnly&&state.plat==="mac")).map((r,ri)=>`
+          <div class="row ${r.modified?'modified':''}" data-act="${r.act.toLowerCase()}">
+            <span class="dot" title="modified from default"></span>
+            <span class="act">${r.act} ${r.desc?`<span class="desc">— ${r.desc}</span>`:""}</span>
+            ${r.cmd?`<span class="macro-cmd">${r.cmd}</span>`:""}
+            ${s.scope?`<span class="scope ${s.scope}">${s.scope==="term"?"TERMINAL":"BOARD"}</span>`:""}
+            ${r.locked?`<span class="lock" title="bound by the desktop shell menu — edit there">🔒</span>`
+                      :`<span class="combo" data-si="${si}" data-ri="${ri}" title="click to rebind">${comboHtml(r)}</span>`}
+            <button class="reset" title="reset to default">↺</button>
+          </div>`).join("")}
+        ${s.name==="CUSTOM"?`<div class="addrow">+ bind a key to a palette action or riff preset…</div>`:""}
+      </div>`).join("");
+    document.getElementById("conflictNote")?.remove();
+  }
+
+  // ── interactions (mock-level) ─────────────────────
+  document.getElementById("plat").addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    state.plat = b.dataset.p;
+    document.querySelectorAll("#plat button").forEach(x=>x.classList.toggle("on", x===b));
+    renderKb(); renderList();
+  });
+  document.getElementById("q").addEventListener("input", e => {
+    const q = e.target.value.toLowerCase();
+    document.querySelectorAll(".row").forEach(r =>
+      r.classList.toggle("hidden", q && !r.dataset.act?.includes(q)));
+    document.querySelectorAll(".sec").forEach(s =>
+      s.classList.toggle("hidden", q && ![...s.querySelectorAll(".row")].some(r=>!r.classList.contains("hidden"))));
+  });
+  // click-to-capture demo: click a combo, press keys (matches on e.code)
+  document.addEventListener("click", e => {
+    const c = e.target.closest(".combo");
+    document.querySelectorAll(".combo.capturing").forEach(x=>{ x.classList.remove("capturing"); });
+    if (!c) { state.capturing = null; return; }
+    state.capturing = c;
+    c.classList.add("capturing");
+    c.innerHTML = "<kbd>press keys…</kbd>";
+  });
+  document.addEventListener("keydown", e => {
+    if (!state.capturing) return;
+    e.preventDefault();
+    if (e.key === "Escape") { state.capturing.classList.remove("capturing"); renderList(); state.capturing=null; return; }
+    if (["Shift","Meta","Control","Alt"].includes(e.key)) return;
+    const p = state.plat, parts = [];
+    if (e.shiftKey) parts.push(p==="mac"?"⇧":"Shift");
+    if (e.metaKey||e.ctrlKey) parts.push(p==="mac"?"⌘":"Ctrl");
+    if (e.altKey) parts.push(p==="mac"?"⌥":"Alt");
+    const keyName = e.code.replace(/^(Key|Digit)/,"");
+    parts.push(keyName);
+    state.capturing.innerHTML = parts.map(x=>`<kbd>${x}</kbd>`).join("");
+    state.capturing.classList.remove("capturing");
+    const row = state.capturing.closest(".row"); row.classList.add("modified");
+    // conflict demo
+    if (e.shiftKey && (e.metaKey||e.ctrlKey) && keyName==="N") {
+      const warn = document.createElement("div");
+      warn.className = "conflict show"; warn.id = "conflictNote";
+      warn.textContent = "⚠ conflicts with “New session” — press again to steal, or Esc";
+      row.after(warn);
+    }
+    state.capturing = null;
+  });
+
+  renderKb(); renderList();
+</script>
+</body>
+</html>

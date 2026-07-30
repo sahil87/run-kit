@@ -1,0 +1,3 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-30T11:20:41Z"}
+{"args":"keyboard shortcut registry + Shift+CmdOrCtrl tier (B) + cheatsheet overlay + per-device overrides (from /fab-discuss session)","cmd":"fab-new","event":"command","ts":"2026-07-30T11:20:41Z"}
+{"delta":"+4.6","event":"confidence","score":4.6,"trigger":"calc-score","ts":"2026-07-30T11:23:56Z"}

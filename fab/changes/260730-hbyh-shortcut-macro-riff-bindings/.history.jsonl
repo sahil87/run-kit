@@ -1,0 +1,3 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-30T11:20:41Z"}
+{"args":"macro shortcut bindings targeting riff presets / palette actions (follow-up to shortcut registry change)","cmd":"fab-new","event":"command","ts":"2026-07-30T11:20:41Z"}
+{"delta":"+4.1","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-07-30T11:23:56Z"}

@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Build ad-hoc-signed macOS DMGs for the desktop shell (run on a Mac).
+# Build desktop-shell packages: DMGs (mac), NSIS installer (win), or
+# AppImage + deb (linux). Target comes from the optional argument
+# (mac|win|linux) and defaults to the host platform.
 #
 # Version comes from the latest git tag (fallback 0.0.0-dev) and is injected
 # via electron-builder --config.extraMetadata.version so the packaged
@@ -8,6 +10,29 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/../app/desktop"
+
+TARGET="${1:-}"
+if [ -z "$TARGET" ]; then
+  case "$(uname -s)" in
+    Darwin) TARGET=mac ;;
+    Linux) TARGET=linux ;;
+    MINGW* | MSYS* | CYGWIN*) TARGET=win ;;
+    *)
+      echo "error: unsupported host platform '$(uname -s)' — pass an explicit target (mac|win|linux)" >&2
+      exit 1
+      ;;
+  esac
+fi
+
+case "$TARGET" in
+  mac) PLATFORM_FLAG=--mac ;;
+  win) PLATFORM_FLAG=--win ;;
+  linux) PLATFORM_FLAG=--linux ;;
+  *)
+    echo "usage: build-desktop.sh [mac|win|linux]  (default: host platform)" >&2
+    exit 1
+    ;;
+esac
 
 VERSION="$(git describe --tags --abbrev=0 2>/dev/null || true)"
 VERSION="${VERSION#v}"
@@ -20,6 +45,6 @@ fi
 
 pnpm install --frozen-lockfile
 pnpm run compile
-pnpm exec electron-builder --mac --publish never --config.extraMetadata.version="$VERSION"
+pnpm exec electron-builder "$PLATFORM_FLAG" --publish never --config.extraMetadata.version="$VERSION"
 
-echo "Built DMGs (version $VERSION) in app/desktop/release/"
+echo "Built $TARGET packages (version $VERSION) in app/desktop/release/"

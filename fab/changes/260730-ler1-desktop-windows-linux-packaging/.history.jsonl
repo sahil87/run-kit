@@ -1,3 +1,10 @@
 {"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-30T07:33:29Z"}
 {"args":"Cross-platform desktop shell: Windows and Linux packaging plus release CI for the Electron viewer shell","cmd":"fab-new","event":"command","ts":"2026-07-30T07:33:29Z"}
 {"delta":"+4.2","event":"confidence","score":4.2,"trigger":"calc-score","ts":"2026-07-30T07:36:32Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-30T07:58:43Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-30T08:00:41Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-30T08:01:37Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-30T08:10:33Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-30T08:30:36Z"}
+{"event":"review","result":"passed","ts":"2026-07-30T08:30:36Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-30T08:38:20Z"}

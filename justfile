@@ -74,9 +74,9 @@ restart:
 dev-desktop:
     scripts/dev-desktop.sh
 
-# Build ad-hoc-signed macOS DMGs into app/desktop/release/ (requires a Mac)
-build-desktop:
-    scripts/build-desktop.sh
+# Build desktop packages into app/desktop/release/ (just build-desktop [mac|win|linux], default: host platform)
+build-desktop *args:
+    scripts/build-desktop.sh {{args}}
 
 # ─── Test ────────────────────────────────────────────────────
 

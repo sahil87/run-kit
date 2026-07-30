@@ -24,6 +24,33 @@ mac:
   # entirely (it does NOT ad-hoc sign); the afterPack hook applies the ad-hoc
   # signature — arm64 macOS refuses to launch fully unsigned binaries.
   identity: null
+win:
+  # Unsigned — no Authenticode, mirroring the mac ad-hoc posture (no Developer
+  # ID / notarization there): the accepted cost is SmartScreen's "unrecognized
+  # app" first-launch dialog on a personal-infra tool. The .ico is derived by
+  # electron-builder from build/icon.png; win-arm64 is deferred until demand.
+  target:
+    - target: nsis
+      arch:
+        - x64
+linux:
+  category: Development
+  # deb requires a maintainer; package.json deliberately carries no author
+  # field, so it is set here (noreply address — no personal email in the repo).
+  maintainer: sahil87 <sahil87@users.noreply.github.com>
+  # AppImage is the zero-install default; deb covers Debian/Ubuntu installs.
+  # Linux needs no signing. Icon comes straight from build/icon.png.
+  target:
+    - target: AppImage
+      arch:
+        - x64
+        - arm64
+    - target: deb
+      arch:
+        - x64
+        - arm64
+# Mac-only in effect: the hook itself guards on electronPlatformName and
+# returns immediately for win/linux packs (no codesign on those hosts).
 afterPack: ./after-pack.js
 artifactName: "run-kit-desktop-${version}-${arch}.${ext}"
 npmRebuild: false

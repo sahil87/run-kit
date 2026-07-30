@@ -16,6 +16,9 @@ const { execFileSync } = require("node:child_process");
 const path = require("node:path");
 
 exports.default = function afterPack(context) {
+  // Mac-only: the ad-hoc signature is a macOS launch requirement. Windows
+  // ships unsigned (SmartScreen friction accepted) and Linux needs no
+  // signing — and `codesign` does not exist on those builders anyway.
   if (context.electronPlatformName !== "darwin") return;
   const appPath = path.join(
     context.appOutDir,

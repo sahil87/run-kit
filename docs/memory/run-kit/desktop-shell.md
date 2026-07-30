@@ -1,5 +1,5 @@
 ---
-description: "The app/desktop Electron viewer shell — a BrowserWindow client of an existing rk serve URL that never spawns or supervises the daemon. Covers the servers.json store (id-keyed state, optional lastPath, rename mutator), the welcome flow + ?mode=rename variant, last-path capture/restore on switch/add/rename/close, the ⌘-tier accelerator-avoidance menu seam, the runkitShell preload bridge, security wiring, per-arch DMG packaging, and rk desktop install/update as the quarantine-free install path."
+description: "The app/desktop Electron viewer shell — a BrowserWindow client of an existing rk serve URL that never spawns or supervises the daemon. Covers the servers.json store (id-keyed, lastPath, rename), the welcome flow + rename variant, last-path capture/restore, the per-platform accelerator-avoidance menu seam (⌘ on mac, unshifted Ctrl on win/linux), the runkitShell bridge + isShell(), security wiring, mac/win/linux packaging + signing posture, the three desktop release jobs, and the quarantine-free `rk desktop install`/`update` path."
 type: memory
 ---
 # Desktop Viewer Shell (`app/desktop`)
@@ -23,7 +23,7 @@ app/desktop/
     ├── main.ts             # lifecycle, BrowserWindow, security wiring, IPC, welcome ↔ server routing, last-path capture
     ├── servers.ts          # servers.json store (electron-free, directory-parameterized)
     ├── servers.test.ts     # node:test suite over the compiled store
-    ├── menu.ts             # buildMenu(servers, activeId, callbacks) — the ⌘-tier seam
+    ├── menu.ts             # buildMenu(servers, activeId, callbacks) — the per-platform keyboard-tier seam
     ├── preload.ts          # contextBridge: window.runkitShell
     └── welcome/
         ├── welcome.html    # static first-run / add-server / rename page (CSP: default-src 'none')
@@ -86,11 +86,13 @@ Call sites are every shell-initiated navigation away from a server page plus win
 
 **Staleness is the SPA's problem.** A remembered route pointing at a since-removed window or board, or at a dead server, is loaded as-is; the SPA's Not Found fallback and dead-server handling are the failure mode. The shell performs no validation, no health ping of the path, and no fallback-to-origin.
 
-## ⌘-Tier Menu Seam (`src/menu.ts`)
+## Keyboard-Tier Menu Seam (`src/menu.ts`)
 
 The point of the shell. Electron steals a key from the page only via menu accelerators, `globalShortcut` (none registered), or the OS — so the seam is: **do not bind accelerators on keys the page should own**. Unclaimed keys already reach the loaded SPA; there is no `before-input-event` interception, and none should be added — if the SPA later needs page-first handling of a key that IS menu-bound, the fix is to **remove that menu item's accelerator, never to intercept input events** (documented in the `menu.ts` header comment).
 
-`buildMenu(servers, activeId, callbacks)` is rebuilt (and re-set via `Menu.setApplicationMenu`) on every server-list change. The bound accelerator set is exhaustive:
+The **page tier** — the modifier tier browsers reserve, which the shell exists to liberate — is **⌘ on macOS and unshifted Ctrl on Windows/Linux**. The menu is therefore applied **per platform**: `buildMenu` composes its template from per-menu builders (`macAppMenu` / `fileMenu`, `macEditMenu`, `viewMenu`, `serversMenu`, `macWindowMenu`) that branch on a module-level `isMac = process.platform === "darwin"`. The exported `buildMenu(servers, activeId, callbacks)` signature is unchanged and is still rebuilt (and re-set via `Menu.setApplicationMenu`) on every server-list change. Symmetry of *rule*, not symmetry of accelerator table: the two platforms deliberately bind different sets because Chromium's native handling and role defaults differ.
+
+### macOS
 
 | Menu | Bound accelerators |
 |------|--------------------|
@@ -101,6 +103,18 @@ The point of the shell. Electron steals a key from the page only via menu accele
 | Window | ⌘M minimize + zoom via a **custom template**, NOT `role: 'windowMenu'` (that role auto-binds ⌘W) |
 
 **⌘W is unbound by design** — it falls through to the page for future tab-close semantics; mouse users get an accelerator-less "Close Window" item. Guaranteed fall-through set: ⌘T ⌘W ⌘N ⌘L ⌘K ⌘F ⌘P ⌘1–9 ⌘[ ⌘] and all unlisted ⇧⌘ combos.
+
+### Windows / Linux
+
+The unshifted Ctrl tier is **entirely unbound** — the page tier there is completely clean. Top menus are `File | View | Servers`, and the exhaustive bound set is **⇧Ctrl+R force-reload, ⇧Ctrl+I devtools, F11 fullscreen** (shifted-tier and function-key defaults, which the shell may claim).
+
+| Divergence from mac | Why |
+|---------------------|-----|
+| **No Edit menu** | Chromium handles Ctrl+C/V/X/A/Z natively on win/linux; the mac Edit roles exist only for the macOS clipboard quirk |
+| **File → Quit** (labelled "Exit" on `win32`) as a plain `click: () => app.quit()` item, replacing the mac App menu | `role: 'quit'` default-binds Ctrl+Q on Linux — page tier. `window-all-closed` already quits on non-mac |
+| **No Window menu** | Native window chrome covers minimize/close, and `role: 'minimize'` default-binds Ctrl+M |
+| **View keeps item parity** but `reload` / `resetZoom` / `zoomIn` / `zoomOut` are rebuilt as plain accelerator-less items over a shared `focusedWebContents()` helper (`zoomBy(±0.5)`, `setZoomLevel(0)` — replicating the Electron role bodies exactly); `forceReload`, `toggleDevTools`, `togglefullscreen` stay roles | A role's default accelerator can be overridden but not removed, and `registerAccelerator: false` still *displays* the dead accelerator |
+| **Servers switcher radios ship accelerator-less** (menu-click switching) | Literal Ctrl+1–9 is exactly the page tier there. The `MAX_SWITCHER_ACCELERATORS` guard is gated `isMac && index < …`, so the accelerators bind on macOS only |
 
 Accepted gap (recorded nice-to-have): switcher radios check by exact `activeId` match, so in the dangling-`activeId` state startup loads the first server (store fallback) while no radio renders checked until the next list mutation rebuilds the menu.
 
@@ -114,7 +128,7 @@ The sandboxed preload exposes exactly one bridge via `contextBridge.exposeInMain
 
 `version`/`platform` are readable by **every** page, including pages loaded from registered rk servers — this is the SPA's shell-detection seam. `__welcome` is exposed everywhere but **privileged nowhere except the welcome page**: every `welcome:*` handler in main verifies `event.senderFrame.url` starts with the welcome `file://` URL and answers `{ ok: false, error: "Not allowed" }` otherwise, so a server-loaded page can read shell metadata but never invoke a privileged call. IPC payloads are structurally validated in main (unknown-typed, narrowed) before use.
 
-**SPA side** (`app/frontend/src/lib/shell.ts`, the only SPA file the shell touches): `RunkitShell` interface (`{ version, platform }`), a `declare global` Window typing that types `runkitShell` as `unknown` (the bridge is runtime-injected, so it is validated structurally — type-narrowing guard, no `as` casts), `shellInfo()` returning a plain `{ version, platform }` (never leaking `__welcome`) or `null`, and `isShell()`. Covered by the sibling vitest suite `shell.test.ts` (present / absent / malformed bridge shapes). `isShell()` is consumed nowhere critical yet — actual ⌘-tier SPA keyboard bindings are future work gated on it (see [ui-patterns](/run-kit/ui-patterns.md) § Keyboard Shortcuts). The welcome page's own script narrows the bridge the same structural way (`Reflect.get(window, "runkitShell")`, no global augmentation).
+**SPA side** (`app/frontend/src/lib/shell.ts`, the only SPA file the shell touches): `RunkitShell` interface (`{ version, platform }`), a `declare global` Window typing that types `runkitShell` as `unknown` (the bridge is runtime-injected, so it is validated structurally — type-narrowing guard, no `as` casts), `shellInfo()` returning a plain `{ version, platform }` (never leaking `__welcome`) or `null`, and `isShell()`. Covered by the sibling vitest suite `shell.test.ts` (present / absent / malformed bridge shapes). `isShell()` is consumed nowhere critical yet — actual page-tier SPA keyboard bindings are future work gated on it (see [ui-patterns](/run-kit/ui-patterns.md) § Keyboard Shortcuts). The welcome page's own script narrows the bridge the same structural way (`Reflect.get(window, "runkitShell")`, no global augmentation).
 
 ## Security Wiring (`src/main.ts`)
 
@@ -128,16 +142,39 @@ The sandboxed preload exposes exactly one bridge via `contextBridge.exposeInMain
 ## Packaging (`electron-builder.yml` + `scripts/build-desktop.sh`)
 
 - `appId: ai.shll.run-kit`, `productName: Run Kit`, mac category `public.app-category.developer-tools`, `directories: { buildResources: build, output: release }`, `npmRebuild: false`, packaged files `dist/**` minus compiled tests.
-- **Per-arch DMGs** (arm64 + x64), artifact name `run-kit-desktop-${version}-${arch}.${ext}` — mirrors the `rk-darwin-{arm64,amd64}` artifact convention; a universal binary would be ~2× the size for no benefit.
-- **Ad-hoc signing only**: `identity: null` plus the `afterPack: ./after-pack.js` hook — `identity: null` makes electron-builder *skip* signing entirely (it does NOT ad-hoc sign: the Electron prebuilt leaves only a linker signature on the arm64 binary and nothing on x64, proven on the v3.12.2 release run), so the hook runs `codesign --force --deep --sign -` on the packed `.app` before the DMG is built (arm64 macOS refuses to launch fully unsigned binaries). No Developer ID, no notarization. The residual cost lands only on **manually downloaded** DMGs — a browser stamps `com.apple.quarantine`, so Gatekeeper demands "Open Anyway" (or `xattr -dr com.apple.quarantine` on Sequoia's "damaged" variant) on every download. `rk desktop install` avoids it entirely (§ Installation & Updates).
+- **Three platforms, one global artifact name** `run-kit-desktop-${version}-${arch}.${ext}`:
+
+  | Platform | Targets | Arches |
+  |----------|---------|--------|
+  | mac | dmg | arm64, x64 |
+  | win | nsis | x64 |
+  | linux | AppImage, deb | x64, arm64 |
+
+  Per-arch (not universal) mirrors the `rk-darwin-{arm64,amd64}` artifact convention; a universal mac binary would be ~2× the size for no benefit. Because the global `artifactName` is user-forced, `${arch}` always expands through electron-builder's per-target arch naming, so real Linux filenames are `-x86_64.AppImage` and `-amd64.deb` (not the literal `-x64`); upload globs are extension-based, so this is naming-only. AppImage is the zero-install default and deb covers the Debian/Ubuntu majority; win-arm64 and snap/rpm/flatpak are deferred until demand.
+- **Signing: mac ad-hoc, Windows unsigned, Linux none.** On mac, `identity: null` plus the `afterPack: ./after-pack.js` hook — `identity: null` makes electron-builder *skip* signing entirely (it does NOT ad-hoc sign: the Electron prebuilt leaves only a linker signature on the arm64 binary and nothing on x64, proven on the v3.12.2 release run), so the hook runs `codesign --force --deep --sign -` on the packed `.app` before the DMG is built (arm64 macOS refuses to launch fully unsigned binaries). No Developer ID, no notarization. The residual cost lands only on **manually downloaded** DMGs — a browser stamps `com.apple.quarantine`, so Gatekeeper demands "Open Anyway" (or `xattr -dr com.apple.quarantine` on Sequoia's "damaged" variant) on every download. `rk desktop install` avoids it entirely (§ Installation & Updates) and is **macOS-only** — win/linux users install from the release assets directly. Windows carries no Authenticode config: the accepted cost is SmartScreen's "unrecognized app" first-launch dialog, the same personal-infra posture as the mac decision. Linux requires no signing.
+- **`after-pack.js` is mac-only by guard**: the hook returns immediately when `context.electronPlatformName !== "darwin"`, so win/linux packs never reach `codesign` (which does not exist on those builders). The hook stays registered globally in `electron-builder.yml` — the guard, not the config, is what scopes it.
+- **deb maintainer** comes from `linux.maintainer` (`sahil87 <sahil87@users.noreply.github.com>`) with `linux.category: Development`. deb hard-requires a maintainer and `package.json` deliberately carries no `author` field, so the GitHub noreply address stands in rather than committing a personal email.
+- **Icons across platforms**: the single committed `build/icon.png` is sufficient source material — electron-builder derives the Windows `.ico` from it and Linux uses the png directly. No per-platform assets are committed.
 - **Version injection**: `package.json` carries a `0.0.0` placeholder; the real version rides `electron-builder --config.extraMetadata.version=$VERSION` (rewrites the packaged package.json → `app.getVersion()` → `runkitShell.version`). The version source differs per build path: local `scripts/build-desktop.sh` derives `$VERSION` from `git describe --tags --abbrev=0` (leading `v` stripped, fallback `0.0.0-dev`); the CI job takes it from the release job's `version` output (§ Release Packaging). Either way the desktop pipeline reads no VERSION file and is independent of `scripts/build.sh`.
 - **Icon**: `app/desktop/build/icon.png` is a **committed** 1024px raster generated by `scripts/generate-icons.sh` (dark bg `#0f1117`, 20% padding, rounded-rect `dest-in` mask at radius ≈22.37% of size — Apple's app-icon corner ratio — so the flat square sits close to the macOS squircle when electron-builder converts png → icns). Committed so desktop builds need neither sharp nor the frontend package; regenerate via `just icons`.
 
-## Release Packaging (`.github/workflows/release.yml` § `desktop-macos`)
+## Release Packaging (`.github/workflows/release.yml`)
 
-Every tagged release carries `run-kit-desktop-{version}-arm64.dmg` and `run-kit-desktop-{version}-x64.dmg` as GitHub Release assets. The `desktop-macos` job (`needs: release`, `runs-on: macos-latest`) checks out the release tag, installs frozen deps under Node 22 (`engines.node >=22.12.0`; the frontend jobs' Node 20 is insufficient here), compiles, runs `electron-builder --mac --publish never` with `CSC_IDENTITY_AUTO_DISCOVERY: "false"` and the version from the release job's output, verifies each `.app` with `codesign --verify --deep --strict` (plus `-dv` for display), and attaches the DMGs via `gh release upload … --clobber`. The job runs the packaging steps inline rather than calling `scripts/build-desktop.sh` — see [architecture](/run-kit/architecture.md) § Release Flow & CI/CD for the full step list and the dependency/skip semantics.
+Every tagged release carries the full desktop set as GitHub Release assets — ~6 files: 2 mac DMGs (arm64, x64), 2 AppImages, 2 debs, and 1 Windows NSIS `.exe`. Three sibling jobs produce them, each `needs: release` on a native runner:
 
-`just build-desktop` on a Mac is the local path, used for development builds and for reproducing a packaging failure off the release train.
+| Job | Runner | Build | Upload glob |
+|-----|--------|-------|-------------|
+| `desktop-macos` | macos-latest | `electron-builder --mac`, `CSC_IDENTITY_AUTO_DISCOVERY: "false"` | `release/*.dmg` |
+| `desktop-linux` | ubuntu-latest | `electron-builder --linux` | `release/*.AppImage` + `release/*.deb` |
+| `desktop-windows` | windows-latest | `electron-builder --win` | `release/*.exe` |
+
+All three share one step shape: checkout at `ref: needs.release.outputs.tag`, setup-node 22 + pnpm 9 on the same pinned action SHAs (`engines.node >=22.12.0`; the frontend jobs' Node 20 is insufficient here), `pnpm install --frozen-lockfile` → `pnpm run compile` in `app/desktop`, `--publish never` with the version from the release job's output, then `gh release upload … --clobber`. `desktop-windows` sets `defaults.run.shell: bash` so the shared `cd app/desktop && …` step bodies work unmodified on a Windows runner. Native runners rather than wine cross-compilation — runner minutes are not a constraint here.
+
+**The codesign verification hard-gate is mac-only.** Only `desktop-macos` runs `codesign --verify --deep --strict` (plus `-dv` for display) over the packed `.app`; the ad-hoc signature is a macOS *launch* requirement, and there is no equivalent invariant to assert on Windows (unsigned by design) or Linux (no signing at all). The win/linux jobs each carry an inline comment stating that.
+
+All three run the packaging steps inline rather than calling `scripts/build-desktop.sh` — see [architecture](/run-kit/architecture.md) § Release Flow & CI/CD for the full step list and the dependency/skip semantics.
+
+`just build-desktop` is the local path, used for development builds and for reproducing a packaging failure off the release train; each platform's package can only be built on that platform's host.
 
 ## Installation & Updates — `rk desktop`
 
@@ -160,9 +197,15 @@ The **primary** install and update path is the CLI: `rk desktop install` / `rk d
 Constitution VIII one-liners in the `justfile`, logic in `scripts/`:
 
 - `just dev-desktop` → `scripts/dev-desktop.sh`: `pnpm install` when `node_modules` is missing, compile, `exec pnpm exec electron .`. `RK_DESKTOP_URL=http://localhost:3000 just dev-desktop` (against a running `just dev`) loads that URL directly without touching `servers.json`.
-- `just build-desktop` → `scripts/build-desktop.sh`: Mac-only; verifies `build/icon.png` exists (pointing at `just icons` when missing), `pnpm install --frozen-lockfile`, compile, `electron-builder --mac --publish never` with the extraMetadata version. Output lands in `app/desktop/release/` (gitignored; the repo's bare `dist` gitignore entry already covers compiled TS output).
+- `just build-desktop [mac|win|linux]` → `scripts/build-desktop.sh`: takes an **optional explicit target** and otherwise derives it from the host via `uname -s` (`Darwin`→mac, `Linux`→linux, `MINGW*`/`MSYS*`/`CYGWIN*`→win; anything else errors telling the caller to pass a target). The target maps to `--mac`/`--win`/`--linux`; an unknown argument exits non-zero with `usage: build-desktop.sh [mac|win|linux]  (default: host platform)`. The rest is platform-neutral and unchanged: verify `build/icon.png` exists (pointing at `just icons` when missing), `pnpm install --frozen-lockfile`, compile, `electron-builder <flag> --publish never` with the extraMetadata version. Output lands in `app/desktop/release/` (gitignored; the repo's bare `dist` gitignore entry already covers compiled TS output). The justfile recipe stays a one-liner passing args through (`build-desktop *args:`, Constitution VIII).
 
-Verification split: compile, `tsc --noEmit`, node:test (store), and vitest (`shell.test.ts`) all run on Linux; the DMG build, Gatekeeper walkthrough, xterm ⌘C/⌘V interplay, and ⌘-fall-through feel require a Mac.
+Verification split: compile, `tsc --noEmit`, node:test (store), and vitest (`shell.test.ts`) all run on Linux. Hardware-only items, per platform:
+
+- **mac** — the DMG build, Gatekeeper "Open Anyway" walkthrough, xterm ⌘C/⌘V interplay, and ⌘-fall-through feel.
+- **Windows** — the SmartScreen "unrecognized app" first-launch walkthrough of the unsigned NSIS installer, and Ctrl+C/Ctrl+V ↔ xterm.js interplay (load-bearing in a terminal product).
+- **Linux** — AppImage and deb launch on a real distro with a desktop session, plus the same Ctrl+C/Ctrl+V ↔ xterm.js interplay.
+
+The win/linux *menu* contract is nonetheless CI-provable without hardware: the compiled `dist/menu.js` can be loaded under a mocked `electron` module with `process.platform` forced, and the built template's accelerators asserted — that is how the "nothing in the unshifted Ctrl tier" invariant was verified.
 
 ## Design Decisions
 
@@ -261,3 +304,27 @@ Verification split: compile, `tsc --noEmit`, node:test (store), and vitest (`she
 **Why**: The long copy must complete before the existing install is touched, so a mid-copy failure never destroys a working install; staging in `InstallDir` keeps the final rename same-volume (atomic), and the deterministic name self-heals a leftover from a crashed prior run. The second `AppRunning` check closes the multi-minute download/codesign TOCTOU window. `--force` is scoped to *version state* — overwriting a live bundle corrupts the running process, a distinct concern the user cannot usefully override.
 **Rejected**: `RemoveAll(dest)` before the copy (the original shape — a `ditto` failure left no app at all); a hand-rolled Go tree copy instead of `ditto` (`ditto` is the macOS-correct tool for preserving bundle metadata and signatures — Constitution III); deriving the destination from the mounted DMG's bundle basename (it could diverge from the `AppBundleName` the version/running probes key on, so the mounted name is *validated* against that constant instead).
 *Introduced by*: 260730-pl4v-rk-desktop-install
+
+### The menu is symmetric in rule, not in accelerator table
+**Decision**: `buildMenu` composes per-menu builders branching on `isMac`, and the two platforms bind deliberately different sets: mac keeps the Edit roles, App menu, and Window menu; win/linux drop all three and bind nothing in the unshifted Ctrl tier.
+**Why**: The invariant worth preserving is "the page tier is never bound", and the page tier is ⌘ on mac but Ctrl on win/linux. Chromium already handles Ctrl+C/V/X/A/Z natively on win/linux, so the mac Edit roles (which exist purely for the macOS clipboard quirk) would spend page-tier keys for nothing there; the App and Window menus are mac shapes whose roles (`quit`, `minimize`) default-bind Ctrl+Q/Ctrl+M.
+**Rejected**: A single accelerator table re-expressed with `CmdOrCtrl` (mechanically symmetric, but it would bind Ctrl+Z/X/C/V/A/R/0/± on win/linux — the exact tier the shell exists to free); per-platform menu *files* (duplicates the shared View/Servers structure and drifts).
+*Introduced by*: 260730-ler1-desktop-windows-linux-packaging
+
+### Page-tier View items are plain accelerator-less items, not suppressed roles
+**Decision**: On win/linux, `reload`/`resetZoom`/`zoomIn`/`zoomOut` are rebuilt as plain items with click handlers and no accelerator (replicating the Electron role bodies exactly — `zoomLevel ± 0.5`, `zoomLevel = 0`); only shifted-tier roles and `togglefullscreen` (F11) stay roles.
+**Why**: A role's default accelerator can be overridden but never removed, and `registerAccelerator: false` still *displays* the dead accelerator — a UX lie. Plain items keep menu-item parity with mac while leaving the key itself free for the page.
+**Rejected**: Dropping the items entirely (loses the mouse path for reload/zoom); `registerAccelerator: false` (displays Ctrl+R while the key falls through).
+*Introduced by*: 260730-ler1-desktop-windows-linux-packaging
+
+### Native runners per platform; the codesign gate stays mac-only
+**Decision**: Three sibling `needs: release` jobs on macos-latest / ubuntu-latest / windows-latest, sharing one step shape (`desktop-windows` gets `defaults.run.shell: bash` to keep the shared `cd app/desktop && …` bodies working). Only `desktop-macos` runs the `codesign --verify --deep --strict` hard gate.
+**Why**: Native runners avoid wine cross-compilation entirely and runner minutes are not a constraint; the codesign gate exists because an unsigned arm64 `.app` is *killed at launch*, an invariant with no Windows or Linux analogue (Windows is unsigned by design, Linux unsigned by nature), so asserting it there would be ceremony with nothing to catch.
+**Rejected**: Wine cross-compilation from the ubuntu job (one fewer job, but a whole extra failure surface for no gain); a generic "verify the package" step on all three (nothing meaningful to verify off mac); PowerShell on the Windows job (would fork the step bodies).
+*Introduced by*: 260730-ler1-desktop-windows-linux-packaging
+
+### Build target is an optional argument defaulting to the host platform
+**Decision**: `scripts/build-desktop.sh [mac|win|linux]` derives the target from `uname -s` when the argument is absent and errors non-zero on an unknown one; the justfile recipe stays a pass-through one-liner (`build-desktop *args:`).
+**Why**: The common local case is "build for the machine I am on", and electron-builder cannot meaningfully cross-build these targets anyway — so the host default is right almost always, while the explicit argument keeps the script usable as the single named entrypoint. Constitution VIII keeps the branching in the script, not the justfile.
+**Rejected**: A required target argument (breaks the existing argless `just build-desktop` habit for no benefit); three separate scripts (triplicates the version-derivation and icon-check preamble); branching inside the justfile recipe (Constitution VIII).
+*Introduced by*: 260730-ler1-desktop-windows-linux-packaging

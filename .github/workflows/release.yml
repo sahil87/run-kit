@@ -201,3 +201,79 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "${{ needs.release.outputs.tag }}" app/desktop/release/*.dmg --clobber
+
+  desktop-linux:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ needs.release.outputs.tag }}
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4
+        with:
+          version: 9
+
+      - name: Install desktop dependencies
+        run: cd app/desktop && pnpm install --frozen-lockfile
+
+      - name: Compile
+        run: cd app/desktop && pnpm run compile
+
+      # No signing on Linux — no codesign gate here (mac-only invariant).
+      - name: Build Linux packages (AppImage + deb, x64 + arm64)
+        run: |
+          cd app/desktop
+          pnpm exec electron-builder --linux --publish never \
+            --config.extraMetadata.version="${{ needs.release.outputs.version }}"
+
+      - name: Attach Linux packages to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ needs.release.outputs.tag }}" \
+            app/desktop/release/*.AppImage app/desktop/release/*.deb --clobber
+
+  desktop-windows:
+    needs: release
+    runs-on: windows-latest
+    defaults:
+      run:
+        # bash (shipped on windows runners) keeps the `cd app/desktop && …`
+        # step shape identical across the three desktop jobs.
+        shell: bash
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ needs.release.outputs.tag }}
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4
+        with:
+          version: 9
+
+      - name: Install desktop dependencies
+        run: cd app/desktop && pnpm install --frozen-lockfile
+
+      - name: Compile
+        run: cd app/desktop && pnpm run compile
+
+      # Unsigned by design — no Authenticode (SmartScreen first-launch
+      # friction accepted, mirroring the mac ad-hoc posture).
+      - name: Build Windows installer (NSIS, x64)
+        run: |
+          cd app/desktop
+          pnpm exec electron-builder --win --publish never \
+            --config.extraMetadata.version="${{ needs.release.outputs.version }}"
+
+      - name: Attach Windows installer to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ needs.release.outputs.tag }}" app/desktop/release/*.exe --clobber

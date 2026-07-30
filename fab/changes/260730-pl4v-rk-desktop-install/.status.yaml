@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 9
@@ -33,22 +33,24 @@ stage_metrics:
     apply: {started_at: "2026-07-30T06:54:55Z", driver: fab-fff, iterations: 2, completed_at: "2026-07-30T07:05:44Z"}
     review: {started_at: "2026-07-30T07:05:44Z", driver: fab-fff, iterations: 2, completed_at: "2026-07-30T07:11:56Z"}
     hydrate: {started_at: "2026-07-30T07:11:56Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-30T07:23:01Z"}
-    ship: {started_at: "2026-07-30T07:23:01Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-07-30T07:23:01Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-30T07:29:17Z"}
+    review-pr: {started_at: "2026-07-30T07:29:17Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/467
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 2473
+    deleted: 28
+    net: 2445
     excluding:
-        added: 0
+        added: 2094
         deleted: 0
-        net: 0
+        net: 2094
     tests:
-        added: 0
+        added: 1228
         deleted: 0
-        net: 0
-    computed_at: "2026-07-30T07:23:01Z"
-    computed_at_stage: hydrate
+        net: 1228
+    computed_at: "2026-07-30T07:29:17Z"
+    computed_at_stage: ship
 summary: Added the macOS-only rk desktop install/update/status group over a seam-parameterized internal/desktop installer for quarantine-free DMG installs, with self-verification (sha256 + codesign) and stage-then-atomic-replace
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-07-30T07:23:01Z
+last_updated: 2026-07-30T07:29:17Z

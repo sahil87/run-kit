@@ -97,6 +97,7 @@ export function ShortcutsOverlay({ open, onClose }: { open: boolean; onClose: ()
   // dispatcher, and the legacy listeners; Esc cancels the capture only.
   useEffect(() => {
     if (!capturingId) return;
+    const actionId = capturingId;
     function onCaptureKey(e: KeyboardEvent) {
       e.preventDefault();
       e.stopPropagation();
@@ -106,20 +107,20 @@ export function ShortcutsOverlay({ open, onClose }: { open: boolean; onClose: ()
       }
       const combo = captureFromEvent(e, host.platform);
       if (!combo) return; // modifier-only / tier-less press — keep capturing
-      const self = byAction.get(capturingId ?? "");
-      const stolenFrom = setBinding(capturingId as string, combo);
+      const self = byAction.get(actionId);
+      const stolenFrom = setBinding(actionId, combo);
       const claimed = claimedKeys(host.platform, host.shell).find(
         (c) => combo.tier === "shifted" && c.code === combo.code,
       );
       if (stolenFrom) {
         const victim = byAction.get(stolenFrom);
         setNotice({
-          actionId: capturingId as string,
+          actionId,
           text: `⚠ took ${formatCombo(combo, host.platform)} from “${victim?.label ?? stolenFrom}” — it is now unbound (rebind or reset it)`,
         });
       } else if (claimed) {
         setNotice({
-          actionId: capturingId as string,
+          actionId,
           text: `⚠ ${formatCombo(combo, host.platform)} is claimed by ${claimed.owner} (${claimed.label}) — it may never reach ${self?.label ?? "this action"}`,
         });
       } else {

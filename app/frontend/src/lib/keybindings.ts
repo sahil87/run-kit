@@ -328,8 +328,9 @@ export type BindingConflict = {
 
 /**
  * Pure conflict detection over an effective map: two ENABLED bindings conflict
- * when their tier+code are equal and their scopes overlap. Consumed by the
- * capture UI (steal warning) and by tests asserting the defaults are clean.
+ * when their tier+code are equal and their scopes overlap. Consumed by tests
+ * asserting the defaults are clean (the capture UI's steal warning does its
+ * own single-victim overlap check in `applyCapture`).
  */
 export function findConflicts(bindings: readonly EffectiveBinding[]): BindingConflict[] {
   const conflicts: BindingConflict[] = [];

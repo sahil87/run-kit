@@ -3,15 +3,15 @@
   "version": "0.0.0",
   "private": true,
   "description": "run-kit desktop viewer shell — loads an existing rk serve URL (client only, never spawns or supervises the daemon)",
+  "homepage": "https://github.com/sahil87/run-kit",
   "main": "dist/main.js",
   "engines": {
     "node": ">=22.12.0"
   },
   "scripts": {
-    "compile": "tsc && mkdir -p dist/welcome && cp src/welcome/welcome.html dist/welcome/",
+    "compile": "tsc && node -e \"fs.mkdirSync('dist/welcome',{recursive:true});fs.copyFileSync('src/welcome/welcome.html','dist/welcome/welcome.html')\"",
     "test": "node --test \"dist/**/*.test.js\"",
-    "dev": "pnpm run compile && electron .",
-    "dist": "electron-builder --mac --publish never"
+    "dev": "pnpm run compile && electron ."
   },
   "pnpm": {
     "onlyBuiltDependencies": [

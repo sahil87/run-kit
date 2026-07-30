@@ -126,8 +126,12 @@ function errorOf(value: unknown): string {
 function wireWelcomePage(els: WelcomeElements, bridge: WelcomeBridge): void {
   const params = new URLSearchParams(location.search);
   const mode = params.get("mode");
-  // ?mode=rename&id=…: this page doubles as the rename affordance.
-  const renameId = mode === "rename" ? (params.get("id") ?? "") : null;
+  // ?mode=rename&id=…: this page doubles as the rename affordance. A missing
+  // or blank id is NOT rename mode (the rename IPC would no-op in the store
+  // while the page appeared to succeed) — treat it as the plain connect page.
+  const idParam = params.get("id");
+  const renameId =
+    mode === "rename" && idParam !== null && idParam.trim() !== "" ? idParam : null;
 
   const idleLabel = renameId !== null ? "Rename" : "Connect";
   const showError = (message: string): void => {
@@ -160,11 +164,11 @@ function wireWelcomePage(els: WelcomeElements, bridge: WelcomeBridge): void {
     els.nameInput.focus();
   }
 
-  const rename = async (): Promise<void> => {
+  const rename = async (id: string): Promise<void> => {
     els.errorEl.hidden = true;
 
     setBusy("Renaming…");
-    const result = await bridge.renameServer(renameId ?? "", els.nameInput.value);
+    const result = await bridge.renameServer(id, els.nameInput.value);
     if (!isAckOk(result)) {
       showError(errorOf(result));
       setBusy(null);
@@ -200,7 +204,7 @@ function wireWelcomePage(els: WelcomeElements, bridge: WelcomeBridge): void {
 
   els.form.addEventListener("submit", (event) => {
     event.preventDefault();
-    void (renameId !== null ? rename() : connect());
+    void (renameId !== null ? rename(renameId) : connect());
   });
 }
 

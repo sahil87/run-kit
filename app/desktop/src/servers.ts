@@ -159,10 +159,15 @@ export function setActiveServer(dir: string, id: string): ServerList {
   return next;
 }
 
-/** Record the last-visited SPA path for a server; unknown id is a no-op (nothing written). */
+/**
+ * Record the last-visited SPA path for a server. Unknown id or an unchanged
+ * value is a no-op (nothing written) — capture runs on every switch/add/
+ * rename/close, so the fast path avoids rewriting an identical file.
+ */
 export function setServerLastPath(dir: string, id: string, lastPath: string): ServerList {
   const list = loadServers(dir);
-  if (!list.servers.some((s) => s.id === id)) return list;
+  const entry = list.servers.find((s) => s.id === id);
+  if (!entry || entry.lastPath === lastPath) return list;
   const next: ServerList = {
     ...list,
     servers: list.servers.map((s) => (s.id === id ? { ...s, lastPath } : s)),

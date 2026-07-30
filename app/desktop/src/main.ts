@@ -254,7 +254,8 @@ function parseAddPayload(value: unknown): { name: string; url: string } | null {
 
 function parseRenamePayload(value: unknown): { id: string; name: string } | null {
   if (typeof value !== "object" || value === null) return null;
-  if (!("id" in value) || typeof value.id !== "string") return null;
+  // A blank id would silently no-op in the store while answering ok — reject it.
+  if (!("id" in value) || typeof value.id !== "string" || value.id.trim() === "") return null;
   const name = "name" in value && typeof value.name === "string" ? value.name : "";
   return { id: value.id, name };
 }

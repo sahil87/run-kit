@@ -204,6 +204,19 @@ test("setServerLastPath with an unknown id writes nothing", () => {
   assert.equal(readFileSync(join(dir, "servers.json"), "utf8"), before);
 });
 
+test("setServerLastPath with an unchanged value writes nothing", () => {
+  const dir = tmpDataDir();
+  const a = addServer(dir, "a", "http://a:1");
+  assert.equal(a.ok, true);
+  if (!a.ok) return;
+
+  const first = setServerLastPath(dir, a.server.id, "/w");
+  const before = readFileSync(join(dir, "servers.json"), "utf8");
+  const again = setServerLastPath(dir, a.server.id, "/w");
+  assert.deepEqual(again, first);
+  assert.equal(readFileSync(join(dir, "servers.json"), "utf8"), before);
+});
+
 test("renameServer trims the name and changes nothing else", () => {
   const dir = tmpDataDir();
   const a = addServer(dir, "old", "http://a:1");

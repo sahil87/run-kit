@@ -1,0 +1,3 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-30T07:32:59Z"}
+{"args":"Shell keyboard-tier symmetry: Shift+CmdOrCtrl+1-9 server switcher, two-tier accelerator rule, command-palette server switching via bridge","cmd":"fab-new","event":"command","ts":"2026-07-30T07:32:59Z"}
+{"delta":"+4.5","event":"confidence","score":4.5,"trigger":"calc-score","ts":"2026-07-30T07:36:32Z"}

@@ -54,6 +54,7 @@ func init() {
 	rootCmd.AddCommand(doctorCmd)
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(daemonCmd)
+	rootCmd.AddCommand(desktopCmd)
 	rootCmd.AddCommand(initConfCmd)
 	rootCmd.AddCommand(urlCmd)
 	rootCmd.AddCommand(skillCmd)

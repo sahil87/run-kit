@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "run-kit's shll-toolkit-standards conformance posture — constitution binding (§ Toolkit Standards), audit-against-HEAD-build rule, per-standard status. help-dump, readme-extraction, skill, ten principles, update, version PASS. skill topic pages, `rk context` retired for `rk url`, Principle 9 `--quiet`/reaper caps, brew mutations SIGTERM-with-grace (`newBrewCmd`). install-composition Policy B (docs half) PASS — install docs centralized to shll.ai; Policy A binary half unaudited."
+description: "run-kit's shll-toolkit-standards conformance posture — constitution binding (§ Toolkit Standards), audit-against-HEAD-build rule, per-standard status. help-dump, readme-extraction, skill, ten principles, update, version PASS. Covers skill topic pages, `rk url`, Principle 9 `--quiet`/reaper caps, SIGTERM-with-grace brew mutations, the help-dump-stability + Principle 9 check every new command surface gets (`rk desktop` is the example), and install-composition Policy B PASS (Policy A unaudited)."
 ---
 # Toolkit Standards Conformance
 
@@ -105,6 +105,54 @@ convention plus the per-command rows):
 - **WHEN** `renderDryRun` renders under the default cap
 - **THEN** at most 10 candidate rows print, the header count is the exact `4485`, and the notice states `… and 4475 more; pass --all to list all`
 - **AND GIVEN** `--all`, every candidate row prints with no truncation notice and reap semantics are identical
+
+### Requirement: A new command surface is checked against help-dump and Principle 9
+Any change adding or altering the CLI command tree MUST be checked against the
+standards governing that surface (constitution § Toolkit Standards) — in
+practice the `help-dump` contract and Principle 9's data-vs-chatter split.
+(`260730-pl4v-rk-desktop-install`.)
+
+The `rk desktop` group (`install`/`update`/`status` — see
+[architecture](/run-kit/architecture.md) § CLI Subcommands, `desktop` row) is the
+worked example of what conformance costs on a new surface:
+
+- **help-dump: the command tree is platform-stable.** The three children are
+  **registered on every platform**; only *running* them is gated (a parent
+  `PersistentPreRunE` on the `desktopGOOS` seam var returns `rk desktop is
+  macOS-only (the shell is packaged as a macOS .app)`, an operational exit 1).
+  Registering conditionally would make the dump's `root` differ by build
+  platform, and the dump is a contract surface shll.ai pulls on a schedule —
+  it must not depend on where it ran. The dump needs no code change: the cobra
+  tree walk picks the subtree up automatically, and every node carries a `Long:`
+  block since help-dump publishes `UsageString`.
+- **Principle 9: outcome lines are data, narration is chatter.** Every command
+  routes through the shared `outputSink` (`newSink(cmd)`): outcome lines
+  (already-installed, installed-to, already-up-to-date, updated-to) are `Dataf`
+  on stdout and survive `--quiet` — silence there would misreport a no-op as
+  success — while resolution/progress narration is `Notef`, with the installer's
+  `Progress` writer bound to `sink.chatter` so download and verification
+  progress vanishes under `--quiet`. **`rk desktop status` is entirely data**
+  (a read-only report is the requested result), so `--quiet` legitimately
+  changes nothing — the same posture `rk status` and `reaper` take, rather than a
+  sink conversion.
+- **Exit-code convention (P4)** — usage errors 2, operational failures 1:
+  flag-parse errors inherit root's `FlagErrorFunc`; the children re-wrap their
+  own `Args` validators with `usageArgs` in `desktop.go`'s `init()` because
+  root's central wrap loop covers only `rootCmd`'s **direct** children; an
+  explicitly-empty `--path ""` is a `usageError` (exit 2) rather than a silent
+  fallback to `/Applications`; the platform gate, not-installed, and
+  running-app refusals are operational (1).
+- **The `rk skill` bundle and topic pages stay untouched.** The bundle is a
+  capability briefing, not a command enumeration — help-dump already covers the
+  new tree via the cobra walk, and editing the bundle would trip its
+  byte-equality drift guard for no standard-mandated gain.
+
+#### Scenario: A new subcommand group keeps the help tree platform-stable
+- **GIVEN** the `rk desktop` group on a Linux host
+- **WHEN** `rk desktop install` runs
+- **THEN** it exits 1 with the macOS-only message on stderr
+- **AND** `rk help-dump` still lists the whole `desktop` subtree, so the dumped
+  contract is identical to the one a macOS build produces
 
 ### Requirement: The standards set is enumerated at runtime, not assumed
 Each audit MUST re-run `shll standards` for the authoritative list and
@@ -377,10 +425,16 @@ sibling-tool prerequisites, `shll install <tool>` + a https://shll.ai link.
 (`260720-ec6i-install-docs-policy-b`.)
 
 ### install-composition — Policy B (docs half) PASS
-The docs half now passes: an audit grep (`grep -rn -iE 'brew install|sahil87/tap'
-README.md docs/site/`) returns zero hits. The centralization landed as five
-edits, matching the wording already shipped in the conformant sibling READMEs
-(wt/hop/idea/tu):
+The docs half passes: `README.md` and `docs/site/` carry **no per-formula
+`brew install sahil87/tap/…` install instruction**. The audit grep
+(`grep -rn -iE 'brew install|sahil87/tap' README.md docs/site/`) is a screen, not
+a zero-hit assertion — it also matches the README's
+**`rk`→`run-kit` formula-rename note** (`README.md:40`), which explains how to
+clear a keg stranded under the old formula name. That is migration
+troubleshooting, not install guidance, and it is deliberately kept; every hit the
+grep produces must be classified, and today the rename note is the only one. The
+centralization landed as five edits, matching the wording already shipped in the
+conformant sibling READMEs (wt/hop/idea/tu):
 
 - **`README.md`** — the Install section's per-formula escape-hatch sentence
   ("Prefer plain Homebrew? `brew install sahil87/tap/run-kit` …") removed (both
@@ -416,11 +470,17 @@ docs, not binary output). It was left untouched, and its conformance is unclaime
 here — a future Policy-A audit is the baseline this entry defers.
 (`260720-ec6i-install-docs-policy-b`.)
 
-#### Scenario: An audit grep over the install docs finds no per-formula brew line
-- **GIVEN** `README.md` + `docs/site/` after the change
+#### Scenario: An audit grep over the install docs finds no per-formula brew instruction
+- **GIVEN** `README.md` + `docs/site/`
 - **WHEN** `grep -rn -iE 'brew install|sahil87/tap' README.md docs/site/` runs
-- **THEN** it returns zero hits (the docs point to the shll.ai bootstrap +
-  `shll install <tool>`, and no `sahil87/tap/all` reference remains)
+- **THEN** its only hit is the `README.md` formula-rename troubleshooting note
+  (migration guidance, deliberately kept) — no per-formula install instruction and
+  no `sahil87/tap/all` reference; install guidance points to the shll.ai bootstrap
+  + `shll install <tool>`
+- **AND** the desktop-app install section added by
+  `260730-pl4v-rk-desktop-install` introduces no new hit — it leads with
+  `run-kit desktop install` and its manual fallback is a GitHub Releases download,
+  never a brew formula
 - **AND** the Policy-A binary hint in `app/backend/cmd/rk/upgrade.go` still prints
   `brew install sahil87/tap/run-kit` on a non-brew install — untouched and
   unaudited, since Policy B binds docs, not binary output

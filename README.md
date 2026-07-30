@@ -192,6 +192,26 @@ Some browser features (clipboard, secure context) require HTTPS. Accessing run-k
 
 For a stable custom hostname or public access via Funnel, see the [Tailscale guide](docs/site/install.md).
 
+## Desktop app (macOS)
+
+A native desktop shell — an Electron window that wraps your dashboard and frees the browser-reserved `⌘` keyboard tier for run-kit itself. Install and update it with the CLI:
+
+```sh
+run-kit desktop install    # fetch the latest release DMG, install to /Applications
+run-kit desktop update     # same, but a no-op when already current
+run-kit desktop status     # installed vs latest version (read-only)
+```
+
+Installing through the CLI matters: the desktop DMGs are ad-hoc signed (no notarization), so a **browser** download gets stamped with `com.apple.quarantine` and Gatekeeper blocks the app on every install and every update ("Apple could not verify…"). Quarantine is applied by the *downloading application* — command-line tools don't apply it — so `run-kit desktop install` produces a quarantine-free install that opens cleanly, first time and every time. The installer does its own verification instead: it checks the DMG's SHA256 against the GitHub release digest (when available) and runs `codesign --verify --deep --strict` on the app before installing.
+
+**Manual fallback** (no run-kit CLI on the machine): download the DMG for your architecture from [GitHub Releases](https://github.com/sahil87/run-kit/releases), drag **Run Kit.app** into Applications, then clear the quarantine flag — via System Settings → Privacy & Security → **Open Anyway**, or:
+
+```sh
+xattr -dr com.apple.quarantine "/Applications/Run Kit.app"
+```
+
+The manual route repeats that dance on every update; the CLI path never needs it.
+
 ## Push notifications
 
 Any process on the box can push a real OS-level notification to your phone or
@@ -254,6 +274,7 @@ Supports `zsh`, `bash`, `fish`, and `powershell`. Completion-only — run-kit ha
 | `run-kit agent-setup` | Install agent-harness hooks (v1: Claude Code) so panes report busy/waiting/idle state (see [Agent state](#agent-state--run-kit-agent-setup)). Once per machine; `--uninstall` reverses it. |
 | `run-kit init-conf` | Scaffold default `tmux.conf` and `tmux.d/` drop-in directory to `~/.rk/`. Optional. |
 | `run-kit update` | Upgrade via Homebrew and restart the daemon. |
+| `run-kit desktop` | Install/update the macOS desktop app from GitHub Releases, quarantine-free (`install`, `update`, `status` — see [Desktop app](#desktop-app-macos)). |
 | `run-kit completion` | Generate shell completion scripts (or use `run-kit shell-init` for eval-safe output). |
 | `run-kit help` | Help about any command. |
 

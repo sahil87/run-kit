@@ -642,6 +642,15 @@ func minorOrMajorIncrease(installed, latest string) bool {
 	return lMin > iMin
 }
 
+// AnyIncrease reports whether latest is any increase (major, minor, or patch)
+// over installed. Exported for reuse by internal/desktop's update comparison
+// (the desktop-app installer), so the semver-increase logic lives in exactly
+// one place. Thin wrapper over anyIncrease — same tolerance for "v" prefixes
+// NOT included: callers normalize (see normalizeTag) before comparing.
+func AnyIncrease(installed, latest string) bool {
+	return anyIncrease(installed, latest)
+}
+
 // anyIncrease reports whether latest is any increase (major, minor, or patch)
 // over installed — the run-kit row's local `update_available` evaluation.
 func anyIncrease(installed, latest string) bool {

@@ -35,6 +35,20 @@ run-kit update
 
 > **Upgrading from an earlier run-kit?** Older installs had the agent-hook *logic* inlined in `~/.claude/settings.json`. Run `run-kit agent-setup` once more to swap in the new delegating wrapper, then restart your agent sessions. Future hook fixes ship in the binary and track `run-kit update` with no re-setup.
 
+## Desktop app (macOS)
+
+The optional desktop shell wraps your dashboard in a native window and frees the browser-reserved `⌘` keyboard tier. Install and update it with the CLI:
+
+```bash
+run-kit desktop install    # fetch the latest release DMG, install to /Applications
+run-kit desktop update     # same, but a no-op when already current
+run-kit desktop status     # installed vs latest version (read-only)
+```
+
+The CLI path is the primary one for a reason: the DMGs are ad-hoc signed (no notarization), so a browser download is stamped with `com.apple.quarantine` and Gatekeeper blocks the app on every install and update. Quarantine comes from the *downloading application* — command-line tools don't apply it — so the CLI produces a quarantine-free install that opens cleanly every time, verifying the download itself (SHA256 against the release digest when available, plus `codesign --verify --deep --strict`) before installing. Use `--path <dir>` to install somewhere other than `/Applications`, and `--version <tag>` to pin a specific release.
+
+Without the CLI, the fallback is manual: download the DMG for your architecture from [GitHub Releases](https://github.com/sahil87/run-kit/releases), drag **Run Kit.app** into Applications, and clear quarantine via System Settings → Privacy & Security → **Open Anyway** (or `xattr -dr com.apple.quarantine "/Applications/Run Kit.app"`) — repeated on every manual update.
+
 ## Prerequisites
 
 `run-kit riff` requires:

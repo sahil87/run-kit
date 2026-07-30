@@ -814,3 +814,27 @@ func findVerdict(tools []ToolVerdict, tool string) *ToolVerdict {
 	}
 	return nil
 }
+
+// TestAnyIncreaseExported locks the exported AnyIncrease wrapper (consumed by
+// internal/desktop's update comparison) to the unexported anyIncrease semantics:
+// any major/minor/patch increase qualifies; equal, downgrade, and unparseable
+// inputs never do.
+func TestAnyIncreaseExported(t *testing.T) {
+	cases := []struct {
+		installed, latest string
+		want              bool
+	}{
+		{"3.12.2", "3.13.0", true},
+		{"3.12.2", "3.12.3", true},
+		{"3.12.2", "4.0.0", true},
+		{"3.12.2", "3.12.2", false},
+		{"3.13.0", "3.12.2", false},
+		{"garbage", "3.12.2", false},
+		{"3.12.2", "garbage", false},
+	}
+	for _, tc := range cases {
+		if got := AnyIncrease(tc.installed, tc.latest); got != tc.want {
+			t.Errorf("AnyIncrease(%q, %q) = %v, want %v", tc.installed, tc.latest, got, tc.want)
+		}
+	}
+}

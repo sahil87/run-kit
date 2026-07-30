@@ -8,6 +8,7 @@ import {
   comboParts,
   findConflicts,
   findMatch,
+  tiersCollide,
   formatCombo,
   keyLabel,
   matchesCombo,
@@ -268,6 +269,27 @@ describe("scopesOverlap / findConflicts", () => {
   it("does not flag the board ⌘[/⌘] pair against the global shifted [/] pair", () => {
     expect(findConflicts(resolved())).toEqual([]);
   });
+
+  it("tiersCollide: cmd and ctrl collide (a plain Ctrl chord matches both); shifted is disjoint", () => {
+    expect(tiersCollide("cmd", "ctrl")).toBe(true);
+    expect(tiersCollide("ctrl", "cmd")).toBe(true);
+    expect(tiersCollide("cmd", "cmd")).toBe(true);
+    expect(tiersCollide("shifted", "cmd")).toBe(false);
+    expect(tiersCollide("shifted", "ctrl")).toBe(false);
+  });
+
+  it("flags a cmd-tier binding masking a ctrl-tier one on the same code", () => {
+    // A Ctrl chord captured on non-mac reads as `cmd`; on the same code it
+    // matches the same keydown as the `ctrl`-tier chat-toggle default.
+    const bindings = resolveBindings(
+      DEFAULT_BINDINGS,
+      { "sidebar-toggle": { code: "Backquote", tier: "cmd" } },
+      SHELL_OTHER,
+    );
+    const conflicts = findConflicts(bindings);
+    expect(conflicts).toHaveLength(1);
+    expect([conflicts[0].a, conflicts[0].b].sort()).toEqual(["chat-toggle", "sidebar-toggle"]);
+  });
 });
 
 describe("captureFromEvent", () => {
@@ -329,6 +351,22 @@ describe("applyCapture (steal-with-warning)", () => {
     expect(overrides).toEqual({
       "window-next": { code: "KeyA", tier: "shifted" },
       "agent-next-waiting": null,
+    });
+  });
+
+  it("steals across the colliding cmd/ctrl tiers on the same code", () => {
+    // sidebar-toggle (global) captures cmd+Backquote — the chord a non-mac
+    // Ctrl+` capture produces. It matches the same keydown as chat-toggle's
+    // ctrl-tier default, so chat-toggle must be flagged and unbound instead
+    // of silently masked at dispatch.
+    const { overrides, stolenFrom } = applyCapture(resolved(), {}, "sidebar-toggle", {
+      code: "Backquote",
+      tier: "cmd",
+    });
+    expect(stolenFrom).toBe("chat-toggle");
+    expect(overrides).toEqual({
+      "sidebar-toggle": { code: "Backquote", tier: "cmd" },
+      "chat-toggle": null,
     });
   });
 

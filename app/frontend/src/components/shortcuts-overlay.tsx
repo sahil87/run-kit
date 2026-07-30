@@ -560,7 +560,7 @@ export function ShortcutsOverlay({
                       {missingPreset && (
                         <span
                           className="flex-none text-[9.5px] tracking-wider uppercase px-2 py-px rounded-full border border-red-500/60 text-red-500"
-                          title={`preset “${m.target.type === "riff" ? m.target.preset : ""}” is not defined in fab/project/config.yaml — the key does nothing`}
+                          title={`preset “${m.target.type === "riff" ? m.target.preset : ""}” is not among this session's riff presets — running the macro will fail with an error toast`}
                         >
                           missing preset
                         </span>

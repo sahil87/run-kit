@@ -5,53 +5,53 @@ created_by: sahil-noon
 change_type: fix
 issues: []
 progress:
-  intake: done
-  apply: done
-  review: done
-  hydrate: done
-  ship: done
-  review-pr: active
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
 plan:
-  generated: true
-  task_count: 6
-  acceptance_count: 11
-  acceptance_completed: 11
+    generated: true
+    task_count: 6
+    acceptance_count: 11
+    acceptance_completed: 11
 confidence:
-  certain: 4
-  confident: 2
-  tentative: 0
-  unresolved: 0
-  score: 4.9
-  fuzzy: true
-  dimensions:
-    signal: 84.2
-    reversibility: 85.8
-    competence: 90.8
-    disambiguation: 85.8
+    certain: 4
+    confident: 2
+    tentative: 0
+    unresolved: 0
+    score: 4.9
+    fuzzy: true
+    dimensions:
+        signal: 84.2
+        reversibility: 85.8
+        competence: 90.8
+        disambiguation: 85.8
 stage_metrics:
-  intake: {started_at: "2026-07-30T10:53:19Z", driver: fab-new, iterations: 1, completed_at: "2026-07-30T10:56:19Z"}
-  apply: {started_at: "2026-07-30T10:56:19Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-30T11:02:04Z"}
-  review: {started_at: "2026-07-30T11:02:04Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-30T11:11:54Z"}
-  hydrate: {started_at: "2026-07-30T11:11:54Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-30T11:18:37Z"}
-  ship: {started_at: "2026-07-30T11:18:37Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-30T11:21:15Z"}
-  review-pr: {started_at: "2026-07-30T11:21:15Z", driver: git-pr, iterations: 1, phase: received, reviewer: '@copilot-pull-request-reviewer'}
+    intake: {started_at: "2026-07-30T10:53:19Z", driver: fab-new, iterations: 1, completed_at: "2026-07-30T10:56:19Z"}
+    apply: {started_at: "2026-07-30T10:56:19Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-30T11:02:04Z"}
+    review: {started_at: "2026-07-30T11:02:04Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-30T11:11:54Z"}
+    hydrate: {started_at: "2026-07-30T11:11:54Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-30T11:18:37Z"}
+    ship: {started_at: "2026-07-30T11:18:37Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-30T11:21:15Z"}
+    review-pr: {started_at: "2026-07-30T11:21:15Z", driver: git-pr, iterations: 1, completed_at: "2026-07-30T11:34:39Z"}
 prs:
-  - https://github.com/sahil87/run-kit/pull/473
+    - https://github.com/sahil87/run-kit/pull/473
 change_type_source: explicit
 true_impact:
-  added: 491
-  deleted: 20
-  net: 471
-  excluding:
-    added: 132
-    deleted: 14
-    net: 118
-  tests:
-    added: 41
-    deleted: 0
-    net: 41
-  computed_at: "2026-07-30T11:21:15Z"
-  computed_at_stage: ship
+    added: 491
+    deleted: 20
+    net: 471
+    excluding:
+        added: 132
+        deleted: 14
+        net: 118
+    tests:
+        added: 41
+        deleted: 0
+        net: 41
+    computed_at: "2026-07-30T11:21:15Z"
+    computed_at_stage: ship
 summary: 'Terminal links open externally: explicit WebLinksAddon window.open handler in the SPA, all-external setWindowOpenHandler policy in a pure app/desktop/src/window-open.ts (single isHttpUrl), in-window registered-origin branch removed'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-07-30T11:21:15Z
+last_updated: 2026-07-30T11:34:39Z

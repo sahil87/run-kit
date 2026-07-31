@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 7
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-07-31T10:50:04Z", driver: fab-fff, iterations: 2, completed_at: "2026-07-31T10:52:54Z"}
     review: {started_at: "2026-07-31T10:52:54Z", driver: fab-fff, iterations: 2, completed_at: "2026-07-31T10:59:12Z"}
     hydrate: {started_at: "2026-07-31T10:59:12Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-31T11:02:12Z"}
-    ship: {started_at: "2026-07-31T11:02:12Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-07-31T11:02:12Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-31T11:04:25Z"}
+    review-pr: {started_at: "2026-07-31T11:04:25Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/492
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 508
+    deleted: 182
+    net: 326
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 179
+        deleted: 181
+        net: -2
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-07-31T11:02:12Z"
-    computed_at_stage: hydrate
+        added: 48
+        deleted: 165
+        net: -117
+    computed_at: "2026-07-31T11:04:25Z"
+    computed_at_stage: ship
 summary: Consolidated board e2e pin/unpin helpers into tests/e2e/_boards.ts (ok-asserted base API + opt-in cleanup registry + apiBase/isTerminalsSocket fold-ins); migrated 12 specs and 4 companion docs.
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-07-31T11:02:12Z
+last_updated: 2026-07-31T11:04:25Z

@@ -3,24 +3,11 @@ import { render, screen, cleanup } from "@testing-library/react";
 import { StatusDot, dotLabel } from "./status-dot";
 import { dotTipContent } from "./status-dot-tip";
 import { statusDotState, fabPhase, fabShape, prShape } from "./pr-status-model";
-import type { WindowInfo } from "@/types";
+import { makeWindow } from "@/test-utils/fixtures";
 
 afterEach(() => {
   cleanup();
 });
-
-function makeWindow(overrides: Partial<WindowInfo> = {}): WindowInfo {
-  return {
-    windowId: "@0",
-    index: 0,
-    name: "win",
-    worktreePath: "/p",
-    activity: "idle",
-    isActiveWindow: false,
-    activityTimestamp: 0,
-    ...overrides,
-  };
-}
 
 // Palette v3 (status-pyramid.md) — two families joined at the top plus an
 // additive waiting overlay. These cases enumerate the decision-table rows.

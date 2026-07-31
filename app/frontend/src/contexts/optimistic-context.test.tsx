@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, act, cleanup } from "@testing-library/react";
 import { OptimisticProvider, useOptimisticContext, useMergedSessions } from "./optimistic-context";
 import type { ProjectSession } from "@/types";
+import { makeWindow, makeSession } from "@/test-utils/fixtures";
 
 const TEST_SERVER = "test-server";
 
@@ -54,19 +55,19 @@ function TestConsumer({ realSessions, server = TEST_SERVER }: { realSessions: Pr
 }
 
 const baseSessions: ProjectSession[] = [
-  {
+  makeSession({
     name: "dev",
     windows: [
-      { index: 0, windowId: "@0", name: "zsh", worktreePath: "/tmp", activity: "active", isActiveWindow: true, activityTimestamp: 0 },
-      { index: 1, windowId: "@1", name: "build", worktreePath: "/tmp", activity: "idle", isActiveWindow: false, activityTimestamp: 0 },
+      makeWindow({ index: 0, windowId: "@0", name: "zsh", worktreePath: "/tmp", activity: "active", isActiveWindow: true }),
+      makeWindow({ index: 1, windowId: "@1", name: "build", worktreePath: "/tmp" }),
     ],
-  },
-  {
+  }),
+  makeSession({
     name: "prod",
     windows: [
-      { index: 0, windowId: "@2", name: "deploy", worktreePath: "/app", activity: "idle", isActiveWindow: true, activityTimestamp: 0 },
+      makeWindow({ index: 0, windowId: "@2", name: "deploy", worktreePath: "/app", isActiveWindow: true }),
     ],
-  },
+  }),
 ];
 
 describe("OptimisticProvider", () => {

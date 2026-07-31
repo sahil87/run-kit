@@ -3,22 +3,13 @@ import { useState } from "react";
 import { render, screen, cleanup, act, fireEvent } from "@testing-library/react";
 import { SessionRow } from "./session-row";
 import type { ProjectSession } from "@/types";
+import { makeSession } from "@/test-utils/fixtures";
 
 afterEach(() => {
   cleanup();
 });
 
 const noop = () => {};
-
-function makeSession(overrides: Partial<ProjectSession> = {}): ProjectSession {
-  return {
-    name: "alpha",
-    windows: [
-      { windowId: "@0", index: 0, name: "zsh", worktreePath: "/home/user", activity: "idle", isActiveWindow: false, activityTimestamp: 0 },
-    ],
-    ...overrides,
-  } as ProjectSession;
-}
 
 function rowProps(session: ProjectSession) {
   return {

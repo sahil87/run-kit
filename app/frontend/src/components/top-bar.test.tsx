@@ -5,6 +5,7 @@ import { ChromeProvider } from "@/contexts/chrome-context";
 import { ThemeProvider } from "@/contexts/theme-context";
 import { ToastProvider } from "@/components/toast";
 import type { ProjectSession, WindowInfo } from "@/types";
+import { stubMatchMedia } from "@/test-utils/match-media";
 
 // TopBar is rendered without a RouterProvider here, so stub the two router
 // hooks it (and its sub-components: BoardSwitcher, HierarchyDropdown, HistoryNav)
@@ -109,16 +110,7 @@ describe("TopBar", () => {
     // matches (dark scheme, reduced motion — keeps sweeps skipped) EXCEPT
     // `(pointer: coarse)`, which must be false or every Tip suppresses itself
     // (fine-pointer is the test default; tip.test.tsx covers coarse).
-    vi.stubGlobal("matchMedia", vi.fn().mockImplementation((query: string) => ({
-      matches: query !== "(pointer: coarse)",
-      media: query,
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-      onchange: null,
-      addListener: vi.fn(),
-      removeListener: vi.fn(),
-      dispatchEvent: vi.fn(),
-    })));
+    stubMatchMedia((query) => query !== "(pointer: coarse)");
   });
 
   afterEach(() => {
@@ -240,19 +232,7 @@ describe("TopBar", () => {
       // (the suite default stubs `matches: true` for EVERY query, which makes
       // `prefersReducedMotion()` true and skips the sweep entirely). Dark theme
       // still matches; reduced-motion does not.
-      vi.stubGlobal(
-        "matchMedia",
-        vi.fn().mockImplementation((query: string) => ({
-          matches: query.includes("prefers-color-scheme"),
-          media: query,
-          addEventListener: vi.fn(),
-          removeEventListener: vi.fn(),
-          onchange: null,
-          addListener: vi.fn(),
-          removeListener: vi.fn(),
-          dispatchEvent: vi.fn(),
-        })),
-      );
+      stubMatchMedia((query) => query.includes("prefers-color-scheme"));
     });
 
     afterEach(() => {
@@ -1262,16 +1242,7 @@ describe("WindowHeading (centered, editable, terminal mode)", () => {
     vi.clearAllMocks();
     // Same query-sensitive stub as the suite root: all-match EXCEPT
     // `(pointer: coarse)` (false), or Tips would self-suppress.
-    vi.stubGlobal("matchMedia", vi.fn().mockImplementation((query: string) => ({
-      matches: query !== "(pointer: coarse)",
-      media: query,
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-      onchange: null,
-      addListener: vi.fn(),
-      removeListener: vi.fn(),
-      dispatchEvent: vi.fn(),
-    })));
+    stubMatchMedia((query) => query !== "(pointer: coarse)");
   });
   afterEach(() => {
     cleanup();

@@ -13,6 +13,7 @@ import { SettingsDialogProvider } from "@/contexts/settings-dialog-context";
 import { ToastProvider } from "@/components/toast";
 import { useWindowStore } from "@/store/window-store";
 import { getAllServerColors, setServerColor } from "@/api/client";
+import { stubMatchMedia } from "@/test-utils/match-media";
 import {
   computeRowTints,
   computeRowBorders,
@@ -65,16 +66,7 @@ vi.mock("@/lib/clipboard", () => ({
 import { copyToClipboard } from "@/lib/clipboard";
 
 // jsdom does not implement matchMedia — ThemeProvider + media-query hooks need it.
-vi.stubGlobal("matchMedia", vi.fn().mockImplementation((query: string) => ({
-  matches: query.includes("prefers-color-scheme: dark"),
-  media: query,
-  addEventListener: vi.fn(),
-  removeEventListener: vi.fn(),
-  dispatchEvent: vi.fn(),
-  addListener: vi.fn(),
-  removeListener: vi.fn(),
-  onchange: null,
-})));
+stubMatchMedia((query) => query.includes("prefers-color-scheme: dark"));
 
 const SERVERS = [
   { name: "primary", sessionCount: 1 },

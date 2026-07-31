@@ -10,6 +10,7 @@ import {
 import { ChromeProvider, useChromeState } from "@/contexts/chrome-context";
 import { useWindowStore, entryKey } from "@/store/window-store";
 import type { UploadedFile } from "@/hooks/use-file-upload";
+import { stubMatchMedia } from "@/test-utils/match-media";
 import { clearComposeDraft } from "@/lib/compose-draft-store";
 import { focusComposeStrip } from "@/lib/compose-strip-events";
 
@@ -82,19 +83,7 @@ const insertBtn = () => screen.getByTestId("compose-strip-insert") as HTMLButton
  * pointer-aware Enter policy + `enterkeyhint` (260719-mxvw). Must run BEFORE
  * render (the hook reads the initial value at mount). */
 function stubPointer(coarse: boolean) {
-  vi.stubGlobal(
-    "matchMedia",
-    vi.fn().mockImplementation((query: string) => ({
-      matches: coarse && query === "(pointer: coarse)",
-      media: query,
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-      onchange: null,
-      addListener: vi.fn(),
-      removeListener: vi.fn(),
-      dispatchEvent: vi.fn(),
-    })),
-  );
+  stubMatchMedia((query) => coarse && query === "(pointer: coarse)");
 }
 
 describe("ComposeStrip", () => {

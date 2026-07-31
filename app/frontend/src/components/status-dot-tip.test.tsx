@@ -3,6 +3,7 @@ import { render, screen, cleanup, fireEvent, act } from "@testing-library/react"
 import { StatusDotTip } from "./status-dot-tip";
 import type { StatusDotState } from "./pr-status-model";
 import type { WindowInfo } from "@/types";
+import { makeWindow } from "@/test-utils/fixtures";
 
 // The freshness line ("checked Xs ago") renders inside the floating hover-card,
 // which opens on hover after a short delay (@floating-ui `useHover` delay:150).
@@ -17,19 +18,6 @@ afterEach(() => {
   cleanup();
   vi.useRealTimers();
 });
-
-function makeWindow(overrides: Partial<WindowInfo> = {}): WindowInfo {
-  return {
-    windowId: "@0",
-    index: 0,
-    name: "win",
-    worktreePath: "/p",
-    activity: "idle",
-    isActiveWindow: false,
-    activityTimestamp: 0,
-    ...overrides,
-  };
-}
 
 const FLOOR_STATE: StatusDotState = { phase: "none", shape: "solid", waiting: false };
 

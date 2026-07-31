@@ -1,22 +1,14 @@
 import { describe, it, expect } from "vitest";
 import { isWaiting, countWaitingWindows, countWaitingInSessions } from "./waiting";
 import type { ProjectSession, WindowInfo } from "@/types";
+import { makeWindow, makeSession } from "@/test-utils/fixtures";
 
 function win(agentState?: string): WindowInfo {
-  return {
-    windowId: "@0",
-    index: 0,
-    name: "w",
-    worktreePath: "/p",
-    activity: "idle",
-    isActiveWindow: false,
-    activityTimestamp: 0,
-    agentState,
-  };
+  return makeWindow({ agentState });
 }
 
 function session(states: (string | undefined)[]): ProjectSession {
-  return { name: "s", windows: states.map(win) };
+  return makeSession({ windows: states.map(win) });
 }
 
 describe("isWaiting", () => {

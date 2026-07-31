@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, cleanup, fireEvent, act } from "@testing-library/react";
 import { StatusPanel } from "./status-panel";
 import { TIP_OPEN_DELAY_MS } from "@/components/tip";
-import type { WindowInfo } from "@/types";
+import { makeWindow, makeWindowWithPanes } from "@/test-utils/fixtures";
 
 vi.mock("@/lib/clipboard", () => ({
   copyToClipboard: vi.fn().mockResolvedValue(undefined),
@@ -30,16 +30,7 @@ vi.mock("@/contexts/session-context", () => ({
 
 // Helper to exercise shortenPath via the component
 function renderCwd(cwd: string) {
-  const win: WindowInfo = {
-    windowId: "@0",
-    index: 0,
-    name: "zsh",
-    worktreePath: cwd,
-    activity: "idle",
-    isActiveWindow: false,
-    activityTimestamp: 0,
-  };
-  render(<StatusPanel window={win} />);
+  render(<StatusPanel window={makeWindow({ worktreePath: cwd })} />);
 }
 
 beforeEach(() => {
@@ -57,19 +48,6 @@ afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
 });
-
-function makeWindow(overrides: Partial<WindowInfo> = {}): WindowInfo {
-  return {
-    windowId: "@0",
-    index: 0,
-    name: "zsh",
-    worktreePath: "/home/user",
-    activity: "idle",
-    isActiveWindow: false,
-    activityTimestamp: 0,
-    ...overrides,
-  };
-}
 
 describe("StatusPanel", () => {
   it("shows placeholder when no window selected", () => {
@@ -265,22 +243,6 @@ describe("StatusPanel", () => {
 });
 
 describe("StatusPanel copy behavior", () => {
-  function makeWindowWithPanes(overrides: Partial<WindowInfo> = {}): WindowInfo {
-    return {
-      windowId: "@0",
-      index: 0,
-      name: "zsh",
-      worktreePath: "/home/user/code/run-kit",
-      activity: "idle",
-      isActiveWindow: false,
-      activityTimestamp: 0,
-      panes: [
-        { paneId: "%5", paneIndex: 0, cwd: "/home/user/code/run-kit", command: "zsh", isActive: true, gitBranch: "main" },
-      ],
-      ...overrides,
-    };
-  }
-
   it("clicking cwd row copies full path", async () => {
     const { copyToClipboard } = await import("@/lib/clipboard");
     const win = makeWindowWithPanes();
@@ -888,24 +850,9 @@ describe("Register-label tips (260723-fm08)", () => {
   // the per-site label wiring plus that the copy affordance survives the wrap.
   // jsdom has no matchMedia → useCoarsePointer reads a fine pointer, so Tip
   // is active by default.
-  function makeRegisterWindow(overrides: Partial<WindowInfo> = {}): WindowInfo {
-    return {
-      windowId: "@0",
-      index: 0,
-      name: "zsh",
-      worktreePath: "/home/user/code/run-kit",
-      activity: "idle",
-      isActiveWindow: false,
-      activityTimestamp: 0,
-      panes: [
-        { paneId: "%5", paneIndex: 0, cwd: "/home/user/code/run-kit", command: "zsh", isActive: true, gitBranch: "main" },
-      ],
-      ...overrides,
-    };
-  }
 
   it("hovering the out register label opens its tip after the delay", () => {
-    render(<StatusPanel window={makeRegisterWindow()} />);
+    render(<StatusPanel window={makeWindowWithPanes()} />);
     const label = screen.getByText("out");
     act(() => {
       fireEvent.mouseEnter(label);
@@ -924,7 +871,7 @@ describe("Register-label tips (260723-fm08)", () => {
   it("cwd prefix tip names the register while the row keeps copy-on-click", async () => {
     const { copyToClipboard } = await import("@/lib/clipboard");
     vi.mocked(copyToClipboard).mockClear();
-    render(<StatusPanel window={makeRegisterWindow()} />);
+    render(<StatusPanel window={makeWindowWithPanes()} />);
 
     const label = screen.getByText("cwd");
     act(() => {

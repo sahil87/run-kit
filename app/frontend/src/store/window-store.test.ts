@@ -1,19 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { useWindowStore, entryKey, GHOST_WINDOW_TTL_MS } from "./window-store";
-import type { WindowInfo } from "@/types";
+import { makeWindow } from "@/test-utils/fixtures";
 
 const SRV = "test";
-
-function makeWindow(overrides: Partial<WindowInfo> & { windowId: string; index: number }): WindowInfo {
-  return {
-    name: "zsh",
-    worktreePath: "/tmp",
-    activity: "idle",
-    isActiveWindow: false,
-    activityTimestamp: 0,
-    ...overrides,
-  };
-}
 
 function getStore() {
   return useWindowStore.getState();

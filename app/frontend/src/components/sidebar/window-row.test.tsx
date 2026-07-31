@@ -8,6 +8,7 @@ import * as optimisticContext from "@/contexts/optimistic-context";
 import { computeRowTints, computeRowBorders, DEFAULT_DARK_THEME } from "@/themes";
 import type { WindowInfo } from "@/types";
 import type { MergedWindow } from "@/store/window-store";
+import { makeWindow } from "@/test-utils/fixtures";
 
 afterEach(() => {
   cleanup();
@@ -28,17 +29,6 @@ function mockMatchMedia() {
     onchange: null,
   };
   vi.stubGlobal("matchMedia", vi.fn().mockReturnValue(mql));
-}
-
-function makeWindow(overrides: Partial<WindowInfo> & { windowId: string; index: number }): WindowInfo {
-  return {
-    name: "zsh",
-    worktreePath: "/home/user",
-    activity: "idle",
-    isActiveWindow: false,
-    activityTimestamp: 0,
-    ...overrides,
-  };
 }
 
 const noop = () => {};

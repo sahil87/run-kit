@@ -3,22 +3,7 @@ import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { Shell } from "./shell";
 import { ChromeProvider } from "@/contexts/chrome-context";
-
-function mockMatchMedia(matches: (query: string) => boolean) {
-  vi.stubGlobal(
-    "matchMedia",
-    vi.fn((query: string) => ({
-      matches: matches(query),
-      media: query,
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-      addListener: vi.fn(),
-      removeListener: vi.fn(),
-      dispatchEvent: vi.fn(),
-      onchange: null,
-    })),
-  );
-}
+import { stubMatchMedia } from "@/test-utils/match-media";
 
 function renderShell(opts: { open?: boolean; mobile?: boolean; sidebarChildren?: ReactNode } = {}) {
   const {
@@ -32,7 +17,7 @@ function renderShell(opts: { open?: boolean; mobile?: boolean; sidebarChildren?:
   // would make the mobile-open scenario unreachable. An explicit value pins the
   // state regardless of the mocked viewport.
   localStorage.setItem("runkit-sidebar-open", open ? "true" : "false");
-  mockMatchMedia((q) =>
+  stubMatchMedia((q) =>
     mobile
       ? q.includes("max-width") // mobile width matches
       : false,
@@ -145,7 +130,7 @@ describe("Shell", () => {
     it("does not render sidebarResizeHandle in the mobile overlay", () => {
       // ChromeProvider reads the stored preference; pin open, mock mobile viewport.
       localStorage.setItem("runkit-sidebar-open", "true");
-      mockMatchMedia((q) => q.includes("max-width"));
+      stubMatchMedia((q) => q.includes("max-width"));
       render(
         <ChromeProvider>
           <Shell

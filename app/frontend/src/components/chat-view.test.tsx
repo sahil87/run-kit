@@ -2,24 +2,13 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { ChatView } from "./chat-view";
 import type { ChatEvent } from "@/lib/chat-stream";
+import { stubMatchMedia } from "@/test-utils/match-media";
 
 /** Stub matchMedia so `(pointer: coarse)` matches — drives the pointer-aware
  * Enter policy + `enterkeyhint` (260719-mxvw). jsdom has no matchMedia, so the
  * unstubbed default is the fine-pointer path (the hook's guarded fallback). */
 function stubCoarsePointer() {
-  vi.stubGlobal(
-    "matchMedia",
-    vi.fn().mockImplementation((query: string) => ({
-      matches: query === "(pointer: coarse)",
-      media: query,
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-      onchange: null,
-      addListener: vi.fn(),
-      removeListener: vi.fn(),
-      dispatchEvent: vi.fn(),
-    })),
-  );
+  stubMatchMedia((query) => query === "(pointer: coarse)");
 }
 
 // ChatView send footer (260714-jdyg-chat-send). ChatView is a pure component:

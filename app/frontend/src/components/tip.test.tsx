@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, act, cleanup } from "@testing-library/react";
 import { Tip, TipGroup, TIP_OPEN_DELAY_MS } from "@/components/tip";
+import { stubMatchMedia } from "@/test-utils/match-media";
 
 /**
  * Unit tests for the tier-1 `Tip` tooltip (260722-73al). Interaction depth
@@ -18,22 +19,9 @@ afterEach(() => {
   delete (window as { matchMedia?: unknown }).matchMedia;
 });
 
-/** Install a matchMedia stub whose `(pointer: coarse)` answer is `coarse`. */
-function stubMatchMedia(coarse: boolean) {
-  Object.defineProperty(window, "matchMedia", {
-    value: (query: string) => ({
-      matches: coarse && query === "(pointer: coarse)",
-      media: query,
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      addListener: () => {},
-      removeListener: () => {},
-      onchange: null,
-      dispatchEvent: () => false,
-    }),
-    writable: true,
-    configurable: true,
-  });
+/** Install a matchMedia stub whose `(pointer: coarse)` answer is true. */
+function stubCoarsePointer() {
+  stubMatchMedia((query) => query === "(pointer: coarse)");
 }
 
 describe("Tip — content and ARIA", () => {
@@ -128,7 +116,7 @@ describe("Tip — content and ARIA", () => {
 
 describe("Tip — suppression", () => {
   it("renders nothing under a coarse pointer (child untouched, no ARIA wiring)", () => {
-    stubMatchMedia(true);
+    stubCoarsePointer();
     render(
       <Tip label="Unpin from board">
         <button aria-label="Unpin from board">✕</button>

@@ -5,6 +5,7 @@ import type { ServerInfo } from "@/api/client";
 import { ThemeProvider } from "@/contexts/theme-context";
 import { ChromeProvider } from "@/contexts/chrome-context";
 import { TopBarSlotProvider } from "@/contexts/top-bar-slot-context";
+import { stubMatchMedia } from "@/test-utils/match-media";
 
 // --- Router mock: capture navigate calls. ---
 const navigateMock = vi.fn();
@@ -115,19 +116,7 @@ beforeEach(() => {
   // ThemeProvider reads matchMedia on mount. Query-sensitive on ONE query:
   // everything matches EXCEPT `(pointer: coarse)` (false), or every Tip would
   // self-suppress (fine-pointer is the test default; tip.test.tsx covers coarse).
-  vi.stubGlobal(
-    "matchMedia",
-    vi.fn().mockImplementation((query: string) => ({
-      matches: query !== "(pointer: coarse)",
-      media: query,
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-      addListener: vi.fn(),
-      removeListener: vi.fn(),
-      onchange: null,
-      dispatchEvent: vi.fn(),
-    })),
-  );
+  stubMatchMedia((query) => query !== "(pointer: coarse)");
 });
 
 afterEach(() => {

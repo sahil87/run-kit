@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { cleanup } from "@testing-library/react";
 import { prDotState } from "./pr-status-model";
-import type { WindowInfo } from "@/types";
+import { makeWindow } from "@/test-utils/fixtures";
 
 // NOTE (260715-jykd): the `PrStatusLine` component (and its render tests) were
 // retired — it had zero live mount sites. This module now exercises the RETAINED
@@ -11,19 +11,6 @@ import type { WindowInfo } from "@/types";
 afterEach(() => {
   cleanup();
 });
-
-function makeWindow(overrides: Partial<WindowInfo>): WindowInfo {
-  return {
-    windowId: "@0",
-    index: 0,
-    name: "win",
-    worktreePath: "/p",
-    activity: "idle",
-    isActiveWindow: false,
-    activityTimestamp: 0,
-    ...overrides,
-  };
-}
 
 describe("prDotState precedence", () => {
   it("returns merged first, even with historical failing checks", () => {

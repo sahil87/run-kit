@@ -14,7 +14,7 @@
  *     any platform. This is the shell's premise: the tier a browser reserves
  *     (macOS: ⌘; Windows/Linux: Ctrl) belongs to the SPA.
  *   - Shell tier — `Shift+CmdOrCtrl+<any>`: shell chrome MAY claim keys here,
- *     sparingly. Today's only claim: the Servers switcher (1–9).
+ *     sparingly. Today's only claim: the Hosts switcher (1–9).
  *
  * The menu is applied PER PLATFORM — symmetry of rule, not symmetry of
  * accelerator table. Carve-outs the rule tolerates (documented, never
@@ -25,7 +25,7 @@
  * ⌘Z/⇧⌘Z/⌘X/⌘C/⌘V/⌘A (a macOS carve-out, NOT part of the cross-platform
  * rule — clipboard in web content is dead on macOS without them); View
  * ⌘R/⇧⌘R reload, ⌥⌘I devtools, ⌘+/⌘−/⌘0 zoom, ⌃⌘F fullscreen (conventional
- * shell chrome via role defaults, predating the rule); Servers radios
+ * shell chrome via role defaults, predating the rule); Hosts radios
  * ⇧⌘1–⇧⌘9 (the shell tier); Window ⌘M minimize. Guaranteed fall-through set
  * (never bind these): ⌘T ⌘W ⌘N ⌘L ⌘K ⌘F ⌘P ⌘1–9 ⌘[ ⌘] — the unshifted ⌘
  * tier is inviolable; the shifted tier is shell-claimable. ⌘W is unbound BY
@@ -41,7 +41,7 @@
  * chrome covers minimize/close; the `minimize` role default-binds Ctrl+M);
  * View roles whose defaults sit in the unshifted Ctrl tier (reload Ctrl+R,
  * zoom Ctrl+0/±) are rebuilt as accelerator-less plain items. Bound there
- * (exhaustive): ⇧Ctrl+1–9 Servers switcher (the shell tier), ⇧Ctrl+R
+ * (exhaustive): ⇧Ctrl+1–9 Hosts switcher (the shell tier), ⇧Ctrl+R
  * force-reload, ⇧Ctrl+I devtools, F11 fullscreen.
  *
  * Hardware-verify caveat: shifted-digit accelerators are the flakiest
@@ -50,13 +50,12 @@
  * non-US layout is a manual-verify item; no scancode workaround in v1.
  */
 import { app, BrowserWindow, Menu, MenuItemConstructorOptions, WebContents } from "electron";
-import { ServerEntry } from "./servers";
+import { HostEntry } from "./hosts";
 
 export interface MenuCallbacks {
-  onSwitchServer: (id: string) => void;
-  onAddServer: () => void;
-  onRenameServer: (id: string) => void;
-  onRemoveServer: (id: string) => void;
+  onSwitchHost: (id: string) => void;
+  onAddHost: () => void;
+  onRemoveHost: (id: string) => void;
   /** Local Daemon submenu — starts the daemon when stopped, then connects. */
   onDaemonConnect: () => void;
   onDaemonRestart: () => void;
@@ -177,8 +176,8 @@ function viewMenu(): MenuItemConstructorOptions {
 /**
  * "Local Daemon" submenu — the persistent post-connect control surface for
  * the machine's own daemon (the welcome page's "This Mac" section covers
- * pre-connect). Every item is accelerator-less by design (like Rename/
- * Remove) — the keyboard-tier seam is untouched. Connect shares the same
+ * pre-connect). Every item is accelerator-less by design (like Remove) —
+ * the keyboard-tier seam is untouched. Connect shares the same
  * main-side start-and-connect flow as the welcome card; Restart/Stop are
  * disabled while the daemon is stopped.
  */
@@ -200,41 +199,35 @@ function localDaemonSubmenu(
   };
 }
 
-function serversMenu(
-  servers: ServerEntry[],
+function hostsMenu(
+  hosts: HostEntry[],
   activeId: string | null,
   callbacks: MenuCallbacks,
   daemon: DaemonMenuInfo | null,
 ): MenuItemConstructorOptions {
-  const switcherItems: MenuItemConstructorOptions[] = servers.map((server, index) => ({
-    label: server.name,
+  const switcherItems: MenuItemConstructorOptions[] = hosts.map((host, index) => ({
+    label: host.name,
     type: "radio",
-    checked: server.id === activeId,
+    checked: host.id === activeId,
     // Shell tier (see the two-tier rule above): ⇧⌘1–9 (mac) / ⇧Ctrl+1–9
-    // (win/linux) switches servers while the unshifted Cmd/Ctrl digits fall
+    // (win/linux) switches hosts while the unshifted Cmd/Ctrl digits fall
     // through to the page on every platform.
     accelerator: index < MAX_SWITCHER_ACCELERATORS ? `Shift+CmdOrCtrl+${index + 1}` : undefined,
-    click: () => callbacks.onSwitchServer(server.id),
+    click: () => callbacks.onSwitchHost(host.id),
   }));
 
-  // Accelerator-less by design (like Remove) — the keyboard-tier seam is untouched.
-  const renameItems: MenuItemConstructorOptions[] = servers.map((server) => ({
-    label: `Rename "${server.name}"…`,
-    click: () => callbacks.onRenameServer(server.id),
-  }));
-
-  const removeItems: MenuItemConstructorOptions[] = servers.map((server) => ({
-    label: `Remove "${server.name}"…`,
-    click: () => callbacks.onRemoveServer(server.id),
+  // Accelerator-less by design — the keyboard-tier seam is untouched.
+  const removeItems: MenuItemConstructorOptions[] = hosts.map((host) => ({
+    label: `Remove "${host.name}"…`,
+    click: () => callbacks.onRemoveHost(host.id),
   }));
 
   return {
-    label: "Servers",
+    label: "Hosts",
     submenu: [
       ...switcherItems,
       ...(switcherItems.length > 0 ? [separator] : []),
-      { label: "Add Server…", click: () => callbacks.onAddServer() },
-      ...renameItems,
+      { label: "Add Host…", click: () => callbacks.onAddHost() },
       ...removeItems,
       // Hidden when rk is not installed (and on win32) — daemon is null then.
       ...(daemon !== null ? [separator, localDaemonSubmenu(daemon, callbacks)] : []),
@@ -261,11 +254,11 @@ function macWindowMenu(): MenuItemConstructorOptions {
 
 /**
  * Build the full application menu; call again (and re-set) on every
- * server-list change and whenever the cached daemon state changes.
+ * host-list change and whenever the cached daemon state changes.
  * `daemon` null hides the Local Daemon submenu (not installed / win32).
  */
 export function buildMenu(
-  servers: ServerEntry[],
+  hosts: HostEntry[],
   activeId: string | null,
   callbacks: MenuCallbacks,
   daemon: DaemonMenuInfo | null,
@@ -274,7 +267,7 @@ export function buildMenu(
     isMac ? macAppMenu() : fileMenu(),
     ...(isMac ? [macEditMenu()] : []),
     viewMenu(),
-    serversMenu(servers, activeId, callbacks, daemon),
+    hostsMenu(hosts, activeId, callbacks, daemon),
     ...(isMac ? [macWindowMenu()] : []),
   ];
 

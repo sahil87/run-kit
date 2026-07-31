@@ -1,10 +1,12 @@
 ---
-description: "The app/desktop Electron viewer shell — a BrowserWindow client of an rk serve URL that never auto-starts the daemon (child_process only for user-initiated rk daemon actions + read-only detection). Covers the servers.json store, welcome flow + 'This Mac' local section, local-daemon control + Local Daemon submenu, last-path restore, the menu tier seam (page tier never shell-bound, partly SPA-spent on mac; shifted split), the runkitShell bridge (welcome/daemon/servers), security wiring, packaging."
+description: "The app/desktop Electron viewer shell — a BrowserWindow client of an rk serve URL that never auto-starts the daemon (child_process only for user-initiated rk daemon actions + read-only detection). Terminology: 'host' = rk instance, 'server' = tmux. Covers the hosts.json store (no migration, no rename), welcome flow + 'This Mac' section, local-daemon control and the two-half GUI-PATH trap, last-path restore, the menu tier seam, the runkitShell bridge and its frozen servers:* SPA boundary."
 type: memory
 ---
 # Desktop Viewer Shell (`app/desktop`)
 
-`app/desktop` is an Electron **viewer shell**: a BrowserWindow that loads an existing `rk serve` URL directly — the Slack "enter your workspace URL" model. It exists to remove the browser keyboard ceiling: the `⌘+letter` / `⌘1–9` tier is browser-reserved and can never reach a web page, which caps a keyboard-first product (Constitution V). Inside the shell, every key the shell does not claim reaches the SPA. Loading the server's own HTTP origin needs zero SPA changes for basic function because the SPA is 100% origin-relative (bare `fetch("/api/…")`, WS URLs built from `window.location`).
+**Terminology**: a **host** is an rk instance the shell can connect to; **server** is reserved for tmux servers, matching the web UI (Constitution IV's route set — Host Overview `/`, tmux Server `/$server`). Every user-visible label, code identifier, IPC channel, and store field in this package says *host* where it means an rk instance. The one deliberate exception is the SPA-facing `servers:*` boundary (§ Bridge).
+
+`app/desktop` is an Electron **viewer shell**: a BrowserWindow that loads an existing `rk serve` URL directly — the Slack "enter your workspace URL" model. It exists to remove the browser keyboard ceiling: the `⌘+letter` / `⌘1–9` tier is browser-reserved and can never reach a web page, which caps a keyboard-first product (Constitution V). Inside the shell, every key the shell does not claim reaches the SPA. Loading the host's own HTTP origin needs zero SPA changes for basic function because the SPA is 100% origin-relative (bare `fetch("/api/…")`, WS URLs built from `window.location`).
 
 The shell is a **viewer** (Constitution VI): it never spawns or supervises the rk daemon **on its own initiative** — there is no auto-start path anywhere. `child_process` is used for exactly two things: **explicit user-initiated `rk daemon` actions** (start / stop / restart, reachable only from the welcome card's buttons or the Local Daemon menu items) and **read-only detection** (`rk url`, `rk --version`). Nothing schedules, supervises, or restarts the daemon; the tmux/server layer stays fully independent of any desktop process, which is why stopping the daemon is a low-stakes action (§ Local Daemon Control).
 
@@ -20,65 +22,65 @@ app/desktop/
 ├── electron-builder.yml
 ├── build/icon.png          # committed 1024px raster (see § Packaging)
 └── src/
-    ├── main.ts             # lifecycle, BrowserWindow, security wiring, IPC, welcome ↔ server routing, last-path capture, local-daemon control
-    ├── servers.ts          # servers.json store (electron-free, directory-parameterized)
-    ├── servers.test.ts     # node:test suite over the compiled store
+    ├── main.ts             # lifecycle, BrowserWindow, security wiring, IPC, welcome ↔ host routing, last-path capture, local-daemon control
+    ├── hosts.ts            # hosts.json store (electron-free, directory-parameterized)
+    ├── hosts.test.ts       # node:test suite over the compiled store
     ├── window-open.ts      # new-window policy (electron-free): isHttpUrl + windowOpenAction
     ├── window-open.test.ts # node:test suite over the compiled policy
-    ├── local-daemon.ts     # local-daemon pure logic (electron-free): rk binary candidates, version/session parsing, already-running classification, DaemonStatus
+    ├── local-daemon.ts     # local-daemon pure logic (electron-free): brew bin dirs → rk binary candidates + augmentPath, version/session parsing, already-running classification, DaemonStatus
     ├── local-daemon.test.ts# node:test suite over the compiled pure logic
-    ├── menu.ts             # buildMenu(servers, activeId, callbacks, daemon) — the per-platform keyboard-tier seam + Local Daemon submenu
+    ├── menu.ts             # buildMenu(hosts, activeId, callbacks, daemon) — the per-platform keyboard-tier seam + Local Daemon submenu
     ├── preload.ts          # contextBridge: window.runkitShell
     └── welcome/
-        ├── welcome.html    # static first-run / add-server / rename page (CSP: default-src 'none')
+        ├── welcome.html    # static first-run / add-host page (CSP: default-src 'none')
         └── welcome.ts      # renderer script — structural bridge narrowing, no imports
 ```
 
 Package tests run via `node --test "dist/**/*.test.js"` after compile — the store, window-open-policy, and local-daemon modules are electron-free precisely so Node's built-in runner covers them without adding a test dependency. Compiled test files are excluded from packaging (`files: ["dist/**", "!dist/**/*.test.js"]`).
 
-## Server-List Store (`src/servers.ts`)
+## Host-List Store (`src/hosts.ts`)
 
-`<userData>/servers.json`, schema version 1:
+`<userData>/hosts.json`, schema version 1:
 
 ```json
 {
   "version": 1,
   "activeId": "b3f1…",
-  "servers": [
+  "hosts": [
     { "id": "<randomUUID>", "name": "studio-mac", "url": "http://100.101.2.3:3000", "lastPath": "/utils2/rk-dev?x=1" }
   ]
 }
 ```
 
+- **`hosts.json` is the only file the store reads.** There is no migration shim and no fallback read of any other filename — a user data dir carrying only a `servers.json` loads as an empty list and routes to welcome; that file is never read, modified, or deleted (a `hosts.test.ts` case asserts it byte-for-byte untouched after a load). Registrations are cheap to recreate — an origin plus a name the app derives itself — which is what makes reading one filename the right trade against carrying migration machinery in a three-dep package (§ Design Decisions → No store migration).
 - **Origin normalization**: `url` is stored as `new URL(input).origin` — only `http:`/`https:` accepted; anything else (ftp:, file:, garbage) is a validation error and is never persisted. Path/query/case in the input are dropped by the origin reduction.
-- **`lastPath` is optional and additive**: the SPA-route remainder (`pathname + search`) last seen for that server, at schema **version 1** — the field carries no version bump because absence is a valid state.
-- **Atomic write**: tmp-file-then-rename in the same directory (`servers.json.tmp-<pid>` → `servers.json`).
-- **Corrupt → empty, with per-field tolerance on the optional field**: a missing, unreadable, corrupt, or wrong-shape file loads as an empty list without throwing — the required shape is structurally validated (`version === 1`, `activeId` string-or-null, `servers` an array, and `id`/`name`/`url` strings on every entry), and any violation there rejects the whole file. The optional `lastPath` is the one tolerant field: absent → the entry loads unchanged, a string → kept, any other type → the field is dropped and the entry (and file) still loads. Startup routes to welcome only on the empty-list outcome.
-- **Active resolution**: `resolveActiveServer` returns the `activeId` entry, falls back to the **first** server when `activeId` dangles, `null` when the list is empty. `addServer` sets the new entry active (empty display name defaults to the origin); removing the active server promotes the first remaining entry.
-- **Origin ownership**: `findServerByOrigin(list, origin)` answers "which entry owns this displayed origin" — `addServer` never dedupes, so several entries can share one origin; the **active** entry wins among the matches, else the first match, else `null`. This is the pure targeting rule behind last-path capture (§ Last-Path Capture & Restore).
-- **Per-server mutators, all `id`-keyed**: `setActiveServer`, `setServerLastPath(dir, id, lastPath)`, and `renameServer(dir, id, name)` share one shape — load → membership guard (unknown `id` is a no-op that writes nothing) → `map` patch → atomic `saveServers`. `renameServer` trims the new name and falls back to the entry's origin when it is blank (mirroring `addServer`), and touches **only** `name`: `id`, `url`, `lastPath`, and the `activeId` linkage survive a rename. Per-server state keys on `id` and never on the name, which is what makes renaming lossless (`addServer` mints a fresh `randomUUID`, so anything id-keyed is scoped to one registration).
+- **`lastPath` is optional and additive**: the SPA-route remainder (`pathname + search`) last seen for that host, at schema **version 1** — the field carries no version bump because absence is a valid state.
+- **Atomic write**: tmp-file-then-rename in the same directory (`hosts.json.tmp-<pid>` → `hosts.json`).
+- **Corrupt → empty, with per-field tolerance on the optional field**: a missing, unreadable, corrupt, or wrong-shape file loads as an empty list without throwing — the required shape is structurally validated (`version === 1`, `activeId` string-or-null, `hosts` an array, and `id`/`name`/`url` strings on every entry), and any violation there rejects the whole file. The optional `lastPath` is the one tolerant field: absent → the entry loads unchanged, a string → kept, any other type → the field is dropped and the entry (and file) still loads. Startup routes to welcome only on the empty-list outcome.
+- **Active resolution**: `resolveActiveHost` returns the `activeId` entry, falls back to the **first** host when `activeId` dangles, `null` when the list is empty. `addHost` sets the new entry active (empty display name defaults to the origin); removing the active host promotes the first remaining entry.
+- **Origin ownership**: `findHostByOrigin(list, origin)` answers "which entry owns this displayed origin" — `addHost` never dedupes, so several entries can share one origin; the **active** entry wins among the matches, else the first match, else `null`. This is the pure targeting rule behind last-path capture (§ Last-Path Capture & Restore).
+- **Per-host mutators, all `id`-keyed**: `setActiveHost(dir, id)` and `setHostLastPath(dir, id, lastPath)` share one shape — load → membership guard (unknown `id` is a no-op that writes nothing) → patch → atomic `saveHosts`. `setHostLastPath` additionally short-circuits an *unchanged* value, because capture runs on every switch/add/close and the fast path should not rewrite an identical file. Per-host state (`lastPath`, the `activeId` linkage) keys on the immutable `id` and never on the display name — names are not unique, and `addHost` mints a fresh `randomUUID`, so anything id-keyed is scoped to exactly one registration.
+- **Display names are set once, at add-time**: the persisted `name` is whatever the caller passes (the health ping's `hostname`, in every real flow), with the origin as the blank-input fallback. The store exposes no name mutator — changing a display name means removing the entry and re-adding it (§ Design Decisions → Names auto-derive at add-time; there is no rename affordance).
 - **Electron-free**: the data directory is a parameter (`main.ts` passes `app.getPath('userData')`), keeping the module unit-testable under plain `node --test`.
-- **IPC projection**: `serverInfos(list)` is the read-only projection to the `{ id, name, url, active }[]` shape the `servers:list` channel returns (§ Bridge). `active` is derived via `resolveActiveServer`, so a dangling `activeId` flags the **first** server — the same fallback startup would load — and an empty list projects to `[]`.
+- **IPC projection**: `hostInfos(list)` is the read-only projection to the `{ id, name, url, active }[]` shape the `servers:list` channel returns (§ Bridge — that channel keeps its server naming as the frozen SPA contract). `active` is derived via `resolveActiveHost`, so a dangling `activeId` flags the **first** host — the same fallback startup would load — and an empty list projects to `[]`.
 
 ## Startup Routing & Welcome Flow
 
-On `app.whenReady()`: empty list → `loadFile(welcome.html)`; else `showActive` loads `resolveActiveServer(...).url + (lastPath ?? "")` — cold-start reopens the route the user left, and an entry with no `lastPath` loads the bare origin. The dev override `RK_DESKTOP_URL` (see § Dev & Build Entrypoints) short-circuits routing entirely and is never persisted; its normalized origin also joins the allowed-navigation set. `window-all-closed` quits except on macOS; `activate` reopens the window.
+On `app.whenReady()`: empty list → `loadFile(welcome.html)`; else `showActive` loads `resolveActiveHost(...).url + (lastPath ?? "")` — cold-start reopens the route the user left, and an entry with no `lastPath` loads the bare origin. The dev override `RK_DESKTOP_URL` (see § Dev & Build Entrypoints) short-circuits routing entirely and is never persisted; its normalized origin also joins the allowed-navigation set. `window-all-closed` quits except on macOS; `activate` reopens the window.
 
-The welcome page (static HTML + compiled script, CSP `default-src 'none'; script-src 'self'; style-src 'unsafe-inline'`) carries two connect paths — the local "This Mac" section (§ Welcome "This Mac" Local Section) above an "or a remote server" divider, then the remote form, which implements **validate → test ping → add+switch**:
+The welcome page (static HTML + compiled script, CSP `default-src 'none'; script-src 'self'; style-src 'unsafe-inline'`) carries two connect paths — the local "This Mac" section (§ Welcome "This Mac" Local Section) above an "or a remote host" divider, then the remote form, which implements **validate → test ping → add+switch**:
 
-1. Connect submits the URL to IPC `welcome:test-server`; the **main process** pings `net.fetch(origin + "/api/health", { signal: AbortSignal.timeout(5000) })` — the renderer stays sandboxed and does no cross-origin fetch. Success requires HTTP 200 with body `status === "ok"` (`app/backend/api/health.go`). Failures (timeout, network error, non-200, non-JSON, wrong body) return a structured `{ ok: false, error }` rendered inline; nothing is persisted on failure.
-2. `welcome:add-server {name, url}` persists, sets active, rebuilds the menu, and `loadURL`s the new server. The connect form carries **no Display-name input**: the name is the ping's returned `hostname`, passed straight through (`addServer`'s existing empty-name rule falls back to the origin). The `#name` label + input stay in the markup `hidden` by default — rename mode reuses those same elements, so the `hidden` default is not dead markup.
-3. `?mode=add` (menu `Servers → Add Server…`) shows a cancel link → `welcome:cancel` returns to the active server.
+1. Connect submits the URL to IPC `welcome:test-host`; the **main process** pings `net.fetch(origin + "/api/health", { signal: AbortSignal.timeout(5000) })` — the renderer stays sandboxed and does no cross-origin fetch. Success requires HTTP 200 with body `status === "ok"` (`app/backend/api/health.go`). Failures (timeout, network error, non-200, non-JSON, wrong body) return a structured `{ ok: false, error }` rendered inline; nothing is persisted on failure.
+2. `welcome:add-host {name, url}` persists, sets active, rebuilds the menu, and `loadURL`s the new host. The form carries **one input** — the `Host URL` field — and no Display-name input anywhere in the markup: the name is the ping's returned `hostname`, passed straight through (`addHost`'s empty-name rule falls back to the origin).
+3. `?mode=add` (menu `Hosts → Add Host…`) shows a cancel link → `welcome:cancel` returns to the active host. It is the page's only mode; any other query string renders the plain first-run card.
 
-The page doubles as the **rename affordance** under `?mode=rename&id=<id>&name=<current>&url=<origin>` — Electron has no native text-input dialog, so the rename form reuses this card rather than adding a dialog window. Main supplies the prefill context on the `loadFile` query string (store-derived, `URLSearchParams`-encoded; both page sinks are `textContent`/`input.value`), so no read IPC exists. In rename mode the page hides the Server URL label + input, shows the origin in the tagline, **reveals** the name label + input, pre-fills and focuses it, labels the submit button `Rename`, and shows the same cancel link as `?mode=add`. Rename mode also suppresses the local section and its polling entirely. Submit invokes `welcome:rename-server {id, name}` with **no health ping** (the origin is unchanged); on success main persists via `renameServer`, rebuilds the menu, and returns the window to the active server through `showActive` (restoring its `lastPath`).
+Post-first-run management lives in the menu: `Hosts → Add Host…` reloads welcome with `?mode=add`; `Hosts → Remove "<name>"…` (one accelerator-less item per host) opens a native confirm dialog (Cancel is the default), and removing the active host switches to the first remaining host or welcome. Opened outside the shell, the welcome page degrades to an inline "bridge unavailable" error with the Connect button disabled.
 
-Post-first-run management lives in the menu: `Servers → Add Server…` reloads welcome with `?mode=add`; `Servers → Rename "<name>"…` (one accelerator-less item per server, between Add and the Remove items) reloads welcome with `?mode=rename`; `Servers → Remove "<name>"…` opens a native confirm dialog (Cancel is the default), and removing the active server switches to the first remaining server or welcome. Opened outside the shell, the welcome page degrades to an inline "bridge unavailable" error with the Connect button disabled.
-
-**The `hidden` attribute is authoritative on this page**: the style block carries `[hidden] { display: none !important; }`, because the author rules `label { display: block }` and `a#cancel { display: block }` are more specific than the UA sheet's `[hidden] { display: none }` and would otherwise keep a `hidden` element painted. JS-driven visibility is unaffected — clearing `hidden` removes the attribute, so the author `display` re-applies.
+**The `hidden` attribute is authoritative on this page**: the style block carries `[hidden] { display: none !important; }`, because the author rules `label { display: block }` and `a#cancel { display: block }` are more specific than the UA sheet's `[hidden] { display: none }` and would otherwise keep a `hidden` element painted. Everything the page toggles — the cancel link, the inline error, and the whole "This Mac" section with its status/detail/button rows — ships `hidden` in the markup and is revealed by JS; clearing `hidden` removes the attribute, so the author `display` re-applies.
 
 ## Welcome "This Mac" Local Section (`src/welcome/welcome.*`)
 
-The fastest first-run path on the machine that actually runs run-kit: a detection-driven local-server section **above** the remote form, separated by an "or a remote server" divider. The page shape is stable across all states, and the visual language matches the card (dark, monospace, `#34d399` accent, ghost secondary button).
+The fastest first-run path on the machine that actually runs run-kit: a detection-driven local-daemon section **above** the remote form, separated by an "or a remote host" divider. The page shape is stable across all states, and the visual language matches the card (dark, monospace, `#34d399` accent, ghost secondary button).
 
 Four normative states, driven entirely by `daemon:status` (§ Local Daemon Control):
 
@@ -93,7 +95,7 @@ Four normative states, driven entirely by `daemon:status` (§ Local Daemon Contr
 
 **Polling** is 3s (`LOCAL_STATUS_POLL_MS`) via `window.setInterval`, so the interval dies with the page — no SSE exists for a server that may be down, so there is nothing to subscribe to. Two flags keep it honest: an `inFlight` guard prevents request pileup, and a `busy` flag held across a start/stop flow **suspends repainting** so a poll landing mid-start cannot clobber the transient starting… render. A failed or malformed probe keeps the previous rendering rather than flashing an error state.
 
-**Platform conditioning** is a render-time decision in `welcome.ts`, read from the bridge's `platform`: `darwin` → heading "This Mac", `linux` → "This Machine", anything else (`win32`) → the section, its divider, and its polling are absent entirely — `rk daemon`/tmux is not a Windows concept, so a brew hint there would mislead. The heading mapping lives inline in `welcome.ts` (which is deliberately import-free), not in `local-daemon.ts`.
+**Platform conditioning** is a render-time decision in `welcome.ts`, read from the bridge's `platform`: `darwin` → heading "This Mac", `linux` → "This Machine", anything else (`win32`) → the section, its divider, and its polling are absent entirely — `rk daemon`/tmux is not a Windows concept, so a brew hint there would mislead. The heading mapping lives inline in `welcome.ts` (which is deliberately import-free), not in `local-daemon.ts`. The wiring gate is exactly those two facts — a non-null heading AND a present `__daemon` bridge group; it reads no query parameter, so the section renders identically on the plain first-run card and under `?mode=add`.
 
 The script stays a vanilla-TS no-import/export browser script under the existing CSP, and the `__daemon` bridge is read by the same structural-narrowing pattern as `__welcome` (`Reflect.get(window, "runkitShell")`, no `as` casts) — an absent group simply leaves the section unwired.
 
@@ -101,32 +103,37 @@ The script stays a vanilla-TS no-import/export browser script under the existing
 
 Two consumers — the welcome card and the Local Daemon submenu — over **one** main-side surface. The renderer only renders; every decision, subprocess call, and store mutation happens in main.
 
-**Detection derives, never assumes.** `probeDaemonStatus()` chains: `rk --version` (existence + version) → `rk url` (the config-derived origin; the URL is **never hardcoded**) → the shared `pingServer` probe (the same `/api/health` fetch the remote form uses) → `GET {origin}/api/sessions` for the count. An `ENOENT` on the binary is the not-installed state; `win32` short-circuits to not-installed without invoking anything. `rk url` output is validated through the shared `normalizeOrigin`.
+**Detection derives, never assumes.** `probeDaemonStatus()` chains: `rk --version` (existence + version) → `rk url` (the config-derived origin; the URL is **never hardcoded**) → the shared `pingServer` probe (the same `/api/health` fetch the remote form uses — it keeps its neutral name because it pings any rk server URL, local or remote, and is not a host-list identifier) → `GET {origin}/api/sessions` for the count. An `ENOENT` on the binary is the not-installed state; `win32` short-circuits to not-installed without invoking anything. `rk url` output is validated through the shared `normalizeOrigin`.
 
-**The rk binary is resolved candidates-first, PATH second.** GUI-launched Electron does not inherit the login-shell PATH (it gets `/usr/bin:/bin:…`), so a Homebrew-installed `rk` never resolves via PATH on macOS. `rkCandidatePaths(platform)` returns `/opt/homebrew/bin/rk`, `/usr/local/bin/rk` on darwin and `/home/linuxbrew/.linuxbrew/bin/rk`, `/usr/local/bin/rk` on linux (empty on win32); `resolveRkBinary(candidates, exists)` takes the first existing one, else the bare `"rk"` PATH lookup whose absence surfaces as the ENOENT not-installed signal.
+**The GUI PATH trap has two halves, and both are fixed in this module.** GUI-launched Electron does not inherit the login-shell PATH — it gets `/usr/bin:/bin:/usr/sbin:/sbin` on macOS, with no `/opt/homebrew/bin` — which breaks *finding* rk and, separately, everything rk itself needs to find. `brewBinDirs(platform)` is the single source of the per-platform prefixes (`/opt/homebrew/bin`, `/usr/local/bin` on darwin; `/home/linuxbrew/.linuxbrew/bin`, `/usr/local/bin` on linux; empty on win32 and unknown platforms), and both halves derive from it:
 
-**Every subprocess call is `execFile` with an argument slice and an explicit timeout** — never a shell string (Constitution I applies to the Node side too). Two named tiers: `RK_QUERY_TIMEOUT_MS` (5s) for the read-only queries, `RK_DAEMON_TIMEOUT_MS` (30s) for `rk daemon start/stop/restart`. `runRk()` is the single wrapper; it reports `notInstalled` from the ENOENT code and prefers `stderr` for the surfaced message.
+- **Binary resolution — candidates first, PATH second.** `rkCandidatePaths(platform)` maps the brew dirs to `<dir>/rk`; `resolveRkBinary(candidates, exists)` takes the first existing one, else the bare `"rk"` PATH lookup whose absence surfaces as the ENOENT not-installed signal.
+- **Spawn env — `augmentPath(platform, currentPath)`.** Resolving the binary is not enough: the spawned rk inherits Electron's GUI PATH, so rk's own `exec.LookPath("tmux")` fails and a "Start & connect" surfaces `exec: "tmux": executable file not found in $PATH`. `augmentPath` **appends** the brew dirs that the PATH does not already carry (`:`-joined, no duplicates; an undefined or empty PATH yields just the dirs; win32/unknown and an already-complete PATH pass through unchanged), and `runRk` passes the result as `env: { ...process.env, PATH: … }`. Appending rather than prepending preserves system-binary precedence.
 
-**One get-in flow.** `startAndConnectLocal()` backs both the `daemon:start` channel and the menu's Connect item: probe → if stopped, `rk daemon start` (a `daemon already running` failure is classified **already-started success** by `isDaemonAlreadyRunning`, because the user's intent is satisfied) → `waitForHealth` polls `/api/health` at 1s cadence with a 30s cap → connect. The connect tail (`connectLocalServer`) activates an existing same-origin entry through `switchToServer` when `findServerByOrigin` finds one and otherwise walks the existing `addServer` path with the ping hostname as the name — `addServer` never dedupes, so checking first is what makes a duplicate local entry impossible. A health-poll timeout returns an inline error rather than hanging.
+Fixing this at the **spawn site** rather than inside rk is what makes it cover more than the one failing call: the tmux server tree that `rk daemon start` creates inherits the spawning process's environment wholesale, so every future session and pane in that server sees the sane PATH (§ Design Decisions → The GUI PATH trap is fixed at the spawn site). Both halves are pure and injected, so `local-daemon.test.ts` covers the darwin GUI-PATH append, the no-duplication case, the undefined-PATH case, the linux prefixes, and win32 pass-through.
 
-**Stop is one confirm-then-stop path** (`confirmAndStopDaemon()`) shared by the card button and the menu item: a native `dialog.showMessageBox` with **Cancel as the default** (the Remove-server precedent) whose detail copy states that tmux sessions and running agents survive and reattach — true by Constitution VI, which is what makes stop low-stakes. Only explicit confirmation runs `rk daemon stop`. Menu Restart maps to `rk daemon restart` directly rather than composing stop+start in the shell.
+**Every subprocess call is `execFile` with an argument slice and an explicit timeout** — never a shell string (Constitution I applies to the Node side too). Two named tiers: `RK_QUERY_TIMEOUT_MS` (5s) for the read-only queries, `RK_DAEMON_TIMEOUT_MS` (30s) for `rk daemon start/stop/restart`. `runRk()` is the single wrapper — every `rk --version` / `rk url` / `rk daemon start|stop|restart` invocation flows through it, which is why the PATH override lands there once and covers them all; it reports `notInstalled` from the ENOENT code and prefers `stderr` for the surfaced message.
+
+**One get-in flow.** `startAndConnectLocal()` backs both the `daemon:start` channel and the menu's Connect item: probe → if stopped, `rk daemon start` (a `daemon already running` failure is classified **already-started success** by `isDaemonAlreadyRunning`, because the user's intent is satisfied) → `waitForHealth` polls `/api/health` at 1s cadence with a 30s cap → connect. The connect tail (`connectLocalHost`) activates an existing same-origin entry through `switchToHost` when `findHostByOrigin` finds one and otherwise walks the existing `addHost` path with the ping hostname as the name — `addHost` never dedupes, so checking first is what makes a duplicate local entry impossible. A health-poll timeout returns an inline error rather than hanging.
+
+**Stop is one confirm-then-stop path** (`confirmAndStopDaemon()`) shared by the card button and the menu item: a native `dialog.showMessageBox` with **Cancel as the default** (the Remove-host precedent) whose detail copy states that tmux sessions and running agents survive and reattach — true by Constitution VI, which is what makes stop low-stakes. Only explicit confirmation runs `rk daemon stop`. Menu Restart maps to `rk daemon restart` directly rather than composing stop+start in the shell.
 
 **Menu status is a main-side cache, not a timer.** `daemonMenuInfo` (`{ running, version }`, or `null` for not-installed/win32/not-yet-probed) is refreshed on startup, on `browser-window-focus`, after every daemon action, and by the welcome page's polls — application menus have no reliable about-to-open event, and a perpetual main-side timer would poll forever for a rarely-opened menu. The menu is rebuilt **only when the cached info actually changes**.
 
 ## Last-Path Capture & Restore (`src/main.ts`)
 
-The shell remembers where each server was left, so ⌃1–⌃9 switching and cold start land on the route the user was working in rather than the SPA root.
+The shell remembers where each host was left, so ⇧⌘1–9 switching and cold start land on the route the user was working in rather than the SPA root.
 
-**Capture** is one helper, `captureLastPath()`: read `mainWindow.webContents.getURL()`, then persist `pathname + search` via `setServerLastPath` for the entry `findServerByOrigin` resolves from the URL's origin. Two guards make it safe:
+**Capture** is one helper, `captureLastPath()`: read `mainWindow.webContents.getURL()`, then persist `pathname + search` via `setHostLastPath` for the entry `findHostByOrigin` resolves from the URL's origin. Two guards make it safe:
 
-- **Welcome guard** — a URL starting with the welcome `file://` URL is never captured (the welcome page is not a server route).
-- **Origin-match guard** — an unparseable URL, or one whose origin matches no registered server (mid-navigation, a foreign origin), persists nothing. One server's route therefore cannot pollinate another server's entry.
+- **Welcome guard** — a URL starting with the welcome `file://` URL is never captured (the welcome page is not a host route).
+- **Origin-match guard** — an unparseable URL, or one whose origin matches no registered host (mid-navigation, a foreign origin), persists nothing. One host's route therefore cannot pollinate another host's entry.
 
-Call sites are every shell-initiated navigation away from a server page plus window teardown: `onSwitchServer` (before loading the incoming server), `onAddServer` and `onRenameServer` (before navigating to welcome), and the main window's `close` event — capture-on-quit, so cold-start restore reflects the route at quit rather than only the last switch-away (`webContents` is still readable during `close`). No navigation-event tracking (`did-navigate-in-page` and friends) exists: the SPA is a history-API router, so `getURL()` is already current at capture time.
+Call sites are every shell-initiated navigation away from a host page plus window teardown: `switchToHost` (before loading the incoming host), the `onAddHost` callback (before navigating to welcome), the local-connect tail's add path, and the main window's `close` event — capture-on-quit, so cold-start restore reflects the route at quit rather than only the last switch-away (`webContents` is still readable during `close`). No navigation-event tracking (`did-navigate-in-page` and friends) exists: the SPA is a history-API router, so `getURL()` is already current at capture time.
 
-**Restore** is the mirror: `onSwitchServer` loads `entry.url + (entry.lastPath ?? "")` and `showActive` loads `active.url + (active.lastPath ?? "")`. A restored deep route needs no security change — `isAllowedNavigation` is origin-membership only and already permits any path on a registered origin.
+**Restore** is the mirror: `switchToHost` loads `entry.url + (entry.lastPath ?? "")` and `showActive` loads `active.url + (active.lastPath ?? "")`. A restored deep route needs no security change — `isAllowedNavigation` is origin-membership only and already permits any path on a registered origin.
 
-**Staleness is the SPA's problem.** A remembered route pointing at a since-removed window or board, or at a dead server, is loaded as-is; the SPA's Not Found fallback and dead-server handling are the failure mode. The shell performs no validation, no health ping of the path, and no fallback-to-origin.
+**Staleness is the SPA's problem.** A remembered route pointing at a since-removed window or board, or at a dead host, is loaded as-is; the SPA's Not Found fallback and dead-server handling are the failure mode. The shell performs no validation, no health ping of the path, and no fallback-to-origin.
 
 ## Keyboard-Tier Menu Seam (`src/menu.ts`)
 
@@ -135,11 +142,11 @@ The point of the shell. Electron steals a key from the page only via menu accele
 The contract is a platform-neutral **two-tier rule**:
 
 - **Page tier — unshifted `CmdOrCtrl+<any>`**: the shell NEVER binds it, on any platform. This is the shell's premise — the tier a browser reserves (macOS ⌘, Windows/Linux Ctrl) belongs to the SPA.
-- **Shell tier — `Shift+CmdOrCtrl+<any>`**: shell chrome MAY claim keys here, sparingly. Today's only claim is the Servers switcher (1–9).
+- **Shell tier — `Shift+CmdOrCtrl+<any>`**: shell chrome MAY claim keys here, sparingly. Today's only claim is the Hosts switcher (1–9).
 
 Guaranteed fall-through therefore reads: **the unshifted Cmd/Ctrl tier is inviolable** (⌘T ⌘W ⌘N ⌘L ⌘K ⌘F ⌘P ⌘1–9 ⌘[ ⌘] …); the shifted tier is shell-claimable.
 
-**The shifted tier is split by key class, and the SPA owns half of it.** The SPA claims `Shift+CmdOrCtrl+<letter>` and `+<punctuation>` for its own action tier — a declarative keybinding registry in the renderer, not menu accelerators (see [ui-patterns](/run-kit/ui-patterns.md) § Keyboard Shortcuts). The shell's claims are the **shifted digits 1–9** (Servers switcher), **⇧CmdOrCtrl+R** (force reload), and **⇧Ctrl+I** (DevTools, win/linux). The two halves are disjoint.
+**The shifted tier is split by key class, and the SPA owns half of it.** The SPA claims `Shift+CmdOrCtrl+<letter>` and `+<punctuation>` for its own action tier — a declarative keybinding registry in the renderer, not menu accelerators (see [ui-patterns](/run-kit/ui-patterns.md) § Keyboard Shortcuts). The shell's claims are the **shifted digits 1–9** (Hosts switcher), **⇧CmdOrCtrl+R** (force reload), and **⇧Ctrl+I** (DevTools, win/linux). The two halves are disjoint.
 
 **On macOS the SPA also spends part of the page tier.** Its registry binds specific unshifted **⌘** keys inside the mac shell — ⌘N/⌘T/⌘W (new session / new window / close window) and ⌘[/⌘]/⌘/ (back / forward / shortcuts overlay); the [/]// three are bound on mac browsers too, while N/T/W are shell-only because a browser reserves them either way. This is the keyboard-ceiling premise paying off: the shell frees the tier and the SPA is a consumer of it, which is what makes ⌘W's unbound-by-design status below load-bearing rather than merely reserved. The shell's own accelerator table is untouched by this — the seam is still accelerator avoidance, and no shell code gates on it.
 
@@ -150,15 +157,15 @@ The split is a standing constraint on both sides, across **both** tiers:
 
 The SPA's binding surface is otherwise host-independent by construction — renderer keydown listeners work identically in the shell and in a plain browser — with the host-conditional carve-outs concentrated in one resolver seam (`defaultComboFor`, gated on `isShell()`): outside the shell ⇧Cmd/Ctrl+N/T/W are browser-reserved (incognito / reopen-tab / close-window), so those three defaults resolve disabled there and their actions stay palette-reachable, and on a mac browser the unshifted ⌘N/T/W are reserved too, which is why they demote only inside the shell.
 
-The menu is applied **per platform** — symmetry of *rule*, not symmetry of accelerator table: `buildMenu` composes its template from per-menu builders (`macAppMenu` / `fileMenu`, `macEditMenu`, `viewMenu`, `serversMenu`, `macWindowMenu`) that branch on a module-level `isMac = process.platform === "darwin"`, because Chromium's native handling and role defaults differ per platform (the carve-outs below). The switcher accelerator itself is one `CmdOrCtrl` expression, identical everywhere.
+The menu is applied **per platform** — symmetry of *rule*, not symmetry of accelerator table: `buildMenu` composes its template from per-menu builders (`macAppMenu` / `fileMenu`, `macEditMenu`, `viewMenu`, `hostsMenu`, `macWindowMenu`) that branch on a module-level `isMac = process.platform === "darwin"`, because Chromium's native handling and role defaults differ per platform (the carve-outs below). The switcher accelerator itself is one `CmdOrCtrl` expression, identical everywhere.
 
-The exported signature is `buildMenu(servers, activeId, callbacks, daemon)`, where `daemon: DaemonMenuInfo | null` carries the cached local-daemon state (`null` hides the Local Daemon submenu — rk not installed, win32, or not yet probed). The menu is rebuilt (and re-set via `Menu.setApplicationMenu`) on every server-list change **and** whenever that cached daemon state changes.
+The exported signature is `buildMenu(hosts, activeId, callbacks, daemon)`, where `daemon: DaemonMenuInfo | null` carries the cached local-daemon state (`null` hides the Local Daemon submenu — rk not installed, win32, or not yet probed). `MenuCallbacks` carries `onSwitchHost` / `onAddHost` / `onRemoveHost` plus the three `onDaemon*` entries. The menu is rebuilt (and re-set via `Menu.setApplicationMenu`) on every host-list change **and** whenever that cached daemon state changes.
 
 ### Local Daemon Submenu
 
-The Servers menu's last group — separated, below the server-management items — is a **"Local Daemon" submenu**: a disabled status line (`● running · v{X}` / `○ stopped · v{X}`, the version fragment omitted when unparseable) followed by **Connect / Restart / Stop**. It is the persistent post-connect control surface; the welcome card covers only pre-connect and `?mode=add`. Restart and Stop are disabled while the daemon is stopped (restarting a stopped daemon is a no-op with a confusing error), while Connect always starts-if-needed — the same one-intent rule as the card's single button. Callbacks route into the same main-side functions the `daemon:*` handlers call (`startAndConnectLocal`, `restartLocalDaemon`, `confirmAndStopDaemon`), so the menu and card paths cannot diverge.
+The Hosts menu's last group — separated, below the host-management items — is a **"Local Daemon" submenu**: a disabled status line (`● running · v{X}` / `○ stopped · v{X}`, the version fragment omitted when unparseable) followed by **Connect / Restart / Stop**. It is the persistent post-connect control surface; the welcome card covers only pre-connect and `?mode=add`. Restart and Stop are disabled while the daemon is stopped (restarting a stopped daemon is a no-op with a confusing error), while Connect always starts-if-needed — the same one-intent rule as the card's single button. Callbacks route into the same main-side functions the `daemon:*` handlers call (`startAndConnectLocal`, `restartLocalDaemon`, `confirmAndStopDaemon`), so the menu and card paths cannot diverge.
 
-**Every item is accelerator-less by design** (the `Add Server…` / `Rename` / `Remove` precedent), so the whole submenu is added without narrowing the fall-through set or touching the keyboard-tier seam.
+**Every item is accelerator-less by design** (the `Add Host…` / `Remove` precedent), so the whole submenu is added without narrowing the fall-through set or touching the keyboard-tier seam.
 
 ### macOS
 
@@ -167,16 +174,16 @@ The Servers menu's last group — separated, below the server-management items �
 | App | ⌘Q quit, ⌘H hide, ⌥⌘H hide-others |
 | Edit | roles ⌘Z/⇧⌘Z/⌘X/⌘C/⌘V/⌘A — a **macOS carve-out**, outside the cross-platform rule: clipboard in web content is dead on macOS without them, while Windows/Linux Chromium handles it natively (so the equivalents are not to be bound there) |
 | View | ⌘R reload, ⇧⌘R force-reload, ⌥⌘I devtools, ⌘0/⌘+/⌘− zoom roles, ⌃⌘F fullscreen — conventional shell chrome via role defaults, a carve-out that predates the rule |
-| Servers | radio items on `Shift+CmdOrCtrl+1`…`Shift+CmdOrCtrl+9` (⇧⌘1–9 on macOS) — the shell tier, capped at 9 by `MAX_SWITCHER_ACCELERATORS`; active server checked. Everything below them — `Add Server…`, per-server `Rename "<name>"…`, per-server `Remove "<name>"…`, and the `Local Daemon` submenu — is accelerator-less by design, so adding items never narrows the fall-through set |
+| Hosts | radio items on `Shift+CmdOrCtrl+1`…`Shift+CmdOrCtrl+9` (⇧⌘1–9 on macOS) — the shell tier, capped at 9 by `MAX_SWITCHER_ACCELERATORS`; active host checked. Everything below them — `Add Host…`, per-host `Remove "<name>"…`, and the `Local Daemon` submenu — is accelerator-less by design, so adding items never narrows the fall-through set |
 | Window | ⌘M minimize + zoom via a **custom template**, NOT `role: 'windowMenu'` (that role auto-binds ⌘W) |
 
 **⌘W is unbound by design** — it falls through to the page, where the SPA registry binds it to `kill-window` (close the tmux window, the confirm flow) inside the mac shell; mouse users get an accelerator-less "Close Window" item.
 
-Menu radios are the mouse path for the same items the accelerators reach, not alternatives to them; the radio `click` bodies route through the one shared switch seam (§ Security Wiring → `switchToServer`).
+Menu radios are the mouse path for the same items the accelerators reach, not alternatives to them; the radio `click` bodies route through the one shared switch seam (§ Security Wiring → `switchToHost`).
 
 ### Windows / Linux
 
-The unshifted Ctrl tier is **entirely unbound** — the page tier there is completely clean. Top menus are `File | View | Servers`, and the exhaustive bound set is **⇧Ctrl+1–9 Servers switcher, ⇧Ctrl+R force-reload, ⇧Ctrl+I devtools, F11 fullscreen** (shifted-tier and function-key defaults, which the shell may claim).
+The unshifted Ctrl tier is **entirely unbound** — the page tier there is completely clean. Top menus are `File | View | Hosts`, and the exhaustive bound set is **⇧Ctrl+1–9 Hosts switcher, ⇧Ctrl+R force-reload, ⇧Ctrl+I devtools, F11 fullscreen** (shifted-tier and function-key defaults, which the shell may claim).
 
 | Divergence from mac | Why |
 |---------------------|-----|
@@ -185,9 +192,9 @@ The unshifted Ctrl tier is **entirely unbound** — the page tier there is compl
 | **No Window menu** | Native window chrome covers minimize/close, and `role: 'minimize'` default-binds Ctrl+M |
 | **View keeps item parity** but `reload` / `resetZoom` / `zoomIn` / `zoomOut` are rebuilt as plain accelerator-less items over a shared `focusedWebContents()` helper (`zoomBy(±0.5)`, `setZoomLevel(0)` — replicating the Electron role bodies exactly); `forceReload`, `toggleDevTools`, `togglefullscreen` stay roles | A role's default accelerator can be overridden but not removed, and `registerAccelerator: false` still *displays* the dead accelerator |
 
-The Servers switcher does **not** diverge: the radios bind `Shift+CmdOrCtrl+1–9` on every platform (⇧Ctrl+1–9 here) — the shell tier, one un-gated `CmdOrCtrl` expression capped by `MAX_SWITCHER_ACCELERATORS`.
+The Hosts switcher does **not** diverge: the radios bind `Shift+CmdOrCtrl+1–9` on every platform (⇧Ctrl+1–9 here) — the shell tier, one un-gated `CmdOrCtrl` expression capped by `MAX_SWITCHER_ACCELERATORS`.
 
-Accepted gap (recorded nice-to-have): switcher radios check by exact `activeId` match, so in the dangling-`activeId` state startup loads the first server (store fallback) while no radio renders checked until the next list mutation rebuilds the menu.
+Accepted gap (recorded nice-to-have): switcher radios check by exact `activeId` match, so in the dangling-`activeId` state startup loads the first host (store fallback) while no radio renders checked until the next list mutation rebuilds the menu.
 
 ## `window.runkitShell` Bridge (`src/preload.ts` ↔ `app/frontend/src/lib/shell.ts`)
 
@@ -195,19 +202,19 @@ The sandboxed preload exposes exactly one bridge via `contextBridge.exposeInMain
 
 - **`version`** — the shell app version, read from the `--runkit-shell-version=` argv entry (passed via `webPreferences.additionalArguments`, since sandboxed preloads read `process.argv` but cannot call `app.getVersion()`).
 - **`platform`** — `process.platform`.
-- **`servers`** — `{ list(), switch(id) }`, thin invokers for the `servers:list` / `servers:switch` channels; the SPA command palette's server-switch path.
-- **`__welcome`** — `{ testServer(url), addServer(name, url), renameServer(id, name), cancel() }`, thin `ipcRenderer.invoke` wrappers for the `welcome:*` channels.
+- **`servers`** — `{ list(), switch(id) }`, thin invokers for the `servers:list` / `servers:switch` channels; the SPA command palette's switch path. **This group name, its two channel names, and the `servers` key inside the `servers:list` success envelope are a frozen contract** — they keep their server naming even though the entries they carry are hosts (§ Design Decisions → The SPA bridge boundary keeps its server naming).
+- **`__welcome`** — `{ testHost(url), addHost(name, url), cancel() }`, thin `ipcRenderer.invoke` wrappers for the `welcome:*` channels.
 - **`__daemon`** — `{ status(), start(), stop() }`, thin wrappers for the three `daemon:*` channels behind the welcome page's "This Mac" section. All three are argument-less: every parameter the flows need (the origin, the name, the dedupe target) is derived main-side, so the renderer hands over no payload at all.
 
-`version`/`platform` are readable by **every** page, including pages loaded from registered rk servers — this is the SPA's shell-detection seam. The three invoker groups are likewise exposed everywhere but privileged by **main-side sender-frame gating**, each against an allowlist (IPC payloads are structurally validated in main — unknown-typed, narrowed — before use):
+`version`/`platform` are readable by **every** page, including pages loaded from registered hosts — this is the SPA's shell-detection seam. The three invoker groups are likewise exposed everywhere but privileged by **main-side sender-frame gating**, each against an allowlist (IPC payloads are structurally validated in main — unknown-typed, narrowed — before use):
 
 | Channels | Privileged senders | Gate |
 |----------|--------------------|------|
 | `welcome:*` | the welcome page only | `isWelcomeSender` — `event.senderFrame.url` starts with the welcome `file://` URL |
 | `daemon:*` | the welcome page only | `isWelcomeSender` — the same gate as `welcome:*`; the menu reaches the identical functions main-side, never through IPC |
-| `servers:*` | registered server origins (the pages that host the SPA palette) **plus** the welcome page | `isServersSender` — delegates to `isAllowedNavigation`, the same set the navigation guard computes (so it also covers the `RK_DESKTOP_URL` dev origin) |
+| `servers:*` | registered host origins (the pages that serve the SPA palette) **plus** the welcome page | `isHostsSender` — delegates to `isAllowedNavigation`, the same set the navigation guard computes (so it also covers the `RK_DESKTOP_URL` dev origin) |
 
-Any sender outside a channel's allowlist gets `{ ok: false, error: "Not allowed" }` and no state change — so a server-loaded page can read shell metadata and switch servers, but never invoke a `welcome:*` call, and **never reach a `daemon:*` channel** (a subprocess-spawning surface: the gate is what keeps a page loaded from a registered server origin from starting or stopping the daemon). `servers:list` answers the discriminated `{ ok: true, servers: ServerInfo[] } | { ok: false, error }` envelope; `servers:switch` rejects a non-string payload as `"Invalid request"` and an unregistered id as `"Unknown server"` without navigating. `daemon:status` answers `{ ok: true, status: DaemonStatus } | { ok: false, error }`; `daemon:start` / `daemon:stop` answer the same bare `IpcResult` ack shape the `welcome:*` mutators use.
+Any sender outside a channel's allowlist gets `{ ok: false, error: "Not allowed" }` and no state change — so a host-loaded page can read shell metadata and switch hosts, but never invoke a `welcome:*` call, and **never reach a `daemon:*` channel** (a subprocess-spawning surface: the gate is what keeps a page loaded from a registered host origin from starting or stopping the daemon). `servers:list` answers the discriminated `{ ok: true, servers: HostInfo[] } | { ok: false, error }` envelope — the `servers` key is part of the frozen contract, the payload type is host-named; `servers:switch` rejects a non-string payload as `"Invalid request"` and an unregistered id as `"Unknown host"` without navigating (error text is not narrowed by the SPA). `daemon:status` answers `{ ok: true, status: DaemonStatus } | { ok: false, error }`; `daemon:start` / `daemon:stop` answer the same bare `IpcResult` ack shape the `welcome:*` mutators use.
 
 **SPA side** (`app/frontend/src/lib/shell.ts`, the only SPA file the shell touches): `RunkitShell` interface (`{ version, platform }`), a `declare global` Window typing that types `runkitShell` as `unknown` (the bridge is runtime-injected, so it is validated structurally — type-narrowing guards, no `as` casts), `shellInfo()` returning a plain `{ version, platform }` (never leaking `__welcome`) or `null`, `isShell()`, and the `servers`-group wrappers `listShellServers(): Promise<ShellServer[] | null>` / `switchShellServer(id): Promise<boolean>`. Both wrappers **never throw**: a plain browser, an older shell lacking the `servers` group, a malformed entry, an `{ ok: false }` denial, and a rejected invoke all resolve `null`/`false`. Covered by the sibling vitest suite `shell.test.ts` (present / absent / malformed shapes of both surfaces).
 
@@ -216,17 +223,17 @@ The first real SPA consumer of this seam is the palette's shell-gated `Server: S
 ## Security Wiring (`src/main.ts`)
 
 - **Renderer isolation**: `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`, preload path, `additionalArguments` version pass-through.
-- **Window-open**: `setWindowOpenHandler` always returns `{ action: "deny" }`, and the policy is **all-external** — every http(s) URL, registered-server origins included, opens via `shell.openExternal`; everything else (`about:blank`, `file:`, `smb:`, garbage) is dropped. A new-window intent never navigates the shell window. The decision lives in `src/window-open.ts` as the pure electron-free `windowOpenAction(url): "open-external" | "deny"`, covered by the colocated `window-open.test.ts` node:test suite (§ Window-Open Policy Module).
-- **Navigation allowlist**: `will-navigate` and `will-redirect` share one guard allowing only registered server origins (plus the `RK_DESKTOP_URL` origin in dev) and the welcome `file://` URL; blocked http(s) targets are handed to the system browser — a server-issued redirect cannot escape the registered-origin set in-window.
+- **Window-open**: `setWindowOpenHandler` always returns `{ action: "deny" }`, and the policy is **all-external** — every http(s) URL, registered-host origins included, opens via `shell.openExternal`; everything else (`about:blank`, `file:`, `smb:`, garbage) is dropped. A new-window intent never navigates the shell window. The decision lives in `src/window-open.ts` as the pure electron-free `windowOpenAction(url): "open-external" | "deny"`, covered by the colocated `window-open.test.ts` node:test suite (§ Window-Open Policy Module).
+- **Navigation allowlist**: `will-navigate` and `will-redirect` share one guard allowing only registered host origins (plus the `RK_DESKTOP_URL` origin in dev) and the welcome `file://` URL; blocked http(s) targets are handed to the system browser — a host-issued redirect cannot escape the registered-origin set in-window.
 - **Permissions**: `setPermissionRequestHandler` allows exactly `clipboard-read`, `clipboard-sanitized-write`, `notifications`; everything else is denied.
 - **TLS fails closed**: no `certificate-error` bypass handler exists.
 - **IPC hardening**: sender-frame gating on every `welcome:*`, `daemon:*`, and `servers:*` handler, each against its own allowlist (§ Bridge above) — always in main, never in the preload.
 - **Subprocess discipline**: every `rk` invocation is `execFile` with an argument slice and an explicit timeout, never a shell string (Constitution I), and reachable only from an explicit user action (§ Local Daemon Control). No auto-start path exists.
-- **One switch path**: `switchToServer(id)` (set active via the store → `loadURL` → rebuild menu) is the single seam shared by the Servers menu radio callback, the `servers:switch` handler, and the local-connect tail, so the IPC and mouse paths cannot diverge.
+- **One switch path**: `switchToHost(id)` (capture the outgoing route → set active via the store → `loadURL` → rebuild menu) is the single seam shared by the Hosts menu radio callback, the `servers:switch` handler, and the local-connect tail, so the IPC and mouse paths cannot diverge.
 
 ### Window-Open Policy Module (`src/window-open.ts`)
 
-The new-window decision is a pure electron-free module — the second instance of the `servers.ts` pattern — exporting two functions:
+The new-window decision is a pure electron-free module — the second instance of the `hosts.ts` pattern — exporting two functions:
 
 - **`isHttpUrl(url): boolean`** — the http(s) gate, and the **single definition** in the package. `main.ts` imports it and uses it directly in `guardNavigation`; `windowOpenAction` uses it internally. Nothing else may reach `shell.openExternal`: handing arbitrary schemes (`file:`, `smb:`) to `openExternal` is a known injection vector (Constitution I).
 - **`windowOpenAction(url): "open-external" | "deny"`** — `isHttpUrl(url) ? "open-external" : "deny"`. It takes **no origin set at all**, which is the structural statement that registered origins get no special treatment.
@@ -292,18 +299,18 @@ The **primary** install and update path is the CLI: `rk desktop install` / `rk d
 
 Constitution VIII one-liners in the `justfile`, logic in `scripts/`:
 
-- `just dev-desktop` → `scripts/dev-desktop.sh`: `pnpm install` when `node_modules` is missing, compile, `exec pnpm exec electron .`. `RK_DESKTOP_URL=http://localhost:3000 just dev-desktop` (against a running `just dev`) loads that URL directly without touching `servers.json`.
+- `just dev-desktop` → `scripts/dev-desktop.sh`: `pnpm install` when `node_modules` is missing, compile, `exec pnpm exec electron .`. `RK_DESKTOP_URL=http://localhost:3000 just dev-desktop` (against a running `just dev`) loads that URL directly without touching `hosts.json`.
 - `just build-desktop [mac|win|linux]` → `scripts/build-desktop.sh`: takes an **optional explicit target** and otherwise derives it from the host via `uname -s` (`Darwin`→mac, `Linux`→linux, `MINGW*`/`MSYS*`/`CYGWIN*`→win; anything else errors telling the caller to pass a target). The target maps to `--mac`/`--win`/`--linux`; an unknown argument exits non-zero with `usage: build-desktop.sh [mac|win|linux]  (default: host platform)`. The rest is platform-neutral and unchanged: verify `build/icon.png` exists (pointing at `just icons` when missing), `pnpm install --frozen-lockfile`, compile, `electron-builder <flag> --publish never` with the extraMetadata version. Output lands in `app/desktop/release/` (gitignored; the repo's bare `dist` gitignore entry already covers compiled TS output). The justfile recipe stays a one-liner passing args through (`build-desktop *args:`, Constitution VIII).
 
 Verification split: compile, `tsc --noEmit`, node:test (store, window-open policy, local-daemon pure logic), and vitest (`shell.test.ts`) all run on Linux. Playwright does not cover the Electron shell at all, so the pure-module suites plus the compile gates are the automated surface. Hardware-only items, per platform:
 
-- **mac** — the DMG build, Gatekeeper "Open Anyway" walkthrough, xterm ⌘C/⌘V interplay, ⌘-fall-through feel, **⇧⌘1–9 server switching on a non-US layout** — shifted-digit accelerators are the flakiest class (Electron resolves accelerators by character, not scancode, and AZERTY digits already require Shift); no scancode workaround in v1 — and the **GUI-PATH-trap leg of local-daemon detection**, which only manifests in a Finder-launched (not terminal-launched) app.
+- **mac** — the DMG build, Gatekeeper "Open Anyway" walkthrough, xterm ⌘C/⌘V interplay, ⌘-fall-through feel, **⇧⌘1–9 host switching on a non-US layout** — shifted-digit accelerators are the flakiest class (Electron resolves accelerators by character, not scancode, and AZERTY digits already require Shift); no scancode workaround in v1 — and the **end-to-end GUI-PATH-trap leg**, which only manifests in a Finder-launched (not terminal-launched) app: both binary resolution and the spawned rk's own `tmux` lookup. The pure halves (`rkCandidatePaths`, `augmentPath`) are unit-covered; what hardware adds is proof that a Finder-launched "Start & connect" actually reaches a live daemon.
 - **Windows** — the SmartScreen "unrecognized app" first-launch walkthrough of the unsigned NSIS installer, and Ctrl+C/Ctrl+V ↔ xterm.js interplay (load-bearing in a terminal product); the shifted-digit layout caveat applies to ⇧Ctrl+1–9 here too.
 - **Linux** — AppImage and deb launch on a real distro with a desktop session, plus the same Ctrl+C/Ctrl+V ↔ xterm.js interplay and the ⇧Ctrl+1–9 layout caveat.
 
 The win/linux *menu* contract is nonetheless CI-provable without hardware: the compiled `dist/menu.js` can be loaded under a mocked `electron` module with `process.platform` forced, and the built template's accelerators asserted — that is how the "nothing in the unshifted Ctrl tier" invariant was verified.
 
-(The vitest column of the split now also covers `palette-shell.test.ts`, the palette-side suite of the `servers` bridge group.)
+The vitest column of the split also covers `palette-shell.test.ts`, the palette-side suite of the `servers` bridge group.
 
 ## Design Decisions
 
@@ -321,13 +328,13 @@ The win/linux *menu* contract is nonetheless CI-provable without hardware: the c
 
 ### Start-and-connect is one button and one main-side flow
 **Decision**: `daemon:start` performs the entire get-in flow main-side — start when stopped → poll health → dedupe-or-add → navigate — and the running-state Connect button, plus the menu's Connect item, reuse that same function. The renderer only renders progress and errors.
-**Why**: The intent behind starting a daemon is always to get in, so splitting start from connect would charge two clicks for one intention. Keeping the whole flow in main is what makes the card and the menu structurally identical: the dedupe rule (`findServerByOrigin`) and the add-server path already live there, so one seam cannot drift from itself (the `switchToServer` precedent).
-**Rejected**: Separate Start and Connect buttons (two clicks for one intent, and a stopped-daemon Connect button that can only fail); renderer-orchestrated connect over `servers:list` + `welcome:add-server` (duplicates the dedupe rule renderer-side and splits one flow across two privilege gates for no gain).
+**Why**: The intent behind starting a daemon is always to get in, so splitting start from connect would charge two clicks for one intention. Keeping the whole flow in main is what makes the card and the menu structurally identical: the dedupe rule (`findHostByOrigin`) and the add-host path already live there, so one seam cannot drift from itself (the `switchToHost` precedent).
+**Rejected**: Separate Start and Connect buttons (two clicks for one intent, and a stopped-daemon Connect button that can only fail); renderer-orchestrated connect over `servers:list` + `welcome:add-host` (duplicates the dedupe rule renderer-side and splits one flow across two privilege gates for no gain).
 *Introduced by*: 260730-ln1w-welcome-local-daemon-section
 
 ### Detection derives the local origin; nothing is hardcoded
 **Decision**: The local URL comes from `rk url` (config-derived, honoring `RK_HOST`/`RK_PORT`) and is health-checked with the *same* `pingServer` probe the remote form uses; the not-installed state is an ENOENT on the binary, not a guess.
-**Why**: Constitution VII — a hardcoded `127.0.0.1:3000` would silently be the wrong server for anyone who moved the port, and would report "stopped" for a daemon that is running fine. Reusing `pingServer` means "running" means exactly the same thing for a local and a remote server, with one definition of healthy.
+**Why**: Constitution VII — a hardcoded `127.0.0.1:3000` would silently be the wrong origin for anyone who moved the port, and would report "stopped" for a daemon that is running fine. Reusing `pingServer` means "running" means exactly the same thing for a local and a remote host, with one definition of healthy.
 **Rejected**: Hardcoding the default origin with a config override (two sources of truth for one value, and the CLI already prints the answer); a bespoke local liveness check such as a port probe or pidfile read (a second definition of "running", and a listening socket is not a healthy server).
 *Introduced by*: 260730-ln1w-welcome-local-daemon-section
 
@@ -336,6 +343,12 @@ The win/linux *menu* contract is nonetheless CI-provable without hardware: the c
 **Why**: A GUI-launched Electron app does not inherit the login-shell PATH — it gets `/usr/bin:/bin:…` — so the single most common install location for `rk` is invisible to a plain PATH lookup, and the app would report "not installed" on a machine that has it. Fixed candidates are deterministic and add no process spawn.
 **Rejected**: Spawning a login shell (`$SHELL -lic`) to recover the user's PATH — a shell-string invocation of exactly the kind Constitution I forbids, plus per-probe shell-startup cost for coverage the candidate list already provides; PATH-only lookup (the bug this exists to fix).
 *Introduced by*: 260730-ln1w-welcome-local-daemon-section
+
+### The GUI PATH trap is fixed at the spawn site, not inside rk
+**Decision**: `runRk` passes `env: { ...process.env, PATH: augmentPath(process.platform, process.env.PATH) }` to every `execFileAsync` invocation, appending the same `brewBinDirs` prefixes that back `rkCandidatePaths`. rk itself is not changed, and PATH is augmented (append-only, deduped) rather than replaced.
+**Why**: Resolving the rk *binary* by absolute candidate leaves the spawned process with Electron's GUI PATH, so rk's own `exec.LookPath("tmux")` fails and "Start & connect" dies on `exec: "tmux": executable file not found in $PATH` — a broken flagship local-first flow for every Finder-launched install. Fixing it at the spawn site is strictly broader than fixing the one failing call: the tmux server tree `rk daemon start` creates inherits the spawning environment wholesale, so every future session and pane in that server gets a sane PATH too. One env override on the single `runRk` wrapper covers every `rk --version` / `rk url` / `rk daemon *` invocation. Sharing `brewBinDirs` with `rkCandidatePaths` keeps one list of prefixes, and keeping `augmentPath` pure and injected puts the whole matrix (darwin append, dedup, undefined PATH, linux, win32 pass-through) under `node --test`.
+**Rejected**: Teaching rk to self-heal its own PATH (the trap belongs to the GUI launcher, not the CLI — every terminal invocation already works, and rk would carry brew-prefix knowledge for one caller's benefit); prepending the brew dirs (silently shadows system binaries for the whole tmux tree); resolving `tmux` by absolute candidate the way the rk binary is (fixes one lookup while every other binary the tmux tree needs stays invisible); spawning a login shell to recover the real PATH (Constitution I forbids the shell-string invocation, and the candidate list already covers the realistic install locations).
+*Introduced by*: 260731-5blj-desktop-path-fix-hosts-rename
 
 ### A stopped-daemon poll, not a subscription
 **Decision**: The welcome page polls `daemon:status` on a 3s `setInterval` while it is visible, guarded by an in-flight flag and suspended during a start/stop flow; the interval dies with the page.
@@ -361,11 +374,12 @@ The win/linux *menu* contract is nonetheless CI-provable without hardware: the c
 **Rejected**: Stopping with no confirmation (reads as destructive for an action whose safety is non-obvious); a tooltip instead of a confirm (unreachable by keyboard and absent from the menu path); an in-page HTML confirm (the card and the menu would need two implementations of one decision).
 *Introduced by*: 260730-ln1w-welcome-local-daemon-section
 
-### Display name auto-derives from the ping hostname
-**Decision**: The connect form has no Display-name input; the persisted name is the health ping's `hostname` (origin fallback in `addServer`). The `#name` label and input stay in the markup `hidden`, revealed only by `?mode=rename`.
-**Why**: The ping already returns the hostname, so the field only ever asked the user to confirm a value the app had already fetched — dead weight on the first screen of a first run. Keeping the elements for rename mode preserves the page-reuse rename affordance (Electron has no native text-input dialog) without a second card, and renaming stays available as an explicit later action.
-**Rejected**: Removing the elements outright (breaks the rename affordance, which reuses these exact elements); keeping the field as optional (the friction is the field's presence on a first-run screen, not its required-ness).
-*Introduced by*: 260730-ln1w-welcome-local-daemon-section
+### Names auto-derive at add-time; there is no rename affordance
+**Decision**: The welcome form carries one input (the Host URL) and no Display-name field anywhere in the markup; the persisted name is the health ping's `hostname` (origin fallback in `addHost`). The shell exposes no rename path at all — no menu item, no IPC channel, no welcome-page mode, no store mutator. Changing a display name means removing the host and re-adding it.
+**Why**: The ping already returns the hostname, so a name field only ever asked the user to confirm a value the app had already fetched — dead weight on the first screen of a first run. With that field gone, rename lost its only reason to exist as a *feature*: it cost a menu item per host, a privileged IPC channel, a second welcome-page mode with its own field show/hide logic, and a store mutator, all to edit a cosmetic string on a list that is typically one or two entries long. Remove-and-re-add is the honest replacement, and it is cheap precisely because a registration is just an origin plus an auto-derived name. Removing the whole chain rather than only the menu entry point is what keeps five files free of orphaned code.
+**Rejected**: Keeping the rename chain with the menu item hidden (dead code across `menu.ts`/`main.ts`/`preload.ts`/`welcome.*`/the store, plus a privileged channel with no caller); keeping the name field as optional on the connect form (the friction is the field's presence on a first-run screen, not its required-ness); a native rename dialog (Electron has no text-input dialog, which is why the page-reuse variant existed in the first place — the cost being removed).
+**Consequence**: per-host state (`lastPath`, the `activeId` linkage) still keys on the immutable `id`, but a re-add mints a fresh `randomUUID`, so re-adding to change a name does drop that host's remembered route. Accepted: the name is cosmetic and the route re-establishes itself on the next visit.
+*Introduced by*: 260731-5blj-desktop-path-fix-hosts-rename
 
 ### The local section is suppressed on Windows, not degraded
 **Decision**: On `win32` the local section, its divider, its polling, and the Local Daemon submenu are absent entirely; `darwin` and `linux` render it detection-driven with headings "This Mac" / "This Machine".
@@ -374,8 +388,8 @@ The win/linux *menu* contract is nonetheless CI-provable without hardware: the c
 *Introduced by*: 260730-ln1w-welcome-local-daemon-section
 
 ### Local-daemon pure logic is a third electron-free module
-**Decision**: Binary-candidate resolution, `rk --version` parsing, session-count parsing, and already-running classification live in `src/local-daemon.ts` (filesystem access injected as an `exists` predicate) with a sibling `node --test` suite; the execFile/IPC/ping glue stays in `main.ts`.
-**Why**: `main.ts` imports `electron` at module top and cannot be loaded under `node --test`, so the third instance of the `servers.ts` / `window-open.ts` pattern is what makes this logic testable at all — and it keeps the exact three-dep pin (`node:child_process` and `node:fs` are stdlib). The parsers are also where the interesting edge cases are (unparseable version, non-array sessions body, which start errors count as success).
+**Decision**: The brew-prefix list and both things derived from it (binary candidates, `augmentPath`), `rk --version` parsing, session-count parsing, and already-running classification live in `src/local-daemon.ts` — platform and filesystem access injected (a `platform` string, an `exists` predicate) — with a sibling `node --test` suite; the execFile/IPC/ping glue stays in `main.ts`.
+**Why**: `main.ts` imports `electron` at module top and cannot be loaded under `node --test`, so the third instance of the `hosts.ts` / `window-open.ts` pattern is what makes this logic testable at all — and it keeps the exact three-dep pin (`node:child_process` and `node:fs` are stdlib). The parsers are also where the interesting edge cases are (unparseable version, non-array sessions body, which start errors count as success).
 **Rejected**: Testing through a mocked `electron` module against compiled `main.js` (drags the whole lifecycle module in to assert a regex); adding a test framework to reach `main.ts` directly (breaks the dep pin); exporting the platform→heading map from here too (`welcome.ts` is deliberately import-free, so it would be dead code).
 *Introduced by*: 260730-ln1w-welcome-local-daemon-section
 
@@ -386,7 +400,7 @@ The win/linux *menu* contract is nonetheless CI-provable without hardware: the c
 *Introduced by*: 260728-04pg-electron-desktop-shell
 
 ### Two accelerator tiers expressed with `CmdOrCtrl`; portable chords are one expression on every platform
-**Decision**: State the contract as page tier (unshifted `CmdOrCtrl+<any>`, never bound) vs. shell tier (`Shift+CmdOrCtrl+<any>`, sparingly claimable), and express every portable accelerator with `CmdOrCtrl` — the Servers switcher on `Shift+CmdOrCtrl+1–9`, with the literal `Ctrl+1–9` bindings dropped outright rather than kept as an alias.
+**Decision**: State the contract as page tier (unshifted `CmdOrCtrl+<any>`, never bound) vs. shell tier (`Shift+CmdOrCtrl+<any>`, sparingly claimable), and express every portable accelerator with `CmdOrCtrl` — the host switcher on `Shift+CmdOrCtrl+1–9`, with the literal `Ctrl+1–9` bindings dropped outright rather than kept as an alias.
 **Why**: Symmetry is the governing principle — whatever is Cmd+X on macOS is Ctrl+X elsewhere — so the tier a browser reserves is the tier the shell must leave alone on *every* platform. Literal `Ctrl+1–9` was safe only on macOS; on Windows/Linux it would steal exactly the keys the shell exists to hand the SPA. macOS behavior is unchanged by the re-expression alone.
 **Rejected**: Per-platform *switcher* chords (two bindings to keep in sync, and the documented fall-through promise stops being one promise) — distinct from the per-platform carve-out builders the menu legitimately has (see "The menu is symmetric in rule, not in accelerator table" below); keeping `Ctrl+1–9` as a macOS legacy alias (two bindings for one item days after the feature shipped, for no muscle-memory install base); menu-only switching with no chord (fails Constitution V).
 *Introduced by*: 260730-9lez-shell-keyboard-tier-symmetry
@@ -403,32 +417,44 @@ The win/linux *menu* contract is nonetheless CI-provable without hardware: the c
 **Rejected**: Relying on the page-tier rule alone to keep the ⌘ tier collision-free (the rule already has documented carve-outs — the mac Edit/View/App/Window roles — and those are exactly the keys the mirror enumerates); having the shell read the registry at runtime (a build-time dependency from shell to frontend for a hand-maintainable list of a dozen keys).
 *Introduced by*: 260730-n789-macos-cmd-tier-shortcuts
 
+### The SPA bridge boundary keeps its server naming
+**Decision**: While every other rk-instance identifier in the package says *host*, the `servers:list` / `servers:switch` channel names, the preload bridge's `servers` group, and the `servers` key inside the `servers:list` success envelope are frozen with their original names. Their payload *types* are host-named (`HostInfo[]`), and `isHostsSender` gates them.
+**Why**: These three names are not shell-internal — they are the contract `app/frontend/src/lib/shell.ts` structurally narrows (`isServersBridge`, `isServersListOk`), and the SPA is explicitly out of scope. The failure mode of renaming them is the worst kind: `shell.ts`'s wrappers resolve `null` for a missing group by design, so the palette's switch block would silently disable itself inside the shell with no error anywhere — found by a user, not a test. A terminology cleanup is not worth a silent feature loss, and the boundary is legible precisely because it is narrow and documented: three names, all on the one seam the SPA reads.
+**Rejected**: Renaming the group and channels together with the frontend (drags the out-of-scope SPA into the change, and every published shell version would need a matching frontend); renaming the channels but keeping the group (the group is what `shell.ts` narrows first — same silent break); dual-registering `hosts:*` aliases alongside `servers:*` (two names for one channel, doubling the privileged surface to gate and keeping both forever).
+*Introduced by*: 260731-5blj-desktop-path-fix-hosts-rename
+
 ### `servers:*` privilege gate reuses the navigation allowlist
-**Decision**: `isServersSender` delegates to the existing `isAllowedNavigation` (welcome `file://` URL + registered server origins + dev-override origin) rather than computing its own set.
-**Why**: The intended allowlist — registered server origins plus the welcome page — is exactly the set the navigation guard already computes; one authoritative set cannot drift from itself.
+**Decision**: `isHostsSender` delegates to the existing `isAllowedNavigation` (welcome `file://` URL + registered host origins + dev-override origin) rather than computing its own set.
+**Why**: The intended allowlist — registered host origins plus the welcome page — is exactly the set the navigation guard already computes; one authoritative set cannot drift from itself.
 **Rejected**: A second hand-rolled origin set — duplicates the `registeredOrigins()` composition and would diverge on the dev-override case.
 *Introduced by*: 260730-9lez-shell-keyboard-tier-symmetry
 
 ### One discriminated envelope for `servers:list`
-**Decision**: `servers:list` returns `{ ok: true, servers: [...] } | { ok: false, error }`; the SPA lib unwraps it to a plain `ShellServer[]` (or `null`).
+**Decision**: `servers:list` returns `{ ok: true, servers: HostInfo[] } | { ok: false, error }`; the SPA lib unwraps it to a plain `ShellServer[]` (or `null`).
 **Why**: The gating contract needs an `{ ok: false }` error shape anyway, and a single discriminated union matches the handlers' existing `PingResult`/`IpcResult` pattern while the SPA-facing API still hands callers a plain array.
 **Rejected**: Bare-array success plus an object failure — two unrelated top-level shapes for one channel to narrow.
 *Introduced by*: 260730-9lez-shell-keyboard-tier-symmetry
 
-### Shared `switchToServer` seam in main
-**Decision**: The menu radio callback's body (set active → `loadURL` → rebuild menu) is extracted into one function called by both the radio callback and the `servers:switch` handler.
+### Shared `switchToHost` seam in main
+**Decision**: The menu radio callback's body (capture the outgoing route → set active → `loadURL` → rebuild menu) is extracted into one function called by the radio callback, the `servers:switch` handler, and the local-connect tail.
 **Why**: The IPC switch must behave identically to clicking the radio; a shared function makes divergence structurally impossible instead of merely intended.
-**Rejected**: Duplicating the three calls inside the handler — invites drift the moment the switch path grows a step.
+**Rejected**: Duplicating the calls inside the handler — invites drift the moment the switch path grows a step.
 *Introduced by*: 260730-9lez-shell-keyboard-tier-symmetry
 
-### Plain servers.json with atomic write, no electron-store
-**Decision**: Hand-rolled `<userData>/servers.json` (version 1 schema), tmp-file-then-rename writes, corrupt→empty recovery.
-**Why**: The three-dep package stays three deps; the store is ~150 lines and trivially testable when parameterized by directory.
-**Rejected**: electron-store — a dependency for a single small file; migration machinery unneeded at v1.
+### Plain hosts.json with atomic write, no electron-store
+**Decision**: Hand-rolled `<userData>/hosts.json` (version 1 schema), tmp-file-then-rename writes, corrupt→empty recovery.
+**Why**: The three-dep package stays three deps; the store is ~200 lines and trivially testable when parameterized by directory.
+**Rejected**: electron-store — a dependency for a single small file.
 *Introduced by*: 260728-04pg-electron-desktop-shell
 
+### No store migration: `hosts.json` is read, nothing else
+**Decision**: The store reads exactly one filename and carries no migration shim or fallback read. A user data dir holding only a legacy `servers.json` loads as an empty list and routes to welcome; that file is left on disk untouched — never read, never deleted.
+**Why**: A registration is an origin plus a name the app derives itself from the health ping, so re-adding a host is a URL paste — cheap enough that migration machinery would cost more (in permanent code, in a second shape to keep parsing, in tests) than the friction it saves. Reading one filename is also the only version of this the store can't get subtly wrong. Leaving the old file rather than deleting it keeps the shell out of the business of removing user data unprompted, and makes the no-read guarantee testable: a suite case asserts the legacy file is byte-identical after a load.
+**Rejected**: A one-shot migration that renames or copies the old file (permanent code for a one-time event, plus a second schema shape to parse and test); a fallback read of the old name when the new one is absent (the shape drift never ends — every future reader carries both); deleting the legacy file after load (destroys user data to save disk bytes, and forecloses a manual recovery).
+*Introduced by*: 260731-5blj-desktop-path-fix-hosts-rename
+
 ### Store module is electron-free; tests run on node:test
-**Decision**: `servers.ts` takes the data directory as a parameter (main passes `app.getPath('userData')`); `servers.test.ts` runs via Node's built-in `node --test` over the compiled `dist/`, with compiled tests excluded from packaged `files`.
+**Decision**: `hosts.ts` takes the data directory as a parameter (main passes `app.getPath('userData')`); `hosts.test.ts` runs via Node's built-in `node --test` over the compiled `dist/`, with compiled tests excluded from packaged `files`.
 **Why**: New behavior must ship with tests while keeping the exact three-dep pin — node:test satisfies both.
 **Rejected**: Adding vitest/jest to app/desktop (violates the dep pin); leaving the store untested.
 *Introduced by*: 260728-04pg-electron-desktop-shell
@@ -439,34 +465,28 @@ The win/linux *menu* contract is nonetheless CI-provable without hardware: the c
 **Rejected**: Conditional preload exposure per page — duplicates the same check with more surface and no added security.
 *Introduced by*: 260728-04pg-electron-desktop-shell
 
-### Last path persisted per server, not a live view per server
-**Decision**: Per-server route memory is a single optional `lastPath` string in `servers.json`, captured at navigation-away/close and replayed on switch-in and startup; one BrowserWindow still shows one server at a time.
+### Last path persisted per host, not a live view per host
+**Decision**: Per-host route memory is a single optional `lastPath` string in `hosts.json`, captured at navigation-away/close and replayed on switch-in and startup; one BrowserWindow still shows one host at a time.
 **Why**: Cheap "reopen where I was" — the store already exists with atomic-write plumbing, and persisting (rather than holding routes in memory) is what makes cold start work at all.
-**Rejected**: A live `WebContentsView` per server (Slack-style workspaces — keeps scroll position, terminal state, and SSE connections alive): memory cost, N live connection sets per server (SSE plus per-pane relay WebSockets), and lifecycle complexity, all out of scope for a *viewer* shell. An in-memory-only `Map<id, path>`: fixes switching but not cold start, which is the stated point.
+**Rejected**: A live `WebContentsView` per host (Slack-style workspaces — keeps scroll position, terminal state, and live connections alive): memory cost, N live connection sets per host, and lifecycle complexity, all out of scope for a *viewer* shell. An in-memory-only `Map<id, path>`: fixes switching but not cold start, which is the stated point.
 *Introduced by*: 260730-n2y9-desktop-last-path-restore-rename
 
 ### Capture target resolved by origin lookup, not by activeId
-**Decision**: `captureLastPath()` resolves which entry to write to via `findServerByOrigin` — matching the displayed URL's origin against the registered list (active entry wins among same-origin duplicates) — rather than trusting the store's `activeId` as "the outgoing server".
-**Why**: The displayed origin can differ from the active entry — the `RK_DESKTOP_URL` dev override short-circuits routing without touching `servers.json` at all, and `addServer` never dedupes, so several entries can share one origin while only one is active. Origin lookup writes the path to the server that actually owns what is on screen, subsuming the outgoing-origin match and making cross-pollination structurally impossible; keeping the rule as a pure function in `servers.ts` also puts the same-origin-duplicate tie-break under `node --test`.
-**Rejected**: Matching against `resolveActiveServer(...)` only — saves nothing, or the wrong thing, when the displayed page belongs to a non-active registered origin. A bare `.find()` on origin — targets the first same-origin entry rather than the one in view.
+**Decision**: `captureLastPath()` resolves which entry to write to via `findHostByOrigin` — matching the displayed URL's origin against the registered list (active entry wins among same-origin duplicates) — rather than trusting the store's `activeId` as "the outgoing host".
+**Why**: The displayed origin can differ from the active entry — the `RK_DESKTOP_URL` dev override short-circuits routing without touching `hosts.json` at all, and `addHost` never dedupes, so several entries can share one origin while only one is active. Origin lookup writes the path to the host that actually owns what is on screen, subsuming the outgoing-origin match and making cross-pollination structurally impossible; keeping the rule as a pure function in `hosts.ts` also puts the same-origin-duplicate tie-break under `node --test`.
+**Rejected**: Matching against `resolveActiveHost(...)` only — saves nothing, or the wrong thing, when the displayed page belongs to a non-active registered origin. A bare `.find()` on origin — targets the first same-origin entry rather than the one in view.
 *Introduced by*: 260730-n2y9-desktop-last-path-restore-rename
 
-### Per-server state keys on `id`; rename is a first-class store mutator
-**Decision**: Everything stored per server (`lastPath`, the `activeId` linkage) keys on the immutable `id`, and renaming goes through `renameServer`, which touches only `name`.
-**Why**: The pre-rename workaround for changing a display name was remove-and-re-add, and `addServer` mints a fresh `randomUUID` — so every id-keyed fact silently vanished. A dedicated rename makes the operation lossless by construction, and keying on `id` rather than the name is what lets it be.
-**Rejected**: Keying per-server state on the display name (renaming would orphan it, and names are not unique); leaving rename to remove-and-re-add (silent state loss on a routine operation).
+### Per-host state keys on `id`, never on the display name
+**Decision**: Everything stored per host (`lastPath`, the `activeId` linkage) keys on the immutable `id` that `addHost` mints, and no store operation mutates a name.
+**Why**: Display names are not unique and are derived, not authored — keying state on one would orphan it the moment two hosts shared a hostname. The `id` is minted once per registration and never changes, so every per-host fact is scoped to exactly that registration for its whole life.
+**Rejected**: Keying per-host state on the display name (collides on duplicate hostnames and orphans on any name change); keying on the URL origin (several entries may legitimately share one origin — `addHost` never dedupes).
 *Introduced by*: 260730-n2y9-desktop-last-path-restore-rename
 
 ### Wrong-typed optional field drops the field, never the file
-**Decision**: On load, a non-string `lastPath` drops just that field; the entry and the rest of the file still load. Wrong types in the required fields (`id`/`name`/`url`/`version`/`activeId`/`servers`) still reject the whole file to the empty list.
-**Why**: Corrupt→empty is the right default for a shape the shell cannot interpret, but it wipes the user's server list — far too destructive a response to a junk value in a field that is allowed to be absent. Absence is already a valid state, so dropping is the least destructive reading that keeps a pre-existing valid file loading.
-**Rejected**: Treating a wrong-typed `lastPath` as whole-file corruption (loses every registered server over a cosmetic field); rejecting just the offending entry (still loses a server the user registered).
-*Introduced by*: 260730-n2y9-desktop-last-path-restore-rename
-
-### Rename UI reuses the welcome page, prefilled via the query string
-**Decision**: `?mode=rename&id=…&name=…&url=…` turns the welcome card into the rename form; main supplies the prefill context as `loadFile` query params, and the page reads them from `URLSearchParams`. No read IPC.
-**Why**: Electron has no native text-input dialog, and the welcome page already carries the name input, the cancel link, and the gated-IPC plumbing — plus the `?mode=add` precedent for query-driven variants. The prefill values originate in main (trusted, store-derived), and the page already parses `location.search`, so a `welcome:get-server` handler would add privileged surface for identical data.
-**Rejected**: A custom dialog window (new window, new lifecycle, new security wiring for one text field); a new gated read IPC (more privileged surface, same data).
+**Decision**: On load, a non-string `lastPath` drops just that field; the entry and the rest of the file still load. Wrong types in the required fields (`id`/`name`/`url`/`version`/`activeId`/`hosts`) still reject the whole file to the empty list.
+**Why**: Corrupt→empty is the right default for a shape the shell cannot interpret, but it wipes the user's host list — far too destructive a response to a junk value in a field that is allowed to be absent. Absence is already a valid state, so dropping is the least destructive reading that keeps a pre-existing valid file loading.
+**Rejected**: Treating a wrong-typed `lastPath` as whole-file corruption (loses every registered host over a cosmetic field); rejecting just the offending entry (still loses a host the user registered).
 *Introduced by*: 260730-n2y9-desktop-last-path-restore-rename
 
 ### `[hidden]` wins over author `display` rules on the welcome page
@@ -508,7 +528,7 @@ The win/linux *menu* contract is nonetheless CI-provable without hardware: the c
 ### The menu is symmetric in rule, not in accelerator table
 **Decision**: `buildMenu` composes per-menu builders branching on `isMac`, and the two platforms bind deliberately different sets: mac keeps the Edit roles, App menu, and Window menu; win/linux drop all three and bind nothing in the unshifted Ctrl tier.
 **Why**: The invariant worth preserving is "the page tier is never bound", and the page tier is ⌘ on mac but Ctrl on win/linux. Chromium already handles Ctrl+C/V/X/A/Z natively on win/linux, so the mac Edit roles (which exist purely for the macOS clipboard quirk) would spend page-tier keys for nothing there; the App and Window menus are mac shapes whose roles (`quit`, `minimize`) default-bind Ctrl+Q/Ctrl+M.
-**Rejected**: A single accelerator table re-expressed with `CmdOrCtrl` (mechanically symmetric, but it would bind Ctrl+Z/X/C/V/A/R/0/± on win/linux — the exact tier the shell exists to free); per-platform menu *files* (duplicates the shared View/Servers structure and drifts).
+**Rejected**: A single accelerator table re-expressed with `CmdOrCtrl` (mechanically symmetric, but it would bind Ctrl+Z/X/C/V/A/R/0/± on win/linux — the exact tier the shell exists to free); per-platform menu *files* (duplicates the shared View/Hosts structure and drifts).
 *Introduced by*: 260730-ler1-desktop-windows-linux-packaging
 
 ### Page-tier View items are plain accelerator-less items, not suppressed roles
@@ -537,6 +557,6 @@ The win/linux *menu* contract is nonetheless CI-provable without hardware: the c
 
 ### The window-open decision is a pure module owning the single `isHttpUrl`
 **Decision**: `windowOpenAction` lives in the electron-free `src/window-open.ts` covered by `node --test`, and that module holds the package's single `isHttpUrl` definition, imported by `main.ts` for `guardNavigation`.
-**Why**: `main.ts` imports `electron` at module top, so nothing in it is reachable from `node --test`; a separate pure module is the only way to test the policy without adding a test dependency to the three-dep package (the `servers.ts` precedent). `isHttpUrl` belongs with it rather than being duplicated because it is a security-relevant gate used by both the policy and the navigation guard, and two copies of an injection-vector predicate invite drift.
+**Why**: `main.ts` imports `electron` at module top, so nothing in it is reachable from `node --test`; a separate pure module is the only way to test the policy without adding a test dependency to the three-dep package (the `hosts.ts` precedent). `isHttpUrl` belongs with it rather than being duplicated because it is a security-relevant gate used by both the policy and the navigation guard, and two copies of an injection-vector predicate invite drift.
 **Rejected**: Asserting the policy through a mocked `electron` module loaded against compiled `main.js` (tests the wiring but drags the whole lifecycle module in for one branch); keeping `isHttpUrl` private in `main.ts` and re-implementing the check inside `windowOpenAction` (two copies of the same gate).
 *Introduced by*: 260730-e9lz-shell-terminal-links-external

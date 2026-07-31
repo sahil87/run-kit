@@ -3,26 +3,20 @@
  * via a plain <script src> — deliberately NO import/export statements, so the
  * emitted JS stays a browser-runnable script (no require/exports references).
  *
- * Remote flow: validate → `welcome:test-server` ping (main process) →
- * `welcome:add-server` (persist + set active; the display name auto-derives
- * from the ping's returned hostname — there is no name input on the connect
- * form). `?mode=add` shows a cancel link back to the active server.
+ * Remote flow: validate → `welcome:test-host` ping (main process) →
+ * `welcome:add-host` (persist + set active; the display name auto-derives
+ * from the ping's returned hostname — there is no name input, and no rename
+ * affordance exists: remove-and-re-add is the only way to change a name).
+ * `?mode=add` shows a cancel link back to the active host.
  *
- * Local flow ("This Mac" section, darwin/linux only — suppressed on win32 and
- * in rename mode): polls `daemon:status` every 3s while the page is visible
- * and renders the four states — running (green dot, Connect + Stop), stopped
- * (grey dot, single "Start & connect"), starting… (amber, buttons disabled),
- * and not-installed (collapses to a brew-install hint). "Start & connect" and
+ * Local flow ("This Mac" section, darwin/linux only — suppressed on win32):
+ * polls `daemon:status` every 3s while the page is visible and renders the
+ * four states — running (green dot, Connect + Stop), stopped (grey dot,
+ * single "Start & connect"), starting… (amber, buttons disabled), and
+ * not-installed (collapses to a brew-install hint). "Start & connect" and
  * Connect share ONE main-side flow (`daemon:start`: start if stopped → wait
  * for health → activate-or-add, never duplicating an entry); Stop invokes
  * `daemon:stop` (main shows the tmux-sessions-survive confirm).
- *
- * `?mode=rename&id=<id>&name=<current>&url=<origin>` reuses this page as the
- * rename affordance (Electron has no native text-input dialog): the URL field
- * is hidden (the origin shows in the tagline), the name input — hidden on the
- * plain connect form — is revealed and pre-filled, and submit invokes
- * `welcome:rename-server` — no health ping. The prefill context rides the
- * query string, supplied by main from the store.
  *
  * The preload bridge is read via structural narrowing (no Window global
  * augmentation, no `as` casts) — the page degrades to an inline error when
@@ -32,9 +26,8 @@
 const LOCAL_STATUS_POLL_MS = 3000;
 
 interface WelcomeBridge {
-  testServer(url: string): Promise<unknown>;
-  addServer(name: string, url: string): Promise<unknown>;
-  renameServer(id: string, name: string): Promise<unknown>;
+  testHost(url: string): Promise<unknown>;
+  addHost(name: string, url: string): Promise<unknown>;
   cancel(): Promise<unknown>;
 }
 
@@ -46,11 +39,7 @@ interface DaemonBridge {
 
 interface WelcomeElements {
   form: HTMLFormElement;
-  tagline: HTMLElement;
-  urlLabel: HTMLElement;
   urlInput: HTMLInputElement;
-  nameLabel: HTMLElement;
-  nameInput: HTMLInputElement;
   errorEl: HTMLElement;
   connectButton: HTMLButtonElement;
   cancelLink: HTMLAnchorElement;
@@ -91,31 +80,23 @@ function getWelcomeBridge(): WelcomeBridge | null {
   if (typeof shell !== "object" || shell === null || !("__welcome" in shell)) return null;
   const candidate = shell.__welcome;
   if (typeof candidate !== "object" || candidate === null) return null;
-  if (
-    !("testServer" in candidate) ||
-    !("addServer" in candidate) ||
-    !("renameServer" in candidate) ||
-    !("cancel" in candidate)
-  ) {
+  if (!("testHost" in candidate) || !("addHost" in candidate) || !("cancel" in candidate)) {
     return null;
   }
   // Bind narrowed consts — const narrowing (unlike property narrowing) is
   // preserved inside the closures below.
-  const { testServer, addServer, renameServer, cancel } = candidate;
+  const { testHost, addHost, cancel } = candidate;
   if (
-    typeof testServer !== "function" ||
-    typeof addServer !== "function" ||
-    typeof renameServer !== "function" ||
+    typeof testHost !== "function" ||
+    typeof addHost !== "function" ||
     typeof cancel !== "function"
   ) {
     return null;
   }
   return {
-    testServer: (url: string): Promise<unknown> => Promise.resolve(testServer(url)),
-    addServer: (name: string, url: string): Promise<unknown> =>
-      Promise.resolve(addServer(name, url)),
-    renameServer: (id: string, name: string): Promise<unknown> =>
-      Promise.resolve(renameServer(id, name)),
+    testHost: (url: string): Promise<unknown> => Promise.resolve(testHost(url)),
+    addHost: (name: string, url: string): Promise<unknown> =>
+      Promise.resolve(addHost(name, url)),
     cancel: (): Promise<unknown> => Promise.resolve(cancel()),
   };
 }
@@ -147,11 +128,7 @@ function getShellPlatform(): string | null {
 
 function getWelcomeElements(): WelcomeElements | null {
   const form = document.getElementById("connect-form");
-  const tagline = document.getElementById("tagline");
-  const urlLabel = document.getElementById("url-label");
   const urlInput = document.getElementById("url");
-  const nameLabel = document.getElementById("name-label");
-  const nameInput = document.getElementById("name");
   const errorEl = document.getElementById("error");
   const connectButton = document.getElementById("connect");
   const cancelLink = document.getElementById("cancel");
@@ -167,11 +144,7 @@ function getWelcomeElements(): WelcomeElements | null {
   const localError = document.getElementById("local-error");
   if (
     !(form instanceof HTMLFormElement) ||
-    !(tagline instanceof HTMLElement) ||
-    !(urlLabel instanceof HTMLElement) ||
     !(urlInput instanceof HTMLInputElement) ||
-    !(nameLabel instanceof HTMLElement) ||
-    !(nameInput instanceof HTMLInputElement) ||
     !(errorEl instanceof HTMLElement) ||
     !(connectButton instanceof HTMLButtonElement) ||
     !(cancelLink instanceof HTMLAnchorElement) ||
@@ -190,11 +163,7 @@ function getWelcomeElements(): WelcomeElements | null {
   }
   return {
     form,
-    tagline,
-    urlLabel,
     urlInput,
-    nameLabel,
-    nameInput,
     errorEl,
     connectButton,
     cancelLink,
@@ -415,26 +384,18 @@ function wireLocalSection(els: WelcomeElements, daemon: DaemonBridge, heading: s
 function wireWelcomePage(els: WelcomeElements, bridge: WelcomeBridge): void {
   const params = new URLSearchParams(location.search);
   const mode = params.get("mode");
-  // ?mode=rename&id=…: this page doubles as the rename affordance. A missing
-  // or blank id is NOT rename mode (the rename IPC would no-op in the store
-  // while the page appeared to succeed) — treat it as the plain connect page.
-  const idParam = params.get("id");
-  const renameId =
-    mode === "rename" && idParam !== null && idParam.trim() !== "" ? idParam : null;
 
-  const idleLabel = renameId !== null ? "Rename" : "Connect";
   const showError = (message: string): void => {
     els.errorEl.textContent = message;
     els.errorEl.hidden = false;
   };
   const setBusy = (label: string | null): void => {
     els.connectButton.disabled = label !== null;
-    els.connectButton.textContent = label ?? idleLabel;
+    els.connectButton.textContent = label ?? "Connect";
   };
 
-  // ?mode=add (menu "Add Server…") and ?mode=rename (menu "Rename …"):
-  // a cancel link returns to the active server.
-  if (mode === "add" || renameId !== null) {
+  // ?mode=add (menu "Add Host…"): a cancel link returns to the active host.
+  if (mode === "add") {
     els.cancelLink.hidden = false;
     els.cancelLink.addEventListener("click", (event) => {
       event.preventDefault();
@@ -442,38 +403,11 @@ function wireWelcomePage(els: WelcomeElements, bridge: WelcomeBridge): void {
     });
   }
 
-  if (renameId !== null) {
-    // Rename variant: the server URL is fixed — hide its field, show the
-    // origin in the tagline, and reveal + pre-fill the name input (hidden on
-    // the plain connect form, where the name auto-derives from the ping).
-    els.urlLabel.hidden = true;
-    els.urlInput.hidden = true;
-    els.nameLabel.hidden = false;
-    els.nameInput.hidden = false;
-    els.tagline.textContent = params.get("url") ?? "";
-    els.nameInput.value = params.get("name") ?? "";
-    els.connectButton.textContent = idleLabel;
-    els.nameInput.focus();
-  }
-
-  const rename = async (id: string): Promise<void> => {
-    els.errorEl.hidden = true;
-
-    setBusy("Renaming…");
-    const result = await bridge.renameServer(id, els.nameInput.value);
-    if (!isAckOk(result)) {
-      showError(errorOf(result));
-      setBusy(null);
-      return;
-    }
-    // Success: main persists, rebuilds the menu, and navigates back.
-  };
-
   const connect = async (): Promise<void> => {
     els.errorEl.hidden = true;
 
     setBusy("Testing…");
-    const ping = await bridge.testServer(els.urlInput.value);
+    const ping = await bridge.testHost(els.urlInput.value);
     if (!isPingOk(ping)) {
       showError(errorOf(ping));
       setBusy(null);
@@ -481,9 +415,10 @@ function wireWelcomePage(els: WelcomeElements, bridge: WelcomeBridge): void {
     }
 
     // No name input on the connect form: the display name auto-derives from
-    // the ping's hostname (the store falls back to the origin when empty).
+    // the ping's hostname (the store falls back to the origin when empty),
+    // and there is no rename — remove-and-re-add changes a name.
     setBusy("Connecting…");
-    const added = await bridge.addServer(ping.hostname, ping.origin);
+    const added = await bridge.addHost(ping.hostname, ping.origin);
     if (!isAckOk(added)) {
       showError(errorOf(added));
       setBusy(null);
@@ -494,7 +429,7 @@ function wireWelcomePage(els: WelcomeElements, bridge: WelcomeBridge): void {
 
   els.form.addEventListener("submit", (event) => {
     event.preventDefault();
-    void (renameId !== null ? rename(renameId) : connect());
+    void connect();
   });
 }
 
@@ -511,15 +446,14 @@ function wireWelcomePage(els: WelcomeElements, bridge: WelcomeBridge): void {
   }
   wireWelcomePage(els, bridge);
 
-  // "This Mac" section: pre-connect / add-server surfaces only (not rename),
-  // darwin and linux only — rk daemon/tmux is not a Windows concept, so the
-  // section (and its brew hint) is suppressed entirely on win32.
-  const mode = new URLSearchParams(location.search).get("mode");
+  // "This Mac" section: darwin and linux only — rk daemon/tmux is not a
+  // Windows concept, so the section (and its brew hint) is suppressed
+  // entirely on win32.
   const platform = getShellPlatform();
   const heading =
     platform === "darwin" ? "This Mac" : platform === "linux" ? "This Machine" : null;
   const daemonBridge = getDaemonBridge();
-  if (mode !== "rename" && heading !== null && daemonBridge !== null) {
+  if (heading !== null && daemonBridge !== null) {
     wireLocalSection(els, daemonBridge, heading);
   }
 })();

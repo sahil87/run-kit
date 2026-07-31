@@ -1,11 +1,12 @@
 /**
  * node:test suite for the local-daemon pure logic (run via `pnpm run test`
- * after compile — the `servers.test.ts` convention). Compiled output is
+ * after compile — the `hosts.test.ts` convention). Compiled output is
  * excluded from packaging via the electron-builder `files` pattern.
  */
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  augmentPath,
   isDaemonAlreadyRunning,
   parseRkVersion,
   parseSessionCount,
@@ -52,6 +53,45 @@ test("resolveRkBinary falls back to a bare PATH lookup when no candidate exists"
 
 test("resolveRkBinary with no candidates (win32) is the bare PATH lookup", () => {
   assert.equal(resolveRkBinary([], () => true), "rk");
+});
+
+// ─── augmentPath ────────────────────────────────────────────────────────────
+
+test("augmentPath appends both brew dirs to the darwin GUI PATH", () => {
+  assert.equal(
+    augmentPath("darwin", "/usr/bin:/bin:/usr/sbin:/sbin"),
+    "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin",
+  );
+});
+
+test("augmentPath appends only the missing dir (no duplicates)", () => {
+  assert.equal(
+    augmentPath("darwin", "/opt/homebrew/bin:/usr/bin:/bin"),
+    "/opt/homebrew/bin:/usr/bin:/bin:/usr/local/bin",
+  );
+});
+
+test("augmentPath leaves a PATH that already has every brew dir unchanged", () => {
+  const path = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin";
+  assert.equal(augmentPath("darwin", path), path);
+});
+
+test("augmentPath with an undefined or empty PATH yields just the brew dirs", () => {
+  assert.equal(augmentPath("darwin", undefined), "/opt/homebrew/bin:/usr/local/bin");
+  assert.equal(augmentPath("darwin", ""), "/opt/homebrew/bin:/usr/local/bin");
+});
+
+test("augmentPath appends the linuxbrew prefix on linux", () => {
+  assert.equal(
+    augmentPath("linux", "/usr/bin:/bin"),
+    "/usr/bin:/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/bin",
+  );
+});
+
+test("augmentPath passes win32 and unknown platforms through unchanged", () => {
+  assert.equal(augmentPath("win32", "C:\\Windows\\system32"), "C:\\Windows\\system32");
+  assert.equal(augmentPath("sunos", "/usr/bin"), "/usr/bin");
+  assert.equal(augmentPath("win32", undefined), "");
 });
 
 // ─── parseRkVersion ─────────────────────────────────────────────────────────

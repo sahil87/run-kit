@@ -1,0 +1,11 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-31T05:45:58Z"}
+{"args":"Desktop shell bundle: fix GUI PATH trap breaking Start local server (augmentPath at runRk spawn site), remove server Rename feature entirely, rename desktop 'server' terminology to 'host' (labels, identifiers, IPC, servers.json -\u003e hosts.json with no back-compat)","cmd":"fab-new","event":"command","ts":"2026-07-31T05:45:58Z"}
+{"delta":"+0.0","event":"confidence","score":4.2,"trigger":"calc-score","ts":"2026-07-31T05:47:31Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-07-31T05:48:29Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-31T05:50:10Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-31T05:50:51Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-31T06:04:25Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-31T06:09:33Z"}
+{"event":"review","result":"passed","ts":"2026-07-31T06:09:33Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-31T06:10:19Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-31T06:23:01Z"}

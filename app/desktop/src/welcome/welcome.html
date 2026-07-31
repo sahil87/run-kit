@@ -179,8 +179,8 @@
       <h1>run-kit</h1>
       <p id="tagline" class="tagline">Connect to a running <span>rk serve</span> instance.</p>
       <!-- "This Mac" local-daemon section — hidden until the shell reports a
-           darwin/linux platform (suppressed on win32 and in rename mode);
-           states are driven by daemon:status polling in welcome.js. -->
+           darwin/linux platform (suppressed on win32); states are driven by
+           daemon:status polling in welcome.js. -->
       <section id="local" hidden>
         <h2 id="local-heading">This Mac</h2>
         <div class="local-status" id="local-status-row">
@@ -196,10 +196,10 @@
           <button id="local-stop" type="button" class="ghost" hidden>Stop</button>
         </div>
         <p id="local-error" hidden class="error"></p>
-        <div class="divider">or a remote server</div>
+        <div class="divider">or a remote host</div>
       </section>
       <form id="connect-form">
-        <label for="url" id="url-label">Server URL</label>
+        <label for="url">Host URL</label>
         <input
           id="url"
           type="text"
@@ -208,10 +208,8 @@
           spellcheck="false"
           autocomplete="off"
         />
-        <!-- Display name is rename-mode only: the connect flow auto-derives
-             the name from the health ping's hostname (origin fallback). -->
-        <label for="name" id="name-label" hidden>Display name</label>
-        <input id="name" type="text" placeholder="studio-mac" spellcheck="false" autocomplete="off" hidden />
+        <!-- No display-name input: the connect flow auto-derives the name
+             from the health ping's hostname (origin fallback). -->
         <p id="error" hidden class="error"></p>
         <button id="connect" type="submit">Connect</button>
         <a id="cancel" href="#" hidden>Cancel</a>

@@ -6,7 +6,7 @@
  * everything else is dropped. There is deliberately no registered-origin
  * in-window branch: a new-window intent never navigates the shell window.
  *
- * Deliberately electron-free (the `servers.ts` pattern) so the decision is
+ * Deliberately electron-free (the `hosts.ts` pattern) so the decision is
  * unit-testable under plain `node --test` — `main.ts` imports electron at
  * module top and cannot be loaded by the test runner.
  */

@@ -1,6 +1,9 @@
 /**
  * Main process — lifecycle, BrowserWindow, security wiring, IPC, the
- * welcome.html ↔ active-server-URL routing, and local-daemon control.
+ * welcome.html ↔ active-host-URL routing, and local-daemon control.
+ * ("Host" = an rk instance; "server" is reserved for tmux servers. The
+ * `servers:*` IPC channels and the bridge's `servers` group keep their
+ * names — they are the web SPA's contract.)
  *
  * This shell is a VIEWER (Constitution VI): it loads an existing `rk serve`
  * URL and NEVER spawns or supervises the rk daemon on its own initiative.
@@ -10,7 +13,7 @@
  * anywhere; the tmux/server layer stays independent of this process.
  *
  * Dev override: `RK_DESKTOP_URL=http://localhost:3000 just dev-desktop`
- * loads that URL directly without persisting it to servers.json.
+ * loads that URL directly without persisting it to hosts.json.
  */
 import {
   app,
@@ -30,6 +33,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import {
+  augmentPath,
   DaemonStatus,
   isDaemonAlreadyRunning,
   parseRkVersion,
@@ -40,18 +44,17 @@ import {
 import { buildMenu, DaemonMenuInfo, MenuCallbacks } from "./menu";
 import { isHttpUrl, windowOpenAction } from "./window-open";
 import {
-  addServer,
-  findServerByOrigin,
-  loadServers,
+  addHost,
+  findHostByOrigin,
+  HostInfo,
+  hostInfos,
+  loadHosts,
   normalizeOrigin,
-  removeServer,
-  renameServer,
-  resolveActiveServer,
-  ServerInfo,
-  serverInfos,
-  setActiveServer,
-  setServerLastPath,
-} from "./servers";
+  removeHost,
+  resolveActiveHost,
+  setActiveHost,
+  setHostLastPath,
+} from "./hosts";
 
 const WELCOME_PATH = join(__dirname, "welcome", "welcome.html");
 const WELCOME_URL = pathToFileURL(WELCOME_PATH).toString();
@@ -82,8 +85,9 @@ type PingResult =
 
 type IpcResult = { ok: true } | { ok: false; error: string };
 
+/** `servers:list` envelope — the channel name AND the `servers` key are the SPA contract. */
 type ServersListResult =
-  | { ok: true; servers: ServerInfo[] }
+  | { ok: true; servers: HostInfo[] }
   | { ok: false; error: string };
 
 type DaemonStatusResult =
@@ -100,9 +104,9 @@ function originOf(url: string): string | null {
   }
 }
 
-/** Origins the window may show in-place: registered servers + the dev override. */
+/** Origins the window may show in-place: registered hosts + the dev override. */
 function registeredOrigins(): Set<string> {
-  const origins = new Set(loadServers(userDataDir()).servers.map((s) => s.url));
+  const origins = new Set(loadHosts(userDataDir()).hosts.map((h) => h.url));
   if (devUrl) {
     const normalized = normalizeOrigin(devUrl);
     if (normalized.ok) origins.add(normalized.origin);
@@ -123,12 +127,12 @@ function showWelcome(win: BrowserWindow, query?: Record<string, string>): void {
 }
 
 /**
- * Load the active server (dangling activeId → first server), else welcome.
+ * Load the active host (dangling activeId → first host), else welcome.
  * A remembered `lastPath` is restored as-is — staleness (removed window/board,
- * dead server) is the SPA's failure mode, never validated shell-side.
+ * dead host) is the SPA's failure mode, never validated shell-side.
  */
 function showActive(win: BrowserWindow): void {
-  const active = resolveActiveServer(loadServers(userDataDir()));
+  const active = resolveActiveHost(loadHosts(userDataDir()));
   if (active) {
     void win.loadURL(active.url + (active.lastPath ?? ""));
   } else {
@@ -138,12 +142,12 @@ function showActive(win: BrowserWindow): void {
 
 /**
  * Persist the current SPA route (`pathname + search`) for the registered
- * server whose origin the window is showing. Called at every shell-initiated
- * navigation away from a server (switch, add, rename) and on window close.
+ * host whose origin the window is showing. Called at every shell-initiated
+ * navigation away from a host (switch, add) and on window close.
  * Guards: the welcome file:// page is never captured, and a URL whose origin
- * matches no registered server (mid-navigation, foreign origin) is ignored —
- * so one server's route can never pollute another server's entry. When several
- * entries share the origin, the active entry wins (see `findServerByOrigin`).
+ * matches no registered host (mid-navigation, foreign origin) is ignored —
+ * so one host's route can never pollute another host's entry. When several
+ * entries share the origin, the active entry wins (see `findHostByOrigin`).
  */
 function captureLastPath(): void {
   const current = mainWindow?.webContents.getURL();
@@ -154,9 +158,9 @@ function captureLastPath(): void {
   } catch {
     return;
   }
-  const entry = findServerByOrigin(loadServers(userDataDir()), url.origin);
+  const entry = findHostByOrigin(loadHosts(userDataDir()), url.origin);
   if (!entry) return;
-  setServerLastPath(userDataDir(), entry.id, url.pathname + url.search);
+  setHostLastPath(userDataDir(), entry.id, url.pathname + url.search);
 }
 
 function showStartPage(win: BrowserWindow): void {
@@ -171,44 +175,31 @@ function showStartPage(win: BrowserWindow): void {
 
 /**
  * Set active + load its URL + rebuild the menu — the ONE switch path, shared
- * by the Servers menu radio and the `servers:switch` IPC handler.
+ * by the Hosts menu radio and the `servers:switch` IPC handler.
  */
-function switchToServer(id: string): IpcResult {
+function switchToHost(id: string): IpcResult {
   captureLastPath();
-  const next = setActiveServer(userDataDir(), id);
-  const entry = next.servers.find((s) => s.id === id);
-  if (!entry) return { ok: false, error: "Unknown server" };
+  const next = setActiveHost(userDataDir(), id);
+  const entry = next.hosts.find((h) => h.id === id);
+  if (!entry) return { ok: false, error: "Unknown host" };
   if (mainWindow) void mainWindow.loadURL(entry.url + (entry.lastPath ?? ""));
   rebuildMenu();
   return { ok: true };
 }
 
 function rebuildMenu(): void {
-  const list = loadServers(userDataDir());
+  const list = loadHosts(userDataDir());
   const callbacks: MenuCallbacks = {
-    onSwitchServer: (id) => {
-      switchToServer(id);
+    onSwitchHost: (id) => {
+      switchToHost(id);
     },
-    onAddServer: () => {
+    onAddHost: () => {
       if (!mainWindow) return;
       captureLastPath();
       showWelcome(mainWindow, { mode: "add" });
     },
-    onRenameServer: (id) => {
-      if (!mainWindow) return;
-      const entry = loadServers(userDataDir()).servers.find((s) => s.id === id);
-      if (!entry) return;
-      captureLastPath();
-      // Prefill context rides the query string — main-supplied, store-derived.
-      showWelcome(mainWindow, {
-        mode: "rename",
-        id: entry.id,
-        name: entry.name,
-        url: entry.url,
-      });
-    },
-    onRemoveServer: (id) => {
-      void confirmAndRemoveServer(id);
+    onRemoveHost: (id) => {
+      void confirmAndRemoveHost(id);
     },
     onDaemonConnect: () => {
       void (async () => {
@@ -223,16 +214,16 @@ function rebuildMenu(): void {
       void confirmAndStopDaemon();
     },
   };
-  Menu.setApplicationMenu(buildMenu(list.servers, list.activeId, callbacks, daemonMenuInfo));
+  Menu.setApplicationMenu(buildMenu(list.hosts, list.activeId, callbacks, daemonMenuInfo));
 }
 
-async function confirmAndRemoveServer(id: string): Promise<void> {
+async function confirmAndRemoveHost(id: string): Promise<void> {
   const win = mainWindow;
   if (!win) return;
-  const list = loadServers(userDataDir());
-  const entry = list.servers.find((s) => s.id === id);
+  const list = loadHosts(userDataDir());
+  const entry = list.hosts.find((h) => h.id === id);
   if (!entry) return;
-  const wasActive = resolveActiveServer(list)?.id === id;
+  const wasActive = resolveActiveHost(list)?.id === id;
 
   const { response } = await dialog.showMessageBox(win, {
     type: "warning",
@@ -244,9 +235,9 @@ async function confirmAndRemoveServer(id: string): Promise<void> {
   });
   if (response !== 0) return;
 
-  removeServer(userDataDir(), id);
+  removeHost(userDataDir(), id);
   rebuildMenu();
-  if (wasActive) showActive(win); // first remaining server, or welcome
+  if (wasActive) showActive(win); // first remaining host, or welcome
 }
 
 // ─── Health ping (main process — renderer stays sandboxed) ────────────────
@@ -320,7 +311,14 @@ function isEnoent(err: unknown): boolean {
 
 async function runRk(args: string[], timeout: number): Promise<RkRunResult> {
   try {
-    const { stdout } = await execFileAsync(rkBinary(), args, { timeout });
+    // The other half of the GUI PATH trap: resolving the rk BINARY via fixed
+    // candidates is not enough — the spawned rk (and the tmux server tree
+    // `rk daemon start` creates, which inherits this env wholesale) must also
+    // find `tmux` on PATH, so the brew bin dirs are appended when missing.
+    const { stdout } = await execFileAsync(rkBinary(), args, {
+      timeout,
+      env: { ...process.env, PATH: augmentPath(process.platform, process.env.PATH) },
+    });
     return { ok: true, stdout };
   } catch (err) {
     return { ok: false, error: execErrorMessage(err), notInstalled: isEnoent(err) };
@@ -394,20 +392,20 @@ async function waitForHealth(origin: string): Promise<PingResult> {
 }
 
 /**
- * Activate-or-add the local server — the connect tail shared by the card and
+ * Activate-or-add the local host — the connect tail shared by the card and
  * the menu. An existing entry for the origin is activated (never duplicated,
- * `addServer` does not dedupe); otherwise the existing add-server path runs
+ * `addHost` does not dedupe); otherwise the existing add-host path runs
  * with the name auto-derived from the ping hostname (origin fallback in the
  * store).
  */
-function connectLocalServer(origin: string, hostname: string): IpcResult {
-  const existing = findServerByOrigin(loadServers(userDataDir()), origin);
-  if (existing) return switchToServer(existing.id);
+function connectLocalHost(origin: string, hostname: string): IpcResult {
+  const existing = findHostByOrigin(loadHosts(userDataDir()), origin);
+  if (existing) return switchToHost(existing.id);
   captureLastPath();
-  const added = addServer(userDataDir(), hostname, origin);
+  const added = addHost(userDataDir(), hostname, origin);
   if (!added.ok) return added;
   rebuildMenu();
-  if (mainWindow) void mainWindow.loadURL(added.server.url);
+  if (mainWindow) void mainWindow.loadURL(added.host.url);
   return { ok: true };
 }
 
@@ -436,14 +434,14 @@ async function startAndConnectLocal(): Promise<IpcResult> {
     }
     hostname = ping.hostname;
   }
-  const connected = connectLocalServer(status.origin, hostname);
+  const connected = connectLocalHost(status.origin, hostname);
   void refreshDaemonMenu();
   return connected;
 }
 
 /**
  * Confirm-then-stop — ONE path shared by the welcome card's Stop button and
- * the Local Daemon menu item. Cancel is the default (the Remove-server
+ * the Local Daemon menu item. Cancel is the default (the Remove-host
  * precedent); the copy states that tmux sessions survive (Constitution VI —
  * the tmux layer is independent of the server, so stop is low-stakes).
  */
@@ -505,7 +503,7 @@ async function refreshDaemonMenu(): Promise<void> {
 
 /**
  * Privilege gate: `welcome:*` calls are honored only from the welcome
- * file:// page. Pages loaded from registered servers can read
+ * file:// page. Pages loaded from registered hosts can read
  * `runkitShell.version`/`platform` but never invoke privileged calls.
  */
 function isWelcomeSender(event: IpcMainInvokeEvent): boolean {
@@ -513,12 +511,13 @@ function isWelcomeSender(event: IpcMainInvokeEvent): boolean {
 }
 
 /**
- * Privilege gate for `servers:*` — a wider allowlist than `welcome:*`:
- * registered server origins (the pages that host the SPA palette) plus the
- * welcome page. Same set as the navigation guard; any other sender gets a
- * rejection, never a privileged action.
+ * Privilege gate for `servers:*` (the SPA-facing channel family, named for
+ * that contract) — a wider allowlist than `welcome:*`: registered host
+ * origins (the pages that host the SPA palette) plus the welcome page. Same
+ * set as the navigation guard; any other sender gets a rejection, never a
+ * privileged action.
  */
-function isServersSender(event: IpcMainInvokeEvent): boolean {
+function isHostsSender(event: IpcMainInvokeEvent): boolean {
   const url = event.senderFrame?.url;
   return url !== undefined && isAllowedNavigation(url);
 }
@@ -530,17 +529,9 @@ function parseAddPayload(value: unknown): { name: string; url: string } | null {
   return { name, url: value.url };
 }
 
-function parseRenamePayload(value: unknown): { id: string; name: string } | null {
-  if (typeof value !== "object" || value === null) return null;
-  // A blank id would silently no-op in the store while answering ok — reject it.
-  if (!("id" in value) || typeof value.id !== "string" || value.id.trim() === "") return null;
-  const name = "name" in value && typeof value.name === "string" ? value.name : "";
-  return { id: value.id, name };
-}
-
 function registerIpcHandlers(): void {
   ipcMain.handle(
-    "welcome:test-server",
+    "welcome:test-host",
     async (event, rawUrl: unknown): Promise<PingResult> => {
       if (!isWelcomeSender(event)) return { ok: false, error: "Not allowed" };
       if (typeof rawUrl !== "string") return { ok: false, error: "Invalid request" };
@@ -550,26 +541,14 @@ function registerIpcHandlers(): void {
     },
   );
 
-  ipcMain.handle("welcome:add-server", (event, payload: unknown): IpcResult => {
+  ipcMain.handle("welcome:add-host", (event, payload: unknown): IpcResult => {
     if (!isWelcomeSender(event)) return { ok: false, error: "Not allowed" };
     const parsed = parseAddPayload(payload);
     if (!parsed) return { ok: false, error: "Invalid request" };
-    const result = addServer(userDataDir(), parsed.name, parsed.url);
+    const result = addHost(userDataDir(), parsed.name, parsed.url);
     if (!result.ok) return result;
     rebuildMenu();
-    if (mainWindow) void mainWindow.loadURL(result.server.url);
-    return { ok: true };
-  });
-
-  ipcMain.handle("welcome:rename-server", (event, payload: unknown): IpcResult => {
-    if (!isWelcomeSender(event)) return { ok: false, error: "Not allowed" };
-    const parsed = parseRenamePayload(payload);
-    if (!parsed) return { ok: false, error: "Invalid request" };
-    // Only `name` changes — `id` (and therefore `lastPath`/`activeId` linkage)
-    // is untouched; an unknown id is a store-level no-op.
-    renameServer(userDataDir(), parsed.id, parsed.name);
-    rebuildMenu();
-    if (mainWindow) showActive(mainWindow);
+    if (mainWindow) void mainWindow.loadURL(result.host.url);
     return { ok: true };
   });
 
@@ -596,15 +575,18 @@ function registerIpcHandlers(): void {
     return confirmAndStopDaemon();
   });
 
+  // servers:* — the web SPA's contract (app/frontend/src/lib/shell.ts): the
+  // channel names AND the `servers` envelope key stay, even though the
+  // entries are hosts shell-side.
   ipcMain.handle("servers:list", (event): ServersListResult => {
-    if (!isServersSender(event)) return { ok: false, error: "Not allowed" };
-    return { ok: true, servers: serverInfos(loadServers(userDataDir())) };
+    if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
+    return { ok: true, servers: hostInfos(loadHosts(userDataDir())) };
   });
 
   ipcMain.handle("servers:switch", (event, id: unknown): IpcResult => {
-    if (!isServersSender(event)) return { ok: false, error: "Not allowed" };
+    if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
     if (typeof id !== "string") return { ok: false, error: "Invalid request" };
-    return switchToServer(id);
+    return switchToHost(id);
   });
 }
 
@@ -646,8 +628,8 @@ app.on("web-contents-created", (_event, contents) => {
     return { action: "deny" };
   });
 
-  // One guard for both user navigation and server-issued redirects — a
-  // registered server must not be able to escape in-window via a redirect.
+  // One guard for both user navigation and host-issued redirects — a
+  // registered host must not be able to escape in-window via a redirect.
   const guardNavigation = (
     event: { preventDefault: () => void },
     url: string,

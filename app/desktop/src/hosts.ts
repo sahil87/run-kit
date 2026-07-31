@@ -1,0 +1,226 @@
+/**
+ * Host-list store: `<userData>/hosts.json` (schema version 1). A "host" is an
+ * rk instance the shell can connect to — "server" is reserved for tmux
+ * servers (the web UI's terminology).
+ *
+ * Deliberately electron-free — the data directory is a parameter (main.ts
+ * passes `app.getPath('userData')`), which keeps this module unit-testable
+ * under plain `node --test`. No electron-store: the file is small, writes are
+ * tmp-file-then-rename (atomic on POSIX), and a corrupt or missing file
+ * recovers as an empty list (startup then routes to the welcome page).
+ */
+import { randomUUID } from "node:crypto";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
+export interface HostEntry {
+  id: string;
+  name: string;
+  url: string;
+  /** Last-visited SPA route remainder (`pathname + search`), when known. */
+  lastPath?: string;
+}
+
+export interface HostList {
+  version: 1;
+  activeId: string | null;
+  hosts: HostEntry[];
+}
+
+export type NormalizeResult =
+  | { ok: true; origin: string }
+  | { ok: false; error: string };
+
+export type AddResult =
+  | { ok: true; list: HostList; host: HostEntry }
+  | { ok: false; error: string };
+
+const FILE_NAME = "hosts.json";
+
+export function emptyList(): HostList {
+  return { version: 1, activeId: null, hosts: [] };
+}
+
+/**
+ * Normalize user input to a bare origin (`http://host:port`). Only http/https
+ * are accepted — anything else (ftp:, file:, garbage) is a validation error
+ * and is never persisted.
+ */
+export function normalizeOrigin(input: string): NormalizeResult {
+  let url: URL;
+  try {
+    url = new URL(input.trim());
+  } catch {
+    return { ok: false, error: "Not a valid URL — include the scheme, e.g. http://host:3000" };
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    return { ok: false, error: `Unsupported scheme "${url.protocol}" — only http and https work` };
+  }
+  return { ok: true, origin: url.origin };
+}
+
+/**
+ * Parse one stored entry. The required fields (id/name/url) must be strings —
+ * anything else rejects the entry (and, via parseHostList, the file). The
+ * optional `lastPath` is tolerant: absent → fine, string → kept, any other
+ * type → the field is dropped but the entry (and file) still loads.
+ */
+function parseHostEntry(value: unknown): HostEntry | null {
+  if (typeof value !== "object" || value === null) return null;
+  if (!("id" in value) || !("name" in value) || !("url" in value)) return null;
+  if (
+    typeof value.id !== "string" ||
+    typeof value.name !== "string" ||
+    typeof value.url !== "string"
+  ) {
+    return null;
+  }
+  const entry: HostEntry = { id: value.id, name: value.name, url: value.url };
+  if ("lastPath" in value && typeof value.lastPath === "string") {
+    entry.lastPath = value.lastPath;
+  }
+  return entry;
+}
+
+function parseHostList(value: unknown): HostList | null {
+  if (typeof value !== "object" || value === null) return null;
+  if (!("version" in value) || !("activeId" in value) || !("hosts" in value)) return null;
+  if (value.version !== 1) return null;
+  if (value.activeId !== null && typeof value.activeId !== "string") return null;
+  if (!Array.isArray(value.hosts)) return null;
+  const hosts: HostEntry[] = [];
+  for (const raw of value.hosts) {
+    const entry = parseHostEntry(raw);
+    if (entry === null) return null;
+    hosts.push(entry);
+  }
+  return { version: 1, activeId: value.activeId, hosts };
+}
+
+/**
+ * Load the list; a missing, unreadable, corrupt, or wrong-shape file is an
+ * empty list. There is deliberately NO fallback read of the pre-rename
+ * `servers.json` — no migration; that file is never read, never deleted.
+ */
+export function loadHosts(dir: string): HostList {
+  let raw: string;
+  try {
+    raw = readFileSync(join(dir, FILE_NAME), "utf8");
+  } catch {
+    return emptyList();
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return emptyList();
+  }
+  return parseHostList(parsed) ?? emptyList();
+}
+
+/** Persist atomically: write a tmp file in the same directory, then rename over the target. */
+export function saveHosts(dir: string, list: HostList): void {
+  mkdirSync(dir, { recursive: true });
+  const target = join(dir, FILE_NAME);
+  const tmp = join(dir, `${FILE_NAME}.tmp-${process.pid}`);
+  writeFileSync(tmp, JSON.stringify(list, null, 2) + "\n", "utf8");
+  renameSync(tmp, target);
+}
+
+/** Validate + normalize, append, set active, persist. Nothing is written on a validation error. */
+export function addHost(dir: string, name: string, urlInput: string): AddResult {
+  const normalized = normalizeOrigin(urlInput);
+  if (!normalized.ok) return normalized;
+  const list = loadHosts(dir);
+  const host: HostEntry = {
+    id: randomUUID(),
+    name: name.trim() || normalized.origin,
+    url: normalized.origin,
+  };
+  const next: HostList = {
+    version: 1,
+    activeId: host.id,
+    hosts: [...list.hosts, host],
+  };
+  saveHosts(dir, next);
+  return { ok: true, list: next, host };
+}
+
+/** Remove by id; when the active host is removed, the first remaining becomes active. */
+export function removeHost(dir: string, id: string): HostList {
+  const list = loadHosts(dir);
+  const hosts = list.hosts.filter((h) => h.id !== id);
+  const activeId =
+    list.activeId === id ? (hosts.length > 0 ? hosts[0].id : null) : list.activeId;
+  const next: HostList = { version: 1, activeId, hosts };
+  saveHosts(dir, next);
+  return next;
+}
+
+export function setActiveHost(dir: string, id: string): HostList {
+  const list = loadHosts(dir);
+  if (!list.hosts.some((h) => h.id === id)) return list;
+  const next: HostList = { ...list, activeId: id };
+  saveHosts(dir, next);
+  return next;
+}
+
+/**
+ * Record the last-visited SPA path for a host. Unknown id or an unchanged
+ * value is a no-op (nothing written) — capture runs on every switch/add/
+ * close, so the fast path avoids rewriting an identical file.
+ */
+export function setHostLastPath(dir: string, id: string, lastPath: string): HostList {
+  const list = loadHosts(dir);
+  const entry = list.hosts.find((h) => h.id === id);
+  if (!entry || entry.lastPath === lastPath) return list;
+  const next: HostList = {
+    ...list,
+    hosts: list.hosts.map((h) => (h.id === id ? { ...h, lastPath } : h)),
+  };
+  saveHosts(dir, next);
+  return next;
+}
+
+/**
+ * Resolve the host to load at startup / after a mutation: the active entry,
+ * falling back to the first host when `activeId` dangles, `null` when the
+ * list is empty (welcome page).
+ */
+export function resolveActiveHost(list: HostList): HostEntry | null {
+  if (list.hosts.length === 0) return null;
+  return list.hosts.find((h) => h.id === list.activeId) ?? list.hosts[0];
+}
+
+/**
+ * Resolve which entry owns a displayed origin (last-path capture). Several
+ * entries can share one origin (`addHost` never dedupes) — the active entry
+ * wins among the matches, else the first match; `null` when nothing matches.
+ */
+export function findHostByOrigin(list: HostList, origin: string): HostEntry | null {
+  const matches = list.hosts.filter((h) => h.url === origin);
+  return matches.find((h) => h.id === list.activeId) ?? matches[0] ?? null;
+}
+
+export interface HostInfo {
+  id: string;
+  name: string;
+  url: string;
+  active: boolean;
+}
+
+/**
+ * Read-only projection of the list for the `servers:list` IPC surface (the
+ * channel name is the SPA-facing contract and keeps its server naming): every
+ * entry plus an `active` flag derived via `resolveActiveHost`, so a dangling
+ * `activeId` marks the same first-host fallback that startup would load.
+ */
+export function hostInfos(list: HostList): HostInfo[] {
+  const activeId = resolveActiveHost(list)?.id ?? null;
+  return list.hosts.map(({ id, name, url }) => ({
+    id,
+    name,
+    url,
+    active: id === activeId,
+  }));
+}

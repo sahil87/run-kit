@@ -1,10 +1,11 @@
 /**
- * Local-daemon pure logic — rk binary candidate resolution, `rk --version`
- * output parsing, session-count parsing, and already-running error
- * classification. (The per-platform "This Mac"/"This Machine" heading lives
- * inline in welcome.ts, which is deliberately import-free.)
+ * Local-daemon pure logic — rk binary candidate resolution, GUI-PATH
+ * augmentation, `rk --version` output parsing, session-count parsing, and
+ * already-running error classification. (The per-platform "This Mac"/"This
+ * Machine" heading lives inline in welcome.ts, which is deliberately
+ * import-free.)
  *
- * Deliberately electron-free (the `servers.ts` / `window-open.ts` precedent):
+ * Deliberately electron-free (the `hosts.ts` / `window-open.ts` precedent):
  * filesystem access is injected (`exists` predicate) so the module is fully
  * covered by the sibling `local-daemon.test.ts` under plain `node --test`.
  *
@@ -37,21 +38,48 @@ export type DaemonStatus =
     };
 
 /**
+ * Per-platform brew bin directories — the single source behind both the rk
+ * binary candidates and the PATH augmentation. Windows has no rk daemon/tmux
+ * concept — no dirs, local section suppressed.
+ */
+function brewBinDirs(platform: string): string[] {
+  switch (platform) {
+    case "darwin":
+      return ["/opt/homebrew/bin", "/usr/local/bin"];
+    case "linux":
+      return ["/home/linuxbrew/.linuxbrew/bin", "/usr/local/bin"];
+    default:
+      return [];
+  }
+}
+
+/**
  * Fixed rk binary candidates per platform, checked BEFORE any PATH lookup:
  * GUI-launched Electron does not inherit the login-shell PATH on macOS (it
  * gets `/usr/bin:/bin:…`), so a Homebrew-installed `rk` never resolves via
  * PATH there. Linux GUI sessions have the same trap for linuxbrew's prefix.
- * Windows has no rk daemon/tmux concept — no candidates, section suppressed.
  */
 export function rkCandidatePaths(platform: string): string[] {
-  switch (platform) {
-    case "darwin":
-      return ["/opt/homebrew/bin/rk", "/usr/local/bin/rk"];
-    case "linux":
-      return ["/home/linuxbrew/.linuxbrew/bin/rk", "/usr/local/bin/rk"];
-    default:
-      return [];
-  }
+  return brewBinDirs(platform).map((dir) => `${dir}/rk`);
+}
+
+/**
+ * Append the platform's brew bin dirs to a PATH when missing — the spawn-site
+ * half of the GUI PATH trap: resolving the rk BINARY via `rkCandidatePaths`
+ * is not enough, because the spawned rk inherits Electron's GUI PATH
+ * (`/usr/bin:/bin:…` on macOS) and its own `exec.LookPath("tmux")` then
+ * fails. `main.ts` `runRk` passes the augmented PATH as an env override, and
+ * the tmux server tree started by `rk daemon start` inherits it wholesale.
+ * Dirs already present are not duplicated; win32/unknown platforms (and a
+ * PATH that already carries every dir) pass through unchanged.
+ */
+export function augmentPath(platform: string, currentPath: string | undefined): string {
+  const dirs = brewBinDirs(platform);
+  if (dirs.length === 0) return currentPath ?? "";
+  const present = new Set((currentPath ?? "").split(":").filter((p) => p !== ""));
+  const missing = dirs.filter((dir) => !present.has(dir));
+  if (currentPath === undefined || currentPath === "") return missing.join(":");
+  return missing.length === 0 ? currentPath : `${currentPath}:${missing.join(":")}`;
 }
 
 /**

@@ -1,6 +1,6 @@
 /**
  * node:test suite for the window-open policy (run via `pnpm run test` after
- * compile — the `servers.test.ts` convention). Compiled output is excluded
+ * compile — the `hosts.test.ts` convention). Compiled output is excluded
  * from packaging via the electron-builder `files` pattern.
  */
 import assert from "node:assert/strict";

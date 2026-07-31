@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 7
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-07-31T09:04:08Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-31T09:14:30Z"}
     hydrate: {started_at: "2026-07-31T09:14:30Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-31T09:19:11Z"}
     ship: {started_at: "2026-07-31T09:19:11Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-31T09:21:10Z"}
-    review-pr: {started_at: "2026-07-31T09:21:10Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-07-31T09:21:10Z", driver: git-pr, iterations: 1, completed_at: "2026-07-31T09:33:50Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/485
 change_type_source: explicit
@@ -54,4 +54,4 @@ true_impact:
     computed_at_stage: ship
 summary: Consolidated the tmux subprocess-runner idiom into exported internal/tmux Run/RunOutput/RunOpts; internal/daemon, internal/riff, and cmd/rk now delegate, with socket targeting and timeouts left per-site
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-07-31T09:21:10Z
+last_updated: 2026-07-31T09:33:50Z

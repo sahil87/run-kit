@@ -19,10 +19,11 @@ func WaitUntil(t *testing.T, timeout time.Duration, cond func() bool) bool {
 		if cond() {
 			return true
 		}
-		if time.Now().After(deadline) {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
 			return false
 		}
-		time.Sleep(waitPollInterval)
+		time.Sleep(min(remaining, waitPollInterval))
 	}
 }
 

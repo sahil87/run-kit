@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { pinWindow } from "./_boards";
 import { resolveWindow, gotoWindow } from "./_ready";
 import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
 
@@ -24,10 +25,7 @@ test.describe("Boards: Pin flow", () => {
     const winId = listWindows(TEST_SESSION).find((w) => w.name === "win-a")?.windowId;
     expect(winId).toBeTruthy();
 
-    const pinRes = await page.request.post(`/api/boards/${BOARD_NAME}/pin`, {
-      data: { server: TMUX_SERVER, windowId: winId },
-    });
-    expect(pinRes.ok()).toBeTruthy();
+    await pinWindow(page.request, BOARD_NAME, TMUX_SERVER, winId!);
 
     // Verify the GET endpoint reflects the pin (server-side state contract).
     const list = await page.request.get(`/api/boards`);
@@ -96,10 +94,7 @@ test.describe("Boards: Pin flow", () => {
     // direct-pin candidate the palette can target for win-b.
     const board = `pal${Date.now().toString().slice(-6)}`;
     const winA = (await resolveWindow(page, TMUX_SERVER, TEST_SESSION, "win-a")).windowId;
-    const seedRes = await page.request.post(`/api/boards/${board}/pin`, {
-      data: { server: TMUX_SERVER, windowId: winA },
-    });
-    expect(seedRes.ok()).toBeTruthy();
+    await pinWindow(page.request, board, TMUX_SERVER, winA);
 
     // Navigate to win-b's terminal route so the palette's "current window" is
     // win-b, and it is NOT yet pinned to `board` (so the direct-pin entry shows).

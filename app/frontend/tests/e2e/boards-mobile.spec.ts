@@ -1,10 +1,9 @@
 import { test, expect } from "@playwright/test";
+import { pinWindow, trackPin, unpinAll } from "./_boards";
 import { TMUX_SERVER, createSession, killSession, listWindows, newWindow } from "./_tmux";
 
 const TEST_SESSION = `e2e-board-mobile-${Date.now()}`;
 const BOARD_NAME = `mob${Date.now().toString().slice(-6)}`;
-
-const pinnedEntries: Array<{ server: string; windowId: string }> = [];
 
 test.describe("Boards: mobile carousel", () => {
   test.beforeAll(() => {
@@ -16,16 +15,7 @@ test.describe("Boards: mobile carousel", () => {
     // `_rk-pin-*` session that persists across restarts (and survives killing
     // the source session), so stale pin-sessions would otherwise pollute the
     // persistent `rk-test-e2e` server across runs.
-    for (const entry of pinnedEntries) {
-      try {
-        await request.post(`/api/boards/${BOARD_NAME}/unpin`, {
-          data: entry,
-        });
-      } catch {
-        // Best-effort
-      }
-    }
-    pinnedEntries.length = 0;
+    await unpinAll(request);
 
     killSession(TEST_SESSION);
   });
@@ -60,11 +50,8 @@ test.describe("Boards: mobile carousel", () => {
     for (const name of requiredWindows) {
       const id = namesToIds.get(name);
       expect(id, `window ${name} should exist`).toBeTruthy();
-      const r = await page.request.post(`/api/boards/${BOARD_NAME}/pin`, {
-        data: { server: TMUX_SERVER, windowId: id },
-      });
-      expect(r.ok()).toBeTruthy();
-      if (id) pinnedEntries.push({ server: TMUX_SERVER, windowId: id });
+      await pinWindow(page.request, BOARD_NAME, TMUX_SERVER, id!);
+      trackPin({ board: BOARD_NAME, server: TMUX_SERVER, windowId: id! });
     }
 
     await page.goto(`/board/${BOARD_NAME}`);

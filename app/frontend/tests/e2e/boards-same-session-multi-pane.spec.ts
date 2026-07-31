@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { isTerminalsSocket, pinWindow, unpinWindow } from "./_boards";
 import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
 
 const TEST_SESSION = `e2e-board-same-${Date.now()}`;
@@ -20,11 +21,6 @@ const BOARD_NAME = `mp${Date.now().toString().slice(-6)}`;
 // connection-level proof that the panes are isolated.
 const WIN_A_MARKER = "PANE_ALPHA_OK";
 const WIN_B_MARKER = "PANE_BRAVO_OK";
-
-/** True for the terminals mux URL (`/ws/terminals`). */
-function isTerminalsSocket(url: string): boolean {
-  return /\/ws\/terminals(\?|$)/.test(url);
-}
 
 test.describe("Boards: same-session multi-pane", () => {
   test.beforeAll(() => {
@@ -77,10 +73,7 @@ test.describe("Boards: same-session multi-pane", () => {
 
     // Pin both windows from the same session to a fresh board.
     for (const winId of [winA, winB]) {
-      const res = await page.request.post(`/api/boards/${BOARD_NAME}/pin`, {
-        data: { server: TMUX_SERVER, windowId: winId },
-      });
-      expect(res.ok()).toBeTruthy();
+      await pinWindow(page.request, BOARD_NAME, TMUX_SERVER, winId!);
     }
 
     // Navigate to the board page. domcontentloaded skips waiting on every WS
@@ -109,10 +102,7 @@ test.describe("Boards: same-session multi-pane", () => {
 
     // Cleanup: unpin both so the board disappears (empty boards are removed).
     for (const winId of [winA, winB]) {
-      const res = await page.request.post(`/api/boards/${BOARD_NAME}/unpin`, {
-        data: { server: TMUX_SERVER, windowId: winId },
-      });
-      expect(res.ok()).toBeTruthy();
+      await unpinWindow(page.request, BOARD_NAME, TMUX_SERVER, winId!);
     }
   });
 });

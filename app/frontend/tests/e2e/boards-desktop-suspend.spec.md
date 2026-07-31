@@ -19,10 +19,10 @@ is the desktop counterpart of the mobile carousel's existing
   (480px) six panes overflow the row, so the rightmost panes start off-screen —
   the precondition for observing suspension. Six panes also exceeds the
   live-pane cap of 4.
-- A module-scoped `pinnedEntries` array tracks every `(server, windowId)` pinned
-  during the test.
-- `afterAll` POSTs `/api/boards/<name>/unpin` for each tracked entry
-  (best-effort) so the persistent `rk-test-e2e` server doesn't carry stale
+- Every pin is registered with the shared `_boards.ts` cleanup registry
+  (`trackPin`).
+- `afterAll` runs `unpinAll(request)` (best-effort unpin of every tracked
+  entry) so the persistent `rk-test-e2e` server doesn't carry stale
   `_rk-pin-*` pin-sessions into later runs, then kills the test session.
 
 ## Tests

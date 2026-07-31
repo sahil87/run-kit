@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 import { readFileSync, writeFileSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { apiBase, pinWindow } from "./_boards";
 import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
 
 // scripts/test-e2e.sh isolates the tmux server/port but NOT $HOME, so this spec
@@ -20,10 +21,6 @@ const TEST_SESSION = `e2e-board-reorder-${Date.now()}`;
 // [zzz, aaa] proves the reorder overrides the default alphabetical sort.
 const BOARD_A = `aaa${Date.now().toString().slice(-6)}`;
 const BOARD_Z = `zzz${Date.now().toString().slice(-6)}`;
-
-function apiBase(baseURL: string | undefined): string {
-  return baseURL ?? `http://localhost:${process.env.RK_PORT ?? 3020}`;
-}
 
 test.describe("Board list reorder — order endpoint + rank-aware sort + server-global SSE", () => {
   test.beforeAll(() => {
@@ -88,11 +85,7 @@ test.describe("Board list reorder — order endpoint + rank-aware sort + server-
       [BOARD_A, winA],
       [BOARD_Z, winB],
     ] as const) {
-      const pin = await request.post(`${base}/api/boards/${board}/pin`, {
-        headers: { "Content-Type": "application/json" },
-        data: { server: TMUX_SERVER, windowId: winId },
-      });
-      expect(pin.ok(), `pin ${board} → ${pin.status()}`).toBeTruthy();
+      await pinWindow(request, board, TMUX_SERVER, winId);
     }
 
     // Baseline: alphabetical (aaa… before zzz…).

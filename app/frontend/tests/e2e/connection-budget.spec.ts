@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { isTerminalsSocket, pinWindow } from "./_boards";
 import { READY_TIMEOUT, gotoServerReady, gotoWindow } from "./_ready";
 import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
 
@@ -24,12 +25,6 @@ const TEST_SESSION = `e2e-connbudget-${Date.now()}`;
 /** True for the state socket URL (`/ws/state`), excluding Vite HMR. */
 function isStateSocket(url: string): boolean {
   return /\/ws\/state(\?|$)/.test(url);
-}
-
-/** True for the terminals mux URL (`/ws/terminals`) — one per tab carrying all
- *  pane streams (replaces the retired per-pane `/relay/{windowId}`). */
-function isTerminalsSocket(url: string): boolean {
-  return /\/ws\/terminals(\?|$)/.test(url);
 }
 
 /** Install WS + response counters on a page. Returns live accessors.
@@ -147,10 +142,7 @@ test.describe("Connection budget — 2 muxed WS (state + terminals), zero SSE", 
     const board = `cb-board-${Date.now().toString().slice(-6)}`;
     // Pin the session's first window to a board so the board route has content.
     const windowId = listWindows(TEST_SESSION)[0]?.windowId;
-    const pin = await request.post(`/api/boards/${board}/pin`, {
-      data: { server: TMUX_SERVER, windowId },
-    });
-    expect(pin.ok()).toBeTruthy();
+    await pinWindow(request, board, TMUX_SERVER, windowId!);
 
     try {
       const c = installCounters(page);
@@ -164,6 +156,9 @@ test.describe("Connection budget — 2 muxed WS (state + terminals), zero SSE", 
       await expect.poll(() => c.terminalsSocketCount(), { timeout: 5_000 }).toBe(1);
       expect(c.eventStreamUrls(), "no text/event-stream responses").toEqual([]);
     } finally {
+      // Best-effort cleanup — deliberately NOT ok-asserted: a throw from a
+      // `finally` block would REPLACE the try-block's in-flight exception,
+      // masking the socket-count diagnostic this test exists to surface.
       await request.post(`/api/boards/${board}/unpin`, {
         data: { server: TMUX_SERVER, windowId },
       });

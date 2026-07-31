@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { pinWindow } from "./_boards";
 import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
 
 // Own session per file to avoid cross-test interference.
@@ -26,10 +27,7 @@ test.describe("Boards: tile-header unpin + top-bar consequence-gated Kill (co9z)
     const board = `unpin${Date.now().toString().slice(-6)}`;
 
     const winId = windowId("win-a");
-    const pinRes = await page.request.post(`/api/boards/${board}/pin`, {
-      data: { server: TMUX_SERVER, windowId: winId },
-    });
-    expect(pinRes.ok()).toBeTruthy();
+    await pinWindow(page.request, board, TMUX_SERVER, winId);
 
     await page.goto(`/board/${board}`, { waitUntil: "domcontentloaded" });
     await expect(page.getByText("win-a").first()).toBeVisible({ timeout: 10_000 });
@@ -69,10 +67,7 @@ test.describe("Boards: tile-header unpin + top-bar consequence-gated Kill (co9z)
 
     // Pin win-c to the board (link-based → the window stays in its home session).
     const winId = windowId("win-c");
-    const pinRes = await page.request.post(`/api/boards/${board}/pin`, {
-      data: { server: TMUX_SERVER, windowId: winId },
-    });
-    expect(pinRes.ok()).toBeTruthy();
+    await pinWindow(page.request, board, TMUX_SERVER, winId);
 
     // Dual presence: because Pin now LINKS (not moves) the window, it remains a
     // member of its home session — so the user-facing GET /api/sessions (the
@@ -111,10 +106,7 @@ test.describe("Boards: tile-header unpin + top-bar consequence-gated Kill (co9z)
     // Pin win-b. A single-window pin: a real window-kill collapses the
     // pin-session (the self-heal path).
     const winId = windowId("win-b");
-    const pinRes = await page.request.post(`/api/boards/${board}/pin`, {
-      data: { server: TMUX_SERVER, windowId: winId },
-    });
-    expect(pinRes.ok()).toBeTruthy();
+    await pinWindow(page.request, board, TMUX_SERVER, winId);
 
     await page.goto(`/board/${board}`, { waitUntil: "domcontentloaded" });
     await expect(page.getByText("win-b").first()).toBeVisible({ timeout: 10_000 });
@@ -176,10 +168,7 @@ test.describe("Boards: tile-header unpin + top-bar consequence-gated Kill (co9z)
 
     // win-a is reused here (a fresh board name isolates it from the first test).
     const winId = windowId("win-a");
-    const pinRes = await page.request.post(`/api/boards/${board}/pin`, {
-      data: { server: TMUX_SERVER, windowId: winId },
-    });
-    expect(pinRes.ok()).toBeTruthy();
+    await pinWindow(page.request, board, TMUX_SERVER, winId);
 
     await page.goto(`/board/${board}`, { waitUntil: "domcontentloaded" });
     await expect(page.getByText("win-a").first()).toBeVisible({ timeout: 10_000 });

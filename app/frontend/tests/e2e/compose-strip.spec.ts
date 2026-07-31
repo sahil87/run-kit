@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { execSync } from "node:child_process";
+import { pinWindow } from "./_boards";
 import { resolveWindow } from "./_ready";
 import { TMUX_SERVER, createSession, killSession } from "./_tmux";
 
@@ -225,10 +226,7 @@ test.describe("Docked compose strip", () => {
     const alpha = await resolveWindowId(page, BOARD_SESSION, "cs-alpha");
     const bravo = await resolveWindowId(page, BOARD_SESSION, "cs-bravo");
     for (const winId of [alpha, bravo]) {
-      const res = await page.request.post(`/api/boards/${BOARD_NAME}/pin`, {
-        data: { server: TMUX_SERVER, windowId: winId },
-      });
-      expect(res.ok()).toBeTruthy();
+      await pinWindow(page.request, BOARD_NAME, TMUX_SERVER, winId);
     }
 
     await page.goto(`/board/${BOARD_NAME}`, { waitUntil: "domcontentloaded" });

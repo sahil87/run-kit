@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { pinWindow, trackPin, unpinAll } from "./_boards";
 import { TMUX_SERVER, createSession, killServer, killSession, listWindows } from "./_tmux";
 
 const TMUX_SERVER_A = TMUX_SERVER;
@@ -12,8 +13,6 @@ const TEST_SESSION_A = `e2e-board-multi-a-${Date.now()}`;
 const TEST_SESSION_B = `e2e-board-multi-b-${Date.now()}`;
 const BOARD_NAME = `multi${Date.now().toString().slice(-6)}`;
 
-const pinnedEntries: Array<{ server: string; windowId: string }> = [];
-
 test.describe("Boards: multi-server union", () => {
   test.beforeAll(() => {
     createSession(TEST_SESSION_A, { server: TMUX_SERVER_A, windows: ["srv-a-win"] });
@@ -25,16 +24,7 @@ test.describe("Boards: multi-server union", () => {
     // session that PERSISTS across restarts (and survives killing the SOURCE
     // session), so without this the persistent `rk-test-e2e` server would carry
     // stale pin-sessions into later runs.
-    for (const entry of pinnedEntries) {
-      try {
-        await request.post(`/api/boards/${BOARD_NAME}/unpin`, {
-          data: entry,
-        });
-      } catch {
-        // Best-effort
-      }
-    }
-    pinnedEntries.length = 0;
+    await unpinAll(request);
 
     killSession(TEST_SESSION_A, { server: TMUX_SERVER_A });
     killServer(TMUX_SERVER_B);
@@ -48,16 +38,10 @@ test.describe("Boards: multi-server union", () => {
     const winIdB = listWindows(TEST_SESSION_B, { server: TMUX_SERVER_B })[0]?.windowId;
 
     // Pin both windows via the HTTP API. Server is in the body per the spec.
-    const pinA = await page.request.post(`/api/boards/${BOARD_NAME}/pin`, {
-      data: { server: TMUX_SERVER_A, windowId: winIdA },
-    });
-    expect(pinA.ok()).toBeTruthy();
-    pinnedEntries.push({ server: TMUX_SERVER_A, windowId: winIdA });
-    const pinB = await page.request.post(`/api/boards/${BOARD_NAME}/pin`, {
-      data: { server: TMUX_SERVER_B, windowId: winIdB },
-    });
-    expect(pinB.ok()).toBeTruthy();
-    pinnedEntries.push({ server: TMUX_SERVER_B, windowId: winIdB });
+    await pinWindow(page.request, BOARD_NAME, TMUX_SERVER_A, winIdA!);
+    trackPin({ board: BOARD_NAME, server: TMUX_SERVER_A, windowId: winIdA! });
+    await pinWindow(page.request, BOARD_NAME, TMUX_SERVER_B, winIdB!);
+    trackPin({ board: BOARD_NAME, server: TMUX_SERVER_B, windowId: winIdB! });
 
     // Verify GET /api/boards/<name> returns entries from both servers.
     const get = await page.request.get(`/api/boards/${BOARD_NAME}`);

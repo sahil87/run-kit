@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { isTerminalsSocket, pinWindow, trackPin, unpinAll } from "./_boards";
 import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
 
 const TEST_SESSION = `e2e-board-suspend-${Date.now()}`;
@@ -9,13 +10,6 @@ const BOARD_NAME = `sus${Date.now().toString().slice(-6)}`;
 // exceeds the live-pane cap of 4, so suspension is observable.
 const PANE_COUNT = 6;
 const VIEWPORT = { width: 1280, height: 800 };
-
-const pinnedEntries: Array<{ server: string; windowId: string }> = [];
-
-/** True for the terminals mux URL (`/ws/terminals`). */
-function isTerminalsSocket(url: string): boolean {
-  return /\/ws\/terminals(\?|$)/.test(url);
-}
 
 test.describe("Boards: desktop relay suspension", () => {
   test.use({ viewport: VIEWPORT });
@@ -32,14 +26,7 @@ test.describe("Boards: desktop relay suspension", () => {
   });
 
   test.afterAll(async ({ request }) => {
-    for (const entry of pinnedEntries) {
-      try {
-        await request.post(`/api/boards/${BOARD_NAME}/unpin`, { data: entry });
-      } catch {
-        // Best-effort
-      }
-    }
-    pinnedEntries.length = 0;
+    await unpinAll(request);
     killSession(TEST_SESSION);
   });
 
@@ -59,11 +46,8 @@ test.describe("Boards: desktop relay suspension", () => {
 
     // Pin all panes (left-to-right pin order matches DesktopRow render order).
     for (const windowId of winIds) {
-      const res = await page.request.post(`/api/boards/${BOARD_NAME}/pin`, {
-        data: { server: TMUX_SERVER, windowId },
-      });
-      expect(res.ok()).toBeTruthy();
-      pinnedEntries.push({ server: TMUX_SERVER, windowId });
+      await pinWindow(page.request, BOARD_NAME, TMUX_SERVER, windowId);
+      trackPin({ board: BOARD_NAME, server: TMUX_SERVER, windowId });
     }
 
     // Track muxed-STREAM lifecycle per window id over the single `/ws/terminals`

@@ -28,11 +28,13 @@ the same state both controls flip.
 - `beforeAll` creates a fresh tmux session `e2e-board-autofit-<ts>` on
   `E2E_TMUX_SERVER` (default `rk-test-e2e`) with **6 windows** `win-0..win-5`,
   each running `sleep 300` so panes are stable and long-lived.
-- `afterAll` unpins every tracked pin and kills the home session (best-effort;
-  any surviving `_rk-pin-*` is reaped by the isolated-server global teardown).
+- `afterAll` unpins every tracked pin via the shared `_boards.ts` registry
+  (`unpinAll`) and kills the home session (best-effort; any surviving
+  `_rk-pin-*` is reaped by the isolated-server global teardown).
 - `windowIds()` resolves `win-0..win-5`'s tmux `window_id`s in index order.
-- Helpers: `pin()` pins a window via `POST /api/boards/{board}/pin` (tracked for
-  cleanup); `panes()` locates the desktop pane roots
+- Helpers: `pin()` composes the shared `pinWindow` (ok-asserted
+  `POST /api/boards/{board}/pin`) with `trackPin` for cleanup; `panes()`
+  locates the desktop pane roots
   (`[role="group"][aria-label^="board pane"]`); `row()` locates the
   `.overflow-x-auto` scroll row; `autofitButton()` locates the top-bar
   `Toggle board autofit` button via `getByRole` — the accessibility-tree match

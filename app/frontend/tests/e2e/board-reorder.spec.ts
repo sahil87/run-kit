@@ -1,12 +1,9 @@
 import { test, expect } from "@playwright/test";
+import { apiBase, pinWindow } from "./_boards";
 import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
 
 const TEST_SESSION = `e2e-board-reorder-${Date.now()}`;
 const BOARD_NAME = `reo${Date.now().toString().slice(-6)}`;
-
-function apiBase(baseURL: string | undefined): string {
-  return baseURL ?? `http://localhost:${process.env.RK_PORT ?? 3020}`;
-}
 
 /** Read the two test windows' ids in their tmux index order (win-a, win-b). */
 function winIds(): { a: string; b: string } {
@@ -45,11 +42,7 @@ test.describe("Board pane reorder — reorder endpoint + board-changed SSE", () 
 
     // Pin both windows. Initial board order follows pin order (win-a, win-b).
     for (const windowId of [a, b]) {
-      const pin = await request.post(`${base}/api/boards/${BOARD_NAME}/pin`, {
-        headers: { "Content-Type": "application/json" },
-        data: { server: TMUX_SERVER, windowId },
-      });
-      expect(pin.ok(), `pin ${windowId} → ${pin.status()}`).toBeTruthy();
+      await pinWindow(request, BOARD_NAME, TMUX_SERVER, windowId);
     }
 
     // Sanity: GET returns both, win-a before win-b.
@@ -100,10 +93,7 @@ test.describe("Board pane reorder — reorder endpoint + board-changed SSE", () 
 
     // Pin both windows so the reorder has a valid neighbour.
     for (const windowId of [a, b]) {
-      const pin = await page.request.post(`${base}/api/boards/${BOARD_NAME}/pin`, {
-        data: { server: TMUX_SERVER, windowId },
-      });
-      expect(pin.ok()).toBeTruthy();
+      await pinWindow(page.request, BOARD_NAME, TMUX_SERVER, windowId);
     }
 
     // Navigate so the state socket connects, then read raw frames via an in-page

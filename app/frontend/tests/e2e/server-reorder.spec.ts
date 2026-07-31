@@ -1,10 +1,7 @@
 import { test, expect } from "@playwright/test";
+import { apiBase } from "./_boards";
 import { gotoServerReady } from "./_ready";
 import { TMUX_SERVER } from "./_tmux";
-
-function apiBase(baseURL: string | undefined): string {
-  return baseURL ?? `http://localhost:${process.env.RK_PORT ?? 3020}`;
-}
 
 test.describe("Server reorder — order endpoint + server-global SSE", () => {
   test("POST /api/servers/order persists rank and returns ok", async ({ request, baseURL }) => {

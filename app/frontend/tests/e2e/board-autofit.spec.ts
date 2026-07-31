@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { pinWindow, trackPin, unpinAll, unpinWindow } from "./_boards";
 import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
 
 // Own session per file to avoid cross-test interference.
@@ -19,8 +20,6 @@ const VIEWPORT = { width: 1920, height: 900 };
 // (25% floor + scroll) from the same session.
 const WINDOW_COUNT = 6;
 
-const pinned: Array<{ board: string; server: string; windowId: string }> = [];
-
 /** Resolve the tmux window ids for win-0..win-N in index order. */
 function windowIds(): string[] {
   const wins = listWindows(TEST_SESSION);
@@ -33,12 +32,11 @@ function windowIds(): string[] {
   return ids;
 }
 
+/** Pin a window to `board` via the shared ok-asserted helper and track it for
+ *  the afterAll `unpinAll` sweep. */
 async function pin(page: Page, board: string, windowId: string) {
-  const res = await page.request.post(`/api/boards/${board}/pin`, {
-    data: { server: TMUX_SERVER, windowId },
-  });
-  expect(res.ok(), `pin ${windowId} → ${res.status()}`).toBeTruthy();
-  pinned.push({ board, server: TMUX_SERVER, windowId });
+  await pinWindow(page.request, board, TMUX_SERVER, windowId);
+  trackPin({ board, server: TMUX_SERVER, windowId });
 }
 
 /** The desktop pane root elements (role=group, aria-label "board pane ..."). */
@@ -76,16 +74,7 @@ test.describe("Boards: desktop autofit toggle (738w)", () => {
   });
 
   test.afterAll(async ({ request }) => {
-    for (const entry of pinned) {
-      try {
-        await request.post(`/api/boards/${entry.board}/unpin`, {
-          data: { server: entry.server, windowId: entry.windowId },
-        });
-      } catch {
-        // Best-effort
-      }
-    }
-    pinned.length = 0;
+    await unpinAll(request);
     killSession(TEST_SESSION);
   });
 
@@ -156,9 +145,7 @@ test.describe("Boards: desktop autofit toggle (738w)", () => {
     // Cleanup: reset to off so the persisted key does not leak into the reload
     // test, and unpin.
     for (const id of ids.slice(0, 2)) {
-      await page.request.post(`/api/boards/${BOARD_A}/unpin`, {
-        data: { server: TMUX_SERVER, windowId: id },
-      });
+      await unpinWindow(page.request, BOARD_A, TMUX_SERVER, id);
     }
   });
 
@@ -200,9 +187,7 @@ test.describe("Boards: desktop autofit toggle (738w)", () => {
     // Reset to off + unpin.
     await btn.click();
     for (const id of ids.slice(0, 5)) {
-      await page.request.post(`/api/boards/${BOARD_A}/unpin`, {
-        data: { server: TMUX_SERVER, windowId: id },
-      });
+      await unpinWindow(page.request, BOARD_A, TMUX_SERVER, id);
     }
   });
 
@@ -247,14 +232,10 @@ test.describe("Boards: desktop autofit toggle (738w)", () => {
 
     // Unpin all.
     for (const id of ids.slice(0, 2)) {
-      await page.request.post(`/api/boards/${BOARD_A}/unpin`, {
-        data: { server: TMUX_SERVER, windowId: id },
-      });
+      await unpinWindow(page.request, BOARD_A, TMUX_SERVER, id);
     }
     for (const id of ids.slice(2, 4)) {
-      await page.request.post(`/api/boards/${BOARD_B}/unpin`, {
-        data: { server: TMUX_SERVER, windowId: id },
-      });
+      await unpinWindow(page.request, BOARD_B, TMUX_SERVER, id);
     }
   });
 });

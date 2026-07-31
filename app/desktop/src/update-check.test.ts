@@ -102,3 +102,9 @@ test("a timestamp at or past the interval is due", () => {
   assert.equal(isUpdateCheckDue(now - UPDATE_CHECK_INTERVAL_MS, now), true);
   assert.equal(isUpdateCheckDue(now - 2 * UPDATE_CHECK_INTERVAL_MS, now), true);
 });
+
+test("a clock that moved backwards is due (negative delta must not suppress checks)", () => {
+  const now = 10 * UPDATE_CHECK_INTERVAL_MS;
+  assert.equal(isUpdateCheckDue(now + 1, now), true);
+  assert.equal(isUpdateCheckDue(now + UPDATE_CHECK_INTERVAL_MS, now), true);
+});

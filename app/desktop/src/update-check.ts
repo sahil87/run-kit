@@ -73,5 +73,10 @@ export const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
  * count requests, not successes); null means never checked.
  */
 export function isUpdateCheckDue(lastCheckedAt: number | null, now: number): boolean {
-  return lastCheckedAt === null || now - lastCheckedAt >= UPDATE_CHECK_INTERVAL_MS;
+  if (lastCheckedAt === null) return true;
+  // A clock that moved backwards (now earlier than the recorded attempt) is
+  // due — a negative delta would otherwise suppress checks until the clock
+  // re-passes the stale timestamp.
+  if (now < lastCheckedAt) return true;
+  return now - lastCheckedAt >= UPDATE_CHECK_INTERVAL_MS;
 }

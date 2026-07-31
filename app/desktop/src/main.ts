@@ -544,6 +544,11 @@ async function refreshUpdateMenu(): Promise<void> {
   if (!isUpdateCheckDue(lastUpdateCheckAt, Date.now())) return;
   lastUpdateCheckAt = Date.now();
   const run = await runRk(["desktop", "status"], RK_STATUS_TIMEOUT_MS);
+  // Re-check after the await: "Restart to Update" may have been clicked while
+  // the status probe was in flight — writing here would clobber the updating
+  // state and re-enable the item mid-update (same invariant as the pre-await
+  // guard above).
+  if (updateMenuInfo?.updating) return;
   const latest = run.ok ? availableUpdateVersion(run.stdout) : null;
   setUpdateMenuInfo(latest === null ? null : { latestVersion: latest, updating: false });
 }

@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { mockStateSocket } from "./_state-socket-mock";
+import { TMUX_SERVER } from "./_tmux";
 
 /**
  * Tier-1 tooltip system (260722-73al): the styled `Tip` replaces native
@@ -14,7 +15,6 @@ import { mockStateSocket } from "./_state-socket-mock";
  * without needing any session/window fixtures.
  */
 
-const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
 
 /** Mock `(pointer: coarse)` as matching so `Tip` self-suppresses in desktop
  *  Chromium (the mobile-touch-scroll.spec.ts precedent — Playwright's desktop

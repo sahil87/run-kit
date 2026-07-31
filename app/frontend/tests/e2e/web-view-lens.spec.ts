@@ -1,7 +1,8 @@
 import { test, expect, type Page } from "@playwright/test";
 import { execSync } from "node:child_process";
+import { READY_TIMEOUT, resolveWindow as resolveWindowRaw } from "./_ready";
+import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
 
-const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
 // Own session so this file never collides with other specs (fullyParallel off).
 const TEST_SESSION = `e2e-webview-${Date.now()}`;
 const MOBILE_VIEWPORT = { width: 375, height: 812 };
@@ -21,29 +22,7 @@ const IFRAME_URL = "http://localhost:8080/";
 
 /** Resolve a window's stable tmux id (`@N`) from the backend snapshot by name. */
 async function resolveWindow(page: Page, windowName: string): Promise<string> {
-  const deadline = Date.now() + 5_000;
-  let id: string | null = null;
-  while (Date.now() < deadline) {
-    const res = await page.request.get(
-      `/api/sessions?server=${encodeURIComponent(TMUX_SERVER)}`,
-    );
-    if (res.ok()) {
-      const sessions = (await res.json()) as Array<{
-        name: string;
-        windows: Array<{ windowId: string; name: string }>;
-      }>;
-      const win = sessions
-        .find((s) => s.name === TEST_SESSION)
-        ?.windows.find((w) => w.name === windowName);
-      if (win) {
-        id = win.windowId;
-        break;
-      }
-    }
-    await page.waitForTimeout(200);
-  }
-  expect(id, `window "${windowName}" not found in snapshot`).not.toBeNull();
-  return id!;
+  return (await resolveWindowRaw(page, TMUX_SERVER, TEST_SESSION, windowName)).windowId;
 }
 
 /** Create a window and (optionally) stamp @rk_url / @rk_type directly via tmux —
@@ -53,9 +32,7 @@ async function makeWindow(
   name: string,
   opts: { url?: string; iframeType?: boolean } = {},
 ): Promise<string> {
-  execSync(`tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${name}"`, {
-    stdio: "ignore",
-  });
+  newWindow(TEST_SESSION, name);
   const id = await resolveWindow(page, name);
   if (opts.url !== undefined) {
     execSync(
@@ -83,7 +60,7 @@ async function gotoWindow(
   const q = view ? `?view=${view}` : "";
   await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(windowId)}${q}`);
   await expect(page.locator("[aria-label='Connected']")).toBeVisible({
-    timeout: 10_000,
+    timeout: READY_TIMEOUT,
   });
 }
 
@@ -127,24 +104,11 @@ async function expectLensMarked(
 }
 
 test.beforeAll(() => {
-  try {
-    execSync(
-      `tmux -L ${TMUX_SERVER} new-session -d -s ${TEST_SESSION} -x 80 -y 24`,
-      { stdio: "ignore" },
-    );
-  } catch {
-    // Session may already exist.
-  }
+  createSession(TEST_SESSION);
 });
 
 test.afterAll(() => {
-  try {
-    execSync(`tmux -L ${TMUX_SERVER} kill-session -t ${TEST_SESSION}`, {
-      stdio: "ignore",
-    });
-  } catch {
-    // Best effort.
-  }
+  killSession(TEST_SESSION);
 });
 
 test.describe("Web view lens — iframe as a per-viewer lens", () => {

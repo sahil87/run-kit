@@ -1,43 +1,14 @@
 import { test, expect, type Page } from "@playwright/test";
-import { execSync } from "node:child_process";
+import { gotoServerReady, resolveWindow as resolveWindowRaw } from "./_ready";
+import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
 
-const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
 // Own session per file to avoid cross-test interference (fullyParallel: false).
 const TEST_SESSION = `e2e-marker-${Date.now()}`;
 
-/**
- * Resolve a window's stable identifiers (tmux `@N` id + index) AND its current
- * marker/color from the backend snapshot by its display name. Polls because the
- * window is created via the tmux CLI and surfaces asynchronously.
- */
-async function resolveWindow(
-  page: Page,
-  windowName: string,
-): Promise<{ windowId: string; index: number; marker?: string; color?: string }> {
-  const deadline = Date.now() + 5_000;
-  let last: { windowId: string; index: number; marker?: string; color?: string } | null = null;
-  while (Date.now() < deadline) {
-    const res = await page.request.get(
-      `/api/sessions?server=${encodeURIComponent(TMUX_SERVER)}`,
-    );
-    if (res.ok()) {
-      const sessions = (await res.json()) as Array<{
-        name: string;
-        windows: Array<{ windowId: string; index: number; name: string; marker?: string; color?: string }>;
-      }>;
-      const win = sessions
-        .find((s) => s.name === TEST_SESSION)
-        ?.windows.find((w) => w.name === windowName);
-      if (win) {
-        last = { windowId: win.windowId, index: win.index, marker: win.marker, color: win.color };
-        break;
-      }
-    }
-    await page.waitForTimeout(200);
-  }
-  expect(last, `window "${windowName}" not found in snapshot`).not.toBeNull();
-  return last!;
-}
+/** Shared snapshot resolver (hoisted to `_ready.ts`) bound to this file's
+ *  server + session — the full window carries marker/color too. */
+const resolveWindow = (page: Page, windowName: string) =>
+  resolveWindowRaw(page, TMUX_SERVER, TEST_SESSION, windowName);
 
 /** Poll the snapshot until the named window's @rk_marker equals `expected`. */
 async function expectMarker(page: Page, windowName: string, expected: string): Promise<void> {
@@ -87,36 +58,19 @@ async function expectColor(page: Page, windowName: string, expected: string): Pr
 
 test.describe("Window left-edge label zone + combined picker", () => {
   test.beforeAll(() => {
-    try {
-      execSync(
-        `tmux -L ${TMUX_SERVER} new-session -d -s ${TEST_SESSION} -x 80 -y 24`,
-        { stdio: "ignore" },
-      );
-    } catch {
-      // Session may already exist
-    }
+    createSession(TEST_SESSION);
   });
 
   test.afterAll(() => {
-    try {
-      execSync(`tmux -L ${TMUX_SERVER} kill-session -t ${TEST_SESSION}`, {
-        stdio: "ignore",
-      });
-    } catch {
-      // Best effort
-    }
+    killSession(TEST_SESSION);
   });
 
   test("the label zone opens the combined picker; picking a marker persists via @rk_marker (no cycling)", async ({ page }) => {
     const ts = Date.now();
     const winName = `marker-win-${ts}`;
-    execSync(
-      `tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${winName}"`,
-      { stdio: "ignore" },
-    );
+    newWindow(TEST_SESSION, winName);
 
-    await page.goto(`/${TMUX_SERVER}`);
-    await expect(page.locator("[aria-label='Connected']")).toBeVisible({ timeout: 10_000 });
+    await gotoServerReady(page, TMUX_SERVER);
 
     const sidebar = page.locator("nav[aria-label='Sessions']");
     const target = await resolveWindow(page, winName);
@@ -163,13 +117,9 @@ test.describe("Window left-edge label zone + combined picker", () => {
   test("picking a color persists via @color — normal shade through the legacy seam, dark shade verbatim", async ({ page }) => {
     const ts = Date.now();
     const winName = `marker-color-${ts}`;
-    execSync(
-      `tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${winName}"`,
-      { stdio: "ignore" },
-    );
+    newWindow(TEST_SESSION, winName);
 
-    await page.goto(`/${TMUX_SERVER}`);
-    await expect(page.locator("[aria-label='Connected']")).toBeVisible({ timeout: 10_000 });
+    await gotoServerReady(page, TMUX_SERVER);
 
     const sidebar = page.locator("nav[aria-label='Sessions']");
     const target = await resolveWindow(page, winName);
@@ -202,13 +152,9 @@ test.describe("Window left-edge label zone + combined picker", () => {
   test("clicking the label zone does not select the row (stopPropagation)", async ({ page }) => {
     const ts = Date.now();
     const winName = `marker-noselect-${ts}`;
-    execSync(
-      `tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${winName}"`,
-      { stdio: "ignore" },
-    );
+    newWindow(TEST_SESSION, winName);
 
-    await page.goto(`/${TMUX_SERVER}`);
-    await expect(page.locator("[aria-label='Connected']")).toBeVisible({ timeout: 10_000 });
+    await gotoServerReady(page, TMUX_SERVER);
 
     const sidebar = page.locator("nav[aria-label='Sessions']");
     const target = await resolveWindow(page, winName);
@@ -229,13 +175,9 @@ test.describe("Window left-edge label zone + combined picker", () => {
   test("selecting a colored window applies the deep family tint with no left border", async ({ page }) => {
     const ts = Date.now();
     const winName = `marker-sel-${ts}`;
-    execSync(
-      `tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${winName}"`,
-      { stdio: "ignore" },
-    );
+    newWindow(TEST_SESSION, winName);
 
-    await page.goto(`/${TMUX_SERVER}`);
-    await expect(page.locator("[aria-label='Connected']")).toBeVisible({ timeout: 10_000 });
+    await gotoServerReady(page, TMUX_SERVER);
     const target0 = await resolveWindow(page, winName);
 
     // Store a color through the SAME API the UI uses, in the STORED (legacy)

@@ -1,8 +1,7 @@
 import { test, expect } from "@playwright/test";
-import { execSync } from "node:child_process";
-import { resolveWindow as resolveWindowRaw, gotoWindow as gotoWindowRaw } from "./_ready";
+import { gotoServerReady, resolveWindow as resolveWindowRaw, gotoWindow as gotoWindowRaw } from "./_ready";
+import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
 
-const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
 // Own session so this file never collides with other specs (fullyParallel off).
 const TEST_SESSION = `e2e-heading-${Date.now()}`;
 // Board name for the board-mode centered-heading test (alphanumeric only).
@@ -11,8 +10,8 @@ const MOBILE_VIEWPORT = { width: 375, height: 812 };
 
 // Shared readiness helpers (hoisted to `_ready.ts`) bound to this file's server
 // + session so existing call sites keep their two-arg shape.
-const resolveWindow = (page: Parameters<typeof resolveWindowRaw>[0], windowName: string) =>
-  resolveWindowRaw(page, TMUX_SERVER, TEST_SESSION, windowName);
+const resolveWindow = async (page: Parameters<typeof resolveWindowRaw>[0], windowName: string) =>
+  (await resolveWindowRaw(page, TMUX_SERVER, TEST_SESSION, windowName)).windowId;
 const gotoWindow = (page: Parameters<typeof gotoWindowRaw>[0], windowId: string) =>
   gotoWindowRaw(page, TMUX_SERVER, windowId);
 
@@ -20,24 +19,11 @@ const gotoWindow = (page: Parameters<typeof gotoWindowRaw>[0], windowId: string)
 // reduced-motion default block and the animated-path opt-in block), so the
 // teardown must not run between them.
 test.beforeAll(() => {
-  try {
-    execSync(
-      `tmux -L ${TMUX_SERVER} new-session -d -s ${TEST_SESSION} -x 80 -y 24`,
-      { stdio: "ignore" },
-    );
-  } catch {
-    // Session may already exist
-  }
+  createSession(TEST_SESSION);
 });
 
 test.afterAll(() => {
-  try {
-    execSync(`tmux -L ${TMUX_SERVER} kill-session -t ${TEST_SESSION}`, {
-      stdio: "ignore",
-    });
-  } catch {
-    // Best effort
-  }
+  killSession(TEST_SESSION);
 });
 
 test.describe("Window heading (centered, editable) + hover vocabulary", () => {
@@ -45,9 +31,7 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
     page,
   }) => {
     const name = `head-render-${Date.now()}`;
-    execSync(`tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${name}"`, {
-      stdio: "ignore",
-    });
+    newWindow(TEST_SESSION, name);
     const id = await resolveWindow(page, name);
     await gotoWindow(page, id);
 
@@ -130,9 +114,7 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
     // A board needs a pinned window. Create one, pin it via the API (the same
     // deterministic seam boards-pin-flow.spec.ts uses), then navigate.
     const name = `head-board-${Date.now()}`;
-    execSync(`tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${name}"`, {
-      stdio: "ignore",
-    });
+    newWindow(TEST_SESSION, name);
     const winId = await resolveWindow(page, name);
 
     const pinRes = await page.request.post(`/api/boards/${BOARD_NAME}/pin`, {
@@ -172,9 +154,7 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
   }) => {
     const name = `head-edit-${Date.now()}`;
     const renamed = `head-renamed-${Date.now()}`;
-    execSync(`tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${name}"`, {
-      stdio: "ignore",
-    });
+    newWindow(TEST_SESSION, name);
     const id = await resolveWindow(page, name);
     await gotoWindow(page, id);
 
@@ -201,9 +181,7 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
     page,
   }) => {
     const name = `head-safe-${Date.now()}`;
-    execSync(`tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${name}"`, {
-      stdio: "ignore",
-    });
+    newWindow(TEST_SESSION, name);
     const id = await resolveWindow(page, name);
     await gotoWindow(page, id);
 
@@ -232,9 +210,7 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
     page,
   }) => {
     const name = `head-escape-${Date.now()}`;
-    execSync(`tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${name}"`, {
-      stdio: "ignore",
-    });
+    newWindow(TEST_SESSION, name);
     const id = await resolveWindow(page, name);
     await gotoWindow(page, id);
 
@@ -256,9 +232,7 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
     page,
   }) => {
     const name = `head-palette-${Date.now()}`;
-    execSync(`tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${name}"`, {
-      stdio: "ignore",
-    });
+    newWindow(TEST_SESSION, name);
     const id = await resolveWindow(page, name);
     await gotoWindow(page, id);
     await expect(
@@ -278,9 +252,7 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
     page,
   }) => {
     const name = `head-verylongwindownamethatwouldwrap-${Date.now()}`;
-    execSync(`tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${name}"`, {
-      stdio: "ignore",
-    });
+    newWindow(TEST_SESSION, name);
     const id = await resolveWindow(page, name);
     await page.setViewportSize(MOBILE_VIEWPORT);
     // Gate readiness on the heading itself: the connection dot is `hidden
@@ -323,9 +295,7 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
     browser,
   }) => {
     const name = `head-motion-${Date.now()}`;
-    execSync(`tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${name}"`, {
-      stdio: "ignore",
-    });
+    newWindow(TEST_SESSION, name);
     const id = await resolveWindow(page, name);
     await gotoWindow(page, id);
     await expect(
@@ -341,10 +311,7 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
     // @media rule that zeroes the animation — the elements are unchanged).
     const reducedCtx = await browser.newContext({ reducedMotion: "reduce" });
     const reducedPage = await reducedCtx.newPage();
-    await reducedPage.goto(`/${TMUX_SERVER}/${encodeURIComponent(id)}`);
-    await expect(
-      reducedPage.locator("[aria-label='Connected']"),
-    ).toBeVisible({ timeout: 10_000 });
+    await gotoWindow(reducedPage, id);
     await expect(reducedPage.locator(".rk-glint").first()).toBeAttached();
     // The heading input never leaks scrambled text: opening edit shows the
     // real name even in reduced-motion (decode is skipped in JS).
@@ -397,8 +364,8 @@ test.describe("Top-bar heading — anchor, hierarchy dropdown, history arrows (2
     // arbitrarily long names.)
     const shortName = `hx-a${Date.now().toString().slice(-3)}`; // ~7 chars
     const midName = `hx-bcd-${Date.now().toString().slice(-4)}`; // ~11 chars
-    execSync(`tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${shortName}"`, { stdio: "ignore" });
-    execSync(`tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${midName}"`, { stdio: "ignore" });
+    newWindow(TEST_SESSION, shortName);
+    newWindow(TEST_SESSION, midName);
     const shortId = await resolveWindow(page, shortName);
     const midId = await resolveWindow(page, midName);
 
@@ -427,7 +394,7 @@ test.describe("Top-bar heading — anchor, hierarchy dropdown, history arrows (2
     page,
   }) => {
     const name = `hx-prefix-${Date.now()}`;
-    execSync(`tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${name}"`, { stdio: "ignore" });
+    newWindow(TEST_SESSION, name);
     const id = await resolveWindow(page, name);
     await gotoWindow(page, id);
 
@@ -445,7 +412,7 @@ test.describe("Top-bar heading — anchor, hierarchy dropdown, history arrows (2
     page,
   }) => {
     const name = `hx-nav-${Date.now()}`;
-    execSync(`tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${name}"`, { stdio: "ignore" });
+    newWindow(TEST_SESSION, name);
     const id = await resolveWindow(page, name);
     await gotoWindow(page, id);
 
@@ -468,8 +435,8 @@ test.describe("Top-bar heading — anchor, hierarchy dropdown, history arrows (2
   }) => {
     const first = `hx-hist-a-${Date.now().toString().slice(-5)}`;
     const second = `hx-hist-b-${Date.now().toString().slice(-5)}`;
-    execSync(`tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${first}"`, { stdio: "ignore" });
-    execSync(`tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${second}"`, { stdio: "ignore" });
+    newWindow(TEST_SESSION, first);
+    newWindow(TEST_SESSION, second);
     const firstId = await resolveWindow(page, first);
     const secondId = await resolveWindow(page, second);
 
@@ -503,8 +470,8 @@ test.describe("Top-bar heading — anchor, hierarchy dropdown, history arrows (2
     // retraceable entries, no dedup.
     const a = `hx-push-a-${Date.now().toString().slice(-5)}`;
     const b = `hx-push-b-${Date.now().toString().slice(-5)}`;
-    execSync(`tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${a}"`, { stdio: "ignore" });
-    execSync(`tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${b}"`, { stdio: "ignore" });
+    newWindow(TEST_SESSION, a);
+    newWindow(TEST_SESSION, b);
     const aId = await resolveWindow(page, a);
     const bId = await resolveWindow(page, b);
 
@@ -534,8 +501,7 @@ test.describe("Top-bar heading — anchor, hierarchy dropdown, history arrows (2
     // Land on the server root so the first in-app click is unambiguous, then
     // build the stack ENTIRELY via in-app switches: a → b → a (the no-dedup
     // shape — revisiting `a` still pushes a third entry).
-    await page.goto(`/${TMUX_SERVER}`);
-    await expect(page.locator("[aria-label='Connected']")).toBeVisible({ timeout: 10_000 });
+    await gotoServerReady(page, TMUX_SERVER);
     await switchTo(aId, a);
     await switchTo(bId, b);
     await switchTo(aId, a);
@@ -574,9 +540,7 @@ test.describe("Window heading — animated path (motion opted back in)", () => {
     page,
   }) => {
     const name = `head-typed-${Date.now()}`;
-    execSync(`tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${name}"`, {
-      stdio: "ignore",
-    });
+    newWindow(TEST_SESSION, name);
     const id = await resolveWindow(page, name);
     await gotoWindow(page, id);
 
@@ -626,9 +590,7 @@ test.describe("Window heading — animated path (motion opted back in)", () => {
     page,
   }) => {
     const name = `head-sweep-${Date.now()}`;
-    execSync(`tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${name}"`, {
-      stdio: "ignore",
-    });
+    newWindow(TEST_SESSION, name);
     const id = await resolveWindow(page, name);
     await gotoWindow(page, id);
 

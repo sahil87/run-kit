@@ -1,8 +1,7 @@
 import { test, expect } from "@playwright/test";
-import { execSync } from "node:child_process";
 import { resolveWindow, gotoWindow } from "./_ready";
+import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
 
-const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
 // Each test file uses its own session to avoid cross-test interference.
 const TEST_SESSION = `e2e-board-pin-${Date.now()}`;
 // Board name is constrained to alphanumeric/-/_ — use a fresh name per run.
@@ -10,28 +9,11 @@ const BOARD_NAME = `flow${Date.now().toString().slice(-6)}`;
 
 test.describe("Boards: Pin flow", () => {
   test.beforeAll(() => {
-    try {
-      execSync(
-        `tmux -L ${TMUX_SERVER} new-session -d -s ${TEST_SESSION} -x 80 -y 24 -n win-a`,
-        { stdio: "ignore" },
-      );
-      execSync(
-        `tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n win-b`,
-        { stdio: "ignore" },
-      );
-    } catch {
-      // Best-effort
-    }
+    createSession(TEST_SESSION, { windows: ["win-a", "win-b"] });
   });
 
   test.afterAll(() => {
-    try {
-      execSync(`tmux -L ${TMUX_SERVER} kill-session -t ${TEST_SESSION}`, {
-        stdio: "ignore",
-      });
-    } catch {
-      // Best-effort
-    }
+    killSession(TEST_SESSION);
   });
 
   test("pin a window via the API, navigate to the board, unpin", async ({ page }) => {
@@ -39,14 +21,7 @@ test.describe("Boards: Pin flow", () => {
     // Read win-a's window id so we can pin via the API (more deterministic
     // than the hover-reveal popover dance, which is exercised by unit tests
     // around WindowRow/PinPopover/useBoards).
-    const winId = execSync(
-      `tmux -L ${TMUX_SERVER} list-windows -t ${TEST_SESSION} -F "#{window_id}:#{window_name}"`,
-    )
-      .toString()
-      .trim()
-      .split("\n")
-      .find((line) => line.endsWith(":win-a"))
-      ?.split(":")[0];
+    const winId = listWindows(TEST_SESSION).find((w) => w.name === "win-a")?.windowId;
     expect(winId).toBeTruthy();
 
     const pinRes = await page.request.post(`/api/boards/${BOARD_NAME}/pin`, {
@@ -120,7 +95,7 @@ test.describe("Boards: Pin flow", () => {
     // Fresh board per run; pre-create it (pinning win-a) so it is an existing
     // direct-pin candidate the palette can target for win-b.
     const board = `pal${Date.now().toString().slice(-6)}`;
-    const winA = await resolveWindow(page, TMUX_SERVER, TEST_SESSION, "win-a");
+    const winA = (await resolveWindow(page, TMUX_SERVER, TEST_SESSION, "win-a")).windowId;
     const seedRes = await page.request.post(`/api/boards/${board}/pin`, {
       data: { server: TMUX_SERVER, windowId: winA },
     });
@@ -128,7 +103,7 @@ test.describe("Boards: Pin flow", () => {
 
     // Navigate to win-b's terminal route so the palette's "current window" is
     // win-b, and it is NOT yet pinned to `board` (so the direct-pin entry shows).
-    const winB = await resolveWindow(page, TMUX_SERVER, TEST_SESSION, "win-b");
+    const winB = (await resolveWindow(page, TMUX_SERVER, TEST_SESSION, "win-b")).windowId;
     await gotoWindow(page, TMUX_SERVER, winB);
 
     // Open the command palette and run the direct-pin action.

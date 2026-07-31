@@ -1,5 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { execSync } from "node:child_process";
+import { resolveWindow } from "./_ready";
+import { TMUX_SERVER, createSession, killSession } from "./_tmux";
 
 /**
  * Docked compose strip (260718-dhdj) e2e coverage. The strip replaces the modal
@@ -9,7 +11,6 @@ import { execSync } from "node:child_process";
  * `.spec.md` for the per-test contract.
  */
 
-const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
 const TERM_SESSION = `e2e-compose-${Date.now()}`;
 const BOARD_SESSION = `e2e-compose-board-${Date.now()}`;
 const BOARD_NAME = `cs${Date.now().toString().slice(-6)}`;
@@ -29,47 +30,23 @@ async function resolveWindowId(
   session: string,
   name?: string,
 ): Promise<string> {
-  const deadline = Date.now() + 5_000;
-  let id: string | null = null;
-  while (Date.now() < deadline) {
-    const res = await page.request.get(
-      `/api/sessions?server=${encodeURIComponent(TMUX_SERVER)}`,
-    );
-    if (res.ok()) {
-      const sessions = (await res.json()) as Array<{
-        name: string;
-        windows: Array<{ windowId: string; name: string }>;
-      }>;
-      const wins = sessions.find((s) => s.name === session)?.windows;
-      const wid = name
-        ? wins?.find((w) => w.name === name)?.windowId
-        : wins?.[0]?.windowId;
-      if (wid) {
-        id = wid;
-        break;
-      }
-    }
-    await page.waitForTimeout(200);
-  }
-  expect(id, `window for ${session} not found`).not.toBeNull();
-  return id!;
+  return (await resolveWindow(page, TMUX_SERVER, session, name)).windowId;
 }
 
 test.describe("Docked compose strip", () => {
   test.beforeAll(() => {
     // Terminal-route session runs `cat` so typed STDIN echoes into the pane —
     // this is how we verify Enter sends `text + \r` end-to-end.
-    tmux(`new-session -d -s ${TERM_SESSION} -x 80 -y 24`);
+    createSession(TERM_SESSION);
     tmux(`send-keys -t ${TERM_SESSION} 'cat' Enter`);
     // Board-route session with two named windows for the target-label test.
-    tmux(`new-session -d -s ${BOARD_SESSION} -x 80 -y 24 -n cs-alpha`);
-    tmux(`new-window -t ${BOARD_SESSION} -n cs-bravo`);
+    createSession(BOARD_SESSION, { windows: ["cs-alpha", "cs-bravo"] });
   });
 
   test.afterAll(() => {
     try { tmux(`send-keys -t ${TERM_SESSION} C-c`); } catch { /* ok */ }
-    try { tmux(`kill-session -t ${TERM_SESSION}`); } catch { /* ok */ }
-    try { tmux(`kill-session -t ${BOARD_SESSION}`); } catch { /* ok */ }
+    killSession(TERM_SESSION);
+    killSession(BOARD_SESSION);
   });
 
   test("toggle via >_ chip and via the command palette; persists across reload", async ({ page }) => {

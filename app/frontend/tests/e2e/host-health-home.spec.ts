@@ -1,30 +1,16 @@
 import { test, expect } from "@playwright/test";
-import { execSync } from "node:child_process";
+import { createSession, killSession } from "./_tmux";
 
-const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
 const TEST_SESSION = `e2e-host-health-${Date.now()}`;
 
 test.describe("HOST HEALTH home zone", () => {
   test.beforeAll(() => {
     // A session ensures the server tile grid has at least one server to render.
-    try {
-      execSync(
-        `tmux -L ${TMUX_SERVER} new-session -d -s ${TEST_SESSION} -x 80 -y 24`,
-        { stdio: "ignore" },
-      );
-    } catch {
-      // Session may already exist
-    }
+    createSession(TEST_SESSION);
   });
 
   test.afterAll(() => {
-    try {
-      execSync(`tmux -L ${TMUX_SERVER} kill-session -t ${TEST_SESSION}`, {
-        stdio: "ignore",
-      });
-    } catch {
-      // Best effort
-    }
+    killSession(TEST_SESSION);
   });
 
   test("renders live host metrics on / above the server grid", async ({ page }) => {

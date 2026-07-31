@@ -1,38 +1,20 @@
 import { test, expect } from "@playwright/test";
-import { execSync } from "node:child_process";
+import { READY_TIMEOUT, gotoServerReady } from "./_ready";
+import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
 
-const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
 const TEST_SESSION = `e2e-panels-${Date.now()}`;
 
 test.describe("Sidebar Host & Window Panels", () => {
   test.beforeAll(() => {
-    try {
-      execSync(
-        `tmux -L ${TMUX_SERVER} new-session -d -s ${TEST_SESSION} -x 80 -y 24`,
-        { stdio: "ignore" },
-      );
-    } catch {
-      // Session may already exist
-    }
+    createSession(TEST_SESSION);
   });
 
   test.afterAll(() => {
-    try {
-      execSync(`tmux -L ${TMUX_SERVER} kill-session -t ${TEST_SESSION}`, {
-        stdio: "ignore",
-      });
-    } catch {
-      // Best effort
-    }
+    killSession(TEST_SESSION);
   });
 
   test("Host panel shows real system metrics via SSE", async ({ page }) => {
-    await page.goto(`/${TMUX_SERVER}`);
-
-    // Wait for SSE connection
-    await expect(
-      page.locator("[aria-label='Connected']"),
-    ).toBeVisible({ timeout: 10_000 });
+    await gotoServerReady(page, TMUX_SERVER);
 
     // Host panel header is visible and expanded (exact match avoids other "Host" buttons)
     const hostButton = page.getByRole("button", { name: /^Host/ });
@@ -67,11 +49,7 @@ test.describe("Sidebar Host & Window Panels", () => {
   });
 
   test("Window panel shows selected window info", async ({ page }) => {
-    await page.goto(`/${TMUX_SERVER}`);
-
-    await expect(
-      page.locator("[aria-label='Connected']"),
-    ).toBeVisible({ timeout: 10_000 });
+    await gotoServerReady(page, TMUX_SERVER);
 
     // Pane panel header (exact match to avoid other buttons containing "Pane")
     const paneButton = page.getByRole("button", { name: /^Pane/ });
@@ -99,11 +77,7 @@ test.describe("Sidebar Host & Window Panels", () => {
   });
 
   test("Collapsible panel toggle and persistence", async ({ page }) => {
-    await page.goto(`/${TMUX_SERVER}`);
-
-    await expect(
-      page.locator("[aria-label='Connected']"),
-    ).toBeVisible({ timeout: 10_000 });
+    await gotoServerReady(page, TMUX_SERVER);
 
     // Wait for metrics so Host panel has content
     const hostButton = page.getByRole("button", { name: /^Host/ });
@@ -127,7 +101,7 @@ test.describe("Sidebar Host & Window Panels", () => {
     await page.reload();
     await expect(
       page.locator("[aria-label='Connected']"),
-    ).toBeVisible({ timeout: 10_000 });
+    ).toBeVisible({ timeout: READY_TIMEOUT });
 
     const hostButtonAfter = page.getByRole("button", { name: /^Host/ });
     await expect(hostButtonAfter).toHaveAttribute("aria-expanded", "false");
@@ -152,12 +126,7 @@ test.describe("Sidebar Host & Window Panels", () => {
     // window's home-session copy keeps flowing through the sessions stream —
     // that enriched copy is what the PANE panel resolves by windowId.
     const boardName = `panels${Date.now().toString().slice(-6)}`;
-    const winId = execSync(
-      `tmux -L ${TMUX_SERVER} list-windows -t ${TEST_SESSION} -F "#{window_id}"`,
-    )
-      .toString()
-      .trim()
-      .split("\n")[0];
+    const winId = listWindows(TEST_SESSION)[0]?.windowId;
     expect(winId).toBeTruthy();
     const pinRes = await page.request.post(`/api/boards/${boardName}/pin`, {
       data: { server: TMUX_SERVER, windowId: winId },
@@ -198,11 +167,7 @@ test.describe("Sidebar Host & Window Panels", () => {
   });
 
   test("Host panel metrics update over multiple SSE ticks", async ({ page }) => {
-    await page.goto(`/${TMUX_SERVER}`);
-
-    await expect(
-      page.locator("[aria-label='Connected']"),
-    ).toBeVisible({ timeout: 10_000 });
+    await gotoServerReady(page, TMUX_SERVER);
 
     const hostPanel = page.getByRole("button", { name: /^Host/ }).locator("../..");
 

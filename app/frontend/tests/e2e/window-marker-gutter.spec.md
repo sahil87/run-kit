@@ -51,7 +51,7 @@ picker stays open across every pick (one open session), closing only via the ✕
 cell.
 
 **Steps:**
-1. Create `marker-win-<ts>` via `execSync`.
+1. Create `marker-win-<ts>` via the shared `_tmux` helper.
 2. Navigate to `/${TMUX_SERVER}` and wait for `Connected`.
 3. `resolveWindow` the window; assert its row is visible and its marker is empty.
 4. Click the row's `Set window label` zone; assert the `Label picker` listbox is
@@ -78,7 +78,7 @@ verbatim `orange-dark` value: dark shades have no legacy form and the backend's
 `ValidateColorValue`/`NormalizeColorValue` accept the family-name vocabulary.
 
 **Steps:**
-1. Create `marker-color-<ts>` via `execSync`; navigate + wait for `Connected`.
+1. Create `marker-color-<ts>` via the shared `_tmux` helper; navigate + wait for `Connected`.
 2. `resolveWindow` it; assert its color is empty.
 3. Click the `Set window label` zone; assert the `Label picker` listbox is
    visible.
@@ -95,7 +95,7 @@ the label target is independent of selection, and the click's `stopPropagation`
 prevents the row-select handler and the URL writeback from firing.
 
 **Steps:**
-1. Create `marker-noselect-<ts>` via `execSync`.
+1. Create `marker-noselect-<ts>` via the shared `_tmux` helper.
 2. Navigate to `/${TMUX_SERVER}` (dashboard) and wait for `Connected`.
 3. `resolveWindow` the window; assert the row button is not `aria-current`.
 4. Click the row's `Set window label` zone; assert the `Label picker` listbox is
@@ -112,7 +112,7 @@ split). The color is stored in the legacy vocabulary the backend accepts, so the
 tint half is actually exercised.
 
 **Steps:**
-1. Create `marker-sel-<ts>` via `execSync`; navigate + wait for `Connected`.
+1. Create `marker-sel-<ts>` via the shared `_tmux` helper; navigate + wait for `Connected`.
 2. `resolveWindow` it, then set `@color` = `"1+3"` (the LEGACY descriptor for the
    `orange` family) via the `POST /api/windows/{id}/options` endpoint the UI
    uses; assert the response is OK.

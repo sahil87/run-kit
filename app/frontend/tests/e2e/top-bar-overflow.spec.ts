@@ -1,6 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { execSync } from "node:child_process";
 import { resolveWindow as resolveWindowRaw, gotoWindow as gotoWindowRaw } from "./_ready";
+import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
 
 // Regression proof for the top-bar overflow chevron menu (260715-h1ck) AND for
 // the review M1 fix (the measured right cell must FILL its `1fr` grid track, not
@@ -8,15 +9,14 @@ import { resolveWindow as resolveWindowRaw, gotoWindow as gotoWindowRaw } from "
 // block → budget < 0 → `visibleCount` deadlocks at 0 → NOTHING renders in-bar at
 // ANY width, so assertion (b)/(e) below (in-bar controls at wide widths) fail.
 
-const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
 const TEST_SESSION = `e2e-overflow-${Date.now().toString().slice(-6)}`;
 const WINDOW_NAME = `overflow-win-${Date.now().toString().slice(-6)}`;
 
 // The width sweep from the intake (§8): fits-everything → mobile leaf.
 const WIDTHS = [1280, 1024, 800, 700, 640, 500, 375];
 
-const resolveWindow = (page: Page, windowName: string) =>
-  resolveWindowRaw(page, TMUX_SERVER, TEST_SESSION, windowName);
+const resolveWindow = async (page: Page, windowName: string) =>
+  (await resolveWindowRaw(page, TMUX_SERVER, TEST_SESSION, windowName)).windowId;
 const gotoWindow = (page: Page, windowId: string) =>
   gotoWindowRaw(page, TMUX_SERVER, windowId);
 
@@ -90,28 +90,16 @@ async function settledTierCounts(page: Page): Promise<[number, number, number]> 
 }
 
 test.beforeAll(() => {
+  createSession(TEST_SESSION);
   try {
-    execSync(
-      `tmux -L ${TMUX_SERVER} new-session -d -s ${TEST_SESSION} -x 80 -y 24`,
-      { stdio: "ignore" },
-    );
-    execSync(
-      `tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${WINDOW_NAME}"`,
-      { stdio: "ignore" },
-    );
+    newWindow(TEST_SESSION, WINDOW_NAME);
   } catch {
-    // Session may already exist
+    // Best effort — matches the prior copied pattern.
   }
 });
 
 test.afterAll(() => {
-  try {
-    execSync(`tmux -L ${TMUX_SERVER} kill-session -t ${TEST_SESSION}`, {
-      stdio: "ignore",
-    });
-  } catch {
-    // Best effort
-  }
+  killSession(TEST_SESSION);
 });
 
 test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
@@ -315,10 +303,7 @@ const VIEW_URL = "http://localhost:8080/";
 test.describe("Top-bar overflow: ViewSwitcher is menu-only (260722-n2n4)", () => {
   test.beforeAll(() => {
     try {
-      execSync(
-        `tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${VIEW_WINDOW_NAME}"`,
-        { stdio: "ignore" },
-      );
+      newWindow(TEST_SESSION, VIEW_WINDOW_NAME);
     } catch {
       // Session/window may already exist.
     }

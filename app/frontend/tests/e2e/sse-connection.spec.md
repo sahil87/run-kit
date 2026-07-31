@@ -18,10 +18,10 @@ poll cycle.
 and live session data reaches the sidebar without a page refresh.
 
 **Steps:**
-1. Navigate to `/${TMUX_SERVER}`.
-2. Assert `[aria-label='Connected']` is visible within 10s (covers first
-   SSE round-trip plus any initial HTTP warmup).
-3. Assert `nav[aria-label='Sessions']` is visible (sidebar mounted).
-4. Assert the pre-created `e2e-sse-<ts>` session name appears in the
+1. Navigate to `/${TMUX_SERVER}` and wait for the `[aria-label='Connected']`
+   dot via the shared `gotoServerReady` helper (`READY_TIMEOUT`: 10s local,
+   20s on CI — covers the first SSE round-trip plus any initial HTTP warmup).
+2. Assert `nav[aria-label='Sessions']` is visible (sidebar mounted).
+3. Assert the pre-created `e2e-sse-<ts>` session name appears in the
    sidebar within 5s — confirms session list payload deserialization and
    rendering, not just the status dot.

@@ -1,7 +1,6 @@
 import { test, expect } from "@playwright/test";
-import { execSync } from "node:child_process";
+import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
 
-const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
 const TEST_SESSION = `e2e-board-same-${Date.now()}`;
 const BOARD_NAME = `mp${Date.now().toString().slice(-6)}`;
 
@@ -29,30 +28,18 @@ function isTerminalsSocket(url: string): boolean {
 
 test.describe("Boards: same-session multi-pane", () => {
   test.beforeAll(() => {
-    try {
-      // Window 0: prints the alpha marker then idles so the marker stays
-      // available for the relay to capture from the pane scrollback.
-      execSync(
-        `tmux -L ${TMUX_SERVER} new-session -d -s ${TEST_SESSION} -x 80 -y 24 -n win-a "sh -c 'printf \\"${WIN_A_MARKER}\\\\n\\"; sleep 60'"`,
-        { stdio: "ignore" },
-      );
-      execSync(
-        `tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n win-b "sh -c 'printf \\"${WIN_B_MARKER}\\\\n\\"; sleep 60'"`,
-        { stdio: "ignore" },
-      );
-    } catch {
-      // Best-effort
-    }
+    // Window 0: prints the alpha marker then idles so the marker stays
+    // available for the relay to capture from the pane scrollback.
+    createSession(TEST_SESSION, {
+      windows: [
+        { name: "win-a", command: `sh -c 'printf "${WIN_A_MARKER}\\n"; sleep 60'` },
+        { name: "win-b", command: `sh -c 'printf "${WIN_B_MARKER}\\n"; sleep 60'` },
+      ],
+    });
   });
 
   test.afterAll(() => {
-    try {
-      execSync(`tmux -L ${TMUX_SERVER} kill-session -t ${TEST_SESSION}`, {
-        stdio: "ignore",
-      });
-    } catch {
-      // Best-effort
-    }
+    killSession(TEST_SESSION);
   });
 
   test("two windows from one session each open their own relay pane", async ({
@@ -61,14 +48,9 @@ test.describe("Boards: same-session multi-pane", () => {
     test.setTimeout(45_000);
 
     // Resolve the window IDs by name so we can pin via the API.
-    const wins = execSync(
-      `tmux -L ${TMUX_SERVER} list-windows -t ${TEST_SESSION} -F "#{window_id}:#{window_name}"`,
-    )
-      .toString()
-      .trim()
-      .split("\n");
-    const winA = wins.find((line) => line.endsWith(":win-a"))?.split(":")[0];
-    const winB = wins.find((line) => line.endsWith(":win-b"))?.split(":")[0];
+    const wins = listWindows(TEST_SESSION);
+    const winA = wins.find((w) => w.name === "win-a")?.windowId;
+    const winB = wins.find((w) => w.name === "win-b")?.windowId;
     expect(winA).toBeTruthy();
     expect(winB).toBeTruthy();
 

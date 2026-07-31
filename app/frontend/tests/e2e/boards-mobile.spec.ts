@@ -1,7 +1,6 @@
 import { test, expect } from "@playwright/test";
-import { execSync } from "node:child_process";
+import { TMUX_SERVER, createSession, killSession, listWindows, newWindow } from "./_tmux";
 
-const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
 const TEST_SESSION = `e2e-board-mobile-${Date.now()}`;
 const BOARD_NAME = `mob${Date.now().toString().slice(-6)}`;
 
@@ -9,22 +8,7 @@ const pinnedEntries: Array<{ server: string; windowId: string }> = [];
 
 test.describe("Boards: mobile carousel", () => {
   test.beforeAll(() => {
-    try {
-      execSync(
-        `tmux -L ${TMUX_SERVER} new-session -d -s ${TEST_SESSION} -x 80 -y 24 -n m-a`,
-        { stdio: "ignore" },
-      );
-      execSync(
-        `tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n m-b`,
-        { stdio: "ignore" },
-      );
-      execSync(
-        `tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n m-c`,
-        { stdio: "ignore" },
-      );
-    } catch {
-      // Best-effort
-    }
+    createSession(TEST_SESSION, { windows: ["m-a", "m-b", "m-c"] });
   });
 
   test.afterAll(async ({ request }) => {
@@ -43,13 +27,7 @@ test.describe("Boards: mobile carousel", () => {
     }
     pinnedEntries.length = 0;
 
-    try {
-      execSync(`tmux -L ${TMUX_SERVER} kill-session -t ${TEST_SESSION}`, {
-        stdio: "ignore",
-      });
-    } catch {
-      // Best-effort
-    }
+    killSession(TEST_SESSION);
   });
 
   test("at 375x812 the board renders one pane card at a time with pagination dots", async ({
@@ -63,26 +41,12 @@ test.describe("Boards: mobile carousel", () => {
     // re-runs don't accumulate duplicate windows (which would make later
     // pinning non-deterministic about which `m-*` window each id refers to).
     const requiredWindows = ["m-a", "m-b", "m-c"];
-    const listNamesIds = () =>
-      execSync(
-        `tmux -L ${TMUX_SERVER} list-windows -t ${TEST_SESSION} -F "#{window_name}\t#{window_id}"`,
-      )
-        .toString()
-        .trim()
-        .split("\n")
-        .map((line) => {
-          const [name, id] = line.split("\t");
-          return { name, id };
-        });
 
-    const existing = new Set(listNamesIds().map((w) => w.name));
+    const existing = new Set(listWindows(TEST_SESSION).map((w) => w.name));
     for (const name of requiredWindows) {
       if (existing.has(name)) continue;
       try {
-        execSync(
-          `tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${name}"`,
-          { stdio: "ignore" },
-        );
+        newWindow(TEST_SESSION, name);
       } catch {
         // ignore — best-effort recovery; the assertion below catches a
         // genuinely broken state.
@@ -92,7 +56,7 @@ test.describe("Boards: mobile carousel", () => {
     // Pin the three windows by *name* — not by `slice(0, 3)` of all ids,
     // which would mis-pick if extra windows exist. This makes the test
     // deterministic regardless of session leftovers.
-    const namesToIds = new Map(listNamesIds().map((w) => [w.name, w.id]));
+    const namesToIds = new Map(listWindows(TEST_SESSION).map((w) => [w.name, w.windowId]));
     for (const name of requiredWindows) {
       const id = namesToIds.get(name);
       expect(id, `window ${name} should exist`).toBeTruthy();

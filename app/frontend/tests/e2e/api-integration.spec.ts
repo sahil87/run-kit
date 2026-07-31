@@ -1,30 +1,17 @@
 import { test, expect } from "@playwright/test";
-import { execSync } from "node:child_process";
+import { gotoServerReady } from "./_ready";
+import { TMUX_SERVER, createSession, killSession } from "./_tmux";
 
-const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
 const TEST_SESSION = `e2e-test-${Date.now()}`;
 
 test.describe("API Integration", () => {
   test.beforeAll(() => {
     // Create a self-managed tmux session for testing
-    try {
-      execSync(
-        `tmux -L ${TMUX_SERVER} new-session -d -s ${TEST_SESSION} -x 80 -y 24`,
-        { stdio: "ignore" },
-      );
-    } catch {
-      // Session may already exist
-    }
+    createSession(TEST_SESSION);
   });
 
   test.afterAll(() => {
-    try {
-      execSync(`tmux -L ${TMUX_SERVER} kill-session -t ${TEST_SESSION}`, {
-        stdio: "ignore",
-      });
-    } catch {
-      // Best effort
-    }
+    killSession(TEST_SESSION);
   });
 
   test("session appears via SSE and can be killed through the sidebar UI", async ({
@@ -33,20 +20,11 @@ test.describe("API Integration", () => {
     // Unique session name per run avoids collisions with other tests or
     // leftover state on the shared rk-test-e2e tmux server.
     const sessionName = `e2e-api-victim-${Date.now()}`;
-    execSync(
-      `tmux -L ${TMUX_SERVER} new-session -d -s ${sessionName} -x 80 -y 24`,
-      { stdio: "ignore" },
-    );
+    createSession(sessionName);
 
     try {
-      await page.goto(`/${TMUX_SERVER}`);
-
       // Wait for SSE to connect and dashboard to populate
-      await expect(
-        page.locator("[aria-label='Connected']"),
-      ).toBeVisible({ timeout: 10_000 });
-
-      const sidebar = page.locator("nav[aria-label='Sessions']");
+      const sidebar = await gotoServerReady(page, TMUX_SERVER);
 
       // The session created via tmux CLI should appear via SSE within a few
       // poll cycles
@@ -68,13 +46,7 @@ test.describe("API Integration", () => {
       // Session row disappears (optimistic + confirmed via SSE)
       await expect(navigateBtn).not.toBeVisible({ timeout: 5_000 });
     } finally {
-      try {
-        execSync(`tmux -L ${TMUX_SERVER} kill-session -t ${sessionName}`, {
-          stdio: "ignore",
-        });
-      } catch {
-        // Best effort — may already be gone
-      }
+      killSession(sessionName);
     }
   });
 });

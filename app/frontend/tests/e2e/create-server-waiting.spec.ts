@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
-import { execSync } from "node:child_process";
+import { gotoServerReady } from "./_ready";
+import { TMUX_SERVER, killServer } from "./_tmux";
 
 // Server created through the UI during the test. Named under the unified
 // rk-test-e2e-* umbrella with the Playwright process.pid as the second-to-last
@@ -7,16 +8,13 @@ import { execSync } from "node:child_process";
 // glob (rk-test-e2e*) reaps it even if afterAll's kill-server is missed. The
 // create dialog validates `^[a-zA-Z0-9_-]+$`, so hyphens are safe.
 const CREATED_SERVER = `rk-test-e2e-csw-${process.pid}-${Date.now().toString().slice(-6)}`;
-const TMUX_SERVER_A = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
+const TMUX_SERVER_A = TMUX_SERVER;
 const DESKTOP_VIEWPORT = { width: 1024, height: 768 };
 
 test.describe("Create server → waiting → view (no 'Server not found' flash)", () => {
   test.afterAll(() => {
-    try {
-      execSync(`tmux -L ${CREATED_SERVER} kill-server`, { stdio: "ignore" });
-    } catch {
-      // Best-effort — the teardown glob also reaps rk-test-e2e* servers.
-    }
+    // Best-effort — the teardown glob also reaps rk-test-e2e* servers.
+    killServer(CREATED_SERVER);
   });
 
   test("creating a server lands on the server view, never flashing 'Server not found'", async ({
@@ -28,11 +26,8 @@ test.describe("Create server → waiting → view (no 'Server not found' flash)"
     // and loaded — this is exactly the condition under which the old binary
     // guard (`servers.length > 0`) wrongly flashed "Server not found" for a
     // freshly-created server.
-    await page.goto(`/${TMUX_SERVER_A}`, { waitUntil: "domcontentloaded" });
     await page.setViewportSize(DESKTOP_VIEWPORT);
-    await expect(page.locator("[aria-label='Connected']")).toBeVisible({
-      timeout: 10_000,
-    });
+    await gotoServerReady(page, TMUX_SERVER_A);
 
     // Open the command palette and trigger "Server: Create".
     await page.keyboard.press("Meta+k");

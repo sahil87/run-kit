@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { gotoServerReady } from "./_ready";
+import { TMUX_SERVER } from "./_tmux";
 
 /**
  * Sidebar footer global-chrome row (260724-6j1v): the connection dot + version
@@ -8,8 +9,6 @@ import { gotoServerReady } from "./_ready";
  * from the top bar. Runs against the isolated e2e server (`just test-e2e`),
  * desktop viewport (the sidebar is open by default there).
  */
-
-const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
 
 const sidebar = (page: import("@playwright/test").Page) =>
   page.getByRole("navigation", { name: "Sessions" });

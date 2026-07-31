@@ -1,7 +1,8 @@
 import { test, expect, type Page } from "@playwright/test";
 import { execSync } from "node:child_process";
+import { gotoServerReady, resolveWindow as resolveWindowRaw } from "./_ready";
+import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
 
-const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
 // Each test file uses its own session to avoid cross-test interference.
 // Tests within this file share the session and execute in order (fullyParallel: false).
 const TEST_SESSION = `e2e-sync-${Date.now()}`;
@@ -11,64 +12,19 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/**
- * Resolve a window's stable identifiers from the backend snapshot by its
- * (transient) display name. Returns the tmux window id (`@N`, unique for the
- * window's lifetime — the handle for DOM selection; the router carries its
- * numeric part `N` (`@N` sans `@`) as the `/$server/$window` segment and parse
- * restores `@N`) and the tmux window index (retained for diagnostics;
- * addressing is by id). Polls because the window is created via the tmux CLI
- * and surfaces in the snapshot asynchronously.
- */
-async function resolveWindow(
-  page: Page,
-  windowName: string,
-): Promise<{ windowId: string; index: number }> {
-  const deadline = Date.now() + 5_000;
-  let last: { windowId: string; index: number } | null = null;
-  while (Date.now() < deadline) {
-    const res = await page.request.get(
-      `/api/sessions?server=${encodeURIComponent(TMUX_SERVER)}`,
-    );
-    if (res.ok()) {
-      const sessions = (await res.json()) as Array<{
-        name: string;
-        windows: Array<{ windowId: string; index: number; name: string }>;
-      }>;
-      const win = sessions
-        .find((s) => s.name === TEST_SESSION)
-        ?.windows.find((w) => w.name === windowName);
-      if (win) {
-        last = { windowId: win.windowId, index: win.index };
-        break;
-      }
-    }
-    await page.waitForTimeout(200);
-  }
-  expect(last, `window "${windowName}" not found in snapshot`).not.toBeNull();
-  return last!;
-}
+// Shared snapshot resolver (hoisted to `_ready.ts`) bound to this file's
+// server + session. Returns the full snapshot window (`windowId` is the stable
+// `@N` handle for DOM selection; the router carries its numeric part).
+const resolveWindow = (page: Page, windowName: string) =>
+  resolveWindowRaw(page, TMUX_SERVER, TEST_SESSION, windowName);
 
 test.describe("Sidebar Window Sync", () => {
   test.beforeAll(() => {
-    try {
-      execSync(
-        `tmux -L ${TMUX_SERVER} new-session -d -s ${TEST_SESSION} -x 80 -y 24`,
-        { stdio: "ignore" },
-      );
-    } catch {
-      // Session may already exist
-    }
+    createSession(TEST_SESSION);
   });
 
   test.afterAll(() => {
-    try {
-      execSync(`tmux -L ${TMUX_SERVER} kill-session -t ${TEST_SESSION}`, {
-        stdio: "ignore",
-      });
-    } catch {
-      // Best effort
-    }
+    killSession(TEST_SESSION);
   });
 
   test("external window creation appears without page reload", async ({
@@ -77,18 +33,11 @@ test.describe("Sidebar Window Sync", () => {
     const ts = Date.now();
     const windowName = `ext-win-${ts}`;
 
-    await page.goto(`/${TMUX_SERVER}`);
-
-    await expect(
-      page.locator("[aria-label='Connected']"),
-    ).toBeVisible({ timeout: 10_000 });
+    await gotoServerReady(page, TMUX_SERVER);
 
     const sidebar = page.locator("nav[aria-label='Sessions']");
 
-    execSync(
-      `tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${windowName}"`,
-      { stdio: "ignore" },
-    );
+    newWindow(TEST_SESSION, windowName);
 
     // SSE poll interval is 2500ms; 5000ms covers ≥2 full cycles
     await expect(
@@ -103,16 +52,9 @@ test.describe("Sidebar Window Sync", () => {
     const srcName = `rename-src-${ts}`;
     const dstName = `rename-dst-${ts}`;
 
-    execSync(
-      `tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${srcName}"`,
-      { stdio: "ignore" },
-    );
+    newWindow(TEST_SESSION, srcName);
 
-    await page.goto(`/${TMUX_SERVER}`);
-
-    await expect(
-      page.locator("[aria-label='Connected']"),
-    ).toBeVisible({ timeout: 10_000 });
+    await gotoServerReady(page, TMUX_SERVER);
 
     const sidebar = page.locator("nav[aria-label='Sessions']");
 
@@ -144,17 +86,10 @@ test.describe("Sidebar Window Sync", () => {
 
     // A second window so the click target is unambiguous and distinct from
     // the session's initial active window.
-    execSync(
-      `tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${winName}"`,
-      { stdio: "ignore" },
-    );
+    newWindow(TEST_SESSION, winName);
 
     // Land on the server root (the dashboard) — no session/window in the URL.
-    await page.goto(`/${TMUX_SERVER}`);
-
-    await expect(
-      page.locator("[aria-label='Connected']"),
-    ).toBeVisible({ timeout: 10_000 });
+    await gotoServerReady(page, TMUX_SERVER);
 
     const sidebar = page.locator("nav[aria-label='Sessions']");
     // Resolve the window's stable identifiers (tmux @id + index) from the API
@@ -199,19 +134,10 @@ test.describe("Sidebar Window Sync", () => {
     const winA = `switch-a-${ts}`;
     const winB = `switch-b-${ts}`;
 
-    execSync(
-      `tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${winA}"`,
-      { stdio: "ignore" },
-    );
-    execSync(
-      `tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${winB}"`,
-      { stdio: "ignore" },
-    );
+    newWindow(TEST_SESSION, winA);
+    newWindow(TEST_SESSION, winB);
 
-    await page.goto(`/${TMUX_SERVER}`);
-    await expect(
-      page.locator("[aria-label='Connected']"),
-    ).toBeVisible({ timeout: 10_000 });
+    await gotoServerReady(page, TMUX_SERVER);
 
     const sidebar = page.locator("nav[aria-label='Sessions']");
     const targetA = await resolveWindow(page, winA);
@@ -259,16 +185,9 @@ test.describe("Sidebar Window Sync", () => {
     const newWindowName = `win-new-${ts}`;
 
     // Create the window to kill
-    execSync(
-      `tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${windowName}"`,
-      { stdio: "ignore" },
-    );
+    newWindow(TEST_SESSION, windowName);
 
-    await page.goto(`/${TMUX_SERVER}`);
-
-    await expect(
-      page.locator("[aria-label='Connected']"),
-    ).toBeVisible({ timeout: 10_000 });
+    await gotoServerReady(page, TMUX_SERVER);
 
     const sidebar = page.locator("nav[aria-label='Sessions']");
 
@@ -299,10 +218,7 @@ test.describe("Sidebar Window Sync", () => {
     // killed window occupied. The store's reconciliation (syncWindows) must
     // not suppress this new window just because a prior windowId was marked
     // killed.
-    execSync(
-      `tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${newWindowName}"`,
-      { stdio: "ignore" },
-    );
+    newWindow(TEST_SESSION, newWindowName);
 
     await expect(
       sidebar.locator(`text=${newWindowName}`),

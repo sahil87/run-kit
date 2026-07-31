@@ -1,7 +1,6 @@
 import { test, expect } from "@playwright/test";
-import { execSync } from "node:child_process";
+import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
 
-const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
 const TEST_SESSION = `e2e-shell-rotation-${Date.now()}`;
 const BOARD_NAME = `sr${Date.now().toString().slice(-6)}`;
 
@@ -18,44 +17,27 @@ const WIN_B_MARKER = "PANE_BRAVO_RDY";
 
 test.describe("Shell rotation: BottomBar focus tracking", () => {
   test.beforeAll(() => {
-    try {
-      // Both windows print a ready-marker and then run `cat` so STDIN typed by
-      // the test (via the BottomBar relay) accumulates in the pane's view.
-      execSync(
-        `tmux -L ${TMUX_SERVER} new-session -d -s ${TEST_SESSION} -x 80 -y 24 -n win-a "sh -c 'printf \\"${WIN_A_MARKER}\\\\n\\"; cat'"`,
-        { stdio: "ignore" },
-      );
-      execSync(
-        `tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n win-b "sh -c 'printf \\"${WIN_B_MARKER}\\\\n\\"; cat'"`,
-        { stdio: "ignore" },
-      );
-    } catch {
-      // Best-effort
-    }
+    // Both windows print a ready-marker and then run `cat` so STDIN typed by
+    // the test (via the BottomBar relay) accumulates in the pane's view.
+    createSession(TEST_SESSION, {
+      windows: [
+        { name: "win-a", command: `sh -c 'printf "${WIN_A_MARKER}\\n"; cat'` },
+        { name: "win-b", command: `sh -c 'printf "${WIN_B_MARKER}\\n"; cat'` },
+      ],
+    });
   });
 
   test.afterAll(() => {
-    try {
-      execSync(`tmux -L ${TMUX_SERVER} kill-session -t ${TEST_SESSION}`, {
-        stdio: "ignore",
-      });
-    } catch {
-      // Best-effort
-    }
+    killSession(TEST_SESSION);
   });
 
   test("BottomBar follows focused pane on board route", async ({ page }) => {
     test.setTimeout(60_000);
 
     // Resolve the window IDs by name and pin both to a fresh board.
-    const wins = execSync(
-      `tmux -L ${TMUX_SERVER} list-windows -t ${TEST_SESSION} -F "#{window_id}:#{window_name}"`,
-    )
-      .toString()
-      .trim()
-      .split("\n");
-    const winA = wins.find((line) => line.endsWith(":win-a"))?.split(":")[0];
-    const winB = wins.find((line) => line.endsWith(":win-b"))?.split(":")[0];
+    const wins = listWindows(TEST_SESSION);
+    const winA = wins.find((w) => w.name === "win-a")?.windowId;
+    const winB = wins.find((w) => w.name === "win-b")?.windowId;
     expect(winA).toBeTruthy();
     expect(winB).toBeTruthy();
 

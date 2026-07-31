@@ -1,7 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
-import { execSync } from "node:child_process";
+import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
 
-const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
 // Own session per file to avoid cross-test interference.
 const TEST_SESSION = `e2e-board-autofit-${Date.now()}`;
 // Board names are constrained to alphanumeric/-/_ — fresh names per run so a
@@ -24,15 +23,10 @@ const pinned: Array<{ board: string; server: string; windowId: string }> = [];
 
 /** Resolve the tmux window ids for win-0..win-N in index order. */
 function windowIds(): string[] {
-  const lines = execSync(
-    `tmux -L ${TMUX_SERVER} list-windows -t ${TEST_SESSION} -F "#{window_id}:#{window_name}"`,
-  )
-    .toString()
-    .trim()
-    .split("\n");
+  const wins = listWindows(TEST_SESSION);
   const ids: string[] = [];
   for (let i = 0; i < WINDOW_COUNT; i++) {
-    const id = lines.find((l) => l.endsWith(`:win-${i}`))?.split(":")[0];
+    const id = wins.find((w) => w.name === `win-${i}`)?.windowId;
     expect(id, `window id for win-${i}`).toBeTruthy();
     ids.push(id!);
   }
@@ -71,22 +65,14 @@ test.describe("Boards: desktop autofit toggle (738w)", () => {
   test.use({ viewport: VIEWPORT });
 
   test.beforeAll(() => {
-    try {
-      // First window via new-session; the rest via new-window. Each idles so the
-      // pane is stable and long-lived (matches boards-desktop-suspend).
-      execSync(
-        `tmux -L ${TMUX_SERVER} new-session -d -s ${TEST_SESSION} -x 80 -y 24 -n win-0 "sh -c 'sleep 300'"`,
-        { stdio: "ignore" },
-      );
-      for (let i = 1; i < WINDOW_COUNT; i++) {
-        execSync(
-          `tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n win-${i} "sh -c 'sleep 300'"`,
-          { stdio: "ignore" },
-        );
-      }
-    } catch {
-      // Best-effort
-    }
+    // First window via new-session; the rest via new-window. Each idles so the
+    // pane is stable and long-lived (matches boards-desktop-suspend).
+    createSession(TEST_SESSION, {
+      windows: Array.from({ length: WINDOW_COUNT }, (_, i) => ({
+        name: `win-${i}`,
+        command: "sh -c 'sleep 300'",
+      })),
+    });
   });
 
   test.afterAll(async ({ request }) => {
@@ -100,13 +86,7 @@ test.describe("Boards: desktop autofit toggle (738w)", () => {
       }
     }
     pinned.length = 0;
-    try {
-      execSync(`tmux -L ${TMUX_SERVER} kill-session -t ${TEST_SESSION}`, {
-        stdio: "ignore",
-      });
-    } catch {
-      // Best-effort
-    }
+    killSession(TEST_SESSION);
   });
 
   test("autofit ON with 2 panes fills the row equally with no horizontal scroll; OFF restores fixed widths", async ({

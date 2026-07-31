@@ -1,7 +1,8 @@
 import { test, expect } from "@playwright/test";
-import { execSync } from "node:child_process";
+import { gotoServerReady } from "./_ready";
+import { TMUX_SERVER, createSession, killServer, killSession } from "./_tmux";
 
-const TMUX_SERVER_A = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
+const TMUX_SERVER_A = TMUX_SERVER;
 // Second tmux server, set up explicitly so the multi-server sidebar has a real
 // counterpart to render. Named under the unified rk-test-e2e-* umbrella with the
 // Playwright process.pid as the second-to-last hyphen field, so the automatic
@@ -13,43 +14,20 @@ const TEST_SESSION_B = `e2e-msb-b-${Date.now()}`;
 
 test.describe("Multi-server sidebar", () => {
   test.beforeAll(() => {
-    try {
-      execSync(
-        `tmux -L ${TMUX_SERVER_A} new-session -d -s ${TEST_SESSION_A} -x 80 -y 24 -n msb-a-win`,
-        { stdio: "ignore" },
-      );
-      execSync(
-        `tmux -L ${TMUX_SERVER_B} new-session -d -s ${TEST_SESSION_B} -x 80 -y 24 -n msb-b-win`,
-        { stdio: "ignore" },
-      );
-    } catch {
-      // Best-effort
-    }
+    createSession(TEST_SESSION_A, { server: TMUX_SERVER_A, windows: ["msb-a-win"] });
+    createSession(TEST_SESSION_B, { server: TMUX_SERVER_B, windows: ["msb-b-win"] });
   });
 
   test.afterAll(() => {
-    try {
-      execSync(`tmux -L ${TMUX_SERVER_A} kill-session -t ${TEST_SESSION_A}`, {
-        stdio: "ignore",
-      });
-    } catch {
-      // Best-effort
-    }
-    try {
-      execSync(`tmux -L ${TMUX_SERVER_B} kill-server`, { stdio: "ignore" });
-    } catch {
-      // Best-effort
-    }
+    killSession(TEST_SESSION_A, { server: TMUX_SERVER_A });
+    killServer(TMUX_SERVER_B);
   });
 
   test("renders one collapsible group per server in the Sessions area", async ({
     page,
   }) => {
     test.setTimeout(30_000);
-    await page.goto(`/${TMUX_SERVER_A}`, { waitUntil: "domcontentloaded" });
-    await expect(page.locator("[aria-label='Connected']")).toBeVisible({
-      timeout: 10_000,
-    });
+    await gotoServerReady(page, TMUX_SERVER_A);
 
     // Each server group has a `data-server` attribute on its header. Locate
     // both to assert both render.
@@ -71,10 +49,7 @@ test.describe("Multi-server sidebar", () => {
     page,
   }) => {
     test.setTimeout(30_000);
-    await page.goto(`/${TMUX_SERVER_A}`, { waitUntil: "domcontentloaded" });
-    await expect(page.locator("[aria-label='Connected']")).toBeVisible({
-      timeout: 10_000,
-    });
+    await gotoServerReady(page, TMUX_SERVER_A);
 
     // Expand the second server's group (default-collapsed for non-current).
     const groupBHeader = page.locator(

@@ -1,7 +1,6 @@
 import { test, expect } from "@playwright/test";
-import { execSync } from "node:child_process";
+import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
 
-const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
 const TEST_SESSION = `e2e-board-suspend-${Date.now()}`;
 const BOARD_NAME = `sus${Date.now().toString().slice(-6)}`;
 
@@ -22,22 +21,14 @@ test.describe("Boards: desktop relay suspension", () => {
   test.use({ viewport: VIEWPORT });
 
   test.beforeAll(() => {
-    try {
-      // First window via new-session; the rest via new-window. Each idles so
-      // its relay has a live pane to attach to.
-      execSync(
-        `tmux -L ${TMUX_SERVER} new-session -d -s ${TEST_SESSION} -x 80 -y 24 -n win-0 "sh -c 'printf \\"PANE_0_OK\\\\n\\"; sleep 120'"`,
-        { stdio: "ignore" },
-      );
-      for (let i = 1; i < PANE_COUNT; i++) {
-        execSync(
-          `tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n win-${i} "sh -c 'printf \\"PANE_${i}_OK\\\\n\\"; sleep 120'"`,
-          { stdio: "ignore" },
-        );
-      }
-    } catch {
-      // Best-effort
-    }
+    // First window via new-session; the rest via new-window. Each idles so
+    // its relay has a live pane to attach to.
+    createSession(TEST_SESSION, {
+      windows: Array.from({ length: PANE_COUNT }, (_, i) => ({
+        name: `win-${i}`,
+        command: `sh -c 'printf "PANE_${i}_OK\\n"; sleep 120'`,
+      })),
+    });
   });
 
   test.afterAll(async ({ request }) => {
@@ -49,13 +40,7 @@ test.describe("Boards: desktop relay suspension", () => {
       }
     }
     pinnedEntries.length = 0;
-    try {
-      execSync(`tmux -L ${TMUX_SERVER} kill-session -t ${TEST_SESSION}`, {
-        stdio: "ignore",
-      });
-    } catch {
-      // Best-effort
-    }
+    killSession(TEST_SESSION);
   });
 
   test("off-screen desktop pane suspends its muxed stream and resumes on scroll-back", async ({
@@ -64,15 +49,10 @@ test.describe("Boards: desktop relay suspension", () => {
     test.setTimeout(60_000);
 
     // Resolve all window ids by name so pins target real windows.
-    const wins = execSync(
-      `tmux -L ${TMUX_SERVER} list-windows -t ${TEST_SESSION} -F "#{window_id}:#{window_name}"`,
-    )
-      .toString()
-      .trim()
-      .split("\n");
+    const wins = listWindows(TEST_SESSION);
     const winIds: string[] = [];
     for (let i = 0; i < PANE_COUNT; i++) {
-      const id = wins.find((line) => line.endsWith(`:win-${i}`))?.split(":")[0];
+      const id = wins.find((w) => w.name === `win-${i}`)?.windowId;
       expect(id, `window id for win-${i}`).toBeTruthy();
       winIds.push(id!);
     }

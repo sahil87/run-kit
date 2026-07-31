@@ -1,68 +1,27 @@
 import { test, expect, type Page } from "@playwright/test";
-import { execSync } from "node:child_process";
+import { gotoServerReady, resolveWindow } from "./_ready";
+import { TMUX_SERVER, createSession, killSession } from "./_tmux";
 
-const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
 const TEST_SESSION = `e2e-kbnav-${Date.now()}`;
 
-/** Resolve a window's stable tmux id (`@N`) by its display name. Polls because
- *  windows created via the tmux CLI surface in the snapshot asynchronously. */
+/** Resolve a window's stable tmux id (`@N`) by its display name. */
 async function resolveWindowId(page: Page, windowName: string): Promise<string> {
-  const deadline = Date.now() + 5_000;
-  let id: string | null = null;
-  while (Date.now() < deadline) {
-    const res = await page.request.get(
-      `/api/sessions?server=${encodeURIComponent(TMUX_SERVER)}`,
-    );
-    if (res.ok()) {
-      const sessions = (await res.json()) as Array<{
-        name: string;
-        windows: Array<{ windowId: string; name: string }>;
-      }>;
-      const win = sessions
-        .find((s) => s.name === TEST_SESSION)
-        ?.windows.find((w) => w.name === windowName);
-      if (win) {
-        id = win.windowId;
-        break;
-      }
-    }
-    await page.waitForTimeout(200);
-  }
-  expect(id, `window "${windowName}" not found in snapshot`).not.toBeNull();
-  return id!;
+  return (await resolveWindow(page, TMUX_SERVER, TEST_SESSION, windowName)).windowId;
 }
 
 test.describe("Sidebar keyboard navigation", () => {
   test.beforeAll(() => {
-    try {
-      // Session with two windows so the tree has a session row + ≥2 window rows.
-      execSync(
-        `tmux -L ${TMUX_SERVER} new-session -d -s ${TEST_SESSION} -n edit -x 80 -y 24`,
-        { stdio: "ignore" },
-      );
-      execSync(
-        `tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n test`,
-        { stdio: "ignore" },
-      );
-    } catch {
-      // best effort — may already exist
-    }
+    // Session with two windows so the tree has a session row + ≥2 window rows.
+    createSession(TEST_SESSION, { windows: ["edit", "test"] });
   });
 
   test.afterAll(() => {
-    try {
-      execSync(`tmux -L ${TMUX_SERVER} kill-session -t ${TEST_SESSION}`, {
-        stdio: "ignore",
-      });
-    } catch {
-      // best effort
-    }
+    killSession(TEST_SESSION);
   });
 
   /** Navigate to the server route, wait for SSE, and return the tree element. */
   async function openTree(page: Page) {
-    await page.goto(`/${TMUX_SERVER}`);
-    await expect(page.locator("[aria-label='Connected']")).toBeVisible({ timeout: 10_000 });
+    await gotoServerReady(page, TMUX_SERVER);
     const tree = page.getByRole("tree", { name: "Session tree" });
     await expect(tree).toBeVisible();
     // Ensure our session's rows are present before driving the keyboard.

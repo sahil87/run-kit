@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
-import { execSync } from "node:child_process";
+import { READY_TIMEOUT, gotoServerReady, gotoWindow } from "./_ready";
+import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
 
 // Connection-budget guard — FINAL any-route form (state socket 260716-qf3j +
 // terminals mux 260717-803u + chat-on-state-socket 260717-vhvz).
@@ -18,7 +19,6 @@ import { execSync } from "node:child_process";
 // clears the pool starvation that blocked terminal-relay handshakes on
 // Firefox/WebKit for plaintext origins.
 
-const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
 const TEST_SESSION = `e2e-connbudget-${Date.now()}`;
 
 /** True for the state socket URL (`/ws/state`), excluding Vite HMR. */
@@ -70,23 +70,12 @@ function installCounters(page: Page) {
 
 test.describe("Connection budget — 2 muxed WS (state + terminals), zero SSE", () => {
   test.beforeAll(() => {
-    try {
-      // A multi-window session so the board/terminal routes have real content.
-      execSync(
-        `tmux -L ${TMUX_SERVER} new-session -d -s ${TEST_SESSION} -x 80 -y 24 -n cb-win`,
-        { stdio: "ignore" },
-      );
-    } catch {
-      // Best-effort
-    }
+    // A session so the board/terminal routes have real content.
+    createSession(TEST_SESSION, { windows: ["cb-win"] });
   });
 
   test.afterAll(() => {
-    try {
-      execSync(`tmux -L ${TMUX_SERVER} kill-session -t ${TEST_SESSION}`, { stdio: "ignore" });
-    } catch {
-      // Best-effort
-    }
+    killSession(TEST_SESSION);
   });
 
   test("the Host home (/) holds one /ws/state WS, no terminals WS, and zero SSE", async ({ page }) => {
@@ -105,8 +94,7 @@ test.describe("Connection budget — 2 muxed WS (state + terminals), zero SSE", 
   test("a tmux Server route (/$server) holds one /ws/state WS, no terminals WS, and zero SSE", async ({ page }) => {
     test.setTimeout(30_000);
     const c = installCounters(page);
-    await page.goto(`/${TMUX_SERVER}`, { waitUntil: "domcontentloaded" });
-    await expect(page.locator("[aria-label='Connected']")).toBeVisible({ timeout: 15_000 });
+    await gotoServerReady(page, TMUX_SERVER);
     await expect.poll(() => c.stateSocketCount(), { timeout: 5_000 }).toBe(1);
     // The server overview renders session tiles (static capture-pane previews),
     // not live terminals — no terminals socket.
@@ -118,17 +106,10 @@ test.describe("Connection budget — 2 muxed WS (state + terminals), zero SSE", 
     test.setTimeout(30_000);
     const c = installCounters(page);
     // Resolve the first window id of the test session.
-    const wins = execSync(
-      `tmux -L ${TMUX_SERVER} list-windows -t ${TEST_SESSION} -F "#{window_id}"`,
-    )
-      .toString()
-      .trim()
-      .split("\n");
-    const windowId = wins[0]?.replace(/^@/, "");
+    const windowId = listWindows(TEST_SESSION)[0]?.windowId.replace(/^@/, "");
     expect(windowId, "first window id").toBeTruthy();
 
-    await page.goto(`/${TMUX_SERVER}/${windowId}`, { waitUntil: "domcontentloaded" });
-    await expect(page.locator("[aria-label='Connected']")).toBeVisible({ timeout: 15_000 });
+    await gotoWindow(page, TMUX_SERVER, windowId!);
     // The terminal route opens the ONE terminals mux socket in addition to the
     // one state socket — exactly two rk WebSockets total.
     await expect.poll(() => c.stateSocketCount(), { timeout: 5_000 }).toBe(1);
@@ -148,17 +129,11 @@ test.describe("Connection budget — 2 muxed WS (state + terminals), zero SSE", 
     // chat-capable (chat rides the already-held state socket) or falls back to tty.
     test.setTimeout(30_000);
     const c = installCounters(page);
-    const wins = execSync(
-      `tmux -L ${TMUX_SERVER} list-windows -t ${TEST_SESSION} -F "#{window_id}"`,
-    )
-      .toString()
-      .trim()
-      .split("\n");
-    const windowId = wins[0]?.replace(/^@/, "");
+    const windowId = listWindows(TEST_SESSION)[0]?.windowId.replace(/^@/, "");
     expect(windowId, "first window id").toBeTruthy();
 
     await page.goto(`/${TMUX_SERVER}/${windowId}?view=chat`, { waitUntil: "domcontentloaded" });
-    await expect(page.locator("[aria-label='Connected']")).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator("[aria-label='Connected']")).toBeVisible({ timeout: READY_TIMEOUT });
     // Exactly one state socket; at most one terminals socket (this window falls
     // back to tty, so the terminals mux stays); ZERO SSE — `?view=chat` never
     // contributes a text/event-stream (the whole point of this change).
@@ -171,13 +146,7 @@ test.describe("Connection budget — 2 muxed WS (state + terminals), zero SSE", 
     test.setTimeout(40_000);
     const board = `cb-board-${Date.now().toString().slice(-6)}`;
     // Pin the session's first window to a board so the board route has content.
-    const wins = execSync(
-      `tmux -L ${TMUX_SERVER} list-windows -t ${TEST_SESSION} -F "#{window_id}"`,
-    )
-      .toString()
-      .trim()
-      .split("\n");
-    const windowId = wins[0];
+    const windowId = listWindows(TEST_SESSION)[0]?.windowId;
     const pin = await request.post(`/api/boards/${board}/pin`, {
       data: { server: TMUX_SERVER, windowId },
     });
@@ -186,7 +155,7 @@ test.describe("Connection budget — 2 muxed WS (state + terminals), zero SSE", 
     try {
       const c = installCounters(page);
       await page.goto(`/board/${board}`, { waitUntil: "domcontentloaded" });
-      await expect(page.locator("[aria-label='Connected']").first()).toBeVisible({ timeout: 15_000 });
+      await expect(page.locator("[aria-label='Connected']").first()).toBeVisible({ timeout: READY_TIMEOUT });
       // The board attaches every contributing server's STATE over the SINGLE
       // state socket AND every live pane's terminal I/O over the SINGLE
       // terminals mux (this is the exact pool-starvation case the effort fixes)

@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
-import { execSync } from "node:child_process";
+import { TMUX_SERVER, createSession, killServer, killSession, listWindows } from "./_tmux";
 
-const TMUX_SERVER_A = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
+const TMUX_SERVER_A = TMUX_SERVER;
 // Second tmux server, set up explicitly so the cross-server union has a real
 // counterpart. Named under the unified rk-test-e2e-* umbrella with the
 // Playwright process.pid as the second-to-last hyphen field, so the automatic
@@ -16,18 +16,8 @@ const pinnedEntries: Array<{ server: string; windowId: string }> = [];
 
 test.describe("Boards: multi-server union", () => {
   test.beforeAll(() => {
-    try {
-      execSync(
-        `tmux -L ${TMUX_SERVER_A} new-session -d -s ${TEST_SESSION_A} -x 80 -y 24 -n srv-a-win`,
-        { stdio: "ignore" },
-      );
-      execSync(
-        `tmux -L ${TMUX_SERVER_B} new-session -d -s ${TEST_SESSION_B} -x 80 -y 24 -n srv-b-win`,
-        { stdio: "ignore" },
-      );
-    } catch {
-      // Best-effort
-    }
+    createSession(TEST_SESSION_A, { server: TMUX_SERVER_A, windows: ["srv-a-win"] });
+    createSession(TEST_SESSION_B, { server: TMUX_SERVER_B, windows: ["srv-b-win"] });
   });
 
   test.afterAll(async ({ request }) => {
@@ -46,36 +36,16 @@ test.describe("Boards: multi-server union", () => {
     }
     pinnedEntries.length = 0;
 
-    try {
-      execSync(`tmux -L ${TMUX_SERVER_A} kill-session -t ${TEST_SESSION_A}`, {
-        stdio: "ignore",
-      });
-    } catch {
-      // Best-effort
-    }
-    try {
-      execSync(`tmux -L ${TMUX_SERVER_B} kill-server`, { stdio: "ignore" });
-    } catch {
-      // Best-effort
-    }
+    killSession(TEST_SESSION_A, { server: TMUX_SERVER_A });
+    killServer(TMUX_SERVER_B);
   });
 
   test("a board with windows from two servers shows the union on /board/<name>", async ({
     page,
   }) => {
     test.setTimeout(30_000);
-    const winIdA = execSync(
-      `tmux -L ${TMUX_SERVER_A} list-windows -t ${TEST_SESSION_A} -F "#{window_id}"`,
-    )
-      .toString()
-      .trim()
-      .split("\n")[0];
-    const winIdB = execSync(
-      `tmux -L ${TMUX_SERVER_B} list-windows -t ${TEST_SESSION_B} -F "#{window_id}"`,
-    )
-      .toString()
-      .trim()
-      .split("\n")[0];
+    const winIdA = listWindows(TEST_SESSION_A, { server: TMUX_SERVER_A })[0]?.windowId;
+    const winIdB = listWindows(TEST_SESSION_B, { server: TMUX_SERVER_B })[0]?.windowId;
 
     // Pin both windows via the HTTP API. Server is in the body per the spec.
     const pinA = await page.request.post(`/api/boards/${BOARD_NAME}/pin`, {

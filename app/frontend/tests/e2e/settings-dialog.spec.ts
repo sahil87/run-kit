@@ -1,8 +1,9 @@
 import { test, expect, type Page } from "@playwright/test";
-import { execSync } from "node:child_process";
 import { readFileSync, writeFileSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { gotoServerReady } from "./_ready";
+import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
 
 /**
  * Settings dialog (260723-o7q8): the VS Code-style dialog mounted once at
@@ -23,7 +24,6 @@ const SETTINGS_PATH = join(homedir(), ".rk", "settings.yaml");
 let settingsSnapshot: Buffer | undefined;
 let settingsExisted = false;
 
-const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
 const TEST_SESSION = `e2e-settings-${Date.now()}`;
 // Board names are constrained to alphanumeric/-/_ — fresh per run.
 const BOARD_NAME = `set${Date.now().toString().slice(-6)}`;
@@ -64,14 +64,7 @@ test.describe("Settings dialog", () => {
       settingsExisted = false;
     }
 
-    try {
-      execSync(
-        `tmux -L ${TMUX_SERVER} new-session -d -s ${TEST_SESSION} -x 80 -y 24 -n win-a`,
-        { stdio: "ignore" },
-      );
-    } catch {
-      // Best-effort
-    }
+    createSession(TEST_SESSION, { windows: ["win-a"] });
   });
 
   test.afterAll(() => {
@@ -85,18 +78,11 @@ test.describe("Settings dialog", () => {
     } catch {
       // Best-effort
     }
-    try {
-      execSync(`tmux -L ${TMUX_SERVER} kill-session -t ${TEST_SESSION}`, {
-        stdio: "ignore",
-      });
-    } catch {
-      // Best-effort
-    }
+    killSession(TEST_SESSION);
   });
 
   test("palette opens the dialog on a server route with the This-host/This-device split", async ({ page }) => {
-    await page.goto(`/${TMUX_SERVER}`);
-    await expect(page.locator("[aria-label='Connected']")).toBeVisible({ timeout: 10_000 });
+    await gotoServerReady(page, TMUX_SERVER);
 
     await openPaletteSettings(page);
     await expectDialogOpen(page);
@@ -119,8 +105,7 @@ test.describe("Settings dialog", () => {
   });
 
   test("desktop preference-pane layout with the Notifications row (260724-6j1v)", async ({ page }) => {
-    await page.goto(`/${TMUX_SERVER}`);
-    await expect(page.locator("[aria-label='Connected']")).toBeVisible({ timeout: 10_000 });
+    await gotoServerReady(page, TMUX_SERVER);
 
     await openPaletteSettings(page);
     await expectDialogOpen(page);
@@ -197,14 +182,7 @@ test.describe("Settings dialog", () => {
     test.setTimeout(30_000);
     // Pin win-a via the API so the board exists (the deterministic path the
     // boards-pin-flow spec established).
-    const winId = execSync(
-      `tmux -L ${TMUX_SERVER} list-windows -t ${TEST_SESSION} -F "#{window_id}:#{window_name}"`,
-    )
-      .toString()
-      .trim()
-      .split("\n")
-      .find((line) => line.endsWith(":win-a"))
-      ?.split(":")[0];
+    const winId = listWindows(TEST_SESSION).find((w) => w.name === "win-a")?.windowId;
     expect(winId).toBeTruthy();
     const pinRes = await page.request.post(`/api/boards/${BOARD_NAME}/pin`, {
       data: { server: TMUX_SERVER, windowId: winId },
@@ -231,8 +209,7 @@ test.describe("Settings dialog", () => {
   });
 
   test("sidebar footer gear opens the dialog (Tip-named, no native title)", async ({ page }) => {
-    await page.goto(`/${TMUX_SERVER}`);
-    await expect(page.locator("[aria-label='Connected']")).toBeVisible({ timeout: 10_000 });
+    await gotoServerReady(page, TMUX_SERVER);
 
     const gear = page.getByRole("button", { name: "Open settings" });
     await expect(gear).toBeVisible({ timeout: 10_000 });
@@ -244,8 +221,7 @@ test.describe("Settings dialog", () => {
   });
 
   test("editing the instance name persists a host-scoped value (and clears)", async ({ page }) => {
-    await page.goto(`/${TMUX_SERVER}`);
-    await expect(page.locator("[aria-label='Connected']")).toBeVisible({ timeout: 10_000 });
+    await gotoServerReady(page, TMUX_SERVER);
 
     await page.getByRole("button", { name: "Open settings" }).click();
     await expectDialogOpen(page);

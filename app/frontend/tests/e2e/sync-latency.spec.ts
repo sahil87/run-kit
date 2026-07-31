@@ -9,9 +9,9 @@
  */
 import { test, expect } from "@playwright/test";
 import { execSync } from "node:child_process";
-import { READY_TIMEOUT } from "./_ready";
+import { READY_TIMEOUT, gotoServerReady } from "./_ready";
+import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
 
-const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
 const SESSION_A = `e2e-lat-a-${Date.now()}`;
 const SESSION_B = `e2e-lat-b-${Date.now()}`;
 
@@ -33,10 +33,6 @@ function record(action: string, ms: number) {
   );
 }
 
-function tmux(cmd: string) {
-  execSync(`tmux -L ${TMUX_SERVER} ${cmd}`, { stdio: "ignore" });
-}
-
 /**
  * Navigate to the tmux server dashboard and wait until the sidebar is usable.
  * `Connected` (SSE socket open) is necessary but not sufficient: the first
@@ -55,9 +51,7 @@ function tmux(cmd: string) {
  * don't depend on a specific name).
  */
 async function setup(page: import("@playwright/test").Page) {
-  await page.goto(`/${TMUX_SERVER}`);
-  await expect(page.locator("[aria-label='Connected']")).toBeVisible({ timeout: READY_TIMEOUT });
-  const sidebar = page.locator("nav[aria-label='Sessions']");
+  const sidebar = await gotoServerReady(page, TMUX_SERVER);
   await expect(sidebar.locator(`button[aria-label^='Navigate to ']`).first()).toBeVisible({
     timeout: READY_TIMEOUT,
   });
@@ -70,8 +64,8 @@ test.describe("Sync Latency Audit", () => {
   test.setTimeout(process.env.CI ? 45_000 : 20_000);
 
   test.beforeAll(() => {
-    try { tmux(`new-session -d -s ${SESSION_A} -x 80 -y 24`); } catch { /* ok */ }
-    try { tmux(`new-session -d -s ${SESSION_B} -x 80 -y 24`); } catch { /* ok */ }
+    createSession(SESSION_A);
+    createSession(SESSION_B);
   });
 
   test.afterAll(() => {
@@ -98,9 +92,7 @@ test.describe("Sync Latency Audit", () => {
         .filter((n) => n.startsWith("e2e-lat-xtgt-"));
       names.push(...live);
     } catch { /* ok — no server or no sessions */ }
-    for (const s of names) {
-      try { tmux(`kill-session -t ${s}`); } catch { /* ok */ }
-    }
+    for (const s of names) killSession(s);
 
     console.log("\n=== SYNC LATENCY SUMMARY ===");
     console.log(`Threshold: ${OPTIMISTIC_THRESHOLD_MS}ms\n`);
@@ -217,7 +209,7 @@ test.describe("Sync Latency Audit", () => {
   });
 
   test("4. Rename window via UI (double-click)", async ({ page }) => {
-    tmux(`new-window -t ${SESSION_B} -n rename-me`);
+    newWindow(SESSION_B, "rename-me");
 
     const sidebar = await setup(page);
 
@@ -241,7 +233,7 @@ test.describe("Sync Latency Audit", () => {
   });
 
   test("5. Kill window via Ctrl+click (instant)", async ({ page }) => {
-    tmux(`new-window -t ${SESSION_B} -n kill-me`);
+    newWindow(SESSION_B, "kill-me");
 
     const sidebar = await setup(page);
     await expect(sidebar.locator("text=kill-me").first()).toBeVisible({ timeout: 8_000 });
@@ -261,8 +253,8 @@ test.describe("Sync Latency Audit", () => {
   });
 
   test("6. Move window within session (drag-drop reorder)", async ({ page }) => {
-    tmux(`new-window -t ${SESSION_B} -n dnd-first`);
-    tmux(`new-window -t ${SESSION_B} -n dnd-second`);
+    newWindow(SESSION_B, "dnd-first");
+    newWindow(SESSION_B, "dnd-second");
 
     const sidebar = await setup(page);
 
@@ -313,8 +305,8 @@ test.describe("Sync Latency Audit", () => {
     // — a coupling that breaks on any worker restart (the re-seeded SESSION_A
     // is never renamed). Owning the target removes the ordering dependency.
     const crossTarget = `e2e-lat-xtgt-${Date.now()}`;
-    tmux(`new-session -d -s ${crossTarget} -x 80 -y 24`);
-    tmux(`new-window -t ${SESSION_B} -n cross-mv`);
+    createSession(crossTarget);
+    newWindow(SESSION_B, "cross-mv");
 
     const sidebar = await setup(page);
 
@@ -361,20 +353,20 @@ test.describe("Sync Latency Audit", () => {
     const winName = `ext-${Date.now()}`;
 
     const t0 = Date.now();
-    tmux(`new-window -t ${SESSION_B} -n ${winName}`);
+    newWindow(SESSION_B, winName);
 
     await expect(sidebar.locator(`text=${winName}`)).toBeVisible({ timeout: 8_000 });
     record("External tmux new-window (SSE baseline)", Date.now() - t0);
   });
 
   test("9. Kill session via UI (with dialog)", async ({ page }) => {
-    const killSession = `e2e-kill-${SESSION_A}`;
-    tmux(`new-session -d -s ${killSession} -x 80 -y 24`);
+    const killVictim = `e2e-kill-${SESSION_A}`;
+    createSession(killVictim);
 
     const sidebar = await setup(page);
-    await expect(sidebar.locator(`text=${killSession}`).first()).toBeVisible({ timeout: 8_000 });
+    await expect(sidebar.locator(`text=${killVictim}`).first()).toBeVisible({ timeout: 8_000 });
 
-    const killBtn = sidebar.locator(`button[aria-label='Kill session ${killSession}']`);
+    const killBtn = sidebar.locator(`button[aria-label='Kill session ${killVictim}']`);
 
     const t0 = Date.now();
     await killBtn.click();
@@ -386,7 +378,7 @@ test.describe("Sync Latency Audit", () => {
     await dialog.locator("button:has-text('Kill')").click({ force: true });
 
     await expect(
-      sidebar.locator(`text=${killSession}`),
+      sidebar.locator(`text=${killVictim}`),
     ).not.toBeVisible({ timeout: 8_000 });
     record("Kill session (UI, confirm dialog)", Date.now() - t0);
   });

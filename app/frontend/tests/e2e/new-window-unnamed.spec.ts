@@ -1,32 +1,16 @@
 import { test, expect } from "@playwright/test";
-import { execFileSync } from "node:child_process";
+import { gotoServerReady } from "./_ready";
+import { TMUX_SERVER, createSession, killSession } from "./_tmux";
 
-const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
 const TEST_SESSION = `e2e-unnamed-${Date.now()}`;
 
 test.describe("Unnamed window creation (+ New Window)", () => {
   test.beforeAll(() => {
-    try {
-      // execFileSync (argv, no shell) avoids injection/quoting issues from the
-      // env-controlled TMUX_SERVER — no template-string shell command.
-      execFileSync(
-        "tmux",
-        ["-L", TMUX_SERVER, "new-session", "-d", "-s", TEST_SESSION, "-x", "80", "-y", "24"],
-        { stdio: "ignore" },
-      );
-    } catch {
-      // Session may already exist.
-    }
+    createSession(TEST_SESSION);
   });
 
   test.afterAll(() => {
-    try {
-      execFileSync("tmux", ["-L", TMUX_SERVER, "kill-session", "-t", TEST_SESSION], {
-        stdio: "ignore",
-      });
-    } catch {
-      // Best effort.
-    }
+    killSession(TEST_SESSION);
   });
 
   test("+ New Window omits the name from the create request (tmux auto-names)", async ({
@@ -54,10 +38,7 @@ test.describe("Unnamed window creation (+ New Window)", () => {
       await route.continue();
     });
 
-    await page.goto(`/${TMUX_SERVER}`);
-    await expect(page.locator("[aria-label='Connected']")).toBeVisible({
-      timeout: 10_000,
-    });
+    await gotoServerReady(page, TMUX_SERVER);
 
     const sidebar = page.locator("nav[aria-label='Sessions']");
     // The session's "+ New window in <session>" button is the create seam.

@@ -26,8 +26,9 @@
  */
 import { test, expect } from "@playwright/test";
 import { execSync } from "node:child_process";
+import { resolveWindow } from "./_ready";
+import { TMUX_SERVER, createSession, killSession } from "./_tmux";
 
-const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
 const TEST_SESSION = `e2e-echo-${Date.now()}`;
 // Dedicated session for the throughput test — it runs a burst command rather
 // than the interactive `cat`, so it gets its own window to avoid disturbing the
@@ -172,28 +173,7 @@ async function resolveFirstWindowId(
   page: import("@playwright/test").Page,
   session: string = TEST_SESSION,
 ): Promise<string> {
-  const deadline = Date.now() + 5_000;
-  let id: string | null = null;
-  while (Date.now() < deadline) {
-    const res = await page.request.get(
-      `${BASE}/api/sessions?server=${encodeURIComponent(TMUX_SERVER)}`,
-    );
-    if (res.ok()) {
-      const sessions = (await res.json()) as Array<{
-        name: string;
-        windows: Array<{ windowId: string }>;
-      }>;
-      const wid = sessions.find((s) => s.name === session)?.windows[0]
-        ?.windowId;
-      if (wid) {
-        id = wid;
-        break;
-      }
-    }
-    await page.waitForTimeout(200);
-  }
-  expect(id, `first window for ${session} not found`).not.toBeNull();
-  return id!;
+  return (await resolveWindow(page, TMUX_SERVER, session)).windowId;
 }
 
 /**
@@ -477,7 +457,7 @@ test.describe("Echo latency benchmark", () => {
   test.setTimeout(process.env.CI ? 120_000 : 90_000);
 
   test.beforeAll(() => {
-    tmux(`new-session -d -s ${TEST_SESSION} -x 80 -y 24`);
+    createSession(TEST_SESSION);
     // Run `cat` with no args: the tty echoes each typed char immediately and
     // cat itself adds no prompt/completion/PS1 noise of its own — the cleanest
     // echo source. (The shell prompt that launched cat sits above; trials work
@@ -490,15 +470,9 @@ test.describe("Echo latency benchmark", () => {
       // Break out of cat, then kill the session.
       tmux(`send-keys -t ${TEST_SESSION} C-c`);
     } catch { /* ok */ }
-    try {
-      tmux(`kill-session -t ${TEST_SESSION}`);
-    } catch { /* ok */ }
-    try {
-      tmux(`kill-session -t ${BURST_SESSION}`);
-    } catch { /* ok */ }
-    try {
-      tmux(`kill-session -t ${LOAD_SESSION}`);
-    } catch { /* ok */ }
+    killSession(TEST_SESSION);
+    killSession(BURST_SESSION);
+    killSession(LOAD_SESSION);
 
     const pick = (label: string) =>
       samples.filter((s) => s.label === label).map((s) => s.ms);
@@ -712,10 +686,8 @@ test.describe("Echo latency benchmark", () => {
     // retry runs in the same worker process (same module-level Date.now() name),
     // the leftover session would make new-session fail with "duplicate session".
     // Kill any leftover first; on a clean first attempt this is a no-op error.
-    try {
-      tmux(`kill-session -t ${LOAD_SESSION}`);
-    } catch { /* no stale session */ }
-    tmux(`new-session -d -s ${LOAD_SESSION} -x 80 -y 24`);
+    // createSession pre-kills any leftover, then creates.
+    createSession(LOAD_SESSION);
     // The attached client renders the tmux status line on the terminal's
     // bottom row, and it permanently shows the session name (`e2e-echo-load-…`)
     // and auto-renamed window name (`cat`) — letters that overlap the probe
@@ -819,7 +791,7 @@ test.describe("Echo latency benchmark", () => {
     // than writing synchronously per frame. The guard's job is to prove the
     // echo-latency optimization did not trade away burst-render performance —
     // it asserts both completeness (no dropped/garbled output) and a sane bound.
-    tmux(`new-session -d -s ${BURST_SESSION} -x 80 -y 24`);
+    createSession(BURST_SESSION);
 
     const windowId = await resolveFirstWindowId(page, BURST_SESSION);
     await page.goto(`${BASE}/${TMUX_SERVER}/${encodeURIComponent(windowId)}`);

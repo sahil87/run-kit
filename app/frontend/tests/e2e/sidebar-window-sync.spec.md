@@ -31,7 +31,7 @@ the 2.5s interval).
 
 **Steps:**
 1. Navigate to `/${TMUX_SERVER}` and wait for `Connected`.
-2. Run `tmux new-window -t ${TEST_SESSION} -n ext-win-<ts>` via `execSync`.
+2. Run `tmux new-window -t ${TEST_SESSION} -n ext-win-<ts>` via the shared `_tmux` helper.
 3. Assert `text=ext-win-<ts>` is visible inside `nav[aria-label='Sessions']`
    within 5s.
 
@@ -41,7 +41,7 @@ the 2.5s interval).
 sidebar — the new name appears and the old name disappears.
 
 **Steps:**
-1. Create a window `rename-src-<ts>` via `execSync` before navigating.
+1. Create a window `rename-src-<ts>` via the shared `_tmux` helper before navigating.
 2. Navigate to `/${TMUX_SERVER}` and wait for `Connected`.
 3. Assert `rename-src-<ts>` is visible in the sidebar.
 4. Run `tmux rename-window -t "${TEST_SESSION}:rename-src-<ts>"
@@ -63,7 +63,7 @@ not the xterm canvas, whose lazy init + WebSocket connect is a separate,
 slower concern.
 
 **Steps:**
-1. Create a second window `click-win-<ts>` via `execSync`.
+1. Create a second window `click-win-<ts>` via the shared `_tmux` helper.
 2. Navigate to `/${TMUX_SERVER}` (dashboard — no window segment) and wait for
    `Connected`.
 3. `resolveWindow` the created window to get its `@id` and index.
@@ -83,7 +83,7 @@ guard prevent a stale SSE snapshot (still reporting A active) from bouncing
 the selection back to A before tmux confirms the switch.
 
 **Steps:**
-1. Create two windows `switch-a-<ts>` and `switch-b-<ts>` via `execSync`.
+1. Create two windows `switch-a-<ts>` and `switch-b-<ts>` via the shared `_tmux` helper.
 2. Navigate to `/${TMUX_SERVER}` and wait for `Connected`.
 3. `resolveWindow` both to get their `@id`s; locate rows by `data-window-id`.
 4. Click A; assert A's button is `aria-current="page"`.
@@ -109,7 +109,7 @@ after unmount) is already covered by
 higher-level, user-visible contract.
 
 **Steps:**
-1. Create `kill-win-<ts>` via `execSync`.
+1. Create `kill-win-<ts>` via the shared `_tmux` helper.
 2. Navigate to `/${TMUX_SERVER}` and wait for `Connected`.
 3. Assert `kill-win-<ts>` is visible in the sidebar.
 4. Hover the `kill-win-<ts>` row — the icon cluster is
@@ -120,6 +120,6 @@ higher-level, user-visible contract.
    path relies on a `killTargetRef` that is cleared synchronously, which
    makes this edge harder to exercise deterministically via the UI).
 6. Assert `kill-win-<ts>` disappears within 5s.
-7. Create `win-new-<ts>` externally via `execSync`.
+7. Create `win-new-<ts>` externally via the shared `_tmux` helper.
 8. Assert `win-new-<ts>` appears within 5s.
 9. Assert `kill-win-<ts>` is still gone.

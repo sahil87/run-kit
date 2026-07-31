@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
-import { execSync } from "node:child_process";
+import { gotoServerReady } from "./_ready";
+import { TMUX_SERVER, createSession, killSession } from "./_tmux";
 
-const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
 const MOBILE_VIEWPORT = { width: 375, height: 812 };
 const DESKTOP_VIEWPORT = { width: 1024, height: 768 };
 const SETUP_SESSIONS = [
@@ -11,37 +11,16 @@ const SETUP_SESSIONS = [
 
 test.describe("Server Panel Tile Grid", () => {
   test.beforeAll(() => {
-    for (const name of SETUP_SESSIONS) {
-      try {
-        execSync(
-          `tmux -L ${TMUX_SERVER} new-session -d -s ${name} -x 80 -y 24`,
-          { stdio: "ignore" },
-        );
-      } catch {
-        // Session may already exist
-      }
-    }
+    for (const name of SETUP_SESSIONS) createSession(name);
   });
 
   test.afterAll(() => {
-    for (const name of SETUP_SESSIONS) {
-      try {
-        execSync(`tmux -L ${TMUX_SERVER} kill-session -t ${name}`, {
-          stdio: "ignore",
-        });
-      } catch {
-        // Best effort
-      }
-    }
+    for (const name of SETUP_SESSIONS) killSession(name);
   });
 
   test("Desktop: tile grid renders with session counts", async ({ page }) => {
     await page.setViewportSize(DESKTOP_VIEWPORT);
-    await page.goto(`/${TMUX_SERVER}`);
-
-    await expect(
-      page.locator("[aria-label='Connected']"),
-    ).toBeVisible({ timeout: 10_000 });
+    await gotoServerReady(page, TMUX_SERVER);
 
     // The panel defaults open — no expand click needed.
     const serverButton = page.getByRole("button", { name: /^Server/ });
@@ -67,11 +46,7 @@ test.describe("Server Panel Tile Grid", () => {
 
   test("Desktop: active tile has aria-current", async ({ page }) => {
     await page.setViewportSize(DESKTOP_VIEWPORT);
-    await page.goto(`/${TMUX_SERVER}`);
-
-    await expect(
-      page.locator("[aria-label='Connected']"),
-    ).toBeVisible({ timeout: 10_000 });
+    await gotoServerReady(page, TMUX_SERVER);
 
     // Panel defaults open — the grid is available without a click.
     const grid = page.getByRole("listbox", { name: /Tmux servers/ });
@@ -118,11 +93,7 @@ test.describe("Server Panel Tile Grid", () => {
 
   test("Desktop: drag handle is visible on resizable panel", async ({ page }) => {
     await page.setViewportSize(DESKTOP_VIEWPORT);
-    await page.goto(`/${TMUX_SERVER}`);
-
-    await expect(
-      page.locator("[aria-label='Connected']"),
-    ).toBeVisible({ timeout: 10_000 });
+    await gotoServerReady(page, TMUX_SERVER);
 
     // Panel defaults open — the resizable panel's handle renders without a click.
     await expect(

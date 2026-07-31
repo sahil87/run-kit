@@ -1,8 +1,7 @@
 import { test, expect } from "@playwright/test";
-import { execSync } from "node:child_process";
 import { resolveWindow as resolveWindowRaw, gotoWindow as gotoWindowRaw } from "./_ready";
+import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
 
-const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
 // A deliberately LONG session name so the session crumb is under real
 // truncation pressure in the 640-900px band (the overlap regression band).
 const TEST_SESSION = `e2e-overlap-longsessionname-${Date.now().toString().slice(-6)}`;
@@ -16,8 +15,8 @@ const DESKTOP_VIEWPORT = { width: 1024, height: 800 };
 
 // Shared readiness helpers (hoisted to `_ready.ts`) bound to this file's server
 // + session so existing call sites keep their two-arg shape.
-const resolveWindow = (page: Parameters<typeof resolveWindowRaw>[0], windowName: string) =>
-  resolveWindowRaw(page, TMUX_SERVER, TEST_SESSION, windowName);
+const resolveWindow = async (page: Parameters<typeof resolveWindowRaw>[0], windowName: string) =>
+  (await resolveWindowRaw(page, TMUX_SERVER, TEST_SESSION, windowName)).windowId;
 const gotoWindow = (page: Parameters<typeof gotoWindowRaw>[0], windowId: string) =>
   gotoWindowRaw(page, TMUX_SERVER, windowId);
 
@@ -35,31 +34,19 @@ function intersects(
 }
 
 test.beforeAll(() => {
+  createSession(TEST_SESSION);
+  // Create an ADDITIONAL window with the long name (the session's default
+  // first window keeps its auto-name) so the terminal route carries a wide
+  // centered heading. The test navigates to this long-named window by id.
   try {
-    execSync(
-      `tmux -L ${TMUX_SERVER} new-session -d -s ${TEST_SESSION} -x 80 -y 24`,
-      { stdio: "ignore" },
-    );
-    // Create an ADDITIONAL window with the long name (the session's default
-    // first window keeps its auto-name) so the terminal route carries a wide
-    // centered heading. The test navigates to this long-named window by id.
-    execSync(
-      `tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${LONG_WINDOW}"`,
-      { stdio: "ignore" },
-    );
+    newWindow(TEST_SESSION, LONG_WINDOW);
   } catch {
-    // Session may already exist
+    // Best effort — matches the prior copied pattern.
   }
 });
 
 test.afterAll(() => {
-  try {
-    execSync(`tmux -L ${TMUX_SERVER} kill-session -t ${TEST_SESSION}`, {
-      stdio: "ignore",
-    });
-  } catch {
-    // Best effort
-  }
+  killSession(TEST_SESSION);
 });
 
 test.describe("Top-bar overlap fixes (260715-q8ey)", () => {

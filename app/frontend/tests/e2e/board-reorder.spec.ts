@@ -1,7 +1,6 @@
 import { test, expect } from "@playwright/test";
-import { execSync } from "node:child_process";
+import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
 
-const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
 const TEST_SESSION = `e2e-board-reorder-${Date.now()}`;
 const BOARD_NAME = `reo${Date.now().toString().slice(-6)}`;
 
@@ -11,41 +10,24 @@ function apiBase(baseURL: string | undefined): string {
 
 /** Read the two test windows' ids in their tmux index order (win-a, win-b). */
 function winIds(): { a: string; b: string } {
-  const lines = execSync(
-    `tmux -L ${TMUX_SERVER} list-windows -t ${TEST_SESSION} -F "#{window_id}:#{window_name}"`,
-  )
-    .toString()
-    .trim()
-    .split("\n");
-  const a = lines.find((l) => l.endsWith(":win-a"))?.split(":")[0];
-  const b = lines.find((l) => l.endsWith(":win-b"))?.split(":")[0];
-  if (!a || !b) throw new Error(`could not resolve win ids from: ${lines.join(", ")}`);
+  const wins = listWindows(TEST_SESSION);
+  const a = wins.find((w) => w.name === "win-a")?.windowId;
+  const b = wins.find((w) => w.name === "win-b")?.windowId;
+  if (!a || !b) {
+    throw new Error(
+      `could not resolve win ids from: ${wins.map((w) => `${w.windowId}:${w.name}`).join(", ")}`,
+    );
+  }
   return { a, b };
 }
 
 test.describe("Board pane reorder — reorder endpoint + board-changed SSE", () => {
   test.beforeAll(() => {
-    try {
-      execSync(
-        `tmux -L ${TMUX_SERVER} new-session -d -s ${TEST_SESSION} -x 80 -y 24 -n win-a`,
-        { stdio: "ignore" },
-      );
-      execSync(`tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n win-b`, {
-        stdio: "ignore",
-      });
-    } catch {
-      // best effort
-    }
+    createSession(TEST_SESSION, { windows: ["win-a", "win-b"] });
   });
 
   test.afterAll(() => {
-    try {
-      execSync(`tmux -L ${TMUX_SERVER} kill-session -t ${TEST_SESSION}`, {
-        stdio: "ignore",
-      });
-    } catch {
-      // best effort
-    }
+    killSession(TEST_SESSION);
     // Killing the home session does NOT reap the windows' pin-sessions: pinning
     // MOVES each window into its own `_rk-pin-<id>` session, so a pinned window
     // no longer lives in TEST_SESSION. Each test unpins both windows in its own

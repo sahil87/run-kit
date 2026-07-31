@@ -1,50 +1,23 @@
 import { test, expect } from "@playwright/test";
-import { execSync } from "node:child_process";
+import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
 
-const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
 // Own session per file to avoid cross-test interference.
 const TEST_SESSION = `e2e-board-close-${Date.now()}`;
 
 // Read a window id by name from the shared test session.
 function windowId(name: string): string {
-  const id = execSync(
-    `tmux -L ${TMUX_SERVER} list-windows -t ${TEST_SESSION} -F "#{window_id}:#{window_name}"`,
-  )
-    .toString()
-    .trim()
-    .split("\n")
-    .find((line) => line.endsWith(`:${name}`))
-    ?.split(":")[0];
+  const id = listWindows(TEST_SESSION).find((w) => w.name === name)?.windowId;
   expect(id).toBeTruthy();
   return id as string;
 }
 
 test.describe("Boards: tile-header unpin + top-bar consequence-gated Kill (co9z)", () => {
   test.beforeAll(() => {
-    try {
-      execSync(
-        `tmux -L ${TMUX_SERVER} new-session -d -s ${TEST_SESSION} -x 80 -y 24 -n win-a`,
-        { stdio: "ignore" },
-      );
-      execSync(`tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n win-b`, {
-        stdio: "ignore",
-      });
-      execSync(`tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n win-c`, {
-        stdio: "ignore",
-      });
-    } catch {
-      // Best-effort
-    }
+    createSession(TEST_SESSION, { windows: ["win-a", "win-b", "win-c"] });
   });
 
   test.afterAll(() => {
-    try {
-      execSync(`tmux -L ${TMUX_SERVER} kill-session -t ${TEST_SESSION}`, {
-        stdio: "ignore",
-      });
-    } catch {
-      // Best-effort
-    }
+    killSession(TEST_SESSION);
   });
 
   test("the per-tile header pin glyph unpins the focused pane (POST /unpin), emptying the board", async ({ page }) => {
@@ -239,13 +212,7 @@ test.describe("Boards: tile-header unpin + top-bar consequence-gated Kill (co9z)
       .toBe(false);
 
     // The window still exists on the tmux server (unpin does not destroy it).
-    const stillAlive = execSync(
-      `tmux -L ${TMUX_SERVER} list-windows -t ${TEST_SESSION} -F "#{window_id}"`,
-    )
-      .toString()
-      .trim()
-      .split("\n")
-      .includes(winId);
+    const stillAlive = listWindows(TEST_SESSION).some((w) => w.windowId === winId);
     expect(stillAlive).toBe(true);
   });
 });

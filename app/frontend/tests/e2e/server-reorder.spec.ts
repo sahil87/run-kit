@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
-
-const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
+import { gotoServerReady } from "./_ready";
+import { TMUX_SERVER } from "./_tmux";
 
 function apiBase(baseURL: string | undefined): string {
   return baseURL ?? `http://localhost:${process.env.RK_PORT ?? 3020}`;
@@ -50,8 +50,7 @@ test.describe("Server reorder — order endpoint + server-global SSE", () => {
     // server-order envelope the backend fans out to every connection. We
     // navigate to the server route so the socket connects, then read raw frames
     // via a small in-page bridge on the state socket.
-    await page.goto(`/${TMUX_SERVER}`);
-    await expect(page.locator("[aria-label='Connected']")).toBeVisible({ timeout: 15_000 });
+    await gotoServerReady(page, TMUX_SERVER);
 
     // Install an in-page state-socket client subscribed to metrics (the
     // server-neutral subscription), proving the broadcast reaches even a

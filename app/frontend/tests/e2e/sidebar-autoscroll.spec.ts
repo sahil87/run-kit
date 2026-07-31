@@ -1,8 +1,7 @@
 import { test, expect } from "@playwright/test";
-import { execSync } from "node:child_process";
 import { READY_TIMEOUT, gotoWindow, resolveWindow } from "./_ready";
+import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
 
-const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
 // Each test file uses its own session to avoid cross-test interference.
 const TEST_SESSION = `e2e-scroll-${Date.now()}`;
 // Enough windows that the session tree overflows its scroll container on the
@@ -13,31 +12,14 @@ const lastWindowName = `scroll-w-${String(WINDOW_COUNT).padStart(2, "0")}`;
 
 test.describe("Sidebar Autoscroll", () => {
   test.beforeAll(() => {
-    try {
-      execSync(
-        `tmux -L ${TMUX_SERVER} new-session -d -s ${TEST_SESSION} -x 80 -y 24`,
-        { stdio: "ignore" },
-      );
-    } catch {
-      // Session may already exist
-    }
+    createSession(TEST_SESSION);
     for (let i = 1; i <= WINDOW_COUNT; i++) {
-      const name = `scroll-w-${String(i).padStart(2, "0")}`;
-      execSync(
-        `tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${name}"`,
-        { stdio: "ignore" },
-      );
+      newWindow(TEST_SESSION, `scroll-w-${String(i).padStart(2, "0")}`);
     }
   });
 
   test.afterAll(() => {
-    try {
-      execSync(`tmux -L ${TMUX_SERVER} kill-session -t ${TEST_SESSION}`, {
-        stdio: "ignore",
-      });
-    } catch {
-      // Best effort
-    }
+    killSession(TEST_SESSION);
   });
 
   test("deep link to a below-the-fold window scrolls its sidebar row into view", async ({
@@ -45,7 +27,7 @@ test.describe("Sidebar Autoscroll", () => {
   }) => {
     // Resolve the LAST window's stable tmux id (@N) from the API snapshot —
     // with 30 windows above it, its row starts far below the tree's fold.
-    const windowId = await resolveWindow(
+    const { windowId } = await resolveWindow(
       page,
       TMUX_SERVER,
       TEST_SESSION,

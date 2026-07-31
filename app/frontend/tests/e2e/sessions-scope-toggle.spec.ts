@@ -1,7 +1,8 @@
 import { test, expect } from "@playwright/test";
-import { execSync } from "node:child_process";
+import { READY_TIMEOUT, gotoServerReady } from "./_ready";
+import { TMUX_SERVER, createSession, killServer, killSession } from "./_tmux";
 
-const TMUX_SERVER_A = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
+const TMUX_SERVER_A = TMUX_SERVER;
 // Second tmux server gives us a non-current group to observe while toggling
 // scope. Named under the unified rk-test-e2e-* umbrella with the Playwright
 // process.pid as the second-to-last hyphen field so the automatic post-sweep
@@ -14,33 +15,13 @@ const DESKTOP_VIEWPORT = { width: 1024, height: 768 };
 
 test.describe("Sidebar — sessions-pane scope toggle", () => {
   test.beforeAll(() => {
-    try {
-      execSync(
-        `tmux -L ${TMUX_SERVER_A} new-session -d -s ${SESSION_A} -x 80 -y 24`,
-        { stdio: "ignore" },
-      );
-      execSync(
-        `tmux -L ${TMUX_SERVER_B} new-session -d -s ${SESSION_B} -x 80 -y 24`,
-        { stdio: "ignore" },
-      );
-    } catch {
-      // Best-effort
-    }
+    createSession(SESSION_A, { server: TMUX_SERVER_A });
+    createSession(SESSION_B, { server: TMUX_SERVER_B });
   });
 
   test.afterAll(() => {
-    try {
-      execSync(`tmux -L ${TMUX_SERVER_A} kill-session -t ${SESSION_A}`, {
-        stdio: "ignore",
-      });
-    } catch {
-      // Best-effort
-    }
-    try {
-      execSync(`tmux -L ${TMUX_SERVER_B} kill-server`, { stdio: "ignore" });
-    } catch {
-      // Best-effort
-    }
+    killSession(SESSION_A, { server: TMUX_SERVER_A });
+    killServer(TMUX_SERVER_B);
   });
 
   test("toggling scope to current narrows the Sessions tree; toggling back restores it", async ({
@@ -48,10 +29,7 @@ test.describe("Sidebar — sessions-pane scope toggle", () => {
   }) => {
     test.setTimeout(30_000);
     await page.setViewportSize(DESKTOP_VIEWPORT);
-    await page.goto(`/${TMUX_SERVER_A}`, { waitUntil: "domcontentloaded" });
-    await expect(page.locator("[aria-label='Connected']")).toBeVisible({
-      timeout: 10_000,
-    });
+    await gotoServerReady(page, TMUX_SERVER_A);
 
     // Baseline: default scope `all` → both server groups render.
     await expect(page.locator(`[data-server='${TMUX_SERVER_A}']`).first()).toBeVisible({ timeout: 10_000 });
@@ -76,10 +54,7 @@ test.describe("Sidebar — sessions-pane scope toggle", () => {
   test("scope persists across reload", async ({ page }) => {
     test.setTimeout(30_000);
     await page.setViewportSize(DESKTOP_VIEWPORT);
-    await page.goto(`/${TMUX_SERVER_A}`, { waitUntil: "domcontentloaded" });
-    await expect(page.locator("[aria-label='Connected']")).toBeVisible({
-      timeout: 10_000,
-    });
+    await gotoServerReady(page, TMUX_SERVER_A);
     await expect(page.locator(`[data-server='${TMUX_SERVER_B}']`).first()).toBeVisible({ timeout: 10_000 });
 
     const chip = page.getByRole("button", { name: "Toggle sessions scope" });
@@ -88,7 +63,7 @@ test.describe("Sidebar — sessions-pane scope toggle", () => {
 
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect(page.locator("[aria-label='Connected']")).toBeVisible({
-      timeout: 10_000,
+      timeout: READY_TIMEOUT,
     });
 
     // Persisted `current` scope survives the reload: still narrowed, chip
@@ -105,10 +80,7 @@ test.describe("Sidebar — sessions-pane scope toggle", () => {
   }) => {
     test.setTimeout(30_000);
     await page.setViewportSize(DESKTOP_VIEWPORT);
-    await page.goto(`/${TMUX_SERVER_A}`, { waitUntil: "domcontentloaded" });
-    await expect(page.locator("[aria-label='Connected']")).toBeVisible({
-      timeout: 10_000,
-    });
+    await gotoServerReady(page, TMUX_SERVER_A);
 
     // The SERVER panel now defaults OPEN — the tile grid is visible on load —
     // and the tree still shows every server's group (the old coupling would

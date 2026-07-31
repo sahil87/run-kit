@@ -1,8 +1,8 @@
 import { test, expect } from "@playwright/test";
-import { execSync } from "node:child_process";
 import { readFileSync, writeFileSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
 
 // scripts/test-e2e.sh isolates the tmux server/port but NOT $HOME, so this spec
 // POSTs /api/boards/order against the developer's REAL ~/.rk/settings.yaml.
@@ -14,7 +14,6 @@ const SETTINGS_PATH = join(homedir(), ".rk", "settings.yaml");
 let settingsSnapshot: Buffer | undefined;
 let settingsExisted = false;
 
-const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
 const TEST_SESSION = `e2e-board-reorder-${Date.now()}`;
 // Board names are constrained to alphanumeric/-/_. Fresh, sortable-distinct
 // names per run: `zzz…` sorts AFTER `aaa…` alphabetically, so a stored order of
@@ -47,17 +46,7 @@ test.describe("Board list reorder — order endpoint + rank-aware sort + server-
 
     // Two windows so we can pin one to each of two boards (a board exists only
     // while ≥1 pin carries its name).
-    try {
-      execSync(
-        `tmux -L ${TMUX_SERVER} new-session -d -s ${TEST_SESSION} -x 80 -y 24 -n win-a`,
-        { stdio: "ignore" },
-      );
-      execSync(`tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n win-b`, {
-        stdio: "ignore",
-      });
-    } catch {
-      // Best-effort
-    }
+    createSession(TEST_SESSION, { windows: ["win-a", "win-b"] });
   });
 
   test.afterAll(() => {
@@ -74,24 +63,13 @@ test.describe("Board list reorder — order endpoint + rank-aware sort + server-
       // Best-effort — never mask a test failure with a teardown error.
     }
 
-    try {
-      execSync(`tmux -L ${TMUX_SERVER} kill-session -t ${TEST_SESSION}`, {
-        stdio: "ignore",
-      });
-    } catch {
-      // Best-effort
-    }
+    killSession(TEST_SESSION);
   });
 
   function windowIds(): { winA: string; winB: string } {
-    const lines = execSync(
-      `tmux -L ${TMUX_SERVER} list-windows -t ${TEST_SESSION} -F "#{window_id}:#{window_name}"`,
-    )
-      .toString()
-      .trim()
-      .split("\n");
-    const winA = lines.find((l) => l.endsWith(":win-a"))?.split(":")[0] ?? "";
-    const winB = lines.find((l) => l.endsWith(":win-b"))?.split(":")[0] ?? "";
+    const wins = listWindows(TEST_SESSION);
+    const winA = wins.find((w) => w.name === "win-a")?.windowId ?? "";
+    const winB = wins.find((w) => w.name === "win-b")?.windowId ?? "";
     return { winA, winB };
   }
 

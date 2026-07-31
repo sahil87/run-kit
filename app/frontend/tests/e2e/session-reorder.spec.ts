@@ -1,7 +1,8 @@
 import { test, expect } from "@playwright/test";
 import { execSync } from "node:child_process";
+import { READY_TIMEOUT, gotoServerReady } from "./_ready";
+import { TMUX_SERVER, createSession, killSession } from "./_tmux";
 
-const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
 const TIMESTAMP = Date.now();
 const SESSIONS = [
   `reorder-alpha-${TIMESTAMP}`,
@@ -11,28 +12,11 @@ const SESSIONS = [
 
 test.describe("Sidebar session reorder persistence", () => {
   test.beforeAll(() => {
-    for (const name of SESSIONS) {
-      try {
-        execSync(
-          `tmux -L ${TMUX_SERVER} new-session -d -s ${name} -x 80 -y 24`,
-          { stdio: "ignore" },
-        );
-      } catch {
-        // already exists — ignore
-      }
-    }
+    for (const name of SESSIONS) createSession(name);
   });
 
   test.afterAll(() => {
-    for (const name of SESSIONS) {
-      try {
-        execSync(`tmux -L ${TMUX_SERVER} kill-session -t ${name}`, {
-          stdio: "ignore",
-        });
-      } catch {
-        // best effort
-      }
-    }
+    for (const name of SESSIONS) killSession(name);
     // Reset the user-option so the next run starts clean.
     try {
       execSync(`tmux -L ${TMUX_SERVER} set-option -us @rk_session_order`, {
@@ -76,10 +60,7 @@ test.describe("Sidebar session reorder persistence", () => {
       throw new Error(`POST ${url} → ${postResp.status()}: ${body}`);
     }
 
-    await page.goto(`/${TMUX_SERVER}`);
-    await expect(page.locator("[aria-label='Connected']")).toBeVisible({
-      timeout: 10_000,
-    });
+    await gotoServerReady(page, TMUX_SERVER);
 
     const sidebar = page.locator("nav[aria-label='Sessions']");
     for (const name of SESSIONS) {
@@ -113,7 +94,7 @@ test.describe("Sidebar session reorder persistence", () => {
     // the test is skipped until a reload-free verification is written.
     await page.reload();
     await expect(page.locator("[aria-label='Connected']")).toBeVisible({
-      timeout: 10_000,
+      timeout: READY_TIMEOUT,
     });
     for (const name of SESSIONS) {
       await expect(sidebar.locator(`text=${name}`)).toBeVisible({

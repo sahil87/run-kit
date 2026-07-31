@@ -32,9 +32,9 @@
  */
 import { test, expect, type Page } from "@playwright/test";
 import { execSync } from "node:child_process";
-import { gotoServerReady, READY_TIMEOUT } from "./_ready";
+import { gotoServerReady, resolveWindow, READY_TIMEOUT } from "./_ready";
+import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
 
-const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
 const TEST_SESSION = `e2e-switch-transition-${Date.now()}`;
 
 // The animated switch must complete (incoming content painted) comfortably
@@ -48,33 +48,10 @@ const SWITCH_COMPLETE_BUDGET_MS = 1_000;
  * Resolve a window's stable tmux id (`@N`) from the backend snapshot by its
  * (transient) display name. The terminal route is keyed by window id, and the
  * test-only `window.__rkTerminals` registry (dev/e2e builds only) is keyed by
- * it too. Polls because the window is created via the tmux CLI and surfaces in
- * the snapshot asynchronously.
+ * it too. Delegates to the shared `_ready.resolveWindow` poll.
  */
 async function resolveWindowId(page: Page, windowName: string): Promise<string> {
-  const deadline = Date.now() + 5_000;
-  let id: string | null = null;
-  while (Date.now() < deadline) {
-    const res = await page.request.get(
-      `/api/sessions?server=${encodeURIComponent(TMUX_SERVER)}`,
-    );
-    if (res.ok()) {
-      const sessions = (await res.json()) as Array<{
-        name: string;
-        windows: Array<{ windowId: string; name: string }>;
-      }>;
-      const wid = sessions
-        .find((s) => s.name === TEST_SESSION)
-        ?.windows.find((w) => w.name === windowName)?.windowId;
-      if (wid) {
-        id = wid;
-        break;
-      }
-    }
-    await page.waitForTimeout(200);
-  }
-  expect(id, `window "${windowName}" not found in snapshot`).not.toBeNull();
-  return id!;
+  return (await resolveWindow(page, TMUX_SERVER, TEST_SESSION, windowName)).windowId;
 }
 
 /** True once the incoming window's marker text is present in its xterm buffer. */
@@ -111,24 +88,11 @@ test.describe("Window-switch slide transition (animated path)", () => {
   test.use({ contextOptions: { reducedMotion: "no-preference" } });
 
   test.beforeAll(() => {
-    try {
-      execSync(
-        `tmux -L ${TMUX_SERVER} new-session -d -s ${TEST_SESSION} -x 80 -y 24`,
-        { stdio: "ignore" },
-      );
-    } catch {
-      // Session may already exist (retry in same worker).
-    }
+    createSession(TEST_SESSION);
   });
 
   test.afterAll(() => {
-    try {
-      execSync(`tmux -L ${TMUX_SERVER} kill-session -t ${TEST_SESSION}`, {
-        stdio: "ignore",
-      });
-    } catch {
-      // Best effort.
-    }
+    killSession(TEST_SESSION);
   });
 
   test("a same-session animated switch completes within a sane latency bound", async ({
@@ -144,16 +108,12 @@ test.describe("Window-switch slide transition (animated path)", () => {
     const markerB = `MARKERBBB${ts}`;
 
     // Two named windows in the shared session, each carrying its own marker.
-    execSync(`tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${winA}"`, {
-      stdio: "ignore",
-    });
+    newWindow(TEST_SESSION, winA);
     execSync(
       `tmux -L ${TMUX_SERVER} send-keys -t "${TEST_SESSION}:${winA}" "echo ${markerA}" Enter`,
       { stdio: "ignore" },
     );
-    execSync(`tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${winB}"`, {
-      stdio: "ignore",
-    });
+    newWindow(TEST_SESSION, winB);
     execSync(
       `tmux -L ${TMUX_SERVER} send-keys -t "${TEST_SESSION}:${winB}" "echo ${markerB}" Enter`,
       { stdio: "ignore" },

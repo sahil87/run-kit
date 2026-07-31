@@ -7,10 +7,12 @@
  *
  * This shell is a VIEWER (Constitution VI): it loads an existing `rk serve`
  * URL and NEVER spawns or supervises the rk daemon on its own initiative.
- * child_process is used ONLY for explicit user-initiated `rk daemon` actions
- * (start/stop/restart via the welcome card or the Local Daemon menu) and
- * read-only detection (`rk url`, `rk --version`) — there is no auto-start
- * anywhere; the tmux/server layer stays independent of this process.
+ * child_process is used ONLY for explicit user-initiated actions — `rk daemon`
+ * start/stop/restart via the welcome card or the Local Daemon menu, and
+ * `rk desktop update` via the App menu's Restart-to-Update click — and
+ * read-only detection (`rk url`, `rk --version`, `rk desktop status`). There
+ * is no auto-start and no auto-update anywhere; the tmux/server layer stays
+ * independent of this process, and the CLI (not the shell) is the updater.
  *
  * Dev override: `RK_DESKTOP_URL=http://localhost:3000 just dev-desktop`
  * loads that URL directly without persisting it to hosts.json.
@@ -26,7 +28,7 @@ import {
   session,
   shell,
 } from "electron";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -41,7 +43,8 @@ import {
   resolveRkBinary,
   rkCandidatePaths,
 } from "./local-daemon";
-import { buildMenu, DaemonMenuInfo, MenuCallbacks } from "./menu";
+import { buildMenu, DaemonMenuInfo, MenuCallbacks, UpdateMenuInfo } from "./menu";
+import { availableUpdateVersion, isUpdateCheckDue } from "./update-check";
 import { isHttpUrl, windowOpenAction } from "./window-open";
 import {
   addHost,
@@ -61,6 +64,8 @@ const WELCOME_URL = pathToFileURL(WELCOME_PATH).toString();
 const HEALTH_TIMEOUT_MS = 5000;
 /** Read-only rk queries (`rk url`, `rk --version`) — quick, config-derived. */
 const RK_QUERY_TIMEOUT_MS = 5000;
+/** `rk desktop status` — read-only, but round-trips the GitHub releases API. */
+const RK_STATUS_TIMEOUT_MS = 10_000;
 /** Daemon lifecycle commands (`rk daemon start/stop/restart`) — tmux work. */
 const RK_DAEMON_TIMEOUT_MS = 30_000;
 /** Cadence + cap for the post-start "waiting for the port to answer" poll. */
@@ -213,8 +218,13 @@ function rebuildMenu(): void {
     onDaemonStop: () => {
       void confirmAndStopDaemon();
     },
+    onRestartToUpdate: () => {
+      restartToUpdate();
+    },
   };
-  Menu.setApplicationMenu(buildMenu(list.hosts, list.activeId, callbacks, daemonMenuInfo));
+  Menu.setApplicationMenu(
+    buildMenu(list.hosts, list.activeId, callbacks, daemonMenuInfo, updateMenuInfo),
+  );
 }
 
 async function confirmAndRemoveHost(id: string): Promise<void> {
@@ -499,6 +509,75 @@ async function refreshDaemonMenu(): Promise<void> {
   await probeDaemonStatus(); // updateDaemonMenu runs inside on success
 }
 
+// ─── Desktop-app update check ("Restart to Update") ─────────────────────────
+//
+// Read-only detection: `rk desktop status` (stdout is stable data lines —
+// parsed in ./update-check, node:test covered) tells us whether a newer
+// desktop release exists. darwin-only (`rk desktop` is macOS-only), checked
+// at natural events (startup, window focus) through a 1h throttle — the
+// status call round-trips the GitHub releases API, so no perpetual timer
+// (the daemonMenuInfo cache pattern). Every absence state — non-darwin, rk
+// missing, status failure, app not installed, up to date — is SILENT: null
+// cache, no menu item, no error surface.
+
+let updateMenuInfo: UpdateMenuInfo | null = null;
+/** Epoch ms of the last check ATTEMPT (failures consume the window too). */
+let lastUpdateCheckAt: number | null = null;
+
+function sameUpdateMenuInfo(a: UpdateMenuInfo | null, b: UpdateMenuInfo | null): boolean {
+  if (a === null || b === null) return a === b;
+  return a.latestVersion === b.latestVersion && a.updating === b.updating;
+}
+
+function setUpdateMenuInfo(next: UpdateMenuInfo | null): void {
+  if (sameUpdateMenuInfo(next, updateMenuInfo)) return;
+  updateMenuInfo = next;
+  rebuildMenu();
+}
+
+/** Throttled `rk desktop status` check → change-gated menu rebuild. */
+async function refreshUpdateMenu(): Promise<void> {
+  if (process.platform !== "darwin") return;
+  // Never rewrite the cache mid-update: after a successful spawn the CLI owns
+  // the outcome, and a focus-triggered check must not re-enable the item.
+  if (updateMenuInfo?.updating) return;
+  if (!isUpdateCheckDue(lastUpdateCheckAt, Date.now())) return;
+  lastUpdateCheckAt = Date.now();
+  const run = await runRk(["desktop", "status"], RK_STATUS_TIMEOUT_MS);
+  const latest = run.ok ? availableUpdateVersion(run.stdout) : null;
+  setUpdateMenuInfo(latest === null ? null : { latestVersion: latest, updating: false });
+}
+
+/**
+ * The menu item's click: spawn `rk desktop update` fully DETACHED — the CLI
+ * stages the download, quits this app gracefully (the window `close` handler
+ * captures lastPath for the relaunch restore), swaps the bundle atomically,
+ * and relaunches it; detachment (+ unref, stdio ignored) is what lets the
+ * child survive its parent being quit. The shell adds no updater logic and
+ * never touches its own bundle. After a successful spawn the item just reads
+ * "Updating…" (disabled) until the quit arrives — post-spawn outcomes are the
+ * CLI's responsibility. Only a failure of the spawn itself (binary vanished)
+ * surfaces, via the existing native-dialog error pattern.
+ */
+function restartToUpdate(): void {
+  const current = updateMenuInfo;
+  if (current === null || current.updating) return;
+  const child = spawn(rkBinary(), ["desktop", "update"], {
+    detached: true,
+    stdio: "ignore",
+    // Same GUI-PATH posture as runRk: a Finder-launched app's PATH misses the
+    // brew dirs the spawned rk may need.
+    env: { ...process.env, PATH: augmentPath(process.platform, process.env.PATH) },
+  });
+  child.on("error", (err) => {
+    // Spawn failure (ENOENT and friends) — re-enable the item for a retry.
+    setUpdateMenuInfo({ latestVersion: current.latestVersion, updating: false });
+    dialog.showErrorBox("Restart to Update", err.message);
+  });
+  child.unref();
+  setUpdateMenuInfo({ latestVersion: current.latestVersion, updating: true });
+}
+
 // ─── IPC (sender-frame gated) ───────────────────────────────────────────────
 
 /**
@@ -655,9 +734,13 @@ void app.whenReady().then(() => {
 
   // Seed the Local Daemon menu state (read-only detection — never a start),
   // and keep it fresh on focus; the welcome page's polls also feed the cache.
+  // The desktop-update check rides the same natural events, behind its own
+  // 1h throttle (refreshUpdateMenu gates internally).
   void refreshDaemonMenu();
+  void refreshUpdateMenu();
   app.on("browser-window-focus", () => {
     void refreshDaemonMenu();
+    void refreshUpdateMenu();
   });
 
   app.on("activate", () => {

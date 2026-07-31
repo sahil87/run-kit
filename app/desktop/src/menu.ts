@@ -60,6 +60,8 @@ export interface MenuCallbacks {
   onDaemonConnect: () => void;
   onDaemonRestart: () => void;
   onDaemonStop: () => void;
+  /** App-menu "Restart to Update" — spawns `rk desktop update` detached. */
+  onRestartToUpdate: () => void;
 }
 
 /**
@@ -71,6 +73,25 @@ export interface DaemonMenuInfo {
   running: boolean;
   /** Bare version from `rk --version` (no leading "v"); null when unparseable. */
   version: string | null;
+}
+
+/**
+ * Menu-relevant desktop-update state (cached in main, refreshed by the
+ * `rk desktop status` check on startup/focus). `null` hides the App-menu
+ * item entirely — non-darwin, rk missing, status failure, or up to date.
+ */
+export interface UpdateMenuInfo {
+  /** Latest release version from `rk desktop status` (no leading "v"). */
+  latestVersion: string;
+  /** An `rk desktop update` spawn is in flight — retitle + disable the item. */
+  updating: boolean;
+}
+
+/** Post-click label while the detached CLI drives quit → swap → relaunch. */
+const UPDATING_LABEL = "Updating…";
+
+function restartToUpdateLabel(latestVersion: string): string {
+  return `Restart to Update (v${latestVersion} available)…`;
 }
 
 const MAX_SWITCHER_ACCELERATORS = 9;
@@ -88,8 +109,30 @@ function zoomBy(delta: number): void {
   if (contents) contents.setZoomLevel(contents.getZoomLevel() + delta);
 }
 
-/** macOS App menu (⌘Q/⌘H/⌥⌘H) — a mac-only shape. */
-function macAppMenu(): MenuItemConstructorOptions {
+/**
+ * macOS App menu (⌘Q/⌘H/⌥⌘H) — a mac-only shape. When an update is cached
+ * (`update` non-null), a detection-gated, accelerator-less "Restart to
+ * Update (vX.Y.Z available)…" item sits in its own group directly above
+ * Quit (the keyboard-tier seam is untouched — no accelerator, no registry
+ * mirror change). While the spawn is in flight it reads "Updating…" and is
+ * disabled; the detached CLI drives the quit → swap → relaunch from there.
+ */
+function macAppMenu(
+  update: UpdateMenuInfo | null,
+  callbacks: MenuCallbacks,
+): MenuItemConstructorOptions {
+  const updateItems: MenuItemConstructorOptions[] =
+    update === null
+      ? []
+      : [
+          update.updating
+            ? { label: UPDATING_LABEL, enabled: false }
+            : {
+                label: restartToUpdateLabel(update.latestVersion),
+                click: () => callbacks.onRestartToUpdate(),
+              },
+          separator,
+        ];
   return {
     label: app.name,
     submenu: [
@@ -99,6 +142,7 @@ function macAppMenu(): MenuItemConstructorOptions {
       { role: "hideOthers" }, // ⌥⌘H
       { role: "unhide" },
       { type: "separator" },
+      ...updateItems,
       { role: "quit" }, // ⌘Q
     ],
   };
@@ -254,17 +298,21 @@ function macWindowMenu(): MenuItemConstructorOptions {
 
 /**
  * Build the full application menu; call again (and re-set) on every
- * host-list change and whenever the cached daemon state changes.
- * `daemon` null hides the Local Daemon submenu (not installed / win32).
+ * host-list change and whenever the cached daemon or update state changes.
+ * `daemon` null hides the Local Daemon submenu (not installed / win32);
+ * `update` null hides the App-menu Restart-to-Update item (non-darwin, rk
+ * missing, status failure, or up to date — the item is mac-only by structure,
+ * since only `macAppMenu` renders it).
  */
 export function buildMenu(
   hosts: HostEntry[],
   activeId: string | null,
   callbacks: MenuCallbacks,
   daemon: DaemonMenuInfo | null,
+  update: UpdateMenuInfo | null,
 ): Menu {
   const template: MenuItemConstructorOptions[] = [
-    isMac ? macAppMenu() : fileMenu(),
+    isMac ? macAppMenu(update, callbacks) : fileMenu(),
     ...(isMac ? [macEditMenu()] : []),
     viewMenu(),
     hostsMenu(hosts, activeId, callbacks, daemon),

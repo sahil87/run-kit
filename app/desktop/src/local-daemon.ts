@@ -11,8 +11,10 @@
  *
  * The impure glue — execFile invocations, health pings, IPC — lives in
  * `main.ts`. The posture is a standing constraint: the shell runs `rk` ONLY
- * for explicit user-initiated daemon actions and read-only detection; it
- * never auto-starts the daemon (Constitution VI — viewer shell).
+ * for explicit user-initiated actions (`rk daemon` start/stop/restart, the
+ * Restart-to-Update menu click's `rk desktop update`) and read-only detection
+ * (`rk url`, `rk --version`, `rk desktop status`); it never auto-starts the
+ * daemon and never auto-updates itself (Constitution VI — viewer shell).
  */
 
 /** Detection result shape returned over the `daemon:status` channel. */

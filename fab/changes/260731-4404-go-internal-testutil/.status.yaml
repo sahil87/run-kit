@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 12
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-07-31T09:03:49Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-31T09:21:29Z"}
     hydrate: {started_at: "2026-07-31T09:21:29Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-31T09:26:41Z"}
     ship: {started_at: "2026-07-31T09:26:41Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-31T09:29:10Z"}
-    review-pr: {started_at: "2026-07-31T09:29:10Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-07-31T09:29:10Z", driver: git-pr, iterations: 1, completed_at: "2026-07-31T09:40:27Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/488
 change_type_source: explicit
@@ -54,4 +54,4 @@ true_impact:
     computed_at_stage: ship
 summary: Consolidated Go test scaffolding into internal/testutil (WriteStub/StubOnPath/WaitUntil/MustWaitUntil) and migrated 9 test files
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-07-31T09:29:10Z
+last_updated: 2026-07-31T09:40:27Z

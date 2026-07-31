@@ -1,5 +1,5 @@
 ---
-description: "The app/desktop Electron viewer shell — a BrowserWindow client of an rk serve URL that never auto-starts the daemon (child_process only for user-initiated rk daemon actions + read-only detection). Covers the servers.json store, welcome flow + 'This Mac' local section, local-daemon control + Local Daemon menu submenu, last-path restore, the menu tier seam (page tier never shell-bound, partly SPA-spent on mac; shifted split), the runkitShell bridge (welcome/daemon/servers), security wiring, packaging."
+description: "The app/desktop Electron viewer shell — a BrowserWindow client of an rk serve URL that never auto-starts the daemon (child_process only for user-initiated rk daemon actions + read-only detection). Covers the servers.json store, welcome flow + 'This Mac' local section, local-daemon control + Local Daemon submenu, last-path restore, the menu tier seam (page tier never shell-bound, partly SPA-spent on mac; shifted split), the runkitShell bridge (welcome/daemon/servers), security wiring, packaging."
 type: memory
 ---
 # Desktop Viewer Shell (`app/desktop`)
@@ -99,7 +99,7 @@ The script stays a vanilla-TS no-import/export browser script under the existing
 
 ## Local Daemon Control (`src/main.ts` + `src/local-daemon.ts`)
 
-Two consumers — the welcome card and the Local Daemon menu submenu — over **one** main-side surface. The renderer only renders; every decision, subprocess call, and store mutation happens in main.
+Two consumers — the welcome card and the Local Daemon submenu — over **one** main-side surface. The renderer only renders; every decision, subprocess call, and store mutation happens in main.
 
 **Detection derives, never assumes.** `probeDaemonStatus()` chains: `rk --version` (existence + version) → `rk url` (the config-derived origin; the URL is **never hardcoded**) → the shared `pingServer` probe (the same `/api/health` fetch the remote form uses) → `GET {origin}/api/sessions` for the count. An `ENOENT` on the binary is the not-installed state; `win32` short-circuits to not-installed without invoking anything. `rk url` output is validated through the shared `normalizeOrigin`.
 

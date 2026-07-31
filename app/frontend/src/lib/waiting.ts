@@ -32,3 +32,14 @@ export function countWaitingInSessions(sessions: ProjectSession[]): number {
   for (const s of sessions) n += countWaitingWindows(s.windows);
   return n;
 }
+
+/** Instance-wide count: waiting windows across every attached server's
+ *  sessions (the desktop shell's dock/taskbar badge — everything the
+ *  connected instance's SSE stream covers). */
+export function countWaitingAcrossServers(
+  sessionsByServer: ReadonlyMap<string, ProjectSession[]>,
+): number {
+  let n = 0;
+  for (const sessions of sessionsByServer.values()) n += countWaitingInSessions(sessions);
+  return n;
+}

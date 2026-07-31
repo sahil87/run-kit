@@ -1,0 +1,77 @@
+/**
+ * node:test suite for the titlebar-strip pure logic (run via `pnpm run test`
+ * after compile — the `hosts.test.ts` convention).
+ */
+import assert from "node:assert/strict";
+import test from "node:test";
+import {
+  DEFAULT_STRIP_COLOR,
+  fallbackStripCss,
+  shouldInjectFallbackStrip,
+  STRIP_HEIGHT_PX,
+  STRIP_MARKER_CLASS,
+  symbolColorFor,
+} from "./strip";
+
+// ── symbolColorFor ───────────────────────────────────────────────────────────
+
+test("dark strip backgrounds derive light symbols", () => {
+  assert.equal(symbolColorFor("#0f1117"), "#e5e7eb");
+  assert.equal(symbolColorFor("#1a2b3c"), "#e5e7eb");
+});
+
+test("light strip backgrounds derive dark symbols", () => {
+  assert.equal(symbolColorFor("#f8f9fb"), "#111827");
+  assert.equal(symbolColorFor("#ffffff"), "#111827");
+});
+
+test("unparseable background reads as dark (light symbols)", () => {
+  assert.equal(symbolColorFor(""), "#e5e7eb");
+  assert.equal(symbolColorFor("not-a-color"), "#e5e7eb");
+});
+
+// ── fallbackStripCss ─────────────────────────────────────────────────────────
+
+test("fallback CSS is keyed on the marker class and carries the strip geometry", () => {
+  const css = fallbackStripCss("#123456");
+  assert.ok(css.includes(`html:not(.${STRIP_MARKER_CLASS})`));
+  assert.ok(css.includes(`height: ${STRIP_HEIGHT_PX}px`));
+  assert.ok(css.includes(`padding-top: ${STRIP_HEIGHT_PX}px`));
+  assert.ok(css.includes("background: #123456"));
+  assert.ok(css.includes("-webkit-app-region: drag"));
+});
+
+test("fallback CSS falls back to the default color on junk input", () => {
+  const css = fallbackStripCss("javascript:alert(1)");
+  assert.ok(css.includes(`background: ${DEFAULT_STRIP_COLOR}`));
+  assert.ok(!css.includes("javascript:"));
+});
+
+// ── shouldInjectFallbackStrip ────────────────────────────────────────────────
+
+const ORIGINS: ReadonlySet<string> = new Set([
+  "http://100.101.2.3:3000",
+  "https://rk.example.com",
+]);
+
+test("registered host origins inject", () => {
+  assert.equal(
+    shouldInjectFallbackStrip("http://100.101.2.3:3000/utils2/rk-dev?x=1", ORIGINS),
+    true,
+  );
+  assert.equal(shouldInjectFallbackStrip("https://rk.example.com/", ORIGINS), true);
+});
+
+test("the welcome file:// page never injects (it has its own static strip)", () => {
+  assert.equal(
+    shouldInjectFallbackStrip("file:///Applications/app/welcome.html", ORIGINS),
+    false,
+  );
+});
+
+test("foreign origins and garbage never inject", () => {
+  assert.equal(shouldInjectFallbackStrip("http://evil.example.com/", ORIGINS), false);
+  assert.equal(shouldInjectFallbackStrip("about:blank", ORIGINS), false);
+  assert.equal(shouldInjectFallbackStrip("not a url", ORIGINS), false);
+  assert.equal(shouldInjectFallbackStrip("", ORIGINS), false);
+});

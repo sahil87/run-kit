@@ -24,6 +24,7 @@ import {
   ipcMain,
   IpcMainInvokeEvent,
   Menu,
+  nativeImage,
   net,
   session,
   shell,
@@ -43,7 +44,15 @@ import {
   resolveRkBinary,
   rkCandidatePaths,
 } from "./local-daemon";
+import { badgePng, overlayDescription } from "./badge";
 import { buildMenu, DaemonMenuInfo, MenuCallbacks, UpdateMenuInfo } from "./menu";
+import {
+  DEFAULT_STRIP_COLOR,
+  fallbackStripCss,
+  shouldInjectFallbackStrip,
+  STRIP_HEIGHT_PX,
+  symbolColorFor,
+} from "./strip";
 import { availableUpdateVersion, isUpdateCheckDue } from "./update-check";
 import { isHttpUrl, windowOpenAction } from "./window-open";
 import {
@@ -125,9 +134,37 @@ function isAllowedNavigation(url: string): boolean {
   return origin !== null && registeredOrigins().has(origin);
 }
 
+// ─── Dock/taskbar waiting badge ─────────────────────────────────────────────
+//
+// The SPA reports its waiting-agent count over `badge:set` (sender-gated like
+// `servers:*`). macOS/Linux take `app.setBadgeCount` (0 clears); Windows has
+// no dock badge, so the count renders as a taskbar overlay icon whose PNG
+// bytes come from the electron-free ./badge module (node:test covered).
+// Cleared on host switch and welcome navigation (the incoming page re-reports
+// once its SSE stream is up) and on window close.
+
+function applyBadge(count: number): void {
+  if (process.platform === "win32") {
+    const win = mainWindow;
+    if (!win || win.isDestroyed()) return; // clear-on-closed races destruction
+    if (count > 0) {
+      win.setOverlayIcon(nativeImage.createFromBuffer(badgePng(count)), overlayDescription(count));
+    } else {
+      win.setOverlayIcon(null, "");
+    }
+    return;
+  }
+  app.setBadgeCount(count);
+}
+
+function clearBadge(): void {
+  applyBadge(0);
+}
+
 // ─── Routing ────────────────────────────────────────────────────────────────
 
 function showWelcome(win: BrowserWindow, query?: Record<string, string>): void {
+  clearBadge();
   void win.loadFile(WELCOME_PATH, query ? { query } : undefined);
 }
 
@@ -184,6 +221,7 @@ function showStartPage(win: BrowserWindow): void {
  */
 function switchToHost(id: string): IpcResult {
   captureLastPath();
+  clearBadge(); // stale count belongs to the outgoing host; the new page re-reports
   const next = setActiveHost(userDataDir(), id);
   const entry = next.hosts.find((h) => h.id === id);
   if (!entry) return { ok: false, error: "Unknown host" };
@@ -672,15 +710,46 @@ function registerIpcHandlers(): void {
     if (typeof id !== "string") return { ok: false, error: "Invalid request" };
     return switchToHost(id);
   });
+
+  // badge:* — the SPA's waiting-agent count report, gated exactly like
+  // `servers:*` (registered host origins + welcome). Structurally validated:
+  // only a non-negative integer reaches the OS badge surface.
+  ipcMain.handle("badge:set", (event, count: unknown): IpcResult => {
+    if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
+    if (typeof count !== "number" || !Number.isInteger(count) || count < 0) {
+      return { ok: false, error: "Invalid request" };
+    }
+    applyBadge(count);
+    return { ok: true };
+  });
 }
 
 // ─── Window + security wiring ───────────────────────────────────────────────
+
+/** Last theme-color observed from the page (the SPA's `theme-color` meta,
+ *  incl. the pre-paint localStorage echo) — feeds the Windows/Linux
+ *  window-controls overlay and the fallback strip background. */
+let lastThemeColor = DEFAULT_STRIP_COLOR;
 
 function openMainWindow(): void {
   const win = new BrowserWindow({
     width: 1280,
     height: 800,
     backgroundColor: "#0f1117",
+    // Hidden native titlebar: the page's top edge is the visible "titlebar"
+    // (the SPA draws a 28px accent strip; ./strip's fallback CSS covers older
+    // SPAs). macOS composites the traffic lights over the strip; win/linux
+    // draw native window controls over its right end via the overlay.
+    titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "hidden",
+    ...(process.platform !== "darwin"
+      ? {
+          titleBarOverlay: {
+            color: DEFAULT_STRIP_COLOR,
+            symbolColor: symbolColorFor(DEFAULT_STRIP_COLOR),
+            height: STRIP_HEIGHT_PX,
+          },
+        }
+      : {}),
     webPreferences: {
       preload: join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -690,12 +759,42 @@ function openMainWindow(): void {
       additionalArguments: [`--runkit-shell-version=${app.getVersion()}`],
     },
   });
+  // Keep the win/linux window-controls overlay in sync with the page's
+  // theme-color meta — the same seam the installed-PWA titlebar uses, so no
+  // new SPA→shell color API exists. Linux WCO support is partial; a throwing
+  // setTitleBarOverlay degrades silently.
+  win.webContents.on("did-change-theme-color", (_event, color) => {
+    lastThemeColor = color ?? DEFAULT_STRIP_COLOR;
+    if (process.platform === "darwin") return;
+    try {
+      win.setTitleBarOverlay({
+        color: lastThemeColor,
+        symbolColor: symbolColorFor(lastThemeColor),
+        height: STRIP_HEIGHT_PX,
+      });
+    } catch {
+      // Partial window-controls-overlay support (linux) — degrade silently.
+    }
+  });
+  // Version-skew fallback: an older SPA (no strip) under this hidden-titlebar
+  // shell would have no drag surface. Registered-host pages get a minimal
+  // draggable band whose CSS no-ops when the SPA-drawn strip marks
+  // `html.rk-shell-strip` (CSS is live, so injecting unconditionally is safe).
+  win.webContents.on("did-finish-load", () => {
+    const url = win.webContents.getURL();
+    if (shouldInjectFallbackStrip(url, registeredOrigins())) {
+      void win.webContents.insertCSS(fallbackStripCss(lastThemeColor));
+    }
+  });
   // Capture-on-quit: cold-start restore reflects the route at close, not just
   // the last switch-away (webContents is still readable during 'close').
   win.on("close", () => {
     captureLastPath();
   });
   win.on("closed", () => {
+    // A lingering dock badge would report a count no window backs (macOS
+    // keeps the app alive after window-all-closed).
+    clearBadge();
     if (mainWindow === win) mainWindow = null;
   });
   mainWindow = win;

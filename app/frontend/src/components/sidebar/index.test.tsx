@@ -29,6 +29,7 @@ const NULL_ACCENT: InstanceAccent = {
   isExplicit: false,
   stripeHex: null,
   washHex: null,
+  titlebarHex: null,
   setColor: () => {},
 };
 

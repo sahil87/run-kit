@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { isShell, listShellServers, shellInfo, switchShellServer } from "./shell";
+import { isShell, listShellServers, setShellBadge, shellInfo, switchShellServer } from "./shell";
 
 // The desktop shell injects window.runkitShell at runtime via its preload
 // contextBridge — nothing type-level guarantees the shape, so these tests
@@ -136,5 +136,56 @@ describe("switchShellServer", () => {
       switch: () => Promise.reject(new Error("ipc gone")),
     });
     expect(await switchShellServer("a")).toBe(false);
+  });
+});
+
+// The badge group is the third bridge surface: `setShellBadge` must resolve
+// true only for a well-formed { ok: true } ack, and false for everything else
+// — plain browser, a pre-badge shell, denial, and rejected invokes.
+
+describe("setShellBadge", () => {
+  it("resolves true on an { ok: true } ack and passes the count through", async () => {
+    let seen: number | null = null;
+    window.runkitShell = {
+      version: "1.2.3",
+      platform: "darwin",
+      badge: {
+        set: (count: number) => {
+          seen = count;
+          return Promise.resolve({ ok: true });
+        },
+      },
+    };
+    expect(await setShellBadge(3)).toBe(true);
+    expect(seen).toBe(3);
+  });
+
+  it("resolves false in a plain browser (bridge absent)", async () => {
+    expect(await setShellBadge(1)).toBe(false);
+  });
+
+  it("resolves false on a shell without the badge group (older shell)", async () => {
+    window.runkitShell = { version: "1.2.3", platform: "darwin" };
+    expect(await setShellBadge(1)).toBe(false);
+  });
+
+  it("resolves false when the group member is not a function", async () => {
+    window.runkitShell = { version: "1.2.3", platform: "darwin", badge: { set: "nope" } };
+    expect(await setShellBadge(1)).toBe(false);
+  });
+
+  it("resolves false on a denied result and on a rejected invoke", async () => {
+    window.runkitShell = {
+      version: "1.2.3",
+      platform: "darwin",
+      badge: { set: () => Promise.resolve({ ok: false, error: "Not allowed" }) },
+    };
+    expect(await setShellBadge(1)).toBe(false);
+    window.runkitShell = {
+      version: "1.2.3",
+      platform: "darwin",
+      badge: { set: () => Promise.reject(new Error("ipc gone")) },
+    };
+    expect(await setShellBadge(1)).toBe(false);
   });
 });

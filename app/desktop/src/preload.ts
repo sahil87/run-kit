@@ -11,6 +11,9 @@
  *     Privileged for registered host origins AND the welcome page — main.ts
  *     gates every `servers:*` handler on the sender frame (the navigation
  *     allowlist), so any other sender gets a rejection.
+ *   - `badge`: the SPA's waiting-agent-count report (`badge:set`) driving the
+ *     dock/taskbar badge. Gated exactly like `servers:*` (registered host
+ *     origins + welcome) main-side; payloads are validated in main.
  *   - `__welcome`: IPC invokers used by the welcome page only. They are
  *     exposed everywhere but privileged NOWHERE except the welcome page —
  *     every `welcome:*` handler in main.ts verifies `event.senderFrame.url`
@@ -39,6 +42,9 @@ contextBridge.exposeInMainWorld("runkitShell", {
   servers: {
     list: (): Promise<unknown> => ipcRenderer.invoke("servers:list"),
     switch: (id: string): Promise<unknown> => ipcRenderer.invoke("servers:switch", id),
+  },
+  badge: {
+    set: (count: number): Promise<unknown> => ipcRenderer.invoke("badge:set", count),
   },
   __welcome: {
     testHost: (url: string): Promise<unknown> =>

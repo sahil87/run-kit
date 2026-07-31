@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isWaiting, countWaitingWindows, countWaitingInSessions } from "./waiting";
+import { isWaiting, countWaitingWindows, countWaitingInSessions, countWaitingAcrossServers } from "./waiting";
 import type { ProjectSession, WindowInfo } from "@/types";
 import { makeWindow, makeSession } from "@/test-utils/fixtures";
 
@@ -36,5 +36,21 @@ describe("countWaitingInSessions", () => {
   });
   it("returns 0 when no session has a waiting window", () => {
     expect(countWaitingInSessions([session(["active", "idle"]), session([undefined])])).toBe(0);
+  });
+});
+
+describe("countWaitingAcrossServers", () => {
+  it("sums waiting windows across every attached server", () => {
+    const byServer = new Map<string, ProjectSession[]>([
+      ["alpha", [session(["waiting", "active"])]],
+      ["beta", [session(["waiting"]), session(["idle", "waiting"])]],
+    ]);
+    expect(countWaitingAcrossServers(byServer)).toBe(3);
+  });
+  it("returns 0 for an empty map and for servers with no waiting windows", () => {
+    expect(countWaitingAcrossServers(new Map())).toBe(0);
+    expect(
+      countWaitingAcrossServers(new Map([["alpha", [session(["active", undefined])]]])),
+    ).toBe(0);
   });
 });

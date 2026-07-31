@@ -130,3 +130,41 @@ export async function switchShellServer(id: string): Promise<boolean> {
     typeof result === "object" && result !== null && "ok" in result && result.ok === true
   );
 }
+
+/** The bridge's `badge` group — thin IPC invoker resolving unknown shapes. */
+interface ShellBadgeBridge {
+  set: (count: number) => Promise<unknown>;
+}
+
+function isBadgeBridge(value: unknown): value is ShellBadgeBridge {
+  if (typeof value !== "object" || value === null) return false;
+  if (!("set" in value)) return false;
+  return typeof value.set === "function";
+}
+
+/** The `badge` group when the bridge carries one — absent on older shells. */
+function badgeBridge(): ShellBadgeBridge | null {
+  const candidate = typeof window === "undefined" ? undefined : window.runkitShell;
+  if (typeof candidate !== "object" || candidate === null) return null;
+  if (!("badge" in candidate)) return null;
+  return isBadgeBridge(candidate.badge) ? candidate.badge : null;
+}
+
+/**
+ * Report the waiting-agent count to the shell's dock/taskbar badge (`0`
+ * clears). Resolves `false` in a plain browser, on an older shell without the
+ * `badge` group, or when the shell rejects/denies the call. Never throws.
+ */
+export async function setShellBadge(count: number): Promise<boolean> {
+  const bridge = badgeBridge();
+  if (!bridge) return false;
+  let result: unknown;
+  try {
+    result = await bridge.set(count);
+  } catch {
+    return false;
+  }
+  return (
+    typeof result === "object" && result !== null && "ok" in result && result.ok === true
+  );
+}

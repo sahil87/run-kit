@@ -30,6 +30,11 @@ export type InstanceAccent = {
   stripeHex: string | null;
   /** Subtle accent-into-background blend for the top-bar wash. */
   washHex: string | null;
+  /** The titlebar blend (`INSTANCE_TITLEBAR_RATIO`) — the theme-color meta
+   *  content, and the desktop shell's titlebar-strip background (the strip is
+   *  the shell's page-drawn window chrome, so it matches the PWA titlebar
+   *  tint exactly). Null when no accent is resolved. */
+  titlebarHex: string | null;
   /** Set (descriptor) or clear (null → no accent) the instance color.
    *  Optimistic; POSTs to the instance host, toasting on failure. */
   setColor: (color: string | null) => void;
@@ -104,6 +109,7 @@ export function InstanceAccentProvider({ children }: { children: React.ReactNode
       isExplicit: typeof explicit === "string",
       stripeHex: hexes?.stripeHex ?? null,
       washHex: hexes?.washHex ?? null,
+      titlebarHex: hexes?.titlebarHex ?? null,
       setColor,
     }),
     [resolved, explicit, hexes, setColor],

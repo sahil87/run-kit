@@ -28,7 +28,9 @@ import { buildStatusRefreshAction } from "@/lib/palette-status-refresh";
 import { buildPinActions } from "@/lib/palette-pin";
 import { buildServerKillActions } from "@/lib/palette-server-kill";
 import { buildShellServerActions } from "@/lib/palette-shell";
-import { switchShellServer } from "@/lib/shell";
+import { isShell, switchShellServer } from "@/lib/shell";
+import { ShellTitlebarStrip } from "@/components/shell-titlebar-strip";
+import { ShellBadgeReporter } from "@/components/shell-badge-reporter";
 import { useShellServers } from "@/hooks/use-shell-servers";
 import { readLastPinnedBoard } from "@/lib/last-pinned-board";
 import { buildNavActions } from "@/lib/palette-nav";
@@ -229,6 +231,14 @@ export function AppLayout() {
       className="app-root flex flex-col"
       style={{ height: "var(--app-height, 100vh)" }}
     >
+      {/* Desktop-shell chrome (260731-ofws), shell-only by `isShell()` gating
+          (false in every browser and in Playwright): the titlebar strip is the
+          window's drag surface under the shell's hidden native titlebar, and
+          the badge reporter mirrors the waiting-agent count to the OS dock/
+          taskbar badge. The top bar below is untouched — the strip is a new
+          sibling ABOVE it, not a merge. */}
+      {isShell() && <ShellTitlebarStrip />}
+      {isShell() && <ShellBadgeReporter />}
       {/* Plain `div`, not `header`: `TopBar` already renders its own `<header>`
           (the banner landmark), so wrapping it in a second `<header>` would
           nest two `role="banner"` landmarks. This wrapper only owns the

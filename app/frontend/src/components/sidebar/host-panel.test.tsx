@@ -53,6 +53,7 @@ function accentValue(overrides: Partial<InstanceAccent> = {}): InstanceAccent {
     isExplicit: false,
     stripeHex: null,
     washHex: null,
+    titlebarHex: null,
     setColor: vi.fn(),
     ...overrides,
   };

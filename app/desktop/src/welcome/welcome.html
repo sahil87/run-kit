@@ -30,6 +30,21 @@
         color: #e5e7eb;
         font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
         font-size: 14px;
+        /* Room for the fixed titlebar strip below. */
+        padding-top: 28px;
+      }
+      /* Static titlebar strip: the shell hides the native titlebar (macOS
+         hiddenInset / win-linux hidden+overlay), so this neutral draggable
+         band is the welcome page's drag surface — visually consistent with
+         the SPA-drawn strip on host pages. */
+      .titlebar-strip {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 28px;
+        background: #0f1117;
+        -webkit-app-region: drag;
       }
       main.card {
         width: min(420px, calc(100vw - 48px));
@@ -175,6 +190,7 @@
     </style>
   </head>
   <body>
+    <div class="titlebar-strip" aria-hidden="true"></div>
     <main class="card">
       <h1>run-kit</h1>
       <p id="tagline" class="tagline">Connect to a running <span>rk serve</span> instance.</p>

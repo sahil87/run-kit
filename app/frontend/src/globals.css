@@ -83,6 +83,14 @@ summary {
   cursor: pointer;
 }
 
+/* Desktop-shell titlebar strip (260731-ofws): the Electron shell hides the
+   native titlebar, so the SPA-drawn strip is the window's drag surface. The
+   class exists because `-webkit-app-region` is not part of React's
+   CSSProperties (no inline-style cast needed). No-op in plain browsers. */
+.rk-shell-drag {
+  -webkit-app-region: drag;
+}
+
 /* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 6px;

@@ -18,6 +18,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	"rk/internal/testutil"
 	"rk/internal/tmux"
 )
 
@@ -503,16 +504,11 @@ func TestTerminals_InitialSizeAndTERM(t *testing.T) {
 	}
 
 	// Give the attach a beat to register its client, then assert size + TERM.
-	deadline := time.Now().Add(3 * time.Second)
 	var clients []string
-	for time.Now().Before(deadline) {
+	if !testutil.WaitUntil(t, 3*time.Second, func() bool {
 		clients = listClients(t, tmuxServer)
-		if len(clients) > 0 {
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	if len(clients) == 0 {
+		return len(clients) > 0
+	}) {
 		t.Fatal("no tmux client attached after stream open")
 	}
 	want := "100x40 xterm-256color"
@@ -548,16 +544,16 @@ func TestTerminals_ResizeSetsClientSize(t *testing.T) {
 		t.Fatalf("write resize: %v", err)
 	}
 
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
+	if !testutil.WaitUntil(t, 3*time.Second, func() bool {
 		for _, c := range listClients(t, tmuxServer) {
 			if strings.HasPrefix(c, "120x50 ") {
-				return // resize applied
+				return true // resize applied
 			}
 		}
-		time.Sleep(50 * time.Millisecond)
+		return false
+	}) {
+		t.Errorf("resize op did not re-size the PTY to 120x50; clients=%v", listClients(t, tmuxServer))
 	}
-	t.Errorf("resize op did not re-size the PTY to 120x50; clients=%v", listClients(t, tmuxServer))
 }
 
 // TestTerminals_ClientCloseYields1000 proves a client `close` op tears the

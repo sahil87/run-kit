@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"rk/internal/desktop"
+	"rk/internal/testutil"
 )
 
 // withResolveExe swaps resolveExeFn to return the given path/err for the test's
@@ -363,13 +364,7 @@ func withFakeBrew(t *testing.T, stderrText string, exitCode int) {
 // temp dir and prepends that dir to PATH for the test's duration.
 func installFakeBrew(t *testing.T, script string) {
 	t.Helper()
-	dir := t.TempDir()
-	brewPath := filepath.Join(dir, "brew")
-	if err := os.WriteFile(brewPath, []byte(script), 0o755); err != nil {
-		t.Fatalf("write fake brew: %v", err)
-	}
-	origPath := os.Getenv("PATH")
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+origPath)
+	testutil.StubOnPath(t, "brew", script)
 }
 
 // TestNewBrewCmd_GracefulCancelConfig pins the per-subcommand-class cancel

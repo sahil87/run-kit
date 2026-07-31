@@ -1,0 +1,55 @@
+id: 4404
+name: 260731-4404-go-internal-testutil
+created: 2026-07-31T08:49:18Z
+created_by: sahil-noon
+change_type: test
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 12
+    acceptance_count: 13
+    acceptance_completed: 13
+confidence:
+    certain: 4
+    confident: 2
+    tentative: 0
+    unresolved: 0
+    score: 5.0
+    fuzzy: true
+    dimensions:
+        signal: 76.7
+        reversibility: 90.8
+        competence: 87.5
+        disambiguation: 80.8
+stage_metrics:
+    intake: {started_at: "2026-07-31T08:49:18Z", driver: fab-new, iterations: 1, completed_at: "2026-07-31T08:52:27Z"}
+    apply: {started_at: "2026-07-31T08:52:27Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-31T09:03:49Z"}
+    review: {started_at: "2026-07-31T09:03:49Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-31T09:21:29Z"}
+    hydrate: {started_at: "2026-07-31T09:21:29Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-31T09:26:41Z"}
+    ship: {started_at: "2026-07-31T09:26:41Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-07-31T09:26:41Z"
+    computed_at_stage: hydrate
+summary: Consolidated Go test scaffolding into internal/testutil (WriteStub/StubOnPath/WaitUntil/MustWaitUntil) and migrated 9 test files
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-07-31T09:26:41Z

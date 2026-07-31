@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+
+	"rk/internal/testutil"
 )
 
 // payload returns the frame's wire bytes regardless of tier — a test-only
@@ -106,12 +108,13 @@ func TestScheduler_EchoNotHeadOfLineBlocked(t *testing.T) {
 	stB.queue <- outFrame{data: echo}
 	tc.signalWake()
 
-	// Wait until the echo is observed in the write order (or fail on timeout).
-	deadline := time.Now().Add(2 * time.Second)
+	// Wait until the echo is observed in the write order (fall-through on
+	// timeout — the post-stop Fatalf below reports it).
 	echoIdx := -1
 	aFramesBefore := 0
-	for time.Now().Before(deadline) {
+	testutil.WaitUntil(t, 2*time.Second, func() bool {
 		mu.Lock()
+		defer mu.Unlock()
 		for i := writtenAtEnqueue; i < len(order); i++ {
 			if order[i] == streamB {
 				echoIdx = i
@@ -125,12 +128,8 @@ func TestScheduler_EchoNotHeadOfLineBlocked(t *testing.T) {
 				}
 			}
 		}
-		mu.Unlock()
-		if echoIdx >= 0 {
-			break
-		}
-		time.Sleep(2 * time.Millisecond)
-	}
+		return echoIdx >= 0
+	})
 
 	// Stop the flood + writer.
 	close(tc.done)
@@ -202,17 +201,13 @@ func TestScheduler_RoundRobinNoStarvation(t *testing.T) {
 		tc.runWriter()
 	}()
 
-	// Wait until all frames drain.
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
+	// Wait until all frames drain (fall-through on timeout — the post-stop
+	// Fatalf below reports it).
+	testutil.WaitUntil(t, 2*time.Second, func() bool {
 		mu.Lock()
-		n := len(order)
-		mu.Unlock()
-		if n >= 2*streamQueueDepth {
-			break
-		}
-		time.Sleep(2 * time.Millisecond)
-	}
+		defer mu.Unlock()
+		return len(order) >= 2*streamQueueDepth
+	})
 	close(tc.done)
 	tc.signalWake()
 	<-writerDone

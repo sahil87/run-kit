@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"rk/internal/testutil"
 )
 
 func TestParseApps(t *testing.T) {
@@ -76,19 +78,10 @@ func TestParseApps(t *testing.T) {
 	})
 }
 
-// writeStub creates an executable stub script on a temp PATH dir — the same
-// stub-exec pattern internal/riff uses for wt/tmux.
-func writeStub(t *testing.T, dir, name, script string) {
-	t.Helper()
-	if err := os.WriteFile(filepath.Join(dir, name), []byte(script), 0o755); err != nil {
-		t.Fatalf("WriteFile stub %s: %v", name, err)
-	}
-}
-
 func TestListApps(t *testing.T) {
 	t.Run("returns parsed registry from a working wt", func(t *testing.T) {
 		dir := t.TempDir()
-		writeStub(t, dir, "wt", "#!/bin/sh\necho '[{\"id\":\"vscode\",\"label\":\"VS Code\",\"kind\":\"editor\"}]'\n")
+		testutil.WriteStub(t, dir, "wt", "#!/bin/sh\necho '[{\"id\":\"vscode\",\"label\":\"VS Code\",\"kind\":\"editor\"}]'\n")
 		t.Setenv("PATH", dir)
 
 		apps, err := ListApps(context.Background())
@@ -109,7 +102,7 @@ func TestListApps(t *testing.T) {
 
 	t.Run("errors when wt is too old (unknown flag, non-zero exit)", func(t *testing.T) {
 		dir := t.TempDir()
-		writeStub(t, dir, "wt", "#!/bin/sh\necho 'unknown flag: --list' >&2\nexit 2\n")
+		testutil.WriteStub(t, dir, "wt", "#!/bin/sh\necho 'unknown flag: --list' >&2\nexit 2\n")
 		t.Setenv("PATH", dir)
 		if _, err := ListApps(context.Background()); err == nil {
 			t.Fatal("expected error for non-zero wt exit")
@@ -118,7 +111,7 @@ func TestListApps(t *testing.T) {
 
 	t.Run("errors on non-JSON stdout", func(t *testing.T) {
 		dir := t.TempDir()
-		writeStub(t, dir, "wt", "#!/bin/sh\necho 'Opened.'\n")
+		testutil.WriteStub(t, dir, "wt", "#!/bin/sh\necho 'Opened.'\n")
 		t.Setenv("PATH", dir)
 		if _, err := ListApps(context.Background()); err == nil {
 			t.Fatal("expected error for non-JSON output")
@@ -130,7 +123,7 @@ func TestOpen(t *testing.T) {
 	t.Run("invokes wt open <path> -a <app>", func(t *testing.T) {
 		dir := t.TempDir()
 		argvLog := filepath.Join(dir, "argv.log")
-		writeStub(t, dir, "wt", "#!/bin/sh\necho \"$@\" > "+argvLog+"\n")
+		testutil.WriteStub(t, dir, "wt", "#!/bin/sh\necho \"$@\" > "+argvLog+"\n")
 		t.Setenv("PATH", dir)
 
 		if err := Open(context.Background(), "/tmp/proj", "vscode"); err != nil {
@@ -147,7 +140,7 @@ func TestOpen(t *testing.T) {
 
 	t.Run("propagates launch failure with output", func(t *testing.T) {
 		dir := t.TempDir()
-		writeStub(t, dir, "wt", "#!/bin/sh\necho 'no such app' >&2\nexit 1\n")
+		testutil.WriteStub(t, dir, "wt", "#!/bin/sh\necho 'no such app' >&2\nexit 1\n")
 		t.Setenv("PATH", dir)
 		if err := Open(context.Background(), "/tmp/proj", "nope"); err == nil {
 			t.Fatal("expected error for failing wt open")

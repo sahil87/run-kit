@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"rk/internal/testutil"
 	"rk/internal/tmux"
 )
 
@@ -831,10 +832,9 @@ func TestStartSession_BirthCwdIsHome(t *testing.T) {
 	// A fake serve binary that just stays alive: startSession runs `<exe> serve`,
 	// and the session (and with it the birthed server) must survive long enough
 	// to be inspected.
-	script := filepath.Join(t.TempDir(), "fake-serve")
-	if err := os.WriteFile(script, []byte("#!/bin/sh\nsleep 300\n"), 0o755); err != nil {
-		t.Fatalf("write fake serve script: %v", err)
-	}
+	dir := t.TempDir()
+	testutil.WriteStub(t, dir, "fake-serve", "#!/bin/sh\nsleep 300\n")
+	script := filepath.Join(dir, "fake-serve")
 
 	if err := startSession(script); err != nil {
 		t.Fatalf("startSession: %v", err)

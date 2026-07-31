@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"rk/internal/fabconfig"
+	"rk/internal/testutil"
 )
 
 func TestParseWorktreePath(t *testing.T) {
@@ -425,18 +426,8 @@ func TestBuildWtCreateArgs(t *testing.T) {
 func stubFab(t *testing.T, script string) string {
 	t.Helper()
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "fab"), []byte(script), 0o755); err != nil {
-		t.Fatalf("WriteFile stub fab: %v", err)
-	}
+	testutil.WriteStub(t, dir, "fab", script)
 	return dir
-}
-
-// writeStub writes an executable script named `name` into `dir`.
-func writeStub(t *testing.T, dir, name, script string) {
-	t.Helper()
-	if err := os.WriteFile(filepath.Join(dir, name), []byte(script), 0o755); err != nil {
-		t.Fatalf("WriteFile stub %s: %v", name, err)
-	}
 }
 
 // TestSpawn_WhereModes exercises the Spawn isolation branch end-to-end against
@@ -467,10 +458,10 @@ func TestSpawn_WhereModes(t *testing.T) {
 		// is written via shell redirection, not `touch` — PATH is restricted to
 		// the stub dir, so external commands are unavailable inside the stubs.
 		wtCalled := filepath.Join(dir, "wt-called")
-		writeStub(t, dir, "wt", "#!/bin/sh\n: > "+wtCalled+"\necho 'wt should not be called in checkout mode' >&2\nexit 1\n")
-		writeStub(t, dir, "tmux", stubTmuxScript(newWindowLog))
+		testutil.WriteStub(t, dir, "wt", "#!/bin/sh\n: > "+wtCalled+"\necho 'wt should not be called in checkout mode' >&2\nexit 1\n")
+		testutil.WriteStub(t, dir, "tmux", stubTmuxScript(newWindowLog))
 		// fab resolves the launcher; a plain single-line print keeps ResolveLauncher happy.
-		writeStub(t, dir, "fab", "#!/bin/sh\necho 'claude'\n")
+		testutil.WriteStub(t, dir, "fab", "#!/bin/sh\necho 'claude'\n")
 		t.Setenv("PATH", dir)
 
 		res, err := Spawn(context.Background(), Options{
@@ -509,9 +500,9 @@ func TestSpawn_WhereModes(t *testing.T) {
 
 		// wt create prints the `Path:` line the engine parses for the window root.
 		// The marker uses shell redirection (not `touch`) — PATH is stub-only.
-		writeStub(t, dir, "wt", "#!/bin/sh\n: > "+wtCalled+"\nprintf 'Path: %s\\n' '"+worktree+"'\n")
-		writeStub(t, dir, "tmux", stubTmuxScript(newWindowLog))
-		writeStub(t, dir, "fab", "#!/bin/sh\necho 'claude'\n")
+		testutil.WriteStub(t, dir, "wt", "#!/bin/sh\n: > "+wtCalled+"\nprintf 'Path: %s\\n' '"+worktree+"'\n")
+		testutil.WriteStub(t, dir, "tmux", stubTmuxScript(newWindowLog))
+		testutil.WriteStub(t, dir, "fab", "#!/bin/sh\necho 'claude'\n")
 		t.Setenv("PATH", dir)
 
 		res, err := Spawn(context.Background(), Options{

@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"rk/internal/testutil"
 )
 
 // testSocketName builds a unified test socket name: rk-test-<role>-<pid>-<ns>.
@@ -64,19 +66,11 @@ func TestIntegration_TmuxControlMode_LatencyTarget(t *testing.T) {
 	defer c.Close()
 
 	// Wait for the connection to establish.
-	deadline := time.Now().Add(2 * time.Second)
-	for {
+	testutil.MustWaitUntil(t, 2*time.Second, func() bool {
 		sink.mu.Lock()
-		est := sink.established
-		sink.mu.Unlock()
-		if est >= 1 {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("did not see OnConnectionEstablished within 2s")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+		defer sink.mu.Unlock()
+		return sink.established >= 1
+	}, "did not see OnConnectionEstablished within 2s")
 
 	// Trigger a select-window. Generation must advance within 500ms.
 	prev := c.Generation()

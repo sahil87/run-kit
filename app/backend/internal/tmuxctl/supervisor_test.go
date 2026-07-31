@@ -11,6 +11,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"rk/internal/testutil"
 )
 
 // testOpenFn returns a fakeable openFn that records every socket name it
@@ -144,16 +146,8 @@ func TestSupervisor_SkipsLockFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		got := reg.opened()
-		if len(got) == 2 {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("expected 2 opens (kits, kits2), got %v", got)
-		}
-		time.Sleep(10 * time.Millisecond)
+	if !testutil.WaitUntil(t, 2*time.Second, func() bool { return len(reg.opened()) == 2 }) {
+		t.Fatalf("expected 2 opens (kits, kits2), got %v", reg.opened())
 	}
 
 	for _, name := range reg.opened() {
@@ -248,16 +242,11 @@ func TestSupervisor_CreateEvent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	deadline := time.Now().Add(2 * time.Second)
-	for {
+	if !testutil.WaitUntil(t, 2*time.Second, func() bool {
 		got := reg.opened()
-		if len(got) == 1 && got[0] == "my-new" {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("did not observe Create-driven Open within 2s, got %v", got)
-		}
-		time.Sleep(10 * time.Millisecond)
+		return len(got) == 1 && got[0] == "my-new"
+	}) {
+		t.Fatalf("did not observe Create-driven Open within 2s, got %v", reg.opened())
 	}
 }
 
@@ -285,24 +274,14 @@ func TestSupervisor_RemoveEvent(t *testing.T) {
 	})
 
 	// Confirm initial open.
-	deadline := time.Now().Add(2 * time.Second)
-	for s.Get("kits") == nil {
-		if time.Now().After(deadline) {
-			t.Fatal("initial open not registered")
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
+	testutil.MustWaitUntil(t, 2*time.Second, func() bool { return s.Get("kits") != nil },
+		"initial open not registered")
 
 	if err := os.Remove(filepath.Join(dir, "kits")); err != nil {
 		t.Fatal(err)
 	}
-	deadline = time.Now().Add(2 * time.Second)
-	for s.Get("kits") != nil {
-		if time.Now().After(deadline) {
-			t.Fatal("did not observe Remove-driven Close within 2s")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	testutil.MustWaitUntil(t, 2*time.Second, func() bool { return s.Get("kits") == nil },
+		"did not observe Remove-driven Close within 2s")
 }
 
 // TestSupervisor_WatchDirMissing verifies that Start creates the watch dir
@@ -361,13 +340,9 @@ func TestSupervisor_StopClosesAllClients(t *testing.T) {
 	}
 
 	// Confirm all opened.
-	deadline := time.Now().Add(2 * time.Second)
-	for s.Get("a") == nil || s.Get("b") == nil || s.Get("c") == nil {
-		if time.Now().After(deadline) {
-			t.Fatal("not all opens registered")
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
+	testutil.MustWaitUntil(t, 2*time.Second, func() bool {
+		return s.Get("a") != nil && s.Get("b") != nil && s.Get("c") != nil
+	}, "not all opens registered")
 
 	stopCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()

@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"rk/internal/testutil"
 	"rk/internal/tmux"
 )
 
@@ -134,6 +135,8 @@ func (f *fakeSleep) sleep(ctx context.Context, d time.Duration) <-chan struct{} 
 }
 
 // triggerNext fires the next-pending sleep, returning its duration.
+// Deliberately bespoke (not testutil.WaitUntil): it returns a value from
+// inside the loop and keeps a tight 2ms poll for a fixture invoked repeatedly.
 func (f *fakeSleep) triggerNext(t *testing.T, timeout time.Duration) time.Duration {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
@@ -175,13 +178,8 @@ func TestClient_DispatchAndGenerationBump(t *testing.T) {
 	}
 
 	// Wait for generation > 0.
-	deadline := time.Now().Add(2 * time.Second)
-	for c.Generation() == 0 {
-		if time.Now().After(deadline) {
-			t.Fatalf("generation never advanced")
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
+	testutil.MustWaitUntil(t, 2*time.Second, func() bool { return c.Generation() != 0 },
+		"generation never advanced")
 	if c.Generation() != 1 {
 		t.Fatalf("expected generation=1, got %d", c.Generation())
 	}
@@ -230,13 +228,8 @@ func TestClient_UnlinkedWindowBumpsGeneration(t *testing.T) {
 	defer c.Close()
 
 	// Generation must reach 1 (the unlinked event bumped it).
-	deadline := time.Now().Add(2 * time.Second)
-	for c.Generation() == 0 {
-		if time.Now().After(deadline) {
-			t.Fatal("generation never advanced on %unlinked-window-add")
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
+	testutil.MustWaitUntil(t, 2*time.Second, func() bool { return c.Generation() != 0 },
+		"generation never advanced on %%unlinked-window-add")
 	if c.Generation() != 1 {
 		t.Fatalf("expected generation=1 after one unlinked event, got %d", c.Generation())
 	}
@@ -441,12 +434,8 @@ func TestClient_DispatchOrderPreserved(t *testing.T) {
 	}
 	defer c.Close()
 
-	deadline := time.Now().Add(2 * time.Second)
-	for c.Generation() < 3 {
-		if time.Now().After(deadline) {
-			t.Fatalf("only saw generation=%d", c.Generation())
-		}
-		time.Sleep(5 * time.Millisecond)
+	if !testutil.WaitUntil(t, 2*time.Second, func() bool { return c.Generation() >= 3 }) {
+		t.Fatalf("only saw generation=%d", c.Generation())
 	}
 
 	sink.mu.Lock()

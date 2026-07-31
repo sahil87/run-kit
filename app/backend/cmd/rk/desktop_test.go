@@ -105,17 +105,26 @@ func withDesktopStub(t *testing.T, srv *httptest.Server, run desktop.Runner) {
 // desktopFakeRunner fakes the macOS tool set: plutil reports the given
 // installed version, pgrep reports the given running state, hdiutil attach
 // materializes the .app in the mountpoint, ditto creates the destination.
+// It is stateful for the auto-restart flow: after the osascript graceful
+// quit, pgrep flips to not-running (the app "exited"), and `open` (the
+// relaunch) succeeds silently.
 func desktopFakeRunner(t *testing.T, installedVersion string, running bool) desktop.Runner {
 	t.Helper()
+	quitSeen := false
 	return func(_ context.Context, name string, args ...string) ([]byte, error) {
 		switch name {
 		case "plutil":
 			return []byte(installedVersion + "\n"), nil
 		case "pgrep":
-			if running {
+			if running && !quitSeen {
 				return []byte("123\n"), nil
 			}
 			return nil, errors.New("exit status 1")
+		case "osascript":
+			quitSeen = true
+			return nil, nil
+		case "open":
+			return nil, nil
 		case "hdiutil":
 			if len(args) > 4 && args[0] == "attach" {
 				if err := os.MkdirAll(filepath.Join(args[4], desktop.AppBundleName), 0o755); err != nil {
@@ -197,7 +206,10 @@ func TestDesktopRegisteredWithChildrenAndFlags(t *testing.T) {
 	}
 	for _, c := range []*cobra.Command{desktopInstallCmd, desktopUpdateCmd} {
 		if !strings.Contains(c.Long, "version state ONLY") {
-			t.Errorf("%s Long should scope --force to version state (not the running-app refusal)", c.Name())
+			t.Errorf("%s Long should scope --force to version state", c.Name())
+		}
+		if !strings.Contains(c.Long, "quit gracefully") {
+			t.Errorf("%s Long should describe the running-app auto-restart (quit gracefully → swap → relaunch)", c.Name())
 		}
 	}
 }
@@ -375,27 +387,49 @@ func TestDesktopUpdateInstallsNewer(t *testing.T) {
 	}
 }
 
-func TestDesktopRunningAppBlocksEvenWithForce(t *testing.T) {
+// TestDesktopUpdateRunningAppAutoRestarts: a running app no longer blocks the
+// update — it is quit, swapped, and relaunched, and the restart announcement
+// is a stdout data line alongside the updated outcome (R2, R5, R6).
+func TestDesktopUpdateRunningAppAutoRestarts(t *testing.T) {
 	var assetHits int
 	srv := desktopReleaseServer(t, "3.13.0", &assetHits)
 	withDesktopStub(t, srv, desktopFakeRunner(t, "3.12.2", true))
 	dir := t.TempDir()
 	writeDesktopBundle(t, dir)
 
-	for _, argv := range [][]string{
-		{"desktop", "update", "--path", dir, "--force"},
-		{"desktop", "install", "--path", dir, "--force"},
-	} {
-		_, _, err := execDesktop(t, argv...)
-		if err == nil {
-			t.Fatalf("%v: expected the running-app refusal, got nil", argv)
-		}
-		if !strings.Contains(err.Error(), "quit the app") {
-			t.Errorf("%v: error = %q, want quit-the-app guidance", argv, err.Error())
-		}
+	stdout, _, err := execDesktop(t, "desktop", "update", "--path", dir)
+	if err != nil {
+		t.Fatalf("update with a running app must auto-restart, not refuse: %v", err)
 	}
-	if assetHits != 0 {
-		t.Errorf("asset downloaded %d times despite the running-app refusal", assetHits)
+	if !strings.Contains(stdout, "Updated Run Kit v3.12.2 -> v3.13.0") {
+		t.Errorf("stdout = %q, want the updated outcome line", stdout)
+	}
+	if !strings.Contains(stdout, "Run Kit was running — restarted on the new version.") {
+		t.Errorf("stdout = %q, want the restart announcement data line", stdout)
+	}
+	if assetHits != 1 {
+		t.Errorf("asset downloads = %d, want 1", assetHits)
+	}
+}
+
+// TestDesktopInstallForceRunningAppAutoRestarts: --force stays scoped to
+// version state; a running app is auto-restarted, never refused (R6).
+func TestDesktopInstallForceRunningAppAutoRestarts(t *testing.T) {
+	var assetHits int
+	srv := desktopReleaseServer(t, "3.13.0", &assetHits)
+	withDesktopStub(t, srv, desktopFakeRunner(t, "3.13.0", true))
+	dir := t.TempDir()
+	writeDesktopBundle(t, dir)
+
+	stdout, _, err := execDesktop(t, "desktop", "install", "--path", dir, "--force")
+	if err != nil {
+		t.Fatalf("install --force with a running app must auto-restart, not refuse: %v", err)
+	}
+	if !strings.Contains(stdout, "Installed Run Kit v3.13.0") {
+		t.Errorf("stdout = %q, want the installed outcome line", stdout)
+	}
+	if !strings.Contains(stdout, "restarted on the new version") {
+		t.Errorf("stdout = %q, want the restart announcement", stdout)
 	}
 }
 

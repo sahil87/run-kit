@@ -140,8 +140,8 @@ worked example of what conformance costs on a new surface:
   own `Args` validators with `usageArgs` in `desktop.go`'s `init()` because
   root's central wrap loop covers only `rootCmd`'s **direct** children; an
   explicitly-empty `--path ""` is a `usageError` (exit 2) rather than a silent
-  fallback to `/Applications`; the platform gate, not-installed, and
-  running-app refusals are operational (1).
+  fallback to `/Applications`; the platform gate, the not-installed refusal, and
+  a quit-timeout abort are operational (1).
 - **The `rk skill` bundle and topic pages stay untouched.** The bundle is a
   capability briefing, not a command enumeration — help-dump already covers the
   new tree via the cobra walk, and editing the bundle would trip its
@@ -334,6 +334,31 @@ across repo / roster / formula leaf / binary; `v{semver}` tags; the `rk` →
 `run-kit` rename shipped `formula_renames.json` tap-side — the standard's own
 cited precedent). See [architecture](/run-kit/architecture.md) § CLI Subcommands
 (`update` row) for the mechanism.
+
+**The two-leg umbrella holds the same conformance** — `rk update` updates the
+CLI *and* the macOS desktop app, and every clause the standard cares about
+holds across both legs (`260731-3byh-umbrella-update-auto-restart`). The brew
+half is untouched, so the mutation bounds and graceful-cancel discipline below
+carry over verbatim. `--skip-brew-update` is a literal substring of
+`rk update --help`. Exit 0 covers success, already-up-to-date, **and every
+skip** (not brew-installed, non-darwin, no desktop app), with non-zero reserved
+for a genuine leg failure. The non-brew guidance is a clear degradation and a
+*leg* skip: it prints and execution continues to the desktop leg, so a
+Homebrew-less CLI still gets its app updated. The **command tree carries no
+new subcommands and no new flags** (only `Long` prose differs on `update` and
+`desktop install`/`update`), so the help-dump contract is shape-stable — the
+goldens were re-checked on this change.
+
+Updating a second artifact is what the standard's own "the tool's own
+post-upgrade side effects" clause contemplates — the same clause the daemon
+restart sits under. The **composition consequence is worth stating plainly**:
+`shll update` delegates run-kit's leg to `rk update`, so a composed toolkit
+update on a Mac also updates and restarts the desktop app. That is conformant
+(a tool owns its own post-upgrade side effects), and it costs the
+`install-composition` Policy A posture nothing — no sibling tool is probed or
+assumed. A custom-`--path` desktop install stays outside the umbrella's reach
+(Constitution II bars an install-path state store), documented in `update`'s
+help rather than papered over by path scanning.
 
 The violation was the **brew-mutation timeout**: `brew upgrade` ran under a
 `120s` hard timeout via `exec.CommandContext`, whose default cancel sends

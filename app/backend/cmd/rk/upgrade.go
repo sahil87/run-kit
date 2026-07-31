@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -161,7 +162,26 @@ func init() {
 var updateCmd = &cobra.Command{
 	Use:     "update",
 	Aliases: []string{"upgrade"},
-	Short:   "Update run-kit to the latest version",
+	Short:   "Update the run-kit CLI and desktop app to the latest version",
+	Long: `Update everything run-kit that is installed on this machine, in two
+independent legs:
+
+  CLI leg      When this binary is a Homebrew install: brew update (skippable
+               via --skip-brew-update), brew upgrade, then a daemon restart so
+               the server picks up the new binary. A non-brew install prints
+               manual-update guidance instead and moves on.
+  Desktop leg  (macOS) When the Run Kit desktop app is installed at
+               /Applications: update it to the latest release, auto-restarting
+               a running app (staged download, graceful quit, atomic swap,
+               relaunch). Skipped silently when no app is installed.
+
+Each leg is skipped when its target is not installed; skips exit 0. The exit
+code is non-zero only when a leg genuinely fails, and one leg's failure does
+not stop the other.
+
+The desktop leg only looks at /Applications — an app installed elsewhere is
+invisible to this command; keep using 'run-kit desktop update --path <dir>'
+for custom locations.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// stdout carries data (outcome lines + the not-brew guidance), stderr
 		// carries chatter (progress/decoration + streamed brew output) which
@@ -170,85 +190,139 @@ var updateCmd = &cobra.Command{
 		// intentional per "decide the stdout-vs-stderr convention once".
 		sink := newSink(cmd)
 
-		resolved, err := resolveExeFn()
-		if err != nil {
-			return fmt.Errorf("could not determine executable path: %w", err)
+		// Two independent, fail-independent legs — CLI first ("update the
+		// tool, then its artifacts"), desktop second. A leg failure never
+		// stops the other leg; the joined error reports every failing leg
+		// (leg-labelled) and yields the non-zero exit.
+		cliErr := runUpdateCLILeg(sink)
+		if cliErr != nil {
+			cliErr = fmt.Errorf("CLI update: %w", cliErr)
 		}
-
-		if !selfpath.IsBrewInstalled(resolved) {
-			// The not-a-brew-install guidance is data: it explains why nothing
-			// happened, and silence there would misreport a no-op as success.
-			sink.Dataf("run-kit v%s was not installed via Homebrew.\n", version)
-			sink.Dataf("Update manually (git pull && just build), or reinstall with:\n")
-			sink.Dataf("  brew install sahil87/tap/run-kit\n")
-			return nil
+		// cmd.Context() is set by Execute(); direct RunE invocations (the
+		// package's test idiom) leave it nil, so fall back explicitly.
+		ctx := cmd.Context()
+		if ctx == nil {
+			ctx = context.Background()
 		}
-
-		sink.Notef("Current version: v%s\n", version)
-
-		// Refresh tap metadata (skippable via --skip-brew-update).
-		if !skipBrewUpdate {
-			updateCtx, updateCancel := context.WithTimeout(context.Background(), brewUpdateTimeout)
-			defer updateCancel()
-
-			if _, err := runBrewFn(updateCtx, "update", "--quiet"); err != nil {
-				return fmt.Errorf("could not check for updates (brew update failed): %w", err)
-			}
+		desktopErr := runUpdateDesktopLeg(ctx, sink)
+		if desktopErr != nil {
+			desktopErr = fmt.Errorf("desktop update: %w", desktopErr)
 		}
-
-		// Get latest version from Homebrew
-		infoCtx, infoCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer infoCancel()
-
-		infoOut, err := runBrewFn(infoCtx, "info", "--json=v2", "sahil87/tap/run-kit")
-		if err != nil {
-			return fmt.Errorf("could not determine latest version: %w", err)
-		}
-
-		latest, err := parseBrewVersion(infoOut)
-		if err != nil {
-			return fmt.Errorf("could not determine latest version: %w", err)
-		}
-
-		if latest == version {
-			// Outcome line — data: full silence would make "updated" vs
-			// "already current" indistinguishable to a caller.
-			sink.Dataf("Already up to date (v%s).\n", version)
-			return nil
-		}
-
-		sink.Notef("Updating v%s → v%s...\n", version, latest)
-
-		upgradeCtx, upgradeCancel := context.WithTimeout(context.Background(), brewUpgradeTimeout)
-		defer upgradeCancel()
-
-		if _, err := runBrewFn(upgradeCtx, "upgrade", "sahil87/tap/run-kit"); err != nil {
-			return fmt.Errorf("brew upgrade failed: %w", err)
-		}
-
-		// Outcome line — data (survives --quiet).
-		sink.Dataf("Updated to v%s.\n", latest)
-
-		// Derive the stable Homebrew bin symlink from the Cellar path.
-		// resolved is e.g. /opt/homebrew/Cellar/run-kit/0.5.3/bin/run-kit
-		// We want:         /opt/homebrew/bin/run-kit
-		cellarIdx := strings.Index(resolved, selfpath.CellarMarker)
-		if cellarIdx == -1 {
-			return fmt.Errorf("could not derive brew prefix from %s", resolved)
-		}
-		brewBinPath := resolved[:cellarIdx] + "/bin/run-kit"
-
-		// Restart daemon so it picks up the new binary.
-		// Idempotent: if no daemon is running, this starts one.
-		sink.Notef("Restarting run-kit daemon...\n")
-		if err := restartDaemonFn(brewBinPath); err != nil {
-			return fmt.Errorf("restarting daemon after upgrade: %w", err)
-		}
-		sink.Notef("run-kit daemon started (%s/%s/%s)\n",
-			daemon.ServerSocket, daemon.SessionName, daemon.WindowName)
-
-		return nil
+		return errors.Join(cliErr, desktopErr)
 	},
+}
+
+// runUpdateCLILeg updates the run-kit CLI via Homebrew (the pre-umbrella
+// `rk update` body, unchanged in behavior): brew update (skippable) → brew
+// info → brew upgrade → daemon restart. A non-brew install prints the manual
+// guidance and returns nil — a skip, not a failure — so the desktop leg still
+// runs.
+func runUpdateCLILeg(sink outputSink) error {
+	resolved, err := resolveExeFn()
+	if err != nil {
+		return fmt.Errorf("could not determine executable path: %w", err)
+	}
+
+	if !selfpath.IsBrewInstalled(resolved) {
+		// The not-a-brew-install guidance is data: it explains why nothing
+		// happened, and silence there would misreport a no-op as success.
+		sink.Dataf("run-kit v%s was not installed via Homebrew.\n", version)
+		sink.Dataf("Update manually (git pull && just build), or reinstall with:\n")
+		sink.Dataf("  brew install sahil87/tap/run-kit\n")
+		return nil
+	}
+
+	sink.Notef("Current version: v%s\n", version)
+
+	// Refresh tap metadata (skippable via --skip-brew-update).
+	if !skipBrewUpdate {
+		updateCtx, updateCancel := context.WithTimeout(context.Background(), brewUpdateTimeout)
+		defer updateCancel()
+
+		if _, err := runBrewFn(updateCtx, "update", "--quiet"); err != nil {
+			return fmt.Errorf("could not check for updates (brew update failed): %w", err)
+		}
+	}
+
+	// Get latest version from Homebrew
+	infoCtx, infoCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer infoCancel()
+
+	infoOut, err := runBrewFn(infoCtx, "info", "--json=v2", "sahil87/tap/run-kit")
+	if err != nil {
+		return fmt.Errorf("could not determine latest version: %w", err)
+	}
+
+	latest, err := parseBrewVersion(infoOut)
+	if err != nil {
+		return fmt.Errorf("could not determine latest version: %w", err)
+	}
+
+	if latest == version {
+		// Outcome line — data: full silence would make "updated" vs
+		// "already current" indistinguishable to a caller.
+		sink.Dataf("Already up to date (v%s).\n", version)
+		return nil
+	}
+
+	sink.Notef("Updating v%s → v%s...\n", version, latest)
+
+	upgradeCtx, upgradeCancel := context.WithTimeout(context.Background(), brewUpgradeTimeout)
+	defer upgradeCancel()
+
+	if _, err := runBrewFn(upgradeCtx, "upgrade", "sahil87/tap/run-kit"); err != nil {
+		return fmt.Errorf("brew upgrade failed: %w", err)
+	}
+
+	// Outcome line — data (survives --quiet).
+	sink.Dataf("Updated to v%s.\n", latest)
+
+	// Derive the stable Homebrew bin symlink from the Cellar path.
+	// resolved is e.g. /opt/homebrew/Cellar/run-kit/0.5.3/bin/run-kit
+	// We want:         /opt/homebrew/bin/run-kit
+	cellarIdx := strings.Index(resolved, selfpath.CellarMarker)
+	if cellarIdx == -1 {
+		return fmt.Errorf("could not derive brew prefix from %s", resolved)
+	}
+	brewBinPath := resolved[:cellarIdx] + "/bin/run-kit"
+
+	// Restart daemon so it picks up the new binary.
+	// Idempotent: if no daemon is running, this starts one.
+	sink.Notef("Restarting run-kit daemon...\n")
+	if err := restartDaemonFn(brewBinPath); err != nil {
+		return fmt.Errorf("restarting daemon after upgrade: %w", err)
+	}
+	sink.Notef("run-kit daemon started (%s/%s/%s)\n",
+		daemon.ServerSocket, daemon.SessionName, daemon.WindowName)
+
+	return nil
+}
+
+// runUpdateDesktopLeg updates the Run Kit desktop app when one is installed
+// at the default /Applications location — the umbrella's "whichever is
+// installed" desktop half. darwin-only (desktopGOOS); a non-darwin platform
+// and a missing app are both silent exit-0 skips (absence is a valid state
+// here, unlike standalone `rk desktop update`, which errors so an explicit
+// update of nothing stays a user error). Custom --path installs are
+// deliberately invisible: there is no state store to remember an install
+// location (Constitution II), so those keep `rk desktop update --path`.
+// A stale install runs the shared desktopUpdateToLatest flow, auto-restart
+// included.
+func runUpdateDesktopLeg(ctx context.Context, sink outputSink) error {
+	if desktopGOOS != "darwin" {
+		return nil
+	}
+	ins := newDesktopInstallerFn()
+	ins.Progress = sink.chatter
+
+	installed, err := ins.InstalledVersion(ctx)
+	if err != nil {
+		return err
+	}
+	if installed == "" {
+		return nil
+	}
+	return desktopUpdateToLatest(ctx, ins, sink, installed, false)
 }
 
 // parseBrewVersion extracts the stable version from brew info --json=v2 output.

@@ -3,13 +3,17 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"rk/internal/desktop"
 )
 
 // withResolveExe swaps resolveExeFn to return the given path/err for the test's
@@ -68,6 +72,43 @@ func brewInfoJSON(stable string) string {
 	return fmt.Sprintf(`{"formulae":[{"versions":{"stable":%q}}]}`, stable)
 }
 
+// withNoDesktopLeg pins the umbrella's desktop leg off (non-darwin) for tests
+// that exercise the CLI leg in isolation — without it, a test run on a real
+// Mac would let the desktop leg probe the machine's actual /Applications.
+func withNoDesktopLeg(t *testing.T) {
+	t.Helper()
+	orig := desktopGOOS
+	desktopGOOS = "linux"
+	t.Cleanup(func() { desktopGOOS = orig })
+}
+
+// withUmbrellaDesktopStub forces the desktop leg on (darwin) and swaps the
+// installer factory for one wired to the given httptest release server,
+// runner, and install dir. Unlike withDesktopStub (whose tests pass --path),
+// the umbrella has no path flag, so the temp install dir must come from the
+// factory itself — which also pins that the leg honors the factory default
+// rather than overriding InstallDir.
+func withUmbrellaDesktopStub(t *testing.T, srv *httptest.Server, run desktop.Runner, installDir string) {
+	t.Helper()
+	origGOOS := desktopGOOS
+	desktopGOOS = "darwin"
+	origFactory := newDesktopInstallerFn
+	newDesktopInstallerFn = func() *desktop.Installer {
+		ins := desktop.New()
+		ins.Client = srv.Client()
+		ins.APIBase = srv.URL
+		ins.Arch = "arm64"
+		ins.Token = ""
+		ins.Run = run
+		ins.InstallDir = installDir
+		return ins
+	}
+	t.Cleanup(func() {
+		desktopGOOS = origGOOS
+		newDesktopInstallerFn = origFactory
+	})
+}
+
 func containsStr(xs []string, want string) bool {
 	for _, x := range xs {
 		if x == want {
@@ -92,6 +133,7 @@ func TestUpdate_SkipBrewUpdateFlag_Registered(t *testing.T) {
 
 func TestUpdate_SkipBrewUpdate_OmitsUpdateButUpgradesAndRestarts(t *testing.T) {
 	resetSkipFlag(t)
+	withNoDesktopLeg(t)
 	withResolveExe(t, "/opt/homebrew/Cellar/run-kit/9.9.9/bin/run-kit", nil)
 
 	var rec []string
@@ -127,6 +169,7 @@ func TestUpdate_SkipBrewUpdate_OmitsUpdateButUpgradesAndRestarts(t *testing.T) {
 
 func TestUpdate_Default_RunsUpdateAndUpgradeAndRestarts(t *testing.T) {
 	resetSkipFlag(t)
+	withNoDesktopLeg(t)
 	withResolveExe(t, "/opt/homebrew/Cellar/run-kit/9.9.9/bin/run-kit", nil)
 
 	var rec []string
@@ -167,6 +210,7 @@ func setUpdateBuffers(t *testing.T, stdout, stderr *bytes.Buffer) {
 // (chatter). Errors and exit codes are unaffected.
 func TestUpdate_Quiet_OutcomeSurvivesProgressDropped(t *testing.T) {
 	resetSkipFlag(t)
+	withNoDesktopLeg(t)
 	withQuiet(t, true)
 	withResolveExe(t, "/opt/homebrew/Cellar/run-kit/9.9.9/bin/run-kit", nil)
 
@@ -204,6 +248,7 @@ func TestUpdate_Quiet_OutcomeSurvivesProgressDropped(t *testing.T) {
 // former stdout progress onto stderr) while the outcome line stays on stdout.
 func TestUpdate_NonQuiet_ProgressOnStderrOutcomeOnStdout(t *testing.T) {
 	resetSkipFlag(t)
+	withNoDesktopLeg(t)
 	withQuiet(t, false)
 	withResolveExe(t, "/opt/homebrew/Cellar/run-kit/9.9.9/bin/run-kit", nil)
 
@@ -236,6 +281,7 @@ func TestUpdate_NonQuiet_ProgressOnStderrOutcomeOnStdout(t *testing.T) {
 // survives --quiet on stdout.
 func TestUpdate_Quiet_NotBrewGuidanceSurvives(t *testing.T) {
 	resetSkipFlag(t)
+	withNoDesktopLeg(t)
 	withQuiet(t, true)
 	// A non-Cellar path → IsBrewInstalled is false → guidance block prints.
 	withResolveExe(t, "/usr/local/bin/run-kit", nil)
@@ -426,6 +472,7 @@ while :; do sleep 0.1; done
 
 func TestUpdate_SkipBrewUpdate_ShortCircuitsWhenUpToDate(t *testing.T) {
 	resetSkipFlag(t)
+	withNoDesktopLeg(t)
 	withResolveExe(t, "/opt/homebrew/Cellar/run-kit/dev/bin/run-kit", nil)
 
 	var rec []string
@@ -452,5 +499,220 @@ func TestUpdate_SkipBrewUpdate_ShortCircuitsWhenUpToDate(t *testing.T) {
 	}
 	if restartCalls != 0 {
 		t.Errorf("restartDaemonFn called %d times, want 0 (up to date)", restartCalls)
+	}
+}
+
+// ─── Umbrella (two-leg) tests ────────────────────────────────────────────────
+
+// TestUpdate_Umbrella_NonBrewContinuesToDesktopLeg pins R7: a non-brew CLI
+// install prints the manual guidance but no longer ends the command — the
+// desktop leg still runs and updates a stale app.
+func TestUpdate_Umbrella_NonBrewContinuesToDesktopLeg(t *testing.T) {
+	resetSkipFlag(t)
+	// Non-Cellar path → CLI leg is the guidance skip.
+	withResolveExe(t, "/usr/local/bin/run-kit", nil)
+
+	var assetHits int
+	srv := desktopReleaseServer(t, "3.13.0", &assetHits)
+	dir := t.TempDir()
+	writeDesktopBundle(t, dir)
+	withUmbrellaDesktopStub(t, srv, desktopFakeRunner(t, "3.12.2", false), dir)
+
+	var stdout, stderr bytes.Buffer
+	setUpdateBuffers(t, &stdout, &stderr)
+
+	if err := updateCmd.RunE(updateCmd, nil); err != nil {
+		t.Fatalf("updateCmd.RunE returned error: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "was not installed via Homebrew") {
+		t.Errorf("stdout = %q, want the not-brew guidance (still data)", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "Updated Run Kit v3.12.2 -> v3.13.0") {
+		t.Errorf("stdout = %q, want the desktop leg to have run and updated", stdout.String())
+	}
+	if assetHits != 1 {
+		t.Errorf("asset downloads = %d, want 1", assetHits)
+	}
+}
+
+// TestUpdate_Umbrella_NoAppSilentSkip pins R8: with no desktop app installed,
+// the desktop leg is a silent exit-0 skip — no output, no error — while the
+// CLI leg's outcome prints normally.
+func TestUpdate_Umbrella_NoAppSilentSkip(t *testing.T) {
+	resetSkipFlag(t)
+	withResolveExe(t, "/opt/homebrew/Cellar/run-kit/dev/bin/run-kit", nil)
+
+	var rec []string
+	withBrewRecorder(t, &rec, brewInfoJSON(version)) // CLI leg: already up to date
+
+	var assetHits int
+	srv := desktopReleaseServer(t, "3.13.0", &assetHits)
+	dir := t.TempDir() // no bundle → InstalledVersion "" → skip
+	withUmbrellaDesktopStub(t, srv, desktopFakeRunner(t, "", false), dir)
+
+	var stdout, stderr bytes.Buffer
+	setUpdateBuffers(t, &stdout, &stderr)
+
+	if err := updateCmd.RunE(updateCmd, nil); err != nil {
+		t.Fatalf("updateCmd.RunE returned error: %v", err)
+	}
+	if got := strings.Count(stdout.String(), "Already up to date"); got != 1 {
+		t.Errorf("want exactly the CLI leg's up-to-date line, got %d in %q", got, stdout.String())
+	}
+	if strings.Contains(stdout.String(), "Run Kit") {
+		t.Errorf("stdout = %q, want no desktop-leg output on the silent skip", stdout.String())
+	}
+	if assetHits != 0 {
+		t.Errorf("asset downloaded %d times despite no installed app", assetHits)
+	}
+}
+
+// TestUpdate_Umbrella_NonDarwinNeverConstructsInstaller pins R8's platform
+// gate: on a non-darwin platform the desktop leg no-ops before the installer
+// factory is even called.
+func TestUpdate_Umbrella_NonDarwinNeverConstructsInstaller(t *testing.T) {
+	resetSkipFlag(t)
+	withNoDesktopLeg(t)
+	withResolveExe(t, "/usr/local/bin/run-kit", nil) // CLI leg: guidance skip
+
+	origFactory := newDesktopInstallerFn
+	newDesktopInstallerFn = func() *desktop.Installer {
+		t.Fatal("installer constructed despite the non-darwin platform gate")
+		return nil
+	}
+	t.Cleanup(func() { newDesktopInstallerFn = origFactory })
+
+	var stdout, stderr bytes.Buffer
+	setUpdateBuffers(t, &stdout, &stderr)
+
+	if err := updateCmd.RunE(updateCmd, nil); err != nil {
+		t.Fatalf("updateCmd.RunE returned error: %v", err)
+	}
+}
+
+// TestUpdate_Umbrella_CLIFailureStillRunsDesktopLeg pins R9: a CLI-leg
+// failure does not prevent the desktop leg; the returned error is
+// CLI-leg-labelled and the exit is non-zero while the desktop update
+// completes.
+func TestUpdate_Umbrella_CLIFailureStillRunsDesktopLeg(t *testing.T) {
+	resetSkipFlag(t)
+	withResolveExe(t, "/opt/homebrew/Cellar/run-kit/dev/bin/run-kit", nil)
+
+	// brew update fails → the CLI leg errors before info/upgrade.
+	origBrew := runBrewFn
+	runBrewFn = func(_ context.Context, args ...string) ([]byte, error) {
+		return nil, errors.New("brew-update-boom")
+	}
+	t.Cleanup(func() { runBrewFn = origBrew })
+
+	var assetHits int
+	srv := desktopReleaseServer(t, "3.13.0", &assetHits)
+	dir := t.TempDir()
+	writeDesktopBundle(t, dir)
+	withUmbrellaDesktopStub(t, srv, desktopFakeRunner(t, "3.12.2", false), dir)
+
+	var stdout, stderr bytes.Buffer
+	setUpdateBuffers(t, &stdout, &stderr)
+
+	err := updateCmd.RunE(updateCmd, nil)
+	if err == nil {
+		t.Fatal("want a non-nil error when the CLI leg fails")
+	}
+	if !strings.Contains(err.Error(), "CLI update:") || !strings.Contains(err.Error(), "brew-update-boom") {
+		t.Errorf("error = %q, want it CLI-leg-labelled with the underlying cause", err.Error())
+	}
+	if strings.Contains(err.Error(), "desktop update:") {
+		t.Errorf("error = %q, must not blame the (successful) desktop leg", err.Error())
+	}
+	if !strings.Contains(stdout.String(), "Updated Run Kit v3.12.2 -> v3.13.0") {
+		t.Errorf("stdout = %q, want the desktop leg to have run despite the CLI failure", stdout.String())
+	}
+}
+
+// TestUpdate_Umbrella_DesktopFailureAfterCLISuccess pins R9's other
+// direction: the CLI leg's outcome stands and the desktop leg's failure is
+// desktop-leg-labelled in the returned (non-zero) error.
+func TestUpdate_Umbrella_DesktopFailureAfterCLISuccess(t *testing.T) {
+	resetSkipFlag(t)
+	withResolveExe(t, "/opt/homebrew/Cellar/run-kit/dev/bin/run-kit", nil)
+
+	var rec []string
+	withBrewRecorder(t, &rec, brewInfoJSON(version)) // CLI leg: already up to date
+
+	var assetHits int
+	srv := desktopReleaseServer(t, "3.13.0", &assetHits)
+	dir := t.TempDir()
+	writeDesktopBundle(t, dir)
+	// codesign failure → the desktop leg's Install errors.
+	failingRunner := func(_ context.Context, name string, args ...string) ([]byte, error) {
+		switch name {
+		case "plutil":
+			return []byte("3.12.2\n"), nil
+		case "pgrep":
+			return nil, errors.New("exit status 1")
+		case "hdiutil":
+			if len(args) > 4 && args[0] == "attach" {
+				if err := os.MkdirAll(filepath.Join(args[4], desktop.AppBundleName), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			return nil, nil
+		case "codesign":
+			return nil, errors.New("code object is not signed at all")
+		}
+		return nil, nil
+	}
+	withUmbrellaDesktopStub(t, srv, failingRunner, dir)
+
+	var stdout, stderr bytes.Buffer
+	setUpdateBuffers(t, &stdout, &stderr)
+
+	err := updateCmd.RunE(updateCmd, nil)
+	if err == nil {
+		t.Fatal("want a non-nil error when the desktop leg fails")
+	}
+	if !strings.Contains(err.Error(), "desktop update:") || !strings.Contains(err.Error(), "signature verification failed") {
+		t.Errorf("error = %q, want it desktop-leg-labelled with the underlying cause", err.Error())
+	}
+	if strings.Contains(err.Error(), "CLI update:") {
+		t.Errorf("error = %q, must not blame the (successful) CLI leg", err.Error())
+	}
+	if !strings.Contains(stdout.String(), "Already up to date") {
+		t.Errorf("stdout = %q, want the CLI leg's outcome to stand", stdout.String())
+	}
+}
+
+// TestUpdate_Umbrella_QuietKeepsBothLegsData pins R5/R10 for the umbrella:
+// under --quiet both legs' data lines survive on stdout — including the
+// desktop restart announcement — while all chatter is dropped.
+func TestUpdate_Umbrella_QuietKeepsBothLegsData(t *testing.T) {
+	resetSkipFlag(t)
+	withQuiet(t, true)
+	withResolveExe(t, "/usr/local/bin/run-kit", nil) // CLI leg: guidance skip
+
+	var assetHits int
+	srv := desktopReleaseServer(t, "3.13.0", &assetHits)
+	dir := t.TempDir()
+	writeDesktopBundle(t, dir)
+	// Running app → the auto-restart path, so the announcement is exercised.
+	withUmbrellaDesktopStub(t, srv, desktopFakeRunner(t, "3.12.2", true), dir)
+
+	var stdout, stderr bytes.Buffer
+	setUpdateBuffers(t, &stdout, &stderr)
+
+	if err := updateCmd.RunE(updateCmd, nil); err != nil {
+		t.Fatalf("updateCmd.RunE returned error: %v", err)
+	}
+	for _, want := range []string{
+		"was not installed via Homebrew",
+		"Updated Run Kit v3.12.2 -> v3.13.0",
+		"Run Kit was running — restarted on the new version.",
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("--quiet must keep the data line %q on stdout, got: %q", want, stdout.String())
+		}
+	}
+	if stderr.String() != "" {
+		t.Errorf("stderr = %q, want empty under --quiet", stderr.String())
 	}
 }

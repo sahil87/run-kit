@@ -18,6 +18,12 @@ type InstallResult struct {
 	Version string
 	// Path is the installed bundle path.
 	Path string
+	// Restarted reports that the app was running at the swap boundary and the
+	// full quit → swap → relaunch sequence completed. False when the app was
+	// not running, and also when the relaunch failed (the update itself still
+	// succeeded — see the relaunch warning on Progress). The CLI layer keys
+	// the restart-announcement data line on it.
+	Restarted bool
 }
 
 // Install downloads, verifies, and installs the given release:
@@ -38,10 +44,16 @@ type InstallResult struct {
 //     bundle and rename staged → final. The long copy completes before the
 //     existing install is touched, so a mid-copy failure never destroys a
 //     working install; a failed replace removes the staged copy.
-//  7. Re-check AppRunning immediately before the destructive replace — the
-//     download + codesign can take minutes, and the app may have been
-//     launched meanwhile (closes the caller's pre-download check's TOCTOU
-//     window).
+//  7. Re-check AppRunning immediately before the destructive replace (steps
+//     1-6 deliberately run while the app may be running — the VSCode
+//     stage-then-swap pattern). A running app is handled, not refused: ask it
+//     to quit gracefully (osascript, so Electron's shutdown hooks run and the
+//     shell captures its last route), wait for process exit (bounded poll),
+//     swap, then relaunch the new bundle via `open -a`. If the app does not
+//     exit within the bound, abort without swapping — the existing install is
+//     untouched and the staged bundle is left in place (its deterministic
+//     name is reclaimed by the next run). A relaunch failure is a non-fatal
+//     Progress warning: the swap already succeeded.
 //  8. Detach the mount in a defer so an aborted install never leaves a stray
 //     mount; the temp DMG is removed on every path.
 //
@@ -111,13 +123,21 @@ func (ins *Installer) Install(ctx context.Context, rel Release) (InstallResult, 
 		return InstallResult{}, fmt.Errorf("copying app bundle: %w", err)
 	}
 
-	// TOCTOU re-check: the caller's pre-download refusal ran minutes ago
-	// (download + codesign are the long poles) — the app may have been
-	// launched since. The pgrep probe is cheap; refuse before destroying the
-	// live bundle.
-	if ins.AppRunning(ctx) {
-		os.RemoveAll(staged)
-		return InstallResult{}, fmt.Errorf("Run Kit was launched while the installer was working — quit the app, then re-run this command")
+	// Swap-boundary running check (the TOCTOU probe): the stage phase above
+	// deliberately runs while the app may be live — only the swap needs the
+	// app gone. A running app is quit gracefully and relaunched after the
+	// swap; if it will not exit within the bound, abort without swapping (the
+	// existing install is untouched; the staged bundle's deterministic name
+	// self-heals on the next run).
+	wasRunning := ins.AppRunning(ctx)
+	if wasRunning {
+		fmt.Fprintf(ins.Progress, "%s is running — quitting it for the update...\n", appName)
+		if err := ins.quitApp(ctx); err != nil {
+			return InstallResult{}, err
+		}
+		if err := ins.waitAppExit(ctx); err != nil {
+			return InstallResult{}, err
+		}
 	}
 
 	if err := os.RemoveAll(dest); err != nil {
@@ -129,7 +149,19 @@ func (ins *Installer) Install(ctx context.Context, rel Release) (InstallResult, 
 		return InstallResult{}, fmt.Errorf("moving staged bundle into place at %s: %w", dest, err)
 	}
 
-	return InstallResult{Version: rel.Version, Path: dest}, nil
+	restarted := false
+	if wasRunning {
+		fmt.Fprintf(ins.Progress, "Relaunching %s...\n", appName)
+		if err := ins.relaunchApp(ctx, dest); err != nil {
+			// Non-fatal: the swap succeeded — failing here would misreport a
+			// completed update. The user can open the app themselves.
+			fmt.Fprintf(ins.Progress, "warning: %v — open the app manually\n", err)
+		} else {
+			restarted = true
+		}
+	}
+
+	return InstallResult{Version: rel.Version, Path: dest, Restarted: restarted}, nil
 }
 
 // download fetches the release asset to a temp file under a generous

@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 const fakeDMGBytes = "fake-dmg-payload"
@@ -45,16 +46,22 @@ type runnerOpts struct {
 	appName      string // bundle name attach creates ("" → AppBundleName)
 	failCodesign bool   // `codesign` fails verification
 	failDitto    bool   // `ditto` fails mid-copy
-	appRunning   bool   // `pgrep` (the pre-replace re-check) reports a live app
+	appRunning   bool   // `pgrep` reports a live app until an osascript quit is seen
+	neverExits   bool   // with appRunning: pgrep stays live even after the quit
+	failOpen     bool   // `open` (the relaunch) fails
 }
 
-// installRunner fakes the macOS tool sequence on Linux per opts.
+// installRunner fakes the macOS tool sequence on Linux per opts. It is
+// stateful: with opts.appRunning, pgrep reports a live app until the runner
+// observes the osascript graceful quit (then not-running — the app "exited"),
+// unless opts.neverExits pins it live to exercise the quit-timeout path.
 func installRunner(t *testing.T, rec *[]cmdRecord, opts runnerOpts) Runner {
 	t.Helper()
 	appName := opts.appName
 	if appName == "" {
 		appName = AppBundleName
 	}
+	quitSeen := false
 	return func(_ context.Context, name string, args ...string) ([]byte, error) {
 		*rec = append(*rec, cmdRecord{name: name, args: args})
 		switch {
@@ -76,8 +83,14 @@ func installRunner(t *testing.T, rec *[]cmdRecord, opts runnerOpts) Runner {
 			if err := os.MkdirAll(args[1], 0o755); err != nil {
 				t.Fatal(err)
 			}
+		case name == "osascript":
+			quitSeen = true
+		case name == "open":
+			if opts.failOpen {
+				return nil, errors.New("open: unable to launch")
+			}
 		case name == "pgrep":
-			if opts.appRunning {
+			if opts.appRunning && (opts.neverExits || !quitSeen) {
 				return []byte("123\n"), nil
 			}
 			return nil, errors.New("exit status 1") // pgrep: no match
@@ -160,6 +173,9 @@ func TestInstallSuccessFlow(t *testing.T) {
 	wantPath := filepath.Join(installDir, AppBundleName)
 	if res.Path != wantPath {
 		t.Errorf("result path = %q, want %q", res.Path, wantPath)
+	}
+	if res.Restarted {
+		t.Error("result Restarted = true, want false when the app was not running")
 	}
 
 	names := cmdNames(rec)
@@ -355,10 +371,81 @@ func TestInstallMidCopyFailurePreservesExistingInstall(t *testing.T) {
 	}
 }
 
-// TestInstallRunningAppRecheckAbortsBeforeReplace: the app was launched during
-// the (long) download/verify — the pre-replace pgrep re-check refuses, the
-// existing install survives, and the staged copy is cleaned up.
-func TestInstallRunningAppRecheckAbortsBeforeReplace(t *testing.T) {
+// TestInstallRunningAppQuitSwapRelaunch: a running app at the swap boundary is
+// gracefully quit (osascript), waited on (pgrep poll), swapped, and relaunched
+// (`open -a` on the installed path) — in that order — and the result reports
+// Restarted (R2, R5).
+func TestInstallRunningAppQuitSwapRelaunch(t *testing.T) {
+	srv := assetServer(t)
+	installDir := t.TempDir()
+	oldMarker := makeExistingInstall(t, installDir)
+
+	var rec []cmdRecord
+	var progress bytes.Buffer
+	ins := New()
+	ins.Client = srv.Client()
+	ins.InstallDir = installDir
+	ins.Token = ""
+	ins.Progress = &progress
+	ins.Run = installRunner(t, &rec, runnerOpts{appRunning: true})
+
+	rel := Release{
+		Version:   "3.13.0",
+		AssetName: "run-kit-desktop-3.13.0-arm64.dmg",
+		AssetURL:  srv.URL + "/dl",
+		Digest:    fakeDMGDigest(),
+	}
+	res, err := ins.Install(context.Background(), rel)
+	if err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if !res.Restarted {
+		t.Error("result Restarted = false, want true after a completed quit → swap → relaunch")
+	}
+
+	names := cmdNames(rec)
+	// The boundary pgrep sees the live app, osascript quits it, the poll pgrep
+	// sees it gone, the (non-subprocess) rename swaps, then open relaunches.
+	wantNames := []string{"hdiutil attach", "codesign --verify", "ditto", "pgrep -f", "osascript -e", "pgrep -f", "open -a", "hdiutil detach"}
+	if len(names) != len(wantNames) {
+		t.Fatalf("command sequence = %v, want %d commands %v", names, len(wantNames), wantNames)
+	}
+	for i, prefix := range wantNames {
+		if !strings.HasPrefix(names[i], prefix) {
+			t.Errorf("command[%d] = %q, want prefix %q", i, names[i], prefix)
+		}
+	}
+	for _, c := range rec {
+		switch c.name {
+		case "osascript":
+			if want := `tell application "Run Kit" to quit`; len(c.args) != 2 || c.args[1] != want {
+				t.Errorf("osascript args = %v, want [-e %q]", c.args, want)
+			}
+		case "open":
+			if want := filepath.Join(installDir, AppBundleName); len(c.args) != 2 || c.args[1] != want {
+				t.Errorf("open args = %v, want [-a %q]", c.args, want)
+			}
+		}
+	}
+
+	// The swap really happened and left no residue.
+	if _, err := os.Stat(oldMarker); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("old bundle marker still present after the auto-restart update: %v", err)
+	}
+	assertNoStagedResidue(t, installDir)
+	for _, chatter := range []string{"quitting it for the update", "Relaunching"} {
+		if !strings.Contains(progress.String(), chatter) {
+			t.Errorf("progress output missing %q: %q", chatter, progress.String())
+		}
+	}
+}
+
+// TestInstallQuitTimeoutAbortsWithoutSwap: the app never exits after the
+// graceful quit — the install aborts without swapping, the existing install
+// is untouched, no relaunch is attempted, and the error instructs a manual
+// quit (R3). The staged bundle is deliberately left in place: its
+// deterministic name is reclaimed at the next run's stage step.
+func TestInstallQuitTimeoutAbortsWithoutSwap(t *testing.T) {
 	srv := assetServer(t)
 	installDir := t.TempDir()
 	oldMarker := makeExistingInstall(t, installDir)
@@ -368,7 +455,9 @@ func TestInstallRunningAppRecheckAbortsBeforeReplace(t *testing.T) {
 	ins.Client = srv.Client()
 	ins.InstallDir = installDir
 	ins.Token = ""
-	ins.Run = installRunner(t, &rec, runnerOpts{appRunning: true})
+	ins.Run = installRunner(t, &rec, runnerOpts{appRunning: true, neverExits: true})
+	ins.QuitWait = 30 * time.Millisecond
+	ins.QuitPoll = 5 * time.Millisecond
 
 	rel := Release{
 		Version:   "3.13.0",
@@ -377,13 +466,59 @@ func TestInstallRunningAppRecheckAbortsBeforeReplace(t *testing.T) {
 		Digest:    fakeDMGDigest(),
 	}
 	_, err := ins.Install(context.Background(), rel)
-	if err == nil || !strings.Contains(err.Error(), "quit the app") {
-		t.Fatalf("error = %v, want the launched-while-installing refusal", err)
+	if err == nil || !strings.Contains(err.Error(), "quit the app manually") {
+		t.Fatalf("error = %v, want the manual-quit timeout error", err)
 	}
 	if _, err := os.Stat(oldMarker); err != nil {
-		t.Errorf("existing install touched despite the running-app re-check: %v", err)
+		t.Errorf("existing install touched despite the quit-timeout abort: %v", err)
 	}
-	assertNoStagedResidue(t, installDir)
+	staged := filepath.Join(installDir, "."+AppBundleName+".staging")
+	if _, err := os.Stat(staged); err != nil {
+		t.Errorf("staged bundle should be left in place on quit-timeout (self-heals next run): %v", err)
+	}
+	for _, n := range cmdNames(rec) {
+		if strings.HasPrefix(n, "open") {
+			t.Errorf("relaunch attempted despite the aborted swap: %v", cmdNames(rec))
+		}
+	}
+}
+
+// TestInstallRelaunchFailureNonFatal: a failed `open -a` after a successful
+// swap does not fail the update — the result is nil-error with Restarted
+// false, and the failure surfaces as a Progress warning (R4).
+func TestInstallRelaunchFailureNonFatal(t *testing.T) {
+	srv := assetServer(t)
+	installDir := t.TempDir()
+	oldMarker := makeExistingInstall(t, installDir)
+
+	var rec []cmdRecord
+	var progress bytes.Buffer
+	ins := New()
+	ins.Client = srv.Client()
+	ins.InstallDir = installDir
+	ins.Token = ""
+	ins.Progress = &progress
+	ins.Run = installRunner(t, &rec, runnerOpts{appRunning: true, failOpen: true})
+
+	rel := Release{
+		Version:   "3.13.0",
+		AssetName: "run-kit-desktop-3.13.0-arm64.dmg",
+		AssetURL:  srv.URL + "/dl",
+		Digest:    fakeDMGDigest(),
+	}
+	res, err := ins.Install(context.Background(), rel)
+	if err != nil {
+		t.Fatalf("Install must not fail on a relaunch error (the swap succeeded): %v", err)
+	}
+	if res.Restarted {
+		t.Error("result Restarted = true, want false when the relaunch failed")
+	}
+	if _, err := os.Stat(oldMarker); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("swap did not happen despite the successful quit: %v", err)
+	}
+	if !strings.Contains(progress.String(), "warning:") || !strings.Contains(progress.String(), "open the app manually") {
+		t.Errorf("progress output missing the relaunch warning: %q", progress.String())
+	}
 }
 
 // TestInstallBundleNameMismatch: a mounted bundle not named AppBundleName is

@@ -99,6 +99,12 @@ type Installer struct {
 	// Progress receives human progress/decoration output (the caller wires it
 	// to the chatter channel, so --quiet suppresses it). Never nil after New().
 	Progress io.Writer
+	// QuitWait bounds how long the swap phase waits for a quit app's processes
+	// to exit before aborting (see restart.go). A struct field (not a bare
+	// const) so tests can shrink the bound instead of sleeping 30s wall-clock.
+	QuitWait time.Duration
+	// QuitPoll is the cadence of the AppRunning poll during that wait.
+	QuitPoll time.Duration
 }
 
 // New returns an Installer with production defaults.
@@ -112,6 +118,8 @@ func New() *Installer {
 		Token:      os.Getenv("GITHUB_TOKEN"),
 		InstallDir: DefaultInstallDir,
 		Progress:   io.Discard,
+		QuitWait:   quitWaitTimeout,
+		QuitPoll:   quitPollInterval,
 	}
 }
 

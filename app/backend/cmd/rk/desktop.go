@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"runtime"
 
@@ -27,10 +28,10 @@ var newDesktopInstallerFn = func() *desktop.Installer { return desktop.New() }
 // them is gated. Operational failure — exit 1.
 var errDesktopMacOnly = fmt.Errorf("rk desktop is macOS-only (the shell is packaged as a macOS .app)")
 
-// errDesktopAppRunning blocks install/update while the app is live: replacing
-// a running bundle corrupts the running process. --force does NOT override
-// this — force is scoped to version state, not to overwriting a live app.
-var errDesktopAppRunning = fmt.Errorf("Run Kit is currently running — quit the app first, then re-run this command")
+// desktopRestartAnnouncement is the auto-restart outcome line — data (stdout,
+// survives --quiet): a caller must be able to tell "updated in place" from
+// "updated and the running app was restarted" (Toolkit Principle 9).
+const desktopRestartAnnouncement = "Run Kit was running — restarted on the new version.\n"
 
 var desktopCmd = &cobra.Command{
 	Use:   "desktop",
@@ -45,6 +46,11 @@ quarantine-free install: quarantine is applied by the downloading application,
 and command-line tools do not apply it. The installer verifies the download
 itself (SHA256 against the release digest when available, plus
 codesign --verify --deep --strict on the app) before installing.
+
+A running app does not block install/update: the new version is downloaded,
+verified, and staged while the app runs, then the app is asked to quit
+gracefully, the bundle is swapped atomically, and the app is relaunched on the
+new version (the VSCode update pattern).
 
 Subcommands:
   install  Fetch the latest release DMG and install to /Applications
@@ -72,9 +78,13 @@ release digest when the API supplies one, plus codesign --verify --deep
 target and swapped in atomically, so a failed download or copy never destroys
 an existing install.
 
+A running Run Kit app is handled automatically: it is asked to quit gracefully
+just before the swap, then relaunched on the new version. If it does not quit
+within the wait bound, the install aborts with the existing app untouched.
+
 When the resolved version is already installed, the command is a no-op;
---force reinstalls anyway. --force overrides version state ONLY — a running
-Run Kit app always blocks the install (quit it first).
+--force reinstalls anyway. --force overrides version state ONLY — it does not
+change how a running app is handled (quit, swap, relaunch).
 
 --path installs somewhere other than /Applications — e.g. ~/Applications on a
 managed Mac where /Applications is not writable.`,
@@ -95,8 +105,13 @@ never assumed equal to the CLI version. There is deliberately no --version
 flag: update means "go to latest"; to pin a specific release use
 'run-kit desktop install --version <tag>'.
 
+A running Run Kit app is handled automatically: the new version is staged
+while the app runs, then the app is quit gracefully, swapped, and relaunched.
+If it does not quit within the wait bound, the update aborts with the existing
+app untouched.
+
 --force reinstalls even when already current. It overrides version state ONLY
-— a running Run Kit app always blocks the update (quit it first).
+— it does not change how a running app is handled (quit, swap, relaunch).
 
 --path targets an install outside /Applications — e.g. ~/Applications on a
 managed Mac where /Applications is not writable.`,
@@ -186,16 +201,15 @@ func runDesktopInstall(cmd *cobra.Command, _ []string) error {
 		sink.Dataf("Run Kit v%s is already installed (%s). Use --force to reinstall.\n", installed, ins.AppPath())
 		return nil
 	}
-	// Refuse before the ~110MB download, and regardless of --force.
-	if ins.AppRunning(ctx) {
-		return errDesktopAppRunning
-	}
 
 	res, err := ins.Install(ctx, rel)
 	if err != nil {
 		return err
 	}
 	sink.Dataf("Installed Run Kit v%s to %s\n", res.Version, res.Path)
+	if res.Restarted {
+		sink.Dataf(desktopRestartAnnouncement)
+	}
 	return nil
 }
 
@@ -217,6 +231,16 @@ func runDesktopUpdate(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("Run Kit is not installed at %s — run 'rk desktop install' first", ins.AppPath())
 	}
 
+	return desktopUpdateToLatest(ctx, ins, sink, installed, force)
+}
+
+// desktopUpdateToLatest updates an installed desktop app to the latest
+// release: resolve → compare (updatecheck.AnyIncrease, unless force) →
+// install (auto-restarting a running app) → outcome lines. Shared by
+// `rk desktop update` and the umbrella `rk update` desktop leg so the two
+// flows — and their data-line shapes — cannot drift. The caller has already
+// established that an app is installed (installed != "").
+func desktopUpdateToLatest(ctx context.Context, ins *desktop.Installer, sink outputSink, installed string, force bool) error {
 	sink.Notef("Installed: v%s — checking the latest release...\n", installed)
 	rel, err := ins.ResolveRelease(ctx, "")
 	if err != nil {
@@ -227,16 +251,15 @@ func runDesktopUpdate(cmd *cobra.Command, _ []string) error {
 		sink.Dataf("Already up to date (v%s).\n", installed)
 		return nil
 	}
-	// Refuse before the download, and regardless of --force.
-	if ins.AppRunning(ctx) {
-		return errDesktopAppRunning
-	}
 
 	res, err := ins.Install(ctx, rel)
 	if err != nil {
 		return err
 	}
 	sink.Dataf("Updated Run Kit v%s -> v%s (%s)\n", installed, res.Version, res.Path)
+	if res.Restarted {
+		sink.Dataf(desktopRestartAnnouncement)
+	}
 	return nil
 }
 

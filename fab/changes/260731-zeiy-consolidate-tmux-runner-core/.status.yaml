@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 7
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-07-31T08:55:19Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-31T09:04:08Z"}
     review: {started_at: "2026-07-31T09:04:08Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-31T09:14:30Z"}
     hydrate: {started_at: "2026-07-31T09:14:30Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-31T09:19:11Z"}
-    ship: {started_at: "2026-07-31T09:19:11Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-07-31T09:19:11Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-31T09:21:10Z"}
+    review-pr: {started_at: "2026-07-31T09:21:10Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/485
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 621
+    deleted: 85
+    net: 536
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 230
+        deleted: 81
+        net: 149
     tests:
-        added: 0
+        added: 137
         deleted: 0
-        net: 0
-    computed_at: "2026-07-31T09:19:11Z"
-    computed_at_stage: hydrate
+        net: 137
+    computed_at: "2026-07-31T09:21:10Z"
+    computed_at_stage: ship
 summary: Consolidated the tmux subprocess-runner idiom into exported internal/tmux Run/RunOutput/RunOpts; internal/daemon, internal/riff, and cmd/rk now delegate, with socket targeting and timeouts left per-site
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-07-31T09:19:11Z
+last_updated: 2026-07-31T09:21:10Z

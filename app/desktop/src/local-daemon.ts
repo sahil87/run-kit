@@ -79,7 +79,11 @@ export function augmentPath(platform: string, currentPath: string | undefined): 
   const present = new Set((currentPath ?? "").split(":").filter((p) => p !== ""));
   const missing = dirs.filter((dir) => !present.has(dir));
   if (currentPath === undefined || currentPath === "") return missing.join(":");
-  return missing.length === 0 ? currentPath : `${currentPath}:${missing.join(":")}`;
+  if (missing.length === 0) return currentPath;
+  // Reuse an existing trailing separator rather than doubling it — "::" is an
+  // empty PATH segment, which POSIX resolves as the current directory.
+  const separator = currentPath.endsWith(":") ? "" : ":";
+  return `${currentPath}${separator}${missing.join(":")}`;
 }
 
 /**

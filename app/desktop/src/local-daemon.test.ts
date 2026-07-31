@@ -81,6 +81,13 @@ test("augmentPath with an undefined or empty PATH yields just the brew dirs", ()
   assert.equal(augmentPath("darwin", ""), "/opt/homebrew/bin:/usr/local/bin");
 });
 
+test("augmentPath does not double the separator when PATH ends with a colon", () => {
+  assert.equal(
+    augmentPath("darwin", "/usr/bin:"),
+    "/usr/bin:/opt/homebrew/bin:/usr/local/bin",
+  );
+});
+
 test("augmentPath appends the linuxbrew prefix on linux", () => {
   assert.equal(
     augmentPath("linux", "/usr/bin:/bin"),

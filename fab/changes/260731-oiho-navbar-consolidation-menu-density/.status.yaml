@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 13
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-07-31T18:32:00Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-31T19:20:49Z"}
     review: {started_at: "2026-07-31T19:20:49Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-31T19:30:51Z"}
     hydrate: {started_at: "2026-07-31T19:30:51Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-31T19:45:31Z"}
-    ship: {started_at: "2026-07-31T19:45:31Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-07-31T19:45:31Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-31T19:47:07Z"}
+    review-pr: {started_at: "2026-07-31T19:47:07Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/497
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 1472
+    deleted: 547
+    net: 925
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 983
+        deleted: 492
+        net: 491
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-07-31T19:45:31Z"
-    computed_at_stage: hydrate
+        added: 139
+        deleted: 42
+        net: 97
+    computed_at: "2026-07-31T19:47:07Z"
+    computed_at_stage: ship
 summary: 'Top-bar chrome consolidation: one shared fixed-size button token (28px fine / 30px coarse), history arrows moved to the left cluster behind an lg gate, the two split buttons merged into one split control, terminal-font/fixed-width/close-pane demoted to menuOnly rows, and the overflow menu restyled to text-xs with View/Window/App section labels.'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-07-31T19:45:31Z
+last_updated: 2026-07-31T19:47:07Z

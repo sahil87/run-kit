@@ -21,7 +21,13 @@ import { activePaneCwd, buildOpenTargets } from "@/lib/open-in-app";
 import {
   TopBarOverflowMenu,
   type OverflowMenuRow,
+  type MenuGroup,
   MENU_ROW_CLASS,
+  TOP_BAR_BUTTON,
+  TOP_BAR_BUTTON_BASE,
+  TOP_BAR_BUTTON_REST,
+  TOP_BAR_BUTTON_H,
+  TOP_BAR_SEGMENT_H,
 } from "@/components/top-bar-overflow-menu";
 import { computeVisibleCount } from "@/lib/top-bar-overflow";
 import type { ViewName } from "@/lib/window-view";
@@ -47,6 +53,10 @@ export type TopBarMode = "terminal" | "board" | "server" | "host";
  *                  pixels) while its `menuRender()` rows ALWAYS render in the
  *                  overflow menu, in registry order. `hidden` keeps its
  *                  "renders nowhere" priority over `menuOnly`.
+ *  - `menuGroup` — the chevron-menu section this entry's rows render under
+ *                  (260731-oiho: View / Window / App, fixed order) — the menu
+ *                  partitions rows by group, preserving registry order within
+ *                  each section.
  *  - `barRender` — the in-bar icon-button form (may return null).
  *  - `menuRender`— the labeled menu-row form (may return null; the update chip
  *                  returns null because its function merges into the version row).
@@ -59,6 +69,8 @@ type RegistryEntry = {
    *  the measurement probe, not in the fit computation) — its menuRender()
    *  rows ALWAYS render in the overflow menu (subject to `hidden`). */
   menuOnly?: boolean;
+  /** Chevron-menu section (260731-oiho) — View / Window / App. */
+  menuGroup: MenuGroup;
   barRender: () => ReactNode;
   menuRender: () => ReactNode;
 };
@@ -116,8 +128,9 @@ type TopBarProps = {
   /** Board-mode list of all boards (for the board switcher dropdown). */
   boards?: { name: string }[];
   /** Board-mode split/kill target (260715-6jwn): the focused tile's window.
-   *  Feeds the two top-bar SplitButtons AND the ✕ (a consequence-gated Kill in
-   *  board mode — co9z). `null` when the board is empty → splits absent, ✕
+   *  Feeds the merged top-bar SplitControl AND the Kill menu row (a
+   *  consequence-gated Kill in board mode — co9z; menuOnly since 260731-oiho).
+   *  `null` when the board is empty → the split is absent, the Kill row
    *  disabled. `cwd` seeds the split's working directory. */
   focusedPane?: { server: string; windowId: string; cwd?: string } | null;
   /** Board-mode kill request (co9z): when present, the board ✕ calls this to
@@ -209,12 +222,13 @@ const LINK_CRUMB_CLASS =
   "rounded border border-border hover:border-text-secondary px-1.5 py-0.5 text-text-secondary hover:text-text-primary transition-colors";
 
 /**
- * Browser-history Back/Forward arrows (260714-uco1). Fixed-width ◀ ▶ buttons
- * left of the heading prefix, inside the anchored center box (§ HistoryNav
- * placement) — being fixed-width they never shift the heading's text anchor.
- * Rendered on ALL four page modes (history is global). Semantics are BROWSER
- * HISTORY via TanStack Router's `router.history.back()` / `.forward()` —
- * explicitly NOT previous/next sibling-window cycling.
+ * Browser-history Back/Forward arrows (260714-uco1; relocated 260731-oiho).
+ * Fixed-size ◀ ▶ buttons in the LEFT cluster, immediately right of the sidebar
+ * toggle (macOS convention: sidebar toggle → back → forward → brand crumb; on
+ * the Host page, which has no sidebar toggle, the pair leads the cluster before
+ * the brand crumb). Rendered on ALL four page modes (history is global).
+ * Semantics are BROWSER HISTORY via TanStack Router's `router.history.back()` /
+ * `.forward()` — explicitly NOT previous/next sibling-window cycling.
  *
  * Forward is always-active (browser-chrome style): `canGoForward` is not
  * reliably exposed by browsers, so a dim/disabled forward state is best-effort
@@ -222,23 +236,26 @@ const LINK_CRUMB_CLASS =
  * harmless no-op. The same two actions are reachable from the command palette
  * (`Go: Back` / `Go: Forward`, Constitution V; see lib/palette-nav.ts).
  *
- * Styling matches the top-bar icon-button convention (`rk-glint`, `coarse:`
- * touch sizing, bordered chip). The pair sits in its own `shrink-0` group so
- * the arrows keep a stable width regardless of heading length.
+ * Styling is the shared fixed-size token (`TOP_BAR_BUTTON`, 260731-oiho). The
+ * pair sits in its own `shrink-0` group so the arrows never collapse under
+ * breadcrumb pressure. Moving the pair out of the anchored center box deleted
+ * the old `mr-2.5`/`-mr-1` width-compensation hack — the heading box carries no
+ * arrow furniture anymore.
+ *
+ * `hidden lg:flex`: the pair joins the left cluster's degradation ladder (the
+ * server crumb already hides below `md`). Below `lg` the rigid left cluster
+ * (toggle + arrows + the nav's `sm:min-w-[150px]` floor) exceeds its equal-`1fr`
+ * side track against a 28ch-capped long-name heading (worst case needs ~832px),
+ * and the overflowing nav would paint over the centered prefix — the exact
+ * overlap class 260715-q8ey eliminated (see top-bar-overlap.spec.ts). Browser
+ * back gestures and the palette's `Go: Back` / `Go: Forward` cover narrow
+ * viewports.
  */
 function HistoryNav() {
   const router = useRouter();
-  const arrowClass =
-    "rk-glint min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center shrink-0";
+  const arrowClass = TOP_BAR_BUTTON;
   return (
-    // mr-2.5 (10px) separates the arrows from the page heading — the arrows are
-    // global chrome, not part of the heading, so their gap must read WIDER than
-    // the heading's own internal prefix↔name spacing (~4px, see HeadingPrefix's
-    // -mr-1). Exactly +4px so the pair is width-neutral with -mr-1's −4px: the
-    // heading's fixed furniture inside the `sm:min-w-[28ch]` anchor box must
-    // not grow, or names near the band edge start drifting the anchor (see the
-    // stable-anchor e2e in window-heading.spec.ts).
-    <span className="flex items-center gap-1 mr-2.5 shrink-0">
+    <span className="hidden lg:flex items-center gap-1 shrink-0">
       <Tip label="Back">
         <button
           type="button"
@@ -452,16 +469,20 @@ export function TopBar({
   // never drift. Order encodes drop priority: L1 first, then L2, then L3, and
   // within a tier leftmost drops first (overflow consumes FROM THE FRONT). Only
   // the trailing chevron is EXEMPT (never overflows) and renders outside this
-  // candidate list; the ViewSwitcher is the first REGISTRY entry
-  // but is `menuOnly` (260722-n2n4) — it never renders in-bar and its menu rows
-  // lead the chevron menu. Each entry gates on `modes` (the current mode
-  // must be listed) and an optional `hidden` predicate (renders nowhere).
+  // candidate list. As of 260731-oiho FOUR entries are `menuOnly` (the n2n4
+  // mechanism — never in-bar, rows always in the menu): the ViewSwitcher
+  // (260722-n2n4) plus the demoted fixed-width, terminal-font (Aa), and
+  // close-pane/Kill (sticky per-device preferences + the destructive ✕ that
+  // sat one slot from Refresh). The terminal-mode bar end state is
+  // Open · Split(▾) · Refresh · chevron (+ UpdateChip when a qualifying update
+  // exists). Each entry gates on `modes` (the current mode must be listed) and
+  // an optional `hidden` predicate (renders nowhere); `menuGroup` names its
+  // chevron-menu section (View / Window / App).
   // Board-mode split/close target (260715-6jwn, merged into the registry): the
-  // two SplitButtons AND the ✕ act on the focused tile's window (`focusedPane`,
-  // wired from board-page.tsx). The ✕ is a real close-pane in BOTH modes now (a
-  // deliberate reversal of the prior board-✕-unpin decision) — unpin moved to
-  // the tile header + the `Board: Unpin Focused Pane` palette action. Splits are
-  // absent when the board is empty (no `focusedPane`); the ✕ is disabled then.
+  // merged SplitControl AND the Kill row act on the focused tile's window
+  // (`focusedPane`, wired from board-page.tsx). Unpin lives on the tile header
+  // + the `Board: Unpin Focused Pane` palette action. The split is absent when
+  // the board is empty (no `focusedPane`); the Kill row is disabled then.
   const rightItems: RegistryEntry[] = [
     // View-switcher — the window-view lens control. MENU-ONLY as of 260722-n2n4:
     // the chat lens isn't fully functional yet, so the `[tty|chat]` (and, by the
@@ -478,6 +499,7 @@ export function TopBar({
       id: "view-switcher",
       modes: ["terminal"],
       menuOnly: true,
+      menuGroup: "view",
       hidden: !(
         mode === "terminal" &&
         currentWindow &&
@@ -509,85 +531,95 @@ export function TopBar({
     {
       id: "open",
       modes: ["terminal"],
+      menuGroup: "window",
       hidden: !(mode === "terminal" && currentWindow && openTargets.length > 0),
       barRender: () => <OpenButton targets={openTargets} server={server} path={openPath} />,
       menuRender: () => <OpenMenuRows targets={openTargets} server={server} path={openPath} />,
     },
-    // L1 — split vertical · split horizontal (terminal+board) · fixed-width (terminal-only).
+    // L1 — the ONE merged split control (terminal+board, 260731-oiho): the two
+    // per-direction SplitButtons collapsed into a single split-button chip —
+    // primary click = split vertical (the long-standing default), a small ▾
+    // affordance opens the direction menu (the OpenButton pattern). The
+    // overflow menu keeps BOTH directions as one-action-per-row rows.
     {
-      id: "split-vertical",
+      id: "split",
       modes: ["terminal", "board"],
+      menuGroup: "window",
       hidden: mode === "board" ? !focusedPane : !currentWindow,
       barRender: () =>
         mode === "board" ? (
           focusedPane ? (
-            <SplitButton server={focusedPane.server} windowId={focusedPane.windowId} cwd={focusedPane.cwd} />
+            <SplitControl server={focusedPane.server} windowId={focusedPane.windowId} cwd={focusedPane.cwd} />
           ) : null
         ) : currentWindow ? (
-          <SplitButton server={server} windowId={currentWindow.windowId} cwd={currentWindow.worktreePath} />
+          <SplitControl server={server} windowId={currentWindow.windowId} cwd={currentWindow.worktreePath} />
         ) : null,
       menuRender: () =>
         mode === "board" ? (
           focusedPane ? (
-            <SplitMenuRow server={focusedPane.server} windowId={focusedPane.windowId} cwd={focusedPane.cwd} />
+            <>
+              <SplitMenuRow server={focusedPane.server} windowId={focusedPane.windowId} cwd={focusedPane.cwd} />
+              <SplitMenuRow horizontal server={focusedPane.server} windowId={focusedPane.windowId} cwd={focusedPane.cwd} />
+            </>
           ) : null
         ) : currentWindow ? (
-          <SplitMenuRow server={server} windowId={currentWindow.windowId} cwd={currentWindow.worktreePath} />
+          <>
+            <SplitMenuRow server={server} windowId={currentWindow.windowId} cwd={currentWindow.worktreePath} />
+            <SplitMenuRow horizontal server={server} windowId={currentWindow.windowId} cwd={currentWindow.worktreePath} />
+          </>
         ) : null,
     },
-    {
-      id: "split-horizontal",
-      modes: ["terminal", "board"],
-      hidden: mode === "board" ? !focusedPane : !currentWindow,
-      barRender: () =>
-        mode === "board" ? (
-          focusedPane ? (
-            <SplitButton horizontal server={focusedPane.server} windowId={focusedPane.windowId} cwd={focusedPane.cwd} />
-          ) : null
-        ) : currentWindow ? (
-          <SplitButton horizontal server={server} windowId={currentWindow.windowId} cwd={currentWindow.worktreePath} />
-        ) : null,
-      menuRender: () =>
-        mode === "board" ? (
-          focusedPane ? (
-            <SplitMenuRow horizontal server={focusedPane.server} windowId={focusedPane.windowId} cwd={focusedPane.cwd} />
-          ) : null
-        ) : currentWindow ? (
-          <SplitMenuRow horizontal server={server} windowId={currentWindow.windowId} cwd={currentWindow.worktreePath} />
-        ) : null,
-    },
+    // Fixed-width toggle — MENU-ONLY as of 260731-oiho: a sticky per-device
+    // preference doesn't earn a permanent bar slot. The n2n4 demotion
+    // mechanism — reverting = deleting the flag. Palette parity: `View:
+    // Fixed Width (900px)` / `View: Full Width`.
     {
       id: "fixed-width",
       modes: ["terminal"],
+      menuOnly: true,
+      menuGroup: "view",
       hidden: !currentWindow,
       barRender: () => <FixedWidthToggle />,
       menuRender: () => <FixedWidthMenuRow />,
     },
-    // L2 — terminal + board: terminal-font (Aa) · autofit (board-only) · close-pane (✕).
+    // Terminal-font (Aa) — MENU-ONLY as of 260731-oiho (sticky per-device
+    // preference; also lives in the settings dialog and the palette's
+    // `Increase/Decrease/Reset terminal font`). The in-bar Aa popover
+    // (TerminalFontControl) stays intact but unreachable, n2n4-style.
     {
       id: "terminal-font",
       modes: ["terminal", "board"],
+      menuOnly: true,
+      menuGroup: "view",
       barRender: () => <TerminalFontControl />,
       menuRender: () => <TerminalFontMenuRow />,
     },
+    // Board-only autofit — stays IN-BAR (the one board L2 survivor; it is a
+    // per-board working control, not a sticky device preference).
     {
       id: "autofit",
       modes: ["board"],
+      menuGroup: "view",
       hidden: !(mode === "board" && !!onToggleAutofit),
       barRender: () => <BoardAutofitToggle autofit={autofit ?? false} onToggle={onToggleAutofit ?? (() => {})} />,
       menuRender: () => <AutofitMenuRow autofit={autofit ?? false} onToggle={onToggleAutofit ?? (() => {})} />,
     },
     {
-      // Close-pane / Kill ✕. Terminal mode kills the current window's active pane
+      // Close-pane / Kill ✕ — MENU-ONLY as of 260731-oiho: a destructive
+      // control sat one bar slot from Refresh (misclick trap), so it lives in
+      // the chevron menu now (plus the palette's `Pane: Close` / the board
+      // kill entries). Terminal mode kills the current window's active pane
       // (immediate close-pane). Board mode (co9z) is a consequence-gated KILL:
-      // the ✕ reads "Kill" and, via `onRequestKill`, opens BoardPage's confirm
+      // the row reads "Kill" and, via `onRequestKill`, opens BoardPage's confirm
       // dialog (with an `Unpin instead` escape) instead of firing immediately —
       // a board Kill destroys the window everywhere, not just the board pane. The
       // confirmed kill's self-heal refetch is owned by BoardPage
-      // (`executeKillWindow`'s `onSettled`), not signalled back through the ✕.
+      // (`executeKillWindow`'s `onSettled`), not signalled back through the row.
       // Disabled on board when there is no focused tile.
       id: "close-pane",
       modes: ["terminal", "board"],
+      menuOnly: true,
+      menuGroup: "window",
       hidden: mode === "terminal" && !currentWindow,
       barRender: () =>
         mode === "board" ? (
@@ -628,6 +660,7 @@ export function TopBar({
     {
       id: "update-chip",
       modes: ["terminal", "board", "server", "host"],
+      menuGroup: "app",
       hidden: !showChip,
       barRender: () => <UpdateChip />,
       menuRender: () => null,
@@ -635,6 +668,7 @@ export function TopBar({
     {
       id: "refresh",
       modes: ["terminal", "board", "server", "host"],
+      menuGroup: "app",
       barRender: () => <RefreshButton />,
       menuRender: () => <RefreshMenuRow />,
     },
@@ -643,10 +677,11 @@ export function TopBar({
   // Candidate (non-exempt) entries for the current mode, minus any `hidden` ones.
   const candidates = rightItems.filter((e) => e.modes.includes(mode) && !e.hidden);
   // Fit candidates — the entries eligible for IN-BAR placement. `menuOnly`
-  // entries (260722-n2n4: the view-switcher) never render in-bar: they are
-  // excluded from the visible row, the measurement probe, and the fit budget
-  // (zero pixels). The probe's children must stay index-aligned with the widths
-  // array the fit reads, so the probe renders exactly this list.
+  // entries (260722-n2n4: the view-switcher; 260731-oiho: fixed-width,
+  // terminal-font, close-pane) never render in-bar: they are excluded from the
+  // visible row, the measurement probe, and the fit budget (zero pixels). The
+  // probe's children must stay index-aligned with the widths array the fit
+  // reads, so the probe renders exactly this list.
   const fitCandidates = candidates.filter((e) => !e.menuOnly);
 
   // Measurement: one ResizeObserver on the right cell + a hidden probe row that
@@ -729,7 +764,7 @@ export function TopBar({
   const visibleIds = new Set(visibleItems.map((e) => e.id));
   const overflowItems = candidates.filter((e) => !visibleIds.has(e.id));
   const overflowRows: OverflowMenuRow[] = overflowItems
-    .map((e) => ({ id: e.id, node: e.menuRender() }))
+    .map((e) => ({ id: e.id, group: e.menuGroup, node: e.menuRender() }))
     .filter((r) => r.node != null);
   // True when the undismissed chip's entry is currently overflowed into the
   // menu — drives the chevron attention badge, and is one of the menu's two
@@ -761,20 +796,28 @@ export function TopBar({
           {/* Hamburger icon — toggles sidebarOpen (one boolean covers both
               desktop grid column and mobile overlay). First element of the left
               cluster (standard drawer-toggle position). Not rendered on the
-              Host page, which has no sidebar — the brand shifts left there (no
-              ghost slot reserved). Bordered chip like its siblings (HistoryNav
-              arrows / LINK_CRUMB_CLASS) so the toggle reads as the same control
-              family; rk-glint flips the border green on hover. Coarse pointers
-              get the top-bar button-control 30px target (24px fine). */}
+              Host page, which has no sidebar — the history arrows lead there
+              (no ghost slot reserved). Uses the shared fixed-size button token
+              (260731-oiho — 28px fine / 30px coarse) so it renders the SAME box
+              as its siblings (HistoryNav arrows / the right cluster); rk-glint
+              flips the border green on hover. Keeps its primary text color
+              (the toggle carries page-level chrome weight). */}
           {hasSidebar && (
             <button
               onClick={onToggleSidebar}
               aria-label="Toggle navigation"
-              className="rk-glint rounded border border-border hover:border-text-secondary text-text-primary transition-colors min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] flex items-center justify-center shrink-0"
+              className={`rk-glint ${TOP_BAR_BUTTON_BASE} border-border hover:border-text-secondary text-text-primary`}
             >
               <HamburgerIcon isOpen={hamburgerOpen} />
             </button>
           )}
+
+          {/* Browser-history ◀ ▶ arrows — LEFT cluster as of 260731-oiho
+              (macOS convention: sidebar toggle → back → forward → brand
+              crumb; the pair leads the cluster on the Host page). Global
+              chrome on all four modes; moving them here deleted the center
+              box's width-compensation hack. */}
+          <HistoryNav />
 
           {/* Breadcrumb nav (260715-q8ey overlap fixes): `overflow-hidden`
               is the clip backstop — any crumb content past the floor clips at
@@ -801,9 +844,10 @@ export function TopBar({
               href="/"
               aria-label="RunKit home"
               // min-h normalizes the crumb to the shared control height so the
-              // left cluster sits on one horizontal axis (24px fine / 30px
-              // coarse — the same box as the toggle + HistoryNav arrows).
-              className={`flex items-center gap-2 shrink-0 rk-brand-glitch min-h-[24px] coarse:min-h-[30px] ${LINK_CRUMB_CLASS}`}
+              // left cluster sits on one horizontal axis (28px fine / 30px
+              // coarse — the same box as the toggle + HistoryNav arrows,
+              // 260731-oiho).
+              className={`flex items-center gap-2 shrink-0 rk-brand-glitch min-h-[28px] coarse:min-h-[30px] ${LINK_CRUMB_CLASS}`}
             >
               {/* Inline SVG (LogoSpinner at rest), not the /icon.svg img — the
                   hover spin rotates the border ring (.rk-logo-ring) while the
@@ -893,7 +937,8 @@ export function TopBar({
             left-aligned content so the heading's LEFT EDGE stops drifting as the
             instance name length changes. Below `sm` the min-width is absent
             (space is scarce at 375px) so current behavior is unchanged. The
-            history arrows + hierarchy ▾ live inside this anchored box.
+            hierarchy ▾ lives inside this anchored box (the history arrows
+            moved to the left cluster, 260731-oiho).
             260715-q8ey: the OUTER cell deliberately has NO `min-w-0` — that let
             the `auto` column compress below the heading's content floor and
             produced center-side overlap. The floor is already bounded (name
@@ -902,16 +947,15 @@ export function TopBar({
             dropping `min-w-0` protects the center without a magic pixel min. Do
             NOT re-add `min-w-0` here. */}
         <div className="flex items-center justify-center">
-          {/* Center heading cluster's warm-tip group (260722-73al): history
-              arrows + hierarchy ▾ + rename heading + window switcher sweep
-              as one cluster. */}
+          {/* Center heading cluster's warm-tip group (260722-73al): hierarchy
+              ▾ + rename heading + window switcher sweep as one cluster (the
+              history arrows ride the left cluster's group now, 260731-oiho). */}
           <TipGroup>
           <div className="flex items-center justify-start min-w-0 sm:min-w-[28ch]">
-            {/* Browser-history ◀ ▶ arrows (260714-uco1) — fixed-width so they
-                never shift the heading's text anchor, rendered on ALL four modes
-                (history is global; also keeps the center box uniform, e.g.
-                `◀ ▶  Host`). Left of the prefix, inside the anchored box. */}
-            <HistoryNav />
+            {/* The history ◀ ▶ arrows moved to the LEFT cluster (260731-oiho) —
+                the anchored box now carries only the heading furniture
+                (prefix + hierarchy ▾ + name + switcher), so the old
+                arrow width-compensation hack is gone with them. */}
 
             {mode === "terminal" && currentWindow && (
               <>
@@ -1011,10 +1055,10 @@ export function TopBar({
 
             Only the trailing chevron is EXEMPT (never overflows; the
             connection dot moved to the sidebar footer, 260724-6j1v); the
-            ViewSwitcher is `menuOnly` (260722-n2n4) — never in-bar, its
-            `View:` rows always in the menu. The `hidden sm:flex` breakpoint
-            cliff is GONE: below `sm`, controls overflow into the menu instead
-            of vanishing. */}
+            ViewSwitcher (260722-n2n4) plus fixed-width / terminal-font /
+            close-pane (260731-oiho) are `menuOnly` — never in-bar, their rows
+            always in the menu. The `hidden sm:flex` breakpoint cliff is GONE:
+            below `sm`, controls overflow into the menu instead of vanishing. */}
         {/* The cell must FILL its `1fr` grid track (NOT `justify-self-end`,
             which would size the box to its own content and both (a) deadlock
             `computeVisibleCount` — a content-sized box measures only the exempt
@@ -1826,69 +1870,156 @@ function BoardSwitcher({
 // definitions (HELP_URL, NOTIFICATIONS_HELP_URL, cycleTheme, the theme/help
 // SVGs) live in `components/global-chrome.tsx`.
 
-function SplitButton({
-  horizontal,
+/**
+ * SplitControl — the ONE merged split control (260731-oiho), replacing the two
+ * per-direction SplitButtons. A split-button chip (the in-bar `OpenButton`
+ * precedent — primary + ▾ share one bordered chip so the pair reads as ONE
+ * control at cluster scale):
+ *
+ *  - PRIMARY segment: split VERTICAL (the long-standing default) — the
+ *    square-split-vertical glyph, optimistic `splitWindow` call, spinner while
+ *    pending.
+ *  - ▾ segment: `aria-haspopup="menu"`/`aria-expanded`, opens a small direction
+ *    menu listing BOTH `Split vertical` and `Split horizontal` (the complete
+ *    option set, split-button convention). Outside `mousedown` and Escape
+ *    close; Escape refocuses the ▾.
+ *
+ * Segments use the segment height (`TOP_BAR_SEGMENT_H` — 2px shorter than the
+ * squares, compensating the bordered wrapper) so the chip's TOTAL box matches
+ * the square token buttons exactly. Terminal and board modes pass the same
+ * `{server, windowId, cwd}` the old per-direction buttons received, so board
+ * parity (focusedPane) holds unchanged. The board keybindings that call
+ * `executeSplit` directly are independent of this control.
+ */
+function SplitControl({
   server,
   windowId,
   cwd,
 }: {
-  horizontal?: boolean;
   server: string;
   windowId: string;
   cwd?: string;
 }) {
-  const label = horizontal ? "Split horizontally" : "Split vertically";
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const chevronRef = useRef<HTMLButtonElement>(null);
   const { addToast } = useToast();
 
-  const { execute, isPending } = useOptimisticAction<[]>({
-    action: () => splitWindow(server, windowId, !!horizontal, cwd),
+  const { execute, isPending } = useOptimisticAction<[boolean]>({
+    action: (horizontal) => splitWindow(server, windowId, horizontal, cwd),
     onError: (err) => {
       addToast(err.message || "Failed to split pane");
     },
   });
 
+  // Outside-click + Escape close (the OpenButton popover pattern).
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        setOpen(false);
+        chevronRef.current?.focus();
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    document.addEventListener("keydown", handleKey, { capture: true });
+    return () => {
+      document.removeEventListener("mousedown", handleClick);
+      document.removeEventListener("keydown", handleKey, { capture: true });
+    };
+  }, [open]);
+
+  const run = (horizontal: boolean) => {
+    setOpen(false);
+    execute(horizontal);
+  };
+
+  const segmentClass = `rk-glint px-1.5 ${TOP_BAR_SEGMENT_H} flex items-center justify-center text-text-secondary hover:text-text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed`;
+  const menuRowClass =
+    "w-full text-left flex items-center gap-2 px-3 py-1.5 text-[11px] text-text-secondary hover:text-text-primary hover:bg-bg-card transition-colors";
+
   return (
-    <Tip label={label}>
-    <button
-      type="button"
-      onClick={() => execute()}
-      disabled={isPending}
-      aria-label={label}
-      className="rk-glint min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
-    >
-      {isPending ? (
-        <LogoSpinner size={14} />
-      ) : (
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
+    <div ref={containerRef} className="relative inline-flex items-center">
+      <span className="inline-flex items-stretch rounded border border-border overflow-hidden">
+        <Tip label="Split vertically">
+          <button
+            type="button"
+            onClick={() => execute(false)}
+            disabled={isPending}
+            aria-label="Split vertically"
+            className={segmentClass}
+          >
+            {isPending ? (
+              <LogoSpinner size={14} />
+            ) : (
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                {/* square-split-vertical: horizontal divider */}
+                <path d="M5 8V5c0-1 1-2 2-2h10c1 0 2 1 2 2v3" />
+                <path d="M19 16v3c0 1-1 2-2 2H7c-1 0-2-1-2-2v-3" />
+                <line x1="4" x2="20" y1="12" y2="12" />
+              </svg>
+            )}
+          </button>
+        </Tip>
+        {/* Tip suppressed while the menu is open (trigger convention). */}
+        <Tip label={open ? undefined : "Split… (choose direction)"}>
+          <button
+            ref={chevronRef}
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            disabled={isPending}
+            aria-haspopup="menu"
+            aria-expanded={open}
+            aria-label="Split… (choose direction)"
+            className={`rk-glint px-1 ${TOP_BAR_SEGMENT_H} border-l border-border flex items-center justify-center text-text-secondary hover:text-text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed`}
+          >
+            <svg
+              width="10"
+              height="10"
+              viewBox="0 0 10 10"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <polyline points="2,3.5 5,6.5 8,3.5" />
+            </svg>
+          </button>
+        </Tip>
+      </span>
+      {open && (
+        <div
+          role="menu"
+          aria-label="Split direction"
+          className="absolute top-full right-0 mt-1 min-w-[150px] bg-bg-primary border border-border rounded-lg shadow-2xl py-1 z-50"
         >
-          {horizontal ? (
-            <>
-              {/* square-split-horizontal: vertical divider */}
-              <path d="M8 19H5c-1 0-2-1-2-2V7c0-1 1-2 2-2h3" />
-              <path d="M16 5h3c1 0 2 1 2 2v10c0 1-1 2-2 2h-3" />
-              <line x1="12" x2="12" y1="4" y2="20" />
-            </>
-          ) : (
-            <>
-              {/* square-split-vertical: horizontal divider */}
-              <path d="M5 8V5c0-1 1-2 2-2h10c1 0 2 1 2 2v3" />
-              <path d="M19 16v3c0 1-1 2-2 2H7c-1 0-2-1-2-2v-3" />
-              <line x1="4" x2="20" y1="12" y2="12" />
-            </>
-          )}
-        </svg>
+          <button type="button" role="menuitem" onClick={() => run(false)} className={menuRowClass}>
+            Split vertical
+          </button>
+          <button type="button" role="menuitem" onClick={() => run(true)} className={menuRowClass}>
+            Split horizontal
+          </button>
+        </div>
       )}
-    </button>
-    </Tip>
+    </div>
   );
 }
 
@@ -1941,7 +2072,7 @@ function ClosePaneButton({
       onClick={() => (onRequestKill ? onRequestKill() : execute())}
       disabled={isDisabled}
       aria-label={effectiveLabel}
-      className="rk-glint min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+      className={`${TOP_BAR_BUTTON} disabled:opacity-50 disabled:cursor-not-allowed`}
     >
       {isPending ? (
         <LogoSpinner size={14} />
@@ -2017,7 +2148,7 @@ function RefreshButton() {
       type="button"
       onClick={(e) => (e.shiftKey ? forceReload() : window.location.reload())}
       aria-label="Refresh page"
-      className="rk-glint min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center"
+      className={TOP_BAR_BUTTON}
     >
       <svg
         width="14"
@@ -2109,10 +2240,8 @@ function TerminalFontControl() {
         aria-haspopup="true"
         aria-expanded={open}
         aria-label="Terminal font size"
-        className={`rk-glint min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border transition-colors flex items-center justify-center text-xs font-semibold leading-none ${
-          open
-            ? "border-accent text-accent bg-accent/10"
-            : "border-border text-text-secondary hover:border-text-secondary"
+        className={`rk-glint ${TOP_BAR_BUTTON_BASE} text-xs font-semibold leading-none ${
+          open ? "border-accent text-accent bg-accent/10" : TOP_BAR_BUTTON_REST
         }`}
       >
         {/* "Aa" reads as "text size" without a separate label */}
@@ -2227,7 +2356,7 @@ function UpdateChip() {
         onClick={triggerUpdate}
         disabled={updating}
         aria-label={updating ? "Updating run-kit" : restLabel}
-        className="rk-glint flex items-center gap-1 h-[24px] coarse:h-[30px] px-1.5 rounded border border-accent-green text-accent-green hover:border-accent-green transition-colors text-xs disabled:opacity-60 disabled:cursor-not-allowed"
+        className={`rk-glint flex items-center gap-1 ${TOP_BAR_BUTTON_H} px-1.5 rounded border border-accent-green text-accent-green hover:border-accent-green transition-colors text-xs disabled:opacity-60 disabled:cursor-not-allowed`}
       >
         {updating ? (
           <>
@@ -2245,7 +2374,7 @@ function UpdateChip() {
             type="button"
             onClick={dismissUpdate}
             aria-label="Dismiss update notice"
-            className="ml-0.5 h-[24px] coarse:h-[30px] w-[16px] coarse:w-[20px] flex items-center justify-center rounded text-text-secondary hover:text-text-primary transition-colors text-xs"
+            className={`ml-0.5 ${TOP_BAR_BUTTON_H} w-[16px] coarse:w-[20px] flex items-center justify-center rounded text-text-secondary hover:text-text-primary transition-colors text-xs`}
           >
             {"\u2715"}
           </button>
@@ -2265,10 +2394,8 @@ function FixedWidthToggle() {
       onClick={toggleFixedWidth}
       aria-label="Toggle fixed terminal width"
       aria-pressed={fixedWidth}
-      className={`rk-glint min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border transition-colors flex items-center justify-center ${
-        fixedWidth
-          ? "border-accent text-accent bg-accent/10"
-          : "border-border text-text-secondary hover:border-text-secondary"
+      className={`rk-glint ${TOP_BAR_BUTTON_BASE} ${
+        fixedWidth ? "border-accent text-accent bg-accent/10" : TOP_BAR_BUTTON_REST
       }`}
     >
       <svg
@@ -2328,10 +2455,8 @@ function BoardAutofitToggle({
       onClick={onToggle}
       aria-label="Toggle board autofit"
       aria-pressed={autofit}
-      className={`rk-glint min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border transition-colors flex items-center justify-center ${
-        autofit
-          ? "border-accent text-accent bg-accent/10"
-          : "border-border text-text-secondary hover:border-text-secondary"
+      className={`rk-glint ${TOP_BAR_BUTTON_BASE} ${
+        autofit ? "border-accent text-accent bg-accent/10" : TOP_BAR_BUTTON_REST
       }`}
     >
       <svg
@@ -2377,7 +2502,8 @@ function BoardAutofitToggle({
 // BreadcrumbDropdown's item classes).
 
 /** Split vertical / horizontal menu row — same optimistic split action as the
- *  in-bar SplitButton. */
+ *  in-bar SplitControl (the merged entry's menuRender emits one row per
+ *  direction; menu rows stay one-action-per-row, 260731-oiho). */
 function SplitMenuRow({
   horizontal,
   server,
@@ -2431,10 +2557,9 @@ function TerminalFontMenuRow() {
   const { increaseTerminalFont, decreaseTerminalFont } = useChromeDispatch();
   const atMin = terminalFontSize <= TERMINAL_FONT_BOUNDS.min;
   const atMax = terminalFontSize >= TERMINAL_FONT_BOUNDS.max;
-  const stepClass =
-    "min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-border";
+  const stepClass = `${TOP_BAR_BUTTON_BASE} ${TOP_BAR_BUTTON_REST} disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-border`;
   return (
-    <div role="group" aria-label="Terminal font size" className="flex items-center gap-2 px-3 py-2 text-sm text-text-secondary">
+    <div role="group" aria-label="Terminal font size" className="flex items-center gap-2 px-2.5 py-1.5 text-xs text-text-secondary">
       <span className="flex-1">Terminal font</span>
       <button type="button" tabIndex={-1} onClick={decreaseTerminalFont} disabled={atMin} aria-label="Decrease terminal font" className={stepClass}>
         −

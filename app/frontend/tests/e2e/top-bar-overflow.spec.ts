@@ -34,10 +34,12 @@ function intersects(
 }
 
 // Right-cluster controls in pyramid order (L1 → L2 → L3), by accessible name.
-// Terminal route: L1 splits + fixed-width, L2 Aa (+ close), L3 refresh (the
-// update chip is context-gated and omitted from the ordering assertion;
-// theme/help/bell/dot left the bar in 260724-6j1v — theme+help live in the
-// sidebar footer, notifications in the settings dialog).
+// Terminal route as of 260731-oiho: L1 is the ONE merged split control (its
+// primary segment's accessible name), L2 is empty (fixed-width, Aa, and ✕ are
+// `menuOnly` now — see MENU_ONLY below), L3 is refresh (the update chip is
+// context-gated and omitted from the ordering assertion; theme/help/bell/dot
+// left the bar in 260724-6j1v — theme+help live in the sidebar footer,
+// notifications in the settings dialog).
 // The IN-BAR detection uses accessible-name ROLE queries (getByRole/getByLabel):
 // the always-present measurement probe is `aria-hidden`, so its duplicate
 // controls are OUTSIDE the accessibility tree and never matched — this is what
@@ -45,9 +47,16 @@ function intersects(
 // NOT work: the probe sits off-screen at -9999px but Playwright still considers
 // a sized off-screen element "visible").
 type NameMatcher = string | RegExp;
-const L1: NameMatcher[] = ["Split vertically", "Split horizontally", "Toggle fixed terminal width"];
-const L2: NameMatcher[] = ["Terminal font size", "Close pane"];
+const L1: NameMatcher[] = ["Split vertically"];
+const L2: NameMatcher[] = [];
 const L3: NameMatcher[] = ["Refresh page"];
+// The three demoted controls (260731-oiho, the n2n4 menuOnly mechanism): their
+// bar forms render NOWHERE at ANY width; their rows are ALWAYS in the menu.
+const MENU_ONLY: NameMatcher[] = [
+  "Toggle fixed terminal width",
+  "Terminal font size",
+  "Close pane",
+];
 
 /** Locate a control by accessible name across button OR link roles. `getByRole`
  *  excludes the aria-hidden measurement probe subtree, so a match means the
@@ -123,6 +132,13 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
       // sidebar footer now).
       await expect(chevron, `chevron visible at ${width}px`).toBeVisible();
       await expect(cluster.locator('[role="status"]'), `no bar dot at ${width}px`).toHaveCount(0);
+
+      // (g) The demoted menuOnly controls (260731-oiho) render in-bar NOWHERE —
+      // not even at the widest width where the cluster has room.
+      expect(
+        await inBarCount(page, MENU_ONLY),
+        `no in-bar fixed-width/Aa/✕ at ${width}px`,
+      ).toBe(0);
 
       // (a) No overlap: the right cell must not intersect the center heading nor
       // the breadcrumb nav (the overflow is what keeps the cluster within its
@@ -201,11 +217,15 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
       prevL1 = l1;
       prevL2 = l2;
     }
-    // At the narrowest width everything has overflowed (mobile leaf).
-    expect(await inBarCount(page, [...L1, ...L2, ...L3]), "all overflow at 375px").toBe(0);
+    // At the narrowest width the pyramid's FRONT has been consumed: the L1
+    // split control has overflowed. The 260731-oiho consolidation lightened
+    // the cluster enough that the L3 tail (Refresh) deliberately survives at
+    // the mobile leaf — the pyramid ORDER, not an all-gone cliff, is the
+    // contract.
+    expect(await inBarCount(page, L1), "L1 (split) overflowed at 375px").toBe(0);
   });
 
-  test("the chevron menu contains exactly the overflowed controls plus the version row", async ({
+  test("the chevron menu contains the overflowed + menuOnly rows plus the version row, grouped under section labels", async ({
     page,
   }) => {
     const id = await resolveWindow(page, WINDOW_NAME);
@@ -219,14 +239,22 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
     const menu = page.getByRole("menu", { name: "More controls" });
     await expect(menu).toBeVisible();
 
-    // The dropped controls appear as menu rows (mapped labels), and the version
-    // row is present (last). No in-bar duplication check needed — everything is
-    // overflowed at 375px.
+    // The dropped controls appear as menu rows (mapped labels; the merged split
+    // entry contributes BOTH one-action-per-row directions), the menuOnly rows
+    // are present (fixed-width / terminal-font stepper / close-pane), and the
+    // version row is present (last). The L3 Refresh deliberately SURVIVES
+    // in-bar at 375px on the lightened cluster (260731-oiho), so no Refresh row
+    // is asserted here — an in-bar entry contributes no menu row.
     await expect(menu.getByRole("menuitem", { name: "Split vertical" })).toBeVisible();
     await expect(menu.getByRole("menuitem", { name: "Split horizontal" })).toBeVisible();
     await expect(menu.getByRole("menuitemcheckbox", { name: /Fixed width/ })).toBeVisible();
+    await expect(menu.getByRole("group", { name: "Terminal font size" })).toBeVisible();
     await expect(menu.getByRole("menuitem", { name: "Close pane" })).toBeVisible();
-    await expect(menu.getByRole("menuitem", { name: "Refresh page" })).toBeVisible();
+    // Density + grouping (260731-oiho): thin uppercase section labels group the
+    // rows in the fixed View → Window → App order.
+    await expect(menu.getByText("View", { exact: true })).toBeVisible();
+    await expect(menu.getByText("Window", { exact: true })).toBeVisible();
+    await expect(menu.getByText("App", { exact: true })).toBeVisible();
     // Theme / Help / Notifications rows are GONE (260724-6j1v): theme + help
     // moved to the sidebar footer, the bell folded into the settings dialog.
     await expect(menu.getByRole("menuitem", { name: /Theme:/ })).toHaveCount(0);
@@ -234,6 +262,35 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
     await expect(menu.getByRole("menuitem", { name: /notification/i })).toHaveCount(0);
     // The fixed version row is always present (plain `RunKit` or `RunKit v…`).
     await expect(menu.getByRole("menuitem", { name: /RunKit/ })).toBeVisible();
+  });
+
+  test("the menuOnly rows (fixed-width / Aa / close-pane) are in the menu even at a WIDE width", async ({
+    page,
+  }) => {
+    // The distinguishing 260731-oiho case: the bar has room at 1280px — the
+    // in-bar end state is Open · Split(▾) · Refresh · chevron — yet the three
+    // demoted controls still live ONLY in the menu (menu-only, not
+    // space-driven overflow).
+    const id = await resolveWindow(page, WINDOW_NAME);
+    await gotoWindow(page, id);
+    const heading = page.getByRole("button", { name: `Rename window ${WINDOW_NAME}` });
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(heading).toBeVisible({ timeout: 10_000 });
+    // The bar carries the split control (in-bar at this width)…
+    await expect(byRoleName(page, "Split vertically")).toBeVisible({ timeout: 10_000 });
+    // …but never the demoted three.
+    expect(await inBarCount(page, MENU_ONLY)).toBe(0);
+
+    await page.getByRole("button", { name: "More controls" }).click();
+    const menu = page.getByRole("menu", { name: "More controls" });
+    await expect(menu).toBeVisible();
+    await expect(menu.getByRole("menuitemcheckbox", { name: /Fixed width/ })).toBeVisible();
+    await expect(menu.getByRole("group", { name: "Terminal font size" })).toBeVisible();
+    await expect(menu.getByRole("menuitem", { name: "Close pane" })).toBeVisible();
+    // The in-bar split control's rows also appear in the menu? NO — the split
+    // is in-bar at this width, so its rows are NOT duplicated into the menu
+    // (menu rows = menuOnly entries + genuinely overflowed entries only).
+    await expect(menu.getByRole("menuitem", { name: "Split vertical" })).toHaveCount(0);
   });
 
   test("the version row copies the version to the clipboard", async ({ page, context }) => {

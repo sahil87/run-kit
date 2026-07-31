@@ -4,6 +4,7 @@ import { OpenTargetIcon } from "@/components/open-app-icons";
 import { useToast } from "@/components/toast";
 import {
   MENU_ROW_CLASS,
+  TOP_BAR_SEGMENT_H,
 } from "@/components/top-bar-overflow-menu";
 import {
   readLastUsedOpenTarget,
@@ -113,7 +114,7 @@ export function OpenButton({
             type="button"
             onClick={handlePrimary}
             aria-label={primaryLabel}
-            className="rk-glint px-1.5 min-h-[24px] coarse:min-h-[30px] text-[11px] font-mono flex items-center justify-center gap-1 text-text-secondary hover:text-text-primary transition-colors"
+            className={`rk-glint px-1.5 ${TOP_BAR_SEGMENT_H} text-[11px] font-mono flex items-center justify-center gap-1 text-text-secondary hover:text-text-primary transition-colors`}
           >
             {/* Last-used glyph (260723-l317): `currentColor` decoration —
                 rides the segment's secondary→primary hover flip and stays
@@ -131,7 +132,7 @@ export function OpenButton({
           aria-haspopup="menu"
           aria-expanded={open}
           aria-label="Open in… (choose app)"
-          className="rk-glint px-1 min-h-[24px] coarse:min-h-[30px] border-l border-border flex items-center justify-center text-text-secondary hover:text-text-primary transition-colors"
+          className={`rk-glint px-1 ${TOP_BAR_SEGMENT_H} border-l border-border flex items-center justify-center text-text-secondary hover:text-text-primary transition-colors`}
         >
           <svg
             width="10"

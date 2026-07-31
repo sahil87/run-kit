@@ -473,7 +473,7 @@ function BoardPageContent({ name }: { name: string }) {
   });
 
   // The focused tile's kill/split target — the SINGLE source of truth for the
-  // focused window shared by the top-bar SplitButtons + ✕ slot AND the three
+  // focused window shared by the top-bar SplitControl + Kill-row slot AND the three
   // board split/close palette actions below (260715-6jwn). `cwd` comes from the
   // focused entry's ACTIVE pane (fallback: first pane; else undefined →
   // splitWindow omits it and tmux uses its default). Board pins are LINK-based
@@ -1020,8 +1020,8 @@ function BoardPageContent({ name }: { name: string }) {
         serverCount,
         waitingPaneCount,
         boards: boardTopBarBoards,
-        // The top-bar ✕ + SplitButtons act on the focused tile's window
-        // (`focusedPane`). co9z: the board ✕ is now a consequence-gated KILL —
+        // The top-bar Kill row + SplitControl act on the focused tile's window
+        // (`focusedPane`). co9z: the board Kill is a consequence-gated KILL —
         // `onRequestKill` opens the confirm dialog (with an `Unpin instead`
         // escape) instead of firing close-pane. The confirmed kill's self-heal
         // refetch is driven by `executeKillWindow`'s own `onSettled` (above), not

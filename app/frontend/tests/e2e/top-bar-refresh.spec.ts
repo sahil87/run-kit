@@ -5,7 +5,7 @@ import { mockStateSocket } from "./_state-socket-mock";
 // server list) via the state-socket mock + page.route and navigate to a
 // terminal window route. The
 // RefreshButton rides the L3 always-block (260704-9o7k) and renders at first
-// paint; the Close pane button is still gated on a current window, so IT is the
+// paint; the split control is still gated on a current window, so IT is the
 // synchronization anchor proving the mocked sessions payload landed. See
 // top-bar-refresh.spec.md for intent + steps.
 //
@@ -100,7 +100,11 @@ async function mockBackend(page: Page): Promise<{ selectHits: () => number }> {
 }
 
 const refreshButton = (page: Page) => page.getByRole("button", { name: "Refresh page" });
-const closeButton = (page: Page) => page.getByRole("button", { name: "Close pane" });
+// The currentWindow-gated sync anchor. The ✕ left the bar (menuOnly,
+// 260731-oiho), so the merged split control's primary segment — still
+// terminal-gated on `currentWindow` and in-bar at the default wide viewport —
+// is the anchor now.
+const splitButton = (page: Page) => page.getByRole("button", { name: "Split vertically" });
 
 test.describe("Top-bar RefreshButton", () => {
   let selectHits: () => number;
@@ -112,10 +116,10 @@ test.describe("Top-bar RefreshButton", () => {
     // landed → currentWindow set). The refresh button can no longer be this
     // anchor: it rides the L3 always-block (260704-9o7k) and is visible at
     // first paint, BEFORE the mocked SSE event is processed — anchoring on it
-    // raced the mount-time /select POST and `selectHits` read 0. The Close pane
-    // button is still terminal-gated, so its visibility proves the session
-    // data arrived.
-    await expect(closeButton(page)).toBeVisible({ timeout: 10_000 });
+    // raced the mount-time /select POST and `selectHits` read 0. The split
+    // control's primary segment is still terminal-gated (the ✕ left the bar in
+    // 260731-oiho), so its visibility proves the session data arrived.
+    await expect(splitButton(page)).toBeVisible({ timeout: 10_000 });
   });
 
   test("renders refresh before the right-most chevron, with theme/help/bell/dot gone from the bar, on a terminal route", async ({

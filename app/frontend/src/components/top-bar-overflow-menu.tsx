@@ -26,6 +26,13 @@ const DEV_VERSION = "dev";
  *  BreadcrumbDropdown's MENU_GAP_PX — 4px). */
 const MENU_GAP_PX = 4;
 
+/** Fixed section order + labels for the grouped menu (260731-oiho). */
+const MENU_SECTIONS: { key: MenuGroup; label: string }[] = [
+  { key: "view", label: "View" },
+  { key: "window", label: "Window" },
+  { key: "app", label: "App" },
+];
+
 /**
  * Shared overflow-menu row styling (260715-h1ck), hosted here — the file both
  * `top-bar.tsx` (the row components) and `view-switcher.tsx` (`ViewSwitcherMenuRows`)
@@ -43,7 +50,7 @@ const MENU_GAP_PX = 4;
  *    every plain menu row.
  */
 export const MENU_ROW_BASE =
-  "w-full text-left flex items-center gap-2 px-3 py-2 text-sm transition-colors";
+  "w-full text-left flex items-center gap-2 px-2.5 py-1.5 text-xs transition-colors";
 export const MENU_ROW_REST =
   "text-text-secondary hover:text-text-primary hover:bg-bg-card";
 export const MENU_ROW_DISABLED =
@@ -53,12 +60,54 @@ export const MENU_ROW_ACTIVE = "bg-accent-green text-bg-primary";
 export const MENU_ROW_CLASS = `${MENU_ROW_BASE} ${MENU_ROW_REST} ${MENU_ROW_DISABLED}`;
 
 /**
- * A single overflowed control, rendered as a menu row. `id` is the registry id
- * (stable key); `node` is the control's `menuRender` output — a self-contained
- * row that owns exactly one focusable element (a `<button role="menuitem">`,
- * `<a role="menuitem">`, or a stepper row whose first control is focusable).
+ * Shared top-bar icon-button sizing (260731-oiho), hosted here for the same
+ * no-cycle reason as `MENU_ROW_*` (every consumer — `top-bar.tsx`,
+ * `open-button.tsx`, `view-switcher.tsx`, this menu — already imports this
+ * file). The size is a FIXED square — 28×28 on fine pointers, 30×30 on coarse —
+ * replacing the old copy-pasted `min-w-[24px] min-h-[24px]` floors, which let
+ * rendered sizes drift with content (the sidebar toggle rendered visibly
+ * smaller than the right cluster). Decomposed like `MENU_ROW_*` so callsites
+ * with state-driven colors (pressed/accent toggles) compose exactly what they
+ * need around the shared geometry:
+ *
+ *  - `TOP_BAR_BUTTON_BASE` — geometry only (fixed square, rounded border box,
+ *    centering, `shrink-0`). No color tokens.
+ *  - `TOP_BAR_BUTTON_REST` — the resting/hover color treatment.
+ *  - `TOP_BAR_BUTTON` — the default composition (glint + base + rest) used by
+ *    every plain icon button.
+ *  - `TOP_BAR_BUTTON_H` — the shared HEIGHT axis alone, for content-width
+ *    chips that carry their OWN border (UpdateChip) and must align with the
+ *    square buttons without a fixed width.
+ *  - `TOP_BAR_SEGMENT_H` — the height for segments INSIDE a bordered chip
+ *    wrapper (the split/Open/ViewSwitcher segment groups): the wrapper's
+ *    border adds 2px, so segments are 2px shorter to keep the chip's TOTAL
+ *    box identical to the squares (26+2 = 28 fine, 28+2 = 30 coarse).
  */
-export type OverflowMenuRow = { id: string; node: ReactNode };
+export const TOP_BAR_BUTTON_BASE =
+  "w-[28px] h-[28px] coarse:w-[30px] coarse:h-[30px] rounded border transition-colors flex items-center justify-center shrink-0";
+export const TOP_BAR_BUTTON_REST =
+  "border-border text-text-secondary hover:border-text-secondary";
+export const TOP_BAR_BUTTON = `rk-glint ${TOP_BAR_BUTTON_BASE} ${TOP_BAR_BUTTON_REST}`;
+export const TOP_BAR_BUTTON_H = "h-[28px] coarse:h-[30px]";
+export const TOP_BAR_SEGMENT_H = "h-[26px] coarse:h-[28px]";
+
+/**
+ * Menu section identity (260731-oiho): every registry entry names the section
+ * its menu rows belong to; the menu renders non-empty sections in the fixed
+ * View → Window → App order under thin uppercase labels. The partition
+ * preserves registry (pyramid) order within each section, so the view-switcher
+ * rows keep leading the menu.
+ */
+export type MenuGroup = "view" | "window" | "app";
+
+/**
+ * A single overflowed control, rendered as a menu row. `id` is the registry id
+ * (stable key); `group` is the section it renders under (260731-oiho); `node`
+ * is the control's `menuRender` output — a self-contained row that owns exactly
+ * one focusable element (a `<button role="menuitem">`, `<a role="menuitem">`,
+ * or a stepper row whose first control is focusable).
+ */
+export type OverflowMenuRow = { id: string; group: MenuGroup; node: ReactNode };
 
 type Props = {
   /** Overflowed controls, already in pyramid order, each pre-rendered as a row. */
@@ -274,6 +323,100 @@ export function TopBarOverflowMenu({ rows, updateOverflowed }: Props) {
       ? `Update run-kit: v${current} → v${latest}`
       : `Update: ${toolSummary}`;
 
+  // Section partition (260731-oiho): non-empty sections render in the fixed
+  // View → Window → App order under thin uppercase labels (the OpenButton
+  // "on host" header treatment). The always-present version row rides at the
+  // App section's tail, so the App section always renders. When the menu holds
+  // ONLY the version row (nothing overflowed, no menuOnly rows — server/host
+  // modes at wide widths) no labels render — the row keeps its minimal form.
+  const sections = MENU_SECTIONS.map((s) => ({
+    ...s,
+    rows: rows.filter((r) => r.group === s.key),
+  })).filter((s) => s.rows.length > 0 || s.key === "app");
+  const showLabels = rows.length > 0;
+
+  // The fixed version row — the App section's tail: the update surface when a
+  // qualifying update is pending without an in-bar chip, else the resting
+  // version-copy + check-⟳ form (260720-ml7k).
+  const versionNode = asUpdateSurface ? (
+    <button
+      type="button"
+      role="menuitem"
+      tabIndex={versionRowFocused ? 0 : -1}
+      onFocus={() => setVersionRowFocused(true)}
+      onBlur={() => setVersionRowFocused(false)}
+      disabled={updating}
+      onClick={triggerUpdate}
+      aria-label={updating ? "Updating run-kit" : updateLabel}
+      className="w-full text-left flex items-center gap-2 px-2.5 py-1.5 text-xs text-accent-green hover:bg-bg-card transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+    >
+      {updating ? (
+        <>
+          <LogoSpinner size={12} />
+          <span>{"updating…"}</span>
+        </>
+      ) : (
+        <span>{updateRowText}</span>
+      )}
+    </button>
+  ) : (
+    // Resting row: version copy button + the check-again ⟳ (260720-ml7k).
+    // The ⟳ is a PLAIN control (no role="menuitem", tabIndex -1) so the
+    // container's role-keyed close handler does not fire — the menu stays
+    // open across the ~1-2s check and the spinner/single-flight state is
+    // visible (the font-stepper precedent for non-terminal menu actions).
+    // Arrow-nav still reaches it via the `button:not([disabled])`
+    // focusables selector.
+    <div className="flex items-center gap-1 pr-2">
+      <Tip label={daemonVersion ? "Copy version" : undefined}>
+        <button
+          type="button"
+          role="menuitem"
+          tabIndex={versionRowFocused ? 0 : -1}
+          onFocus={() => setVersionRowFocused(true)}
+          onBlur={() => setVersionRowFocused(false)}
+          onClick={handleCopy}
+          aria-label={daemonVersion ? `${versionText} (copy)` : "RunKit"}
+          className="flex-1 min-w-0 text-left px-2.5 py-1.5 text-xs text-text-secondary hover:text-text-primary hover:bg-bg-card transition-colors"
+        >
+          {versionText}
+        </button>
+      </Tip>
+      {showCheck && (
+        <Tip label="Check for updates">
+        <button
+          type="button"
+          tabIndex={-1}
+          disabled={checking}
+          onClick={() => runUpdateCheck(false)}
+          aria-label="Check for updates"
+          className={`${TOP_BAR_BUTTON_BASE} ${TOP_BAR_BUTTON_REST} hover:text-text-primary disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-border`}
+        >
+          {checking ? (
+            <LogoSpinner size={12} />
+          ) : (
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              {/* lucide rotate-cw — the refresh vocabulary (RefreshButton) */}
+              <path d="M21 12a9 9 0 1 1-3-6.7L21 8" />
+              <path d="M21 3v5h-5" />
+            </svg>
+          )}
+        </button>
+        </Tip>
+      )}
+    </div>
+  );
+
   return (
     <div
       ref={containerRef}
@@ -307,7 +450,7 @@ export function TopBarOverflowMenu({ rows, updateOverflowed }: Props) {
         aria-haspopup="true"
         aria-expanded={open}
         aria-label="More controls"
-        className="rk-glint relative min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center"
+        className={`${TOP_BAR_BUTTON} relative`}
       >
         <svg
           width="14"
@@ -344,90 +487,28 @@ export function TopBarOverflowMenu({ rows, updateOverflowed }: Props) {
           style={{ top: menuPos.top, right: menuPos.right }}
           className="fixed bg-bg-primary border border-border rounded-lg shadow-2xl py-1 min-w-[200px] max-w-[280px] z-50 max-h-[70vh] overflow-y-auto"
         >
-          {rows.map((row) => (
-            <div key={row.id} data-menu-row>
-              {row.node}
+          {sections.map((s, i) => (
+            <div key={s.key}>
+              {/* Section separators use the pre-existing divider styling; the
+                  thin uppercase label is aria-hidden decoration (the OpenButton
+                  "on host" header precedent) — menu semantics ride the rows. */}
+              {i > 0 && <div className="border-t border-border my-1" />}
+              {showLabels && (
+                <div
+                  aria-hidden="true"
+                  className="px-2.5 pt-1.5 pb-0.5 text-[10px] uppercase tracking-wider text-text-secondary select-none"
+                >
+                  {s.label}
+                </div>
+              )}
+              {s.rows.map((row) => (
+                <div key={row.id} data-menu-row>
+                  {row.node}
+                </div>
+              ))}
+              {s.key === "app" && versionNode}
             </div>
           ))}
-          {rows.length > 0 && <div className="border-t border-border my-1" />}
-          {asUpdateSurface ? (
-            <button
-              type="button"
-              role="menuitem"
-              tabIndex={versionRowFocused ? 0 : -1}
-              onFocus={() => setVersionRowFocused(true)}
-              onBlur={() => setVersionRowFocused(false)}
-              disabled={updating}
-              onClick={triggerUpdate}
-              aria-label={updating ? "Updating run-kit" : updateLabel}
-              className="w-full text-left flex items-center gap-2 px-3 py-2 text-sm text-accent-green hover:bg-bg-card transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-            >
-              {updating ? (
-                <>
-                  <LogoSpinner size={12} />
-                  <span>{"updating…"}</span>
-                </>
-              ) : (
-                <span>{updateRowText}</span>
-              )}
-            </button>
-          ) : (
-            // Resting row: version copy button + the check-again ⟳ (260720-ml7k).
-            // The ⟳ is a PLAIN control (no role="menuitem", tabIndex -1) so the
-            // container's role-keyed close handler does not fire — the menu stays
-            // open across the ~1-2s check and the spinner/single-flight state is
-            // visible (the font-stepper precedent for non-terminal menu actions).
-            // Arrow-nav still reaches it via the `button:not([disabled])`
-            // focusables selector.
-            <div className="flex items-center gap-1 pr-2">
-              <Tip label={daemonVersion ? "Copy version" : undefined}>
-                <button
-                  type="button"
-                  role="menuitem"
-                  tabIndex={versionRowFocused ? 0 : -1}
-                  onFocus={() => setVersionRowFocused(true)}
-                  onBlur={() => setVersionRowFocused(false)}
-                  onClick={handleCopy}
-                  aria-label={daemonVersion ? `${versionText} (copy)` : "RunKit"}
-                  className="flex-1 min-w-0 text-left px-3 py-2 text-sm text-text-secondary hover:text-text-primary hover:bg-bg-card transition-colors"
-                >
-                  {versionText}
-                </button>
-              </Tip>
-              {showCheck && (
-                <Tip label="Check for updates">
-                <button
-                  type="button"
-                  tabIndex={-1}
-                  disabled={checking}
-                  onClick={() => runUpdateCheck(false)}
-                  aria-label="Check for updates"
-                  className="shrink-0 min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border border-border text-text-secondary hover:border-text-secondary hover:text-text-primary transition-colors flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-border"
-                >
-                  {checking ? (
-                    <LogoSpinner size={12} />
-                  ) : (
-                    <svg
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden="true"
-                    >
-                      {/* lucide rotate-cw — the refresh vocabulary (RefreshButton) */}
-                      <path d="M21 12a9 9 0 1 1-3-6.7L21 8" />
-                      <path d="M21 3v5h-5" />
-                    </svg>
-                  )}
-                </button>
-                </Tip>
-              )}
-            </div>
-          )}
         </div>
       )}
     </div>

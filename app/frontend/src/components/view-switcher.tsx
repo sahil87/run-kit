@@ -3,6 +3,7 @@ import {
   MENU_ROW_BASE,
   MENU_ROW_REST,
   MENU_ROW_ACTIVE,
+  TOP_BAR_SEGMENT_H,
 } from "@/components/top-bar-overflow-menu";
 import { Tip } from "@/components/tip";
 
@@ -111,7 +112,7 @@ export function ViewSwitcher({ views, active, onSelect }: ViewSwitcherProps) {
               onClick={() => onSelect(view)}
               aria-pressed={isActive}
               aria-label={`${VIEW_LABEL[view]} view`}
-              className={`rk-glint px-1.5 min-h-[24px] coarse:min-h-[30px] text-[11px] font-mono flex items-center justify-center transition-colors ${
+              className={`rk-glint px-1.5 ${TOP_BAR_SEGMENT_H} text-[11px] font-mono flex items-center justify-center transition-colors ${
                 isActive
                   ? "bg-accent-green text-bg-primary"
                   : "text-text-secondary hover:text-text-primary"

@@ -37,7 +37,7 @@ spec also asserts their absence.
   - the `/ws/terminals` mux WebSocket is stubbed (accepted and held open) so the terminal
     route mounts without a backend.
 - `beforeEach` installs the routes, navigates to the percent-encoded terminal
-  window route `/default/%401` (`@1`), and waits for the **Close pane** button to
+  window route `/default/%401` (`@1`), and waits for the **Split vertically** primary segment (the ✕ left the bar in 260731-oiho) to
   be visible — the signal the state-socket payload has landed and `currentWindow` is set.
   The Refresh button cannot be this anchor: it rides the L3 always-block
   (260704-9o7k) and is visible at first paint, before the mocked state-socket event is
@@ -62,7 +62,7 @@ the hidden measurement probe.
 1. Poll the `/select` route-mock hit counter until `> 0` — proof the trailing-`*`
    glob intercepts the `?server=default` URL rather than falling through to the
    real :3020 backend (the POST fires in a mount-time effect fractionally after
-   the close button renders).
+   the split anchor renders).
 2. Set a wide 1280px viewport so the L3 controls stay in-bar.
 3. Assert the `Refresh page` button is visible.
 4. In the page, assert the right cell contains NO theme button, help anchor,

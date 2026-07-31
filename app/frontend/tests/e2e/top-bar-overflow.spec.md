@@ -9,25 +9,28 @@ assertions here fail on that code and pass on the fixed code.
 
 Covers the intake §8 width sweep (1280 → 1024 → 800 → 700 → 640 → 500 → 375):
 (a) no top-bar bounding-box overlap; (b) L1 drops before L2 before L3; (c) the
-chevron menu contains exactly the dropped controls + the version row; (d) the
-version row copies to the clipboard; (e) the exempt chevron is always visible
-(the connection dot left the bar in 260724-6j1v — it lives in the sidebar
-footer); (f) a menu action (fixed-width toggle) works from the menu. Since
-260724-6j1v the L3 tier is Refresh only — theme/help moved to the sidebar
-footer and the bell folded into the settings dialog, so the menu asserts their
-rows' ABSENCE.
+chevron menu contains the dropped + menuOnly rows + the version row, grouped
+under View / Window / App section labels (260731-oiho); (d) the version row
+copies to the clipboard; (e) the exempt chevron is always visible (the
+connection dot left the bar in 260724-6j1v — it lives in the sidebar footer);
+(f) a menu action (fixed-width toggle) works from the menu; (g) the three
+demoted controls (fixed-width, Aa, close-pane — `menuOnly` since 260731-oiho)
+render in-bar NOWHERE at any width while their rows are ALWAYS in the menu.
+Since 260731-oiho the terminal fit tiers are: L1 = the ONE merged split control
+(primary segment `Split vertically`), L2 = empty, L3 = Refresh — the in-bar end
+state is Open · Split(▾) · Refresh · chevron.
 
 ## Shared setup
 
 - Real isolated tmux server (`rk-test-e2e`, port 3020 via `just test-e2e`). A
   dedicated session with an extra named window (`overflow-win-<ts>`) so the
-  terminal route renders the control-rich right cluster (L1 splits + fixed-width,
-  L2 Aa + close, L3 refresh). The ViewSwitcher block adds a SECOND,
-  **web-capable** long-named window (`overflow-view-long-worktree-<ts>` with a
-  non-empty `@rk_url` ⇒ `[tty|web]`) so the switcher's `View:` menu rows actually
-  render (the entry is terminal-only and gated on a multi-view window; the
-  tty-only window above contributes no view-switcher rows, so the pyramid tests
-  are unaffected).
+  terminal route renders the right cluster (the merged split control + refresh
+  in-bar; fixed-width / Aa / close-pane are menuOnly rows). The ViewSwitcher
+  block adds a SECOND, **web-capable** long-named window
+  (`overflow-view-long-worktree-<ts>` with a non-empty `@rk_url` ⇒ `[tty|web]`)
+  so the switcher's `View:` menu rows actually render (the entry is
+  terminal-only and gated on a multi-view window; the tty-only window above
+  contributes no view-switcher rows, so the pyramid tests are unaffected).
 - `resolveWindow`/`gotoWindow` (from `_ready.ts`) resolve the window id and
   navigate to `/${server}/${id}`.
 - In-bar control visibility is measured via accessible-name ROLE queries
@@ -36,8 +39,10 @@ rows' ABSENCE.
   The ViewSwitcher is `menuOnly` as of 260722-n2n4, so its absence is checked two
   ways: no accessible `role="group"` named `Window view` (no in-bar pill) AND no
   `view-toggle` testid anywhere in the DOM (the probe carries no pill copy either
-  — fit candidates only). `intersects()` is the standard rect-overlap helper
-  (shared shape with `top-bar-overlap.spec.ts`).
+  — fit candidates only). The 260731-oiho demotions ride the same mechanism, so
+  their never-in-bar checks reuse the role-query approach (`MENU_ONLY` list).
+  `intersects()` is the standard rect-overlap helper (shared shape with
+  `top-bar-overlap.spec.ts`).
 
 ## Tests
 
@@ -45,22 +50,27 @@ rows' ABSENCE.
 
 **What it proves:** the exempt chevron renders at every width while the bar
 carries NO `role="status"` connection dot (260724-6j1v — the dot moved to the
-sidebar footer) (e), and the right cluster never overlaps the center heading or
-the breadcrumb nav, with no horizontal page overflow (a).
+sidebar footer) (e), the right cluster never overlaps the center heading or
+the breadcrumb nav with no horizontal page overflow (a), and the three demoted
+menuOnly controls render in-bar NOWHERE at any width (g, 260731-oiho).
 
 **Steps:**
 1. Navigate to the long-named terminal window.
 2. For each width in the sweep: assert the `More controls` chevron is visible
-   and the right cell contains zero `role="status"` elements; assert the right
-   cell's box does not intersect the heading box nor the nav box; assert
-   `document.body.scrollWidth ≤ width`.
+   and the right cell contains zero `role="status"` elements; assert the
+   in-bar count of the `MENU_ONLY` trio (fixed-width / Aa / close-pane) is 0;
+   assert the right cell's box does not intersect the heading box nor the nav
+   box; assert `document.body.scrollWidth ≤ width`.
 
 ### `controls overflow in pyramid order (L1 before L2 before L3) as width shrinks`
 
 **What it proves:** the M1 fix (in-bar controls exist at wide widths) AND the
-pyramid drop order — overflow consumes from the front, so L1 empties before L2
-starts dropping and L2 empties before L3 starts dropping; each tier's in-bar count
-is monotonic non-increasing as width shrinks; at 375px everything has overflowed.
+pyramid drop order — overflow consumes from the front, so L1 (the merged split
+control) empties before L3 (Refresh) starts dropping (L2 is empty since the
+260731-oiho demotions); each tier's in-bar count is monotonic non-increasing as
+width shrinks; at 375px the pyramid's front (the L1 split) has overflowed — the
+lightened 260731-oiho cluster deliberately keeps the L3 Refresh in-bar at the
+mobile leaf, so the ORDER (not an all-gone cliff) is the contract.
 
 **Steps:**
 1. At 1280px assert at least some L3 controls render in-bar (the direct M1
@@ -72,19 +82,38 @@ is monotonic non-increasing as width shrinks; at 375px everything has overflowed
    invariants are asserted on a settled layout, not a transient frame. Assert L1
    and L2 counts are non-increasing; assert L2 is full while any L1 is in-bar and
    L3 is full while any L2 is in-bar.
-3. At 375px assert the total in-bar control count is 0.
+3. At 375px assert the L1 in-bar count is 0 (the split has overflowed).
 
-### `the chevron menu contains exactly the overflowed controls plus the version row`
+### `the chevron menu contains the overflowed + menuOnly rows plus the version row, grouped under section labels`
 
-**What it proves:** at 375px (everything overflowed) the menu lists every mapped
-control row plus the always-present version row (c).
+**What it proves:** at 375px the menu lists the overflowed split rows (the
+merged entry's two one-action rows) and the menuOnly trio's rows plus the
+always-present version row, grouped under the View / Window / App uppercase
+section labels (c, 260731-oiho). Refresh (L3) survives in-bar at the mobile
+leaf on the lightened cluster, so its row is deliberately NOT asserted.
 
 **Steps:**
 1. At 375px open the `More controls` menu.
-2. Assert the Split vertical / Split horizontal / Fixed width (checkbox) / Close
-   pane / Refresh page rows are present, plus a `RunKit` version row; assert the
-   Theme: / Help / Documentation / notification rows are ABSENT (260724-6j1v —
-   that chrome left the top bar entirely).
+2. Assert the Split vertical / Split horizontal / Fixed width (checkbox) /
+   Terminal font (stepper group) / Close pane rows are present, plus a `RunKit`
+   version row; assert the View / Window / App section labels render; assert
+   the Theme: / Help / Documentation / notification rows are ABSENT
+   (260724-6j1v — that chrome left the top bar entirely).
+
+### `the menuOnly rows (fixed-width / Aa / close-pane) are in the menu even at a WIDE width`
+
+**What it proves:** the 260731-oiho demotion is menu-ONLY, not space-driven —
+at 1280px the bar has room (the split control is in-bar) yet the demoted trio
+still renders only as menu rows; and an in-bar entry's rows are NOT duplicated
+into the menu.
+
+**Steps:**
+1. Navigate to the terminal window; set 1280×800; gate on the in-bar
+   `Split vertically` segment.
+2. Assert the in-bar count of the `MENU_ONLY` trio is 0.
+3. Open the menu; assert the Fixed width checkbox row, the Terminal font stepper
+   group, and the Close pane row are present; assert NO `Split vertical` row
+   (the split is in-bar, so it contributes no menu rows).
 
 ### `the version row copies the version to the clipboard`
 

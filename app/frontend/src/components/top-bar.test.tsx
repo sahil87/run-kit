@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, cleanup, fireEvent, act, waitFor, within } from "@testing-library/react";
 import { TopBar } from "./top-bar";
+import { TopBarOverflowMenu } from "./top-bar-overflow-menu";
 import { ChromeProvider } from "@/contexts/chrome-context";
 import { ThemeProvider } from "@/contexts/theme-context";
 import { ToastProvider } from "@/components/toast";
@@ -429,12 +430,34 @@ describe("TopBar", () => {
     expect(
       Boolean(hamburger.compareDocumentPosition(nav) & Node.DOCUMENT_POSITION_FOLLOWING),
     ).toBe(true);
-    // Coarse touch target joins the top-bar 24px-fine / 30px-coarse button
-    // vocabulary (fine-pointer minimum stays 24px).
-    expect(hamburger.className).toContain("coarse:min-w-[30px]");
-    expect(hamburger.className).toContain("coarse:min-h-[30px]");
-    expect(hamburger.className).toContain("min-w-[24px]");
-    expect(hamburger.className).toContain("min-h-[24px]");
+    // The toggle carries the shared FIXED-size token (260731-oiho): 28px fine /
+    // 30px coarse squares — fixed `w/h`, not the old `min-*` floors that let
+    // rendered sizes drift with content.
+    expect(hamburger.className).toContain("w-[28px]");
+    expect(hamburger.className).toContain("h-[28px]");
+    expect(hamburger.className).toContain("coarse:w-[30px]");
+    expect(hamburger.className).toContain("coarse:h-[30px]");
+    expect(hamburger.className).not.toContain("min-w-[24px]");
+  });
+
+  it("renders the history ◀ ▶ arrows in the LEFT cluster, between the hamburger and the breadcrumb nav (260731-oiho)", () => {
+    // macOS convention: sidebar toggle → back → forward → brand crumb. The
+    // arrows are OUTSIDE the anchored center heading box now.
+    const { container } = renderTopBar();
+    const hamburger = screen.getByLabelText("Toggle navigation");
+    const back = screen.getByRole("button", { name: "Go back" });
+    const nav = container.querySelector('nav[aria-label="Breadcrumb"]')!;
+    const follows = (a: Element, b: Element) =>
+      Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    // Same left cluster as the hamburger; hamburger → arrows → nav order.
+    expect(back.closest("div")).toBe(nav.parentElement);
+    expect(follows(hamburger, back)).toBe(true);
+    expect(follows(back, nav)).toBe(true);
+    // No arrow inside the anchored center heading box (its `sm:min-w-[28ch]`
+    // container carries only heading furniture now).
+    const anchorBox = container.querySelector(".sm\\:min-w-\\[28ch\\]");
+    expect(anchorBox).not.toBeNull();
+    expect(anchorBox!.querySelector('[aria-label="Go back"]')).toBeNull();
   });
 
   it("does not show 'live' or 'disconnected' text", () => {
@@ -450,22 +473,34 @@ describe("TopBar", () => {
     expect(screen.getByTestId("top-bar-right").querySelector('[role="status"]')).toBeNull();
   });
 
-  it("renders FixedWidthToggle in terminal mode (L1 terminal-only button)", () => {
+  it("fixed-width is MENU-ONLY (260731-oiho): no in-bar/probe toggle, always a menu checkbox row in terminal mode", () => {
     renderTopBar();
-    expect(screen.getByLabelText("Toggle fixed terminal width")).toBeInTheDocument();
+    // The in-bar toggle renders NOWHERE — not the bar, not the measurement
+    // probe (menuOnly excludes it from both, the n2n4 mechanism).
+    expect(screen.queryByLabelText("Toggle fixed terminal width")).not.toBeInTheDocument();
+    // Its checkbox row is ALWAYS in the chevron menu.
+    act(() => fireEvent.click(screen.getByLabelText("More controls")));
+    const menu = screen.getByRole("menu", { name: "More controls" });
+    expect(within(menu).getByRole("menuitemcheckbox", { name: /Fixed width/ })).toBeInTheDocument();
   });
 
-  it("does NOT render FixedWidthToggle outside terminal mode (server/board/host)", () => {
-    // 260704-9o7k: the fixed-width BUTTON is terminal-only now; the 900px
-    // wrapper + palette action live in AppShell and are untouched.
+  it("does NOT render the fixed-width row outside terminal mode (server/board/host)", () => {
+    // 260704-9o7k: fixed-width is terminal-only; the 900px wrapper + palette
+    // action live in AppShell and are untouched.
+    const noFixedWidthAnywhere = () => {
+      expect(screen.queryByLabelText("Toggle fixed terminal width")).not.toBeInTheDocument();
+      act(() => fireEvent.click(screen.getByLabelText("More controls")));
+      const menu = screen.getByRole("menu", { name: "More controls" });
+      expect(within(menu).queryByRole("menuitemcheckbox", { name: /Fixed width/ })).not.toBeInTheDocument();
+    };
     renderTopBar({ mode: "server", currentWindow: null, windowName: "" });
-    expect(screen.queryByLabelText("Toggle fixed terminal width")).not.toBeInTheDocument();
+    noFixedWidthAnywhere();
     cleanup();
     renderTopBar({ mode: "board", currentWindow: null, boardName: "b", paneCount: 1, serverCount: 1, boards: [{ name: "b" }] });
-    expect(screen.queryByLabelText("Toggle fixed terminal width")).not.toBeInTheDocument();
+    noFixedWidthAnywhere();
     cleanup();
     renderTopBar({ mode: "host", sessions: [], currentSession: null, currentWindow: null, sessionName: "", windowName: "", server: "" });
-    expect(screen.queryByLabelText("Toggle fixed terminal width")).not.toBeInTheDocument();
+    noFixedWidthAnywhere();
   });
 
   it("keeps the L3 pyramid order (Refresh → chevron, right-most) with theme/help/bell gone from the bar (260724-6j1v)", () => {
@@ -560,91 +595,82 @@ describe("TopBar", () => {
     });
   });
 
-  describe("TerminalFontControl", () => {
+  describe("terminal-font — MENU-ONLY stepper row (260731-oiho)", () => {
+    // The in-bar Aa popover (TerminalFontControl) is demoted via `menuOnly`
+    // (the n2n4 mechanism — the component stays intact but unreachable; the
+    // reset + full stepper also live in the settings dialog and the palette's
+    // Increase/Decrease/Reset actions). The chevron menu's stepper row
+    // (TerminalFontMenuRow) is the top-bar surface now.
     const FONT_KEY = "runkit-terminal-font-size";
 
     afterEach(() => {
       localStorage.clear();
     });
 
-    /** The stepper lives inside a popover; open it via the "Aa" trigger first. */
-    function openFontPopover() {
-      act(() => fireEvent.click(screen.getByLabelText("Terminal font size")));
+    /** Open the chevron menu — the stepper row always renders there. */
+    function openMenu() {
+      act(() => fireEvent.click(screen.getByLabelText("More controls")));
+      return screen.getByRole("menu", { name: "More controls" });
     }
 
-    it("hides the stepper until the Aa trigger is clicked, then reveals all three buttons", () => {
+    it("renders no in-bar Aa trigger anywhere (bar or probe); the stepper row is in the menu", () => {
       localStorage.setItem(FONT_KEY, "13");
       renderTopBar();
-      // Collapsed: only the trigger is present, no stepper buttons.
-      expect(screen.getByLabelText("Terminal font size")).toBeInTheDocument();
-      expect(screen.queryByLabelText("Decrease terminal font")).not.toBeInTheDocument();
-      openFontPopover();
-      expect(screen.getByLabelText("Decrease terminal font")).toBeInTheDocument();
-      expect(screen.getByLabelText("Increase terminal font")).toBeInTheDocument();
-      expect(screen.getByLabelText("Reset terminal font")).toBeInTheDocument();
-      expect(screen.getByLabelText("Terminal font size 13 pixels")).toHaveTextContent("13px");
+      // The Aa BUTTON renders nowhere — menuOnly excludes bar + probe.
+      expect(screen.queryByRole("button", { name: "Terminal font size" })).not.toBeInTheDocument();
+      const menu = openMenu();
+      expect(within(menu).getByLabelText("Decrease terminal font")).toBeInTheDocument();
+      expect(within(menu).getByLabelText("Increase terminal font")).toBeInTheDocument();
+      expect(within(menu).getByLabelText("Terminal font size 13 pixels")).toHaveTextContent("13px");
     });
 
-    it("steps and persists on increase / decrease", () => {
+    it("steps and persists on increase / decrease — without closing the menu (plain buttons, no menuitem role)", () => {
       localStorage.setItem(FONT_KEY, "13");
       renderTopBar();
-      openFontPopover();
-      act(() => fireEvent.click(screen.getByLabelText("Increase terminal font")));
-      expect(screen.getByLabelText("Terminal font size 14 pixels")).toBeInTheDocument();
+      const menu = openMenu();
+      act(() => fireEvent.click(within(menu).getByLabelText("Increase terminal font")));
+      expect(within(menu).getByLabelText("Terminal font size 14 pixels")).toBeInTheDocument();
       expect(localStorage.getItem(FONT_KEY)).toBe("14");
-      act(() => fireEvent.click(screen.getByLabelText("Decrease terminal font")));
-      expect(screen.getByLabelText("Terminal font size 13 pixels")).toBeInTheDocument();
+      act(() => fireEvent.click(within(menu).getByLabelText("Decrease terminal font")));
+      expect(within(menu).getByLabelText("Terminal font size 13 pixels")).toBeInTheDocument();
       expect(localStorage.getItem(FONT_KEY)).toBe("13");
+      // The menu stayed open across repeated steps (role-keyed close skips the
+      // stepper's plain buttons).
+      expect(screen.getByRole("menu", { name: "More controls" })).toBeInTheDocument();
     });
 
     it("disables the decrease button at the min bound (8)", () => {
       localStorage.setItem(FONT_KEY, "8");
       renderTopBar();
-      openFontPopover();
-      expect(screen.getByLabelText("Decrease terminal font")).toBeDisabled();
-      expect(screen.getByLabelText("Increase terminal font")).not.toBeDisabled();
+      const menu = openMenu();
+      expect(within(menu).getByLabelText("Decrease terminal font")).toBeDisabled();
+      expect(within(menu).getByLabelText("Increase terminal font")).not.toBeDisabled();
     });
 
     it("disables the increase button at the max bound (24)", () => {
       localStorage.setItem(FONT_KEY, "24");
       renderTopBar();
-      openFontPopover();
-      expect(screen.getByLabelText("Increase terminal font")).toBeDisabled();
-      expect(screen.getByLabelText("Decrease terminal font")).not.toBeDisabled();
-    });
-
-    it("reset clears the stored preference (forget)", () => {
-      localStorage.setItem(FONT_KEY, "18");
-      renderTopBar();
-      openFontPopover();
-      expect(screen.getByLabelText("Terminal font size 18 pixels")).toBeInTheDocument();
-      act(() => fireEvent.click(screen.getByLabelText("Reset terminal font")));
-      expect(localStorage.getItem(FONT_KEY)).toBeNull();
-    });
-
-    it("closes the popover on Escape and returns focus to the trigger", () => {
-      localStorage.setItem(FONT_KEY, "13");
-      renderTopBar();
-      openFontPopover();
-      expect(screen.getByLabelText("Decrease terminal font")).toBeInTheDocument();
-      act(() => fireEvent.keyDown(document, { key: "Escape" }));
-      expect(screen.queryByLabelText("Decrease terminal font")).not.toBeInTheDocument();
-      expect(screen.getByLabelText("Terminal font size")).toHaveFocus();
+      const menu = openMenu();
+      expect(within(menu).getByLabelText("Increase terminal font")).toBeDisabled();
+      expect(within(menu).getByLabelText("Decrease terminal font")).not.toBeDisabled();
     });
 
     it("is shown in terminal mode (a terminal surface to size)", () => {
       renderTopBar({ mode: "terminal" });
-      expect(screen.getByLabelText("Terminal font size")).toBeInTheDocument();
+      const menu = openMenu();
+      expect(within(menu).getByLabelText("Increase terminal font")).toBeInTheDocument();
     });
 
     it("is shown in board mode (board panes are terminals)", () => {
       renderTopBar({ mode: "board", boardName: "b", paneCount: 1, serverCount: 1, boards: [{ name: "b" }] });
-      expect(screen.getByLabelText("Terminal font size")).toBeInTheDocument();
+      const menu = openMenu();
+      expect(within(menu).getByLabelText("Increase terminal font")).toBeInTheDocument();
     });
 
     it("is hidden in server mode (dashboard has no terminal)", () => {
       renderTopBar({ mode: "server", currentWindow: null });
-      expect(screen.queryByLabelText("Terminal font size")).not.toBeInTheDocument();
+      const menu = openMenu();
+      expect(within(menu).queryByLabelText("Increase terminal font")).not.toBeInTheDocument();
     });
   });
 
@@ -726,21 +752,30 @@ describe("TopBar", () => {
     expect(screen.queryByText("+ New Window")).not.toBeInTheDocument();
   });
 
-  it("renders ClosePaneButton when a window is selected", () => {
+  it("close-pane is MENU-ONLY (260731-oiho): no in-bar ✕, a Close pane menu row when a window is selected", () => {
     renderTopBar();
-    expect(screen.getByLabelText("Close pane")).toBeInTheDocument();
-  });
-
-  it("does not render ClosePaneButton on dashboard (no window)", () => {
-    renderTopBar({ currentWindow: null, windowName: "" });
+    // The ✕ BUTTON renders nowhere (menuOnly excludes bar + probe) — it was a
+    // destructive control one slot from Refresh (misclick trap).
     expect(screen.queryByLabelText("Close pane")).not.toBeInTheDocument();
+    act(() => fireEvent.click(screen.getByLabelText("More controls")));
+    const menu = screen.getByRole("menu", { name: "More controls" });
+    expect(within(menu).getByRole("menuitem", { name: "Close pane" })).toBeInTheDocument();
   });
 
-  it("calls closePane API when ClosePaneButton is clicked", async () => {
+  it("does not render the Close pane row on dashboard (no window)", () => {
+    renderTopBar({ currentWindow: null, windowName: "" });
+    act(() => fireEvent.click(screen.getByLabelText("More controls")));
+    const menu = screen.getByRole("menu", { name: "More controls" });
+    expect(within(menu).queryByRole("menuitem", { name: "Close pane" })).not.toBeInTheDocument();
+  });
+
+  it("calls closePane API when the Close pane menu row is clicked", async () => {
     const { closePane } = await import("@/api/client");
     renderTopBar();
+    act(() => fireEvent.click(screen.getByLabelText("More controls")));
+    const menu = screen.getByRole("menu", { name: "More controls" });
     await act(async () => {
-      fireEvent.click(screen.getByLabelText("Close pane"));
+      fireEvent.click(within(menu).getByRole("menuitem", { name: "Close pane" }));
     });
     expect(closePane).toHaveBeenCalledWith("runkit", "@0");
   });
@@ -768,15 +803,24 @@ describe("TopBar", () => {
       });
     }
 
-    it("labels the board ✕ as 'Kill' and calls onRequestKill (NOT closePane) — the board Kill is consequence-gated", async () => {
+    /** Open the chevron menu — the Kill/Close rows live there (menuOnly). */
+    function openMenu() {
+      act(() => fireEvent.click(screen.getByLabelText("More controls")));
+      return screen.getByRole("menu", { name: "More controls" });
+    }
+
+    it("the menu row reads 'Kill' and calls onRequestKill (NOT closePane) — the board Kill is consequence-gated", async () => {
       const { closePane } = await import("@/api/client");
       vi.mocked(closePane).mockClear();
       const onRequestKill = vi.fn();
       renderBoard({ onRequestKill });
-      // The board ✕ reads "Kill" (verb discipline) — no old "Close pane"/"Unpin pane from board".
-      expect(screen.queryByLabelText("Close pane")).not.toBeInTheDocument();
-      expect(screen.queryByLabelText("Unpin pane from board")).not.toBeInTheDocument();
-      const kill = screen.getByLabelText("Kill");
+      // menuOnly (260731-oiho): no in-bar ✕ at all; and the row reads "Kill"
+      // (verb discipline) — no old "Close pane"/"Unpin pane from board".
+      expect(screen.queryByLabelText("Kill")).not.toBeInTheDocument();
+      const menu = openMenu();
+      expect(within(menu).queryByRole("menuitem", { name: "Close pane" })).not.toBeInTheDocument();
+      expect(within(menu).queryByRole("menuitem", { name: "Unpin pane from board" })).not.toBeInTheDocument();
+      const kill = within(menu).getByRole("menuitem", { name: "Kill" });
       await act(async () => {
         fireEvent.click(kill);
       });
@@ -785,10 +829,11 @@ describe("TopBar", () => {
       expect(closePane).not.toHaveBeenCalled();
     });
 
-    it("disables the board ✕ when there is no focused tile (empty board)", async () => {
+    it("disables the Kill row when there is no focused tile (empty board)", async () => {
       const onRequestKill = vi.fn();
       renderBoard({ focusedPane: null, paneCount: 0, onRequestKill });
-      const kill = screen.getByLabelText("Kill");
+      const menu = openMenu();
+      const kill = within(menu).getByRole("menuitem", { name: "Kill" });
       expect(kill).toBeDisabled();
       await act(async () => {
         fireEvent.click(kill);
@@ -796,35 +841,47 @@ describe("TopBar", () => {
       expect(onRequestKill).not.toHaveBeenCalled();
     });
 
-    it("renders both SplitButtons on board mode, wired to the focused tile", async () => {
+    it("renders the merged split control on board mode, wired to the focused tile", async () => {
       const { splitWindow } = await import("@/api/client");
       renderBoard();
+      // ONE merged control (260731-oiho): primary = split vertical; the ▾
+      // opens the direction menu carrying the horizontal action.
       const vsplit = screen.getByLabelText("Split vertically");
-      const hsplit = screen.getByLabelText("Split horizontally");
       expect(vsplit).toBeInTheDocument();
-      expect(hsplit).toBeInTheDocument();
+      expect(screen.queryByLabelText("Split horizontally")).not.toBeInTheDocument();
       await act(async () => {
         fireEvent.click(vsplit);
       });
       expect(splitWindow).toHaveBeenCalledWith("runkit", "@7", false, "~/code/x");
+      // ▾ → Split horizontal fires the horizontal split on the same target.
+      // (Attribute query: jsdom keeps the control in the aria-hidden probe.)
+      act(() => fireEvent.click(screen.getByLabelText("Split… (choose direction)")));
+      const dirMenu = document.querySelector<HTMLElement>('[role="menu"][aria-label="Split direction"]');
+      await act(async () => {
+        fireEvent.click(within(dirMenu!).getByText("Split horizontal"));
+      });
+      expect(splitWindow).toHaveBeenCalledWith("runkit", "@7", true, "~/code/x");
     });
 
-    it("renders no SplitButtons on an empty board (no focused tile)", () => {
+    it("renders no split control on an empty board (no focused tile)", () => {
       renderBoard({ focusedPane: null, paneCount: 0 });
       expect(screen.queryByLabelText("Split vertically")).not.toBeInTheDocument();
-      expect(screen.queryByLabelText("Split horizontally")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("Split… (choose direction)")).not.toBeInTheDocument();
     });
 
-    it("does NOT render FixedWidthToggle on board mode (terminal-only)", () => {
+    it("does NOT render the fixed-width row on board mode (terminal-only)", () => {
       renderBoard();
       expect(screen.queryByLabelText("Toggle fixed terminal width")).not.toBeInTheDocument();
+      const menu = openMenu();
+      expect(within(menu).queryByRole("menuitemcheckbox", { name: /Fixed width/ })).not.toBeInTheDocument();
     });
 
-    it("terminal-mode ✕ still calls closePane (kill) with the current window", async () => {
+    it("terminal-mode Close pane row still calls closePane with the current window", async () => {
       const { closePane } = await import("@/api/client");
       renderTopBar(); // terminal mode default
+      const menu = openMenu();
       await act(async () => {
-        fireEvent.click(screen.getByLabelText("Close pane"));
+        fireEvent.click(within(menu).getByRole("menuitem", { name: "Close pane" }));
       });
       expect(closePane).toHaveBeenCalledWith("runkit", "@0");
     });
@@ -935,72 +992,109 @@ describe("TopBar", () => {
     });
   });
 
-  it("renders SplitButton (vertical and horizontal) when window is selected", () => {
-    renderTopBar();
-    expect(screen.getByLabelText("Split vertically")).toBeInTheDocument();
-    expect(screen.getByLabelText("Split horizontally")).toBeInTheDocument();
-  });
+  describe("merged SplitControl (260731-oiho)", () => {
+    /** The direction menu by attribute — jsdom keeps the control inside the
+     *  aria-hidden probe, which `getByRole` excludes. */
+    const splitDirectionMenu = () =>
+      document.querySelector<HTMLElement>('[role="menu"][aria-label="Split direction"]');
 
-  it("does not render SplitButtons on dashboard (no window)", () => {
-    renderTopBar({ currentWindow: null, windowName: "" });
-    expect(screen.queryByLabelText("Split vertically")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Split horizontally")).not.toBeInTheDocument();
-  });
-
-  it("calls splitWindow API when SplitButton is clicked", async () => {
-    const { splitWindow } = await import("@/api/client");
-    renderTopBar();
-    await act(async () => {
-      fireEvent.click(screen.getByLabelText("Split vertically"));
-    });
-    expect(splitWindow).toHaveBeenCalledWith("runkit", "@0", false, "~/code/run-kit");
-  });
-
-  it("shows spinner and disables SplitButton while pending", async () => {
-    const { splitWindow } = await import("@/api/client");
-    let resolveAction!: () => void;
-    vi.mocked(splitWindow).mockImplementation(() => new Promise((r) => { resolveAction = () => r({ ok: true, pane_id: "%1" }); }));
-
-    renderTopBar();
-    const btn = screen.getByLabelText("Split vertically");
-    await act(async () => {
-      fireEvent.click(btn);
-      await Promise.resolve();
+    it("renders ONE split control when a window is selected: primary = vertical, ▾ = direction menu", () => {
+      renderTopBar();
+      // Primary segment + ▾ segment; no second per-direction button.
+      expect(screen.getByLabelText("Split vertically")).toBeInTheDocument();
+      expect(screen.getByLabelText("Split… (choose direction)")).toBeInTheDocument();
+      expect(screen.queryByLabelText("Split horizontally")).not.toBeInTheDocument();
+      // The ▾ carries menu-trigger a11y and opens the direction menu with BOTH
+      // actions (the complete option set, split-button convention).
+      const chevron = screen.getByLabelText("Split… (choose direction)");
+      expect(chevron).toHaveAttribute("aria-haspopup", "menu");
+      expect(chevron).toHaveAttribute("aria-expanded", "false");
+      act(() => fireEvent.click(chevron));
+      expect(chevron).toHaveAttribute("aria-expanded", "true");
+      // jsdom renders the control only in the aria-hidden measurement probe
+      // (zero widths → nothing in-bar), which role queries exclude — locate
+      // the direction menu by attribute instead.
+      const menu = splitDirectionMenu();
+      expect(menu).not.toBeNull();
+      expect(within(menu!).getByText("Split vertical")).toBeInTheDocument();
+      expect(within(menu!).getByText("Split horizontal")).toBeInTheDocument();
     });
 
-    // Button should be disabled and show spinner
-    expect(btn).toBeDisabled();
-    expect(btn.querySelector("svg[viewBox='7 10 50 44']")).toBeTruthy();
-
-    // Resolve the action
-    await act(async () => {
-      resolveAction();
+    it("does not render the split control on dashboard (no window)", () => {
+      renderTopBar({ currentWindow: null, windowName: "" });
+      expect(screen.queryByLabelText("Split vertically")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("Split… (choose direction)")).not.toBeInTheDocument();
     });
-    expect(btn).not.toBeDisabled();
-    expect(btn.querySelector("svg[viewBox='7 10 50 44']")).toBeFalsy();
+
+    it("primary click fires a VERTICAL split with the window's coordinates", async () => {
+      const { splitWindow } = await import("@/api/client");
+      renderTopBar();
+      await act(async () => {
+        fireEvent.click(screen.getByLabelText("Split vertically"));
+      });
+      expect(splitWindow).toHaveBeenCalledWith("runkit", "@0", false, "~/code/run-kit");
+    });
+
+    it("▾ → Split horizontal fires a HORIZONTAL split and closes the direction menu", async () => {
+      const { splitWindow } = await import("@/api/client");
+      renderTopBar();
+      act(() => fireEvent.click(screen.getByLabelText("Split… (choose direction)")));
+      await act(async () => {
+        fireEvent.click(within(splitDirectionMenu()!).getByText("Split horizontal"));
+      });
+      expect(splitWindow).toHaveBeenCalledWith("runkit", "@0", true, "~/code/run-kit");
+      expect(splitDirectionMenu()).toBeNull();
+    });
+
+    it("Escape closes the direction menu and refocuses the ▾", () => {
+      renderTopBar();
+      const chevron = screen.getByLabelText("Split… (choose direction)");
+      act(() => fireEvent.click(chevron));
+      expect(splitDirectionMenu()).not.toBeNull();
+      act(() => fireEvent.keyDown(document, { key: "Escape" }));
+      expect(splitDirectionMenu()).toBeNull();
+      expect(chevron).toHaveFocus();
+    });
+
+    it("the chevron menu carries BOTH split actions as one-action rows", () => {
+      renderTopBar();
+      act(() => fireEvent.click(screen.getByLabelText("More controls")));
+      const menu = screen.getByRole("menu", { name: "More controls" });
+      expect(within(menu).getByRole("menuitem", { name: "Split vertical" })).toBeInTheDocument();
+      expect(within(menu).getByRole("menuitem", { name: "Split horizontal" })).toBeInTheDocument();
+    });
+
+    it("shows spinner and disables the primary segment while pending", async () => {
+      const { splitWindow } = await import("@/api/client");
+      let resolveAction!: () => void;
+      vi.mocked(splitWindow).mockImplementation(() => new Promise((r) => { resolveAction = () => r({ ok: true, pane_id: "%1" }); }));
+
+      renderTopBar();
+      const btn = screen.getByLabelText("Split vertically");
+      await act(async () => {
+        fireEvent.click(btn);
+        await Promise.resolve();
+      });
+
+      // Both segments disable and the primary shows the spinner.
+      expect(btn).toBeDisabled();
+      expect(screen.getByLabelText("Split… (choose direction)")).toBeDisabled();
+      expect(btn.querySelector("svg[viewBox='7 10 50 44']")).toBeTruthy();
+
+      // Resolve the action
+      await act(async () => {
+        resolveAction();
+      });
+      expect(btn).not.toBeDisabled();
+      expect(btn.querySelector("svg[viewBox='7 10 50 44']")).toBeFalsy();
+    });
   });
 
-  it("shows spinner and disables ClosePaneButton while pending", async () => {
-    const { closePane } = await import("@/api/client");
-    let resolveAction!: () => void;
-    vi.mocked(closePane).mockImplementation(() => new Promise((r) => { resolveAction = () => r({ ok: true }); }));
-
-    renderTopBar();
-    const btn = screen.getByLabelText("Close pane");
-    await act(async () => {
-      fireEvent.click(btn);
-      await Promise.resolve();
-    });
-
-    expect(btn).toBeDisabled();
-    expect(btn.querySelector("svg[viewBox='7 10 50 44']")).toBeTruthy();
-
-    await act(async () => {
-      resolveAction();
-    });
-    expect(btn).not.toBeDisabled();
-    expect(btn.querySelector("svg[viewBox='7 10 50 44']")).toBeFalsy();
-  });
+  // (The old "ClosePaneButton spinner while pending" test retired with the ✕'s
+  // menuOnly demotion: the menu row unmounts on the role-keyed close, so its
+  // per-instance pending state is not observable across a reopen. The pending
+  // discipline is covered by the SplitControl pending test above — the same
+  // useOptimisticAction pattern.)
 
   describe("Open-in-App entry (260722-6d0f)", () => {
     afterEach(() => {
@@ -1103,6 +1197,54 @@ describe("TopBar", () => {
       expect(within(menu).queryByText("Enable notifications")).not.toBeInTheDocument();
       // The fixed version row is always present (last).
       expect(within(menu).getByText("RunKit")).toBeInTheDocument();
+    });
+
+    it("groups menu rows under View / Window / App uppercase section labels (260731-oiho)", () => {
+      renderTopBar({ availableViews: ["tty", "web"], activeView: "tty", onSelectView: vi.fn() });
+      act(() => fireEvent.click(screen.getByLabelText("More controls")));
+      const menu = screen.getByRole("menu", { name: "More controls" });
+      // The three section labels render (aria-hidden decoration — uppercase via
+      // CSS, so the text content is the plain word).
+      const viewLabel = within(menu).getByText("View", { exact: true });
+      const windowLabel = within(menu).getByText("Window", { exact: true });
+      const appLabel = within(menu).getByText("App", { exact: true });
+      expect(viewLabel).toHaveAttribute("aria-hidden", "true");
+      // Membership + fixed section order: a known View row (Fixed width) sits
+      // between the View and Window labels; a Window row (Split vertical)
+      // between Window and App; the App section carries Refresh + the version
+      // row.
+      const follows = (a: Element, b: Element) =>
+        Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+      const fixedWidthRow = within(menu).getByRole("menuitemcheckbox", { name: /Fixed width/ });
+      const splitRow = within(menu).getByRole("menuitem", { name: "Split vertical" });
+      const refreshRow = within(menu).getByRole("menuitem", { name: "Refresh page" });
+      expect(follows(viewLabel, fixedWidthRow)).toBe(true);
+      expect(follows(fixedWidthRow, windowLabel)).toBe(true);
+      expect(follows(windowLabel, splitRow)).toBe(true);
+      expect(follows(splitRow, appLabel)).toBe(true);
+      expect(follows(appLabel, refreshRow)).toBe(true);
+      expect(follows(refreshRow, within(menu).getByText("RunKit"))).toBe(true);
+    });
+
+    it("renders NO section labels when the menu holds only the version row", () => {
+      // Direct render with zero rows — the server/host wide-width shape (in
+      // jsdom the full TopBar always overflows at least Refresh, so the
+      // version-row-only state is only reachable component-level).
+      render(
+        <ToastProvider>
+          <ThemeProvider>
+            <ChromeProvider>
+              <TopBarOverflowMenu rows={[]} updateOverflowed={false} />
+            </ChromeProvider>
+          </ThemeProvider>
+        </ToastProvider>,
+      );
+      act(() => fireEvent.click(screen.getByLabelText("More controls")));
+      const menu = screen.getByRole("menu", { name: "More controls" });
+      expect(within(menu).getByText("RunKit")).toBeInTheDocument();
+      expect(within(menu).queryByText("View", { exact: true })).not.toBeInTheDocument();
+      expect(within(menu).queryByText("Window", { exact: true })).not.toBeInTheDocument();
+      expect(within(menu).queryByText("App", { exact: true })).not.toBeInTheDocument();
     });
 
     it("closes on Escape and returns focus to the chevron", () => {

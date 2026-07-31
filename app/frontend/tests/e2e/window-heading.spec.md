@@ -217,7 +217,11 @@ shows scrambled text.
 ## Tests — top-bar heading anchor + nav (260714-uco1)
 
 *(A separate describe block in the same file, sharing the file-level session
-lifecycle. Covers the four heading sub-features added by 260714-uco1.)*
+lifecycle. Covers the four heading sub-features added by 260714-uco1. Since
+260731-oiho the ◀ ▶ arrows live in the LEFT cluster on `lg+` viewports (hidden
+below `lg` per the cluster's degradation ladder) — behavior unchanged; the
+anchored heading box carries no arrow furniture and the old width-compensation
+hack is deleted.)*
 
 ### `the heading's left edge does not drift as the window name length changes within the anchor band (sm+)`
 
@@ -264,13 +268,18 @@ entries) and navigates up when an ancestor is chosen.
 ### `the ◀ ▶ arrows drive browser history (back returns to the prior window)`
 
 **What it proves:** the ◀ ▶ arrows drive BROWSER HISTORY (`router.history.back()`
-/`.forward()`), NOT sibling-window cycling.
+/`.forward()`), NOT sibling-window cycling — and (260731-oiho) the pair renders
+in the LEFT cluster (right of the sidebar toggle, left of the center heading;
+`lg+` viewports — below `lg` the pair hides with the cluster's degradation
+ladder), no longer inside the anchored heading box.
 
 **Steps:**
 1. Create two windows; build a real history stack by visiting the first then the
    second.
-2. Click `Go back`; assert the URL and heading return to the FIRST window.
-3. Click `Go forward`; assert the URL and heading return to the SECOND window.
+2. Assert the `Go back` arrow's box sits right of the sidebar toggle and left of
+   the heading (left-cluster placement).
+3. Click `Go back`; assert the URL and heading return to the FIRST window.
+4. Click `Go forward`; assert the URL and heading return to the SECOND window.
 
 ### `in-app window switches push history entries (Back/Forward retrace within-server hops, no dedup)`
 

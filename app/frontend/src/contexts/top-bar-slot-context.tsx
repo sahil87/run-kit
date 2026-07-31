@@ -49,11 +49,11 @@ export type TopBarSlot = {
   waitingPaneCount?: number;
   boards?: { name: string }[];
   /** Board mode: the focused tile's kill/split target (260715-6jwn). Feeds the
-   *  top-bar SplitButtons and the ✕ (now a real close-pane, uniform with
-   *  terminal mode). `null` when the board is empty (no focused tile) → the
-   *  splits are absent and the ✕ is disabled. The board ✕ NO LONGER unpins;
-   *  unpin lives only on the tile header + the `Board: Unpin Focused Pane`
-   *  palette action (see `board-page.tsx`). */
+   *  merged top-bar SplitControl and the Kill row (a chevron-menu row since
+   *  260731-oiho — menuOnly). `null` when the board is empty (no focused tile)
+   *  → the split is absent and the Kill row is disabled. The board Kill NO
+   *  LONGER unpins; unpin lives only on the tile header + the `Board: Unpin
+   *  Focused Pane` palette action (see `board-page.tsx`). */
   focusedPane?: { server: string; windowId: string; cwd?: string } | null;
   /** Board mode (co9z): the board ✕ is a consequence-gated KILL, not an
    *  immediate close-pane. When present, the top-bar ✕ calls this to open

@@ -348,8 +348,13 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
  * added to the center heading: (1) the stable left anchor (min-width, left
  * content) so the heading's left edge does not drift with name length; (2) the
  * static `Window:` prefix persisting across a lens switch; (3) the ancestor
- * hierarchy dropdown; (4) the browser-history ◀ ▶ arrows. Uses the file-level
- * session lifecycle above.
+ * hierarchy dropdown; (4) the browser-history ◀ ▶ arrows — which moved to the
+ * LEFT cluster (right of the sidebar toggle, `lg+` viewports — below `lg` they
+ * hide with the cluster's degradation ladder) in 260731-oiho; their BEHAVIOR
+ * (browser history, `Go back`/`Go forward` accessible names) is unchanged, and
+ * the anchor no longer carries any arrow furniture (the old `mr-2.5`/`-mr-1`
+ * width-compensation hack is gone). The arrows tests run at the default
+ * 1280px viewport (≥ lg). Uses the file-level session lifecycle above.
  */
 test.describe("Top-bar heading — anchor, hierarchy dropdown, history arrows (260714-uco1)", () => {
   test("the heading's left edge does not drift as the window name length changes within the anchor band (sm+)", async ({
@@ -433,6 +438,10 @@ test.describe("Top-bar heading — anchor, hierarchy dropdown, history arrows (2
   test("the ◀ ▶ arrows drive browser history (back returns to the prior window)", async ({
     page,
   }) => {
+    // Two window creations + resolves + three navigations + the placement
+    // boundingBox reads (260731-oiho) outgrow the 10s local budget — use the
+    // board-spec 30s convention.
+    test.setTimeout(30_000);
     const first = `hx-hist-a-${Date.now().toString().slice(-5)}`;
     const second = `hx-hist-b-${Date.now().toString().slice(-5)}`;
     newWindow(TEST_SESSION, first);
@@ -446,8 +455,19 @@ test.describe("Top-bar heading — anchor, hierarchy dropdown, history arrows (2
     await gotoWindow(page, secondId);
     await expect(page.getByRole("button", { name: `Rename window ${second}` })).toBeVisible({ timeout: 10_000 });
 
+    // The arrows live in the LEFT cluster (260731-oiho): inside the same
+    // container as the sidebar toggle, not inside the anchored heading box.
+    const back = page.getByLabel("Go back");
+    const toggleBox = (await page.getByLabel("Toggle navigation").boundingBox())!;
+    const backBox = (await back.boundingBox())!;
+    const headingBox = (await page
+      .getByRole("button", { name: `Rename window ${second}` })
+      .boundingBox())!;
+    expect(backBox.x).toBeGreaterThan(toggleBox.x);
+    expect(backBox.x + backBox.width).toBeLessThan(headingBox.x);
+
     // ◀ (browser back) returns to the first window's URL — NOT sibling cycling.
-    await page.getByLabel("Go back").click();
+    await back.click();
     await expect(page).toHaveURL(new RegExp(`/${TMUX_SERVER}/${encodeURIComponent(firstId)}$`));
     await expect(page.getByRole("button", { name: `Rename window ${first}` })).toBeVisible({ timeout: 10_000 });
 

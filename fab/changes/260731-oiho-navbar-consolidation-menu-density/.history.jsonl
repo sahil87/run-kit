@@ -1,0 +1,13 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-31T18:26:05Z"}
+{"args":"navbar consolidation — uniform control sizing, history-nav move to left cluster, split-button merge, menuOnly demotion of terminal-font/fixed-width/close-pane, overflow-menu density restyle (Variant B + menu density fix)","cmd":"fab-new","event":"command","ts":"2026-07-31T18:26:05Z"}
+{"delta":"+4.7","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-07-31T18:28:41Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-07-31T18:29:47Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-31T18:31:02Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-31T18:32:00Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-31T18:32:47Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-31T19:20:49Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-31T19:21:29Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-31T19:30:51Z"}
+{"event":"review","result":"passed","ts":"2026-07-31T19:30:51Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-31T19:31:30Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-31T19:45:31Z"}

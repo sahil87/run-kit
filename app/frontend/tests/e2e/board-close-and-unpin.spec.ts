@@ -99,7 +99,7 @@ test.describe("Boards: tile-header unpin + top-bar consequence-gated Kill (co9z)
     });
   });
 
-  test("the top-bar ✕ opens the consequence-gated Kill dialog; confirming Kill destroys the window (POST /kill) and the tile self-heals away", async ({ page }) => {
+  test("the chevron menu's Kill row opens the consequence-gated Kill dialog; confirming Kill destroys the window (POST /kill) and the tile self-heals away", async ({ page }) => {
     test.setTimeout(30_000);
     const board = `krm${Date.now().toString().slice(-6)}`;
 
@@ -111,17 +111,23 @@ test.describe("Boards: tile-header unpin + top-bar consequence-gated Kill (co9z)
     await page.goto(`/board/${board}`, { waitUntil: "domcontentloaded" });
     await expect(page.getByText("win-b").first()).toBeVisible({ timeout: 10_000 });
 
-    // Verb discipline (co9z): the board ✕ reads `Kill`, never `Close pane` /
-    // `Unpin pane from board`. It is consequence-gated — clicking it opens a
-    // confirm dialog, it does NOT fire an immediate kill. Scope to the top-bar
-    // right cluster so the match is unambiguous (sidebar/board-list buttons may
-    // share substrings).
+    // The ✕ left the bar (menuOnly, 260731-oiho): no in-bar Kill button at any
+    // width — the Kill row lives in the "More controls" chevron menu. Verb
+    // discipline (co9z) holds on the row: it reads `Kill`, never `Close pane` /
+    // `Unpin pane from board`, and it is consequence-gated — clicking it opens
+    // the confirm dialog, it does NOT fire an immediate kill. Scope to the
+    // top-bar right cluster / the menu so matches are unambiguous
+    // (sidebar/board-list buttons may share substrings).
     const topBar = page.getByTestId("top-bar-right");
-    await expect(topBar.getByRole("button", { name: "Close pane" })).toHaveCount(0);
-    await expect(topBar.getByRole("button", { name: "Unpin pane from board" })).toHaveCount(0);
-    const topbarKill = topBar.getByRole("button", { name: "Kill" });
-    await expect(topbarKill).toBeVisible({ timeout: 5_000 });
-    await topbarKill.click();
+    await expect(topBar.getByRole("button", { name: "Kill" })).toHaveCount(0);
+    await topBar.getByRole("button", { name: "More controls" }).click();
+    const menu = page.getByRole("menu", { name: "More controls" });
+    await expect(menu).toBeVisible({ timeout: 5_000 });
+    await expect(menu.getByRole("menuitem", { name: "Close pane" })).toHaveCount(0);
+    await expect(menu.getByRole("menuitem", { name: "Unpin pane from board" })).toHaveCount(0);
+    const killRow = menu.getByRole("menuitem", { name: "Kill" });
+    await expect(killRow).toBeVisible({ timeout: 5_000 });
+    await killRow.click();
 
     // The confirm dialog appears. `Unpin instead` is default-focused (the safe
     // action) and the dialog is keyboard-operable.
@@ -173,8 +179,16 @@ test.describe("Boards: tile-header unpin + top-bar consequence-gated Kill (co9z)
     await page.goto(`/board/${board}`, { waitUntil: "domcontentloaded" });
     await expect(page.getByText("win-a").first()).toBeVisible({ timeout: 10_000 });
 
-    // Open the Kill dialog via the top-bar ✕ (scoped to the top-bar cluster).
-    await page.getByTestId("top-bar-right").getByRole("button", { name: "Kill" }).click();
+    // Open the Kill dialog via the chevron menu's Kill row (the ✕ left the
+    // bar — menuOnly, 260731-oiho).
+    await page
+      .getByTestId("top-bar-right")
+      .getByRole("button", { name: "More controls" })
+      .click();
+    await page
+      .getByRole("menu", { name: "More controls" })
+      .getByRole("menuitem", { name: "Kill" })
+      .click();
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible({ timeout: 5_000 });
 

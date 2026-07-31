@@ -57,6 +57,15 @@ export function symbolColorFor(bgHex: string): string {
  * Version-skew fallback: minimal CSS giving an older (strip-less) SPA a
  * draggable titlebar band under the hidden native titlebar. Keyed on
  * `html:not(.rk-shell-strip)` so a strip-drawing SPA no-ops it.
+ *
+ * Space reservation is two-pronged because the rk SPA pins its layout root to
+ * the viewport (`html.fullbleed .app-root { position: fixed; inset: 0 }` —
+ * `fullbleed` is added unconditionally on mount): body padding cannot move a
+ * fixed-position element, so on its own the fixed band would paint OVER the
+ * SPA's top bar. The `.fullbleed .app-root` override pins the root below the
+ * band instead (`!important` beats both the SPA stylesheet's
+ * `top: var(--app-offset-top)` and the inline `height` style); the body
+ * padding remains for non-fullbleed pages in normal flow.
  */
 export function fallbackStripCss(bgHex: string): string {
   const color = /^#([0-9a-fA-F]{6})$/.test(bgHex.trim()) ? bgHex.trim() : DEFAULT_STRIP_COLOR;
@@ -70,6 +79,10 @@ export function fallbackStripCss(bgHex: string): string {
     `  background: ${color};`,
     `  -webkit-app-region: drag;`,
     `  z-index: 2147483647;`,
+    `}`,
+    `html.fullbleed:not(.${STRIP_MARKER_CLASS}) .app-root {`,
+    `  top: ${STRIP_HEIGHT_PX}px !important;`,
+    `  height: calc(var(--app-height, 100vh) - ${STRIP_HEIGHT_PX}px) !important;`,
     `}`,
   ].join("\n");
 }

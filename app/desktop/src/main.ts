@@ -759,32 +759,54 @@ function openMainWindow(): void {
       additionalArguments: [`--runkit-shell-version=${app.getVersion()}`],
     },
   });
+  // Key of the fallback strip CSS injected into the CURRENT page load (null
+  // when none). Tracked so a theme-color report landing AFTER the injection
+  // can recolor the band — `did-finish-load` only sees `lastThemeColor`, which
+  // at that point may still be the PREVIOUS page's color (a stale-tint band).
+  let fallbackCssKey: string | null = null;
+  const refreshFallbackStrip = async (): Promise<void> => {
+    const url = win.webContents.getURL();
+    if (!shouldInjectFallbackStrip(url, registeredOrigins())) return;
+    const stale = fallbackCssKey;
+    fallbackCssKey = null;
+    try {
+      if (stale != null) await win.webContents.removeInsertedCSS(stale);
+      fallbackCssKey = await win.webContents.insertCSS(fallbackStripCss(lastThemeColor));
+    } catch {
+      // A navigation raced the injection — the next did-finish-load re-runs.
+    }
+  };
+  // Inserted CSS does not survive a main-frame navigation; drop the dead key.
+  win.webContents.on("did-navigate", () => {
+    fallbackCssKey = null;
+  });
   // Keep the win/linux window-controls overlay in sync with the page's
   // theme-color meta — the same seam the installed-PWA titlebar uses, so no
   // new SPA→shell color API exists. Linux WCO support is partial; a throwing
   // setTitleBarOverlay degrades silently.
   win.webContents.on("did-change-theme-color", (_event, color) => {
     lastThemeColor = color ?? DEFAULT_STRIP_COLOR;
-    if (process.platform === "darwin") return;
-    try {
-      win.setTitleBarOverlay({
-        color: lastThemeColor,
-        symbolColor: symbolColorFor(lastThemeColor),
-        height: STRIP_HEIGHT_PX,
-      });
-    } catch {
-      // Partial window-controls-overlay support (linux) — degrade silently.
+    if (process.platform !== "darwin") {
+      try {
+        win.setTitleBarOverlay({
+          color: lastThemeColor,
+          symbolColor: symbolColorFor(lastThemeColor),
+          height: STRIP_HEIGHT_PX,
+        });
+      } catch {
+        // Partial window-controls-overlay support (linux) — degrade silently.
+      }
     }
+    // Recolor an already-injected fallback band (all platforms — the band is
+    // the visible titlebar on darwin too).
+    if (fallbackCssKey != null) void refreshFallbackStrip();
   });
   // Version-skew fallback: an older SPA (no strip) under this hidden-titlebar
   // shell would have no drag surface. Registered-host pages get a minimal
   // draggable band whose CSS no-ops when the SPA-drawn strip marks
   // `html.rk-shell-strip` (CSS is live, so injecting unconditionally is safe).
   win.webContents.on("did-finish-load", () => {
-    const url = win.webContents.getURL();
-    if (shouldInjectFallbackStrip(url, registeredOrigins())) {
-      void win.webContents.insertCSS(fallbackStripCss(lastThemeColor));
-    }
+    void refreshFallbackStrip();
   });
   // Capture-on-quit: cold-start restore reflects the route at close, not just
   // the last switch-away (webContents is still readable during 'close').

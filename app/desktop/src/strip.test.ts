@@ -41,6 +41,18 @@ test("fallback CSS is keyed on the marker class and carries the strip geometry",
   assert.ok(css.includes("-webkit-app-region: drag"));
 });
 
+test("fallback CSS pins the fullbleed app root below the band", () => {
+  // The rk SPA's `.app-root` is position:fixed under `html.fullbleed` — body
+  // padding alone cannot reserve the band's space there, so the CSS must pin
+  // the root down with !important overrides (else the band covers the top bar).
+  const css = fallbackStripCss("#123456");
+  assert.ok(css.includes(`html.fullbleed:not(.${STRIP_MARKER_CLASS}) .app-root`));
+  assert.ok(css.includes(`top: ${STRIP_HEIGHT_PX}px !important`));
+  assert.ok(
+    css.includes(`height: calc(var(--app-height, 100vh) - ${STRIP_HEIGHT_PX}px) !important`),
+  );
+});
+
 test("fallback CSS falls back to the default color on junk input", () => {
   const css = fallbackStripCss("javascript:alert(1)");
   assert.ok(css.includes(`background: ${DEFAULT_STRIP_COLOR}`));

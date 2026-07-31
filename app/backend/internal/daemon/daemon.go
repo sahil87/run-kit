@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"time"
@@ -101,35 +100,14 @@ func runTmux(ctx context.Context, args ...string) error {
 // CWD for life — never sits on rk's own, possibly-later-deleted, CWD.
 func runTmuxInDir(ctx context.Context, dir string, args ...string) error {
 	fullArgs := append([]string{"-L", serverSocket}, args...)
-	cmd := exec.CommandContext(ctx, "tmux", fullArgs...)
-	cmd.Dir = dir
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		if stderr.Len() > 0 {
-			return fmt.Errorf("%w: %s", err, bytes.TrimSpace(stderr.Bytes()))
-		}
-		return err
-	}
-	return nil
+	return tmux.Run(ctx, fullArgs, tmux.RunOpts{Dir: dir})
 }
 
 // runTmuxOutput executes a tmux command on the daemon server, returning stdout
-// on success and capturing stderr for diagnostics on failure. Mirrors runTmux's
-// exec.CommandContext + stderr-in-error convention.
+// on success and capturing stderr for diagnostics on failure.
 func runTmuxOutput(ctx context.Context, args ...string) ([]byte, error) {
 	fullArgs := append([]string{"-L", serverSocket}, args...)
-	cmd := exec.CommandContext(ctx, "tmux", fullArgs...)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
-	if err != nil {
-		if stderr.Len() > 0 {
-			return nil, fmt.Errorf("%w: %s", err, bytes.TrimSpace(stderr.Bytes()))
-		}
-		return nil, err
-	}
-	return out, nil
+	return tmux.RunOutput(ctx, fullArgs, tmux.RunOpts{})
 }
 
 // sessionExistsCtx returns true if a session with the exact given name exists

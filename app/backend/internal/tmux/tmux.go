@@ -480,12 +480,9 @@ type WindowInfo struct {
 // tmuxExecServer runs a tmux command targeting the specified server and returns stdout lines (empty lines filtered).
 func tmuxExecServer(ctx context.Context, server string, args ...string) ([]string, error) {
 	full := append(serverArgs(server), args...)
-	cmd := exec.CommandContext(ctx, "tmux", full...)
-	var stderr strings.Builder
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
+	out, err := RunOutput(ctx, full, RunOpts{})
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
+		return nil, err
 	}
 	raw := strings.Trim(string(out), "\n\r ")
 	if raw == "" {
@@ -508,12 +505,9 @@ func tmuxExecServer(ctx context.Context, server string, args ...string) ([]strin
 // states from real failures.
 func tmuxExecRawServer(ctx context.Context, server string, args ...string) (string, error) {
 	full := append(serverArgs(server), args...)
-	cmd := exec.CommandContext(ctx, "tmux", full...)
-	var stderr strings.Builder
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
+	out, err := RunOutput(ctx, full, RunOpts{})
 	if err != nil {
-		return "", fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
+		return "", err
 	}
 	return string(out), nil
 }
@@ -1116,28 +1110,9 @@ func CreateSession(name string, cwd string, server string) error {
 	}
 
 	full := append(serverArgs(server), args...)
-	return runTmuxWithEnv(ctx, full, CleanEnvForServer(), ServerBirthDir())
-}
-
-// runTmuxWithEnv executes a tmux command with an optional environment override
-// and an optional working-directory override (empty dir inherits the process
-// CWD), capturing stderr for diagnostics. Server-birth-capable invocations pass
-// ServerBirthDir() so the born server never sits on rk's own CWD.
-func runTmuxWithEnv(ctx context.Context, args []string, env []string, dir string) error {
-	cmd := exec.CommandContext(ctx, "tmux", args...)
-	if env != nil {
-		cmd.Env = env
-	}
-	cmd.Dir = dir
-	var stderr strings.Builder
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		if msg := strings.TrimSpace(stderr.String()); msg != "" {
-			return fmt.Errorf("%w: %s", err, msg)
-		}
-		return err
-	}
-	return nil
+	// Server-birth-capable invocation: the env/dir overrides ensure the born
+	// server never inherits rk's own environment or CWD (see doc comment above).
+	return Run(ctx, full, RunOpts{Env: CleanEnvForServer(), Dir: ServerBirthDir()})
 }
 
 // ServerBirthDir returns the working directory every rk-birthed tmux server

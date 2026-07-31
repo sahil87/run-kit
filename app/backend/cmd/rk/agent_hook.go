@@ -406,7 +406,7 @@ func writeAgentStateImpl(ctx context.Context, pane, state string, pid int) {
 	cctx, cancel := context.WithTimeout(ctx, agentHookCmdTimeout)
 	defer cancel()
 	// Errors are intentionally ignored (never-fail contract).
-	_ = exec.CommandContext(cctx, "tmux", args...).Run()
+	_ = tmux.Run(cctx, args, tmux.RunOpts{})
 }
 
 // writeChatFn is a package-level seam so runAgentHook can be tested without
@@ -434,7 +434,7 @@ func writeChatImpl(ctx context.Context, pane, provider, sessionID string) {
 	cctx, cancel := context.WithTimeout(ctx, agentHookCmdTimeout)
 	defer cancel()
 	// Errors are intentionally ignored (never-fail contract).
-	_ = exec.CommandContext(cctx, "tmux", args...).Run()
+	_ = tmux.Run(cctx, args, tmux.RunOpts{})
 }
 
 // formatAgentStateValue formats the cross-repo @rk_agent_state value

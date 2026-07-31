@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-31T08:48:50Z"}
+{"args":"Consolidate the tmux subprocess runner core into internal/tmux (backlog zeiy, dedupe sweep 2026-07-31 cluster 10)","cmd":"fab-new","event":"command","ts":"2026-07-31T08:48:50Z"}
+{"delta":"+4.9","event":"confidence","score":4.9,"trigger":"calc-score","ts":"2026-07-31T08:52:01Z"}
+{"cmd":"fab-new","event":"command","ts":"2026-07-31T08:52:40Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-31T08:55:19Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-31T08:55:19Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-31T09:04:08Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-31T09:14:30Z"}
+{"event":"review","result":"passed","ts":"2026-07-31T09:14:30Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-31T09:19:11Z"}

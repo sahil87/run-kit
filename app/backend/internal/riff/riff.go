@@ -455,9 +455,7 @@ func resolveWindowIDFromPane(parent context.Context, spec EffectiveSpec, paneID 
 	ctx, cancel := context.WithTimeout(parent, TmuxTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "tmux", tmuxArgv(spec, "display-message", "-t", paneID, "-p", "#{window_id}")...)
-	cmd.Env = childEnv(spec)
-	out, err := cmd.Output()
+	out, err := tmux.RunOutput(ctx, tmuxArgv(spec, "display-message", "-t", paneID, "-p", "#{window_id}"), tmux.RunOpts{Env: childEnv(spec)})
 	if err != nil {
 		return ""
 	}
@@ -466,21 +464,14 @@ func resolveWindowIDFromPane(parent context.Context, spec EffectiveSpec, paneID 
 
 // runTmuxNewWindowCapturePaneID runs `tmux new-window -P -F '#{pane_id}' …` and
 // returns the captured pane id (trimmed). SubprocessErr on failure/timeout/empty
-// stdout. Uses Output() so stderr is excluded from the parsed id.
+// stdout. Uses tmux.RunOutput so stderr is excluded from the parsed id.
 func runTmuxNewWindowCapturePaneID(parent context.Context, spec EffectiveSpec, argv []string) (string, error) {
 	ctx, cancel := context.WithTimeout(parent, TmuxTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "tmux", tmuxArgv(spec, argv...)...)
-	cmd.Env = childEnv(spec)
-	stdout, err := cmd.Output()
+	stdout, err := tmux.RunOutput(ctx, tmuxArgv(spec, argv...), tmux.RunOpts{Env: childEnv(spec)})
 	if err != nil {
-		var stderr string
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			stderr = string(exitErr.Stderr)
-		}
-		return "", SubprocessErr("run-kit riff: tmux new-window failed: %v\n%s", err, stderr)
+		return "", SubprocessErr("run-kit riff: tmux new-window failed: %v", err)
 	}
 	id, parseErr := parsePaneID(string(stdout))
 	if parseErr != nil {
@@ -495,11 +486,8 @@ func runTmuxArgv(parent context.Context, spec EffectiveSpec, argv []string) erro
 	ctx, cancel := context.WithTimeout(parent, TmuxTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "tmux", tmuxArgv(spec, argv...)...)
-	cmd.Env = childEnv(spec)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return SubprocessErr("run-kit riff: tmux %s failed: %v\n%s", argv[0], err, string(out))
+	if err := tmux.Run(ctx, tmuxArgv(spec, argv...), tmux.RunOpts{Env: childEnv(spec)}); err != nil {
+		return SubprocessErr("run-kit riff: tmux %s failed: %v", argv[0], err)
 	}
 	return nil
 }
@@ -517,11 +505,9 @@ func listWindowNames(parent context.Context, spec EffectiveSpec) ([]string, erro
 	if spec.Session != "" {
 		listArgs = []string{"list-windows", "-t", tmux.ExactSessionTarget(spec.Session), "-F", "#W"}
 	}
-	cmd := exec.CommandContext(ctx, "tmux", tmuxArgv(spec, listArgs...)...)
-	cmd.Env = childEnv(spec)
-	out, err := cmd.CombinedOutput()
+	out, err := tmux.RunOutput(ctx, tmuxArgv(spec, listArgs...), tmux.RunOpts{Env: childEnv(spec)})
 	if err != nil {
-		return nil, SubprocessErr("run-kit riff: tmux list-windows failed: %v\n%s", err, string(out))
+		return nil, SubprocessErr("run-kit riff: tmux list-windows failed: %v", err)
 	}
 
 	var names []string

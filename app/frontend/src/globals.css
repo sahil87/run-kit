@@ -91,6 +91,13 @@ summary {
   -webkit-app-region: drag;
 }
 
+/* Scoped drag carve-out (260731-4bqi): the strip's host-switcher trigger (and
+   its open menu) is the band's ONLY interactive island — everything else in
+   the band stays a drag surface. Same CSS-utility rationale as above. */
+.rk-shell-no-drag {
+  -webkit-app-region: no-drag;
+}
+
 /* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 6px;

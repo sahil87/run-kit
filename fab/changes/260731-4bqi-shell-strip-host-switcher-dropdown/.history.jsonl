@@ -1,0 +1,17 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-31T18:39:07Z"}
+{"args":"Host-switcher dropdown in the desktop shell titlebar strip: make the SPA-drawn 28px strip's centered host-name label a clickable dropdown for mouse-driven switching between registered hosts in the Electron viewer shell","cmd":"fab-new","event":"command","ts":"2026-07-31T18:39:07Z"}
+{"delta":"+4.1","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-07-31T18:40:33Z"}
+{"cmd":"fab-proceed:_intake","event":"command","ts":"2026-07-31T18:40:33Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-31T18:43:40Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-31T18:44:07Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-31T18:44:47Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-31T18:56:37Z"}
+{"event":"review","result":"failed","ts":"2026-07-31T19:06:56Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-31T19:06:56Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-31T19:08:07Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-31T19:13:24Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-31T19:14:01Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-31T19:24:05Z"}
+{"event":"review","result":"passed","ts":"2026-07-31T19:24:05Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-31T19:24:43Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-31T19:30:47Z"}

@@ -55,3 +55,66 @@ export function activeShellHostName(servers: ShellServer[] | null): string | nul
   const active = servers?.find((s) => s.active);
   return active ? active.name : null;
 }
+
+/** Accelerator-hint cap — mirrors the native Hosts menu's
+ *  `MAX_SWITCHER_ACCELERATORS` (hosts beyond the ninth get no binding, so
+ *  they get no hint either). */
+export const MAX_SHELL_SWITCHER_HINTS = 9;
+
+/**
+ * Trailing accelerator hint for the host at `index` (list order — the native
+ * Hosts menu binds in the same order): `⌥⌘{n}` on darwin, `⇧Ctrl+{n}`
+ * elsewhere (the win/linux shell tier), `null` past the 9-cap.
+ */
+export function hostAcceleratorHint(platform: string, index: number): string | null {
+  if (index < 0 || index >= MAX_SHELL_SWITCHER_HINTS) return null;
+  const n = index + 1;
+  return platform === "darwin" ? `⌥⌘${n}` : `⇧Ctrl+${n}`;
+}
+
+/** One row of the strip's host-switcher dropdown. */
+export interface ShellHostMenuRow {
+  id: string;
+  name: string;
+  /** The entry's origin — host display names are not unique (the shell's
+   *  store never dedupes), so the dimmed origin disambiguates. */
+  origin: string;
+  active: boolean;
+  /** Accelerator hint mirroring the native Hosts menu, or null past the cap. */
+  hint: string | null;
+}
+
+/** The entry's origin for display: the store persists origins already, so
+ *  this is normally identity; a malformed url falls back to the raw string. */
+function hostOrigin(url: string): string {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return url;
+  }
+}
+
+/**
+ * Menu rows for the host-switcher dropdown, derived from the bridge's
+ * `servers:list` projection (`{id, name, url, active}` — no bridge change
+ * needed). List order is preserved (it is the native menu's binding order).
+ */
+export function shellHostMenuRows(servers: ShellServer[], platform: string): ShellHostMenuRow[] {
+  return servers.map((s, i) => ({
+    id: s.id,
+    name: s.name,
+    origin: hostOrigin(s.url),
+    active: s.active,
+    hint: hostAcceleratorHint(platform, i),
+  }));
+}
+
+/**
+ * Gate predicate for the dropdown affordance: interactive only when the
+ * bridge answered a non-empty host list (the command palette's shell-switch
+ * precedent — gate on the `servers` group answering, not on `isShell()`).
+ * An older shell without the group keeps the static label.
+ */
+export function stripSwitcherEnabled(servers: ShellServer[] | null): servers is ShellServer[] {
+  return servers !== null && servers.length > 0;
+}

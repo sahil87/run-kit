@@ -220,11 +220,17 @@ export function ShortcutsOverlay({
 
   // Shell-owned locked rows (accelerators live in the desktop shell's menu —
   // the registry only documents them). DevTools is a win/linux accelerator.
+  // The switcher diverges from the shared shifted-tier caps on the mac
+  // display (260731-nv5r): the mac shell tier is ⌥⌘ (⇧⌘3/4/5 are macOS
+  // screenshot shortcuts), while win/linux keeps ⇧Ctrl+1–9. Locked rows are
+  // free-form caps arrays, so no tier machinery is involved.
   const shellRows = useMemo(() => {
     const tierCaps = (key: string) =>
       displayPlatform === "mac" ? ["⇧", "⌘", key] : ["Shift", "Ctrl", key];
+    const switcherCaps =
+      displayPlatform === "mac" ? ["⌥", "⌘", "1…9"] : ["Shift", "Ctrl", "1…9"];
     const rows = [
-      { label: "Switch to server 1–9", description: "owned by the shell menu", parts: tierCaps("1…9") },
+      { label: "Switch to server 1–9", description: "owned by the shell menu", parts: switcherCaps },
       { label: "Force reload", description: undefined, parts: tierCaps("R") },
     ];
     if (displayPlatform !== "mac") {
@@ -307,8 +313,11 @@ export function ShortcutsOverlay({
     idx: number,
   ) => {
     if (code === "…") {
-      // Decorative digit-run ellipsis cell — claimed with the switcher digits.
-      const digitClaim = states.get("Digit1");
+      // Decorative digit-run ellipsis cell (stands for Digit3–Digit8) — keyed
+      // off Digit3 so mid-run claims render (260731-nv5r): the switcher
+      // digits on the win/linux display, the ⇧⌘3/4/5 screenshot claims on the
+      // mac shifted map (where Digit1/2/9's own cells are unclaimed).
+      const digitClaim = states.get("Digit3");
       return (
         <div
           key={`ellipsis-${idx}`}

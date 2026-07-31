@@ -2333,7 +2333,8 @@ function AppShell() {
   // rk instances by URL, distinct from the tmux entries above), active one
   // marked (current). Present ONLY inside the desktop shell — useShellServers
   // resolves [] in a plain browser, the first real isShell()-gated palette
-  // consumer. The shell-side paths are the ⇧⌘1–9 accelerators + Servers menu
+  // consumer. The shell-side paths are the ⌥⌘1–9 (mac) / ⇧Ctrl+1–9
+  // (win/linux) accelerators + Servers menu
   // radios; selecting an entry hands off to the shell, which loads the target
   // server's URL (a full page swap), so no SPA-side navigation follows. A
   // denied/failed bridge call surfaces as an error toast.

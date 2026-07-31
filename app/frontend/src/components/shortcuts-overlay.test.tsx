@@ -64,6 +64,25 @@ describe("ShortcutsOverlay", () => {
     expect(screen.getAllByText("⇧").length).toBeGreaterThan(0);
   });
 
+  it("mac display renders the switcher locked row as ⌥⌘ and drops the server digit claims (260731-nv5r)", () => {
+    renderOverlay();
+    // Win·Linux display (jsdom default): the switcher row uses Shift+Ctrl
+    // caps — no ⌥ anywhere — and the shifted tier map claims the switcher
+    // digits as "server" (Digit1/2/9 have their own cells; 3–8 sit in the
+    // decorative ellipsis).
+    expect(screen.queryByText("⌥")).toBeNull();
+    expect(screen.getAllByTitle("server").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByText("macOS"));
+    // The switcher row diverges to ⌥⌘1…9 (the mac shell tier) — the only ⌥
+    // keycap in the overlay — while Force reload keeps the shared ⇧⌘ caps.
+    expect(screen.getAllByText("⌥").length).toBe(1);
+    expect(screen.getAllByText("⇧").length).toBeGreaterThan(0);
+    expect(screen.getByText("Switch to server 1–9")).toBeInTheDocument();
+    // The mac shifted map carries no shell "server" digit claims: Digit1/2/9
+    // render free (the 3/4/5 screenshot claims live inside the ellipsis run).
+    expect(screen.queryAllByTitle("server")).toHaveLength(0);
+  });
+
   it("macOS display adds the ⌘ page-tier map; Win·Linux display omits it (260730-n789)", () => {
     renderOverlay();
     // jsdom host → Win·Linux display by default: no page-tier map (plain

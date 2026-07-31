@@ -9,12 +9,28 @@
  * handling of a key that IS menu-bound here, the fix is to REMOVE that menu
  * item's accelerator, never to intercept input events.
  *
- * Two-tier rule (platform-neutral, the governing contract):
+ * Two-tier rule (the governing contract — the RULE is platform-neutral, the
+ * shell tier's modifier pair is not):
  *   - Page tier — unshifted `CmdOrCtrl+<any>`: the shell NEVER binds it, on
  *     any platform. This is the shell's premise: the tier a browser reserves
  *     (macOS: ⌘; Windows/Linux: Ctrl) belongs to the SPA.
- *   - Shell tier — `Shift+CmdOrCtrl+<any>`: shell chrome MAY claim keys here,
- *     sparingly. Today's only claim: the Hosts switcher (1–9).
+ *   - Shell tier — ⌥⌘ on mac, ⇧Ctrl on win/linux: shell chrome MAY claim
+ *     keys here, sparingly. Today's only claim: the Hosts switcher (1–9).
+ *     On mac, ⇧⌘ therefore also belongs to the page (the SPA's own shifted
+ *     action tier lives there), with the documented carve-outs ⇧⌘R
+ *     (forceReload role) and ⇧⌘Z (Edit redo role).
+ *
+ * Why the mac shell tier is ⌥⌘, not ⇧⌘: ⇧⌘3/⇧⌘4/⇧⌘5 are macOS system-wide
+ * screenshot shortcuts, and system shortcuts intercept BEFORE app menu
+ * accelerators — with 3+ hosts configured, keyboard-switching to hosts 3–5
+ * took screenshots instead of switching. ⌥⌘ is territory the page will
+ * never claim: the SPA keybinding registry deliberately excludes Option
+ * from every chord tier (macOS composes characters with it — see
+ * `app/frontend/src/lib/keybindings.ts`), and the shell's only other ⌥⌘
+ * bindings are the ⌥⌘H hideOthers and ⌥⌘I devtools roles. Windows/Linux
+ * deliberately do NOT mirror the move: Ctrl+Alt is AltGr on many European
+ * layouts (Ctrl+Alt+digit would steal character typing in a terminal app),
+ * and there is no screenshot collision there.
  *
  * The menu is applied PER PLATFORM — symmetry of rule, not symmetry of
  * accelerator table. Carve-outs the rule tolerates (documented, never
@@ -26,13 +42,15 @@
  * rule — clipboard in web content is dead on macOS without them); View
  * ⌘R/⇧⌘R reload, ⌥⌘I devtools, ⌘+/⌘−/⌘0 zoom, ⌃⌘F fullscreen (conventional
  * shell chrome via role defaults, predating the rule); Hosts radios
- * ⇧⌘1–⇧⌘9 (the shell tier); Window ⌘M minimize. Guaranteed fall-through set
- * (never bind these): ⌘T ⌘W ⌘N ⌘L ⌘K ⌘F ⌘P ⌘1–9 ⌘[ ⌘] — the unshifted ⌘
- * tier is inviolable; the shifted tier is shell-claimable. ⌘W is unbound BY
- * DESIGN — it falls through for future tab-close semantics; mouse users get
- * the accelerator-less "Close Window" item (which is also why the Window
- * menu is a custom template and NOT `role: 'windowMenu'` — that role
- * auto-binds ⌘W).
+ * ⌥⌘1–⌥⌘9 (the shell tier — the same modifier family as the ⌥⌘H/⌥⌘I roles
+ * above); Window ⌘M minimize. Guaranteed fall-through set (never bind
+ * these): ⌘T ⌘W ⌘N ⌘L ⌘K ⌘F ⌘P ⌘1–9 ⌘[ ⌘], plus the freed ⇧⌘1–9 (future
+ * page real estate — though ⇧⌘3/4/5 are macOS screenshot system claims the
+ * page can't receive either) — the unshifted ⌘ tier is inviolable; the
+ * shell tier is ⌥⌘. ⌘W is unbound BY DESIGN — it falls through for future
+ * tab-close semantics; mouse users get the accelerator-less "Close Window"
+ * item (which is also why the Window menu is a custom template and NOT
+ * `role: 'windowMenu'` — that role auto-binds ⌘W).
  *
  * Windows/Linux — NOTHING in the unshifted Ctrl tier is bound; the page tier
  * is completely clean. Chromium handles Ctrl+C/V/X/A/Z natively there, so
@@ -42,12 +60,15 @@
  * View roles whose defaults sit in the unshifted Ctrl tier (reload Ctrl+R,
  * zoom Ctrl+0/±) are rebuilt as accelerator-less plain items. Bound there
  * (exhaustive): ⇧Ctrl+1–9 Hosts switcher (the shell tier), ⇧Ctrl+R
- * force-reload, ⇧Ctrl+I devtools, F11 fullscreen.
+ * force-reload, ⇧Ctrl+I devtools, F11 fullscreen — behavior byte-identical
+ * before and after the mac ⌥⌘ move (only the accelerator string changed,
+ * from one `Shift+CmdOrCtrl` expression to explicit per-platform strings).
  *
- * Hardware-verify caveat: shifted-digit accelerators are the flakiest
- * accelerator class (Electron resolves accelerators by character, not
- * scancode; AZERTY digits already require Shift). ⇧⌘1–9 switching on a
- * non-US layout is a manual-verify item; no scancode workaround in v1.
+ * Hardware-verify caveat: digit accelerators are the flakiest accelerator
+ * class (Electron resolves accelerators by character, not scancode; AZERTY
+ * digits already require Shift, and Option composes characters). ⌥⌘1–9
+ * switching on a non-US layout is a manual-verify item; no scancode
+ * workaround in v1.
  */
 import { app, BrowserWindow, Menu, MenuItemConstructorOptions, WebContents } from "electron";
 import { HostEntry } from "./hosts";
@@ -253,10 +274,19 @@ function hostsMenu(
     label: host.name,
     type: "radio",
     checked: host.id === activeId,
-    // Shell tier (see the two-tier rule above): ⇧⌘1–9 (mac) / ⇧Ctrl+1–9
+    // Shell tier (see the two-tier rule above): ⌥⌘1–9 (mac) / ⇧Ctrl+1–9
     // (win/linux) switches hosts while the unshifted Cmd/Ctrl digits fall
-    // through to the page on every platform.
-    accelerator: index < MAX_SWITCHER_ACCELERATORS ? `Shift+CmdOrCtrl+${index + 1}` : undefined,
+    // through to the page on every platform. Deliberately NOT one
+    // `CmdOrCtrl` expression: ⇧⌘3/4/5 are macOS screenshot system shortcuts
+    // (they intercept before menu accelerators), and Ctrl+Alt is AltGr on
+    // many European layouts, so neither platform may borrow the other's
+    // modifier pair.
+    accelerator:
+      index < MAX_SWITCHER_ACCELERATORS
+        ? isMac
+          ? `Alt+Cmd+${index + 1}`
+          : `Shift+Ctrl+${index + 1}`
+        : undefined,
     click: () => callbacks.onSwitchHost(host.id),
   }));
 

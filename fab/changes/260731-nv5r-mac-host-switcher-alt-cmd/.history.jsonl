@@ -1,0 +1,14 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-31T14:27:12Z"}
+{"args":"Move the desktop-shell host-switcher accelerators on macOS from Shift+Cmd+1-9 to Alt+Cmd+1-9; keep Shift+Ctrl+1-9 on Windows/Linux (macOS screenshot shortcut collision on Shift+Cmd+3/4/5)","cmd":"fab-new","event":"command","ts":"2026-07-31T14:27:12Z"}
+{"delta":"+4.9","event":"confidence","score":4.9,"trigger":"calc-score","ts":"2026-07-31T14:29:52Z"}
+{"cmd":"fab-proceed:create-intake","event":"command","ts":"2026-07-31T14:30:02Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-07-31T14:30:52Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-31T14:31:55Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-31T14:32:16Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-31T14:32:57Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-31T14:43:17Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-31T14:43:51Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-31T14:53:23Z"}
+{"event":"review","result":"passed","ts":"2026-07-31T14:53:23Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-31T14:54:08Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-31T15:00:35Z"}

@@ -1,8 +1,9 @@
 /**
  * Pure builder for the desktop-shell server-switch palette actions
  * (`Server: Switch to "<name>"`) — the SPA-side keyboard path for the shell's
- * Servers menu (Constitution V; the shell-side paths are the ⇧⌘1–9
- * accelerators and the menu radios). Follows the lib/palette-view.ts /
+ * Servers menu (Constitution V; the shell-side paths are the ⌥⌘1–9 (mac) /
+ * ⇧Ctrl+1–9 (win/linux) accelerators and the menu radios). Follows the
+ * lib/palette-view.ts /
  * lib/palette-pin.ts pure-builder convention: label composition and active
  * indication are unit-testable without mounting the shell.
  *

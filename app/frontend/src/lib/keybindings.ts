@@ -21,7 +21,9 @@
  * Matching is on `KeyboardEvent.code` — layout-independent, and it sidesteps
  * the shifted-accelerator character-resolution flakiness the desktop shell
  * docs flag (`app/desktop/src/menu.ts`). Alt chords are never matched: Alt is
- * not part of any tier (macOS uses it for character composition).
+ * not part of any tier (macOS uses it for character composition) — which is
+ * also why the mac desktop shell parks its Hosts-switcher accelerators on
+ * ⌥⌘1–9 (260731-nv5r): territory this registry can never claim.
  */
 
 /**
@@ -160,11 +162,30 @@ export type ClaimedKey = {
   platform?: BindingPlatform;
 };
 
+/** The shell's Hosts-switcher digit claims — WIN/LINUX ONLY (⇧Ctrl+1–9). On
+ *  mac the switcher moved to ⌥⌘1–9 (260731-nv5r: ⇧⌘3/4/5 are macOS
+ *  system-wide screenshot shortcuts that intercept before menu accelerators),
+ *  and Option is deliberately not a tier, so the mac claim is unrepresentable
+ *  here — which is the point of the move: ⌥⌘ is territory the page can never
+ *  claim or capture. */
 const SHELL_SWITCHER_DIGITS: ClaimedKey[] = Array.from({ length: 9 }, (_, i) => ({
   code: `Digit${i + 1}`,
   tier: "shifted" as const,
   label: "server",
   owner: "shell" as const,
+  platform: "other" as const,
+}));
+
+/** macOS system-wide screenshot shortcuts ⇧⌘3/4/5 — like the ⇧⌘Q logout row,
+ *  they apply on both shell and browser hosts (screenshots are system-wide).
+ *  The freed mac ⇧⌘1/2/6–9 digits carry NO claims: unclaimed future page real
+ *  estate (260731-nv5r). */
+const MAC_SCREENSHOT_CLAIMS: ClaimedKey[] = [3, 4, 5].map((n) => ({
+  code: `Digit${n}`,
+  tier: "shifted" as const,
+  label: "screenshot",
+  owner: "system" as const,
+  platform: "mac" as const,
 }));
 
 /** Mac desktop-shell ⌘-tier menu accelerators (`app/desktop/src/menu.ts` —
@@ -208,18 +229,21 @@ const MAC_BROWSER_CMD_CLAIMS: ClaimedKey[] = [
 
 /**
  * The claimed keys for a host, per tier. Shifted tier: shell claims (menu
- * accelerators: ⇧CmdOrCtrl+1–9 switcher, ⇧CmdOrCtrl+R force reload, ⇧Ctrl+I
- * devtools on win/linux) and system claims (⇧⌘Q macOS logout; ⇧Ctrl+C/V
- * terminal copy/paste convention on win/linux) apply everywhere; browser
- * claims (N/T/W — incognito / reopen-tab / close-window) apply only outside
- * the desktop shell, where those actions stay palette-reachable. Mac ⌘ (cmd)
- * tier (260730-n789): the shell's menu accelerators inside the shell, the
+ * accelerators: ⇧Ctrl+1–9 switcher + ⇧Ctrl+I devtools on win/linux ONLY —
+ * the mac switcher lives on ⌥⌘1–9, outside every tier (260731-nv5r) —
+ * ⇧CmdOrCtrl+R force reload everywhere) and system claims (⇧⌘Q macOS
+ * logout; ⇧⌘3/4/5 macOS screenshots; ⇧Ctrl+C/V terminal copy/paste
+ * convention on win/linux) apply in both hosts; browser claims (N/T/W —
+ * incognito / reopen-tab / close-window) apply only outside the desktop
+ * shell, where those actions stay palette-reachable. Mac ⌘ (cmd) tier
+ * (260730-n789): the shell's menu accelerators inside the shell, the
  * browser-reserved set outside. Win/Linux claim sets are unchanged — the
  * unshifted Ctrl tier belongs to the pane, not to claims data.
  */
 export function claimedKeys(platform: BindingPlatform, shell: boolean): ClaimedKey[] {
   const claims: ClaimedKey[] = [
     ...SHELL_SWITCHER_DIGITS,
+    ...MAC_SCREENSHOT_CLAIMS,
     { code: "KeyR", tier: "shifted", label: "reload", owner: "shell" },
     { code: "KeyI", tier: "shifted", label: "devtools", owner: "shell", platform: "other" },
     { code: "KeyQ", tier: "shifted", label: "logout", owner: "system", platform: "mac" },

@@ -199,17 +199,40 @@ describe("claimedKeys", () => {
       .filter((c) => c.tier === tier)
       .map((c) => c.code);
 
-  it("claims the shifted shell digits + R everywhere, I/C/V on win-linux, Q on mac", () => {
+  it("claims the shifted switcher digits on win/linux only + R everywhere, I/C/V on win-linux, Q on mac (260731-nv5r)", () => {
+    // Mac: the switcher moved to ⌥⌘1–9 (outside every tier), so the shifted
+    // tier carries NO shell digit claims — only the 3/4/5 screenshot system
+    // claims below. Freed ⇧⌘1/2/6–9 are unclaimed future page real estate.
     const mac = codes("mac", true, "shifted");
-    expect(mac).toContain("Digit1");
-    expect(mac).toContain("Digit9");
+    for (const n of [1, 2, 6, 7, 8, 9]) {
+      expect(mac).not.toContain(`Digit${n}`);
+    }
+    expect(mac).toEqual(expect.arrayContaining(["Digit3", "Digit4", "Digit5"]));
     expect(mac).toContain("KeyR");
     expect(mac).toContain("KeyQ");
     expect(mac).not.toContain("KeyI");
     expect(mac).not.toContain("KeyC");
+    // Win/linux: the nine shell-owned switcher digits stay, unchanged.
     const other = codes("other", true, "shifted");
-    expect(other).toEqual(expect.arrayContaining(["KeyR", "KeyI", "KeyC", "KeyV"]));
+    expect(other).toEqual(
+      expect.arrayContaining(["Digit1", "Digit9", "KeyR", "KeyI", "KeyC", "KeyV"]),
+    );
     expect(other).not.toContain("KeyQ");
+  });
+
+  it("mac ⇧⌘3/4/5 screenshot claims are system-owned and apply in both hosts; win/linux digits stay shell-owned (260731-nv5r)", () => {
+    for (const shell of [true, false]) {
+      const screenshots = claimedKeys("mac", shell).filter(
+        (c) => c.tier === "shifted" && c.label === "screenshot",
+      );
+      expect(screenshots.map((c) => c.code).sort()).toEqual(["Digit3", "Digit4", "Digit5"]);
+      expect(screenshots.every((c) => c.owner === "system")).toBe(true);
+      const otherDigits = claimedKeys("other", shell).filter(
+        (c) => c.tier === "shifted" && c.code.startsWith("Digit"),
+      );
+      expect(otherDigits).toHaveLength(9);
+      expect(otherDigits.every((c) => c.owner === "shell" && c.label === "server")).toBe(true);
+    }
   });
 
   it("adds browser-owned shifted N/T/W only outside the shell", () => {

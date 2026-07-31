@@ -1,0 +1,13 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-31T14:21:30Z"}
+{"args":"Migrate the frontend from TypeScript 6 to TypeScript 7 (native Go compiler): bump app/frontend typescript devDependency ^6.0.3 -\u003e ^7.0.2, update pnpm-lock.yaml, fix stale TypeScript 5.7+ line in fab/project/context.md","cmd":"fab-new","event":"command","ts":"2026-07-31T14:21:30Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-07-31T14:22:40Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-07-31T14:23:11Z"}
+{"cmd":"fab-proceed","event":"command","ts":"2026-07-31T14:23:18Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-31T14:26:05Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-31T14:26:05Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-31T14:27:15Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-31T15:06:05Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-31T15:13:02Z"}
+{"event":"review","result":"passed","ts":"2026-07-31T15:13:02Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-31T15:13:36Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-31T15:14:40Z"}

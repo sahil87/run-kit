@@ -38,7 +38,7 @@ Task runner: `just` (see `justfile`). Frontend deps managed by pnpm (in `app/fro
 
 ## Frontend — `app/frontend/`
 
-- **Language**: TypeScript 5.7+
+- **Language**: TypeScript 7 (native Go compiler)
 - **Framework**: Vite 7 + React 19 (SPA, no SSR)
 - **Routing**: TanStack Router — routes: `/` (redirect), `/$session/$window`
 - **UI**: Tailwind CSS 4

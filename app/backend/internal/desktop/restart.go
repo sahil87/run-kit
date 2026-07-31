@@ -40,19 +40,29 @@ func (ins *Installer) quitApp(ctx context.Context) error {
 
 // waitAppExit polls AppRunning until the app's processes are gone, bounded by
 // ins.QuitWait. The osascript quit returns as soon as the app *accepts* the
-// Apple event — actual process exit lags it, so the swap must wait here.
+// Apple event — actual process exit lags it, so the swap must wait here. The
+// bound is a context derived from QuitWait so a slow probe cannot stretch the
+// total wall time past it (probeTimeout caps each probe individually, but the
+// probe context descends from waitCtx).
 func (ins *Installer) waitAppExit(ctx context.Context) error {
-	deadline := time.Now().Add(ins.QuitWait)
+	waitCtx, cancel := context.WithTimeout(ctx, ins.QuitWait)
+	defer cancel()
 	for {
-		if !ins.AppRunning(ctx) {
-			return nil
+		running := ins.AppRunning(waitCtx)
+		// Check the contexts before trusting the probe: AppRunning reads any
+		// probe error — including waitCtx dying mid-pgrep — as "not running",
+		// and a false at the deadline must not pass for a clean exit.
+		if err := ctx.Err(); err != nil {
+			return err
 		}
-		if time.Now().After(deadline) {
+		if waitCtx.Err() != nil {
 			return fmt.Errorf("%s did not exit within %s — quit the app manually, then re-run this command", appName, ins.QuitWait)
 		}
+		if !running {
+			return nil
+		}
 		select {
-		case <-ctx.Done():
-			return ctx.Err()
+		case <-waitCtx.Done():
 		case <-time.After(ins.QuitPoll):
 		}
 	}

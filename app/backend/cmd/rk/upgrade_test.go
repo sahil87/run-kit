@@ -682,6 +682,62 @@ func TestUpdate_Umbrella_DesktopFailureAfterCLISuccess(t *testing.T) {
 	}
 }
 
+// TestUpdate_Umbrella_BothLegsFail pins the errors.Join aggregation: when
+// both legs fail, the returned error carries both leg labels with each leg's
+// underlying cause — neither failure masks the other.
+func TestUpdate_Umbrella_BothLegsFail(t *testing.T) {
+	resetSkipFlag(t)
+	withResolveExe(t, "/opt/homebrew/Cellar/run-kit/dev/bin/run-kit", nil)
+
+	// brew update fails → the CLI leg errors before info/upgrade.
+	origBrew := runBrewFn
+	runBrewFn = func(_ context.Context, args ...string) ([]byte, error) {
+		return nil, errors.New("brew-update-boom")
+	}
+	t.Cleanup(func() { runBrewFn = origBrew })
+
+	var assetHits int
+	srv := desktopReleaseServer(t, "3.13.0", &assetHits)
+	dir := t.TempDir()
+	writeDesktopBundle(t, dir)
+	// codesign failure → the desktop leg's Install errors.
+	failingRunner := func(_ context.Context, name string, args ...string) ([]byte, error) {
+		switch name {
+		case "plutil":
+			return []byte("3.12.2\n"), nil
+		case "pgrep":
+			return nil, errors.New("exit status 1")
+		case "hdiutil":
+			if len(args) > 4 && args[0] == "attach" {
+				if err := os.MkdirAll(filepath.Join(args[4], desktop.AppBundleName), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			return nil, nil
+		case "codesign":
+			return nil, errors.New("code object is not signed at all")
+		}
+		return nil, nil
+	}
+	withUmbrellaDesktopStub(t, srv, failingRunner, dir)
+
+	var stdout, stderr bytes.Buffer
+	setUpdateBuffers(t, &stdout, &stderr)
+
+	err := updateCmd.RunE(updateCmd, nil)
+	if err == nil {
+		t.Fatal("want a non-nil error when both legs fail")
+	}
+	for _, want := range []string{
+		"CLI update:", "brew-update-boom",
+		"desktop update:", "signature verification failed",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error = %q, want it to carry %q (both legs labelled with their causes)", err.Error(), want)
+		}
+	}
+}
+
 // TestUpdate_Umbrella_QuietKeepsBothLegsData pins R5/R10 for the umbrella:
 // under --quiet both legs' data lines survive on stdout — including the
 // desktop restart announcement — while all chatter is dropped.

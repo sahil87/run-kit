@@ -70,7 +70,7 @@ export function ShellTitlebarStrip() {
         paddingRight: insets.right,
       }}
     >
-      <span className="truncate text-xs">{hostName ?? window.location.hostname}</span>
+      <span className="min-w-0 truncate text-xs">{hostName ?? window.location.hostname}</span>
     </div>
   );
 }

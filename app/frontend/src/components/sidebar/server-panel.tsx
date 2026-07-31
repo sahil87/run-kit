@@ -3,6 +3,7 @@ import { CollapsiblePanel } from "./collapsible-panel";
 import { LogoSpinner } from "@/components/logo-spinner";
 import { UNCOLORED_SELECTED_KEY, type RowTint } from "@/themes";
 import { isInfraServer, type ServerInfo } from "@/api/client";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useServerReorder, type ServerTileDragProps } from "@/hooks/use-server-reorder";
 import { useToast } from "@/components/toast";
 import { WaitingBadge } from "@/components/waiting-badge";
@@ -28,28 +29,6 @@ type ServerPanelProps = {
   onSidebarResizeStart?: (e: React.PointerEvent<HTMLDivElement>) => void;
 };
 
-/** Matches coarse-pointer (touch) devices and viewports narrower than 640px. */
-function useIsMobileLayout(): boolean {
-  const query = "(pointer: coarse), (max-width: 639px)";
-  const [matches, setMatches] = useState(() => {
-    if (typeof window === "undefined" || !window.matchMedia) return false;
-    return window.matchMedia(query).matches;
-  });
-  useEffect(() => {
-    if (typeof window === "undefined" || !window.matchMedia) return;
-    const mq = window.matchMedia(query);
-    const handler = (e: MediaQueryListEvent) => setMatches(e.matches);
-    if (mq.addEventListener) mq.addEventListener("change", handler);
-    else mq.addListener(handler);
-    setMatches(mq.matches);
-    return () => {
-      if (mq.removeEventListener) mq.removeEventListener("change", handler);
-      else mq.removeListener(handler);
-    };
-  }, [query]);
-  return matches;
-}
-
 /** Singular-aware tooltip wording: "5 windows across 2 sessions". */
 function windowCountTooltip(windowCount: number, sessionCount: number): string {
   const w = `${windowCount} window${windowCount === 1 ? "" : "s"}`;
@@ -70,7 +49,7 @@ export function ServerPanel({
   onSidebarResizeStart,
 }: ServerPanelProps) {
   const [refreshing, setRefreshing] = useState(false);
-  const isMobile = useIsMobileLayout();
+  const isMobile = useIsMobile();
   const activeTileRef = useRef<HTMLButtonElement>(null);
   const { addToast } = useToast();
   // Drag-reorder for regular server tiles (shared with the Host grid).

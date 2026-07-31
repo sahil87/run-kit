@@ -5,7 +5,7 @@ import { ThemeProvider } from "@/contexts/theme-context";
 import { ToastProvider } from "@/components/toast";
 import type { ServerInfo } from "@/api/client";
 
-// jsdom does not implement matchMedia — ThemeProvider + useIsMobileLayout both need it.
+// jsdom does not implement matchMedia — ThemeProvider + useIsMobile both need it.
 // Default to the fine-pointer / desktop-width branch unless a test overrides.
 vi.stubGlobal("matchMedia", vi.fn().mockImplementation((query: string) => ({
   matches: query.includes("prefers-color-scheme: dark"),

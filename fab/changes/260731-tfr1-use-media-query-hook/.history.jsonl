@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-31T08:49:35Z"}
+{"args":"tfr1 — Extract a shared useMediaQuery hook and collapse 4 duplicated media-query subscriptions","cmd":"fab-new","event":"command","ts":"2026-07-31T08:49:35Z"}
+{"delta":"+4.9","event":"confidence","score":4.9,"trigger":"calc-score","ts":"2026-07-31T08:51:35Z"}
+{"cmd":"fab-new","event":"command","ts":"2026-07-31T08:51:45Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-31T08:52:45Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-31T08:53:03Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-31T09:00:44Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-31T09:06:35Z"}
+{"event":"review","result":"passed","ts":"2026-07-31T09:06:35Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-31T09:12:54Z"}

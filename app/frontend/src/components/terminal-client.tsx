@@ -16,6 +16,7 @@ import { notifyFirstWrite } from "@/lib/window-transition";
 import { relayMux, type RelayStream } from "@/lib/relay-mux";
 import { shouldRefuseTerminalChord } from "@/lib/keybindings";
 import { useKeybindings } from "@/hooks/use-keybindings";
+import { evaluateMediaQuery } from "@/hooks/use-media-query";
 
 /**
  * Custom ClipboardProvider for the xterm.js ClipboardAddon.
@@ -502,7 +503,7 @@ export function TerminalClient({
     if (!container) return;
 
     // Only on touch devices — desktop uses native mouse wheel via xterm.js
-    const isTouch = window.matchMedia("(pointer: coarse)").matches;
+    const isTouch = evaluateMediaQuery("(pointer: coarse)");
     if (!isTouch) return;
 
     let startY = 0;

@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useCallback, useMemo, useRef } from "react";
 import type { ProjectSession, WindowInfo } from "@/types";
-import { MOBILE_BREAKPOINT_PX } from "@/hooks/use-is-mobile";
+import { evaluateIsMobile } from "@/hooks/use-is-mobile";
 
 export type BreadcrumbDropdownItem = {
   label: string;
@@ -66,14 +66,10 @@ function readComposeStrip(): boolean {
 }
 
 /** Whether the current viewport should be treated as mobile for layout
- * defaults. Mirrors `useIsMobile`'s rule (narrow width OR coarse pointer) but
- * runs once at state init, where hooks can't. Guarded for non-browser envs. */
+ * defaults. `useIsMobile`'s rule (narrow width OR coarse pointer) evaluated
+ * once at state init, where hooks can't run. Guarded for non-browser envs. */
 function isMobileViewport(): boolean {
-  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
-  return (
-    window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT_PX - 1}px)`).matches ||
-    window.matchMedia("(pointer: coarse)").matches
-  );
+  return evaluateIsMobile();
 }
 
 function readSidebarOpen(): boolean {

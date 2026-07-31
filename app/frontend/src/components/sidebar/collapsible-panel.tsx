@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from "react";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useLocalStorageBoolean } from "@/hooks/use-local-storage-boolean";
 import type { RowTint } from "@/themes";
 import { TypedLabel } from "@/components/typed-label";
@@ -72,27 +73,6 @@ function resolveMaxHeight(maxHeight: number | string): number {
   return Math.max(0, window.innerHeight - 120);
 }
 
-/** Subscribe to a media query; returns a stable boolean. */
-function useMediaQuery(query: string): boolean {
-  const [matches, setMatches] = useState(() => {
-    if (typeof window === "undefined" || !window.matchMedia) return false;
-    return window.matchMedia(query).matches;
-  });
-  useEffect(() => {
-    if (typeof window === "undefined" || !window.matchMedia) return;
-    const mq = window.matchMedia(query);
-    const handler = (e: MediaQueryListEvent) => setMatches(e.matches);
-    if (mq.addEventListener) mq.addEventListener("change", handler);
-    else mq.addListener(handler);
-    setMatches(mq.matches);
-    return () => {
-      if (mq.removeEventListener) mq.removeEventListener("change", handler);
-      else mq.removeListener(handler);
-    };
-  }, [query]);
-  return matches;
-}
-
 export function CollapsiblePanel({
   title,
   storageKey,
@@ -116,7 +96,7 @@ export function CollapsiblePanel({
   const contentRef = useRef<HTMLDivElement>(null);
 
   // Hide the drag handle + use fixed mobile height on coarse pointer or narrow viewport.
-  const isMobile = useMediaQuery("(pointer: coarse), (max-width: 639px)");
+  const isMobile = useIsMobile();
 
   const heightStorageKey = `${storageKey}-height`;
   const [height, setHeight] = useState<number>(() => {

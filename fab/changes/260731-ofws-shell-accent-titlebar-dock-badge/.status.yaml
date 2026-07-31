@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 12
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-07-31T08:41:28Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-31T08:59:55Z"}
     review: {started_at: "2026-07-31T08:59:55Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-31T09:11:40Z"}
     hydrate: {started_at: "2026-07-31T09:11:40Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-31T09:22:45Z"}
-    ship: {started_at: "2026-07-31T09:22:45Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-07-31T09:22:45Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-31T09:25:14Z"}
+    review-pr: {started_at: "2026-07-31T09:25:14Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/487
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 1539
+    deleted: 32
+    net: 1507
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 1127
+        deleted: 3
+        net: 1124
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-07-31T09:22:45Z"
-    computed_at_stage: hydrate
+        added: 273
+        deleted: 2
+        net: 271
+    computed_at: "2026-07-31T09:25:14Z"
+    computed_at_stage: ship
 summary: Desktop shell hides the native titlebar behind an SPA-drawn accent strip (theme-color overlay sync + version-skew fallback CSS) and adds a sender-gated badge:set IPC driving the dock/taskbar waiting badge; titlebarHex is exposed on the instance-accent context as the strip's background.
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-07-31T09:22:45Z
+last_updated: 2026-07-31T09:25:14Z

@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 11
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-07-31T08:53:02Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-31T09:08:14Z"}
     review: {started_at: "2026-07-31T09:08:14Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-31T09:16:28Z"}
     hydrate: {started_at: "2026-07-31T09:16:28Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-31T09:20:00Z"}
-    ship: {started_at: "2026-07-31T09:20:00Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-07-31T09:20:00Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-31T09:22:11Z"}
+    review-pr: {started_at: "2026-07-31T09:22:11Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/486
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 420
+    deleted: 276
+    net: 144
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 113
+        deleted: 276
+        net: -163
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-07-31T09:20:00Z"
-    computed_at_stage: hydrate
+        added: 5
+        deleted: 37
+        net: -32
+    computed_at: "2026-07-31T09:22:11Z"
+    computed_at_stage: ship
 summary: Added src/test-utils/ (fixture factories + stubMatchMedia) consolidating vitest scaffolding across 17 frontend test files; documented the import-per-test convention and the two-matchMedia-family split in architecture.md
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-07-31T09:20:00Z
+last_updated: 2026-07-31T09:22:11Z

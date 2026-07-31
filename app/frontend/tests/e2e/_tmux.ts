@@ -36,12 +36,19 @@ export interface WindowSpec {
 }
 
 /** Run a tmux command against the given server and return its stdout.
- *  Throws on non-zero exit — lifecycle helpers wrap this in best-effort
- *  try/catch; mid-test callers usually want the error. */
-export function tmux(args: string[], opts: TmuxOptions = {}): string {
-  return execFileSync("tmux", ["-L", opts.server ?? TMUX_SERVER, ...args], {
-    stdio: ["ignore", "pipe", "ignore"],
-  }).toString();
+ *  Throws on non-zero exit (with tmux's stderr appended to the message) —
+ *  lifecycle helpers wrap this in best-effort try/catch; mid-test callers
+ *  usually want the error. Module-private: specs use the named helpers. */
+function tmux(args: string[], opts: TmuxOptions = {}): string {
+  try {
+    return execFileSync("tmux", ["-L", opts.server ?? TMUX_SERVER, ...args], {
+      stdio: ["ignore", "pipe", "pipe"],
+    }).toString();
+  } catch (err) {
+    const stderr = (err as { stderr?: Buffer }).stderr?.toString().trim();
+    if (err instanceof Error && stderr) err.message += `\ntmux: ${stderr}`;
+    throw err;
+  }
 }
 
 export interface CreateSessionOptions extends TmuxOptions {

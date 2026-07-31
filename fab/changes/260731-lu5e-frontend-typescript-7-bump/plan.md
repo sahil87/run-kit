@@ -74,7 +74,7 @@ With TS 7 installed, the frontend typecheck (`tsc --noEmit`) MUST pass with zero
 ### Scenario Coverage
 
 - [x] A-004 R3: `just test` (backend + frontend + e2e) passes, with any e2e failure triaged against the known-flaky-on-main signatures — apply ran the full `just test` green (T005, 1 iteration, no rework). Review re-ran the scoped gate `just test-frontend`: 118 files / 2071 tests passed. Full e2e deliberately not re-run at review (already green at apply; the suite is a 3-shard SSE/tmux-contended gate)
-- [x] A-005 R3: `just build` succeeds (the build script's `tsc --noEmit` half runs the TS 7 binary) — **partially N/A, pre-existing failure**: the change-relevant half is verified green (`pnpm build` = `tsc --noEmit && vite build` exits 0 on TS 7). The `just build` recipe still fails at `scripts/build.sh:19` (`cat "$REPO_ROOT/VERSION"`) because `VERSION` was deleted by `ea750837` (PR #193, tag-driven release port) and is absent at the merge-base — confirmed pre-existing on main, independent of this change
+- [x] A-005 R3: the change-relevant build steps pass — `pnpm build` (`tsc --noEmit && vite build`) exits 0 with the typecheck half running the TS 7 binary. The full `just build` recipe was NOT verified end-to-end: it fails at `scripts/build.sh:19` (`cat "$REPO_ROOT/VERSION"`) because `VERSION` was deleted by `ea750837` (PR #193, tag-driven release port) — a pre-existing failure on main, independent of this change
 
 ### Edge Cases & Error Handling
 

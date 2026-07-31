@@ -22,7 +22,7 @@ export function makeWindow(overrides: Partial<WindowInfo> = {}): WindowInfo {
 export function makeSession(overrides: Partial<ProjectSession> = {}): ProjectSession {
   return {
     name: "alpha",
-    windows: [makeWindow()],
+    windows: overrides.windows ?? [makeWindow()],
     ...overrides,
   };
 }

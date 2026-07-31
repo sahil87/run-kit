@@ -97,7 +97,7 @@ The change MUST be tests-only: zero production files touched, no `vitest.config.
 
 ### Edge Cases & Error Handling
 
-- [x] A-009 R5: `git diff --name-only` shows only test files plus the new `src/test-utils/` — zero production files, no `vitest.config.ts`/`test-setup.ts` edits, `mockReturnValue(mql)` family untouched — verified: 17 modified files all `*.test.ts(x)` + 2 new `test-utils/*.ts`; `vitest.config.ts`/`test-setup.ts` show no diff; use-coarse-pointer, theme-context, theme-selector, swatch-popover, terminal-client, sidebar.test.tsx all UNTOUCHED; `window-row.test.tsx:20` `mockMatchMedia` and `compose-strip.test.tsx:98` `mockReturnValue` preserved in-place
+- [x] A-009 R5: within `app/frontend/`, `git diff --name-only` shows only test files plus the new `src/test-utils/` — zero production files, no `vitest.config.ts`/`test-setup.ts` edits, `mockReturnValue(mql)` family untouched (fab pipeline bookkeeping under `fab/changes/` and the `docs/memory/` hydrate artifact sit outside this tests-only constraint) — verified: 17 modified files all `*.test.ts(x)` + 2 new `test-utils/*.ts`; `vitest.config.ts`/`test-setup.ts` show no diff; use-coarse-pointer, theme-context, theme-selector, swatch-popover, terminal-client, sidebar.test.tsx all UNTOUCHED; `window-row.test.tsx:20` `mockMatchMedia` and `compose-strip.test.tsx:98` `mockReturnValue` preserved in-place
 
 ### Code Quality
 

@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 11
@@ -33,22 +33,24 @@ stage_metrics:
     apply: {started_at: "2026-07-31T05:50:10Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-31T06:04:25Z"}
     review: {started_at: "2026-07-31T06:04:25Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-31T06:09:33Z"}
     hydrate: {started_at: "2026-07-31T06:09:33Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-31T06:23:01Z"}
-    ship: {started_at: "2026-07-31T06:23:01Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-07-31T06:23:01Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-31T06:27:28Z"}
+    review-pr: {started_at: "2026-07-31T06:27:28Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/480
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 1243
+    deleted: 936
+    net: 307
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 767
+        deleted: 828
+        net: -61
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-07-31T06:23:01Z"
-    computed_at_stage: hydrate
+        added: 341
+        deleted: 328
+        net: 13
+    computed_at: "2026-07-31T06:27:28Z"
+    computed_at_stage: ship
 summary: 'Desktop shell: GUI-PATH spawn-site fix (augmentPath in runRk), rename feature removed entirely, host terminology throughout with servers.json → hosts.json (no migration); servers:* SPA bridge boundary frozen'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-07-31T06:23:01Z
+last_updated: 2026-07-31T06:27:28Z

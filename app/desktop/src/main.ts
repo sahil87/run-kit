@@ -110,8 +110,13 @@ const ALLOWED_PERMISSIONS = new Set([
   "notifications",
 ]);
 
-/** Dev-only direct URL (never persisted). */
-const devUrl = process.env.RK_DESKTOP_URL;
+/** Dev-only direct URL (never persisted). Validated once: a value
+ *  `normalizeOrigin` rejects (no scheme, non-http) is ignored — it could
+ *  neither load nor pass the origin allowlist. The raw value (which may
+ *  carry a path) is kept for loading; only its origin joins the allowlist. */
+const rawDevUrl = process.env.RK_DESKTOP_URL;
+const devUrl =
+  rawDevUrl && normalizeOrigin(rawDevUrl).ok ? rawDevUrl : undefined;
 
 let mainWindow: BrowserWindow | null = null;
 

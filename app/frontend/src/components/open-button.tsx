@@ -4,6 +4,7 @@ import { OpenTargetIcon } from "@/components/open-app-icons";
 import { useToast } from "@/components/toast";
 import {
   MENU_ROW_CLASS,
+  POPOVER_ROW_CLASS,
   TOP_BAR_SEGMENT_H,
 } from "@/components/top-bar-overflow-menu";
 import {
@@ -191,7 +192,7 @@ function OpenTargetRow({
       type="button"
       role="menuitem"
       onClick={() => onRun(target)}
-      className="w-full text-left flex items-center gap-2 px-3 py-1.5 text-[11px] text-text-secondary hover:text-text-primary hover:bg-bg-card transition-colors"
+      className={POPOVER_ROW_CLASS}
     >
       <OpenTargetIcon target={target} />
       {target.label}

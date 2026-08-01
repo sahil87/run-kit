@@ -23,6 +23,7 @@ import {
   type OverflowMenuRow,
   type MenuGroup,
   MENU_ROW_CLASS,
+  POPOVER_ROW_CLASS,
   TOP_BAR_BUTTON,
   TOP_BAR_BUTTON_BASE,
   TOP_BAR_BUTTON_REST,
@@ -1941,8 +1942,6 @@ function SplitControl({
   };
 
   const segmentClass = `rk-glint px-1.5 ${TOP_BAR_SEGMENT_H} flex items-center justify-center text-text-secondary hover:text-text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed`;
-  const menuRowClass =
-    "w-full text-left flex items-center gap-2 px-3 py-1.5 text-[11px] text-text-secondary hover:text-text-primary hover:bg-bg-card transition-colors";
 
   return (
     <div ref={containerRef} className="relative inline-flex items-center">
@@ -1950,7 +1949,7 @@ function SplitControl({
         <Tip label="Split vertically">
           <button
             type="button"
-            onClick={() => execute(false)}
+            onClick={() => run(false)}
             disabled={isPending}
             aria-label="Split vertically"
             className={segmentClass}
@@ -2011,10 +2010,22 @@ function SplitControl({
           aria-label="Split direction"
           className="absolute top-full right-0 mt-1 min-w-[150px] bg-bg-primary border border-border rounded-lg shadow-2xl py-1 z-50"
         >
-          <button type="button" role="menuitem" onClick={() => run(false)} className={menuRowClass}>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => run(false)}
+            disabled={isPending}
+            className={POPOVER_ROW_CLASS}
+          >
             Split vertical
           </button>
-          <button type="button" role="menuitem" onClick={() => run(true)} className={menuRowClass}>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => run(true)}
+            disabled={isPending}
+            className={POPOVER_ROW_CLASS}
+          >
             Split horizontal
           </button>
         </div>

@@ -60,6 +60,17 @@ export const MENU_ROW_ACTIVE = "bg-accent-green text-bg-primary";
 export const MENU_ROW_CLASS = `${MENU_ROW_BASE} ${MENU_ROW_REST} ${MENU_ROW_DISABLED}`;
 
 /**
+ * Shared IN-BAR popover row styling — the dropdown rows of the split-button
+ * controls themselves (`OpenTargetRow` targets, `SplitControl` directions),
+ * hosted here for the same no-cycle reason as `MENU_ROW_*`. Distinct from the
+ * chevron overflow menu's `MENU_ROW_*` scale (`text-[11px] px-3` vs
+ * `text-xs px-2.5`). Carries disabled-state tokens for rows that gate on a
+ * pending action (inert for rows that never disable).
+ */
+export const POPOVER_ROW_CLASS =
+  "w-full text-left flex items-center gap-2 px-3 py-1.5 text-[11px] text-text-secondary hover:text-text-primary hover:bg-bg-card transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-text-secondary";
+
+/**
  * Shared top-bar icon-button sizing (260731-oiho), hosted here for the same
  * no-cycle reason as `MENU_ROW_*` (every consumer — `top-bar.tsx`,
  * `open-button.tsx`, `view-switcher.tsx`, this menu — already imports this

@@ -1,3 +1,10 @@
 {"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-01T06:09:16Z"}
 {"args":"Add cache headers to embedded SPA serving in spa.go — immutable for hashed /assets/, no-cache + ETag for index.html (embed.FS zero modtime means no validators today; every load re-downloads ~700KB)","cmd":"fab-new","event":"command","ts":"2026-08-01T06:09:16Z"}
 {"delta":"+4.8","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-08-01T06:12:03Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-01T06:44:37Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-01T06:45:35Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-08-01T06:46:45Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-01T06:53:52Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-01T06:59:39Z"}
+{"event":"review","result":"passed","ts":"2026-08-01T06:59:39Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-01T07:03:30Z"}

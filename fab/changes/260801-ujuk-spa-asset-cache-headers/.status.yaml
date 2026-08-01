@@ -5,17 +5,17 @@ created_by: sahil-noon
 change_type: fix
 issues: []
 progress:
-    intake: ready
-    apply: pending
-    review: pending
-    hydrate: pending
-    ship: pending
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
     review-pr: pending
 plan:
-    generated: false
-    task_count: 0
-    acceptance_count: 0
-    acceptance_completed: 0
+    generated: true
+    task_count: 6
+    acceptance_count: 11
+    acceptance_completed: 11
 confidence:
     certain: 3
     confident: 2
@@ -29,8 +29,27 @@ confidence:
         competence: 86.0
         disambiguation: 81.0
 stage_metrics:
-    intake: {started_at: "2026-08-01T06:09:16Z", driver: fab-new, iterations: 1}
+    intake: {started_at: "2026-08-01T06:09:16Z", driver: fab-new, iterations: 1, completed_at: "2026-08-01T06:45:35Z"}
+    apply: {started_at: "2026-08-01T06:45:35Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T06:53:52Z"}
+    review: {started_at: "2026-08-01T06:53:52Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T06:59:39Z"}
+    hydrate: {started_at: "2026-08-01T06:59:39Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T07:03:30Z"}
+    ship: {started_at: "2026-08-01T07:03:30Z", driver: fab-fff, iterations: 1}
 prs: []
 change_type_source: explicit
+true_impact:
+    added: 249
+    deleted: 0
+    net: 249
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-08-01T07:03:30Z"
+    computed_at_stage: hydrate
+summary: 'SPA serving gains a two-tier cache policy: immutable hashed /assets/, no-cache + memoized content-ETag elsewhere (embed.FS has no modtime)'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-01T06:12:54Z
+last_updated: 2026-08-01T07:03:30Z

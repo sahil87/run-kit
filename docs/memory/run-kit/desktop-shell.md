@@ -1,5 +1,5 @@
 ---
-description: "The app/desktop Electron viewer shell — a client of an rk serve URL that never auto-starts the daemon and never auto-updates (child_process only for user-initiated rk actions + detection). 'Host' = rk instance, 'server' = tmux. Covers hosts.json, one persistent WebContentsView per visited host (lazy creation, detach/attach switching, per-view wiring, views.ts), welcome + 'This Mac', local-daemon control, last-path restore, titlebar strip, dock badge, menu tier seam, runkitShell bridge, window-open/navigation policy + editor-deeplink allowlist, install/update."
+description: "The app/desktop Electron viewer shell — a client of an rk serve URL that never auto-starts the daemon and never auto-updates. 'Host' = rk instance, 'server' = tmux. Covers hosts.json, one persistent WebContentsView per visited host (lazy creation, detach/attach switching, views.ts), welcome + 'This Mac', local-daemon control, last-path restore, titlebar strip, dock badge, menu tier seam, runkitShell bridge, window-open/navigation policy + editor-deeplink allowlist, install/update."
 type: memory
 ---
 # Desktop Viewer Shell (`app/desktop`)

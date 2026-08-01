@@ -180,8 +180,9 @@ test.describe("Register-label and chip tips (260723-fm08)", () => {
     await expect(tooltip).toBeVisible();
     await expect(tooltip).toContainText("Command palette");
     // The REGISTRY-resolved palette chord renders as a real <kbd> keycap chip
-    // (260801-mqim) — "Ctrl+K" on the Linux e2e runner, no longer a static ⌘K
-    // (the chip's button face keeps the ⌘K brand glyph).
+    // (260801-mqim) — "Ctrl+K" because devices["Desktop Chrome"] pins a
+    // Windows UA, so detectPlatform() resolves "other" on any host OS; no
+    // longer a static ⌘K (the chip's button face keeps the ⌘K brand glyph).
     await expect(tooltip.locator("kbd")).toHaveText("Ctrl+K");
   });
 });

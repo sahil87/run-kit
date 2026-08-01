@@ -92,10 +92,11 @@ precedent).
 **What it proves:** The bottom-bar key chips (bare symbol glyphs) carry
 tier-1 tips (260723-fm08); the ⌘K chip pairs its "Command palette" label
 with the **registry-resolved** shortcut rendered as a real `<kbd>` keycap
-chip (260801-mqim — platform-aware via `useKeybindings` + `formatCombo`, so
-the Linux e2e runner reads `Ctrl+K` while the chip's button face keeps the
-⌘K brand glyph), and the migration contract holds (no native `title` on the
-chip).
+chip (260801-mqim — platform-aware via `useKeybindings` + `formatCombo`;
+the pinned `devices["Desktop Chrome"]` UA is Windows, so `detectPlatform()`
+resolves `other` and the tip reads `Ctrl+K` on any host OS, while the
+chip's button face keeps the ⌘K brand glyph), and the migration contract
+holds (no native `title` on the chip).
 
 **Steps:**
 1. Navigate to `/default/1` (mocked backend) and wait for the
@@ -103,4 +104,4 @@ chip).
 2. Assert the chip has NO `title` attribute.
 3. Hover the chip; assert the `role="tooltip"` element becomes visible,
    contains "Command palette", and its `<kbd>` reads "Ctrl+K" (the
-   platform-effective chord on the Linux runner).
+   platform-effective chord under the pinned Windows device UA).

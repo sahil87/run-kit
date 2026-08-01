@@ -41,7 +41,9 @@
  * ⌘Z/⇧⌘Z/⌘X/⌘C/⌘V/⌘A (a macOS carve-out, NOT part of the cross-platform
  * rule — clipboard in web content is dead on macOS without them); View
  * ⌘R/⇧⌘R reload, ⌥⌘I devtools, ⌘+/⌘−/⌘0 zoom, ⌃⌘F fullscreen (conventional
- * shell chrome via role defaults, predating the rule); Hosts radios
+ * shell chrome, predating the rule — explicit items over the focused
+ * webContents, since the equivalent roles are window-bound and would act on
+ * the hidden welcome underlay instead of the attached host view); Hosts radios
  * ⌥⌘1–⌥⌘9 (the shell tier — the same modifier family as the ⌥⌘H/⌥⌘I roles
  * above); Window ⌘M minimize. Guaranteed fall-through set (never bind
  * these): ⌘T ⌘W ⌘N ⌘L ⌘K ⌘F ⌘P ⌘1–9 ⌘[ ⌘], plus the freed ⇧⌘1–9 (future
@@ -57,8 +59,10 @@
  * there is no Edit menu; File→Quit is a plain item (the `quit` role
  * default-binds Ctrl+Q on Linux); there is no Window menu (native window
  * chrome covers minimize/close; the `minimize` role default-binds Ctrl+M);
- * View roles whose defaults sit in the unshifted Ctrl tier (reload Ctrl+R,
- * zoom Ctrl+0/±) are rebuilt as accelerator-less plain items. Bound there
+ * View items whose former role defaults sit in the unshifted Ctrl tier
+ * (reload Ctrl+R, zoom Ctrl+0/±) are accelerator-less plain items, and the
+ * shifted-tier pair (force-reload, devtools) is explicit too so it targets
+ * the focused view's webContents. Bound there
  * (exhaustive): ⇧Ctrl+1–9 Hosts switcher (the shell tier), ⇧Ctrl+R
  * force-reload, ⇧Ctrl+I devtools, F11 fullscreen — behavior byte-identical
  * before and after the mac ⌥⌘ move (only the accelerator string changed,
@@ -70,7 +74,14 @@
  * switching on a non-US layout is a manual-verify item; no scancode
  * workaround in v1.
  */
-import { app, BrowserWindow, Menu, MenuItemConstructorOptions, WebContents } from "electron";
+import {
+  app,
+  BrowserWindow,
+  Menu,
+  MenuItemConstructorOptions,
+  webContents,
+  WebContents,
+} from "electron";
 import { HostEntry } from "./hosts";
 
 export interface MenuCallbacks {
@@ -121,8 +132,19 @@ const isMac = process.platform === "darwin";
 
 const separator: MenuItemConstructorOptions = { type: "separator" };
 
+/**
+ * The webContents the View items act on. Host pages render in per-host
+ * WebContentsViews (see main.ts § Host views), so the focused window's OWN
+ * webContents is the hidden welcome/blank underlay whenever a host is
+ * showing — the truly focused webContents (the attached view, focused by the
+ * switch seam) is the right target, with the window's own contents as the
+ * welcome-page fallback.
+ */
 function focusedWebContents(): WebContents | undefined {
-  return BrowserWindow.getFocusedWindow()?.webContents;
+  return (
+    webContents.getFocusedWebContents() ??
+    BrowserWindow.getFocusedWindow()?.webContents
+  );
 }
 
 function zoomBy(delta: number): void {
@@ -201,33 +223,59 @@ function macEditMenu(): MenuItemConstructorOptions {
 }
 
 function viewMenu(): MenuItemConstructorOptions {
+  // Every webContents-bound item is an EXPLICIT item over focusedWebContents()
+  // on both platforms: Electron's `reload` / `forceReload` / `toggleDevTools`
+  // roles are window-bound (they act on the focused window's OWN webContents),
+  // which under per-host views is the hidden welcome/blank underlay — ⌘R would
+  // reload the wrong surface. Accelerator strings are byte-identical to the
+  // former role defaults, so the keyboard-tier seam is untouched. Only
+  // `togglefullscreen` (a genuine window-level action) stays a role.
   if (isMac) {
     return {
       label: "View",
       submenu: [
-        { role: "reload" }, // ⌘R
-        { role: "forceReload" }, // ⇧⌘R
-        { role: "toggleDevTools" }, // ⌥⌘I
+        { label: "Reload", accelerator: "CmdOrCtrl+R", click: () => focusedWebContents()?.reload() }, // ⌘R
+        {
+          label: "Force Reload",
+          accelerator: "Shift+CmdOrCtrl+R", // ⇧⌘R
+          click: () => focusedWebContents()?.reloadIgnoringCache(),
+        },
+        {
+          label: "Toggle Developer Tools",
+          accelerator: "Alt+Cmd+I", // ⌥⌘I
+          click: () => focusedWebContents()?.toggleDevTools(),
+        },
         { type: "separator" },
-        { role: "resetZoom" }, // ⌘0
-        { role: "zoomIn" }, // ⌘+
-        { role: "zoomOut" }, // ⌘−
+        {
+          label: "Actual Size",
+          accelerator: "CmdOrCtrl+0", // ⌘0
+          click: () => focusedWebContents()?.setZoomLevel(0),
+        },
+        { label: "Zoom In", accelerator: "CmdOrCtrl+Plus", click: () => zoomBy(0.5) }, // ⌘+
+        { label: "Zoom Out", accelerator: "CmdOrCtrl+-", click: () => zoomBy(-0.5) }, // ⌘−
         { type: "separator" },
         { role: "togglefullscreen" }, // ⌃⌘F
       ],
     };
   }
-  // Windows/Linux: item parity with the mac View menu, but roles whose
-  // default accelerator sits in the unshifted Ctrl tier (Ctrl+R, Ctrl+0,
-  // Ctrl+±) are rebuilt as accelerator-less plain items — a role's default
-  // accelerator cannot be removed, and displaying a dead one
-  // (registerAccelerator: false) would lie to the user.
+  // Windows/Linux: item parity with the mac View menu. Reload/zoom stay
+  // accelerator-LESS plain items — their former role defaults sit in the
+  // unshifted Ctrl tier (Ctrl+R, Ctrl+0, Ctrl+±), which is page territory —
+  // while the shifted-tier items keep their accelerators explicitly.
   return {
     label: "View",
     submenu: [
       { label: "Reload", click: () => focusedWebContents()?.reload() },
-      { role: "forceReload" }, // ⇧Ctrl+R — shifted tier, shell-claimable
-      { role: "toggleDevTools" }, // ⇧Ctrl+I — shifted tier
+      {
+        label: "Force Reload",
+        accelerator: "Shift+Ctrl+R", // shifted tier, shell-claimable
+        click: () => focusedWebContents()?.reloadIgnoringCache(),
+      },
+      {
+        label: "Toggle Developer Tools",
+        accelerator: "Shift+Ctrl+I", // shifted tier
+        click: () => focusedWebContents()?.toggleDevTools(),
+      },
       { type: "separator" },
       { label: "Actual Size", click: () => focusedWebContents()?.setZoomLevel(0) },
       { label: "Zoom In", click: () => zoomBy(0.5) },

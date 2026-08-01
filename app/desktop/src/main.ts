@@ -1,9 +1,17 @@
 /**
- * Main process — lifecycle, BrowserWindow, security wiring, IPC, the
- * welcome.html ↔ active-host-URL routing, and local-daemon control.
- * ("Host" = an rk instance; "server" is reserved for tmux servers. The
- * `servers:*` IPC channels and the bridge's `servers` group keep their
+ * Main process — lifecycle, BrowserWindow, per-host WebContentsViews,
+ * security wiring, IPC, the welcome ↔ host-view routing, and local-daemon
+ * control. ("Host" = an rk instance; "server" is reserved for tmux servers.
+ * The `servers:*` IPC channels and the bridge's `servers` group keep their
  * names — they are the web SPA's contract.)
+ *
+ * Host content renders in ONE PERSISTENT WebContentsView PER VISITED HOST
+ * (created lazily, kept alive until the host is removed or the window is torn
+ * down), so a host switch is an instant detach/attach flip that preserves
+ * live renderer state — WS/SSE connections, xterm scrollback, scroll
+ * position — never a reload. The window's own webContents serves only the
+ * welcome page. Per-view decision logic + badge/theme caches: ./views
+ * (electron-free, node:test covered).
  *
  * This shell is a VIEWER (Constitution VI): it loads an existing `rk serve`
  * URL and NEVER spawns or supervises the rk daemon on its own initiative.
@@ -28,6 +36,8 @@ import {
   net,
   session,
   shell,
+  WebContents,
+  WebContentsView,
 } from "electron";
 import { execFile, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -67,6 +77,20 @@ import {
   setActiveHost,
   setHostLastPath,
 } from "./hosts";
+import {
+  activateView,
+  activeView,
+  addView,
+  deactivateViews,
+  emptyViews,
+  findViewByWebContentsId,
+  getView,
+  removeView,
+  setViewBadge,
+  setViewThemeColor,
+  switchPaint,
+  ViewsState,
+} from "./views";
 
 const WELCOME_PATH = join(__dirname, "welcome", "welcome.html");
 const WELCOME_URL = pathToFileURL(WELCOME_PATH).toString();
@@ -90,6 +114,13 @@ const ALLOWED_PERMISSIONS = new Set([
 const devUrl = process.env.RK_DESKTOP_URL;
 
 let mainWindow: BrowserWindow | null = null;
+
+/** Per-host view registry — pure logic in ./views, handles are WebContentsViews. */
+let views: ViewsState<WebContentsView> = emptyViews();
+
+/** Sentinel registry id for the RK_DESKTOP_URL dev view — never a store
+ *  entry, so nothing about it (activeId, lastPath) is ever persisted. */
+const DEV_HOST_ID = "__dev__";
 
 const userDataDir = (): string => app.getPath("userData");
 
@@ -140,8 +171,12 @@ function isAllowedNavigation(url: string): boolean {
 // `servers:*`). macOS/Linux take `app.setBadgeCount` (0 clears); Windows has
 // no dock badge, so the count renders as a taskbar overlay icon whose PNG
 // bytes come from the electron-free ./badge module (node:test covered).
-// Cleared on host switch and welcome navigation (the incoming page re-reports
-// once its SSE stream is up) and on window close.
+// Counts are cached PER VIEW (./views — keyed by webContents id, since a
+// sender origin can be shared by several host entries): only the active
+// view's reports paint, background views' reports update their cache
+// silently, and a switch repaints the incoming view's cached count (0 when
+// none). Welcome shows a cleared badge (caches kept); window close clears
+// the OS surface.
 
 function applyBadge(count: number): void {
   if (process.platform === "win32") {
@@ -164,68 +199,262 @@ function clearBadge(): void {
 // ─── Routing ────────────────────────────────────────────────────────────────
 
 function showWelcome(win: BrowserWindow, query?: Record<string, string>): void {
-  clearBadge();
+  const current = activeView(views);
+  if (current) win.contentView.removeChildView(current.handle);
+  views = deactivateViews(views);
+  clearBadge(); // painted surface only — the per-view caches are kept
+  applyOverlayColor(DEFAULT_STRIP_COLOR); // welcome's static strip color
   void win.loadFile(WELCOME_PATH, query ? { query } : undefined);
 }
 
 /**
- * Load the active host (dangling activeId → first host), else welcome.
- * A remembered `lastPath` is restored as-is — staleness (removed window/board,
- * dead host) is the SPA's failure mode, never validated shell-side.
+ * Show the active host (dangling activeId → first host), else welcome.
+ * A remembered `lastPath` is restored as-is (and only when the view is
+ * created fresh) — staleness (removed window/board, dead host) is the SPA's
+ * failure mode, never validated shell-side.
  */
 function showActive(win: BrowserWindow): void {
   const active = resolveActiveHost(loadHosts(userDataDir()));
   if (active) {
-    void win.loadURL(active.url + (active.lastPath ?? ""));
+    attachHostView(active);
   } else {
     showWelcome(win);
   }
 }
 
 /**
- * Persist the current SPA route (`pathname + search`) for the registered
- * host whose origin the window is showing. Called at every shell-initiated
- * navigation away from a host (switch, add) and on window close.
- * Guards: the welcome file:// page is never captured, and a URL whose origin
- * matches no registered host (mid-navigation, foreign origin) is ignored —
- * so one host's route can never pollute another host's entry. When several
- * entries share the origin, the active entry wins (see `findHostByOrigin`).
+ * Persist a view's current SPA route (`pathname + search`) for ITS host
+ * entry. Views preserve live state, so capture runs only at window close
+ * (every live view) and at view destroy — never on switch; restore happens
+ * only when a view is created fresh. Keyed directly by the view's host id
+ * (a view belongs to exactly one entry — an origin lookup would misattribute
+ * a shared-origin background view's route to the ACTIVE entry), guarded so a
+ * URL whose origin does not match that entry's origin (mid-navigation,
+ * foreign origin) persists nothing. The dev view's sentinel id matches no
+ * entry and is never persisted.
  */
-function captureLastPath(): void {
-  const current = mainWindow?.webContents.getURL();
-  if (!current || current.startsWith(WELCOME_URL)) return;
+function captureLastPathForView(hostId: string, contents: WebContents): void {
+  if (contents.isDestroyed()) return;
+  const current = contents.getURL();
+  if (!current) return;
   let url: URL;
   try {
     url = new URL(current);
   } catch {
     return;
   }
-  const entry = findHostByOrigin(loadHosts(userDataDir()), url.origin);
-  if (!entry) return;
-  setHostLastPath(userDataDir(), entry.id, url.pathname + url.search);
+  const host = loadHosts(userDataDir()).hosts.find((h) => h.id === hostId);
+  if (!host || host.url !== url.origin) return;
+  setHostLastPath(userDataDir(), hostId, url.pathname + url.search);
 }
 
 function showStartPage(win: BrowserWindow): void {
   if (devUrl) {
-    void win.loadURL(devUrl);
+    // Dev override: a single view under a sentinel id — the same per-view
+    // wiring (security, theme, badge) as a registered host, nothing persisted.
+    attachHostView({ id: DEV_HOST_ID, url: devUrl });
   } else {
     showActive(win);
   }
 }
 
+// ─── Host views (one persistent WebContentsView per visited host) ───────────
+//
+// The window's own webContents serves ONLY the welcome page (and about:blank
+// while a view covers it); host content lives in per-host WebContentsViews
+// attached over the FULL window content bounds — the SPA draws the 28px
+// titlebar strip itself, so full-bounds views reproduce today's rendering
+// exactly. Views are created lazily on first visit and stay alive until
+// their host is removed or the window is torn down; a switch is a
+// detach/attach flip, never a reload.
+
+/** Shared hardened webPreferences — the window and every host view. */
+function hostWebPreferences(): Electron.WebPreferences {
+  return {
+    preload: join(__dirname, "preload.js"),
+    contextIsolation: true,
+    nodeIntegration: false,
+    sandbox: true,
+    // Sandboxed preloads read process.argv — this carries app.getVersion().
+    additionalArguments: [`--runkit-shell-version=${app.getVersion()}`],
+  };
+}
+
+/** Apply a strip color to the win/linux window-controls overlay. darwin
+ *  returns early (traffic lights are OS-drawn and take no color); a throwing
+ *  call degrades silently (partial linux WCO support). */
+function applyOverlayColor(color: string): void {
+  if (process.platform === "darwin") return;
+  const win = mainWindow;
+  if (!win || win.isDestroyed()) return;
+  try {
+    win.setTitleBarOverlay({
+      color,
+      symbolColor: symbolColorFor(color),
+      height: STRIP_HEIGHT_PX,
+    });
+  } catch {
+    // Partial window-controls-overlay support (linux) — degrade silently.
+  }
+}
+
+/** Views cover the full window content area (the SPA draws its own strip). */
+function syncViewBounds(win: BrowserWindow, view: WebContentsView): void {
+  const [width, height] = win.getContentSize();
+  view.setBounds({ x: 0, y: 0, width, height });
+}
+
+function syncActiveViewBounds(win: BrowserWindow): void {
+  const entry = activeView(views);
+  if (entry) syncViewBounds(win, entry.handle);
+}
+
+/**
+ * Create + wire a host view. Security wiring beyond webPreferences needs no
+ * per-view work: the app-level `web-contents-created` handler (window-open
+ * policy + navigation guard) and the session-wide permission handler already
+ * cover every webContents created, and IPC sender gating keys on sender-frame
+ * origin. What IS per-view: the theme-color cache feeding the overlay, and
+ * the version-skew fallback strip with its per-view inserted-CSS key.
+ */
+function createHostView(hostId: string): WebContentsView {
+  const view = new WebContentsView({ webPreferences: hostWebPreferences() });
+  view.setBackgroundColor("#0f1117"); // no white flash while the SPA boots
+  const contents = view.webContents;
+
+  // Key of the fallback strip CSS injected into this view's CURRENT page load
+  // (null when none). Tracked so a theme-color report landing AFTER the
+  // injection can recolor the band — `did-finish-load` may run before the
+  // page's theme color is observed.
+  let fallbackCssKey: string | null = null;
+  const refreshFallbackStrip = async (): Promise<void> => {
+    if (contents.isDestroyed()) return;
+    const url = contents.getURL();
+    if (!shouldInjectFallbackStrip(url, registeredOrigins())) return;
+    const color = getView(views, hostId)?.themeColor ?? DEFAULT_STRIP_COLOR;
+    const stale = fallbackCssKey;
+    fallbackCssKey = null;
+    try {
+      if (stale != null) await contents.removeInsertedCSS(stale);
+      fallbackCssKey = await contents.insertCSS(fallbackStripCss(color));
+    } catch {
+      // A navigation raced the injection — the next did-finish-load re-runs.
+    }
+  };
+  // Inserted CSS does not survive a main-frame navigation; drop the dead key.
+  contents.on("did-navigate", () => {
+    fallbackCssKey = null;
+  });
+  // Cache the page's theme-color per view; repaint the overlay only when this
+  // view is the attached one (a background report must not tint the window —
+  // the switch seam re-applies the incoming view's cached color instead).
+  contents.on("did-change-theme-color", (_event, color) => {
+    views = setViewThemeColor(views, hostId, color);
+    if (views.activeHostId === hostId) {
+      applyOverlayColor(color ?? DEFAULT_STRIP_COLOR);
+    }
+    if (fallbackCssKey != null) void refreshFallbackStrip();
+  });
+  // Version-skew fallback: an older SPA (no strip) under this hidden-titlebar
+  // shell would have no drag surface. Registered-host pages get a minimal
+  // draggable band whose CSS no-ops when the SPA-drawn strip marks
+  // `html.rk-shell-strip` (CSS is live, so injecting unconditionally is safe).
+  contents.on("did-finish-load", () => {
+    void refreshFallbackStrip();
+  });
+  return view;
+}
+
+/**
+ * Blank the welcome page under an attached view: the welcome script polls
+ * `daemon:status` (spawning rk subprocesses) on a 3s interval that only dies
+ * with its page, and a covered page never learns it is covered. A
+ * main-initiated load bypasses the will-navigate guard, so about:blank needs
+ * no allowlisting; `showWelcome` reloads the page fresh on demand.
+ */
+function blankWelcomeUnderlay(win: BrowserWindow): void {
+  if (win.webContents.getURL().startsWith(WELCOME_URL)) {
+    void win.webContents.loadURL("about:blank");
+  }
+}
+
+/**
+ * The attach seam: detach the current view, create the target's view on
+ * first visit (loading `url + lastPath` — the ONLY time a view navigates),
+ * attach over full bounds, and repaint the OS surfaces (badge, overlay) from
+ * the INCOMING view's caches.
+ */
+function attachHostView(host: { id: string; url: string; lastPath?: string }): void {
+  const win = mainWindow;
+  if (!win) return;
+  const current = activeView(views);
+  let entry = getView(views, host.id);
+  let created = false;
+  if (!entry) {
+    const view = createHostView(host.id);
+    views = addView(views, host.id, view, view.webContents.id);
+    entry = getView(views, host.id);
+    created = true;
+  }
+  if (!entry) return; // unreachable — addView just registered it
+  if (current && current.hostId !== host.id) {
+    win.contentView.removeChildView(current.handle);
+  }
+  win.contentView.addChildView(entry.handle);
+  syncViewBounds(win, entry.handle);
+  views = activateView(views, host.id);
+  const paint = switchPaint(views, host.id);
+  applyOverlayColor(paint.themeColor ?? DEFAULT_STRIP_COLOR);
+  applyBadge(paint.badgeCount);
+  if (created) {
+    // Restore is creation-time only: warm switches keep the live route.
+    void entry.handle.webContents.loadURL(host.url + (host.lastPath ?? ""));
+  }
+  entry.handle.webContents.focus();
+  blankWelcomeUnderlay(win);
+}
+
+/**
+ * Destroy a host's view (host removed via Hosts → Remove). Captures lastPath
+ * first (a no-op once the store entry is gone — the guard in
+ * captureLastPathForView keeps this correct for any future eviction-style
+ * caller), detaches when attached, drops the registry entry (badge/theme
+ * caches included), and closes the webContents.
+ */
+function destroyHostView(hostId: string): void {
+  const entry = getView(views, hostId);
+  if (!entry) return;
+  captureLastPathForView(hostId, entry.handle.webContents);
+  if (views.activeHostId === hostId && mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.contentView.removeChildView(entry.handle);
+  }
+  views = removeView(views, hostId).state;
+  if (!entry.handle.webContents.isDestroyed()) entry.handle.webContents.close();
+}
+
+/** Window teardown: drop every view (lastPath was captured on 'close').
+ *  Views are window-scoped — a macOS dock-reopen recreates them lazily. */
+function destroyAllViews(): void {
+  for (const entry of views.entries) {
+    if (!entry.handle.webContents.isDestroyed()) entry.handle.webContents.close();
+  }
+  views = emptyViews();
+}
+
 // ─── Menu ───────────────────────────────────────────────────────────────────
 
 /**
- * Set active + load its URL + rebuild the menu — the ONE switch path, shared
- * by the Hosts menu radio and the `servers:switch` IPC handler.
+ * Persist the active id + attach the host's view + rebuild the menu — the
+ * ONE switch path, shared by the Hosts menu radio, the `servers:switch` IPC
+ * handler, and the local-connect tail. Never a loadURL on an existing view:
+ * a warm switch is an instant detach/attach flip that keeps live renderer
+ * state (WS/SSE connections, xterm scrollback, scroll position).
  */
 function switchToHost(id: string): IpcResult {
-  captureLastPath();
-  clearBadge(); // stale count belongs to the outgoing host; the new page re-reports
   const next = setActiveHost(userDataDir(), id);
   const entry = next.hosts.find((h) => h.id === id);
   if (!entry) return { ok: false, error: "Unknown host" };
-  if (mainWindow) void mainWindow.loadURL(entry.url + (entry.lastPath ?? ""));
+  attachHostView(entry);
   rebuildMenu();
   return { ok: true };
 }
@@ -238,7 +467,8 @@ function rebuildMenu(): void {
     },
     onAddHost: () => {
       if (!mainWindow) return;
-      captureLastPath();
+      // The outgoing view stays alive (welcome only detaches it) — lastPath
+      // capture happens at window close / view destroy, not here.
       showWelcome(mainWindow, { mode: "add" });
     },
     onRemoveHost: (id) => {
@@ -284,6 +514,7 @@ async function confirmAndRemoveHost(id: string): Promise<void> {
   if (response !== 0) return;
 
   removeHost(userDataDir(), id);
+  destroyHostView(id); // the view dies with its host entry
   rebuildMenu();
   if (wasActive) showActive(win); // first remaining host, or welcome
 }
@@ -449,12 +680,9 @@ async function waitForHealth(origin: string): Promise<PingResult> {
 function connectLocalHost(origin: string, hostname: string): IpcResult {
   const existing = findHostByOrigin(loadHosts(userDataDir()), origin);
   if (existing) return switchToHost(existing.id);
-  captureLastPath();
   const added = addHost(userDataDir(), hostname, origin);
   if (!added.ok) return added;
-  rebuildMenu();
-  if (mainWindow) void mainWindow.loadURL(added.host.url);
-  return { ok: true };
+  return switchToHost(added.host.id); // attaches the fresh view + rebuilds the menu
 }
 
 /**
@@ -669,9 +897,7 @@ function registerIpcHandlers(): void {
     if (!parsed) return { ok: false, error: "Invalid request" };
     const result = addHost(userDataDir(), parsed.name, parsed.url);
     if (!result.ok) return result;
-    rebuildMenu();
-    if (mainWindow) void mainWindow.loadURL(result.host.url);
-    return { ok: true };
+    return switchToHost(result.host.id); // attaches the fresh view + rebuilds the menu
   });
 
   ipcMain.handle("welcome:cancel", (event): IpcResult => {
@@ -713,23 +939,33 @@ function registerIpcHandlers(): void {
 
   // badge:* — the SPA's waiting-agent count report, gated exactly like
   // `servers:*` (registered host origins + welcome). Structurally validated:
-  // only a non-negative integer reaches the OS badge surface.
+  // only a non-negative integer reaches the OS badge surface. Counts are
+  // cached PER VIEW (resolved from the sender's webContents id — origins can
+  // be shared by several entries): only the active view's report paints;
+  // background reports update their cache silently, and the switch seam
+  // repaints from the incoming view's cache.
   ipcMain.handle("badge:set", (event, count: unknown): IpcResult => {
     if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
     if (typeof count !== "number" || !Number.isInteger(count) || count < 0) {
       return { ok: false, error: "Invalid request" };
     }
-    applyBadge(count);
+    const entry = findViewByWebContentsId(views, event.sender.id);
+    if (entry) {
+      views = setViewBadge(views, entry.hostId, count);
+      if (views.activeHostId === entry.hostId) applyBadge(count);
+      return { ok: true };
+    }
+    // The welcome page (the window's own webContents) keeps direct paint; any
+    // other allowed-but-unknown sender (a just-destroyed view's late report)
+    // must not paint a surface it no longer backs.
+    if (mainWindow && event.sender.id === mainWindow.webContents.id) {
+      applyBadge(count);
+    }
     return { ok: true };
   });
 }
 
 // ─── Window + security wiring ───────────────────────────────────────────────
-
-/** Last theme-color observed from the page (the SPA's `theme-color` meta,
- *  incl. the pre-paint localStorage echo) — feeds the Windows/Linux
- *  window-controls overlay and the fallback strip background. */
-let lastThemeColor = DEFAULT_STRIP_COLOR;
 
 function openMainWindow(): void {
   const win = new BrowserWindow({
@@ -739,7 +975,8 @@ function openMainWindow(): void {
     // Hidden native titlebar: the page's top edge is the visible "titlebar"
     // (the SPA draws a 28px accent strip; ./strip's fallback CSS covers older
     // SPAs). macOS composites the traffic lights over the strip; win/linux
-    // draw native window controls over its right end via the overlay.
+    // draw native window controls over its right end via the overlay. The
+    // overlay always renders ABOVE attached views.
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "hidden",
     ...(process.platform !== "darwin"
       ? {
@@ -750,73 +987,29 @@ function openMainWindow(): void {
           },
         }
       : {}),
-    webPreferences: {
-      preload: join(__dirname, "preload.js"),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-      // Sandboxed preloads read process.argv — this carries app.getVersion().
-      additionalArguments: [`--runkit-shell-version=${app.getVersion()}`],
-    },
+    webPreferences: hostWebPreferences(),
   });
-  // Key of the fallback strip CSS injected into the CURRENT page load (null
-  // when none). Tracked so a theme-color report landing AFTER the injection
-  // can recolor the band — `did-finish-load` only sees `lastThemeColor`, which
-  // at that point may still be the PREVIOUS page's color (a stale-tint band).
-  let fallbackCssKey: string | null = null;
-  const refreshFallbackStrip = async (): Promise<void> => {
-    const url = win.webContents.getURL();
-    if (!shouldInjectFallbackStrip(url, registeredOrigins())) return;
-    const stale = fallbackCssKey;
-    fallbackCssKey = null;
-    try {
-      if (stale != null) await win.webContents.removeInsertedCSS(stale);
-      fallbackCssKey = await win.webContents.insertCSS(fallbackStripCss(lastThemeColor));
-    } catch {
-      // A navigation raced the injection — the next did-finish-load re-runs.
-    }
-  };
-  // Inserted CSS does not survive a main-frame navigation; drop the dead key.
-  win.webContents.on("did-navigate", () => {
-    fallbackCssKey = null;
-  });
-  // Keep the win/linux window-controls overlay in sync with the page's
-  // theme-color meta — the same seam the installed-PWA titlebar uses, so no
-  // new SPA→shell color API exists. Linux WCO support is partial; a throwing
-  // setTitleBarOverlay degrades silently.
-  win.webContents.on("did-change-theme-color", (_event, color) => {
-    lastThemeColor = color ?? DEFAULT_STRIP_COLOR;
-    if (process.platform !== "darwin") {
-      try {
-        win.setTitleBarOverlay({
-          color: lastThemeColor,
-          symbolColor: symbolColorFor(lastThemeColor),
-          height: STRIP_HEIGHT_PX,
-        });
-      } catch {
-        // Partial window-controls-overlay support (linux) — degrade silently.
-      }
-    }
-    // Recolor an already-injected fallback band (all platforms — the band is
-    // the visible titlebar on darwin too).
-    if (fallbackCssKey != null) void refreshFallbackStrip();
-  });
-  // Version-skew fallback: an older SPA (no strip) under this hidden-titlebar
-  // shell would have no drag surface. Registered-host pages get a minimal
-  // draggable band whose CSS no-ops when the SPA-drawn strip marks
-  // `html.rk-shell-strip` (CSS is live, so injecting unconditionally is safe).
-  win.webContents.on("did-finish-load", () => {
-    void refreshFallbackStrip();
-  });
-  // Capture-on-quit: cold-start restore reflects the route at close, not just
-  // the last switch-away (webContents is still readable during 'close').
+  // The window's own webContents only ever shows the welcome page (its
+  // theme/strip needs are static) — the per-view wiring lives in
+  // createHostView. Views do not auto-resize with the window, so every size
+  // transition re-syncs the attached view's bounds.
+  win.on("resize", () => syncActiveViewBounds(win));
+  win.on("enter-full-screen", () => syncActiveViewBounds(win));
+  win.on("leave-full-screen", () => syncActiveViewBounds(win));
+  // Capture-on-quit for EVERY live view: cold-start restore reflects each
+  // host's route at close, not just the active one's (webContents are still
+  // readable during 'close').
   win.on("close", () => {
-    captureLastPath();
+    for (const entry of views.entries) {
+      captureLastPathForView(entry.hostId, entry.handle.webContents);
+    }
   });
   win.on("closed", () => {
     // A lingering dock badge would report a count no window backs (macOS
-    // keeps the app alive after window-all-closed).
+    // keeps the app alive after window-all-closed). Views are window-scoped —
+    // a macOS dock-reopen recreates them lazily from the captured routes.
     clearBadge();
+    destroyAllViews();
     if (mainWindow === win) mainWindow = null;
   });
   mainWindow = win;

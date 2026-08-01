@@ -8,6 +8,7 @@ providers:
         session_command: claude --dangerously-skip-permissions -n "$(basename "$(pwd)")" --model {model} --effort {effort}
 source_paths:
     - app/backend/
+    - app/desktop/src/
     - app/frontend/src/
     - app/frontend/tests/
     - scripts/

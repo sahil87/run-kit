@@ -1,3 +1,10 @@
 {"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-01T06:09:22Z"}
 {"args":"Instant host switching in the Electron shell — one persistent WebContentsView per visited host, lazily created and swapped on switch (menu radios / accelerators / servers:switch), replacing loadURL navigation; preserves xterm state and live WS/SSE per host","cmd":"fab-new","event":"command","ts":"2026-08-01T06:09:22Z"}
 {"delta":"+4.2","event":"confidence","score":4.2,"trigger":"calc-score","ts":"2026-08-01T06:12:03Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-01T06:44:40Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-01T06:45:38Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-08-01T06:46:42Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-01T07:02:30Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-01T07:10:11Z"}
+{"event":"review","result":"passed","ts":"2026-08-01T07:10:11Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-01T07:20:03Z"}

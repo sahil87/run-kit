@@ -5,53 +5,53 @@ created_by: sahil-noon
 change_type: feat
 issues: []
 progress:
-    intake: done
-    apply: done
-    review: done
-    hydrate: done
-    ship: done
-    review-pr: done
+  intake: done
+  apply: done
+  review: done
+  hydrate: done
+  ship: done
+  review-pr: done
 plan:
-    generated: true
-    task_count: 10
-    acceptance_count: 17
-    acceptance_completed: 17
+  generated: true
+  task_count: 10
+  acceptance_count: 17
+  acceptance_completed: 17
 confidence:
-    certain: 3
-    confident: 5
-    tentative: 0
-    unresolved: 0
-    score: 4.2
-    fuzzy: true
-    dimensions:
-        signal: 65.6
-        reversibility: 79.4
-        competence: 77.5
-        disambiguation: 71.9
+  certain: 3
+  confident: 5
+  tentative: 0
+  unresolved: 0
+  score: 4.2
+  fuzzy: true
+  dimensions:
+    signal: 65.6
+    reversibility: 79.4
+    competence: 77.5
+    disambiguation: 71.9
 stage_metrics:
-    intake: {started_at: "2026-08-01T06:09:22Z", driver: fab-new, iterations: 1, completed_at: "2026-08-01T06:45:38Z"}
-    apply: {started_at: "2026-08-01T06:45:38Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T07:02:30Z"}
-    review: {started_at: "2026-08-01T07:02:30Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T07:10:11Z"}
-    hydrate: {started_at: "2026-08-01T07:10:11Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T07:20:03Z"}
-    ship: {started_at: "2026-08-01T07:20:03Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T07:23:32Z"}
-    review-pr: {started_at: "2026-08-01T07:23:32Z", driver: git-pr, iterations: 1, completed_at: "2026-08-01T07:25:51Z"}
+  intake: {started_at: "2026-08-01T06:09:22Z", driver: fab-new, iterations: 1, completed_at: "2026-08-01T06:45:38Z"}
+  apply: {started_at: "2026-08-01T06:45:38Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T07:02:30Z"}
+  review: {started_at: "2026-08-01T07:02:30Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T07:10:11Z"}
+  hydrate: {started_at: "2026-08-01T07:10:11Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T07:20:03Z"}
+  ship: {started_at: "2026-08-01T07:20:03Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T07:23:32Z"}
+  review-pr: {started_at: "2026-08-01T07:23:32Z", driver: git-pr, iterations: 1, completed_at: "2026-08-01T07:25:51Z", phase: replying, reviewer: '@Copilot'}
 prs:
-    - https://github.com/sahil87/run-kit/pull/500
+  - https://github.com/sahil87/run-kit/pull/500
 change_type_source: explicit
 true_impact:
-    added: 1322
-    deleted: 171
-    net: 1151
-    excluding:
-        added: 716
-        deleted: 125
-        net: 591
-    tests:
-        added: 188
-        deleted: 0
-        net: 188
-    computed_at: "2026-08-01T07:23:32Z"
-    computed_at_stage: ship
+  added: 1322
+  deleted: 171
+  net: 1151
+  excluding:
+    added: 716
+    deleted: 125
+    net: 591
+  tests:
+    added: 188
+    deleted: 0
+    net: 188
+  computed_at: "2026-08-01T07:23:32Z"
+  computed_at_stage: ship
 summary: Desktop shell renders each visited host in a persistent WebContentsView — switching is a detach/attach flip with per-view security/theme/badge wiring, id-keyed lastPath capture, and explicit focused-webContents View-menu items
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
 last_updated: 2026-08-01T07:25:51Z

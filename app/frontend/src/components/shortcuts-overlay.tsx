@@ -587,7 +587,8 @@ export function ShortcutsOverlay({
     const modified = hasOverride(b.actionId);
     const combo = { code: b.code, tier: b.tier };
     // Host-divergence row facts (260801-r8j2): exactly the macTier+macShellOnly
-    // trio (⌘N/⌘T/⌘W in the desktop shell, ⇧⌘ fallback in a mac browser) has a
+    // quartet (⌘N/⌘T/⌘W/⌘, in the desktop shell, ⇧⌘ fallback in a mac browser;
+    // settings-open joined via 260801-mqim) has a
     // chord that differs between mac hosts — surface a `desktop` badge + the
     // OTHER host's chord as a hint. A PHYSICAL-host fact (never the display
     // toggle), and only at the host default: an override or unbound state

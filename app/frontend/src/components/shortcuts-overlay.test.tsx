@@ -362,32 +362,37 @@ describe("ShortcutsOverlay host-divergence row facts (260801-r8j2)", () => {
     delete (navigator as { platform?: string }).platform;
   }
 
-  it("mac BROWSER host: exactly the macShellOnly trio rows carry the desktop badge + desktop-chord hint", () => {
+  it("mac BROWSER host: exactly the macShellOnly quartet rows carry the desktop badge + desktop-chord hint", () => {
     spoofMacHost();
     try {
       renderOverlay();
-      // Exactly three badges — N/T/W; host-invariant rows carry none.
-      expect(screen.getAllByText("desktop")).toHaveLength(3);
+      // Exactly four badges — N/T/W/, (260801-mqim adds settings-open);
+      // host-invariant rows carry none.
+      expect(screen.getAllByText("desktop")).toHaveLength(4);
       // The hint names the OTHER host's (desktop shell) chord.
       expect(screen.getByText("in desktop app: ⌘N")).toBeInTheDocument();
       expect(screen.getByText("in desktop app: ⌘T")).toBeInTheDocument();
       expect(screen.getByText("in desktop app: ⌘W")).toBeInTheDocument();
-      // The amber reserved pill coexists on the same (browser-reserved) rows.
+      expect(screen.getByText("in desktop app: ⌘,")).toBeInTheDocument();
+      // The amber reserved pill coexists on the browser-reserved rows — N/T/W
+      // only: settings-open's mac-browser default is the unclaimed ⇧⌘, (the
+      // browser Comma claim sits on the unshifted cmd tier).
       expect(screen.getAllByText("browser")).toHaveLength(3);
     } finally {
       unspoofMacHost();
     }
   });
 
-  it("mac SHELL host: the trio hints read the browser chord (no reserved pills inside the shell)", () => {
+  it("mac SHELL host: the quartet hints read the browser chord (no reserved pills inside the shell)", () => {
     spoofMacHost();
     window.runkitShell = { version: "1", platform: "darwin" };
     try {
       renderOverlay();
-      expect(screen.getAllByText("desktop")).toHaveLength(3);
+      expect(screen.getAllByText("desktop")).toHaveLength(4);
       expect(screen.getByText("in browser: ⇧⌘N")).toBeInTheDocument();
       expect(screen.getByText("in browser: ⇧⌘T")).toBeInTheDocument();
       expect(screen.getByText("in browser: ⇧⌘W")).toBeInTheDocument();
+      expect(screen.getByText("in browser: ⇧⌘,")).toBeInTheDocument();
       expect(screen.queryByText("browser")).toBeNull();
     } finally {
       delete window.runkitShell;
@@ -405,7 +410,7 @@ describe("ShortcutsOverlay host-divergence row facts (260801-r8j2)", () => {
     cleanup();
     // Spoofed mac host with an override on create-window: the overridden
     // combo applies verbatim on both hosts, so its row loses the badge while
-    // the other two keep theirs.
+    // the other three keep theirs.
     spoofMacHost();
     localStorage.setItem(
       KEYBINDINGS_STORAGE_KEY,
@@ -413,7 +418,7 @@ describe("ShortcutsOverlay host-divergence row facts (260801-r8j2)", () => {
     );
     try {
       renderOverlay();
-      expect(screen.getAllByText("desktop")).toHaveLength(2);
+      expect(screen.getAllByText("desktop")).toHaveLength(3);
       expect(screen.queryByText("in desktop app: ⌘T")).toBeNull();
       expect(screen.getByText("in desktop app: ⌘N")).toBeInTheDocument();
     } finally {

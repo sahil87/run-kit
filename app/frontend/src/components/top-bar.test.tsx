@@ -1374,6 +1374,134 @@ describe("TopBar", () => {
       expect(within(menu).queryByText(/vundefined/)).not.toBeInTheDocument();
     });
   });
+
+  describe("menu-row leading icons (260801-3q1z)", () => {
+    /** Open the chevron menu and return its panel. */
+    function openMenu() {
+      act(() => fireEvent.click(screen.getByLabelText("More controls")));
+      return screen.getByRole("menu", { name: "More controls" });
+    }
+
+    it("every terminal-mode menu row leads with its data-icon glyph, and row accessible names are unchanged", () => {
+      renderTopBar();
+      const menu = openMenu();
+      // Role+name queries double as the aria-hidden proof: the glyphs must not
+      // enter the rows' accessible names.
+      expect(
+        within(menu)
+          .getByRole("menuitem", { name: "Split vertical" })
+          .querySelector('[data-icon="split-vertical"]'),
+      ).not.toBeNull();
+      expect(
+        within(menu)
+          .getByRole("menuitem", { name: "Split horizontal" })
+          .querySelector('[data-icon="split-horizontal"]'),
+      ).not.toBeNull();
+      expect(
+        within(menu)
+          .getByRole("menuitem", { name: "Close pane" })
+          .querySelector('[data-icon="close-pane"]'),
+      ).not.toBeNull();
+      expect(
+        within(menu)
+          .getByRole("menuitem", { name: "Refresh page" })
+          .querySelector('[data-icon="refresh"]'),
+      ).not.toBeNull();
+      expect(
+        within(menu)
+          .getByRole("menuitemcheckbox", { name: /Fixed width/ })
+          .querySelector('[data-icon="fixed-width"]'),
+      ).not.toBeNull();
+      // The terminal-font glyph is the "Aa" TEXT span (assumption #6), not an SVG.
+      const fontGlyph = within(menu)
+        .getByRole("group", { name: "Terminal font size" })
+        .querySelector('[data-icon="terminal-font"]');
+      expect(fontGlyph).not.toBeNull();
+      expect(fontGlyph!.tagName).toBe("SPAN");
+      expect(fontGlyph).toHaveTextContent("Aa");
+      expect(fontGlyph).toHaveAttribute("aria-hidden", "true");
+    });
+
+    it("SplitControl popover rows lead with direction glyphs; the primary segment shares the split-vertical definition", () => {
+      renderTopBar();
+      // In-bar primary segment renders the SAME shared glyph (one definition).
+      expect(
+        screen.getByLabelText("Split vertically").querySelector('[data-icon="split-vertical"]'),
+      ).not.toBeNull();
+      act(() => fireEvent.click(screen.getByLabelText("Split… (choose direction)")));
+      const dirMenu = document.querySelector<HTMLElement>(
+        '[role="menu"][aria-label="Split direction"]',
+      );
+      expect(dirMenu).not.toBeNull();
+      // Text queries: jsdom keeps the control in the aria-hidden probe, which
+      // role queries exclude (the existing direction-menu test pattern).
+      const vRow = within(dirMenu!).getByText("Split vertical");
+      const hRow = within(dirMenu!).getByText("Split horizontal");
+      expect(vRow.querySelector('[data-icon="split-vertical"]')).not.toBeNull();
+      expect(hRow.querySelector('[data-icon="split-horizontal"]')).not.toBeNull();
+    });
+
+    it("in-bar Refresh renders the shared refresh glyph (probe copy carries data-icon)", () => {
+      renderTopBar();
+      const cluster = screen.getByTestId("top-bar-right");
+      const probe = cluster.querySelector('[aria-hidden="true"][inert]');
+      expect(probe).not.toBeNull();
+      expect(probe!.querySelector('[data-icon="refresh"]')).not.toBeNull();
+      expect(probe!.querySelector('[data-icon="split-vertical"]')).not.toBeNull();
+    });
+
+    it("Fixed width row keeps a STATIC identity glyph across toggle states — the trailing ✓ is the sole state marker (R5)", () => {
+      // ChromeContext persists fixedWidth to localStorage; an earlier menu-action
+      // test leaves it ON. Clear so this test starts from the known OFF default.
+      window.localStorage.clear();
+      renderTopBar();
+      const menu = openMenu();
+      const row = within(menu).getByRole("menuitemcheckbox", { name: /Fixed width/ });
+      expect(row).toHaveAttribute("aria-checked", "false");
+      const offMarkup = row.querySelector('[data-icon="fixed-width"]')!.innerHTML;
+      expect(within(row).queryByText("✓")).not.toBeInTheDocument();
+      // Toggle ON (the checkbox click closes the menu; reopen to observe).
+      act(() => fireEvent.click(row));
+      const menu2 = openMenu();
+      const row2 = within(menu2).getByRole("menuitemcheckbox", { name: /Fixed width/ });
+      expect(row2).toHaveAttribute("aria-checked", "true");
+      // Leading glyph identical in both states (static identity, never flips)…
+      expect(row2.querySelector('[data-icon="fixed-width"]')!.innerHTML).toBe(offMarkup);
+      // …while the state moved to the trailing ✓.
+      expect(within(row2).getByText("✓")).toBeInTheDocument();
+    });
+
+    it("board rows: Autofit panes leads with the UNFILLED identity glyph even when autofit is ON; Kill leads with the close glyph", () => {
+      renderTopBar({
+        mode: "board",
+        sessions: [],
+        currentSession: null,
+        currentWindow: null,
+        sessionName: "",
+        windowName: "",
+        server: "",
+        boardName: "b",
+        paneCount: 1,
+        serverCount: 1,
+        boards: [{ name: "b" }],
+        focusedPane: { server: "runkit", windowId: "@7", cwd: "~/code/x" },
+        onRequestKill: vi.fn(),
+        autofit: true,
+        onToggleAutofit: vi.fn(),
+      });
+      const menu = openMenu();
+      const autofitRow = within(menu).getByRole("menuitemcheckbox", { name: /Autofit panes/ });
+      const glyph = autofitRow.querySelector('[data-icon="autofit"]');
+      expect(glyph).not.toBeNull();
+      // Static identity: the menu glyph never shows the in-bar filled-panes
+      // ON variant — state is the trailing ✓ alone.
+      expect(glyph!.querySelector('rect[fill="currentColor"]')).toBeNull();
+      expect(within(autofitRow).getByText("✓")).toBeInTheDocument();
+      expect(
+        within(menu).getByRole("menuitem", { name: "Kill" }).querySelector('[data-icon="close-pane"]'),
+      ).not.toBeNull();
+    });
+  });
 });
 
 // Centered, highlighted, editable window heading (change 260703-5ilm).

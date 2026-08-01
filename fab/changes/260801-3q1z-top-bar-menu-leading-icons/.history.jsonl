@@ -1,0 +1,13 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-01T17:59:48Z"}
+{"args":"Leading icons on top-bar menu rows (bar-menu glyph parity, toggles-too variant): SplitControl popover rows + overflow chevron menu rows get leading glyphs mirroring their in-bar icon buttons; extract shared glyph components per OpenTargetIcon precedent","cmd":"fab-new","event":"command","ts":"2026-08-01T17:59:48Z"}
+{"delta":"+4.5","event":"confidence","score":4.5,"trigger":"calc-score","ts":"2026-08-01T18:01:22Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-08-01T18:02:25Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-01T18:03:30Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-01T18:04:02Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-08-01T18:04:40Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-01T18:17:40Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-08-01T18:18:19Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-01T18:27:18Z"}
+{"event":"review","result":"passed","ts":"2026-08-01T18:27:18Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-08-01T18:27:57Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-01T18:33:28Z"}

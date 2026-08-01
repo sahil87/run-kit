@@ -1,0 +1,54 @@
+id: 3q1z
+name: 260801-3q1z-top-bar-menu-leading-icons
+created: 2026-08-01T17:59:48Z
+created_by: sahil-noon
+change_type: refactor
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 6
+    acceptance_count: 12
+    acceptance_completed: 12
+confidence:
+    certain: 5
+    confident: 6
+    tentative: 0
+    unresolved: 0
+    score: 4.5
+    fuzzy: true
+    dimensions:
+        signal: 74.5
+        reversibility: 89.1
+        competence: 82.3
+        disambiguation: 77.7
+stage_metrics:
+    intake: {started_at: "2026-08-01T17:59:48Z", driver: fab-new, iterations: 1, completed_at: "2026-08-01T18:04:02Z"}
+    apply: {started_at: "2026-08-01T18:04:02Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T18:17:40Z"}
+    review: {started_at: "2026-08-01T18:17:40Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T18:27:18Z"}
+    hydrate: {started_at: "2026-08-01T18:27:18Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T18:33:28Z"}
+    ship: {started_at: "2026-08-01T18:33:28Z", driver: fab-fff, iterations: 1}
+prs: []
+true_impact:
+    added: 280
+    deleted: 0
+    net: 280
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-08-01T18:33:28Z"
+    computed_at_stage: hydrate
+summary: Top-bar chevron-menu and SplitControl-popover rows now lead with their in-bar control's glyph via a shared top-bar-icons.tsx module; toggle rows keep a static identity icon with the trailing checkmark as the sole state marker
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-01T18:33:28Z

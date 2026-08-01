@@ -30,6 +30,15 @@ import {
   TOP_BAR_BUTTON_H,
   TOP_BAR_SEGMENT_H,
 } from "@/components/top-bar-overflow-menu";
+import {
+  SplitVerticalGlyph,
+  SplitHorizontalGlyph,
+  ClosePaneGlyph,
+  RefreshGlyph,
+  FixedWidthGlyph,
+  AutofitGlyph,
+  TerminalFontGlyph,
+} from "@/components/top-bar-icons";
 import { computeVisibleCount } from "@/lib/top-bar-overflow";
 import type { ViewName } from "@/lib/window-view";
 import type { ProjectSession, WindowInfo } from "@/types";
@@ -1954,26 +1963,7 @@ function SplitControl({
             aria-label="Split vertically"
             className={segmentClass}
           >
-            {isPending ? (
-              <LogoSpinner size={14} />
-            ) : (
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                {/* square-split-vertical: horizontal divider */}
-                <path d="M5 8V5c0-1 1-2 2-2h10c1 0 2 1 2 2v3" />
-                <path d="M19 16v3c0 1-1 2-2 2H7c-1 0-2-1-2-2v-3" />
-                <line x1="4" x2="20" y1="12" y2="12" />
-              </svg>
-            )}
+            {isPending ? <LogoSpinner size={14} /> : <SplitVerticalGlyph />}
           </button>
         </Tip>
         {/* Tip suppressed while the menu is open (trigger convention). */}
@@ -2017,6 +2007,7 @@ function SplitControl({
             disabled={isPending}
             className={POPOVER_ROW_CLASS}
           >
+            <SplitVerticalGlyph />
             Split vertical
           </button>
           <button
@@ -2026,6 +2017,7 @@ function SplitControl({
             disabled={isPending}
             className={POPOVER_ROW_CLASS}
           >
+            <SplitHorizontalGlyph />
             Split horizontal
           </button>
         </div>
@@ -2085,24 +2077,7 @@ function ClosePaneButton({
       aria-label={effectiveLabel}
       className={`${TOP_BAR_BUTTON} disabled:opacity-50 disabled:cursor-not-allowed`}
     >
-      {isPending ? (
-        <LogoSpinner size={14} />
-      ) : (
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
-        >
-          <line x1="18" y1="6" x2="6" y2="18" />
-          <line x1="6" y1="6" x2="18" y2="18" />
-        </svg>
-      )}
+      {isPending ? <LogoSpinner size={14} /> : <ClosePaneGlyph />}
     </button>
     </Tip>
   );
@@ -2161,21 +2136,7 @@ function RefreshButton() {
       aria-label="Refresh page"
       className={TOP_BAR_BUTTON}
     >
-      <svg
-        width="14"
-        height="14"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden="true"
-      >
-        {/* lucide rotate-cw: circular arrow with a top-right arrowhead */}
-        <path d="M21 12a9 9 0 1 1-3-6.7L21 8" />
-        <path d="M21 3v5h-5" />
-      </svg>
+      <RefreshGlyph />
     </button>
     </Tip>
   );
@@ -2256,7 +2217,7 @@ function TerminalFontControl() {
         }`}
       >
         {/* "Aa" reads as "text size" without a separate label */}
-        <span aria-hidden="true">Aa</span>
+        <TerminalFontGlyph />
       </button>
       </Tip>
       {open && (
@@ -2409,33 +2370,7 @@ function FixedWidthToggle() {
         fixedWidth ? "border-accent text-accent bg-accent/10" : TOP_BAR_BUTTON_REST
       }`}
     >
-      <svg
-        width="14"
-        height="14"
-        viewBox="0 0 14 14"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-      >
-        {fixedWidth ? (
-          <>
-            {/* Arrows pointing outward — expand */}
-            <line x1="1" y1="7" x2="5" y2="7" />
-            <polyline points="1,5 1,7 1,9" />
-            <line x1="9" y1="7" x2="13" y2="7" />
-            <polyline points="13,5 13,7 13,9" />
-          </>
-        ) : (
-          <>
-            {/* Arrows pointing inward — contract */}
-            <line x1="1" y1="7" x2="5" y2="7" />
-            <polyline points="5,5 5,7 5,9" />
-            <line x1="9" y1="7" x2="13" y2="7" />
-            <polyline points="9,5 9,7 9,9" />
-          </>
-        )}
-      </svg>
+      <FixedWidthGlyph expanded={fixedWidth} />
     </button>
     </Tip>
   );
@@ -2470,30 +2405,7 @@ function BoardAutofitToggle({
         autofit ? "border-accent text-accent bg-accent/10" : TOP_BAR_BUTTON_REST
       }`}
     >
-      <svg
-        width="14"
-        height="14"
-        viewBox="0 0 14 14"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        {/* Outer frame = the board row */}
-        <rect x="1" y="2.5" width="12" height="9" rx="1" />
-        {/* Two internal dividers = panes sharing the row. When on, the panes are
-            filled (they've stretched to fill); when off, just outlines. */}
-        <line x1="5" y1="2.5" x2="5" y2="11.5" />
-        <line x1="9" y1="2.5" x2="9" y2="11.5" />
-        {autofit && (
-          <>
-            <rect x="1.5" y="3" width="3" height="8" fill="currentColor" stroke="none" opacity="0.35" />
-            <rect x="5.5" y="3" width="3" height="8" fill="currentColor" stroke="none" opacity="0.35" />
-            <rect x="9.5" y="3" width="3" height="8" fill="currentColor" stroke="none" opacity="0.35" />
-          </>
-        )}
-      </svg>
+      <AutofitGlyph filled={autofit} />
     </button>
     </Tip>
   );
@@ -2534,6 +2446,7 @@ function SplitMenuRow({
   });
   return (
     <button type="button" role="menuitem" tabIndex={-1} disabled={isPending} onClick={() => execute()} className={MENU_ROW_CLASS}>
+      {horizontal ? <SplitHorizontalGlyph /> : <SplitVerticalGlyph />}
       {label}
     </button>
   );
@@ -2553,6 +2466,9 @@ function FixedWidthMenuRow() {
       onClick={toggleFixedWidth}
       className={MENU_ROW_CLASS}
     >
+      {/* Static identity variant — state is carried solely by the trailing ✓
+          (leading icon = identity, trailing ✓ = state). */}
+      <FixedWidthGlyph />
       <span className="flex-1">Fixed width</span>
       {fixedWidth && <span aria-hidden="true">✓</span>}
     </button>
@@ -2571,6 +2487,7 @@ function TerminalFontMenuRow() {
   const stepClass = `${TOP_BAR_BUTTON_BASE} ${TOP_BAR_BUTTON_REST} disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-border`;
   return (
     <div role="group" aria-label="Terminal font size" className="flex items-center gap-2 px-2.5 py-1.5 text-xs text-text-secondary">
+      <TerminalFontGlyph />
       <span className="flex-1">Terminal font</span>
       <button type="button" tabIndex={-1} onClick={decreaseTerminalFont} disabled={atMin} aria-label="Decrease terminal font" className={stepClass}>
         −
@@ -2596,6 +2513,8 @@ function AutofitMenuRow({ autofit, onToggle }: { autofit: boolean; onToggle: () 
       onClick={onToggle}
       className={MENU_ROW_CLASS}
     >
+      {/* Static identity variant (unfilled frame) — state stays on the ✓. */}
+      <AutofitGlyph />
       <span className="flex-1">Autofit panes</span>
       {autofit && <span aria-hidden="true">✓</span>}
     </button>
@@ -2639,6 +2558,7 @@ function ClosePaneMenuRow({
       onClick={() => (onRequestKill ? onRequestKill() : execute())}
       className={MENU_ROW_CLASS}
     >
+      <ClosePaneGlyph />
       {effectiveLabel}
     </button>
   );
@@ -2657,6 +2577,7 @@ function RefreshMenuRow() {
         onClick={(e) => (e.shiftKey ? forceReload() : window.location.reload())}
         className={MENU_ROW_CLASS}
       >
+        <RefreshGlyph />
         Refresh page
       </button>
     </Tip>

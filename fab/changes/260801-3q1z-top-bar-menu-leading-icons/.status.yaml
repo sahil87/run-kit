@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 6
@@ -33,22 +33,24 @@ stage_metrics:
     apply: {started_at: "2026-08-01T18:04:02Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T18:17:40Z"}
     review: {started_at: "2026-08-01T18:17:40Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T18:27:18Z"}
     hydrate: {started_at: "2026-08-01T18:27:18Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T18:33:28Z"}
-    ship: {started_at: "2026-08-01T18:33:28Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-08-01T18:33:28Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T18:34:57Z"}
+    review-pr: {started_at: "2026-08-01T18:34:57Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/512
 true_impact:
-    added: 280
-    deleted: 0
-    net: 280
+    added: 972
+    deleted: 115
+    net: 857
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 327
+        deleted: 105
+        net: 222
     tests:
         added: 0
         deleted: 0
         net: 0
-    computed_at: "2026-08-01T18:33:28Z"
-    computed_at_stage: hydrate
+    computed_at: "2026-08-01T18:34:57Z"
+    computed_at_stage: ship
 summary: Top-bar chevron-menu and SplitControl-popover rows now lead with their in-bar control's glyph via a shared top-bar-icons.tsx module; toggle rows keep a static identity icon with the trailing checkmark as the sole state marker
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-01T18:33:28Z
+last_updated: 2026-08-01T18:34:57Z

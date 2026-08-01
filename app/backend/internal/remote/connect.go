@@ -80,6 +80,9 @@ func Connect(ctx context.Context, storePath, nameOrTarget, localVersion string, 
 	if !res.Installed && VersionOlder(res.RemoteVersion, localVersion) {
 		progress("updating rk on %s (v%s → v%s)…", r.Name, res.RemoteVersion, parseRemoteVersion(localVersion))
 		update := sshExec(ctx, r.Target, remoteInstallCmd, sshInstallTimeout)
+		if sshUnreachable(update) {
+			return ConnectResult{}, authFailureError(r.Target, update)
+		}
 		if update.err != nil {
 			return ConnectResult{}, fmt.Errorf("updating rk on %s failed: %s", r.Target, installFailureDetail(update))
 		}
@@ -104,6 +107,9 @@ func Connect(ctx context.Context, storePath, nameOrTarget, localVersion string, 
 
 	// 5. Derive the remote origin — request-time state, never persisted.
 	urlRes := sshExec(ctx, r.Target, remoteURLCmd, sshProbeTimeout)
+	if sshUnreachable(urlRes) {
+		return ConnectResult{}, authFailureError(r.Target, urlRes)
+	}
 	if urlRes.err != nil {
 		return ConnectResult{}, fmt.Errorf("deriving the remote origin (`rk url`) on %s failed: %s", r.Target, stderrTail(urlRes.stderr))
 	}

@@ -115,6 +115,9 @@ func validateEntries(path string, f File) error {
 		if msg := validate.ValidateRemoteTarget(r.Target); msg != "" {
 			return fmt.Errorf("%s: remote %q has an invalid target %q (%s) — fix or remove the entry by hand", path, r.Name, r.Target, msg)
 		}
+		if r.LocalPort < PortRangeStart || r.LocalPort > PortRangeEnd {
+			return fmt.Errorf("%s: remote %q has local_port %d outside the reserved range %d-%d — fix or remove the entry by hand", path, r.Name, r.LocalPort, PortRangeStart, PortRangeEnd)
+		}
 	}
 	return nil
 }

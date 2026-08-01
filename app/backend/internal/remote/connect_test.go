@@ -200,6 +200,46 @@ func TestConnect_AuthFailureSurfacesTailAndHint(t *testing.T) {
 	}
 }
 
+func TestConnect_AuthFailureOnLaterStepsKeepsTheHint(t *testing.T) {
+	// Every ssh step must classify exit 255 as unreachable, not as a
+	// step-specific failure: a tunnel that drops mid-connect surfaces the
+	// actionable BatchMode hint wherever it lands, not a generic message.
+	cases := []struct {
+		name string
+		ssh  *sshScript
+	}{
+		{
+			"auto-update step",
+			&sshScript{responses: map[string]execResult{
+				remoteVersionCmd: okVersion("3.1.0"), // older than local → update runs
+				remoteInstallCmd: {exitCode: 255, stderr: "Permission denied (publickey).", err: errors.New("exit status 255")},
+			}},
+		},
+		{
+			"rk url step",
+			&sshScript{responses: map[string]execResult{
+				remoteVersionCmd:     okVersion("3.2.0"),
+				remoteDaemonStartCmd: {},
+				remoteURLCmd:         {exitCode: 255, stderr: "Connection closed by remote host.", err: errors.New("exit status 255")},
+			}},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := writeStore(t, testRemote)
+			stubSSH(t, tc.ssh)
+
+			_, err := Connect(context.Background(), path, "buildbox", "3.2.0", nil)
+			if err == nil {
+				t.Fatal("want auth failure")
+			}
+			if msg := err.Error(); !strings.Contains(msg, "ssh sahil@buildbox") {
+				t.Errorf("error = %q, want the interactive-ssh hint", msg)
+			}
+		})
+	}
+}
+
 func TestConnect_ForeignSquatterErrorsWithoutReassign(t *testing.T) {
 	path := writeStore(t, testRemote)
 	ssh := &sshScript{responses: map[string]execResult{

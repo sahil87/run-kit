@@ -838,16 +838,19 @@ function runRkStreaming(
         timeout,
         env: { ...process.env, PATH: augmentPath(process.platform, process.env.PATH) },
       },
-      (err, stdout) => {
+      (err, stdout, stderr) => {
         for (const line of splitter.flush()) onLine(line);
         if (err) {
           // Raw-callback execFile attaches no `stderr` to its error (unlike
-          // the promisified runRk), so a timeout would otherwise surface as
-          // node's "Command failed: /abs/path/rk …" — name the timeout
-          // explicitly instead of leaking the binary path.
+          // the promisified runRk), so both branches below avoid node's
+          // "Command failed: /abs/path/rk …" fallback, which leaks the
+          // binary path: a timeout is named explicitly, and any other
+          // failure prefers the callback's own stderr (where cobra's final
+          // "Error:" block lives).
+          const failure = stderr.trim();
           const error = isExecTimeout(err)
             ? rkTimeoutMessage(args, timeout)
-            : execErrorMessage(err);
+            : failure || execErrorMessage(err);
           resolve({ ok: false, error, notInstalled: isEnoent(err) });
           return;
         }

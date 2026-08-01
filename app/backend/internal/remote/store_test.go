@@ -106,6 +106,34 @@ func TestLoad_RejectsHostileStoredEntries(t *testing.T) {
 	}
 }
 
+func TestLoad_RejectsOutOfRangeLocalPort(t *testing.T) {
+	// The reserved range is a write-path rule in AssignPort; the read path
+	// enforces it too, so a hand-edited port cannot reach Origin(), a TCP
+	// dial, or the ssh -L forward spec.
+	cases := []struct {
+		name string
+		port string
+	}{
+		{"zero", "0"},
+		{"negative", "-1"},
+		{"below range", "3099"},
+		{"above range", "3200"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "remotes.yaml")
+			y := "version: 1\nremotes:\n  - name: buildbox\n    target: sahil@buildbox\n    local_port: " + tc.port + "\n"
+			if err := os.WriteFile(path, []byte(y), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			_, err := Load(path)
+			if err == nil || !strings.Contains(err.Error(), "outside the reserved range") {
+				t.Errorf("Load error = %v, want out-of-range rejection", err)
+			}
+		})
+	}
+}
+
 func TestFile_Lookups(t *testing.T) {
 	f := File{Version: 1, Remotes: []Remote{
 		{Name: "buildbox", Target: "sahil@buildbox", LocalPort: 3100},

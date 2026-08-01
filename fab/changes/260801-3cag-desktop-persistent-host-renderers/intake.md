@@ -5,7 +5,7 @@
 
 ## Origin
 
-Conversational — a `/fab-discuss` session asking: "On the electron app, how practical is it to implement instant switching between hosts. i.e. Lets say I have 3 hosts connected, then keep 3 renderers always on. The act of Cmd+Alt+1/2/3 just swithes between these renderers instantly. Instead of what happens right now - the whole page loads via a fresh server request."
+Conversational — a `/fab-discuss` session asking: "On the electron app, how practical is it to implement instant switching between hosts. i.e. Lets say I have 3 hosts connected, then keep 3 renderers always on. The act of Cmd+Alt+1/2/3 just switches between these renderers instantly. Instead of what happens right now - the whole page loads via a fresh server request."
 
 The discussion concluded the pattern is practical and standard (Slack's multi-workspace model), settled on `WebContentsView` (not deprecated `BrowserView`, not hidden `BrowserWindow`s, not an SPA-level multi-host rewrite), and enumerated the single-webContents assumptions in `main.ts` that need per-view routing. The user then asked to draft this as its own change:
 

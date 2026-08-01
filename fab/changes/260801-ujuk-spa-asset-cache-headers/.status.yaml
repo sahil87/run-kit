@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 6
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-08-01T06:53:52Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T06:59:39Z"}
     hydrate: {started_at: "2026-08-01T06:59:39Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T07:03:30Z"}
     ship: {started_at: "2026-08-01T07:03:30Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T07:06:38Z"}
-    review-pr: {started_at: "2026-08-01T07:06:38Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-08-01T07:06:38Z", driver: git-pr, iterations: 1, completed_at: "2026-08-01T07:08:45Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/499
 change_type_source: explicit
@@ -54,4 +54,4 @@ true_impact:
     computed_at_stage: ship
 summary: 'SPA serving gains a two-tier cache policy: immutable hashed /assets/, no-cache + memoized content-ETag elsewhere (embed.FS has no modtime)'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-01T07:06:38Z
+last_updated: 2026-08-01T07:08:45Z

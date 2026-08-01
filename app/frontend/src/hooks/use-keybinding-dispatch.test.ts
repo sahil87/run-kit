@@ -76,6 +76,21 @@ describe("useKeybindingDispatch", () => {
     expect(toggle).toHaveBeenCalledTimes(1);
   });
 
+  it("compose-toggle (⇧⌘E) closes the strip from its own focused textarea (260801-sm6g)", () => {
+    // The compose strip is a plain <textarea> — exactly what shouldSuppressChord
+    // gates. compose-toggle carries ignoreInputs so the chord can CLOSE the
+    // strip while the user is typing in it; this pins that end-to-end through
+    // the real DEFAULT_BINDINGS entry (not a stand-in binding).
+    const toggle = vi.fn();
+    renderHook(() => useKeybindingDispatch({ "compose-toggle": toggle }));
+    const textarea = document.createElement("textarea");
+    document.body.appendChild(textarea);
+    textarea.focus();
+    const event = press({ code: "KeyE", shiftKey: true, ctrlKey: true }, textarea);
+    expect(toggle).toHaveBeenCalledTimes(1);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
   it("honors overrides (rebound chord dispatches, default chord falls through)", () => {
     localStorage.setItem(
       KEYBINDINGS_STORAGE_KEY,

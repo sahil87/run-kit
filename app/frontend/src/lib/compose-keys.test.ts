@@ -1,5 +1,9 @@
-import { describe, it, expect } from "vitest";
-import { classifyComposeEnter, type ComposeKeyInput } from "./compose-keys";
+import { describe, it, expect, vi, afterEach } from "vitest";
+import {
+  classifyComposeEnter,
+  composeSubmitKeycap,
+  type ComposeKeyInput,
+} from "./compose-keys";
 
 function key(overrides: Partial<ComposeKeyInput> = {}): ComposeKeyInput {
   return {
@@ -13,48 +17,60 @@ function key(overrides: Partial<ComposeKeyInput> = {}): ComposeKeyInput {
   };
 }
 
+// 260801-hsxm policy: Enter (and Shift+Enter) are the textarea default
+// (newline) on every pointer type; Cmd/Ctrl+Enter is the ONLY submit chord;
+// Alt+Enter inserts without submitting. The classifier has no pointer
+// parameter — the fine/coarse distinction ended with the flip.
 describe("classifyComposeEnter", () => {
-  it("plain Enter submits on a fine pointer and defaults (newline) on coarse", () => {
-    expect(classifyComposeEnter(key(), false)).toBe("submit");
-    expect(classifyComposeEnter(key(), true)).toBe("default");
+  it("plain Enter is the textarea default (newline) — never submits", () => {
+    expect(classifyComposeEnter(key())).toBe("default");
   });
 
-  it("Cmd/Ctrl+Enter submits on every pointer type (universal escape hatch)", () => {
-    for (const coarse of [false, true]) {
-      expect(classifyComposeEnter(key({ metaKey: true }), coarse)).toBe("submit");
-      expect(classifyComposeEnter(key({ ctrlKey: true }), coarse)).toBe("submit");
-    }
+  it("Cmd/Ctrl+Enter is the only submit chord", () => {
+    expect(classifyComposeEnter(key({ metaKey: true }))).toBe("submit");
+    expect(classifyComposeEnter(key({ ctrlKey: true }))).toBe("submit");
   });
 
-  it("Alt+Enter inserts without submitting on every pointer type", () => {
-    expect(classifyComposeEnter(key({ altKey: true }), false)).toBe("insert");
-    expect(classifyComposeEnter(key({ altKey: true }), true)).toBe("insert");
+  it("Alt+Enter inserts without submitting", () => {
+    expect(classifyComposeEnter(key({ altKey: true }))).toBe("insert");
   });
 
-  it("Shift+Enter is always the textarea default (newline)", () => {
-    expect(classifyComposeEnter(key({ shiftKey: true }), false)).toBe("default");
-    expect(classifyComposeEnter(key({ shiftKey: true }), true)).toBe("default");
+  it("Shift+Enter stays the default (newline — kept for muscle memory, redundant with plain Enter)", () => {
+    expect(classifyComposeEnter(key({ shiftKey: true }))).toBe("default");
   });
 
   it("modifier precedence: meta/ctrl beats alt beats shift", () => {
     // Cmd+Shift+Enter reads as the strongest intent — submit.
-    expect(classifyComposeEnter(key({ metaKey: true, shiftKey: true }), false)).toBe("submit");
-    expect(classifyComposeEnter(key({ ctrlKey: true, altKey: true }), true)).toBe("submit");
+    expect(classifyComposeEnter(key({ metaKey: true, shiftKey: true }))).toBe("submit");
+    expect(classifyComposeEnter(key({ ctrlKey: true, altKey: true }))).toBe("submit");
     // Alt+Shift+Enter inserts (alt outranks shift).
-    expect(classifyComposeEnter(key({ altKey: true, shiftKey: true }), false)).toBe("insert");
+    expect(classifyComposeEnter(key({ altKey: true, shiftKey: true }))).toBe("insert");
   });
 
-  it("an IME-composing Enter is never intercepted, regardless of modifiers/pointer", () => {
-    for (const coarse of [false, true]) {
-      expect(classifyComposeEnter(key({ isComposing: true }), coarse)).toBe("default");
-      expect(classifyComposeEnter(key({ isComposing: true, metaKey: true }), coarse)).toBe("default");
-      expect(classifyComposeEnter(key({ isComposing: true, altKey: true }), coarse)).toBe("default");
-    }
+  it("an IME-composing Enter is never intercepted, regardless of modifiers", () => {
+    expect(classifyComposeEnter(key({ isComposing: true }))).toBe("default");
+    expect(classifyComposeEnter(key({ isComposing: true, metaKey: true }))).toBe("default");
+    expect(classifyComposeEnter(key({ isComposing: true, ctrlKey: true }))).toBe("default");
+    expect(classifyComposeEnter(key({ isComposing: true, altKey: true }))).toBe("default");
   });
 
   it("non-Enter keys are always the default, even with modifiers", () => {
-    expect(classifyComposeEnter(key({ key: "a" }), false)).toBe("default");
-    expect(classifyComposeEnter(key({ key: "Escape", metaKey: true }), false)).toBe("default");
-    expect(classifyComposeEnter(key({ key: "Tab", altKey: true }), true)).toBe("default");
+    expect(classifyComposeEnter(key({ key: "a" }))).toBe("default");
+    expect(classifyComposeEnter(key({ key: "Escape", metaKey: true }))).toBe("default");
+    expect(classifyComposeEnter(key({ key: "Tab", altKey: true }))).toBe("default");
+  });
+});
+
+describe("composeSubmitKeycap", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("formats the submit chord for the mac keycap platform", () => {
+    vi.stubGlobal("navigator", { platform: "MacIntel", userAgent: "test" });
+    expect(composeSubmitKeycap()).toBe("⌘Enter");
+  });
+
+  it("formats the submit chord for non-mac platforms (jsdom default included)", () => {
+    // jsdom's UA contains neither mac nor iOS markers → "other".
+    expect(composeSubmitKeycap()).toBe("Ctrl+Enter");
   });
 });

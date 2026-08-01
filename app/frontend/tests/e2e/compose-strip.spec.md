@@ -4,18 +4,20 @@ Validates the docked compose strip (260718-dhdj) — the sticky, global text-inp
 surface that replaces the modal ComposeBuffer. Covers the toggle affordances
 (`>_` chip + palette parity), the persisted chrome preference, the on-strip ×
 close button (260722-d5q7 — same toggle as the chip, lossless draft), the
-live-target send semantics (Enter + trailing `\r` to the focused pane), the
-insert-without-submit affordance + universal Cmd/Ctrl+Enter chord +
-fine-pointer `enterkeyhint` (260719-mxvw — coarse-pointer Enter behavior is
-unit-tested in `compose-strip.test.tsx`), Escape-blurs focus routing, and the
-target label following board-pane focus (closing the per-pane STDIN routing gap
-noted in `shell-rotation.spec.ts:14`).
+live-target send semantics (260801-hsxm: plain Enter inserts a newline — lines
+accumulate locally; Cmd/Ctrl+Enter is the ONLY submit chord, sending
+`text + \r` to the focused pane), the insert-without-submit affordance +
+`enterkeyhint="enter"` (pointer-independent; the readline editing chords are
+unit-tested in `readline-keys.test.ts` / `compose-strip.test.tsx`),
+Escape-blurs focus routing, and the target label following board-pane focus
+(closing the per-pane STDIN routing gap noted in `shell-rotation.spec.ts:14`).
 
 ## Shared setup
 
 - `beforeAll` creates two tmux sessions on the `rk-test-e2e` server:
   - `e2e-compose-<ts>` — a single window running `cat`, so STDIN typed via the
-    strip echoes back into the pane (used to verify Enter sends `text + \r`).
+    strip echoes back into the pane (used to verify Cmd/Ctrl+Enter sends
+    `text + \r`).
   - `e2e-compose-board-<ts>` — two named windows (`cs-alpha`, `cs-bravo`) pinned
     to a fresh board for the target-label test.
 - A unique board name (`cs<digits>`) is used per run so reruns don't collide on
@@ -66,40 +68,44 @@ and the unsent draft survives the close (module store) so reopening restores it.
 4. Click the chip to reopen; assert the input still holds the draft marker
    (closing was lossless — no confirmation needed).
 
-### `Enter sends text + carriage return to the focused pane; Escape blurs`
+### `Enter inserts a newline; Cmd/Ctrl+Enter sends text + carriage return; Escape blurs`
 
-**What it proves:** Enter in the strip textarea sends the content plus a trailing
-`\r` over the focused pane's relay stream (verified by the `cat` pane echoing the
-marker), the textarea clears while the strip stays open, and Escape blurs the
-textarea without closing the strip.
+**What it proves:** Plain Enter in the strip textarea is NOT a send — it inserts
+a newline so lines accumulate locally (260801-hsxm); Cmd/Ctrl+Enter (the only
+submit chord) sends the accumulated content plus a trailing `\r` over the
+focused pane's relay stream (verified by the `cat` pane echoing the marker),
+the textarea clears while the strip stays open, and Escape blurs the textarea
+without closing the strip.
 
 **Steps:**
 
 1. Navigate to the `cat` session's window; wait for `.xterm-screen` and for the
    relay stream to attach (`window.__rkTerminals[windowId]` present).
 2. Enable the strip via the `>_` chip; assert the input is visible.
-3. Fill the input with a unique marker and press Enter.
-4. Assert the input clears to `""` and the strip stays visible.
+3. Fill the input with a unique marker and press Enter; assert the value is now
+   `marker\n` (newline inserted, nothing sent, nothing cleared).
+4. Press `ControlOrMeta+Enter`; assert the input clears to `""` and the strip
+   stays visible.
 5. Poll `capture-pane` for the `cat` session and assert it contains the marker
    (proves `text + \r` reached the pane and was echoed).
 6. Focus the input, press Escape, assert the input is no longer focused and the
    strip is still visible.
 
-### `Insert stages text without committing; Ctrl/Cmd+Enter submits (260719-mxvw)`
+### `Insert stages text without committing; Ctrl/Cmd+Enter submits (260801-hsxm)`
 
 **What it proves:** The Insert button delivers the raw text bytes WITHOUT the
 trailing `\r` — the text is staged on the pane's input line, never committed —
-with the same clear-on-delivery as a submit; the universal Cmd/Ctrl+Enter chord
-then submits, committing the previously-staged text plus the new suffix as ONE
-line. Also asserts the fine-pointer `enterkeyhint="send"` (the truthful keyboard
-hint — coarse behavior is unit-tested in `compose-strip.test.tsx`).
+with the same clear-on-delivery as a submit; the Cmd/Ctrl+Enter chord (the only
+submit chord) then submits, committing the previously-staged text plus the new
+suffix as ONE line. Also asserts `enterkeyhint="enter"` (the truthful keyboard
+hint — Enter inserts a newline on every pointer type).
 
 **Steps:**
 
 1. Navigate to the `cat` session's window; wait for `.xterm-screen` and the
    relay stream to attach.
 2. Enable the strip via the `>_` chip; assert the input is visible and carries
-   `enterkeyhint="send"` (fine pointer).
+   `enterkeyhint="enter"`.
 3. Fill a unique staged marker and click the `Insert` button
    (`compose-strip-insert`).
 4. Assert the input clears (same clear-on-delivery as submit).

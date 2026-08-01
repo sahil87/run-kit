@@ -5,17 +5,17 @@ created_by: sahil-noon
 change_type: docs
 issues: []
 progress:
-    intake: ready
-    apply: pending
-    review: pending
-    hydrate: pending
-    ship: pending
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
     review-pr: pending
 plan:
-    generated: false
-    task_count: 0
-    acceptance_count: 0
-    acceptance_completed: 0
+    generated: true
+    task_count: 11
+    acceptance_count: 14
+    acceptance_completed: 13
 confidence:
     certain: 6
     confident: 4
@@ -29,7 +29,26 @@ confidence:
         competence: 86.5
         disambiguation: 80.5
 stage_metrics:
-    intake: {started_at: "2026-08-01T16:03:16Z", driver: fab-new, iterations: 1}
+    intake: {started_at: "2026-08-01T16:03:16Z", driver: fab-new, iterations: 1, completed_at: "2026-08-01T16:09:15Z"}
+    apply: {started_at: "2026-08-01T16:09:15Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T16:30:14Z"}
+    review: {started_at: "2026-08-01T16:30:14Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T16:42:01Z"}
+    hydrate: {started_at: "2026-08-01T16:42:01Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T16:49:27Z"}
+    ship: {started_at: "2026-08-01T16:49:27Z", driver: fab-fff, iterations: 1}
 prs: []
+true_impact:
+    added: 280
+    deleted: 0
+    net: 280
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-08-01T16:49:27Z"
+    computed_at_stage: hydrate
+summary: 'Compose strip + chat send form: Enter (and Shift+Enter) insert a newline on every pointer type, Cmd/Ctrl+Enter is the only submit chord, and a shared readline layer adds Ctrl+U/Ctrl+W/Alt+B/F/D line editing'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-01T16:06:35Z
+last_updated: 2026-08-01T16:49:27Z

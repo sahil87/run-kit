@@ -9,9 +9,9 @@ import {
 } from "react";
 import { useFocusedTerminal, type FocusedTerminal } from "@/contexts/focused-terminal-context";
 import { useChromeDispatch } from "@/contexts/chrome-context";
-import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import { useFileUpload } from "@/hooks/use-file-upload";
-import { classifyComposeEnter } from "@/lib/compose-keys";
+import { classifyComposeEnter, composeSubmitKeycap } from "@/lib/compose-keys";
+import { handleReadlineKey } from "@/lib/readline-keys";
 import { useWindowStore, entryKey } from "@/store/window-store";
 import { Tip, TipGroup } from "@/components/tip";
 import {
@@ -44,15 +44,16 @@ import {
  * mitigated by the always-visible `→ {window}` target label, not by freezing.
  *
  * Interaction (mirrors `ChatSendForm` — the shared `classifyComposeEnter`
- * policy, 260719-mxvw): on a FINE pointer Enter sends `text + "\r"` as raw
- * bytes over the relay stream (same path as BottomBar keystrokes) and
- * Shift+Enter inserts a newline; on a COARSE pointer Enter is not intercepted
- * (newline — touch keyboards cannot express Shift+Enter, and the Send button
- * submits). Cmd/Ctrl+Enter submits ALWAYS (hardware keyboard on a touch
- * device); Alt+Enter — and the secondary Insert button — deliver the text
- * WITHOUT the trailing `\r` (insert into the pane's input box without pressing
- * Enter). `enterkeyhint` tracks what Enter actually does. Enter is guarded
- * against IME composition; empty/whitespace-only submission is a no-op.
+ * policy, 260801-hsxm): plain Enter (and Shift+Enter) insert a newline on ALL
+ * pointer types — Enter accumulates lines locally; Cmd/Ctrl+Enter is the ONLY
+ * submit chord, sending `text + "\r"` as raw bytes over the relay stream
+ * (same path as BottomBar keystrokes). Alt+Enter — and the secondary Insert
+ * button — deliver the text WITHOUT the trailing `\r` (insert into the pane's
+ * input box without pressing Enter). `enterkeyhint` is `"enter"` (Enter
+ * inserts a newline — the truthful hint). Enter is guarded against IME
+ * composition; empty/whitespace-only submission is a no-op. The textarea also
+ * carries the shared readline editing layer (`handleReadlineKey` —
+ * Ctrl+U/Ctrl+W/Alt+B/F/D; natively-bound macOS chords pass through).
  *
  * Focus contract (260801-sm6g, revising 260718-dhdj): the strip focuses its
  * textarea on the OPEN transition only — every open path funnels through
@@ -236,10 +237,6 @@ export function ComposeStrip() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focused?.server, focused?.windowId]);
 
-  // Live pointer type drives BOTH the Enter policy and `enterkeyhint` — one
-  // subscription so hint and behavior can never disagree (260719-mxvw).
-  const coarse = useCoarsePointer();
-
   const send = useCallback(
     (submit: boolean) => {
       if (!hasTarget) return;
@@ -278,21 +275,22 @@ export function ComposeStrip() {
       textareaRef.current?.blur();
       return;
     }
-    // Shared pointer-aware Enter policy (classifyComposeEnter — the SAME
-    // classifier ChatSendForm uses; the two surfaces must not diverge).
-    // "default" means: do not intercept — the textarea inserts a newline
-    // (Shift+Enter anywhere, plain Enter on coarse pointers, IME composition).
-    const action = classifyComposeEnter(
-      {
-        key: e.key,
-        shiftKey: e.shiftKey,
-        metaKey: e.metaKey,
-        ctrlKey: e.ctrlKey,
-        altKey: e.altKey,
-        isComposing: e.nativeEvent.isComposing,
-      },
-      coarse,
-    );
+    // Shared readline editing layer (handleReadlineKey — the SAME helper
+    // ChatSendForm uses): Ctrl+U/Ctrl+W/Alt+B/F/D, consuming the chord so it
+    // never reaches global listeners. Everything else falls through.
+    if (handleReadlineKey(e.nativeEvent, e.currentTarget)) return;
+    // Shared Enter policy (classifyComposeEnter — the SAME classifier
+    // ChatSendForm uses; the two surfaces must not diverge). "default" means:
+    // do not intercept — the textarea inserts a newline (plain Enter and
+    // Shift+Enter on every pointer type, IME composition).
+    const action = classifyComposeEnter({
+      key: e.key,
+      shiftKey: e.shiftKey,
+      metaKey: e.metaKey,
+      ctrlKey: e.ctrlKey,
+      altKey: e.altKey,
+      isComposing: e.nativeEvent.isComposing,
+    });
     if (action === "default") return;
     // Stop propagation so a submitting/inserting Enter never bubbles to global
     // chords.
@@ -489,9 +487,9 @@ export function ComposeStrip() {
           autoCorrect="off"
           autoCapitalize="off"
           spellCheck={false}
-          // Truthful hint: "send" only where Enter actually submits (fine
-          // pointer); coarse pointers get the default newline action.
-          enterKeyHint={coarse ? "enter" : "send"}
+          // Truthful hint: Enter inserts a newline on every pointer type
+          // (Cmd/Ctrl+Enter submits), so the hint is the default enter action.
+          enterKeyHint="enter"
           aria-label="Compose text to send to terminal"
           placeholder={hasTarget ? "Compose text…" : "No focused terminal"}
           data-testid="compose-strip-input"
@@ -538,7 +536,7 @@ export function ComposeStrip() {
                 Insert
               </button>
             </Tip>
-            <Tip label="Send" kbd="Enter" placement="top">
+            <Tip label="Send" kbd={composeSubmitKeycap()} placement="top">
               <button
                 type="button"
                 aria-label="Send text"

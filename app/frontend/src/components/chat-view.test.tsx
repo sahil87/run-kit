@@ -4,9 +4,10 @@ import { ChatView } from "./chat-view";
 import type { ChatEvent } from "@/lib/chat-stream";
 import { stubMatchMedia } from "@/test-utils/match-media";
 
-/** Stub matchMedia so `(pointer: coarse)` matches — drives the pointer-aware
- * Enter policy + `enterkeyhint` (260719-mxvw). jsdom has no matchMedia, so the
- * unstubbed default is the fine-pointer path (the hook's guarded fallback). */
+/** Stub matchMedia so `(pointer: coarse)` matches — used to prove the Enter
+ * policy and `enterkeyhint` are pointer-INDEPENDENT (260801-hsxm: Enter is a
+ * newline everywhere; only the autofocus skip keys on the pointer). jsdom has
+ * no matchMedia, so the unstubbed default is the fine-pointer path. */
 function stubCoarsePointer() {
   stubMatchMedia((query) => query === "(pointer: coarse)");
 }
@@ -51,16 +52,25 @@ describe("ChatView send footer", () => {
     expect(screen.getByTestId("chat-send-button")).toBeInTheDocument();
   });
 
-  it("Enter submits the typed text and clears on success", async () => {
+  it("Cmd/Ctrl+Enter submits the typed text and clears on success", async () => {
     const { onSend } = renderChat();
     const input = screen.getByTestId("chat-send-input") as HTMLTextAreaElement;
     fireEvent.change(input, { target: { value: "run the tests" } });
-    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
 
     await waitFor(() => expect(onSend).toHaveBeenCalledWith("run the tests", true));
     expect(onSend).toHaveBeenCalledTimes(1);
     // Clear on success.
     await waitFor(() => expect(input.value).toBe(""));
+  });
+
+  it("plain Enter does NOT submit (newline accumulates locally, 260801-hsxm)", () => {
+    const { onSend } = renderChat();
+    const input = screen.getByTestId("chat-send-input") as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "first sentence" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onSend).not.toHaveBeenCalled();
+    expect(input.value).toBe("first sentence"); // no clear — nothing was sent
   });
 
   it("Shift+Enter inserts a newline and does NOT submit", () => {
@@ -71,11 +81,11 @@ describe("ChatView send footer", () => {
     expect(onSend).not.toHaveBeenCalled();
   });
 
-  it("an empty / whitespace-only textarea does not submit on Enter", () => {
+  it("an empty / whitespace-only textarea does not submit on Cmd/Ctrl+Enter", () => {
     const { onSend } = renderChat();
     const input = screen.getByTestId("chat-send-input");
     fireEvent.change(input, { target: { value: "   \n\t " } });
-    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
     expect(onSend).not.toHaveBeenCalled();
     // The send button is disabled for whitespace-only content.
     expect(screen.getByTestId("chat-send-button")).toBeDisabled();
@@ -91,9 +101,9 @@ describe("ChatView send footer", () => {
     await waitFor(() => expect(onSend).toHaveBeenCalledWith("hello", true));
   });
 
-  // ── Pointer-aware Enter + insert-without-submit (260719-mxvw) ──────────────
+  // ── Enter policy flip + insert-without-submit (260801-hsxm) ────────────────
 
-  it("coarse pointer: plain Enter does NOT submit (textarea default newline); Send button still does", async () => {
+  it("coarse pointer: plain Enter still does NOT submit; Send button still does", async () => {
     stubCoarsePointer();
     const { onSend } = renderChat();
     const input = screen.getByTestId("chat-send-input") as HTMLTextAreaElement;
@@ -106,7 +116,7 @@ describe("ChatView send footer", () => {
     await waitFor(() => expect(onSend).toHaveBeenCalledWith("touch draft", true));
   });
 
-  it("Cmd/Ctrl+Enter submits on BOTH pointer types (universal escape hatch)", async () => {
+  it("Cmd/Ctrl+Enter submits on BOTH pointer types (the only submit chord)", async () => {
     // Coarse pointer + hardware keyboard: the modifier chord submits.
     stubCoarsePointer();
     const { onSend } = renderChat();
@@ -149,15 +159,15 @@ describe("ChatView send footer", () => {
     expect(input.value).toBe("keep insert");
   });
 
-  it("enterkeyhint states the truth: 'send' on fine pointers, 'enter' on coarse", () => {
-    // Fine (jsdom default — no matchMedia): Enter submits → hint is "send".
+  it("enterkeyhint states the truth: 'enter' on every pointer type (Enter inserts a newline)", () => {
+    // Fine (jsdom default — no matchMedia): Enter inserts a newline → "enter".
     const fine = renderChat();
     expect(
       (screen.getByTestId("chat-send-input") as HTMLTextAreaElement).getAttribute("enterkeyhint"),
-    ).toBe("send");
+    ).toBe("enter");
     fine.unmount();
 
-    // Coarse: Enter inserts a newline → hint is the default "enter" action.
+    // Coarse: same — the hint no longer keys on the pointer type.
     stubCoarsePointer();
     renderChat();
     expect(
@@ -165,7 +175,32 @@ describe("ChatView send footer", () => {
     ).toBe("enter");
   });
 
-  it("in-flight lock: a second Enter while pending does not double-send", async () => {
+  // ── Readline editing layer (260801-hsxm) ───────────────────────────────────
+
+  it("Ctrl+W deletes the word before the cursor (shared readline layer)", () => {
+    const { onSend } = renderChat();
+    const input = screen.getByTestId("chat-send-input") as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "one two three" } });
+    input.setSelectionRange(13, 13);
+    fireEvent.keyDown(input, { key: "w", code: "KeyW", ctrlKey: true });
+    // The deletion flows through the bubbled input event → onChange, so the
+    // controlled value reflects the edit.
+    expect(input.value).toBe("one two ");
+    expect(onSend).not.toHaveBeenCalled(); // an editing chord never sends
+  });
+
+  it("Alt+F moves the caret a word forward without editing (readline motion)", () => {
+    renderChat();
+    const input = screen.getByTestId("chat-send-input") as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "one two" } });
+    input.setSelectionRange(0, 0);
+    // macOS composes ƒ into `key` for Alt+F — matching is on `code`.
+    fireEvent.keyDown(input, { key: "ƒ", code: "KeyF", altKey: true });
+    expect(input.value).toBe("one two");
+    expect(input.selectionStart).toBe(3);
+  });
+
+  it("in-flight lock: a second Cmd/Ctrl+Enter while pending does not double-send", async () => {
     let resolveSend: () => void = () => {};
     const onSend = vi.fn().mockImplementation(
       () => new Promise<void>((res) => { resolveSend = res; }),
@@ -173,9 +208,9 @@ describe("ChatView send footer", () => {
     renderChat({ onSend });
     const input = screen.getByTestId("chat-send-input");
     fireEvent.change(input, { target: { value: "once" } });
-    fireEvent.keyDown(input, { key: "Enter" });
-    // Second Enter while the first is still pending.
-    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
+    // Second submit chord while the first is still pending.
+    fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
     expect(onSend).toHaveBeenCalledTimes(1);
     resolveSend();
     await waitFor(() => expect((input as HTMLTextAreaElement).value).toBe(""));
@@ -188,7 +223,7 @@ describe("ChatView send footer", () => {
     renderChat({ onSend });
     const input = screen.getByTestId("chat-send-input") as HTMLTextAreaElement;
     fireEvent.change(input, { target: { value: "ship it" } });
-    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
 
     // Inline role="alert" carries the server's structured message.
     const alert = await screen.findByTestId("chat-send-error");
@@ -219,7 +254,7 @@ describe("ChatView send footer", () => {
 
     const input = screen.getByTestId("chat-send-input") as HTMLTextAreaElement;
     fireEvent.change(input, { target: { value: "draft for window one" } });
-    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
     // The failed send leaves both a draft and an inline error on THIS window.
     await screen.findByTestId("chat-send-error");
     expect(input.value).toBe("draft for window one");
@@ -262,7 +297,7 @@ describe("ChatView send footer", () => {
 
     const input = screen.getByTestId("chat-send-input") as HTMLTextAreaElement;
     fireEvent.change(input, { target: { value: "draft for host-a @1" } });
-    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
     await screen.findByTestId("chat-send-error");
     expect(input.value).toBe("draft for host-a @1");
 

@@ -8,8 +8,10 @@ import { TMUX_SERVER, createSession, killSession } from "./_tmux";
  * Docked compose strip (260718-dhdj) e2e coverage. The strip replaces the modal
  * ComposeBuffer: it is a single global surface docked above the bottom bar,
  * toggled by the `>_` chip / `View: Text Input` palette action, persisted as a
- * chrome preference, sending Enter+`\r` to the LIVE focused pane. See the sibling
- * `.spec.md` for the per-test contract.
+ * chrome preference, sending `text + \r` to the LIVE focused pane on the
+ * Cmd/Ctrl+Enter submit chord (260801-hsxm: plain Enter inserts a newline —
+ * lines accumulate locally). See the sibling `.spec.md` for the per-test
+ * contract.
  */
 
 const TERM_SESSION = `e2e-compose-${Date.now()}`;
@@ -124,7 +126,7 @@ test.describe("Docked compose strip", () => {
     await expect(page.getByTestId("compose-strip-input")).toHaveValue(draft);
   });
 
-  test("Enter sends text + carriage return to the focused pane; Escape blurs", async ({ page }) => {
+  test("Enter inserts a newline; Cmd/Ctrl+Enter sends text + carriage return; Escape blurs", async ({ page }) => {
     test.setTimeout(60_000);
     const windowId = await resolveWindowId(page, TERM_SESSION);
     await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(windowId)}`, {
@@ -143,12 +145,17 @@ test.describe("Docked compose strip", () => {
     const input = page.getByTestId("compose-strip-input");
     await expect(input).toBeVisible();
 
-    // Type a unique marker and press Enter — it must reach the pane running
-    // `cat`, which echoes it. The trailing `\r` submits the line.
+    // Type a unique marker and press plain Enter — nothing is sent; the
+    // textarea inserts a newline (lines accumulate locally, 260801-hsxm).
     const marker = `CS_ENTER_${Date.now()}`;
     await input.click();
     await input.fill(marker);
     await input.press("Enter");
+    await expect(input).toHaveValue(`${marker}\n`);
+
+    // Cmd/Ctrl+Enter — the ONLY submit chord — sends the accumulated text to
+    // the pane running `cat`, which echoes it. The trailing `\r` submits.
+    await input.press("ControlOrMeta+Enter");
     // The textarea clears (send succeeded, strip stays open).
     await expect(input).toHaveValue("");
     await expect(page.getByTestId("compose-strip")).toBeVisible();
@@ -167,7 +174,7 @@ test.describe("Docked compose strip", () => {
     await expect(page.getByTestId("compose-strip")).toBeVisible();
   });
 
-  test("Insert stages text without committing; Ctrl/Cmd+Enter submits (260719-mxvw)", async ({ page }) => {
+  test("Insert stages text without committing; Ctrl/Cmd+Enter submits (260801-hsxm)", async ({ page }) => {
     test.setTimeout(60_000);
     const windowId = await resolveWindowId(page, TERM_SESSION);
     await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(windowId)}`, {
@@ -183,9 +190,9 @@ test.describe("Docked compose strip", () => {
     await page.getByRole("button", { name: "Compose text" }).click();
     const input = page.getByTestId("compose-strip-input");
     await expect(input).toBeVisible();
-    // Fine pointer (default e2e environment): Enter submits, so the keyboard
-    // hint states "send".
-    await expect(input).toHaveAttribute("enterkeyhint", "send");
+    // Enter inserts a newline on every pointer type (Cmd/Ctrl+Enter submits),
+    // so the keyboard hint states the default "enter" action.
+    await expect(input).toHaveAttribute("enterkeyhint", "enter");
 
     // Insert: raw bytes with NO trailing \r — staged on cat's input line,
     // never committed.

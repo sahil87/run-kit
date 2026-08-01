@@ -11,7 +11,8 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import { Tip, TipGroup } from "@/components/tip";
-import { classifyComposeEnter } from "@/lib/compose-keys";
+import { classifyComposeEnter, composeSubmitKeycap } from "@/lib/compose-keys";
+import { handleReadlineKey } from "@/lib/readline-keys";
 import {
   groupEventsByTurn,
   pairToolEvents,
@@ -144,14 +145,16 @@ const MAX_TEXTAREA_ROWS = 6;
 
 /**
  * The chat send input: an auto-growing monospace textarea + house-chip Insert /
- * Send buttons. Enter policy is the shared pointer-aware `classifyComposeEnter`
- * (260719-mxvw — the SAME classifier the compose strip uses; the two surfaces
- * must not diverge): fine pointer Enter submits / Shift+Enter newline; coarse
- * pointer Enter inserts a newline (Send button submits); Cmd/Ctrl+Enter submits
- * always; Alt+Enter — and the Insert button — send with `submit: false` (paste
- * into the agent's input box, gated Enter skipped). `enterkeyhint` tracks what
- * Enter actually does. In-flight-locked (no double-send, shared by submit and
- * insert); text clears on success and is kept on failure with an inline
+ * Send buttons. Enter policy is the shared `classifyComposeEnter`
+ * (260801-hsxm — the SAME classifier the compose strip uses; the two surfaces
+ * must not diverge): plain Enter and Shift+Enter insert a newline on ALL
+ * pointer types (Enter accumulates lines locally); Cmd/Ctrl+Enter is the ONLY
+ * submit chord; Alt+Enter — and the Insert button — send with `submit: false`
+ * (paste into the agent's input box, gated Enter skipped). `enterkeyhint` is
+ * `"enter"` (the truthful hint — Enter inserts a newline). The textarea also
+ * carries the shared readline editing layer (`handleReadlineKey` —
+ * Ctrl+U/Ctrl+W/Alt+B/F/D). In-flight-locked (no double-send, shared by submit
+ * and insert); text clears on success and is kept on failure with an inline
  * `role="alert"` error carrying the server's structured message. A non-blocking
  * "will be queued" hint shows while the agent is busy (the input stays enabled —
  * Allow + probe policy). On a fine pointer the input auto-focuses on mount (the
@@ -168,8 +171,8 @@ function ChatSendForm({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  // Live pointer type drives BOTH the Enter policy and `enterkeyhint` — one
-  // subscription so hint and behavior can never disagree (260719-mxvw).
+  // Pointer type drives ONLY the mount autofocus skip below — its Enter-policy
+  // role ended with the 260801-hsxm flip (Enter is a newline everywhere).
   const coarse = useCoarsePointer();
 
   // Auto-grow to content, bounded to MAX_TEXTAREA_ROWS (then internal scroll).
@@ -215,21 +218,22 @@ function ChatSendForm({
   );
 
   const onKeyDown = (e: ReactKeyboardEvent<HTMLTextAreaElement>) => {
-    // Shared pointer-aware Enter policy (classifyComposeEnter — the SAME
-    // classifier the compose strip uses). "default" means: do not intercept —
-    // the textarea inserts a newline (Shift+Enter anywhere, plain Enter on
-    // coarse pointers, IME composition).
-    const action = classifyComposeEnter(
-      {
-        key: e.key,
-        shiftKey: e.shiftKey,
-        metaKey: e.metaKey,
-        ctrlKey: e.ctrlKey,
-        altKey: e.altKey,
-        isComposing: e.nativeEvent.isComposing,
-      },
-      coarse,
-    );
+    // Shared readline editing layer (handleReadlineKey — the SAME helper the
+    // compose strip uses): Ctrl+U/Ctrl+W/Alt+B/F/D, consuming the chord so it
+    // never reaches global listeners. Everything else falls through.
+    if (handleReadlineKey(e.nativeEvent, e.currentTarget)) return;
+    // Shared Enter policy (classifyComposeEnter — the SAME classifier the
+    // compose strip uses). "default" means: do not intercept — the textarea
+    // inserts a newline (plain Enter and Shift+Enter on every pointer type,
+    // IME composition).
+    const action = classifyComposeEnter({
+      key: e.key,
+      shiftKey: e.shiftKey,
+      metaKey: e.metaKey,
+      ctrlKey: e.ctrlKey,
+      altKey: e.altKey,
+      isComposing: e.nativeEvent.isComposing,
+    });
     if (action === "default") return;
     // Stop propagation so a submitting/inserting Enter never bubbles to global
     // chords.
@@ -271,9 +275,9 @@ function ChatSendForm({
           onKeyDown={onKeyDown}
           placeholder="Message the agent…"
           aria-label="Message the agent"
-          // Truthful hint: "send" only where Enter actually submits (fine
-          // pointer); coarse pointers get the default newline action.
-          enterKeyHint={coarse ? "enter" : "send"}
+          // Truthful hint: Enter inserts a newline on every pointer type
+          // (Cmd/Ctrl+Enter submits), so the hint is the default enter action.
+          enterKeyHint="enter"
           data-testid="chat-send-input"
           className="rk-chat-input flex-1 min-h-0 resize-none rounded border border-border bg-bg-inset px-3 py-2 font-mono text-sm text-text-primary placeholder:text-text-secondary focus:outline-none focus:border-accent"
         />
@@ -293,7 +297,7 @@ function ChatSendForm({
             Insert
           </button>
         </Tip>
-        <Tip label="Send" kbd="Enter" placement="top">
+        <Tip label="Send" kbd={composeSubmitKeycap()} placement="top">
           <button
             type="button"
             onClick={() => void submit(true)}

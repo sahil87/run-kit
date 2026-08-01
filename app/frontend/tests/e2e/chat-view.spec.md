@@ -178,32 +178,36 @@ motion; attention/pending are color + text, never motion-only).
 Shared: each test additionally calls `mockChatSend(page, …)` to route the
 chat-send POST (see Shared setup).
 
-### `typing + Enter fires exactly one POST with the typed body and clears on success`
+### `typing + Cmd/Ctrl+Enter fires exactly one POST with the typed body and clears on success`
 
-**What it proves:** typing into the send input and pressing Enter fires EXACTLY
-one chat-send POST carrying the typed text; on a `200` the input clears and no
-inline error shows.
+**What it proves:** plain Enter is NOT a send (260801-hsxm — it inserts a
+newline so lines accumulate locally, no POST fires); pressing Cmd/Ctrl+Enter
+(the only submit chord) fires EXACTLY one chat-send POST carrying the
+accumulated text; on a `200` the input clears and no inline error shows.
 
 **Steps:**
 1. Mock the backend + `mockChatSend` (200); navigate to `/default/1?view=chat`.
-2. Fill `chat-send-input` with "run the tests" and press Enter.
-3. Assert exactly one recorded POST body equal to "run the tests", and that the
-   parsed body carries NO `submit` field (the additive wire contract keeps the
-   default shape exactly `{ text }` — 260719-mxvw).
-4. Assert the input is now empty and `chat-send-error` has count 0.
+2. Fill `chat-send-input` with "run the tests" and press Enter; assert the value
+   is now `run the tests\n` and NO POST was recorded.
+3. Press `ControlOrMeta+Enter`.
+4. Assert exactly one recorded POST body equal to `run the tests\n`, and that
+   the parsed body carries NO `submit` field (the additive wire contract keeps
+   the default shape exactly `{ text }` — 260719-mxvw).
+5. Assert the input is now empty and `chat-send-error` has count 0.
 
 ### `the Insert button POSTs submit:false and clears (insert-without-submit, 260719-mxvw)`
 
 **What it proves:** the Insert button (the insert-without-submit affordance —
 paste into the agent's input box, gated Enter skipped server-side) fires exactly
 one chat-send POST with the explicit body `{ text, submit: false }` and clears
-the input on success. Also asserts the fine-pointer `enterkeyhint="send"` (the
-truthful keyboard hint — coarse/chord behavior is unit-tested in
-`chat-view.test.tsx` / `compose-keys.test.ts`).
+the input on success. Also asserts `enterkeyhint="enter"` (the truthful keyboard
+hint — Enter inserts a newline on every pointer type; chord/readline behavior is
+unit-tested in `chat-view.test.tsx` / `compose-keys.test.ts` /
+`readline-keys.test.ts`).
 
 **Steps:**
 1. Mock the backend + `mockChatSend` (200); navigate to `/default/1?view=chat`.
-2. Assert `chat-send-input` carries `enterkeyhint="send"` (fine pointer).
+2. Assert `chat-send-input` carries `enterkeyhint="enter"`.
 3. Fill the input with "stage this prompt" and click `chat-send-insert`.
 4. Assert exactly one recorded parsed body equal to
    `{ text: "stage this prompt", submit: false }`.
@@ -218,7 +222,7 @@ the user can retry) — never a silent failure.
 **Steps:**
 1. Mock `mockChatSend` with `status: 409` and the probe-failure `error`; navigate
    to `/default/1?view=chat`.
-2. Fill the input with "ship it" and press Enter.
+2. Fill the input with "ship it" and press `ControlOrMeta+Enter`.
 3. Assert `chat-send-error` is visible and contains "Enter withheld".
 4. Assert the input still holds "ship it".
 

@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "The chat subsystem — rk-owned neutral event schema (Event/Pending/turn), Adapter registry, the Claude JSONL adapter (UUID-glob, tolerant parse, TailFrom offset-tail). Read: GET .../chat backfill + a kind:chat sub on /ws/state; ?view=chat lens with a pointer-aware Enter/Insert send form. Send: POST .../chat/send — sanitize, named-buffer paste + novelty echo probe + Enter gated on probe AND an additive submit flag (submit:false = insert-without-submit). Read derives from disk; send types in."
+description: "The chat subsystem — rk-owned neutral event schema (Event/Pending/turn), Adapter registry, Claude JSONL adapter (UUID-glob, tolerant parse, TailFrom offset-tail). Read: GET .../chat backfill + a kind:chat sub on /ws/state; ?view=chat lens sharing the compose keydown layer (Enter=newline, Cmd/Ctrl+Enter=submit, Alt+Enter=insert, readline chords). Send: POST .../chat/send — sanitize, named-buffer paste + novelty echo probe + probe-and-submit-flag-gated Enter. Read derives from disk; send types in."
 ---
 # Chat Subsystem
 
@@ -751,25 +751,33 @@ lens/switcher machinery (`window-view.ts`, `ViewSwitcher`, search-param validati
   `data-testid="chat-send-insert"`, same enable/disable as Send, `title` documenting
   the Alt+Enter chord). Insert routes through the shared in-flight-locked submission
   with `submit:false` (`onSend(text, false)`); Send with `submit:true`.
-- **Pointer-aware Enter, shared with the compose strip** (260719-mxvw): the keydown
-  routes through the shared pure `classifyComposeEnter` (`lib/compose-keys.ts`) fed the
-  live `useCoarsePointer()` value — the SAME hook + classifier both surfaces use, so
-  the two cannot diverge (divergence is a defect). **Fine pointer**: Enter = submit,
-  Shift+Enter = newline (unchanged). **Coarse pointer (touch)**: Enter = newline (NOT
-  intercepted — the textarea default; the Send button submits). **Cmd/Ctrl+Enter =
-  submit ALWAYS**, all devices (the escape hatch for a hardware keyboard on a touch
-  device). **Alt+Enter = insert-without-submit ALWAYS** (`submit:false`, the chord
-  peer of the Insert button). Precedence: non-Enter/IME-composing → default; meta/ctrl
-  → submit; alt → insert; shift → default; coarse → default; else → submit. The
+- **Enter composes, Cmd/Ctrl+Enter sends — shared with the compose strip**: the keydown
+  routes through the shared pure `classifyComposeEnter` (`lib/compose-keys.ts`) — the
+  SAME classifier both surfaces use, so the two cannot diverge (divergence is a
+  defect). **Enter and Shift+Enter = newline** on every pointer type (NOT intercepted
+  — the textarea default; Enter accumulates lines locally so a reflexive Enter cannot
+  fire a half-written prompt at a live agent). **Cmd/Ctrl+Enter = submit** — the ONLY
+  submit chord, on every device. **Alt+Enter = insert-without-submit** (`submit:false`,
+  the chord peer of the Insert button). Precedence: non-Enter/IME-composing → default;
+  meta/ctrl → submit; alt → insert; else → default. Enter policy is
+  pointer-independent, so the classifier reads no pointer hook. The
   empty/whitespace-only no-op is unchanged. `keydown` **stops propagation** so a
   `Ctrl+`` toggle or other global chord never hijacks a keystroke while typing — and
   the textarea is explicitly EXEMPTED from the `Ctrl+`` view-toggle suppression via its
   `.rk-chat-input` class (see [ui-patterns](/run-kit/ui-patterns.md) § Window Views;
   the toggle must still fire from inside the chat input or the user is trapped).
-- **Truthful `enterKeyHint`** (260719-mxvw): `enterKeyHint="send"` when Enter submits
-  (fine pointer), `enterKeyHint="enter"` when Enter inserts a newline (coarse pointer)
-  — driven by the same live `useCoarsePointer()` value, so a mid-session pointer-capability
-  change updates the keydown policy and the keyboard hint together.
+- **Readline editing chords, shared with the compose strip**: the same keydown routes
+  through `handleReadlineKey` (`lib/readline-keys.ts`) **before** Enter classification —
+  Ctrl+U (kill to line start), Ctrl+W (delete word back), Alt+B/Alt+F (word motion),
+  Alt+D (delete word forward), matched on `KeyboardEvent.code` with exact modifiers so
+  the natively-bound macOS chords pass through untouched. Full contract (undo-preserving
+  deletions, the empty-range guard, the Ctrl+W win/linux-browser caveat) in
+  [ui-patterns](/run-kit/ui-patterns.md) § Docked Compose Strip → Readline editing chords.
+- **Truthful `enterKeyHint`**: `enterKeyHint="enter"` unconditionally — Enter always
+  inserts a newline, so the hint says so on every pointer type. The Send tip's keycap
+  is the platform-formatted submit chord from the shared `composeSubmitKeycap()`
+  (`⌘Enter` on mac, `Ctrl+Enter` elsewhere), identical to the compose strip's chip;
+  the Insert tip stays `Alt+Enter`.
 - **In-flight lock**: while a send POST is pending, the submit path is locked
   (double-Enter / double-click cannot double-send). It guards insert-mode sends
   identically — insert reuses the one lock/clear/error state machine, not a parallel
@@ -789,18 +797,19 @@ lens/switcher machinery (`window-view.ts`, `ViewSwitcher`, search-param validati
   same window id across DIFFERENT servers (`@1`↔`@1`) — remounts the form, dropping
   any draft/stale-error carryover and re-firing autofocus.
 
-#### Scenario: Enter submits and clears; a 409 keeps the text and shows the error
-- **GIVEN** the send form with typed text on a fine pointer
-- **WHEN** the user presses Enter and the POST resolves ok
+#### Scenario: Cmd/Ctrl+Enter submits and clears; a 409 keeps the text and shows the error
+- **GIVEN** the send form with typed text
+- **WHEN** the user presses Cmd/Ctrl+Enter and the POST resolves ok
 - **THEN** exactly one POST fires with the typed body (no `submit` field), the
-  textarea clears, and any prior error clears; **AND GIVEN** a second Enter while in
-  flight, **THEN** no second POST fires; **AND GIVEN** the POST rejects `409`, **THEN**
-  the text is retained and the server's message renders in a `role="alert"` element.
+  textarea clears, and any prior error clears; **AND GIVEN** a second Cmd/Ctrl+Enter
+  while in flight, **THEN** no second POST fires; **AND GIVEN** the POST rejects `409`,
+  **THEN** the text is retained and the server's message renders in a `role="alert"`
+  element.
 - **AND GIVEN** the agent is `active`, **THEN** the queued-message hint is visible
   and the input stays enabled.
-- **AND GIVEN** a coarse pointer, **WHEN** the user presses plain Enter, **THEN** no
-  POST fires and the textarea gains a newline (Cmd/Ctrl+Enter and the Send button
-  still submit).
+- **AND GIVEN** any pointer type, **WHEN** the user presses plain Enter, **THEN** no
+  POST fires and the textarea gains a newline (only Cmd/Ctrl+Enter and the Send button
+  submit).
 - **AND GIVEN** the user clicks Insert (or presses Alt+Enter), **THEN** exactly one
   POST fires with `{text, submit:false}` and clears on success / keeps the text with
   the inline error on failure — identical to the submit path.
@@ -1116,27 +1125,30 @@ machine on the form (a second lock/clear/error path is the cross-surface diverge
 the intake forbids).
 *Introduced by*: 260719-mxvw-pointer-aware-enter-insert-mode
 
-### Pointer-aware Enter via one shared classifier + one pointer hook
+### One shared classifier owns the Enter policy for both surfaces
 **Decision**: Both text-input surfaces (chat send form, docked compose strip) route
-Enter through ONE pure `classifyComposeEnter(key, coarse)` (`lib/compose-keys.ts`)
-fed the live `useCoarsePointer()` value (`hooks/use-coarse-pointer.ts`), driving both
-the keydown policy and the `enterKeyHint`. Enter is pointer-type-keyed — fine = submit,
-coarse = newline (Send button submits) — with universal Cmd/Ctrl+Enter submit and
-universal Alt+Enter insert; `enterKeyHint` tracks it (`"send"`/`"enter"`).
-**Why**: Mobile keyboards cannot express Shift+Enter, so a coarse-pointer user could
-not compose multiline text — every Enter fired a premature message at a live agent
-(the costlier error). Keying on `(pointer: coarse)`, NOT viewport width, is deliberate:
-a narrow desktop window still has a hardware keyboard, and a tablet with one still
-gets the Cmd/Ctrl+Enter escape hatch. The intake makes cross-surface divergence a
-defect, so a single shared decision path (pure + unit-testable without a mount, the
-`palette-move.ts` extraction pattern) makes divergence structurally impossible — the
-two handlers had already drifted once. A live `matchMedia` subscription (not a
-mount-time check) keeps the keydown policy and the keyboard hint in lockstep when the
-pointer capability changes mid-session.
-**Rejected**: keying on viewport width (a narrow desktop window loses hardware-keyboard
-Enter); per-surface inline branching (the two handlers drift); a mount-time pointer
-read (a stale hint after plugging in a mouse). The new focused-textarea chords are
-NOT registered in the command palette (the palette steals focus from the textarea it
-would act on, and these are editing chords like the already-unregistered Shift+Enter);
-each Insert button's `title` documents its chord, satisfying Constitution V.
-*Introduced by*: 260719-mxvw-pointer-aware-enter-insert-mode
+Enter through ONE pure `classifyComposeEnter(key)` (`lib/compose-keys.ts`), which
+drives both the keydown policy and the `enterKeyHint`. It reads key state alone — Enter
+policy is pointer-independent (Enter = newline everywhere, Cmd/Ctrl+Enter = the only
+submit, Alt+Enter = insert; `enterKeyHint="enter"`), and the same sharing rule extends
+to the readline editing layer (`handleReadlineKey`) and the Send keycap
+(`composeSubmitKeycap()`).
+**Why**: cross-surface divergence is a defect, so a single shared decision path (pure +
+unit-testable without a mount, the `palette-move.ts` extraction pattern) makes
+divergence structurally impossible — the two handlers had already drifted once before
+the classifier existed. Keeping the policy free of pointer input is what lets one
+classifier serve both surfaces with no per-surface configuration: the composition flow
+(Enter accumulates, one explicit chord sends) is correct on a hardware keyboard and a
+touch keyboard alike, and the premature-send hazard it removes is worst on a hardware
+keyboard where Enter is reflexive. The full rationale for the policy itself is
+[ui-patterns](/run-kit/ui-patterns.md) § Design Decisions → Enter composes,
+Cmd/Ctrl+Enter sends.
+**Rejected**: per-surface inline branching (the two handlers drift); keying the policy
+on pointer type or viewport width (nothing left for it to decide once Enter is a
+newline everywhere, and width would cost a narrowed desktop window its policy). The
+focused-textarea chords are NOT registered in the command palette (the palette steals
+focus from the textarea it would act on, and these are editing chords like the
+already-unregistered Shift+Enter); each Insert button's `title` documents its chord and
+the Send tip carries the platform-formatted submit keycap, satisfying Constitution V.
+*Introduced by*: 260719-mxvw-pointer-aware-enter-insert-mode,
+260801-hsxm-compose-enter-policy-readline-keys

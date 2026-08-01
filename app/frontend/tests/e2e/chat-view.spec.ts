@@ -376,7 +376,7 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
 });
 
 test.describe("Chat send — input, POST, error surfacing, busy hint", () => {
-  test("typing + Enter fires exactly one POST with the typed body and clears on success", async ({ page }) => {
+  test("typing + Cmd/Ctrl+Enter fires exactly one POST with the typed body and clears on success", async ({ page }) => {
     await mockBackend(page, backfillCleared());
     const send = await mockChatSend(page); // 200
     await page.goto(`/${SERVER}/1?view=chat`);
@@ -384,11 +384,17 @@ test.describe("Chat send — input, POST, error surfacing, busy hint", () => {
     const input = page.getByTestId("chat-send-input");
     await expect(input).toBeVisible({ timeout: 10_000 });
     await input.fill("run the tests");
+    // Plain Enter is NOT a send (260801-hsxm) — it inserts a newline and no
+    // POST fires.
     await input.press("Enter");
+    await expect(input).toHaveValue("run the tests\n");
+    expect(send.bodies.length).toBe(0);
+    // Cmd/Ctrl+Enter — the only submit chord — fires the POST.
+    await input.press("ControlOrMeta+Enter");
 
-    // Exactly one POST with the typed body.
+    // Exactly one POST with the accumulated body.
     await expect.poll(() => send.bodies.length).toBe(1);
-    expect(send.bodies[0]).toBe("run the tests");
+    expect(send.bodies[0]).toBe("run the tests\n");
     // Default submit ⇒ the body carries NO `submit` field — the additive wire
     // contract keeps the default shape exactly `{ text }` (260719-mxvw).
     expect("submit" in send.raw[0]).toBe(false);
@@ -405,9 +411,9 @@ test.describe("Chat send — input, POST, error surfacing, busy hint", () => {
 
     const input = page.getByTestId("chat-send-input");
     await expect(input).toBeVisible({ timeout: 10_000 });
-    // Fine pointer (default e2e environment): Enter submits, so the keyboard
-    // hint states "send".
-    await expect(input).toHaveAttribute("enterkeyhint", "send");
+    // Enter inserts a newline on every pointer type (Cmd/Ctrl+Enter submits),
+    // so the keyboard hint states the default "enter" action.
+    await expect(input).toHaveAttribute("enterkeyhint", "enter");
     await input.fill("stage this prompt");
     await page.getByTestId("chat-send-insert").click();
 
@@ -432,7 +438,7 @@ test.describe("Chat send — input, POST, error surfacing, busy hint", () => {
     const input = page.getByTestId("chat-send-input");
     await expect(input).toBeVisible({ timeout: 10_000 });
     await input.fill("ship it");
-    await input.press("Enter");
+    await input.press("ControlOrMeta+Enter");
 
     // The inline role="alert" carries the server's structured 409 message.
     const err = page.getByTestId("chat-send-error");

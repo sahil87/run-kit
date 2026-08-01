@@ -473,6 +473,43 @@ describe("TerminalClient deferred reset (reset at first write, not receipt)", ()
     expect(term.reset).not.toHaveBeenCalled();
   });
 
+  it("does not write connection A's buffered-but-unflushed bytes after onOpened fires for connection B", async () => {
+    const st = await mountAndGetStream();
+    const term = terminalSpies();
+    const stale = "s".repeat(200); // > IMMEDIATE_WRITE_MAX_BYTES → buffers, rAF pending
+
+    // Connection A buffers a chunk that never flushes (e.g. a backgrounded tab
+    // where rAF doesn't fire), then the socket drops.
+    act(() => {
+      st.emitData(stale);
+    });
+    expect(term.write).not.toHaveBeenCalled();
+
+    // RelayMux reconnects and transparently re-opens the SAME stream —
+    // connection B's onOpened must wipe A's buffered bytes and cancel the
+    // pending flush (change 260801-f715).
+    act(() => {
+      st.emitOpened();
+    });
+    act(() => {
+      runRafCallbacks(); // any stray rAF tick must find nothing to flush
+    });
+    expect(term.write).not.toHaveBeenCalled();
+    // The empty state neither consumed nor executed the freshly armed reset.
+    expect(term.reset).not.toHaveBeenCalled();
+
+    // Connection B's first chunk still resets-then-writes, and A's stale bytes
+    // are never written.
+    act(() => {
+      st.emitData("fresh");
+    });
+    expect(term.reset).toHaveBeenCalledTimes(1);
+    expect(term.reset.mock.invocationCallOrder[0]).toBeLessThan(
+      writeOrderOf(term, "fresh"),
+    );
+    expect(term.write).toHaveBeenCalledTimes(1); // only "fresh" — never the stale chunk
+  });
+
   it("drains buffered tail data on close without resetting when the reset was already consumed", async () => {
     const st = await mountAndGetStream();
     const term = terminalSpies();

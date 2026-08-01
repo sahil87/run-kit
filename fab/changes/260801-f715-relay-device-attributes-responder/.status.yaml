@@ -1,0 +1,55 @@
+id: f715
+name: 260801-f715-relay-device-attributes-responder
+created: 2026-08-01T15:40:24Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 6
+    acceptance_count: 15
+    acceptance_completed: 15
+confidence:
+    certain: 6
+    confident: 5
+    tentative: 0
+    unresolved: 0
+    score: 4.7
+    fuzzy: true
+    dimensions:
+        signal: 80.0
+        reversibility: 81.4
+        competence: 85.5
+        disambiguation: 80.5
+stage_metrics:
+    intake: {started_at: "2026-08-01T15:40:24Z", driver: fab-new, iterations: 1, completed_at: "2026-08-01T15:44:41Z"}
+    apply: {started_at: "2026-08-01T15:44:41Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T15:54:32Z"}
+    review: {started_at: "2026-08-01T15:54:32Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T16:05:21Z"}
+    hydrate: {started_at: "2026-08-01T16:05:21Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T16:10:00Z"}
+    ship: {started_at: "2026-08-01T16:10:00Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-08-01T16:10:00Z"
+    computed_at_stage: hydrate
+summary: Relay answers tmux's DA1/DA2 terminal-identification queries at the ptmx and strips them from the browser-bound stream; terminal-client onOpened wipes carried-over flush state.
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-01T16:10:00Z

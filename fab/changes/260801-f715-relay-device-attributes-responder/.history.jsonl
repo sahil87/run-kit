@@ -1,0 +1,14 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-01T15:40:24Z"}
+{"args":"Fix junk characters (1;2c0;276;0c) at shell prompts in rk-viewed tmux panes: intercept tmux client DA1/DA2 queries in the backend PTY read loop, answer with canned xterm.js-equivalent replies, strip queries from the browser-bound stream; frontend clears stale binaryBuffers on stream.onOpened","cmd":"fab-new","event":"command","ts":"2026-08-01T15:40:24Z"}
+{"delta":"+4.7","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-08-01T15:42:31Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-08-01T15:43:31Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-01T15:44:27Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-01T15:44:41Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-08-01T15:45:29Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-01T15:54:32Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-08-01T15:55:11Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-01T16:05:21Z"}
+{"event":"review","result":"passed","ts":"2026-08-01T16:05:21Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-08-01T16:05:56Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-01T16:10:00Z"}
+{"cmd":"git-pr","event":"command","ts":"2026-08-01T16:10:30Z"}

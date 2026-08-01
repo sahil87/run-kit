@@ -522,8 +522,17 @@ func (tc *terminalsConn) attachStream(op openOp, st *stream) {
 // pumpPTY reads the stream's PTY and enqueues stream-id-prefixed binary frames.
 // It blocks on a full queue (backpressure) and exits on PTY EOF/error or socket
 // teardown, tearing the stream down + emitting a graceful `closed`.
+//
+// Each read chunk passes through the per-stream Device Attributes filter
+// (terminals_da.go, change 260801-f715): tmux's DA1/DA2 identification queries
+// are answered at the relay (written back to the ptmx) and stripped from the
+// browser-bound stream, so xterm.js never sees or answers them — replies are
+// synchronous and exactly-once per attach. The filter carries a bounded
+// partial-match prefix across the streamFrameSize read boundary; whatever it
+// still holds when this pump exits is dropped with it (the pane is closing).
 func (tc *terminalsConn) pumpPTY(st *stream) {
 	buf := make([]byte, streamFrameSize)
+	filter := newDAFilter(st.ptmx)
 	for {
 		n, err := st.ptmx.Read(buf)
 		if err != nil {
@@ -533,10 +542,16 @@ func (tc *terminalsConn) pumpPTY(st *stream) {
 			tc.closeStream(st.id, closeNormal, "closed")
 			return
 		}
-		// Prefix a fresh copy with the u32 BE stream id (buf is reused).
-		frame := make([]byte, 4+n)
+		payload := filter.process(buf[:n])
+		if len(payload) == 0 {
+			// The chunk was entirely query/held bytes — nothing browser-bound.
+			continue
+		}
+		// Prefix a fresh copy with the u32 BE stream id (buf is reused, and the
+		// filter's output may alias it).
+		frame := make([]byte, 4+len(payload))
 		binary.BigEndian.PutUint32(frame[:4], st.id)
-		copy(frame[4:], buf[:n])
+		copy(frame[4:], payload)
 		select {
 		case st.queue <- outFrame{data: frame}:
 			tc.signalWake()

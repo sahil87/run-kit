@@ -930,6 +930,21 @@ export function TerminalClient({
       stream.onOpened(() => {
         if (cancelled || streamRef.current !== stream) return;
         pendingReset = true;
+        // Wipe adaptive-flush state carried over from the dead connection
+        // (mirroring the effect-cleanup neutralization below). On a transparent
+        // re-open, bytes buffered from the PREVIOUS connection may still be
+        // awaiting a rAF flush — on a backgrounded tab rAF never fires, so
+        // tmux's unanswered queries (and stale content) sit here until wake.
+        // Replaying them into the NEW connection is exactly what re-answered
+        // old DA queries into a client that had already been answered (typed
+        // junk at prompts) — and the deferred reset wipes the repaint anyway.
+        // Safe w.r.t. the pendingReset handoff: an empty flush neither
+        // consumes nor executes a pending reset (the guard in flushToTerminal).
+        binaryBuffers = [];
+        if (flushRafId !== null) {
+          cancelAnimationFrame(flushRafId);
+          flushRafId = null;
+        }
         fitAddonRef.current?.fit();
         stream.resize(terminal.cols, terminal.rows);
       });

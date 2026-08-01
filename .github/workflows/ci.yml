@@ -82,13 +82,17 @@ jobs:
         with:
           go-version-file: app/backend/go.mod
 
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: 20
-
+      # pnpm must be installed before setup-node so its `cache: pnpm` can
+      # resolve the store path.
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4
         with:
           version: 9
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: app/frontend/pnpm-lock.yaml
 
       - uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # v3
 
@@ -100,16 +104,41 @@ jobs:
       - name: Install tmux
         run: sudo apt-get update && sudo apt-get install -y tmux
 
+      # The air binary only changes when its pinned version does — cache it to
+      # skip the ~17s source build. Bump the key together with the version in
+      # the install step below.
+      - name: Cache air binary
+        id: cache-air
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/go/bin/air
+          key: air-v1.61.7-${{ runner.os }}
+
       - name: Install air (backend live-reload used by `just dev`)
+        if: steps.cache-air.outputs.cache-hit != 'true'
         run: |
           # Pin to the last air release that targets go 1.23 (the repo's
           # toolchain). @latest pulls a build requiring go >= 1.25, which
           # silently triggers a toolchain download and drifts from go.mod.
           go install github.com/air-verse/air@v1.61.7
-          # Ensure the go install bin dir is on PATH for `just dev` (dev.sh
-          # hard-fails if `air` is missing). setup-go usually adds this, but
-          # make it explicit so the e2e job never silently can't find air.
-          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Add go bin dir to PATH
+        # Ensure the go install bin dir is on PATH for `just dev` (dev.sh
+        # hard-fails if `air` is missing). setup-go usually adds this, but
+        # make it explicit so the e2e job never silently can't find air.
+        # Unconditional — the cache-hit path needs it too.
+        run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      # Cache the Playwright chromium download. `playwright install` inside
+      # `just setup` skips the download when the browser is already present.
+      # restore-keys lets an unrelated dep bump reuse the previous browsers.
+      - name: Cache Playwright browsers
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('app/frontend/pnpm-lock.yaml') }}
+          restore-keys: |
+            playwright-${{ runner.os }}-
 
       - name: Set up project (deps, playwright chromium, .env.local)
         run: just setup

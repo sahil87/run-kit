@@ -5,52 +5,52 @@ created_by: sahil-noon
 change_type: docs
 issues: []
 progress:
-    intake: done
-    apply: done
-    review: done
-    hydrate: done
-    ship: done
-    review-pr: done
+  intake: done
+  apply: done
+  review: done
+  hydrate: done
+  ship: done
+  review-pr: done
 plan:
-    generated: true
-    task_count: 12
-    acceptance_count: 15
-    acceptance_completed: 15
+  generated: true
+  task_count: 12
+  acceptance_count: 15
+  acceptance_completed: 15
 confidence:
-    certain: 2
-    confident: 2
-    tentative: 0
-    unresolved: 0
-    score: 4.7
-    fuzzy: true
-    dimensions:
-        signal: 67.5
-        reversibility: 88.8
-        competence: 85.0
-        disambiguation: 78.8
+  certain: 2
+  confident: 2
+  tentative: 0
+  unresolved: 0
+  score: 4.7
+  fuzzy: true
+  dimensions:
+    signal: 67.5
+    reversibility: 88.8
+    competence: 85.0
+    disambiguation: 78.8
 stage_metrics:
-    intake: {started_at: "2026-08-01T11:54:46Z", driver: fab-new, iterations: 1, completed_at: "2026-08-01T12:12:36Z"}
-    apply: {started_at: "2026-08-01T12:12:36Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T12:26:56Z"}
-    review: {started_at: "2026-08-01T12:26:56Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T12:35:49Z"}
-    hydrate: {started_at: "2026-08-01T12:35:49Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T12:41:52Z"}
-    ship: {started_at: "2026-08-01T12:41:52Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T12:43:23Z"}
-    review-pr: {started_at: "2026-08-01T12:43:23Z", driver: git-pr, iterations: 1, completed_at: "2026-08-01T12:45:57Z"}
+  intake: {started_at: "2026-08-01T11:54:46Z", driver: fab-new, iterations: 1, completed_at: "2026-08-01T12:12:36Z"}
+  apply: {started_at: "2026-08-01T12:12:36Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T12:26:56Z"}
+  review: {started_at: "2026-08-01T12:26:56Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T12:35:49Z"}
+  hydrate: {started_at: "2026-08-01T12:35:49Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T12:41:52Z"}
+  ship: {started_at: "2026-08-01T12:41:52Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T12:43:23Z"}
+  review-pr: {started_at: "2026-08-01T12:43:23Z", driver: git-pr, iterations: 1, completed_at: "2026-08-01T12:45:57Z", phase: replying, reviewer: '@Copilot'}
 prs:
-    - https://github.com/sahil87/run-kit/pull/506
+  - https://github.com/sahil87/run-kit/pull/506
 true_impact:
-    added: 396
-    deleted: 55
-    net: 341
-    excluding:
-        added: 167
-        deleted: 30
-        net: 137
-    tests:
-        added: 48
-        deleted: 2
-        net: 46
-    computed_at: "2026-08-01T12:43:24Z"
-    computed_at_stage: ship
+  added: 396
+  deleted: 55
+  net: 341
+  excluding:
+    added: 167
+    deleted: 30
+    net: 137
+  tests:
+    added: 48
+    deleted: 2
+    net: 46
+  computed_at: "2026-08-01T12:43:24Z"
+  computed_at_stage: ship
 summary: Tooltip keycap chips resolve the host-effective chord from the keybinding registry (compose, palette, Settings gear); new settings-open builtin on Comma (shifted; mac-shell ⌘,) wired in both route shells, with the mac-browser ⌘, Preferences claim
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
 last_updated: 2026-08-01T12:45:57Z

@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 6
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-08-01T06:45:35Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T06:53:52Z"}
     review: {started_at: "2026-08-01T06:53:52Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T06:59:39Z"}
     hydrate: {started_at: "2026-08-01T06:59:39Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T07:03:30Z"}
-    ship: {started_at: "2026-08-01T07:03:30Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-08-01T07:03:30Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T07:06:38Z"}
+    review-pr: {started_at: "2026-08-01T07:06:38Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/499
 change_type_source: explicit
 true_impact:
-    added: 249
-    deleted: 0
-    net: 249
+    added: 698
+    deleted: 5
+    net: 693
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 277
+        deleted: 2
+        net: 275
     tests:
-        added: 0
+        added: 198
         deleted: 0
-        net: 0
-    computed_at: "2026-08-01T07:03:30Z"
-    computed_at_stage: hydrate
+        net: 198
+    computed_at: "2026-08-01T07:06:38Z"
+    computed_at_stage: ship
 summary: 'SPA serving gains a two-tier cache policy: immutable hashed /assets/, no-cache + memoized content-ETag elsewhere (embed.FS has no modtime)'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-01T07:03:30Z
+last_updated: 2026-08-01T07:06:38Z

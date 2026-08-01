@@ -180,15 +180,18 @@ describe("ShellTitlebarStrip host switcher (260731-4bqi)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
     expect(bridge.list).toHaveBeenCalledTimes(2); // refetch on open
     expect(screen.getByRole("menu")).toBeInTheDocument();
-    expect(screen.getAllByRole("menuitem")).toHaveLength(2);
+    expect(screen.getAllByRole("menuitemradio")).toHaveLength(2);
   });
 
   it("renders row anatomy: accent ✓ on the active host, dimmed origin, darwin accelerator hints", async () => {
     await renderInteractive();
     fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
-    const rows = screen.getAllByRole("menuitem");
-    // Active row: ✓ marker + accent color + name + origin + ⌥⌘1.
+    const rows = screen.getAllByRole("menuitemradio");
+    // Active row: ✓ marker + accent color + name + origin + ⌥⌘1, with the
+    // single-select state exposed to AT via aria-checked (menuitemradio).
     expect(rows[0].textContent).toContain("✓");
+    expect(rows[0]).toHaveAttribute("aria-checked", "true");
+    expect(rows[1]).toHaveAttribute("aria-checked", "false");
     expect(rows[0].className).toContain("text-accent");
     expect(rows[0].textContent).toContain("studio-mac");
     expect(rows[0].textContent).toContain("http://a:3000");
@@ -204,7 +207,7 @@ describe("ShellTitlebarStrip host switcher (260731-4bqi)", () => {
   it("renders ⇧Ctrl hints on non-darwin platforms (from the bridge's platform field)", async () => {
     await renderInteractive(hosts, "win32");
     fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
-    const rows = screen.getAllByRole("menuitem");
+    const rows = screen.getAllByRole("menuitemradio");
     expect(rows[0].textContent).toContain("⇧Ctrl+1");
     expect(rows[1].textContent).toContain("⇧Ctrl+2");
   });
@@ -212,7 +215,7 @@ describe("ShellTitlebarStrip host switcher (260731-4bqi)", () => {
   it("selecting a host closes the menu and hands off to servers.switch (no optimistic UI)", async () => {
     const bridge = await renderInteractive();
     fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
-    fireEvent.click(screen.getAllByRole("menuitem")[1]);
+    fireEvent.click(screen.getAllByRole("menuitemradio")[1]);
     expect(bridge.switch).toHaveBeenCalledWith("b");
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
     // The label still names the active host — the page swap is shell-side.
@@ -234,7 +237,7 @@ describe("ShellTitlebarStrip host switcher (260731-4bqi)", () => {
   it("moves focus with ArrowDown, wrapping over the row set", async () => {
     await renderInteractive();
     fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
-    const rows = screen.getAllByRole("menuitem");
+    const rows = screen.getAllByRole("menuitemradio");
     // Focus lands on the active row (index 0) on open.
     await waitFor(() => {
       expect(document.activeElement).toBe(rows[0]);
@@ -274,7 +277,7 @@ describe("ShellTitlebarStrip host switcher (260731-4bqi)", () => {
     // The denied refetch resolves null shell-wrapper-side; the menu keeps the
     // mount-time rows rather than blanking.
     await waitFor(() => {
-      expect(screen.getAllByRole("menuitem")).toHaveLength(2);
+      expect(screen.getAllByRole("menuitemradio")).toHaveLength(2);
     });
   });
 
@@ -303,11 +306,11 @@ describe("ShellTitlebarStrip host switcher (260731-4bqi)", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
     await waitFor(() => {
-      expect(screen.getAllByRole("menuitem")).toHaveLength(1);
+      expect(screen.getAllByRole("menuitemradio")).toHaveLength(1);
     });
     // The seat clamps onto the surviving row: it stays the roving-tabindex
     // stop and receives focus.
-    const row = screen.getAllByRole("menuitem")[0];
+    const row = screen.getAllByRole("menuitemradio")[0];
     await waitFor(() => {
       expect(row).toHaveAttribute("tabindex", "0");
       expect(document.activeElement).toBe(row);
@@ -372,13 +375,13 @@ describe("ShellTitlebarStrip host switcher (260731-4bqi)", () => {
     await act(async () => {
       resolvers[2]({ ok: true, servers: fresh });
     });
-    expect(screen.getAllByRole("menuitem")).toHaveLength(3);
+    expect(screen.getAllByRole("menuitemradio")).toHaveLength(3);
     // The STALE open-#1 refetch resolves LAST — the sequence guard drops it
     // (review cycle 1, should-fix c: freshest list stays rendered).
     await act(async () => {
       resolvers[1]({ ok: true, servers: hosts });
     });
-    expect(screen.getAllByRole("menuitem")).toHaveLength(3);
+    expect(screen.getAllByRole("menuitemradio")).toHaveLength(3);
   });
 
   it("surfaces an error toast when the switch is denied", async () => {
@@ -394,7 +397,7 @@ describe("ShellTitlebarStrip host switcher (260731-4bqi)", () => {
       expect(screen.getByRole("button", { name: "Switch host" })).toBeInTheDocument();
     });
     fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
-    fireEvent.click(screen.getAllByRole("menuitem")[1]);
+    fireEvent.click(screen.getAllByRole("menuitemradio")[1]);
     await waitFor(() => {
       expect(screen.getByText("Shell server switch failed")).toBeInTheDocument();
     });

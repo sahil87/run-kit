@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useInstanceAccent } from "@/contexts/instance-accent-context";
 import { useTheme } from "@/contexts/theme-context";
+import { Tip } from "@/components/tip";
 import { useToast } from "@/components/toast";
 import { listShellServers, shellInfo, switchShellServer } from "@/lib/shell";
 import type { ShellServer } from "@/lib/shell";
@@ -87,12 +88,13 @@ export function ShellTitlebarStrip() {
     };
   }, [fetchServers]);
 
+  const toggle = useCallback(() => setOpen((v) => !v), []);
+
   // Refetch on every open (260731-4bqi): the native `Hosts → Remove "<name>"…`
   // menu mutates the list without a page reload, so a mount-time-only list can
   // go stale.
-  const toggle = useCallback(() => {
-    if (!open) fetchServers();
-    setOpen(!open);
+  useEffect(() => {
+    if (open) fetchServers();
   }, [open, fetchServers]);
 
   const interactive = stripSwitcherEnabled(servers);
@@ -212,23 +214,28 @@ export function ShellTitlebarStrip() {
     >
       {interactive ? (
         <div ref={containerRef} className="rk-shell-no-drag relative flex min-w-0 items-center">
-          <button
-            ref={triggerRef}
-            type="button"
-            aria-haspopup="menu"
-            aria-expanded={open}
-            aria-label="Switch host"
-            onClick={toggle}
-            // Subtle hover pill: a currentColor tint so it reads on any
-            // accent-blended strip background (the label color is already
-            // contrast-derived against it).
-            className="flex min-w-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs transition-colors hover:bg-current/15"
-          >
-            <span className="min-w-0 truncate">{hostLabel}</span>
-            <span aria-hidden="true" className="shrink-0 opacity-60">
-              {"▾"}
-            </span>
-          </button>
+          {/* Tip reveals the full host name — the label truncates by design
+              inside the platform insets. Suppressed while open, the standard
+              dropdown-trigger treatment (BreadcrumbDropdown, OpenButton). */}
+          <Tip label={open ? undefined : hostLabel}>
+            <button
+              ref={triggerRef}
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded={open}
+              aria-label="Switch host"
+              onClick={toggle}
+              // Subtle hover pill: a currentColor tint so it reads on any
+              // accent-blended strip background (the label color is already
+              // contrast-derived against it).
+              className="flex min-w-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs transition-colors hover:bg-current/15"
+            >
+              <span className="min-w-0 truncate">{hostLabel}</span>
+              <span aria-hidden="true" className="shrink-0 opacity-60">
+                {"▾"}
+              </span>
+            </button>
+          </Tip>
           {open && rows.length > 0 && (
             <div
               role="menu"
@@ -247,7 +254,12 @@ export function ShellTitlebarStrip() {
                     itemRefs.current[i] = el;
                   }}
                   type="button"
-                  role="menuitem"
+                  // menuitemradio + aria-checked: the active host is a
+                  // single-select state AT must hear, not a color-only cue
+                  // (the view-switcher precedent; aria-pressed is invalid on
+                  // a menu item).
+                  role="menuitemradio"
+                  aria-checked={row.active}
                   tabIndex={focusedIndex === i ? 0 : -1}
                   onClick={() => selectHost(row.id)}
                   className={`flex w-full items-baseline gap-2 px-3 py-2 text-left text-sm transition-colors ${

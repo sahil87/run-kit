@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 17
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-08-01T08:23:40Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T09:12:24Z"}
     review: {started_at: "2026-08-01T09:12:24Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T09:22:02Z"}
     hydrate: {started_at: "2026-08-01T09:22:02Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T09:31:44Z"}
-    ship: {started_at: "2026-08-01T09:31:44Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-08-01T09:31:44Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T09:33:32Z"}
+    review-pr: {started_at: "2026-08-01T09:33:32Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/501
 change_type_source: explicit
 true_impact:
-    added: 249
-    deleted: 0
-    net: 249
+    added: 2448
+    deleted: 482
+    net: 1966
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 1306
+        deleted: 443
+        net: 863
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-08-01T09:31:44Z"
-    computed_at_stage: hydrate
+        added: 187
+        deleted: 4
+        net: 183
+    computed_at: "2026-08-01T09:33:32Z"
+    computed_at_stage: ship
 summary: Merged the tmux keybindings dialog into the registry shortcuts overlay (one filter, jump-nav chips, foldable tier map, shell rows into GLOBAL) and deleted the legacy dialog; added the ⇧⌘E compose-toggle and ⇧⌘O open-last-used chords, focus-on-open for the compose strip, a sidebar-footer Keyboard icon, and a fixed editor-deeplink scheme allowlist so vscode/cursor/windsurf links reach shell.openExternal in the Electron shell.
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-01T09:31:44Z
+last_updated: 2026-08-01T09:33:32Z

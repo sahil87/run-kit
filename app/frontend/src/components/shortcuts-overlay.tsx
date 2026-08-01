@@ -8,6 +8,8 @@ import {
   captureFromEvent,
   claimedKeys,
   comboParts,
+  DEFAULT_BINDINGS,
+  defaultComboFor,
   formatCombo,
   keyLabel,
   type BindingPlatform,
@@ -36,8 +38,8 @@ import {
  * spanning app + custom + tmux rows. A sticky JUMP-NAV chip row under the
  * header scroll-anchors to each section; while the filter is active every
  * chip shows a live per-section match count and dims when its section has no
- * hits. The tier maps (app tiers only — tmux prefix chords don't fit the
- * combo model) are FOLDABLE ("collapse map") and auto-hide entirely while a
+ * hits. The key map (app layers only — tmux prefix chords don't fit the
+ * combo model) is FOLDABLE ("collapse map") and auto-hides entirely while a
  * filter is active. Shell-owned locked rows render as a subgroup at the end
  * of GLOBAL (not a top-level section — three flavors of locked top-level
  * sections was too many). A read-only TMUX section (locked rows: 🔒 +
@@ -47,13 +49,19 @@ import {
  * overlay is open; no current server (board/host routes) or an empty/failed
  * fetch shows "No tmux server running".
  *
- * Tier maps: two keyboard visualizations (the shifted run-kit tier
- * everywhere, plus the mac ⌘ page tier on the macOS display; bound / custom /
- * claimed / free per key), a platform display toggle (macOS ↔ Win·Linux
- * keycap rendering, initialized from the detected platform), grouped rows
- * with scope badges, click-to-rebind capture (Esc cancels) with steal
- * warning, modified-dot + per-row reset + unbound flag, and a footer with the
- * storage note + reset-all. Export/import is deferred.
+ * Keyboard map (260801-r8j2): ONE keycap grid with a modifier picker in its
+ * header — "Holding ⇧⌘ | ⌘" — selecting which modifier layer the grid renders
+ * (bound / custom / claimed / free per key). The ⌘ option exists only on the
+ * macOS display (the Win·Linux unshifted layer is plain Ctrl, which belongs
+ * to the pane); default selection is ⇧⌘. The tables below stay the authority
+ * for effective chords — the map is a discovery/rebind tool. Host-dependent
+ * chords surface as per-ROW facts instead of a second map: exactly the
+ * macTier+macShellOnly trio (⌘N/⌘T/⌘W) carries a `desktop` badge + the other
+ * host's chord as a hint on mac hosts. Also: a platform display toggle
+ * (macOS ↔ Win·Linux keycap rendering, initialized from the detected
+ * platform), grouped rows with scope badges, click-to-rebind capture (Esc
+ * cancels) with steal warning, modified-dot + per-row reset + unbound flag,
+ * and a footer with the storage note + reset-all. Export/import is deferred.
  *
  * CUSTOM section (260730-hbyh): editable macro rows — label, resolved-command
  * preview chip, the same click-to-rebind capture as builtins (macros ride the
@@ -248,11 +256,17 @@ export function ShortcutsOverlay({
   const [query, setQuery] = useState("");
   const [capturingId, setCapturingId] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ actionId: string; text: string } | null>(null);
-  // Tier-map fold (260801-sm6g): reclaims vertical space the tmux section
+  // Map fold (260801-sm6g): reclaims vertical space the tmux section
   // needs on short viewports. Session-scoped view state — deliberately NOT
   // reset on close (a folded map is a reading preference, not transient
   // filter/capture state).
   const [mapFolded, setMapFolded] = useState(false);
+  // Map modifier layer (260801-r8j2): which layer the single keyboard grid
+  // renders — "Holding ⇧⌘ | ⌘". Session-scoped view state like `mapFolded`.
+  // The ⌘ option exists only on the macOS display; switching the display away
+  // from macOS falls back to the shifted layer by DERIVATION (the selection
+  // survives and reapplies if the display returns to macOS).
+  const [mapTier, setMapTier] = useState<"shifted" | "cmd">("shifted");
   // Add-macro flow state (260730-hbyh).
   const [addOpen, setAddOpen] = useState(false);
   const [addQuery, setAddQuery] = useState("");
@@ -361,17 +375,16 @@ export function ShortcutsOverlay({
     }
     return states;
   };
+  // The layer the single grid renders: the picker's selection on the macOS
+  // display, always the shifted layer on Win·Linux (the ⌘ option is a
+  // mac-display affordance — the win/linux "cmd" tier is plain Ctrl, which
+  // belongs to the pane; today's display gate relocated from the retired
+  // second map, 260801-r8j2).
+  const activeMapTier: BindingTier = displayPlatform === "mac" ? mapTier : "shifted";
   const keyStates = useMemo(
-    () => tierKeyStates("shifted"),
+    () => tierKeyStates(activeMapTier),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [bindings, displayPlatform, host.shell],
-  );
-  // The mac ⌘ page tier (260730-n789) — rendered only on the macOS display
-  // (the win/linux "cmd" tier is plain Ctrl, which belongs to the pane).
-  const cmdKeyStates = useMemo(
-    () => (displayPlatform === "mac" ? tierKeyStates("cmd") : null),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [bindings, displayPlatform, host.shell],
+    [bindings, displayPlatform, host.shell, activeMapTier],
   );
 
   const hasOverride = (actionId: string) =>
@@ -484,7 +497,6 @@ export function ShortcutsOverlay({
 
   if (!open) return null;
 
-  const tierName = displayPlatform === "mac" ? "⇧ ⌘" : "Shift Ctrl";
   // The header hint advertises the HOST-effective overlay chord (260730-n789):
   // the toggle demotes to ⌘/ on mac hosts and user overrides move it, so the
   // effective map is the only accurate source. Formatted for the physical host
@@ -574,6 +586,23 @@ export function ShortcutsOverlay({
   const bindingRow = (b: EffectiveBinding) => {
     const modified = hasOverride(b.actionId);
     const combo = { code: b.code, tier: b.tier };
+    // Host-divergence row facts (260801-r8j2): exactly the macTier+macShellOnly
+    // trio (⌘N/⌘T/⌘W in the desktop shell, ⇧⌘ fallback in a mac browser) has a
+    // chord that differs between mac hosts — surface a `desktop` badge + the
+    // OTHER host's chord as a hint. A PHYSICAL-host fact (never the display
+    // toggle), and only at the host default: an override or unbound state
+    // collapses the divergence (overrides apply verbatim on both hosts). The
+    // base def is read from DEFAULT_BINDINGS because resolution overwrites
+    // `tier` with the effective tier; the other-host chord reuses the pure
+    // `defaultComboFor` seam with the `shell` flag flipped.
+    const hostDivergent =
+      host.platform === "mac" && b.isDefault && b.macTier != null && b.macShellOnly === true;
+    const baseDef = hostDivergent
+      ? DEFAULT_BINDINGS.find((d) => d.actionId === b.actionId)
+      : undefined;
+    const otherHostCombo = baseDef
+      ? defaultComboFor(baseDef, { platform: "mac", shell: !host.shell })
+      : null;
     return (
       <div key={b.actionId} data-actionid={b.actionId}>
         <div className="group flex items-center gap-2.5 px-2 py-1.5 rounded hover:bg-bg-inset/70">
@@ -588,6 +617,20 @@ export function ShortcutsOverlay({
             )}
           </span>
           <ScopeBadge scope={b.scope} />
+          {otherHostCombo && (
+            <>
+              <span
+                className="flex-none text-[9.5px] tracking-wider uppercase px-2 py-px rounded-full border border-accent/60 text-accent-bright"
+                title="this chord differs between the desktop app and a mac browser"
+              >
+                desktop
+              </span>
+              <span className="flex-none text-[10px] text-text-secondary whitespace-nowrap">
+                {host.shell ? "in browser:" : "in desktop app:"}{" "}
+                {formatCombo(otherHostCombo, host.platform)}
+              </span>
+            </>
+          )}
           {b.disabledReason === "user" ? (
             <button
               type="button"
@@ -735,7 +778,7 @@ export function ShortcutsOverlay({
           })}
         </nav>
 
-        {/* ── tier maps (app tiers only; foldable — 260801-sm6g) ─────────
+        {/* ── key map (single grid + modifier picker; app layers only; foldable) ──
             Auto-hidden entirely while a filter is active: the map cannot
             answer a text query, and the reclaimed space keeps row hits above
             the fold. */}
@@ -746,9 +789,34 @@ export function ShortcutsOverlay({
             }}
             className="px-4 pt-4 pb-2 scroll-mt-12"
           >
-            <div className="flex justify-between items-baseline flex-wrap gap-1.5 text-[11px] text-text-secondary">
-              <span>
-                run-kit tier — <b className="text-text-primary">{tierName}</b> + key
+            <div className="flex justify-between items-center flex-wrap gap-1.5 text-[11px] text-text-secondary">
+              {/* The picker IS the map label (260801-r8j2): "Holding" + the
+                  selected modifier caps. On the Win·Linux display only the
+                  shifted layer exists, so a static label replaces the
+                  one-option picker. */}
+              <span className="flex items-center gap-1.5">
+                Holding
+                {displayPlatform === "mac" ? (
+                  <span
+                    className="flex flex-none border border-border rounded overflow-hidden"
+                    role="group"
+                    aria-label="Keyboard map modifier"
+                  >
+                    {(["shifted", "cmd"] as const).map((t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => setMapTier(t)}
+                        aria-pressed={mapTier === t}
+                        className={`text-[10.5px] px-2 py-0.5 ${mapTier === t ? "bg-accent/20 text-text-primary" : "text-text-secondary hover:text-accent-green"}`}
+                      >
+                        {t === "shifted" ? "⇧ ⌘" : "⌘"}
+                      </button>
+                    ))}
+                  </span>
+                ) : (
+                  <b className="text-text-primary">Shift Ctrl</b>
+                )}
               </span>
               <span>plain Ctrl always reaches the pane</span>
               <button
@@ -769,37 +837,10 @@ export function ShortcutsOverlay({
                     </div>
                   ))}
                 </div>
-                {/* macOS page tier (260730-n789): the unshifted ⌘ tier the
-                    desktop shell frees — demoted defaults (⌘[/⌘]/⌘/ everywhere,
-                    ⌘N/T/W in the shell), the legacy ⌘ chords, and the per-host
-                    claimed set (shell menu accelerators inside the shell,
-                    browser-reserved keys outside). Not rendered for the
-                    Win·Linux display — plain Ctrl there belongs to the pane. */}
-                {cmdKeyStates && (
-                  <>
-                    <div className="flex justify-between flex-wrap gap-1.5 text-[11px] text-text-secondary mt-4 mb-2.5">
-                      <span>
-                        page tier — <b className="text-text-primary">⌘</b> + key
-                      </span>
-                      <span>
-                        {host.shell
-                          ? "freed by the desktop shell"
-                          : "browser keys stay claimed — the desktop shell frees them"}
-                      </span>
-                    </div>
-                    <div className="flex flex-col items-center gap-1.5" aria-hidden="true">
-                      {KEY_ROWS.map((row, i) => (
-                        <div key={`cmd-${i}`} className="flex gap-1.5">
-                          {row.map((code, j) => keyCell(cmdKeyStates, code, j))}
-                        </div>
-                      ))}
-                    </div>
-                  </>
-                )}
                 <div className="flex flex-wrap gap-4 mt-3 text-[10.5px] text-text-secondary">
                   <span><i className="inline-block w-2 h-2 mr-1 rounded-sm border border-accent-green bg-accent-green/25" />bound</span>
                   <span><i className="inline-block w-2 h-2 mr-1 rounded-sm border border-accent bg-accent/25" />custom</span>
-                  <span><i className="inline-block w-2 h-2 mr-1 rounded-sm border border-amber-600/60 bg-amber-600/20" />claimed (shell · system · browser)</span>
+                  <span><i className="inline-block w-2 h-2 mr-1 rounded-sm border border-amber-600/60 bg-amber-600/20" />claimed — taken by the OS / browser / app menu (the desktop app frees the browser ones)</span>
                   <span><i className="inline-block w-2 h-2 mr-1 rounded-sm border border-border" />free</span>
                 </div>
               </>

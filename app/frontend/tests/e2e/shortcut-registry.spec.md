@@ -154,17 +154,22 @@ chord), window cycling stays shifted (H/L unchanged), and the old
 3. Press Meta+[ → back to `/default/1`; Meta+] → forward to `/default/2`.
 4. Press Shift+Ctrl+[ ; wait 300ms → URL unchanged (`/default/2`).
 
-### `⌘/ toggles the overlay on a mac host and the ⌘ page-tier map renders`
+### `⌘/ toggles the overlay on a mac host and the ⌘ map layer is selectable`
 
 **What it proves:** the `shortcuts-overlay` default demotes to ⌘/ on macOS,
-and the overlay's macOS display (initialized from the detected host) renders
-the second "page tier — ⌘ + key" keyboard map with the mac claimed set.
+and the overlay's macOS display (initialized from the detected host) offers
+the single keyboard map's modifier picker ("Holding ⇧⌘ | ⌘" — 260801-r8j2)
+with ⇧⌘ selected by default; selecting ⌘ renders the ⌘ layer with the mac
+claimed set.
 
 **Steps:**
 1. Spoof the mac platform; mock the backend; open `/default/1`.
 2. Press Meta+/ → the overlay opens.
-3. Assert the "page tier —" map heading is visible.
-4. Press Meta+/ again → the overlay closes.
+3. Assert the "Keyboard map modifier" picker group is visible and its ⌘
+   option is unselected (`aria-pressed="false"` — ⇧⌘ is the default layer).
+4. Click the ⌘ option → it selects (`aria-pressed="true"`) and the ⌘ layer's
+   mac-browser claimed set renders (the "address bar" ⌘L cell).
+5. Press Meta+/ again → the overlay closes.
 
 ### `⌘N and ⇧⌘N stay inert in a mac browser host (create-session palette-only)`
 

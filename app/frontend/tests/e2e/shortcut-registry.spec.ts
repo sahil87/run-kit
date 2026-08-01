@@ -260,7 +260,7 @@ test.describe("macOS per-platform defaults (spoofed platform)", () => {
     await expect(page).toHaveURL(new RegExp(`/${SERVER}/2(?:$|[/?#])`));
   });
 
-  test("⌘/ toggles the overlay on a mac host and the ⌘ page-tier map renders", async ({ page }) => {
+  test("⌘/ toggles the overlay on a mac host and the ⌘ map layer is selectable", async ({ page }) => {
     await spoofMacPlatform(page);
     await mockBackend(page);
     await gotoWindowOne(page);
@@ -268,9 +268,18 @@ test.describe("macOS per-platform defaults (spoofed platform)", () => {
     await page.keyboard.press("Meta+Slash");
     const overlay = page.getByTestId("shortcuts-overlay");
     await expect(overlay).toBeVisible();
-    // Display initializes from the detected (spoofed mac) host → the page
-    // tier map is present, with the browser-host claim hint.
-    await expect(overlay.getByText(/page tier —/)).toBeVisible();
+    // Display initializes from the detected (spoofed mac) host → the map
+    // header offers the ⌘ modifier layer (260801-r8j2), ⇧⌘ selected by
+    // default.
+    const picker = overlay.getByRole("group", { name: "Keyboard map modifier" });
+    await expect(picker).toBeVisible();
+    const cmdOption = picker.getByRole("button", { name: "⌘", exact: true });
+    await expect(cmdOption).toHaveAttribute("aria-pressed", "false");
+    // Selecting ⌘ renders the ⌘ layer — the mac-browser claimed set appears
+    // (⌘L is the browser's address bar).
+    await cmdOption.click();
+    await expect(cmdOption).toHaveAttribute("aria-pressed", "true");
+    await expect(overlay.locator('[title="address bar"]')).toBeVisible();
     await page.keyboard.press("Meta+Slash");
     await expect(overlay).toHaveCount(0);
   });

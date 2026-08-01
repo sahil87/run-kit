@@ -44,21 +44,23 @@ function accentValue(overrides: Partial<InstanceAccent> = {}): InstanceAccent {
 }
 
 /** Install a bridge whose `servers.list` resolves the given list (`null` =
- *  rejected call, i.e. an older shell / denial). Returns the list/switch
- *  spies for call-count and payload assertions. */
-function shellBridge(servers: unknown[] | null, platform = "darwin") {
+ *  rejected call, i.e. an older shell / denial). `withAdd` includes the
+ *  optional `add` invoker (newer shells — drives the `+ Add Host…` footer).
+ *  Returns the list/switch/add spies for call-count and payload assertions. */
+function shellBridge(servers: unknown[] | null, platform = "darwin", withAdd = false) {
   const list = vi.fn(() =>
     servers === null
       ? Promise.reject(new Error("ipc gone"))
       : Promise.resolve({ ok: true, servers }),
   );
   const switchFn = vi.fn(() => Promise.resolve({ ok: true }));
+  const add = vi.fn(() => Promise.resolve({ ok: true }));
   window.runkitShell = {
     version: "1.2.3",
     platform,
-    servers: { list, switch: switchFn },
+    servers: withAdd ? { list, switch: switchFn, add } : { list, switch: switchFn },
   };
-  return { list, switch: switchFn };
+  return { list, switch: switchFn, add };
 }
 
 function renderStrip(accent: InstanceAccent = accentValue()) {
@@ -80,8 +82,8 @@ const hosts = [
 
 /** Render with a populated bridge and wait for the mount fetch to enable the
  *  switcher trigger. */
-async function renderInteractive(list: unknown[] = hosts, platform = "darwin") {
-  const bridge = shellBridge(list, platform);
+async function renderInteractive(list: unknown[] = hosts, platform = "darwin", withAdd = false) {
+  const bridge = shellBridge(list, platform, withAdd);
   renderStrip();
   await waitFor(() => {
     expect(screen.getByRole("button", { name: "Switch host" })).toBeInTheDocument();
@@ -400,6 +402,48 @@ describe("ShellTitlebarStrip host switcher (260731-4bqi)", () => {
     fireEvent.click(screen.getAllByRole("menuitemradio")[1]);
     await waitFor(() => {
       expect(screen.getByText("Shell server switch failed")).toBeInTheDocument();
+    });
+  });
+
+  it("omits the Add Host footer when the bridge lacks the add invoker (older shell)", async () => {
+    await renderInteractive();
+    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Add Host…" })).not.toBeInTheDocument();
+  });
+
+  it("renders the Add Host footer when the bridge carries add; click closes and invokes it", async () => {
+    const bridge = await renderInteractive(hosts, "darwin", true);
+    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    const footer = screen.getByRole("menuitem", { name: "Add Host…" });
+    fireEvent.click(footer);
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(bridge.add).toHaveBeenCalledTimes(1);
+    expect(bridge.switch).not.toHaveBeenCalled();
+  });
+
+  it("includes the Add Host footer in the arrow-key roving cycle", async () => {
+    await renderInteractive(hosts, "darwin", true);
+    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    const rows = screen.getAllByRole("menuitemradio");
+    const footer = screen.getByRole("menuitem", { name: "Add Host…" });
+    await waitFor(() => {
+      expect(document.activeElement).toBe(rows[0]);
+    });
+    // ArrowUp from the first row wraps to the footer (the cycle's last stop).
+    fireEvent.keyDown(document, { key: "ArrowUp" });
+    expect(document.activeElement).toBe(footer);
+    fireEvent.keyDown(document, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(rows[0]);
+  });
+
+  it("surfaces an error toast when the add call is denied", async () => {
+    const bridge = await renderInteractive(hosts, "darwin", true);
+    bridge.add.mockResolvedValue({ ok: false });
+    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Add Host…" }));
+    await waitFor(() => {
+      expect(screen.getByText("Shell add host failed")).toBeInTheDocument();
     });
   });
 });

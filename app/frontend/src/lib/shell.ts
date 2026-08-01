@@ -32,6 +32,11 @@ interface ShellServersBridge {
   switch: (id: string) => Promise<unknown>;
 }
 
+/** A `servers` group that also carries the optional `add` invoker (newer shells). */
+interface ShellServersAddBridge extends ShellServersBridge {
+  add: () => Promise<unknown>;
+}
+
 declare global {
   interface Window {
     /** Injected by the desktop shell's preload; absent in plain browsers. */
@@ -123,6 +128,42 @@ export async function switchShellServer(id: string): Promise<boolean> {
   let result: unknown;
   try {
     result = await bridge.switch(id);
+  } catch {
+    return false;
+  }
+  return (
+    typeof result === "object" && result !== null && "ok" in result && result.ok === true
+  );
+}
+
+/**
+ * The `add` invoker is additive to the `servers` group (shells older than the
+ * dropdown's `+ Add Host…` footer expose only list/switch), so it is narrowed
+ * separately from `isServersBridge` — the group stays usable without it.
+ */
+function isServersAddBridge(bridge: ShellServersBridge): bridge is ShellServersAddBridge {
+  return "add" in bridge && typeof Reflect.get(bridge, "add") === "function";
+}
+
+/** True when the shell can open its Add Host flow (`servers.add` present). */
+export function canAddShellHost(): boolean {
+  const bridge = serversBridge();
+  return bridge !== null && isServersAddBridge(bridge);
+}
+
+/**
+ * Ask the shell to open its Add Host flow — the welcome page in add mode, a
+ * full page swap away from the SPA (the same path as the native
+ * `Hosts → Add Host…` menu item). Resolves `false` in a plain browser, on an
+ * older shell whose `servers` group lacks the `add` invoker, or when the
+ * shell rejects/denies the call. Never throws.
+ */
+export async function addShellHost(): Promise<boolean> {
+  const bridge = serversBridge();
+  if (!bridge || !isServersAddBridge(bridge)) return false;
+  let result: unknown;
+  try {
+    result = await bridge.add();
   } catch {
     return false;
   }

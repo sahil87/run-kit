@@ -464,6 +464,19 @@ function switchToHost(id: string): IpcResult {
   return { ok: true };
 }
 
+/**
+ * Navigate to the welcome page in add mode — the ONE add-host entry path,
+ * shared by the Hosts menu's `Add Host…` item and the `servers:add` IPC
+ * handler (the SPA dropdown's `+ Add Host…` footer). The outgoing view stays
+ * alive (welcome only detaches it) — lastPath capture happens at window
+ * close / view destroy, not here.
+ */
+function openAddHost(): IpcResult {
+  if (!mainWindow) return { ok: false, error: "No window" };
+  showWelcome(mainWindow, { mode: "add" });
+  return { ok: true };
+}
+
 function rebuildMenu(): void {
   const list = loadHosts(userDataDir());
   const callbacks: MenuCallbacks = {
@@ -471,10 +484,7 @@ function rebuildMenu(): void {
       switchToHost(id);
     },
     onAddHost: () => {
-      if (!mainWindow) return;
-      // The outgoing view stays alive (welcome only detaches it) — lastPath
-      // capture happens at window close / view destroy, not here.
-      showWelcome(mainWindow, { mode: "add" });
+      openAddHost();
     },
     onRemoveHost: (id) => {
       void confirmAndRemoveHost(id);
@@ -940,6 +950,16 @@ function registerIpcHandlers(): void {
     if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
     if (typeof id !== "string") return { ok: false, error: "Invalid request" };
     return switchToHost(id);
+  });
+
+  // servers:add — the SPA dropdown's `+ Add Host…` footer. Navigation-only
+  // (no payload, no store write): it opens the welcome page in add mode via
+  // the same openAddHost path the Hosts menu item takes; the actual
+  // registration still happens through the welcome page's own gated
+  // `welcome:add-host` flow.
+  ipcMain.handle("servers:add", (event): IpcResult => {
+    if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
+    return openAddHost();
   });
 
   // badge:* — the SPA's waiting-agent count report, gated exactly like

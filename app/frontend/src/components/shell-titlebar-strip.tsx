@@ -3,7 +3,7 @@ import { useInstanceAccent } from "@/contexts/instance-accent-context";
 import { useTheme } from "@/contexts/theme-context";
 import { Tip } from "@/components/tip";
 import { useToast } from "@/components/toast";
-import { listShellServers, shellInfo, switchShellServer } from "@/lib/shell";
+import { addShellHost, canAddShellHost, listShellServers, shellInfo, switchShellServer } from "@/lib/shell";
 import type { ShellServer } from "@/lib/shell";
 import {
   activeShellHostName,
@@ -44,6 +44,12 @@ import {
  * host hands off to the shell's `switchToHost` seam (a full page swap with
  * lastPath restore), so there is no optimistic UI. On an older shell without
  * the `servers` group the label stays today's static, non-interactive span.
+ *
+ * When the shell's `servers` group carries the optional `add` invoker, the
+ * menu ends with a `+ Add Host…` footer that opens the shell's welcome page
+ * in add mode (`servers:add` → the same main-side path as the native
+ * `Hosts → Add Host…` menu item). Older shells without the invoker render
+ * the menu without the footer.
  */
 export function ShellTitlebarStrip() {
   const { titlebarHex } = useInstanceAccent();
@@ -99,6 +105,9 @@ export function ShellTitlebarStrip() {
 
   const interactive = stripSwitcherEnabled(servers);
   const rows = interactive ? shellHostMenuRows(servers, shellInfo()?.platform ?? "") : [];
+  // The `+ Add Host…` footer rides the optional `servers.add` invoker — older
+  // shells expose only list/switch and render the menu without it.
+  const canAdd = canAddShellHost();
 
   // An open-time refetch can EMPTY the list: the trigger and menu unmount
   // (interactive flips false) while `open` would otherwise stay true, leaving
@@ -125,7 +134,10 @@ export function ShellTitlebarStrip() {
   // handler — the focused row is a native <button>.
   useEffect(() => {
     if (!open) return;
-    const count = rows.length;
+    const hostCount = rows.length;
+    // The roving set spans the host rows PLUS the Add-Host footer when the
+    // bridge carries it — the footer is the last stop in the arrow cycle.
+    const count = hostCount + (canAdd ? 1 : 0);
     function handleKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
         e.stopPropagation();
@@ -137,8 +149,9 @@ export function ShellTitlebarStrip() {
         // Never swallow arrows the menu cannot act on: an emptied-list
         // refetch unmounts the rows one render before the close-on-empty
         // effect flips `open`, and this capture-phase handler must not
-        // preventDefault app-wide during that window.
-        if (count === 0) return;
+        // preventDefault app-wide during that window. Keyed on the HOST
+        // count — the menu (footer included) unmounts when it hits zero.
+        if (hostCount === 0) return;
         e.preventDefault();
         e.stopPropagation();
         const delta = e.key === "ArrowDown" ? 1 : -1;
@@ -151,7 +164,7 @@ export function ShellTitlebarStrip() {
     }
     document.addEventListener("keydown", handleKey, { capture: true });
     return () => document.removeEventListener("keydown", handleKey, { capture: true });
-  }, [open, rows.length]);
+  }, [open, rows.length, canAdd]);
 
   // Focus lands on the active row on open.
   useEffect(() => {
@@ -175,13 +188,14 @@ export function ShellTitlebarStrip() {
   // effect above stays open-transition-only for the same reason).
   useEffect(() => {
     if (!open || rows.length === 0) return;
+    const itemCount = rows.length + (canAdd ? 1 : 0);
     setFocusedIndex((prev) => {
-      if (prev < rows.length) return prev;
-      const clamped = rows.length - 1;
+      if (prev < itemCount) return prev;
+      const clamped = itemCount - 1;
       itemRefs.current[clamped]?.focus();
       return clamped;
     });
-  }, [open, rows.length]);
+  }, [open, rows.length, canAdd]);
 
   // Hand off to the shell's single switch seam. The whole page navigates
   // (lastPath capture/restore is shell-side), so there is nothing to update
@@ -195,6 +209,15 @@ export function ShellTitlebarStrip() {
     },
     [addToast],
   );
+
+  // Open the shell's Add Host flow (welcome page in add mode) — a full page
+  // swap, same as selecting a host, so the menu just closes first.
+  const openAddHost = useCallback(() => {
+    setOpen(false);
+    void addShellHost().then((ok) => {
+      if (!ok) addToast("Shell add host failed", "error");
+    });
+  }, [addToast]);
 
   const bg = titlebarHex ?? theme.palette.background;
   const insets = stripInsets(shellInfo()?.platform ?? "");
@@ -285,6 +308,26 @@ export function ShellTitlebarStrip() {
                   )}
                 </button>
               ))}
+              {canAdd && (
+                <button
+                  ref={(el) => {
+                    itemRefs.current[rows.length] = el;
+                  }}
+                  type="button"
+                  // Plain menuitem — an action, not a member of the host
+                  // radio group. Last roving-tabindex stop (index rows.length).
+                  role="menuitem"
+                  tabIndex={focusedIndex === rows.length ? 0 : -1}
+                  onClick={openAddHost}
+                  className="mt-1 flex w-full items-baseline gap-2 border-t border-border px-3 py-2 text-left text-sm text-text-secondary transition-colors hover:bg-bg-card hover:text-text-primary"
+                >
+                  {/* Aligned with the rows' fixed marker column. */}
+                  <span aria-hidden="true" className="w-3 shrink-0">
+                    +
+                  </span>
+                  <span className="min-w-0 truncate">Add Host…</span>
+                </button>
+              )}
             </div>
           )}
         </div>

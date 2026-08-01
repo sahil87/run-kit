@@ -1,5 +1,13 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { isShell, listShellServers, setShellBadge, shellInfo, switchShellServer } from "./shell";
+import {
+  addShellHost,
+  canAddShellHost,
+  isShell,
+  listShellServers,
+  setShellBadge,
+  shellInfo,
+  switchShellServer,
+} from "./shell";
 
 // The desktop shell injects window.runkitShell at runtime via its preload
 // contextBridge — nothing type-level guarantees the shape, so these tests
@@ -136,6 +144,64 @@ describe("switchShellServer", () => {
       switch: () => Promise.reject(new Error("ipc gone")),
     });
     expect(await switchShellServer("a")).toBe(false);
+  });
+});
+
+// The add invoker is ADDITIVE to the servers group (older shells expose only
+// list/switch): canAddShellHost gates the UI affordance on its presence, and
+// addShellHost degrades exactly like its siblings — false for plain browser,
+// pre-add shells, a non-function member, denial, and rejected invokes.
+
+describe("canAddShellHost / addShellHost", () => {
+  it("resolves true on an { ok: true } ack when the group carries add", async () => {
+    let called = false;
+    bridgeWith({
+      list: () => Promise.resolve({ ok: true, servers: [] }),
+      switch: () => Promise.resolve({ ok: true }),
+      add: () => {
+        called = true;
+        return Promise.resolve({ ok: true });
+      },
+    });
+    expect(canAddShellHost()).toBe(true);
+    expect(await addShellHost()).toBe(true);
+    expect(called).toBe(true);
+  });
+
+  it("reads as unavailable in a plain browser and on a shell without add (older shell)", async () => {
+    expect(canAddShellHost()).toBe(false);
+    expect(await addShellHost()).toBe(false);
+    bridgeWith({
+      list: () => Promise.resolve({ ok: true, servers: [serverA, serverB] }),
+      switch: () => Promise.resolve({ ok: true }),
+    });
+    expect(canAddShellHost()).toBe(false);
+    expect(await addShellHost()).toBe(false);
+  });
+
+  it("reads as unavailable when add is not a function", async () => {
+    bridgeWith({
+      list: () => Promise.resolve({ ok: true, servers: [] }),
+      switch: () => Promise.resolve({ ok: true }),
+      add: "welcome?mode=add",
+    });
+    expect(canAddShellHost()).toBe(false);
+    expect(await addShellHost()).toBe(false);
+  });
+
+  it("resolves false on a denied result and on a rejected invoke", async () => {
+    bridgeWith({
+      list: () => Promise.resolve({ ok: true, servers: [] }),
+      switch: () => Promise.resolve({ ok: true }),
+      add: () => Promise.resolve({ ok: false, error: "Not allowed" }),
+    });
+    expect(await addShellHost()).toBe(false);
+    bridgeWith({
+      list: () => Promise.resolve({ ok: true, servers: [] }),
+      switch: () => Promise.resolve({ ok: true }),
+      add: () => Promise.reject(new Error("ipc gone")),
+    });
+    expect(await addShellHost()).toBe(false);
   });
 });
 

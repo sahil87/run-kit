@@ -42,7 +42,7 @@ export const DEFAULT_STRIP_COLOR = "#0f1117";
  * update that replaces the stale band.
  */
 export const BLANK_UNDERLAY_URL =
-  'data:text/html,<body style="min-height:100vh;margin:0;-webkit-app-region:no-drag"></body>';
+  "data:text/html,<body style='min-height:100vh;margin:0;-webkit-app-region:no-drag'></body>";
 
 const SYMBOL_LIGHT = "#e5e7eb";
 const SYMBOL_DARK = "#111827";

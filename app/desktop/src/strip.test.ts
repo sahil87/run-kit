@@ -5,6 +5,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  BLANK_UNDERLAY_URL,
   DEFAULT_STRIP_COLOR,
   fallbackStripCss,
   shouldInjectFallbackStrip,
@@ -86,4 +87,18 @@ test("foreign origins and garbage never inject", () => {
   assert.equal(shouldInjectFallbackStrip("about:blank", ORIGINS), false);
   assert.equal(shouldInjectFallbackStrip("not a url", ORIGINS), false);
   assert.equal(shouldInjectFallbackStrip("", ORIGINS), false);
+});
+
+// ── BLANK_UNDERLAY_URL ───────────────────────────────────────────────────────
+
+test("the blank underlay is a data:text/html document carrying an explicit no-drag region", () => {
+  // Contract pin: about:blank emits no draggable-regions update, so the
+  // welcome underlay must be blanked with a document that declares an
+  // app-region — this is what clears the welcome page's stale drag band.
+  assert.ok(BLANK_UNDERLAY_URL.startsWith("data:text/html,"));
+  assert.ok(BLANK_UNDERLAY_URL.includes("-webkit-app-region:no-drag"));
+});
+
+test("the blank underlay never matches the fallback-strip injection predicate", () => {
+  assert.equal(shouldInjectFallbackStrip(BLANK_UNDERLAY_URL, ORIGINS), false);
 });

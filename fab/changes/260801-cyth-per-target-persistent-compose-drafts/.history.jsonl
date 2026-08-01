@@ -1,3 +1,14 @@
 {"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-01T16:03:25Z"}
 {"args":"persist compose drafts to localStorage keyed per send target (server+windowId); drafts no longer travel across targets; re-home machinery removed","cmd":"fab-new","event":"command","ts":"2026-08-01T16:03:25Z"}
 {"delta":"+4.8","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-08-01T16:06:30Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-01T16:08:20Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-01T16:09:05Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-08-01T16:09:59Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-01T16:26:00Z"}
+{"event":"review","result":"failed","ts":"2026-08-01T16:35:18Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-01T16:35:18Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-08-01T16:36:39Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-01T16:41:55Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-01T16:47:38Z"}
+{"event":"review","result":"passed","ts":"2026-08-01T16:47:38Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-01T16:51:55Z"}

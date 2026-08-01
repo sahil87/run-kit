@@ -10,8 +10,10 @@ import { TMUX_SERVER, createSession, killSession } from "./_tmux";
  * toggled by the `>_` chip / `View: Text Input` palette action, persisted as a
  * chrome preference, sending `text + \r` to the LIVE focused pane on the
  * Cmd/Ctrl+Enter submit chord (260801-hsxm: plain Enter inserts a newline —
- * lines accumulate locally). See the sibling `.spec.md` for the per-test
- * contract.
+ * lines accumulate locally). Drafts are PER TARGET (260801-cyth): keyed by the
+ * focused window and persisted (text only) to localStorage, so they stay with
+ * their addressee across navigation and survive reloads. See the sibling
+ * `.spec.md` for the per-test contract.
  */
 
 const TERM_SESSION = `e2e-compose-${Date.now()}`;
@@ -121,9 +123,55 @@ test.describe("Docked compose strip", () => {
     await expect(page.getByTestId("compose-strip")).toHaveCount(0);
     await expect(chip).toHaveAttribute("aria-pressed", "false");
 
-    // Reopen via the chip: the unsent draft survived the close (module store).
+    // Reopen via the chip: the unsent draft survived the close (the per-target
+    // module store outlives the strip's unmount).
     await chip.click();
     await expect(page.getByTestId("compose-strip-input")).toHaveValue(draft);
+  });
+
+  test("drafts are per-target and survive a reload (260801-cyth)", async ({ page }) => {
+    test.setTimeout(60_000);
+    const alpha = await resolveWindowId(page, BOARD_SESSION, "cs-alpha");
+    const bravo = await resolveWindowId(page, BOARD_SESSION, "cs-bravo");
+
+    // Window A: enable the strip and type a draft for A.
+    await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(alpha)}`, {
+      waitUntil: "domcontentloaded",
+    });
+    await expect(page.locator(".xterm-screen")).toBeVisible({ timeout: 15_000 });
+    await page.getByRole("button", { name: "Compose text" }).click();
+    const input = page.getByTestId("compose-strip-input");
+    await expect(input).toBeVisible();
+    const draftA = `CSA_${Date.now()}`;
+    await input.click();
+    await input.fill(draftA);
+
+    // Window B: the strip shows B's (empty) draft — A's did not travel.
+    await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(bravo)}`, {
+      waitUntil: "domcontentloaded",
+    });
+    await expect(page.locator(".xterm-screen")).toBeVisible({ timeout: 15_000 });
+    await expect(input).toBeEnabled({ timeout: 15_000 }); // B is the focused target
+    await expect(input).toHaveValue("");
+    const draftB = `CSB_${Date.now()}`;
+    await input.click();
+    await input.fill(draftB);
+
+    // Back on A: A's draft is recalled (and B's stays with B).
+    await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(alpha)}`, {
+      waitUntil: "domcontentloaded",
+    });
+    await expect(input).toHaveValue(draftA, { timeout: 15_000 });
+
+    // Refresh survival: a reload rehydrates the draft text from localStorage.
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(input).toHaveValue(draftA, { timeout: 15_000 });
+
+    // And B still has its own draft after the reload.
+    await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(bravo)}`, {
+      waitUntil: "domcontentloaded",
+    });
+    await expect(input).toHaveValue(draftB, { timeout: 15_000 });
   });
 
   test("Enter inserts a newline; Cmd/Ctrl+Enter sends text + carriage return; Escape blurs", async ({ page }) => {

@@ -4,11 +4,14 @@ Validates the docked compose strip (260718-dhdj) — the sticky, global text-inp
 surface that replaces the modal ComposeBuffer. Covers the toggle affordances
 (`>_` chip + palette parity), the persisted chrome preference, the on-strip ×
 close button (260722-d5q7 — same toggle as the chip, lossless draft), the
-live-target send semantics (260801-hsxm: plain Enter inserts a newline — lines
-accumulate locally; Cmd/Ctrl+Enter is the ONLY submit chord, sending
-`text + \r` to the focused pane), the insert-without-submit affordance +
-`enterkeyhint="enter"` (pointer-independent; the readline editing chords are
-unit-tested in `readline-keys.test.ts` / `compose-strip.test.tsx`),
+per-target draft model (260801-cyth — drafts keyed by the focused window,
+text persisted to localStorage: they stay with their addressee across
+navigation and survive reloads), the live-target send semantics (260801-hsxm:
+plain Enter inserts a newline — lines accumulate locally; Cmd/Ctrl+Enter is the
+ONLY submit chord, sending `text + \r` to the focused pane), the
+insert-without-submit affordance + `enterkeyhint="enter"` (pointer-independent;
+the readline editing chords are unit-tested in `readline-keys.test.ts` /
+`compose-strip.test.tsx`),
 Escape-blurs focus routing, and the target label following board-pane focus
 (closing the per-pane STDIN routing gap noted in `shell-rotation.spec.ts:14`).
 
@@ -53,7 +56,8 @@ palette parity).
 **What it proves:** The × close button in the strip's header row fires the same
 `toggleComposeStrip` action as the `>_` chip — clicking it unmounts the strip
 and returns the chip to `aria-pressed="false"` — with no confirmation dialog,
-and the unsent draft survives the close (module store) so reopening restores it.
+and the unsent draft survives the close (the per-target module store outlives
+the strip's unmount) so reopening on the same target restores it.
 
 **Steps:**
 
@@ -67,6 +71,30 @@ and the unsent draft survives the close (module store) so reopening restores it.
    `aria-pressed="false"` (same preference the chip toggles).
 4. Click the chip to reopen; assert the input still holds the draft marker
    (closing was lossless — no confirmation needed).
+
+### `drafts are per-target and survive a reload (260801-cyth)`
+
+**What it proves:** Drafts are keyed by the send target (the focused window),
+not shared globally: a draft typed for window A never shows while window B is
+targeted (the draft does not "travel"), navigating back to A recalls A's draft,
+and a page reload preserves the draft text (persisted to localStorage under
+`runkit-compose-drafts`). This intentionally reverses 260718-dhdj's
+single-traveling-draft model.
+
+**Steps:**
+
+1. Resolve the `cs-alpha` and `cs-bravo` window IDs from the board session.
+2. Navigate to `cs-alpha`'s terminal route; enable the strip via the `>_` chip;
+   fill the input with a unique draft-A marker.
+3. Navigate to `cs-bravo`'s terminal route; wait for the strip input to be
+   enabled (B is the focused target); assert the input is EMPTY (A's draft did
+   not travel); fill a unique draft-B marker.
+4. Navigate back to `cs-alpha`; assert the input shows the draft-A marker
+   (per-target recall).
+5. Reload the page; assert the input still shows the draft-A marker (text
+   persistence survives a refresh).
+6. Navigate to `cs-bravo` again; assert the input shows the draft-B marker
+   (B's draft stayed with B through the reload).
 
 ### `Enter inserts a newline; Cmd/Ctrl+Enter sends text + carriage return; Escape blurs`
 

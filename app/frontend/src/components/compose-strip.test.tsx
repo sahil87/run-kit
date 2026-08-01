@@ -11,11 +11,11 @@ import { ChromeProvider, useChromeState, useChromeDispatch } from "@/contexts/ch
 import { useWindowStore, entryKey } from "@/store/window-store";
 import type { UploadedFile } from "@/hooks/use-file-upload";
 import { stubMatchMedia } from "@/test-utils/match-media";
-import { clearComposeDraft } from "@/lib/compose-draft-store";
+import { hydrateComposeDrafts } from "@/lib/compose-draft-store";
 import { consumeComposeStripFocusOnOpen, focusComposeStrip } from "@/lib/compose-strip-events";
 
 // Mock useFileUpload so tests never hit the network. The mock records calls and
-// returns deterministic paths so the re-home path-rewrite can be asserted.
+// returns deterministic paths so attachment path lines can be asserted.
 const uploadFilesMock = vi.fn<(files: FileList | File[]) => Promise<UploadedFile[]>>();
 vi.mock("@/hooks/use-file-upload", async (orig) => {
   const actual = await orig<typeof import("@/hooks/use-file-upload")>();
@@ -90,9 +90,11 @@ function stubPointer(coarse: boolean) {
 describe("ComposeStrip", () => {
   beforeEach(() => {
     useWindowStore.setState({ entries: new Map(), ghosts: [] });
-    // The draft lives in a module store shared across the whole test module —
-    // reset it so a leftover draft from a prior test never bleeds in.
-    clearComposeDraft();
+    // Drafts live in a per-target module store shared across the whole test
+    // module and persisted to localStorage — wipe the storage and re-run the
+    // real hydration so a leftover draft from a prior test never bleeds in.
+    localStorage.clear();
+    hydrateComposeDrafts();
     // Drain the module-level focus-on-open flag so a prior test's toggle can
     // never leak focus behavior into the next one.
     consumeComposeStripFocusOnOpen();
@@ -488,30 +490,75 @@ describe("ComposeStrip", () => {
     expect(screen.getByTestId("compose-strip")).toBeInTheDocument();
   });
 
-  it("re-homes a pending attachment and rewrites its textarea path line on focus change", async () => {
-    // First upload (attach) lands at /wt-a/.uploads/x.png; the re-home upload
-    // (after focus change) returns /wt-b/.uploads/x.png.
-    uploadFilesMock
-      .mockResolvedValueOnce([{ path: "/wt-a/.uploads/x.png", file: new File(["x"], "x.png", { type: "image/png" }) }])
-      .mockResolvedValueOnce([{ path: "/wt-b/.uploads/x.png", file: new File(["x"], "x.png", { type: "image/png" }) }]);
+  // ── Per-target drafts (260801-cyth) ─────────────────────────────────────────
 
-    function TwoTargets() {
-      const { setFocused } = useFocusedTerminal();
-      return (
-        <>
-          <button data-testid="focus-a" onClick={() => setFocused({ wsRef: makeWs().ref, server: "srv", session: "sa", windowId: "@a" })}>a</button>
-          <button data-testid="focus-b" onClick={() => setFocused({ wsRef: makeWs().ref, server: "srv", session: "sb", windowId: "@b" })}>b</button>
-          <ComposeStrip />
-        </>
-      );
-    }
-    render(
+  /** Two focusable targets sharing one strip — drives target switches. Each
+   * target keeps a stable ws so sends can be asserted per target. */
+  const wsA = makeWs();
+  const wsB = makeWs();
+  function TwoTargets() {
+    const { setFocused } = useFocusedTerminal();
+    return (
+      <>
+        <button data-testid="focus-a" onClick={() => setFocused({ wsRef: wsA.ref, server: "srv", session: "sa", windowId: "@a" })}>a</button>
+        <button data-testid="focus-b" onClick={() => setFocused({ wsRef: wsB.ref, server: "srv", session: "sb", windowId: "@b" })}>b</button>
+        <ComposeStrip />
+      </>
+    );
+  }
+  function renderTwoTargets() {
+    wsA.sent.length = 0;
+    wsB.sent.length = 0;
+    return render(
       <ChromeProvider>
         <FocusedTerminalProvider>
           <TwoTargets />
         </FocusedTerminalProvider>
       </ChromeProvider>,
     );
+  }
+
+  it("switching the focused target swaps the visible draft (drafts do not travel)", () => {
+    renderTwoTargets();
+    act(() => fireEvent.click(screen.getByTestId("focus-a")));
+    act(() => fireEvent.change(input(), { target: { value: "for A" } }));
+
+    // B starts empty — A's draft did not travel with the focus change.
+    act(() => fireEvent.click(screen.getByTestId("focus-b")));
+    expect(input().value).toBe("");
+    act(() => fireEvent.change(input(), { target: { value: "for B" } }));
+
+    // Back on A: its own draft is recalled; B's is intact behind it.
+    act(() => fireEvent.click(screen.getByTestId("focus-a")));
+    expect(input().value).toBe("for A");
+    act(() => fireEvent.click(screen.getByTestId("focus-b")));
+    expect(input().value).toBe("for B");
+  });
+
+  it("a delivered send clears only the focused target's draft", () => {
+    renderTwoTargets();
+    act(() => fireEvent.click(screen.getByTestId("focus-a")));
+    act(() => fireEvent.change(input(), { target: { value: "keep A" } }));
+
+    act(() => fireEvent.click(screen.getByTestId("focus-b")));
+    act(() => fireEvent.change(input(), { target: { value: "send B" } }));
+    act(() => fireEvent.click(sendBtn()));
+    expect(wsB.sent).toEqual(["send B\r"]);
+    expect(input().value).toBe(""); // B's draft cleared after delivery
+
+    // A's draft was NOT collateral damage of B's send.
+    act(() => fireEvent.click(screen.getByTestId("focus-a")));
+    expect(input().value).toBe("keep A");
+    expect(wsA.sent).toEqual([]);
+  });
+
+  it("attachments stay with their target — no re-upload, no path rewrite on focus change", async () => {
+    // One upload only (the attach). A focus change must NOT trigger another.
+    uploadFilesMock.mockResolvedValueOnce([
+      { path: "/wt-a/.uploads/x.png", file: new File(["x"], "x.png", { type: "image/png" }) },
+    ]);
+    renderTwoTargets();
+
     // Focus A, then attach a file via the hidden input.
     act(() => fireEvent.click(screen.getByTestId("focus-a")));
     const file = new File(["x"], "x.png", { type: "image/png" });
@@ -520,15 +567,69 @@ describe("ComposeStrip", () => {
       fireEvent.change(hiddenInput, { target: { files: [file] } });
     });
     expect(input().value).toContain("/wt-a/.uploads/x.png");
+    expect(screen.getByTestId("compose-strip-previews")).toBeInTheDocument();
 
-    // Focus B — the strip re-uploads the held file to B's worktree and rewrites
-    // the path line.
+    // Focus B: no re-home fires — B simply shows ITS (empty) draft.
     await act(async () => {
       fireEvent.click(screen.getByTestId("focus-b"));
     });
-    expect(uploadFilesMock).toHaveBeenCalledTimes(2);
-    expect(input().value).toContain("/wt-b/.uploads/x.png");
-    expect(input().value).not.toContain("/wt-a/.uploads/x.png");
+    expect(uploadFilesMock).toHaveBeenCalledTimes(1);
+    expect(input().value).toBe("");
+    expect(screen.queryByTestId("compose-strip-previews")).toBeNull();
+
+    // Back on A: the attachment (path line + preview) is right where it was.
+    act(() => fireEvent.click(screen.getByTestId("focus-a")));
+    expect(input().value).toContain("/wt-a/.uploads/x.png");
+    expect(screen.getByTestId("compose-strip-previews")).toBeInTheDocument();
+  });
+
+  it("reclaims a departed target's preview URLs while the strip stays mounted", async () => {
+    // Deterministic blob URLs so create/revoke pairs can be asserted exactly.
+    let urlSeq = 0;
+    const createSpy = vi
+      .spyOn(URL, "createObjectURL")
+      .mockImplementation(() => `blob:mock-${++urlSeq}`);
+    const revokeSpy = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    try {
+      uploadFilesMock.mockResolvedValueOnce([
+        { path: "/wt-a/.uploads/x.png", file: new File(["x"], "x.png", { type: "image/png" }) },
+      ]);
+      renderTwoTargets();
+
+      // Attach on A: rendering the preview mints one URL.
+      act(() => fireEvent.click(screen.getByTestId("focus-a")));
+      const hiddenInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+      await act(async () => {
+        fireEvent.change(hiddenInput, {
+          target: { files: [new File(["x"], "x.png", { type: "image/png" })] },
+        });
+      });
+      expect(createSpy).toHaveBeenCalledTimes(1);
+      expect(revokeSpy).not.toHaveBeenCalled();
+
+      // Abandon A without sending (switch to B): the sweep revokes A's URL —
+      // it must not sit in the per-mount map for the life of the strip.
+      act(() => fireEvent.click(screen.getByTestId("focus-b")));
+      expect(revokeSpy).toHaveBeenCalledWith("blob:mock-1");
+
+      // Back on A: the preview URL is recreated lazily from the retained File.
+      act(() => fireEvent.click(screen.getByTestId("focus-a")));
+      expect(screen.getByTestId("compose-strip-previews")).toBeInTheDocument();
+      expect(createSpy).toHaveBeenCalledTimes(2);
+    } finally {
+      createSpy.mockRestore();
+      revokeSpy.mockRestore();
+    }
+  });
+
+  it("hydration restores a persisted draft's text for its target (refresh survival)", () => {
+    renderTwoTargets();
+    act(() => fireEvent.click(screen.getByTestId("focus-a")));
+    act(() => fireEvent.change(input(), { target: { value: "survives reload" } }));
+
+    // Simulate a page reload: the module store re-hydrates from localStorage.
+    act(() => hydrateComposeDrafts());
+    expect(input().value).toBe("survives reload");
   });
 
   // ── Rework coverage (260718-dhdj): module-store draft persistence ──────────
@@ -552,8 +653,9 @@ describe("ComposeStrip", () => {
     unmount();
     expect(screen.queryByTestId("compose-strip")).toBeNull();
 
-    // Toggle on: a FRESH strip mounts (new component instance / different footer)
-    // and must show the retained draft.
+    // Toggle on: a FRESH strip mounts (new component instance / different
+    // footer) and — once the SAME target is focused again — must show that
+    // target's retained draft (drafts are keyed by target, 260801-cyth).
     render(
       <ChromeProvider>
         <FocusedTerminalProvider>
@@ -562,6 +664,7 @@ describe("ComposeStrip", () => {
         </FocusedTerminalProvider>
       </ChromeProvider>,
     );
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
     expect(input().value).toBe("half-typed");
   });
 
@@ -581,7 +684,8 @@ describe("ComposeStrip", () => {
     act(() => fireEvent.change(input(), { target: { value: "route-draft" } }));
     unmount();
 
-    // The "board route" mounts its own strip instance.
+    // The "board route" mounts its own strip instance; focusing the SAME
+    // window there (same entryKey) recalls the same draft.
     render(
       <ChromeProvider>
         <FocusedTerminalProvider>
@@ -590,6 +694,7 @@ describe("ComposeStrip", () => {
         </FocusedTerminalProvider>
       </ChromeProvider>,
     );
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
     expect(input().value).toBe("route-draft");
   });
 
@@ -701,7 +806,7 @@ describe("ComposeStrip", () => {
     // Seed the preference ON so the gated strip mounts (readComposeStrip reads
     // localStorage at provider mount).
     localStorage.setItem("runkit-compose-strip", "true");
-    render(<GatedHarness focus={{ wsRef: makeWs().ref, server: "srv", session: "sess", windowId: "@1" }} />);
+    const first = render(<GatedHarness focus={{ wsRef: makeWs().ref, server: "srv", session: "sess", windowId: "@1" }} />);
     act(() => fireEvent.click(screen.getByTestId("set-focus")));
 
     // The × renders in the strip with its accessible name.
@@ -715,9 +820,12 @@ describe("ComposeStrip", () => {
     expect(localStorage.getItem("runkit-compose-strip")).toBe("false");
 
     // …and reopening (same toggle, e.g. the `>_` chip) restores the strip with
-    // the draft intact — closing is lossless, no confirmation needed.
+    // the same target's draft intact — closing is lossless, no confirmation
+    // needed (drafts are keyed by target, so the same focus recalls it).
+    first.unmount();
     localStorage.setItem("runkit-compose-strip", "true");
     render(<GatedHarness focus={{ wsRef: makeWs().ref, server: "srv", session: "sess", windowId: "@1" }} />);
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
     expect(input().value).toBe("before-close");
   });
 

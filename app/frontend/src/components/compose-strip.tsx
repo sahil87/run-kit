@@ -3,7 +3,6 @@ import {
   useEffect,
   useLayoutEffect,
   useRef,
-  useState,
   useSyncExternalStore,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
@@ -26,6 +25,7 @@ import {
   setComposeText,
   setComposeAttachments,
   clearComposeDraft,
+  type ComposeAttachment,
 } from "@/lib/compose-draft-store";
 
 /**
@@ -65,10 +65,10 @@ import {
  * (no toggle → no flag) never steals focus.
  *
  * Uploads ride `useFileUpload` scoped to the LIVE focused target's worktree
- * (eager upload). When the focused target changes while attachments are pending,
- * the held `File` objects are re-uploaded to the new worktree and the textarea
- * path lines are rewritten (re-homing). Re-home failure keeps the original path
- * lines and surfaces a non-blocking inline `role="alert"` error.
+ * (eager upload). Because the draft — attachments included — is keyed by that
+ * same target, an attachment can never face a different worktree than the one
+ * it was uploaded to: switching targets switches drafts, so there is no
+ * re-homing (no re-upload, no path rewriting) on focus change.
  *
  * Rendered only when the `composeStripEnabled` chrome preference is on; the
  * caller (the shell footer in `app.tsx` / `board-page.tsx`) gates the mount.
@@ -77,12 +77,15 @@ import {
  * pointer convenience only (Escape still blurs, never closes; no confirmation
  * needed because closing is lossless via the module store).
  * Because that mount is conditional AND per-route (the two footers are distinct
- * subtrees), the draft text + pending attachments live in a MODULE store
- * (`compose-draft-store.ts`, a `useSyncExternalStore` seam) rather than
- * component-local `useState` — so an unsent draft survives toggle-off/on and
- * terminal↔board route navigation (intake §7 / R2). Blob URLs for previews are
- * derived per-mount from the retained `File` objects, so they are the one piece
- * of state that stays component-local.
+ * subtrees), drafts live in a MODULE store (`compose-draft-store.ts`, a
+ * `useSyncExternalStore` seam) rather than component-local `useState`. Drafts
+ * are PER TARGET — keyed by `entryKey(server, windowId)`, the live focused
+ * target (260801-cyth, reversing 260718-dhdj's single traveling draft): each
+ * window keeps its own unsent draft, shown whenever that window is focused,
+ * surviving toggle-off/on, route changes, board pane-focus cycling, and (text
+ * only, via localStorage) page refreshes. Blob URLs for previews are derived
+ * per-mount from the retained `File` objects, so they are the one piece of
+ * state that stays component-local.
  */
 
 /** Max input rows before the textarea scrolls internally (bounded auto-grow) —
@@ -104,18 +107,29 @@ export function ComposeStrip() {
   const { toggleComposeStrip } = useChromeDispatch();
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  // Draft text + pending attachments live in the module store so they survive
-  // this component's unmount (toggle-off) and the terminal↔board route change
-  // (two separate footer mounts). `setText`/`setFiles` write through to the
-  // store; `text`/`files` are the live snapshot.
-  const { text, attachments: files } = useSyncExternalStore(
-    subscribeComposeDraft,
-    getComposeDraft,
+  // The draft key is the live focused target — `entryKey(server, windowId)`,
+  // resolved each render. Draft text + pending attachments live in the module
+  // store under that key, so they survive this component's unmount (toggle-off)
+  // and the terminal↔board route change (two separate footer mounts), and each
+  // target keeps its own draft (switching focus swaps the visible draft). With
+  // no target the key is null: the store yields the stable empty draft and the
+  // key-bound setters no-op (the strip is disabled anyway).
+  const draftKey = focused ? focusedKey(focused) : null;
+  const { text, attachments: files } = useSyncExternalStore(subscribeComposeDraft, () =>
+    getComposeDraft(draftKey),
   );
-  const setText = setComposeText;
-  const setFiles = setComposeAttachments;
-  // Error is transient per-mount UI state, not draft content — it stays local.
-  const [error, setError] = useState<string | null>(null);
+  const setText = useCallback(
+    (next: string | ((prev: string) => string)) => {
+      if (draftKey !== null) setComposeText(draftKey, next);
+    },
+    [draftKey],
+  );
+  const setFiles = useCallback(
+    (next: ComposeAttachment[] | ((prev: ComposeAttachment[]) => ComposeAttachment[])) => {
+      if (draftKey !== null) setComposeAttachments(draftKey, next);
+    },
+    [draftKey],
+  );
   const blobUrlsRef = useRef<Map<File, string>>(new Map());
 
   // Live send target — read at send time, NOT frozen at mount (reverses DD-6).
@@ -169,6 +183,21 @@ export function ComposeStrip() {
     };
   }, []);
 
+  // Reclaim URLs for files no longer in the VISIBLE draft: switching targets
+  // (or a draft cleared while unfocused) would otherwise strand a departed
+  // target's preview URLs in the map for as long as the strip stays mounted.
+  // Over-revoking is safe — the files live on in their draft, and `getBlobUrl`
+  // recreates a URL lazily when that draft is shown again.
+  useEffect(() => {
+    const visible = new Set(files.map((uf) => uf.file));
+    for (const [file, url] of blobUrlsRef.current) {
+      if (!visible.has(file)) {
+        URL.revokeObjectURL(url);
+        blobUrlsRef.current.delete(file);
+      }
+    }
+  }, [files]);
+
   function getBlobUrl(file: File): string {
     const existing = blobUrlsRef.current.get(file);
     if (existing) return existing;
@@ -177,69 +206,9 @@ export function ComposeStrip() {
     return url;
   }
 
-  // Rewrite a single path line in the textarea (old -> new). Returns the
-  // rewritten text. Mirrors the ComposeBuffer path-line splice.
-  const rewritePathLine = useCallback((oldPath: string, newPath: string) => {
-    setText((current) => {
-      const lines = current.split("\n");
-      const i = lines.indexOf(oldPath);
-      if (i === -1) return current;
-      lines[i] = newPath;
-      return lines.join("\n");
-    });
-  }, []);
-
-  // Re-home pending attachments when the focused target changes. Re-uploads the
-  // retained File objects to the new worktree and rewrites the textarea path
-  // lines. Failure keeps the original lines and surfaces a non-blocking error.
-  const lastTargetKeyRef = useRef<string | null>(focused ? focusedKey(focused) : null);
-  useEffect(() => {
-    const key = focused ? focusedKey(focused) : null;
-    const prevKey = lastTargetKeyRef.current;
-    lastTargetKeyRef.current = key;
-    // Only re-home on an actual target change with pending attachments.
-    if (key === prevKey || key === null || files.length === 0) return;
-
-    // Clear any stale error from a prior re-home attempt — this fresh attempt
-    // owns the alert state, so a subsequent success must not leave the old
-    // failure visible.
-    setError(null);
-
-    let cancelled = false;
-    (async () => {
-      for (const uf of files) {
-        try {
-          // Re-upload the single held File to the new focused target's worktree.
-          const results = await uploadFiles([uf.file]);
-          if (cancelled) return;
-          const rehomed = results[0];
-          if (rehomed && rehomed.path !== uf.path) {
-            rewritePathLine(uf.path, rehomed.path);
-            setFiles((prev) =>
-              prev.map((f) => (f.file === uf.file ? { ...f, path: rehomed.path } : f)),
-            );
-          } else if (!rehomed) {
-            throw new Error("re-home upload returned no path");
-          }
-        } catch {
-          if (cancelled) return;
-          // Keep the original path line; surface a non-blocking error. Sending
-          // is not blocked.
-          setError(`Could not move "${uf.file.name}" to the new target's folder — sending will use the original path.`);
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-    // `files`/`uploadFiles`/`rewritePathLine` are intentionally read for the
-    // current attachments; the effect keys on the target identity.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focused?.server, focused?.windowId]);
-
   const send = useCallback(
     (submit: boolean) => {
-      if (!hasTarget) return;
+      if (draftKey === null) return; // no target — nothing to send or clear
       const trimmed = text.trim();
       if (trimmed === "") return; // empty / whitespace-only never sends
       const ws = focused?.wsRef.current;
@@ -256,15 +225,20 @@ export function ComposeStrip() {
       // line; insert is only truly Enter-free for single-line text on non-TUI
       // panes (Claude Code treats `\n` as newline insert).
       ws.send(submit ? text + "\r" : text);
-      // Delivered: clear draft + attachments; the strip stays open and does NOT
-      // grab or return focus. The module store is the source of truth for the
-      // draft; revoke this mount's preview URLs (their files are gone).
-      for (const url of blobUrlsRef.current.values()) URL.revokeObjectURL(url);
-      blobUrlsRef.current.clear();
-      clearComposeDraft();
-      setError(null);
+      // Delivered: clear THIS target's draft + attachments; the strip stays
+      // open and does NOT grab or return focus. The module store is the source
+      // of truth for the draft; revoke only the cleared draft's preview URLs
+      // (other targets' previews recreate lazily when their draft is shown).
+      for (const uf of files) {
+        const url = blobUrlsRef.current.get(uf.file);
+        if (url) {
+          URL.revokeObjectURL(url);
+          blobUrlsRef.current.delete(uf.file);
+        }
+      }
+      clearComposeDraft(draftKey);
     },
-    [hasTarget, text, focused],
+    [draftKey, text, files, focused],
   );
 
   const onKeyDown = (e: ReactKeyboardEvent<HTMLTextAreaElement>) => {
@@ -314,7 +288,7 @@ export function ComposeStrip() {
         return current.endsWith("\n") ? current + paths : current + "\n" + paths;
       });
     },
-    [hasTarget, uploadFiles],
+    [hasTarget, uploadFiles, setFiles, setText],
   );
 
   // Drain files handed off from the terminal's drag-drop / paste gestures
@@ -356,32 +330,30 @@ export function ComposeStrip() {
     el.focus();
   }, []);
 
-  const removeFile = useCallback((index: number) => {
-    // Read the target from the live store snapshot rather than reaching into a
-    // setter's updater — updaters stay pure so StrictMode's double-invoke does
-    // not double-fire the blob-URL revoke or the textarea splice.
-    const target = getComposeDraft().attachments[index];
-    if (!target) return;
-    const url = blobUrlsRef.current.get(target.file);
-    if (url) {
-      URL.revokeObjectURL(url);
-      blobUrlsRef.current.delete(target.file);
-    }
-    // Remove the path line from the textarea.
-    setText((current) => {
-      const lines = current.split("\n");
-      const i = lines.indexOf(target.path);
-      if (i === -1) return current;
-      lines.splice(i, 1);
-      return lines.join("\n");
-    });
-    setFiles((prev) => prev.filter((_, i) => i !== index));
-    // The re-home error is attachment-specific; once no attachments remain it no
-    // longer applies, so clear it when the last one is removed. The module store
-    // commits synchronously, so the snapshot already reflects the removal (read
-    // outside the setFiles updater so the updater stays pure for StrictMode).
-    if (getComposeDraft().attachments.length === 0) setError(null);
-  }, []);
+  const removeFile = useCallback(
+    (index: number) => {
+      // Read the target from the live store snapshot rather than reaching into
+      // a setter's updater — updaters stay pure so StrictMode's double-invoke
+      // does not double-fire the blob-URL revoke or the textarea splice.
+      const target = getComposeDraft(draftKey).attachments[index];
+      if (!target) return;
+      const url = blobUrlsRef.current.get(target.file);
+      if (url) {
+        URL.revokeObjectURL(url);
+        blobUrlsRef.current.delete(target.file);
+      }
+      // Remove the path line from the textarea.
+      setText((current) => {
+        const lines = current.split("\n");
+        const i = lines.indexOf(target.path);
+        if (i === -1) return current;
+        lines.splice(i, 1);
+        return lines.join("\n");
+      });
+      setFiles((prev) => prev.filter((_, i) => i !== index));
+    },
+    [draftKey, setText, setFiles],
+  );
 
   /** Prevent mousedown from stealing focus away from the terminal/textarea. */
   const preventFocusSteal = (e: React.MouseEvent) => e.preventDefault();
@@ -421,16 +393,6 @@ export function ComposeStrip() {
           </button>
         </div>
       </div>
-
-      {error && (
-        <div
-          role="alert"
-          className="rounded border border-red-500/50 bg-red-500/10 px-2 py-1 text-xs text-red-400"
-          data-testid="compose-strip-error"
-        >
-          {error}
-        </div>
-      )}
 
       {files.length > 0 && (
         <div className="flex gap-1.5 overflow-x-auto" data-testid="compose-strip-previews">

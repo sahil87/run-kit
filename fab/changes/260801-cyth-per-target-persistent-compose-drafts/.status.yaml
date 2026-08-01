@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 7
@@ -33,22 +33,24 @@ stage_metrics:
     apply: {started_at: "2026-08-01T16:35:18Z", driver: fab-fff, iterations: 2, completed_at: "2026-08-01T16:41:55Z"}
     review: {started_at: "2026-08-01T16:41:55Z", driver: fab-fff, iterations: 2, completed_at: "2026-08-01T16:47:38Z"}
     hydrate: {started_at: "2026-08-01T16:47:38Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T16:51:55Z"}
-    ship: {started_at: "2026-08-01T16:51:55Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-08-01T16:51:55Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T16:53:43Z"}
+    review-pr: {started_at: "2026-08-01T16:53:43Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/509
 true_impact:
-    added: 280
-    deleted: 0
-    net: 280
+    added: 1273
+    deleted: 232
+    net: 1041
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 751
+        deleted: 224
+        net: 527
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-08-01T16:51:55Z"
-    computed_at_stage: hydrate
+        added: 294
+        deleted: 3
+        net: 291
+    computed_at: "2026-08-01T16:53:43Z"
+    computed_at_stage: ship
 summary: Compose drafts are keyed per send target with text persisted to localStorage; re-home machinery removed
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-01T16:51:55Z
+last_updated: 2026-08-01T16:53:43Z

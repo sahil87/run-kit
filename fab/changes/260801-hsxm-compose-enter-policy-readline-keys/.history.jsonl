@@ -1,0 +1,3 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-01T16:03:16Z"}
+{"args":"compose strip typing ergonomics: Enter=newline everywhere, Cmd/Ctrl+Enter=send, readline gaps Ctrl+U/Ctrl+W/Alt+B/F/D","cmd":"fab-new","event":"command","ts":"2026-08-01T16:03:16Z"}
+{"delta":"+4.6","event":"confidence","score":4.6,"trigger":"calc-score","ts":"2026-08-01T16:06:30Z"}

@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 11
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-08-01T16:30:14Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T16:42:01Z"}
     hydrate: {started_at: "2026-08-01T16:42:01Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T16:49:27Z"}
     ship: {started_at: "2026-08-01T16:49:27Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T16:51:06Z"}
-    review-pr: {started_at: "2026-08-01T16:51:06Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-08-01T16:51:06Z", driver: git-pr, iterations: 1, completed_at: "2026-08-01T17:02:46Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/508
 true_impact:
@@ -53,4 +53,4 @@ true_impact:
     computed_at_stage: ship
 summary: 'Compose strip + chat send form: Enter (and Shift+Enter) insert a newline on every pointer type, Cmd/Ctrl+Enter is the only submit chord, and a shared readline layer adds Ctrl+U/Ctrl+W/Alt+B/F/D line editing'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-01T16:51:06Z
+last_updated: 2026-08-01T17:02:46Z

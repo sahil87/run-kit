@@ -111,18 +111,47 @@ describe("ShortcutsOverlay", () => {
     expect(screen.queryAllByTitle("server")).toHaveLength(0);
   });
 
-  it("macOS display adds the ⌘ page-tier map; Win·Linux display omits it (260730-n789)", () => {
+  it("macOS display offers the ⌘ map layer via the modifier picker; Win·Linux display omits it (260801-r8j2)", () => {
     renderOverlay();
-    // jsdom host → Win·Linux display by default: no page-tier map (plain
-    // Ctrl belongs to the pane there).
-    expect(screen.queryByText(/page tier —/)).toBeNull();
+    // jsdom host → Win·Linux display by default: no modifier picker (plain
+    // Ctrl belongs to the pane there) — a static "Holding Shift Ctrl" label
+    // and the shifted layer rendered.
+    expect(screen.queryByRole("group", { name: "Keyboard map modifier" })).toBeNull();
+    expect(screen.getByText(/Holding/)).toBeInTheDocument();
+    expect(screen.getByTitle("incognito")).toBeInTheDocument();
+    expect(screen.queryByTitle("address bar")).toBeNull();
     fireEvent.click(screen.getByText("macOS"));
-    expect(screen.getByText(/page tier —/)).toBeInTheDocument();
-    // jsdom is a browser host → the mac-browser ⌘ claimed set renders (the
-    // desktop-shell hint names the freeing).
-    expect(
-      screen.getByText("browser keys stay claimed — the desktop shell frees them"),
-    ).toBeInTheDocument();
+    // The picker appears with ⇧⌘ selected by default.
+    const picker = screen.getByRole("group", { name: "Keyboard map modifier" });
+    const cmdBtn = within(picker).getByText("⌘");
+    expect(within(picker).getByText("⇧ ⌘")).toHaveAttribute("aria-pressed", "true");
+    expect(cmdBtn).toHaveAttribute("aria-pressed", "false");
+    // Selecting ⌘ swaps the SINGLE grid to the cmd layer (jsdom is a browser
+    // host → the mac-browser ⌘ claimed set renders; the shifted-only browser
+    // claims disappear).
+    fireEvent.click(cmdBtn);
+    expect(cmdBtn).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTitle("address bar")).toBeInTheDocument();
+    expect(screen.queryByTitle("incognito")).toBeNull();
+    // Switching the display back to Win·Linux drops the ⌘ option and falls
+    // back to the shifted layer.
+    fireEvent.click(screen.getByText("Win · Linux"));
+    expect(screen.queryByRole("group", { name: "Keyboard map modifier" })).toBeNull();
+    expect(screen.queryByTitle("address bar")).toBeNull();
+    expect(screen.getByTitle("incognito")).toBeInTheDocument();
+  });
+
+  it("the ⌘ layer selection survives close/reopen (session-scoped view state, 260801-r8j2)", () => {
+    const { rerender } = render(<ShortcutsOverlay open={true} onClose={vi.fn()} />);
+    fireEvent.click(screen.getByText("macOS"));
+    fireEvent.click(
+      within(screen.getByRole("group", { name: "Keyboard map modifier" })).getByText("⌘"),
+    );
+    rerender(<ShortcutsOverlay open={false} onClose={vi.fn()} />);
+    rerender(<ShortcutsOverlay open={true} onClose={vi.fn()} />);
+    const picker = screen.getByRole("group", { name: "Keyboard map modifier" });
+    expect(within(picker).getByText("⌘")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTitle("address bar")).toBeInTheDocument();
   });
 
   it("header hint shows the HOST-effective chord: ⌘/ on a mac host (260730-n789)", () => {
@@ -225,14 +254,14 @@ describe("ShortcutsOverlay merged view (260801-sm6g)", () => {
     expect(within(nav).queryByText("custom")).toBeNull();
   });
 
-  it("filtering shows live chip counts, dims empty chips, and hides the tier map", () => {
+  it("filtering shows live chip counts, dims empty chips, and hides the key map", () => {
     renderOverlay();
-    expect(screen.getByText(/run-kit tier —/)).toBeInTheDocument();
+    expect(screen.getByText(/Holding/)).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Filter shortcuts"), {
       target: { value: "waiting" },
     });
-    // Tier map auto-hides while a filter is active.
-    expect(screen.queryByText(/run-kit tier —/)).toBeNull();
+    // The key map auto-hides while a filter is active.
+    expect(screen.queryByText(/Holding/)).toBeNull();
     const nav = screen.getByTestId("shortcuts-jump-nav");
     // "waiting" matches exactly one global row (Next waiting agent).
     const globalChip = within(nav).getByText("global").closest("button")!;
@@ -244,17 +273,18 @@ describe("ShortcutsOverlay merged view (260801-sm6g)", () => {
     expect(boardChip.className).toContain("opacity-40");
     // Clearing the filter restores the map and drops the counts.
     fireEvent.change(screen.getByLabelText("Filter shortcuts"), { target: { value: "" } });
-    expect(screen.getByText(/run-kit tier —/)).toBeInTheDocument();
+    expect(screen.getByText(/Holding/)).toBeInTheDocument();
     expect(within(nav).getByText("global").closest("button")!.textContent).toBe("global");
   });
 
-  it("collapse map folds the tier grids; expand restores them", () => {
+  it("collapse map folds the key grid; expand restores it (new one-line claimed legend)", () => {
     renderOverlay();
-    expect(screen.getByText("claimed (shell · system · browser)")).toBeInTheDocument();
+    const legend = "claimed — taken by the OS / browser / app menu (the desktop app frees the browser ones)";
+    expect(screen.getByText(legend)).toBeInTheDocument();
     fireEvent.click(screen.getByText("▾ collapse map"));
-    expect(screen.queryByText("claimed (shell · system · browser)")).toBeNull();
+    expect(screen.queryByText(legend)).toBeNull();
     fireEvent.click(screen.getByText("▸ expand map"));
-    expect(screen.getByText("claimed (shell · system · browser)")).toBeInTheDocument();
+    expect(screen.getByText(legend)).toBeInTheDocument();
   });
 
   it("shell-owned rows render as a GLOBAL subgroup", () => {
@@ -318,6 +348,77 @@ describe("ShortcutsOverlay merged view (260801-sm6g)", () => {
     const nav = screen.getByTestId("shortcuts-jump-nav");
     expect(within(nav).getByText("tmux").closest("button")!.textContent).toBe("tmux1");
     expect(within(nav).getByText("global").closest("button")!.textContent).toBe("global0");
+  });
+});
+
+describe("ShortcutsOverlay host-divergence row facts (260801-r8j2)", () => {
+  // The desktop badge + other-host hint gate on the PHYSICAL host, so these
+  // spoof `navigator.platform` (the header-hint test's pattern) and, for the
+  // shell case, inject the `window.runkitShell` bridge marker.
+  function spoofMacHost() {
+    Object.defineProperty(navigator, "platform", { value: "MacIntel", configurable: true });
+  }
+  function unspoofMacHost() {
+    delete (navigator as { platform?: string }).platform;
+  }
+
+  it("mac BROWSER host: exactly the macShellOnly trio rows carry the desktop badge + desktop-chord hint", () => {
+    spoofMacHost();
+    try {
+      renderOverlay();
+      // Exactly three badges — N/T/W; host-invariant rows carry none.
+      expect(screen.getAllByText("desktop")).toHaveLength(3);
+      // The hint names the OTHER host's (desktop shell) chord.
+      expect(screen.getByText("in desktop app: ⌘N")).toBeInTheDocument();
+      expect(screen.getByText("in desktop app: ⌘T")).toBeInTheDocument();
+      expect(screen.getByText("in desktop app: ⌘W")).toBeInTheDocument();
+      // The amber reserved pill coexists on the same (browser-reserved) rows.
+      expect(screen.getAllByText("browser")).toHaveLength(3);
+    } finally {
+      unspoofMacHost();
+    }
+  });
+
+  it("mac SHELL host: the trio hints read the browser chord (no reserved pills inside the shell)", () => {
+    spoofMacHost();
+    window.runkitShell = { version: "1", platform: "darwin" };
+    try {
+      renderOverlay();
+      expect(screen.getAllByText("desktop")).toHaveLength(3);
+      expect(screen.getByText("in browser: ⇧⌘N")).toBeInTheDocument();
+      expect(screen.getByText("in browser: ⇧⌘T")).toBeInTheDocument();
+      expect(screen.getByText("in browser: ⇧⌘W")).toBeInTheDocument();
+      expect(screen.queryByText("browser")).toBeNull();
+    } finally {
+      delete window.runkitShell;
+      unspoofMacHost();
+    }
+  });
+
+  it("no badge on a win/linux host, and an override collapses the divergence", () => {
+    // Default jsdom host (platform "other") → never a badge, whatever the
+    // display toggle shows.
+    renderOverlay();
+    expect(screen.queryByText("desktop")).toBeNull();
+    fireEvent.click(screen.getByText("macOS"));
+    expect(screen.queryByText("desktop")).toBeNull();
+    cleanup();
+    // Spoofed mac host with an override on create-window: the overridden
+    // combo applies verbatim on both hosts, so its row loses the badge while
+    // the other two keep theirs.
+    spoofMacHost();
+    localStorage.setItem(
+      KEYBINDINGS_STORAGE_KEY,
+      JSON.stringify({ "create-window": { code: "KeyU", tier: "shifted" } }),
+    );
+    try {
+      renderOverlay();
+      expect(screen.getAllByText("desktop")).toHaveLength(2);
+      expect(screen.queryByText("in desktop app: ⌘T")).toBeNull();
+      expect(screen.getByText("in desktop app: ⌘N")).toBeInTheDocument();
+    } finally {
+      unspoofMacHost();
+    }
   });
 });
 

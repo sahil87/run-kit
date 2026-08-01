@@ -30,6 +30,20 @@ export const STRIP_MARKER_CLASS = "rk-shell-strip";
  *  shell's window backgroundColor (dark theme background). */
 export const DEFAULT_STRIP_COLOR = "#0f1117";
 
+/**
+ * Blank underlay that clears the welcome page's stale draggable region:
+ * Chromium emits a draggable-regions update only for documents that HAVE
+ * app-region elements, so `about:blank` (no app-region styles) leaves the
+ * welcome page's full-width drag band cached on the base webContents — where
+ * it swallows every click on the SPA strip's host-switcher island (no-drag
+ * exclusions subtract only within their own webContents). A `data:` document
+ * carrying an explicit no-drag element over a real layout box (viewport
+ * height — a zero-area box could be skipped by region collection) forces the
+ * update that replaces the stale band.
+ */
+export const BLANK_UNDERLAY_URL =
+  "data:text/html,<body style='min-height:100vh;margin:0;-webkit-app-region:no-drag'></body>";
+
 const SYMBOL_LIGHT = "#e5e7eb";
 const SYMBOL_DARK = "#111827";
 

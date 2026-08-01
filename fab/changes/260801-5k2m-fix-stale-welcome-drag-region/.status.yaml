@@ -1,0 +1,57 @@
+id: 5k2m
+name: 260801-5k2m-fix-stale-welcome-drag-region
+created: 2026-08-01T11:52:51Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 6
+    acceptance_count: 8
+    acceptance_completed: 8
+confidence:
+    certain: 3
+    confident: 1
+    tentative: 0
+    unresolved: 0
+    score: 4.8
+    fuzzy: true
+    dimensions:
+        signal: 71.3
+        reversibility: 87.5
+        competence: 81.3
+        disambiguation: 80.0
+stage_metrics:
+    intake: {started_at: "2026-08-01T11:52:51Z", driver: fab-new, iterations: 1, completed_at: "2026-08-01T12:06:43Z"}
+    apply: {started_at: "2026-08-01T12:06:43Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T12:12:24Z"}
+    review: {started_at: "2026-08-01T12:12:24Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T12:17:07Z"}
+    hydrate: {started_at: "2026-08-01T12:17:07Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T12:19:47Z"}
+    ship: {started_at: "2026-08-01T12:19:47Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T12:21:08Z"}
+    review-pr: {started_at: "2026-08-01T12:21:08Z", driver: git-pr, iterations: 1, completed_at: "2026-08-01T12:48:57Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/504
+change_type_source: explicit
+true_impact:
+    added: 353
+    deleted: 13
+    net: 340
+    excluding:
+        added: 42
+        deleted: 6
+        net: 36
+    tests:
+        added: 15
+        deleted: 0
+        net: 15
+    computed_at: "2026-08-01T12:21:08Z"
+    computed_at_stage: ship
+summary: 'Welcome underlay is a no-drag data: document (BLANK_UNDERLAY_URL in strip.ts), clearing the welcome page''s stale drag band that killed the titlebar host switcher'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-01T12:48:57Z

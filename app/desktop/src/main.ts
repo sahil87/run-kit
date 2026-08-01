@@ -59,6 +59,7 @@ import {
 import { badgePng, overlayDescription } from "./badge";
 import { buildMenu, DaemonMenuInfo, MenuCallbacks, UpdateMenuInfo } from "./menu";
 import {
+  BLANK_UNDERLAY_URL,
   DEFAULT_STRIP_COLOR,
   fallbackStripCss,
   shouldInjectFallbackStrip,
@@ -285,8 +286,9 @@ function showStartPage(win: BrowserWindow): void {
 
 // ─── Host views (one persistent WebContentsView per visited host) ───────────
 //
-// The window's own webContents serves ONLY the welcome page (and about:blank
-// while a view covers it); host content lives in per-host WebContentsViews
+// The window's own webContents serves ONLY the welcome page (and the no-drag
+// blank underlay while a view covers it — BLANK_UNDERLAY_URL, see
+// blankWelcomeUnderlay); host content lives in per-host WebContentsViews
 // attached over the FULL window content bounds — the SPA draws the 28px
 // titlebar strip itself, so full-bounds views reproduce today's rendering
 // exactly. Views are created lazily on first visit and stay alive until
@@ -411,13 +413,18 @@ function createHostView(hostId: string): WebContentsView {
 /**
  * Blank the welcome page under an attached view: the welcome script polls
  * `daemon:status` (spawning rk subprocesses) on a 3s interval that only dies
- * with its page, and a covered page never learns it is covered. A
- * main-initiated load bypasses the will-navigate guard, so about:blank needs
- * no allowlisting; `showWelcome` reloads the page fresh on demand.
+ * with its page, and a covered page never learns it is covered. The blank
+ * document is BLANK_UNDERLAY_URL — a no-drag `data:` page, NOT about:blank —
+ * because about:blank emits no draggable-regions update, leaving the welcome
+ * page's full-width drag band cached on this webContents where it would
+ * swallow every click on the SPA strip's host-switcher (Electron merges drag
+ * regions across webContents without occlusion). A main-initiated load
+ * bypasses the will-navigate guard, so the data: URL needs no allowlisting;
+ * `showWelcome` reloads the page fresh on demand (re-declaring its own band).
  */
 function blankWelcomeUnderlay(win: BrowserWindow): void {
   if (win.webContents.getURL().startsWith(WELCOME_URL)) {
-    void win.webContents.loadURL("about:blank");
+    void win.webContents.loadURL(BLANK_UNDERLAY_URL);
   }
 }
 

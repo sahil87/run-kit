@@ -232,9 +232,11 @@ describe("BottomBar scroll-lock", () => {
 describe("BottomBar chip tips (260723-fm08)", () => {
   // Tier-1 Tip wiring on the symbol-glyph chips (⇥ ^ ⌥ F▴ >_ ⌘K + the
   // ArrowPad trigger). Deep tooltip behavior is pinned once in tip.test.tsx;
-  // here we assert the per-site label wiring, the ⌘K keycap slot, the
-  // migration contract (no native title), and that the latch behavior
-  // survives the clone-child wrap. jsdom has no matchMedia → fine pointer.
+  // here we assert the per-site label wiring, the registry-resolved keycap
+  // slots (260801-mqim — jsdom detects platform "other", so chords render in
+  // the Ctrl spelling), the migration contract (no native title), and that
+  // the latch behavior survives the clone-child wrap. jsdom has no
+  // matchMedia → fine pointer.
   beforeEach(() => {
     vi.useFakeTimers();
   });
@@ -242,9 +244,10 @@ describe("BottomBar chip tips (260723-fm08)", () => {
   afterEach(() => {
     cleanup();
     vi.useRealTimers();
+    localStorage.clear();
   });
 
-  it("hovering the ⌘K chip shows 'Command palette' with a ⌘K keycap chip", () => {
+  it("hovering the ⌘K chip shows 'Command palette' with the platform-effective keycap chip", () => {
     renderBottomBar({ onOpenCompose: vi.fn() });
     const chip = screen.getByLabelText("Open command palette");
     act(() => {
@@ -253,10 +256,38 @@ describe("BottomBar chip tips (260723-fm08)", () => {
     });
     const tooltip = screen.getByRole("tooltip");
     expect(tooltip).toHaveTextContent("Command palette");
-    // The kbd slot renders as a real <kbd> keycap chip inside the tooltip.
+    // The kbd slot renders the REGISTRY-resolved chord as a real <kbd> keycap
+    // chip — "Ctrl+K" on jsdom's non-mac platform, no longer a static ⌘K
+    // (260801-mqim). The button FACE keeps the ⌘K brand glyph.
     const kbd = tooltip.querySelector("kbd");
     expect(kbd).not.toBeNull();
-    expect(kbd).toHaveTextContent("⌘K");
+    expect(kbd).toHaveTextContent("Ctrl+K");
+    expect(chip.querySelector("kbd")).toHaveTextContent("⌘K");
+  });
+
+  it("hovering the compose chip shows its registry-resolved chord chip (260801-mqim)", () => {
+    renderBottomBar({ onOpenCompose: vi.fn() });
+    const chip = screen.getByLabelText("Compose text");
+    act(() => {
+      fireEvent.mouseEnter(chip);
+      vi.advanceTimersByTime(TIP_OPEN_DELAY_MS);
+    });
+    const tooltip = screen.getByRole("tooltip");
+    expect(tooltip).toHaveTextContent("Compose text");
+    expect(tooltip.querySelector("kbd")).toHaveTextContent("Shift+Ctrl+E");
+  });
+
+  it("omits the keycap chip when the binding is disabled — a dead chord would lie (260801-mqim)", () => {
+    localStorage.setItem("runkit-keybindings", JSON.stringify({ "compose-toggle": null }));
+    renderBottomBar({ onOpenCompose: vi.fn() });
+    const chip = screen.getByLabelText("Compose text");
+    act(() => {
+      fireEvent.mouseEnter(chip);
+      vi.advanceTimersByTime(TIP_OPEN_DELAY_MS);
+    });
+    const tooltip = screen.getByRole("tooltip");
+    expect(tooltip).toHaveTextContent("Compose text");
+    expect(tooltip.querySelector("kbd")).toBeNull();
   });
 
   it("modifier chips carry plain key-name tips and still toggle aria-pressed", () => {

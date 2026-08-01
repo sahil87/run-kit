@@ -6,6 +6,8 @@ import { ArrowPad } from "@/components/arrow-pad";
 import { KBD_CLASS } from "@/components/kbd-chip";
 import { Tip, TipGroup } from "@/components/tip";
 import { focusComposeStrip } from "@/lib/compose-strip-events";
+import { formatCombo } from "@/lib/keybindings";
+import { useKeybindings } from "@/hooks/use-keybindings";
 
 type BottomBarProps = {
   onOpenCompose?: () => void;
@@ -81,6 +83,18 @@ export function BottomBar({ onOpenCompose, onFocusTerminal, onScrollLockChange }
   const [fnOpen, setFnOpen] = useState(false);
   const [scrollLocked, setScrollLocked] = useState(false);
   const fnRef = useRef<HTMLDivElement>(null);
+  // HOST-effective chords for the chip tips' kbd slots (the sidebar-footer
+  // overlayChord pattern, 260801-mqim): reflect overrides, omitted when
+  // unbound/disabled (a tip advertising a dead chord would lie).
+  const { byAction: keybindingsByAction, host: keybindingHost } = useKeybindings();
+  const chordFor = (actionId: string) => {
+    const binding = keybindingsByAction.get(actionId);
+    return binding?.enabled
+      ? formatCombo({ code: binding.code, tier: binding.tier }, keybindingHost.platform)
+      : undefined;
+  };
+  const composeChord = chordFor("compose-toggle");
+  const paletteChord = chordFor("command-palette");
 
   useEffect(() => {
     if (!fnOpen) return;
@@ -383,7 +397,7 @@ export function BottomBar({ onOpenCompose, onFocusTerminal, onScrollLockChange }
       <div className="w-px h-5 bg-border mx-0.5" aria-hidden="true" />
 
       {onOpenCompose && (
-        <Tip label="Compose text" placement="top">
+        <Tip label="Compose text" kbd={composeChord} placement="top">
           <button
             type="button"
             onMouseDown={preventFocusSteal}
@@ -396,9 +410,10 @@ export function BottomBar({ onOpenCompose, onFocusTerminal, onScrollLockChange }
           </button>
         </Tip>
       )}
-      {/* kbd slot: the canonical palette shortcut string ("⌘K") — a static
-          string per the 73al contract. */}
-      <Tip label="Command palette" kbd={"\u2318K"} placement="top">
+      {/* kbd slot: the registry-resolved command-palette chord (⌘K on mac,
+          Ctrl+K elsewhere) — reflects rebinds; omitted when disabled
+          (260801-mqim). The chip's FACE keeps the ⌘K brand glyph everywhere. */}
+      <Tip label="Command palette" kbd={paletteChord} placement="top">
         <button
           aria-label="Open command palette"
           className={`${KBD_CLASS} text-text-secondary`}

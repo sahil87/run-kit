@@ -1394,6 +1394,12 @@ function SidebarFooter({
   const overlayChord = overlayBinding?.enabled
     ? formatCombo({ code: overlayBinding.code, tier: overlayBinding.tier }, keybindingHost.platform)
     : undefined;
+  // Same derivation for the Settings gear (260801-mqim): ⇧⌘,/⇧Ctrl+, in
+  // browsers, ⌘, in the mac desktop shell.
+  const settingsBinding = keybindingsByAction.get("settings-open");
+  const settingsChord = settingsBinding?.enabled
+    ? formatCombo({ code: settingsBinding.code, tier: settingsBinding.tier }, keybindingHost.platform)
+    : undefined;
 
   // Same title derivation the top-bar dot carried: extend "Connected" with the
   // running version once known (hover-discovery detail; the aria-label stays
@@ -1490,7 +1496,7 @@ function SidebarFooter({
             <ThemeModeIcon mode={themeMode} />
           </button>
         </Tip>
-        <Tip label="Settings" placement="top">
+        <Tip label="Settings" kbd={settingsChord} placement="top">
           <button
             type="button"
             onClick={onOpenSettings}

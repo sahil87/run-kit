@@ -1,3 +1,11 @@
 {"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-01T11:54:46Z"}
 {"args":"frontend: tooltip kbd chips — compose-toggle chord on Compose Tip via keybinding registry, platform-aware palette kbd, add settings-open binding + Settings gear Tip kbd","cmd":"fab-new","event":"command","ts":"2026-08-01T11:54:46Z"}
 {"delta":"+4.7","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-08-01T11:55:41Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-01T12:11:49Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-01T12:12:36Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-08-01T12:13:40Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-01T12:26:56Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-01T12:35:49Z"}
+{"event":"review","result":"passed","ts":"2026-08-01T12:35:49Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-08-01T12:36:27Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-01T12:41:52Z"}

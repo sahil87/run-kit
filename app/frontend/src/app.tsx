@@ -2635,6 +2635,9 @@ function AppShell() {
         ? (fromPalette("open-last-used") ??
           (() => addToast("No last-used app yet — pick one from Open ▾ or the palette", "info")))
         : undefined,
+      // ⇧⌘,/⌘, settings (260801-mqim) — the palette body (`Settings: Open` →
+      // `openSettings`); a re-fire while the dialog is open is a no-op.
+      "settings-open": fromPalette("settings-open"),
     };
   }, [paletteActions, currentSession, windowParam, navigateToWindow, macros, sessionName, executeMacro, toggleComposeStrip, addToast]);
   useKeybindingDispatch(keybindingHandlers);

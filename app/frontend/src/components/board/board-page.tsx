@@ -349,6 +349,10 @@ function BoardPageContent({ name }: { name: string }) {
   // untouched, matching the old `entries.length === 0` early-return.
   const [showShortcutsOverlay, setShowShortcutsOverlay] = useState(false);
   const { byAction: bindingByAction, host: bindingHost } = useKeybindings();
+  // Settings dialog trigger (o7q8) — the dialog mounts once in AppLayout; the
+  // board twin registers both the chord handler (below) and the palette
+  // opener. Lifted above the handler memo for the dep (260801-mqim).
+  const { openSettings } = useSettingsDialog();
   const boardKeyHandlers = useMemo(() => {
     const cycle = (delta: -1 | 1) => {
       if (entries.length === 0) return;
@@ -365,8 +369,13 @@ function BoardPageContent({ name }: { name: string }) {
       "go-forward": () => router.history.forward(),
       "shortcuts-overlay": () => setShowShortcutsOverlay((prev) => !prev),
       "compose-toggle": toggleComposeStrip,
+      // ⇧⌘,/⌘, settings (260801-mqim) — the board twin mounts the same
+      // shared-context opener as AppShell (the board route renders no
+      // AppShell, so a handler registered only there would leave the chord
+      // dead here); a re-fire while the dialog is open is a no-op.
+      "settings-open": openSettings,
     };
-  }, [entries.length, router, toggleComposeStrip]);
+  }, [entries.length, router, toggleComposeStrip, openSettings]);
   useKeybindingDispatch(boardKeyHandlers);
 
   // Sidebar-footer Keyboard icon → overlay toggle (260801-sm6g) — the board
@@ -445,11 +454,6 @@ function BoardPageContent({ name }: { name: string }) {
   };
 
   const showEmptyState = !isLoading && entries.length === 0;
-
-  // Settings dialog trigger (o7q8) — the dialog mounts once in AppLayout;
-  // this palette only registers the opener (lifted above boardRouteActions
-  // for the memo dep).
-  const { openSettings } = useSettingsDialog();
 
   // Update notification (lifted above boardRouteActions so the qualify state +
   // triggers are in scope for the palette memo). Below `sm` the top-bar L3

@@ -69,6 +69,7 @@ describe("DEFAULT_BINDINGS integrity", () => {
       "go-forward": "BracketRight",
       "agent-next-waiting": "KeyA",
       "shortcuts-overlay": "Slash",
+      "settings-open": "Comma",
     });
   });
 
@@ -109,6 +110,49 @@ describe("DEFAULT_BINDINGS integrity", () => {
         enabled: true,
       });
     }
+  });
+
+  it("settings-open: Comma, global, ignoreInputs, shell-only mac ⌘, demotion (260801-mqim)", () => {
+    const def = DEFAULT_BINDINGS.find((b) => b.actionId === "settings-open");
+    expect(def).toMatchObject({
+      code: "Comma",
+      tier: "shifted",
+      macTier: "cmd",
+      macShellOnly: true,
+      scope: "global",
+      kind: "builtin",
+      ignoreInputs: true,
+    });
+    // ⇧Ctrl+, on win/linux and ⇧⌘, in a mac BROWSER (⌘, is browser
+    // Preferences there); the mac SHELL promotes to the OS-conventional ⌘,
+    // (the create-session macShellOnly precedent).
+    for (const host of [SHELL_OTHER, BROWSER_OTHER, BROWSER_MAC]) {
+      expect(byId(resolved(host), "settings-open")).toMatchObject({
+        code: "Comma",
+        tier: "shifted",
+        enabled: true,
+      });
+    }
+    expect(byId(resolved(SHELL_MAC), "settings-open")).toMatchObject({
+      code: "Comma",
+      tier: "cmd",
+      enabled: true,
+    });
+  });
+
+  it("a mac-browser override onto ⌘, resolves reserved; the mac-shell default stays enabled (260801-mqim)", () => {
+    const override = { "settings-open": { code: "Comma", tier: "cmd" as const } };
+    // Browser host: ⌘, is the browser's Preferences accelerator — claimed
+    // data disables the override rather than advertising a dead chord.
+    expect(byId(resolved(BROWSER_MAC, override), "settings-open")).toMatchObject({
+      enabled: false,
+      disabledReason: "reserved",
+    });
+    // Shell host: the same combo IS the shipped default — enabled and default.
+    expect(byId(resolved(SHELL_MAC), "settings-open")).toMatchObject({
+      enabled: true,
+      isDefault: true,
+    });
   });
 
   it("migrates the five legacy chords with combos unchanged", () => {

@@ -179,7 +179,9 @@ test.describe("Register-label and chip tips (260723-fm08)", () => {
     const tooltip = page.getByRole("tooltip");
     await expect(tooltip).toBeVisible();
     await expect(tooltip).toContainText("Command palette");
-    // The canonical palette shortcut renders as a real <kbd> keycap chip.
-    await expect(tooltip.locator("kbd")).toHaveText("⌘K");
+    // The REGISTRY-resolved palette chord renders as a real <kbd> keycap chip
+    // (260801-mqim) — "Ctrl+K" on the Linux e2e runner, no longer a static ⌘K
+    // (the chip's button face keeps the ⌘K brand glyph).
+    await expect(tooltip.locator("kbd")).toHaveText("Ctrl+K");
   });
 });

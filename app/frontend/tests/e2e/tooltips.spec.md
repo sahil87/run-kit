@@ -91,12 +91,16 @@ precedent).
 
 **What it proves:** The bottom-bar key chips (bare symbol glyphs) carry
 tier-1 tips (260723-fm08); the ⌘K chip pairs its "Command palette" label
-with the canonical shortcut rendered as a real `<kbd>` keycap chip, and the
-migration contract holds (no native `title` on the chip).
+with the **registry-resolved** shortcut rendered as a real `<kbd>` keycap
+chip (260801-mqim — platform-aware via `useKeybindings` + `formatCombo`, so
+the Linux e2e runner reads `Ctrl+K` while the chip's button face keeps the
+⌘K brand glyph), and the migration contract holds (no native `title` on the
+chip).
 
 **Steps:**
 1. Navigate to `/default/1` (mocked backend) and wait for the
    `Open command palette` chip to be visible.
 2. Assert the chip has NO `title` attribute.
 3. Hover the chip; assert the `role="tooltip"` element becomes visible,
-   contains "Command palette", and its `<kbd>` reads "⌘K".
+   contains "Command palette", and its `<kbd>` reads "Ctrl+K" (the
+   platform-effective chord on the Linux runner).

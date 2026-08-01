@@ -109,15 +109,17 @@ export const KEYBINDINGS_STORAGE_KEY = "runkit-keybindings";
  * Shifted tier — the nine starter actions (intake §1, canonical letters):
  * N/T/W new-session/new-window/close-window, H/L prev/next window, [/] back/
  * forward, A next-waiting-agent, / the cheatsheet — joined by E compose-strip
- * toggle and O open-last-used (260801-sm6g). Global scope (O is
- * terminal-scoped): dispatch mounts decide per-route applicability by handler
- * presence.
+ * toggle and O open-last-used (260801-sm6g) and , settings (260801-mqim).
+ * Global scope (O is terminal-scoped): dispatch mounts decide per-route
+ * applicability by handler presence.
  *
  * macOS demotions (260730-n789 — letters constant, modifier varies): [/]//
  * default to the unshifted ⌘ tier on every mac host (interceptable in
- * browsers, native back/forward convention); N/T/W demote only inside the
- * desktop shell (`macShellOnly` — mac browsers reserve them even shifted, so
- * they stay palette-only there). H/L/A stay shifted everywhere: ⌘H is macOS
+ * browsers, native back/forward convention); N/T/W and , demote only inside
+ * the desktop shell (`macShellOnly` — mac browsers reserve N/T/W even
+ * shifted, so those stay palette-only there; ⌘, is browser Preferences, so
+ * settings keeps the shifted default outside the shell). H/L/A stay
+ * shifted everywhere: ⌘H is macOS
  * Hide and ⌘A is select-all/Edit-role — immovable — and demoting L alone
  * would split the H/L pair across tiers. Win/Linux is unchanged (plain Ctrl
  * belongs to the pane).
@@ -147,6 +149,12 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   { actionId: "go-forward", code: "BracketRight", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Forward", description: "history", mapLabel: "fwd" },
   { actionId: "agent-next-waiting", code: "KeyA", tier: "shifted", scope: "global", kind: "builtin", label: "Next waiting agent", description: "jump to an agent blocked on input", mapLabel: "agent" },
   { actionId: "shortcuts-overlay", code: "Slash", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Keyboard shortcuts", description: "toggle this cheatsheet", mapLabel: "cheatsheet", ignoreInputs: true },
+  // ⇧⌘,/⇧Ctrl+, settings (260801-mqim): ⌘, unshifted is browser Preferences
+  // (claimed data below), so the browser default is the shifted tier; inside
+  // the mac desktop shell `macTier` + `macShellOnly` promote it to the
+  // OS-conventional ⌘, — the create-session precedent. ignoreInputs mirrors
+  // shortcuts-overlay/compose-toggle: a chrome-level opener fires from inputs.
+  { actionId: "settings-open", code: "Comma", tier: "shifted", macTier: "cmd", macShellOnly: true, scope: "global", kind: "builtin", label: "Settings", description: "open the settings dialog", mapLabel: "settings", ignoreInputs: true },
   // — legacy chords, migrated with combos unchanged —
   { actionId: "command-palette", code: "KeyK", tier: "cmd", scope: "global", kind: "builtin", label: "Command palette", ignoreInputs: true },
   { actionId: "sidebar-toggle", code: "Backslash", tier: "cmd", scope: "global", kind: "builtin", label: "Toggle sidebar" },
@@ -227,6 +235,10 @@ const MAC_BROWSER_CMD_CLAIMS: ClaimedKey[] = [
   { code: "KeyT", tier: "cmd", label: "new tab", owner: "browser", platform: "mac" },
   { code: "KeyW", tier: "cmd", label: "close tab", owner: "browser", platform: "mac" },
   { code: "KeyL", tier: "cmd", label: "address bar", owner: "browser", platform: "mac" },
+  // ⌘, is the browser's own Preferences accelerator on macOS (the reason
+  // `settings-open`'s browser default stays shifted, 260801-mqim) — claimed so
+  // an override onto it resolves reserved instead of advertising a dead chord.
+  { code: "Comma", tier: "cmd", label: "preferences", owner: "browser", platform: "mac" },
   ...Array.from({ length: 9 }, (_, i) => ({
     code: `Digit${i + 1}`,
     tier: "cmd" as const,

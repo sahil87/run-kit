@@ -83,8 +83,13 @@ type TipProps = {
   label?: string;
   /** Optional dim modifier note, e.g. "⇧click: force". */
   note?: string;
-  /** Optional keycap chip, e.g. "Enter". A STATIC string per call site — no
-   *  shortcut-registry wiring (deferred follow-up). */
+  /** Optional keycap chip, e.g. "Enter". For a registry-bound action the call
+   *  site resolves the EFFECTIVE chord (`useKeybindings()` → `byAction.get(id)`
+   *  → `formatCombo(..., host.platform)` when `enabled`, else `undefined` — a
+   *  chip advertising a dead chord would lie; the sidebar-footer overlayChord
+   *  pattern, 260801-sm6g/mqim). A static string is correct only for chords
+   *  with no registry binding (the compose/chat Enter / Alt+Enter editing
+   *  chords). */
   kbd?: string;
   /** Default `bottom` (the top-bar convention). Bottom-of-screen strips pass
    *  `top`, sidebar rows `right`; flip()/shift() handle viewport edges. */

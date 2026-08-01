@@ -1386,6 +1386,17 @@ describe("sidebar footer chrome (260723-o7q8 gear; 260724-6j1v cluster)", () => 
     expect(row).toContainElement(dot as HTMLElement);
   });
 
+  it("the Settings gear tip carries the registry-resolved chord keycap (260801-mqim)", async () => {
+    renderSidebar();
+    const gear = screen.getByRole("button", { name: "Open settings" });
+    fireEvent.mouseEnter(gear);
+    const tooltip = await screen.findByRole("tooltip");
+    expect(tooltip).toHaveTextContent("Settings");
+    // jsdom detects platform "other" → the Shift+Ctrl spelling of the new
+    // `settings-open` default (Comma).
+    expect(tooltip.querySelector("kbd")).toHaveTextContent("Shift+Ctrl+,");
+  });
+
   it("the Keyboard button dispatches shortcuts-overlay:open in the borderless idiom (260801-sm6g)", () => {
     renderSidebar();
     const keyboard = screen.getByRole("button", { name: "Keyboard shortcuts" });

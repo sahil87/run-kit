@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 14
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-08-01T10:47:37Z", driver: fab-fff, iterations: 3, completed_at: "2026-08-01T10:54:40Z"}
     hydrate: {started_at: "2026-08-01T10:54:40Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T11:09:36Z"}
     ship: {started_at: "2026-08-01T11:09:36Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-01T11:11:18Z"}
-    review-pr: {started_at: "2026-08-01T11:11:18Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-08-01T11:11:18Z", driver: git-pr, iterations: 1, completed_at: "2026-08-01T11:12:58Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/503
 change_type_source: explicit
@@ -54,4 +54,4 @@ true_impact:
     computed_at_stage: ship
 summary: 'Added the SSH-only remote-host subsystem: the rk remote six-verb CLI family over internal/remote (remotes.yaml v1, immutable 3100-3199 ports, tunnel-in-tmux on the rk-remotes sibling session, idempotent bootstrap/update connect), plus the desktop shell''s additive hosts.json remote field, activation-time connect heal, and welcome SSH rung.'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-01T11:11:18Z
+last_updated: 2026-08-01T11:12:58Z

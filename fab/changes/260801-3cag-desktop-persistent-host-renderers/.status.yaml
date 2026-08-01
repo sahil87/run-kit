@@ -1,0 +1,35 @@
+id: 3cag
+name: 260801-3cag-desktop-persistent-host-renderers
+created: 2026-08-01T06:09:22Z
+created_by: sahil-noon
+change_type: docs
+issues: []
+progress:
+    intake: ready
+    apply: pending
+    review: pending
+    hydrate: pending
+    ship: pending
+    review-pr: pending
+plan:
+    generated: false
+    task_count: 0
+    acceptance_count: 0
+    acceptance_completed: 0
+confidence:
+    certain: 3
+    confident: 5
+    tentative: 0
+    unresolved: 0
+    score: 4.2
+    fuzzy: true
+    dimensions:
+        signal: 65.6
+        reversibility: 79.4
+        competence: 77.5
+        disambiguation: 71.9
+stage_metrics:
+    intake: {started_at: "2026-08-01T06:09:22Z", driver: fab-new, iterations: 1}
+prs: []
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-01T06:12:54Z

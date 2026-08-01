@@ -1,0 +1,36 @@
+id: ujuk
+name: 260801-ujuk-spa-asset-cache-headers
+created: 2026-08-01T06:09:16Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: ready
+    apply: pending
+    review: pending
+    hydrate: pending
+    ship: pending
+    review-pr: pending
+plan:
+    generated: false
+    task_count: 0
+    acceptance_count: 0
+    acceptance_completed: 0
+confidence:
+    certain: 3
+    confident: 2
+    tentative: 0
+    unresolved: 0
+    score: 4.8
+    fuzzy: true
+    dimensions:
+        signal: 74.0
+        reversibility: 89.0
+        competence: 86.0
+        disambiguation: 81.0
+stage_metrics:
+    intake: {started_at: "2026-08-01T06:09:16Z", driver: fab-new, iterations: 1}
+prs: []
+change_type_source: explicit
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-01T06:12:54Z

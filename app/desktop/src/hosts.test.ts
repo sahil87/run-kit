@@ -297,3 +297,68 @@ test("hostInfos marks the first host active when activeId dangles", () => {
 test("hostInfos of an empty list is empty", () => {
   assert.deepEqual(hostInfos({ version: 1, activeId: null, hosts: [] }), []);
 });
+
+test("addHost persists a remote name and round-trips it through load", () => {
+  const dir = tmpDataDir();
+  const result = addHost(dir, "buildbox", "http://127.0.0.1:3100", "buildbox");
+  assert.equal(result.ok, true);
+  const loaded = loadHosts(dir);
+  assert.equal(loaded.hosts.length, 1);
+  assert.equal(loaded.hosts[0].remote, "buildbox");
+  assert.equal(loaded.hosts[0].url, "http://127.0.0.1:3100");
+});
+
+test("addHost without a remote (or with a blank one) persists no remote field", () => {
+  const dir = tmpDataDir();
+  addHost(dir, "plain", "http://host:3000");
+  addHost(dir, "blank", "http://host:3001", "  ");
+  const raw = JSON.parse(readFileSync(join(dir, "hosts.json"), "utf8")) as {
+    hosts: Record<string, unknown>[];
+  };
+  for (const entry of raw.hosts) {
+    assert.equal("remote" in entry, false);
+  }
+});
+
+test("loadHosts keeps a string remote", () => {
+  const dir = tmpDataDir();
+  const stored = {
+    version: 1,
+    activeId: "a",
+    hosts: [{ id: "a", name: "buildbox", url: "http://127.0.0.1:3100", remote: "buildbox" }],
+  };
+  writeFileSync(join(dir, "hosts.json"), JSON.stringify(stored), "utf8");
+  const loaded = loadHosts(dir);
+  assert.equal(loaded.hosts[0].remote, "buildbox");
+});
+
+test("loadHosts drops a wrong-typed remote but keeps the entry and the list", () => {
+  const dir = tmpDataDir();
+  const stored = {
+    version: 1,
+    activeId: "a",
+    hosts: [
+      { id: "a", name: "bad", url: "http://h:1", remote: 42 },
+      { id: "b", name: "good", url: "http://h:2", remote: "vm2" },
+    ],
+  };
+  writeFileSync(join(dir, "hosts.json"), JSON.stringify(stored), "utf8");
+  const loaded = loadHosts(dir);
+  assert.equal(loaded.hosts.length, 2);
+  assert.equal("remote" in loaded.hosts[0], false);
+  assert.equal(loaded.hosts[1].remote, "vm2");
+});
+
+test("loadHosts keeps a pre-remote file unchanged (schema still version 1)", () => {
+  const dir = tmpDataDir();
+  const stored = {
+    version: 1,
+    activeId: "a",
+    hosts: [{ id: "a", name: "old", url: "http://h:1" }],
+  };
+  writeFileSync(join(dir, "hosts.json"), JSON.stringify(stored), "utf8");
+  const loaded = loadHosts(dir);
+  assert.equal(loaded.version, 1);
+  assert.equal(loaded.hosts.length, 1);
+  assert.equal("remote" in loaded.hosts[0], false);
+});

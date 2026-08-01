@@ -187,6 +187,12 @@
         flex: 1;
         border-top: 1px solid #262b36;
       }
+      /* ── "or over SSH" remote rung ───────────────────────────────────── */
+      p.ssh-progress {
+        margin: 12px 0 0;
+        color: #fbbf24; /* the This-Mac card's amber "starting…" style */
+        font-size: 12px;
+      }
     </style>
   </head>
   <body>
@@ -212,7 +218,26 @@
           <button id="local-stop" type="button" class="ghost" hidden>Stop</button>
         </div>
         <p id="local-error" hidden class="error"></p>
-        <div class="divider">or a remote host</div>
+      </section>
+      <!-- "or over SSH" middle rung — same darwin/linux gate as the local
+           section (tunnels need local rk + tmux; suppressed on win32, which
+           also hides both dividers so the URL form stands alone). The
+           renderer only renders: main runs `rk remote add` + `rk remote
+           connect` via execFile and streams progress back. -->
+      <section id="ssh" hidden>
+        <div class="divider">or over SSH</div>
+        <label for="ssh-target">SSH target <span class="hint">— user@host or a ~/.ssh/config alias</span></label>
+        <input
+          id="ssh-target"
+          type="text"
+          placeholder="sahil@buildbox"
+          spellcheck="false"
+          autocomplete="off"
+        />
+        <button id="ssh-connect" type="button">Connect via SSH</button>
+        <p id="ssh-progress" class="ssh-progress" hidden></p>
+        <p id="ssh-error" hidden class="error"></p>
+        <div class="divider">or a URL</div>
       </section>
       <form id="connect-form">
         <label for="url">Host URL</label>

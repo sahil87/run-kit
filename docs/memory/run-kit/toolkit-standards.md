@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "run-kit's shll-toolkit-standards conformance posture — constitution binding (§ Toolkit Standards), audit-against-HEAD-build rule, per-standard status. help-dump, readme-extraction, skill, ten principles, update, version PASS. Covers skill topic pages, `rk url`, Principle 9 `--quiet`/reaper caps, SIGTERM-with-grace brew mutations, the help-dump-stability + Principle 9 check every new command surface gets (`rk desktop` is the example), and install-composition Policy B PASS (Policy A unaudited)."
+description: "run-kit's shll-toolkit-standards conformance posture — constitution binding (§ Toolkit Standards), audit-against-HEAD-build rule, per-standard status. help-dump, readme-extraction, skill, ten principles, update, version PASS. Covers skill topic pages, `rk url`, Principle 9 `--quiet`/reaper caps, SIGTERM-with-grace brew mutations, the help-dump + Principle 9 check every new command surface gets (`rk desktop`, `rk remote`), and install-composition Policy B PASS (Policy A unaudited)."
 ---
 # Toolkit Standards Conformance
 
@@ -114,7 +114,7 @@ practice the `help-dump` contract and Principle 9's data-vs-chatter split.
 
 The `rk desktop` group (`install`/`update`/`status` — see
 [architecture](/run-kit/architecture.md) § CLI Subcommands, `desktop` row) is the
-worked example of what conformance costs on a new surface:
+first worked example of what conformance costs on a new surface:
 
 - **help-dump: the command tree is platform-stable.** The three children are
   **registered on every platform**; only *running* them is gated (a parent
@@ -147,12 +147,52 @@ worked example of what conformance costs on a new surface:
   new tree via the cobra walk, and editing the bundle would trip its
   byte-equality drift guard for no standard-mandated gain.
 
+The `rk remote` group (`add`/`connect`/`list`/`status`/`disconnect`/`remove` — see
+[architecture](/run-kit/architecture.md) § CLI Subcommands, `remote` row, and
+[remote-hosts](/run-kit/remote-hosts.md) for the subsystem) is the second surface
+measured against the same two checks:
+
+- **help-dump: nothing platform-conditional, nothing hidden.** All six children
+  are registered unconditionally on `rootCmd`'s `remoteCmd`, every node carries a
+  `Long:` block (help-dump publishes `UsageString`), and the cobra tree walk picks
+  the subtree up with no help-dump code change. There is deliberately **no
+  `update` verb** — update folds into `connect` — so the dumped tree states the
+  surface exactly as designed rather than carrying a seventh node that only
+  duplicates a step connect must take anyway.
+- **Principle 9: the machine-consumable result is data, the narration is not.**
+  Every verb routes through `newSink(cmd)`. `Dataf` on stdout, surviving
+  `--quiet`: `add`'s `Name:`/`Target:`/`Local:` lines (the desktop shell parses
+  them, so gating them would break a consumer), `connect`'s final origin line
+  (the whole point of running it), the `list` tabwriter table and `status`'s
+  labeled report (read-only reports are the requested result, the `rk status` /
+  `reaper` posture), and `disconnect`/`remove`'s outcome lines — silence there
+  would misreport a mutation. `Notef` on stderr, dropped by `--quiet`: connect's
+  progress chain, `add`'s `Already registered.` and `Next: rk remote connect …`
+  hints, and the installed/updated notes.
+- **Exit-code convention (P4)**: the six children re-wrap their own `Args`
+  validators with `usageArgs` in `remote.go`'s `init()` — the same reason as
+  `desktop`, root's central wrap loop covers only `rootCmd`'s **direct**
+  children — so an arg-count violation is a usage error (exit 2) while an
+  unknown remote, an ssh failure, or a squatted port is operational (1).
+- **The `rk skill` bundle stays untouched**, for the same reason as `desktop`:
+  the bundle is a capability briefing, not a command enumeration, and editing it
+  would trip its byte-equality drift guard for no standard-mandated gain.
+
 #### Scenario: A new subcommand group keeps the help tree platform-stable
 - **GIVEN** the `rk desktop` group on a Linux host
 - **WHEN** `rk desktop install` runs
 - **THEN** it exits 1 with the macOS-only message on stderr
 - **AND** `rk help-dump` still lists the whole `desktop` subtree, so the dumped
   contract is identical to the one a macOS build produces
+
+#### Scenario: `--quiet` keeps a new surface's machine-consumable lines
+- **GIVEN** `rk remote add sahil@buildbox --quiet`
+- **WHEN** the registration succeeds
+- **THEN** stdout carries exactly the `Name:`/`Target:`/`Local:` lines and stderr
+  is empty (the `Next: rk remote connect …` hint dropped)
+- **AND GIVEN** `rk remote connect <name> --quiet`, the progress chain is dropped
+  while the final origin line still prints — the desktop shell parses both
+  contracts, so gating either would break a consumer
 
 ### Requirement: The standards set is enumerated at runtime, not assumed
 Each audit MUST re-run `shll standards` for the authoritative list and

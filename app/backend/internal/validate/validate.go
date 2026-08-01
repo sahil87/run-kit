@@ -308,6 +308,48 @@ func ValidateWorktreeName(name string) string {
 	return ""
 }
 
+// ValidateRemoteName validates an `rk remote` name. The name becomes a tmux
+// window name on the rk-daemon socket (`rk-remotes` session), a remotes.yaml
+// lookup key, and a bare argv element after `-n` / inside `-t` targets — so it
+// layers remote-seam hardening over the shared tmux-safe ValidateNewName rule
+// (which already bans empty/overlong names, forbidden metacharacters, colons,
+// periods, and spaces). The extra rejections mirror ValidateWorktreeName: a
+// leading `-` could read as a flag, and a `/` corrupts tmux target syntax.
+// Returns empty string if valid, an error message otherwise.
+func ValidateRemoteName(name string) string {
+	if msg := ValidateNewName(name, "Remote name"); msg != "" {
+		return msg
+	}
+	if strings.HasPrefix(name, "-") {
+		return "Remote name must not start with a hyphen"
+	}
+	if strings.Contains(name, "/") {
+		return "Remote name must not contain a slash"
+	}
+	return ""
+}
+
+// ValidateRemoteTarget validates an `rk remote` ssh target — a verbatim SSH
+// destination (a ~/.ssh/config alias or `user@host` form) that flows into ssh
+// argv as a bare positional. It applies the ValidateSSHHost rules (no
+// whitespace/control characters, no double quotes, DNS-bounded length) plus a
+// leading-`-` rejection so a hostile target can never be parsed as an ssh
+// option (constitution §I — Security First; mirrors tierNamePattern's
+// flag-injection defense). Returns empty string if valid, an error message
+// otherwise.
+func ValidateRemoteTarget(target string) string {
+	if strings.TrimSpace(target) == "" {
+		return "SSH target cannot be empty"
+	}
+	if strings.HasPrefix(target, "-") {
+		return "SSH target must not start with a hyphen"
+	}
+	if msg := ValidateSSHHost(target); msg != "" {
+		return msg
+	}
+	return ""
+}
+
 // toolNamePattern matches a shll-toolkit tool name (a manifest key such as
 // "run-kit", "fab-kit", "tu", "wt"): alphanumeric plus hyphen and underscore,
 // with the leading char constrained to alphanumeric or underscore. Tool names

@@ -49,10 +49,12 @@ import {
   augmentPath,
   DaemonStatus,
   isDaemonAlreadyRunning,
+  isExecTimeout,
   parseRkVersion,
   parseSessionCount,
   resolveRkBinary,
   rkCandidatePaths,
+  rkTimeoutMessage,
 } from "./local-daemon";
 import { badgePng, overlayDescription } from "./badge";
 import { buildMenu, DaemonMenuInfo, MenuCallbacks, UpdateMenuInfo } from "./menu";
@@ -63,6 +65,11 @@ import {
   STRIP_HEIGHT_PX,
   symbolColorFor,
 } from "./strip";
+import {
+  createLineSplitter,
+  parseConnectOrigin,
+  parseRemoteAddOutput,
+} from "./remote-host";
 import { availableUpdateVersion, isUpdateCheckDue } from "./update-check";
 import { isEditorDeeplink, isHttpUrl, windowOpenAction } from "./window-open";
 import {
@@ -85,6 +92,8 @@ import {
   emptyViews,
   findViewByWebContentsId,
   getView,
+  LoadFlagEvent,
+  nextLoadFailed,
   removeView,
   setViewBadge,
   setViewThemeColor,
@@ -101,6 +110,12 @@ const RK_QUERY_TIMEOUT_MS = 5000;
 const RK_STATUS_TIMEOUT_MS = 10_000;
 /** Daemon lifecycle commands (`rk daemon start/stop/restart`) — tmux work. */
 const RK_DAEMON_TIMEOUT_MS = 30_000;
+/** `rk remote add` — pure local registration, no ssh roundtrip. */
+const RK_REMOTE_ADD_TIMEOUT_MS = 10_000;
+/** `rk remote connect` — may bootstrap rk on the remote over ssh. */
+const RK_REMOTE_CONNECT_TIMEOUT_MS = 300_000;
+/** Suppression window for activation-time reconnects after a success. */
+const REMOTE_RECONNECT_SUPPRESS_MS = 15_000;
 /** Cadence + cap for the post-start "waiting for the port to answer" poll. */
 const DAEMON_START_POLL_MS = 1000;
 const DAEMON_START_WAIT_MS = 30_000;
@@ -122,6 +137,11 @@ let mainWindow: BrowserWindow | null = null;
 
 /** Per-host view registry — pure logic in ./views, handles are WebContentsViews. */
 let views: ViewsState<WebContentsView> = emptyViews();
+
+/** Per-host "last main-frame load failed" flags (hostId-keyed, view-scoped):
+ *  the remote-tunnel heal reloads ONLY a failed view — a warm view keeps its
+ *  live renderer state. Entries die with their view. */
+const viewLoadFailed = new Map<string, boolean>();
 
 /** Sentinel registry id for the RK_DESKTOP_URL dev view — never a store
  *  entry, so nothing about it (activeId, lastPath) is ever persisted. */
@@ -327,6 +347,20 @@ function createHostView(hostId: string): WebContentsView {
   view.setBackgroundColor("#0f1117"); // no white flash while the SPA boots
   const contents = view.webContents;
 
+  // Track main-frame load failures per host so the remote-tunnel heal knows
+  // whether a reload is needed (a warm view with live state is never
+  // reloaded). Transitions are pure (./views nextLoadFailed): a real
+  // main-frame failure sets the flag, and ONLY a did-navigate commit clears
+  // it — did-finish-load also fires for Chromium's own error page right
+  // after did-fail-load, so it must never clear (a dead-tunnel view would
+  // otherwise read as healthy and the heal's reload gate would never fire).
+  const applyLoadFlag = (event: LoadFlagEvent): void => {
+    viewLoadFailed.set(hostId, nextLoadFailed(viewLoadFailed.get(hostId) === true, event));
+  };
+  contents.on("did-fail-load", (_event, errorCode, _desc, _url, isMainFrame) => {
+    applyLoadFlag({ kind: "did-fail-load", isMainFrame, errorCode });
+  });
+
   // Key of the fallback strip CSS injected into this view's CURRENT page load
   // (null when none). Tracked so a theme-color report landing AFTER the
   // injection can recolor the band — `did-finish-load` may run before the
@@ -347,8 +381,11 @@ function createHostView(hostId: string): WebContentsView {
     }
   };
   // Inserted CSS does not survive a main-frame navigation; drop the dead key.
+  // A did-navigate commit is also the ONE success signal that clears the
+  // load-failure flag (it never fires for Chromium's error page).
   contents.on("did-navigate", () => {
     fallbackCssKey = null;
+    applyLoadFlag({ kind: "did-navigate" });
   });
   // Cache the page's theme-color per view; repaint the overlay only when this
   // view is the attached one (a background report must not tint the window —
@@ -365,6 +402,7 @@ function createHostView(hostId: string): WebContentsView {
   // draggable band whose CSS no-ops when the SPA-drawn strip marks
   // `html.rk-shell-strip` (CSS is live, so injecting unconditionally is safe).
   contents.on("did-finish-load", () => {
+    applyLoadFlag({ kind: "did-finish-load" }); // deliberate no-op transition
     void refreshFallbackStrip();
   });
   return view;
@@ -389,9 +427,17 @@ function blankWelcomeUnderlay(win: BrowserWindow): void {
  * attach over full bounds, and repaint the OS surfaces (badge, overlay) from
  * the INCOMING view's caches.
  */
-function attachHostView(host: { id: string; url: string; lastPath?: string }): void {
+function attachHostView(host: {
+  id: string;
+  url: string;
+  lastPath?: string;
+  remote?: string;
+}): void {
   const win = mainWindow;
   if (!win) return;
+  // SSH-only hosts heal their tunnel on activation (never blocking the
+  // attach — a warm flip stays instant; a dead view reloads once healed).
+  ensureRemoteConnected(host);
   const current = activeView(views);
   let entry = getView(views, host.id);
   let created = false;
@@ -434,6 +480,7 @@ function destroyHostView(hostId: string): void {
     mainWindow.contentView.removeChildView(entry.handle);
   }
   views = removeView(views, hostId).state;
+  viewLoadFailed.delete(hostId);
   if (!entry.handle.webContents.isDestroyed()) entry.handle.webContents.close();
 }
 
@@ -444,6 +491,7 @@ function destroyAllViews(): void {
     if (!entry.handle.webContents.isDestroyed()) entry.handle.webContents.close();
   }
   views = emptyViews();
+  viewLoadFailed.clear();
 }
 
 // ─── Menu ───────────────────────────────────────────────────────────────────
@@ -762,6 +810,171 @@ async function restartLocalDaemon(): Promise<void> {
   if (!restarted.ok) dialog.showErrorBox("Local Daemon", restarted.error);
 }
 
+// ─── SSH remote hosts (rk remote — explicit user-initiated actions only) ────
+//
+// The CLI owns bootstrap and tunnel lifecycle; the shell only runs
+// user-initiated `rk remote add` / `rk remote connect` via execFile (argument
+// slices + timeouts — Constitution I applies to the Node side too) and
+// parses the CLI's stable stdout contracts (./remote-host, node:test
+// covered). Progress rides connect's stderr chatter, streamed line-by-line
+// to the welcome page.
+
+/**
+ * Streamed variant of runRk for `rk remote connect`: stderr chatter lines
+ * are relayed to onLine as they arrive (the welcome progress feed) while
+ * stdout is buffered for the origin data line.
+ */
+function runRkStreaming(
+  args: string[],
+  timeout: number,
+  onLine: (line: string) => void,
+): Promise<RkRunResult> {
+  return new Promise((resolve) => {
+    const splitter = createLineSplitter();
+    const child = execFile(
+      rkBinary(),
+      args,
+      {
+        timeout,
+        env: { ...process.env, PATH: augmentPath(process.platform, process.env.PATH) },
+      },
+      (err, stdout) => {
+        for (const line of splitter.flush()) onLine(line);
+        if (err) {
+          // Raw-callback execFile attaches no `stderr` to its error (unlike
+          // the promisified runRk), so a timeout would otherwise surface as
+          // node's "Command failed: /abs/path/rk …" — name the timeout
+          // explicitly instead of leaking the binary path.
+          const error = isExecTimeout(err)
+            ? rkTimeoutMessage(args, timeout)
+            : execErrorMessage(err);
+          resolve({ ok: false, error, notInstalled: isEnoent(err) });
+          return;
+        }
+        resolve({ ok: true, stdout });
+      },
+    );
+    child.stderr?.setEncoding("utf8");
+    child.stderr?.on("data", (chunk: string) => {
+      for (const line of splitter.push(chunk)) onLine(line);
+    });
+  });
+}
+
+/**
+ * Reduce a failed connect's stderr (progress chatter + cobra's final
+ * "Error: …" block) to the error block alone — the progress lines were
+ * already streamed to the renderer.
+ */
+function remoteErrorMessage(full: string): string {
+  const idx = full.lastIndexOf("Error:");
+  return idx >= 0 ? full.slice(idx).trim() : full;
+}
+
+/**
+ * The welcome "or over SSH" flow: register (idempotent `rk remote add`,
+ * labeled-line output) → connect (streamed progress) → health-ping the
+ * local origin (the same `pingServer` gate the URL rung uses — a tunnel
+ * that accepts TCP but does not answer /api/health persists nothing) →
+ * activate-or-add the host entry carrying the `remote` name → switchToHost.
+ * Never runs without an explicit user action.
+ */
+async function connectRemoteHost(
+  target: string,
+  onProgress: (line: string) => void,
+): Promise<IpcResult> {
+  const added = await runRk(["remote", "add", target], RK_REMOTE_ADD_TIMEOUT_MS);
+  if (!added.ok) {
+    if (added.notInstalled) {
+      return { ok: false, error: "run-kit is not installed on this machine" };
+    }
+    return { ok: false, error: remoteErrorMessage(added.error) };
+  }
+  const info = parseRemoteAddOutput(added.stdout);
+  if (!info) {
+    return { ok: false, error: "Unexpected `rk remote add` output — update run-kit and retry" };
+  }
+
+  const connected = await runRkStreaming(
+    ["remote", "connect", info.name],
+    RK_REMOTE_CONNECT_TIMEOUT_MS,
+    onProgress,
+  );
+  if (!connected.ok) return { ok: false, error: remoteErrorMessage(connected.error) };
+  const origin = parseConnectOrigin(connected.stdout) ?? info.origin;
+
+  // Health-gate before persisting: the tunnel is up, but only an rk server
+  // answering /api/health earns a host entry (the URL rung's contract). A
+  // failed ping surfaces inline and leaves hosts.json — and the reconnect
+  // suppression window — untouched.
+  const ping = await pingServer(origin);
+  if (!ping.ok) return { ok: false, error: ping.error };
+  markRemoteConnected(info.name);
+
+  // Dedupe on the remote name — the stable identity for SSH hosts (several
+  // entries can share an origin, but one remote is one host).
+  const existing = loadHosts(userDataDir()).hosts.find((h) => h.remote === info.name);
+  if (existing) return switchToHost(existing.id);
+  const addedHost = addHost(userDataDir(), info.name, origin, info.name);
+  if (!addedHost.ok) return addedHost;
+  return switchToHost(addedHost.host.id); // attaches the fresh view + rebuilds the menu
+}
+
+// Activation-time heal guards: one connect in flight per remote, and a short
+// suppression window after a success so the welcome flow's switchToHost does
+// not immediately re-run the connect it just finished.
+const remoteConnectsInFlight = new Set<string>();
+const remoteConnectedAt = new Map<string, number>();
+
+function markRemoteConnected(name: string): void {
+  remoteConnectedAt.set(name, Date.now());
+}
+
+/**
+ * Re-run `rk remote connect` when a remote-carrying host is activated —
+ * non-blocking (the attach seam stays an instant flip): the idempotent
+ * connect heals a dead tunnel in the background, and only a view whose last
+ * main-frame load FAILED is reloaded afterwards (a live view keeps its
+ * state; its sockets reconnect on their own once the tunnel is back).
+ */
+function ensureRemoteConnected(host: {
+  id: string;
+  url: string;
+  lastPath?: string;
+  remote?: string;
+}): void {
+  const name = host.remote;
+  if (name === undefined || name === "") return;
+  if (remoteConnectsInFlight.has(name)) return;
+  const lastOk = remoteConnectedAt.get(name);
+  if (lastOk !== undefined && Date.now() - lastOk < REMOTE_RECONNECT_SUPPRESS_MS) return;
+
+  remoteConnectsInFlight.add(name);
+  void (async () => {
+    try {
+      const run = await runRkStreaming(
+        ["remote", "connect", name],
+        RK_REMOTE_CONNECT_TIMEOUT_MS,
+        () => {},
+      );
+      if (!run.ok) {
+        dialog.showErrorBox(`Remote Host: ${name}`, remoteErrorMessage(run.error));
+        return;
+      }
+      markRemoteConnected(name);
+      if (viewLoadFailed.get(host.id) === true) {
+        const entry = getView(views, host.id);
+        if (entry && !entry.handle.webContents.isDestroyed()) {
+          viewLoadFailed.set(host.id, false);
+          void entry.handle.webContents.loadURL(host.url + (host.lastPath ?? ""));
+        }
+      }
+    } finally {
+      remoteConnectsInFlight.delete(name);
+    }
+  })();
+}
+
 // Cached menu-relevant daemon info. Application menus have no reliable
 // about-to-open event, so the cache refreshes on startup, window focus,
 // after daemon actions, and via the welcome page's status polls — and the
@@ -936,6 +1149,19 @@ function registerIpcHandlers(): void {
   ipcMain.handle("daemon:stop", async (event): Promise<IpcResult> => {
     if (!isWelcomeSender(event)) return { ok: false, error: "Not allowed" };
     return confirmAndStopDaemon();
+  });
+
+  // remote:* — welcome-page-only surface (the SSH rung). Main runs the CLI
+  // and streams connect's chatter back over `remote:progress` sends.
+  ipcMain.handle("remote:connect", async (event, rawTarget: unknown): Promise<IpcResult> => {
+    if (!isWelcomeSender(event)) return { ok: false, error: "Not allowed" };
+    if (typeof rawTarget !== "string" || rawTarget.trim() === "") {
+      return { ok: false, error: "Enter an SSH target — user@host or a ~/.ssh/config alias" };
+    }
+    const sender = event.sender;
+    return connectRemoteHost(rawTarget.trim(), (line) => {
+      if (!sender.isDestroyed()) sender.send("remote:progress", line);
+    });
   });
 
   // servers:* — the web SPA's contract (app/frontend/src/lib/shell.ts): the

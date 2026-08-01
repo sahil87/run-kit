@@ -62,6 +62,7 @@ func init() {
 	rootCmd.AddCommand(agentSetupCmd)
 	rootCmd.AddCommand(agentHookCmd)
 	rootCmd.AddCommand(riffCmd)
+	rootCmd.AddCommand(remoteCmd)
 	rootCmd.AddCommand(reaperCmd)
 	rootCmd.AddCommand(newShellInitCmd())
 	rootCmd.AddCommand(helpDumpCmd)

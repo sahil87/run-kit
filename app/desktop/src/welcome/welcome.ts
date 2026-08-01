@@ -37,6 +37,11 @@ interface DaemonBridge {
   stop(): Promise<unknown>;
 }
 
+interface RemoteBridge {
+  connect(target: string): Promise<unknown>;
+  onProgress(handler: (line: string) => void): void;
+}
+
 interface WelcomeElements {
   form: HTMLFormElement;
   urlInput: HTMLInputElement;
@@ -53,6 +58,11 @@ interface WelcomeElements {
   localConnect: HTMLButtonElement;
   localStop: HTMLButtonElement;
   localError: HTMLElement;
+  sshSection: HTMLElement;
+  sshTarget: HTMLInputElement;
+  sshConnect: HTMLButtonElement;
+  sshProgress: HTMLElement;
+  sshError: HTMLElement;
 }
 
 interface PingOk {
@@ -119,6 +129,23 @@ function getDaemonBridge(): DaemonBridge | null {
   };
 }
 
+/** Narrow `window.runkitShell.__remote` to the remote-bridge shape. */
+function getRemoteBridge(): RemoteBridge | null {
+  const shell: unknown = Reflect.get(window, "runkitShell");
+  if (typeof shell !== "object" || shell === null || !("__remote" in shell)) return null;
+  const candidate = shell.__remote;
+  if (typeof candidate !== "object" || candidate === null) return null;
+  if (!("connect" in candidate) || !("onProgress" in candidate)) return null;
+  const { connect, onProgress } = candidate;
+  if (typeof connect !== "function" || typeof onProgress !== "function") return null;
+  return {
+    connect: (target: string): Promise<unknown> => Promise.resolve(connect(target)),
+    onProgress: (handler: (line: string) => void): void => {
+      onProgress(handler);
+    },
+  };
+}
+
 /** Narrow `window.runkitShell.platform` (drives the local-section heading). */
 function getShellPlatform(): string | null {
   const shell: unknown = Reflect.get(window, "runkitShell");
@@ -142,6 +169,11 @@ function getWelcomeElements(): WelcomeElements | null {
   const localConnect = document.getElementById("local-connect");
   const localStop = document.getElementById("local-stop");
   const localError = document.getElementById("local-error");
+  const sshSection = document.getElementById("ssh");
+  const sshTarget = document.getElementById("ssh-target");
+  const sshConnect = document.getElementById("ssh-connect");
+  const sshProgress = document.getElementById("ssh-progress");
+  const sshError = document.getElementById("ssh-error");
   if (
     !(form instanceof HTMLFormElement) ||
     !(urlInput instanceof HTMLInputElement) ||
@@ -157,7 +189,12 @@ function getWelcomeElements(): WelcomeElements | null {
     !(localHint instanceof HTMLElement) ||
     !(localConnect instanceof HTMLButtonElement) ||
     !(localStop instanceof HTMLButtonElement) ||
-    !(localError instanceof HTMLElement)
+    !(localError instanceof HTMLElement) ||
+    !(sshSection instanceof HTMLElement) ||
+    !(sshTarget instanceof HTMLInputElement) ||
+    !(sshConnect instanceof HTMLButtonElement) ||
+    !(sshProgress instanceof HTMLElement) ||
+    !(sshError instanceof HTMLElement)
   ) {
     return null;
   }
@@ -177,6 +214,11 @@ function getWelcomeElements(): WelcomeElements | null {
     localConnect,
     localStop,
     localError,
+    sshSection,
+    sshTarget,
+    sshConnect,
+    sshProgress,
+    sshError,
   };
 }
 
@@ -381,6 +423,70 @@ function wireLocalSection(els: WelcomeElements, daemon: DaemonBridge, heading: s
   }, LOCAL_STATUS_POLL_MS);
 }
 
+/**
+ * The "or over SSH" middle rung — one input, one button, one amber progress
+ * line. The renderer only renders: main runs `rk remote add` + `rk remote
+ * connect` (execFile) and streams connect's chatter lines back over the
+ * `remote:progress` subscription; each line extends the arrow chain
+ * (`connecting to buildbox… → opening tunnel on :3100…`). Success means main
+ * is navigating this window away (switchToHost) — the rung stays busy.
+ */
+function wireSshSection(els: WelcomeElements, remote: RemoteBridge): void {
+  els.sshSection.hidden = false;
+
+  let busy = false;
+  const chain: string[] = [];
+  remote.onProgress((line) => {
+    if (!busy) return;
+    chain.push(line);
+    els.sshProgress.textContent = chain.join(" → ");
+  });
+
+  const showSshError = (message: string): void => {
+    els.sshError.textContent = message;
+    els.sshError.hidden = false;
+  };
+
+  const connectSsh = async (): Promise<void> => {
+    if (busy) return;
+    const target = els.sshTarget.value.trim();
+    if (target === "") {
+      showSshError("Enter an SSH target — user@host or a ~/.ssh/config alias");
+      return;
+    }
+    busy = true;
+    els.sshError.hidden = true;
+    chain.length = 0;
+    els.sshProgress.textContent = `connecting to ${target}…`;
+    els.sshProgress.hidden = false;
+    els.sshConnect.disabled = true;
+    els.sshConnect.textContent = "Connecting…";
+    let result: unknown = null;
+    try {
+      result = await remote.connect(target);
+    } catch {
+      // A rejected invoke surfaces the generic error below — never stay stuck busy.
+    }
+    if (isAckOk(result)) return; // success: main is navigating away — stay busy
+    showSshError(errorOf(result));
+    els.sshProgress.hidden = true;
+    els.sshConnect.disabled = false;
+    els.sshConnect.textContent = "Connect via SSH";
+    busy = false;
+  };
+
+  els.sshConnect.addEventListener("click", () => {
+    void connectSsh();
+  });
+  // The input sits outside the URL form — Enter should still connect.
+  els.sshTarget.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      void connectSsh();
+    }
+  });
+}
+
 function wireWelcomePage(els: WelcomeElements, bridge: WelcomeBridge): void {
   const params = new URLSearchParams(location.search);
   const mode = params.get("mode");
@@ -455,5 +561,13 @@ function wireWelcomePage(els: WelcomeElements, bridge: WelcomeBridge): void {
   const daemonBridge = getDaemonBridge();
   if (heading !== null && daemonBridge !== null) {
     wireLocalSection(els, daemonBridge, heading);
+  }
+
+  // "or over SSH" rung: same platform gate — the tunnel runs through the
+  // LOCAL rk + tmux, which do not exist on win32 (the URL form then stands
+  // alone, both dividers hidden with the section).
+  const remoteBridge = getRemoteBridge();
+  if (heading !== null && remoteBridge !== null) {
+    wireSshSection(els, remoteBridge);
   }
 })();

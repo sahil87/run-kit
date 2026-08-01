@@ -13,8 +13,10 @@ import {
   addView,
   deactivateViews,
   emptyViews,
+  ERR_ABORTED,
   findViewByWebContentsId,
   getView,
+  nextLoadFailed,
   removeView,
   setViewBadge,
   setViewThemeColor,
@@ -185,4 +187,53 @@ test("switchPaint returns the INCOMING view's caches, never the outgoing one's",
     badgeCount: 2,
     themeColor: "#112233",
   });
+});
+
+// ── load-failure flag (the remote-tunnel heal's reload gate) ─────────────────
+
+test("the error page's did-finish-load does NOT clear a set failure flag", () => {
+  // Regression: Chromium fires did-finish-load for its own error page right
+  // after did-fail-load. Clearing there wiped the flag before the background
+  // connect heal completed, so the reload gate never fired and a dead-tunnel
+  // view stayed stuck on ERR_CONNECTION_REFUSED.
+  let failed = nextLoadFailed(false, {
+    kind: "did-fail-load",
+    isMainFrame: true,
+    errorCode: -102, // ERR_CONNECTION_REFUSED
+  });
+  assert.equal(failed, true);
+  failed = nextLoadFailed(failed, { kind: "did-finish-load" });
+  assert.equal(failed, true); // the heal's reload gate still fires
+});
+
+test("only a did-navigate commit clears the flag; finish then keeps it clear", () => {
+  // The successful-load sequence: did-navigate (real response committed —
+  // never fired for an error page) then did-finish-load.
+  let failed = nextLoadFailed(true, { kind: "did-navigate" });
+  assert.equal(failed, false);
+  failed = nextLoadFailed(failed, { kind: "did-finish-load" });
+  assert.equal(failed, false);
+});
+
+test("ERR_ABORTED and subframe failures neither set nor clear the flag", () => {
+  const aborted = { kind: "did-fail-load", isMainFrame: true, errorCode: ERR_ABORTED } as const;
+  const subframe = { kind: "did-fail-load", isMainFrame: false, errorCode: -102 } as const;
+  assert.equal(nextLoadFailed(false, aborted), false);
+  assert.equal(nextLoadFailed(false, subframe), false);
+  assert.equal(nextLoadFailed(true, aborted), true);
+  assert.equal(nextLoadFailed(true, subframe), true);
+});
+
+test("a heal-retry that fails again keeps the flag through the full event cycle", () => {
+  // fail → finish (error page) → reload while the tunnel is STILL down:
+  // fail → finish again — the flag must survive every step until a real
+  // did-navigate commit lands.
+  const fail = { kind: "did-fail-load", isMainFrame: true, errorCode: -102 } as const;
+  let failed = false;
+  for (const event of [fail, { kind: "did-finish-load" } as const, fail, { kind: "did-finish-load" } as const]) {
+    failed = nextLoadFailed(failed, event);
+    assert.equal(failed, true);
+  }
+  failed = nextLoadFailed(failed, { kind: "did-navigate" });
+  assert.equal(failed, false);
 });

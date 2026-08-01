@@ -1,9 +1,9 @@
 /**
  * Local-daemon pure logic — rk binary candidate resolution, GUI-PATH
  * augmentation, `rk --version` output parsing, session-count parsing, and
- * already-running error classification. (The per-platform "This Mac"/"This
- * Machine" heading lives inline in welcome.ts, which is deliberately
- * import-free.)
+ * rk-invocation error classification (already-running, timeout). (The
+ * per-platform "This Mac"/"This Machine" heading lives inline in welcome.ts,
+ * which is deliberately import-free.)
  *
  * Deliberately electron-free (the `hosts.ts` / `window-open.ts` precedent):
  * filesystem access is injected (`exists` predicate) so the module is fully
@@ -127,4 +127,26 @@ export function parseSessionCount(body: unknown): number | null {
  */
 export function isDaemonAlreadyRunning(message: string): boolean {
   return /daemon already running/i.test(message);
+}
+
+/**
+ * Classify an `execFile` rejection as the timeout kill: node enforces the
+ * `timeout` option by SIGTERM-killing the child, which surfaces as
+ * `signal: "SIGTERM"` with `code: null` (a normal failure carries an exit
+ * code and no signal; ENOENT carries the string code "ENOENT"). The
+ * raw-callback `execFile` form attaches no `stderr` to the error — unlike
+ * the promisified one — so without an explicit branch a timeout surfaces as
+ * node's generic "Command failed: /abs/path/rk …" message: a leaked binary
+ * path saying nothing about time.
+ */
+export function isExecTimeout(err: unknown): boolean {
+  if (typeof err !== "object" || err === null) return false;
+  const signal = "signal" in err ? err.signal : undefined;
+  const code = "code" in err ? err.code : undefined;
+  return signal === "SIGTERM" && code === null;
+}
+
+/** The user-facing timeout message — the rk arg slice, never the binary path. */
+export function rkTimeoutMessage(args: string[], timeoutMs: number): string {
+  return `\`rk ${args.join(" ")}\` timed out after ${Math.round(timeoutMs / 1000)}s`;
 }

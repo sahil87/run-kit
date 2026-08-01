@@ -19,6 +19,15 @@ export interface HostEntry {
   url: string;
   /** Last-visited SPA route remainder (`pathname + search`), when known. */
   lastPath?: string;
+  /**
+   * `rk remote` name for SSH-only hosts (additive, schema stays version 1).
+   * Present when the host is reached through an ssh tunnel: `url` is still
+   * the required, real, stable local origin (http://127.0.0.1:<port>), and
+   * activating the host re-runs `rk remote connect <remote>` to heal the
+   * tunnel. Older shells ignore the field and show the normal dead-host
+   * state when the tunnel is down — acceptable degradation, no v2 bump.
+   */
+  remote?: string;
 }
 
 export interface HostList {
@@ -62,8 +71,9 @@ export function normalizeOrigin(input: string): NormalizeResult {
 /**
  * Parse one stored entry. The required fields (id/name/url) must be strings —
  * anything else rejects the entry (and, via parseHostList, the file). The
- * optional `lastPath` is tolerant: absent → fine, string → kept, any other
- * type → the field is dropped but the entry (and file) still loads.
+ * optional `lastPath` and `remote` are tolerant: absent → fine, string →
+ * kept, any other type → the field is dropped but the entry (and file) still
+ * loads.
  */
 function parseHostEntry(value: unknown): HostEntry | null {
   if (typeof value !== "object" || value === null) return null;
@@ -78,6 +88,9 @@ function parseHostEntry(value: unknown): HostEntry | null {
   const entry: HostEntry = { id: value.id, name: value.name, url: value.url };
   if ("lastPath" in value && typeof value.lastPath === "string") {
     entry.lastPath = value.lastPath;
+  }
+  if ("remote" in value && typeof value.remote === "string") {
+    entry.remote = value.remote;
   }
   return entry;
 }
@@ -127,8 +140,12 @@ export function saveHosts(dir: string, list: HostList): void {
   renameSync(tmp, target);
 }
 
-/** Validate + normalize, append, set active, persist. Nothing is written on a validation error. */
-export function addHost(dir: string, name: string, urlInput: string): AddResult {
+/**
+ * Validate + normalize, append, set active, persist. Nothing is written on a
+ * validation error. `remote` (optional) is the `rk remote` name for SSH-only
+ * hosts — persisted only when non-empty.
+ */
+export function addHost(dir: string, name: string, urlInput: string, remote?: string): AddResult {
   const normalized = normalizeOrigin(urlInput);
   if (!normalized.ok) return normalized;
   const list = loadHosts(dir);
@@ -137,6 +154,8 @@ export function addHost(dir: string, name: string, urlInput: string): AddResult 
     name: name.trim() || normalized.origin,
     url: normalized.origin,
   };
+  const remoteName = remote?.trim() ?? "";
+  if (remoteName !== "") host.remote = remoteName;
   const next: HostList = {
     version: 1,
     activeId: host.id,

@@ -24,6 +24,10 @@
  *     page's "This Mac" section — gated exactly like `__welcome` (main-side
  *     sender-frame check on every `daemon:*` handler). Every daemon action
  *     is explicit and user-initiated; the shell never auto-starts anything.
+ *   - `__remote`: the welcome page's "or over SSH" rung — `connect` invokes
+ *     the main-side `rk remote add` + `rk remote connect` flow (gated
+ *     exactly like `__welcome`), `onProgress` subscribes to the streamed
+ *     `remote:progress` chatter lines main relays while connect runs.
  *
  * The shell version arrives via `additionalArguments` (sandboxed preloads
  * read `process.argv`), keeping `app.getVersion()` out of renderer reach.
@@ -59,5 +63,14 @@ contextBridge.exposeInMainWorld("runkitShell", {
     status: (): Promise<unknown> => ipcRenderer.invoke("daemon:status"),
     start: (): Promise<unknown> => ipcRenderer.invoke("daemon:start"),
     stop: (): Promise<unknown> => ipcRenderer.invoke("daemon:stop"),
+  },
+  __remote: {
+    connect: (target: string): Promise<unknown> =>
+      ipcRenderer.invoke("remote:connect", target),
+    onProgress: (handler: (line: string) => void): void => {
+      ipcRenderer.on("remote:progress", (_event, line: unknown) => {
+        if (typeof line === "string") handler(line);
+      });
+    },
   },
 });

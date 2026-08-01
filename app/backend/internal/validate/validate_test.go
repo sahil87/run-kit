@@ -585,3 +585,76 @@ func TestValidateInstanceName(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateRemoteName(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		wantErr  bool
+		contains string
+	}{
+		{"valid simple", "buildbox", false, ""},
+		{"valid hyphenated", "build-box-2", false, ""},
+		{"valid underscore", "build_box", false, ""},
+		// Inherited from the shared ValidateNewName rule.
+		{"empty rejected", "", true, "cannot be empty"},
+		{"forbidden semicolon", "bad;name", true, "forbidden characters"},
+		{"forbidden dollar", "bad$name", true, "forbidden characters"},
+		{"contains period", "build.example.com", true, "colons or periods"},
+		{"contains colon", "bad:name", true, "colons or periods"},
+		{"space rejected", "bad name", true, "cannot contain spaces"},
+		// Remote-seam hardening.
+		{"leading hyphen rejected", "-buildbox", true, "must not start with a hyphen"},
+		{"slash rejected", "a/b", true, "must not contain a slash"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ValidateRemoteName(tt.input)
+			if tt.wantErr && result == "" {
+				t.Errorf("ValidateRemoteName(%q) = valid, want error", tt.input)
+			}
+			if !tt.wantErr && result != "" {
+				t.Errorf("ValidateRemoteName(%q) = %q, want valid", tt.input, result)
+			}
+			if tt.contains != "" && result != "" && !contains(result, tt.contains) {
+				t.Errorf("ValidateRemoteName(%q) = %q, want error containing %q", tt.input, result, tt.contains)
+			}
+		})
+	}
+}
+
+func TestValidateRemoteTarget(t *testing.T) {
+	valid := []string{"buildbox", "sahil@buildbox", "sahil@build.example.com", "root@10.0.0.7"}
+	for _, v := range valid {
+		if msg := ValidateRemoteTarget(v); msg != "" {
+			t.Errorf("ValidateRemoteTarget(%q) = %q, want valid", v, msg)
+		}
+	}
+
+	tests := []struct {
+		name     string
+		input    string
+		contains string
+	}{
+		{"empty rejected", "", "cannot be empty"},
+		{"whitespace-only rejected", "   ", "cannot be empty"},
+		// Flag-injection defense: a leading '-' would read as an ssh option.
+		{"leading hyphen rejected", "-oProxyCommand=evil", "must not start with a hyphen"},
+		// Inherited ValidateSSHHost rules.
+		{"inner space rejected", "user@host extra", "whitespace or control"},
+		{"newline rejected", "host\nname", "whitespace or control"},
+		{"double quote rejected", `host"name`, "double quotes"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ValidateRemoteTarget(tt.input)
+			if result == "" {
+				t.Fatalf("ValidateRemoteTarget(%q) = valid, want error", tt.input)
+			}
+			if !contains(result, tt.contains) {
+				t.Errorf("ValidateRemoteTarget(%q) = %q, want error containing %q", tt.input, result, tt.contains)
+			}
+		})
+	}
+}

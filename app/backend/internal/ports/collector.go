@@ -54,6 +54,20 @@ type ServicesSnapshot struct {
 // shutdown cancels an in-flight enumeration (Constitution I).
 var readListeningPortsFn = readListeningPorts
 
+// ListeningNow performs one synchronous enumeration of the host's listening
+// TCP ports, sorted by port ascending — the one-shot form of the collector's
+// snapshot for callers that need a point-in-time read without the poll
+// machinery (e.g. `rk remote add`'s local-port collision check). Same
+// observational posture as the collector: no probing, graceful empty result
+// on error or unsupported hosts.
+func ListeningNow(ctx context.Context) []Service {
+	services := readListeningPortsFn(ctx)
+	sort.Slice(services, func(i, j int) bool {
+		return services[i].Port < services[j].Port
+	})
+	return services
+}
+
 // Collector passively enumerates listening TCP ports in a background goroutine.
 type Collector struct {
 	mu           sync.RWMutex

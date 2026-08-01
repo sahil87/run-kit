@@ -8,10 +8,12 @@ import test from "node:test";
 import {
   augmentPath,
   isDaemonAlreadyRunning,
+  isExecTimeout,
   parseRkVersion,
   parseSessionCount,
   resolveRkBinary,
   rkCandidatePaths,
+  rkTimeoutMessage,
 } from "./local-daemon";
 
 // ─── rkCandidatePaths ───────────────────────────────────────────────────────
@@ -144,4 +146,32 @@ test("other start failures are NOT classified as already running", () => {
   assert.equal(isDaemonAlreadyRunning("port 3000 already serving on :3000"), false);
   assert.equal(isDaemonAlreadyRunning("tmux: command not found"), false);
   assert.equal(isDaemonAlreadyRunning(""), false);
+});
+
+// ─── isExecTimeout / rkTimeoutMessage ───────────────────────────────────────
+
+test("the timeout kill shape (SIGTERM + null code) is classified as a timeout", () => {
+  // The verified execFile error shape when the `timeout` option fires:
+  // message="Command failed: …", signal="SIGTERM", code=null, stderr=undefined.
+  assert.equal(
+    isExecTimeout({ message: "Command failed: /opt/homebrew/bin/rk remote connect buildbox", killed: true, signal: "SIGTERM", code: null }),
+    true,
+  );
+});
+
+test("non-timeout failures are NOT classified as timeouts", () => {
+  // Normal non-zero exit: code set, no signal.
+  assert.equal(isExecTimeout({ signal: null, code: 1 }), false);
+  // Missing binary: string code, no signal.
+  assert.equal(isExecTimeout({ signal: null, code: "ENOENT" }), false);
+  // A different signal is not our timeout kill.
+  assert.equal(isExecTimeout({ signal: "SIGKILL", code: null }), false);
+  assert.equal(isExecTimeout(null), false);
+  assert.equal(isExecTimeout("Command failed"), false);
+});
+
+test("rkTimeoutMessage names the rk args and the timeout, never the binary path", () => {
+  const message = rkTimeoutMessage(["remote", "connect", "buildbox"], 300_000);
+  assert.equal(message, "`rk remote connect buildbox` timed out after 300s");
+  assert.ok(!message.includes("/"));
 });

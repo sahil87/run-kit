@@ -1,7 +1,8 @@
 /**
  * Per-host view registry pure logic — which renderer view exists for which
- * host, which one is attached (active), and the per-view badge-count and
- * theme-color caches that the switch seam repaints from.
+ * host, which one is attached (active), the per-view badge-count and
+ * theme-color caches that the switch seam repaints from, and the load-failure
+ * flag transitions the remote-tunnel heal gates its reload on.
  *
  * Deliberately electron-free (the `hosts.ts` / `window-open.ts` /
  * `local-daemon.ts` / `update-check.ts` / `strip.ts` / `badge.ts` precedent):
@@ -143,6 +144,42 @@ export function setViewThemeColor<H>(
       e.hostId === hostId ? { ...e, themeColor: color } : e,
     ),
   };
+}
+
+// ─── Load-failure flag (the remote-tunnel heal's reload gate) ────────────────
+
+/** Chromium's "navigation superseded by another" — never a real failure. */
+export const ERR_ABORTED = -3;
+
+/** The main-frame load lifecycle events that drive the failure flag. */
+export type LoadFlagEvent =
+  | { kind: "did-fail-load"; isMainFrame: boolean; errorCode: number }
+  | { kind: "did-navigate" }
+  | { kind: "did-finish-load" };
+
+/**
+ * Next value of a view's "last main-frame load failed" flag — the gate the
+ * remote-tunnel heal reads to decide whether a healed host's view needs a
+ * reload (a warm view keeps its live renderer state, never reloaded).
+ *
+ * Set by a real main-frame `did-fail-load` (ERR_ABORTED excluded — a
+ * superseded navigation is not a failure). Cleared ONLY by `did-navigate`,
+ * the commit of a real server response, which never fires for Chromium's
+ * own error page. `did-finish-load` NEVER clears: Chromium fires it for the
+ * error page immediately after `did-fail-load` (verified against a live
+ * WebContentsView), so clearing there would wipe the flag before the
+ * background `rk remote connect` heal completes — the reload gate would
+ * never fire and a dead-tunnel view would stay stuck on its error page.
+ */
+export function nextLoadFailed(prev: boolean, event: LoadFlagEvent): boolean {
+  switch (event.kind) {
+    case "did-fail-load":
+      return event.isMainFrame && event.errorCode !== ERR_ABORTED ? true : prev;
+    case "did-navigate":
+      return false;
+    case "did-finish-load":
+      return prev;
+  }
 }
 
 /**

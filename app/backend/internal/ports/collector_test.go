@@ -157,3 +157,15 @@ func TestCollector_SnapshotThreadSafety(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+// TestListeningNow_OneShotSortedEnumeration pins the one-shot form: a single
+// synchronous enumeration through the same platform seam, sorted ascending,
+// with no collector state involved.
+func TestListeningNow_OneShotSortedEnumeration(t *testing.T) {
+	withStubEnum(t, []int{6379, 3000, 5432})
+
+	got := ListeningNow(context.Background())
+	if !equalInts(portsOf(got), []int{3000, 5432, 6379}) {
+		t.Fatalf("ListeningNow() ports = %v, want sorted [3000 5432 6379]", portsOf(got))
+	}
+}

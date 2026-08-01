@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useCallback, useMemo, useRef } from "react";
 import type { ProjectSession, WindowInfo } from "@/types";
 import { evaluateIsMobile } from "@/hooks/use-is-mobile";
+import { markComposeStripFocusOnOpen } from "@/lib/compose-strip-events";
 
 export type BreadcrumbDropdownItem = {
   label: string;
@@ -232,6 +233,12 @@ export function ChromeProvider({ children }: { children: React.ReactNode }) {
   const toggleComposeStrip = useCallback(() => {
     setComposeStripEnabled((prev) => {
       const next = !prev;
+      // OPEN transition (off→on): mark the focus-on-open flag so the strip's
+      // mount effect focuses its textarea (260801-sm6g — every open path
+      // funnels through this toggle: `>_` chip, palette, ⇧⌘E chord, drag-drop
+      // enable, board twin). Idempotent, so StrictMode's double-invoked
+      // updater is harmless. Route remounts never call this → never focus.
+      if (!prev) markComposeStripFocusOnOpen();
       try { localStorage.setItem(COMPOSE_STRIP_STORAGE_KEY, String(next)); } catch { /* noop */ }
       return next;
     });

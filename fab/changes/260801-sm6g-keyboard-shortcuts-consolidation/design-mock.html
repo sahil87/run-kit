@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shortcuts: keyboard — combined view mock</title>
+<style>
+  :root, html[data-theme="dark"] {
+    color-scheme: dark;
+    --bg-primary: #0f1117; --bg-card: #171b24; --bg-inset: #0a0c12;
+    --text-primary: #e8eaf0; --text-secondary: #7a8394;
+    --border: #454d66; --accent: #5b8af0; --accent-bright: #82a8f7; --green: #22c55e;
+    --amber: #d97706; --red: #ef4444;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    font-family: "MonaspiceNe Nerd Font Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    background: var(--bg-primary); color: var(--text-primary);
+    font-size: 13px; line-height: 1.5; min-height: 100vh;
+    display: flex; flex-direction: column; align-items: center;
+    padding: 28px 16px 60px;
+    background-image: radial-gradient(ellipse 80% 50% at 50% -10%, color-mix(in srgb, var(--accent) 7%, transparent), transparent);
+  }
+  .sheet {
+    width: 100%; max-width: 860px; background: var(--bg-card);
+    border: 1px solid var(--border); border-radius: 8px;
+    box-shadow: 0 24px 80px rgba(0,0,0,.5), 0 0 0 1px rgba(0,0,0,.3);
+    overflow: hidden;
+  }
+
+  /* ── header ─────────────────────────────────────── */
+  .hdr {
+    display: flex; align-items: center; gap: 14px;
+    padding: 14px 18px; border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, color-mix(in srgb, var(--bg-inset) 60%, transparent), transparent);
+    flex-wrap: wrap;
+  }
+  .title { font-weight: 700; letter-spacing: .02em; white-space: nowrap; }
+  .title .ptype { color: var(--text-secondary); font-weight: 400; }
+  .title .brk { color: var(--text-secondary); }
+  .title .caret { display:inline-block; width: 7px; height: 14px; background: var(--green); vertical-align: -2px; margin: 0 2px 0 4px; animation: blink 1.1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .seg { display: flex; border: 1px solid var(--border); border-radius: 5px; overflow: hidden; flex: none; }
+  .seg button {
+    font: inherit; font-size: 11px; padding: 4px 10px; border: 0; cursor: pointer;
+    background: transparent; color: var(--text-secondary); letter-spacing: .02em;
+  }
+  .seg button.on { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--text-primary); }
+  .seg button:not(.on):hover { color: var(--green); }
+  .search { flex: 1; min-width: 120px; position: relative; }
+  .search input {
+    width: 100%; font: inherit; font-size: 12px; color: var(--text-primary);
+    background: var(--bg-inset); border: 1px solid var(--border); border-radius: 5px;
+    padding: 5px 10px 5px 26px; outline: none;
+  }
+  .search input:focus { border-color: var(--accent); }
+  .search::before { content: "/"; position: absolute; left: 10px; top: 4px; color: var(--text-secondary); }
+  .hint { color: var(--text-secondary); font-size: 11px; white-space: nowrap; }
+  .x { background: none; border: 0; color: var(--text-secondary); font: inherit; font-size: 15px; cursor: pointer; padding: 2px 6px; }
+  .x:hover { color: var(--red); }
+
+  /* ── jump nav (the tabs alternative) ────────────── */
+  .jumps {
+    position: sticky; top: 0; z-index: 5;
+    display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
+    padding: 8px 18px; border-bottom: 1px solid var(--border);
+    background: color-mix(in srgb, var(--bg-card) 92%, transparent);
+    backdrop-filter: blur(6px);
+  }
+  .jumps .jl { font-size: 10px; color: var(--text-secondary); letter-spacing: .06em; margin-right: 2px; }
+  .jump {
+    font: inherit; font-size: 10.5px; letter-spacing: .04em; cursor: pointer;
+    padding: 2px 9px; border-radius: 999px; border: 1px solid var(--border);
+    background: transparent; color: var(--text-secondary);
+  }
+  .jump:hover { color: var(--green); border-color: var(--green); }
+  .jump .n {
+    display: none; margin-left: 5px; font-size: 9.5px; color: var(--green);
+  }
+  .jumps.filtering .jump .n { display: inline; }
+  .jumps.filtering .jump.empty { opacity: .35; }
+  .jumps.filtering .jump.empty .n { color: var(--text-secondary); }
+
+  /* ── tier map ───────────────────────────────────── */
+  .tiermap { padding: 14px 18px 8px; }
+  .maphead { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 6px; }
+  .maphead .tierlabel { font-size: 11px; color: var(--text-secondary); }
+  .maphead .tierlabel b { color: var(--text-primary); font-weight: 700; }
+  .fold {
+    font: inherit; font-size: 10.5px; background: none; border: 0; cursor: pointer;
+    color: var(--text-secondary); padding: 2px 4px;
+  }
+  .fold:hover { color: var(--green); }
+  .mapbody { margin-top: 10px; }
+  .tiermap.folded .mapbody { display: none; }
+  .kb { display: flex; flex-direction: column; gap: 5px; align-items: center; }
+  .krow { display: flex; gap: 5px; }
+  .key {
+    width: 44px; height: 40px; border-radius: 5px; border: 1px solid var(--border);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    font-size: 12px; color: var(--text-secondary); position: relative; cursor: default;
+    background: var(--bg-inset);
+  }
+  .key small { font-size: 7.5px; letter-spacing: .01em; line-height: 1.1; text-align: center; padding: 0 2px; }
+  .key.bound { border-color: color-mix(in srgb, var(--green) 60%, var(--border)); background: color-mix(in srgb, var(--green) 12%, var(--bg-inset)); color: var(--text-primary); }
+  .key.bound small { color: var(--green); }
+  .key.new { border-color: color-mix(in srgb, var(--green) 90%, var(--border)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--green) 60%, transparent), 0 0 14px color-mix(in srgb, var(--green) 25%, transparent); }
+  .key.claimed { opacity: .55; background: repeating-linear-gradient(45deg, var(--bg-inset) 0 4px, color-mix(in srgb, var(--amber) 10%, var(--bg-inset)) 4px 8px); }
+  .key.claimed small { color: var(--amber); }
+  .legend { display: flex; gap: 16px; margin: 12px 2px 4px; font-size: 10.5px; color: var(--text-secondary); flex-wrap: wrap; }
+  .legend i { display:inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; border: 1px solid var(--border); vertical-align: -1px; font-style: normal; }
+  .legend .b i { background: color-mix(in srgb, var(--green) 25%, transparent); border-color: var(--green); }
+  .legend .cl i { background: repeating-linear-gradient(45deg, transparent 0 3px, color-mix(in srgb, var(--amber) 45%, transparent) 3px 5px); }
+
+  /* ── sections ───────────────────────────────────── */
+  .body { padding: 0 18px 18px; }
+  .sec { margin-top: 18px; scroll-margin-top: 46px; }
+  .sechead { display: flex; align-items: center; gap: 10px; }
+  .sechead h3 { font-size: 11.5px; font-weight: 700; letter-spacing: .04em; color: var(--text-secondary); user-select: none; }
+  .sechead h3 .lbl { color: var(--text-primary); margin: 0 6px; }
+  .sechead .rule { flex: 1; border-top: 1px solid var(--border); }
+  .sechead .note { font-size: 10px; color: var(--text-secondary); }
+  .sechead .note b { color: var(--amber); font-weight: 400; }
+  .row {
+    display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 5px;
+    border: 1px solid transparent;
+  }
+  .row:hover { background: color-mix(in srgb, var(--bg-inset) 70%, transparent); }
+  .row .act { flex: 1; min-width: 0; }
+  .row .desc { color: var(--text-secondary); font-size: 11px; }
+  .combo { display: flex; gap: 4px; align-items: center; cursor: pointer; padding: 2px 4px; border-radius: 5px; }
+  .combo:hover { outline: 1px dashed color-mix(in srgb, var(--green) 60%, transparent); }
+  .combo.ro { cursor: default; }
+  .combo.ro:hover { outline: none; }
+  .combo .then { color: var(--text-secondary); font-size: 10px; padding: 0 1px; }
+  kbd {
+    font: inherit; font-size: 11.5px; padding: 2px 7px; min-width: 24px; text-align: center;
+    background: var(--bg-inset); border: 1px solid var(--border); border-bottom-width: 2px;
+    border-radius: 4px; color: var(--text-primary); display: inline-block;
+  }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex: none; opacity: 0; }
+  .row.modified .dot { opacity: 1; }
+  .newpill {
+    font-size: 9px; letter-spacing: .08em; color: var(--green); flex: none;
+    border: 1px solid color-mix(in srgb, var(--green) 55%, transparent); border-radius: 999px; padding: 0 6px;
+    background: color-mix(in srgb, var(--green) 9%, transparent);
+  }
+  .lock { color: var(--text-secondary); font-size: 11px; flex: none; }
+  .subhead { font-size: 10px; letter-spacing: .06em; color: var(--text-secondary); margin: 8px 8px 2px; text-transform: uppercase; }
+  .macro-cmd { color: var(--text-secondary); font-size: 11px; background: var(--bg-inset); border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px; overflow-x: auto; white-space: nowrap; max-width: 40ch; }
+  .macro-cmd b { color: var(--green); font-weight: 400; }
+  .addrow { display: flex; align-items:center; gap: 8px; padding: 7px 8px; color: var(--text-secondary); cursor: pointer; border-radius: 5px; border: 1px dashed color-mix(in srgb, var(--border) 80%, transparent); margin-top: 4px; font-size: 12px;}
+  .addrow:hover { color: var(--green); border-color: var(--green); }
+  .empty-note { padding: 6px 8px; font-size: 11px; color: var(--text-secondary); font-style: italic; display: none; }
+
+  /* ── footer ─────────────────────────────────────── */
+  .ftr {
+    display: flex; align-items: center; gap: 10px; padding: 12px 18px;
+    border-top: 1px solid var(--border); color: var(--text-secondary); font-size: 11px;
+    flex-wrap: wrap;
+  }
+  .ftr .grow { flex: 1; }
+  .btn {
+    font: inherit; font-size: 11px; padding: 4px 12px; cursor: pointer; border-radius: 5px;
+    background: transparent; border: 1px solid var(--border); color: var(--text-primary);
+  }
+  .btn:hover { border-color: var(--red); color: var(--red); }
+  .row.hidden, .sec.hidden, .subhead.hidden { display: none; }
+
+  /* ── mock annotations ───────────────────────────── */
+  .notes { width: 100%; max-width: 860px; margin-top: 22px; font-size: 11.5px; color: var(--text-secondary); }
+  .notes h4 { font-size: 11px; letter-spacing: .08em; color: var(--text-primary); margin-bottom: 8px; }
+  .notes li { margin: 0 0 7px 18px; }
+  .notes b { color: var(--green); font-weight: 400; }
+  .notes em { color: var(--text-primary); font-style: normal; }
+
+  @media (max-width: 700px) {
+    .hint { display: none; }
+    .key { width: 30px; height: 34px; }
+    .key small { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="sheet" role="dialog" aria-label="Keyboard shortcuts">
+
+  <div class="hdr">
+    <div class="title"><span class="brk">[</span><span class="caret"></span><span class="ptype">Shortcuts:&nbsp;</span>keyboard <span class="brk">]</span></div>
+    <div class="seg"><button class="on">macOS</button><button>Win · Linux</button></div>
+    <div class="search"><input id="q" placeholder="filter all shortcuts — app, custom & tmux…" aria-label="Filter shortcuts"></div>
+    <span class="hint">⌘/ toggles this sheet</span>
+    <button class="x" aria-label="Close">✕</button>
+  </div>
+
+  <!-- Jump nav: the tabs alternative. Plain chips scroll to a section; while
+       the filter is active each chip grows a live match count so hits in
+       out-of-view sections are never invisible. -->
+  <nav class="jumps" id="jumps" aria-label="Sections">
+    <span class="jl">JUMP:</span>
+    <button class="jump" data-target="secmap">key map</button>
+    <button class="jump" data-target="global">global<span class="n"></span></button>
+    <button class="jump" data-target="terminal">terminal<span class="n"></span></button>
+    <button class="jump" data-target="board">board<span class="n"></span></button>
+    <button class="jump" data-target="custom">custom<span class="n"></span></button>
+    <button class="jump" data-target="tmux">tmux<span class="n"></span></button>
+  </nav>
+
+  <!-- Tier map: app tiers only (tmux prefix chords don't fit the combo model).
+       Now collapsible — the fold reclaims vertical space that the tmux
+       section needs on short viewports. -->
+  <div class="tiermap" id="secmap">
+    <div class="maphead">
+      <span class="tierlabel">run-kit tier — <b>⇧ ⌘</b> + key</span>
+      <span class="tierlabel">plain Ctrl always reaches the pane</span>
+      <button class="fold" id="fold">▾ collapse map</button>
+    </div>
+    <div class="mapbody">
+      <div class="kb">
+        <div class="krow">
+          <div class="key claimed" title="logout"><span>Q</span><small>logout</small></div>
+          <div class="key bound"><span>W</span><small>close win</small></div>
+          <div class="key bound new" title="NEW — compose strip"><span>E</span><small>compose</small></div>
+          <div class="key claimed"><span>R</span><small>reload</small></div>
+          <div class="key bound"><span>T</span><small>new window</small></div>
+          <div class="key"><span>Y</span></div>
+          <div class="key"><span>U</span></div>
+          <div class="key"><span>I</span></div>
+          <div class="key"><span>O</span></div>
+          <div class="key"><span>P</span></div>
+          <div class="key"><span>[</span></div>
+          <div class="key"><span>]</span></div>
+        </div>
+        <div class="krow">
+          <div class="key bound"><span>A</span><small>agent</small></div>
+          <div class="key"><span>S</span></div>
+          <div class="key"><span>D</span></div>
+          <div class="key"><span>F</span></div>
+          <div class="key"><span>G</span></div>
+          <div class="key bound"><span>H</span><small>prev win</small></div>
+          <div class="key"><span>J</span></div>
+          <div class="key"><span>K</span></div>
+          <div class="key bound"><span>L</span><small>next win</small></div>
+          <div class="key"><span>;</span></div>
+          <div class="key bound"><span>/</span><small>cheatsheet</small></div>
+        </div>
+        <div class="krow">
+          <div class="key"><span>Z</span></div>
+          <div class="key"><span>X</span></div>
+          <div class="key"><span>C</span></div>
+          <div class="key"><span>V</span></div>
+          <div class="key"><span>B</span></div>
+          <div class="key bound"><span>N</span><small>new session</small></div>
+          <div class="key"><span>M</span></div>
+          <div class="key"><span>1</span></div>
+          <div class="key"><span>2</span></div>
+          <div class="key claimed"><span>…</span></div>
+          <div class="key"><span>9</span></div>
+          <div class="key"><span>0</span></div>
+        </div>
+      </div>
+      <div class="legend">
+        <span class="b"><i></i>bound</span>
+        <span class="cl"><i></i>claimed (shell · system · browser)</span>
+        <span><i></i>free</span>
+        <span style="color:var(--green)">E — proposed: compose strip toggle</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="body">
+
+    <!-- GLOBAL ................................................. -->
+    <section class="sec" id="global">
+      <div class="sechead"><h3><span>[</span><span class="lbl">GLOBAL</span><span>]</span></h3><span class="rule"></span></div>
+      <div class="row" data-k="new session create tmux"><span class="dot"></span><span class="act">New session <span class="desc">— create a tmux session</span></span><span class="combo"><kbd>⇧</kbd><kbd>⌘</kbd><kbd>N</kbd></span></div>
+      <div class="row" data-k="new window tab"><span class="dot"></span><span class="act">New window <span class="desc">— tab-analog in current session</span></span><span class="combo"><kbd>⇧</kbd><kbd>⌘</kbd><kbd>T</kbd></span></div>
+      <div class="row" data-k="close window kill"><span class="dot"></span><span class="act">Close window <span class="desc">— confirm flow</span></span><span class="combo"><kbd>⇧</kbd><kbd>⌘</kbd><kbd>W</kbd></span></div>
+      <div class="row" data-k="compose text input strip type send"><span class="dot"></span><span class="act">Compose text <span class="desc">— toggle the compose strip; focuses the input on open</span></span><span class="newpill">NEW</span><span class="combo"><kbd>⇧</kbd><kbd>⌘</kbd><kbd>E</kbd></span></div>
+      <div class="row" data-k="previous window"><span class="dot"></span><span class="act">Previous window</span><span class="combo"><kbd>⇧</kbd><kbd>⌘</kbd><kbd>H</kbd></span></div>
+      <div class="row" data-k="next window"><span class="dot"></span><span class="act">Next window</span><span class="combo"><kbd>⇧</kbd><kbd>⌘</kbd><kbd>L</kbd></span></div>
+      <div class="row" data-k="back history"><span class="dot"></span><span class="act">Back <span class="desc">— history</span></span><span class="combo"><kbd>⌘</kbd><kbd>[</kbd></span></div>
+      <div class="row" data-k="forward history"><span class="dot"></span><span class="act">Forward <span class="desc">— history</span></span><span class="combo"><kbd>⌘</kbd><kbd>]</kbd></span></div>
+      <div class="row" data-k="next waiting agent jump blocked"><span class="dot"></span><span class="act">Next waiting agent <span class="desc">— jump to an agent blocked on input</span></span><span class="combo"><kbd>⇧</kbd><kbd>⌘</kbd><kbd>A</kbd></span></div>
+      <div class="row" data-k="keyboard shortcuts cheatsheet help"><span class="dot"></span><span class="act">Keyboard shortcuts <span class="desc">— toggle this cheatsheet</span></span><span class="combo"><kbd>⌘</kbd><kbd>/</kbd></span></div>
+      <div class="row" data-k="command palette"><span class="dot"></span><span class="act">Command palette</span><span class="combo"><kbd>⌘</kbd><kbd>K</kbd></span></div>
+      <div class="row" data-k="toggle sidebar"><span class="dot"></span><span class="act">Toggle sidebar</span><span class="combo"><kbd>⌘</kbd><kbd>\</kbd></span></div>
+      <div class="subhead" data-sub="global">Shell-owned — accelerators live in the desktop shell menu</div>
+      <div class="row" data-k="switch server shell"><span class="dot"></span><span class="act">Switch to server 1–9 <span class="desc">— owned by the shell menu</span></span><span class="lock">🔒</span><span class="combo ro"><kbd>⌥</kbd><kbd>⌘</kbd><kbd>1…9</kbd></span></div>
+      <div class="row" data-k="force reload shell"><span class="dot"></span><span class="act">Force reload</span><span class="lock">🔒</span><span class="combo ro"><kbd>⇧</kbd><kbd>⌘</kbd><kbd>R</kbd></span></div>
+    </section>
+
+    <!-- TERMINAL ............................................... -->
+    <section class="sec" id="terminal">
+      <div class="sechead"><h3><span>[</span><span class="lbl">TERMINAL</span><span>]</span></h3><span class="rule"></span></div>
+      <div class="row" data-k="cycle view lens tty web chat"><span class="dot"></span><span class="act">Cycle view lens <span class="desc">— tty → web → chat</span></span><span class="combo"><kbd>⌘</kbd><kbd>.</kbd></span></div>
+      <div class="row modified" data-k="toggle chat view"><span class="dot" title="modified from default"></span><span class="act">Toggle chat view <span class="desc">— tty ↔ chat</span></span><span class="combo"><kbd>Ctrl</kbd><kbd>`</kbd></span></div>
+    </section>
+
+    <!-- BOARD .................................................. -->
+    <section class="sec" id="board">
+      <div class="sechead"><h3><span>[</span><span class="lbl">BOARD</span><span>]</span></h3><span class="rule"></span></div>
+      <div class="row" data-k="cycle pane focus next"><span class="dot"></span><span class="act">Cycle pane focus →</span><span class="combo"><kbd>⌘</kbd><kbd>]</kbd></span></div>
+      <div class="row" data-k="cycle pane focus previous"><span class="dot"></span><span class="act">Cycle pane focus ←</span><span class="combo"><kbd>⌘</kbd><kbd>[</kbd></span></div>
+    </section>
+
+    <!-- CUSTOM ................................................. -->
+    <section class="sec" id="custom">
+      <div class="sechead"><h3><span>[</span><span class="lbl">CUSTOM</span><span>]</span></h3><span class="rule"></span><span class="note">macros — riff presets &amp; palette actions</span></div>
+      <div class="row modified" data-k="riff ship it macro"><span class="dot"></span><span class="act">Ship it</span><span class="macro-cmd"><b>riff:</b> ship-it</span><span class="combo"><kbd>⇧</kbd><kbd>⌘</kbd><kbd>S</kbd></span></div>
+      <div class="row modified" data-k="palette window rename macro"><span class="dot"></span><span class="act">Rename window</span><span class="macro-cmd"><b>palette:</b> Window: Rename</span><span class="combo"><kbd>⇧</kbd><kbd>⌘</kbd><kbd>M</kbd></span></div>
+      <div class="addrow" data-k="add bind a key">+ bind a key…</div>
+    </section>
+
+    <!-- TMUX (new) ............................................. -->
+    <section class="sec" id="tmux">
+      <div class="sechead">
+        <h3><span>[</span><span class="lbl">TMUX</span><span>]</span></h3>
+        <span class="rule"></span>
+        <span class="note">read-only — from tmux server <b>rk</b> · pressed inside the pane</span>
+      </div>
+      <div class="subhead" data-sub="tmux">Direct</div>
+      <div class="row" data-k="tmux new window"><span class="dot"></span><span class="act">New window</span><span class="lock">🔒</span><span class="combo ro"><kbd>F2</kbd></span></div>
+      <div class="row" data-k="tmux previous window"><span class="dot"></span><span class="act">Previous window</span><span class="lock">🔒</span><span class="combo ro"><kbd>F3</kbd></span></div>
+      <div class="row" data-k="tmux next window"><span class="dot"></span><span class="act">Next window</span><span class="lock">🔒</span><span class="combo ro"><kbd>F4</kbd></span></div>
+      <div class="row" data-k="tmux previous pane"><span class="dot"></span><span class="act">Previous pane</span><span class="lock">🔒</span><span class="combo ro"><kbd>⇧</kbd><kbd>F3</kbd></span></div>
+      <div class="row" data-k="tmux next pane"><span class="dot"></span><span class="act">Next pane</span><span class="lock">🔒</span><span class="combo ro"><kbd>⇧</kbd><kbd>F4</kbd></span></div>
+      <div class="row" data-k="tmux scroll copy mode"><span class="dot"></span><span class="act">Scroll / copy mode</span><span class="lock">🔒</span><span class="combo ro"><kbd>⇧</kbd><kbd>F7</kbd></span></div>
+      <div class="subhead" data-sub="tmux">Prefix — <span style="text-transform:none">Ctrl+S, then key</span></div>
+      <div class="row" data-k="tmux split vertically"><span class="dot"></span><span class="act">Split vertically</span><span class="lock">🔒</span><span class="combo ro"><kbd>Ctrl</kbd><kbd>S</kbd><span class="then">then</span><kbd>\</kbd></span></div>
+      <div class="row" data-k="tmux split horizontally"><span class="dot"></span><span class="act">Split horizontally</span><span class="lock">🔒</span><span class="combo ro"><kbd>Ctrl</kbd><kbd>S</kbd><span class="then">then</span><kbd>-</kbd></span></div>
+      <div class="empty-note" id="tmux-empty">No tmux server running — connect to a server to see its bindings.</div>
+    </section>
+
+    <div class="empty-note" id="no-hits" style="text-align:center; padding: 20px 0;">no shortcuts match — try a shorter term</div>
+  </div>
+
+  <div class="ftr">
+    <span class="grow">app &amp; custom bindings are stored in this browser · tmux keys are read live from the server</span>
+    <button class="btn">reset all to defaults</button>
+  </div>
+</div>
+
+<div class="notes">
+  <h4>[ MOCK NOTES — combined shortcuts view ]</h4>
+  <ul>
+    <li><em>No tabs.</em> One scroll, one filter. The core query is "what's the key for X?" — the answer must come from <em>either</em> system, so search spans everything. Tabs would make a miss in the App tab look like "unbound" when the key lives in tmux. Type in the filter above to see the cross-section behavior.</li>
+    <li><b>Jump nav instead:</b> the sticky chip row scrolls to a section; while filtering, each chip shows its live match count — hits below the fold stay visible. This is the tabs benefit (orientation) without the search fragmentation.</li>
+    <li><b>Key map folds.</b> The tier map is app-only (tmux prefix chords don't fit the combo model) and tall; the fold reclaims that space. Fold state could persist alongside the bindings.</li>
+    <li><b>tmux is a locked section, not a peer editor.</b> Same idiom as shell-owned rows: 🔒 + read-only combos. The section header names the server it was read from; prefix bindings render as <em>Ctrl+S, then key</em> sequences. No server → one-line empty state.</li>
+    <li><b>SHELL folded into GLOBAL</b> as a subgroup — with tmux arriving, three flavors of "locked rows" as top-level sections is too many sections.</li>
+    <li><b>⇧⌘E compose</b> shown as the NEW row in GLOBAL and highlighted on the map.</li>
+  </ul>
+</div>
+
+<script>
+  // Filter: hides non-matching rows, updates jump-chip counts, hides empty sections.
+  const q = document.getElementById("q");
+  const jumps = document.getElementById("jumps");
+  const secs = ["global", "terminal", "board", "custom", "tmux"];
+  q.addEventListener("input", () => {
+    const term = q.value.trim().toLowerCase();
+    jumps.classList.toggle("filtering", term !== "");
+    let total = 0;
+    for (const id of secs) {
+      const sec = document.getElementById(id);
+      let hits = 0;
+      sec.querySelectorAll(".row, .addrow").forEach((row) => {
+        const hay = (row.getAttribute("data-k") || "") + " " + row.textContent.toLowerCase();
+        const show = !term || hay.includes(term);
+        row.classList.toggle("hidden", !show);
+        if (show && !row.classList.contains("addrow")) hits++;
+      });
+      sec.querySelectorAll(".subhead").forEach((sh) => sh.classList.toggle("hidden", term !== ""));
+      sec.classList.toggle("hidden", term !== "" && hits === 0);
+      total += hits;
+      const chip = jumps.querySelector(`[data-target="${id}"]`);
+      chip.classList.toggle("empty", hits === 0);
+      chip.querySelector(".n").textContent = hits;
+    }
+    document.getElementById("no-hits").style.display = term && total === 0 ? "block" : "none";
+    document.getElementById("secmap").style.display = term ? "none" : "";
+  });
+
+  // Jump chips scroll to their section.
+  jumps.querySelectorAll(".jump").forEach((b) =>
+    b.addEventListener("click", () =>
+      document.getElementById(b.dataset.target)?.scrollIntoView({ behavior: "smooth", block: "start" })));
+
+  // Key-map fold.
+  const tiermap = document.getElementById("secmap");
+  const fold = document.getElementById("fold");
+  fold.addEventListener("click", () => {
+    tiermap.classList.toggle("folded");
+    fold.textContent = tiermap.classList.contains("folded") ? "▸ expand map" : "▾ collapse map";
+  });
+</script>
+</body>
+</html>

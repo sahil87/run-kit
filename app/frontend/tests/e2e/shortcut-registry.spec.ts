@@ -48,6 +48,19 @@ async function mockBackend(page: Page) {
       body: JSON.stringify([{ name: SERVER, sessionCount: 1 }]),
     }),
   );
+  // Curated tmux keybindings for the overlay's read-only TMUX section
+  // (260801-sm6g — the merged shortcuts surface fetches these while open).
+  await page.route("**/api/keybindings*", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([
+        { key: "F2", table: "root", command: "new-window", label: "New tmux window" },
+        { key: "S-F7", table: "root", command: "copy-mode", label: "Scroll / copy mode" },
+        { key: "\\", table: "prefix", command: "split-window -h", label: "Split vertically" },
+      ]),
+    }),
+  );
   await mockStateSocket(page, { sessions: sessionsPayload() });
 }
 
@@ -123,6 +136,49 @@ test.describe("shortcuts overlay", () => {
     await paletteInput.fill("Help: Keyboard Shortcuts");
     await page.keyboard.press("Enter");
     await expect(page.getByTestId("shortcuts-overlay")).toBeVisible();
+  });
+
+  test("the merged overlay carries the jump nav and the read-only tmux section (260801-sm6g)", async ({ page }) => {
+    await mockBackend(page);
+    await gotoWindowOne(page);
+
+    await page.keyboard.press("Shift+Control+Slash");
+    await expect(page.getByTestId("shortcuts-overlay")).toBeVisible();
+
+    // Sticky jump-nav chips, one per section.
+    const nav = page.getByTestId("shortcuts-jump-nav");
+    for (const chip of ["key map", "global", "terminal", "board", "tmux"]) {
+      await expect(nav.getByText(chip, { exact: true })).toBeVisible();
+    }
+
+    // TMUX locked section from the mocked GET /api/keybindings: Direct rows,
+    // and a Prefix row rendered as a Ctrl S then \ sequence.
+    const tmux = page.getByTestId("tmux-section");
+    await expect(tmux.getByText("Scroll / copy mode")).toBeVisible();
+    await expect(tmux.getByText("Split vertically")).toBeVisible();
+    // `exact` — the Prefix SUBHEAD also contains "then" ("Ctrl+S, then key").
+    await expect(tmux.getByText("then", { exact: true })).toBeVisible();
+
+    // One filter spans app + tmux: the tmux hit stays visible and the chips
+    // grow live match counts (global dims at zero).
+    await page.getByLabel("Filter shortcuts").fill("split");
+    await expect(tmux.getByText("Split vertically")).toBeVisible();
+    await expect(nav.locator("button", { hasText: "tmux" })).toContainText("1");
+    await expect(nav.locator("button", { hasText: "global" })).toContainText("0");
+  });
+
+  test("the legacy Help: tmux Keybindings palette entry is gone (260801-sm6g)", async ({ page }) => {
+    await mockBackend(page);
+    await gotoWindowOne(page);
+
+    await page.keyboard.press("Meta+k");
+    const paletteInput = page.getByPlaceholder("Type a command...");
+    await expect(paletteInput).toBeVisible();
+    await paletteInput.fill("tmux Keybindings");
+    await expect(page.getByText("Help: tmux Keybindings")).toHaveCount(0);
+    // The overlay entry is the single shortcuts surface.
+    await paletteInput.fill("Keyboard Shortcuts");
+    await expect(page.getByText("Help: Keyboard Shortcuts")).toBeVisible();
   });
 
   test("click-to-capture rebinds, persists the diff, and the new chord dispatches", async ({ page }) => {

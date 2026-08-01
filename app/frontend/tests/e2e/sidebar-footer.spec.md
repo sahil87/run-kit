@@ -3,8 +3,9 @@
 Verifies the **sidebar footer global-chrome row** (260724-6j1v): the app-global
 chrome that moved down from the top bar. The footer is `justify-between` —
 passive readouts LEFT (connection dot, version click-to-copy) and actions RIGHT
-(**Help · Theme · Gear**, all in the gear's borderless icon idiom). The
-connection dot keeps its top-bar semantics (`role="status"`,
+(**Help · Keyboard · Theme · Gear**, all in the gear's borderless icon idiom;
+the Keyboard shortcuts trigger joined in 260801-sm6g). The connection dot
+keeps its top-bar semantics (`role="status"`,
 `aria-label="Connected"/"Disconnected"`), which is also what keeps `_ready.ts`'s
 readiness gate working.
 
@@ -42,8 +43,19 @@ existing settings gear.
 1. `gotoServerReady`.
 2. Assert the `Help — run-kit docs` link's href/target/rel attributes and the
    absence of a native `title`.
-3. Assert a `* theme` button and the `Open settings` gear are visible in the
-   sidebar.
+3. Assert the `Keyboard shortcuts` button (260801-sm6g), a `* theme` button,
+   and the `Open settings` gear are visible in the sidebar.
+
+### `keyboard button opens the shortcuts overlay from the footer (260801-sm6g)`
+
+**What it proves:** the footer's Keyboard icon dispatches the
+`shortcuts-overlay:open` CustomEvent and the route shell opens the
+ShortcutsOverlay; the affordance stays live across close/re-open.
+
+**Steps:**
+1. `gotoServerReady`; click the sidebar footer's `Keyboard shortcuts` button.
+2. Assert the `shortcuts-overlay` dialog is visible.
+3. Press Escape → overlay closes; click the button again → it reopens.
 
 ### `theme button cycles the mode from the footer`
 

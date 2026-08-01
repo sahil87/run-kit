@@ -21,6 +21,8 @@ Linux).
   - `**/api/servers` → a single server `default`.
   - `**/api/windows/*/select*` → 200 (trailing `*` so the client's appended
     `?server=` query is still intercepted).
+  - `**/api/keybindings*` → three curated tmux bindings (two root-table, one
+    prefix-table) for the overlay's read-only TMUX section (260801-sm6g).
   - `/ws/state` (via `mockStateSocket`) → session `dev` with three windows:
     `@1` "win-one" (active), `@2` "win-two", `@3` "win-three".
   - The terminals mux WebSocket (`/ws/terminals`) is stubbed.
@@ -82,6 +84,36 @@ the filter narrows rows, and Escape closes.
 **Steps:**
 1. Open the palette (`Meta+k`), fill "Help: Keyboard Shortcuts", press Enter.
 2. Assert the overlay dialog is visible.
+
+### `the merged overlay carries the jump nav and the read-only tmux section (260801-sm6g)`
+
+**What it proves:** the overlay is the single merged shortcuts surface — it
+renders the sticky jump-nav chip row (key map · global · terminal · board ·
+tmux), folds the current server's curated tmux keybindings in as a read-only
+locked section (prefix rows as `Ctrl` `S` *then* `\` sequences), and one
+filter spans app + tmux rows with live per-chip match counts (zero-hit chips
+dim).
+
+**Steps:**
+1. Mock the backend (incl. `**/api/keybindings*`); open `/default/1`; open the
+   overlay with Shift+Ctrl+/.
+2. Assert every jump chip renders in the nav (`shortcuts-jump-nav`).
+3. Assert the TMUX section (`tmux-section`) shows the mocked root rows and the
+   prefix row's "then" sequence separator.
+4. Fill the filter with "split" → the tmux "Split vertically" row stays
+   visible; the tmux chip shows count 1 and the global chip shows 0.
+
+### `the legacy Help: tmux Keybindings palette entry is gone (260801-sm6g)`
+
+**What it proves:** the legacy tmux keybindings dialog was deleted with its
+palette entry — `Help: Keyboard Shortcuts` (the overlay) is the single
+shortcuts entry.
+
+**Steps:**
+1. Open the palette (`Meta+k`); fill "tmux Keybindings" → no
+   `Help: tmux Keybindings` entry renders.
+2. Fill "Keyboard Shortcuts" → the `Help: Keyboard Shortcuts` entry is
+   visible.
 
 ### `click-to-capture rebinds, persists the diff, and the new chord dispatches`
 

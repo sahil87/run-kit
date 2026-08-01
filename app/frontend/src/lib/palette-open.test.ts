@@ -1,5 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
-import { buildOpenActions, buildOpenPrAction, openActionLabel } from "./palette-open";
+import {
+  buildOpenActions,
+  buildOpenLastUsedAction,
+  buildOpenPrAction,
+  openActionLabel,
+} from "./palette-open";
 import type { OpenTarget } from "./open-in-app";
 
 const deeplink: OpenTarget = {
@@ -54,6 +59,25 @@ describe("buildOpenActions", () => {
 describe("openActionLabel", () => {
   it("never suffixes deeplink targets", () => {
     expect(openActionLabel(deeplink, true)).toBe("Open: VS Code");
+  });
+});
+
+describe("buildOpenLastUsedAction (260801-sm6g)", () => {
+  it("yields no action without a resolved last-used target (boundary-hidden)", () => {
+    expect(buildOpenLastUsedAction(null, vi.fn())).toEqual([]);
+  });
+
+  it("names the resolved target in the dynamic suffix, id doubles as the registry actionId", () => {
+    const actions = buildOpenLastUsedAction(deeplink, vi.fn());
+    expect(actions).toHaveLength(1);
+    expect(actions[0].id).toBe("open-last-used");
+    expect(actions[0].label).toBe("Open: Last used (VS Code)");
+  });
+
+  it("onSelect runs the resolved target", () => {
+    const onRun = vi.fn();
+    buildOpenLastUsedAction(hostIterm, onRun)[0].onSelect();
+    expect(onRun).toHaveBeenCalledWith(hostIterm);
   });
 });
 

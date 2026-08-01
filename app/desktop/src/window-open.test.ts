@@ -5,7 +5,7 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isHttpUrl, windowOpenAction } from "./window-open";
+import { isEditorDeeplink, isHttpUrl, windowOpenAction } from "./window-open";
 
 test("https URLs open externally", () => {
   assert.equal(windowOpenAction("https://github.com/sahil87/run-kit/pull/1"), "open-external");
@@ -38,4 +38,41 @@ test("isHttpUrl accepts only http/https", () => {
   assert.equal(isHttpUrl("https://host"), true);
   assert.equal(isHttpUrl("ftp://host"), false);
   assert.equal(isHttpUrl(""), false);
+});
+
+// Editor deeplinks (260801-sm6g): the fixed allowlist mirroring the SPA's
+// DEEPLINK_APPS — vscode/cursor/windsurf open externally; everything else
+// (including near-miss editor schemes) stays denied.
+
+test("allowlisted editor deeplinks open externally (windowOpenAction)", () => {
+  assert.equal(
+    windowOpenAction("vscode://vscode-remote/ssh-remote+devbox/home/u/repo"),
+    "open-external",
+  );
+  assert.equal(
+    windowOpenAction("cursor://vscode-remote/ssh-remote+devbox/home/u/repo"),
+    "open-external",
+  );
+  assert.equal(
+    windowOpenAction("windsurf://vscode-remote/ssh-remote+devbox/home/u/repo"),
+    "open-external",
+  );
+});
+
+test("isEditorDeeplink matches exactly the allowlisted schemes (guardNavigation's gate)", () => {
+  assert.equal(isEditorDeeplink("vscode://vscode-remote/ssh-remote+h/p"), true);
+  assert.equal(isEditorDeeplink("cursor://vscode-remote/ssh-remote+h/p"), true);
+  assert.equal(isEditorDeeplink("windsurf://vscode-remote/ssh-remote+h/p"), true);
+  // Near-miss / arbitrary schemes never qualify — allowlist, not pass-through.
+  assert.equal(isEditorDeeplink("vscode-insiders://vscode-remote/ssh-remote+h/p"), false);
+  assert.equal(isEditorDeeplink("jetbrains-gateway://connect"), false);
+  assert.equal(isEditorDeeplink("file:///etc/passwd"), false);
+  assert.equal(isEditorDeeplink("https://host"), false);
+  assert.equal(isEditorDeeplink(""), false);
+});
+
+test("non-allowlisted schemes stay denied — openExternal is never a pass-through", () => {
+  assert.equal(windowOpenAction("vscode-insiders://vscode-remote/ssh-remote+h/p"), "deny");
+  assert.equal(windowOpenAction("smb://fileserver/share"), "deny");
+  assert.equal(windowOpenAction("file:///etc/passwd"), "deny");
 });

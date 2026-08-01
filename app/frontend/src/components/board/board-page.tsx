@@ -332,13 +332,21 @@ function BoardPageContent({ name }: { name: string }) {
     [reorder],
   );
 
+  // Chrome dispatch — lifted above the keybinding handlers so the ⇧⌘E
+  // compose-toggle chord (260801-sm6g) and the palette memos below can consume
+  // it (also feeds the sidebar toggle + terminal-font palette actions).
+  const { sidebarOpen, composeStripEnabled } = useChromeState();
+  const { setSidebarOpen, increaseTerminalFont, decreaseTerminalFont, resetTerminalFont, toggleComposeStrip } = useChromeDispatch();
+
   // Keyboard chords (260730-g40a): the pane-cycle ⌘[/⌘] pair migrated into
   // the keybinding registry (`board-cycle-prev`/`board-cycle-next`, combos
   // unchanged, per-device rebindable), joined by the global shifted-tier
-  // back/forward + shortcuts-overlay chords. One dispatcher mount per route
-  // shell — AppShell mounts its own; the two never co-mount. A missing
-  // handler (no panes) falls through untouched, matching the old
-  // `entries.length === 0` early-return.
+  // back/forward + shortcuts-overlay chords and the ⇧⌘E compose toggle
+  // (260801-sm6g — the board twin mounts the same handler as AppShell; the
+  // terminal-scoped ⇧⌘O open-last-used chord has no board handler and falls
+  // through). One dispatcher mount per route shell — AppShell mounts its own;
+  // the two never co-mount. A missing handler (no panes) falls through
+  // untouched, matching the old `entries.length === 0` early-return.
   const [showShortcutsOverlay, setShowShortcutsOverlay] = useState(false);
   const { byAction: bindingByAction, host: bindingHost } = useKeybindings();
   const boardKeyHandlers = useMemo(() => {
@@ -356,9 +364,19 @@ function BoardPageContent({ name }: { name: string }) {
       "go-back": () => router.history.back(),
       "go-forward": () => router.history.forward(),
       "shortcuts-overlay": () => setShowShortcutsOverlay((prev) => !prev),
+      "compose-toggle": toggleComposeStrip,
     };
-  }, [entries.length, router]);
+  }, [entries.length, router, toggleComposeStrip]);
   useKeybindingDispatch(boardKeyHandlers);
+
+  // Sidebar-footer Keyboard icon → overlay toggle (260801-sm6g) — the board
+  // twin of AppShell's listener (the sidebar dispatches a document
+  // CustomEvent; each route shell owns its overlay state, DD-8).
+  useEffect(() => {
+    const onOverlayOpen = () => setShowShortcutsOverlay((prev) => !prev);
+    document.addEventListener("shortcuts-overlay:open", onOverlayOpen);
+    return () => document.removeEventListener("shortcuts-overlay:open", onOverlayOpen);
+  }, []);
 
   // Drag-resize state — separate from the persisted widths; live during drag.
   // Handlers live in refs so an unmount cleanup or a `pointercancel` (e.g.
@@ -427,12 +445,6 @@ function BoardPageContent({ name }: { name: string }) {
   };
 
   const showEmptyState = !isLoading && entries.length === 0;
-
-  // Chrome dispatch for the sidebar toggle (below) and the terminal-font palette
-  // actions. Lifted here (above boardRouteActions) so the font mutators are in
-  // scope for the palette memo.
-  const { sidebarOpen, composeStripEnabled } = useChromeState();
-  const { setSidebarOpen, increaseTerminalFont, decreaseTerminalFont, resetTerminalFont, toggleComposeStrip } = useChromeDispatch();
 
   // Settings dialog trigger (o7q8) — the dialog mounts once in AppLayout;
   // this palette only registers the opener (lifted above boardRouteActions

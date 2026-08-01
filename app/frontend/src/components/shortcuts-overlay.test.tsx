@@ -1,7 +1,33 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render, screen, fireEvent, cleanup, within, waitFor } from "@testing-library/react";
 import { ShortcutsOverlay } from "./shortcuts-overlay";
 import { KEYBINDINGS_STORAGE_KEY } from "@/lib/keybindings";
+import type { Keybinding } from "@/api/client";
+
+// The overlay reads the current server from the session context and fetches
+// the tmux bindings itself (260801-sm6g) — mock both seams so unit tests stay
+// light (no SessionProvider sockets, no network). Default: NO current server
+// (the effect resolves `[]` synchronously → the empty state, no async state
+// updates outside act).
+let mockCurrentServer: string | null = null;
+vi.mock("@/contexts/session-context", () => ({
+  useSessionContext: () => ({ currentServer: mockCurrentServer }),
+}));
+
+const getKeybindingsMock = vi.fn<(server: string) => Promise<Keybinding[]>>();
+vi.mock("@/api/client", async (orig) => {
+  const actual = await orig<typeof import("@/api/client")>();
+  return {
+    ...actual,
+    getKeybindings: (server: string) => getKeybindingsMock(server),
+  };
+});
+
+beforeEach(() => {
+  mockCurrentServer = null;
+  getKeybindingsMock.mockReset();
+  getKeybindingsMock.mockResolvedValue([]);
+});
 
 afterEach(() => {
   cleanup();
@@ -23,11 +49,13 @@ describe("ShortcutsOverlay", () => {
     renderOverlay();
     const overlay = screen.getByTestId("shortcuts-overlay");
     expect(overlay.querySelector('[role="dialog"]')).not.toBeNull();
-    // Group headings
+    // Group headings (SHELL is no longer a top-level section — 260801-sm6g;
+    // TMUX joined as the merged read-only section)
     expect(screen.getByText("GLOBAL")).toBeInTheDocument();
     expect(screen.getByText("TERMINAL")).toBeInTheDocument();
     expect(screen.getByText("BOARD")).toBeInTheDocument();
-    expect(screen.getByText("SHELL — DESKTOP APP")).toBeInTheDocument();
+    expect(screen.getByText("TMUX")).toBeInTheDocument();
+    expect(screen.queryByText("SHELL — DESKTOP APP")).toBeNull();
     // Starter rows
     expect(screen.getByText("New session")).toBeInTheDocument();
     expect(screen.getByText("Next window")).toBeInTheDocument();
@@ -177,6 +205,119 @@ describe("ShortcutsOverlay", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByLabelText("Close"));
     expect(onClose).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("ShortcutsOverlay merged view (260801-sm6g)", () => {
+  const TMUX_BINDINGS: Keybinding[] = [
+    { key: "F3", table: "root", command: "previous-window", label: "Previous window (tmux)" },
+    { key: "S-F3", table: "root", command: "select-pane -t :.-", label: "Previous pane" },
+    { key: "\\", table: "prefix", command: "split-window -h", label: "Split vertically" },
+  ];
+
+  it("renders the sticky jump-nav chips for every section", () => {
+    renderOverlay();
+    const nav = screen.getByTestId("shortcuts-jump-nav");
+    for (const label of ["key map", "global", "terminal", "board", "tmux"]) {
+      expect(within(nav).getByText(label)).toBeInTheDocument();
+    }
+    // No custom section on the bare mount (no macros, no paletteTargets).
+    expect(within(nav).queryByText("custom")).toBeNull();
+  });
+
+  it("filtering shows live chip counts, dims empty chips, and hides the tier map", () => {
+    renderOverlay();
+    expect(screen.getByText(/run-kit tier —/)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Filter shortcuts"), {
+      target: { value: "waiting" },
+    });
+    // Tier map auto-hides while a filter is active.
+    expect(screen.queryByText(/run-kit tier —/)).toBeNull();
+    const nav = screen.getByTestId("shortcuts-jump-nav");
+    // "waiting" matches exactly one global row (Next waiting agent).
+    const globalChip = within(nav).getByText("global").closest("button")!;
+    expect(globalChip.textContent).toBe("global1");
+    expect(globalChip.className).not.toContain("opacity-40");
+    // Zero-hit sections dim their chips.
+    const boardChip = within(nav).getByText("board").closest("button")!;
+    expect(boardChip.textContent).toBe("board0");
+    expect(boardChip.className).toContain("opacity-40");
+    // Clearing the filter restores the map and drops the counts.
+    fireEvent.change(screen.getByLabelText("Filter shortcuts"), { target: { value: "" } });
+    expect(screen.getByText(/run-kit tier —/)).toBeInTheDocument();
+    expect(within(nav).getByText("global").closest("button")!.textContent).toBe("global");
+  });
+
+  it("collapse map folds the tier grids; expand restores them", () => {
+    renderOverlay();
+    expect(screen.getByText("claimed (shell · system · browser)")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("▾ collapse map"));
+    expect(screen.queryByText("claimed (shell · system · browser)")).toBeNull();
+    fireEvent.click(screen.getByText("▸ expand map"));
+    expect(screen.getByText("claimed (shell · system · browser)")).toBeInTheDocument();
+  });
+
+  it("shell-owned rows render as a GLOBAL subgroup", () => {
+    renderOverlay();
+    expect(
+      screen.getByText("Shell-owned — accelerators live in the desktop shell menu"),
+    ).toBeInTheDocument();
+    const globalSection = screen.getByText("GLOBAL").closest("section")!;
+    expect(within(globalSection).getByText("Switch to server 1–9")).toBeInTheDocument();
+    expect(within(globalSection).getByText("Force reload")).toBeInTheDocument();
+  });
+
+  it("tmux section renders Direct + Prefix locked rows from getKeybindings", async () => {
+    mockCurrentServer = "rk";
+    getKeybindingsMock.mockResolvedValue(TMUX_BINDINGS);
+    renderOverlay();
+    const tmux = screen.getByTestId("tmux-section");
+    await waitFor(() => expect(within(tmux).getByText("Previous pane")).toBeInTheDocument());
+    expect(getKeybindingsMock).toHaveBeenCalledWith("rk");
+    // Subheads: root table under Direct, prefix table under the sequence hint.
+    expect(within(tmux).getByText("Direct")).toBeInTheDocument();
+    expect(within(tmux).getByText(/Prefix —/)).toBeInTheDocument();
+    // The section header names the source server.
+    expect(within(tmux).getByText("rk")).toBeInTheDocument();
+    // Prefix rows render as a sequence: Ctrl S then \.
+    expect(within(tmux).getByText("Split vertically")).toBeInTheDocument();
+    expect(within(tmux).getByText("then")).toBeInTheDocument();
+    // Every tmux row is locked (read-only — pressed inside the pane).
+    expect(
+      within(tmux).getAllByLabelText("Locked — a tmux binding, pressed inside the pane"),
+    ).toHaveLength(3);
+  });
+
+  it("shows the tmux empty state when no current server exists (board/host routes)", () => {
+    renderOverlay(); // mockCurrentServer = null
+    expect(screen.getByText("No tmux server running")).toBeInTheDocument();
+    expect(getKeybindingsMock).not.toHaveBeenCalled();
+  });
+
+  it("shows the tmux empty state when the fetch fails", async () => {
+    mockCurrentServer = "rk";
+    getKeybindingsMock.mockRejectedValue(new Error("boom"));
+    renderOverlay();
+    await waitFor(() =>
+      expect(screen.getByText("No tmux server running")).toBeInTheDocument(),
+    );
+  });
+
+  it("one filter spans app + tmux rows and the tmux chip counts them", async () => {
+    mockCurrentServer = "rk";
+    getKeybindingsMock.mockResolvedValue(TMUX_BINDINGS);
+    renderOverlay();
+    const tmux = screen.getByTestId("tmux-section");
+    await waitFor(() => expect(within(tmux).getByText("Split vertically")).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("Filter shortcuts"), {
+      target: { value: "split" },
+    });
+    // The tmux hit stays visible; app sections with no hits disappear.
+    expect(within(tmux).getByText("Split vertically")).toBeInTheDocument();
+    expect(screen.queryByText("GLOBAL")).toBeNull();
+    const nav = screen.getByTestId("shortcuts-jump-nav");
+    expect(within(nav).getByText("tmux").closest("button")!.textContent).toBe("tmux1");
+    expect(within(nav).getByText("global").closest("button")!.textContent).toBe("global0");
   });
 });
 

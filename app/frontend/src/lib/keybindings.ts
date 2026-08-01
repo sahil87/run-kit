@@ -108,8 +108,10 @@ export const KEYBINDINGS_STORAGE_KEY = "runkit-keybindings";
  *
  * Shifted tier — the nine starter actions (intake §1, canonical letters):
  * N/T/W new-session/new-window/close-window, H/L prev/next window, [/] back/
- * forward, A next-waiting-agent, / the cheatsheet. Global scope: dispatch
- * mounts decide per-route applicability by handler presence.
+ * forward, A next-waiting-agent, / the cheatsheet — joined by E compose-strip
+ * toggle and O open-last-used (260801-sm6g). Global scope (O is
+ * terminal-scoped): dispatch mounts decide per-route applicability by handler
+ * presence.
  *
  * macOS demotions (260730-n789 — letters constant, modifier varies): [/]//
  * default to the unshifted ⌘ tier on every mac host (interceptable in
@@ -129,6 +131,16 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   { actionId: "create-session", code: "KeyN", tier: "shifted", macTier: "cmd", macShellOnly: true, scope: "global", kind: "builtin", label: "New session", description: "create a tmux session", mapLabel: "new session" },
   { actionId: "create-window", code: "KeyT", tier: "shifted", macTier: "cmd", macShellOnly: true, scope: "global", kind: "builtin", label: "New window", description: "tab-analog in current session", mapLabel: "new window" },
   { actionId: "kill-window", code: "KeyW", tier: "shifted", macTier: "cmd", macShellOnly: true, scope: "global", kind: "builtin", label: "Close window", description: "confirm flow", mapLabel: "close win" },
+  // ⇧⌘E compose toggle (260801-sm6g): E is free on both platforms (C is the
+  // win/linux terminal-copy claim, T is create-window, I is win/linux
+  // devtools). No macTier demotion — ⌘E is browser "use selection for find"
+  // territory on mac. ignoreInputs lets the chord CLOSE the strip while its
+  // own textarea has focus.
+  { actionId: "compose-toggle", code: "KeyE", tier: "shifted", scope: "global", kind: "builtin", label: "Compose text", description: "toggle the compose strip", mapLabel: "compose", ignoreInputs: true },
+  // ⇧⌘O open-last-used (260801-sm6g): re-runs the Open split-button's primary
+  // (last-used) target. Terminal scope — the Open control is
+  // terminal-route-only; the board/server routes mount no handler.
+  { actionId: "open-last-used", code: "KeyO", tier: "shifted", scope: "terminal", kind: "builtin", label: "Open in last-used app", description: "re-run the last Open target", mapLabel: "open" },
   { actionId: "window-prev", code: "KeyH", tier: "shifted", scope: "global", kind: "builtin", label: "Previous window", mapLabel: "prev win" },
   { actionId: "window-next", code: "KeyL", tier: "shifted", scope: "global", kind: "builtin", label: "Next window", mapLabel: "next win" },
   { actionId: "go-back", code: "BracketLeft", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Back", description: "history", mapLabel: "back" },

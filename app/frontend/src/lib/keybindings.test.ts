@@ -53,7 +53,7 @@ describe("DEFAULT_BINDINGS integrity", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it("carries the nine shifted-tier starter actions on their canonical keys", () => {
+  it("carries the shifted-tier actions on their canonical keys", () => {
     const shifted = Object.fromEntries(
       DEFAULT_BINDINGS.filter((b) => b.tier === "shifted").map((b) => [b.actionId, b.code]),
     );
@@ -61,6 +61,8 @@ describe("DEFAULT_BINDINGS integrity", () => {
       "create-session": "KeyN",
       "create-window": "KeyT",
       "kill-window": "KeyW",
+      "compose-toggle": "KeyE",
+      "open-last-used": "KeyO",
       "window-prev": "KeyH",
       "window-next": "KeyL",
       "go-back": "BracketLeft",
@@ -68,6 +70,45 @@ describe("DEFAULT_BINDINGS integrity", () => {
       "agent-next-waiting": "KeyA",
       "shortcuts-overlay": "Slash",
     });
+  });
+
+  it("compose-toggle: ⇧⌘E, global, ignoreInputs, no mac demotion (260801-sm6g)", () => {
+    const def = DEFAULT_BINDINGS.find((b) => b.actionId === "compose-toggle");
+    expect(def).toMatchObject({
+      code: "KeyE",
+      tier: "shifted",
+      scope: "global",
+      kind: "builtin",
+      ignoreInputs: true,
+    });
+    expect(def?.macTier).toBeUndefined();
+    // Shifted everywhere — mac hosts included (no demotion; ⌘E is browser
+    // find-selection territory).
+    for (const host of ALL_HOSTS) {
+      expect(byId(resolved(host), "compose-toggle")).toMatchObject({
+        code: "KeyE",
+        tier: "shifted",
+        enabled: true,
+      });
+    }
+  });
+
+  it("open-last-used: ⇧⌘O, terminal scope, no mac demotion (260801-sm6g)", () => {
+    const def = DEFAULT_BINDINGS.find((b) => b.actionId === "open-last-used");
+    expect(def).toMatchObject({
+      code: "KeyO",
+      tier: "shifted",
+      scope: "terminal",
+      kind: "builtin",
+    });
+    expect(def?.macTier).toBeUndefined();
+    for (const host of ALL_HOSTS) {
+      expect(byId(resolved(host), "open-last-used")).toMatchObject({
+        code: "KeyO",
+        tier: "shifted",
+        enabled: true,
+      });
+    }
   });
 
   it("migrates the five legacy chords with combos unchanged", () => {

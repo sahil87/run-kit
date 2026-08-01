@@ -7,12 +7,12 @@ import {
   useFocusedTerminal,
   type FocusedTerminal,
 } from "@/contexts/focused-terminal-context";
-import { ChromeProvider, useChromeState } from "@/contexts/chrome-context";
+import { ChromeProvider, useChromeState, useChromeDispatch } from "@/contexts/chrome-context";
 import { useWindowStore, entryKey } from "@/store/window-store";
 import type { UploadedFile } from "@/hooks/use-file-upload";
 import { stubMatchMedia } from "@/test-utils/match-media";
 import { clearComposeDraft } from "@/lib/compose-draft-store";
-import { focusComposeStrip } from "@/lib/compose-strip-events";
+import { consumeComposeStripFocusOnOpen, focusComposeStrip } from "@/lib/compose-strip-events";
 
 // Mock useFileUpload so tests never hit the network. The mock records calls and
 // returns deterministic paths so the re-home path-rewrite can be asserted.
@@ -92,6 +92,9 @@ describe("ComposeStrip", () => {
     // The draft lives in a module store shared across the whole test module —
     // reset it so a leftover draft from a prior test never bleeds in.
     clearComposeDraft();
+    // Drain the module-level focus-on-open flag so a prior test's toggle can
+    // never leak focus behavior into the next one.
+    consumeComposeStripFocusOnOpen();
     uploadFilesMock.mockReset();
     vi.stubGlobal(
       "matchMedia",
@@ -393,7 +396,10 @@ describe("ComposeStrip", () => {
     expect(input().getAttribute("enterkeyhint")).toBe("enter");
   });
 
-  it("does not steal focus on mount", () => {
+  it("does not steal focus on a plain (re)mount — no open transition, no flag", () => {
+    // A route remount with the strip already enabled never goes through
+    // `toggleComposeStrip`, so no focus-on-open flag exists (260801-sm6g keeps
+    // the 260718-dhdj no-steal rule for everything but the open transition).
     render(
       <ChromeProvider>
         <FocusedTerminalProvider>
@@ -404,6 +410,51 @@ describe("ComposeStrip", () => {
     );
     // The strip textarea must not be the active element on mount.
     expect(document.activeElement).not.toBe(input());
+  });
+
+  // Focus-on-open (260801-sm6g): the off→on toggle marks the module flag;
+  // the strip's mount effect consumes it and focuses the textarea. Mirrors the
+  // real caller gating ({composeStripEnabled && <ComposeStrip/>} in app.tsx /
+  // board-page.tsx) so the toggle actually mounts/unmounts the strip.
+  function ToggleHarness({ focus }: { focus: FocusedTerminal }) {
+    return (
+      <ChromeProvider>
+        <FocusedTerminalProvider>
+          <FocusSetter focus={focus} />
+          <ToggleGatedStrip />
+        </FocusedTerminalProvider>
+      </ChromeProvider>
+    );
+  }
+  // NOTE: distinct from the ×-close `GatedStrip` harness below — this one also
+  // exposes the toggle itself, to drive the off→on open transition.
+  function ToggleGatedStrip() {
+    const { composeStripEnabled } = useChromeState();
+    const { toggleComposeStrip } = useChromeDispatch();
+    return (
+      <>
+        <button data-testid="toggle-strip" onClick={toggleComposeStrip}>
+          toggle
+        </button>
+        {composeStripEnabled && <ComposeStrip />}
+      </>
+    );
+  }
+
+  it("focuses the textarea on the open transition (toggle off→on)", () => {
+    render(<ToggleHarness focus={{ wsRef: makeWs().ref, server: "srv", session: "sess", windowId: "@1" }} />);
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+    act(() => fireEvent.click(screen.getByTestId("toggle-strip")));
+    expect(document.activeElement).toBe(input());
+  });
+
+  it("open in the no-target state takes no focus and clears the flag (no stale steal later)", () => {
+    render(<ToggleHarness focus={null} />);
+    // Open with no focused terminal: the textarea is disabled — no focus.
+    act(() => fireEvent.click(screen.getByTestId("toggle-strip")));
+    expect(document.activeElement).not.toBe(input());
+    // The consume cleared the flag even though focus was declined.
+    expect(consumeComposeStripFocusOnOpen()).toBe(false);
   });
 
   it("Escape blurs the textarea (does not remove the strip)", () => {

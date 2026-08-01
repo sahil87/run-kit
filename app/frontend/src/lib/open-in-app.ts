@@ -27,7 +27,14 @@ export type DeeplinkApp = {
 /** The v1 deeplink set — VS Code family editors sharing the ssh-remote URI
  *  grammar. All templates are offered unconditionally when remote: client
  *  installs are unknowable from a web page, and a dead scheme no-ops on
- *  click. (JetBrains Gateway has a divergent grammar — a later add.) */
+ *  click. (JetBrains Gateway has a divergent grammar — a later add.)
+ *
+ *  COUPLED to the desktop shell's editor-deeplink scheme allowlist
+ *  (`EDITOR_DEEPLINK_SCHEMES` in `app/desktop/src/window-open.ts`,
+ *  260801-sm6g): in the Electron shell these URLs only reach
+ *  `shell.openExternal` when their scheme is on that fixed allowlist —
+ *  adding an editor HERE requires adding its scheme THERE (and a shell
+ *  release), or the new editor's deeplink is silently dropped in the shell. */
 export const DEEPLINK_APPS: DeeplinkApp[] = [
   { id: "vscode",   label: "VS Code",  url: (host, path) => `vscode://vscode-remote/ssh-remote+${host}${path}` },
   { id: "cursor",   label: "Cursor",   url: (host, path) => `cursor://vscode-remote/ssh-remote+${host}${path}` },

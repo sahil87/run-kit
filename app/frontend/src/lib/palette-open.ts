@@ -7,12 +7,18 @@
  * thin `onSelect` wrappers passed in by the caller (they run the target via
  * the shared run-a-target behavior, persisting the last-used preference).
  *
- * No keyboard chord is registered for these actions: the palette itself is
- * the constitution's primary keyboard discovery mechanism, and Open targets
- * are data-driven (the set varies per deployment), so a static chord cannot
- * name one. This registration comment documents that per the code-review
- * rule ("new keyboard shortcuts must be documented in the command palette
- * registration").
+ * No keyboard chord is registered for the per-target actions: the palette
+ * itself is the constitution's primary keyboard discovery mechanism, and Open
+ * targets are data-driven (the set varies per deployment), so a static chord
+ * cannot name one. The exception (260801-sm6g) is `open-last-used` — an
+ * action naming the BEHAVIOR ("re-run the last-used target"), not an app —
+ * which sidesteps that objection: it carries the ⇧⌘O / Shift+Ctrl+O chord in
+ * the keybinding registry (`lib/keybindings.ts`) and the dynamic
+ * `Open: Last used (<label>)` palette entry built by `buildOpenLastUsedAction`
+ * below (the entry's id doubles as the registry actionId, so the chord hint
+ * decorates it automatically). This registration comment documents both per
+ * the code-review rule ("new keyboard shortcuts must be documented in the
+ * command palette registration").
  *
  * Label rule: `Open: <label>`, with host targets suffixed ` (on host)` ONLY
  * when the target list also carries deeplink entries (a remote client) —
@@ -51,6 +57,31 @@ export function buildOpenActions(
     label: openActionLabel(t, hasBothKinds),
     onSelect: () => onRun(t),
   }));
+}
+
+/**
+ * Build the `Open: Last used (<label>)` palette action (260801-sm6g) — the
+ * palette twin of the ⇧⌘O `open-last-used` chord and the Open split-button's
+ * primary segment. The caller passes the RESOLVED last-used target
+ * (`resolveLastUsedTarget` over the live target set); no resolved target
+ * (nothing stored, or a stale id) yields no entry — the dynamic suffix needs
+ * a target to name, and the boundary-hidden convention (Move up/down) applies.
+ * The chord itself stays live without a resolved target: its handler shows the
+ * "No last-used app yet" toast instead. Id `open-last-used` doubles as the
+ * registry actionId so `withShortcutHints` decorates the entry automatically.
+ */
+export function buildOpenLastUsedAction(
+  lastUsed: OpenTarget | null,
+  onRun: (target: OpenTarget) => void,
+): OpenPaletteAction[] {
+  if (!lastUsed) return [];
+  return [
+    {
+      id: "open-last-used",
+      label: `Open: Last used (${lastUsed.label})`,
+      onSelect: () => onRun(lastUsed),
+    },
+  ];
 }
 
 /**

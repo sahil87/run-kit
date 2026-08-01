@@ -16,6 +16,7 @@ import { useWindowStore, entryKey } from "@/store/window-store";
 import { Tip, TipGroup } from "@/components/tip";
 import {
   COMPOSE_STRIP_ATTACH_EVENT,
+  consumeComposeStripFocusOnOpen,
   drainComposeStripAttachments,
   registerComposeStripFocuser,
 } from "@/lib/compose-strip-events";
@@ -51,9 +52,16 @@ import {
  * device); Alt+Enter — and the secondary Insert button — deliver the text
  * WITHOUT the trailing `\r` (insert into the pane's input box without pressing
  * Enter). `enterkeyhint` tracks what Enter actually does. Enter is guarded
- * against IME composition; empty/whitespace-only submission is a no-op. The
- * strip NEVER steals focus (mount / toggle / after-send); Escape blurs the
- * textarea back to the terminal.
+ * against IME composition; empty/whitespace-only submission is a no-op.
+ *
+ * Focus contract (260801-sm6g, revising 260718-dhdj): the strip focuses its
+ * textarea on the OPEN transition only — every open path funnels through
+ * `toggleComposeStrip()`, which marks the module-level focus-on-open flag
+ * (`compose-strip-events.ts`); the mount effect consumes-and-clears it and
+ * focuses, declining in the disabled "no target" state. Everything else keeps
+ * the no-steal rule: after-send never grabs focus, Escape blurs the textarea
+ * back to the terminal, and a route remount with the strip already enabled
+ * (no toggle → no flag) never steals focus.
  *
  * Uploads ride `useFileUpload` scoped to the LIVE focused target's worktree
  * (eager upload). When the focused target changes while attachments are pending,
@@ -336,6 +344,18 @@ export function ComposeStrip() {
       el.focus();
       return true;
     });
+  }, []);
+
+  // Focus-on-open (260801-sm6g): consume the flag set by `toggleComposeStrip`'s
+  // off→on transition and focus the textarea — the same disabled-state respect
+  // as the registered focuser (the "no target" state declines, but the consume
+  // still clears the flag so a later remount cannot inherit it). Plain route
+  // remounts never set the flag, so they never steal focus.
+  useEffect(() => {
+    if (!consumeComposeStripFocusOnOpen()) return;
+    const el = textareaRef.current;
+    if (!el || el.disabled) return;
+    el.focus();
   }, []);
 
   const removeFile = useCallback((index: number) => {

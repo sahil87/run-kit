@@ -396,8 +396,8 @@ export function BottomBar({ onOpenCompose, onFocusTerminal, onScrollLockChange }
           </button>
         </Tip>
       )}
-      {/* kbd slot: the canonical palette shortcut string ("⌘K",
-          keyboard-shortcuts.tsx) — a static string per the 73al contract. */}
+      {/* kbd slot: the canonical palette shortcut string ("⌘K") — a static
+          string per the 73al contract. */}
       <Tip label="Command palette" kbd={"\u2318K"} placement="top">
         <button
           aria-label="Open command palette"

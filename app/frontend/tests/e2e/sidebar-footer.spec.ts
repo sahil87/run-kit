@@ -39,11 +39,32 @@ test.describe("Sidebar footer chrome (260724-6j1v)", () => {
     await expect(help).toHaveAttribute("rel", /noreferrer/);
     await expect(help).not.toHaveAttribute("title", /.*/);
 
+    // Keyboard — the shortcuts-overlay trigger (260801-sm6g), between Help
+    // and Theme.
+    await expect(nav.getByRole("button", { name: "Keyboard shortcuts" })).toBeVisible();
+
     // Theme — present with its mode label (cycles on click, asserted below).
     await expect(nav.getByRole("button", { name: / theme$/ })).toBeVisible();
 
     // Gear — the settings trigger (o7q8), still present as the last action.
     await expect(nav.getByRole("button", { name: "Open settings" })).toBeVisible();
+  });
+
+  test("keyboard button opens the shortcuts overlay from the footer (260801-sm6g)", async ({ page }) => {
+    await gotoServerReady(page, TMUX_SERVER);
+    const keyboard = sidebar(page).getByRole("button", { name: "Keyboard shortcuts" });
+    await keyboard.click();
+    const overlay = page.getByTestId("shortcuts-overlay");
+    await expect(overlay).toBeVisible();
+    // Close (Escape) and re-open from the footer — the affordance stays live.
+    // (The toggle semantics of a second event are unit-tested; the open
+    // overlay's backdrop covers the sidebar, so a literal second click lands
+    // on the backdrop.)
+    await page.keyboard.press("Escape");
+    await expect(overlay).toHaveCount(0);
+    await keyboard.click();
+    await expect(overlay).toBeVisible();
+    await page.keyboard.press("Escape");
   });
 
   test("theme button cycles the mode from the footer", async ({ page }) => {

@@ -123,7 +123,10 @@ to the newly-focused pane's window name — the live-target signal (reverses DD-
 1. Resolve `cs-alpha` and `cs-bravo` window IDs; POST
    `/api/boards/<name>/pin` for both.
 2. Navigate to `/board/<name>`; assert two `.xterm` instances mount.
-3. Enable the strip via the `>_` chip; assert the target label is visible.
+3. Enable the strip via the `>_` chip; assert the target label is visible and
+   the strip textarea took focus (focus-on-open, 260801-sm6g), then press
+   Escape to blur it — the pane-cycle chords are suppressed while a real text
+   input owns focus.
 4. Assert the label reads `cs-alpha` (initial focused pane, index 0).
 5. Press `Meta+]`; assert the label updates to `cs-bravo`.
 6. Press `Meta+[`; assert the label returns to `cs-alpha`.

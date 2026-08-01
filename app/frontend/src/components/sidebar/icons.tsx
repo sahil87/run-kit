@@ -65,6 +65,41 @@ export function GearIcon({ size = 13 }: { size?: number }) {
   );
 }
 
+/** Small keyboard icon for the sidebar-footer shortcuts trigger — a lucide
+ *  `keyboard` silhouette (rounded rect + key dots + space bar). Line-art
+ *  matching the sibling `GearIcon` idiom (`currentColor` stroke,
+ *  `strokeWidth={2}`, `aria-hidden`, 24-unit viewBox, 13px default size).
+ *  (260801-sm6g) */
+export function KeyboardIcon({ size = 13 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {/* body */}
+      <rect x="2" y="5" width="20" height="14" rx="2" />
+      {/* key dots (two rows) */}
+      <path d="M6 9h.01" />
+      <path d="M10 9h.01" />
+      <path d="M14 9h.01" />
+      <path d="M18 9h.01" />
+      <path d="M6 12.5h.01" />
+      <path d="M10 12.5h.01" />
+      <path d="M14 12.5h.01" />
+      <path d="M18 12.5h.01" />
+      {/* space bar */}
+      <path d="M8 16h8" />
+    </svg>
+  );
+}
+
 /** Small robot-head icon for the session-row spawn-agent trigger — a lucide
  *  `bot` silhouette (antenna + rounded head with two eye dots and a side port).
  *  Line-art matching the sibling `PaletteIcon` idiom (`currentColor` stroke,

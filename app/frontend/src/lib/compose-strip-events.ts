@@ -78,3 +78,32 @@ export function registerComposeStripFocuser(focus: () => boolean): () => void {
 export function focusComposeStrip(): boolean {
   return stripFocuser?.() ?? false;
 }
+
+/**
+ * Module-level focus-on-open flag (260801-sm6g).
+ *
+ * The strip focuses its textarea on the enable (off→on) transition — a
+ * deliberate, scoped reversal of the 260718-dhdj "never steals focus"
+ * contract, for the OPEN transition only (after-send stays no-focus, Escape
+ * still blurs, route remounts never steal focus). Every open path funnels
+ * through `toggleComposeStrip()` in chrome-context, which marks this flag
+ * when transitioning off→on; the strip's mount effect consumes-and-clears it
+ * and focuses the textarea — declining (but still clearing) in the disabled
+ * "no target" state, so a stale flag can never grab focus on a later remount.
+ * Same module-slot shape as the attach queue / focus registry above.
+ */
+let focusOnOpen = false;
+
+/** Mark the next ComposeStrip mount as an OPEN transition (off→on toggle) —
+ * the mount effect will focus the textarea. Idempotent. */
+export function markComposeStripFocusOnOpen(): void {
+  focusOnOpen = true;
+}
+
+/** Consume the focus-on-open flag: returns whether it was set, always
+ * clearing it (a decline must not leave a stale flag behind). */
+export function consumeComposeStripFocusOnOpen(): boolean {
+  const wasSet = focusOnOpen;
+  focusOnOpen = false;
+  return wasSet;
+}

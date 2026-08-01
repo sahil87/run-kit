@@ -12,12 +12,14 @@ import { useToast } from "@/components/toast";
 import { TypedLabel } from "@/components/typed-label";
 import { Tip, TipGroup } from "@/components/tip";
 import { SwatchPopover } from "@/components/swatch-popover";
-import { PaletteIcon, GearIcon } from "./icons";
+import { PaletteIcon, GearIcon, KeyboardIcon } from "./icons";
 import { useSettingsDialog } from "@/contexts/settings-dialog-context";
 import { useTheme, useThemeActions } from "@/contexts/theme-context";
 import { HELP_URL, cycleTheme, HelpIcon, ThemeModeIcon } from "@/components/global-chrome";
 import { displayVersion } from "@/lib/palette-version";
 import { copyToClipboard } from "@/lib/clipboard";
+import { formatCombo } from "@/lib/keybindings";
+import { useKeybindings } from "@/hooks/use-keybindings";
 import { computeRowTints, computeRowBorders, UNCOLORED_SELECTED_KEY } from "@/themes";
 import type { ProjectSession } from "@/types";
 import { isGhostWindow } from "@/contexts/optimistic-context";
@@ -1358,11 +1360,18 @@ const FOOTER_ICON_CLASS =
  *    overflow menu's toast pattern; renders nothing until the daemon reports
  *    a version — never `vundefined`). The overflow menu's fixed version row is
  *    unchanged and remains the update surface; this is a readout only.
- *  - RIGHT — actions, in order Help · Theme · Gear, all in the gear's
- *    borderless footer idiom. Help/Theme share the single `global-chrome.tsx`
- *    definitions with the command palettes (no drift). The theme button keeps
- *    the retired top-bar ThemeToggle's behavior: click cycles
- *    system → light → dark → system; Ctrl/Cmd-click opens the theme selector.
+ *  - RIGHT — actions, in order Help · Keyboard · Theme · Gear, all in the
+ *    gear's borderless footer idiom. Help/Theme share the single
+ *    `global-chrome.tsx` definitions with the command palettes (no drift).
+ *    The theme button keeps the retired top-bar ThemeToggle's behavior: click
+ *    cycles system → light → dark → system; Ctrl/Cmd-click opens the theme
+ *    selector. The Keyboard button (260801-sm6g) toggles the ShortcutsOverlay
+ *    via the `shortcuts-overlay:open` document CustomEvent (the `palette:open`
+ *    precedent — the sidebar mounts from both AppShell and the board route,
+ *    and each route shell owns its overlay state); its Tip carries the
+ *    HOST-effective overlay chord in the kbd slot (hidden when unbound).
+ *    Accepted trade: the affordance hides with the sidebar/drawer — the
+ *    `Help: Keyboard Shortcuts` palette entry stays the always-available route.
  *
  * Tips use `placement="top"` since the row hugs the viewport bottom.
  */
@@ -1377,6 +1386,14 @@ function SidebarFooter({
   const { preference, resolved, themeDark, themeLight } = useTheme();
   const { setTheme } = useThemeActions();
   const { addToast } = useToast();
+  // HOST-effective overlay chord for the Keyboard button's Tip kbd slot
+  // (260801-sm6g) — reflects overrides; omitted when unbound/disabled (a tip
+  // advertising a dead chord would lie).
+  const { byAction: keybindingsByAction, host: keybindingHost } = useKeybindings();
+  const overlayBinding = keybindingsByAction.get("shortcuts-overlay");
+  const overlayChord = overlayBinding?.enabled
+    ? formatCombo({ code: overlayBinding.code, tier: overlayBinding.tier }, keybindingHost.platform)
+    : undefined;
 
   // Same title derivation the top-bar dot carried: extend "Connected" with the
   // running version once known (hover-discovery detail; the aria-label stays
@@ -1439,7 +1456,8 @@ function SidebarFooter({
         )}
       </span>
 
-      {/* RIGHT — actions: Help · Theme · Gear (the borderless footer idiom). */}
+      {/* RIGHT — actions: Help · Keyboard · Theme · Gear (the borderless
+          footer idiom). */}
       <span className="flex items-center gap-0.5">
         <Tip label="Help — run-kit docs" placement="top">
           <a
@@ -1451,6 +1469,16 @@ function SidebarFooter({
           >
             <HelpIcon />
           </a>
+        </Tip>
+        <Tip label="Keyboard shortcuts" kbd={overlayChord} placement="top">
+          <button
+            type="button"
+            onClick={() => document.dispatchEvent(new CustomEvent("shortcuts-overlay:open"))}
+            aria-label="Keyboard shortcuts"
+            className={FOOTER_ICON_CLASS}
+          >
+            <KeyboardIcon />
+          </button>
         </Tip>
         <Tip label={themeLabel} placement="top">
           <button

@@ -232,10 +232,14 @@ test.describe("Docked compose strip", () => {
     await page.goto(`/board/${BOARD_NAME}`, { waitUntil: "domcontentloaded" });
     await expect(page.locator(".xterm")).toHaveCount(2, { timeout: 15_000 });
 
-    // Enable the strip on the board route.
+    // Enable the strip on the board route. Opening focuses the strip's
+    // textarea (focus-on-open, 260801-sm6g) — blur it with Escape so the
+    // board pane-cycle chords below aren't input-suppressed.
     await page.getByRole("button", { name: "Compose text" }).click();
     const label = page.getByTestId("compose-strip-target");
     await expect(label).toBeVisible();
+    await expect(page.getByTestId("compose-strip-input")).toBeFocused();
+    await page.keyboard.press("Escape");
 
     // Initial focused pane is index 0 (cs-alpha). Cycle focus to pane 1 and
     // assert the target label follows to cs-bravo.

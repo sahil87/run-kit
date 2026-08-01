@@ -64,7 +64,7 @@ import {
   symbolColorFor,
 } from "./strip";
 import { availableUpdateVersion, isUpdateCheckDue } from "./update-check";
-import { isHttpUrl, windowOpenAction } from "./window-open";
+import { isEditorDeeplink, isHttpUrl, windowOpenAction } from "./window-open";
 import {
   addHost,
   findHostByOrigin,
@@ -1033,13 +1033,18 @@ app.on("web-contents-created", (_event, contents) => {
 
   // One guard for both user navigation and host-issued redirects — a
   // registered host must not be able to escape in-window via a redirect.
+  // Blocked targets forward to the system: http(s) to the browser, and
+  // allowlisted editor deeplinks (`vscode:`/`cursor:`/`windsurf:` — the SPA's
+  // "Open in app" targets assign them to window.location.href) to the editor
+  // (260801-sm6g; previously silently dropped). The allowlist lives in
+  // ./window-open beside its node:test coverage.
   const guardNavigation = (
     event: { preventDefault: () => void },
     url: string,
   ): void => {
     if (isAllowedNavigation(url)) return;
     event.preventDefault();
-    if (isHttpUrl(url)) void shell.openExternal(url);
+    if (isHttpUrl(url) || isEditorDeeplink(url)) void shell.openExternal(url);
   };
   contents.on("will-navigate", guardNavigation);
   contents.on("will-redirect", guardNavigation);

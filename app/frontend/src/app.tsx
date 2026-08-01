@@ -34,8 +34,8 @@ import { ShellBadgeReporter } from "@/components/shell-badge-reporter";
 import { useShellServers } from "@/hooks/use-shell-servers";
 import { readLastPinnedBoard } from "@/lib/last-pinned-board";
 import { buildNavActions } from "@/lib/palette-nav";
-import { buildOpenActions, buildOpenPrAction } from "@/lib/palette-open";
-import { activePaneCwd, buildOpenTargets } from "@/lib/open-in-app";
+import { buildOpenActions, buildOpenLastUsedAction, buildOpenPrAction } from "@/lib/palette-open";
+import { activePaneCwd, buildOpenTargets, readLastUsedOpenTarget, resolveLastUsedTarget } from "@/lib/open-in-app";
 import { useOpenTargets } from "@/hooks/use-open-targets";
 import { useRunOpenTarget } from "@/components/open-button";
 import { nextWaitingTarget, chatSearchForTarget, type WaitingTarget } from "@/lib/palette-agent-nav";
@@ -83,7 +83,6 @@ import { ComposeStrip } from "@/components/compose-strip";
 import type { PaletteAction } from "@/components/command-palette";
 import { Dialog } from "@/components/dialog";
 import { SessionTiles } from "@/components/session-tiles/session-tiles";
-import { KeyboardShortcuts } from "@/components/keyboard-shortcuts";
 import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 import { LogoSpinner } from "@/components/logo-spinner";
 import type { ServerInfo } from "@/api/client";
@@ -569,11 +568,12 @@ function AppShell() {
   const [showCreateServerDialog, setShowCreateServerDialog] = useState(false);
   const [createServerName, setCreateServerName] = useState("");
   const [killServerTarget, setKillServerTarget] = useState<string | null>(null);
-  const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false);
   // The registry cheatsheet overlay (260730-g40a) — toggled by the per-platform
   // shortcuts chord (⌘/ on macOS, ⇧Ctrl+/ on win/linux — 260730-n789, via the
-  // keybinding dispatcher below) and the `Help: Keyboard Shortcuts` palette
-  // entry. Distinct from the tmux keybindings modal above.
+  // keybinding dispatcher below), the `Help: Keyboard Shortcuts` palette entry,
+  // and the sidebar-footer Keyboard icon (`shortcuts-overlay:open` event). THE
+  // single shortcuts surface — its TMUX section absorbed the retired tmux
+  // keybindings modal (260801-sm6g).
   const [showShortcutsOverlay, setShowShortcutsOverlay] = useState(false);
   const [showTmuxCommands, setShowTmuxCommands] = useState(false);
   const [showCreateSessionAtFolderDialog, setShowCreateSessionAtFolderDialog] = useState(false);
@@ -2056,20 +2056,30 @@ function AppShell() {
   const openCtx = useOpenTargets(!!windowParam);
   const openPath = windowParam ? activePaneCwd(currentWindow) : "";
   const { runTarget: runOpenTarget } = useRunOpenTarget(server, openPath);
+  const openTargets = useMemo(
+    () =>
+      windowParam
+        ? buildOpenTargets({
+            hostname: window.location.hostname,
+            sshHost: openCtx.sshHost,
+            sshUser: openCtx.sshUser,
+            hostApps: openCtx.hostApps,
+            path: openPath,
+          })
+        : [],
+    [windowParam, openCtx, openPath],
+  );
+  // Resolved last-used target (localStorage read, validated against the live
+  // set — stale ids resolve null). Feeds both the dynamic `Open: Last used
+  // (<label>)` palette entry and the ⇧⌘O chord handler (260801-sm6g).
+  const lastUsedOpenTarget = resolveLastUsedTarget(openTargets, readLastUsedOpenTarget());
   const openActions: PaletteAction[] = useMemo(
     () => [
-      ...buildOpenActions(
-        windowParam
-          ? buildOpenTargets({
-              hostname: window.location.hostname,
-              sshHost: openCtx.sshHost,
-              sshUser: openCtx.sshUser,
-              hostApps: openCtx.hostApps,
-              path: openPath,
-            })
-          : [],
-        runOpenTarget,
-      ),
+      ...buildOpenActions(openTargets, runOpenTarget),
+      // `Open: Last used (<label>)` (260801-sm6g) — palette twin of the ⇧⌘O
+      // `open-last-used` chord and the split-button's primary segment. Hidden
+      // when no last-used target resolves (the chord's toast covers that).
+      ...buildOpenLastUsedAction(lastUsedOpenTarget, runOpenTarget),
       // `Open: PR #{n}` (260727-w2d8) — the keyboard path to the current
       // window's PR (Constitution V; the sidebar PrLinkRow anchor is
       // mouse-only). Client-side only: window.open in THIS viewer's browser
@@ -2082,7 +2092,7 @@ function AppShell() {
       ),
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [windowParam, openCtx, openPath, server, currentWindow?.prUrl, currentWindow?.prNumber],
+    [openTargets, lastUsedOpenTarget?.id, server, openPath, currentWindow?.prUrl, currentWindow?.prNumber],
   );
 
   // Terminal font-size actions. No `shortcut` — Cmd +/- is deliberately not
@@ -2134,14 +2144,12 @@ function AppShell() {
         onSelect: () => executeResetConfig(server),
       },
       {
-        id: "keyboard-shortcuts",
-        label: "Help: tmux Keybindings",
-        onSelect: () => setShowKeyboardShortcuts(true),
-      },
-      {
         // The registry cheatsheet overlay (260730-g40a). The id doubles as the
         // registry actionId, so the effective-chord hint (⌘/ on macOS,
-        // ⇧Ctrl+/ on win/linux) renders on this entry.
+        // ⇧Ctrl+/ on win/linux) renders on this entry. The single shortcuts
+        // surface — the `Help: tmux Keybindings` entry (id `keyboard-shortcuts`)
+        // was removed with the legacy dialog it opened; the overlay's TMUX
+        // section carries that content now (260801-sm6g).
         id: "shortcuts-overlay",
         label: "Help: Keyboard Shortcuts",
         onSelect: () => setShowShortcutsOverlay((prev) => !prev),
@@ -2614,9 +2622,33 @@ function AppShell() {
       "window-prev": canCycle ? () => cycleWindow(-1) : undefined,
       "window-next": canCycle ? () => cycleWindow(1) : undefined,
       "shortcuts-overlay": () => setShowShortcutsOverlay((prev) => !prev),
+      // ⇧⌘E compose toggle (260801-sm6g) — same body as the `>_` chip and the
+      // `View: Text Input` palette entry; ignoreInputs on the binding lets the
+      // chord close the strip from inside its own textarea.
+      "compose-toggle": toggleComposeStrip,
+      // ⇧⌘O open-last-used (260801-sm6g) — terminal route only (scope is
+      // descriptive; handler presence gates). Reuses the palette body when the
+      // dynamic `Open: Last used (<label>)` entry exists (a last-used target
+      // resolved); otherwise the chord surfaces the empty-state toast — a
+      // chord cannot reasonably pop the split-button's mouse menu.
+      "open-last-used": windowParam
+        ? (fromPalette("open-last-used") ??
+          (() => addToast("No last-used app yet — pick one from Open ▾ or the palette", "info")))
+        : undefined,
     };
-  }, [paletteActions, currentSession, windowParam, navigateToWindow, macros, sessionName, executeMacro]);
+  }, [paletteActions, currentSession, windowParam, navigateToWindow, macros, sessionName, executeMacro, toggleComposeStrip, addToast]);
   useKeybindingDispatch(keybindingHandlers);
+
+  // Sidebar-footer Keyboard icon → overlay toggle (260801-sm6g). The sidebar
+  // mounts from BOTH route shells (AppShell here; the board route in
+  // board-page.tsx), so the affordance signals via a document CustomEvent —
+  // the `palette:open` precedent — and each shell toggles its own
+  // showShortcutsOverlay state (only one shell is ever mounted).
+  useEffect(() => {
+    const onOverlayOpen = () => setShowShortcutsOverlay((prev) => !prev);
+    document.addEventListener("shortcuts-overlay:open", onOverlayOpen);
+    return () => document.removeEventListener("shortcuts-overlay:open", onOverlayOpen);
+  }, []);
 
   const displayName = currentWindow?.name ?? windowParam ?? "";
   const displaySession = sessionName ?? "";
@@ -3290,10 +3322,6 @@ function AppShell() {
       <Suspense fallback={null}>
         <ThemeSelector />
       </Suspense>
-
-      {showKeyboardShortcuts && (
-        <KeyboardShortcuts onClose={() => setShowKeyboardShortcuts(false)} />
-      )}
 
       <ShortcutsOverlay
         open={showShortcutsOverlay}

@@ -1,0 +1,13 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-01T08:17:59Z"}
+{"args":"Keyboard-shortcuts consolidation across the run-kit frontend (compose-strip toggle chord, focus-on-open, sidebar shortcuts icon, merged tmux+app shortcuts overlay, open-last-used chord) plus an Electron desktop-shell editor-deeplink bug fix","cmd":"fab-new","event":"command","ts":"2026-08-01T08:17:59Z"}
+{"delta":"+4.9","event":"confidence","score":4.9,"trigger":"calc-score","ts":"2026-08-01T08:20:16Z"}
+{"delta":"+0.0","event":"confidence","score":4.9,"trigger":"calc-score","ts":"2026-08-01T08:20:56Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-08-01T08:22:14Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-01T08:23:12Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-01T08:23:40Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-08-01T08:24:31Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-01T09:12:24Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-01T09:22:02Z"}
+{"event":"review","result":"passed","ts":"2026-08-01T09:22:02Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-08-01T09:22:37Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-01T09:31:44Z"}

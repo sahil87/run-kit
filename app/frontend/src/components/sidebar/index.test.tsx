@@ -1366,22 +1366,42 @@ describe("sidebar footer chrome (260723-o7q8 gear; 260724-6j1v cluster)", () => 
     }
   });
 
-  it("lays the footer out readouts-left / actions-right in Help · Theme · Gear order", () => {
+  it("lays the footer out readouts-left / actions-right in Help · Keyboard · Theme · Gear order", () => {
     renderSidebar({ isConnected: true, daemonVersion: "0.9.3" });
     const dot = screen.getByLabelText("Connected");
     const version = screen.getByRole("button", { name: "RunKit v0.9.3 (copy)" });
     const help = screen.getByLabelText("Help — run-kit docs");
+    const keyboard = screen.getByRole("button", { name: "Keyboard shortcuts" });
     const theme = screen.getByRole("button", { name: "System theme" });
     const gear = screen.getByRole("button", { name: "Open settings" });
     const follows = (a: Element, b: Element) =>
       Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
     expect(follows(dot, version)).toBe(true);
     expect(follows(version, help)).toBe(true);
-    expect(follows(help, theme)).toBe(true);
+    expect(follows(help, keyboard)).toBe(true);
+    expect(follows(keyboard, theme)).toBe(true);
     expect(follows(theme, gear)).toBe(true);
     // One justify-between row: readout segment left, action cluster right.
     const row = gear.closest(".justify-between")!;
     expect(row).toContainElement(dot as HTMLElement);
+  });
+
+  it("the Keyboard button dispatches shortcuts-overlay:open in the borderless idiom (260801-sm6g)", () => {
+    renderSidebar();
+    const keyboard = screen.getByRole("button", { name: "Keyboard shortcuts" });
+    // Borderless footer idiom — no bordered rk-glint chip, no native title
+    // (the Tip carries the label + effective-chord kbd slot).
+    expect(keyboard.className).not.toContain("border-border");
+    expect(keyboard.className).not.toContain("rk-glint");
+    expect(keyboard).not.toHaveAttribute("title");
+    const openListener = vi.fn();
+    document.addEventListener("shortcuts-overlay:open", openListener);
+    try {
+      fireEvent.click(keyboard);
+      expect(openListener).toHaveBeenCalledTimes(1);
+    } finally {
+      document.removeEventListener("shortcuts-overlay:open", openListener);
+    }
   });
 });
 

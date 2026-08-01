@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useFocusTrap } from "@/hooks/use-focus-trap";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { useMacros } from "@/hooks/use-macros";
+import { useSessionContext } from "@/contexts/session-context";
+import { getKeybindings, type Keybinding } from "@/api/client";
 import {
   captureFromEvent,
   claimedKeys,
@@ -24,18 +26,34 @@ import {
  * The keyboard-shortcuts cheatsheet overlay (260730-g40a) — a focus-trapped
  * dialog (Constitution IV: NOT a route; the route set is fixed), opened by
  * the per-platform shortcuts chord (⌘/ on macOS, ⇧Ctrl+/ on Win/Linux —
- * 260730-n789) and the `Help: Keyboard Shortcuts` palette action, mounted on
- * both AppShell and BoardPage.
+ * 260730-n789), the `Help: Keyboard Shortcuts` palette action, and the
+ * sidebar-footer Keyboard icon (`shortcuts-overlay:open` CustomEvent —
+ * 260801-sm6g), mounted on both AppShell and BoardPage.
  *
- * Per the reviewed design mock (`design-mock.html` in the change folder):
- * two tier-map keyboard visualizations (the shifted run-kit tier everywhere,
- * plus the mac ⌘ page tier on the macOS display; bound / custom / claimed /
- * free per key), a platform display toggle (macOS ↔ Win·Linux keycap rendering,
- * initialized from the detected platform), a filter input, grouped rows with
- * scope badges, click-to-rebind capture (Esc cancels) with steal warning,
- * modified-dot + per-row reset + unbound flag, shell-owned rows shown locked
- * (the shell menu owns their accelerators), and a footer with the storage
- * note + reset-all. Export/import is deferred.
+ * THE single merged shortcuts surface (260801-sm6g, per the reviewed
+ * `design-mock.html` in the change folder — it absorbed and retired the
+ * legacy `KeyboardShortcuts` tmux dialog): NO TABS — one scroll, one filter
+ * spanning app + custom + tmux rows. A sticky JUMP-NAV chip row under the
+ * header scroll-anchors to each section; while the filter is active every
+ * chip shows a live per-section match count and dims when its section has no
+ * hits. The tier maps (app tiers only — tmux prefix chords don't fit the
+ * combo model) are FOLDABLE ("collapse map") and auto-hide entirely while a
+ * filter is active. Shell-owned locked rows render as a subgroup at the end
+ * of GLOBAL (not a top-level section — three flavors of locked top-level
+ * sections was too many). A read-only TMUX section (locked rows: 🔒 +
+ * non-interactive combos) lists the current server's curated bindings from
+ * `GET /api/keybindings` — root table under "Direct", prefix table under
+ * "Prefix — Ctrl+S, then key" with sequence rendering — fetched while the
+ * overlay is open; no current server (board/host routes) or an empty/failed
+ * fetch shows "No tmux server running".
+ *
+ * Tier maps: two keyboard visualizations (the shifted run-kit tier
+ * everywhere, plus the mac ⌘ page tier on the macOS display; bound / custom /
+ * claimed / free per key), a platform display toggle (macOS ↔ Win·Linux
+ * keycap rendering, initialized from the detected platform), grouped rows
+ * with scope badges, click-to-rebind capture (Esc cancels) with steal
+ * warning, modified-dot + per-row reset + unbound flag, and a footer with the
+ * storage note + reset-all. Export/import is deferred.
  *
  * CUSTOM section (260730-hbyh): editable macro rows — label, resolved-command
  * preview chip, the same click-to-rebind capture as builtins (macros ride the
@@ -57,6 +75,9 @@ const GROUPS: { name: string; scope: BindingScope }[] = [
   { name: "TERMINAL", scope: "terminal" },
   { name: "BOARD", scope: "board" },
 ];
+
+/** Jump-nav section ids, in document order (260801-sm6g). */
+type JumpSectionId = "map" | "global" | "terminal" | "board" | "custom" | "tmux";
 
 /** A keycap sequence (`<kbd>` run) — the combo rendering unit. */
 function Keycaps({ parts }: { parts: string[] }) {
@@ -88,6 +109,116 @@ function ScopeBadge({ scope }: { scope: BindingScope }) {
   );
 }
 
+/** A read-only locked row (🔒 + non-interactive combo) — the shell-owned-row
+ *  idiom, shared by the GLOBAL shell subgroup and the TMUX section
+ *  (260801-sm6g). `seq` interleaves keycap runs with "then" separators for
+ *  tmux prefix sequences (`Ctrl` `S` then `\`). */
+function LockedRow({
+  label,
+  description,
+  seq,
+  lockTitle,
+  lockAria,
+}: {
+  label: string;
+  description?: string;
+  seq: (string[] | "then")[];
+  lockTitle: string;
+  lockAria: string;
+}) {
+  return (
+    <div className="flex items-center gap-2.5 px-2 py-1.5 rounded hover:bg-bg-inset/70">
+      <span className="w-1.5 h-1.5 flex-none" />
+      <span className="flex-1 min-w-0 truncate">
+        {label}
+        {description && (
+          <span className="text-[11px] text-text-secondary"> — {description}</span>
+        )}
+      </span>
+      <span className="flex gap-1 items-center px-1 py-0.5">
+        {seq.map((part, i) =>
+          part === "then" ? (
+            <span key={`then-${i}`} className="text-[10px] text-text-secondary px-px">
+              then
+            </span>
+          ) : (
+            <Keycaps key={i} parts={part} />
+          ),
+        )}
+      </span>
+      <span
+        className="flex-none text-[11px] text-text-secondary"
+        role="img"
+        aria-label={lockAria}
+        title={lockTitle}
+      >
+        🔒
+      </span>
+    </div>
+  );
+}
+
+/** Bracketed section heading + rule, with an optional right-aligned note. */
+function SectionHead({ name, note }: { name: string; note?: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-3 mb-1">
+      <h3 className="text-[11.5px] font-bold tracking-wider text-text-secondary select-none">
+        <span aria-hidden="true">[ </span>
+        <span className="text-text-primary">{name}</span>
+        <span aria-hidden="true"> ]</span>
+      </h3>
+      <span className="flex-1 border-t border-border" aria-hidden="true" />
+      {note && <span className="text-[10px] text-text-secondary">{note}</span>}
+    </div>
+  );
+}
+
+/** Uppercase-tracking subgroup head (mock `.subhead`). */
+function SubHead({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="text-[10px] tracking-wider uppercase text-text-secondary mt-2 mb-0.5 px-2">
+      {children}
+    </div>
+  );
+}
+
+// ── tmux keybinding shaping (absorbed from the retired keyboard-shortcuts.tsx
+//    dialog, 260801-sm6g) ─────────────────────────────────────────────────────
+
+/** Format a tmux key name for display (e.g., "S-F3" → "Shift+F3"). */
+function formatTmuxKey(key: string): string {
+  return key.replace(/^S-/, "Shift+").replace(/^C-/, "Ctrl+");
+}
+
+type TmuxRow = { label: string; keys: string[] };
+
+/** Group one tmux key table's bindings by label, merge keys, sort. */
+function groupTmuxRows(bindings: Keybinding[], table: string): TmuxRow[] {
+  const map = new Map<string, string[]>();
+  for (const b of bindings) {
+    if (b.table !== table) continue;
+    const display = formatTmuxKey(b.key);
+    const existing = map.get(b.label);
+    if (existing) {
+      if (!existing.includes(display)) existing.push(display);
+    } else {
+      map.set(b.label, [display]);
+    }
+  }
+  return Array.from(map, ([label, keys]) => ({ label, keys: keys.sort() })).sort(
+    (a, b) => a.label.localeCompare(b.label),
+  );
+}
+
+/** Keycap parts for a formatted tmux key ("Shift+F3" → ["⇧","F3"] on the mac
+ *  display, ["Shift","F3"] otherwise). Free-form caps — tmux keys are pressed
+ *  inside the pane and don't ride the app's tier model. */
+function tmuxKeyCaps(key: string, displayPlatform: BindingPlatform): string[] {
+  return key
+    .split("+")
+    .map((part) => (displayPlatform === "mac" && part === "Shift" ? "⇧" : part));
+}
+
 /** A palette action offered as a macro target in the add flow. */
 export type MacroPaletteTarget = { id: string; label: string };
 
@@ -117,11 +248,21 @@ export function ShortcutsOverlay({
   const [query, setQuery] = useState("");
   const [capturingId, setCapturingId] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ actionId: string; text: string } | null>(null);
+  // Tier-map fold (260801-sm6g): reclaims vertical space the tmux section
+  // needs on short viewports. Session-scoped view state — deliberately NOT
+  // reset on close (a folded map is a reading preference, not transient
+  // filter/capture state).
+  const [mapFolded, setMapFolded] = useState(false);
   // Add-macro flow state (260730-hbyh).
   const [addOpen, setAddOpen] = useState(false);
   const [addQuery, setAddQuery] = useState("");
   const [addTarget, setAddTarget] = useState<{ label: string; target: MacroTarget } | null>(null);
   const [addName, setAddName] = useState("");
+
+  // Section anchors for the jump-nav chips (260801-sm6g).
+  const sectionRefs = useRef<Partial<Record<JumpSectionId, HTMLElement | null>>>({});
+  const jumpTo = (id: JumpSectionId) =>
+    sectionRefs.current[id]?.scrollIntoView({ behavior: "smooth", block: "start" });
 
   // Reset transient state whenever the overlay closes.
   useEffect(() => {
@@ -134,6 +275,32 @@ export function ShortcutsOverlay({
     setAddTarget(null);
     setAddName("");
   }, [open]);
+
+  // ── tmux bindings (260801-sm6g — the merged read-only section) ───────────
+  // Fetched while the overlay is open for the CURRENT server (route-derived;
+  // null on board/host routes). `null` = loading; `[]` = no server / empty /
+  // failed fetch → the "No tmux server running" empty state.
+  const { currentServer } = useSessionContext();
+  const [tmuxBindings, setTmuxBindings] = useState<Keybinding[] | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    if (!currentServer) {
+      setTmuxBindings([]);
+      return;
+    }
+    let cancelled = false;
+    setTmuxBindings(null);
+    getKeybindings(currentServer)
+      .then((data) => {
+        if (!cancelled) setTmuxBindings(data);
+      })
+      .catch(() => {
+        if (!cancelled) setTmuxBindings([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, currentServer]);
 
   // Rebind capture: a capture-phase window listener while a combo is armed.
   // stopPropagation keeps the chord away from the focus trap, the global
@@ -210,20 +377,28 @@ export function ShortcutsOverlay({
   const hasOverride = (actionId: string) =>
     Object.prototype.hasOwnProperty.call(overrides, actionId);
 
+  const trimmedQuery = query.trim().toLowerCase();
+  const filtering = trimmedQuery !== "";
+
   const matchesQuery = (b: EffectiveBinding) => {
-    const q = query.trim().toLowerCase();
-    if (!q) return true;
+    if (!filtering) return true;
     return (
-      b.label.toLowerCase().includes(q) || (b.description ?? "").toLowerCase().includes(q)
+      b.label.toLowerCase().includes(trimmedQuery) ||
+      (b.description ?? "").toLowerCase().includes(trimmedQuery)
     );
   };
 
+  /** Registry rows for one scope group (macros render in CUSTOM, not here). */
+  const rowsForScope = (scope: BindingScope) =>
+    bindings.filter((b) => b.kind !== "macro" && b.scope === scope && matchesQuery(b));
+
   // Shell-owned locked rows (accelerators live in the desktop shell's menu —
-  // the registry only documents them). DevTools is a win/linux accelerator.
-  // The switcher diverges from the shared shifted-tier caps on the mac
-  // display (260731-nv5r): the mac shell tier is ⌥⌘ (⇧⌘3/4/5 are macOS
-  // screenshot shortcuts), while win/linux keeps ⇧Ctrl+1–9. Locked rows are
-  // free-form caps arrays, so no tier machinery is involved.
+  // the registry only documents them). Rendered as a subgroup at the END of
+  // GLOBAL (260801-sm6g — demoted from a top-level section). DevTools is a
+  // win/linux accelerator. The switcher diverges from the shared shifted-tier
+  // caps on the mac display (260731-nv5r): the mac shell tier is ⌥⌘ (⇧⌘3/4/5
+  // are macOS screenshot shortcuts), while win/linux keeps ⇧Ctrl+1–9. Locked
+  // rows are free-form caps arrays, so no tier machinery is involved.
   const shellRows = useMemo(() => {
     const tierCaps = (key: string) =>
       displayPlatform === "mac" ? ["⇧", "⌘", key] : ["Shift", "Ctrl", key];
@@ -236,11 +411,26 @@ export function ShortcutsOverlay({
     if (displayPlatform !== "mac") {
       rows.push({ label: "DevTools", description: undefined, parts: tierCaps("I") });
     }
-    return rows.filter((r) => {
-      const q = query.trim().toLowerCase();
-      return !q || r.label.toLowerCase().includes(q);
-    });
-  }, [displayPlatform, query]);
+    return rows.filter((r) => !filtering || r.label.toLowerCase().includes(trimmedQuery));
+  }, [displayPlatform, filtering, trimmedQuery]);
+
+  // Grouped tmux rows + the query filter (label match, like shellRows).
+  const tmuxRoot = useMemo(
+    () =>
+      groupTmuxRows(tmuxBindings ?? [], "root").filter(
+        (r) => !filtering || r.label.toLowerCase().includes(trimmedQuery),
+      ),
+    [tmuxBindings, filtering, trimmedQuery],
+  );
+  const tmuxPrefix = useMemo(
+    () =>
+      groupTmuxRows(tmuxBindings ?? [], "prefix").filter(
+        (r) => !filtering || r.label.toLowerCase().includes(trimmedQuery),
+      ),
+    [tmuxBindings, filtering, trimmedQuery],
+  );
+  const tmuxEmpty = tmuxBindings !== null && tmuxBindings.length === 0;
+  const tmuxLoading = tmuxBindings === null;
 
   // Add-flow target candidates: riff presets (when known) + the mount's
   // palette actions, macros excluded (no macro→macro chains).
@@ -267,11 +457,10 @@ export function ShortcutsOverlay({
   const canAddMacro = paletteTargets != null;
 
   const visibleMacros = macros.filter((m) => {
-    const q = query.trim().toLowerCase();
-    if (!q) return true;
+    if (!filtering) return true;
     return (
-      m.label.toLowerCase().includes(q) ||
-      macroCommandPreview(m.target).toLowerCase().includes(q)
+      m.label.toLowerCase().includes(trimmedQuery) ||
+      macroCommandPreview(m.target).toLowerCase().includes(trimmedQuery)
     );
   });
 
@@ -306,6 +495,30 @@ export function ShortcutsOverlay({
   const sheetChord = sheetBinding?.enabled
     ? formatCombo({ code: sheetBinding.code, tier: sheetBinding.tier }, host.platform)
     : null;
+
+  // Jump-nav model (260801-sm6g): per-section live match counts while the
+  // filter is active. The custom section's chip renders only when the section
+  // itself does; the key-map chip carries no count (the map hides while
+  // filtering) and dims like an empty section then.
+  const groupCounts: Record<string, number> = {
+    global: rowsForScope("global").length + shellRows.length,
+    terminal: rowsForScope("terminal").length,
+    board: rowsForScope("board").length,
+  };
+  const customSectionPresent = macros.length > 0 || canAddMacro;
+  const tmuxCount = tmuxRoot.length + tmuxPrefix.length;
+  const jumpChips: { id: JumpSectionId; label: string; count: number | null }[] = [
+    { id: "map", label: "key map", count: null },
+    { id: "global", label: "global", count: groupCounts.global },
+    { id: "terminal", label: "terminal", count: groupCounts.terminal },
+    { id: "board", label: "board", count: groupCounts.board },
+    ...(customSectionPresent
+      ? [{ id: "custom" as const, label: "custom", count: visibleMacros.length }]
+      : []),
+    { id: "tmux", label: "tmux", count: tmuxCount },
+  ];
+  const totalHits =
+    groupCounts.global + groupCounts.terminal + groupCounts.board + visibleMacros.length + tmuxCount;
 
   const keyCell = (
     states: Map<string, { cls: "bound" | "custom" | "claimed"; label: string }>,
@@ -357,6 +570,81 @@ export function ShortcutsOverlay({
     );
   };
 
+  /** One editable registry row (grouped scope lists). */
+  const bindingRow = (b: EffectiveBinding) => {
+    const modified = hasOverride(b.actionId);
+    const combo = { code: b.code, tier: b.tier };
+    return (
+      <div key={b.actionId} data-actionid={b.actionId}>
+        <div className="group flex items-center gap-2.5 px-2 py-1.5 rounded hover:bg-bg-inset/70">
+          <span
+            className={`w-1.5 h-1.5 rounded-full flex-none ${modified ? "bg-accent" : "bg-transparent"}`}
+            title={modified ? "modified from default" : undefined}
+          />
+          <span className="flex-1 min-w-0 truncate">
+            {b.label}
+            {b.description && (
+              <span className="text-[11px] text-text-secondary"> — {b.description}</span>
+            )}
+          </span>
+          <ScopeBadge scope={b.scope} />
+          {b.disabledReason === "user" ? (
+            <button
+              type="button"
+              onClick={() => setCapturingId(b.actionId)}
+              className="flex-none text-[11px] px-2 py-0.5 rounded border border-amber-600/50 text-amber-600"
+              title="unbound — click to rebind"
+            >
+              unbound
+            </button>
+          ) : capturingId === b.actionId ? (
+            <span className="flex gap-1 items-center px-1 py-0.5 rounded outline outline-1 outline-accent-green">
+              <Keycaps parts={["press keys…"]} />
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setNotice(null);
+                setCapturingId(b.actionId);
+              }}
+              aria-label={`Change binding for ${b.label}`}
+              title="click to rebind"
+              className={`flex gap-1 items-center px-1 py-0.5 rounded hover:outline hover:outline-1 hover:outline-dashed hover:outline-accent-green/60 ${b.disabledReason === "reserved" ? "opacity-50" : ""}`}
+            >
+              <Keycaps parts={comboParts(combo, displayPlatform)} />
+            </button>
+          )}
+          {b.disabledReason === "reserved" && (
+            <span
+              className="flex-none text-[9.5px] tracking-wider uppercase px-2 py-px rounded-full border border-amber-600/50 text-amber-600"
+              title="browser-reserved — use the command palette, or rebind; the desktop shell frees this key"
+            >
+              browser
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              resetBinding(b.actionId);
+              setNotice(null);
+            }}
+            aria-label={`Reset binding for ${b.label}`}
+            title="reset to default"
+            className={`flex-none text-text-secondary hover:text-amber-600 ${modified ? "visible" : "invisible"}`}
+          >
+            ↺
+          </button>
+        </div>
+        {notice?.actionId === b.actionId && (
+          <div className="mx-2 mb-1 px-2.5 py-1 text-[11px] rounded border border-amber-600/45 bg-amber-600/10 text-amber-600">
+            {notice.text}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div
       data-testid="shortcuts-overlay"
@@ -395,7 +683,7 @@ export function ShortcutsOverlay({
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="filter actions…"
+            placeholder="filter all shortcuts — app, custom & tmux…"
             aria-label="Filter shortcuts"
             className="flex-1 min-w-[120px] text-xs bg-bg-inset border border-border rounded px-2.5 py-1 outline-none text-text-primary placeholder:text-text-secondary focus:border-accent"
           />
@@ -414,198 +702,166 @@ export function ShortcutsOverlay({
           </button>
         </div>
 
-        {/* ── shifted-tier map ───────────────────────────── */}
-        <div className="px-4 pt-4 pb-2">
-          <div className="flex justify-between flex-wrap gap-1.5 text-[11px] text-text-secondary mb-2.5">
-            <span>
-              run-kit tier — <b className="text-text-primary">{tierName}</b> + key
-            </span>
-            <span>plain Ctrl always reaches the pane</span>
+        {/* ── jump nav (260801-sm6g — the tabs alternative) ──────────────
+            Plain chips scroll to a section; while the filter is active each
+            chip shows its live match count so hits below the fold stay
+            visible, and zero-hit chips dim. Sticky within the sheet's own
+            scroll container. */}
+        <nav
+          aria-label="Shortcut sections"
+          data-testid="shortcuts-jump-nav"
+          className="sticky top-0 z-10 flex items-center gap-1.5 flex-wrap px-4 py-2 border-b border-border bg-bg-card/95 backdrop-blur-sm"
+        >
+          <span className="text-[10px] tracking-wider text-text-secondary select-none mr-0.5">
+            JUMP:
+          </span>
+          {jumpChips.map((chip) => {
+            const empty = filtering && (chip.count === null || chip.count === 0);
+            return (
+              <button
+                key={chip.id}
+                type="button"
+                onClick={() => jumpTo(chip.id)}
+                className={`text-[10.5px] tracking-wide px-2.5 py-px rounded-full border border-border text-text-secondary hover:text-accent-green hover:border-accent-green ${empty ? "opacity-40" : ""}`}
+              >
+                {chip.label}
+                {filtering && chip.count !== null && (
+                  <span className={`ml-1.5 text-[9.5px] ${chip.count > 0 ? "text-accent-green" : "text-text-secondary"}`}>
+                    {chip.count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </nav>
+
+        {/* ── tier maps (app tiers only; foldable — 260801-sm6g) ─────────
+            Auto-hidden entirely while a filter is active: the map cannot
+            answer a text query, and the reclaimed space keeps row hits above
+            the fold. */}
+        {!filtering && (
+          <div
+            ref={(el) => {
+              sectionRefs.current.map = el;
+            }}
+            className="px-4 pt-4 pb-2 scroll-mt-12"
+          >
+            <div className="flex justify-between items-baseline flex-wrap gap-1.5 text-[11px] text-text-secondary">
+              <span>
+                run-kit tier — <b className="text-text-primary">{tierName}</b> + key
+              </span>
+              <span>plain Ctrl always reaches the pane</span>
+              <button
+                type="button"
+                onClick={() => setMapFolded((f) => !f)}
+                aria-expanded={!mapFolded}
+                className="text-[10.5px] text-text-secondary hover:text-accent-green px-1"
+              >
+                {mapFolded ? "▸ expand map" : "▾ collapse map"}
+              </button>
+            </div>
+            {!mapFolded && (
+              <>
+                <div className="flex flex-col items-center gap-1.5 mt-2.5" aria-hidden="true">
+                  {KEY_ROWS.map((row, i) => (
+                    <div key={i} className="flex gap-1.5">
+                      {row.map((code, j) => keyCell(keyStates, code, j))}
+                    </div>
+                  ))}
+                </div>
+                {/* macOS page tier (260730-n789): the unshifted ⌘ tier the
+                    desktop shell frees — demoted defaults (⌘[/⌘]/⌘/ everywhere,
+                    ⌘N/T/W in the shell), the legacy ⌘ chords, and the per-host
+                    claimed set (shell menu accelerators inside the shell,
+                    browser-reserved keys outside). Not rendered for the
+                    Win·Linux display — plain Ctrl there belongs to the pane. */}
+                {cmdKeyStates && (
+                  <>
+                    <div className="flex justify-between flex-wrap gap-1.5 text-[11px] text-text-secondary mt-4 mb-2.5">
+                      <span>
+                        page tier — <b className="text-text-primary">⌘</b> + key
+                      </span>
+                      <span>
+                        {host.shell
+                          ? "freed by the desktop shell"
+                          : "browser keys stay claimed — the desktop shell frees them"}
+                      </span>
+                    </div>
+                    <div className="flex flex-col items-center gap-1.5" aria-hidden="true">
+                      {KEY_ROWS.map((row, i) => (
+                        <div key={`cmd-${i}`} className="flex gap-1.5">
+                          {row.map((code, j) => keyCell(cmdKeyStates, code, j))}
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+                <div className="flex flex-wrap gap-4 mt-3 text-[10.5px] text-text-secondary">
+                  <span><i className="inline-block w-2 h-2 mr-1 rounded-sm border border-accent-green bg-accent-green/25" />bound</span>
+                  <span><i className="inline-block w-2 h-2 mr-1 rounded-sm border border-accent bg-accent/25" />custom</span>
+                  <span><i className="inline-block w-2 h-2 mr-1 rounded-sm border border-amber-600/60 bg-amber-600/20" />claimed (shell · system · browser)</span>
+                  <span><i className="inline-block w-2 h-2 mr-1 rounded-sm border border-border" />free</span>
+                </div>
+              </>
+            )}
           </div>
-          <div className="flex flex-col items-center gap-1.5" aria-hidden="true">
-            {KEY_ROWS.map((row, i) => (
-              <div key={i} className="flex gap-1.5">
-                {row.map((code, j) => keyCell(keyStates, code, j))}
-              </div>
-            ))}
-          </div>
-          {/* macOS page tier (260730-n789): the unshifted ⌘ tier the desktop
-              shell frees — demoted defaults (⌘[/⌘]/⌘/ everywhere, ⌘N/T/W in
-              the shell), the legacy ⌘ chords, and the per-host claimed set
-              (shell menu accelerators inside the shell, browser-reserved keys
-              outside). Not rendered for the Win·Linux display — plain Ctrl
-              there belongs to the pane. */}
-          {cmdKeyStates && (
-            <>
-              <div className="flex justify-between flex-wrap gap-1.5 text-[11px] text-text-secondary mt-4 mb-2.5">
-                <span>
-                  page tier — <b className="text-text-primary">⌘</b> + key
-                </span>
-                <span>
-                  {host.shell
-                    ? "freed by the desktop shell"
-                    : "browser keys stay claimed — the desktop shell frees them"}
-                </span>
-              </div>
-              <div className="flex flex-col items-center gap-1.5" aria-hidden="true">
-                {KEY_ROWS.map((row, i) => (
-                  <div key={`cmd-${i}`} className="flex gap-1.5">
-                    {row.map((code, j) => keyCell(cmdKeyStates, code, j))}
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-          <div className="flex flex-wrap gap-4 mt-3 text-[10.5px] text-text-secondary">
-            <span><i className="inline-block w-2 h-2 mr-1 rounded-sm border border-accent-green bg-accent-green/25" />bound</span>
-            <span><i className="inline-block w-2 h-2 mr-1 rounded-sm border border-accent bg-accent/25" />custom</span>
-            <span><i className="inline-block w-2 h-2 mr-1 rounded-sm border border-amber-600/60 bg-amber-600/20" />claimed (shell · system · browser)</span>
-            <span><i className="inline-block w-2 h-2 mr-1 rounded-sm border border-border" />free</span>
-          </div>
-        </div>
+        )}
 
         {/* ── grouped rows ───────────────────────────────── */}
         <div className="px-4 pb-4">
           {GROUPS.map((group) => {
             // Macros render in their own CUSTOM section below, not here.
-            const rows = bindings.filter(
-              (b) => b.kind !== "macro" && b.scope === group.scope && matchesQuery(b),
-            );
-            if (rows.length === 0) return null;
+            const rows = rowsForScope(group.scope);
+            // The GLOBAL section also hosts the shell-owned subgroup
+            // (260801-sm6g — demoted from a top-level section), so it renders
+            // whenever either has rows.
+            const isGlobal = group.scope === "global";
+            if (rows.length === 0 && !(isGlobal && shellRows.length > 0)) return null;
             return (
-              <section key={group.name} className="mt-4">
-                <div className="flex items-center gap-3 mb-1">
-                  <h3 className="text-[11.5px] font-bold tracking-wider text-text-secondary select-none">
-                    <span aria-hidden="true">[ </span>
-                    <span className="text-text-primary">{group.name}</span>
-                    <span aria-hidden="true"> ]</span>
-                  </h3>
-                  <span className="flex-1 border-t border-border" aria-hidden="true" />
-                </div>
-                {rows.map((b) => {
-                  const modified = hasOverride(b.actionId);
-                  const combo = { code: b.code, tier: b.tier };
-                  return (
-                    <div key={b.actionId} data-actionid={b.actionId}>
-                      <div className="group flex items-center gap-2.5 px-2 py-1.5 rounded hover:bg-bg-inset/70">
-                        <span
-                          className={`w-1.5 h-1.5 rounded-full flex-none ${modified ? "bg-accent" : "bg-transparent"}`}
-                          title={modified ? "modified from default" : undefined}
-                        />
-                        <span className="flex-1 min-w-0 truncate">
-                          {b.label}
-                          {b.description && (
-                            <span className="text-[11px] text-text-secondary"> — {b.description}</span>
-                          )}
-                        </span>
-                        <ScopeBadge scope={b.scope} />
-                        {b.disabledReason === "user" ? (
-                          <button
-                            type="button"
-                            onClick={() => setCapturingId(b.actionId)}
-                            className="flex-none text-[11px] px-2 py-0.5 rounded border border-amber-600/50 text-amber-600"
-                            title="unbound — click to rebind"
-                          >
-                            unbound
-                          </button>
-                        ) : capturingId === b.actionId ? (
-                          <span className="flex gap-1 items-center px-1 py-0.5 rounded outline outline-1 outline-accent-green">
-                            <Keycaps parts={["press keys…"]} />
-                          </span>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setNotice(null);
-                              setCapturingId(b.actionId);
-                            }}
-                            aria-label={`Change binding for ${b.label}`}
-                            title="click to rebind"
-                            className={`flex gap-1 items-center px-1 py-0.5 rounded hover:outline hover:outline-1 hover:outline-dashed hover:outline-accent-green/60 ${b.disabledReason === "reserved" ? "opacity-50" : ""}`}
-                          >
-                            <Keycaps parts={comboParts(combo, displayPlatform)} />
-                          </button>
-                        )}
-                        {b.disabledReason === "reserved" && (
-                          <span
-                            className="flex-none text-[9.5px] tracking-wider uppercase px-2 py-px rounded-full border border-amber-600/50 text-amber-600"
-                            title="browser-reserved — use the command palette, or rebind; the desktop shell frees this key"
-                          >
-                            browser
-                          </span>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            resetBinding(b.actionId);
-                            setNotice(null);
-                          }}
-                          aria-label={`Reset binding for ${b.label}`}
-                          title="reset to default"
-                          className={`flex-none text-text-secondary hover:text-amber-600 ${modified ? "visible" : "invisible"}`}
-                        >
-                          ↺
-                        </button>
-                      </div>
-                      {notice?.actionId === b.actionId && (
-                        <div className="mx-2 mb-1 px-2.5 py-1 text-[11px] rounded border border-amber-600/45 bg-amber-600/10 text-amber-600">
-                          {notice.text}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+              <section
+                key={group.name}
+                ref={(el) => {
+                  sectionRefs.current[group.scope as JumpSectionId] = el;
+                }}
+                className="mt-4 scroll-mt-12"
+              >
+                <SectionHead name={group.name} />
+                {rows.map(bindingRow)}
+                {/* Shell-owned locked rows — accelerators live in the shell
+                    menu; a GLOBAL subgroup, not a top-level section. */}
+                {isGlobal && shellRows.length > 0 && (
+                  <>
+                    {/* Subheads hide while filtering (mock behavior) — the
+                        matched rows carry enough context on their own. */}
+                    {!filtering && (
+                      <SubHead>Shell-owned — accelerators live in the desktop shell menu</SubHead>
+                    )}
+                    {shellRows.map((row) => (
+                      <LockedRow
+                        key={row.label}
+                        label={row.label}
+                        description={row.description}
+                        seq={[row.parts]}
+                        lockAria="Locked — bound by the desktop shell menu"
+                        lockTitle="bound by the desktop shell menu — edit there"
+                      />
+                    ))}
+                  </>
+                )}
               </section>
             );
           })}
 
-          {/* Shell-owned rows — accelerators live in the shell menu, locked here. */}
-          {shellRows.length > 0 && (
-            <section className="mt-4">
-              <div className="flex items-center gap-3 mb-1">
-                <h3 className="text-[11.5px] font-bold tracking-wider text-text-secondary select-none">
-                  <span aria-hidden="true">[ </span>
-                  <span className="text-text-primary">SHELL — DESKTOP APP</span>
-                  <span aria-hidden="true"> ]</span>
-                </h3>
-                <span className="flex-1 border-t border-border" aria-hidden="true" />
-              </div>
-              {shellRows.map((row) => (
-                <div key={row.label} className="flex items-center gap-2.5 px-2 py-1.5 rounded hover:bg-bg-inset/70">
-                  <span className="w-1.5 h-1.5 flex-none" />
-                  <span className="flex-1 min-w-0 truncate">
-                    {row.label}
-                    {row.description && (
-                      <span className="text-[11px] text-text-secondary"> — {row.description}</span>
-                    )}
-                  </span>
-                  <span className="flex gap-1 items-center px-1 py-0.5">
-                    <Keycaps parts={row.parts} />
-                  </span>
-                  <span
-                    className="flex-none text-[11px] text-text-secondary"
-                    role="img"
-                    aria-label="Locked — bound by the desktop shell menu"
-                    title="bound by the desktop shell menu — edit there"
-                  >
-                    🔒
-                  </span>
-                </div>
-              ))}
-            </section>
-          )}
-
           {/* CUSTOM — user macros over riff presets / palette actions (260730-hbyh). */}
-          {(macros.length > 0 || canAddMacro) && (
-            <section className="mt-4" data-testid="macro-section">
-              <div className="flex items-center gap-3 mb-1">
-                <h3 className="text-[11.5px] font-bold tracking-wider text-text-secondary select-none">
-                  <span aria-hidden="true">[ </span>
-                  <span className="text-text-primary">CUSTOM</span>
-                  <span aria-hidden="true"> ]</span>
-                </h3>
-                <span className="flex-1 border-t border-border" aria-hidden="true" />
-              </div>
+          {customSectionPresent && (
+            <section
+              className="mt-4 scroll-mt-12"
+              data-testid="macro-section"
+              ref={(el) => {
+                sectionRefs.current.custom = el;
+              }}
+            >
+              <SectionHead name="CUSTOM" note="macros — riff presets & palette actions" />
               {visibleMacros.map((m) => {
                 const b = byAction.get(m.actionId);
                 if (!b) return null;
@@ -760,13 +1016,87 @@ export function ShortcutsOverlay({
               )}
             </section>
           )}
+
+          {/* TMUX (260801-sm6g) — read-only locked rows from the current
+              server's curated `GET /api/keybindings` whitelist. tmux keys are
+              pressed inside the pane; run-kit only documents them, so the
+              rows take the same locked idiom as the shell subgroup. Hidden
+              while filtering with zero hits (like every other section). */}
+          {!(filtering && tmuxCount === 0) && (
+            <section
+              className="mt-4 scroll-mt-12"
+              data-testid="tmux-section"
+              ref={(el) => {
+                sectionRefs.current.tmux = el;
+              }}
+            >
+              <SectionHead
+                name="TMUX"
+                note={
+                  currentServer && !tmuxEmpty ? (
+                    <>
+                      read-only — from tmux server{" "}
+                      <b className="text-amber-600 font-normal">{currentServer}</b> · pressed
+                      inside the pane
+                    </>
+                  ) : undefined
+                }
+              />
+              {tmuxLoading ? (
+                <div className="px-2 py-1.5 text-[11px] text-text-secondary">Loading…</div>
+              ) : tmuxEmpty ? (
+                <div className="px-2 py-1.5 text-[11px] italic text-text-secondary">
+                  No tmux server running
+                </div>
+              ) : (
+                <>
+                  {tmuxRoot.length > 0 && !filtering && <SubHead>Direct</SubHead>}
+                  {tmuxRoot.map((row) => (
+                    <LockedRow
+                      key={`root-${row.label}`}
+                      label={row.label}
+                      seq={row.keys.map((k) => tmuxKeyCaps(k, displayPlatform))}
+                      lockAria="Locked — a tmux binding, pressed inside the pane"
+                      lockTitle="tmux binding — pressed inside the pane"
+                    />
+                  ))}
+                  {tmuxPrefix.length > 0 && !filtering && (
+                    <SubHead>
+                      Prefix — <span className="normal-case">Ctrl+S, then key</span>
+                    </SubHead>
+                  )}
+                  {tmuxPrefix.map((row) => (
+                    <LockedRow
+                      key={`prefix-${row.label}`}
+                      label={row.label}
+                      seq={[
+                        ["Ctrl", "S"],
+                        "then",
+                        ...row.keys.map((k) => tmuxKeyCaps(k, displayPlatform)),
+                      ]}
+                      lockAria="Locked — a tmux binding, pressed inside the pane"
+                      lockTitle="tmux binding — pressed inside the pane"
+                    />
+                  ))}
+                </>
+              )}
+            </section>
+          )}
+
+          {/* No hits across every section (mock `#no-hits`). */}
+          {filtering && totalHits === 0 && (
+            <div className="text-center py-5 text-[11px] italic text-text-secondary">
+              no shortcuts match — try a shorter term
+            </div>
+          )}
         </div>
 
         {/* ── footer ─────────────────────────────────────── */}
         <div className="flex items-center gap-2.5 px-4 py-3 border-t border-border text-[11px] text-text-secondary flex-wrap">
           <span>
-            overrides stored on this device{" "}
-            <span className="opacity-60">(localStorage · runkit-keybindings)</span>
+            app &amp; custom bindings are stored in this browser{" "}
+            <span className="opacity-60">(localStorage · runkit-keybindings)</span> · tmux keys
+            are read live from the server
           </span>
           <span className="flex-1" />
           <button

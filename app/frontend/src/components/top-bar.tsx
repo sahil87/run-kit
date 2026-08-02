@@ -1998,7 +1998,11 @@ function SplitControl({
         <div
           role="menu"
           aria-label="Split direction"
-          className="absolute top-full right-0 mt-1 min-w-[150px] bg-bg-primary border border-border rounded-lg shadow-2xl py-1 z-50"
+          // 170px floor: the leading direction glyph (14px + 8px gap) pushes
+          // "Split horizontal" past the old 150px, wrapping it to two lines —
+          // the absolutely-positioned menu shrink-wraps against the tiny chip
+          // container, so the min-width is the effective width.
+          className="absolute top-full right-0 mt-1 min-w-[170px] bg-bg-primary border border-border rounded-lg shadow-2xl py-1 z-50"
         >
           <button
             type="button"

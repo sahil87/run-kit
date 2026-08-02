@@ -748,8 +748,10 @@ lens/switcher machinery (`window-view.ts`, `ViewSwitcher`, search-param validati
 - An auto-growing monospace `<textarea>` (`.rk-chat-input`, placeholder
   `Message the agent…`), bounded max-height then internal scroll, plus house-chip
   (`rk-glint`) **Insert** and **Send** buttons for touch/mouse (Insert left of Send,
-  `data-testid="chat-send-insert"`, same enable/disable as Send, `title` documenting
-  the Alt+Enter chord). Insert routes through the shared in-flight-locked submission
+  `data-testid="chat-send-insert"`, same enable/disable as Send, a tier-1 `Tip`
+  tooltip — `label="Insert without submitting"` with the Alt+Enter chord in its
+  `kbd` chip ([ui-patterns](/run-kit/ui-patterns.md) § Tier-1 `Tip`), never a native
+  `title=`). Insert routes through the shared in-flight-locked submission
   with `submit:false` (`onSend(text, false)`); Send with `submit:true`.
 - **Enter composes, Cmd/Ctrl+Enter sends — chat is the deliberately diverging surface**:
   the keydown routes through the shared pure `classifyComposeEnter(key, surface)`

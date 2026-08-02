@@ -5,9 +5,11 @@ import type { ChatEvent } from "@/lib/chat-stream";
 import { stubMatchMedia } from "@/test-utils/match-media";
 
 /** Stub matchMedia so `(pointer: coarse)` matches — used to prove the Enter
- * policy and `enterkeyhint` are pointer-INDEPENDENT (260801-hsxm: Enter is a
- * newline everywhere; only the autofocus skip keys on the pointer). jsdom has
- * no matchMedia, so the unstubbed default is the fine-pointer path. */
+ * policy and `enterkeyhint` are pointer-INDEPENDENT (chat keeps Enter=newline
+ * on every pointer type — the deliberately-diverging surface since
+ * 260802-lj98's strip insert-line flip; only the autofocus skip keys on the
+ * pointer). jsdom has no matchMedia, so the unstubbed default is the
+ * fine-pointer path. */
 function stubCoarsePointer() {
   stubMatchMedia((query) => query === "(pointer: coarse)");
 }

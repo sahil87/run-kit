@@ -9,7 +9,11 @@ import {
 import { useFocusedTerminal, type FocusedTerminal } from "@/contexts/focused-terminal-context";
 import { useChromeDispatch } from "@/contexts/chrome-context";
 import { useFileUpload } from "@/hooks/use-file-upload";
-import { classifyComposeEnter, composeSubmitKeycap } from "@/lib/compose-keys";
+import {
+  classifyComposeEnter,
+  composeSubmitKeycap,
+  type ComposeEnterAction,
+} from "@/lib/compose-keys";
 import { handleReadlineKey } from "@/lib/readline-keys";
 import { useWindowStore, entryKey } from "@/store/window-store";
 import { Tip, TipGroup } from "@/components/tip";
@@ -43,16 +47,25 @@ import {
  * send time — never a target snapshotted at open. The wrong-pane-send risk is
  * mitigated by the always-visible `→ {window}` target label, not by freezing.
  *
- * Interaction (mirrors `ChatSendForm` — the shared `classifyComposeEnter`
- * policy, 260801-hsxm): plain Enter (and Shift+Enter) insert a newline on ALL
- * pointer types — Enter accumulates lines locally; Cmd/Ctrl+Enter is the ONLY
- * submit chord, sending `text + "\r"` as raw bytes over the relay stream
- * (same path as BottomBar keystrokes). Alt+Enter — and the secondary Insert
- * button — deliver the text WITHOUT the trailing `\r` (insert into the pane's
- * input box without pressing Enter). `enterkeyhint` is `"enter"` (Enter
- * inserts a newline — the truthful hint). Enter is guarded against IME
- * composition; empty/whitespace-only submission is a no-op. The textarea also
- * carries the shared readline editing layer (`handleReadlineKey` —
+ * Interaction (the shared `classifyComposeEnter` classifier with
+ * `surface: "strip"` — 260802-lj98, the terminal-faithful Enter matrix): plain
+ * Enter = INSERT LINE — `ws.send(text + "\n")` over the relay stream and clear
+ * that target's draft, so consecutive Enters stage sentence-per-line in the
+ * agent's composer (Claude Code treats a raw `"\n"` as newline-insert),
+ * visibly, exactly like typing into the pane itself. The chat send form
+ * deliberately diverges (keeps Enter=newline): it cannot show the pane's input
+ * box, so Enter-as-insert there would make typed text vanish — the one
+ * classifier declares both policies, per surface. Shift+Enter is the ONLY
+ * local multi-line compose. Cmd/Ctrl+Enter is the ONLY submit chord, sending
+ * `text + "\r"` (same raw-bytes path as BottomBar keystrokes) — and on an
+ * EMPTY textarea a bare `"\r"` ("press Enter in the pane"), completing the
+ * stage-then-submit loop from the keyboard. Alt+Enter is the chord-only
+ * byte-exact raw insert (text WITHOUT any trailing byte — completing a partial
+ * line); the Insert button follows Enter (insert line). `enterkeyhint` is
+ * `"send"` (Enter transmits — the truthful hint). Enter is guarded against IME
+ * composition; an empty plain Enter is a FULL no-op (consumed, no local
+ * newline, nothing sent); empty insert/raw-insert are no-ops. The textarea
+ * also carries the shared readline editing layer (`handleReadlineKey` —
  * Ctrl+U/Ctrl+W/Alt+B/F/D; natively-bound macOS chords pass through).
  *
  * Focus contract (260801-sm6g, revising 260718-dhdj): the strip focuses its
@@ -207,28 +220,38 @@ export function ComposeStrip() {
   }
 
   const send = useCallback(
-    (submit: boolean) => {
+    (mode: Exclude<ComposeEnterAction, "default">) => {
       if (draftKey === null) return; // no target — nothing to send or clear
-      const trimmed = text.trim();
-      if (trimmed === "") return; // empty / whitespace-only never sends
+      const empty = text.trim() === ""; // whitespace-only counts as empty
+      // Empty policy is per mode: an empty SUBMIT sends a bare `\r` — "press
+      // Enter in the pane", completing the stage-then-submit loop (whitespace
+      // is discarded, never transmitted); empty insert/insert-line never send.
+      if (empty && mode !== "submit") return;
       const ws = focused?.wsRef.current;
       // Guard-blocked send: the focused stream is not open. Early-return WITHOUT
       // clearing — the draft is preserved so nothing is silently lost against a
       // closed pane. Clearing happens only after a delivered send below.
       if (ws?.readyState !== WebSocket.OPEN) return;
-      // Submit sends a trailing carriage return — the `\r` IS the Enter press
-      // (same raw-bytes relay path as BottomBar keystrokes). Insert-only omits
-      // it, staging the text in the pane's input box without submitting (the
-      // old modal ComposeBuffer's raw-insert, back as a secondary action).
-      // Caveat (documented, not guarded — intake §6): embedded `\n` in an
-      // insert-only send is raw bytes, so a plain shell pane executes each
-      // line; insert is only truly Enter-free for single-line text on non-TUI
-      // panes (Claude Code treats `\n` as newline insert).
-      ws.send(submit ? text + "\r" : text);
+      // Payload per mode: submit appends `\r` — the `\r` IS the Enter press
+      // (same raw-bytes relay path as BottomBar keystrokes); insert-line
+      // appends `\n` — Claude Code treats it as newline-insert, staging the
+      // line in the agent's composer; insert sends the text byte-exact (no
+      // trailing byte — completing a partial line without any Enter).
+      // Caveat (documented, not guarded — terminal-conventional Enter): the
+      // transmitted `\n` is raw bytes, so a plain shell pane EXECUTES the line
+      // (exactly what Enter does in a terminal), and an embedded `\n` in an
+      // insert send executes per line there too; insert-line staging is only
+      // visible-as-staged on agent composers (Claude Code), and raw insert is
+      // only truly Enter-free for single-line text on non-TUI panes.
+      if (mode === "submit") ws.send(empty ? "\r" : text + "\r");
+      else if (mode === "insert-line") ws.send(text + "\n");
+      else ws.send(text);
       // Delivered: clear THIS target's draft + attachments; the strip stays
-      // open and does NOT grab or return focus. The module store is the source
-      // of truth for the draft; revoke only the cleared draft's preview URLs
-      // (other targets' previews recreate lazily when their draft is shown).
+      // open and does NOT grab or return focus. (An empty submit's bare `\r`
+      // has nothing meaningful to clear — a whitespace-only draft is simply
+      // discarded here.) The module store is the source of truth for the
+      // draft; revoke only the cleared draft's preview URLs (other targets'
+      // previews recreate lazily when their draft is shown).
       for (const uf of files) {
         const url = blobUrlsRef.current.get(uf.file);
         if (url) {
@@ -254,23 +277,30 @@ export function ComposeStrip() {
     // never reaches global listeners. Everything else falls through.
     if (handleReadlineKey(e.nativeEvent, e.currentTarget)) return;
     // Shared Enter policy (classifyComposeEnter — the SAME classifier
-    // ChatSendForm uses; the two surfaces must not diverge). "default" means:
-    // do not intercept — the textarea inserts a newline (plain Enter and
-    // Shift+Enter on every pointer type, IME composition).
-    const action = classifyComposeEnter({
-      key: e.key,
-      shiftKey: e.shiftKey,
-      metaKey: e.metaKey,
-      ctrlKey: e.ctrlKey,
-      altKey: e.altKey,
-      isComposing: e.nativeEvent.isComposing,
-    });
+    // ChatSendForm uses, declared per surface; the strip's plain Enter is
+    // insert-line while chat's stays newline — a deliberate, visibility-
+    // motivated divergence declared inside the one classifier, never forked
+    // here). "default" means: do not intercept — the textarea inserts a
+    // newline (Shift+Enter, IME composition, non-Enter keys).
+    const action = classifyComposeEnter(
+      {
+        key: e.key,
+        shiftKey: e.shiftKey,
+        metaKey: e.metaKey,
+        ctrlKey: e.ctrlKey,
+        altKey: e.altKey,
+        isComposing: e.nativeEvent.isComposing,
+      },
+      "strip",
+    );
     if (action === "default") return;
-    // Stop propagation so a submitting/inserting Enter never bubbles to global
-    // chords.
+    // Consume every non-default action (preventDefault + stopPropagation so
+    // it never bubbles to global chords) and hand it to send() as-is. An
+    // insert-line on an EMPTY textarea is therefore a FULL no-op: the keydown
+    // is consumed (no local newline appears) and send() sends nothing.
     e.preventDefault();
     e.stopPropagation();
-    send(action === "submit");
+    send(action);
   };
 
   // File uploads through the strip's own 📎 button.
@@ -358,7 +388,12 @@ export function ComposeStrip() {
   /** Prevent mousedown from stealing focus away from the terminal/textarea. */
   const preventFocusSteal = (e: React.MouseEvent) => e.preventDefault();
 
-  const canSend = hasTarget && text.trim() !== "";
+  // Per-button enablement (the old shared `canSend` split, 260802-lj98):
+  // Insert follows Enter's empty no-op — disabled with no text; Send mirrors
+  // its Cmd/Ctrl+Enter chord INCLUDING the empty case (an empty click sends a
+  // bare `\r` — "press Enter in the pane"), so it only needs a target. Button
+  // and chord diverging on empty would be a lying affordance.
+  const canInsert = hasTarget && text.trim() !== "";
 
   return (
     <div
@@ -449,9 +484,9 @@ export function ComposeStrip() {
           autoCorrect="off"
           autoCapitalize="off"
           spellCheck={false}
-          // Truthful hint: Enter inserts a newline on every pointer type
-          // (Cmd/Ctrl+Enter submits), so the hint is the default enter action.
-          enterKeyHint="enter"
+          // Truthful hint: Enter transmits the text to the pane (insert-line)
+          // and clears the draft, so the mobile action key says "send".
+          enterKeyHint="send"
           aria-label="Compose text to send to terminal"
           placeholder={hasTarget ? "Compose text…" : "No focused terminal"}
           data-testid="compose-strip-input"
@@ -485,26 +520,31 @@ export function ComposeStrip() {
               tips never render on coarse pointers, so only the fine-pointer
               shortcut is ever shown. */}
           <div className="ml-auto flex items-center gap-1.5">
-            <Tip label="Insert without submitting" kbd="Alt+Enter" placement="top">
+            {/* Insert follows Enter (insert line — text + "\n", clears the
+                draft); the byte-exact raw insert is chord-only now, kept
+                discoverable in the tip label (Alt+Enter). */}
+            <Tip label="Insert line (Alt+Enter: raw insert)" kbd="Enter" placement="top">
               <button
                 type="button"
-                aria-label="Insert text without submitting"
-                disabled={!canSend}
+                aria-label="Insert line"
+                disabled={!canInsert}
                 onMouseDown={preventFocusSteal}
-                onClick={() => send(false)}
+                onClick={() => send("insert-line")}
                 data-testid="compose-strip-insert"
                 className="rk-glint shrink-0 rounded border border-border px-2 py-1.5 text-xs text-text-secondary transition-colors hover:border-text-secondary disabled:opacity-40 disabled:cursor-not-allowed coarse:min-h-[36px]"
               >
                 Insert
               </button>
             </Tip>
+            {/* Send mirrors its chord including the empty bare-`\r` case, so
+                it is enabled whenever a target exists. */}
             <Tip label="Send" kbd={composeSubmitKeycap()} placement="top">
               <button
                 type="button"
                 aria-label="Send text"
-                disabled={!canSend}
+                disabled={!hasTarget}
                 onMouseDown={preventFocusSteal}
-                onClick={() => send(true)}
+                onClick={() => send("submit")}
                 data-testid="compose-strip-send"
                 className="rk-glint shrink-0 rounded border border-accent bg-accent/20 px-3 py-1.5 text-xs text-accent transition-colors hover:bg-accent/30 disabled:opacity-40 disabled:cursor-not-allowed coarse:min-h-[36px]"
               >

@@ -80,9 +80,9 @@ const sendBtn = () => screen.getByTestId("compose-strip-send") as HTMLButtonElem
 const insertBtn = () => screen.getByTestId("compose-strip-insert") as HTMLButtonElement;
 
 /** Re-stub matchMedia so `(pointer: coarse)` matches (or not) — used to prove
- * the Enter policy and `enterkeyhint` are pointer-INDEPENDENT (260801-hsxm:
- * Enter is a newline everywhere). Must run BEFORE render (the hook reads the
- * initial value at mount). */
+ * the Enter policy and `enterkeyhint` are pointer-INDEPENDENT (260802-lj98:
+ * Enter is insert-line in the strip on every pointer type). Must run BEFORE
+ * render (the hook reads the initial value at mount). */
 function stubPointer(coarse: boolean) {
   stubMatchMedia((query) => coarse && query === "(pointer: coarse)");
 }
@@ -202,7 +202,7 @@ describe("ComposeStrip", () => {
     expect(screen.getByTestId("compose-strip-target").textContent).toBe("renamed-win");
   });
 
-  it("plain Enter does NOT send on ANY pointer type (newline accumulates locally, 260801-hsxm)", () => {
+  it("plain Enter inserts the line — sends text + \\n and clears the draft — on ANY pointer type (260802-lj98)", () => {
     for (const coarse of [false, true]) {
       stubPointer(coarse);
       const { ref, sent } = makeWs();
@@ -215,16 +215,42 @@ describe("ComposeStrip", () => {
         </ChromeProvider>,
       );
       act(() => fireEvent.click(screen.getByTestId("set-focus")));
-      act(() => fireEvent.change(input(), { target: { value: "draft line" } }));
+      act(() => fireEvent.change(input(), { target: { value: "stage this line" } }));
       act(() => fireEvent.keyDown(input(), { key: "Enter" }));
-      expect(sent).toEqual([]);
-      // The draft stays (Enter was not intercepted — no send, no clear).
-      expect(input().value).toBe("draft line");
-      // The Send button still submits.
-      act(() => fireEvent.click(sendBtn()));
-      expect(sent).toEqual(["draft line\r"]);
+      // Insert-line: the trailing \n stages the line in the agent's composer
+      // (a plain shell pane executes it — terminal-conventional, documented).
+      expect(sent).toEqual(["stage this line\n"]);
+      // Same clear-on-delivery as submit.
+      expect(input().value).toBe("");
       view.unmount();
     }
+  });
+
+  it("plain Enter on an EMPTY textarea is a FULL no-op: consumed, nothing sent, no local newline", () => {
+    const { ref, sent } = makeWs();
+    render(
+      <ChromeProvider>
+        <FocusedTerminalProvider>
+          <FocusSetter focus={{ wsRef: ref, server: "srv", session: "sess", windowId: "@1" }} />
+          <ComposeStrip />
+        </FocusedTerminalProvider>
+      </ChromeProvider>,
+    );
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+    // fireEvent returns false when preventDefault() was called — the keydown
+    // is consumed, so the textarea never inserts a local newline.
+    let notPrevented = true;
+    act(() => {
+      notPrevented = fireEvent.keyDown(input(), { key: "Enter" });
+    });
+    expect(notPrevented).toBe(false);
+    expect(sent).toEqual([]); // nothing transmitted
+    expect(input().value).toBe(""); // no draft change
+
+    // Whitespace-only counts as empty for insert-line too: consumed, no send.
+    act(() => fireEvent.change(input(), { target: { value: "   " } }));
+    act(() => fireEvent.keyDown(input(), { key: "Enter" }));
+    expect(sent).toEqual([]);
   });
 
   it("Shift+Enter does NOT send (inserts a newline via default behavior)", () => {
@@ -243,7 +269,22 @@ describe("ComposeStrip", () => {
     expect(sent).toEqual([]);
   });
 
-  it("empty / whitespace-only Cmd/Ctrl+Enter is a no-op", () => {
+  it("empty Cmd/Ctrl+Enter sends a bare \\r — 'press Enter in the pane' (260802-lj98)", () => {
+    const { ref, sent } = makeWs();
+    render(
+      <ChromeProvider>
+        <FocusedTerminalProvider>
+          <FocusSetter focus={{ wsRef: ref, server: "srv", session: "sess", windowId: "@1" }} />
+          <ComposeStrip />
+        </FocusedTerminalProvider>
+      </ChromeProvider>,
+    );
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+    act(() => fireEvent.keyDown(input(), { key: "Enter", ctrlKey: true }));
+    expect(sent).toEqual(["\r"]); // completes the stage-then-submit loop
+  });
+
+  it("whitespace-only Cmd/Ctrl+Enter counts as empty: bare \\r, whitespace discarded, draft cleared", () => {
     const { ref, sent } = makeWs();
     render(
       <ChromeProvider>
@@ -255,8 +296,9 @@ describe("ComposeStrip", () => {
     );
     act(() => fireEvent.click(screen.getByTestId("set-focus")));
     act(() => fireEvent.change(input(), { target: { value: "   " } }));
-    act(() => fireEvent.keyDown(input(), { key: "Enter", ctrlKey: true }));
-    expect(sent).toEqual([]);
+    act(() => fireEvent.keyDown(input(), { key: "Enter", metaKey: true }));
+    expect(sent).toEqual(["\r"]); // stray spaces are never transmitted
+    expect(input().value).toBe(""); // the whitespace draft is discarded
   });
 
   it("Cmd/Ctrl+Enter during IME composition does not send", () => {
@@ -276,7 +318,7 @@ describe("ComposeStrip", () => {
     expect(sent).toEqual([]);
   });
 
-  // ── Enter policy flip + insert-without-submit (260801-hsxm) ────────────────
+  // ── Enter=insert-line matrix (260802-lj98, revising 260801-hsxm) ───────────
 
   it("Cmd/Ctrl+Enter sends text + trailing carriage return on BOTH pointer types (the only submit chord)", () => {
     for (const coarse of [false, true]) {
@@ -318,7 +360,7 @@ describe("ComposeStrip", () => {
     expect(input().value).toBe(""); // same clear-on-delivery as submit
   });
 
-  it("the Insert button sends without \\r, mirrors Send's disabled state", () => {
+  it("the Insert button follows Enter — sends text + \\n and clears; disabled when empty", () => {
     const { ref, sent } = makeWs();
     render(
       <ChromeProvider>
@@ -329,14 +371,31 @@ describe("ComposeStrip", () => {
       </ChromeProvider>,
     );
     act(() => fireEvent.click(screen.getByTestId("set-focus")));
-    // Empty draft: Insert is disabled exactly like Send.
+    // Empty draft: Insert follows Enter's empty no-op (disabled) — but Send
+    // stays enabled: its chord's empty case is the bare-\r "Enter in the pane".
     expect(insertBtn().disabled).toBe(true);
-    expect(sendBtn().disabled).toBe(true);
+    expect(sendBtn().disabled).toBe(false);
     act(() => fireEvent.change(input(), { target: { value: "via button" } }));
     expect(insertBtn().disabled).toBe(false);
     act(() => fireEvent.click(insertBtn()));
-    expect(sent).toEqual(["via button"]); // no trailing \r
+    expect(sent).toEqual(["via button\n"]); // insert-line, same as plain Enter
     expect(input().value).toBe("");
+  });
+
+  it("the Send button mirrors its chord's empty case: enabled with a target, an empty click sends bare \\r", () => {
+    const { ref, sent } = makeWs();
+    render(
+      <ChromeProvider>
+        <FocusedTerminalProvider>
+          <FocusSetter focus={{ wsRef: ref, server: "srv", session: "sess", windowId: "@1" }} />
+          <ComposeStrip />
+        </FocusedTerminalProvider>
+      </ChromeProvider>,
+    );
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+    expect(sendBtn().disabled).toBe(false); // target exists — enabled on empty
+    act(() => fireEvent.click(sendBtn()));
+    expect(sent).toEqual(["\r"]); // the button and the chord agree on empty
   });
 
   it("a guard-blocked insert (stream not OPEN) preserves the draft", () => {
@@ -356,7 +415,7 @@ describe("ComposeStrip", () => {
     expect(input().value).toBe("keep insert");
   });
 
-  it("enterkeyhint states the truth: 'enter' on every pointer type (Enter inserts a newline)", () => {
+  it("enterkeyhint states the truth: 'send' on every pointer type (Enter transmits the line)", () => {
     for (const coarse of [false, true]) {
       stubPointer(coarse);
       const view = render(
@@ -367,7 +426,7 @@ describe("ComposeStrip", () => {
           </FocusedTerminalProvider>
         </ChromeProvider>,
       );
-      expect(input().getAttribute("enterkeyhint")).toBe("enter");
+      expect(input().getAttribute("enterkeyhint")).toBe("send");
       view.unmount();
     }
   });

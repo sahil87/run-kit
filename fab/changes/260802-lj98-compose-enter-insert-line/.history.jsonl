@@ -1,0 +1,12 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-02T12:09:05Z"}
+{"args":"Compose strip Enter=insert-line policy (terminal-faithful Enter matrix): plain Enter in the strip sends text+\\n and clears the draft; Alt+Enter keeps raw insert; Cmd/Ctrl+Enter stays submit and gains empty-textarea bare-\\r; chat view deliberately diverges (Enter=newline); classifyComposeEnter gains a surface parameter; Insert button follows Enter; tooltips/enterkeyhint/tests/e2e+spec.md updated","cmd":"fab-new","event":"command","ts":"2026-08-02T12:09:05Z"}
+{"delta":"+3.9","event":"confidence","score":3.9,"trigger":"calc-score","ts":"2026-08-02T12:11:52Z"}
+{"delta":"+0.0","event":"confidence","score":3.9,"trigger":"calc-score","ts":"2026-08-02T12:12:11Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-08-02T12:13:31Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-02T12:14:44Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-02T12:14:44Z"}
+{"cmd":"fab-fff:apply","event":"command","ts":"2026-08-02T12:15:37Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-02T12:29:20Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-02T12:34:22Z"}
+{"event":"review","result":"passed","ts":"2026-08-02T12:34:22Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-02T12:40:21Z"}

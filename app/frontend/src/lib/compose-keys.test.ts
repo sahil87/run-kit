@@ -3,6 +3,7 @@ import {
   classifyComposeEnter,
   composeSubmitKeycap,
   type ComposeKeyInput,
+  type ComposeSurface,
 } from "./compose-keys";
 
 function key(overrides: Partial<ComposeKeyInput> = {}): ComposeKeyInput {
@@ -17,47 +18,63 @@ function key(overrides: Partial<ComposeKeyInput> = {}): ComposeKeyInput {
   };
 }
 
-// 260801-hsxm policy: Enter (and Shift+Enter) are the textarea default
-// (newline) on every pointer type; Cmd/Ctrl+Enter is the ONLY submit chord;
-// Alt+Enter inserts without submitting. The classifier has no pointer
-// parameter — the fine/coarse distinction ended with the flip.
+const SURFACES: ComposeSurface[] = ["strip", "chat"];
+
+// 260802-lj98 policy: the classifier is surface-parameterized and the surfaces
+// DELIBERATELY diverge on plain Enter — insert-line on the strip (transmit
+// text + "\n"), the textarea default (newline) in chat. Everything else is
+// shared: Shift+Enter = local newline, Cmd/Ctrl+Enter = the ONLY submit chord,
+// Alt+Enter = byte-exact insert, IME-composing Enter never intercepted.
 describe("classifyComposeEnter", () => {
-  it("plain Enter is the textarea default (newline) — never submits", () => {
-    expect(classifyComposeEnter(key())).toBe("default");
+  it("plain Enter diverges per surface: insert-line on the strip, default (newline) in chat", () => {
+    expect(classifyComposeEnter(key(), "strip")).toBe("insert-line");
+    expect(classifyComposeEnter(key(), "chat")).toBe("default");
   });
 
-  it("Cmd/Ctrl+Enter is the only submit chord", () => {
-    expect(classifyComposeEnter(key({ metaKey: true }))).toBe("submit");
-    expect(classifyComposeEnter(key({ ctrlKey: true }))).toBe("submit");
+  it("Cmd/Ctrl+Enter is the only submit chord on BOTH surfaces", () => {
+    for (const surface of SURFACES) {
+      expect(classifyComposeEnter(key({ metaKey: true }), surface)).toBe("submit");
+      expect(classifyComposeEnter(key({ ctrlKey: true }), surface)).toBe("submit");
+    }
   });
 
-  it("Alt+Enter inserts without submitting", () => {
-    expect(classifyComposeEnter(key({ altKey: true }))).toBe("insert");
+  it("Alt+Enter inserts without submitting (byte-exact raw) on BOTH surfaces", () => {
+    for (const surface of SURFACES) {
+      expect(classifyComposeEnter(key({ altKey: true }), surface)).toBe("insert");
+    }
   });
 
-  it("Shift+Enter stays the default (newline — kept for muscle memory, redundant with plain Enter)", () => {
-    expect(classifyComposeEnter(key({ shiftKey: true }))).toBe("default");
+  it("Shift+Enter stays the default (local newline) on BOTH surfaces — the strip's only local multi-line compose", () => {
+    for (const surface of SURFACES) {
+      expect(classifyComposeEnter(key({ shiftKey: true }), surface)).toBe("default");
+    }
   });
 
-  it("modifier precedence: meta/ctrl beats alt beats shift", () => {
-    // Cmd+Shift+Enter reads as the strongest intent — submit.
-    expect(classifyComposeEnter(key({ metaKey: true, shiftKey: true }))).toBe("submit");
-    expect(classifyComposeEnter(key({ ctrlKey: true, altKey: true }))).toBe("submit");
-    // Alt+Shift+Enter inserts (alt outranks shift).
-    expect(classifyComposeEnter(key({ altKey: true, shiftKey: true }))).toBe("insert");
+  it("modifier precedence: meta/ctrl beats alt beats shift/plain, on BOTH surfaces", () => {
+    for (const surface of SURFACES) {
+      // Cmd+Shift+Enter reads as the strongest intent — submit.
+      expect(classifyComposeEnter(key({ metaKey: true, shiftKey: true }), surface)).toBe("submit");
+      expect(classifyComposeEnter(key({ ctrlKey: true, altKey: true }), surface)).toBe("submit");
+      // Alt+Shift+Enter inserts (alt outranks shift).
+      expect(classifyComposeEnter(key({ altKey: true, shiftKey: true }), surface)).toBe("insert");
+    }
   });
 
-  it("an IME-composing Enter is never intercepted, regardless of modifiers", () => {
-    expect(classifyComposeEnter(key({ isComposing: true }))).toBe("default");
-    expect(classifyComposeEnter(key({ isComposing: true, metaKey: true }))).toBe("default");
-    expect(classifyComposeEnter(key({ isComposing: true, ctrlKey: true }))).toBe("default");
-    expect(classifyComposeEnter(key({ isComposing: true, altKey: true }))).toBe("default");
+  it("an IME-composing Enter is never intercepted, regardless of modifiers or surface", () => {
+    for (const surface of SURFACES) {
+      expect(classifyComposeEnter(key({ isComposing: true }), surface)).toBe("default");
+      expect(classifyComposeEnter(key({ isComposing: true, metaKey: true }), surface)).toBe("default");
+      expect(classifyComposeEnter(key({ isComposing: true, ctrlKey: true }), surface)).toBe("default");
+      expect(classifyComposeEnter(key({ isComposing: true, altKey: true }), surface)).toBe("default");
+    }
   });
 
-  it("non-Enter keys are always the default, even with modifiers", () => {
-    expect(classifyComposeEnter(key({ key: "a" }))).toBe("default");
-    expect(classifyComposeEnter(key({ key: "Escape", metaKey: true }))).toBe("default");
-    expect(classifyComposeEnter(key({ key: "Tab", altKey: true }))).toBe("default");
+  it("non-Enter keys are always the default, even with modifiers, on BOTH surfaces", () => {
+    for (const surface of SURFACES) {
+      expect(classifyComposeEnter(key({ key: "a" }), surface)).toBe("default");
+      expect(classifyComposeEnter(key({ key: "Escape", metaKey: true }), surface)).toBe("default");
+      expect(classifyComposeEnter(key({ key: "Tab", altKey: true }), surface)).toBe("default");
+    }
   });
 });
 

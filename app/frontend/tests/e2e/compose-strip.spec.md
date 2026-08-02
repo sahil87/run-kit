@@ -6,14 +6,19 @@ surface that replaces the modal ComposeBuffer. Covers the toggle affordances
 close button (260722-d5q7 — same toggle as the chip, lossless draft), the
 per-target draft model (260801-cyth — drafts keyed by the focused window,
 text persisted to localStorage: they stay with their addressee across
-navigation and survive reloads), the live-target send semantics (260801-hsxm:
-plain Enter inserts a newline — lines accumulate locally; Cmd/Ctrl+Enter is the
-ONLY submit chord, sending `text + \r` to the focused pane), the
-insert-without-submit affordance + `enterkeyhint="enter"` (pointer-independent;
-the readline editing chords are unit-tested in `readline-keys.test.ts` /
-`compose-strip.test.tsx`),
+navigation and survive reloads), the terminal-faithful Enter matrix
+(260802-lj98: plain Enter = insert line, sending `text + "\n"` to the focused
+pane and clearing the draft, with empty Enter a full no-op; Cmd/Ctrl+Enter is
+the ONLY submit chord, sending `text + \r` — and a bare `\r` on an EMPTY
+textarea, "press Enter in the pane"; Alt+Enter is the chord-only byte-exact
+raw insert; the Insert button follows Enter), `enterkeyhint="send"`
+(pointer-independent; the readline editing chords are unit-tested in
+`readline-keys.test.ts` / `compose-strip.test.tsx`),
 Escape-blurs focus routing, and the target label following board-pane focus
 (closing the per-pane STDIN routing gap noted in `shell-rotation.spec.ts:14`).
+The chat send form deliberately does NOT follow the strip's Enter policy (it
+keeps Enter=newline — the chat lens cannot show the pane's input box); its
+coverage lives in `chat-view.spec.ts`.
 
 ## Shared setup
 
@@ -96,55 +101,63 @@ single-traveling-draft model.
 6. Navigate to `cs-bravo` again; assert the input shows the draft-B marker
    (B's draft stayed with B through the reload).
 
-### `Enter inserts a newline; Cmd/Ctrl+Enter sends text + carriage return; Escape blurs`
+### `Enter sends the line (text + newline); empty Enter is a no-op; Cmd/Ctrl+Enter submits; Escape blurs`
 
-**What it proves:** Plain Enter in the strip textarea is NOT a send — it inserts
-a newline so lines accumulate locally (260801-hsxm); Cmd/Ctrl+Enter (the only
-submit chord) sends the accumulated content plus a trailing `\r` over the
-focused pane's relay stream (verified by the `cat` pane echoing the marker),
-the textarea clears while the strip stays open, and Escape blurs the textarea
-without closing the strip.
+**What it proves:** Plain Enter in the strip is a send (260802-lj98,
+insert-line): it transmits `text + "\n"` over the focused pane's relay stream
+and clears the draft — on the `cat` pane the `\n` commits the line
+(terminal-conventional Enter), so the marker appears twice (tty input echo +
+`cat`'s output line). An EMPTY textarea + Enter is a FULL no-op (the keydown is
+consumed — no local newline appears, nothing is sent). Cmd/Ctrl+Enter (the only
+submit chord) still sends `text + \r`, and Escape blurs the textarea without
+closing the strip.
 
 **Steps:**
 
 1. Navigate to the `cat` session's window; wait for `.xterm-screen` and for the
    relay stream to attach (`window.__rkTerminals[windowId]` present).
 2. Enable the strip via the `>_` chip; assert the input is visible.
-3. Fill the input with a unique marker and press Enter; assert the value is now
-   `marker\n` (newline inserted, nothing sent, nothing cleared).
-4. Press `ControlOrMeta+Enter`; assert the input clears to `""` and the strip
-   stays visible.
-5. Poll `capture-pane` for the `cat` session and assert it contains the marker
-   (proves `text + \r` reached the pane and was echoed).
-6. Focus the input, press Escape, assert the input is no longer focused and the
+3. With the input empty, press Enter; assert the value stays `""` (no local
+   newline — the keydown was consumed and nothing was sent).
+4. Fill the input with a unique marker and press Enter; assert the input clears
+   to `""` and the strip stays visible.
+5. Poll `capture-pane` until the marker appears at least TWICE — the tty input
+   echo plus `cat`'s echoed output line, proving `text + "\n"` reached the pane
+   and committed.
+6. Fill a second marker and press `ControlOrMeta+Enter`; assert the input
+   clears; poll `capture-pane` until it contains the marker (proves
+   `text + \r` still submits).
+7. Focus the input, press Escape, assert the input is no longer focused and the
    strip is still visible.
 
-### `Insert stages text without committing; Ctrl/Cmd+Enter submits (260801-hsxm)`
+### `Alt+Enter stages raw text; empty Cmd/Ctrl+Enter presses Enter in the pane; Insert button inserts the line (260802-lj98)`
 
-**What it proves:** The Insert button delivers the raw text bytes WITHOUT the
-trailing `\r` — the text is staged on the pane's input line, never committed —
-with the same clear-on-delivery as a submit; the Cmd/Ctrl+Enter chord (the only
-submit chord) then submits, committing the previously-staged text plus the new
-suffix as ONE line. Also asserts `enterkeyhint="enter"` (the truthful keyboard
-hint — Enter inserts a newline on every pointer type).
+**What it proves:** Alt+Enter — now the chord-only raw insert — delivers the
+byte-exact text WITHOUT any trailing byte (staged on the pane's input line,
+appearing exactly once), with the same clear-on-delivery as a submit. An empty
+Cmd/Ctrl+Enter then sends a bare `\r` ("press Enter in the pane"), committing
+the staged line — the keyboard-complete stage-then-submit loop. The Insert
+button follows Enter (insert-line): `text + "\n"` commits on the `cat` pane
+directly. Also asserts `enterkeyhint="send"` (the truthful keyboard hint —
+Enter transmits the line).
 
 **Steps:**
 
 1. Navigate to the `cat` session's window; wait for `.xterm-screen` and the
    relay stream to attach.
 2. Enable the strip via the `>_` chip; assert the input is visible and carries
-   `enterkeyhint="enter"`.
-3. Fill a unique staged marker and click the `Insert` button
-   (`compose-strip-insert`).
+   `enterkeyhint="send"`.
+3. Fill a unique staged marker and press `Alt+Enter`.
 4. Assert the input clears (same clear-on-delivery as submit).
 5. Poll `capture-pane` until it contains the staged marker; assert it appears
    EXACTLY once — the tty echo of the input line. A committed line would appear
    twice (input echo + `cat`'s output line).
-6. Fill a second suffix marker and press `ControlOrMeta+Enter`; assert the input
-   clears.
-7. Poll `capture-pane` until `staged+suffix` (the concatenated single line)
-   appears at least twice — proving the insert was truly staged in the input
-   buffer and the chord truly committed it.
+6. With the input now EMPTY, press `ControlOrMeta+Enter` (bare `\r`); poll
+   `capture-pane` until the staged marker appears at least twice — proving the
+   raw insert was truly staged and the empty chord truly pressed Enter.
+7. Fill a second marker and click the `Insert` button (`compose-strip-insert`);
+   assert the input clears; poll `capture-pane` until that marker appears at
+   least twice (the button's `text + "\n"` committed the line on its own).
 
 ### `target label follows the focused board pane`
 

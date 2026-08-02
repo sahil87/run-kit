@@ -8,9 +8,12 @@ import { TMUX_SERVER, createSession, killSession } from "./_tmux";
  * Docked compose strip (260718-dhdj) e2e coverage. The strip replaces the modal
  * ComposeBuffer: it is a single global surface docked above the bottom bar,
  * toggled by the `>_` chip / `View: Text Input` palette action, persisted as a
- * chrome preference, sending `text + \r` to the LIVE focused pane on the
- * Cmd/Ctrl+Enter submit chord (260801-hsxm: plain Enter inserts a newline —
- * lines accumulate locally). Drafts are PER TARGET (260801-cyth): keyed by the
+ * chrome preference, sending to the LIVE focused pane. Enter matrix
+ * (260802-lj98, terminal-faithful): plain Enter = insert line (`text + "\n"`,
+ * clears the draft; empty Enter is a full no-op); Cmd/Ctrl+Enter = submit
+ * (`text + "\r"`; EMPTY textarea sends a bare `\r` — "press Enter in the
+ * pane"); Alt+Enter = chord-only byte-exact raw insert; Shift+Enter is the
+ * only local newline. Drafts are PER TARGET (260801-cyth): keyed by the
  * focused window and persisted (text only) to localStorage, so they stay with
  * their addressee across navigation and survive reloads. See the sibling
  * `.spec.md` for the per-test contract.
@@ -174,7 +177,7 @@ test.describe("Docked compose strip", () => {
     await expect(input).toHaveValue(draftB, { timeout: 15_000 });
   });
 
-  test("Enter inserts a newline; Cmd/Ctrl+Enter sends text + carriage return; Escape blurs", async ({ page }) => {
+  test("Enter sends the line (text + newline); empty Enter is a no-op; Cmd/Ctrl+Enter submits; Escape blurs", async ({ page }) => {
     test.setTimeout(60_000);
     const windowId = await resolveWindowId(page, TERM_SESSION);
     await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(windowId)}`, {
@@ -193,26 +196,36 @@ test.describe("Docked compose strip", () => {
     const input = page.getByTestId("compose-strip-input");
     await expect(input).toBeVisible();
 
-    // Type a unique marker and press plain Enter — nothing is sent; the
-    // textarea inserts a newline (lines accumulate locally, 260801-hsxm).
-    const marker = `CS_ENTER_${Date.now()}`;
+    // Empty textarea + plain Enter = FULL no-op: the keydown is consumed, so
+    // no local newline appears and nothing is sent (260802-lj98).
     await input.click();
+    await input.press("Enter");
+    await expect(input).toHaveValue("");
+
+    // Type a unique marker and press plain Enter — insert line: the strip
+    // transmits `marker\n` and clears. On the `cat` pane the `\n` commits the
+    // line (terminal-conventional Enter), so the marker appears twice: the tty
+    // input echo plus cat's echoed output line.
+    const marker = `CSENT${Date.now()}`;
     await input.fill(marker);
     await input.press("Enter");
-    await expect(input).toHaveValue(`${marker}\n`);
-
-    // Cmd/Ctrl+Enter — the ONLY submit chord — sends the accumulated text to
-    // the pane running `cat`, which echoes it. The trailing `\r` submits.
-    await input.press("ControlOrMeta+Enter");
-    // The textarea clears (send succeeded, strip stays open).
     await expect(input).toHaveValue("");
     await expect(page.getByTestId("compose-strip")).toBeVisible();
+    await expect
+      .poll(
+        () => (tmuxCapture(TERM_SESSION).match(new RegExp(marker, "g")) ?? []).length,
+        { timeout: 10_000 },
+      )
+      .toBeGreaterThanOrEqual(2);
 
-    // The marker appears in the pane's captured output (cat echoed it on its
-    // own input line, then the `\r` committed it as a fresh echoed line).
+    // Cmd/Ctrl+Enter — the ONLY submit chord — still sends `text + \r`.
+    const chordMarker = `CSSUB${Date.now()}`;
+    await input.fill(chordMarker);
+    await input.press("ControlOrMeta+Enter");
+    await expect(input).toHaveValue("");
     await expect
       .poll(() => tmuxCapture(TERM_SESSION), { timeout: 10_000 })
-      .toContain(marker);
+      .toContain(chordMarker);
 
     // Escape blurs the strip textarea (does NOT close the strip).
     await input.click();
@@ -222,7 +235,7 @@ test.describe("Docked compose strip", () => {
     await expect(page.getByTestId("compose-strip")).toBeVisible();
   });
 
-  test("Insert stages text without committing; Ctrl/Cmd+Enter submits (260801-hsxm)", async ({ page }) => {
+  test("Alt+Enter stages raw text; empty Cmd/Ctrl+Enter presses Enter in the pane; Insert button inserts the line (260802-lj98)", async ({ page }) => {
     test.setTimeout(60_000);
     const windowId = await resolveWindowId(page, TERM_SESSION);
     await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(windowId)}`, {
@@ -238,16 +251,16 @@ test.describe("Docked compose strip", () => {
     await page.getByRole("button", { name: "Compose text" }).click();
     const input = page.getByTestId("compose-strip-input");
     await expect(input).toBeVisible();
-    // Enter inserts a newline on every pointer type (Cmd/Ctrl+Enter submits),
-    // so the keyboard hint states the default "enter" action.
-    await expect(input).toHaveAttribute("enterkeyhint", "enter");
+    // Enter transmits the line to the pane (insert-line) and clears the
+    // draft, so the keyboard hint states the "send" action.
+    await expect(input).toHaveAttribute("enterkeyhint", "send");
 
-    // Insert: raw bytes with NO trailing \r — staged on cat's input line,
-    // never committed.
-    const staged = `CSINS${Date.now()}`;
+    // Alt+Enter — the chord-only raw insert: byte-exact text with NO trailing
+    // byte, staged on cat's input line, never committed.
+    const staged = `CSRAW${Date.now()}`;
     await input.click();
     await input.fill(staged);
-    await page.getByTestId("compose-strip-insert").click();
+    await input.press("Alt+Enter");
     // Same clear-on-delivery as submit; the strip stays open.
     await expect(input).toHaveValue("");
     await expect
@@ -259,18 +272,28 @@ test.describe("Docked compose strip", () => {
       (tmuxCapture(TERM_SESSION).match(new RegExp(staged, "g")) ?? []).length,
     ).toBe(1);
 
-    // Cmd/Ctrl+Enter (the universal submit chord) commits the staged line plus
-    // this suffix as ONE line — proving the insert really was staged (still in
-    // the input buffer) and the chord really submitted.
-    const suffix = `CSSUB${Date.now()}`;
-    await input.fill(suffix);
+    // The stage-then-submit loop: the textarea is now EMPTY, and Cmd/Ctrl+Enter
+    // on an empty textarea sends a bare `\r` — "press Enter in the pane" —
+    // committing the previously-staged line (it now appears a second time as
+    // cat's echoed output line). This proves both halves of the loop: the raw
+    // insert really was staged, and the empty chord really pressed Enter.
     await input.press("ControlOrMeta+Enter");
+    await expect
+      .poll(
+        () => (tmuxCapture(TERM_SESSION).match(new RegExp(staged, "g")) ?? []).length,
+        { timeout: 10_000 },
+      )
+      .toBeGreaterThanOrEqual(2);
+
+    // The Insert button follows Enter (insert line): `text + "\n"` commits on
+    // the `cat` pane, so the marker appears twice without any further chord.
+    const inserted = `CSINS${Date.now()}`;
+    await input.fill(inserted);
+    await page.getByTestId("compose-strip-insert").click();
     await expect(input).toHaveValue("");
     await expect
       .poll(
-        () =>
-          (tmuxCapture(TERM_SESSION).match(new RegExp(`${staged}${suffix}`, "g")) ?? [])
-            .length,
+        () => (tmuxCapture(TERM_SESSION).match(new RegExp(inserted, "g")) ?? []).length,
         { timeout: 10_000 },
       )
       .toBeGreaterThanOrEqual(2); // input echo + cat's echoed output line

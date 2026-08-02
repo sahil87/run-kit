@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "The chat subsystem — rk-owned neutral event schema (Event/Pending/turn), Adapter registry, Claude JSONL adapter (UUID-glob, tolerant parse, TailFrom offset-tail). Read: GET .../chat backfill + a kind:chat sub on /ws/state; ?view=chat lens sharing the compose keydown layer (Enter=newline, Cmd/Ctrl+Enter=submit, Alt+Enter=insert, readline chords). Send: POST .../chat/send — sanitize, named-buffer paste + novelty echo probe + probe-and-submit-flag-gated Enter. Read derives from disk; send types in."
+description: "The chat subsystem — rk-owned neutral event schema (Event/Pending/turn), Adapter registry, Claude JSONL adapter (UUID-glob, tolerant parse, TailFrom offset-tail). Read: GET .../chat backfill + a kind:chat sub on /ws/state; ?view=chat lens on the surface-parameterized compose keydown (chat: Enter=newline, Cmd/Ctrl+Enter=submit, Alt+Enter=insert, readline chords). Send: POST .../chat/send — sanitize, named-buffer paste, novelty echo probe, probe-gated Enter. Read derives from disk; send types in."
 ---
 # Chat Subsystem
 
@@ -751,17 +751,28 @@ lens/switcher machinery (`window-view.ts`, `ViewSwitcher`, search-param validati
   `data-testid="chat-send-insert"`, same enable/disable as Send, `title` documenting
   the Alt+Enter chord). Insert routes through the shared in-flight-locked submission
   with `submit:false` (`onSend(text, false)`); Send with `submit:true`.
-- **Enter composes, Cmd/Ctrl+Enter sends — shared with the compose strip**: the keydown
-  routes through the shared pure `classifyComposeEnter` (`lib/compose-keys.ts`) — the
-  SAME classifier both surfaces use, so the two cannot diverge (divergence is a
-  defect). **Enter and Shift+Enter = newline** on every pointer type (NOT intercepted
-  — the textarea default; Enter accumulates lines locally so a reflexive Enter cannot
-  fire a half-written prompt at a live agent). **Cmd/Ctrl+Enter = submit** — the ONLY
-  submit chord, on every device. **Alt+Enter = insert-without-submit** (`submit:false`,
-  the chord peer of the Insert button). Precedence: non-Enter/IME-composing → default;
-  meta/ctrl → submit; alt → insert; else → default. Enter policy is
-  pointer-independent, so the classifier reads no pointer hook. The
-  empty/whitespace-only no-op is unchanged. `keydown` **stops propagation** so a
+- **Enter composes, Cmd/Ctrl+Enter sends — chat is the deliberately diverging surface**:
+  the keydown routes through the shared pure `classifyComposeEnter(key, surface)`
+  (`lib/compose-keys.ts`) — the SAME classifier both surfaces use, called here with
+  `surface: "chat"`. One classifier stays the single authority for both surfaces' Enter
+  policy, but plain Enter deliberately differs: chat keeps **Enter = newline** while the
+  compose strip transmits the line (`text + "\n"`). The reason is **visibility** — the
+  strip overlays the visible terminal, so a transmitted line lands in the pane's own
+  composer where the user watches it appear; the chat lens cannot show the pane's input
+  box, so Enter-as-insert here would make typed text visibly vanish into an invisible
+  target. The divergence is declared INSIDE the classifier, per surface (`surface` is a
+  required parameter with no default), never branched at this call site. **Enter and
+  Shift+Enter = newline** on every pointer type (NOT intercepted — the textarea default;
+  Enter accumulates lines locally so a reflexive Enter cannot fire a half-written prompt
+  at a live agent). **Cmd/Ctrl+Enter = submit** — the ONLY submit chord, on every device.
+  **Alt+Enter = insert-without-submit** (`submit:false`, the chord peer of the Insert
+  button). Precedence: non-Enter/IME-composing → default; meta/ctrl → submit; alt →
+  insert; shift → default; plain Enter → default in chat (insert-line on the strip).
+  Enter policy is pointer-independent, so the classifier reads no pointer hook. Empty /
+  whitespace-only never sends in ANY chat mode — chat has no counterpart to the strip's
+  empty Cmd/Ctrl+Enter bare-`"\r"`, because pressing Enter blind into a pane the lens
+  cannot show is the same visibility hazard, and this path is probe-gated server-side.
+  `keydown` **stops propagation** so a
   `Ctrl+`` toggle or other global chord never hijacks a keystroke while typing — and
   the textarea is explicitly EXEMPTED from the `Ctrl+`` view-toggle suppression via its
   `.rk-chat-input` class (see [ui-patterns](/run-kit/ui-patterns.md) § Window Views;
@@ -773,11 +784,14 @@ lens/switcher machinery (`window-view.ts`, `ViewSwitcher`, search-param validati
   the natively-bound macOS chords pass through untouched. Full contract (undo-preserving
   deletions, the empty-range guard, the Ctrl+W win/linux-browser caveat) in
   [ui-patterns](/run-kit/ui-patterns.md) § Docked Compose Strip → Readline editing chords.
-- **Truthful `enterKeyHint`**: `enterKeyHint="enter"` unconditionally — Enter always
-  inserts a newline, so the hint says so on every pointer type. The Send tip's keycap
-  is the platform-formatted submit chord from the shared `composeSubmitKeycap()`
-  (`⌘Enter` on mac, `Ctrl+Enter` elsewhere), identical to the compose strip's chip;
-  the Insert tip stays `Alt+Enter`.
+- **Truthful `enterKeyHint`**: `enterKeyHint="enter"` unconditionally — in chat Enter
+  always inserts a newline, so the hint says so on every pointer type. (The strip's hint
+  reads `"send"` for the same truthfulness rule under its own Enter policy — the hint
+  follows the surface's behavior, not a shared constant.) The Send tip's keycap is the
+  platform-formatted submit chord from the shared `composeSubmitKeycap()` (`⌘Enter` on
+  mac, `Ctrl+Enter` elsewhere) — the one keycap both surfaces render identically, since
+  the submit chord is the half that does NOT diverge; chat's Insert tip stays
+  `Alt+Enter`.
 - **In-flight lock**: while a send POST is pending, the submit path is locked
   (double-Enter / double-click cannot double-send). It guards insert-mode sends
   identically — insert reuses the one lock/clear/error state machine, not a parallel
@@ -1125,30 +1139,42 @@ machine on the form (a second lock/clear/error path is the cross-surface diverge
 the intake forbids).
 *Introduced by*: 260719-mxvw-pointer-aware-enter-insert-mode
 
-### One shared classifier owns the Enter policy for both surfaces
+### One shared classifier owns the Enter policy for both surfaces, chat as the diverging half
 **Decision**: Both text-input surfaces (chat send form, docked compose strip) route
-Enter through ONE pure `classifyComposeEnter(key)` (`lib/compose-keys.ts`), which
-drives both the keydown policy and the `enterKeyHint`. It reads key state alone — Enter
-policy is pointer-independent (Enter = newline everywhere, Cmd/Ctrl+Enter = the only
-submit, Alt+Enter = insert; `enterKeyHint="enter"`), and the same sharing rule extends
-to the readline editing layer (`handleReadlineKey`) and the Send keycap
-(`composeSubmitKeycap()`).
-**Why**: cross-surface divergence is a defect, so a single shared decision path (pure +
-unit-testable without a mount, the `palette-move.ts` extraction pattern) makes
-divergence structurally impossible — the two handlers had already drifted once before
-the classifier existed. Keeping the policy free of pointer input is what lets one
-classifier serve both surfaces with no per-surface configuration: the composition flow
-(Enter accumulates, one explicit chord sends) is correct on a hardware keyboard and a
-touch keyboard alike, and the premature-send hazard it removes is worst on a hardware
-keyboard where Enter is reflexive. The full rationale for the policy itself is
-[ui-patterns](/run-kit/ui-patterns.md) § Design Decisions → Enter composes,
-Cmd/Ctrl+Enter sends.
-**Rejected**: per-surface inline branching (the two handlers drift); keying the policy
-on pointer type or viewport width (nothing left for it to decide once Enter is a
-newline everywhere, and width would cost a narrowed desktop window its policy). The
-focused-textarea chords are NOT registered in the command palette (the palette steals
-focus from the textarea it would act on, and these are editing chords like the
-already-unregistered Shift+Enter); each Insert button's `title` documents its chord and
-the Send tip carries the platform-formatted submit keycap, satisfying Constitution V.
-*Introduced by*: 260719-mxvw-pointer-aware-enter-insert-mode,
-260801-hsxm-compose-enter-policy-readline-keys
+Enter through ONE pure `classifyComposeEnter(key, surface)` (`lib/compose-keys.ts`),
+which drives both the keydown policy and the `enterKeyHint`. `surface` is REQUIRED (no
+default) and is the ONE axis on which the surfaces differ: chat passes `"chat"` and gets
+Enter = newline with `enterKeyHint="enter"`; the strip passes `"strip"` and gets Enter =
+insert-line with `enterKeyHint="send"`. Every other rule is shared and identical —
+Cmd/Ctrl+Enter = the only submit, Alt+Enter = insert, Shift+Enter and IME-composing
+Enter = default — as are the readline editing layer (`handleReadlineKey`) and the Send
+keycap (`composeSubmitKeycap()`). The classifier reads no pointer input. Chat's empty
+send stays a no-op in every mode: it gains no counterpart to the strip's empty-submit
+bare `"\r"`.
+**Why**: the surfaces genuinely differ in what the user can SEE, so one plain-Enter
+policy could only be right for one of them. The strip overlays the visible terminal, so
+a transmitted line lands in the pane's own composer in full view; the chat lens cannot
+render the pane's input box at all, so the same Enter would make typed text vanish into
+an invisible target — and the premature-send hazard (a reflexive Enter firing a
+half-written prompt at a live agent) applies here undiluted. Declaring that divergence
+INSIDE the classifier, as a required parameter, preserves the single shared decision path
+(pure + unit-testable without a mount, the `palette-move.ts` extraction pattern): a call
+site may choose which policy it gets but cannot invent a third, and a new surface must
+state its choice rather than silently inherit one — the two handlers had already drifted
+once, before the classifier existed. Pointer-independence still holds because the
+divergence axis is surface visibility, not input hardware. Chat's empty-Enter abstention
+follows the same visibility rule, and this path is probe-gated server-side besides. The
+strip's half of the rationale is [ui-patterns](/run-kit/ui-patterns.md) § Design
+Decisions → Enter transmits a line in the strip, composes in chat.
+**Rejected**: per-surface inline branching at the call sites (the same drift the
+classifier exists to prevent, one layer down); a default value for `surface` (silent
+inheritance is that drift again); one shared plain-Enter policy across both surfaces
+(sacrifices either the strip's terminal-faithfulness or chat's visibility safety); keying
+the policy on pointer type or viewport width (the difference is what the surface shows,
+not what hardware types into it, and width would cost a narrowed desktop window its
+policy). The focused-textarea chords are NOT registered in the command palette (the
+palette steals focus from the textarea it would act on, and these are editing chords like
+the already-unregistered Shift+Enter); each surface's Insert affordance documents its
+chord in its tip and the Send tip carries the platform-formatted submit keycap,
+satisfying Constitution V.
+*Introduced by*: 260802-lj98-compose-enter-insert-line

@@ -145,13 +145,19 @@ const MAX_TEXTAREA_ROWS = 6;
 
 /**
  * The chat send input: an auto-growing monospace textarea + house-chip Insert /
- * Send buttons. Enter policy is the shared `classifyComposeEnter`
- * (260801-hsxm — the SAME classifier the compose strip uses; the two surfaces
- * must not diverge): plain Enter and Shift+Enter insert a newline on ALL
+ * Send buttons. Enter policy is the shared `classifyComposeEnter` with
+ * `surface: "chat"` — the SAME classifier the compose strip uses, still the
+ * single authority for both surfaces' Enter policy, but the surfaces
+ * DELIBERATELY diverge on plain Enter (260802-lj98): the strip transmits
+ * (insert-line) because it overlays the VISIBLE terminal, while the chat lens
+ * cannot show the pane's input box — Enter-as-insert here would make typed
+ * text visibly vanish, so chat keeps Enter=newline. Chat policy (unchanged
+ * from 260801-hsxm): plain Enter and Shift+Enter insert a newline on ALL
  * pointer types (Enter accumulates lines locally); Cmd/Ctrl+Enter is the ONLY
  * submit chord; Alt+Enter — and the Insert button — send with `submit: false`
- * (paste into the agent's input box, gated Enter skipped). `enterkeyhint` is
- * `"enter"` (the truthful hint — Enter inserts a newline). The textarea also
+ * (paste into the agent's input box, gated Enter skipped); empty never sends
+ * (no bare-Enter path — chat send is probe-gated server-side). `enterkeyhint`
+ * is `"enter"` (the truthful hint — Enter inserts a newline). The textarea also
  * carries the shared readline editing layer (`handleReadlineKey` —
  * Ctrl+U/Ctrl+W/Alt+B/F/D). In-flight-locked (no double-send, shared by submit
  * and insert); text clears on success and is kept on failure with an inline
@@ -223,17 +229,23 @@ function ChatSendForm({
     // never reaches global listeners. Everything else falls through.
     if (handleReadlineKey(e.nativeEvent, e.currentTarget)) return;
     // Shared Enter policy (classifyComposeEnter — the SAME classifier the
-    // compose strip uses). "default" means: do not intercept — the textarea
-    // inserts a newline (plain Enter and Shift+Enter on every pointer type,
-    // IME composition).
-    const action = classifyComposeEnter({
-      key: e.key,
-      shiftKey: e.shiftKey,
-      metaKey: e.metaKey,
-      ctrlKey: e.ctrlKey,
-      altKey: e.altKey,
-      isComposing: e.nativeEvent.isComposing,
-    });
+    // compose strip uses, declared per surface; chat keeps plain Enter as a
+    // newline — the deliberate divergence from the strip's insert-line, since
+    // this lens cannot show the pane's input box). "default" means: do not
+    // intercept — the textarea inserts a newline (plain Enter and Shift+Enter
+    // on every pointer type, IME composition). The classifier never returns
+    // "insert-line" for the chat surface.
+    const action = classifyComposeEnter(
+      {
+        key: e.key,
+        shiftKey: e.shiftKey,
+        metaKey: e.metaKey,
+        ctrlKey: e.ctrlKey,
+        altKey: e.altKey,
+        isComposing: e.nativeEvent.isComposing,
+      },
+      "chat",
+    );
     if (action === "default") return;
     // Stop propagation so a submitting/inserting Enter never bubbles to global
     // chords.

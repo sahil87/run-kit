@@ -86,10 +86,13 @@ describe("useBrandLogoSweep", () => {
   });
 
   afterEach(() => {
-    vi.unstubAllGlobals();
     // No `globals: true` in vitest.config, so RTL's auto-cleanup never
     // registers — clean up explicitly or renders accumulate across tests.
+    // Unmount BEFORE unstubbing so the hook's effect cleanup cancels its
+    // queued frame against the stubbed cAF (same order as
+    // terminal-client.test.tsx).
     cleanup();
+    vi.unstubAllGlobals();
   });
 
   /** Drain the pending frame callbacks, passing `now` as the timestamp. */

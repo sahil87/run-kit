@@ -77,9 +77,10 @@ export function TipGroup({ children }: { children: ReactNode }) {
 }
 
 type TipProps = {
-  /** One-line, sentence-cased control name (≤40ch — rewrite longer legacy
-   *  copy at the call site). Falsy → the child renders with no tooltip
-   *  machinery attached (conditional-tooltip call sites). */
+  /** Short, sentence-cased control name (aim for ≤40ch — copy that exceeds
+   *  the 40ch shell cap wraps to a second line, never truncates). Falsy →
+   *  the child renders with no tooltip machinery attached
+   *  (conditional-tooltip call sites). */
   label?: string;
   /** Optional dim modifier note, e.g. "⇧click: force". */
   note?: string;
@@ -153,16 +154,18 @@ export function Tip({ label, note, kbd, placement = "bottom", children }: TipPro
           {/* Quiet-card shell (Variant A): bg-bg-card, 1px border, 5px radius,
               soft shadow, 11px mono. `pointer-events-none` — tier-1 tooltips
               hold no interactive content, so they must never intercept a
-              click. `max-w-[40ch]` + truncate backstop the one-line content
-              cap. No animation: instant show/hide (reduced-motion safe). */}
+              click. `max-w-[40ch]` caps the width; a label that exceeds it
+              (the cap includes the chip and padding) wraps rather than
+              truncates — losing the tail is worse than a second line. No
+              animation: instant show/hide (reduced-motion safe). */}
           <div
             ref={refs.setFloating}
             style={floatingStyles}
             {...getFloatingProps()}
             data-testid="tip"
-            className="z-50 pointer-events-none flex items-center gap-1.5 max-w-[40ch] rounded-[5px] border border-border bg-bg-card px-2 py-1 font-mono text-[11px] shadow-lg select-none whitespace-nowrap"
+            className="z-50 pointer-events-none flex items-center gap-1.5 max-w-[40ch] rounded-[5px] border border-border bg-bg-card px-2 py-1 font-mono text-[11px] shadow-lg select-none"
           >
-            <span className="min-w-0 truncate text-text-primary">{label}</span>
+            <span className="min-w-0 text-text-primary">{label}</span>
             {kbd && (
               // Keycap chip (Variant C): inset bg, 1px border with a 2px
               // bottom edge (the "key" read), 3px radius, 10px type.

@@ -179,6 +179,35 @@ describe("clipboardProvider", () => {
     const result = await clipboardProvider.readText("p");
     expect(result).toBe("");
   });
+
+  // navigator.clipboard is undefined on plain-http non-localhost origins —
+  // OSC 52 writes must fall back to execCommand and reads must degrade to ""
+  // instead of throwing (tmux copy-on-select fires this path on every selection).
+  it("writeText falls back to execCommand when navigator.clipboard is absent", async () => {
+    Object.defineProperty(navigator, "clipboard", {
+      value: undefined,
+      writable: true,
+      configurable: true,
+    });
+    const originalExecCommand = document.execCommand;
+    const execCommandSpy = vi.fn().mockReturnValue(true);
+    document.execCommand = execCommandSpy as typeof document.execCommand;
+    try {
+      await expect(clipboardProvider.writeText("", "insecure origin")).resolves.toBeUndefined();
+      expect(execCommandSpy).toHaveBeenCalledWith("copy");
+    } finally {
+      document.execCommand = originalExecCommand;
+    }
+  });
+
+  it("readText returns empty string when navigator.clipboard is absent", async () => {
+    Object.defineProperty(navigator, "clipboard", {
+      value: undefined,
+      writable: true,
+      configurable: true,
+    });
+    await expect(clipboardProvider.readText("")).resolves.toBe("");
+  });
 });
 
 describe("deriveXtermTheme integration", () => {

@@ -22,15 +22,20 @@ import { evaluateMediaQuery } from "@/hooks/use-media-query";
  * Custom ClipboardProvider for the xterm.js ClipboardAddon.
  * Accepts both "" (empty/default) and "c" (explicit clipboard) as valid OSC 52
  * selection targets. Tmux sends "" by default; the built-in provider only accepts "c".
+ *
+ * navigator.clipboard is undefined on plain-http non-localhost origins (e.g. a
+ * Tailscale IP), so writes route through copyToClipboard (execCommand fallback,
+ * never throws) and reads degrade to "" — there is no read fallback.
  */
 export const clipboardProvider = {
   async readText(selection: string): Promise<string> {
     if (selection !== "c" && selection !== "") return "";
+    if (!navigator.clipboard) return "";
     return navigator.clipboard.readText();
   },
   async writeText(selection: string, text: string): Promise<void> {
     if (selection !== "c" && selection !== "") return;
-    await navigator.clipboard.writeText(text);
+    await copyToClipboard(text);
   },
 };
 

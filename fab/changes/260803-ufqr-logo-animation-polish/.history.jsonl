@@ -1,0 +1,9 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-03T03:56:29Z"}
+{"args":"Logo animation polish: fix LogoSpinner chase start transient (negative animation-delays) and replace the brand-crumb hover ring spin with a white glow detach-orbit-land sweep (variant C from the mock experiment)","cmd":"fab-new","event":"command","ts":"2026-08-03T03:56:29Z"}
+{"delta":"+4.7","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-08-03T03:57:59Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-03T04:08:20Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-03T04:08:26Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-03T04:21:39Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-03T04:26:43Z"}
+{"event":"review","result":"passed","ts":"2026-08-03T04:26:43Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-03T04:30:40Z"}

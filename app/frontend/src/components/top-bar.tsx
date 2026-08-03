@@ -1,7 +1,7 @@
 import { useCallback, useState, useRef, useEffect, useLayoutEffect, type ReactNode } from "react";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { BreadcrumbDropdown } from "@/components/breadcrumb-dropdown";
-import { LogoSpinner } from "@/components/logo-spinner";
+import { LogoSpinner, useBrandLogoSweep } from "@/components/logo-spinner";
 import { useChromeState, useChromeDispatch, TERMINAL_FONT_BOUNDS } from "@/contexts/chrome-context";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useToast } from "@/components/toast";
@@ -400,6 +400,11 @@ export function TopBar({
   // registry entry is overflowed into the menu, the version row becomes the
   // update surface and the chevron shows an attention badge (change areas 2–3).
   const { showChip, key: updateKey } = useUpdateNotification();
+
+  // Brand-crumb logo hover: the white glow "detach, orbit, land" sweep over
+  // the ring segments (JS-driven, logo-spinner.tsx). Triggered from the whole
+  // anchor so hovering the wordmark also plays it, like the glitch.
+  const brandSweep = useBrandLogoSweep();
 
   // Breadcrumb hrefs use the 2-segment route shape /$server/$window — the
   // window id (@N) is the only identity in the URL. Selecting a session jumps
@@ -858,11 +863,12 @@ export function TopBar({
               // coarse — the same box as the toggle + HistoryNav arrows,
               // 260731-oiho).
               className={`flex items-center gap-2 shrink-0 rk-brand-glitch min-h-[28px] coarse:min-h-[30px] ${LINK_CRUMB_CLASS}`}
+              onMouseEnter={brandSweep.onMouseEnter}
             >
               {/* Inline SVG (LogoSpinner at rest), not the /icon.svg img — the
-                  hover spin rotates the border ring (.rk-logo-ring) while the
-                  cube faces stay pinned, which CSS can't reach inside an img. */}
-              <LogoSpinner size={20} loading={false} />
+                  hover sweep drives the border segments' fills from JS
+                  (useBrandLogoSweep), which can't reach inside an img. */}
+              <LogoSpinner size={20} loading={false} svgRef={brandSweep.svgRef} />
               {/* [text-decoration:inherit] — the anchor is a flex container and
                   text-decoration does not propagate into flex items, so an
                   underline-based LINK_CRUMB_CLASS would silently skip the

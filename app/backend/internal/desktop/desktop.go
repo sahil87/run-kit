@@ -92,7 +92,7 @@ type Installer struct {
 	// APIBase is the GitHub API origin (overridden by tests with httptest).
 	APIBase string
 	// Token, when non-empty, is sent as a Bearer token — purely for rate-limit
-	// headroom on the public repo (GITHUB_TOKEN).
+	// headroom on the public repo (see githubToken).
 	Token string
 	// InstallDir is the target application directory.
 	InstallDir string
@@ -115,12 +115,35 @@ func New() *Installer {
 		Repo:       DefaultRepo,
 		Arch:       runtime.GOARCH,
 		APIBase:    defaultAPIBase,
-		Token:      os.Getenv("GITHUB_TOKEN"),
+		Token:      githubToken(),
 		InstallDir: DefaultInstallDir,
 		Progress:   io.Discard,
 		QuitWait:   quitWaitTimeout,
 		QuitPoll:   quitPollInterval,
 	}
+}
+
+// githubToken resolves a token for rate-limit headroom, preferring the
+// environment (GITHUB_TOKEN, then GH_TOKEN — the pair gh itself honours) and
+// falling back to the gh CLI's stored credential. The fallback exists because
+// an interactive `gh auth login` is the common way a Mac has GitHub
+// credentials at all, and without it a plain `rk desktop install` shares the
+// 60 req/hour-per-IP unauthenticated budget with every other tool on the
+// network. Every outcome is optional: no gh, gh not logged in, or gh timing
+// out all yield "" and the request simply goes out unauthenticated.
+func githubToken() string {
+	for _, env := range []string{"GITHUB_TOKEN", "GH_TOKEN"} {
+		if v := os.Getenv(env); v != "" {
+			return v
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "gh", "auth", "token").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 // AppPath returns the install target bundle path

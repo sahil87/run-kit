@@ -101,7 +101,7 @@ func (ins *Installer) ResolveRelease(ctx context.Context, tag string) (Release, 
 		// fall through to decode
 	case http.StatusForbidden, http.StatusTooManyRequests:
 		return Release{}, fmt.Errorf(
-			"GitHub API request denied (HTTP %d) — likely the unauthenticated rate limit (60 requests/hour per IP); set GITHUB_TOKEN for more headroom",
+			"GitHub API request denied (HTTP %d) — likely the unauthenticated rate limit (60 requests/hour per IP); run `gh auth login` or set GITHUB_TOKEN for more headroom",
 			resp.StatusCode)
 	case http.StatusNotFound:
 		if tag != "" {

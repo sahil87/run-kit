@@ -21,6 +21,8 @@ open http://localhost:3000      # open the dashboard in your browser
 run-kit riff                    # spawn an agent workspace (--skill /name picks the slash-command)
 ```
 
+On a Mac, the [desktop app](#desktop-app-macos) is an alternative front door: `run-kit desktop install`, then open **Run Kit.app** — its welcome page starts the daemon for you (one **Start & connect** click) and can also connect to run-kit on other machines over SSH or a URL, so the `daemon start` and `open` steps above collapse into opening the app.
+
 The last step also needs [`wt`](https://github.com/sahil87/wt) and your agent CLI on `PATH` — see [Prerequisites](#prerequisites) below.
 
 `run-kit agent-setup` installs agent-harness hooks into your user-global agent config (v1: Claude Code, `~/.claude/settings.json`) so windows running an agent report live **active/waiting/idle** state in the dashboard. It shows the settings diff and asks before writing; re-running is idempotent, and `run-kit agent-setup --uninstall` removes exactly the run-kit-owned entries. Until it's run (and agent sessions are restarted so new sessions pick up the hooks), agent state shows `—`. See [Agent state in the README](https://github.com/sahil87/run-kit/blob/main/README.md#agent-state--run-kit-agent-setup) for how the hooks work.
@@ -31,7 +33,7 @@ The last step also needs [`wt`](https://github.com/sahil87/wt) and your agent CL
 run-kit update
 ```
 
-`run-kit update` pulls the latest version via Homebrew and restarts the daemon so the new binary takes effect immediately.
+`run-kit update` pulls the latest version via Homebrew and restarts the daemon so the new binary takes effect immediately. It covers the CLI and daemon only — the desktop app updates separately, via `run-kit desktop update` or the app's **Restart to Update** menu item (see [Desktop app (macOS)](#desktop-app-macos)).
 
 > **Upgrading from an earlier run-kit?** Older installs had the agent-hook *logic* inlined in `~/.claude/settings.json`. Run `run-kit agent-setup` once more to swap in the new delegating wrapper, then restart your agent sessions. Future hook fixes ship in the binary and track `run-kit update` with no re-setup.
 
@@ -48,6 +50,8 @@ run-kit desktop status     # installed vs latest version (read-only)
 The CLI path is the primary one for a reason: the DMGs are ad-hoc signed (no notarization), so a browser download is stamped with `com.apple.quarantine` and Gatekeeper blocks the app on every install and update. Quarantine comes from the *downloading application* — command-line tools don't apply it — so the CLI produces a quarantine-free install that opens cleanly every time, verifying the download itself (SHA256 against the release digest when available, plus `codesign --verify --deep --strict`) before installing. Use `--path <dir>` to install somewhere other than `/Applications`, and `--version <tag>` to pin a specific release.
 
 Without the CLI, the fallback is manual: download the DMG for your architecture from [GitHub Releases](https://github.com/sahil87/run-kit/releases), drag **Run Kit.app** into Applications, and clear quarantine via System Settings → Privacy & Security → **Open Anyway** (or `xattr -dr com.apple.quarantine "/Applications/Run Kit.app"`) — repeated on every manual update.
+
+Inside the app, the welcome page offers three ways to connect, in descending order of "already have it here": **This Mac** (detects the local install and daemon state; one **Start & connect** button starts the daemon when needed — post-connect control lives under **Hosts → Local Daemon** in the menu), **over SSH** (`run-kit remote` under the hood: registers the machine, installs run-kit there if missing, starts its daemon, opens a tunnel), and **a URL** (any reachable `run-kit serve` instance, e.g. the Tailscale HTTPS endpoint below). The app never starts or stops the daemon on its own — every daemon action is an explicit click, and your tmux sessions survive all of them.
 
 ## Prerequisites
 

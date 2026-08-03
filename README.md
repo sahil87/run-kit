@@ -18,12 +18,28 @@ Installs the entire shll toolkit via Homebrew, handling tap trust automatically.
 
 ## Quick start
 
-From install to a working dashboard with one agent running:
+From install to a working dashboard with one agent running. Two front doors to the same dashboard — pick one:
+
+**In the browser** (any platform):
+
+```bash
+run-kit daemon start            # start the dashboard daemon on :3000
+open http://localhost:3000      # open the dashboard in your browser
+```
+
+**Or the desktop app** (macOS):
+
+```bash
+run-kit desktop install         # once: install Run Kit.app to /Applications, quarantine-free
+open -a "Run Kit"               # then click "Start & connect" — the app starts the daemon for you
+```
+
+The app's welcome page detects your local install and starts the daemon in one click — no `daemon start` needed. It can also connect to run-kit on other machines, including bootstrapping one over SSH (see [Desktop app](#desktop-app-macos)).
+
+Either way, spawn your first agent workspace:
 
 ```bash
 run-kit agent-setup             # optional, once per machine: agent busy/waiting/idle in the dashboard
-run-kit daemon start            # start the dashboard daemon on :3000
-open http://localhost:3000      # open the dashboard in your browser
 
 # in a tmux session (tmux new -s work if you aren't in one):
 run-kit riff                    # spawn an agent workspace (--skill /name picks the slash-command)
@@ -31,11 +47,11 @@ run-kit riff                    # spawn an agent workspace (--skill /name picks 
 
 `run-kit riff` also needs [`wt`](https://github.com/sahil87/wt) on your `PATH` — included with the full-toolkit install, or `shll install wt` — and your agent CLI available. When something fails, `run-kit doctor` prints per-dependency status.
 
-The new workspace appears in the sidebar; click into it to drive the agent — or any command — from the browser.
+The new workspace appears in the sidebar; click into it to drive the agent — or any command — from the dashboard.
 
 The formula also installs `rk` as a fully interchangeable short alias of `run-kit`, so every command here works the same whether you type `run-kit` or `rk`.
 
-To upgrade later, run `run-kit update` — pulls the latest version via Homebrew and restarts the daemon so the new binary takes effect immediately.
+To upgrade later, run `run-kit update` — pulls the latest version via Homebrew and restarts the daemon so the new binary takes effect immediately. The desktop app updates separately: `run-kit desktop update`, or the app's **Restart to Update** menu item when it detects a new release.
 
 > **Coming from the old `rk` formula?** run-kit was originally published as `sahil87/tap/rk`. If brew warns that `sahil87/tap/rk was renamed to sahil87/tap/run-kit`, you have a keg installed under the old name — remove it with a benign `brew uninstall sahil87/tap/rk` (your config and the `rk` command alias are unaffected), then `brew install sahil87/tap/run-kit` if `run-kit` is no longer on your `PATH`.
 
@@ -204,6 +220,14 @@ run-kit desktop status     # installed vs latest version (read-only)
 
 Installing through the CLI matters: the desktop DMGs are ad-hoc signed (no notarization), so a **browser** download gets stamped with `com.apple.quarantine` and Gatekeeper blocks the app on every install and every update ("Apple could not verify…"). Quarantine is applied by the *downloading application* — command-line tools don't apply it — so `run-kit desktop install` produces a quarantine-free install that opens cleanly, first time and every time. The installer does its own verification instead: it checks the DMG's SHA256 against the GitHub release digest (when available) and runs `codesign --verify --deep --strict` on the app before installing.
 
+Once installed, the app's welcome page replaces the terminal steps for getting connected, in three rungs:
+
+- **This Mac** — detects your local install and daemon state; one **Start & connect** button starts the daemon (when needed) and connects. Afterwards, daemon control lives in the menu under **Hosts → Local Daemon** (Connect / Restart / Stop).
+- **Over SSH** — type `user@host` and the app registers it via [`run-kit remote`](#command-reference), installs run-kit on the machine if missing, starts its daemon, and opens a tunnel — a remote host with zero manual setup on the box.
+- **A URL** — point at any reachable `run-kit serve` instance (e.g. a Tailscale HTTPS endpoint).
+
+The app never starts, stops, or updates anything on its own — every daemon action is an explicit click, and your tmux sessions survive all of them (the daemon layer never touches your sessions).
+
 **Manual fallback** (no run-kit CLI on the machine): download the DMG for your architecture from [GitHub Releases](https://github.com/sahil87/run-kit/releases), drag **Run Kit.app** into Applications, then clear the quarantine flag — via System Settings → Privacy & Security → **Open Anyway**, or:
 
 ```sh
@@ -275,6 +299,7 @@ Supports `zsh`, `bash`, `fish`, and `powershell`. Completion-only — run-kit ha
 | `run-kit init-conf` | Scaffold default `tmux.conf` and `tmux.d/` drop-in directory to `~/.rk/`. Optional. |
 | `run-kit update` | Upgrade via Homebrew and restart the daemon. |
 | `run-kit desktop` | Install/update the macOS desktop app from GitHub Releases, quarantine-free (`install`, `update`, `status` — see [Desktop app](#desktop-app-macos)). |
+| `run-kit remote` | Use SSH-only machines as run-kit hosts — register, bootstrap, tunnel, connect (`add`, `connect`, `list`, `status`, `disconnect`, `remove`). |
 | `run-kit completion` | Generate shell completion scripts (or use `run-kit shell-init` for eval-safe output). |
 | `run-kit help` | Help about any command. |
 

@@ -359,6 +359,14 @@ export function useRowFlyout(win: WindowInfo, { suppressed = false }: UseRowFlyo
     // Fixed-x anchor: the row is full-bleed to the sidebar width, so "right"
     // of the ROW element is the sidebar's right edge — stable across rows.
     placement: "right",
+    // `fixed` (not the default `absolute`): the card is portalled to
+    // document.body, and an absolutely-positioned card whose right edge lands
+    // past the viewport GROWS document.body's scrollWidth — horizontal page
+    // overflow at narrow widths (CI: top-bar-overflow/-overlap 375px sweeps,
+    // body 462px). A fixed-position box is out of the scroll flow, so an
+    // off-viewport edge clips instead of widening the page; flip()/shift()
+    // keep positioning against the viewport as before.
+    strategy: "fixed",
     middleware: [offset(6), flip(), shift({ padding: 8 })],
     whileElementsMounted: autoUpdate,
   });

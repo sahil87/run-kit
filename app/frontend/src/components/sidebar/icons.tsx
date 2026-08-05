@@ -164,6 +164,38 @@ export function PlusIcon({ size = 13 }: { size?: number }) {
   );
 }
 
+/** Small git-pull-request icon for the window row's REST-STATE PR glyph — a
+ *  lucide `git-pull-request` silhouette (source-branch circle + its rail, an
+ *  arc into the merge rail, target circle). Line-art matching the sibling
+ *  icons' fixed idiom (`currentColor` stroke, `strokeWidth={2}`, `fill="none"`,
+ *  round caps/joins, 24-unit viewBox, 13px default size) so it reads at the
+ *  same ink weight inside the row's trailing cluster — NOT the Nerd Font
+ *  U+F407 glyph the PANE panel's L3 register uses (one icon system per the
+ *  Sidebar Row Icon System, 260724-2bmy). Informational decoration only: the
+ *  glyph is aria-hidden and never a focusable control. (93dy) */
+export function GitPullRequestIcon({ size = 13 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {/* source branch: circle + vertical rail */}
+      <circle cx="6" cy="6" r="3" />
+      <path d="M6 9v12" />
+      {/* arc from the source into the merge rail, ending in the target circle */}
+      <path d="M13 6h3a2 2 0 0 1 2 2v7" />
+      <circle cx="18" cy="18" r="3" />
+    </svg>
+  );
+}
+
 /** Small close/kill icon for the session- and window-row kill triggers — a
  *  lucide `x` cross. Replaces the former U+2715 text glyph for the same
  *  one-stroke-system reason as `PlusIcon`. (260724-2bmy) */

@@ -140,25 +140,34 @@ The lowest-precedence plain-window signal is **monochrome gray** — color is re
 > the constant-yellow halo — the core hue and shape in that cell are unchanged. It is applicable to
 > every tier, so it is not a new matrix row.
 
-## Row Minimalism — the dot is the row's only status signal
+## Row Minimalism — glyphs on the row, detail on hover
 
-The sidebar window row's trailing status cluster — the stage word (`intake`, red when failed) and the
-duration text — is **removed**. The **StatusDot is the row's only externally visible status signal**;
-the window name gets the freed width back (less truncation, especially on mobile).
+The sidebar window row's trailing status **text** cluster — the stage word (`intake`, red when failed)
+and the duration text — is **removed**; the window name gets the freed width back (less truncation,
+especially on mobile). The row's status signals are glyphs only: the leading StatusDot, plus a
+**git-pull-request glyph at the row's right edge** whenever the window has an open, failing, or merged
+PR (purple, or red when checks fail or changes are requested). The PR glyph is informational — it swaps
+out for the pin and ✕ actions the moment you hover the row.
 
 Where each removed signal survives:
 
 | Removed from the row | Survives as |
 |----------------------|-------------|
-| stage word (`review`) | the dot's core hue at a glance; the exact stage in the StatusDotTip and the PANE panel |
+| stage word (`review`) | the dot's core hue at a glance; the exact stage in the hover card and the PANE panel |
 | failed-red stage text | the dot's `failed` shape (dotted ring + red center) |
 | `done`-parking suppression | the dot's `done` square |
-| idle / elapsed duration | the StatusDotTip agent line + the PANE panel register view |
-| `waiting Xm` | the additive halo + the tip agent line + the PANE panel |
+| idle / elapsed duration | the hover card's `agt` register + the PANE panel register view |
+| `waiting Xm` | the additive halo + the `agt` register on both surfaces |
 
-**The PANE panel becomes the register view.** The four signal layers render as separate, orthogonal
-lines — never collapsed — so the dot is a *pure function* of what the panel shows and can be mentally
-derived from it:
+**Hover any row for the full picture.** Resting the pointer on a window row opens a card at the
+sidebar's right edge — same position every time, so it never jumps around under the pointer. It shows
+the dot's own label, the four registers below, how long ago the PR status was checked, and an
+"Open PR #N" link. The card also opens when you focus a row with the keyboard (Escape dismisses it),
+and on a touch device by tapping the row's status dot.
+
+**The PANE panel is the same register view for the selected window.** The four signal layers render as
+separate, orthogonal lines — never collapsed — so the dot is a *pure function* of what they show and
+can be mentally derived from it:
 
 ```
 out  active · 4s since last output        (L0: tmux activity)
@@ -169,8 +178,8 @@ PR   #314 open · checks fail · draft        (L3: prNumber/state/checks/review/
 
 The register keys are fixed-width 3-char (`out`/`agt`/`fab`/`PR`), matching the panel's existing
 `tmx`/`cwd`/`git` vocabulary. Absent layers render as absent (a plain shell pane shows only `out`).
-The L3 PR register shows for **any** pane with a `prNumber` (universal derivation — even a plain pane
-whose dot stays gray).
+The L3 PR register — and the row's PR glyph — show for **any** pane with a `prNumber` (universal
+derivation, even a plain pane whose dot stays gray).
 
 ## Red is used in exactly one way
 

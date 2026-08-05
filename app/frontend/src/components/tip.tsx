@@ -23,7 +23,8 @@ import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
  * plain-text label plus an optional keycap chip (`kbd`) and/or dim modifier
  * note (`note`). It is NEVER interactive content: anything needing a second
  * line of state or a clickable element is tier-2 hover-card material
- * (`StatusDotTip`) — there is no middle species.
+ * (the sidebar row flyout card, `sidebar/row-flyout-card.tsx`) — there is no
+ * middle species.
  *
  * Replaces native `title=` attributes on interactive chrome controls: native
  * titles are OS-styled (they break the terminal aesthetic), slow (~1s fixed
@@ -39,7 +40,7 @@ import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
  *   tooltip must never sit over the click's result).
  * - Suppressed under `pointer: coarse` — the child renders unchanged; the
  *   control's `aria-label` carries the name (no long-press tooltip layer).
- * - Flips/shifts at viewport edges (the StatusDotTip middleware set).
+ * - Flips/shifts at viewport edges (the shared hover-card middleware set).
  * - Reduced motion is trivially satisfied: no fade — instant show/hide.
  *
  * API: wraps a SINGLE child element and clones it with the floating reference
@@ -53,9 +54,9 @@ import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 export const TIP_OPEN_DELAY_MS = 300;
 /** How long a cluster stays "warm" (instant open) after the last tip closes. */
 export const TIP_WARM_WINDOW_MS = 500;
-/** Gap between the anchor and the tip (matches StatusDotTip's offset). */
+/** Gap between the anchor and the tip (matches the row flyout card's offset). */
 const TIP_OFFSET_PX = 6;
-/** Viewport padding for the shift() middleware (matches StatusDotTip). */
+/** Viewport padding for the shift() middleware (matches the row flyout card). */
 const TIP_SHIFT_PADDING_PX = 8;
 
 /**
@@ -130,8 +131,8 @@ export function Tip({ label, note, kbd, placement = "bottom", children }: TipPro
   const dismiss = useDismiss(context, { referencePress: true });
   // Tier-1 carries the real tooltip pattern: `role="tooltip"` on the floating
   // element, `aria-describedby` wired onto the anchored control while open.
-  // (Contrast StatusDotTip, which deliberately advertises NO tooltip role — it
-  // holds real links.)
+  // (Contrast the row flyout card, which deliberately advertises NO tooltip
+  // role — it holds real links.)
   const role = useRole(context, { role: "tooltip" });
   const { getReferenceProps, getFloatingProps } = useInteractions([hover, focus, dismiss, role]);
 

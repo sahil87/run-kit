@@ -6,9 +6,12 @@ import type { BoardSummary } from "@/api/boards";
 import { UNCOLORED_SELECTED_KEY, markerStripeStyle, type RowTint } from "@/themes";
 import { SwatchPopover } from "@/components/swatch-popover";
 import { StatusDot } from "@/components/status-dot";
+import { prOwnsDot, prGlyphColor } from "@/components/pr-status-model";
 import { PinPopover } from "./pin-popover";
-import { PaletteIcon, CloseIcon } from "./icons";
+import { PaletteIcon, CloseIcon, GitPullRequestIcon } from "./icons";
 import { PinIcon } from "@/components/pin-icon";
+import { useRowFlyout } from "./row-flyout-card";
+import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import { toSafeWindowName } from "@/lib/names";
 
 type ProjectWindow = ProjectSession["windows"][number];
@@ -160,6 +163,16 @@ function WindowRowInner({
   const [showPinPopover, setShowPinPopover] = useState(false);
   const pinBtnRef = useRef<HTMLButtonElement>(null);
 
+  // Row-hover register flyout card (93dy) — the tier-2 hover surface that
+  // replaced the per-dot StatusDotTip. ALL flyout state is row-local (this
+  // hook), so the WindowRow memo stays effective. Suppressed while the row's
+  // popovers are open (the card must not fight them) and on ghost rows (no
+  // real window data yet).
+  const coarse = useCoarsePointer();
+  const flyout = useRowFlyout(win, {
+    suppressed: ghost || showPinPopover || showLabelPicker,
+  });
+
   // Listen for the imperative `pin-popover:open` / `label-popover:open` events
   // dispatched by the command palette's "Board: Pin Current Window" and
   // "Window: Label" actions. Only the row whose (server, windowId) matches the
@@ -296,8 +309,23 @@ function WindowRowInner({
       // overlay's pseudos read it via inheritance). See globals.css § scanlines
       // and docs/specs/themes.md.
       className={`relative group${ghost ? " opacity-50 animate-pulse" : ""}`}
+      // The row root is the flyout card's floating REFERENCE (93dy): the card
+      // anchors to the whole ROW (placement "right" → the sidebar's right
+      // edge), and the reference props wire hover (mouseOnly + safePolygon),
+      // keyboard focus (the roving treeitem), and dismiss. Spread FIRST so the
+      // row's own handlers below are never overridden.
+      ref={flyout.setReference}
+      {...flyout.referenceProps}
       draggable={dragEnabled}
-      onDragStart={dragEnabled && onDragStart ? (e) => onDragStart(e, srv, session, win.index, win.windowId, win.name) : undefined}
+      onDragStart={
+        dragEnabled && onDragStart
+          ? (e) => {
+              // A drag gesture must not leave (or race) an open hover card.
+              flyout.close();
+              onDragStart(e, srv, session, win.index, win.windowId, win.name);
+            }
+          : undefined
+      }
       onDragOver={dragEnabled && onDragOver ? (e) => onDragOver(e, srv, session, win.index) : undefined}
       onDrop={dragEnabled && onDrop ? (e) => onDrop(e, srv, session, win.index) : undefined}
       onDragEnd={dragEnabled ? onDragEnd : undefined}
@@ -383,8 +411,25 @@ function WindowRowInner({
               a PR (purple/red/yellow/green/hollow per prDotState), else
               monochrome terminal activity (filled=active, hollow ring=idle). One
               dot in the leading position — the high-value PR signal now lands in
-              the primary scan anchor. See StatusDot / statusDotState. */}
-          <StatusDot win={win} />
+              the primary scan anchor. See StatusDot / statusDotState.
+              On COARSE pointers the wrapper wires a dot-tap to open the flyout
+              card (touch has no hover; hover-open is mouseOnly) — the tap stops
+              propagation so it never selects the row. On fine pointers the
+              wrapper is inert and a dot click selects the row as before. */}
+          <span
+            className="flex items-center shrink-0"
+            onClick={
+              coarse && !ghost
+                ? (e) => {
+                    e.stopPropagation();
+                    flyout.openNow();
+                  }
+                : undefined
+            }
+            data-testid="status-dot-tap"
+          >
+            <StatusDot win={win} />
+          </span>
           {isEditing ? (
             <input
               ref={inputRef}
@@ -402,24 +447,50 @@ function WindowRowInner({
             <span className="truncate">{win.name}</span>
           )}
         </span>
-        {/* Row Minimalism (260706-y1ar; status-pyramid.md § Row Minimalism):
-            the trailing status cluster — the stage word (red-when-failed) and
-            the duration text — is REMOVED. The leading StatusDot above is the
-            row's ONLY externally visible status signal (its hue = journey, shape
-            = health, additive halo = waiting); the freed width goes to the
-            window name. The exact stage word + durations survive in the
-            StatusDotTip hover-card and the PANE panel's register view. Hover-
-            reveal action icons (pin/kill) below are actions, not status, so they
-            are untouched. The color affordance moved to the left-edge label zone
-            (hwtr) — the right cluster is now actions-only. */}
+        {/* Row Minimalism, partially reversed (260706-y1ar → 93dy;
+            status-pyramid.md § Row Minimalism): the trailing STATUS cluster —
+            the stage word (red-when-failed) and the duration text — stays
+            REMOVED, and the freed width still goes to the window name. The
+            row's status signals are the leading StatusDot (hue = journey,
+            shape = health, additive halo = waiting) PLUS, for a window with an
+            owned PR, a rest-state PR glyph in the trailing cluster's last slot
+            (user-approved reversal — see the glyph below). The exact stage
+            word + durations survive in the row-hover flyout card
+            (row-flyout-card.tsx) and the PANE panel's register view. Hover-
+            reveal action icons (pin/kill) below are actions, not status. The
+            color affordance lives in the left-edge label zone (hwtr). */}
       </button>
       {/* Hover-reveal buttons: pin + kill (actions only — the color button moved
           to the left label zone, hwtr). Inert at rest on fine pointers
           (pointer-events-none) so stray clicks near the row's right edge fall
           through to the row-select button instead of hitting an invisible icon;
           interactivity is restored on hover, coarse pointers, and keyboard focus
-          within (has-[:focus-visible]). */}
-      <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 z-10 pointer-events-none group-hover:pointer-events-auto coarse:pointer-events-auto has-[:focus-visible]:pointer-events-auto">
+          within (has-[:focus-visible]). Named `group/icons` so the rest-state
+          PR glyph below can key its hide on focus WITHIN this cluster. */}
+      <div className="group/icons absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 z-10 pointer-events-none group-hover:pointer-events-auto coarse:pointer-events-auto has-[:focus-visible]:pointer-events-auto">
+        {/* Rest-state PR glyph (93dy — user-approved partial Row-Minimalism
+            reversal): a window with an OWNED PR (prOwnsDot — open/failing/
+            merged, never closed) shows a git-pull-request glyph at rest,
+            right-edge-aligned with the hover ✕ (an absolute overlay on the
+            LAST slot, same 24px box — so pinned rows read rest `[pin][PR]` →
+            hover `[pin][✕]`: the pin holds its slot, only the last slot
+            swaps). It is INFORMATIONAL ONLY — aria-hidden decoration (the
+            dot's aria-label + the flyout card + PANE panel carry the info),
+            pointer-events-none, and it disappears entirely on row hover
+            (display swap, not an opacity fade), on coarse pointers (actions
+            are always visible there), and while keyboard focus is inside the
+            action cluster — so it can never be a click target or occlude the
+            revealed ✕. Color via the shared PR vocabulary (prGlyphColor):
+            purple open/merged, red failing. */}
+        {!ghost && prOwnsDot(win) && (
+          <span
+            aria-hidden="true"
+            data-testid="row-pr-glyph"
+            className={`absolute right-0 top-1/2 -translate-y-1/2 flex items-center justify-center px-0.5 min-w-[24px] min-h-[24px] pointer-events-none group-hover:hidden coarse:hidden group-has-[:focus-visible]/icons:hidden ${prGlyphColor(win)}`}
+          >
+            <GitPullRequestIcon />
+          </span>
+        )}
         {showPinIcon && (
           <button
             ref={pinBtnRef}
@@ -489,6 +560,9 @@ function WindowRowInner({
           />
         </div>
       )}
+      {/* Row-hover register flyout card (93dy) — portalled to document.body,
+          mounted ONLY while open (perf contract). */}
+      {flyout.card}
     </div>
   );
 }
@@ -600,5 +674,6 @@ export const WindowRow = memo(WindowRowInner);
 /* Row Minimalism (260706-y1ar): the `WindowDuration`/`TickingDuration` leaves
    (and their per-second `useNow()` tick) were removed with the trailing status
    cluster — the row renders no duration. Idle/elapsed durations now live only in
-   the StatusDotTip and the PANE panel's register view. This also drops the last
-   `getWindowDuration` caller (removed from lib/format.ts). */
+   the row-hover flyout card (row-flyout-card.tsx, whose clocks are leaf-scoped
+   inside the open card) and the PANE panel's register view. This also drops the
+   last `getWindowDuration` caller (removed from lib/format.ts). */

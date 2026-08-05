@@ -3,9 +3,10 @@ import type { WindowInfo } from "@/types";
 
 /**
  * Shared label resolver for the status dot, extracted into its own module so
- * both `status-dot.tsx` (the dot) and `status-dot-tip.tsx` (the hover-card)
- * can import it without forming an import cycle between the two components.
- * `status-dot.tsx` re-exports `dotLabel` to keep its public surface stable.
+ * both `status-dot.tsx` (the dot) and `sidebar/row-flyout-card.tsx` (the
+ * row-hover register flyout card, which reuses the label as its header) can
+ * import it without forming an import cycle. `status-dot.tsx` re-exports
+ * `dotLabel` to keep its public surface stable.
  */
 
 /** Human word for the SHAPE/status axis used in the accessible label. */

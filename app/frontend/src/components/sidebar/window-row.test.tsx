@@ -178,7 +178,7 @@ describe("WindowRow", () => {
   // Row Minimalism (260706-y1ar; status-pyramid.md § Row Minimalism): the
   // trailing status cluster is REMOVED — the row renders NO stage word and NO
   // duration text. The leading StatusDot is the row's only externally visible
-  // status signal; the exact stage word + durations live in the StatusDotTip
+  // status signal; the exact stage word + durations live in the row flyout card
   // and the PANE panel's register view.
   describe("Row Minimalism — no stage word, no duration in the row", () => {
     it("renders no stage word for an active fab stage", () => {
@@ -433,6 +433,106 @@ describe("WindowRow", () => {
       expect(screen.queryByLabelText("PR — failing")).toBeNull();
       expect(screen.queryByLabelText("PR — open")).toBeNull();
       expect(screen.getByLabelText("idle")).toBeInTheDocument();
+    });
+  });
+
+  // Rest-state PR glyph (93dy — user-approved partial Row-Minimalism
+  // reversal): a window with an OWNED PR shows a git-pull-request stroke glyph
+  // at rest in the trailing cluster's last slot; on hover it display-swaps
+  // for the pin+✕ actions. jsdom evaluates neither :hover nor pointer media,
+  // so the swap/coarse/focus gating is asserted as class strings.
+  describe("rest-state PR glyph (93dy)", () => {
+    it("renders the glyph for an owned open PR, purple, aria-hidden, stroke SVG", () => {
+      const win = makeWindow({ windowId: "@0", index: 0, prNumber: 386, prState: "open", prChecks: "pass" });
+      renderRowWithIcons(win);
+      const glyph = screen.getByTestId("row-pr-glyph");
+      expect(glyph).toHaveAttribute("aria-hidden", "true");
+      expect(glyph.className).toContain("text-purple-400");
+      expect(glyph.querySelector("svg")).not.toBeNull();
+      expect(glyph.textContent).toBe("");
+    });
+
+    it("renders the glyph for a merged PR (purple)", () => {
+      const win = makeWindow({ windowId: "@0", index: 0, prNumber: 386, prState: "merged" });
+      renderRowWithIcons(win);
+      expect(screen.getByTestId("row-pr-glyph").className).toContain("text-purple-400");
+    });
+
+    it("renders the glyph red for a failing PR (checks fail / changes requested)", () => {
+      const win = makeWindow({ windowId: "@0", index: 0, prNumber: 386, prState: "open", prChecks: "fail" });
+      renderRowWithIcons(win);
+      const glyph = screen.getByTestId("row-pr-glyph");
+      expect(glyph.className).toContain("text-red-400");
+      expect(glyph.className).not.toContain("text-purple-400");
+    });
+
+    it("renders NO glyph for a closed-unmerged PR (prOwnsDot gate)", () => {
+      const win = makeWindow({ windowId: "@0", index: 0, prNumber: 386, prState: "closed" });
+      renderRowWithIcons(win);
+      expect(screen.queryByTestId("row-pr-glyph")).toBeNull();
+    });
+
+    it("renders NO glyph without a prNumber", () => {
+      const win = makeWindow({ windowId: "@0", index: 0 });
+      renderRowWithIcons(win);
+      expect(screen.queryByTestId("row-pr-glyph")).toBeNull();
+    });
+
+    it("renders NO glyph on ghost rows", () => {
+      renderGhostRow(makeGhostWindow());
+      expect(screen.queryByTestId("row-pr-glyph")).toBeNull();
+    });
+
+    it("slot discipline: the glyph is a right-edge overlay in the ✕ slot that display-swaps away on hover/coarse/cluster-focus", () => {
+      const win = makeWindow({ windowId: "@0", index: 0, name: "my-shell", prNumber: 386, prState: "open" });
+      const { container } = renderRowWithIcons(win);
+      const glyph = screen.getByTestId("row-pr-glyph");
+      // Inside the named action cluster, absolutely anchored at its right edge
+      // with the buttons' 24px box — so its right edge == the hover ✕'s.
+      const cluster = container.querySelector("div.absolute.right-2")!;
+      expect(cluster.className).toContain("group/icons");
+      expect(cluster.contains(glyph)).toBe(true);
+      expect(glyph.className).toContain("absolute");
+      expect(glyph.className).toContain("right-0");
+      expect(glyph.className).toContain("min-w-[24px]");
+      expect(glyph.className).toContain("min-h-[24px]");
+      // Display swap (not an opacity fade), gone on coarse pointers and while
+      // keyboard focus is inside the cluster; never a pointer target.
+      expect(glyph.className).toContain("group-hover:hidden");
+      expect(glyph.className).toContain("coarse:hidden");
+      expect(glyph.className).toContain("group-has-[:focus-visible]/icons:hidden");
+      expect(glyph.className).toContain("pointer-events-none");
+      expect(glyph.className).not.toContain("opacity-");
+      // The pin + kill actions keep their slots (pin holds its slot; only the
+      // last slot swaps): both buttons still render in the cluster.
+      expect(screen.getByLabelText("Pin my-shell to a board")).toBeInTheDocument();
+      expect(screen.getByLabelText("Kill window my-shell")).toBeInTheDocument();
+    });
+
+    it("pinned rest state `[pin][PR]`: the persistent pin glyph coexists with the rest PR glyph", () => {
+      const win = makeWindow({ windowId: "@0", index: 0, name: "my-shell", prNumber: 386, prState: "open" });
+      render(
+        <WindowRow
+          win={win}
+          session="alpha"
+          isSelected={false}
+          isDragOver={false}
+          editingWindow={null}
+          editingName=""
+          inputRef={{ current: null }}
+          onSelectWindow={noop}
+          onStartEditing={noop}
+          onWindowNameChange={noop}
+          onRenameKeyDown={noop as React.KeyboardEventHandler<HTMLInputElement>}
+          onRenameBlur={noop}
+          onKillClick={noop}
+          server="srv"
+          isPinnedToAny={true}
+        />,
+      );
+      const pin = screen.getByLabelText("Pin my-shell to a board");
+      expect(pin.className).toContain("opacity-100"); // persistent pin, its own slot
+      expect(screen.getByTestId("row-pr-glyph")).toBeInTheDocument(); // PR in the last slot
     });
   });
 

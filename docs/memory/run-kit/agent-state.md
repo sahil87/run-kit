@@ -399,12 +399,13 @@ The `agentState` three-state value is a first-class UI input across every surfac
   shape untouched — never a hue-flip). `agentState === "idle"` is a ring;
   `active`/`waiting` are solid (mid-turn). See
   [ui-patterns](/run-kit/ui-patterns.md) § Status Dot.
-- **Row Minimalism**: the `StatusDot` is the sidebar window row's ONLY status
-  signal — no trailing stage-word + duration cluster (§ Window rows).
-- **PANE panel L1 `agent` register**: the four-register view (output/agent/fab/PR)
-  renders `agent waiting <dur>` on its own line, never muted by flowing output
-  (the pierce rule); the `StatusDotTip` gains an `agent:` line on every tier
-  (§ Pane panel four-register view, § Status Dot hover-card).
+- **Row Minimalism**: the sidebar window row carries no trailing stage-word +
+  duration cluster — its status signals are the `StatusDot` plus an owned-PR
+  rest glyph (§ Window rows).
+- **L1 `agt` register**: the four-register view (out/agt/fab/PR) renders
+  `waiting <dur>` on its own line, never muted by flowing output (the pierce
+  rule), on BOTH register surfaces — the PANE panel and the row-hover flyout
+  card (§ Pane panel four-register view, § Row-hover register flyout card).
 - **Attention rollups + nav**: `waiting` counts propagate as `WaitingBadge` chips
   (session row, Host-page server tile, board header, and — since
   `260708-4li7-sidebar-server-tile-waiting-badge` — the sidebar SERVER-panel

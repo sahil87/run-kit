@@ -67,7 +67,7 @@ output. Not v1.
 | Shape | health/status of the owning tier | solid (live/healthy) · ring (pending/idle) · failed (dotted ring + red center) · done (sharp square) · skipped (gray hollow ring) |
 | Animation **[current]** | attention — **additive, never destructive** | constant-**yellow** pulsing halo = `waiting`, over any tier; core hue AND shape are kept. (future) slow-pulse halo = stuck. No halo = no attention needed |
 | Duration text | how long in the current resting state | `waiting Xm` (attention token) · `idle Xm` · tmux elapsed |
-| Tip (StatusDotTip) | full detail | phase + status label, agent line, PR link, docs link |
+| Hover card (row flyout) | full detail | phase + status label, the four registers, PR link, docs link |
 | Rollup badges **[current]** | attention counts up the hierarchy | session row → server tile → board header |
 
 **Palette v3 — two families + floor.** The palette encodes *which journey* by
@@ -115,8 +115,9 @@ waiting   →  additive yellow halo, over anything (core hue + shape kept)
   by family: **purple = fab change at PR phase** (unambiguous again),
   **orange = ad-hoc agent's branch has a PR**. A pane with *neither* a fab
   change *nor* a fresh agent stays on the gray floor even when its branch has a
-  PR — derivation stays universal (the L3 register, PR-status line, and tip
-  show the PR for any pane; Principle X), but a plain shell never renders a
+  PR — derivation stays universal (the L3 register and the hover card show the
+  PR for any pane, and the row's rest PR glyph is likewise un-family-gated;
+  Principle X), but a plain shell never renders a
   mystifying PR dot.
 - **[current]** the agent tier is new and **warm**: a fresh `agentState` gives a
   yellow core (solid mid-turn even while quiet; ring when idle — an agent
@@ -137,16 +138,16 @@ waiting   →  additive yellow halo, over anything (core hue + shape kept)
    adopted change (PR pre-exists) or a reused branch with an open PR shows the
    PR tier earlier. There is deliberately no `stage` conditional in the ladder.
 2. **A live fab stage never outranks its own PR.** Once a PR exists, stage
-   progress (hydrate done, review-pr active…) surfaces in the tip and the
+   progress (hydrate done, review-pr active…) surfaces in the hover card and the
    PR-status line, not the dot. The dot answers "how is the PR" from ship on.
 3. **Agent state owns the warm family, but never surfaces in the dot on
    fab windows** — a fab window's shape carries pipeline/PR health, which is
    rarer and more actionable than routine agent state. Agent state on fab
-   windows lives in: the tip's agent line, the PANE panel's agent register, and
+   windows lives in: the hover card's `agt` register, the PANE panel's, and
    (when waiting) the additive halo.
 4. **`waiting` is never a tier and never destructive** — it cannot displace
    core hue or shape anywhere. It is an additive overlay: constant-yellow halo
-   pulse + tip/panel `waiting Xm` + rollup counts + push.
+   pulse + the register surfaces' `waiting Xm` + rollup counts + push.
 5. **tmux output recency surfaces in exactly two places**: the bottom tier's
    solid/ring (no change, no PR, no agent), and the duration-mute rule (below).
    It is never an attention signal — output ≠ needs-me.
@@ -157,7 +158,7 @@ waiting   →  additive yellow halo, over anything (core hue + shape kept)
    merged PR's purple done-square silently decayed into a green fab done-square
    minutes after merge. The revised rule: the branch→PR derivation queries
    **all states** and picks by precedence **open (most recently updated) >
-   merged (most recent)**; closed-unmerged is derived (register/tip) but never
+   merged (most recent)**; closed-unmerged is derived (register view) but never
    owns the dot (fab fallback / floor — unchanged). A merged PR then renders
    its purple/orange done-square **statelessly and restart-proof** for as long
    as the pane sits on that branch — no grace clock, no negative-stamp
@@ -194,7 +195,7 @@ overlay (core hue/shape unchanged by it).
 | 7 | ad-hoc | PR checks fail | orange · failed | |
 | 8 | ad-hoc | PR merged | orange · done (square) | durable via state-all derivation (D2 revised) |
 | 9 | ad-hoc | PR open + **waiting** | orange · solid · **halo** | `waiting Xm` |
-| 10 | floor | PR on branch · no agent · no change | gray (floor) | PR in L3 register/tip only |
+| 10 | floor | PR on branch · no agent · no change | gray (floor) | PR in the L3 register + the row's rest PR glyph; never the dot |
 | 11 | fab | intake · active/ready | blue · solid | |
 | 12 | fab | intake · pending | blue · ring | |
 | 13 | fab | intake + **waiting** | blue · solid · **halo** | the asking stage — common case |
@@ -210,24 +211,38 @@ overlay (core hue/shape unchanged by it).
 
 ## Row Minimalism **[decided]**
 
-The WindowRow's trailing status cluster — the stage word (`intake`, red when
-failed) and the duration text — is **removed**. The **StatusDot is the row's
-only externally visible status signal**; the name gets the freed width back
-(less truncation, especially on mobile).
+The WindowRow's trailing status **text** cluster — the stage word (`intake`, red
+when failed) and the duration text — is **removed**; the name gets the freed
+width back (less truncation, especially on mobile).
+
+The row carries **two glyph-only status signals**: the leading StatusDot, and —
+for a window with an owned PR (`prNumber` present and not closed) — a
+**rest-state git-pull-request glyph** in the trailing cluster's last slot,
+colored from the shared PR vocabulary (purple open/merged, red failing). The
+glyph is informational decoration: `aria-hidden`, never focusable, never
+clickable. It swaps out entirely on row hover, on coarse pointers, and on
+keyboard focus within the cluster, where the pin + kill actions take the slots.
+This is a deliberate partial reversal of the original "the StatusDot is the
+row's only externally visible status signal" rule: PR existence and PR health
+are the highest-value scan question, and a hue-only dot answers it too coarsely.
+The reversal is bounded to a glyph — **no status TEXT returns to the row**.
+**[current]**
 
 Where each removed signal goes:
 
 | Removed from the row | Survives as |
 |----------------------|-------------|
-| stage word (`review`) | dot hue (coarse: amber trio) at a glance; exact stage in the StatusDotTip and the PANE panel |
+| stage word (`review`) | dot hue at a glance; exact stage in the row flyout card and the PANE panel |
 | failed-red stage text | already redundant — the dot's `failed` shape (dotted ring + red center) |
 | `done`-parking suppression | the dot's `done` square |
-| idle/elapsed duration | StatusDotTip + PANE panel; the *attention* half ("sitting too long") migrates to the future `stuck` overlay |
-| `waiting Xm` | the waiting overlay itself (see D3 resolution) + tip + PANE panel |
+| idle/elapsed duration | row flyout card + PANE panel; the *attention* half ("sitting too long") migrates to the future `stuck` overlay |
+| `waiting Xm` | the waiting overlay itself (see D3 resolution) + the flyout card + PANE panel |
 
-**The PANE panel becomes the pyramid's register view**: the four layers render
-as separate, orthogonal lines — never collapsed — so the dot is a *pure
-function* of what the panel shows and can be mentally derived from it:
+**The register view has TWO surfaces**: the bottom PANE panel and a row-anchored
+**hover flyout card** (opening on whole-row hover, keyboard row focus, or a
+coarse-pointer dot tap, at a fixed x on the sidebar's right edge). Both render
+the four layers as separate, orthogonal lines — never collapsed — so the dot is
+a *pure function* of what they show and can be mentally derived from it:
 
 ```
 out  active · 4s since last output        (L0)
@@ -242,14 +257,14 @@ matching the panel's existing `tmx`/`cwd`/`git` vocabulary. **[current]**
 Absent layers render as absent (no placeholder rows for a plain shell pane
 beyond `output`).
 
-## Duration-Text Ladder (tip + PANE panel)
+## Duration-Text Ladder (register surfaces)
 
-With row minimalism, this ladder governs the **StatusDotTip and PANE panel**
-text — the row itself renders no duration. (The Decision Table's "Duration
-text" column henceforth describes tip/panel content.)
+With row minimalism, this ladder governs the **two register surfaces** — the row
+flyout card and the PANE panel; the row itself renders no duration. (The
+Decision Table's "Duration text" column henceforth describes their content.)
 
 **[current]** (the pre-y1ar `getWindowDuration` row ladder is retired with Row
-Minimalism — the function is deleted; this ladder now governs tip/panel text):
+Minimalism — the function is deleted):
 
 ```
 waiting Xm   (attention token; NOT muted by output)   ← new
@@ -261,9 +276,9 @@ tmux elapsed (activityTimestamp ticker)                ← unchanged
 The waiting exemption is load-bearing: a Claude blocked on a permission prompt
 keeps rendering its spinner *below* the prompt, so L0 reads "flowing" — the mute
 rule would hide exactly the duration that matters most. `waiting` is the only
-state that pierces the mute. (In the PANE panel's register view the L0 line may
-always show its elapsed value — the mute rule applies where space is contested,
-i.e. the tip's one-line summary.)
+state that pierces the mute. (In the register view the L0 line always shows its
+elapsed value — the mute rule applied only to the retired one-line tip summary,
+where space was contested, never to an uncontested register line.)
 
 ---
 
@@ -280,7 +295,7 @@ The `waiting` overlay rolls up the hierarchy as a count of waiting windows:
 | Board header + board pane | header count; waiting pane gets a pulsing seam (3px, border-width system) — reduced-motion: static seam |
 | Command palette | `Agent: Next waiting` — cycles waiting windows (current server first, then others), the keyboard-first attention nav (Constitution V) |
 | Web Push | `waiting` sustained ≥ 15s → one push per waiting episode (dedupe on the state's epoch; re-arm when the state changes). Body: window + `waiting for input`; carries the question text when a future `@rk_agent_msg` option exists. `idle`/`active` never push |
-| StatusDotTip | gains an agent line on every tier: `agent: waiting 3m` / `active` / `idle 12m` |
+| Row flyout card | carries the `agt` register on every tier: `waiting 3m` / `active` / `idle 12m` |
 
 Not built (deliberately): a top attention banner (fights the minimal top bar —
 the rollup badges + palette nav cover discovery), a second per-row indicator
@@ -304,7 +319,7 @@ One overlay at a time: `waiting` outranks `stuck`.
 
 - `aria-label` composes phase + status + attention: `"review — failed — agent
   waiting 3m"`. Color and motion are never the sole channel (the halo has a
-  static reduced-motion form; the duration text and tip carry the same fact).
+  static reduced-motion form; the duration text and the hover card carry the same fact).
 - The pulse respects `prefers-reduced-motion` per the existing animation
   discipline (`rk-*` utilities zero out; JS treatments skip themselves).
 
@@ -314,6 +329,6 @@ One overlay at a time: `waiting` outranks `stuck`.
 
 | ID | Question | Resolution |
 |----|----------|-----------|
-| ~~D1~~ | ~~PR tier gate: `prNumber` alone?~~ | **Resolved (palette v3)**: PR dot-ownership is per-family — purple requires `fabChange && prNumber`, orange requires `fresh agentState && prNumber`. A plain pane's PR never owns the dot (derivation stays universal in register/tip/PR-status-line) |
+| ~~D1~~ | ~~PR tier gate: `prNumber` alone?~~ | **Resolved (palette v3)**: PR dot-ownership is per-family — purple requires `fabChange && prNumber`, orange requires `fresh agentState && prNumber`. A plain pane's PR never owns the dot (derivation stays universal in the register view, and the row's rest PR glyph is un-family-gated) |
 | D2 | Merged/closed PR retention under branch-derivation | **Revised after production observation** (first resolution — `--state open` + 10-min in-memory grace — decayed merged purple into green on grace expiry or rk restart): derivation queries **all PR states**; precedence open (most recent) > merged (most recent); merged owns the dot statelessly (durable done-square); closed-unmerged never owns (green fab fallback / floor — shipped). Grace-window machinery retired. **Default-branch carve-out (#389)**: the derivation never runs for a pane on the repo's default branch — head-name-only matching makes every such candidate degenerate, so excluded pairs resolve to an authoritative negative (invariant 6). **[current]** |
 | ~~D3~~ | ~~Is a 7px halo pulse salient enough for `waiting`?~~ | **Resolved (additive halo, palette v3)**: `waiting` = constant-**yellow** pulsing halo around the dot, core hue and shape untouched. Rejected: hue-flip (destroys family identity precisely when attention is highest — e.g. fab intake asking); self-colored halo (reduced-motion form nearly invisible + collides with the `ring` shape); fuchsia (its motivating amber collision no longer exists). Reduced-motion: static yellow outer ring. Final glow tuning at implementation with a visual check against all six core hues |

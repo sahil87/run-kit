@@ -1,11 +1,11 @@
 import { statusDotState, PHASE_HUE } from "@/components/pr-status-model";
-import { StatusDotTip } from "@/components/status-dot-tip";
 import { dotLabel } from "@/components/status-dot-label";
 import type { WindowInfo } from "@/types";
 
-// `dotLabel` lives in `status-dot-label.ts` (shared with `status-dot-tip.tsx`
-// to avoid an import cycle); re-export it so this module's public surface — and
-// existing `@/components/status-dot` import sites — stay unchanged.
+// `dotLabel` lives in `status-dot-label.ts` (shared with the sidebar row
+// flyout card, `sidebar/row-flyout-card.tsx`); re-export it so this module's
+// public surface — and existing `@/components/status-dot` import sites — stay
+// unchanged.
 export { dotLabel };
 
 /**
@@ -46,10 +46,13 @@ export { dotLabel };
  * status (e.g. "apply — active", "PR — merged", "review — failed",
  * "intake — pending"), or "active"/"idle" for the tmux fallback — color is
  * never the sole channel (colorblind a11y + keyboard-first constitution). The
- * native `title` tooltip is intentionally NOT set: the dot is wrapped by the
- * custom `StatusDotTip` hover-card (floating-ui based), which carries the same
- * label text plus a docs-link icon and (on PR-phase dots) an "Open PR" link.
- * A native `title` would double up with the custom card.
+ * native `title` tooltip is intentionally NOT set, and the dot is a PURE
+ * decoration: the hover/focus detail surface is the sidebar row's flyout card
+ * (`sidebar/row-flyout-card.tsx`, 93dy), which replaced the per-dot
+ * `StatusDotTip` — the dot no longer carries a `tabIndex` tab stop (the
+ * accepted second-tab-stop tradeoff from 260616-37ub is retired with it; the
+ * flyout opens on ROW focus instead). On coarse pointers the sidebar row wires
+ * a dot-tap to open the flyout.
  */
 
 // Every shape EXCEPT `failed` renders at one uniform footprint so the filled
@@ -73,92 +76,68 @@ export function StatusDot({ win }: { win: WindowInfo }) {
   // intake dot keeps its blue core, a green failed dot keeps its failed shape;
   // only the yellow halo is layered on. The class rides the dot element itself
   // (box-shadow renders outside the border-box, so it disturbs neither the
-  // dot's size nor its hue), keeping the floating-ui `setRef` on one element.
+  // dot's size nor its hue).
   const halo = state.waiting ? " rk-waiting-halo" : "";
 
-  // The dot's shape markup. `setRef`/`tipProps` come from StatusDotTip — they
-  // make the dot the floating-card reference and wire hover/focus/aria. The
-  // native `title` is intentionally dropped (the custom card replaces it); the
-  // accessible name lives on `aria-label`.
-  const renderDot = (
-    setRef: (node: HTMLElement | null) => void,
-    tipProps: Record<string, unknown>,
-  ) => {
-    const common = {
-      ref: setRef,
-      role: "img" as const,
-      "aria-label": label,
-      // Make the dot keyboard-focusable so the hover-card also opens on focus
-      // (Constitution V — keyboard-first); the floating-ui reference props don't
-      // add a tabstop, so set it explicitly.
-      //
-      // Tradeoff (reviewed, accepted): on the sidebar this dot sits inside the
-      // row <button>/treeitem, so it becomes a second tab stop ahead of the row.
-      // A <span role="img" tabindex="0"> is FOCUSABLE but not "interactive
-      // content" in the HTML button content-model sense (that bars <a>/<button>/
-      // <input>, not a focusable span), so this is valid markup, and the
-      // sidebar's tree keydown handler anchors on closest('[role="treeitem"]'),
-      // so arrow-nav still works from a focused dot. The extra tab stop is the
-      // accepted cost of focus-open; see docs/memory § Keyboard Navigation.
-      tabIndex: 0,
-      ...tipProps,
-    };
+  // The accessible name lives on `aria-label`; no native `title` (the flyout
+  // card is the detail surface) and no tabIndex (the row is the focus target).
+  const common = {
+    role: "img" as const,
+    "aria-label": label,
+  };
 
-    if (state.shape === "done") {
-      // Sharp-cornered square (no rounding). At 7px even a 1px radius softens
-      // the corners enough to blur the square-vs-circle distinction, so render
-      // fully square (`rounded-none`) to keep `done` visually distinct from the
-      // round shapes. Same DOT_SIZE as every other shape so it doesn't dominate.
-      return (
-        <span
-          {...common}
-          className={`${DOT_SIZE} rounded-none shrink-0 ${color}${halo}`}
-          style={{ backgroundColor: "currentColor" }}
-        />
-      );
-    }
+  if (state.shape === "done") {
+    // Sharp-cornered square (no rounding). At 7px even a 1px radius softens
+    // the corners enough to blur the square-vs-circle distinction, so render
+    // fully square (`rounded-none`) to keep `done` visually distinct from the
+    // round shapes. Same DOT_SIZE as every other shape so it doesn't dominate.
+    return (
+      <span
+        {...common}
+        className={`${DOT_SIZE} rounded-none shrink-0 ${color}${halo}`}
+        style={{ backgroundColor: "currentColor" }}
+      />
+    );
+  }
 
-    if (state.shape === "failed") {
-      // Dotted ring in the phase hue with a small red center dot. A CSS `dashed`
-      // border can't control its dash count — at the 7px DOT_SIZE a browser fits
-      // only ~4 dashes, which read as flower petals rather than the intended fine
-      // dashed ring. A `dotted` border at a slightly larger 9px footprint with a
-      // thin 1.2px stroke renders as a delicate bead ring instead. The failed dot
-      // is the ONE shape that breaks the uniform DOT_SIZE — the extra ~2px buys a
-      // legible bead count; every other shape stays at 7px. The 3px red center
-      // sits inside the 9px ring's ~6.6px hole (vs the old 4px center, which
-      // overflowed the 7px ring).
-      return (
-        <span
-          {...common}
-          className={`relative inline-flex items-center justify-center w-[9px] h-[9px] rounded-full shrink-0 ${color}${halo}`}
-          style={{ border: "1.2px dotted currentColor", backgroundColor: "transparent" }}
-        >
-          <span aria-hidden="true" className="w-[3px] h-[3px] rounded-full bg-red-400" />
-        </span>
-      );
-    }
+  if (state.shape === "failed") {
+    // Dotted ring in the phase hue with a small red center dot. A CSS `dashed`
+    // border can't control its dash count — at the 7px DOT_SIZE a browser fits
+    // only ~4 dashes, which read as flower petals rather than the intended fine
+    // dashed ring. A `dotted` border at a slightly larger 9px footprint with a
+    // thin 1.2px stroke renders as a delicate bead ring instead. The failed dot
+    // is the ONE shape that breaks the uniform DOT_SIZE — the extra ~2px buys a
+    // legible bead count; every other shape stays at 7px. The 3px red center
+    // sits inside the 9px ring's ~6.6px hole (vs the old 4px center, which
+    // overflowed the 7px ring).
+    return (
+      <span
+        {...common}
+        className={`relative inline-flex items-center justify-center w-[9px] h-[9px] rounded-full shrink-0 ${color}${halo}`}
+        style={{ border: "1.2px dotted currentColor", backgroundColor: "transparent" }}
+      >
+        <span aria-hidden="true" className="w-[3px] h-[3px] rounded-full bg-red-400" />
+      </span>
+    );
+  }
 
-    if (state.shape === "solid") {
-      return (
-        <span
-          {...common}
-          className={`${DOT_SIZE} rounded-full shrink-0 ${color}${halo}`}
-          style={{ border: "none", backgroundColor: "currentColor" }}
-        />
-      );
-    }
-
-    // `ring` (pending) and `skipped` both render as a hollow ring; `skipped`
-    // differs only in the forced gray `color` resolved above.
+  if (state.shape === "solid") {
     return (
       <span
         {...common}
         className={`${DOT_SIZE} rounded-full shrink-0 ${color}${halo}`}
-        style={{ border: "1.8px solid currentColor", backgroundColor: "transparent" }}
+        style={{ border: "none", backgroundColor: "currentColor" }}
       />
     );
-  };
+  }
 
-  return <StatusDotTip win={win} state={state} renderDot={renderDot} />;
+  // `ring` (pending) and `skipped` both render as a hollow ring; `skipped`
+  // differs only in the forced gray `color` resolved above.
+  return (
+    <span
+      {...common}
+      className={`${DOT_SIZE} rounded-full shrink-0 ${color}${halo}`}
+      style={{ border: "1.8px solid currentColor", backgroundColor: "transparent" }}
+    />
+  );
 }

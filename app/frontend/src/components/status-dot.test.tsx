@@ -1,7 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 import { StatusDot, dotLabel } from "./status-dot";
-import { dotTipContent } from "./status-dot-tip";
 import { statusDotState, fabPhase, fabShape, prShape } from "./pr-status-model";
 import { makeWindow } from "@/test-utils/fixtures";
 
@@ -275,65 +274,6 @@ describe("dotLabel — attention composition", () => {
   });
 });
 
-describe("dotTipContent — hover-card content resolution", () => {
-  it("fab PR dot with a prUrl yields one 'Open PR #N' link", () => {
-    const win = makeWindow({ fabChange: "260615-x", prNumber: 386, prState: "open", prChecks: "pass", prUrl: "https://github.com/o/r/pull/386" });
-    const state = statusDotState(win);
-    expect(state.phase).toBe("pr");
-    const content = dotTipContent(win, state);
-    expect(content.links).toEqual([{ label: "Open PR #386", href: "https://github.com/o/r/pull/386", testid: "dot-tip-pr-link" }]);
-  });
-
-  it("ad-hoc agentPr dot with a prUrl also yields the 'Open PR #N' link", () => {
-    const win = makeWindow({ agentState: "active", prNumber: 9, prState: "open", prChecks: "pass", prUrl: "https://github.com/o/r/pull/9" });
-    const state = statusDotState(win);
-    expect(state.phase).toBe("agentPr");
-    expect(dotTipContent(win, state).links).toHaveLength(1);
-  });
-
-  it("adds the agent line on every tier when an agentState exists", () => {
-    const win = makeWindow({ fabChange: "x", fabStage: "apply", fabDisplayState: "active", agentState: "waiting", agentIdleDuration: "3m" });
-    expect(dotTipContent(win, statusDotState(win)).agent).toBe("agent: waiting 3m");
-  });
-
-  it("omits the agent line when no agentState", () => {
-    const win = makeWindow({ fabChange: "x", fabStage: "apply", fabDisplayState: "active" });
-    expect(dotTipContent(win, statusDotState(win)).agent).toBeNull();
-  });
-
-  it("floor dot yields no links and the bare activity label", () => {
-    const win = makeWindow({ activity: "active" });
-    const content = dotTipContent(win, statusDotState(win));
-    expect(content.links).toHaveLength(0);
-    expect(content.label).toBe("active");
-  });
-
-  it("a gray-floor pane WITH a prUrl still offers the 'Open PR #N' link (D1 universal derivation)", () => {
-    // A plain window (no fab change, no fresh agent) stays on the gray floor —
-    // its PR never OWNS the dot's hue (D1) — but the derived PR is UNIVERSAL
-    // (Principle X), so the tip still surfaces the "Open PR" link.
-    const win = makeWindow({ activity: "idle", prNumber: 7, prState: "open", prUrl: "https://github.com/o/r/pull/7" });
-    const state = statusDotState(win);
-    expect(state.phase).toBe("none"); // gray floor — PR does not own the dot
-    expect(dotTipContent(win, state).links).toEqual([
-      { label: "Open PR #7", href: "https://github.com/o/r/pull/7", testid: "dot-tip-pr-link" },
-    ]);
-  });
-
-  // Freshness line (260715-nwla) — fetchedAtEpoch resolution.
-  it("parses prFetchedAt to fetchedAtEpoch (seconds)", () => {
-    const win = makeWindow({ prFetchedAt: "2026-07-15T10:00:00Z" });
-    const content = dotTipContent(win, statusDotState(win));
-    expect(content.fetchedAtEpoch).toBe(Math.floor(Date.parse("2026-07-15T10:00:00Z") / 1000));
-  });
-
-  it("fetchedAtEpoch is null when prFetchedAt is absent", () => {
-    const win = makeWindow({});
-    expect(dotTipContent(win, statusDotState(win)).fetchedAtEpoch).toBeNull();
-  });
-
-  it("fetchedAtEpoch is null when prFetchedAt is unparseable", () => {
-    const win = makeWindow({ prFetchedAt: "not-a-date" });
-    expect(dotTipContent(win, statusDotState(win)).fetchedAtEpoch).toBeNull();
-  });
-});
+// The hover-card content-resolution suite moved with the surface: the
+// per-dot StatusDotTip was replaced by the sidebar row flyout card (93dy) —
+// see sidebar/row-flyout-card.test.tsx for the card content coverage.

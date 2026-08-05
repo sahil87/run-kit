@@ -8,8 +8,8 @@ import { StarTwinkle } from "@/components/star-twinkle";
 import { CollapsiblePanel } from "./collapsible-panel";
 import { ICON_CLASS } from "./icons";
 import { copyToClipboard } from "@/lib/clipboard";
-import { formatDuration, parseFabChange } from "@/lib/format";
-import { PR_STATE_COLORS, PR_CHECKS_COLORS, PR_REVIEW_COLORS } from "@/components/pr-status-model";
+import { parseFabChange } from "@/lib/format";
+import { getOutputLine, getAgentLine, getFabLine, getPrSegments } from "./registers";
 import { StatusDot } from "@/components/status-dot";
 import { Tip } from "@/components/tip";
 import type { WindowInfo } from "@/types";
@@ -65,83 +65,12 @@ function shortenPath(cwd: string): string {
   return path;
 }
 
-/**
- * Build the L0 `out` register string (status-pyramid.md register view). L0
- * speaks about bytes, not intent: `active \u00b7 <command>` while output flows, else
- * `<command> \u00b7 idle Xm since last output` (or `idle Xm` with no command). This
- * register ALWAYS shows its own elapsed value \u2014 the duration-mute rule (which
- * hides elapsed when output flows) applies only to the tip's one-line summary,
- * never here in the uncontested register view, so the waiting-pierce rule is
- * automatic (see spec \u00a7 Duration-Text Ladder).
- */
-function getOutputLine(win: WindowInfo, nowSeconds: number): string {
-  const command = win.panes?.find((p) => p.isActive)?.command ?? win.paneCommand ?? "";
-  if (win.activity === "active") return command ? `active \u00b7 ${command}` : "active";
-
-  let idle = "";
-  if (win.activityTimestamp) {
-    const elapsed = nowSeconds - win.activityTimestamp;
-    if (elapsed > 0) idle = formatDuration(elapsed);
-  }
-  const idleText = idle ? `idle ${idle} since last output` : "";
-  if (command && idleText) return `${command} \u2014 ${idleText}`;
-  if (idleText) return idleText;
-  return command || "idle";
-}
-
-/** Build the L1 `agt` register string when an agent is present: e.g.
- *  `waiting 3m` / `active` / `idle 12m`. Null when no `agentState`. */
-function getAgentLine(win: WindowInfo): string | null {
-  if (!win.agentState) return null;
-  if (win.agentIdleDuration) return `${win.agentState} ${win.agentIdleDuration}`;
-  return win.agentState;
-}
-
-type PrSegment = { text: string; color: string };
-
-// PR segment color vocabulary (PR_STATE_COLORS / PR_CHECKS_COLORS /
-// PR_REVIEW_COLORS) is imported from pr-status-model.ts — the single source of
-// truth shared with the sidebar dot and the dashboard PR line.
-
-/**
- * Build the L3 `PR` register line for the pane panel as colored segments, e.g.
- * "#241 · open · checks pass" for an open PR, or "#241 · merged" once it
- * lands. Returns null unless the window carries a `prNumber`. Gated ONLY on
- * `prNumber` — NOT on `fabChange` — because the L3 register shows the PR for
- * ANY pane on a branch with a PR (derivation is universal, Constitution
- * Principle X; the ladder's per-family dot ownership is a separate concern —
- * see statusDotState). For a merged/closed PR the checks and review parts are
- * suppressed (they're
- * historical once the PR is no longer open); only the terminal state is shown.
- * The state segment color is purely the GitHub state (open→green via
- * PR_STATE_COLORS), NOT a health verdict — health is conveyed by the checks and
- * review segments here plus the sidebar dot. A draft is not dimmed: its state
- * follows PR_STATE_COLORS like any open PR, so an open draft shows green. This
- * reflects the project's "green = health, not merge-readiness" story (a draft
- * with passing checks is healthy, just not flipped to ready) and keeps both
- * remaining PR surfaces (sidebar dot, these segments) consistent.
- */
-function getPrSegments(win: WindowInfo): PrSegment[] | null {
-  if (!win.prNumber) return null;
-  const segments: PrSegment[] = [{ text: `#${win.prNumber}`, color: "text-text-primary" }];
-  if (win.prState) {
-    segments.push({
-      text: `${win.prState}${win.prIsDraft ? " (draft)" : ""}`,
-      color: PR_STATE_COLORS[win.prState],
-    });
-  }
-  const isOpen = !win.prState || win.prState === "open";
-  if (isOpen && win.prChecks && win.prChecks !== "none") {
-    segments.push({ text: `checks ${win.prChecks}`, color: PR_CHECKS_COLORS[win.prChecks] });
-  }
-  if (isOpen && win.prReview && win.prReview !== "none") {
-    segments.push({
-      text: `review: ${win.prReview.replace(/_/g, " ")}`,
-      color: PR_REVIEW_COLORS[win.prReview],
-    });
-  }
-  return segments;
-}
+// The register-line resolvers — getOutputLine (L0) / getAgentLine (L1) /
+// getFabLine (L2) / getPrSegments (L3) + the PrSegment type — live in
+// ./registers.ts (93dy): the single source shared with the sidebar row-hover
+// flyout card (row-flyout-card.tsx), so the two register surfaces cannot
+// drift. The PR segment color vocabulary they use still comes from
+// pr-status-model.ts.
 
 /**
  * PANE-header refresh button (260715-jykd; feedback state machine 260715-nwla).
@@ -489,13 +418,11 @@ function WindowContent({ win }: { win: WindowInfo }) {
 
   const gitBranch = activePane?.gitBranch ?? "";
 
+  // fabChange stays parsed here for the copy interaction (the fab row copies
+  // the change id); the L2 register STRING itself comes from the shared
+  // getFabLine (registers.ts, 93dy).
   const fabChange = parseFabChange(win.fabChange ?? "");
-  // L2 `fab` register: `<id> <slug> \u00b7 <stage>[ \u00b7 <displayState>]`. The
-  // displayState segment is appended when present (`fab pane map` may omit it
-  // on older binaries), completing the register per status-pyramid.md.
-  const fabLine = fabChange && win.fabStage
-    ? `${fabChange.id} ${fabChange.slug} \u00b7 ${win.fabStage}${win.fabDisplayState ? ` \u00b7 ${win.fabDisplayState}` : ""}`
-    : null;
+  const fabLine = getFabLine(win);
   const outputLine = getOutputLine(win, nowSeconds);
   const agentLine = getAgentLine(win);
   const prSegments = getPrSegments(win);

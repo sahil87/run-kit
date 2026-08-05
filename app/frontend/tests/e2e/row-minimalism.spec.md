@@ -1,10 +1,12 @@
 # row-minimalism.spec.ts
 
-Verifies **Row Minimalism** (260706-y1ar; `docs/specs/status-pyramid.md`
-§ Row Minimalism): the sidebar window ROW renders no fab stage word and no
-duration text — the leading `StatusDot` is the row's only externally visible
-status signal; the exact stage + durations live in the StatusDotTip and the
-PANE panel register view.
+Verifies **Row Minimalism** (260706-y1ar, partially reversed by 93dy;
+`docs/specs/status-pyramid.md` § Row Minimalism): the sidebar window ROW
+renders no fab stage word and no duration text — the row's externally visible
+status signals are the leading `StatusDot` plus, for a window with an owned
+PR, the rest-state PR glyph in the trailing cluster (the fixtures here carry
+no `prNumber`, so no glyph renders in these tests); the exact stage +
+durations live in the row flyout card and the PANE panel register view.
 
 ## Shared setup
 

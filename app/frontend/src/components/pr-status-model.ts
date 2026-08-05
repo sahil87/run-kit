@@ -7,8 +7,9 @@ import type { WindowInfo } from "@/types";
 // RETAINED as the single source of truth for the shared PR color vocabulary
 // (PR_STATE_COLORS/PR_CHECKS_COLORS/PR_REVIEW_COLORS) AND the lifecycle
 // status-dot model (statusDotState/fabPhase/fabShape/prShape/PHASE_HUE/...) —
-// both still imported by status-panel.tsx, status-dot.tsx, status-dot-tip.tsx,
-// and status-dot-label.ts.
+// both still imported by status-dot.tsx, status-dot-label.ts, the register
+// module (sidebar/registers.ts), the sidebar row (window-row.tsx — rest PR
+// glyph gate/color), and the row flyout card (sidebar/row-flyout-card.tsx).
 
 /** Fail-ish states get the red token; everything else uses the secondary token. */
 export function isFailish(win: WindowInfo): boolean {
@@ -228,9 +229,25 @@ function hasFreshAgent(win: WindowInfo): boolean {
  * the dot as the purple/orange done square — durably, because the backend keeps
  * deriving it statelessly (`gh pr list --state all`), not via any grace window.
  * `ownsDot` gates PR ownership on `prNumber` present AND not closed.
+ *
+ * Exported (93dy): the sidebar window row reuses this exact predicate as the
+ * gate for its rest-state PR glyph — deliberately NOT family-gated like dot
+ * ownership (the glyph shows for any owned PR: open, failing, or merged).
  */
-function prOwnsDot(win: WindowInfo): boolean {
+export function prOwnsDot(win: WindowInfo): boolean {
   return !!win.prNumber && win.prState !== "closed";
+}
+
+/**
+ * Color token for the window row's rest-state PR glyph (93dy), reusing the
+ * shared PR vocabulary so the glyph stays in lock-step with the dot/segments:
+ * red only for a fail-ish PR (`prDotState` → `fail`, i.e. `isFailish`), purple
+ * for everything else an owned PR can be (open / merged / checks pending). No
+ * new color system — `text-purple-400`/`text-red-400` are the established
+ * tokens (PHASE_HUE.pr / PR_STATE_COLORS).
+ */
+export function prGlyphColor(win: WindowInfo): string {
+  return prDotState(win) === "fail" ? "text-red-400" : "text-purple-400";
 }
 
 export function statusDotState(win: WindowInfo): StatusDotState {

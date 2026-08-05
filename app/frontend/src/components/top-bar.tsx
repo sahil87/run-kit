@@ -12,6 +12,7 @@ import { splitWindow, closePane } from "@/api/client";
 import { useWindowRename } from "@/hooks/use-window-rename";
 import { finalizeSafeName, toSafeWindowName } from "@/lib/names";
 import { prefersReducedMotion } from "@/lib/motion";
+import { isShell } from "@/lib/shell";
 import { WaitingBadge } from "@/components/waiting-badge";
 import { Tip, TipGroup } from "@/components/tip";
 import { ViewSwitcher, ViewSwitcherMenuRows } from "@/components/view-switcher";
@@ -789,9 +790,17 @@ export function TopBar({
 
   return (
     // pt guard: viewport-fit=cover (safe-area work, 260724-2bmy) can expose the
-    // status-bar area in standalone PWA mode; env() is 0 in browsers/desktop so
-    // this is a no-op there.
-    <header className="px-3 pt-[env(safe-area-inset-top)] border-b-[3px] border-border">
+    // status-bar area in standalone PWA mode, so browsers/PWA keep the
+    // safe-area padding. Inside the desktop shell the padding is DROPPED: the
+    // ShellTitlebarStrip already reserves the titlebar band in the SPA layout,
+    // and macOS hidden-titlebar windows can report that band as
+    // safe-area-inset-top — keeping the class would reserve the band twice
+    // (260805-9hn1). isShell() is read once per render: the preload injects
+    // window.runkitShell before any SPA script runs, so it is stable for the
+    // page's lifetime.
+    <header
+      className={`px-3 ${isShell() ? "" : "pt-[env(safe-area-inset-top)] "}border-b-[3px] border-border`}
+    >
       {/* 3-column grid `1fr auto 1fr`: the center cell is truly centered
           regardless of asymmetric left/right widths. Left = left cluster
           (hamburger + breadcrumb nav, 260720-ap63), center = the universal

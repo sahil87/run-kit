@@ -1502,6 +1502,26 @@ describe("TopBar", () => {
       ).not.toBeNull();
     });
   });
+
+  describe("safe-area top padding gated on isShell() (260805-9hn1)", () => {
+    // isShell() is driven through its REAL seam — window.runkitShell injection/
+    // deletion (the shell.test.ts pattern) — not vi.mock, so the structural
+    // narrowing in @/lib/shell is exercised too.
+    afterEach(() => {
+      delete window.runkitShell;
+    });
+
+    it("keeps pt-[env(safe-area-inset-top)] on the header in browsers/PWA (bridge absent)", () => {
+      renderTopBar();
+      expect(screen.getByRole("banner").className).toContain("pt-[env(safe-area-inset-top)]");
+    });
+
+    it("drops pt-[env(safe-area-inset-top)] inside the desktop shell (the titlebar strip already reserves the band)", () => {
+      window.runkitShell = { version: "1.2.3", platform: "darwin" };
+      renderTopBar();
+      expect(screen.getByRole("banner").className).not.toContain("pt-[env(safe-area-inset-top)]");
+    });
+  });
 });
 
 // Centered, highlighted, editable window heading (change 260703-5ilm).

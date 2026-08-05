@@ -304,13 +304,17 @@ export function BottomBar({ onOpenCompose, onFocusTerminal, onScrollLockChange }
     // and the coarse-only ⌨/🔒 chip could never render a tip (Tip
     // self-suppresses under pointer: coarse).
     <TipGroup>
-    {/* pb = max(6px, safe-area-inset-bottom): with viewport-fit=cover the OS
-        reports the corner-arc/home-indicator inset while the keyboard is
-        collapsed, lifting the extreme chips above the phone's curved edge;
-        when the keyboard opens, interactive-widget=resizes-content shrinks the
-        layout viewport past the inset so env() → 0 and the padding returns to
-        6px. CSS-only — no JS keyboard detection. (260724-2bmy) */}
-    <div className="flex items-center gap-1.5 coarse:gap-1 pt-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))] flex-wrap" role="toolbar" aria-label="Terminal keys">
+    {/* pb = max(--bottom-bar-floor, safe-area-inset-bottom). env() resolves to
+        0 in in-browser iOS Safari for this fixed-position app (non-zero only in
+        standalone PWA mode), so the corner-arc/home-indicator clearance comes
+        from the floor instead: globals.css raises --bottom-bar-floor from 6px
+        to 1rem on coarse pointers while the keyboard is collapsed. The
+        keyboard-open signal is explicit JS — useVisualViewport toggles
+        html.kb-open, dropping the floor back to 6px so no padding is wasted
+        above the keyboard (do NOT rely on env() or
+        interactive-widget=resizes-content collapsing on iOS). max() keeps
+        genuine inset reporting winning where it exists. (260805-fi9m) */}
+    <div className="flex items-center gap-1.5 coarse:gap-1 pt-1.5 pb-[max(var(--bottom-bar-floor,0.375rem),env(safe-area-inset-bottom))] flex-wrap" role="toolbar" aria-label="Terminal keys">
       <Tip label="Tab" placement="top">
         <button aria-label="Tab" className={`${KBD_CLASS} text-text-secondary`} onMouseDown={preventFocusSteal} onClick={() => sendSpecial("\t")}>
           <kbd aria-hidden="true">{"\u21E5"}</kbd>

@@ -1,0 +1,55 @@
+id: fi9m
+name: 260805-fi9m-bottom-bar-keyboard-aware-safe-floor
+created: 2026-08-05T18:10:01Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 6
+    acceptance_count: 14
+    acceptance_completed: 14
+confidence:
+    certain: 5
+    confident: 5
+    tentative: 0
+    unresolved: 0
+    score: 4.7
+    fuzzy: true
+    dimensions:
+        signal: 76.0
+        reversibility: 84.0
+        competence: 85.5
+        disambiguation: 77.5
+stage_metrics:
+    intake: {started_at: "2026-08-05T18:10:01Z", driver: fab-new, iterations: 1, completed_at: "2026-08-05T18:13:19Z"}
+    apply: {started_at: "2026-08-05T18:13:19Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-05T18:21:56Z"}
+    review: {started_at: "2026-08-05T18:21:56Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-05T18:29:55Z"}
+    hydrate: {started_at: "2026-08-05T18:29:55Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-05T18:34:00Z"}
+    ship: {started_at: "2026-08-05T18:34:00Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-08-05T18:34:00Z"
+    computed_at_stage: hydrate
+summary: Bottom bar clears the phone's corner arc via a raised 1rem coarse-pointer floor (--bottom-bar-floor) gated by an html.kb-open keyboard signal from useVisualViewport; env(safe-area-inset-bottom) is 0 in in-browser iOS Safari
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-05T18:34:00Z

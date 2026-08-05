@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-05T18:10:01Z"}
+{"args":"Bottom-bar safe-area floor for curved phones, keyboard-aware: env(safe-area-inset-bottom) resolves to 0 in in-browser iOS Safari so the 2bmy pb-[max(0.375rem,env())] guard leaves the terminal-keys chips under the curved glass; raise the coarse-pointer padding floor (keeping the max() shape) but only while the on-screen keyboard is collapsed, via a keyboard-open signal derived in useVisualViewport","cmd":"fab-new","event":"command","ts":"2026-08-05T18:10:01Z"}
+{"delta":"+4.7","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-08-05T18:11:27Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-08-05T18:12:14Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-05T18:13:02Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-05T18:13:19Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-05T18:21:56Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-05T18:29:55Z"}
+{"event":"review","result":"passed","ts":"2026-08-05T18:29:55Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-05T18:34:00Z"}

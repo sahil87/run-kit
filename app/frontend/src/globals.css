@@ -570,6 +570,25 @@ html.fullbleed .app-shell {
   overflow: hidden;
 }
 
+/* Bottom-bar safe floor (260805-fi9m). env(safe-area-inset-bottom) resolves
+   to 0 in in-browser iOS Safari for this fixed-position app (same as the top
+   inset — non-zero only in standalone PWA mode), so the corner-arc /
+   home-indicator clearance comes from a raised floor on coarse pointers
+   instead. The floor applies only while the on-screen keyboard is collapsed:
+   useVisualViewport toggles `kb-open` on <html> when the keyboard opens, and
+   the bar then rides above the keyboard on flat screen area where the extra
+   padding would only waste height. The consumer (bottom-bar.tsx) keeps the
+   max(var(--bottom-bar-floor), env(safe-area-inset-bottom)) shape so genuine
+   inset reporting (standalone PWA, future Safari) still wins. */
+:root {
+  --bottom-bar-floor: 0.375rem;
+}
+@media (pointer: coarse) {
+  html:not(.kb-open) {
+    --bottom-bar-floor: 1rem;
+  }
+}
+
 /* Prevent xterm scroll from chaining to the page on iOS */
 .xterm .xterm-viewport {
   overscroll-behavior: none;

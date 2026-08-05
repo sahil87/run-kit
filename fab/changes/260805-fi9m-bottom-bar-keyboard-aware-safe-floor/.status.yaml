@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 6
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-08-05T18:21:56Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-05T18:29:55Z"}
     hydrate: {started_at: "2026-08-05T18:29:55Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-05T18:34:00Z"}
     ship: {started_at: "2026-08-05T18:34:00Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-05T18:36:46Z"}
-    review-pr: {started_at: "2026-08-05T18:36:46Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-08-05T18:36:46Z", driver: git-pr, iterations: 1, completed_at: "2026-08-05T18:41:32Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/523
 change_type_source: explicit
@@ -54,4 +54,4 @@ true_impact:
     computed_at_stage: ship
 summary: Bottom bar clears the phone's corner arc via a raised 1rem coarse-pointer floor (--bottom-bar-floor) gated by an html.kb-open keyboard signal from useVisualViewport; env(safe-area-inset-bottom) is 0 in in-browser iOS Safari
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-05T18:36:46Z
+last_updated: 2026-08-05T18:41:32Z

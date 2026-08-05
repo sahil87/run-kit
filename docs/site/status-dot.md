@@ -178,8 +178,10 @@ PR   #314 open · checks fail · draft        (L3: prNumber/state/checks/review/
 
 The register keys are fixed-width 3-char (`out`/`agt`/`fab`/`PR`), matching the panel's existing
 `tmx`/`cwd`/`git` vocabulary. Absent layers render as absent (a plain shell pane shows only `out`).
-The L3 PR register — and the row's PR glyph — show for **any** pane with a `prNumber` (universal
-derivation, even a plain pane whose dot stays gray).
+The L3 PR register shows for **any** pane with a `prNumber` (universal derivation, even a plain
+pane whose dot stays gray). The row's rest-state PR glyph is stricter — it renders only for an
+**owned** PR (`prNumber` present and not closed-unmerged), so a closed PR keeps its register line
+but shows no row glyph.
 
 ## Red is used in exactly one way
 

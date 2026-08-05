@@ -47,12 +47,14 @@ export { dotLabel };
  * "intake — pending"), or "active"/"idle" for the tmux fallback — color is
  * never the sole channel (colorblind a11y + keyboard-first constitution). The
  * native `title` tooltip is intentionally NOT set, and the dot is a PURE
- * decoration: the hover/focus detail surface is the sidebar row's flyout card
- * (`sidebar/row-flyout-card.tsx`, 93dy), which replaced the per-dot
- * `StatusDotTip` — the dot no longer carries a `tabIndex` tab stop (the
- * accepted second-tab-stop tradeoff from 260616-37ub is retired with it; the
- * flyout opens on ROW focus instead). On coarse pointers the sidebar row wires
- * a dot-tap to open the flyout.
+ * decoration at both render sites: in the sidebar window rows the hover/focus
+ * detail surface is the row's flyout card (`sidebar/row-flyout-card.tsx`,
+ * 93dy), which replaced the per-dot `StatusDotTip` — the dot no longer carries
+ * a `tabIndex` tab stop (the accepted second-tab-stop tradeoff from
+ * 260616-37ub is retired with it; the flyout opens on ROW focus instead), and
+ * on coarse pointers the sidebar row wires a dot-tap to open the flyout. In
+ * the PANE panel header (`sidebar/status-panel.tsx`) there is no flyout — the
+ * panel's own register view alongside the dot is the detail surface.
  */
 
 // Every shape EXCEPT `failed` renders at one uniform footprint so the filled

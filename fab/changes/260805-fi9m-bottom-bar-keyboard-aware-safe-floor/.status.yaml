@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 6
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-08-05T18:13:19Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-05T18:21:56Z"}
     review: {started_at: "2026-08-05T18:21:56Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-05T18:29:55Z"}
     hydrate: {started_at: "2026-08-05T18:29:55Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-05T18:34:00Z"}
-    ship: {started_at: "2026-08-05T18:34:00Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-08-05T18:34:00Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-05T18:36:46Z"}
+    review-pr: {started_at: "2026-08-05T18:36:46Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/523
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 736
+    deleted: 20
+    net: 716
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 363
+        deleted: 8
+        net: 355
     tests:
-        added: 0
+        added: 250
         deleted: 0
-        net: 0
-    computed_at: "2026-08-05T18:34:00Z"
-    computed_at_stage: hydrate
+        net: 250
+    computed_at: "2026-08-05T18:36:46Z"
+    computed_at_stage: ship
 summary: Bottom bar clears the phone's corner arc via a raised 1rem coarse-pointer floor (--bottom-bar-floor) gated by an html.kb-open keyboard signal from useVisualViewport; env(safe-area-inset-bottom) is 0 in in-browser iOS Safari
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-05T18:34:00Z
+last_updated: 2026-08-05T18:36:46Z

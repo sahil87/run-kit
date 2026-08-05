@@ -844,28 +844,28 @@ describe("TopBar", () => {
     it("renders the merged split control on board mode, wired to the focused tile", async () => {
       const { splitWindow } = await import("@/api/client");
       renderBoard();
-      // ONE merged control (260731-oiho): primary = split vertical; the ▾
-      // opens the direction menu carrying the horizontal action.
-      const vsplit = screen.getByLabelText("Split vertically");
-      expect(vsplit).toBeInTheDocument();
-      expect(screen.queryByLabelText("Split horizontally")).not.toBeInTheDocument();
+      // ONE merged control (260731-oiho): primary = split horizontal; the ▾
+      // opens the direction menu carrying the vertical action.
+      const hsplit = screen.getByLabelText("Split horizontally");
+      expect(hsplit).toBeInTheDocument();
+      expect(screen.queryByLabelText("Split vertically")).not.toBeInTheDocument();
       await act(async () => {
-        fireEvent.click(vsplit);
+        fireEvent.click(hsplit);
       });
-      expect(splitWindow).toHaveBeenCalledWith("runkit", "@7", false, "~/code/x");
-      // ▾ → Split horizontal fires the horizontal split on the same target.
+      expect(splitWindow).toHaveBeenCalledWith("runkit", "@7", true, "~/code/x");
+      // ▾ → Split vertical fires the vertical split on the same target.
       // (Attribute query: jsdom keeps the control in the aria-hidden probe.)
       act(() => fireEvent.click(screen.getByLabelText("Split… (choose direction)")));
       const dirMenu = document.querySelector<HTMLElement>('[role="menu"][aria-label="Split direction"]');
       await act(async () => {
-        fireEvent.click(within(dirMenu!).getByText("Split horizontal"));
+        fireEvent.click(within(dirMenu!).getByText("Split vertical"));
       });
-      expect(splitWindow).toHaveBeenCalledWith("runkit", "@7", true, "~/code/x");
+      expect(splitWindow).toHaveBeenCalledWith("runkit", "@7", false, "~/code/x");
     });
 
     it("renders no split control on an empty board (no focused tile)", () => {
       renderBoard({ focusedPane: null, paneCount: 0 });
-      expect(screen.queryByLabelText("Split vertically")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("Split horizontally")).not.toBeInTheDocument();
       expect(screen.queryByLabelText("Split… (choose direction)")).not.toBeInTheDocument();
     });
 
@@ -998,12 +998,12 @@ describe("TopBar", () => {
     const splitDirectionMenu = () =>
       document.querySelector<HTMLElement>('[role="menu"][aria-label="Split direction"]');
 
-    it("renders ONE split control when a window is selected: primary = vertical, ▾ = direction menu", () => {
+    it("renders ONE split control when a window is selected: primary = horizontal, ▾ = direction menu", () => {
       renderTopBar();
       // Primary segment + ▾ segment; no second per-direction button.
-      expect(screen.getByLabelText("Split vertically")).toBeInTheDocument();
+      expect(screen.getByLabelText("Split horizontally")).toBeInTheDocument();
       expect(screen.getByLabelText("Split… (choose direction)")).toBeInTheDocument();
-      expect(screen.queryByLabelText("Split horizontally")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("Split vertically")).not.toBeInTheDocument();
       // The ▾ carries menu-trigger a11y and opens the direction menu with BOTH
       // actions (the complete option set, split-button convention).
       const chevron = screen.getByLabelText("Split… (choose direction)");
@@ -1022,27 +1022,27 @@ describe("TopBar", () => {
 
     it("does not render the split control on dashboard (no window)", () => {
       renderTopBar({ currentWindow: null, windowName: "" });
-      expect(screen.queryByLabelText("Split vertically")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("Split horizontally")).not.toBeInTheDocument();
       expect(screen.queryByLabelText("Split… (choose direction)")).not.toBeInTheDocument();
     });
 
-    it("primary click fires a VERTICAL split with the window's coordinates", async () => {
+    it("primary click fires a HORIZONTAL split with the window's coordinates", async () => {
       const { splitWindow } = await import("@/api/client");
       renderTopBar();
       await act(async () => {
-        fireEvent.click(screen.getByLabelText("Split vertically"));
+        fireEvent.click(screen.getByLabelText("Split horizontally"));
       });
-      expect(splitWindow).toHaveBeenCalledWith("runkit", "@0", false, "~/code/run-kit");
+      expect(splitWindow).toHaveBeenCalledWith("runkit", "@0", true, "~/code/run-kit");
     });
 
-    it("▾ → Split horizontal fires a HORIZONTAL split and closes the direction menu", async () => {
+    it("▾ → Split vertical fires a VERTICAL split and closes the direction menu", async () => {
       const { splitWindow } = await import("@/api/client");
       renderTopBar();
       act(() => fireEvent.click(screen.getByLabelText("Split… (choose direction)")));
       await act(async () => {
-        fireEvent.click(within(splitDirectionMenu()!).getByText("Split horizontal"));
+        fireEvent.click(within(splitDirectionMenu()!).getByText("Split vertical"));
       });
-      expect(splitWindow).toHaveBeenCalledWith("runkit", "@0", true, "~/code/run-kit");
+      expect(splitWindow).toHaveBeenCalledWith("runkit", "@0", false, "~/code/run-kit");
       expect(splitDirectionMenu()).toBeNull();
     });
 
@@ -1070,7 +1070,7 @@ describe("TopBar", () => {
       vi.mocked(splitWindow).mockImplementation(() => new Promise((r) => { resolveAction = () => r({ ok: true, pane_id: "%1" }); }));
 
       renderTopBar();
-      const btn = screen.getByLabelText("Split vertically");
+      const btn = screen.getByLabelText("Split horizontally");
       await act(async () => {
         fireEvent.click(btn);
         await Promise.resolve();
@@ -1334,7 +1334,7 @@ describe("TopBar", () => {
       const probe = cluster.querySelector('[aria-hidden="true"][inert]');
       expect(probe).not.toBeNull();
       expect(probe!.querySelector('[data-testid="view-toggle"]')).toBeNull();
-      expect(probe!.querySelector('[aria-label="Split vertically"]')).not.toBeNull();
+      expect(probe!.querySelector('[aria-label="Split horizontally"]')).not.toBeNull();
       // Registry order: the view-switcher is the FIRST registry entry, so its
       // `View:` rows lead the menu-row order (before the split rows that jsdom's
       // zero widths also overflow).
@@ -1422,11 +1422,11 @@ describe("TopBar", () => {
       expect(fontGlyph).toHaveAttribute("aria-hidden", "true");
     });
 
-    it("SplitControl popover rows lead with direction glyphs; the primary segment shares the split-vertical definition", () => {
+    it("SplitControl popover rows lead with direction glyphs; the primary segment shares the split-horizontal definition", () => {
       renderTopBar();
       // In-bar primary segment renders the SAME shared glyph (one definition).
       expect(
-        screen.getByLabelText("Split vertically").querySelector('[data-icon="split-vertical"]'),
+        screen.getByLabelText("Split horizontally").querySelector('[data-icon="split-horizontal"]'),
       ).not.toBeNull();
       act(() => fireEvent.click(screen.getByLabelText("Split… (choose direction)")));
       const dirMenu = document.querySelector<HTMLElement>(
@@ -1447,7 +1447,7 @@ describe("TopBar", () => {
       const probe = cluster.querySelector('[aria-hidden="true"][inert]');
       expect(probe).not.toBeNull();
       expect(probe!.querySelector('[data-icon="refresh"]')).not.toBeNull();
-      expect(probe!.querySelector('[data-icon="split-vertical"]')).not.toBeNull();
+      expect(probe!.querySelector('[data-icon="split-horizontal"]')).not.toBeNull();
     });
 
     it("Fixed width row keeps a STATIC identity glyph across toggle states — the trailing ✓ is the sole state marker (R5)", () => {

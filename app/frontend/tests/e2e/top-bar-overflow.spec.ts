@@ -47,7 +47,7 @@ function intersects(
 // NOT work: the probe sits off-screen at -9999px but Playwright still considers
 // a sized off-screen element "visible").
 type NameMatcher = string | RegExp;
-const L1: NameMatcher[] = ["Split vertically"];
+const L1: NameMatcher[] = ["Split horizontally"];
 const L2: NameMatcher[] = [];
 const L3: NameMatcher[] = ["Refresh page"];
 // The three demoted controls (260731-oiho, the n2n4 menuOnly mechanism): their
@@ -277,7 +277,7 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await expect(heading).toBeVisible({ timeout: 10_000 });
     // The bar carries the split control (in-bar at this width)…
-    await expect(byRoleName(page, "Split vertically")).toBeVisible({ timeout: 10_000 });
+    await expect(byRoleName(page, "Split horizontally")).toBeVisible({ timeout: 10_000 });
     // …but never the demoted three.
     expect(await inBarCount(page, MENU_ONLY)).toBe(0);
 
@@ -352,7 +352,7 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
 // no measurement-probe copy — the `view-toggle` testid is absent from the DOM at
 // ANY width), the per-view `View:` menuitemradio rows are ALWAYS in the chevron
 // menu, a row activation switches the lens even at a wide width, and the fit
-// pyramid over the remaining candidates is intact with `split-vertical` as the
+// pyramid over the remaining candidates is intact with the split control as the
 // new first-to-yield candidate.
 const VIEW_WINDOW_NAME = `overflow-view-long-worktree-${Date.now().toString().slice(-6)}`;
 const VIEW_URL = "http://localhost:8080/";
@@ -427,7 +427,7 @@ test.describe("Top-bar overflow: ViewSwitcher is menu-only (260722-n2n4)", () =>
     }
   });
 
-  test("split-vertical is the first fit candidate to yield — the menuOnly pill costs zero fit pixels", async ({
+  test("the split control is the first fit candidate to yield — the menuOnly pill costs zero fit pixels", async ({
     page,
   }) => {
     await gotoViewWindow(page);
@@ -435,11 +435,11 @@ test.describe("Top-bar overflow: ViewSwitcher is menu-only (260722-n2n4)", () =>
 
     // With the view-switcher out of the fit entirely, the FIRST fit candidate is
     // the leftmost L1 split. The invariant across the sweep: whenever `Split
-    // vertically` is still in-bar nothing has dropped yet, so every L1/L2/L3
-    // control must also be in-bar (the surviving set is a suffix of the fit
-    // order). This retargets the former first-to-drop coverage (the pre-n2n4
-    // pill) onto the new first candidate.
-    const splitVertical = () => byRoleName(page, "Split vertically");
+    // horizontally` (the primary segment) is still in-bar nothing has dropped
+    // yet, so every L1/L2/L3 control must also be in-bar (the surviving set is
+    // a suffix of the fit order). This retargets the former first-to-drop
+    // coverage (the pre-n2n4 pill) onto the new first candidate.
+    const splitPrimary = () => byRoleName(page, "Split horizontally");
     let sawInBar = false;
     for (const width of [1440, ...WIDTHS]) {
       await page.setViewportSize({ width, height: 800 });
@@ -448,24 +448,24 @@ test.describe("Top-bar overflow: ViewSwitcher is menu-only (260722-n2n4)", () =>
       // visibility expect so the post-resize re-fit (ResizeObserver → layout
       // effect) has settled before the plain `count()` reads below.
       if (width === 1440) {
-        await expect(splitVertical()).toBeVisible({ timeout: 10_000 });
+        await expect(splitPrimary()).toBeVisible({ timeout: 10_000 });
       }
-      const inBar = (await splitVertical().count()) > 0;
+      const inBar = (await splitPrimary().count()) > 0;
       if (inBar) {
         sawInBar = true;
         expect(
           await inBarCount(page, [...L1, ...L2, ...L3]),
-          `every fit candidate in-bar while split-vertical survives at ${width}px`,
+          `every fit candidate in-bar while the split control survives at ${width}px`,
         ).toBe(L1.length + L2.length + L3.length);
       }
     }
     // The sweep genuinely exercised both sides of the drop threshold: in-bar at
     // some wide width (gated above), and definitely dropped at the mobile leaf —
     // a RETRYING count so a still-settling re-fit can't flake the dropped side.
-    expect(sawInBar, "split-vertical was in-bar at some (wide) width").toBe(true);
+    expect(sawInBar, "the split control was in-bar at some (wide) width").toBe(true);
     await page.setViewportSize({ width: 375, height: 800 });
     await expect(heading).toBeVisible({ timeout: 10_000 });
-    await expect(splitVertical()).toHaveCount(0, { timeout: 10_000 });
+    await expect(splitPrimary()).toHaveCount(0, { timeout: 10_000 });
   });
 
   test("a `View:` row activation switches the lens and closes the menu — even at a wide width", async ({

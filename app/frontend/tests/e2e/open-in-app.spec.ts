@@ -91,7 +91,7 @@ const openChevron = (page: Page) =>
   page.getByRole("button", { name: "Open in… (choose app)" });
 // The currentWindow-gated sync anchor: the ✕ left the bar (menuOnly, 260731-oiho),
 // so the merged split control's primary segment is the anchor now.
-const splitAnchor = (page: Page) => page.getByRole("button", { name: "Split vertically" });
+const splitAnchor = (page: Page) => page.getByRole("button", { name: "Split horizontally" });
 
 test.describe("Open-in-App split-button (260722-6d0f)", () => {
   test("renders with a stubbed registry; menu lists the host apps; launching POSTs the pane cwd", async ({

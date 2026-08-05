@@ -553,9 +553,10 @@ export function TopBar({
     },
     // L1 — the ONE merged split control (terminal+board, 260731-oiho): the two
     // per-direction SplitButtons collapsed into a single split-button chip —
-    // primary click = split vertical (the long-standing default), a small ▾
+    // primary click = split horizontal (side-by-side, the default), a small ▾
     // affordance opens the direction menu (the OpenButton pattern). The
-    // overflow menu keeps BOTH directions as one-action-per-row rows.
+    // overflow menu keeps BOTH directions as one-action-per-row rows,
+    // default (horizontal) first.
     {
       id: "split",
       modes: ["terminal", "board"],
@@ -573,14 +574,14 @@ export function TopBar({
         mode === "board" ? (
           focusedPane ? (
             <>
-              <SplitMenuRow server={focusedPane.server} windowId={focusedPane.windowId} cwd={focusedPane.cwd} />
               <SplitMenuRow horizontal server={focusedPane.server} windowId={focusedPane.windowId} cwd={focusedPane.cwd} />
+              <SplitMenuRow server={focusedPane.server} windowId={focusedPane.windowId} cwd={focusedPane.cwd} />
             </>
           ) : null
         ) : currentWindow ? (
           <>
-            <SplitMenuRow server={server} windowId={currentWindow.windowId} cwd={currentWindow.worktreePath} />
             <SplitMenuRow horizontal server={server} windowId={currentWindow.windowId} cwd={currentWindow.worktreePath} />
+            <SplitMenuRow server={server} windowId={currentWindow.windowId} cwd={currentWindow.worktreePath} />
           </>
         ) : null,
     },
@@ -1892,13 +1893,13 @@ function BoardSwitcher({
  * precedent — primary + ▾ share one bordered chip so the pair reads as ONE
  * control at cluster scale):
  *
- *  - PRIMARY segment: split VERTICAL (the long-standing default) — the
- *    square-split-vertical glyph, optimistic `splitWindow` call, spinner while
- *    pending.
+ *  - PRIMARY segment: split HORIZONTAL (side-by-side, the default) — the
+ *    square-split-horizontal glyph, optimistic `splitWindow` call, spinner
+ *    while pending.
  *  - ▾ segment: `aria-haspopup="menu"`/`aria-expanded`, opens a small direction
- *    menu listing BOTH `Split vertical` and `Split horizontal` (the complete
- *    option set, split-button convention). Outside `mousedown` and Escape
- *    close; Escape refocuses the ▾.
+ *    menu listing BOTH `Split horizontal` and `Split vertical` (the complete
+ *    option set, split-button convention, default first). Outside `mousedown`
+ *    and Escape close; Escape refocuses the ▾.
  *
  * Segments use the segment height (`TOP_BAR_SEGMENT_H` — 2px shorter than the
  * squares, compensating the bordered wrapper) so the chip's TOTAL box matches
@@ -1961,15 +1962,15 @@ function SplitControl({
   return (
     <div ref={containerRef} className="relative inline-flex items-center">
       <span className="inline-flex items-stretch rounded border border-border overflow-hidden">
-        <Tip label="Split vertically">
+        <Tip label="Split horizontally">
           <button
             type="button"
-            onClick={() => run(false)}
+            onClick={() => run(true)}
             disabled={isPending}
-            aria-label="Split vertically"
+            aria-label="Split horizontally"
             className={segmentClass}
           >
-            {isPending ? <LogoSpinner size={14} /> : <SplitVerticalGlyph />}
+            {isPending ? <LogoSpinner size={14} /> : <SplitHorizontalGlyph />}
           </button>
         </Tip>
         {/* Tip suppressed while the menu is open (trigger convention). */}
@@ -2013,22 +2014,22 @@ function SplitControl({
           <button
             type="button"
             role="menuitem"
-            onClick={() => run(false)}
-            disabled={isPending}
-            className={POPOVER_ROW_CLASS}
-          >
-            <SplitVerticalGlyph />
-            Split vertical
-          </button>
-          <button
-            type="button"
-            role="menuitem"
             onClick={() => run(true)}
             disabled={isPending}
             className={POPOVER_ROW_CLASS}
           >
             <SplitHorizontalGlyph />
             Split horizontal
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => run(false)}
+            disabled={isPending}
+            className={POPOVER_ROW_CLASS}
+          >
+            <SplitVerticalGlyph />
+            Split vertical
           </button>
         </div>
       )}

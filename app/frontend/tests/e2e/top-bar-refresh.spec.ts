@@ -104,7 +104,7 @@ const refreshButton = (page: Page) => page.getByRole("button", { name: "Refresh 
 // 260731-oiho), so the merged split control's primary segment — still
 // terminal-gated on `currentWindow` and in-bar at the default wide viewport —
 // is the anchor now.
-const splitButton = (page: Page) => page.getByRole("button", { name: "Split vertically" });
+const splitButton = (page: Page) => page.getByRole("button", { name: "Split horizontally" });
 
 test.describe("Top-bar RefreshButton", () => {
   let selectHits: () => number;

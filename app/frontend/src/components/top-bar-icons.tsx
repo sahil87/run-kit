@@ -61,7 +61,7 @@ function ControlGlyph({
 }
 
 /** Split vertical — lucide square-split-vertical (top/bottom brackets +
- *  horizontal divider). The SplitControl primary segment's glyph. */
+ *  horizontal divider), the 90°-rotated sibling of SplitHorizontalGlyph. */
 export function SplitVerticalGlyph() {
   return (
     <ControlGlyph name="split-vertical">
@@ -73,7 +73,7 @@ export function SplitVerticalGlyph() {
 }
 
 /** Split horizontal — lucide square-split-horizontal (side brackets +
- *  vertical divider), the 90°-rotated sibling of SplitVerticalGlyph. */
+ *  vertical divider). The SplitControl primary segment's glyph. */
 export function SplitHorizontalGlyph() {
   return (
     <ControlGlyph name="split-horizontal">

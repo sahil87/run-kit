@@ -17,7 +17,7 @@ connection dot left the bar in 260724-6j1v — it lives in the sidebar footer);
 demoted controls (fixed-width, Aa, close-pane — `menuOnly` since 260731-oiho)
 render in-bar NOWHERE at any width while their rows are ALWAYS in the menu.
 Since 260731-oiho the terminal fit tiers are: L1 = the ONE merged split control
-(primary segment `Split vertically`), L2 = empty, L3 = Refresh — the in-bar end
+(primary segment `Split horizontally`), L2 = empty, L3 = Refresh — the in-bar end
 state is Open · Split(▾) · Refresh · chevron.
 
 ## Shared setup
@@ -109,7 +109,7 @@ into the menu.
 
 **Steps:**
 1. Navigate to the terminal window; set 1280×800; gate on the in-bar
-   `Split vertically` segment.
+   `Split horizontally` segment.
 2. Assert the in-bar count of the `MENU_ONLY` trio is 0.
 3. Open the menu; assert the Fixed width checkbox row, the Terminal font stepper
    group, and the Close pane row are present; assert NO `Split vertical` row
@@ -164,10 +164,10 @@ rows are present in the chevron menu at both extremes of the sweep.
    `View: Terminal` and `View: Web` rows are visible; Escape-close between
    widths.
 
-### `split-vertical is the first fit candidate to yield — the menuOnly pill costs zero fit pixels`
+### `the split control is the first fit candidate to yield — the menuOnly pill costs zero fit pixels`
 
 **What it proves:** with the view-switcher excluded from the fit, the leftmost L1
-split is the new FIRST fit candidate — whenever `Split vertically` is still
+split is the new FIRST fit candidate — whenever `Split horizontally` (the primary segment) is still
 in-bar, nothing has dropped yet, so every L1/L2/L3 control is also in-bar (the
 surviving set is a suffix of the fit order). Retargets the former first-to-drop
 coverage (the pre-n2n4 pill) onto the new first candidate.
@@ -175,10 +175,10 @@ coverage (the pre-n2n4 pill) onto the new first candidate.
 **Steps:**
 1. Navigate to the web-capable window.
 2. Sweep `[1440, ...WIDTHS]`, gating on the renamable heading each iteration; at
-   1440px gate on a RETRYING `Split vertically` visibility expect (post-resize
-   re-fit settle). At each width, if `Split vertically` is in-bar assert the full
+   1440px gate on a RETRYING `Split horizontally` visibility expect (post-resize
+   re-fit settle). At each width, if `Split horizontally` is in-bar assert the full
    L1+L2+L3 in-bar count.
-3. Assert split-vertical was seen in-bar at some wide width; then at 375px assert
+3. Assert the split control was seen in-bar at some wide width; then at 375px assert
    a RETRYING in-bar count of 0 (definitely dropped at the mobile leaf).
 
 ### `a `View:` row activation switches the lens and closes the menu — even at a wide width`

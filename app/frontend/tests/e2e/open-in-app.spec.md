@@ -34,7 +34,7 @@ gate, all covered by Vitest (`lib/open-in-app.test.ts`,
   - `**/api/windows/*/select*` → `{ok:true}` (trailing `*` — the query string).
   - the `/ws/terminals` mux WebSocket is accepted and held open.
 - Each test navigates to the percent-encoded window route `/default/%401` and
-  anchors on the **Split vertically** primary segment (the `currentWindow` gate; the ✕ left the bar in 260731-oiho) before
+  anchors on the **Split horizontally** primary segment (the `currentWindow` gate; the ✕ left the bar in 260731-oiho) before
   asserting — the Open entry additionally waits on its own async registry
   fetch, so it gets its own visibility wait where needed.
 

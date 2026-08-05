@@ -799,7 +799,7 @@ export function TopBar({
     // window.runkitShell before any SPA script runs, so it is stable for the
     // page's lifetime.
     <header
-      className={`px-3 ${isShell() ? "" : "pt-[env(safe-area-inset-top)] "}border-b-[3px] border-border`}
+      className={`px-3 ${isShell() ? "" : "pt-[env(safe-area-inset-top)]"} border-b-[3px] border-border`}
     >
       {/* 3-column grid `1fr auto 1fr`: the center cell is truly centered
           regardless of asymmetric left/right widths. Left = left cluster

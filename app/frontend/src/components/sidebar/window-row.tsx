@@ -491,7 +491,7 @@ function WindowRowInner({
             are always visible there), and while keyboard focus is inside the
             action cluster — so it can never be a click target or occlude the
             revealed ✕. Color via the shared PR vocabulary (prGlyphColor):
-            purple open/merged, red failing. */}
+            green open, purple merged, red failing. */}
         {!ghost && prOwnsDot(win) && (
           <span
             aria-hidden="true"

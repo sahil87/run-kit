@@ -443,12 +443,12 @@ describe("WindowRow", () => {
   // for the pin+✕ actions. jsdom evaluates neither :hover nor pointer media,
   // so the swap/coarse/focus gating is asserted as class strings.
   describe("rest-state PR glyph (93dy)", () => {
-    it("renders the glyph for an owned open PR, purple, aria-hidden, stroke SVG", () => {
+    it("renders the glyph for an owned open PR, green, aria-hidden, stroke SVG", () => {
       const win = makeWindow({ windowId: "@0", index: 0, prNumber: 386, prState: "open", prChecks: "pass" });
       renderRowWithIcons(win);
       const glyph = screen.getByTestId("row-pr-glyph");
       expect(glyph).toHaveAttribute("aria-hidden", "true");
-      expect(glyph.className).toContain("text-purple-400");
+      expect(glyph.className).toContain("text-accent-green");
       expect(glyph.querySelector("svg")).not.toBeNull();
       expect(glyph.textContent).toBe("");
     });

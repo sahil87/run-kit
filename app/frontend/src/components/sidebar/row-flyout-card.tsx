@@ -248,7 +248,7 @@ function ForkLink({ onFork }: { onFork: () => Promise<void> }) {
       type="button"
       // stopPropagation so forking never also selects the underlying row (the
       // PR/docs links' idiom). The click is a no-op while a fork is in flight —
-      // `disabled` already blocks it, this is the belt to that braces.
+      // `disabled` already blocks it, this is belt-and-braces.
       onClick={(e) => {
         e.stopPropagation();
         if (busy) return;

@@ -25,6 +25,8 @@ import {
 } from "@/lib/compose-strip-events";
 import {
   getComposeDraft,
+  getComposeSentHistory,
+  pushComposeSentHistory,
   subscribeComposeDraft,
   setComposeText,
   setComposeAttachments,
@@ -99,6 +101,28 @@ import {
  * only, via localStorage) page refreshes. Blob URLs for previews are derived
  * per-mount from the retained `File` objects, so they are the one piece of
  * state that stays component-local.
+ *
+ * Sent-history recall (260806-kadm): sending clears the draft unconditionally
+ * and none of the three hops (a queued `ws.send`, the backend's ignored PTY
+ * write error, a pane app that swallows the bytes) can confirm acceptance — so
+ * every delivered send is recorded per target (`pushComposeSentHistory`,
+ * immediately before the clear) and ↑ walks back through it. Recovery over
+ * verification: the clear stays unconditional and the send semantics are
+ * untouched; the text is simply always one keystroke away. ↑ is intercepted
+ * ONLY on an empty textarea (or mid-walk) so a multi-line draft keeps native
+ * cursor movement; ↓ walks toward newer and, past the newest entry, restores
+ * the stashed pre-recall text and ends the walk. Only a BARE, non-composing
+ * arrow can recall — an IME-composing arrow navigates the candidate list and a
+ * modified one is a native editing motion (Shift=select, Alt/Cmd=paragraph or
+ * document jump), the same exact-modifier discipline `classifyReadlineKey`
+ * declares. The walk's index + stash live in refs (no render reads them — the
+ * recalled text goes through `setComposeText`, so the store-controlled textarea
+ * and its auto-grow behave exactly as if typed), and it ends on ANY text
+ * mutation that is not a recall step (a keystroke, an upload's path lines, an
+ * attachment removal), on any send, and — eagerly, via a `draftKey` effect
+ * rather than at the next keydown — on a target switch. Recall restores TEXT
+ * ONLY: the `File` objects were revoked at send and are unpersistable, but
+ * their path lines ride the recalled text.
  */
 
 /** Max input rows before the textarea scrolls internally (bounded auto-grow) —
@@ -144,6 +168,35 @@ export function ComposeStrip() {
     [draftKey],
   );
   const blobUrlsRef = useRef<Map<File, string>>(new Map());
+
+  // ── sent-history recall walk (260806-kadm) ────────────────────────────────
+  // Control state only — no render reads these, so refs (not state) avoid a
+  // re-render per arrow press while the visible text stays store-owned.
+  //   recallIndexRef: steps back from live. -1 = no walk in progress; 0 selects
+  //     the newest sent entry, 1 the one before it, and so on.
+  //   recallStashRef: the textarea text at walk start, restored when ↓ steps
+  //     past the newest entry (empty under the empty-textarea intercept gate,
+  //     but the walk can also be re-entered mid-recall).
+  const recallIndexRef = useRef(-1);
+  const recallStashRef = useRef("");
+
+  /** End any in-progress recall walk (edit, send, target switch, past-newest,
+   * and any programmatic text mutation that is not a recall step). */
+  const endRecall = useCallback(() => {
+    recallIndexRef.current = -1;
+    recallStashRef.current = "";
+  }, []);
+
+  // A target switch ends the walk EAGERLY, the instant `draftKey` changes —
+  // not lazily at the next keydown. A lazy check (comparing the live key
+  // against one captured at walk start) leaves the walk armed while focus is
+  // elsewhere, so an A→B→A round-trip with no arrow pressed on B resumes A's
+  // stale index, and an edit on B tears down A's stash. The index and stash
+  // are meaningless against a stranger target, so they are discarded the
+  // moment the target they belong to stops being focused.
+  useEffect(() => {
+    endRecall();
+  }, [draftKey, endRecall]);
 
   // Live send target — read at send time, NOT frozen at mount (reverses DD-6).
   // The upload hook is scoped to the currently-focused target's worktree so
@@ -259,10 +312,65 @@ export function ComposeStrip() {
           blobUrlsRef.current.delete(uf.file);
         }
       }
+      // Record the transmitted text BEFORE clearing so ↑ can recover it — the
+      // clear stays unconditional (recovery over verification). All three modes
+      // push the pre-trailing-byte text; the store's own whitespace guard makes
+      // an empty submit's bare `\r` push nothing. A guard-blocked send returned
+      // above, so nothing was cleared and nothing is recorded.
+      pushComposeSentHistory(draftKey, text);
       clearComposeDraft(draftKey);
+      // A send is a walk-ending event: the next ↑ starts fresh from the newest
+      // entry (which is the text just sent).
+      endRecall();
     },
-    [draftKey, text, files, focused],
+    [draftKey, text, files, focused, endRecall],
   );
+
+  /**
+   * ↑/↓ sent-history recall. Returns `true` when the arrow was consumed (the
+   * caller then preventDefaults it), `false` to let native cursor movement
+   * proceed.
+   *
+   * ↑ is intercepted only when it CANNOT mean cursor movement — an empty
+   * textarea, or a walk already in progress (where the visible text is
+   * recalled, not composed). ↓ is intercepted only during a walk. Stepping
+   * back past the oldest entry pins there (no wrap); stepping forward past the
+   * newest restores the pre-walk stash and ends the walk.
+   */
+  function handleRecallKey(key: "ArrowUp" | "ArrowDown"): boolean {
+    if (draftKey === null) return false;
+    // No stale-target check is needed here: the walk is torn down eagerly by
+    // the `draftKey` effect above, so an in-progress walk always belongs to
+    // the currently-focused target.
+    const walking = recallIndexRef.current !== -1;
+
+    if (key === "ArrowDown") {
+      if (!walking) return false; // outside a walk, ↓ is native cursor movement
+      const next = recallIndexRef.current - 1;
+      if (next < 0) {
+        // Past the newest entry — restore what the user had before the walk.
+        const stash = recallStashRef.current;
+        endRecall();
+        setComposeText(draftKey, stash);
+        return true;
+      }
+      recallIndexRef.current = next;
+      setComposeText(draftKey, getComposeSentHistory(draftKey)[next] ?? "");
+      return true;
+    }
+
+    // ArrowUp. Outside a walk it means recall ONLY on an empty textarea;
+    // otherwise the caret is inside real composition and must move natively.
+    if (!walking && text !== "") return false;
+    const history = getComposeSentHistory(draftKey);
+    if (history.length === 0) return false; // nothing to recall — stay native
+    // Step back one, pinning at the oldest entry rather than wrapping.
+    const next = Math.min(recallIndexRef.current + 1, history.length - 1);
+    if (!walking) recallStashRef.current = text;
+    recallIndexRef.current = next;
+    setComposeText(draftKey, history[next] ?? "");
+    return true;
+  }
 
   const onKeyDown = (e: ReactKeyboardEvent<HTMLTextAreaElement>) => {
     // Escape blurs the textarea back to the terminal (never closes the strip).
@@ -276,6 +384,36 @@ export function ComposeStrip() {
     // ChatSendForm uses): Ctrl+U/Ctrl+W/Alt+B/F/D, consuming the chord so it
     // never reaches global listeners. Everything else falls through.
     if (handleReadlineKey(e.nativeEvent, e.currentTarget)) return;
+    // Sent-history recall — sits between the readline layer (which owns no
+    // arrow keys, so composition is clean) and the Enter classifier.
+    //
+    // Only a BARE, non-composing arrow can mean recall, matching the exact-
+    // modifier discipline the neighbouring layers already declare:
+    //   - IME composing (`isComposing`) — ↑/↓ navigate the candidate list, so
+    //     intercepting would break every CJK/IME composition in the strip (the
+    //     surface that exists BECAUSE xterm.js has no IME). Both neighbours
+    //     (`classifyComposeEnter`, `classifyReadlineKey`) guard on it.
+    //   - Any modifier — Shift+↑/↓ extends the selection, Alt/Opt+↑/↓ and
+    //     Cmd+↑/↓ are macOS paragraph/document jumps, Ctrl+↑/↓ is bound by
+    //     desktop environments. All are native editing motions that recall
+    //     must never swallow (`classifyReadlineKey`: "Meta or Shift anywhere →
+    //     unhandled").
+    const bareArrow =
+      (e.key === "ArrowUp" || e.key === "ArrowDown") &&
+      !e.nativeEvent.isComposing &&
+      !e.shiftKey &&
+      !e.altKey &&
+      !e.metaKey &&
+      !e.ctrlKey;
+    if (bareArrow) {
+      if (handleRecallKey(e.key as "ArrowUp" | "ArrowDown")) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      // A non-intercepted arrow falls through untouched: native cursor
+      // movement in a non-empty draft is never hijacked.
+      return;
+    }
     // Shared Enter policy (classifyComposeEnter — the SAME classifier
     // ChatSendForm uses, declared per surface; the strip's plain Enter is
     // insert-line while chat's stays newline — a deliberate, visibility-
@@ -311,6 +449,11 @@ export function ComposeStrip() {
       if (!hasTarget || arr.length === 0) return;
       const results = await uploadFiles(arr);
       if (results.length === 0) return;
+      // Appending path lines is a text mutation exactly like typing, so it ends
+      // any recall walk. Leaving the walk armed would orphan the attachment:
+      // the next arrow overwrites the text (dropping the path line) while the
+      // `File` and its preview stay mounted, leaving a chip with no path.
+      endRecall();
       setFiles((prev) => [...prev, ...results]);
       setText((current) => {
         const paths = results.map((u) => u.path).join("\n");
@@ -318,7 +461,7 @@ export function ComposeStrip() {
         return current.endsWith("\n") ? current + paths : current + "\n" + paths;
       });
     },
-    [hasTarget, uploadFiles, setFiles, setText],
+    [hasTarget, uploadFiles, setFiles, setText, endRecall],
   );
 
   // Drain files handed off from the terminal's drag-drop / paste gestures
@@ -372,6 +515,9 @@ export function ComposeStrip() {
         URL.revokeObjectURL(url);
         blobUrlsRef.current.delete(target.file);
       }
+      // Splicing the path line out is a text mutation like typing, so it ends
+      // any recall walk (same orphaning hazard as handleUpload, in reverse).
+      endRecall();
       // Remove the path line from the textarea.
       setText((current) => {
         const lines = current.split("\n");
@@ -382,7 +528,7 @@ export function ComposeStrip() {
       });
       setFiles((prev) => prev.filter((_, i) => i !== index));
     },
-    [draftKey, setText, setFiles],
+    [draftKey, setText, setFiles, endRecall],
   );
 
   /** Prevent mousedown from stealing focus away from the terminal/textarea. */
@@ -477,7 +623,14 @@ export function ComposeStrip() {
           ref={textareaRef}
           rows={2}
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          // A user edit ends any recall walk — the visible text is now
+          // composition, not a recalled entry, so ↑ returns to meaning cursor
+          // movement. Recall itself writes through `setComposeText` (never
+          // this handler), so a recalled entry does not end its own walk.
+          onChange={(e) => {
+            endRecall();
+            setText(e.target.value);
+          }}
           onKeyDown={onKeyDown}
           disabled={!hasTarget}
           autoComplete="off"

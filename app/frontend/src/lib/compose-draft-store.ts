@@ -35,6 +35,21 @@
  * (already on the target worktree's disk) and their path lines live in the
  * persisted text, so sending still works after a reload. Blob URLs for
  * previews are derived per-mount from the retained `File` objects.
+ *
+ * SENT-HISTORY (260806-kadm) — a second, independent per-target map living in
+ * this same module (so the `entryKey` coupling and the persistence discipline
+ * stay in one place). Sending clears the draft unconditionally and delivery is
+ * unverifiable at all three hops (queued `ws.send`, an ignored PTY write error,
+ * a pane app that swallows the bytes), so every transmitted text is recorded
+ * here and the strip's ↑ walks back through it. Recovery over verification.
+ *
+ * It rides a SIBLING localStorage key (`runkit-compose-sent-history`) rather
+ * than folding into the draft schema: the shipped draft parser and prune
+ * pipeline stay byte-compatible, and neither surface's corruption can take the
+ * other down. Same posture otherwise — write-through on every push, tolerant
+ * parse at module load, and the same age/cap pruning (window IDs are reused
+ * after a tmux server restart, so stale history must not resurrect against a
+ * stranger window).
  */
 
 /** A pending attachment: its uploaded path (a line in the textarea) plus the
@@ -104,20 +119,28 @@ function notify(): void {
   for (const listener of listeners) listener();
 }
 
-/** The one prune pipeline shared by write-through and hydration: drop
- * empty-text entries and entries outside the age window, then keep only the
- * `MAX_PERSISTED_DRAFTS` newest by `updatedAt`. The age check is two-sided
- * (`Math.abs`) so a future-dated `updatedAt` (clock skew, corrupted storage)
- * ages out like any other entry instead of sorting first and squatting the
- * cap forever. */
-function pruneDraftEntries<T extends { text: string; updatedAt: number }>(
+/** The age + cap prune both persisted maps share: drop entries the caller
+ * deems empty and entries outside the age window, then keep only the `cap`
+ * newest by `updatedAt`. The age check is two-sided (`Math.abs`) so a
+ * future-dated `updatedAt` (clock skew, corrupted storage) ages out like any
+ * other entry instead of sorting first and squatting the cap forever. */
+function pruneByAgeAndCap<T extends { updatedAt: number }>(
   entries: [string, T][],
+  isEmpty: (entry: T) => boolean,
+  cap: number,
 ): [string, T][] {
   const now = Date.now();
   return entries
-    .filter(([, e]) => e.text !== "" && Math.abs(now - e.updatedAt) <= MAX_DRAFT_AGE_MS)
+    .filter(([, e]) => !isEmpty(e) && Math.abs(now - e.updatedAt) <= MAX_DRAFT_AGE_MS)
     .sort((a, b) => b[1].updatedAt - a[1].updatedAt)
-    .slice(0, MAX_PERSISTED_DRAFTS);
+    .slice(0, cap);
+}
+
+/** The one prune pipeline shared by draft write-through and hydration. */
+function pruneDraftEntries<T extends { text: string; updatedAt: number }>(
+  entries: [string, T][],
+): [string, T][] {
+  return pruneByAgeAndCap(entries, (e) => e.text === "", MAX_PERSISTED_DRAFTS);
 }
 
 /** Best-effort write-through: serialize non-empty drafts (text only — `File`s
@@ -235,3 +258,135 @@ export function hydrateComposeDrafts(): void {
 }
 
 hydrateComposeDrafts();
+
+// ── sent history (260806-kadm) ───────────────────────────────────────────────
+
+/** localStorage key holding the persisted sent-history map — a SIBLING of
+ * `COMPOSE_DRAFTS_STORAGE_KEY`, never folded into it (see the module header). */
+export const COMPOSE_SENT_HISTORY_STORAGE_KEY = "runkit-compose-sent-history";
+
+/** Max recallable sent entries kept per target (newest first). */
+export const MAX_SENT_HISTORY_PER_TARGET = 10;
+
+/** Persist history for at most this many targets (newest by `updatedAt` win).
+ * A sibling of `MAX_PERSISTED_DRAFTS` rather than a reuse, so the two surfaces
+ * can diverge without a rename. */
+export const MAX_PERSISTED_SENT_HISTORIES = 30;
+
+/** The stable empty history returned for null/absent keys — a single frozen
+ * identity so a caller can compare by reference. */
+const EMPTY_SENT_HISTORY: readonly string[] = Object.freeze([]);
+
+type SentHistoryEntry = {
+  /** Newest first. */
+  entries: string[];
+  updatedAt: number;
+};
+
+let sentHistories = new Map<string, SentHistoryEntry>();
+
+function pruneSentHistories(
+  entries: [string, SentHistoryEntry][],
+): [string, SentHistoryEntry][] {
+  return pruneByAgeAndCap(
+    entries,
+    (e) => e.entries.length === 0,
+    MAX_PERSISTED_SENT_HISTORIES,
+  );
+}
+
+/** Best-effort write-through for the sent-history map, pruned by age and
+ * capped to the newest targets. Mirrors `persist()`. */
+function persistSentHistory(): void {
+  try {
+    const entries = pruneSentHistories([...sentHistories.entries()]);
+    if (entries.length === 0) {
+      localStorage.removeItem(COMPOSE_SENT_HISTORY_STORAGE_KEY);
+    } else {
+      const stored = Object.fromEntries(
+        entries.map(([key, e]) => [key, { entries: e.entries, updatedAt: e.updatedAt }]),
+      );
+      localStorage.setItem(COMPOSE_SENT_HISTORY_STORAGE_KEY, JSON.stringify(stored));
+    }
+  } catch {
+    /* noop — best-effort persistence */
+  }
+}
+
+/**
+ * Push a sent text onto a target's history (called by the strip's `send()`,
+ * all three modes, immediately BEFORE `clearComposeDraft`). Newest first.
+ *
+ * No-ops on whitespace-only text (the empty-submit bare `\r` pushes nothing),
+ * and on text identical to the current newest entry — re-sending the same text
+ * (the natural retry after a swallowed send) must not burn a slot. The STORED
+ * value is the exact untrimmed text: recall must reproduce what was
+ * transmitted, and only the push GUARD trims.
+ *
+ * History is not part of the `useSyncExternalStore` seam — recall reads at
+ * keydown time, so a push notifies no subscriber.
+ */
+export function pushComposeSentHistory(key: string, text: string): void {
+  if (text.trim() === "") return;
+  const existing = sentHistories.get(key);
+  const prev = existing?.entries ?? [];
+  if (prev[0] === text) return;
+  sentHistories.set(key, {
+    entries: [text, ...prev].slice(0, MAX_SENT_HISTORY_PER_TARGET),
+    updatedAt: Date.now(),
+  });
+  persistSentHistory();
+}
+
+/** Newest-first sent texts for a target; the stable empty array for
+ * null/absent keys. A plain read — every mutation replaces the array rather
+ * than mutating in place, so the returned reference never tears. */
+export function getComposeSentHistory(key: string | null): readonly string[] {
+  if (key === null) return EMPTY_SENT_HISTORY;
+  return sentHistories.get(key)?.entries ?? EMPTY_SENT_HISTORY;
+}
+
+function isStoredSentHistory(value: unknown): value is SentHistoryEntry {
+  if (typeof value !== "object" || value === null) return false;
+  const { entries, updatedAt } = value as { entries?: unknown; updatedAt?: unknown };
+  if (!Array.isArray(entries) || !entries.every((e) => typeof e === "string")) return false;
+  return typeof updatedAt === "number" && Number.isFinite(updatedAt);
+}
+
+/**
+ * (Re)seed the in-memory sent-history map from localStorage. Tolerant parse:
+ * malformed JSON, non-object roots, and wrong-typed entries degrade to
+ * empty/skipped (the `hydrateComposeDrafts` posture). Applies the same pruning
+ * as writes and re-caps each target's entries. Called once at module load;
+ * tests reset by clearing localStorage and calling this again.
+ */
+export function hydrateComposeSentHistory(): void {
+  sentHistories = new Map();
+  let raw: string | null = null;
+  try {
+    raw = localStorage.getItem(COMPOSE_SENT_HISTORY_STORAGE_KEY);
+  } catch {
+    raw = null;
+  }
+  if (raw === null) return;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    parsed = null;
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return;
+  const restored = pruneSentHistories(
+    Object.entries(parsed).filter((pair): pair is [string, SentHistoryEntry] =>
+      isStoredSentHistory(pair[1]),
+    ),
+  );
+  for (const [key, v] of restored) {
+    sentHistories.set(key, {
+      entries: v.entries.slice(0, MAX_SENT_HISTORY_PER_TARGET),
+      updatedAt: v.updatedAt,
+    });
+  }
+}
+
+hydrateComposeSentHistory();

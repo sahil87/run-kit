@@ -334,6 +334,49 @@ func TestTmuxGuardShimCheckDanglingRkPath(t *testing.T) {
 			t.Errorf("hint should carry the re-install remedy `rk agent-setup`, got %+v", c)
 		}
 	})
+
+	// The PR-review should-fix: bare os.Stat existence is not enough — a
+	// directory or a non-executable file at the embedded target breaks every
+	// shimmed tmux invocation exactly like a missing binary, so both must
+	// FAIL instead of reading as a healthy install.
+	t.Run("embedded rk path is a directory", func(t *testing.T) {
+		home := t.TempDir()
+		shim := tmuxShimPath(home)
+		writeStub(t, filepath.Dir(shim), "tmux", tmuxShimScript(t.TempDir()), 0o755)
+		c := tmuxGuardShimCheck(home, "", func(string) (string, error) {
+			t.Fatal("lookPath must not be called when the embedded rk is a directory")
+			return "", nil
+		})
+		if c.OK {
+			t.Errorf("shim exec'ing a directory must FAIL, got %+v", c)
+		}
+		if !strings.Contains(c.Hint, "not an executable file") {
+			t.Errorf("hint should say the target is not an executable file, got %+v", c)
+		}
+		if !strings.Contains(c.Hint, "rk agent-setup") {
+			t.Errorf("hint should carry the re-install remedy `rk agent-setup`, got %+v", c)
+		}
+	})
+
+	t.Run("embedded rk path not executable", func(t *testing.T) {
+		home := t.TempDir()
+		shim := tmuxShimPath(home)
+		target := writeStub(t, t.TempDir(), "rk", "#!/bin/sh\nexit 0\n", 0o644)
+		writeStub(t, filepath.Dir(shim), "tmux", tmuxShimScript(target), 0o755)
+		c := tmuxGuardShimCheck(home, "", func(string) (string, error) {
+			t.Fatal("lookPath must not be called when the embedded rk is not executable")
+			return "", nil
+		})
+		if c.OK {
+			t.Errorf("shim exec'ing a non-executable file must FAIL, got %+v", c)
+		}
+		if !strings.Contains(c.Hint, "not an executable file") {
+			t.Errorf("hint should say the target is not an executable file, got %+v", c)
+		}
+		if !strings.Contains(c.Hint, "rk agent-setup") {
+			t.Errorf("hint should carry the re-install remedy `rk agent-setup`, got %+v", c)
+		}
+	})
 }
 
 func TestTmuxGuardShimCheckResolvesToShim(t *testing.T) {

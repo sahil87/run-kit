@@ -1139,6 +1139,13 @@ func applyTmuxGuardPathBlocks(sink outputSink, reader *bufio.Reader, home, zdotd
 		if info, statErr := os.Stat(path); statErr == nil {
 			mode = info.Mode().Perm()
 		}
+		// $ZDOTDIR may name a directory that does not exist yet (a common
+		// dotfiles setup) — create it so the write cannot ENOENT-abort the
+		// run. Deliberately after consent: dry-run and declined prompts must
+		// leave the filesystem untouched.
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return fmt.Errorf("tmux guard: create %s: %w", filepath.Dir(path), err)
+		}
 		if err := os.WriteFile(path, []byte(next), mode); err != nil {
 			return fmt.Errorf("tmux guard: write %s: %w", path, err)
 		}

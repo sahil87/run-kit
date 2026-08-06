@@ -107,20 +107,28 @@ func tmuxGuardShimCheck(home, pathEnv string, lookPath func(string) (string, err
 		return check
 	}
 	// The shim is only as alive as the rk binary its exec line names: verify
-	// the embedded target still exists before vouching for the install. The
-	// dangling case is real (the recorded brew rk→run-kit rename left a shim
-	// exec'ing a removed keg path) and is the single most damaging mis-wiring —
-	// every tmux command dies with `rk: not found` while the shim file itself
-	// looks healthy.
+	// the embedded target is still a regular executable file before vouching
+	// for the install. The dangling case is real (the recorded brew
+	// rk→run-kit rename left a shim exec'ing a removed keg path) and is the
+	// single most damaging mis-wiring — every tmux command dies with `rk: not
+	// found` while the shim file itself looks healthy. A directory or
+	// non-executable file at the target breaks every shimmed invocation the
+	// same way, so bare existence is not enough.
 	target := tmuxShimExecTarget(content)
 	if target == "" {
 		check.OK = false
 		check.Hint = fmt.Sprintf("shim at %s carries no parseable exec target — re-install it with `rk agent-setup`", shimPath)
 		return check
 	}
-	if _, statErr := os.Stat(target); statErr != nil {
+	info, statErr := os.Stat(target)
+	if statErr != nil {
 		check.OK = false
 		check.Hint = fmt.Sprintf("shim at %s execs %q, which is missing (%v) — every tmux command would fail with `rk: not found`; re-install the shim with `rk agent-setup`", shimPath, target, statErr)
+		return check
+	}
+	if !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
+		check.OK = false
+		check.Hint = fmt.Sprintf("shim at %s execs %q, which is not an executable file (mode %v) — every tmux command would fail; re-install the shim with `rk agent-setup`", shimPath, target, info.Mode())
 		return check
 	}
 	resolved, err := lookPath("tmux")

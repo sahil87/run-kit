@@ -1388,6 +1388,26 @@ func TestTmuxShimZDOTDIRHonored(t *testing.T) {
 	}
 }
 
+// TestTmuxShimZDOTDIRCreatedWhenMissing pins the PR-review should-fix: a
+// $ZDOTDIR that names a not-yet-created directory (a common dotfiles setup)
+// must not ENOENT-abort the install — the directory is created and the PATH
+// block written, and the other startup files are still processed.
+func TestTmuxShimZDOTDIRCreatedWhenMissing(t *testing.T) {
+	home := t.TempDir()
+	zdot := filepath.Join(t.TempDir(), "config", "zsh") // never created
+	var out bytes.Buffer
+	sink := newSinkWriters(&out, &out)
+	if err := applyTmuxShim(sink, bufio.NewReader(strings.NewReader("")), home, zdot, "/opt/homebrew/bin/rk", false, consent{yes: true}); err != nil {
+		t.Fatalf("a missing $ZDOTDIR must not abort the install, got: %v", err)
+	}
+	if got := readFileOrEmpty(t, filepath.Join(zdot, ".zshenv")); !strings.Contains(got, tmuxGuardBlockBegin) {
+		t.Errorf("$ZDOTDIR/.zshenv must carry the PATH block after the dir is created, got: %q", got)
+	}
+	if got := readFileOrEmpty(t, filepath.Join(home, ".bashrc")); !strings.Contains(got, tmuxGuardBlockBegin) {
+		t.Errorf("~/.bashrc must still carry the PATH block, got: %q", got)
+	}
+}
+
 // TestTmuxShimUnreadableStartupFileContinues pins half of the cycle-3
 // read-error should-fix: a startup file that cannot be READ (here: a
 // directory occupying ~/.zshenv) is skipped with a note exactly like a

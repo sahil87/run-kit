@@ -147,7 +147,7 @@ func resolveSnapshotArg(server string, at int64) (*snapshot.Snapshot, error) {
 		return nil, usageError(fmt.Errorf("invalid server name: %s", msg))
 	}
 	if at < 0 {
-		return nil, usageError(fmt.Errorf("--at must be a positive unix timestamp"))
+		return nil, usageError(fmt.Errorf("--at must be a non-negative unix timestamp"))
 	}
 	store, err := newSnapshotStore()
 	if err != nil {

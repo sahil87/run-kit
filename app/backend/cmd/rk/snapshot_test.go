@@ -50,7 +50,7 @@ func TestSnapshotListRendersLiveAndDied(t *testing.T) {
 	if _, err := store.Write(cliSnap("fabKit1", now.Add(-3*time.Hour))); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Tombstone("fabKit1", now.Add(-time.Hour), true); err != nil {
+	if _, err := store.Tombstone("fabKit1", now.Add(-time.Hour), true); err != nil {
 		t.Fatal(err)
 	}
 
@@ -170,7 +170,7 @@ func TestSnapshotRestoreRendersReport(t *testing.T) {
 	if _, err := store.Write(cliSnap("kit", now.Add(-time.Minute))); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Tombstone("kit", now, false); err != nil {
+	if _, err := store.Tombstone("kit", now, false); err != nil {
 		t.Fatal(err)
 	}
 

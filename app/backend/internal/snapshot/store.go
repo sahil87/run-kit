@@ -297,41 +297,42 @@ func (s *Store) tombstoneTimestamps(server string) ([]int64, error) {
 // Tombstone marks a dead server's latest snapshot: it is stamped with diedAt
 // (+ auditedKill) and moved to {server}.died-{ts}.json — the moment a server
 // dies is exactly when its snapshot becomes valuable, so it is renamed, never
-// deleted. A server with no latest snapshot is a no-op. Tombstones beyond
+// deleted. A server with no latest snapshot is a no-op, reported by the
+// created return (false ⇒ nothing to tombstone). Tombstones beyond
 // tombstoneRetention are pruned (oldest first); history is left intact.
-func (s *Store) Tombstone(server string, diedAt time.Time, audited bool) error {
+func (s *Store) Tombstone(server string, diedAt time.Time, audited bool) (created bool, err error) {
 	snap, err := s.LoadLatest(server)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if snap == nil {
-		return nil
+		return false, nil
 	}
 	diedAt = diedAt.UTC()
 	snap.DiedAt = &diedAt
 	snap.AuditedKill = audited
 	data, err := marshal(snap)
 	if err != nil {
-		return fmt.Errorf("tombstone %s: %w", server, err)
+		return false, fmt.Errorf("tombstone %s: %w", server, err)
 	}
 	if err := fsatomic.WriteFile(s.tombstonePath(server, diedAt.Unix()), data, fileMode); err != nil {
-		return fmt.Errorf("tombstone %s: %w", server, err)
+		return false, fmt.Errorf("tombstone %s: %w", server, err)
 	}
 	if err := os.Remove(s.latestPath(server)); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("tombstone %s: %w", server, err)
+		return false, fmt.Errorf("tombstone %s: %w", server, err)
 	}
 	ts, err := s.tombstoneTimestamps(server)
 	if err != nil {
-		return err
+		return true, err
 	}
 	for len(ts) > tombstoneRetention {
 		oldest := ts[0]
 		ts = ts[1:]
 		if err := os.Remove(s.tombstonePath(server, oldest)); err != nil {
-			return err
+			return true, err
 		}
 	}
-	return nil
+	return true, nil
 }
 
 // Entry is one row in a store listing: a live latest snapshot or a died

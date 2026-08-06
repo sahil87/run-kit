@@ -199,8 +199,12 @@ func TestTombstoneStampsAndRenames(t *testing.T) {
 	}
 
 	died := base.Add(time.Hour)
-	if err := s.Tombstone("kit", died, true); err != nil {
+	created, err := s.Tombstone("kit", died, true)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if !created {
+		t.Error("Tombstone should report created=true when a latest existed")
 	}
 
 	// Latest is gone.
@@ -228,8 +232,12 @@ func TestTombstoneStampsAndRenames(t *testing.T) {
 	}
 
 	// Tombstoning a server with no latest is a no-op.
-	if err := s.Tombstone("ghost", died, false); err != nil {
+	created, err = s.Tombstone("ghost", died, false)
+	if err != nil {
 		t.Fatalf("no-latest tombstone should be a no-op: %v", err)
+	}
+	if created {
+		t.Error("Tombstone should report created=false when no latest existed")
 	}
 }
 
@@ -240,7 +248,7 @@ func TestTombstonePruneToRetention(t *testing.T) {
 		if _, err := s.Write(testSnap("kit", base.Add(time.Duration(i)*time.Minute), "w"+strconv.Itoa(i))); err != nil {
 			t.Fatal(err)
 		}
-		if err := s.Tombstone("kit", base.Add(time.Duration(i)*time.Minute+30*time.Second), false); err != nil {
+		if _, err := s.Tombstone("kit", base.Add(time.Duration(i)*time.Minute+30*time.Second), false); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -263,7 +271,7 @@ func TestListMixesLiveAndTombstones(t *testing.T) {
 	if _, err := s.Write(testSnap("fabKit1", base, "agents")); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Tombstone("fabKit1", base.Add(time.Minute), false); err != nil {
+	if _, err := s.Tombstone("fabKit1", base.Add(time.Minute), false); err != nil {
 		t.Fatal(err)
 	}
 

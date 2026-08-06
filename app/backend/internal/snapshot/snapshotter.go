@@ -281,10 +281,15 @@ func (s *Snapshotter) OnServerRemoved(server string) {
 	// writeMu waits out any write already in flight (pre-bump — its latest is
 	// then legitimately part of the tombstone) and excludes later ones.
 	s.writeMu.Lock()
-	err := s.store.Tombstone(server, now, audited)
+	created, err := s.store.Tombstone(server, now, audited)
 	s.writeMu.Unlock()
 	if err != nil {
 		slog.Warn("snapshot: tombstone failed", "server", server, "err", err)
+		return
+	}
+	if !created {
+		// No latest snapshot existed — nothing was tombstoned.
+		slog.Debug("snapshot: dead server had no snapshot to tombstone", "server", server)
 		return
 	}
 	slog.Info("snapshot: tombstoned dead server", "server", server, "audited", audited)

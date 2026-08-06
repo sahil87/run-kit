@@ -268,7 +268,7 @@ func buildRestoreSessionArgs(name, windowName, cwd string) []string {
 // CreateSessionForRestore creates a detached session carrying its first
 // restored window (named windowName at cwd) and returns the created window's
 // id plus its born index (the server's base-index, which the restore engine
-// compares against the stored index for a MoveWindow fixup).
+// compares against the stored index for a RenumberWindow fixup).
 // Server-birth-capable: the first restore invocation births the target
 // server, so it carries the same pins as CreateSession — config via -f,
 // sanitized environment (CleanEnvForServer), and CWD anchored to

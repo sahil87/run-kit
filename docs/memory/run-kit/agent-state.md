@@ -1,5 +1,5 @@
 ---
-description: "The `@rk_agent_state` pane-option convention: two-tier ownership, three-state value schema, writer/reader rules, shell reconciler, and window rollup. Covers the hooks-only `rk agent-setup` installer (settings-hooks merge plus a one-release legacy `rk-display` skill cleanup) and its `rk agent-hook` binary indirection, plus the sibling `@rk_chat` chat-session-identity convention whose reconciliation shares agent-state's per-pane liveness."
+description: "The `@rk_agent_state` pane-option convention: two-tier ownership, three-state value schema, writer/reader rules, shell reconciler, and window rollup. Covers the `rk agent-setup` installer — the per-agent settings-hooks merge, the user-global tmux guard shim artifact, and a one-release legacy `rk-display` skill cleanup — plus its `rk agent-hook` binary indirection and the sibling `@rk_chat` chat-session-identity convention whose reconciliation shares agent-state's per-pane liveness."
 type: memory
 ---
 # Agent-State Tier (`@rk_agent_state`)
@@ -212,8 +212,18 @@ terminal, which would make the refusal silently not fire. A non-`*os.File` reade
 non-interactive path unless they set `stdinIsTTY` explicitly. Pinned by
 `TestIsTerminalRejectsNonTTYFiles`.
 
-**It installs exactly ONE artifact: the settings-hooks merge** (described here).
-The command surface is `rk agent-setup` / `rk agent-setup --uninstall`. The
+**It installs TWO artifact families**: the **per-agent settings-hooks merge**
+(described here) and the **user-global tmux guard shim** — a shim script plus a
+marker-owned `PATH` block that puts `rk tmux-guard` in front of every
+PATH-resolved `tmux` invocation, so `tmux kill-server` without an explicit
+`-L`/`-S` socket is refused. Its install/uninstall contract, decision rule, and
+doctor check live in [tmux-guard-shim](/run-kit/tmux-guard-shim.md); the shim
+reuses this installer's `consent`/`authorizeWrite`/`renderArtifactDiff` machinery
+and its `resolveRkPath`/`validateHookPath` path discipline.
+(`260805-blyf-tmux-guard-path-shim`)
+
+The command surface is `rk agent-setup` / `rk agent-setup --uninstall`, and
+`--uninstall` reverses both families. The
 visual-display context-injection role belongs to the **`rk skill` bundle** (served
 by the `skill` subcommand, aggregated by the coming `shll agent-setup`), described
 in [architecture](/run-kit/architecture.md) § CLI Subcommands; the only skill trace
@@ -318,18 +328,25 @@ machine). A genuinely malformed (non-empty, non-JSON) file **surfaces an error
 without writing** — anti-clobber: silently treating it as empty would overwrite
 user config.
 
-## Installer Structure — Hooks + Legacy Cleanup (`applyAgentConfig`)
+## Installer Structure — Per-Agent Loop, then the Shim (`runAgentSetup`)
 
-`rk agent-setup` applies each agent through a thin `applyAgentConfig` wrapper that
-runs, in order:
+`runAgentSetup` resolves the home dir, `$ZDOTDIR`, and the absolute rk path once
+at its boundary (so everything below stays pure over injected paths), then runs:
 
-1. **`applyAgentHooks`** — the settings-hooks merge (the sole INSTALLED artifact,
-   described above). Always runs.
+1. **The per-agent loop** — `applyAgentConfig` for each registry row.
+2. **`applyTmuxShim`** — the user-global tmux guard shim (one shim, one PATH
+   block, not per agent), applied once **after** the loop. See
+   [tmux-guard-shim](/run-kit/tmux-guard-shim.md) § `rk agent-setup`
+   install/uninstall contract. (`260805-blyf-tmux-guard-path-shim`)
+
+`applyAgentConfig` is the thin per-agent wrapper, running in order:
+
+1. **`applyAgentHooks`** — the settings-hooks merge (described above). Always runs.
 2. **`removeLegacySkill`** — the one-release cleanup of the legacy `rk-display`
    skill (below). Runs only when the agent's `skillsDir` is non-empty.
 
 Each step runs **independently** — its own tolerant read, diff/prompt, and no-op
-report — so declining or no-op-ing one does not skip the other. `agentConfig`
+report — so declining or no-op-ing one does not skip the others. `agentConfig`
 carries a `skillsDir string` field; the Claude Code registry row sets it to
 `filepath.Join(home, ".claude", "skills")`, and an **empty `skillsDir` means "no
 legacy skill to clean for that agent"** — only the hooks merge runs (future
@@ -630,14 +647,16 @@ set and split the rule from its data); computing the rollup in `internal/tmux`
 
 ### Explicit `rk agent-setup` opt-in, not silent sync
 **Decision**: an explicit installer command that shows a diff and asks for
-confirmation before mutating user-global config, with `--uninstall`. Each artifact
-(today: the hooks merge, plus the cleanup-only `removeLegacySkill`) runs its own
-diff-and-confirm through `applyAgentConfig`, so declining or no-op-ing one does not
-skip the other.
-**Why**: it mutates `~/.claude/settings.json` (user-global) — the user chose
-"explicit feels honest" over agentdock's silent sync. A marker-keyed idempotent
-merge is the only way "update rk entries in place, never touch non-rk hooks" is
-satisfiable.
+confirmation before mutating user-global config, with `--uninstall`. Every artifact
+— the per-agent hooks merge and the cleanup-only `removeLegacySkill` under
+`applyAgentConfig`, and the user-global tmux guard shim under `applyTmuxShim` —
+runs its own diff-and-confirm through the shared `consent`/`authorizeWrite` seam,
+so declining or no-op-ing one does not skip the others.
+**Why**: it mutates user-global state (`~/.claude/settings.json`, the shims dir,
+shell startup files) — the user chose "explicit feels honest" over agentdock's
+silent sync. A marker-keyed idempotent merge (JSON entries for hooks, a
+marker-delimited region for the PATH block) is the only way "update rk-owned
+content in place, never touch anything else" is satisfiable.
 **Rejected**: silent background sync (surprising for a user-config mutation);
 per-project install (defeats the "any session anywhere" goal — the whole point is
 user-global registration).

@@ -1,0 +1,23 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-05T18:11:12Z"}
+{"args":"tmux PATH shim via rk agent-setup guarding kill-server without -L/-S","cmd":"fab-new","event":"command","ts":"2026-08-05T18:11:12Z"}
+{"delta":"+4.4","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-08-05T18:13:15Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-08-06T02:32:03Z"}
+{"action":"enter","driver":"fab-continue","event":"stage-transition","stage":"apply","ts":"2026-08-06T02:32:18Z"}
+{"action":"enter","driver":"fab-continue","event":"stage-transition","stage":"review","ts":"2026-08-06T02:57:05Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-08-06T02:58:23Z"}
+{"event":"review","result":"failed","ts":"2026-08-06T03:13:03Z"}
+{"action":"re-entry","driver":"fab-continue","event":"stage-transition","stage":"apply","ts":"2026-08-06T03:13:03Z"}
+{"action":"re-entry","driver":"fab-continue","event":"stage-transition","stage":"review","ts":"2026-08-06T03:35:02Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-06T04:00:02Z"}
+{"event":"review","result":"failed","ts":"2026-08-06T04:13:03Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-06T04:13:03Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-08-06T04:14:51Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-06T04:20:39Z"}
+{"event":"review","result":"failed","ts":"2026-08-06T04:44:24Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-06T04:44:24Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-06T04:58:08Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-06T05:09:11Z"}
+{"event":"review","result":"passed","ts":"2026-08-06T05:09:11Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-08-06T05:10:52Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-06T05:16:49Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-06T05:25:16Z"}

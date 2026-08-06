@@ -1052,3 +1052,654 @@ func TestAgentSetup_QuietFlagWiredThroughRoot(t *testing.T) {
 		t.Errorf("--dry-run --quiet must still render the diff on stdout, got stdout: %q", stdout.String())
 	}
 }
+
+// --- tmux guard shim artifact ---------------------------------------------------
+
+// NOTE (tmux safety): every tmux-shim test operates on t.TempDir() homes only —
+// no test ever writes the invoking user's real startup files or shim dir, and
+// no tmux server is started, attached to, or killed.
+
+// installShim runs the install pass of applyTmuxShim into a temp home with
+// non-interactive consent, failing the test on error.
+func installShim(t *testing.T, home, rkPath string) {
+	t.Helper()
+	var out bytes.Buffer
+	sink := newSinkWriters(&out, &out)
+	if err := applyTmuxShim(sink, bufio.NewReader(strings.NewReader("")), home, "", rkPath, false, consent{yes: true}); err != nil {
+		t.Fatalf("applyTmuxShim install error: %v", err)
+	}
+}
+
+func readFileOrEmpty(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return ""
+		}
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+func TestTmuxShimFreshInstall(t *testing.T) {
+	home := t.TempDir()
+	installShim(t, home, "/opt/homebrew/bin/rk")
+
+	// Shim file: present, executable, marker-owned, exec'ing tmux-guard via the
+	// absolute rk path.
+	shim := readFileOrEmpty(t, tmuxShimPath(home))
+	if !strings.Contains(shim, tmuxShimMarker) {
+		t.Errorf("shim missing ownership marker: %q", shim)
+	}
+	if !strings.Contains(shim, `exec "/opt/homebrew/bin/rk" tmux-guard "$@"`) {
+		t.Errorf("shim missing tmux-guard exec line: %q", shim)
+	}
+	info, err := os.Stat(tmuxShimPath(home))
+	if err != nil {
+		t.Fatalf("stat shim: %v", err)
+	}
+	if info.Mode().Perm()&0o111 == 0 {
+		t.Errorf("shim is not executable: %v", info.Mode())
+	}
+
+	// PATH block: in .zshenv and .bashrc; .bash_profile NOT created.
+	for _, name := range []string{".zshenv", ".bashrc"} {
+		content := readFileOrEmpty(t, filepath.Join(home, name))
+		if !strings.Contains(content, tmuxGuardBlockBegin) || !strings.Contains(content, tmuxGuardBlockEnd) {
+			t.Errorf("%s missing the marker-owned PATH block: %q", name, content)
+		}
+		if !strings.Contains(content, `.local/share/rk/shims`) {
+			t.Errorf("%s block does not prepend the shims dir: %q", name, content)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(home, ".bash_profile")); !os.IsNotExist(err) {
+		t.Errorf(".bash_profile must not be created by the install; stat err = %v", err)
+	}
+}
+
+func TestTmuxShimInstallIntoExistingBashProfile(t *testing.T) {
+	home := t.TempDir()
+	profile := filepath.Join(home, ".bash_profile")
+	if err := os.WriteFile(profile, []byte("# mine\nsource ~/.bashrc\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	installShim(t, home, "/opt/homebrew/bin/rk")
+
+	content := readFileOrEmpty(t, profile)
+	if !strings.Contains(content, "# mine") || !strings.Contains(content, "source ~/.bashrc") {
+		t.Errorf("existing .bash_profile content lost: %q", content)
+	}
+	if !strings.Contains(content, tmuxGuardBlockBegin) {
+		t.Errorf("existing .bash_profile did not receive the PATH block: %q", content)
+	}
+}
+
+func TestTmuxShimIdempotentReinstall(t *testing.T) {
+	home := t.TempDir()
+	installShim(t, home, "/opt/homebrew/bin/rk")
+	files := []string{tmuxShimPath(home), filepath.Join(home, ".zshenv"), filepath.Join(home, ".bashrc")}
+	first := make([]string, len(files))
+	for i, f := range files {
+		first[i] = readFileOrEmpty(t, f)
+	}
+
+	// Second run must be a no-op: byte-identical files, "nothing to do" notes,
+	// and no prompt (consent{} would refuse if a write were pending).
+	var out bytes.Buffer
+	sink := newSinkWriters(&out, &out)
+	if err := applyTmuxShim(sink, bufio.NewReader(strings.NewReader("")), home, "", "/opt/homebrew/bin/rk", false, consent{}); err != nil {
+		t.Fatalf("idempotent re-run must not need consent, got: %v", err)
+	}
+	if !strings.Contains(out.String(), "nothing to do") {
+		t.Errorf("re-run should report nothing to do, got: %q", out.String())
+	}
+	for i, f := range files {
+		if got := readFileOrEmpty(t, f); got != first[i] {
+			t.Errorf("%s changed on idempotent re-run:\nfirst:  %q\nsecond: %q", f, first[i], got)
+		}
+	}
+}
+
+// TestTmuxShimReinstallRepairsLostExecBit pins the cycle-2 should-fix: an
+// rk-owned shim whose exec bit was stripped (a stray chmod 0644) is content-
+// current, but the old content-only comparison reported "nothing to do" while
+// the PATH block kept fronting a non-executable shim — every tmux call died
+// "Permission denied". A re-install must repair the bit (chmod 0755) on the
+// already-current path, without a consent prompt (it is rk's own artifact) and
+// without touching the content.
+func TestTmuxShimReinstallRepairsLostExecBit(t *testing.T) {
+	home := t.TempDir()
+	installShim(t, home, "/opt/homebrew/bin/rk")
+	shimPath := tmuxShimPath(home)
+	content := readFileOrEmpty(t, shimPath)
+	if err := os.Chmod(shimPath, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// consent{} is non-TTY with no flags: it would refuse if a write prompt
+	// were pending, so passing proves the repair needs no consent.
+	var out bytes.Buffer
+	sink := newSinkWriters(&out, &out)
+	if err := applyTmuxShim(sink, bufio.NewReader(strings.NewReader("")), home, "", "/opt/homebrew/bin/rk", false, consent{}); err != nil {
+		t.Fatalf("re-install over a chmod-0644 shim must not error, got: %v", err)
+	}
+	info, err := os.Stat(shimPath)
+	if err != nil {
+		t.Fatalf("stat shim: %v", err)
+	}
+	if info.Mode().Perm() != 0o755 {
+		t.Errorf("exec bit not repaired: mode = %v, want 0755", info.Mode().Perm())
+	}
+	if got := readFileOrEmpty(t, shimPath); got != content {
+		t.Errorf("repair must not touch the shim content:\nbefore: %q\nafter:  %q", content, got)
+	}
+	if !strings.Contains(out.String(), "exec bit") {
+		t.Errorf("expected an exec-bit repair note, got: %q", out.String())
+	}
+
+	// Dry run over the same broken state previews the repair without chmodding.
+	if err := os.Chmod(shimPath, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := applyTmuxShim(sink, bufio.NewReader(strings.NewReader("")), home, "", "/opt/homebrew/bin/rk", false, consent{dryRun: true}); err != nil {
+		t.Fatalf("dry run over a chmod-0644 shim must not error, got: %v", err)
+	}
+	info, err = os.Stat(shimPath)
+	if err != nil {
+		t.Fatalf("stat shim: %v", err)
+	}
+	if info.Mode().Perm() != 0o644 {
+		t.Errorf("dry run must not chmod: mode = %v, want 0644", info.Mode().Perm())
+	}
+	if !strings.Contains(out.String(), "would chmod") {
+		t.Errorf("dry run should preview the chmod, got: %q", out.String())
+	}
+}
+
+func TestTmuxShimReplacesEditedBlockInPlace(t *testing.T) {
+	home := t.TempDir()
+	installShim(t, home, "/opt/homebrew/bin/rk")
+
+	// Corrupt the block body and surround it with user content.
+	zshenv := filepath.Join(home, ".zshenv")
+	content := "export EDITOR=vim\n" + tmuxGuardBlockBegin + "\n# hand-edited\n" + tmuxGuardBlockEnd + "\n" + "alias ll='ls -l'\n"
+	if err := os.WriteFile(zshenv, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	installShim(t, home, "/opt/homebrew/bin/rk")
+	got := readFileOrEmpty(t, zshenv)
+	if strings.Contains(got, "# hand-edited") {
+		t.Errorf("edited block body must be replaced, got: %q", got)
+	}
+	if !strings.Contains(got, "export EDITOR=vim") || !strings.Contains(got, "alias ll='ls -l'") {
+		t.Errorf("user content around the block must survive, got: %q", got)
+	}
+	if n := strings.Count(got, tmuxGuardBlockBegin); n != 1 {
+		t.Errorf("block must appear exactly once, got %d in %q", n, got)
+	}
+}
+
+func TestTmuxShimMarkerlessFileUntouched(t *testing.T) {
+	home := t.TempDir()
+	shimPath := tmuxShimPath(home)
+	if err := os.MkdirAll(filepath.Dir(shimPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	userShim := "#!/bin/sh\n# my own wrapper\nexec /usr/bin/tmux \"$@\"\n"
+	if err := os.WriteFile(shimPath, []byte(userShim), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	sink := newSinkWriters(&out, &out)
+	// Install: marker-less shim must be left untouched (no consent needed for a skip).
+	if err := applyTmuxShim(sink, bufio.NewReader(strings.NewReader("")), home, "", "/opt/homebrew/bin/rk", false, consent{yes: true}); err != nil {
+		t.Fatalf("install over marker-less shim error: %v", err)
+	}
+	if got := readFileOrEmpty(t, shimPath); got != userShim {
+		t.Errorf("marker-less shim was overwritten: %q", got)
+	}
+	if !strings.Contains(out.String(), "leaving it untouched") {
+		t.Errorf("expected a skip note, got: %q", out.String())
+	}
+	// must-fix #3: the PATH block must not be wired in front of a foreign file.
+	for _, name := range []string{".zshenv", ".bashrc"} {
+		if _, statErr := os.Stat(filepath.Join(home, name)); !os.IsNotExist(statErr) {
+			t.Errorf("PATH block must not be installed over a foreign shim; %s exists (stat err = %v)", name, statErr)
+		}
+	}
+
+	// Uninstall: marker-less shim must survive too.
+	out.Reset()
+	if err := applyTmuxShim(sink, bufio.NewReader(strings.NewReader("")), home, "", "", true, consent{yes: true}); err != nil {
+		t.Fatalf("uninstall over marker-less shim error: %v", err)
+	}
+	if got := readFileOrEmpty(t, shimPath); got != userShim {
+		t.Errorf("marker-less shim was removed/overwritten on uninstall: %q", got)
+	}
+}
+
+func TestTmuxShimUninstallRemovesExactly(t *testing.T) {
+	home := t.TempDir()
+	// Pre-existing user content in a startup file.
+	zshenv := filepath.Join(home, ".zshenv")
+	if err := os.WriteFile(zshenv, []byte("export EDITOR=vim\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	installShim(t, home, "/opt/homebrew/bin/rk")
+
+	var out bytes.Buffer
+	sink := newSinkWriters(&out, &out)
+	if err := applyTmuxShim(sink, bufio.NewReader(strings.NewReader("")), home, "", "", true, consent{yes: true}); err != nil {
+		t.Fatalf("applyTmuxShim uninstall error: %v", err)
+	}
+
+	if _, err := os.Stat(tmuxShimPath(home)); !os.IsNotExist(err) {
+		t.Errorf("shim file must be removed; stat err = %v", err)
+	}
+	got := readFileOrEmpty(t, zshenv)
+	if got != "export EDITOR=vim\n" {
+		t.Errorf(".zshenv must be restored to its pre-install content, got: %q", got)
+	}
+	for _, name := range []string{".zshenv", ".bashrc"} {
+		content := readFileOrEmpty(t, filepath.Join(home, name))
+		if strings.Contains(content, tmuxGuardBlockBegin) || strings.Contains(content, "rk/shims") {
+			t.Errorf("%s still carries the PATH block after uninstall: %q", name, content)
+		}
+	}
+
+	// Re-uninstall on a clean home is silent for the absent shim and writes nothing.
+	out.Reset()
+	if err := applyTmuxShim(sink, bufio.NewReader(strings.NewReader("")), home, "", "", true, consent{}); err != nil {
+		t.Fatalf("re-uninstall must be a no-op, got: %v", err)
+	}
+}
+
+func TestTmuxShimDryRunWritesNothing(t *testing.T) {
+	home := t.TempDir()
+	var out bytes.Buffer
+	sink := newSinkWriters(&out, &out)
+	if err := applyTmuxShim(sink, bufio.NewReader(strings.NewReader("")), home, "", "/opt/homebrew/bin/rk", false, consent{dryRun: true}); err != nil {
+		t.Fatalf("applyTmuxShim dry-run error: %v", err)
+	}
+	if _, err := os.Stat(tmuxShimPath(home)); !os.IsNotExist(err) {
+		t.Errorf("dry run must not write the shim; stat err = %v", err)
+	}
+	for _, name := range []string{".zshenv", ".bashrc"} {
+		if _, err := os.Stat(filepath.Join(home, name)); !os.IsNotExist(err) {
+			t.Errorf("dry run must not create %s; stat err = %v", name, err)
+		}
+	}
+	if !strings.Contains(out.String(), "dry run") {
+		t.Errorf("dry run should say so, got: %q", out.String())
+	}
+}
+
+func TestTmuxShimNonTTYRefusal(t *testing.T) {
+	home := t.TempDir()
+	var out bytes.Buffer
+	sink := newSinkWriters(&out, &out)
+	// consent{} → no flags, non-TTY: the pending shim write must refuse.
+	err := applyTmuxShim(sink, bufio.NewReader(strings.NewReader("")), home, "", "/opt/homebrew/bin/rk", false, consent{})
+	if err == nil {
+		t.Fatal("non-TTY no-flag install must refuse with an error")
+	}
+	if !strings.Contains(err.Error(), "--yes") {
+		t.Errorf("refusal error must name --yes, got: %v", err)
+	}
+	if _, statErr := os.Stat(tmuxShimPath(home)); !os.IsNotExist(statErr) {
+		t.Errorf("refusal must not create the shim; stat err = %v", statErr)
+	}
+}
+
+// TestTmuxShimZDOTDIRHonored pins the cycle-3 should-fix: when $ZDOTDIR is
+// set, zsh reads $ZDOTDIR/.zshenv and NEVER ~/.zshenv — writing the home copy
+// would report success while the zsh half of the install stays inert. The
+// block must land in (and be stripped from) $ZDOTDIR/.zshenv; bash files stay
+// home-anchored (ZDOTDIR is a zsh-only concept).
+func TestTmuxShimZDOTDIRHonored(t *testing.T) {
+	home := t.TempDir()
+	zdot := t.TempDir()
+	var out bytes.Buffer
+	sink := newSinkWriters(&out, &out)
+	if err := applyTmuxShim(sink, bufio.NewReader(strings.NewReader("")), home, zdot, "/opt/homebrew/bin/rk", false, consent{yes: true}); err != nil {
+		t.Fatalf("applyTmuxShim install error: %v", err)
+	}
+
+	if got := readFileOrEmpty(t, filepath.Join(zdot, ".zshenv")); !strings.Contains(got, tmuxGuardBlockBegin) {
+		t.Errorf("$ZDOTDIR/.zshenv must carry the PATH block, got: %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".zshenv")); !os.IsNotExist(err) {
+		t.Errorf("~/.zshenv must not be created when ZDOTDIR is set; stat err = %v", err)
+	}
+	if got := readFileOrEmpty(t, filepath.Join(home, ".bashrc")); !strings.Contains(got, tmuxGuardBlockBegin) {
+		t.Errorf("~/.bashrc must still carry the PATH block, got: %q", got)
+	}
+
+	// Uninstall locates .zshenv through the same seam — symmetric removal.
+	if err := applyTmuxShim(sink, bufio.NewReader(strings.NewReader("")), home, zdot, "", true, consent{yes: true}); err != nil {
+		t.Fatalf("applyTmuxShim uninstall error: %v", err)
+	}
+	if got := readFileOrEmpty(t, filepath.Join(zdot, ".zshenv")); strings.Contains(got, tmuxGuardBlockBegin) {
+		t.Errorf("$ZDOTDIR/.zshenv must have the block stripped on uninstall, got: %q", got)
+	}
+}
+
+// TestTmuxShimUnreadableStartupFileContinues pins half of the cycle-3
+// read-error should-fix: a startup file that cannot be READ (here: a
+// directory occupying ~/.zshenv) is skipped with a note exactly like a
+// malformed marker block — it must not abort the run, or ~/.bashrc would
+// never be processed.
+func TestTmuxShimUnreadableStartupFileContinues(t *testing.T) {
+	home := t.TempDir()
+	if err := os.Mkdir(filepath.Join(home, ".zshenv"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	sink := newSinkWriters(&out, &out)
+	if err := applyTmuxShim(sink, bufio.NewReader(strings.NewReader("")), home, "", "/opt/homebrew/bin/rk", false, consent{yes: true}); err != nil {
+		t.Fatalf("a read-failing startup file must not abort the install, got: %v", err)
+	}
+	if !strings.Contains(out.String(), "cannot read") {
+		t.Errorf("expected a cannot-read skip note, got: %q", out.String())
+	}
+	if got := readFileOrEmpty(t, filepath.Join(home, ".bashrc")); !strings.Contains(got, tmuxGuardBlockBegin) {
+		t.Errorf(".bashrc must still be processed after the .zshenv skip, got: %q", got)
+	}
+}
+
+// TestTmuxShimUninstallUnreadableShimContinues pins the other half: a shim
+// path that cannot be read (here: a directory) must not hard-fail --uninstall
+// — the PATH blocks must still be stripped, or PATH would keep fronting every
+// tmux invocation with a file rk cannot vouch for.
+func TestTmuxShimUninstallUnreadableShimContinues(t *testing.T) {
+	home := t.TempDir()
+	installShim(t, home, "/opt/homebrew/bin/rk")
+	shim := tmuxShimPath(home)
+	if err := os.Remove(shim); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(shim, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	sink := newSinkWriters(&out, &out)
+	if err := applyTmuxShim(sink, bufio.NewReader(strings.NewReader("")), home, "", "", true, consent{yes: true}); err != nil {
+		t.Fatalf("an unreadable shim path must not abort --uninstall, got: %v", err)
+	}
+	if !strings.Contains(out.String(), "cannot read") {
+		t.Errorf("expected a cannot-read skip note, got: %q", out.String())
+	}
+	if _, err := os.Stat(shim); err != nil {
+		t.Errorf("the unreadable occupant must be left in place; stat err = %v", err)
+	}
+	for _, name := range []string{".zshenv", ".bashrc"} {
+		content := readFileOrEmpty(t, filepath.Join(home, name))
+		if strings.Contains(content, tmuxGuardBlockBegin) {
+			t.Errorf("%s must have the PATH block stripped despite the shim skip: %q", name, content)
+		}
+	}
+}
+
+func TestRemoveMarkerBlockEdgeCases(t *testing.T) {
+	block := tmuxGuardBlockBegin + "\nexport PATH=x\n" + tmuxGuardBlockEnd + "\n"
+	cases := []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{"no block", "foo\n", "foo\n"},
+		{"block only", block, ""},
+		{"block at end", "foo\n" + block, "foo\n"},
+		{"block in middle", "foo\n" + block + "bar\n", "foo\nbar\n"},
+		{"empty content", "", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := removeMarkerBlock(tc.content, tmuxGuardBlockBegin, tmuxGuardBlockEnd)
+			if err != nil {
+				t.Fatalf("removeMarkerBlock(%q) error: %v", tc.content, err)
+			}
+			if got != tc.want {
+				t.Errorf("removeMarkerBlock(%q) = %q, want %q", tc.content, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestMarkerBlockUnterminatedIsError pins must-fix #2 (rework cycle 1) and the
+// duplicated-begin must-fix (rework cycle 2): a malformed marker region — a
+// begin with no end marker, or a SECOND begin before the end — makes the
+// region's extent unknowable, so both helpers must error instead of claiming
+// (and destroying) user lines. The unterminated shape used to delete every
+// user line after the begin marker; the duplicated-begin shape used to delete
+// every user line between the two begins.
+func TestMarkerBlockUnterminatedIsError(t *testing.T) {
+	cases := []struct {
+		name    string
+		content string
+	}{
+		{
+			name:    "unterminated (begin without end)",
+			content: "keep-a\n" + tmuxGuardBlockBegin + "\nexport PATH=x\nkeep-b\nkeep-c\n",
+		},
+		{
+			name: "duplicated begin before end",
+			content: "user-top\n" + tmuxGuardBlockBegin + "\nMY-IMPORTANT-EXPORT\n" +
+				tmuxGuardBlockBegin + "\nexport PATH=x\n" + tmuxGuardBlockEnd + "\nuser-bottom\n",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := removeMarkerBlock(tc.content, tmuxGuardBlockBegin, tmuxGuardBlockEnd); err == nil {
+				t.Error("removeMarkerBlock must error on a malformed block")
+			}
+			if _, err := upsertMarkerBlock(tc.content, tmuxGuardBlockBegin, tmuxGuardBlockEnd, tmuxGuardPathBlock); err == nil {
+				t.Error("upsertMarkerBlock must error on a malformed block")
+			}
+		})
+	}
+}
+
+// TestTmuxShimDuplicateBeginRefused pins the cycle-2 must-fix end-to-end: a
+// startup file carrying a stray SECOND begin marker above the real block (a
+// botched hand-edit / copy-paste) is left byte-identical on both install and
+// uninstall — the user line between the two begins (MY-IMPORTANT-EXPORT) must
+// survive — with a skip note, while the other startup files still proceed.
+func TestTmuxShimDuplicateBeginRefused(t *testing.T) {
+	home := t.TempDir()
+	zshenv := filepath.Join(home, ".zshenv")
+	corrupt := "user-top\n" + tmuxGuardBlockBegin + "\nMY-IMPORTANT-EXPORT\n" +
+		tmuxGuardBlockBegin + "\nexport PATH=\"$HOME/.local/share/rk/shims:$PATH\"\n" +
+		tmuxGuardBlockEnd + "\nuser-bottom\n"
+	if err := os.WriteFile(zshenv, []byte(corrupt), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	sink := newSinkWriters(&out, &out)
+	if err := applyTmuxShim(sink, bufio.NewReader(strings.NewReader("")), home, "", "/opt/homebrew/bin/rk", false, consent{yes: true}); err != nil {
+		t.Fatalf("install with a duplicated-begin block must not error, got: %v", err)
+	}
+	if got := readFileOrEmpty(t, zshenv); got != corrupt {
+		t.Errorf("duplicated-begin .zshenv must be left byte-identical (MY-IMPORTANT-EXPORT must survive), got: %q", got)
+	}
+	if !strings.Contains(out.String(), "begins again") {
+		t.Errorf("expected a duplicated-begin skip note, got: %q", out.String())
+	}
+	// The healthy .bashrc still received the block.
+	if !strings.Contains(readFileOrEmpty(t, filepath.Join(home, ".bashrc")), tmuxGuardBlockBegin) {
+		t.Error(".bashrc must still be processed after the malformed .zshenv is skipped")
+	}
+
+	// Uninstall refuses the malformed file the same way.
+	out.Reset()
+	if err := applyTmuxShim(sink, bufio.NewReader(strings.NewReader("")), home, "", "", true, consent{yes: true}); err != nil {
+		t.Fatalf("uninstall with a duplicated-begin block must not error, got: %v", err)
+	}
+	if got := readFileOrEmpty(t, zshenv); got != corrupt {
+		t.Errorf("duplicated-begin .zshenv must survive uninstall byte-identical, got: %q", got)
+	}
+}
+
+// TestUpsertMarkerBlockReplacesInPosition pins should-fix #1's first half: a
+// re-install over a file whose block sits BEFORE later user lines keeps the
+// block in position — moving it to EOF would hop it past a user's later PATH
+// edits and silently change PATH precedence.
+func TestUpsertMarkerBlockReplacesInPosition(t *testing.T) {
+	content := "top\n" + tmuxGuardBlockBegin + "\n# stale body\n" + tmuxGuardBlockEnd + "\nexport PATH=\"/user/bin:$PATH\"\n"
+	got, err := upsertMarkerBlock(content, tmuxGuardBlockBegin, tmuxGuardBlockEnd, tmuxGuardPathBlock)
+	if err != nil {
+		t.Fatalf("upsertMarkerBlock error: %v", err)
+	}
+	want := "top\n" + tmuxGuardPathBlock + "export PATH=\"/user/bin:$PATH\"\n"
+	if got != want {
+		t.Errorf("block not replaced in position:\ngot:  %q\nwant: %q", got, want)
+	}
+	// And re-running on the result is byte-idempotent.
+	again, err := upsertMarkerBlock(got, tmuxGuardBlockBegin, tmuxGuardBlockEnd, tmuxGuardPathBlock)
+	if err != nil {
+		t.Fatalf("idempotent re-upsert error: %v", err)
+	}
+	if again != got {
+		t.Errorf("re-upsert not byte-idempotent:\nfirst:  %q\nsecond: %q", got, again)
+	}
+}
+
+// TestMarkerBlockRoundTripByteExact pins should-fix #1's second half: install
+// followed by uninstall restores the original bytes exactly — including a file
+// that lacked a trailing newline (the old append-at-EOF added one that the
+// removal could never take back).
+func TestMarkerBlockRoundTripByteExact(t *testing.T) {
+	for _, original := range []string{
+		"",
+		"export EDITOR=vim\n",
+		"export EDITOR=vim",       // no trailing newline
+		"a\n\nb\n",                // interior blank line, trailing newline
+		"# only a comment, no NL", // no trailing newline
+	} {
+		installed, err := upsertMarkerBlock(original, tmuxGuardBlockBegin, tmuxGuardBlockEnd, tmuxGuardPathBlock)
+		if err != nil {
+			t.Fatalf("upsertMarkerBlock(%q) error: %v", original, err)
+		}
+		restored, err := removeMarkerBlock(installed, tmuxGuardBlockBegin, tmuxGuardBlockEnd)
+		if err != nil {
+			t.Fatalf("removeMarkerBlock(%q) error: %v", installed, err)
+		}
+		if restored != original {
+			t.Errorf("round trip not byte-exact:\noriginal: %q\ninstalled: %q\nrestored: %q", original, installed, restored)
+		}
+	}
+}
+
+// TestTmuxShimUnterminatedBlockRefused pins must-fix #2 end-to-end: a startup
+// file whose PATH block lost its end marker is left byte-identical on both
+// install and uninstall, with a skip note, and the run does not error (the
+// other startup files still proceed).
+func TestTmuxShimUnterminatedBlockRefused(t *testing.T) {
+	home := t.TempDir()
+	zshenv := filepath.Join(home, ".zshenv")
+	corrupt := tmuxGuardBlockBegin + "\nexport PATH=\"$HOME/.local/share/rk/shims:$PATH\"\nexport EDITOR=vim\nalias ll='ls -l'\n"
+	if err := os.WriteFile(zshenv, []byte(corrupt), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	sink := newSinkWriters(&out, &out)
+	if err := applyTmuxShim(sink, bufio.NewReader(strings.NewReader("")), home, "", "/opt/homebrew/bin/rk", false, consent{yes: true}); err != nil {
+		t.Fatalf("install with a malformed block must not error, got: %v", err)
+	}
+	if got := readFileOrEmpty(t, zshenv); got != corrupt {
+		t.Errorf("malformed .zshenv must be left byte-identical, got: %q", got)
+	}
+	if !strings.Contains(out.String(), "no end marker") {
+		t.Errorf("expected a malformed-block skip note, got: %q", out.String())
+	}
+	// The healthy .bashrc still received the block.
+	if !strings.Contains(readFileOrEmpty(t, filepath.Join(home, ".bashrc")), tmuxGuardBlockBegin) {
+		t.Error(".bashrc must still be processed after the malformed .zshenv is skipped")
+	}
+
+	// Uninstall refuses the malformed file the same way.
+	out.Reset()
+	if err := applyTmuxShim(sink, bufio.NewReader(strings.NewReader("")), home, "", "", true, consent{yes: true}); err != nil {
+		t.Fatalf("uninstall with a malformed block must not error, got: %v", err)
+	}
+	if got := readFileOrEmpty(t, zshenv); got != corrupt {
+		t.Errorf("malformed .zshenv must survive uninstall byte-identical, got: %q", got)
+	}
+}
+
+// TestTmuxShimZeroByteMarkerlessProtected pins must-fix #5: a zero-byte
+// marker-less user file at the shim path is an EXISTING user file — install
+// must not overwrite it (and must not wire PATH in front of it), and uninstall
+// must not remove it.
+func TestTmuxShimZeroByteMarkerlessProtected(t *testing.T) {
+	home := t.TempDir()
+	shimPath := tmuxShimPath(home)
+	if err := os.MkdirAll(filepath.Dir(shimPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(shimPath, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	sink := newSinkWriters(&out, &out)
+	if err := applyTmuxShim(sink, bufio.NewReader(strings.NewReader("")), home, "", "/opt/homebrew/bin/rk", false, consent{yes: true}); err != nil {
+		t.Fatalf("install over zero-byte file error: %v", err)
+	}
+	info, err := os.Stat(shimPath)
+	if err != nil {
+		t.Fatalf("stat shim path: %v", err)
+	}
+	if info.Size() != 0 {
+		t.Errorf("zero-byte marker-less file was overwritten (size %d): %q", info.Size(), readFileOrEmpty(t, shimPath))
+	}
+	if !strings.Contains(out.String(), "leaving it untouched") {
+		t.Errorf("expected a marker-less skip note, got: %q", out.String())
+	}
+	// PATH block must not be wired in front of a foreign file.
+	for _, name := range []string{".zshenv", ".bashrc"} {
+		if _, err := os.Stat(filepath.Join(home, name)); !os.IsNotExist(err) {
+			t.Errorf("PATH block must not be installed when the shim is foreign; %s exists (stat err = %v)", name, err)
+		}
+	}
+
+	// Uninstall leaves it alone too.
+	if err := applyTmuxShim(sink, bufio.NewReader(strings.NewReader("")), home, "", "", true, consent{yes: true}); err != nil {
+		t.Fatalf("uninstall over zero-byte file error: %v", err)
+	}
+	if _, err := os.Stat(shimPath); err != nil {
+		t.Errorf("zero-byte marker-less file must survive uninstall; stat err = %v", err)
+	}
+}
+
+// TestTmuxShimDeclinedWriteSkipsPathBlock pins must-fix #3: when the user
+// declines the shim write at the interactive prompt, the PATH block must not
+// be installed — PATH would otherwise point at a shims dir with no shim in it.
+func TestTmuxShimDeclinedWriteSkipsPathBlock(t *testing.T) {
+	home := t.TempDir()
+	var out bytes.Buffer
+	sink := newSinkWriters(&out, &out)
+	// Interactive session ("n" to the shim prompt). stdinIsTTY simulates a TTY.
+	err := applyTmuxShim(sink, bufio.NewReader(strings.NewReader("n\n")), home, "", "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true})
+	if err != nil {
+		t.Fatalf("declined install error: %v", err)
+	}
+	if _, statErr := os.Stat(tmuxShimPath(home)); !os.IsNotExist(statErr) {
+		t.Errorf("declined shim must not be written; stat err = %v", statErr)
+	}
+	for _, name := range []string{".zshenv", ".bashrc"} {
+		if _, statErr := os.Stat(filepath.Join(home, name)); !os.IsNotExist(statErr) {
+			t.Errorf("PATH block must not be installed after a declined shim; %s exists (stat err = %v)", name, statErr)
+		}
+	}
+	if !strings.Contains(out.String(), "skipping the PATH block") {
+		t.Errorf("expected a PATH-block skip note, got: %q", out.String())
+	}
+}

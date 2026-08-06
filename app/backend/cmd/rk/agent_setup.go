@@ -31,9 +31,11 @@ import (
 // entries. All file writes go through Go; the hook command is a fixed literal per
 // state with nothing user-provided interpolated (Constitution §I).
 //
-// Hooks are now the ONLY thing agent-setup installs. It used to write a second
-// managed artifact — a user-global "rk-display" SKILL.md that put run-kit's
-// visual-display capability into an agent's context — but that context-injection
+// agent-setup manages two artifact families: the per-agent hooks merge above,
+// and the user-global tmux guard shim (shim file + PATH block — see
+// applyTmuxShim below and tmux_guard.go for the guard itself). It used to write
+// a third managed artifact — a user-global "rk-display" SKILL.md that put
+// run-kit's visual-display capability into an agent's context — but that context-injection
 // responsibility has moved to the `rk skill` bundle (served by the skill
 // subcommand, aggregated by the coming `shll agent-setup`). All agent-setup does
 // with the legacy skill now is a one-release CLEANUP courtesy: on BOTH the
@@ -322,7 +324,10 @@ var agentSetupCmd = &cobra.Command{
 		"pane option so run-kit can show any agent's active/waiting/idle state. " +
 		"v1 targets Claude Code (~/.claude/settings.json). The install is a JSON " +
 		"merge: existing hooks are preserved, re-running is idempotent, and a diff " +
-		"is shown for confirmation before anything is written. Use --yes to write " +
+		"is shown for confirmation before anything is written. Also installs the " +
+		"tmux guard shim (~/.local/share/rk/shims/tmux plus a marker-owned PATH " +
+		"block in the shell startup files) so `tmux kill-server` without an " +
+		"explicit -L/-S socket is blocked via `rk tmux-guard`. Use --yes to write " +
 		"without prompting (non-interactive), or --dry-run to preview the diff and " +
 		"write nothing.",
 	Args:         cobra.NoArgs,
@@ -375,7 +380,11 @@ func runAgentSetup(sink outputSink, in io.Reader, uninstall bool, cons consent) 
 			return err
 		}
 	}
-	return nil
+	// The tmux guard shim is user-global (one shim, one PATH block), not
+	// per-agent — applied once after the agent loop. $ZDOTDIR is read here at
+	// the call boundary (like home above) so everything below stays pure over
+	// injected paths.
+	return applyTmuxShim(sink, reader, home, os.Getenv("ZDOTDIR"), rkPath, uninstall, cons)
 }
 
 // applyAgentConfig applies the hooks merge for one agent and, on BOTH the install
@@ -547,6 +556,22 @@ func readSkill(path string) (string, error) {
 		return "", err
 	}
 	return string(data), nil
+}
+
+// readFileIfExists loads a file, distinguishing ABSENCE from EMPTINESS: it
+// returns (content, exists, err). readSkill's tolerant absent→"" collapse is
+// wrong for ownership decisions — a zero-byte user file at a managed path is
+// still a user file, and conflating it with "no file" would let rk overwrite
+// it (the marker-less protection must key on existence, not on content).
+func readFileIfExists(path string) (string, bool, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", false, nil
+		}
+		return "", false, err
+	}
+	return string(data), true, nil
 }
 
 // renderArtifactDiff prints the shared "will <action> … / --- current / +++
@@ -756,6 +781,370 @@ func isRkEntry(entry map[string]any) bool {
 		}
 	}
 	return false
+}
+
+// --- tmux guard shim (second managed artifact) ----------------------------------
+
+// The tmux guard shim puts `rk tmux-guard` (tmux_guard.go) in front of every
+// PATH-resolved tmux invocation: a shim script at ~/.local/share/rk/shims/tmux
+// plus a marker-owned PATH block in the user's shell startup files. Both pieces
+// follow the same managed-artifact contract as the hooks merge: idempotent
+// replace-in-place, diff + consent before writing, exact removal on
+// --uninstall, and rk never touches a file (or file region) it does not own.
+
+// tmuxGuardBlockBegin/End delimit the marker-owned PATH block. The lines are
+// the ownership markers: re-install replaces exactly the region between them
+// (inclusive), and --uninstall removes exactly that region.
+const (
+	tmuxGuardBlockBegin = "# >>> rk tmux guard >>>"
+	tmuxGuardBlockEnd   = "# <<< rk tmux guard <<<"
+)
+
+// tmuxGuardPathBlock is the full marker-owned block appended to shell startup
+// files. It prepends the rk shims dir to PATH so the shim shadows the real
+// tmux. Nothing in it is user-interpolated ($HOME is expanded by the shell at
+// source time, deliberately — the block is home-relocatable).
+const tmuxGuardPathBlock = tmuxGuardBlockBegin + "\n" +
+	`export PATH="$HOME/.local/share/rk/shims:$PATH"` + "\n" +
+	tmuxGuardBlockEnd + "\n"
+
+// tmuxShimPath is the installed shim location for a given home.
+func tmuxShimPath(home string) string {
+	return filepath.Join(rkShimsDir(home), "tmux")
+}
+
+// tmuxGuardStartupFiles returns the shell startup files the PATH block is
+// managed in: .zshenv (read by every zsh, including the non-interactive
+// shells agent Bash tools spawn) and ~/.bashrc always — both safe to create —
+// plus ~/.bash_profile only when it already exists. Creating a NEW
+// .bash_profile would make login bash skip ~/.profile (bash reads only the
+// first of .bash_profile/.bash_login/.profile), silently breaking a user's
+// existing setup; appending to one the user already has is side-effect-free.
+//
+// zdotdir is the caller's $ZDOTDIR (threaded as a parameter so tests stay
+// hermetic over temp dirs, mirroring the injected home). When it is non-empty,
+// zsh reads $ZDOTDIR/.zshenv and NEVER ~/.zshenv — writing the home copy there
+// would report success while the zsh half of the install stays inert. Empty
+// zdotdir falls back to the home dir (zsh's own default).
+func tmuxGuardStartupFiles(home, zdotdir string) []string {
+	zshenvDir := home
+	if zdotdir != "" {
+		zshenvDir = zdotdir
+	}
+	files := []string{
+		filepath.Join(zshenvDir, ".zshenv"),
+		filepath.Join(home, ".bashrc"),
+	}
+	bashProfile := filepath.Join(home, ".bash_profile")
+	if _, err := os.Stat(bashProfile); err == nil {
+		files = append(files, bashProfile)
+	}
+	return files
+}
+
+// markerBlockBounds locates the marker-owned region in lines: the begin line
+// through the first end line below it, inclusive, matched whitespace-trimmed.
+// found reports whether a begin marker exists. Two shapes are MALFORMED — the
+// region's extent is unknowable, so callers MUST refuse to modify the file
+// rather than assume ownership of user lines:
+//   - a begin marker with no end marker below it (claiming begin→EOF would
+//     destroy every user line after the marker), and
+//   - a second begin marker before the end marker (a stray/duplicated begin
+//     line — claiming first-begin→end would destroy every user line between
+//     the two begins).
+func markerBlockBounds(lines []string, begin, end string) (start, stop int, found bool, err error) {
+	for i, line := range lines {
+		if strings.TrimSpace(line) != begin {
+			continue
+		}
+		for j := i + 1; j < len(lines); j++ {
+			switch strings.TrimSpace(lines[j]) {
+			case end:
+				return i, j, true, nil
+			case begin:
+				return 0, 0, false, fmt.Errorf("marker block %q begins again before its end marker %q — the block is malformed", begin, end)
+			}
+		}
+		return 0, 0, false, fmt.Errorf("marker block %q has no end marker %q — the block is malformed", begin, end)
+	}
+	return 0, 0, false, nil
+}
+
+// removeMarkerBlock returns content with the marker-owned region (the begin
+// line through the end line, inclusive) removed. Marker lines are matched
+// whitespace-trimmed. Content without the begin marker is returned unchanged;
+// a malformed block (begin without end, or a second begin before the end) is
+// an error — rk never claims a region whose extent it cannot know.
+func removeMarkerBlock(content, begin, end string) (string, error) {
+	lines := strings.Split(content, "\n")
+	start, stop, found, err := markerBlockBounds(lines, begin, end)
+	if err != nil {
+		return "", err
+	}
+	if !found {
+		return content, nil
+	}
+	out := append(append(make([]string, 0, len(lines)), lines[:start]...), lines[stop+1:]...)
+	return strings.Join(out, "\n"), nil
+}
+
+// upsertMarkerBlock returns content carrying the marker-owned block exactly
+// once. An existing block is replaced IN POSITION (never moved to EOF — a
+// re-install must not hop the block past later user lines, which would change
+// PATH precedence); otherwise the block is appended. The append mirrors the
+// file's trailing-newline state (a file lacking a final newline gets the block
+// without one) so an install → uninstall round trip is byte-exact. Re-running
+// on already-current content is byte-idempotent. A malformed existing block
+// (unterminated, or a duplicated begin) is an error, mirroring
+// removeMarkerBlock.
+func upsertMarkerBlock(content, begin, end, block string) (string, error) {
+	blockLines := strings.Split(strings.TrimSuffix(block, "\n"), "\n")
+	lines := strings.Split(content, "\n")
+	start, stop, found, err := markerBlockBounds(lines, begin, end)
+	if err != nil {
+		return "", err
+	}
+	if found {
+		out := append(make([]string, 0, len(lines)+len(blockLines)), lines[:start]...)
+		out = append(out, blockLines...)
+		out = append(out, lines[stop+1:]...)
+		return strings.Join(out, "\n"), nil
+	}
+	// Append. strings.Split leaves a final "" element when content ends with a
+	// newline (or is empty) — inserting the block before it keeps that trailing
+	// newline; a file without one gets the block appended newline-free at the
+	// end, so removal restores the original bytes exactly.
+	if lines[len(lines)-1] == "" {
+		out := append(make([]string, 0, len(lines)+len(blockLines)), lines[:len(lines)-1]...)
+		out = append(out, blockLines...)
+		out = append(out, "")
+		return strings.Join(out, "\n"), nil
+	}
+	return strings.Join(append(lines, blockLines...), "\n"), nil
+}
+
+// applyTmuxShim installs (or --uninstall removes) the tmux guard shim: the
+// shim file and the PATH block. home and zdotdir parameterize every path so
+// tests run against temp dirs (zdotdir is the caller's $ZDOTDIR — see
+// tmuxGuardStartupFiles).
+//
+// The two pieces are NOT independent on install: the PATH block is written
+// only when the shim is in place (freshly written, already rk-owned, or a
+// dry-run preview of that write). Wiring PATH after a declined shim write — or
+// in front of a foreign marker-less file at the shim path — would put a
+// non-rk executable (or nothing at all) in front of every tmux invocation.
+// Uninstall keeps the pieces independent: stripping the PATH block is safe and
+// wanted even when the shim file's removal was declined or skipped —
+// including when the shim path could not be read (removeTmuxShimFile skips
+// per-file, it never aborts the uninstall).
+func applyTmuxShim(sink outputSink, reader *bufio.Reader, home, zdotdir, rkPath string, uninstall bool, cons consent) error {
+	if uninstall {
+		if err := removeTmuxShimFile(sink, reader, home, cons); err != nil {
+			return err
+		}
+		return applyTmuxGuardPathBlocks(sink, reader, home, zdotdir, true, cons)
+	}
+	shimInPlace, err := installTmuxShimFile(sink, reader, home, rkPath, cons)
+	if err != nil {
+		return err
+	}
+	if !shimInPlace {
+		sink.Notef("tmux guard: skipping the PATH block (the shim is not in place).\n")
+		return nil
+	}
+	return applyTmuxGuardPathBlocks(sink, reader, home, zdotdir, false, cons)
+}
+
+// installTmuxShimFile writes the shim script (mode 0755) at
+// ~/.local/share/rk/shims/tmux. A pre-existing marker-less file — INCLUDING a
+// zero-byte one, hence the existence-aware read — is left untouched (rk only
+// overwrites files it owns); an already-current shim is a reported no-op,
+// except that a lost exec bit is repaired (chmod 0755) — content parity alone
+// would leave a non-executable shim fronting PATH; otherwise the change is
+// shown as a diff and written on consent. rkPath has
+// already been validated by validateHookPath in runAgentSetup — the same
+// shell-unsafe-char set applies here, since the path is embedded double-quoted
+// in the script.
+//
+// The returned bool reports whether the shim is IN PLACE for PATH-wiring
+// purposes (freshly written, already current, or a dry-run previewing the
+// write); false means a foreign file or a declined write — the caller must
+// not install the PATH block in front of either.
+func installTmuxShimFile(sink outputSink, reader *bufio.Reader, home, rkPath string, cons consent) (bool, error) {
+	shimPath := tmuxShimPath(home)
+	current, exists, err := readFileIfExists(shimPath)
+	if err != nil {
+		return false, fmt.Errorf("tmux guard: read %s: %w", shimPath, err)
+	}
+	if exists && !strings.Contains(current, tmuxShimMarker) {
+		// Chatter — rk only overwrites files it owns.
+		sink.Notef("tmux guard: %s exists without the %q marker — leaving it untouched (rk only overwrites files it owns).\n", shimPath, tmuxShimMarker)
+		return false, nil
+	}
+	desired := tmuxShimScript(rkPath)
+	if current == desired {
+		// Content being current does not prove the MODE is: an rk-owned shim
+		// that lost its exec bit (a stray chmod 0644) still fronts every PATH
+		// resolution, and each tmux call dies "Permission denied". Repair the
+		// bit on rk's own artifact before reporting the shim in place.
+		if info, statErr := os.Stat(shimPath); statErr == nil && info.Mode().Perm()&0o111 == 0 {
+			if cons.dryRun {
+				sink.Notef("tmux guard: dry run — %s lost its exec bit (would chmod 0755).\n", shimPath)
+				return true, nil
+			}
+			if err := os.Chmod(shimPath, 0o755); err != nil {
+				return false, fmt.Errorf("tmux guard: chmod %s: %w", shimPath, err)
+			}
+			sink.Notef("tmux guard: shim already installed at %s — restored its lost exec bit (chmod 0755).\n", shimPath)
+			return true, nil
+		}
+		sink.Notef("tmux guard: shim already installed at %s — nothing to do.\n", shimPath)
+		return true, nil
+	}
+
+	header := fmt.Sprintf("tmux guard: will install the tmux shim at %s", shimPath)
+	renderArtifactDiff(cons.diffWriter(sink), header, strings.TrimSuffix(current, "\n"), strings.TrimSuffix(desired, "\n"))
+	ok, err := cons.authorizeWrite(sink.data, reader, "tmux guard: dry run — no shim written.", "\nWrite the tmux shim? [y/N] ")
+	if err != nil {
+		return false, err
+	}
+	if !ok {
+		if cons.dryRun {
+			// Nothing was written, but the dry run previews the full install —
+			// report "in place" so the PATH-block preview follows, matching
+			// what a consented run would do.
+			return true, nil
+		}
+		sink.Notef("tmux guard: skipped (no shim written).\n")
+		return false, nil
+	}
+
+	if err := os.MkdirAll(filepath.Dir(shimPath), 0o755); err != nil {
+		return false, fmt.Errorf("tmux guard: create %s: %w", filepath.Dir(shimPath), err)
+	}
+	if err := os.WriteFile(shimPath, []byte(desired), 0o755); err != nil {
+		return false, fmt.Errorf("tmux guard: write %s: %w", shimPath, err)
+	}
+	// WriteFile's perm applies only on create — an existing marker-owned file
+	// keeps its old mode, so re-assert the exec bit explicitly.
+	if err := os.Chmod(shimPath, 0o755); err != nil {
+		return false, fmt.Errorf("tmux guard: chmod %s: %w", shimPath, err)
+	}
+	sink.Notef("tmux guard: wrote %s.\n", shimPath)
+	return true, nil
+}
+
+// removeTmuxShimFile removes a marker-owned shim on --uninstall. An absent
+// shim is silent (a machine that never installed it must see zero output); a
+// marker-less file is left untouched with a skip note; a file that cannot be
+// READ (unreadable, or a directory occupying its path) is likewise skipped
+// with a note rather than aborting — ownership is unknowable, and hard-failing
+// here would leave the PATH blocks in place, wiring PATH at a file rk cannot
+// vouch for; a marker-owned shim is removed on consent. The shims dir is
+// pruned afterwards if empty (best effort).
+func removeTmuxShimFile(sink outputSink, reader *bufio.Reader, home string, cons consent) error {
+	shimPath := tmuxShimPath(home)
+	current, exists, err := readFileIfExists(shimPath)
+	if err != nil {
+		sink.Notef("tmux guard: %s: cannot read (%v) — leaving it untouched and continuing with the PATH blocks (repair or remove it by hand, then re-run).\n", shimPath, err)
+		return nil
+	}
+	if !exists {
+		return nil
+	}
+	// A marker-less file — including a zero-byte one (existence, not content,
+	// is what makes it the user's) — is never removed.
+	if !strings.Contains(current, tmuxShimMarker) {
+		sink.Notef("tmux guard: %s was rewritten without the %q marker — leaving it untouched (rk only removes files it owns).\n", shimPath, tmuxShimMarker)
+		return nil
+	}
+
+	sink.Notef("tmux guard: found the tmux shim at %s.\n\n", shimPath)
+	promptSuffix := fmt.Sprintf("Remove %s? [y/N] ", shimPath)
+	ok, err := cons.authorizeWrite(sink.data, reader, "tmux guard: dry run — shim left in place (nothing removed).", promptSuffix)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		if !cons.dryRun {
+			sink.Notef("tmux guard: shim left in place (nothing removed).\n")
+		}
+		return nil
+	}
+
+	if err := os.Remove(shimPath); err != nil {
+		return fmt.Errorf("tmux guard: remove %s: %w", shimPath, err)
+	}
+	// Prune the now-possibly-empty shims dir; os.Remove refuses non-empty
+	// directories, so this can never delete anything else (best effort).
+	_ = os.Remove(filepath.Dir(shimPath))
+	sink.Notef("tmux guard: removed %s.\n", shimPath)
+	return nil
+}
+
+// applyTmuxGuardPathBlocks upserts (install) or strips (uninstall) the
+// marker-owned PATH block in each startup file, one diff + consent per file.
+// A file already in the desired state is a no-op: silently skipped on
+// uninstall (absence needs no narration), reported on install. A file whose
+// marker block is malformed (begin without end) — or that cannot be READ at
+// all (unreadable, or a directory occupying its path) — is refused with a
+// skip note: rk cannot know what it would be modifying, so it touches nothing
+// there and moves on to the other files (an unreadable ~/.zshenv must not
+// stop ~/.bashrc from being processed). New files are created 0644; existing
+// files keep their content around the block and their mode.
+func applyTmuxGuardPathBlocks(sink outputSink, reader *bufio.Reader, home, zdotdir string, uninstall bool, cons consent) error {
+	for _, path := range tmuxGuardStartupFiles(home, zdotdir) {
+		current, err := readSkill(path)
+		if err != nil {
+			sink.Notef("tmux guard: %s: cannot read (%v) — leaving the file untouched and continuing with the other startup files.\n", path, err)
+			continue
+		}
+		var next string
+		var blockErr error
+		if uninstall {
+			next, blockErr = removeMarkerBlock(current, tmuxGuardBlockBegin, tmuxGuardBlockEnd)
+		} else {
+			next, blockErr = upsertMarkerBlock(current, tmuxGuardBlockBegin, tmuxGuardBlockEnd, tmuxGuardPathBlock)
+		}
+		if blockErr != nil {
+			sink.Notef("tmux guard: %s: %v — leaving the file untouched (repair or remove the block by hand, then re-run).\n", path, blockErr)
+			continue
+		}
+		if next == current {
+			if !uninstall {
+				sink.Notef("tmux guard: PATH block already present in %s — nothing to do.\n", path)
+			}
+			continue
+		}
+
+		action := "add"
+		if uninstall {
+			action = "remove"
+		}
+		header := fmt.Sprintf("tmux guard: will %s the rk tmux guard PATH block in %s", action, path)
+		renderArtifactDiff(cons.diffWriter(sink), header, current, next)
+		dryRunNote := fmt.Sprintf("tmux guard: dry run — %s not modified.", path)
+		ok, err := cons.authorizeWrite(sink.data, reader, dryRunNote, "\nWrite these changes? [y/N] ")
+		if err != nil {
+			return err
+		}
+		if !ok {
+			if !cons.dryRun {
+				sink.Notef("tmux guard: skipped %s (no changes written).\n", path)
+			}
+			continue
+		}
+
+		mode := os.FileMode(0o644)
+		if info, statErr := os.Stat(path); statErr == nil {
+			mode = info.Mode().Perm()
+		}
+		if err := os.WriteFile(path, []byte(next), mode); err != nil {
+			return fmt.Errorf("tmux guard: write %s: %w", path, err)
+		}
+		sink.Notef("tmux guard: wrote %s.\n", path)
+	}
+	return nil
 }
 
 // --- generic JSON helpers -------------------------------------------------------

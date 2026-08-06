@@ -61,6 +61,7 @@ func init() {
 	rootCmd.AddCommand(notifyCmd)
 	rootCmd.AddCommand(agentSetupCmd)
 	rootCmd.AddCommand(agentHookCmd)
+	rootCmd.AddCommand(tmuxGuardCmd)
 	rootCmd.AddCommand(riffCmd)
 	rootCmd.AddCommand(remoteCmd)
 	rootCmd.AddCommand(reaperCmd)

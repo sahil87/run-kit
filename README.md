@@ -295,7 +295,7 @@ Supports `zsh`, `bash`, `fish`, and `powershell`. Completion-only — run-kit ha
 | `run-kit skill` | Print the agent skill bundle — a static usage briefing for agents operating run-kit (canonical source `docs/site/skill.md`); `run-kit skill display` prints the visual-display topic page. |
 | `run-kit notify` | Send a Web Push notification to your subscribed devices (see [Push notifications](#push-notifications)). Fail-silent. |
 | `run-kit doctor` | Check runtime dependencies. Run this first when something breaks. |
-| `run-kit agent-setup` | Install agent-harness hooks (v1: Claude Code) so panes report busy/waiting/idle state (see [Agent state](#agent-state--run-kit-agent-setup)). Once per machine; `--uninstall` reverses it. |
+| `run-kit agent-setup` | Install agent-harness hooks (v1: Claude Code) so panes report busy/waiting/idle state (see [Agent state](#agent-state--run-kit-agent-setup)), plus the tmux guard shim that blocks `tmux kill-server` without an explicit `-L`/`-S` socket. Once per machine; `--uninstall` reverses both. |
 | `run-kit init-conf` | Scaffold default `tmux.conf` and `tmux.d/` drop-in directory to `~/.rk/`. Optional. |
 | `run-kit update` | Upgrade via Homebrew and restart the daemon. |
 | `run-kit desktop` | Install/update the macOS desktop app from GitHub Releases, quarantine-free (`install`, `update`, `status` — see [Desktop app](#desktop-app-macos)). |

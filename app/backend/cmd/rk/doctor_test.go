@@ -3,6 +3,9 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -193,5 +196,222 @@ func TestDoctorQuietFlagWiredThroughRoot(t *testing.T) {
 	_ = rootCmd.Execute()
 	if contains(stderr.String(), "Checking runtime dependencies") || contains(stderr.String(), "[ OK ]") {
 		t.Errorf("--quiet via rootCmd.Execute() must suppress chatter, got stderr: %q", stderr.String())
+	}
+}
+
+// --- tmux guard shim check ------------------------------------------------------
+
+// NOTE (tmux safety): these tests use temp homes, stub executables, and
+// injected (pathEnv, lookPath) pairs only — no host PATH dependence, no tmux
+// execution.
+
+// doctorShimScript renders shim content whose embedded rk path names a REAL
+// stub binary in a temp dir — the check now stats the exec target, so a
+// healthy-install fixture must embed a path that exists (a literal
+// /opt/homebrew/bin/rk would read as the dangling-rk failure).
+func doctorShimScript(t *testing.T) string {
+	t.Helper()
+	return tmuxShimScript(writeStub(t, t.TempDir(), "rk", "#!/bin/sh\nexit 0\n", 0o755))
+}
+
+// installDoctorShim writes an rk-owned shim into the temp home plus a stub
+// "real tmux" in its own dir, returning the shim path and a pathEnv where the
+// stub sits behind the shims dir (the healthy installed layout).
+func installDoctorShim(t *testing.T, home string) (shim, pathEnv string) {
+	t.Helper()
+	shim = tmuxShimPath(home)
+	writeStub(t, filepath.Dir(shim), "tmux", doctorShimScript(t), 0o755)
+	realDir := t.TempDir()
+	writeStub(t, realDir, "tmux", stubTmuxContent, 0o755)
+	return shim, filepath.Dir(shim) + string(os.PathListSeparator) + realDir
+}
+
+func TestTmuxGuardShimCheckNotInstalled(t *testing.T) {
+	home := t.TempDir()
+	c := tmuxGuardShimCheck(home, "", func(string) (string, error) {
+		t.Fatal("lookPath must not be called when the shim is absent")
+		return "", nil
+	})
+	if !c.OK {
+		t.Errorf("absent shim must be OK (optional), got %+v", c)
+	}
+	if !strings.Contains(c.Note, "not installed") {
+		t.Errorf("absent shim should carry a not-installed note, got %+v", c)
+	}
+}
+
+// TestTmuxGuardShimCheckUnreadableFile pins the cycle-2 should-fix: an
+// existing-but-unreadable file at the shim path is NOT the optional
+// "not installed" state — exec.LookPath resolves it without read permission,
+// so it may be fronting (and killing) every tmux invocation. The check must
+// FAIL with a permissions hint instead of letting doctor exit 0.
+func TestTmuxGuardShimCheckUnreadableFile(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root — file permissions do not restrict reads")
+	}
+	home := t.TempDir()
+	shim := tmuxShimPath(home)
+	writeStub(t, filepath.Dir(shim), "tmux", tmuxShimScript("/opt/homebrew/bin/rk"), 0o755)
+	// Executable but not readable: LookPath resolves it, os.ReadFile fails.
+	if err := os.Chmod(shim, 0o111); err != nil {
+		t.Fatal(err)
+	}
+	c := tmuxGuardShimCheck(home, "", func(string) (string, error) {
+		t.Fatal("lookPath must not be called for an unreadable file")
+		return "", nil
+	})
+	if c.OK {
+		t.Errorf("unreadable file at the shim path must FAIL, got %+v", c)
+	}
+	if !strings.Contains(c.Hint, "permissions") {
+		t.Errorf("hint should point at permissions, got %+v", c)
+	}
+	if !strings.Contains(c.Hint, shim) {
+		t.Errorf("hint should name the shim path, got %+v", c)
+	}
+}
+
+// TestTmuxGuardShimCheckMarkerlessFile pins half of must-fix #4: a marker-less
+// file at the shim path is a USER file, not an installed rk shim — the check
+// reads it as not-installed (OK + note), never as the guard being active.
+func TestTmuxGuardShimCheckMarkerlessFile(t *testing.T) {
+	home := t.TempDir()
+	shim := tmuxShimPath(home)
+	writeStub(t, filepath.Dir(shim), "tmux", "#!/bin/sh\n# my own wrapper\nexec /usr/bin/tmux \"$@\"\n", 0o755)
+	c := tmuxGuardShimCheck(home, "", func(string) (string, error) {
+		t.Fatal("lookPath must not be called for a marker-less file")
+		return "", nil
+	})
+	if !c.OK {
+		t.Errorf("marker-less file must read as not-installed (OK), got %+v", c)
+	}
+	if !strings.Contains(c.Note, "non-rk file") {
+		t.Errorf("note should say a non-rk file occupies the path, got %+v", c)
+	}
+}
+
+// TestTmuxGuardShimCheckDanglingRkPath pins the cycle-3 must-fix: an installed
+// shim whose EMBEDDED rk path no longer exists (the recorded brew rk→run-kit
+// rename incident — a zombie keg path baked into the shim) breaks EVERY tmux
+// command on the machine with `rk: not found`, so the check must FAIL with a
+// re-install hint instead of vouching for the install.
+func TestTmuxGuardShimCheckDanglingRkPath(t *testing.T) {
+	t.Run("embedded rk path missing", func(t *testing.T) {
+		home := t.TempDir()
+		shim := tmuxShimPath(home)
+		gone := filepath.Join(t.TempDir(), "rk") // never created — a dangling target
+		writeStub(t, filepath.Dir(shim), "tmux", tmuxShimScript(gone), 0o755)
+		c := tmuxGuardShimCheck(home, "", func(string) (string, error) {
+			t.Fatal("lookPath must not be called when the embedded rk is dangling")
+			return "", nil
+		})
+		if c.OK {
+			t.Errorf("shim exec'ing a missing rk binary must FAIL, got %+v", c)
+		}
+		if !strings.Contains(c.Hint, gone) {
+			t.Errorf("hint should name the dangling path %q, got %+v", gone, c)
+		}
+		if !strings.Contains(c.Hint, "rk agent-setup") {
+			t.Errorf("hint should carry the re-install remedy `rk agent-setup`, got %+v", c)
+		}
+	})
+
+	t.Run("no parseable exec target", func(t *testing.T) {
+		home := t.TempDir()
+		shim := tmuxShimPath(home)
+		// Marker-owned (rk's artifact) but the exec line was mangled by hand —
+		// there is no target to stat, and the shim cannot work.
+		content := "#!/bin/sh\n# " + tmuxShimMarker + "\n"
+		writeStub(t, filepath.Dir(shim), "tmux", content, 0o755)
+		c := tmuxGuardShimCheck(home, "", func(string) (string, error) {
+			t.Fatal("lookPath must not be called when the shim has no exec target")
+			return "", nil
+		})
+		if c.OK {
+			t.Errorf("shim with no parseable exec target must FAIL, got %+v", c)
+		}
+		if !strings.Contains(c.Hint, "rk agent-setup") {
+			t.Errorf("hint should carry the re-install remedy `rk agent-setup`, got %+v", c)
+		}
+	})
+}
+
+func TestTmuxGuardShimCheckResolvesToShim(t *testing.T) {
+	home := t.TempDir()
+	shim, pathEnv := installDoctorShim(t, home)
+	c := tmuxGuardShimCheck(home, pathEnv, func(string) (string, error) { return shim, nil })
+	if !c.OK {
+		t.Errorf("shim-resolving PATH with a real tmux behind it must be OK, got %+v", c)
+	}
+	if !strings.Contains(c.Note, "resolves tmux to the shim") {
+		t.Errorf("expected a resolves-to-shim note, got %+v", c)
+	}
+}
+
+// TestTmuxGuardShimCheckNoRealTmuxBehindShim pins the other half of must-fix
+// #4: tmux resolving to the shim is NOT enough — with no real tmux behind it,
+// every guarded call dies at exec time, so the check must FAIL.
+func TestTmuxGuardShimCheckNoRealTmuxBehindShim(t *testing.T) {
+	home := t.TempDir()
+	shim := tmuxShimPath(home)
+	writeStub(t, filepath.Dir(shim), "tmux", doctorShimScript(t), 0o755)
+	// pathEnv carries ONLY the shims dir — nothing behind the shim.
+	c := tmuxGuardShimCheck(home, filepath.Dir(shim), func(string) (string, error) { return shim, nil })
+	if c.OK {
+		t.Errorf("shim with no real tmux behind it must FAIL, got %+v", c)
+	}
+	if !strings.Contains(c.Hint, "no real tmux") {
+		t.Errorf("hint should name the missing real tmux, got %+v", c)
+	}
+}
+
+func TestTmuxGuardShimCheckPathRegression(t *testing.T) {
+	home := t.TempDir()
+	shim, pathEnv := installDoctorShim(t, home)
+	_ = shim
+
+	t.Run("resolves elsewhere", func(t *testing.T) {
+		other := filepath.Join(t.TempDir(), "tmux")
+		if err := os.WriteFile(other, []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		c := tmuxGuardShimCheck(home, pathEnv, func(string) (string, error) { return other, nil })
+		if c.OK {
+			t.Errorf("PATH resolving tmux elsewhere must FAIL, got %+v", c)
+		}
+		if !strings.Contains(c.Hint, "rk tmux guard") {
+			t.Errorf("hint should point at the PATH block, got %+v", c)
+		}
+	})
+
+	t.Run("no tmux on PATH at all", func(t *testing.T) {
+		c := tmuxGuardShimCheck(home, pathEnv, func(string) (string, error) { return "", os.ErrNotExist })
+		if c.OK {
+			t.Errorf("installed shim with no PATH resolution must FAIL, got %+v", c)
+		}
+		if c.Hint == "" {
+			t.Errorf("failure must carry a hint, got %+v", c)
+		}
+	})
+}
+
+// TestDoctorFailRowWording pins should-fix #3: the shared human [FAIL] row
+// keeps its historical "<name> not found — <hint>" wording for absence-style
+// checks, while the shim check (whose failures are mis-wirings, not absences)
+// renders its own natural lead-in.
+func TestDoctorFailRowWording(t *testing.T) {
+	absence := doctorCheck{Name: "tmux", OK: false, Hint: "install tmux"}
+	if got := doctorFailLabel(absence); got != "tmux not found" {
+		t.Errorf("absence-style [FAIL] label = %q, want %q", got, "tmux not found")
+	}
+	home := t.TempDir()
+	shim := tmuxShimPath(home)
+	writeStub(t, filepath.Dir(shim), "tmux", doctorShimScript(t), 0o755)
+	c := tmuxGuardShimCheck(home, "", func(string) (string, error) { return "", os.ErrNotExist })
+	if c.OK {
+		t.Fatalf("expected a failing shim check, got %+v", c)
+	}
+	if got := doctorFailLabel(c); got != "tmux-guard shim" {
+		t.Errorf("shim [FAIL] label = %q, want %q", got, "tmux-guard shim")
 	}
 }

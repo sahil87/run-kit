@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 10
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-08-06T03:47:07Z", driver: fab-continue, iterations: 2, completed_at: "2026-08-06T04:00:30Z"}
     hydrate: {started_at: "2026-08-06T04:00:30Z", driver: fab-continue, iterations: 1, completed_at: "2026-08-06T04:29:26Z"}
     ship: {started_at: "2026-08-06T04:29:26Z", driver: fab-continue, iterations: 1, completed_at: "2026-08-06T04:35:15Z"}
-    review-pr: {started_at: "2026-08-06T04:35:15Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-08-06T04:35:15Z", driver: git-pr, iterations: 1, completed_at: "2026-08-06T04:49:39Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/525
 change_type_source: explicit
@@ -54,4 +54,4 @@ true_impact:
     computed_at_stage: ship
 summary: Added run-kit/layout-snapshots memory (internal/snapshot capture set, XDG state store with 10-entry history + audited-kill tombstones, Snapshotter debounce/safety/removal-race guards, internal/tmux layout read+restore primitives, rk snapshot CLI, write-only Constitution II boundary); recorded the internal/snapshot + internal/fsatomic backend libraries, the rk snapshot subcommand, the serve-time snapshotter wiring, the audited-kill notifier on POST /api/servers/kill, the Supervisor observation seams, and CreateSessionForRestore as a fifth server-birth seam.
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-06T04:35:15Z
+last_updated: 2026-08-06T04:49:39Z

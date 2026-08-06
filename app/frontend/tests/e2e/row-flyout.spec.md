@@ -6,7 +6,10 @@ glyph** (93dy) — the one status-detail surface that replaced the per-dot
 the card opens on whole-row hover at a fixed x (the sidebar's right edge), on
 keyboard row focus, and on coarse-pointer dot-tap; it carries the four-register
 view plus the PR/docs links; a window with an owned PR shows a rest-state
-git-pull-request glyph that swaps for the pin/✕ actions on hover.
+git-pull-request glyph that swaps for the pin/✕ actions on hover. It also covers
+the card's **conversation-fork link** (260806-s4av) — gated on the window
+carrying a `claude` chat, POSTing the window-keyed fork endpoint, and navigating
+to the returned window.
 
 ## Shared setup
 
@@ -17,16 +20,17 @@ git-pull-request glyph that swaps for the pin/✕ actions on hover.
   - `/ws/terminals` WebSocket → accepted and held open.
   - `/ws/state` (via `mockStateSocket`) → a session `dev` with two windows:
     - `@1` "feature-work" — change-bound (`fabChange`/`fabStage`), a waiting
-      agent (`agentState: waiting`, `3m`), and an owned open PR
+      agent (`agentState: waiting`, `3m`), a reconciled claude chat
+      (`chatProvider: claude` + a uuid `chatSessionRef`), and an owned open PR
       (`prNumber: 386`, `prUrl`, `prState: open`, `prChecks: pass`,
       `prReview: approved`, fresh `prFetchedAt`) → purple "PR — open…" dot,
-      rest PR glyph, full four-register card.
+      rest PR glyph, full four-register card, fork link.
     - `@2` "scratch-shell" — plain window → gray "idle" dot, no glyph,
-      out-register-only card.
+      out-register-only card, no fork link.
 - Rows are located by `[role='treeitem'][data-window-id]`; the card by
   `data-testid="row-flyout-card"`; registers/links by `row-flyout-out|agt|fab|
-  pr|checked|pr-link|docs-link`; the glyph by `row-pr-glyph`; the dot's tap
-  wrapper by `status-dot-tap`.
+  pr|checked|pr-link|docs-link|fork-link`; the glyph by `row-pr-glyph`; the dot's
+  tap wrapper by `status-dot-tap`.
 - The coarse-pointer describe additionally mocks `(pointer: coarse)` via
   `matchMedia` (Playwright desktop Chromium cannot flip the real pointer media
   feature — the `tooltips.spec.ts` precedent) and enables `hasTouch` so `tap()`
@@ -72,6 +76,39 @@ card has no PR link).
 1. Hover `@1`; assert the card shows "PR — open".
 2. Hover `@2`; assert exactly one card exists, containing "idle", with zero
    PR links.
+
+### `the fork link renders only on a claude-chat row and POSTs the fork endpoint`
+
+**What it proves:** the conversation-fork affordance (260806-s4av) is gated on the
+window carrying a reconciled `claude` chat, its tooltip names the same-directory
+semantics, and clicking it POSTs the window-keyed `POST
+/api/windows/{windowId}/fork` endpoint — with no body, since every other input is
+derived server-side — without selecting or navigating the underlying row.
+
+**Steps:**
+1. Hover `@1` (the claude-chat window); assert the fork link is visible and its
+   `title` mentions "same directory".
+2. Hover `@2` (a plain shell window, no `chatProvider`); assert the card is the
+   scratch one ("idle") and carries zero fork links.
+3. Route `**/api/windows/*/fork*` to a 200 recording each request URL, returning
+   an EMPTY `windowId` so the app deliberately skips navigation (the best-effort
+   window-id contract) and the assertion stays on this route.
+4. Hover `@1` again and click the fork link; assert exactly one fork request
+   fired and its decoded URL is `/api/windows/@1/fork` (window-keyed, the source
+   window's id in the path).
+5. Assert the URL is still `/default` — forking never also selects the row.
+
+### `a successful fork navigates to the returned window`
+
+**What it proves:** the other half of the fork's navigation contract — a fork
+returning a NON-empty `windowId` routes the app to that window's
+`/$server/$window` URL, the same navigation the spawn dialog performs with a riff
+result. (The empty-`windowId` skip is proven by the test above.)
+
+**Steps:**
+1. Route `**/api/windows/*/fork*` to a 200 returning `windowId: "@9"`.
+2. Hover `@1` and click the fork link.
+3. Assert the URL becomes `/default/9` — `@9` with the route's `@` stripped.
 
 ### `clicking the card's PR link does not select/navigate the window row`
 

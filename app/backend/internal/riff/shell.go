@@ -2,6 +2,8 @@ package riff
 
 import (
 	"fmt"
+	"path"
+	"regexp"
 	"strings"
 
 	"rk/internal/tmux"
@@ -26,6 +28,65 @@ func buildSkillShellString(launcher, cmdArg string) string {
 	}
 	interactive := fmt.Sprintf(`${SHELL:-/bin/sh} -i -c '%s'`, escapeSingleQuotes(layer1))
 	return shellWrap(interactive)
+}
+
+// sessionUUIDRe matches the strict Claude session-UUID shape — the SAME rule as
+// internal/chat's uuidRe. Duplicated here (rather than imported) deliberately:
+// this is a defense-in-depth gate at the seam where the ref enters the
+// deliberately-unescaped launcher string, and internal/riff must not depend on
+// internal/chat to hold the security property (constitution §I). The API layer
+// validates the ref before the engine is ever called; this re-check is what
+// makes the property local to the composition.
+var sessionUUIDRe = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+
+// forkLauncherCommand is the only launcher a conversation fork can attach to:
+// `--resume <id> --fork-session` are Claude Code flags, so a resolved launcher
+// running anything else must not receive them.
+const forkLauncherCommand = "claude"
+
+// resumeForkLauncher appends `--resume <ref> --fork-session` to launcher so the
+// spawned agent forks the conversation named by ref instead of starting fresh
+// (260806-s4av). The flags ride the LAUNCHER half of buildSkillShellString — the
+// one deliberately-unescaped element (see § Single-Quote Escaping) — because
+// they must reach the agent binary as flags, not as a quoted positional
+// argument.
+//
+// An empty ref returns launcher unchanged (the ordinary-spawn path, byte-identical
+// to pre-fork behavior). A ref failing the strict UUID shape ALSO returns
+// launcher unchanged: the shape check is the guard that keeps shell-significant
+// characters out of the unescaped launcher, so a malformed ref must degrade to a
+// plain spawn rather than compose anything.
+//
+// A well-formed ref whose launcher is NOT a claude invocation is a
+// ValidationErr (→ 400): ResolveLauncher returns whatever the repo's default fab
+// tier resolves to, which in a mixed-provider repo can be codex/gemini, and the
+// source window's claude gate says nothing about that. Failing loudly beats the
+// two silent alternatives — handing claude-only flags to another binary, or
+// dropping the suffix and spawning an unforked agent that looks like a fork.
+// Pure apart from the error value.
+func resumeForkLauncher(launcher, ref string) (string, error) {
+	if ref == "" || !sessionUUIDRe.MatchString(ref) {
+		return launcher, nil
+	}
+	if cmd := launcherCommandName(launcher); cmd != forkLauncherCommand {
+		return "", ValidationErr("run-kit riff: cannot fork a conversation with launcher %q — --resume/--fork-session require %s", launcher, forkLauncherCommand)
+	}
+	return fmt.Sprintf("%s --resume %s --fork-session", launcher, ref), nil
+}
+
+// launcherCommandName returns the basename of a launcher string's first
+// whitespace-separated word — `claude` for both `claude --foo` and
+// `/opt/homebrew/bin/claude --foo`. An empty launcher yields "". Pure.
+//
+// A word-level split is deliberately naive about shell grammar (a launcher
+// prefixed with `env FOO=1` reads as `env`): it is a gate, not a parser, so it
+// errs toward rejecting a launcher it cannot positively identify as claude.
+func launcherCommandName(launcher string) string {
+	fields := strings.Fields(launcher)
+	if len(fields) == 0 {
+		return ""
+	}
+	return path.Base(fields[0])
 }
 
 // buildCmdShellString composes the shell string for a cmd-type pane. cmd panes

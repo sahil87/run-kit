@@ -132,6 +132,15 @@ type EffectiveSpec struct {
 	// `wt create --worktree-name`. Empty = wt generates the name (today's path).
 	// Ignored in checkout mode. The CLI never sets this.
 	WorktreeName string
+	// WindowNameBase, when non-empty, replaces the derived `riff-<basename>`
+	// window-name base (the collision suffixing in resolveWindowName still
+	// applies). Empty = today's derivation. The CLI never sets this.
+	//
+	// There is deliberately NO ResumeSessionRef here: the fork ref is consumed at
+	// the launcher seam in Spawn (folded into Launcher via resumeForkLauncher)
+	// and nothing downstream of the spec reads it, so a spec copy would be
+	// write-only provenance — the same reason Tier lives on Options only.
+	WindowNameBase string
 }
 
 // Result is the outcome of a single spawned window, returned by Spawn for the
@@ -162,6 +171,29 @@ type Options struct {
 	// Tier is the fab agent tier resolved for the launcher (`fab agent <tier>
 	// --print`). Empty = the default tier (`fab agent --print`, today's path).
 	Tier string
+	// ResumeSessionRef, when non-empty, is the Claude session uuid this spawn
+	// FORKS: the resolved launcher gains `--resume <uuid> --fork-session`, so the
+	// new pane's agent starts from a copy of that conversation's history under a
+	// fresh session id (the conversation-fork mechanism — 260806-s4av). Paired
+	// with Where:"checkout" it is a same-directory fork. Empty = an ordinary
+	// spawn, byte-identical to today. The CLI never sets this.
+	//
+	// The uuid is shape-validated at the API layer BEFORE it reaches here, and
+	// re-validated defensively at the launcher-composition seam
+	// (resumeForkLauncher) because it enters the deliberately-unescaped launcher
+	// string (constitution §I).
+	//
+	// `--resume`/`--fork-session` are Claude-only flags while ResolveLauncher
+	// returns a provider-opaque string, so a non-empty ref whose resolved launcher
+	// is NOT a claude invocation is a ValidationErr — never a silent plain spawn
+	// and never claude flags handed to another binary. Lives on Options only (no
+	// EffectiveSpec copy) — the Tier precedent for launcher-seam-consumed inputs.
+	ResumeSessionRef string
+	// WindowNameBase, when non-empty, replaces the derived `riff-<basename>`
+	// window-name base — the fork endpoint passes `<sourceWindowName>-fork`. The
+	// existing resolveWindowName collision suffixing (-2, -3, …) still applies.
+	// Empty = today's path-derived base. The CLI never sets this.
+	WindowNameBase string
 }
 
 // isCheckout reports whether opts requests checkout (non-isolated) mode.
@@ -199,7 +231,18 @@ func Spawn(ctx context.Context, opts Options) (Result, error) {
 		return Result{}, ValidationErr("run-kit riff: repo root is empty")
 	}
 
-	launcher := ResolveLauncher(ctx, opts.RepoRoot, opts.Tier)
+	// A non-empty ResumeSessionRef turns this spawn into a conversation FORK: the
+	// resolved launcher gains `--resume <uuid> --fork-session`. Composed once
+	// here, at the single seam where the launcher is produced, so every pane of
+	// the window inherits it and the argv builders stay pure functions of the spec.
+	// resumeForkLauncher re-validates the uuid shape, is a no-op on an empty or
+	// malformed ref (constitution §I — the launcher is the unescaped element), and
+	// errors when the resolved launcher is not a claude invocation (the flags are
+	// Claude-only; failing beats a silent unforked spawn — ExitValidation → 400).
+	launcher, err := resumeForkLauncher(ResolveLauncher(ctx, opts.RepoRoot, opts.Tier), opts.ResumeSessionRef)
+	if err != nil {
+		return Result{}, err
+	}
 
 	var preset *fabconfig.Preset
 	if opts.Preset != "" {
@@ -238,6 +281,10 @@ func Spawn(ctx context.Context, opts Options) (Result, error) {
 	if opts.isCheckout() {
 		spec.WorktreeName = ""
 	}
+	// WindowNameBase is consumed by spawnRiffReturningName's base derivation. The
+	// fork ref needs no spec field — it was already folded into spec.Launcher
+	// above, which is the only place anything downstream reads it.
+	spec.WindowNameBase = opts.WindowNameBase
 
 	// Checkout mode roots the window directly at the repo checkout (no worktree);
 	// worktree mode creates one first. Everything after — the tmux spawn sequence
@@ -415,8 +462,7 @@ func spawnRiffReturningName(ctx context.Context, worktreePath string, spec Effec
 	if err != nil {
 		return "", "", err
 	}
-	base := "riff-" + filepath.Base(worktreePath)
-	resolvedName := resolveWindowName(existing, base)
+	resolvedName := resolveWindowName(existing, windowNameBase(worktreePath, spec))
 
 	if len(spec.Panes) == 0 {
 		return resolvedName, "", &ExitCodeError{Code: ExitValidation, Msg: "run-kit riff: spawnRiff invariant violated: spec.Panes is empty"}
@@ -543,6 +589,17 @@ func childEnv(spec EffectiveSpec) []string {
 		env = append(env, "TMUX="+spec.OriginalTMUX)
 	}
 	return env
+}
+
+// windowNameBase returns the window-name base before collision suffixing: an
+// explicit spec.WindowNameBase when set (the fork endpoint's
+// `<sourceWindowName>-fork`), else the path-derived `riff-<basename>` both riff
+// modes have always used. Pure.
+func windowNameBase(windowRoot string, spec EffectiveSpec) string {
+	if spec.WindowNameBase != "" {
+		return spec.WindowNameBase
+	}
+	return "riff-" + filepath.Base(windowRoot)
 }
 
 // resolveWindowName returns base if free, else the first free base-2, base-3, …

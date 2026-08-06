@@ -87,7 +87,7 @@ import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 import { LogoSpinner } from "@/components/logo-spinner";
 import type { ServerInfo } from "@/api/client";
 
-import { selectWindow, createSession, createWindow, splitWindow, closePane, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, createServer, killServer as killServerApi, setWindowColor as setWindowColorApi, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, sendChatMessage, refreshStatus, isInfraServer, DAEMON_SERVER, spawnRiff, getRiffPresets } from "@/api/client";
+import { selectWindow, createSession, createWindow, splitWindow, closePane, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, createServer, killServer as killServerApi, setWindowColor as setWindowColorApi, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, sendChatMessage, refreshStatus, isInfraServer, DAEMON_SERVER, spawnRiff, getRiffPresets, forkWindow } from "@/api/client";
 import { useBoards } from "@/hooks/use-boards";
 import { useWindowPins } from "@/hooks/use-window-pins";
 import { usePinActions } from "@/hooks/use-pin-actions";
@@ -1486,6 +1486,42 @@ function AppShell() {
     setSpawnAgentTarget({ server: srv, session: sess });
   }, []);
 
+  // Navigate to a freshly-created agent window on `srv`. When `srv` IS the
+  // current server, reuse navigateToWindow (its window-switch transition);
+  // otherwise route cross-server via the 2-segment /$server/$window URL. Mirrors
+  // handleSidebarSelectWindow. Shared by the spawn dialog and the row-flyout fork
+  // (260806-s4av) so the two cannot drift.
+  const navigateToSpawnedWindow = useCallback(
+    (srv: string, windowId: string) => {
+      if (srv === server) {
+        navigateToWindow(windowId);
+        return;
+      }
+      navigate({ to: "/$server/$window", params: { server: srv, window: windowId } });
+      if (isMobile) setSidebarOpen(false);
+    },
+    [server, navigateToWindow, navigate, isMobile, setSidebarOpen],
+  );
+
+  // Fork a window's agent conversation (260806-s4av): a NEW window in the SAME
+  // session and directory, resuming that agent's session with --fork-session. The
+  // backend derives everything from the windowId, so the client sends nothing but
+  // the identity. On success navigate to the fork; a best-effort empty windowId
+  // (the backend's display-message resolve failed) skips navigation and lets SSE
+  // surface the row, matching the spawn dialog's rule.
+  //
+  // RETURNS the settle promise (already error-handled here, so it never rejects):
+  // the flyout's fork button awaits it to hold its in-flight disabled state, so
+  // repeated clicks cannot fire multiple mutating POSTs and create N forks.
+  const handleForkWindow = useCallback(
+    (srv: string, windowId: string): Promise<void> =>
+      forkWindow(srv, windowId)
+        .then((res) => {
+          if (res.windowId) navigateToSpawnedWindow(srv, res.windowId);
+        })
+        .catch((err: Error) => addToast(err.message || "Failed to fork conversation", "error")),
+    [navigateToSpawnedWindow, addToast],
+  );
 
   const handleCreateIframeWindow = useCallback(() => {
     const name = finalizeSafeName(iframeWindowName.trim());
@@ -2862,6 +2898,7 @@ function AppShell() {
       onCreateWindow={handleSidebarCreateWindow}
       onCreateSession={handleSidebarCreateSession}
       onSpawnAgent={handleOpenSpawnAgent}
+      onForkWindow={handleForkWindow}
       onCreateServer={() => setShowCreateServerDialog(true)}
       onKillServer={handleSidebarKillServer}
       onSidebarResizeStart={isMobile ? undefined : (e) => handleDragStart(e.clientX)}
@@ -3074,21 +3111,7 @@ function AppShell() {
           <SpawnAgentDialog
             server={spawnAgentTarget.server}
             session={spawnAgentTarget.session}
-            onSpawned={(windowId) => {
-              // Navigate to the freshly-spawned window on the TARGET server. When
-              // the target IS the current server, reuse navigateToWindow (its
-              // window-switch transition); otherwise route cross-server via the
-              // 2-segment /$server/$window URL. Mirrors handleSidebarSelectWindow.
-              if (spawnAgentTarget.server === server) {
-                navigateToWindow(windowId);
-              } else {
-                navigate({
-                  to: "/$server/$window",
-                  params: { server: spawnAgentTarget.server, window: windowId },
-                });
-                if (isMobile) setSidebarOpen(false);
-              }
-            }}
+            onSpawned={(windowId) => navigateToSpawnedWindow(spawnAgentTarget.server, windowId)}
             onClose={() => setSpawnAgentTarget(null)}
           />
         </Suspense>

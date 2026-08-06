@@ -1016,8 +1016,13 @@ describe("TopBar", () => {
       // the direction menu by attribute instead.
       const menu = splitDirectionMenu();
       expect(menu).not.toBeNull();
-      expect(within(menu!).getByText("Split vertical")).toBeInTheDocument();
-      expect(within(menu!).getByText("Split horizontal")).toBeInTheDocument();
+      // Horizontal first (the default), then vertical (260806-2x2h).
+      // querySelectorAll — jsdom keeps the control in the aria-hidden probe,
+      // which role queries exclude (the existing direction-menu test pattern).
+      const rows = Array.from(menu!.querySelectorAll('[role="menuitem"]'));
+      expect(rows).toHaveLength(2);
+      expect(rows[0]).toHaveTextContent("Split horizontal");
+      expect(rows[1]).toHaveTextContent("Split vertical");
     });
 
     it("does not render the split control on dashboard (no window)", () => {
@@ -1186,8 +1191,13 @@ describe("TopBar", () => {
       act(() => fireEvent.click(screen.getByLabelText("More controls")));
       const menu = screen.getByRole("menu", { name: "More controls" });
       // Everything overflows in jsdom → the terminal-tier rows are present.
-      expect(within(menu).getByText("Split vertical")).toBeInTheDocument();
-      expect(within(menu).getByText("Split horizontal")).toBeInTheDocument();
+      // The merged split entry emits horizontal FIRST (the default,
+      // 260806-2x2h), then vertical.
+      const hRow = within(menu).getByText("Split horizontal");
+      const vRow = within(menu).getByText("Split vertical");
+      expect(
+        Boolean(hRow.compareDocumentPosition(vRow) & Node.DOCUMENT_POSITION_FOLLOWING),
+      ).toBe(true);
       expect(within(menu).getByRole("menuitemcheckbox", { name: /Fixed width/ })).toBeInTheDocument();
       expect(within(menu).getByText("Refresh page")).toBeInTheDocument();
       // Theme / Help / Notifications rows are GONE (260724-6j1v — theme+help

@@ -57,7 +57,7 @@ async function mockBackend(page: Page) {
       body: JSON.stringify([
         { key: "F2", table: "root", command: "new-window", label: "New tmux window" },
         { key: "S-F7", table: "root", command: "copy-mode", label: "Scroll / copy mode" },
-        { key: "\\", table: "prefix", command: "split-window -h", label: "Split vertically" },
+        { key: "\\", table: "prefix", command: "split-window -h", label: "Split horizontally" },
       ]),
     }),
   );
@@ -155,14 +155,14 @@ test.describe("shortcuts overlay", () => {
     // and a Prefix row rendered as a Ctrl S then \ sequence.
     const tmux = page.getByTestId("tmux-section");
     await expect(tmux.getByText("Scroll / copy mode")).toBeVisible();
-    await expect(tmux.getByText("Split vertically")).toBeVisible();
+    await expect(tmux.getByText("Split horizontally")).toBeVisible();
     // `exact` — the Prefix SUBHEAD also contains "then" ("Ctrl+S, then key").
     await expect(tmux.getByText("then", { exact: true })).toBeVisible();
 
     // One filter spans app + tmux: the tmux hit stays visible and the chips
     // grow live match counts (global dims at zero).
     await page.getByLabel("Filter shortcuts").fill("split");
-    await expect(tmux.getByText("Split vertically")).toBeVisible();
+    await expect(tmux.getByText("Split horizontally")).toBeVisible();
     await expect(nav.locator("button", { hasText: "tmux" })).toContainText("1");
     await expect(nav.locator("button", { hasText: "global" })).toContainText("0");
   });

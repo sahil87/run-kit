@@ -810,25 +810,26 @@ function BoardPageContent({ name }: { name: string }) {
         onSelect: unpinFocused,
       });
 
-      // Keyboard parity for the top-bar board SplitButtons (Constitution V;
+      // Keyboard parity for the top-bar board split control (Constitution V;
       // 260715-6jwn). Act on the focused tile's window via the shared
       // `focusedPane` memo — the SAME `{server, windowId, cwd}` the top-bar slot
       // consumes, so there is one derivation of the active-pane cwd, not a
-      // duplicated per-handler lookup (parsimony). Split mirrors the terminal
-      // PALETTE's `horizontal` mapping (Vertical → horizontal: true — the
-      // documented cross-surface divergence with the top-bar chip labels, left
-      // out of scope). The board Kill lives in `board-kill-focused` above (routes
-      // through the confirm dialog), not here.
+      // duplicated per-handler lookup (parsimony). Split booleans match the
+      // top-bar chip's semantics (260806-2x2h resolved the old cross-surface
+      // divergence): Horizontal → `horizontal: true` (tmux `-h`, side-by-side),
+      // Vertical → `false` (stacked); Horizontal listed first (default-first).
+      // The board Kill lives in `board-kill-focused` above (routes through the
+      // confirm dialog), not here.
       conditional.push({
-        id: "board-split-vertical",
-        label: "Board: Split Focused Pane Vertical",
+        id: "board-split-horizontal",
+        label: "Board: Split Focused Pane Horizontal",
         onSelect: () => {
           if (focusedPane) executeSplit(focusedPane.server, focusedPane.windowId, true, focusedPane.cwd);
         },
       });
       conditional.push({
-        id: "board-split-horizontal",
-        label: "Board: Split Focused Pane Horizontal",
+        id: "board-split-vertical",
+        label: "Board: Split Focused Pane Vertical",
         onSelect: () => {
           if (focusedPane) executeSplit(focusedPane.server, focusedPane.windowId, false, focusedPane.cwd);
         },

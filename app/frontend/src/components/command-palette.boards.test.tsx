@@ -138,17 +138,19 @@ function buildBoardActions(opts: BuildOpts): PaletteAction[] {
         onSelect: () => opts.onUnpinFocused?.(),
       });
       // Split/close focused pane (260715-6jwn) — keyboard parity for the board
-      // top-bar SplitButtons + ✕. Present only with entries; act on the focused
-      // tile. Vertical → horizontal: true, mirroring the terminal PALETTE mapping.
-      conditional.push({
-        id: "board-split-vertical",
-        label: "Board: Split Focused Pane Vertical",
-        onSelect: () => opts.onSplitVertical?.(),
-      });
+      // top-bar split control + ✕. Present only with entries; act on the
+      // focused tile. Horizontal first (default-first) with booleans matching
+      // the top-bar chip semantics (260806-2x2h): Horizontal → horizontal:
+      // true (side-by-side), Vertical → false (stacked).
       conditional.push({
         id: "board-split-horizontal",
         label: "Board: Split Focused Pane Horizontal",
         onSelect: () => opts.onSplitHorizontal?.(),
+      });
+      conditional.push({
+        id: "board-split-vertical",
+        label: "Board: Split Focused Pane Vertical",
+        onSelect: () => opts.onSplitVertical?.(),
       });
       conditional.push({
         id: "board-close-focused",

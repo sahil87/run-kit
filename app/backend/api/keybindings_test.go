@@ -49,7 +49,7 @@ func TestHandleKeybindings(t *testing.T) {
 		for _, kb := range result {
 			found[kb.Label] = true
 		}
-		expected := []string{"New window", "Previous window", "Next window", "Split vertically", "Split horizontally", "Previous pane", "Scroll / copy mode"}
+		expected := []string{"New window", "Previous window", "Next window", "Split horizontally", "Split vertically", "Previous pane", "Scroll / copy mode"}
 		for _, e := range expected {
 			if !found[e] {
 				t.Errorf("expected label %q not found in results", e)
@@ -172,7 +172,7 @@ func TestMatchWhitelist(t *testing.T) {
 		wantFound bool
 	}{
 		{"new-window", "New window", true},
-		{"split-window -h", "Split vertically", true},
+		{"split-window -h", "Split horizontally", true},
 		{"detach-client", "", false},
 	}
 

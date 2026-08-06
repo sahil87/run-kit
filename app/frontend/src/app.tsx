@@ -1861,16 +1861,20 @@ function AppShell() {
               label: "Window: Kill",
               onSelect: dialogs.openKillConfirm,
             },
+            // Split direction booleans match the top-bar chip's semantics
+            // (260806-2x2h): Horizontal → `horizontal: true` (tmux `-h`,
+            // side-by-side), Vertical → `false` (stacked). Horizontal listed
+            // first (default-first, mirroring the SplitControl menus).
             {
-              id: "split-vertical",
-              label: "Window: Split Vertical",
+              id: "split-horizontal",
+              label: "Window: Split Horizontal",
               onSelect: () => {
                 if (sessionName) executeSplit(server, currentWindow.windowId, true, currentWindow.worktreePath);
               },
             },
             {
-              id: "split-horizontal",
-              label: "Window: Split Horizontal",
+              id: "split-vertical",
+              label: "Window: Split Vertical",
               onSelect: () => {
                 if (sessionName) executeSplit(server, currentWindow.windowId, false, currentWindow.worktreePath);
               },

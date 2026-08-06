@@ -241,7 +241,7 @@ describe("ShortcutsOverlay merged view (260801-sm6g)", () => {
   const TMUX_BINDINGS: Keybinding[] = [
     { key: "F3", table: "root", command: "previous-window", label: "Previous window (tmux)" },
     { key: "S-F3", table: "root", command: "select-pane -t :.-", label: "Previous pane" },
-    { key: "\\", table: "prefix", command: "split-window -h", label: "Split vertically" },
+    { key: "\\", table: "prefix", command: "split-window -h", label: "Split horizontally" },
   ];
 
   it("renders the sticky jump-nav chips for every section", () => {
@@ -310,7 +310,7 @@ describe("ShortcutsOverlay merged view (260801-sm6g)", () => {
     // The section header names the source server.
     expect(within(tmux).getByText("rk")).toBeInTheDocument();
     // Prefix rows render as a sequence: Ctrl S then \.
-    expect(within(tmux).getByText("Split vertically")).toBeInTheDocument();
+    expect(within(tmux).getByText("Split horizontally")).toBeInTheDocument();
     expect(within(tmux).getByText("then")).toBeInTheDocument();
     // Every tmux row is locked (read-only — pressed inside the pane).
     expect(
@@ -338,12 +338,12 @@ describe("ShortcutsOverlay merged view (260801-sm6g)", () => {
     getKeybindingsMock.mockResolvedValue(TMUX_BINDINGS);
     renderOverlay();
     const tmux = screen.getByTestId("tmux-section");
-    await waitFor(() => expect(within(tmux).getByText("Split vertically")).toBeInTheDocument());
+    await waitFor(() => expect(within(tmux).getByText("Split horizontally")).toBeInTheDocument());
     fireEvent.change(screen.getByLabelText("Filter shortcuts"), {
       target: { value: "split" },
     });
     // The tmux hit stays visible; app sections with no hits disappear.
-    expect(within(tmux).getByText("Split vertically")).toBeInTheDocument();
+    expect(within(tmux).getByText("Split horizontally")).toBeInTheDocument();
     expect(screen.queryByText("GLOBAL")).toBeNull();
     const nav = screen.getByTestId("shortcuts-jump-nav");
     expect(within(nav).getByText("tmux").closest("button")!.textContent).toBe("tmux1");

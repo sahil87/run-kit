@@ -100,7 +100,7 @@ dim).
 2. Assert every jump chip renders in the nav (`shortcuts-jump-nav`).
 3. Assert the TMUX section (`tmux-section`) shows the mocked root rows and the
    prefix row's "then" sequence separator.
-4. Fill the filter with "split" → the tmux "Split vertically" row stays
+4. Fill the filter with "split" → the tmux "Split horizontally" row stays
    visible; the tmux chip shows count 1 and the global chip shows 0.
 
 ### `the legacy Help: tmux Keybindings palette entry is gone (260801-sm6g)`

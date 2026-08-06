@@ -37,7 +37,7 @@ spec also asserts their absence.
   - the `/ws/terminals` mux WebSocket is stubbed (accepted and held open) so the terminal
     route mounts without a backend.
 - `beforeEach` installs the routes, navigates to the percent-encoded terminal
-  window route `/default/%401` (`@1`), and waits for the **Split horizontally** primary segment (the ✕ left the bar in 260731-oiho) to
+  window route `/default/%401` (`@1`), and waits for the **Split horizontally** primary segment (the ✕ left the bar in 260731-oiho; the split default flipped to horizontal in 260806-2x2h) to
   be visible — the signal the state-socket payload has landed and `currentWindow` is set.
   The Refresh button cannot be this anchor: it rides the L3 always-block
   (260704-9o7k) and is visible at first paint, before the mocked state-socket event is

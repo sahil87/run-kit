@@ -9,8 +9,8 @@
  * items (chevron, dot) always render, and the ordered non-exempt fit candidates
  * (`menuOnly` entries such as the ViewSwitcher are excluded by the caller and
  * never fitted, 260722-n2n4) are consumed FROM THE FRONT of the REGISTRY as
- * width shrinks (L1 drops before L2 before L3 — `split-vertical` is the first
- * to yield). This function itself is direction-agnostic: it greedily fits from
+ * width shrinks (L1 drops before L2 before L3 — the `split` control is the
+ * first to yield). This function itself is direction-agnostic: it greedily fits from
  * index 0 of whatever `itemWidths` array the caller supplies, and returns how
  * many of THOSE leading entries fit. Because the surviving in-bar set must be a
  * SUFFIX of the registry order, the TopBar caller passes the widths REVERSED

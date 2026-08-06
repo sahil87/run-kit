@@ -1,0 +1,9 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-06T04:59:45Z"}
+{"args":"Change the split control default: split horizontal (side-by-side) becomes the primary action and first menu row instead of split vertical; also align the inverted command-palette split labels with the top-bar chip semantics","cmd":"fab-new","event":"command","ts":"2026-08-06T04:59:45Z"}
+{"delta":"+4.9","event":"confidence","score":4.9,"trigger":"calc-score","ts":"2026-08-06T05:01:50Z"}
+{"cmd":"fab-ff","event":"command","ts":"2026-08-06T05:05:05Z"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"apply","ts":"2026-08-06T05:05:14Z"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"review","ts":"2026-08-06T05:25:35Z"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"hydrate","ts":"2026-08-06T05:35:58Z"}
+{"event":"review","result":"passed","ts":"2026-08-06T05:35:58Z"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"ship","ts":"2026-08-06T05:41:48Z"}

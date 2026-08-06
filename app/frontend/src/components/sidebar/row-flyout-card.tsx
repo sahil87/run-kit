@@ -184,6 +184,14 @@ function RowFlyoutContent({ win }: { win: WindowInfo }) {
   const agentLine = getAgentLine(win);
   const fabLine = getFabLine(win);
   const prSegments = getPrSegments(win);
+  // Single-sourced segment JSX shared by the anchor and plain branches below
+  // (the panel's segmentSpans idiom — the two renderings can't drift).
+  const segmentSpans = prSegments?.map((seg, i) => (
+    <span key={seg.text}>
+      {i > 0 && <span className="text-text-secondary">{" · "}</span>}
+      <span className={seg.color}>{seg.text}</span>
+    </span>
+  ));
   const fetchedAtEpoch = prFetchedAtEpoch(win);
 
   return (
@@ -206,9 +214,11 @@ function RowFlyoutContent({ win }: { win: WindowInfo }) {
         </a>
       </div>
       {/* The four orthogonal signal registers (status-pyramid.md), promoted
-          from the PANE panel via the shared resolvers. Read-only text — the
-          panel keeps its icons + copy interactions; the card is glance-only.
-          The tip's former standalone `agent:` line is subsumed by `agt`. */}
+          from the PANE panel via the shared resolvers. Read-only text except
+          the `pr` register, which is open-first (the line is a real anchor)
+          exactly like the panel's PrLinkRow — the register is open-first
+          everywhere it renders. The tip's former standalone `agent:` line is
+          subsumed by `agt`. */}
       <RegisterLine prefix="out " testid="row-flyout-out">
         <span className="text-text-secondary">{outputLine}</span>
       </RegisterLine>
@@ -222,40 +232,52 @@ function RowFlyoutContent({ win }: { win: WindowInfo }) {
           <span className="text-text-primary">{fabLine}</span>
         </RegisterLine>
       )}
-      {prSegments && (
-        // "pr" + 2 NBSPs = the same 4-advance prefix column as `out `/`agt `/
-        // `fab ` (and status-panel.tsx's pr rows). Escape sequences, never
-        // literal NBSPs - a literal survives careless re-encoding badly (the
-        // cycle-1 mojibake). Codepoints pinned by a unit test.
-        <RegisterLine prefix={"pr\u00a0\u00a0"} testid="row-flyout-pr">
-          {prSegments.map((seg, i) => (
-            <span key={seg.text}>
-              {i > 0 && <span className="text-text-secondary">{" · "}</span>}
-              <span className={seg.color}>{seg.text}</span>
-            </span>
-          ))}
-        </RegisterLine>
-      )}
-      {/* Ambient "PR checked Xs ago" trust signal; omitted without a joined
-          PR-status timestamp. Leaf-scoped clock inside the open card. */}
-      <FreshnessLine fetchedAtEpoch={fetchedAtEpoch} />
-      {/* Open-first PR affordance — the rest glyph is informational (it swaps
-          away under the pointer), so THIS anchor is the click path. Anchor,
-          not button (native middle/Ctrl+click); stopPropagation so opening
-          the PR never selects the underlying row. `prUrl` and `prNumber` are
-          independently optional — omit `#N` rather than render "#undefined". */}
-      {win.prUrl && (
+      {/* `pr` register — open-first when a URL exists (the panel's PrLinkRow
+          idiom): the WHOLE line is a real anchor (native middle/Ctrl+click,
+          right-click → copy link) with an always-visible inline `↗` sitting
+          shrink-0 after the truncating segment span, so it hugs the text end
+          and is never eaten by truncation. stopPropagation so opening the PR
+          never selects the underlying row. Without a URL the line stays plain
+          read-only text (`prUrl`/`prNumber` are independently optional — a
+          URL-less number gets the plain line, a number-less URL a bare
+          "open PR" anchor).
+          Prefix: "pr" + 2 NBSPs = the same 4-advance column as `out `/`agt `/
+          `fab ` (and status-panel.tsx's pr rows). Escape sequences, never
+          literal NBSPs - a literal survives careless re-encoding badly (the
+          cycle-1 mojibake). Codepoints pinned by a unit test. */}
+      {win.prUrl ? (
         <a
           href={win.prUrl}
           target="_blank"
           rel="noopener noreferrer"
+          title={win.prUrl}
+          aria-label={win.prNumber ? `Open PR #${win.prNumber} in a new tab` : "Open PR in a new tab"}
           onClick={(e) => e.stopPropagation()}
-          className="text-text-secondary hover:text-text-primary hover:underline whitespace-nowrap coarse:py-1"
+          className="group/pr flex items-center min-w-0 hover:bg-bg-inset focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent coarse:py-1"
           data-testid="row-flyout-pr-link"
         >
-          {win.prNumber ? `Open PR #${win.prNumber} ↗` : "Open PR ↗"}
+          <span className="text-text-secondary shrink-0">{"pr\u00a0\u00a0"}</span>
+          {segmentSpans ? (
+            <span data-testid="row-flyout-pr" className="min-w-0 truncate">
+              {segmentSpans}
+            </span>
+          ) : (
+            <span className="min-w-0 truncate text-text-secondary">open PR</span>
+          )}
+          {/* NBSP inside the span — the anchor is a flex container, so a
+              whitespace-only text node between flex items would be dropped. */}
+          <span className="shrink-0 text-text-secondary group-hover/pr:text-text-primary">{"\u00a0↗"}</span>
         </a>
+      ) : (
+        segmentSpans && (
+          <RegisterLine prefix={"pr\u00a0\u00a0"} testid="row-flyout-pr">
+            {segmentSpans}
+          </RegisterLine>
+        )
       )}
+      {/* Ambient "PR checked Xs ago" trust signal; omitted without a joined
+          PR-status timestamp. Leaf-scoped clock inside the open card. */}
+      <FreshnessLine fetchedAtEpoch={fetchedAtEpoch} />
     </>
   );
 }

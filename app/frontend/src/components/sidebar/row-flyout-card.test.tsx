@@ -109,14 +109,6 @@ describe("RowFlyout card content", () => {
     expect(screen.getByTestId("row-flyout-fab")).toHaveTextContent("fab 93dy row-flyout · apply · active");
     const pr = screen.getByTestId("row-flyout-pr");
     expect(pr).toHaveTextContent("#386");
-    // The pr prefix is EXACTLY "pr" + 2 NBSPs — the 4-advance column the
-    // `out `/`agt `/`fab ` prefixes (and status-panel.tsx's pr rows) use. Pin
-    // the codepoints so a mojibake re-encode (the cycle-1 `prÂ  ` regression,
-    // U+00C2 U+00A0) can never silently return.
-    const prPrefix = pr.querySelector("span")!.textContent!;
-    expect(Array.from(prPrefix).map((c) => c.codePointAt(0))).toEqual([
-      0x70, 0x72, 0x00a0, 0x00a0,
-    ]);
     // Register lines ellipsize INSIDE the max-w-xs card (panel parity —
     // status-panel.tsx `min-w-0 truncate`); jsdom has no layout, so the
     // classes are pinned here and the real no-overflow box is asserted in
@@ -128,11 +120,23 @@ describe("RowFlyout card content", () => {
     expect(pr).toHaveTextContent("checks pass");
     expect(pr).toHaveTextContent("review: approved");
     expect(screen.getByTestId("row-flyout-checked")).toHaveTextContent("checked 30s ago");
+    // The pr register LINE is the open-first anchor (PrLinkRow idiom): the
+    // segments live inside it, with the always-visible inline ↗ after them.
     const link = screen.getByTestId("row-flyout-pr-link");
-    expect(link).toHaveTextContent("Open PR #386 ↗");
+    expect(link).toContainElement(pr);
+    expect(link).toHaveTextContent("↗");
+    expect(link).toHaveAttribute("aria-label", "Open PR #386 in a new tab");
     expect(link).toHaveAttribute("href", "https://github.com/o/r/pull/386");
     expect(link).toHaveAttribute("target", "_blank");
     expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    // The anchor's prefix is EXACTLY "pr" + 2 NBSPs — the 4-advance column the
+    // `out `/`agt `/`fab ` prefixes (and status-panel.tsx's pr rows) use. Pin
+    // the codepoints so a mojibake re-encode (the cycle-1 `prÂ  ` regression,
+    // U+00C2 U+00A0) can never silently return.
+    const prPrefix = link.querySelector("span")!.textContent!;
+    expect(Array.from(prPrefix).map((c) => c.codePointAt(0))).toEqual([
+      0x70, 0x72, 0x00a0, 0x00a0,
+    ]);
   });
 
   it("colors the PR segments via the shared vocabulary (fail → red)", () => {
@@ -149,12 +153,22 @@ describe("RowFlyout card content", () => {
     );
     expect(fail).toBeTruthy();
     expect(fail!.className).toContain("text-red-400");
+    // No URL → the line stays plain read-only text, no anchor. Its RegisterLine
+    // prefix carries the same pinned "pr" + 2-NBSP codepoints.
+    expect(screen.queryByTestId("row-flyout-pr-link")).toBeNull();
+    const plainPrefix = pr.querySelector("span")!.textContent!;
+    expect(Array.from(plainPrefix).map((c) => c.codePointAt(0))).toEqual([
+      0x70, 0x72, 0x00a0, 0x00a0,
+    ]);
   });
 
-  it("omits the #N in the PR link when prUrl exists without prNumber", () => {
+  it("renders a bare 'open PR' anchor when prUrl exists without prNumber", () => {
     renderOpen(makeWindow({ prUrl: "https://github.com/o/r/pull/9" }));
-    expect(screen.getByTestId("row-flyout-pr-link")).toHaveTextContent("Open PR ↗");
-    // No pr register without a prNumber (getPrSegments gate).
+    const link = screen.getByTestId("row-flyout-pr-link");
+    expect(link).toHaveTextContent("open PR");
+    expect(link).toHaveTextContent("↗");
+    expect(link).toHaveAttribute("aria-label", "Open PR in a new tab");
+    // No segment span without a prNumber (getPrSegments gate).
     expect(screen.queryByTestId("row-flyout-pr")).toBeNull();
   });
 

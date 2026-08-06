@@ -39,15 +39,19 @@ git-pull-request glyph that swaps for the pin/✕ actions on hover.
 **What it proves:** whole-row hover (350ms delay) opens the flyout card
 anchored at the sidebar's right edge and vertically aligned to the hovered row,
 carrying the dot-label header, the four registers (`out`/`agt`/`fab`/`pr`),
-the "checked Xs ago" freshness line, the "Open PR #N ↗" link (new tab,
-`noopener noreferrer`), and the always-present docs link.
+the "checked Xs ago" freshness line, and the always-present docs link. The
+`pr` register line is itself the open-first anchor (the panel's PrLinkRow
+idiom): it wraps the colored segments, ends in an always-visible inline `↗`,
+and opens the PR in a new tab (`noopener noreferrer`).
 
 **Steps:**
 1. Hover the `@1` row; assert the card is visible.
 2. Assert the card contains "PR — open" (the dot label) and each register
    testid shows its expected content (`waiting 3m`, the fab id·slug·stage·state
    line, `#386`, the freshness line).
-3. Assert the PR link text/href/target/rel and the docs link href.
+3. Assert the pr-register anchor wraps the segments (`#386`, `↗`), carries
+   the "Open PR #386 in a new tab" aria-label + href/target/rel, and the docs
+   link href.
 4. Compare bounding boxes: the card's x ≥ the sidebar `<aside>`'s right edge,
    and the card vertically overlaps the hovered row (±8px).
 5. Assert no line paints outside the `max-w-xs` card box: the card's

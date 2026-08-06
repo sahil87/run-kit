@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 16
@@ -33,22 +33,24 @@ stage_metrics:
     apply: {started_at: "2026-08-06T05:05:14Z", driver: fab-ff, iterations: 1, completed_at: "2026-08-06T05:25:35Z"}
     review: {started_at: "2026-08-06T05:25:35Z", driver: fab-ff, iterations: 1, completed_at: "2026-08-06T05:35:58Z"}
     hydrate: {started_at: "2026-08-06T05:35:58Z", driver: fab-ff, iterations: 1, completed_at: "2026-08-06T05:41:48Z"}
-    ship: {started_at: "2026-08-06T05:41:48Z", driver: fab-ff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-08-06T05:41:48Z", driver: fab-ff, iterations: 1, completed_at: "2026-08-06T05:47:10Z"}
+    review-pr: {started_at: "2026-08-06T05:47:10Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/527
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 521
+    deleted: 136
+    net: 385
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 148
+        deleted: 122
+        net: 26
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-08-06T05:41:48Z"
-    computed_at_stage: hydrate
+        added: 26
+        deleted: 23
+        net: 3
+    computed_at: "2026-08-06T05:47:10Z"
+    computed_at_stage: ship
 summary: 'Split control defaults to horizontal (side-by-side): primary segment, ▾ menu, overflow rows and both palettes lead with horizontal, and every surface — chip, palettes, tmux shortcuts overlay — shares one direction vocabulary (horizontal=-h=beside, vertical=-v=stacked).'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-06T05:41:48Z
+last_updated: 2026-08-06T05:47:10Z

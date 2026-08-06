@@ -52,6 +52,9 @@ and opens the PR in a new tab (`noopener noreferrer`).
 3. Assert the pr-register anchor wraps the segments (`#386`, `↗`), carries
    the "Open PR #386 in a new tab" aria-label + href/target/rel, and the docs
    link href.
+4. Assert the row-aligned notch: the card's arrow SVG is present and its
+   vertical center falls inside the hovered row's band (the E1 connection
+   cue — the notch points at the row that owns the card).
 4. Compare bounding boxes: the card's x ≥ the sidebar `<aside>`'s right edge,
    and the card vertically overlaps the hovered row (±8px).
 5. Assert no line paints outside the `max-w-xs` card box: the card's

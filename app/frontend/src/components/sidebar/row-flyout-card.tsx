@@ -4,6 +4,8 @@ import {
   offset,
   flip,
   shift,
+  arrow,
+  FloatingArrow,
   useHover,
   useFocus,
   useDismiss,
@@ -297,6 +299,10 @@ type RowFlyout = {
   referenceProps: Record<string, unknown>;
   /** The portalled card, or null while closed. Render inside the row. */
   card: ReactNode;
+  /** True while the card is open. The row reads this to HOLD its hover tint
+   *  while the pointer travels onto the card (the held-row continuity cue) —
+   *  the state is row-local, so the open/close re-render never leaves the row. */
+  open: boolean;
   /** Imperative open — the coarse-pointer dot-tap trigger. */
   openNow: () => void;
   /** Imperative close — the row calls this on drag start. */
@@ -330,10 +336,20 @@ export function useRowFlyout(win: WindowInfo, { suppressed = false }: UseRowFlyo
     selfRef.current = { close: () => setOpen(false) };
   }
 
+  // True when this open was COLD (no card open, warm window expired) — gates
+  // the slide-out entrance so warm retargets between rows snap instead of
+  // re-animating on every sweep. Captured at the closed→open transition, BEFORE
+  // the coordinator update makes the module state warm.
+  const coldOpenRef = useRef(false);
+
   const handleOpenChange = useCallback((next: boolean) => {
     const self = selfRef.current;
     if (!self) return;
     if (next) {
+      // `useFocus` re-fires onOpenChange(true) for focusin bubbling from the
+      // card, so only a transition where this card was NOT already the active
+      // one counts as a fresh open for the entrance animation.
+      if (activeFlyout !== self) coldOpenRef.current = !flyoutIsWarm();
       // Single-open: opening this card closes any other open card (the
       // FloatingDelayGroup "currentId" behavior, module-scoped).
       if (activeFlyout && activeFlyout !== self) activeFlyout.close();
@@ -375,6 +391,12 @@ export function useRowFlyout(win: WindowInfo, { suppressed = false }: UseRowFlyo
     };
   }, []);
 
+  // Row-aligned notch (E1): the arrow middleware pins a pointer on the card's
+  // row-side edge at the ROW's vertical center — the geometric "whose card is
+  // this" cue. `shift()` may slide the card along the cross axis at viewport
+  // edges; the arrow stays locked to the reference either way.
+  const arrowRef = useRef<SVGSVGElement | null>(null);
+
   const { refs, floatingStyles, context } = useFloating({
     open,
     onOpenChange: handleOpenChange,
@@ -389,7 +411,9 @@ export function useRowFlyout(win: WindowInfo, { suppressed = false }: UseRowFlyo
     // off-viewport edge clips instead of widening the page; flip()/shift()
     // keep positioning against the viewport as before.
     strategy: "fixed",
-    middleware: [offset(6), flip(), shift({ padding: 8 })],
+    // arrow() runs after shift() so the notch is positioned against the final
+    // shifted card rect (the floating-ui documented order).
+    middleware: [offset(6), flip(), shift({ padding: 8 }), arrow({ element: arrowRef })],
     whileElementsMounted: autoUpdate,
   });
 
@@ -450,8 +474,29 @@ export function useRowFlyout(win: WindowInfo, { suppressed = false }: UseRowFlyo
           // any focusable descendant, i.e. the PR/docs links).
           onFocusCapture={() => setFocusInsideCard(true)}
           data-testid="row-flyout-card"
-          className="z-50 flex flex-col gap-1 bg-bg-primary border border-border rounded-md shadow-lg px-2 py-1.5 text-xs font-mono w-max max-w-xs"
+          // `rk-flyout-in` (cold opens only — warm retargets snap) slides the
+          // card out of the row via margin-left + opacity: floating-ui owns
+          // this element's `transform` for positioning, so the entrance must
+          // never animate transform (it would clobber the translate).
+          className={`z-50 flex flex-col gap-1 bg-bg-primary border border-border rounded-md shadow-lg px-2 py-1.5 text-xs font-mono w-max max-w-xs${
+            coldOpenRef.current ? " rk-flyout-in" : ""
+          }`}
         >
+          {/* Row-aligned notch (E1): pinned by the arrow() middleware to the
+              hovered row's vertical center on the card's row-side edge —
+              fill/stroke match the card surface so it reads as one shape. */}
+          <FloatingArrow
+            ref={arrowRef}
+            context={context}
+            width={10}
+            height={5}
+            tipRadius={1}
+            fill="var(--color-bg-primary)"
+            stroke="var(--color-border)"
+            strokeWidth={1}
+            aria-hidden="true"
+            data-testid="row-flyout-arrow"
+          />
           <RowFlyoutContent win={win} />
         </div>
       </FloatingFocusManager>
@@ -462,6 +507,7 @@ export function useRowFlyout(win: WindowInfo, { suppressed = false }: UseRowFlyo
     setReference: refs.setReference,
     referenceProps: getReferenceProps(),
     card,
+    open,
     openNow,
     close,
   } satisfies RowFlyout;

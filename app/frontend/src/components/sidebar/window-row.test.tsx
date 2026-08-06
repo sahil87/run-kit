@@ -1,7 +1,8 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { useState } from "react";
-import { render, screen, cleanup, act } from "@testing-library/react";
+import { render, screen, cleanup, act, fireEvent } from "@testing-library/react";
 import { WindowRow } from "./window-row";
+import { FLYOUT_OPEN_DELAY_MS, resetFlyoutWarmState } from "./row-flyout-card";
 import { ToastProvider } from "@/components/toast";
 import { ThemeProvider } from "@/contexts/theme-context";
 import * as optimisticContext from "@/contexts/optimistic-context";
@@ -1177,5 +1178,39 @@ describe("WindowRow", () => {
       expect(icon!.style.left).toBe("12px");
       expect(icon!.style.width).toBe("12px");
     });
+  });
+});
+
+describe("held-row continuity while the flyout is open (E1)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    resetFlyoutWarmState();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    resetFlyoutWarmState();
+  });
+
+  it("the row button HOLDS the hover shade + bright text while its card is open", () => {
+    renderRow(makeWindow({ name: "held-win" }));
+    const root = screen.getByRole("treeitem");
+    const button = root.querySelector("button")!;
+    // At rest the shade/brightening exist only as hover: variants — no bare
+    // tokens (the regexes reject the `hover:`-prefixed copies via the
+    // preceding-space requirement).
+    expect(button.className).not.toMatch(/(?:^| )bg-bg-card\/50/);
+    expect(button.className).not.toMatch(/(?:^| )text-text-primary/);
+
+    act(() => {
+      fireEvent.pointerEnter(root, { pointerType: "mouse" });
+      fireEvent.mouseEnter(root);
+      vi.advanceTimersByTime(FLYOUT_OPEN_DELAY_MS + 50);
+    });
+    expect(screen.getByTestId("row-flyout-card")).toBeInTheDocument();
+    // Open card ⇒ the held-row cue: the shade + brightening become
+    // UNCONDITIONAL classes, so they survive the pointer traveling onto the
+    // card (where CSS :hover on the row is lost).
+    expect(button.className).toMatch(/(?:^| )bg-bg-card\/50/);
+    expect(button.className).toMatch(/(?:^| )text-text-primary/);
   });
 });

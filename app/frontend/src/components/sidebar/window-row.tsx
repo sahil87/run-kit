@@ -222,15 +222,18 @@ function WindowRowInner({
   }, [color, rowBorders]);
 
   // Compute inline style for the button (background tint only — no left border).
+  // While the flyout card is open the row HOLDS its hover shade (the held-row
+  // continuity cue): the pointer traveling onto the card drops CSS :hover, and
+  // without the hold the card visibly "detaches" from its row.
   const buttonStyle = useMemo(() => {
     const style: React.CSSProperties = {};
     if (tint) {
-      style.backgroundColor = isSelected ? tint.selected : tint.base;
+      style.backgroundColor = isSelected ? tint.selected : flyout.open ? tint.hover : tint.base;
     } else if (uncoloredSelectedTint) {
       style.backgroundColor = uncoloredSelectedTint.selected;
     }
     return Object.keys(style).length > 0 ? style : undefined;
-  }, [tint, uncoloredSelectedTint, isSelected]);
+  }, [tint, uncoloredSelectedTint, isSelected, flyout.open]);
 
   // Build className for the button. The row box is FULL-BLEED — it starts at
   // the physical sidebar edge (the former 12px group `ml-3` indent moved into
@@ -256,12 +259,16 @@ function WindowRowInner({
       return `${base} text-text-primary font-medium`;
     }
     if (tint) {
-      // Colored non-selected: inline bg via buttonStyle, hover via JS
-      return `${base} text-text-secondary hover:text-text-primary`;
+      // Colored non-selected: inline bg via buttonStyle, hover via JS. Held
+      // (flyout open): the text brightening persists off-:hover too.
+      return `${base} text-text-secondary hover:text-text-primary${flyout.open ? " text-text-primary" : ""}`;
     }
-    // Uncolored non-selected
-    return `${base} text-text-secondary hover:text-text-primary hover:bg-bg-card/50`;
-  }, [tint, isSelected, showPinIcon]);
+    // Uncolored non-selected. Held (flyout open): the hover shade + text
+    // brightening persist while the pointer is on the card (held-row cue).
+    return `${base} text-text-secondary hover:text-text-primary hover:bg-bg-card/50${
+      flyout.open ? " text-text-primary bg-bg-card/50" : ""
+    }`;
+  }, [tint, isSelected, showPinIcon, flyout.open]);
 
   // ── Left-edge label zone ────────────────────────────────────────────────
   // The 26px left of the status dot is ONE target opening the combined Label
@@ -398,7 +405,10 @@ function WindowRowInner({
         style={buttonStyle}
         aria-current={isSelected ? "page" : undefined}
         onMouseEnter={tint && !isSelected ? (e) => { (e.currentTarget as HTMLElement).style.backgroundColor = tint.hover; } : undefined}
-        onMouseLeave={tint && !isSelected ? (e) => { (e.currentTarget as HTMLElement).style.backgroundColor = tint.base; } : undefined}
+        // Held-row cue: while the flyout is open, leaving the row (the pointer
+        // traveling onto the card) must NOT drop the hover shade — the close
+        // re-render restores tint.base via buttonStyle when the card goes.
+        onMouseLeave={tint && !isSelected ? (e) => { if (!flyout.open) (e.currentTarget as HTMLElement).style.backgroundColor = tint.base; } : undefined}
       >
         {/* No `truncate` on this wrapper: the dot's waiting halo is a
             box-shadow that paints OUTSIDE the 7px dot, and `truncate`'s

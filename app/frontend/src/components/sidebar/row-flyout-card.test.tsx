@@ -137,6 +137,8 @@ describe("RowFlyout card content", () => {
     expect(Array.from(prPrefix).map((c) => c.codePointAt(0))).toEqual([
       0x70, 0x72, 0x00a0, 0x00a0,
     ]);
+    // Row-aligned notch (E1): the arrow SVG renders inside the card.
+    expect(screen.getByTestId("row-flyout-arrow")).toBeInTheDocument();
   });
 
   it("colors the PR segments via the shared vocabulary (fail → red)", () => {
@@ -259,6 +261,8 @@ describe("Flyout warm-window delay group (module-scoped)", () => {
       vi.advanceTimersByTime(FLYOUT_OPEN_DELAY_MS + 50);
     });
     expect(screen.getAllByTestId("row-flyout-card")).toHaveLength(1);
+    // Cold open carries the slide-out entrance class (E1 base cue)…
+    expect(screen.getByTestId("row-flyout-card").className).toContain("rk-flyout-in");
     act(() => {
       fireEvent.pointerEnter(rows[1], { pointerType: "mouse" });
       fireEvent.mouseEnter(rows[1]);
@@ -266,6 +270,8 @@ describe("Flyout warm-window delay group (module-scoped)", () => {
       vi.advanceTimersByTime(50);
     });
     expect(screen.getAllByTestId("row-flyout-card")).toHaveLength(1);
+    // …but a warm retarget snaps — no re-animation on every sweep.
+    expect(screen.getByTestId("row-flyout-card").className).not.toContain("rk-flyout-in");
   });
 });
 

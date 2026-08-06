@@ -504,6 +504,18 @@ summary {
 
 /* Reduced-motion gate — disable EVERY treatment above (Parts A and B). The
    decode scramble is skipped in JS (top-bar.tsx reads the same media query). */
+/* ── Row-flyout card entrance (window-row register flyout, E1) ─────────────
+   Cold opens slide the card out of its row (6px) with a fade; warm retargets
+   between rows do NOT carry the class (they snap — see row-flyout-card.tsx
+   coldOpenRef). margin-left, NOT transform: floating-ui owns the element's
+   transform for positioning, and animating it would clobber the translate.
+   Zeroed under prefers-reduced-motion (below). */
+@keyframes rk-flyout-in {
+  from { opacity: 0; margin-left: -6px; }
+  to { opacity: 1; margin-left: 0; }
+}
+.rk-flyout-in { animation: rk-flyout-in 140ms ease-out; }
+
 @media (prefers-reduced-motion: reduce) {
   .rk-glint::after,
   .rk-glint:hover::after { animation: none; opacity: 0; }
@@ -531,6 +543,8 @@ summary {
   /* Dashed-marker data rain: motion-only overlay — hidden entirely (the
      static label cue is the dashed stripe itself, which always remains). */
   .rk-dash-rain::before { animation: none; display: none; }
+  /* Flyout-card entrance: pure flourish — the card simply appears. */
+  .rk-flyout-in { animation: none; }
 }
 
 /* Prevent iOS Safari page scroll/bounce — fullbleed always on in single-view. */

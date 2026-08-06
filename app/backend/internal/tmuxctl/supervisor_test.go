@@ -284,6 +284,99 @@ func TestSupervisor_RemoveEvent(t *testing.T) {
 		"did not observe Remove-driven Close within 2s")
 }
 
+// TestSupervisor_SocketsAndGeneration verifies the covered-set and generation
+// accessors the layout snapshotter consumes.
+func TestSupervisor_SocketsAndGeneration(t *testing.T) {
+	resetLoggedUnknowns()
+	dir := t.TempDir()
+	for _, name := range []string{"a", "b"} {
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	reg := newTestOpenRegistry()
+	s := NewSupervisor(nil)
+	s.watchDirOverride = dir
+	s.open = reg.openFn()
+
+	if err := s.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() {
+		stopCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = s.Stop(stopCtx)
+	})
+
+	got := s.Sockets()
+	covered := map[string]bool{}
+	for _, name := range got {
+		covered[name] = true
+	}
+	if len(got) != 2 || !covered["a"] || !covered["b"] {
+		t.Fatalf("Sockets() = %v, want [a b]", got)
+	}
+
+	// A covered socket reports its Client's counter; an uncovered name is 0.
+	if gen := s.Generation("a"); gen != s.Get("a").Generation() {
+		t.Errorf("Generation(a) = %d, want the client counter", gen)
+	}
+	if gen := s.Generation("missing"); gen != 0 {
+		t.Errorf("Generation(missing) = %d, want 0", gen)
+	}
+}
+
+// TestSupervisor_OnSocketRemovedCallback verifies the socket-removed seam the
+// snapshotter's tombstoning hangs off: the callback fires with the socket name
+// after the Client is closed, and an unwired (nil) callback stays a no-op.
+func TestSupervisor_OnSocketRemovedCallback(t *testing.T) {
+	resetLoggedUnknowns()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "kits"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	reg := newTestOpenRegistry()
+	s := NewSupervisor(nil)
+	s.watchDirOverride = dir
+	s.open = reg.openFn()
+
+	var mu sync.Mutex
+	var removed []string
+	s.OnSocketRemoved = func(name string) {
+		mu.Lock()
+		removed = append(removed, name)
+		mu.Unlock()
+	}
+
+	if err := s.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() {
+		stopCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = s.Stop(stopCtx)
+	})
+
+	testutil.MustWaitUntil(t, 2*time.Second, func() bool { return s.Get("kits") != nil },
+		"initial open not registered")
+
+	if err := os.Remove(filepath.Join(dir, "kits")); err != nil {
+		t.Fatal(err)
+	}
+	testutil.MustWaitUntil(t, 2*time.Second, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(removed) == 1 && removed[0] == "kits"
+	}, "OnSocketRemoved did not fire with the socket name")
+
+	// The client must already be evicted when the callback has fired.
+	if s.Get("kits") != nil {
+		t.Error("client still registered after removal callback")
+	}
+}
+
 // TestSupervisor_WatchDirMissing verifies that Start creates the watch dir
 // when it doesn't exist.
 func TestSupervisor_WatchDirMissing(t *testing.T) {

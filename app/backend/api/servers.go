@@ -186,6 +186,13 @@ func (s *Server) handleServerKill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Note the audited kill BEFORE it lands so the snapshotter's tombstone
+	// (triggered by the socket-removal event) records it as audited even when
+	// the removal races this request.
+	if s.serverKillNotify != nil {
+		s.serverKillNotify(body.Name)
+	}
+
 	if err := s.tmux.KillServer(body.Name); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

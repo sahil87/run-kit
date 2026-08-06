@@ -419,3 +419,48 @@ func TestHandleServersList_SortedAlphabetically(t *testing.T) {
 		}
 	}
 }
+
+// TestHandleServerKill_NotifiesAuditedKill verifies the snapshotter seam: the
+// kill handler invokes the wired notifier with the server name before the
+// audited KillServer, and an unwired (nil) notifier leaves the path working.
+func TestHandleServerKill_NotifiesAuditedKill(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	mock := &serversTmuxMock{}
+
+	s := &Server{logger: logger, tmux: mock, hostname: "test-host"}
+	var notified []string
+	s.SetServerKillNotifier(func(server string) { notified = append(notified, server) })
+	router := s.buildRouter()
+
+	req := httptest.NewRequest("POST", "/api/servers/kill", strings.NewReader(`{"name":"kit"}`))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != 200 {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if len(notified) != 1 || notified[0] != "kit" {
+		t.Errorf("notifier calls = %v, want [kit]", notified)
+	}
+
+	// Invalid server name is rejected BEFORE the notifier fires.
+	notified = nil
+	req = httptest.NewRequest("POST", "/api/servers/kill", strings.NewReader(`{"name":"bad/name"}`))
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != 400 {
+		t.Fatalf("status = %d, want 400 for invalid name", rec.Code)
+	}
+	if len(notified) != 0 {
+		t.Errorf("notifier fired for invalid name: %v", notified)
+	}
+
+	// Unwired notifier: the kill path still works.
+	router = NewTestRouter(logger, nil, &serversTmuxMock{}, "test-host")
+	req = httptest.NewRequest("POST", "/api/servers/kill", strings.NewReader(`{"name":"kit"}`))
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("unwired notifier: status = %d, want 200", rec.Code)
+	}
+}

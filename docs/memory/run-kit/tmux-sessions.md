@@ -211,7 +211,7 @@ A tmux server process inherits the CWD of whichever process FIRST touches its so
 
 **The failure it defends against — tmux 3.7 dead-server CWD.** When rk's own CWD is a deleted directory (e.g. `rk daemon start` was run inside a git worktree that is later removed), a server that inherited that CWD sits on a dead inode. tmux 3.7 restructured pane spawn so the **server process itself** chdirs to the pane's target before forking, guarded by `if (getcwd(...) != NULL)`; when the server's own CWD is gone that `getcwd` fails and the **entire chdir block is silently skipped** — every new pane is born on the dead inode **even when a valid `-c` path was passed**, filling with `shell-init: error retrieving current directory: getcwd: cannot access parent directories`. tmux ≤ 3.6a is immune (its chdir runs in the forked child with a target → `$HOME` → `/` fallback), but even there a dead server CWD makes `-c`-less sessions land in `/` and server-forked subprocesses run on the dead inode. A live server's CWD cannot be changed — only a restart clears it — so the pin is birth-time prevention, not remediation.
 
-**Two mechanisms, four seams** — a server-birth `cmd.Dir` pin (seams 1–3, where the exec may START the server) vs. a session `-c` hygiene flag (seam 4, where the server already exists):
+**Two mechanisms, five seams** — a server-birth `cmd.Dir` pin (seams 1–3 and 5, where the exec may START the server) vs. a session `-c` hygiene flag (seam 4, where the server already exists):
 
 | Seam | Where | Mechanism |
 |------|-------|-----------|
@@ -219,6 +219,7 @@ A tmux server process inherits the CWD of whichever process FIRST touches its so
 | `internal/tmux.CreateSession` | births user-facing servers (create-server API / session-create on a dead socket) | `cmd.Dir = ServerBirthDir()` via `Run(ctx, full, RunOpts{Env: CleanEnvForServer(), Dir: ServerBirthDir()})` — the runner core carries both the env and dir overrides |
 | `internal/tmuxctl.createAnchor` | births/resurrects the `_rk-ctl` anchor server | `cmd.Dir = ServerBirthDir()` **and** `cmd.Env = CleanEnvForServer()` via `anchorCommand` (see § `_rk-ctl` Anchor) |
 | `internal/tmux/board.go` `Pin` | pin-session `_rk-pin-<id>` on a LIVE server | `-c <ServerBirthDir()>` on the `new-session` argv (see § Pin Sessions) — `session_path` hygiene, NOT a server birth (the server already exists) |
+| `internal/tmux/layout.go` `CreateSessionForRestore` | births the target server on the first `rk snapshot restore` session create | `Run(ctx, full, RunOpts{Env: CleanEnvForServer(), Dir: ServerBirthDir()})` — same pins as `CreateSession`, since a restore onto a dead server is by definition a server birth (see [layout-snapshots](/run-kit/layout-snapshots.md)) |
 
 **Daemon env is deliberately NOT sanitized** — only `createAnchor` gains `CleanEnvForServer` (env sanitization is env, distinct from the CWD pin). `startSession` pins only CWD, never env: the inner `rk serve` reads `RK_PORT`/`RK_HOST`/`RK_DAEMON_LOG` from the daemon session's env, so sanitizing there would break config (`config.Load` is env-only, so pinning the daemon session's start dir to home is safe for it — the exe path is absolute).
 

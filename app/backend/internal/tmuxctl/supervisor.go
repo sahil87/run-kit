@@ -81,6 +81,13 @@ type Supervisor struct {
 	// watchDirOverride, when non-empty, replaces the resolved watch dir.
 	// Tests use this to point Start at a temp directory.
 	watchDirOverride string
+
+	// OnSocketRemoved, when non-nil, is invoked (outside the supervisor mutex,
+	// on the event-loop goroutine) after a socket's Client has been closed —
+	// i.e. after the owning tmux server exited. Set it BEFORE Start. The
+	// layout snapshotter uses this seam to tombstone the dead server's last
+	// snapshot. Nil-safe: unwired supervisors behave exactly as before.
+	OnSocketRemoved func(name string)
 }
 
 // NewSupervisor constructs a Supervisor that builds one EventSink per socket via
@@ -280,7 +287,35 @@ func (s *Supervisor) closeSocket(name string) {
 		// with the `audit=kill` teardown lines that caused it.
 		slog.Warn("tmuxctl: socket removed (tmux server exited)", "socket", name)
 		_ = c.Close()
+		if s.OnSocketRemoved != nil {
+			s.OnSocketRemoved(name)
+		}
 	}
+}
+
+// Sockets returns the names of the currently covered sockets (those with a
+// live Client). This is the daemon's covered-server set — the layout
+// snapshotter enumerates it so its scope filter is exactly the supervisor's
+// (rk-test-*/.lock candidates never open a Client).
+func (s *Supervisor) Sockets() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]string, 0, len(s.clients))
+	for name := range s.clients {
+		out = append(out, name)
+	}
+	return out
+}
+
+// Generation returns the control-mode generation counter for the named
+// socket's Client, or 0 when no Client exists. Convenience over Get for
+// callers (the layout snapshotter) that only need the counter.
+func (s *Supervisor) Generation(name string) int64 {
+	c := s.Get(name)
+	if c == nil {
+		return 0
+	}
+	return c.Generation()
 }
 
 // Get returns the Client for the named socket if one exists. Used by the SSE

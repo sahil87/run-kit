@@ -177,6 +177,13 @@ type Server struct {
 	// nil is a no-op (either kick may be absent on a partially-wired server).
 	refreshCollectorFn func(context.Context)
 	refreshBranchFn    func(context.Context)
+
+	// serverKillNotify, when non-nil, is invoked with the server name by
+	// handleServerKill just before the audited tmux.KillServer — the layout
+	// snapshotter uses it (SetServerKillNotifier) to mark the imminent
+	// tombstone as an audited kill. Fire-and-forget write-path annotation:
+	// no handler ever reads snapshot data (Constitution II).
+	serverKillNotify func(server string)
 	// refreshStatusMu guards the coalesce/throttle state below.
 	refreshStatusMu sync.Mutex
 	// refreshStatusInFlight is true while a detached refresh goroutine runs — a

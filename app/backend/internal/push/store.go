@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 
 	webpush "github.com/SherClockHolmes/webpush-go"
+
+	"rk/internal/fsatomic"
 )
 
 // VAPIDKeys holds the server's VAPID keypair. Only Public is ever served to a
@@ -57,39 +59,6 @@ func subscriptionsPath() (string, error) {
 	return filepath.Join(dir, "push-subscriptions.json"), nil
 }
 
-// writeFileAtomic writes data to path via a temp file in the same directory
-// followed by an atomic rename, so a crash mid-write can never leave a
-// partially-written/corrupt file at path — readers see either the old contents
-// or the complete new contents. The temp file is created with perm; on rename
-// failure it is removed.
-func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
-	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".tmp-*")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	if err := tmp.Chmod(perm); err != nil {
-		tmp.Close()
-		os.Remove(tmpName)
-		return err
-	}
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		os.Remove(tmpName)
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(tmpName)
-		return err
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		os.Remove(tmpName)
-		return err
-	}
-	return nil
-}
-
 // LoadOrCreateVAPIDKeys returns the persisted VAPID keypair, generating and
 // persisting a new one (private key file mode 0600, written atomically) on
 // first need. The keypair is reused on every subsequent call — it is never
@@ -118,7 +87,7 @@ func LoadOrCreateVAPIDKeys() (VAPIDKeys, error) {
 		return VAPIDKeys{}, err
 	}
 	// 0600: the private key must not be world-readable.
-	if err := writeFileAtomic(p, data, 0600); err != nil {
+	if err := fsatomic.WriteFile(p, data, 0600); err != nil {
 		return VAPIDKeys{}, err
 	}
 	return k, nil
@@ -158,7 +127,7 @@ func SaveSubscriptions(subs []Subscription) error {
 	if err != nil {
 		return err
 	}
-	return writeFileAtomic(p, data, 0600)
+	return fsatomic.WriteFile(p, data, 0600)
 }
 
 // AddSubscription stores a subscription, de-duplicating by endpoint: a

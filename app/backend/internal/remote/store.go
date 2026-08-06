@@ -26,6 +26,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"rk/internal/fsatomic"
 	"rk/internal/validate"
 )
 
@@ -122,9 +123,9 @@ func validateEntries(path string, f File) error {
 	return nil
 }
 
-// Save writes the store atomically: marshal, write a tmp file in the target
-// directory, then rename over the destination (atomic on POSIX). Creates the
-// parent directory when absent.
+// Save writes the store atomically (fsatomic.WriteFile: tmp file in the
+// target directory + rename, atomic on POSIX). Creates the parent directory
+// when absent.
 func Save(path string, f File) error {
 	f.Version = storeVersion
 	data, err := yaml.Marshal(f)
@@ -135,12 +136,8 @@ func Save(path string, f File) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("creating %s: %w", dir, err)
 	}
-	tmp := fmt.Sprintf("%s.tmp-%d", path, os.Getpid())
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return fmt.Errorf("writing %s: %w", tmp, err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		return fmt.Errorf("renaming %s: %w", tmp, err)
+	if err := fsatomic.WriteFile(path, data, 0o644); err != nil {
+		return fmt.Errorf("writing %s: %w", path, err)
 	}
 	return nil
 }

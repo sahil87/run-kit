@@ -223,6 +223,15 @@ func (s *Server) SetActiveWindowProvider(provider sessions.ActiveWindowProvider)
 	}
 }
 
+// SetServerKillNotifier wires the audited-kill annotation seam: handleServerKill
+// (POST /api/servers/kill — run-kit's audited whole-server kill path) invokes fn
+// with the server name just before tmux.KillServer. `rk serve` passes the layout
+// snapshotter's NoteAuditedKill so the subsequent socket-removal tombstone is
+// marked audited. nil leaves the kill path exactly as before.
+func (s *Server) SetServerKillNotifier(fn func(server string)) {
+	s.serverKillNotify = fn
+}
+
 // SetVersion seeds the SSE hub's server-global `event: version` cached slot with
 // the running daemon version (ldflags-injected `main.version`), the per-process
 // boot id, and the brew-install flag. Called from `rk serve` after

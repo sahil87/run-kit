@@ -39,7 +39,7 @@ Nested arg validators are re-wrapped with `usageArgs` in `remote.go`'s `init()` 
 - **AND** `rk help-dump` includes the whole `remote` subtree (the cobra walk picks it up; every node carries a `Long:` block)
 
 ### Requirement: State is `~/.config/rk/remotes.yaml` v1 carrying only the underivable
-The store MUST be schema `version: 1` with entries of exactly `{name, target, local_port}` — the only facts that cannot be derived while disconnected. Load treats a missing file as an empty v1 list; malformed YAML or an unknown version is an error, never a silent rewrite. Save is atomic (tmp-file-then-rename in the target dir, `0o755` dir / `0o644` file). Tunnel up/down, remote daemon state, the remote port, and version skew are all derived at request time — no pid files, no supervisor (Constitution II).
+The store MUST be schema `version: 1` with entries of exactly `{name, target, local_port}` — the only facts that cannot be derived while disconnected. Load treats a missing file as an empty v1 list; malformed YAML or an unknown version is an error, never a silent rewrite. Save is atomic via the shared `internal/fsatomic.WriteFile` (tmp file in the target dir then rename, `0o755` dir / `0o644` file). Tunnel up/down, remote daemon state, the remote port, and version skew are all derived at request time — no pid files, no supervisor (Constitution II).
 
 ```yaml
 version: 1

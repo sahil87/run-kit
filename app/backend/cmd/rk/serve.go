@@ -19,6 +19,7 @@ import (
 	"rk/internal/config"
 	"rk/internal/daemon"
 	"rk/internal/selfpath"
+	"rk/internal/snapshot"
 	"rk/internal/tmux"
 	"rk/internal/tmuxctl"
 	"rk/internal/updatecheck"
@@ -161,6 +162,23 @@ To run run-kit as a background daemon, see 'run-kit daemon start' (and the rest 
 		// Per-socket Open failures (PTY unavailable, etc.) are logged
 		// inside the Supervisor and never block startup.
 		supervisor := tmuxctl.NewSupervisor(api.NewHubSinkFactory())
+
+		// Layout snapshotter: periodically persists per-covered-server layout
+		// snapshots (disaster-recovery backups, write-only per Constitution II)
+		// and tombstones a server's last snapshot when its socket is removed.
+		// Wired BEFORE supervisor.Start so the removal callback can never miss
+		// an early socket removal. Best-effort throughout: a store-dir
+		// resolution failure disables snapshotting with a warning — it must
+		// never block serving.
+		if snapDir, err := snapshot.DefaultDir(); err != nil {
+			slog.Warn("layout snapshots disabled: state dir unresolvable", "err", err)
+		} else {
+			snapshotter := snapshot.NewSnapshotter(supervisor, snapshot.NewStore(snapDir))
+			supervisor.OnSocketRemoved = snapshotter.OnServerRemoved
+			apiServer.SetServerKillNotifier(snapshotter.NoteAuditedKill)
+			snapshotter.Start(ctx)
+		}
+
 		if err := supervisor.Start(ctx); err != nil {
 			slog.Warn("tmuxctl supervisor failed to start; falling back to safety-net poll", "err", err)
 		} else {

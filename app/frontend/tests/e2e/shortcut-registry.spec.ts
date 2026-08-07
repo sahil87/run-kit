@@ -13,7 +13,9 @@ import { mockStateSocket } from "./_state-socket-mock";
 // effective map, and browser-reserved key inertness (Playwright runs a plain
 // browser host, so shifted N/T/W resolve disabled). Also covers the macOS
 // ⌘-tier demotions (260730-n789) via a spoofed-platform block (deep mac
-// paths are unit-tested in lib/keybindings.test.ts — e2e runs on Linux).
+// paths are unit-tested in lib/keybindings.test.ts — e2e runs on Linux) and
+// the split-pane chords (260807-rbx5): ⇧Ctrl+D here, ⌘D/⇧⌘D on a spoofed
+// mac, with `split-vertical` unbound (and hintless) on this host.
 
 const SERVER = "default";
 
@@ -304,6 +306,70 @@ test.describe("macOS per-platform defaults (spoofed platform)", () => {
     await page.waitForTimeout(300);
     expect(created).toBe(false);
     await expect(page).toHaveURL(new RegExp(`/${SERVER}/1(?:$|[/?#])`));
+  });
+});
+
+// Split chords (260807-rbx5): ⇧Ctrl+D on Win/Linux and ⌘D / ⇧⌘D on mac reuse
+// the `Window: Split Horizontal|Vertical` palette bodies, so the assertion is
+// the spawned `POST /api/windows/{id}/split` body. `split-vertical` ships
+// mac-only (`platform: "mac"`), so on this Linux host it resolves unbound —
+// palette-reachable, hintless, user-rebindable.
+async function mockSplit(page: Page) {
+  const bodies: Record<string, unknown>[] = [];
+  // Trailing `*` — the client appends `?server=`.
+  await page.route("**/api/windows/*/split*", (route) => {
+    bodies.push(route.request().postDataJSON() as Record<string, unknown>);
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: '{"ok":true,"pane_id":"%2"}',
+    });
+  });
+  return bodies;
+}
+
+test.describe("split chords (260807-rbx5)", () => {
+  test("Shift+Ctrl+D splits the pane side-by-side on the terminal route", async ({ page }) => {
+    await mockBackend(page);
+    const splits = await mockSplit(page);
+    await gotoWindowOne(page);
+
+    await page.keyboard.press("Shift+Control+KeyD");
+    await expect.poll(() => splits.length).toBe(1);
+    expect(splits).toEqual([{ horizontal: true, cwd: "/tmp/win-one" }]);
+  });
+
+  test("the palette hints the bound horizontal split and leaves the unbound vertical hintless", async ({ page }) => {
+    await mockBackend(page);
+    await gotoWindowOne(page);
+
+    await page.keyboard.press("Meta+k");
+    const paletteInput = page.getByPlaceholder("Type a command...");
+    await expect(paletteInput).toBeVisible();
+    await paletteInput.fill("Window: Split");
+    await expect(page.getByText("Window: Split Horizontal")).toBeVisible();
+    await expect(page.getByText("Window: Split Vertical")).toBeVisible();
+    // Exactly one hint: horizontal's ⇧Ctrl+D. Vertical is unbound on a
+    // Win/Linux host, and an unbound binding contributes no hint.
+    await expect(page.getByText("Shift+Ctrl+D")).toHaveCount(1);
+  });
+
+  test("⌘D and ⇧⌘D split horizontally then vertically on a mac host", async ({ page }) => {
+    await spoofMacPlatform(page);
+    await mockBackend(page);
+    const splits = await mockSplit(page);
+    await gotoWindowOne(page);
+
+    // Both chords land while the terminal owns focus — ⌘D exercises the mac
+    // cmd-tier seam refusal, ⇧⌘D the shifted-tier one.
+    await page.keyboard.press("Meta+KeyD");
+    await expect.poll(() => splits.length).toBe(1);
+    await page.keyboard.press("Shift+Meta+KeyD");
+    await expect.poll(() => splits.length).toBe(2);
+    expect(splits).toEqual([
+      { horizontal: true, cwd: "/tmp/win-one" },
+      { horizontal: false, cwd: "/tmp/win-one" },
+    ]);
   });
 });
 

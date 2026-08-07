@@ -63,6 +63,8 @@ describe("DEFAULT_BINDINGS integrity", () => {
       "kill-window": "KeyW",
       "compose-toggle": "KeyE",
       "open-last-used": "KeyO",
+      "split-horizontal": "KeyD",
+      "split-vertical": "KeyD",
       "window-prev": "KeyH",
       "window-next": "KeyL",
       "go-back": "BracketLeft",
@@ -768,23 +770,23 @@ describe("keyless (macro) defaults — 260730-hbyh", () => {
       isDefault: false,
       disabledReason: "user",
     });
-    expect(findMatches(chord({ code: "KeyD", shiftKey: true, ctrlKey: true }), bindings)).toEqual([]);
+    expect(findMatches(chord({ code: "KeyY", shiftKey: true, ctrlKey: true }), bindings)).toEqual([]);
   });
 
   it("an override combo makes the macro live and matchable", () => {
     const bindings = resolveBindings(
       withMacro,
-      { "macro:discuss": { code: "KeyD", tier: "shifted" } },
+      { "macro:discuss": { code: "KeyY", tier: "shifted" } },
       SHELL_OTHER,
     );
     expect(byId(bindings, "macro:discuss")).toMatchObject({
-      code: "KeyD",
+      code: "KeyY",
       enabled: true,
       isDefault: false,
       kind: "macro",
     });
     expect(
-      findMatches(chord({ code: "KeyD", shiftKey: true, ctrlKey: true }), bindings)[0]?.actionId,
+      findMatches(chord({ code: "KeyY", shiftKey: true, ctrlKey: true }), bindings)[0]?.actionId,
     ).toBe("macro:discuss");
   });
 
@@ -802,19 +804,19 @@ describe("keyless (macro) defaults — 260730-hbyh", () => {
 
   it("steals work in both directions between macros and builtins", () => {
     // Builtin captures the macro's combo → macro unbound.
-    const macroOwns = { "macro:discuss": { code: "KeyD", tier: "shifted" as const } };
+    const macroOwns = { "macro:discuss": { code: "KeyY", tier: "shifted" as const } };
     const stealByBuiltin = applyCapture(
       resolveBindings(withMacro, macroOwns, SHELL_OTHER),
       macroOwns,
       "window-next",
-      { code: "KeyD", tier: "shifted" },
+      { code: "KeyY", tier: "shifted" },
       SHELL_OTHER,
       withMacro,
     );
     expect(stealByBuiltin.stolenFrom).toBe("macro:discuss");
     expect(stealByBuiltin.overrides).toEqual({
       "macro:discuss": null,
-      "window-next": { code: "KeyD", tier: "shifted" },
+      "window-next": { code: "KeyY", tier: "shifted" },
     });
 
     // Macro captures a builtin's default combo → builtin unbound.
@@ -845,7 +847,7 @@ describe("keyless (macro) defaults — 260730-hbyh", () => {
   it("withShortcutHints decorates a bound macro and skips an unbound one", () => {
     const bound = resolveBindings(
       withMacro,
-      { "macro:discuss": { code: "KeyD", tier: "shifted" } },
+      { "macro:discuss": { code: "KeyY", tier: "shifted" } },
       SHELL_OTHER,
     );
     const byActionBound = new Map(bound.map((b) => [b.actionId, b]));
@@ -854,7 +856,7 @@ describe("keyless (macro) defaults — 260730-hbyh", () => {
       byActionBound,
       "other",
     );
-    expect(hinted.shortcut).toBe("Shift+Ctrl+D");
+    expect(hinted.shortcut).toBe("Shift+Ctrl+Y");
 
     const unbound = resolveBindings(withMacro, {}, SHELL_OTHER);
     const byActionUnbound = new Map(unbound.map((b) => [b.actionId, b]));
@@ -1038,5 +1040,171 @@ describe("shouldRefuseTerminalChord (260730-n789)", () => {
     expect(
       shouldRefuseTerminalChord(chord({ code: "KeyN", metaKey: true }), bindings, "mac"),
     ).toBe(false);
+  });
+
+  it("split chords: ⇧Ctrl+D and mac ⌘D/⇧⌘D refuse; plain Ctrl+D stays the pane's EOF (260807-rbx5)", () => {
+    const other = resolved(SHELL_OTHER);
+    expect(
+      shouldRefuseTerminalChord(chord({ code: "KeyD", shiftKey: true, ctrlKey: true }), other, "other"),
+    ).toBe(true);
+    // Win/Linux plain Ctrl+D is EOF — no shifted match, and the mac cmd rule
+    // never applies there.
+    expect(shouldRefuseTerminalChord(chord({ code: "KeyD", ctrlKey: true }), other, "other")).toBe(false);
+
+    const mac = resolved(SHELL_MAC);
+    expect(shouldRefuseTerminalChord(chord({ code: "KeyD", metaKey: true }), mac, "mac")).toBe(true);
+    expect(
+      shouldRefuseTerminalChord(chord({ code: "KeyD", metaKey: true, shiftKey: true }), mac, "mac"),
+    ).toBe(true);
+    // Mac Ctrl+D matches the cmd tier but carries no metaKey → the pane keeps it.
+    expect(shouldRefuseTerminalChord(chord({ code: "KeyD", ctrlKey: true }), mac, "mac")).toBe(false);
+  });
+});
+
+describe("split chords + the platform gate — 260807-rbx5", () => {
+  const splitH = DEFAULT_BINDINGS.find((b) => b.actionId === "split-horizontal");
+  const splitV = DEFAULT_BINDINGS.find((b) => b.actionId === "split-vertical");
+
+  it("ships both rows on KeyD in terminal scope with the per-platform default shape", () => {
+    expect(splitH).toMatchObject({
+      code: "KeyD",
+      tier: "shifted",
+      macTier: "cmd",
+      scope: "terminal",
+      kind: "builtin",
+      label: "Split horizontal",
+      mapLabel: "split h",
+    });
+    // Demotes in BOTH mac hosts (⌘D is page-interceptable) and is bound on
+    // every platform — neither gate applies to horizontal.
+    expect(splitH?.macShellOnly).toBeUndefined();
+    expect(splitH?.platform).toBeUndefined();
+
+    expect(splitV).toMatchObject({
+      code: "KeyD",
+      tier: "shifted",
+      platform: "mac",
+      scope: "terminal",
+      kind: "builtin",
+      label: "Split vertical",
+      mapLabel: "split v",
+    });
+    expect(splitV?.macTier).toBeUndefined();
+  });
+
+  it("mac hosts resolve ⌘D horizontal and ⇧⌘D vertical (shell and browser alike)", () => {
+    for (const host of [SHELL_MAC, BROWSER_MAC]) {
+      expect(byId(resolved(host), "split-horizontal")).toMatchObject({
+        code: "KeyD",
+        tier: "cmd",
+        enabled: true,
+        isDefault: true,
+      });
+      expect(byId(resolved(host), "split-vertical")).toMatchObject({
+        code: "KeyD",
+        tier: "shifted",
+        enabled: true,
+        isDefault: true,
+      });
+    }
+  });
+
+  it("win/linux hosts resolve ⇧Ctrl+D horizontal; vertical ships unbound", () => {
+    for (const host of [SHELL_OTHER, BROWSER_OTHER]) {
+      expect(byId(resolved(host), "split-horizontal")).toMatchObject({
+        code: "KeyD",
+        tier: "shifted",
+        enabled: true,
+        isDefault: true,
+      });
+      // The platform gate lands in the keyless-unbound state macros already
+      // produce — no new effective-binding shape.
+      expect(byId(resolved(host), "split-vertical")).toMatchObject({
+        enabled: false,
+        isDefault: false,
+        disabledReason: "user",
+      });
+    }
+  });
+
+  it("dispatch: mac ⌘D/⇧⌘D resolve the pair; win/linux ⇧Ctrl+D resolves horizontal alone", () => {
+    const mac = resolved(SHELL_MAC);
+    expect(findMatches(chord({ code: "KeyD", metaKey: true }), mac).map((b) => b.actionId)).toEqual([
+      "split-horizontal",
+    ]);
+    expect(
+      findMatches(chord({ code: "KeyD", metaKey: true, shiftKey: true }), mac).map((b) => b.actionId),
+    ).toEqual(["split-vertical"]);
+
+    const other = resolved(SHELL_OTHER);
+    expect(
+      findMatches(chord({ code: "KeyD", shiftKey: true, ctrlKey: true }), other).map((b) => b.actionId),
+    ).toEqual(["split-horizontal"]);
+    // Plain Ctrl+D matches nothing on win/linux — EOF belongs to the pane.
+    expect(findMatches(chord({ code: "KeyD", ctrlKey: true }), other)).toEqual([]);
+  });
+
+  it("defaultComboFor gates the shipped default on the keycap platform", () => {
+    if (!splitV) throw new Error("missing split-vertical default");
+    expect(defaultComboFor(splitV, SHELL_MAC)).toEqual({ code: "KeyD", tier: "shifted" });
+    expect(defaultComboFor(splitV, BROWSER_MAC)).toEqual({ code: "KeyD", tier: "shifted" });
+    // Keyless default off-platform — the shape `resolveBindings` reads unbound.
+    expect(defaultComboFor(splitV, SHELL_OTHER)).toEqual({ code: "", tier: "shifted" });
+    expect(defaultComboFor(splitV, BROWSER_OTHER)).toEqual({ code: "", tier: "shifted" });
+  });
+
+  it("the gate is inert for every binding that sets no platform", () => {
+    for (const host of ALL_HOSTS) {
+      for (const def of DEFAULT_BINDINGS.filter((d) => d.platform == null)) {
+        expect(defaultComboFor(def, host).code).toBe(def.code);
+      }
+    }
+  });
+
+  it("a win/linux override binds the platform-gated action verbatim", () => {
+    const bindings = resolveBindings(
+      DEFAULT_BINDINGS,
+      { "split-vertical": { code: "KeyY", tier: "shifted" } },
+      SHELL_OTHER,
+    );
+    expect(byId(bindings, "split-vertical")).toMatchObject({
+      code: "KeyY",
+      tier: "shifted",
+      enabled: true,
+      isDefault: false,
+    });
+    expect(
+      findMatches(chord({ code: "KeyY", shiftKey: true, ctrlKey: true }), bindings)[0]?.actionId,
+    ).toBe("split-vertical");
+  });
+
+  it("keeps the shipped defaults conflict-free in every host (the mac D pair is tier-disjoint)", () => {
+    for (const host of ALL_HOSTS) {
+      expect(findConflicts(resolved(host))).toEqual([]);
+    }
+    // Why the mac pair is legal on one code in one scope: the tiers are disjoint.
+    expect(tiersCollide("cmd", "shifted")).toBe(false);
+  });
+
+  it("palette hints: horizontal is hinted everywhere; vertical only where it is bound", () => {
+    const actions = [
+      { id: "split-horizontal", label: "Window: Split Horizontal" },
+      { id: "split-vertical", label: "Window: Split Vertical" },
+    ];
+    const other = withShortcutHints(
+      actions,
+      new Map(resolved(BROWSER_OTHER).map((b) => [b.actionId, b])),
+      "other",
+    );
+    expect(other[0].shortcut).toBe("Shift+Ctrl+D");
+    expect(other[1].shortcut).toBeUndefined();
+
+    const mac = withShortcutHints(
+      actions,
+      new Map(resolved(BROWSER_MAC).map((b) => [b.actionId, b])),
+      "mac",
+    );
+    expect(mac[0].shortcut).toBe("⌘D");
+    expect(mac[1].shortcut).toBe("⇧⌘D");
   });
 });

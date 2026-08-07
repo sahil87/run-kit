@@ -1,0 +1,55 @@
+id: rbx5
+name: 260807-rbx5-split-keyboard-shortcuts
+created: 2026-08-07T04:42:15Z
+created_by: asim-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 8
+    acceptance_count: 21
+    acceptance_completed: 21
+confidence:
+    certain: 4
+    confident: 3
+    tentative: 0
+    unresolved: 0
+    score: 4.6
+    fuzzy: true
+    dimensions:
+        signal: 61.4
+        reversibility: 83.6
+        competence: 86.4
+        disambiguation: 79.3
+stage_metrics:
+    intake: {started_at: "2026-08-07T04:42:15Z", driver: fab-new, iterations: 1, completed_at: "2026-08-07T05:10:16Z"}
+    apply: {started_at: "2026-08-07T05:10:16Z", driver: fab-ff, iterations: 1, completed_at: "2026-08-07T05:32:09Z"}
+    review: {started_at: "2026-08-07T05:32:09Z", driver: fab-ff, iterations: 1, completed_at: "2026-08-07T05:45:34Z"}
+    hydrate: {started_at: "2026-08-07T05:45:34Z", driver: fab-ff, iterations: 1, completed_at: "2026-08-07T05:52:15Z"}
+    ship: {started_at: "2026-08-07T05:52:15Z", driver: fab-ff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-08-07T05:52:15Z"
+    computed_at_stage: hydrate
+summary: 'Split pane keyboard shortcuts: split-horizontal (⌘D on mac, ⇧Ctrl+D on Win/Linux) and split-vertical (⇧⌘D, mac-only via the new platform?: BindingPlatform default gate) join DEFAULT_BINDINGS as terminal-scoped builtins reusing the Window: Split palette bodies; e2e/unit capture fixtures ride ⇧Ctrl+Y since D is now a shipped default.'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-07T05:52:15Z

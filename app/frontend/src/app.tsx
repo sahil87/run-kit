@@ -2642,6 +2642,14 @@ function AppShell() {
       // ⇧⌘,/⌘, settings (260801-mqim) — the palette body (`Settings: Open` →
       // `openSettings`); a re-fire while the dialog is open is a no-op.
       "settings-open": fromPalette("settings-open"),
+      // ⌘D/⇧⌘D split pane (260807-rbx5) — the `Window: Split Horizontal` /
+      // `Window: Split Vertical` palette bodies. The palette block is gated on
+      // a current session + window, so on non-window routes `fromPalette`
+      // yields undefined and the chord falls through untouched (BoardPage
+      // mounts neither — splits are terminal-route actions, like
+      // `open-last-used`).
+      "split-horizontal": fromPalette("split-horizontal"),
+      "split-vertical": fromPalette("split-vertical"),
     };
   }, [paletteActions, currentSession, windowParam, navigateToWindow, macros, sessionName, executeMacro, toggleComposeStrip, addToast]);
   useKeybindingDispatch(keybindingHandlers);

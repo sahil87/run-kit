@@ -7,3 +7,4 @@
 {"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"hydrate","ts":"2026-08-07T05:45:34Z"}
 {"event":"review","result":"passed","ts":"2026-08-07T05:45:34Z"}
 {"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"ship","ts":"2026-08-07T05:52:15Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-08-07T07:58:05Z"}

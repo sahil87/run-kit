@@ -100,6 +100,35 @@ export function resetFlyoutWarmState(): void {
 }
 
 /**
+ * Fork-conversation glyph — a git-fork shape (one trunk splitting into a branch
+ * that rises to its own node). Same inline-SVG idiom and 12px box as `InfoIcon`
+ * below, so the two header affordances read as one cluster.
+ */
+function ForkIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      width="12"
+      height="12"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      className="shrink-0"
+    >
+      {/* Trunk (bottom node up to the split) + the branch curving to its own
+          node at the top right. Node circles are stroked, matching InfoIcon. */}
+      <circle cx="5" cy="13" r="1.6" />
+      <circle cx="5" cy="3" r="1.6" />
+      <circle cx="12" cy="3" r="1.6" />
+      <line x1="5" y1="4.6" x2="5" y2="11.4" />
+      <path d="M10.4 3H8.5A3.5 3.5 0 0 0 5 6.5V8" />
+    </svg>
+  );
+}
+
+/**
  * Circled-"i" info glyph for the docs affordance — an inline SVG (matching the
  * codebase's hand-built SVG icons) rather than a Nerd Font glyph, so it renders
  * crisply at any size, themes via `currentColor`, and doesn't depend on the
@@ -173,12 +202,79 @@ function RegisterLine({
 }
 
 /**
+ * Provider whose conversations can be forked. The fork mechanism is Claude
+ * Code's `--resume <id> --fork-session`, so the affordance is gated on the same
+ * `chatProvider` field the chat lens gates on — no new data plumbing (the field
+ * already rides `/api/sessions` + SSE).
+ */
+const FORKABLE_CHAT_PROVIDER = "claude";
+
+/** Tooltip/aria copy for the fork affordance. Names the SAME-DIRECTORY semantics
+ *  explicitly — that is what distinguishes a fork (branch this conversation
+ *  here) from the spawn dialog (a fresh agent, usually in a new worktree). */
+export const FORK_TOOLTIP = "Fork conversation — new window, same directory";
+
+/** True when this window's conversation can be forked: it carries a reconciled
+ *  claude chat identity. An equality guard, not a cast — a `codex` window and a
+ *  plain shell pane both fall through to false. */
+export function canForkWindow(win: WindowInfo): boolean {
+  return win.chatProvider === FORKABLE_CHAT_PROVIDER;
+}
+
+/**
+ * The header's fork affordance, with its own IN-FLIGHT state so the busy flag is
+ * leaf-scoped (the card's render-performance discipline — only this button
+ * re-renders while a fork is in flight).
+ *
+ * The guard is load-bearing, not cosmetic: `onFork` POSTs a mutating endpoint that
+ * CREATES a tmux window, so N clicks would create N forks. Disabling until the
+ * promise settles is the spawn dialog's `disabled={busy}` idiom; the busy state
+ * clears on settle (success and error alike) so a failed fork stays retryable.
+ */
+function ForkLink({ onFork }: { onFork: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  // The card unmounts when the flyout closes (and a successful fork navigates
+  // away), so a settle after unmount is a real possibility — guard the setState.
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  return (
+    <button
+      type="button"
+      // stopPropagation so forking never also selects the underlying row (the
+      // PR/docs links' idiom). The click is a no-op while a fork is in flight —
+      // `disabled` already blocks it, this is the belt to that braces.
+      onClick={(e) => {
+        e.stopPropagation();
+        if (busy) return;
+        setBusy(true);
+        void onFork().finally(() => {
+          if (mountedRef.current) setBusy(false);
+        });
+      }}
+      disabled={busy}
+      className="text-text-secondary hover:text-text-primary disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-text-secondary coarse:p-1"
+      aria-label={FORK_TOOLTIP}
+      title={FORK_TOOLTIP}
+      data-testid="row-flyout-fork-link"
+    >
+      <ForkIcon />
+    </button>
+  );
+}
+
+/**
  * The card body — mounted ONLY while the flyout is open, so its `useNow()`
  * clock (feeding the `out` register's elapsed) is leaf-scoped per the
  * render-performance contract. Absent layers render as absent (a plain shell
  * pane shows only `out`).
  */
-function RowFlyoutContent({ win }: { win: WindowInfo }) {
+function RowFlyoutContent({ win, onFork }: { win: WindowInfo; onFork?: () => Promise<void> }) {
   const nowSeconds = useNow();
   const state = statusDotState(win);
   const label = dotLabel(win, state);
@@ -199,21 +295,27 @@ function RowFlyoutContent({ win }: { win: WindowInfo }) {
   return (
     <>
       {/* Header row: the dot's label text (single source with its aria-label)
-          + a quiet circled-(i) docs affordance pinned top-right. */}
+          + the top-right affordance cluster — the fork link (claude chats only,
+          and only when the consumer wired a handler; it owns its own in-flight
+          disabled state) then the quiet circled-(i) docs link. `ml-auto` moves to
+          the cluster wrapper so both glyphs ride the right edge as one group. */}
       <div className="flex items-start gap-3">
         <span className="text-text-primary whitespace-nowrap">{label}</span>
-        <a
-          href={STATUS_DOT_DOCS_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={(e) => e.stopPropagation()}
-          className="ml-auto mt-px text-text-secondary hover:text-text-primary coarse:p-1"
-          aria-label="What do status dots mean? (opens docs)"
-          title="What do status dots mean?"
-          data-testid="row-flyout-docs-link"
-        >
-          <InfoIcon />
-        </a>
+        <span className="ml-auto mt-px flex items-center gap-1.5">
+          {onFork && canForkWindow(win) && <ForkLink onFork={onFork} />}
+          <a
+            href={STATUS_DOT_DOCS_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="text-text-secondary hover:text-text-primary coarse:p-1"
+            aria-label="What do status dots mean? (opens docs)"
+            title="What do status dots mean?"
+            data-testid="row-flyout-docs-link"
+          >
+            <InfoIcon />
+          </a>
+        </span>
       </div>
       {/* The four orthogonal signal registers (status-pyramid.md), promoted
           from the PANE panel via the shared resolvers. Read-only text except
@@ -289,6 +391,17 @@ type UseRowFlyoutOptions = {
    *  ghost flag and its popover-open states (`PinPopover` / label
    *  `SwatchPopover`), so the card never fights the row's other layers. */
   suppressed?: boolean;
+  /** Fork this window's conversation (260806-s4av). Already bound to the row's
+   *  own (server, windowId) by the consumer — the card just calls it. OPTIONAL:
+   *  a consumer that wires none (e.g. the board-route sidebar, or a unit test
+   *  rendering a bare row) renders NO fork affordance, mirroring the
+   *  `onSpawnAgent`/`onColorChange` optional-handler idiom. Independently gated
+   *  on `chatProvider === "claude"` — both must hold.
+   *
+   *  MUST resolve when the fork POST settles (and surface its own errors rather
+   *  than rejecting): the button stays disabled until it does, so repeated clicks
+   *  cannot create multiple fork windows. */
+  onFork?: () => Promise<void>;
 };
 
 type RowFlyout = {
@@ -319,7 +432,7 @@ type RowFlyout = {
  * treeitem), `useDismiss` (Escape / outside press / blur), plus the exposed
  * `openNow` for the coarse dot-tap.
  */
-export function useRowFlyout(win: WindowInfo, { suppressed = false }: UseRowFlyoutOptions = {}) {
+export function useRowFlyout(win: WindowInfo, { suppressed = false, onFork }: UseRowFlyoutOptions = {}) {
   const [open, setOpen] = useState(false);
   // True once keyboard focus has entered the OPEN card (Tab from the row).
   // Gates FloatingFocusManager's `returnFocus`: a close where focus was
@@ -497,7 +610,7 @@ export function useRowFlyout(win: WindowInfo, { suppressed = false }: UseRowFlyo
             aria-hidden="true"
             data-testid="row-flyout-arrow"
           />
-          <RowFlyoutContent win={win} />
+          <RowFlyoutContent win={win} onFork={onFork} />
         </div>
       </FloatingFocusManager>
     </FloatingPortal>

@@ -11,6 +11,7 @@ import (
 	"rk/internal/config"
 	"rk/internal/fabconfig"
 	"rk/internal/riff"
+	"rk/internal/tmux"
 	"rk/internal/validate"
 )
 
@@ -69,11 +70,22 @@ func deriveRepoRoot(ctx context.Context, ops TmuxOps, server, session string) (s
 		}
 	}
 
-	// Pick the active pane's cwd, else the first pane's, else the window's
-	// worktree path (the list-windows #{pane_current_path}). Only a NON-EMPTY
-	// pane cwd overrides the WorktreePath seed — a pane whose #{pane_current_path}
-	// came back blank (or an empty Panes slice when list-panes failed non-fatally)
-	// must fall through to WorktreePath rather than clobber it with "".
+	cwd := windowCwd(win)
+	if cwd == "" {
+		return "", "", nil
+	}
+	return config.FindGitRoot(cwd), cwd, nil
+}
+
+// windowCwd picks a window's working directory: the ACTIVE pane's cwd, else the
+// first pane's, else the window's worktree path (the list-windows
+// #{pane_current_path}). Only a NON-EMPTY pane cwd overrides the WorktreePath
+// seed — a pane whose #{pane_current_path} came back blank (or an empty Panes
+// slice when list-panes failed non-fatally) must fall through to WorktreePath
+// rather than clobber it with "". Returns "" when no directory can be derived.
+// Pure. Shared by deriveRepoRoot (session-keyed, riff) and resolveForkSource
+// (window-keyed, fork) so the two cannot drift.
+func windowCwd(win tmux.WindowInfo) string {
 	cwd := win.WorktreePath
 	if len(win.Panes) > 0 {
 		if first := win.Panes[0].Cwd; first != "" {
@@ -88,11 +100,7 @@ func deriveRepoRoot(ctx context.Context, ops TmuxOps, server, session string) (s
 			}
 		}
 	}
-
-	if cwd == "" {
-		return "", "", nil
-	}
-	return config.FindGitRoot(cwd), cwd, nil
+	return cwd
 }
 
 // handleRiffSpawn spawns a riff window in the target session's repo.

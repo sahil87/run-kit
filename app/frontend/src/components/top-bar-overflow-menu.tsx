@@ -151,7 +151,8 @@ type Props = {
  * row doubles as the update surface (R11); only the undismissed-overflowed case
  * also lights the chevron's accent attention badge (R7). At rest the row is the
  * unified update button's resting form (260720-ml7k): version + a dev-gated ⟳
- * "Check for updates" affordance running the plain notable check — placement
+ * "Check for updates" affordance running the incl.-patches check (the palette's
+ * `run-kit: Check for Updates (incl. patches)` behavior) — placement
  * between this row and the in-bar chip is always DERIVED from the verdict
  * state, never imperatively moved.
  */
@@ -399,7 +400,7 @@ export function TopBarOverflowMenu({ rows, updateOverflowed }: Props) {
           type="button"
           tabIndex={-1}
           disabled={checking}
-          onClick={() => runUpdateCheck(false)}
+          onClick={() => runUpdateCheck(true)}
           aria-label="Check for updates"
           className={`${TOP_BAR_BUTTON_BASE} ${TOP_BAR_BUTTON_REST} hover:text-text-primary disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-border`}
         >

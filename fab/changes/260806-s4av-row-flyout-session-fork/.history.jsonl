@@ -1,0 +1,12 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-06T12:21:56Z"}
+{"args":"Fork link in window-row flyout: fork the window's Claude conversation into a new tmux window in the SAME worktree via riff checkout mode + claude --resume \u003cuuid\u003e --fork-session","cmd":"fab-new","event":"command","ts":"2026-08-06T12:21:56Z"}
+{"delta":"+4.5","event":"confidence","score":4.5,"trigger":"calc-score","ts":"2026-08-06T12:23:54Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-06T12:25:36Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-06T12:54:08Z"}
+{"event":"review","result":"failed","ts":"2026-08-06T13:22:08Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-06T13:22:08Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-06T13:39:16Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-06T13:46:11Z"}
+{"event":"review","result":"passed","ts":"2026-08-06T13:46:11Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-06T14:02:12Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-08-06T14:04:15Z"}

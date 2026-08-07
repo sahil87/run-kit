@@ -627,6 +627,9 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/windows/{windowId}/close-pane", s.handleClosePaneKill)
 	r.Get("/api/windows/{windowId}/chat", s.handleChatBackfill)
 	r.Post("/api/windows/{windowId}/chat/send", s.handleChatSend)
+	// Conversation fork — a new window in the SAME session + directory, resuming
+	// the window's agent session with --fork-session. See api/fork.go.
+	r.Post("/api/windows/{windowId}/fork", s.handleWindowFork)
 	r.Get("/api/directories", s.handleDirectories)
 	r.Post("/api/sessions/{session}/upload", s.handleUpload)
 	r.Post("/api/preview-scope", s.handlePreviewScope)

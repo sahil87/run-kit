@@ -11,7 +11,12 @@ import { ChromeProvider, useChromeState, useChromeDispatch } from "@/contexts/ch
 import { useWindowStore, entryKey } from "@/store/window-store";
 import type { UploadedFile } from "@/hooks/use-file-upload";
 import { stubMatchMedia } from "@/test-utils/match-media";
-import { hydrateComposeDrafts } from "@/lib/compose-draft-store";
+import {
+  getComposeSentHistory,
+  hydrateComposeDrafts,
+  hydrateComposeSentHistory,
+  pushComposeSentHistory,
+} from "@/lib/compose-draft-store";
 import { consumeComposeStripFocusOnOpen, focusComposeStrip } from "@/lib/compose-strip-events";
 
 // Mock useFileUpload so tests never hit the network. The mock records calls and
@@ -95,6 +100,9 @@ describe("ComposeStrip", () => {
     // real hydration so a leftover draft from a prior test never bleeds in.
     localStorage.clear();
     hydrateComposeDrafts();
+    // Same for the sibling sent-history store — a leftover history would make
+    // an ↑ recall in a fresh test see a prior test's sends.
+    hydrateComposeSentHistory();
     // Drain the module-level focus-on-open flag so a prior test's toggle can
     // never leak focus behavior into the next one.
     consumeComposeStripFocusOnOpen();
@@ -923,5 +931,346 @@ describe("ComposeStrip", () => {
     // No strip mounted → the registry declines so the caller falls back to the
     // terminal.
     expect(focusComposeStrip()).toBe(false);
+  });
+
+  // ── Sent history + ↑/↓ recall (260806-kadm) ────────────────────────────────
+
+  /** Single-target strip with an OPEN stream, focused and ready to type. */
+  function renderFocused(open = true) {
+    const { ref, sent } = makeWs(open);
+    const view = render(
+      <ChromeProvider>
+        <FocusedTerminalProvider>
+          <FocusSetter focus={{ wsRef: ref, server: "srv", session: "sess", windowId: "@1" }} />
+          <ComposeStrip />
+        </FocusedTerminalProvider>
+      </ChromeProvider>,
+    );
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+    return { view, sent };
+  }
+
+  const KEY = entryKey("srv", "@1");
+
+  /** Type into the textarea (a real user edit — ends any recall walk). */
+  function type(value: string) {
+    act(() => fireEvent.change(input(), { target: { value } }));
+  }
+
+  /** Press an arrow; returns true when the keydown was NOT prevented (i.e. the
+   * strip left it to native cursor movement). */
+  function arrow(key: "ArrowUp" | "ArrowDown"): boolean {
+    let notPrevented = true;
+    act(() => {
+      notPrevented = fireEvent.keyDown(input(), { key });
+    });
+    return notPrevented;
+  }
+
+  it.each([
+    ["insert-line (plain Enter)", { key: "Enter" }, "sent text\n"],
+    ["insert (Alt+Enter)", { key: "Enter", altKey: true }, "sent text"],
+    ["submit (Cmd/Ctrl+Enter)", { key: "Enter", ctrlKey: true }, "sent text\r"],
+  ])("records history on a delivered %s send, before the clear", (_label, chord, wire) => {
+    const { sent } = renderFocused();
+    type("sent text");
+    act(() => fireEvent.keyDown(input(), chord));
+    // Wire bytes unchanged by this change.
+    expect(sent).toEqual([wire]);
+    // Draft cleared as before — and the text is recoverable.
+    expect(input().value).toBe("");
+    expect(getComposeSentHistory(KEY)).toEqual(["sent text"]);
+  });
+
+  it("an empty submit's bare \\r records nothing", () => {
+    const { sent } = renderFocused();
+    act(() => fireEvent.keyDown(input(), { key: "Enter", ctrlKey: true }));
+    expect(sent).toEqual(["\r"]);
+    expect(getComposeSentHistory(KEY)).toEqual([]);
+  });
+
+  it("a guard-blocked send (stream not OPEN) records nothing and keeps the draft", () => {
+    const { sent } = renderFocused(false);
+    type("never delivered");
+    act(() => fireEvent.keyDown(input(), { key: "Enter" }));
+    expect(sent).toEqual([]);
+    expect(input().value).toBe("never delivered"); // draft preserved
+    expect(getComposeSentHistory(KEY)).toEqual([]); // nothing to recover — nothing lost
+  });
+
+  it("↑ on an empty textarea recalls the newest sent text", () => {
+    pushComposeSentHistory(KEY, "older");
+    pushComposeSentHistory(KEY, "newest");
+    renderFocused();
+    expect(arrow("ArrowUp")).toBe(false); // consumed
+    expect(input().value).toBe("newest");
+  });
+
+  it("repeated ↑ walks older and pins at the oldest entry (no wrap)", () => {
+    for (const t of ["a", "b", "c"]) pushComposeSentHistory(KEY, t);
+    renderFocused();
+    arrow("ArrowUp");
+    expect(input().value).toBe("c");
+    arrow("ArrowUp");
+    expect(input().value).toBe("b");
+    arrow("ArrowUp");
+    expect(input().value).toBe("a");
+    arrow("ArrowUp"); // past the oldest — pins, never wraps to "c"
+    expect(input().value).toBe("a");
+  });
+
+  it("↓ walks back toward newer and, past the newest, restores the stash and ends the walk", () => {
+    for (const t of ["a", "b", "c"]) pushComposeSentHistory(KEY, t);
+    renderFocused();
+    arrow("ArrowUp");
+    arrow("ArrowUp");
+    arrow("ArrowUp");
+    expect(input().value).toBe("a");
+
+    expect(arrow("ArrowDown")).toBe(false); // consumed
+    expect(input().value).toBe("b");
+    arrow("ArrowDown");
+    expect(input().value).toBe("c");
+    arrow("ArrowDown"); // past the newest → the pre-walk stash (empty)
+    expect(input().value).toBe("");
+    // Walk over: a further ↓ is native again.
+    expect(arrow("ArrowDown")).toBe(true);
+  });
+
+  it("↓ outside a walk is never intercepted", () => {
+    pushComposeSentHistory(KEY, "available");
+    renderFocused();
+    expect(arrow("ArrowDown")).toBe(true);
+    expect(input().value).toBe("");
+  });
+
+  it("↑ on a NON-empty textarea outside a walk keeps native cursor movement", () => {
+    pushComposeSentHistory(KEY, "recallable");
+    renderFocused();
+    type("line one\nline two");
+    expect(arrow("ArrowUp")).toBe(true); // not consumed — the caret moves
+    expect(input().value).toBe("line one\nline two"); // draft untouched
+  });
+
+  it("↑ with no history for the target does nothing and starts no walk", () => {
+    renderFocused();
+    expect(arrow("ArrowUp")).toBe(true); // nothing to recall — stays native
+    expect(input().value).toBe("");
+    // No walk started, so ↓ is still native too.
+    expect(arrow("ArrowDown")).toBe(true);
+  });
+
+  it("editing ends the walk — a later ↑ on the edited text is not intercepted", () => {
+    pushComposeSentHistory(KEY, "recalled");
+    renderFocused();
+    arrow("ArrowUp");
+    expect(input().value).toBe("recalled");
+    type("recalled and edited"); // user edit → walk over
+    expect(arrow("ArrowUp")).toBe(true); // non-empty, no walk → native
+    expect(input().value).toBe("recalled and edited");
+  });
+
+  it("sending ends the walk — the next ↑ starts fresh from the newest entry", () => {
+    pushComposeSentHistory(KEY, "old one");
+    const { sent } = renderFocused();
+    arrow("ArrowUp");
+    expect(input().value).toBe("old one");
+    // Re-sending the recalled text: adjacent-dedupe means it does not burn a
+    // second slot, and the walk ends.
+    act(() => fireEvent.keyDown(input(), { key: "Enter" }));
+    expect(sent).toEqual(["old one\n"]);
+    expect(getComposeSentHistory(KEY)).toEqual(["old one"]);
+    arrow("ArrowUp");
+    expect(input().value).toBe("old one"); // fresh walk from the newest
+  });
+
+  it("a walk does not survive a target switch — each target walks its own history", () => {
+    const keyA = entryKey("srv", "@a");
+    const keyB = entryKey("srv", "@b");
+    pushComposeSentHistory(keyA, "A older");
+    pushComposeSentHistory(keyA, "A newest");
+    pushComposeSentHistory(keyB, "B only");
+    renderTwoTargets();
+
+    act(() => fireEvent.click(screen.getByTestId("focus-a")));
+    arrow("ArrowUp");
+    arrow("ArrowUp");
+    expect(input().value).toBe("A older"); // mid-walk, two steps back
+
+    // Switch to B: A's walk (and its stash) must not carry over.
+    act(() => fireEvent.click(screen.getByTestId("focus-b")));
+    expect(input().value).toBe(""); // B's draft, untouched by A's walk
+    arrow("ArrowUp");
+    expect(input().value).toBe("B only"); // B's own newest, not A's index
+
+    // Back on A: its draft still holds the recalled text (recall persists as a
+    // draft — it behaves exactly like typing), and a fresh walk starts over.
+    act(() => fireEvent.click(screen.getByTestId("focus-a")));
+    expect(input().value).toBe("A older");
+  });
+
+  // The switch must end the walk EAGERLY (on the `draftKey` change), not lazily
+  // at the next keydown. The test above cannot see the difference because it
+  // presses ↑ on B, which tears a lazily-checked walk down as a side effect —
+  // these two round-trip through B WITHOUT any arrow there.
+  it("an A→B→A round-trip with no arrow on B starts a fresh walk from A's newest", () => {
+    const keyA = entryKey("srv", "@a");
+    pushComposeSentHistory(keyA, "A older");
+    pushComposeSentHistory(keyA, "A newest");
+    renderTwoTargets();
+
+    // Walk A back two steps, then leave and come straight back — no arrow on B.
+    act(() => fireEvent.click(screen.getByTestId("focus-a")));
+    arrow("ArrowUp");
+    arrow("ArrowUp");
+    expect(input().value).toBe("A older");
+    act(() => fireEvent.click(screen.getByTestId("focus-b")));
+    act(() => fireEvent.click(screen.getByTestId("focus-a")));
+
+    // A's draft still shows the recalled text, but the WALK is gone. Because
+    // the textarea is non-empty and no walk is in progress, ↑ is now native
+    // cursor movement — it must not resume A's stale index (which would step
+    // past "A older" and pin, silently continuing a walk the user abandoned).
+    expect(input().value).toBe("A older");
+    expect(arrow("ArrowUp")).toBe(true); // not consumed
+    expect(input().value).toBe("A older");
+
+    // Clearing the draft re-opens recall, and it starts from the NEWEST entry.
+    type("");
+    arrow("ArrowUp");
+    expect(input().value).toBe("A newest");
+  });
+
+  it("an upload mid-walk ends the walk — the path line survives the next arrow", async () => {
+    uploadFilesMock.mockResolvedValueOnce([
+      { path: "/wt/.uploads/a.png", file: new File(["a"], "a.png", { type: "image/png" }) },
+    ]);
+    pushComposeSentHistory(KEY, "older sent");
+    pushComposeSentHistory(KEY, "newest sent");
+    renderFocused();
+
+    // Walk to the newest entry, then attach a file mid-walk.
+    arrow("ArrowUp");
+    expect(input().value).toBe("newest sent");
+    const picker = document.querySelector('input[type="file"]') as HTMLInputElement;
+    await act(async () => {
+      fireEvent.change(picker, {
+        target: { files: [new File(["a"], "a.png", { type: "image/png" })] },
+      });
+    });
+    expect(input().value).toBe("newest sent\n/wt/.uploads/a.png");
+    expect(screen.getByTestId("compose-strip-previews")).toBeInTheDocument();
+
+    // The upload ended the walk, so ↑ is native on the now-non-empty text. A
+    // still-armed walk would overwrite the text with "older sent", dropping the
+    // path line while the File and its preview chip stayed mounted — an
+    // attachment the agent could never resolve.
+    expect(arrow("ArrowUp")).toBe(true); // not consumed
+    expect(input().value).toBe("newest sent\n/wt/.uploads/a.png");
+    expect(screen.getByTestId("compose-strip-previews")).toBeInTheDocument();
+  });
+
+  it("removing an attachment mid-walk ends the walk", async () => {
+    uploadFilesMock.mockResolvedValueOnce([
+      { path: "/wt/.uploads/b.png", file: new File(["b"], "b.png", { type: "image/png" }) },
+    ]);
+    pushComposeSentHistory(KEY, "older sent");
+    pushComposeSentHistory(KEY, "newest sent");
+    renderFocused();
+
+    // Attach first (this ends the initial walk), then start a NEW walk — the
+    // non-empty text means ↑ is native, so clear it to re-open recall.
+    const picker = document.querySelector('input[type="file"]') as HTMLInputElement;
+    await act(async () => {
+      fireEvent.change(picker, {
+        target: { files: [new File(["b"], "b.png", { type: "image/png" })] },
+      });
+    });
+    type("/wt/.uploads/b.png");
+    // Remove the attachment while no walk is running is uninteresting; start
+    // one by clearing and recalling, which keeps the preview mounted.
+    type("");
+    arrow("ArrowUp");
+    expect(input().value).toBe("newest sent");
+    expect(screen.getByTestId("compose-strip-previews")).toBeInTheDocument();
+
+    // Remove the (now text-less) attachment mid-walk: the splice is a text
+    // mutation, so it ends the walk.
+    act(() => fireEvent.click(screen.getByLabelText("Remove b.png")));
+    expect(screen.queryByTestId("compose-strip-previews")).not.toBeInTheDocument();
+    expect(arrow("ArrowUp")).toBe(true); // walk over → native
+    expect(input().value).toBe("newest sent");
+  });
+
+  it("an IME-composing arrow is never intercepted (candidate-list navigation)", () => {
+    pushComposeSentHistory(KEY, "recallable");
+    renderFocused();
+    // ↑/↓ move through the IME candidate list while composing — swallowing them
+    // would break the very surface the strip exists to provide (xterm.js has no
+    // IME). Both neighbouring layers guard on isComposing the same way.
+    let notPrevented = true;
+    act(() => {
+      notPrevented = fireEvent.keyDown(input(), { key: "ArrowUp", isComposing: true });
+    });
+    expect(notPrevented).toBe(true);
+    expect(input().value).toBe(""); // nothing recalled
+  });
+
+  it.each([
+    ["Shift (selection extension)", { shiftKey: true }],
+    ["Alt (paragraph jump)", { altKey: true }],
+    ["Meta (document jump)", { metaKey: true }],
+    ["Ctrl", { ctrlKey: true }],
+  ])("a modified ↑ (%s) stays native and recalls nothing", (_label, modifier) => {
+    pushComposeSentHistory(KEY, "recallable");
+    renderFocused();
+    let notPrevented = true;
+    act(() => {
+      notPrevented = fireEvent.keyDown(input(), { key: "ArrowUp", ...modifier });
+    });
+    expect(notPrevented).toBe(true);
+    expect(input().value).toBe("");
+  });
+
+  it("a modified ↓ mid-walk stays native and does not step the walk", () => {
+    for (const t of ["a", "b"]) pushComposeSentHistory(KEY, t);
+    renderFocused();
+    arrow("ArrowUp");
+    arrow("ArrowUp");
+    expect(input().value).toBe("a");
+    // Shift+↓ extends the selection — it must not walk forward to "b".
+    let notPrevented = true;
+    act(() => {
+      notPrevented = fireEvent.keyDown(input(), { key: "ArrowDown", shiftKey: true });
+    });
+    expect(notPrevented).toBe(true);
+    expect(input().value).toBe("a");
+    // The walk itself is untouched: a bare ↓ still steps forward.
+    arrow("ArrowDown");
+    expect(input().value).toBe("b");
+  });
+
+  it("recall restores text only — no attachment is resurrected", async () => {
+    uploadFilesMock.mockResolvedValueOnce([
+      { path: "/wt/.uploads/x.png", file: new File(["x"], "x.png", { type: "image/png" }) },
+    ]);
+    const { sent } = renderFocused();
+    const picker = document.querySelector('input[type="file"]') as HTMLInputElement;
+    await act(async () => {
+      fireEvent.change(picker, {
+        target: { files: [new File(["x"], "x.png", { type: "image/png" })] },
+      });
+    });
+    expect(screen.getByTestId("compose-strip-previews")).toBeInTheDocument();
+
+    act(() => fireEvent.keyDown(input(), { key: "Enter" }));
+    expect(sent).toEqual(["/wt/.uploads/x.png\n"]);
+    expect(screen.queryByTestId("compose-strip-previews")).not.toBeInTheDocument();
+
+    arrow("ArrowUp");
+    // The path LINE comes back (it is part of the text) — the File object,
+    // and therefore the preview, does not.
+    expect(input().value).toBe("/wt/.uploads/x.png");
+    expect(screen.queryByTestId("compose-strip-previews")).not.toBeInTheDocument();
   });
 });

@@ -1,0 +1,57 @@
+id: kadm
+name: 260806-kadm-compose-send-history-recall
+created: 2026-08-06T15:24:46Z
+created_by: Sahil Ahuja
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 6
+    acceptance_count: 25
+    acceptance_completed: 25
+confidence:
+    certain: 6
+    confident: 5
+    tentative: 0
+    unresolved: 0
+    score: 4.7
+    fuzzy: true
+    dimensions:
+        signal: 77.3
+        reversibility: 87.3
+        competence: 83.6
+        disambiguation: 76.8
+stage_metrics:
+    intake: {started_at: "2026-08-06T15:24:46Z", driver: fab-new, iterations: 1, completed_at: "2026-08-06T15:30:01Z"}
+    apply: {started_at: "2026-08-06T15:48:42Z", driver: fab-fff, iterations: 2, completed_at: "2026-08-06T15:57:50Z"}
+    review: {started_at: "2026-08-06T15:57:50Z", driver: fab-fff, iterations: 2, completed_at: "2026-08-06T16:03:53Z"}
+    hydrate: {started_at: "2026-08-06T16:03:53Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-06T16:07:34Z"}
+    ship: {started_at: "2026-08-06T16:07:34Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-06T16:10:14Z"}
+    review-pr: {started_at: "2026-08-06T16:10:14Z", driver: git-pr, iterations: 1, completed_at: "2026-08-07T05:07:58Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/531
+change_type_source: explicit
+true_impact:
+    added: 1335
+    deleted: 15
+    net: 1320
+    excluding:
+        added: 880
+        deleted: 14
+        net: 866
+    tests:
+        added: 209
+        deleted: 0
+        net: 209
+    computed_at: "2026-08-06T16:10:14Z"
+    computed_at_stage: ship
+summary: Compose strip records every sent text per target (10-cap, sibling localStorage key) with a bare ↑/↓ recall walk that ends on edit, send, upload, or target switch
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-07T05:07:58Z

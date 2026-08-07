@@ -15,8 +15,9 @@ import { mockStateSocket } from "./_state-socket-mock";
 const SERVER = "default";
 
 // @1: change-bound window WITH an owned open PR (purple "PR — open" dot, rest
-// PR glyph, full four-register card). @2: plain scratch window (gray "idle"
-// dot, no glyph, out-register-only card).
+// PR glyph, full four-register card) AND a reconciled claude chat (so the
+// conversation-fork affordance renders — 260806-s4av). @2: plain scratch window
+// (gray "idle" dot, no glyph, out-register-only card, no fork link).
 const sessionsPayload = JSON.stringify([
   {
     name: "dev",
@@ -31,6 +32,8 @@ const sessionsPayload = JSON.stringify([
         activityTimestamp: 0,
         agentState: "waiting",
         agentIdleDuration: "3m",
+        chatProvider: "claude",
+        chatSessionRef: "5d80479e-8f25-46cd-a0d4-e51435508a37",
         fabChange: "260805-93dy-window-row-pr-glyph-register-flyout",
         fabStage: "apply",
         fabDisplayState: "active",
@@ -181,6 +184,67 @@ test.describe("Row flyout card (fine pointer)", () => {
     await expect(card(page)).toHaveCount(1);
     await expect(card(page)).toContainText("idle");
     await expect(page.getByTestId("row-flyout-pr-link")).toHaveCount(0);
+  });
+
+  test("the fork link renders only on a claude-chat row and POSTs the fork endpoint", async ({
+    page,
+  }) => {
+    // Gate: @1 carries a reconciled claude chat → the fork affordance renders
+    // beside the docs link; @2 (plain shell, no chatProvider) does not.
+    await prRow(page).hover();
+    const forkLink = page.getByTestId("row-flyout-fork-link");
+    await expect(forkLink).toBeVisible();
+    await expect(forkLink).toHaveAttribute("title", /same directory/i);
+
+    await scratchRow(page).hover();
+    await expect(card(page)).toContainText("idle");
+    await expect(page.getByTestId("row-flyout-fork-link")).toHaveCount(0);
+
+    // Clicking it POSTs the window-keyed fork endpoint with NO body (every input
+    // is derived server-side). Mocked with an empty windowId so the app skips
+    // navigation and the assertion stays on this route.
+    const forkRequests: string[] = [];
+    await page.route("**/api/windows/*/fork*", (route) => {
+      forkRequests.push(route.request().url());
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ server: SERVER, session: "dev", window: "feature-work-fork", windowId: "" }),
+      });
+    });
+
+    await prRow(page).hover();
+    await page.getByTestId("row-flyout-fork-link").click();
+    await expect.poll(() => forkRequests.length).toBe(1);
+    // Window-keyed: the source window's id is in the path (percent-encoded '@').
+    expect(forkRequests[0]).toContain("/fork");
+    expect(decodeURIComponent(forkRequests[0])).toContain("/api/windows/@1/fork");
+    // Forking never also selects/navigates the row.
+    await expect(page).toHaveURL(new RegExp(`/${SERVER}/?$`));
+  });
+
+  test("a successful fork navigates to the returned window", async ({ page }) => {
+    // The navigation half of the fork contract (R11): a NON-empty returned
+    // windowId routes to that window (the empty-id skip is the case above).
+    await page.route("**/api/windows/*/fork*", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          server: SERVER,
+          session: "dev",
+          window: "feature-work-fork",
+          windowId: "@9",
+        }),
+      }),
+    );
+
+    await prRow(page).hover();
+    await page.getByTestId("row-flyout-fork-link").click();
+
+    // @9 → URL segment `9` (the route strips the '@'), the same navigation the
+    // spawn dialog performs with a riff result.
+    await expect(page).toHaveURL(new RegExp(`/${SERVER}/9(?:$|[/?#])`), { timeout: 5_000 });
   });
 
   test("clicking the card's PR link does not select/navigate the window row", async ({ page }) => {

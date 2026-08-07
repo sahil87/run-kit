@@ -240,14 +240,16 @@ export function prOwnsDot(win: WindowInfo): boolean {
 
 /**
  * Color token for the window row's rest-state PR glyph (93dy), reusing the
- * shared PR vocabulary so the glyph stays in lock-step with the dot/segments:
- * red only for a fail-ish PR (`prDotState` → `fail`, i.e. `isFailish`), purple
- * for everything else an owned PR can be (open / merged / checks pending). No
- * new color system — `text-purple-400`/`text-red-400` are the established
- * tokens (PHASE_HUE.pr / PR_STATE_COLORS).
+ * shared PR vocabulary so the glyph stays in lock-step with the segments:
+ * red only for a fail-ish PR (`prDotState` → `fail`, i.e. `isFailish`), then
+ * GitHub-style by state — green for open (checks pending included), purple for
+ * merged. Closed never reaches here (the `prOwnsDot` gate excludes it). No new
+ * color system — `text-accent-green`/`text-purple-400`/`text-red-400` are the
+ * established tokens (PR_STATE_COLORS).
  */
 export function prGlyphColor(win: WindowInfo): string {
-  return prDotState(win) === "fail" ? "text-red-400" : "text-purple-400";
+  if (prDotState(win) === "fail") return "text-red-400";
+  return win.prState === "open" ? "text-accent-green" : "text-purple-400";
 }
 
 export function statusDotState(win: WindowInfo): StatusDotState {

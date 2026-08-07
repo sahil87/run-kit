@@ -88,11 +88,11 @@ describe("prOwnsDot — owned-PR gate", () => {
 });
 
 // 93dy: glyph color follows the shared vocabulary — red ONLY for fail-ish,
-// purple for every other owned state (open / merged / pending).
+// then GitHub-style by state: green for open, purple for merged.
 describe("prGlyphColor — rest-glyph color mapping", () => {
-  it("open + passing checks → purple", () => {
+  it("open + passing checks → green", () => {
     expect(prGlyphColor(makeWindow({ prNumber: 7, prState: "open", prChecks: "pass" }))).toBe(
-      "text-purple-400",
+      "text-accent-green",
     );
   });
 
@@ -102,9 +102,9 @@ describe("prGlyphColor — rest-glyph color mapping", () => {
     );
   });
 
-  it("checks pending → purple (pending is not failure)", () => {
+  it("checks pending → green (pending is not failure, open wins)", () => {
     expect(prGlyphColor(makeWindow({ prNumber: 7, prState: "open", prChecks: "pending" }))).toBe(
-      "text-purple-400",
+      "text-accent-green",
     );
   });
 

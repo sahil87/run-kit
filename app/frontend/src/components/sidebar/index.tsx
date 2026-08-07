@@ -83,6 +83,11 @@ export type SidebarProps = {
    *  Optional (mirrors `SessionRow.onSpawnAgent`): when omitted (e.g. the
    *  board-route sidebar) the per-row bot button is hidden. */
   onSpawnAgent?: (server: string, session: string) => void;
+  /** Fork a window's agent conversation into a new window in the same session
+   *  and directory (260806-s4av). Optional (mirrors `onSpawnAgent`): when
+   *  omitted — e.g. the board-route sidebar — the row flyout's fork affordance is
+   *  hidden. The flyout additionally gates on `chatProvider === "claude"`. */
+  onForkWindow?: (server: string, windowId: string) => Promise<void>;
   onCreateServer: () => void;
   onKillServer: (name: string) => void;
   /** Optional waiting-badge click (260714-r7rq): navigate to the next waiting
@@ -105,6 +110,7 @@ export function Sidebar({
   onCreateWindow,
   onCreateSession,
   onSpawnAgent,
+  onForkWindow,
   onCreateServer,
   onKillServer,
   onWaitingBadgeClick,
@@ -1303,6 +1309,7 @@ export function Sidebar({
                 onKillServer={onKillServer}
                 onWindowColorChange={handleWindowColorChange}
                 onWindowMarkerChange={handleWindowMarkerChange}
+                onForkWindow={onForkWindow}
                 onWindowDragStart={handleDragStart}
                 onWindowDragOver={handleDragOver}
                 onWindowDrop={handleDrop}
@@ -1632,6 +1639,9 @@ type ServerGroupProps = {
   onKillServer: (name: string) => void;
   onWindowColorChange: (server: string, session: string, windowId: string, color: string | null) => void;
   onWindowMarkerChange: (server: string, session: string, windowId: string, marker: string | null) => void;
+  /** Forwarded to each `WindowRow` → its row flyout's fork affordance. Optional
+   *  (the board-route sidebar passes none) — see `SidebarProps.onForkWindow`. */
+  onForkWindow?: (server: string, windowId: string) => Promise<void>;
   onWindowDragStart: (e: React.DragEvent, server: string, session: string, index: number, windowId: string, name: string) => void;
   onWindowDragOver: (e: React.DragEvent, server: string, session: string, index: number) => void;
   onWindowDrop: (e: React.DragEvent, server: string, session: string, index: number) => void;
@@ -1699,6 +1709,7 @@ function ServerGroupInner(props: ServerGroupProps) {
     onKillServer,
     onWindowColorChange,
     onWindowMarkerChange,
+    onForkWindow,
     onWindowDragStart,
     onWindowDragOver,
     onWindowDrop,
@@ -2093,6 +2104,7 @@ function ServerGroupInner(props: ServerGroupProps) {
                             onDragEnd={ghost ? undefined : onWindowDragEnd}
                             onColorChange={ghost ? undefined : onWindowColorChange}
                             onMarkerChange={ghost ? undefined : onWindowMarkerChange}
+                            onForkWindow={ghost ? undefined : onForkWindow}
                           />
                         );
                       })}

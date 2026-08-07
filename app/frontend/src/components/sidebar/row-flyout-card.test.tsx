@@ -8,6 +8,8 @@ import {
   FreshnessLine,
   FLYOUT_OPEN_DELAY_MS,
   STATUS_DOT_DOCS_URL,
+  FORK_TOOLTIP,
+  canForkWindow,
 } from "./row-flyout-card";
 import { dotLabel } from "@/components/status-dot-label";
 import { statusDotState } from "@/components/pr-status-model";
@@ -33,11 +35,28 @@ afterEach(() => {
 /** Minimal consumer mirroring WindowRow's wiring: the hook's reference props
  *  ride a plain row element, and the card renders as a sibling. The imperative
  *  seams (`openNow` = the coarse dot-tap, `close` = drag start) are exposed as
- *  buttons so tests can drive them like the row does. */
-function Row({ win, suppressed = false }: { win: WindowInfo; suppressed?: boolean }) {
-  const flyout = useRowFlyout(win, { suppressed });
+ *  buttons so tests can drive them like the row does. `onFork` mirrors the row's
+ *  bound fork handler (omitted ⇒ no fork affordance); `onRowClick` stands in for
+ *  the real row's select-on-click so stopPropagation can be asserted. */
+function Row({
+  win,
+  suppressed = false,
+  onFork,
+  onRowClick,
+}: {
+  win: WindowInfo;
+  suppressed?: boolean;
+  onFork?: () => Promise<void>;
+  onRowClick?: () => void;
+}) {
+  const flyout = useRowFlyout(win, { suppressed, onFork });
   return (
-    <div ref={flyout.setReference} {...flyout.referenceProps} data-testid="row">
+    <div
+      ref={flyout.setReference}
+      {...flyout.referenceProps}
+      onClick={onRowClick}
+      data-testid="row"
+    >
       row
       <button type="button" data-testid="open-now" onClick={() => flyout.openNow()} />
       <button type="button" data-testid="close-now" onClick={() => flyout.close()} />
@@ -199,6 +218,110 @@ describe("RowFlyout card content", () => {
       fireEvent.click(screen.getByTestId("open-now"));
     });
     expect(screen.getByTestId("row-flyout-card")).toBeInTheDocument();
+  });
+});
+
+describe("Fork affordance (260806-s4av)", () => {
+  // The fork link is DOUBLE-gated: the window must carry a claude chat AND the
+  // consumer must have wired a handler. Both halves are asserted, plus the
+  // stopPropagation contract (forking must never also select the row) and the
+  // in-flight guard (the POST creates a tmux window, so N clicks would fork N
+  // times).
+
+  /** A settled fork handler — the app's real one surfaces its own errors and
+   *  resolves either way, so a resolved promise is the faithful stand-in. */
+  const forkResolved = () => vi.fn<() => Promise<void>>(() => Promise.resolve());
+
+  it("renders beside the docs link for a claude-chat window with a handler", () => {
+    const onFork = forkResolved();
+    render(<Row win={makeWindow({ chatProvider: "claude" })} onFork={onFork} />);
+    hoverOpen();
+
+    const fork = screen.getByTestId("row-flyout-fork-link");
+    expect(fork).toBeInTheDocument();
+    // Copy names the same-directory semantics — what distinguishes a fork from
+    // the spawn dialog's fresh (usually new-worktree) agent.
+    expect(fork).toHaveAttribute("title", FORK_TOOLTIP);
+    expect(fork).toHaveAttribute("aria-label", FORK_TOOLTIP);
+    expect(FORK_TOOLTIP).toContain("same directory");
+    // Both header affordances live in one right-edge cluster.
+    expect(fork.parentElement).toContainElement(screen.getByTestId("row-flyout-docs-link"));
+  });
+
+  it("is absent for a window with no chat provider", () => {
+    render(<Row win={makeWindow({})} onFork={forkResolved()} />);
+    hoverOpen();
+    expect(screen.queryByTestId("row-flyout-fork-link")).toBeNull();
+    // The docs link is unaffected — the card still renders normally.
+    expect(screen.getByTestId("row-flyout-docs-link")).toBeInTheDocument();
+  });
+
+  it("is absent for a non-claude provider (fork is a Claude Code mechanism)", () => {
+    render(<Row win={makeWindow({ chatProvider: "codex" })} onFork={forkResolved()} />);
+    hoverOpen();
+    expect(screen.queryByTestId("row-flyout-fork-link")).toBeNull();
+  });
+
+  it("is absent when the consumer wired no handler (board-route sidebar / bare row)", () => {
+    render(<Row win={makeWindow({ chatProvider: "claude" })} />);
+    hoverOpen();
+    expect(screen.queryByTestId("row-flyout-fork-link")).toBeNull();
+  });
+
+  it("clicking calls the handler and does not bubble to the row", () => {
+    const onFork = forkResolved();
+    const onRowClick = vi.fn();
+    render(<Row win={makeWindow({ chatProvider: "claude" })} onFork={onFork} onRowClick={onRowClick} />);
+    hoverOpen();
+
+    act(() => {
+      fireEvent.click(screen.getByTestId("row-flyout-fork-link"));
+    });
+    expect(onFork).toHaveBeenCalledTimes(1);
+    // stopPropagation: forking must never also select the underlying row.
+    expect(onRowClick).not.toHaveBeenCalled();
+  });
+
+  it("disables the button while a fork is in flight, so a second click fires no second POST", async () => {
+    // A handler that stays PENDING until the test resolves it — the in-flight
+    // window the guard has to cover. The POST creates a tmux window, so a second
+    // click getting through would create a second fork.
+    let settle: () => void = () => {};
+    const onFork = vi.fn<() => Promise<void>>(
+      () =>
+        new Promise<void>((resolve) => {
+          settle = resolve;
+        }),
+    );
+    render(<Row win={makeWindow({ chatProvider: "claude" })} onFork={onFork} />);
+    hoverOpen();
+
+    const fork = screen.getByTestId("row-flyout-fork-link");
+    expect(fork).toBeEnabled();
+
+    act(() => {
+      fireEvent.click(fork);
+    });
+    expect(onFork).toHaveBeenCalledTimes(1);
+    expect(fork).toBeDisabled();
+
+    act(() => {
+      fireEvent.click(fork);
+    });
+    expect(onFork).toHaveBeenCalledTimes(1);
+
+    // Settling re-enables it — a failed fork must stay retryable (the app's
+    // handler resolves on error too, after surfacing a toast).
+    await act(async () => {
+      settle();
+    });
+    expect(screen.getByTestId("row-flyout-fork-link")).toBeEnabled();
+  });
+
+  it("canForkWindow gates on the claude provider exactly", () => {
+    expect(canForkWindow(makeWindow({ chatProvider: "claude" }))).toBe(true);
+    expect(canForkWindow(makeWindow({ chatProvider: "codex" }))).toBe(false);
+    expect(canForkWindow(makeWindow({}))).toBe(false);
   });
 });
 

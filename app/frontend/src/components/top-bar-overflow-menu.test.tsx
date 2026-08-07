@@ -80,12 +80,14 @@ describe("version-row check affordance (260720-ml7k)", () => {
     expect(within(menu).queryByLabelText("Check for updates")).not.toBeInTheDocument();
   });
 
-  it("click runs the plain notable check and reports via the existing info toast; the menu stays open", async () => {
-    checkForUpdatesMock.mockResolvedValue(emptyResult);
+  it("click runs the incl.-patches check and reports via the existing info toast; the menu stays open", async () => {
+    checkForUpdatesMock.mockResolvedValue({ ...emptyResult, source: "github" });
     renderMenu({ daemonVersion: "0.6.2", updateAvailable: null });
     const menu = openMenu();
     fireEvent.click(within(menu).getByLabelText("Check for updates"));
-    expect(checkForUpdatesMock).toHaveBeenCalledTimes(1);
+    // The menu affordance mirrors the palette's incl.-patches command: the
+    // fresh GitHub release-tags source, not the released-manifest check.
+    expect(checkForUpdatesMock).toHaveBeenCalledExactlyOnceWith("github");
     // Result reports through the existing composeCheckToast flow.
     expect(await screen.findByText("All tools up to date")).toBeInTheDocument();
     // The ⟳ is not a role="menuitem", so the container's terminal-action close

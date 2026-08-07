@@ -1,0 +1,57 @@
+id: s4av
+name: 260806-s4av-row-flyout-session-fork
+created: 2026-08-06T12:21:56Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: active
+plan:
+    generated: true
+    task_count: 14
+    acceptance_count: 35
+    acceptance_completed: 35
+confidence:
+    certain: 4
+    confident: 5
+    tentative: 0
+    unresolved: 0
+    score: 4.5
+    fuzzy: true
+    dimensions:
+        signal: 75.0
+        reversibility: 82.8
+        competence: 83.3
+        disambiguation: 78.9
+stage_metrics:
+    intake: {started_at: "2026-08-06T12:21:56Z", driver: fab-new, iterations: 1, completed_at: "2026-08-06T12:25:36Z"}
+    apply: {started_at: "2026-08-06T13:22:08Z", driver: fab-fff, iterations: 2, completed_at: "2026-08-06T13:39:16Z"}
+    review: {started_at: "2026-08-06T13:39:16Z", driver: fab-fff, iterations: 2, completed_at: "2026-08-06T13:46:11Z"}
+    hydrate: {started_at: "2026-08-06T13:46:11Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-06T14:02:12Z"}
+    ship: {started_at: "2026-08-06T14:02:12Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-06T14:04:15Z"}
+    review-pr: {started_at: "2026-08-06T14:04:15Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/530
+change_type_source: explicit
+true_impact:
+    added: 1952
+    deleted: 80
+    net: 1872
+    excluding:
+        added: 1397
+        deleted: 57
+        net: 1340
+    tests:
+        added: 634
+        deleted: 2
+        net: 632
+    computed_at: "2026-08-06T14:04:15Z"
+    computed_at_stage: ship
+summary: Row-flyout conversation fork — POST /api/windows/{id}/fork rooted at the source pane's exact cwd, riff ResumeSessionRef launcher seam gated on a claude launcher, ForkLink beside the docs link
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-06T14:04:15Z

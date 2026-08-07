@@ -1,11 +1,17 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   COMPOSE_DRAFTS_STORAGE_KEY,
+  COMPOSE_SENT_HISTORY_STORAGE_KEY,
   MAX_DRAFT_AGE_MS,
   MAX_PERSISTED_DRAFTS,
+  MAX_PERSISTED_SENT_HISTORIES,
+  MAX_SENT_HISTORY_PER_TARGET,
   clearComposeDraft,
   getComposeDraft,
+  getComposeSentHistory,
   hydrateComposeDrafts,
+  hydrateComposeSentHistory,
+  pushComposeSentHistory,
   setComposeAttachments,
   setComposeText,
   subscribeComposeDraft,
@@ -14,6 +20,12 @@ import {
 /** Parse the persisted map straight from localStorage (test-side view). */
 function stored(): Record<string, { text: string; updatedAt: number }> {
   const raw = localStorage.getItem(COMPOSE_DRAFTS_STORAGE_KEY);
+  return raw ? JSON.parse(raw) : {};
+}
+
+/** The sibling sent-history map, straight from localStorage. */
+function storedHistory(): Record<string, { entries: string[]; updatedAt: number }> {
+  const raw = localStorage.getItem(COMPOSE_SENT_HISTORY_STORAGE_KEY);
   return raw ? JSON.parse(raw) : {};
 }
 
@@ -239,5 +251,202 @@ describe("compose-draft-store", () => {
     expect(localStorage.getItem(COMPOSE_DRAFTS_STORAGE_KEY)).not.toBeNull();
     clearComposeDraft("srv:@1");
     expect(localStorage.getItem(COMPOSE_DRAFTS_STORAGE_KEY)).toBeNull();
+  });
+});
+
+describe("compose sent-history", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    hydrateComposeSentHistory();
+  });
+  afterEach(() => {
+    localStorage.clear();
+    vi.useRealTimers();
+  });
+
+  // ── push semantics ──────────────────────────────────────────────────────────
+
+  it("records sent texts newest-first", () => {
+    pushComposeSentHistory("srv:@1", "first");
+    pushComposeSentHistory("srv:@1", "second");
+    pushComposeSentHistory("srv:@1", "third");
+    expect(getComposeSentHistory("srv:@1")).toEqual(["third", "second", "first"]);
+  });
+
+  it("caps a target's history at MAX_SENT_HISTORY_PER_TARGET, evicting the oldest", () => {
+    for (let i = 0; i <= MAX_SENT_HISTORY_PER_TARGET; i++) {
+      pushComposeSentHistory("srv:@1", `msg ${i}`);
+    }
+    const history = getComposeSentHistory("srv:@1");
+    expect(history).toHaveLength(MAX_SENT_HISTORY_PER_TARGET);
+    expect(history[0]).toBe(`msg ${MAX_SENT_HISTORY_PER_TARGET}`); // newest kept
+    expect(history).not.toContain("msg 0"); // oldest evicted
+  });
+
+  it.each([
+    ["empty string", ""],
+    ["spaces", "   "],
+    ["newlines and tabs", "\n\t \n"],
+  ])("ignores a whitespace-only push (%s)", (_label, text) => {
+    pushComposeSentHistory("srv:@1", "real");
+    pushComposeSentHistory("srv:@1", text);
+    expect(getComposeSentHistory("srv:@1")).toEqual(["real"]);
+  });
+
+  it("collapses adjacent duplicates but not a re-send with something in between", () => {
+    pushComposeSentHistory("srv:@1", "retry me");
+    pushComposeSentHistory("srv:@1", "retry me"); // adjacent → no new slot
+    expect(getComposeSentHistory("srv:@1")).toEqual(["retry me"]);
+
+    pushComposeSentHistory("srv:@1", "other");
+    pushComposeSentHistory("srv:@1", "retry me"); // no longer adjacent → recorded
+    expect(getComposeSentHistory("srv:@1")).toEqual(["retry me", "other", "retry me"]);
+  });
+
+  it("stores the exact untrimmed text (only the guard trims)", () => {
+    pushComposeSentHistory("srv:@1", "  padded  \n");
+    expect(getComposeSentHistory("srv:@1")).toEqual(["  padded  \n"]);
+  });
+
+  it("keeps histories isolated per target", () => {
+    pushComposeSentHistory("srv:@1", "for A");
+    pushComposeSentHistory("srv:@2", "for B");
+    expect(getComposeSentHistory("srv:@1")).toEqual(["for A"]);
+    expect(getComposeSentHistory("srv:@2")).toEqual(["for B"]);
+  });
+
+  it("returns a stable empty history for null and absent keys", () => {
+    expect(getComposeSentHistory(null)).toBe(getComposeSentHistory(null));
+    expect(getComposeSentHistory("nope:@0")).toBe(getComposeSentHistory(null));
+    expect(getComposeSentHistory(null)).toEqual([]);
+  });
+
+  // ── persistence ─────────────────────────────────────────────────────────────
+
+  it("round-trips history through localStorage across a re-hydration", () => {
+    pushComposeSentHistory("srv:@1", "one");
+    pushComposeSentHistory("srv:@1", "two");
+    pushComposeSentHistory("srv:@2", "elsewhere");
+
+    hydrateComposeSentHistory(); // simulate a page reload
+    expect(getComposeSentHistory("srv:@1")).toEqual(["two", "one"]);
+    expect(getComposeSentHistory("srv:@2")).toEqual(["elsewhere"]);
+  });
+
+  it("rides a sibling storage key — draft persistence is untouched", () => {
+    setComposeText("srv:@1", "a draft");
+    const draftsRaw = localStorage.getItem(COMPOSE_DRAFTS_STORAGE_KEY);
+
+    pushComposeSentHistory("srv:@1", "a send");
+    expect(localStorage.getItem(COMPOSE_DRAFTS_STORAGE_KEY)).toBe(draftsRaw);
+    expect(storedHistory()["srv:@1"]?.entries).toEqual(["a send"]);
+    // ...and the draft store never learned about history.
+    expect(stored()["srv:@1"]).toEqual({
+      text: "a draft",
+      updatedAt: expect.any(Number),
+    });
+  });
+
+  it("removes the storage key entirely when nothing persistable remains", () => {
+    expect(localStorage.getItem(COMPOSE_SENT_HISTORY_STORAGE_KEY)).toBeNull();
+    pushComposeSentHistory("srv:@1", "one");
+    expect(localStorage.getItem(COMPOSE_SENT_HISTORY_STORAGE_KEY)).not.toBeNull();
+  });
+
+  // ── tolerant parse ──────────────────────────────────────────────────────────
+
+  it.each([
+    ["malformed JSON", "not json {"],
+    ["array root", "[1,2,3]"],
+    ["scalar root", '"just a string"'],
+  ])("degrades to an empty history on %s without throwing", (_label, raw) => {
+    localStorage.setItem(COMPOSE_SENT_HISTORY_STORAGE_KEY, raw);
+    expect(() => hydrateComposeSentHistory()).not.toThrow();
+    expect(getComposeSentHistory("srv:@1")).toEqual([]);
+  });
+
+  it("skips wrong-typed entries but keeps valid siblings", () => {
+    const now = Date.now();
+    localStorage.setItem(
+      COMPOSE_SENT_HISTORY_STORAGE_KEY,
+      JSON.stringify({
+        "srv:@1": { entries: ["valid"], updatedAt: now },
+        "srv:@2": { entries: "not an array", updatedAt: now },
+        "srv:@3": { entries: ["ok", 42], updatedAt: now }, // non-string element
+        "srv:@4": { entries: ["no timestamp"] },
+        "srv:@5": null,
+        "srv:@6": { entries: [], updatedAt: now }, // empty → pruned
+      }),
+    );
+    hydrateComposeSentHistory();
+    expect(getComposeSentHistory("srv:@1")).toEqual(["valid"]);
+    for (const key of ["srv:@2", "srv:@3", "srv:@4", "srv:@5", "srv:@6"]) {
+      expect(getComposeSentHistory(key)).toEqual([]);
+    }
+  });
+
+  it("re-caps an over-long stored history at hydration", () => {
+    const oversized = Array.from({ length: MAX_SENT_HISTORY_PER_TARGET + 5 }, (_, i) => `m${i}`);
+    localStorage.setItem(
+      COMPOSE_SENT_HISTORY_STORAGE_KEY,
+      JSON.stringify({ "srv:@1": { entries: oversized, updatedAt: Date.now() } }),
+    );
+    hydrateComposeSentHistory();
+    expect(getComposeSentHistory("srv:@1")).toHaveLength(MAX_SENT_HISTORY_PER_TARGET);
+    expect(getComposeSentHistory("srv:@1")[0]).toBe("m0"); // newest-first order preserved
+  });
+
+  // ── pruning ─────────────────────────────────────────────────────────────────
+
+  it("drops histories older than MAX_DRAFT_AGE_MS at hydration", () => {
+    const now = Date.now();
+    localStorage.setItem(
+      COMPOSE_SENT_HISTORY_STORAGE_KEY,
+      JSON.stringify({
+        "srv:@old": { entries: ["stale"], updatedAt: now - MAX_DRAFT_AGE_MS - 1000 },
+        "srv:@new": { entries: ["fresh"], updatedAt: now },
+      }),
+    );
+    hydrateComposeSentHistory();
+    expect(getComposeSentHistory("srv:@old")).toEqual([]);
+    expect(getComposeSentHistory("srv:@new")).toEqual(["fresh"]);
+  });
+
+  it("drops future-dated histories beyond the age window (two-sided skew guard)", () => {
+    const now = Date.now();
+    localStorage.setItem(
+      COMPOSE_SENT_HISTORY_STORAGE_KEY,
+      JSON.stringify({
+        "srv:@future": { entries: ["ahead"], updatedAt: now + MAX_DRAFT_AGE_MS + 1000 },
+        "srv:@skew": { entries: ["small skew ok"], updatedAt: now + 1000 },
+      }),
+    );
+    hydrateComposeSentHistory();
+    expect(getComposeSentHistory("srv:@future")).toEqual([]);
+    expect(getComposeSentHistory("srv:@skew")).toEqual(["small skew ok"]);
+  });
+
+  it("caps persistence at the newest MAX_PERSISTED_SENT_HISTORIES targets", () => {
+    vi.useFakeTimers();
+    const base = Date.now();
+    for (let i = 0; i <= MAX_PERSISTED_SENT_HISTORIES; i++) {
+      vi.setSystemTime(base + i * 1000);
+      pushComposeSentHistory(`srv:@${i}`, `sent ${i}`);
+    }
+    const keys = Object.keys(storedHistory());
+    expect(keys).toHaveLength(MAX_PERSISTED_SENT_HISTORIES);
+    expect(keys).not.toContain("srv:@0"); // oldest target evicted
+    expect(keys).toContain(`srv:@${MAX_PERSISTED_SENT_HISTORIES}`); // newest kept
+  });
+
+  it("drops stale targets on write too (persist-side age prune)", () => {
+    vi.useFakeTimers();
+    const base = Date.now();
+    vi.setSystemTime(base);
+    pushComposeSentHistory("srv:@old", "will go stale");
+    vi.setSystemTime(base + MAX_DRAFT_AGE_MS + 1000);
+    pushComposeSentHistory("srv:@new", "fresh");
+    expect(storedHistory()["srv:@old"]).toBeUndefined();
+    expect(storedHistory()["srv:@new"]).toBeDefined();
   });
 });

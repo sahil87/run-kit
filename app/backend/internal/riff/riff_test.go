@@ -2,6 +2,7 @@ package riff
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -526,6 +527,264 @@ func TestSpawn_WhereModes(t *testing.T) {
 			t.Errorf("Result.WindowName = %q, want riff-swift-fox", res.WindowName)
 		}
 	})
+}
+
+// TestResumeForkLauncher covers the conversation-fork launcher suffix
+// (260806-s4av): a valid uuid appends `--resume <uuid> --fork-session` to the
+// LAUNCHER half of a claude launcher; every non-uuid input (empty, malformed,
+// shell-significant) leaves the launcher untouched — the shape check is the guard
+// keeping such input out of the deliberately-unescaped launcher string
+// (constitution §I) — and a valid uuid with a NON-claude launcher is a
+// ValidationErr rather than either silent alternative.
+func TestResumeForkLauncher(t *testing.T) {
+	const validRef = "5d80479e-8f25-46cd-a0d4-e51435508a37"
+	cases := []struct {
+		name     string
+		launcher string
+		ref      string
+		want     string
+		wantErr  bool
+	}{
+		{
+			name:     "valid uuid appends both flags",
+			launcher: "claude --dangerously-skip-permissions",
+			ref:      validRef,
+			want:     "claude --dangerously-skip-permissions --resume " + validRef + " --fork-session",
+		},
+		{
+			name:     "an absolute claude path is still claude",
+			launcher: "/opt/homebrew/bin/claude --dangerously-skip-permissions",
+			ref:      validRef,
+			want:     "/opt/homebrew/bin/claude --dangerously-skip-permissions --resume " + validRef + " --fork-session",
+		},
+		{
+			name:     "empty ref leaves the launcher byte-identical",
+			launcher: "claude --dangerously-skip-permissions",
+			ref:      "",
+			want:     "claude --dangerously-skip-permissions",
+		},
+		{
+			// The gate only fires for a fork: an ordinary spawn on a non-claude
+			// launcher is untouched, which is what keeps every existing path
+			// byte-identical.
+			name:     "empty ref on a NON-claude launcher spawns normally",
+			launcher: "codex --yolo",
+			ref:      "",
+			want:     "codex --yolo",
+		},
+		{
+			name:     "shell-injection attempt is rejected by the shape check",
+			launcher: "claude",
+			ref:      "foo; rm -rf /",
+			want:     "claude",
+		},
+		{
+			name:     "path traversal is rejected by the shape check",
+			launcher: "claude",
+			ref:      "../../etc/passwd",
+			want:     "claude",
+		},
+		{
+			name:     "uppercase hex is rejected (strict lowercase shape)",
+			launcher: "claude",
+			ref:      "5D80479E-8F25-46CD-A0D4-E51435508A37",
+			want:     "claude",
+		},
+		{
+			name:     "truncated uuid is rejected",
+			launcher: "claude",
+			ref:      "5d80479e-8f25-46cd-a0d4",
+			want:     "claude",
+		},
+		{
+			name:     "trailing content after a valid uuid is rejected (anchored)",
+			launcher: "claude",
+			ref:      validRef + " --dangerously-skip-permissions",
+			want:     "claude",
+		},
+		{
+			// A mixed-provider repo whose DEFAULT tier is not claude: the source
+			// window's provider gate says nothing about the destination launcher.
+			name:     "codex launcher + valid ref is a ValidationErr",
+			launcher: "codex --yolo",
+			ref:      validRef,
+			wantErr:  true,
+		},
+		{
+			name:     "gemini launcher + valid ref is a ValidationErr",
+			launcher: "gemini",
+			ref:      validRef,
+			wantErr:  true,
+		},
+		{
+			// A launcher rk cannot positively identify as claude is rejected too —
+			// the word split is a gate, not a shell parser.
+			name:     "env-prefixed claude is not positively identified",
+			launcher: "env FOO=1 claude",
+			ref:      validRef,
+			wantErr:  true,
+		},
+		{
+			name:     "empty launcher + valid ref is a ValidationErr",
+			launcher: "",
+			ref:      validRef,
+			wantErr:  true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := resumeForkLauncher(tc.launcher, tc.ref)
+			if tc.wantErr {
+				var ec *ExitCodeError
+				if !errors.As(err, &ec) || ec.Code != ExitValidation {
+					t.Fatalf("resumeForkLauncher(%q, %q) error = %v, want an ExitValidation ExitCodeError", tc.launcher, tc.ref, err)
+				}
+				// The message names the offending launcher so the 400 is actionable.
+				if tc.launcher != "" && !strings.Contains(ec.Msg, tc.launcher) {
+					t.Errorf("error message = %q, want it to name the launcher %q", ec.Msg, tc.launcher)
+				}
+				if got != "" {
+					t.Errorf("launcher = %q on the error path, want it empty (nothing composed)", got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("resumeForkLauncher(%q, %q) unexpected error: %v", tc.launcher, tc.ref, err)
+			}
+			if got != tc.want {
+				t.Errorf("resumeForkLauncher(%q, %q) = %q, want %q", tc.launcher, tc.ref, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestSpawn_ResumeForkNonClaudeLauncher is the end-to-end half of the launcher
+// gate: a fork whose resolved launcher is not claude must fail the spawn with
+// ExitValidation (which the fork handler maps to 400) and create NOTHING — no wt
+// call, no tmux window.
+func TestSpawn_ResumeForkNonClaudeLauncher(t *testing.T) {
+	dir := t.TempDir()
+	repoRoot := filepath.Join(t.TempDir(), "my-checkout")
+	if err := os.MkdirAll(repoRoot, 0o755); err != nil {
+		t.Fatalf("mkdir repoRoot: %v", err)
+	}
+
+	// Stubs that FAIL the test if invoked — the gate must short-circuit before any
+	// subprocess (riff's validation-before-subprocess discipline).
+	wtCalled := filepath.Join(dir, "wt-called")
+	tmuxCalled := filepath.Join(dir, "tmux-called")
+	testutil.WriteStub(t, dir, "wt", "#!/bin/sh\n: > "+wtCalled+"\nexit 1\n")
+	testutil.WriteStub(t, dir, "tmux", "#!/bin/sh\n: > "+tmuxCalled+"\nexit 1\n")
+	// The repo's default tier resolves a NON-claude launcher.
+	testutil.WriteStub(t, dir, "fab", "#!/bin/sh\necho 'codex --yolo'\n")
+	t.Setenv("PATH", dir)
+
+	_, err := Spawn(context.Background(), Options{
+		RepoRoot:         repoRoot,
+		Where:            "checkout",
+		ResumeSessionRef: "5d80479e-8f25-46cd-a0d4-e51435508a37",
+		WindowNameBase:   "feature-work-fork",
+	})
+
+	var ec *ExitCodeError
+	if !errors.As(err, &ec) || ec.Code != ExitValidation {
+		t.Fatalf("Spawn error = %v, want an ExitValidation ExitCodeError", err)
+	}
+	if !strings.Contains(ec.Msg, "codex --yolo") {
+		t.Errorf("error message = %q, want it to name the resolved launcher", ec.Msg)
+	}
+	if _, statErr := os.Stat(wtCalled); statErr == nil {
+		t.Error("wt was invoked on the launcher-gate path; nothing must be created")
+	}
+	if _, statErr := os.Stat(tmuxCalled); statErr == nil {
+		t.Error("tmux was invoked on the launcher-gate path; nothing must be created")
+	}
+}
+
+// TestWindowNameBase covers the fork endpoint's window-name-base seam
+// (260806-s4av): a non-empty spec.WindowNameBase replaces the path-derived
+// `riff-<basename>`; a blank one keeps today's derivation. Collision suffixing is
+// resolveWindowName's job and is covered by TestResolveWindowName — the pairing
+// (explicit base + collision) is asserted here to lock the composition.
+func TestWindowNameBase(t *testing.T) {
+	t.Run("blank base derives riff-<basename> from the window root", func(t *testing.T) {
+		got := windowNameBase("/home/u/code/proj.worktrees/swift-fox", EffectiveSpec{})
+		if want := "riff-swift-fox"; got != want {
+			t.Errorf("windowNameBase = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("explicit base replaces the path derivation", func(t *testing.T) {
+		got := windowNameBase("/home/u/code/proj", EffectiveSpec{WindowNameBase: "feature-work-fork"})
+		if want := "feature-work-fork"; got != want {
+			t.Errorf("windowNameBase = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("explicit base still collision-suffixes", func(t *testing.T) {
+		base := windowNameBase("/irrelevant", EffectiveSpec{WindowNameBase: "feature-work-fork"})
+		got := resolveWindowName([]string{"feature-work-fork"}, base)
+		if want := "feature-work-fork-2"; got != want {
+			t.Errorf("resolveWindowName = %q, want %q", got, want)
+		}
+	})
+}
+
+// TestSpawn_ResumeFork is the end-to-end fork composition (260806-s4av): a
+// checkout-mode Spawn carrying ResumeSessionRef + WindowNameBase must (a) skip wt
+// entirely, (b) name the window from the explicit base, (c) root the window at
+// the repo root (SAME directory as the source), and (d) emit the resume flags
+// inside the pane's shell string, attached to the launcher.
+func TestSpawn_ResumeFork(t *testing.T) {
+	const ref = "5d80479e-8f25-46cd-a0d4-e51435508a37"
+	dir := t.TempDir()
+	repoRoot := filepath.Join(t.TempDir(), "my-checkout")
+	if err := os.MkdirAll(repoRoot, 0o755); err != nil {
+		t.Fatalf("mkdir repoRoot: %v", err)
+	}
+	newWindowLog := filepath.Join(dir, "new-window.log")
+
+	wtCalled := filepath.Join(dir, "wt-called")
+	testutil.WriteStub(t, dir, "wt", "#!/bin/sh\n: > "+wtCalled+"\nexit 1\n")
+	testutil.WriteStub(t, dir, "tmux", stubTmuxScript(newWindowLog))
+	testutil.WriteStub(t, dir, "fab", "#!/bin/sh\necho 'claude --dangerously-skip-permissions'\n")
+	t.Setenv("PATH", dir)
+
+	res, err := Spawn(context.Background(), Options{
+		RepoRoot:         repoRoot,
+		Where:            "checkout",
+		ResumeSessionRef: ref,
+		WindowNameBase:   "feature-work-fork",
+	})
+	if err != nil {
+		t.Fatalf("Spawn(fork) error: %v", err)
+	}
+	if _, statErr := os.Stat(wtCalled); statErr == nil {
+		t.Error("a fork invoked wt create; a same-worktree fork must skip wt entirely")
+	}
+
+	gotName, gotRoot := readNewWindowArgs(t, newWindowLog)
+	if want := "feature-work-fork"; gotName != want {
+		t.Errorf("fork window name = %q, want %q", gotName, want)
+	}
+	if gotRoot != repoRoot {
+		t.Errorf("fork window root (-c) = %q, want the SAME repo root %q", gotRoot, repoRoot)
+	}
+	if res.WindowName != "feature-work-fork" {
+		t.Errorf("Result.WindowName = %q, want feature-work-fork", res.WindowName)
+	}
+
+	// The resume flags must land in the pane's shell string ATTACHED TO THE
+	// LAUNCHER (`claude … --resume <uuid> --fork-session`), not as a separate
+	// quoted positional.
+	logged, readErr := os.ReadFile(newWindowLog)
+	if readErr != nil {
+		t.Fatalf("read new-window log: %v", readErr)
+	}
+	wantFragment := "claude --dangerously-skip-permissions --resume " + ref + " --fork-session"
+	if !strings.Contains(string(logged), wantFragment) {
+		t.Errorf("new-window argv missing the resume suffix %q; got %q", wantFragment, string(logged))
+	}
 }
 
 // stubTmuxScript returns a `tmux` stub that satisfies the single-bare-skill-pane

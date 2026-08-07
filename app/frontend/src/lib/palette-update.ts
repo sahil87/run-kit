@@ -94,6 +94,25 @@ export type CheckVerdictTool = UpdateActionTool & {
 export type CheckToast = { message: string; updatable: boolean };
 
 /**
+ * The "relevant" (updatable) subset a check reports for the given view — the
+ * SINGLE predicate behind both the check-result toast and the persisted manual
+ * feed: incl.-patches ⇒ every pending update (`updateAvailable`); default ⇒ only
+ * rows also crossing the notify threshold (`updateAvailable && notable`).
+ * Consumed by `composeCheckToast` here and by `useUpdateCheck`'s
+ * `applyManualCheckResult` persistence, so the chip can never contradict the
+ * toast about what a check found — a change to the filter moves both at once.
+ * Generic over the row type (structurally `CheckVerdictTool`) so a caller's
+ * richer element type — e.g. the client's `UpdateCheckTool` — survives the
+ * filter instead of widening.
+ */
+export function filterCheckRelevantTools<T extends CheckVerdictTool>(
+  tools: T[],
+  includePatches: boolean,
+): T[] {
+  return tools.filter((t) => (includePatches ? t.updateAvailable : t.updateAvailable && t.notable));
+}
+
+/**
  * Compose the check-result toast for the two palette check commands over the
  * verdict list (the minor/patch distinction is client-side filtering):
  *   - default view (`includePatches` false): tools where `notable` is true,
@@ -114,9 +133,7 @@ export function composeCheckToast(
   includePatches: boolean,
   source = "",
 ): CheckToast {
-  const relevant = tools.filter((t) =>
-    includePatches ? t.updateAvailable : t.updateAvailable && t.notable,
-  );
+  const relevant = filterCheckRelevantTools(tools, includePatches);
   if (relevant.length === 0) return { message: "All tools up to date", updatable: false };
   const annotationSuppressed = source === "github";
   const message = relevant

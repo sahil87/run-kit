@@ -1,8 +1,8 @@
 import { useCallback, useContext, useRef, useState } from "react";
 import { SessionContext, useUpdateNotification } from "@/contexts/session-context";
 import { useToast } from "@/components/toast";
-import { checkForUpdates, type UpdateCheckTool } from "@/api/client";
-import { composeCheckToast } from "@/lib/palette-update";
+import { checkForUpdates } from "@/api/client";
+import { composeCheckToast, filterCheckRelevantTools } from "@/lib/palette-update";
 
 /** Sentinel running version for local (non-ldflags) builds — the toast's
  *  "Update Now" action slot is suppressed for it (mirrors the palette entry's
@@ -39,10 +39,11 @@ const DEV_VERSION = "dev";
  * The result is ALSO persisted onto the tab-local manual feed
  * (`applyManualCheckResult`), so the finding survives the toast on the
  * persistent update surfaces (chip / overflow-menu version row) instead of
- * evaporating after ~5s. The persisted subset is exactly the "updatable" set
- * `composeCheckToast` reports for the same view, so the chip and the toast can
- * never disagree about what was found — and an all-up-to-date result persists
- * an EMPTY set, clearing any stale positive. The toast flow itself is
+ * evaporating after ~5s. The persisted subset comes from the SAME exported
+ * predicate `composeCheckToast` filters with (`filterCheckRelevantTools` in
+ * lib/palette-update.ts — one definition, two call sites), so the chip and the
+ * toast can never disagree about what was found — and an all-up-to-date result
+ * persists an EMPTY set, clearing any stale positive. The toast flow itself is
  * unchanged: this is in addition to it, never a replacement.
  *
  * In-flight state (260720-ml7k): `checking` is true while a check request is
@@ -53,14 +54,6 @@ const DEV_VERSION = "dev";
  * `runUpdateCheck` keeps a stable identity across the in-flight transition
  * (board-page.tsx memoizes a large palette-action array on it).
  */
-/** The "updatable" subset a check reports for the given view — the SAME filter
- *  `composeCheckToast` applies (incl.-patches ⇒ every pending update; default ⇒
- *  only rows crossing the notify threshold). Shared by the toast and the
- *  persisted manual feed so the chip can never contradict the toast. */
-function updatableSubset(tools: UpdateCheckTool[], includePatches: boolean): UpdateCheckTool[] {
-  return tools.filter((t) => (includePatches ? t.updateAvailable : t.updateAvailable && t.notable));
-}
-
 export function useUpdateCheck(): {
   runUpdateCheck: (includePatches: boolean) => void;
   checking: boolean;
@@ -89,7 +82,13 @@ export function useUpdateCheck(): {
           );
           // Persist the same updatable subset onto the tab-local manual feed
           // (an empty subset clears a stale positive — see applyManualCheckResult).
-          applyManualCheckResult?.(updatableSubset(result.tools, includePatches), result.source);
+          // The subset comes from the SAME exported predicate composeCheckToast
+          // filters with (filterCheckRelevantTools), so the persisted feed can
+          // never desync from what the toast just reported.
+          applyManualCheckResult?.(
+            filterCheckRelevantTools(result.tools, includePatches),
+            result.source,
+          );
           const canUpdate = brew && daemonVersion !== DEV_VERSION;
           const action =
             updatable && canUpdate

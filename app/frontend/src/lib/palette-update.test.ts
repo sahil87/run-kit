@@ -5,6 +5,7 @@ import {
   buildCheckActions,
   composeCheckToast,
   computeUpdateKey,
+  filterCheckRelevantTools,
   updateChipToolSummary,
   type CheckVerdictTool,
 } from "./palette-update";
@@ -197,6 +198,63 @@ describe("composeCheckToast", () => {
         updatable: false,
       });
     });
+  });
+});
+
+describe("filterCheckRelevantTools (the single toast/manual-feed predicate)", () => {
+  const notableRunKit: CheckVerdictTool = {
+    tool: "run-kit",
+    current: "3.8.0",
+    latest: "3.9.0",
+    updateAvailable: true,
+    notable: true,
+  };
+  const subThresholdTu: CheckVerdictTool = {
+    tool: "tu",
+    current: "0.9.1",
+    latest: "0.9.2",
+    updateAvailable: true,
+    notable: false,
+  };
+  const upToDateFab: CheckVerdictTool = {
+    tool: "fab-kit",
+    current: "2.16.0",
+    latest: "2.16.0",
+    updateAvailable: false,
+    notable: false,
+  };
+  const all = [notableRunKit, subThresholdTu, upToDateFab];
+
+  it("default view keeps only updatable rows that are also notable", () => {
+    expect(filterCheckRelevantTools(all, false)).toEqual([notableRunKit]);
+  });
+
+  it("incl.-patches view keeps every updatable row regardless of notable", () => {
+    expect(filterCheckRelevantTools(all, true)).toEqual([notableRunKit, subThresholdTu]);
+  });
+
+  it("never reports a tool with no pending update", () => {
+    expect(filterCheckRelevantTools([upToDateFab], true)).toEqual([]);
+    expect(filterCheckRelevantTools([upToDateFab], false)).toEqual([]);
+  });
+
+  it("returns the same set composeCheckToast reports on (anti-drift guarantee)", () => {
+    // The manual feed persists this subset while the toast composes off the same
+    // predicate — so `updatable` and a non-empty subset must agree in both views.
+    for (const includePatches of [false, true]) {
+      const subset = filterCheckRelevantTools(all, includePatches);
+      expect(composeCheckToast(all, includePatches).updatable).toBe(subset.length > 0);
+    }
+    // All-up-to-date: empty subset (clears a stale positive) and a false verdict.
+    expect(filterCheckRelevantTools([upToDateFab], false)).toEqual([]);
+    expect(composeCheckToast([upToDateFab], false).updatable).toBe(false);
+  });
+
+  it("preserves the caller's richer row type through the filter", () => {
+    // The manual feed passes the client's UpdateCheckTool rows; extra fields must
+    // survive rather than widen to the structural CheckVerdictTool.
+    const withExtra = [{ ...notableRunKit, source: "released" as const }];
+    expect(filterCheckRelevantTools(withExtra, false)[0].source).toBe("released");
   });
 });
 

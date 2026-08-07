@@ -354,13 +354,14 @@ function BoardPageContent({ name }: { name: string }) {
   // opener. Lifted above the handler memo for the dep (260801-mqim).
   const { openSettings } = useSettingsDialog();
 
-  // Palette-surface split/close executors (Constitution V; 260715-6jwn). Mirror
-  // the terminal palette's wiring (app.tsx — useOptimisticAction-wrapped
-  // splitWindow/closePane with error toasts). Declared ABOVE BOTH consumers —
+  // Palette-surface split executor (Constitution V; 260715-6jwn). Mirrors the
+  // terminal palette's split wiring (app.tsx — useOptimisticAction-wrapped
+  // splitWindow with an error toast). Declared ABOVE BOTH consumers —
   // `boardKeyHandlers` (the ⇧⌘\ / ⇧⌘- chords, 260807-phc4) and
-  // `boardRouteActions` (the palette entries) — so each memo can list them in
-  // its dep array. Close schedules a self-heal refetch (`onSettled`) like the
-  // top-bar ✕.
+  // `boardRouteActions` (the palette entries) — so each memo can list it in its
+  // dep array. The board's close counterpart is NOT here: killing the focused
+  // tile is the consequence-gated `requestKillFocused` → `executeKillWindow`
+  // pair below, which owns its own self-heal refetch (`onSettled`).
   const { execute: executeSplit } = useOptimisticAction<[string, string, boolean, string | undefined]>({
     action: (srv, windowId, horizontal, cwd) => splitWindow(srv, windowId, horizontal, cwd),
     onError: (err) => addToast(err.message || "Failed to split pane"),

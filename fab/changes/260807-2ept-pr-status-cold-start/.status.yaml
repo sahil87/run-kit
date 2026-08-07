@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 20
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-08-07T19:41:36Z", driver: fab-fff, iterations: 2, completed_at: "2026-08-07T19:57:49Z"}
     hydrate: {started_at: "2026-08-07T19:57:49Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-07T20:07:08Z"}
     ship: {started_at: "2026-08-07T20:07:08Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-07T20:09:52Z"}
-    review-pr: {started_at: "2026-08-07T20:09:52Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-08-07T20:09:52Z", driver: git-pr, iterations: 1, completed_at: "2026-08-07T20:18:45Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/542
 change_type_source: explicit
@@ -54,4 +54,4 @@ true_impact:
     computed_at_stage: ship
 summary: 'prstatus: coalescing registration/seed wake seam + stored viewer head-index (gh pr list demoted to fallback-on-miss) for PR-status cold start'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-07T20:09:52Z
+last_updated: 2026-08-07T20:18:45Z

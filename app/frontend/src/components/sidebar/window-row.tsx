@@ -45,6 +45,25 @@ type WindowRowProps = {
    *  per SSE tick). The internal onClick wrappers the row builds are NOT part
    *  of the memo comparison, so rebuilding them per row-render is free. */
   onSelectWindow: (server: string, session: string, windowId: string) => void;
+  /** Modifier-aware row-click seam for the bulk multi-select (260807-nf9f).
+   *  Identity-arg like its siblings so ONE stable reference serves every row
+   *  (the memo contract). Receives the raw modifier flags so the sidebar owns
+   *  the whole gesture policy — cmd/ctrl toggles, shift extends a range, plain
+   *  navigates and clears — in one place. Returns `true` when the sidebar
+   *  CONSUMED the click as a selection gesture, in which case the row does NOT
+   *  fall through to `onSelectWindow`. Omitted (e.g. a bare unit-test render)
+   *  ⇒ every click is a plain navigate, exactly as before. */
+  onRowClick?: (
+    server: string,
+    session: string,
+    windowId: string,
+    mods: { meta: boolean; ctrl: boolean; shift: boolean },
+  ) => boolean;
+  /** True when this row is in the sidebar's bulk selection (260807-nf9f) —
+   *  drives `aria-selected` on the treeitem plus the visible selected treatment.
+   *  Independent of `isSelected`, which is the URL-derived single-window
+   *  navigation selection (`aria-current="page"`). */
+  isBulkSelected?: boolean;
   onStartEditing: (server: string, session: string, windowId: string, currentName: string) => void;
   onWindowNameChange: (value: string) => void;
   onRenameKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
@@ -135,6 +154,8 @@ function WindowRowInner({
   editingName,
   inputRef,
   onSelectWindow,
+  onRowClick,
+  isBulkSelected = false,
   onStartEditing,
   onWindowNameChange,
   onRenameKeyDown,
@@ -326,6 +347,12 @@ function WindowRowInner({
       aria-level={ariaLevel}
       aria-setsize={ariaSetSize}
       aria-posinset={ariaPosInSet}
+      // Bulk multi-select membership (260807-nf9f). Emitted ONLY on selectable
+      // (window) rows and only when the tree is wired for multi-select — an
+      // `aria-selected` on every row would announce a selection model the
+      // board-route/unit-test mounts don't have. Distinct from `aria-current`
+      // ("page" = the URL-navigated window), which lives on the inner button.
+      aria-selected={onRowClick ? isBulkSelected : undefined}
       tabIndex={tabIndex}
       // `relative` anchors the absolute gutter + status dot + scanline overlay.
       // The scanline/CRT-band overlay is a dedicated inner element (below), NOT
@@ -359,7 +386,18 @@ function WindowRowInner({
         ...(isDouble || isThick || isDashed
           ? ({ "--rk-marker-color": markerColor } as React.CSSProperties)
           : {}),
-        ...(isDragOver ? { boxShadow: "0 -2px 0 0 var(--color-accent)" } : {}),
+        // Bulk-selection treatment (260807-nf9f): a 2px inset accent ring, the
+        // same `box-shadow` idiom the session-row drop target uses — it reads as
+        // "member of a set" without competing with the URL selection's
+        // tint-depth + bold treatment, and costs no layout (no border box
+        // change, so rows never shift when a selection is made).
+        // The transient drag-over indicator WINS while a drag is in flight: it
+        // marks where the drop lands, which is the more urgent signal.
+        ...(isDragOver
+          ? { boxShadow: "0 -2px 0 0 var(--color-accent)" }
+          : isBulkSelected
+            ? { boxShadow: "inset 0 0 0 2px var(--color-accent)" }
+            : {}),
       }}
     >
       {/* Scanline / CRT-band overlay for double-marker rows. A dedicated inner
@@ -415,7 +453,24 @@ function WindowRowInner({
         />
       )}
       <button
-        onClick={() => onSelectWindow(srv, session, win.windowId)}
+        onClick={(e) => {
+          // Selection gestures (cmd/ctrl-click toggle, shift-click range) are
+          // offered to the sidebar FIRST; it returns true when it consumed the
+          // click, in which case the row must NOT also navigate. A plain click
+          // is never consumed — it falls through to the unchanged navigation
+          // path (the sidebar separately clears any live selection).
+          if (
+            onRowClick?.(srv, session, win.windowId, {
+              meta: e.metaKey,
+              ctrl: e.ctrlKey,
+              shift: e.shiftKey,
+            })
+          ) {
+            e.preventDefault();
+            return;
+          }
+          onSelectWindow(srv, session, win.windowId);
+        }}
         onDoubleClick={(e) => {
           e.stopPropagation();
           if (!ghost) onStartEditing(srv, session, win.windowId, win.name);

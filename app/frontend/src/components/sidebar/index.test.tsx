@@ -12,6 +12,7 @@ import { ChromeProvider } from "@/contexts/chrome-context";
 import { SettingsDialogProvider } from "@/contexts/settings-dialog-context";
 import { ToastProvider } from "@/components/toast";
 import { useWindowStore } from "@/store/window-store";
+import { useSelectionStore } from "@/store/selection-store";
 import { getAllServerColors, setServerColor } from "@/api/client";
 import { stubMatchMedia } from "@/test-utils/match-media";
 import {
@@ -123,7 +124,7 @@ function FocusedPaneRegistrant({ pane }: { pane: FocusedPane }) {
   return null;
 }
 
-function renderSidebar(opts: RenderOpts = {}) {
+function sidebarTree(opts: RenderOpts = {}) {
   const currentServer = opts.currentServer === undefined ? "primary" : opts.currentServer;
   const servers = opts.servers ?? SERVERS;
   const sessionsByServer = opts.sessionsByServer ?? new Map(
@@ -178,7 +179,20 @@ function renderSidebar(opts: RenderOpts = {}) {
     </InstanceAccentValueProvider>
     </ThemeProvider>
   );
-  return render(opts.strict ? <StrictMode>{tree}</StrictMode> : tree);
+  return opts.strict ? <StrictMode>{tree}</StrictMode> : tree;
+}
+
+function renderSidebar(opts: RenderOpts = {}) {
+  return render(sidebarTree(opts));
+}
+
+/** Re-render the same tree with new props — used to simulate an SSE snapshot
+ *  change (a window disappearing) without remounting the sidebar. */
+function rerenderSidebar(
+  rerender: ReturnType<typeof render>["rerender"],
+  opts: RenderOpts = {},
+) {
+  rerender(sidebarTree(opts));
 }
 
 function getServerGroupHeader(name: string): HTMLElement | null {
@@ -321,6 +335,258 @@ describe("Sidebar — sessions-pane scope (runkit-panel-sessions-scope)", () => 
       (el) => el.className.includes("py-4") && el.className.includes("text-center"),
     );
     expect(sessionsEmpty).toBeDefined();
+  });
+});
+
+describe("Sidebar — selection pruning on ServerGroup unmount (260807-nf9f)", () => {
+  // Regression guard for review cycle-1 must-fix 2: selection pruning is gated
+  // on `rowsVersion`, which `registerGroupRows` bumps only when a SURVIVING
+  // group's row-set signature changes. A whole ServerGroup leaving the tree
+  // changed no surviving signature, so `rowsVersion` never bumped, the prune
+  // effect never re-ran, and the departed group's keys stayed selected
+  // (violating R4/A-004/A-022). The fix adds an `unregisterGroupRows` unmount
+  // counterpart that drops the group's slice + signature and bumps.
+  const ALPHA_SESSIONS: ProjectSession[] = [
+    {
+      name: "work",
+      windows: [
+        {
+          index: 0,
+          windowId: "@7",
+          name: "feature",
+          worktreePath: "~/code/alpha",
+          activity: "idle",
+          isActiveWindow: false,
+          paneCommand: "zsh",
+          activityTimestamp: Math.floor(Date.now() / 1000),
+        },
+      ],
+    },
+  ];
+
+  const MULTI_SESSIONS = new Map<string, ProjectSession[]>([
+    ["primary", PRIMARY_SESSIONS],
+    ["alpha", ALPHA_SESSIONS],
+    ["beta", []],
+  ]);
+
+  beforeEach(() => {
+    useSelectionStore.setState({ selected: new Set(), anchor: null });
+  });
+
+  afterEach(() => {
+    useSelectionStore.setState({ selected: new Set(), anchor: null });
+  });
+
+  it("prunes a departed group's keys when the sessions-scope narrows ALL→CURRENT", async () => {
+    renderSidebar({ currentServer: "primary", sessionsByServer: MULTI_SESSIONS });
+
+    // Open alpha's group so its window row paints (non-current groups start
+    // collapsed), then Cmd-click that row into the selection.
+    fireEvent.click(screen.getByRole("button", { name: /Expand alpha sessions/ }));
+    const alphaRow = await screen.findByText("feature");
+    fireEvent.click(alphaRow, { metaKey: true });
+
+    expect([...useSelectionStore.getState().selected]).toEqual(["alpha:@7"]);
+
+    // Narrow the scope: alpha's whole ServerGroup unmounts. No surviving group's
+    // signature changes, so ONLY the unmount unregister can drive the prune.
+    fireEvent.click(getScopeChip());
+    expect(getServerGroupHeader("alpha")).not.toBeInTheDocument();
+
+    await waitFor(() => {
+      expect([...useSelectionStore.getState().selected]).toEqual([]);
+    });
+    expect(useSelectionStore.getState().anchor).toBeNull();
+  });
+
+  it("keeps a surviving group's keys selected across the same unmount", async () => {
+    renderSidebar({ currentServer: "primary", sessionsByServer: MULTI_SESSIONS });
+
+    // Select one row on alpha (departs) and one on primary (survives).
+    fireEvent.click(screen.getByRole("button", { name: /Expand alpha sessions/ }));
+    fireEvent.click(await screen.findByText("feature"), { metaKey: true });
+    // Scope to the tree — the window name also appears outside it (board/pin
+    // surfaces), so a bare getByText is ambiguous. The click seam is the row's
+    // inner activation button, not the treeitem root.
+    const primaryRow = document.querySelector<HTMLElement>(
+      '[role="tree"] [data-row-key="primary:@0"] button',
+    );
+    expect(primaryRow).not.toBeNull();
+    fireEvent.click(primaryRow!, { metaKey: true });
+    expect([...useSelectionStore.getState().selected].sort()).toEqual([
+      "alpha:@7",
+      "primary:@0",
+    ]);
+
+    fireEvent.click(getScopeChip());
+
+    // The prune is scoped to rows that actually left — it is not a blanket clear.
+    await waitFor(() => {
+      expect([...useSelectionStore.getState().selected]).toEqual(["primary:@0"]);
+    });
+  });
+
+  it("drops the anchor with the departed group so a later shift-click cannot use it", async () => {
+    renderSidebar({ currentServer: "primary", sessionsByServer: MULTI_SESSIONS });
+
+    fireEvent.click(screen.getByRole("button", { name: /Expand alpha sessions/ }));
+    fireEvent.click(await screen.findByText("feature"), { metaKey: true });
+    // The Cmd-click parked the range anchor on the alpha row.
+    expect(useSelectionStore.getState().anchor).toBe("alpha:@7");
+
+    fireEvent.click(getScopeChip());
+
+    // A stale anchor pointing at a vanished row would silently yield an empty
+    // range on the next shift-click; the prune clears it alongside the key.
+    await waitFor(() => {
+      expect(useSelectionStore.getState().anchor).toBeNull();
+    });
+  });
+});
+
+describe("Sidebar — selection survives collapse/expand (260807-nf9f R4)", () => {
+  // Regression guard for review cycle-2 must-fix: the prune derived liveness
+  // from a DOM/visible-row walk, which equates "not rendered" with "gone".
+  // Collapsing a session removed its window rows from the DOM and bumped the
+  // visible-row signature, so the prune silently dropped those still-live
+  // windows (and the anchor) from the selection — and `Select all merged`,
+  // which deliberately selects windows inside COLLAPSED sessions, lost them on
+  // the next unrelated signature change. Liveness now derives from the session
+  // DATA (every window the SSE snapshot knows for the rendered groups), so only
+  // a genuine departure prunes.
+  const TWO_SESSION_SERVER: ProjectSession[] = [
+    {
+      name: "main",
+      windows: [
+        {
+          index: 0,
+          windowId: "@0",
+          name: "shell",
+          worktreePath: "~/code/run-kit",
+          activity: "active",
+          isActiveWindow: true,
+          paneCommand: "zsh",
+          activityTimestamp: Math.floor(Date.now() / 1000),
+        },
+      ],
+    },
+    {
+      name: "side",
+      windows: [
+        {
+          index: 0,
+          windowId: "@5",
+          name: "docs",
+          worktreePath: "~/code/run-kit",
+          activity: "idle",
+          isActiveWindow: false,
+          paneCommand: "zsh",
+          activityTimestamp: Math.floor(Date.now() / 1000),
+        },
+      ],
+    },
+  ];
+
+  const SESSIONS = new Map<string, ProjectSession[]>([["primary", TWO_SESSION_SERVER]]);
+
+  function collapseChipFor(session: string): HTMLElement {
+    return screen.getByRole("button", { name: new RegExp(`(Collapse|Expand) ${session}$`) });
+  }
+
+  function selectWindowRow(key: string) {
+    const row = document.querySelector<HTMLElement>(`[role="tree"] [data-row-key="${key}"] button`);
+    expect(row).not.toBeNull();
+    fireEvent.click(row!, { metaKey: true });
+  }
+
+  beforeEach(() => {
+    useSelectionStore.setState({ selected: new Set(), anchor: null });
+  });
+
+  afterEach(() => {
+    useSelectionStore.setState({ selected: new Set(), anchor: null });
+  });
+
+  it("keeps the selection and anchor when the selected window's OWN session collapses", async () => {
+    renderSidebar({ currentServer: "primary", sessionsByServer: SESSIONS });
+
+    selectWindowRow("primary:@0");
+    expect([...useSelectionStore.getState().selected]).toEqual(["primary:@0"]);
+    expect(useSelectionStore.getState().anchor).toBe("primary:@0");
+
+    // Fold the row out of view. The window is still very much alive in tmux.
+    fireEvent.click(collapseChipFor("main"));
+    await waitFor(() => {
+      expect(document.querySelector('[role="tree"] [data-row-key="primary:@0"]')).toBeNull();
+    });
+
+    expect([...useSelectionStore.getState().selected]).toEqual(["primary:@0"]);
+    expect(useSelectionStore.getState().anchor).toBe("primary:@0");
+
+    // Re-expanding shows the row still selected.
+    fireEvent.click(collapseChipFor("main"));
+    await waitFor(() => {
+      expect(
+        document.querySelector('[role="tree"] [data-row-key="primary:@0"]'),
+      ).not.toBeNull();
+    });
+    expect([...useSelectionStore.getState().selected]).toEqual(["primary:@0"]);
+    expect(
+      document
+        .querySelector('[role="tree"] [data-row-key="primary:@0"]')
+        ?.getAttribute("aria-selected"),
+    ).toBe("true");
+  });
+
+  it("keeps a key that sits INSIDE a collapsed session when an UNRELATED session collapses", async () => {
+    // The `Select all merged` shape: the builder derives keys from session DATA,
+    // so it legitimately selects windows inside collapsed sessions. Under
+    // visibility-keyed liveness the very next unrelated signature change wiped
+    // them, losing part of the selection before the user reached the palette.
+    renderSidebar({ currentServer: "primary", sessionsByServer: SESSIONS });
+
+    selectWindowRow("primary:@5");
+    fireEvent.click(collapseChipFor("side")); // @5's own session folds away
+    await waitFor(() => {
+      expect(document.querySelector('[role="tree"] [data-row-key="primary:@5"]')).toBeNull();
+    });
+
+    // Now an UNRELATED session collapses — a signature change @5 had no part in.
+    fireEvent.click(collapseChipFor("main"));
+    await waitFor(() => {
+      expect(document.querySelector('[role="tree"] [data-row-key="primary:@0"]')).toBeNull();
+    });
+
+    expect([...useSelectionStore.getState().selected]).toEqual(["primary:@5"]);
+    expect(useSelectionStore.getState().anchor).toBe("primary:@5");
+  });
+
+  it("still prunes a window that genuinely leaves the SSE data", async () => {
+    const { rerender } = renderSidebar({
+      currentServer: "primary",
+      sessionsByServer: SESSIONS,
+    });
+
+    selectWindowRow("primary:@0");
+    selectWindowRow("primary:@5");
+    expect([...useSelectionStore.getState().selected].sort()).toEqual([
+      "primary:@0",
+      "primary:@5",
+    ]);
+
+    // @5 is killed: it disappears from the snapshot entirely (not merely folded).
+    const killed = new Map<string, ProjectSession[]>([
+      ["primary", [TWO_SESSION_SERVER[0], { name: "side", windows: [] }]],
+    ]);
+    rerenderSidebar(rerender, { currentServer: "primary", sessionsByServer: killed });
+
+    await waitFor(() => {
+      expect([...useSelectionStore.getState().selected]).toEqual(["primary:@0"]);
+    });
+    // The anchor sat on the killed row — a stale anchor would silently yield an
+    // empty range on the next shift-click, so it is dropped with the key.
+    expect(useSelectionStore.getState().anchor).toBeNull();
   });
 });
 

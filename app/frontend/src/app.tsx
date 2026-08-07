@@ -26,6 +26,9 @@ import { copyToClipboard } from "@/lib/clipboard";
 import { buildViewActions } from "@/lib/palette-view";
 import { buildStatusRefreshAction } from "@/lib/palette-status-refresh";
 import { buildPinActions } from "@/lib/palette-pin";
+import { buildSelectAllMergedAction, buildSelectionMoveActions } from "@/lib/palette-selection";
+import { singleSelectedServer, splitSelectionKey } from "@/lib/selection";
+import { useSelectionStore } from "@/store/selection-store";
 import { buildServerKillActions } from "@/lib/palette-server-kill";
 import { buildShellServerActions } from "@/lib/palette-shell";
 import { isShell, switchShellServer } from "@/lib/shell";
@@ -2009,6 +2012,132 @@ function AppShell() {
     return [...switchEntries, ...conditional];
   }, [boardSummaries, sessionName, currentWindow, server, navigate, currentWindowPinnedBoards, pinPinAction, unpinPinAction]);
 
+  // ── Sidebar window-row multi-select (260807-nf9f) ─────────────────────────
+  // The palette is the SOLE action surface for the selection (Constitution IV
+  // minimal surface + V ⌘K-primary), so both the merged sweep and the bulk move
+  // live here. The sidebar owns the selection GESTURES (cmd/ctrl-click toggle,
+  // shift-click range, `x` toggle on the focused row, Escape to clear) and
+  // shares the state through `store/selection-store.ts`.
+  //
+  // Per the project review rule, the new `x` shortcut is DOCUMENTED at this
+  // registration seam — not merely in this comment: `SELECTION_GESTURE_HINT`
+  // rides the select-all entry's `shortcut` field, which the palette renders as
+  // a `<kbd>` badge (see lib/palette-selection.ts). It is deliberately absent
+  // from `DEFAULT_BINDINGS`, which is a modifier-chord registry driving a
+  // window-level dispatcher — a bare `x` there would hijack the key app-wide
+  // rather than inside the focused tree.
+  const selectedWindows = useSelectionStore((s) => s.selected);
+  const selectOnlySelection = useSelectionStore((s) => s.selectOnly);
+  const settleBatchSelection = useSelectionStore((s) => s.settleBatch);
+
+  /**
+   * Bulk move: N SEQUENTIAL `move-to-session` POSTs against the existing
+   * endpoint (no new backend surface, no bulk optimistic machinery — rows
+   * repaint from SSE). Continue-on-error: an independent per-window failure
+   * must not strand the rest of the batch. On full success the batch's windows
+   * are dropped from the selection; on partial (or total) failure exactly its
+   * failed windows stay selected as the retry affordance, and one aggregate
+   * toast reports the counts plus the first error message.
+   *
+   * The palette closes before this runs and the batch is fire-and-forget, so a
+   * long batch races the user: they can start a WHOLE NEW selection while it is
+   * still POSTing. The terminal update therefore RECONCILES against the keys
+   * this batch actually owned (`settleBatch`) rather than clobbering the store
+   * with `clear()` / `selectOnly(failedKeys)` — those act on whatever the store
+   * holds at settle time and would silently destroy the user's new selection.
+   * Reconciling (rather than an in-flight lock refusing the second batch) is
+   * also the friendlier semantics: two batches over disjoint windows both settle
+   * correctly, each touching only its own keys.
+   */
+  const executeBulkMove = useCallback(
+    async (srv: string, keys: string[], targetSession: string) => {
+      const failedKeys: string[] = [];
+      let firstError = "";
+      for (const key of keys) {
+        const parts = splitSelectionKey(key);
+        if (!parts) {
+          failedKeys.push(key);
+          if (!firstError) firstError = "malformed window key";
+          continue;
+        }
+        try {
+          await moveWindowToSession(srv, parts.windowId, targetSession);
+        } catch (err) {
+          failedKeys.push(key);
+          if (!firstError) {
+            firstError = err instanceof Error ? err.message : String(err);
+          }
+        }
+      }
+      const moved = keys.length - failedKeys.length;
+      const noun = keys.length === 1 ? "window" : "windows";
+      if (failedKeys.length === 0) {
+        addToast(`Moved ${moved} ${noun} to ${targetSession}`);
+      } else {
+        addToast(
+          `Moved ${moved} of ${keys.length} ${noun} to ${targetSession} — ${failedKeys.length} failed: ${firstError}`,
+          "error",
+        );
+      }
+      settleBatchSelection(keys, failedKeys);
+    },
+    [addToast, settleBatchSelection],
+  );
+
+  const selectionActions: PaletteAction[] = useMemo(() => {
+    const actions: PaletteAction[] = [];
+    // `Selection: Select all merged (N)` — current-server-scoped (a cross-server
+    // selection would dead-end the single-server bulk move below). Omitted, not
+    // disabled, when there is no server context or nothing merged.
+    const selectAllMerged = buildSelectAllMergedAction(
+      server || null,
+      sessions,
+      selectOnlySelection,
+    );
+    if (selectAllMerged) actions.push(selectAllMerged);
+
+    // `Selection: Move N window(s) to <session>` — one entry per eligible
+    // session on the SELECTION's server, which is NOT necessarily the route
+    // server: with sessions scope "all" the sidebar paints every server's
+    // groups, so a user can select rows on server A while routed to server B.
+    // tmux window ids (`@N`) are unique per server only, so feeding the route
+    // server's sessions here would list the wrong targets AND move the wrong
+    // windows. `singleSelectedServer` is the single source of the server for
+    // both the target list and the POSTs below; it returns `null` for an empty
+    // or cross-server selection, which omits the entries entirely (tmux cannot
+    // move a window across tmux servers).
+    const selectionServer = singleSelectedServer(selectedWindows);
+    if (selectionServer !== null) {
+      // Prefer the merged list when the selection is on the route server (it
+      // carries the ghost/rename overlays the sidebar paints); otherwise read
+      // that server's raw SSE sessions. `undefined` means the server's sessions
+      // have not loaded — offer no targets rather than guessing an empty list,
+      // which would render every session as "eligible" against no data.
+      const selectionSessions =
+        selectionServer === server ? sessions : ctx.sessionsByServer.get(selectionServer);
+      if (selectionSessions !== undefined) {
+        actions.push(
+          ...buildSelectionMoveActions(
+            selectionServer,
+            selectionSessions,
+            selectedWindows,
+            (targetSession) => {
+              void executeBulkMove(selectionServer, [...selectedWindows], targetSession);
+            },
+          ),
+        );
+      }
+    }
+    return actions;
+  }, [
+    server,
+    sessions,
+    ctx.sessionsByServer,
+    selectedWindows,
+    selectOnlySelection,
+    executeBulkMove,
+  ]);
+
   const viewActions: PaletteAction[] = useMemo(
     () => [
       ...(sessionName
@@ -2598,11 +2727,11 @@ function AppShell() {
       // formatted per platform and reflecting overrides; disabled bindings
       // (user-disabled or browser-reserved) render no hint (260730-g40a).
       withShortcutHints(
-        [...sessionActions, ...sessionsScopeActions, ...windowActions, ...boardActions, ...viewActions, ...openActions, ...navActions, ...terminalFontActions, ...themeActions, ...settingsActions, ...configActions, ...statusRefreshActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions, ...serverActions, ...shellServerActions, ...pushActions, ...windowSwitchActions, ...agentActions, ...agentSpawnActions, ...macroPaletteActions],
+        [...sessionActions, ...sessionsScopeActions, ...windowActions, ...boardActions, ...selectionActions, ...viewActions, ...openActions, ...navActions, ...terminalFontActions, ...themeActions, ...settingsActions, ...configActions, ...statusRefreshActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions, ...serverActions, ...shellServerActions, ...pushActions, ...windowSwitchActions, ...agentActions, ...agentSpawnActions, ...macroPaletteActions],
         bindingByAction,
         bindingHost.platform,
       ),
-    [sessionActions, sessionsScopeActions, windowActions, boardActions, viewActions, openActions, navActions, terminalFontActions, themeActions, settingsActions, configActions, statusRefreshActions, updateActions, checkActions, maintenanceActions, versionActions, serverActions, shellServerActions, pushActions, windowSwitchActions, agentActions, agentSpawnActions, macroPaletteActions, bindingByAction, bindingHost],
+    [sessionActions, sessionsScopeActions, windowActions, boardActions, selectionActions, viewActions, openActions, navActions, terminalFontActions, themeActions, settingsActions, configActions, statusRefreshActions, updateActions, checkActions, maintenanceActions, versionActions, serverActions, shellServerActions, pushActions, windowSwitchActions, agentActions, agentSpawnActions, macroPaletteActions, bindingByAction, bindingHost],
   );
   // Render-updated ref: macro palette-target execution resolves against the
   // final decorated array at invocation time (see `executeMacro` above).

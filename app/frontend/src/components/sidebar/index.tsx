@@ -25,6 +25,11 @@ import type { ProjectSession } from "@/types";
 import { isGhostWindow } from "@/contexts/optimistic-context";
 import type { MergedSession } from "@/contexts/optimistic-context";
 import { useWindowStore } from "@/store/window-store";
+import { useSelectionStore } from "@/store/selection-store";
+// Aliased: `selectionKey` is already taken in this file by the autoscroll
+// effect's URL-selection identity (`${currentServer}:${currentWindowId}`) — a
+// different concept from the multi-select's composite row key.
+import { rangeBetween, selectionKey as windowSelectionKey } from "@/lib/selection";
 import { useWindowRename } from "@/hooks/use-window-rename";
 import { useWindowPins } from "@/hooks/use-window-pins";
 import { useSessionsScope } from "@/hooks/use-sessions-scope";
@@ -847,6 +852,44 @@ export function Sidebar({
     },
     [],
   );
+  // The selection prune's liveness registry, kept SEPARATE from the visible-row
+  // one above. Each ServerGroup registers every real window its SSE snapshot
+  // knows — collapsed sessions included — so folding a session away never reads
+  // as "the window is gone" (260807-nf9f R4). `dataKeysVersion` bumps only when
+  // a group's DATA key set changes (a window actually created/killed/moved, a
+  // group mounting or unmounting), never on a collapse/expand and never on the
+  // several-per-second passive SSE activity ticks.
+  const [dataKeysVersion, bumpDataKeysVersion] = useReducer((x: number) => x + 1, 0);
+  const groupDataSignatureRef = useRef<Map<string, string>>(new Map());
+  const groupDataKeysRef = useRef<Map<string, ReadonlySet<string>>>(new Map());
+  const registerGroupDataKeys = useCallback(
+    (groupServer: string, signature: string, keys: ReadonlySet<string>) => {
+      const prev = groupDataSignatureRef.current.get(groupServer);
+      groupDataSignatureRef.current.set(groupServer, signature);
+      groupDataKeysRef.current.set(groupServer, keys);
+      if (prev !== signature) bumpDataKeysVersion();
+    },
+    [],
+  );
+
+  /** The unmount counterpart to both group registrations. A whole ServerGroup can
+   *  leave the tree without any surviving group's signature changing — the
+   *  sessions-scope ALL→CURRENT switch, or a server disappearing from the SSE
+   *  snapshot. Without this the group's rows stay in `rowIdentityRef`/
+   *  `groupDataKeysRef` and its signatures stay registered, so neither version
+   *  counter bumps and the downstream consumers gated on them (roving-key
+   *  normalization, selection pruning) never re-validate — leaving the departed
+   *  group's keys alive in the selection. Dropping every slice and bumping is
+   *  what makes those effects fire on the now-smaller tree. */
+  const unregisterGroupRows = useCallback((groupServer: string) => {
+    // Every delete must run — `||` would short-circuit the rest.
+    const hadSignature = groupSignatureRef.current.delete(groupServer);
+    const hadSlice = rowIdentityRef.current.delete(groupServer);
+    if (hadSignature || hadSlice) bumpRowsVersion();
+    const hadDataSignature = groupDataSignatureRef.current.delete(groupServer);
+    const hadDataKeys = groupDataKeysRef.current.delete(groupServer);
+    if (hadDataSignature || hadDataKeys) bumpDataKeysVersion();
+  }, []);
 
   const identityForKey = useCallback((key: string): RowIdentity | null => {
     for (const slice of rowIdentityRef.current.values()) {
@@ -978,6 +1021,121 @@ export function Sidebar({
     }
   }, [rovingKey, rowKeyOf]);
 
+  // ── Window-row multi-select (260807-nf9f) ─────────────────────────────────
+  // Selection state lives in a dedicated store (store/selection-store.ts) — the
+  // command palette that ACTS on the selection is composed in app.tsx, outside
+  // this subtree, so a shared store (not local state) is the seam. Keys are the
+  // composite `${server}:${windowId}` — the same handle as `data-row-key`.
+  const selectedWindows = useSelectionStore((s) => s.selected);
+  const selectionAnchor = useSelectionStore((s) => s.anchor);
+  const toggleSelection = useSelectionStore((s) => s.toggle);
+  const selectSelection = useSelectionStore((s) => s.select);
+  const clearSelection = useSelectionStore((s) => s.clear);
+  const pruneSelectionStore = useSelectionStore((s) => s.prune);
+
+  /** The visible WINDOW rows' selection keys, in DOM (visible-row) order — the
+   *  same enumeration the roving navigation walks. Read at gesture time so the
+   *  order always matches what the user sees (collapsed sessions contribute
+   *  nothing; open server groups flow continuously). Ghost rows carry a
+   *  `ghost-` key and are excluded: they have no real windowId to move. */
+  const getVisibleWindowKeys = useCallback((): string[] => {
+    return getVisibleRows()
+      .filter((r) => r.hasAttribute("data-window-id"))
+      .map((r) => r.getAttribute("data-row-key"))
+      .filter((k): k is string => k != null && !k.includes(":ghost-"));
+  }, [getVisibleRows]);
+
+  /** Is this row selectable? Ghost/optimistic rows have no real windowId —
+   *  mirrors the SF-3 activation guard on the Enter/Space path. */
+  const isSelectableWindow = useCallback((identity: RowIdentity | null): boolean => {
+    return identity?.kind === "window" && !identity.ghost && identity.windowId !== "";
+  }, []);
+
+  /** Toggle one window row's selection, moving the range anchor onto it. */
+  const toggleWindowSelection = useCallback(
+    (server: string, windowId: string) => {
+      toggleSelection(windowSelectionKey(server, windowId));
+    },
+    [toggleSelection],
+  );
+
+  /** Extend the selection from the anchor to `key` in visible-row order. With no
+   *  (or a stale, no-longer-visible) anchor there is no range to extend, so this
+   *  degrades to a plain toggle — the standard list-multiselect fallback. */
+  const extendSelectionTo = useCallback(
+    (key: string) => {
+      if (selectionAnchor === null) {
+        toggleSelection(key);
+        return;
+      }
+      const range = rangeBetween(getVisibleWindowKeys(), selectionAnchor, key);
+      if (range.length === 0) {
+        toggleSelection(key);
+        return;
+      }
+      // The anchor stays put so a subsequent shift-click re-extends from the
+      // same fixed end (standard range semantics) — `select()` adds keys without
+      // touching the anchor, so there is nothing to restore here.
+      selectSelection(range);
+    },
+    [selectionAnchor, getVisibleWindowKeys, toggleSelection, selectSelection],
+  );
+
+  /** Modifier-aware row click, passed to every WindowRow as a single stable
+   *  identity-arg handler (the memo contract). Returns `true` when the click was
+   *  CONSUMED as a selection gesture — the row then does not navigate. A plain
+   *  click is never consumed: it navigates as before, and additionally clears a
+   *  live selection (the user has moved on). */
+  const handleWindowRowClick = useCallback(
+    (
+      server: string,
+      _session: string,
+      windowId: string,
+      mods: { meta: boolean; ctrl: boolean; shift: boolean },
+    ): boolean => {
+      if (windowId === "") return false; // ghost row — never selectable
+      const key = windowSelectionKey(server, windowId);
+      if (mods.shift) {
+        extendSelectionTo(key);
+        return true;
+      }
+      if (mods.meta || mods.ctrl) {
+        toggleSelection(key);
+        return true;
+      }
+      // Plain click: navigate (not consumed) and drop any live selection.
+      clearSelection();
+      return false;
+    },
+    [extendSelectionTo, toggleSelection, clearSelection],
+  );
+
+  /** Every window key the SSE snapshot knows for the currently-rendered server
+   *  groups, expanded or collapsed. This — NOT the visible-row walk — is the
+   *  selection's liveness source: a DOM walk equates "not rendered" with "gone",
+   *  so collapsing a session would silently destroy the selection of its still-
+   *  live windows, and `Select all merged` (which deliberately selects windows
+   *  inside collapsed sessions) would lose them on the next signature change. */
+  const getLiveWindowKeys = useCallback((): Set<string> => {
+    const live = new Set<string>();
+    for (const keys of groupDataKeysRef.current.values()) {
+      for (const key of keys) live.add(key);
+    }
+    return live;
+  }, []);
+
+  // Prune selected keys whose windows have genuinely left the SSE data (killed,
+  // or their whole server group unmounted). Gated on `dataKeysVersion` — bumped
+  // ONLY when a group's DATA key set changes, so a collapse/expand (which
+  // changes the visible rows but no window's existence) does not run it at all,
+  // and the several-per-second passive SSE activity ticks never reach it. That
+  // upholds the load-bearing invariant that an SSE tick must not churn tree
+  // state. The store's `prune` performs no write when nothing was dropped.
+  useEffect(() => {
+    pruneSelectionStore(getLiveWindowKeys());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataKeysVersion]);
+
   // Tree-container keydown. Scoped to the `role="tree"` element (never document,
   // never the terminal), so arrows act only when focus is inside the tree.
   const handleTreeKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -1085,10 +1243,62 @@ export function Sidebar({
         }
         break;
       }
+      case "x":
+      case "X": {
+        // Multi-select toggle on the focused WINDOW row (260807-nf9f). `x`
+        // rather than Space, which is already bound to activation above.
+        // Never hijack a chorded `x` (⌘X / Ctrl+X / Alt+X are cut & friends).
+        if (e.metaKey || e.ctrlKey || e.altKey) break;
+        if (!currentEl) break;
+        const key = rowKeyOf(currentEl);
+        if (key == null) break;
+        const identity = identityForKey(key);
+        // Session rows and ghost/optimistic rows are not selectable (SF-3).
+        if (!isSelectableWindow(identity) || identity?.kind !== "window") break;
+        e.preventDefault();
+        toggleWindowSelection(identity.server, identity.windowId);
+        break;
+      }
       default:
         break;
     }
-  }, [getVisibleRows, rowKeyOf, rovingKey, moveRovingTo, toggleSession, identityForKey, onSelectWindow]);
+  }, [getVisibleRows, rowKeyOf, rovingKey, moveRovingTo, toggleSession, identityForKey, onSelectWindow, isSelectableWindow, toggleWindowSelection]);
+
+  /**
+   * Escape-to-clear (260807-nf9f) — a CAPTURE-phase handler, deliberately
+   * separate from the bubble-phase `handleTreeKeyDown` above.
+   *
+   * Why capture: each window row spreads the row-flyout card's floating-ui
+   * `referenceProps`, whose `useDismiss` contributes an `onKeyDown` that
+   * `stopPropagation()`s Escape while the card is open — and the card OPENS on
+   * keyboard row focus (`useFocus`), which is exactly the state a keyboard user
+   * clearing a selection is in. A bubble-phase handler on the tree therefore
+   * never sees the key. Capture runs before any descendant handler, so the tree
+   * gets first refusal.
+   *
+   * First refusal is not seizure: the handler consumes the event ONLY when there
+   * is a selection to clear, and only outside an editable target — so a rename
+   * input's Escape-cancels-rename still wins, and an empty-selection Escape
+   * passes straight through to the flyout card's own dismiss.
+   */
+  const handleTreeKeyDownCapture = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (e.key !== "Escape") return;
+      if (selectedWindows.size === 0) return;
+      const target = e.target as HTMLElement;
+      if (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target.isContentEditable
+      ) {
+        return;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+      clearSelection();
+    },
+    [selectedWindows, clearSelection],
+  );
 
   // Stable per-action callbacks passed to every ServerGroup. Each takes the
   // server (and other identity) as a leading argument so a single reference
@@ -1225,6 +1435,11 @@ export function Sidebar({
           ref={treeRef}
           role="tree"
           aria-label="Session tree"
+          // W3C-APG multiselect tree (260807-nf9f): window rows can be selected
+          // as a set (cmd/ctrl-click, shift-click range, `x`) for the palette's
+          // bulk move-to-session. Session/server rows stay unselectable.
+          aria-multiselectable="true"
+          onKeyDownCapture={handleTreeKeyDownCapture}
           onKeyDown={handleTreeKeyDown}
           className="flex-1 min-h-0 overflow-y-auto"
         >
@@ -1270,6 +1485,8 @@ export function Sidebar({
                 currentWindowId={srvInfo.name === currentServer ? currentWindowId : null}
                 rovingKey={rovingKey}
                 registerGroupRows={registerGroupRows}
+                registerGroupDataKeys={registerGroupDataKeys}
+                unregisterGroupRows={unregisterGroupRows}
                 editingWindow={editingWindow?.server === srvInfo.name ? editingWindow : null}
                 editingName={editingName}
                 inputRef={inputRef}
@@ -1288,6 +1505,8 @@ export function Sidebar({
                 isPinnedToActiveBoardFor={isPinnedToActiveBoardFor}
                 onNavigateToBoard={onNavigateToBoard}
                 collapsed={collapsed}
+                selectedWindows={selectedWindows}
+                onWindowRowClick={handleWindowRowClick}
                 onToggleSession={toggleSession}
                 onSelectWindow={onSelectWindow}
                 onWaitingBadgeClick={onWaitingBadgeClick}
@@ -1325,6 +1544,13 @@ export function Sidebar({
             });
           })()}
         </div>
+        {/* Selection count indicator (260807-nf9f) — a minimal, NON-interactive
+            strip shown only while the window-row selection is non-empty. No
+            buttons and no action strip by design: the command palette is the
+            sole action surface (Constitution IV minimal surface + V palette
+            primary), so this only reports the count and names the two ways out.
+            `role="status"` so the count change is announced. */}
+        <SelectionIndicator count={selectedWindows.size} />
       </div>
 
       {/* Status panels — pinned at bottom. Show metrics + selected window
@@ -1349,6 +1575,39 @@ export function Sidebar({
       )}
     </nav>
     </TipGroup>
+  );
+}
+
+/**
+ * Window-row multi-select count indicator (260807-nf9f) — the sidebar's only
+ * selection chrome. Deliberately NON-INTERACTIVE: it holds no buttons and no
+ * action strip, because the command palette is the sole action surface for the
+ * selection (Constitution IV minimal surface area + V keyboard-first, ⌘K as the
+ * primary discovery mechanism). It reports the live count and names the two
+ * routes out — ⌘K to act, Esc to clear — plus the `x` row-toggle.
+ *
+ * `x` is named here as well as on the palette entries' shortcut badge because
+ * it is a bare key handled inside the tree's own keydown (deliberately not a
+ * global chord in `DEFAULT_BINDINGS`, which would hijack `x` app-wide), so it
+ * surfaces on no chord map and in no shortcuts overlay. This strip is the one
+ * place a user is already looking while building a selection, which is exactly
+ * when the keyboard alternative to Cmd-clicking is worth learning.
+ *
+ * Renders nothing while the selection is empty, so it costs no vertical space
+ * in the resting sidebar. `role="status"` (polite by default) announces the
+ * count as it changes without stealing focus.
+ */
+function SelectionIndicator({ count }: { count: number }) {
+  if (count === 0) return null;
+  return (
+    <div
+      role="status"
+      data-testid="selection-indicator"
+      className="shrink-0 border-t border-border px-2 py-1 text-[10px] font-mono text-text-secondary truncate"
+    >
+      <span className="text-text-primary">{count} selected</span>
+      {" · x to toggle · ⌘K to act · Esc to clear"}
+    </div>
   );
 }
 
@@ -1590,6 +1849,20 @@ type ServerGroupProps = {
    *  union lookup (Enter/Space activation) and the roving-key normalization
    *  effect stay in sync with the MERGED rows actually painted. */
   registerGroupRows: (server: string, signature: string, slice: Map<string, RowIdentity>) => void;
+  /** Register this group's DATA window keys (`${server}:${windowId}` for every
+   *  real window the SSE snapshot knows for this server, expanded or collapsed)
+   *  plus a set-signature. This is the selection prune's liveness source —
+   *  deliberately separate from `registerGroupRows`, whose signature tracks the
+   *  VISIBLE rows and therefore changes on every collapse/expand. */
+  registerGroupDataKeys: (server: string, signature: string, keys: ReadonlySet<string>) => void;
+  /** Unmount counterpart to BOTH registrations — drops this group's identity
+   *  slice + row signature and its data-key slice + data signature, bumping the
+   *  parent's `rowsVersion` and `dataKeysVersion` so the effects gated on them
+   *  (roving-key normalization, selection pruning) re-validate against the
+   *  now-smaller tree. Without it, a whole group leaving the tree
+   *  (sessions-scope ALL→CURRENT, a server disappearing) would bump nothing and
+   *  its rows' keys would linger in the selection. */
+  unregisterGroupRows: (server: string) => void;
 
   editingWindow: { server: string; session: string; windowId: string } | null;
   editingName: string;
@@ -1613,6 +1886,19 @@ type ServerGroupProps = {
   /** Navigate to a board's route (`/board/{board}`). Stable identity. */
   onNavigateToBoard: (board: string) => void;
   collapsed: Record<string, boolean>;
+  /** The bulk multi-select (260807-nf9f), as composite `${server}:${windowId}`
+   *  keys. A stable Set reference from the selection store — it changes identity
+   *  only when the selection actually changes, so it does NOT churn the memo on
+   *  an SSE tick. */
+  selectedWindows: ReadonlySet<string>;
+  /** Modifier-aware row-click seam for the multi-select. Stable identity-arg
+   *  callback, forwarded verbatim to every `WindowRow`. */
+  onWindowRowClick: (
+    server: string,
+    session: string,
+    windowId: string,
+    mods: { meta: boolean; ctrl: boolean; shift: boolean },
+  ) => boolean;
 
   onToggleSession: (server: string, name: string) => void;
   onSelectWindow: (server: string, session: string, windowId: string) => void;
@@ -1670,6 +1956,8 @@ function ServerGroupInner(props: ServerGroupProps) {
     currentWindowId,
     rovingKey,
     registerGroupRows,
+    registerGroupDataKeys,
+    unregisterGroupRows,
     editingWindow,
     editingName,
     inputRef,
@@ -1688,6 +1976,8 @@ function ServerGroupInner(props: ServerGroupProps) {
     isPinnedToActiveBoardFor,
     onNavigateToBoard,
     collapsed,
+    selectedWindows,
+    onWindowRowClick,
     onToggleSession,
     onSelectWindow,
     onWaitingBadgeClick,
@@ -1794,9 +2084,51 @@ function ServerGroupInner(props: ServerGroupProps) {
     return { rowSlice: slice, rowSignature: sigParts.join("|") };
   }, [isOpen, orderedSessions, collapsed, server]);
 
+  // This group's DATA window keys — every real window the SSE snapshot knows for
+  // this server, whether or not its session is expanded and whether or not the
+  // group itself is open. Deliberately independent of `collapsed`/`isOpen`
+  // (unlike `rowSignature` above, which tracks the VISIBLE row set): the
+  // selection prune keys on this, and treating a folded-away window as departed
+  // would silently destroy a live selection on every collapse (260807-nf9f R4).
+  // Ghost/optimistic rows are excluded — they have no real windowId to select.
+  const { dataKeys, dataSignature } = useMemo(() => {
+    const keys = new Set<string>();
+    const parts: string[] = [];
+    for (const session of orderedSessions) {
+      for (const win of session.windows) {
+        if (isGhostWindow(win) || win.windowId === "") continue;
+        const key = `${server}:${win.windowId}`;
+        if (keys.has(key)) continue;
+        keys.add(key);
+        parts.push(key);
+      }
+    }
+    // Order-independent so a pure session/window REORDER (which moves no window
+    // in or out of the snapshot) does not bump the prune's version counter.
+    parts.sort();
+    return { dataKeys: keys, dataSignature: parts.join("|") };
+  }, [orderedSessions, server]);
+
   useEffect(() => {
     registerGroupRows(server, rowSignature, rowSlice);
   }, [registerGroupRows, server, rowSignature, rowSlice]);
+
+  useEffect(() => {
+    registerGroupDataKeys(server, dataSignature, dataKeys);
+  }, [registerGroupDataKeys, server, dataSignature, dataKeys]);
+
+  // Unregister on unmount, in a SEPARATE effect keyed on `[server]` only. A
+  // cleanup on either registration effect above would fire on every signature
+  // change (unregister → re-register), double-bumping the version counters and
+  // opening a transient hole in the identity/data maps. Keyed this way it runs
+  // exactly when the group actually leaves the tree — the sessions-scope
+  // ALL→CURRENT switch, or a server disappearing from the SSE snapshot — which
+  // is precisely the case no surviving group's signature covers. It drops BOTH
+  // the roving-identity slice and the data-key slice, so the departed group's
+  // windows stop counting as live for the selection prune.
+  useEffect(() => {
+    return () => unregisterGroupRows(server);
+  }, [unregisterGroupRows, server]);
 
   // Server-group header tint (Variant D): the header renders as a filled bar
   // carrying the server's color. Colors resolve through the shared precomputed
@@ -2091,6 +2423,13 @@ function ServerGroupInner(props: ServerGroupProps) {
                             ariaLevel={2}
                             ariaSetSize={session.windows.length}
                             ariaPosInSet={winIdx + 1}
+                            // Bulk multi-select (260807-nf9f): membership drives
+                            // `aria-selected` + the inset-ring treatment; the
+                            // click seam is offered the raw modifiers so the
+                            // sidebar owns the whole gesture policy. Ghost rows
+                            // are never selectable (no real windowId).
+                            isBulkSelected={!ghost && selectedWindows.has(winRowKey)}
+                            onRowClick={ghost ? undefined : onWindowRowClick}
                             onSelectWindow={onSelectWindow}
                             onStartEditing={onWindowStartEditing}
                             onWindowNameChange={onWindowNameChange}

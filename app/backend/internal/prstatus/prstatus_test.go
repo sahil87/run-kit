@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 )
@@ -14,7 +15,10 @@ func ghJSON(nodes string) []byte {
 	return []byte(`{"data":{"viewer":{"pullRequests":{"nodes":[` + nodes + `]}}}}`)
 }
 
-// ghFixture renders one PR node with the given fields.
+// ghFixture renders one PR node with the given fields. The head-identity fields
+// (headRefName/headRepository/updatedAt) are omitted — they serve only the
+// branch-derivation seed, so the status-collapse tests need not carry them (and
+// their absence exercises the zero-value/null path). Seed tests use ghHeadFixture.
 func ghFixture(number int, url, state string, isDraft bool, rollup, review string) string {
 	draft := "false"
 	if isDraft {
@@ -30,6 +34,23 @@ func ghFixture(number int, url, state string, isDraft bool, rollup, review strin
 		`","isDraft":` + draft +
 		`,"reviewDecision":"` + review +
 		`","commits":{"nodes":[{"commit":{"statusCheckRollup":` + rollupJSON + `}}]}}`
+}
+
+// ghHeadFixture renders one PR node carrying the head-identity fields the
+// branch-derivation seed joins on. A headRepo of "" renders `headRepository:
+// null` (the deleted-fork shape GitHub actually returns).
+func ghHeadFixture(number int, url, state, headRepo, headRef, updatedAt string) string {
+	headRepoJSON := "null"
+	if headRepo != "" {
+		headRepoJSON = `{"nameWithOwner":"` + headRepo + `"}`
+	}
+	return `{"number":` + strconv.Itoa(number) +
+		`,"url":"` + url +
+		`","state":"` + state +
+		`","isDraft":false,"reviewDecision":"","updatedAt":"` + updatedAt +
+		`","headRefName":"` + headRef +
+		`","headRepository":` + headRepoJSON +
+		`,"commits":{"nodes":[]}}`
 }
 
 // newTestCollector builds a collector whose gh availability is forced true and
@@ -304,6 +325,190 @@ func TestRefreshSkipsEmptyURL(t *testing.T) {
 	}
 	if _, ok := snap["u2"]; !ok {
 		t.Error("valid node u2 should remain present")
+	}
+}
+
+// --- viewer head-index seed (260807-2ept) ---------------------------------------
+
+// TestParsePRsHeadFields: the batched query's head-identity additions
+// (headRefName, headRepository.nameWithOwner, updatedAt) decode onto ghPR, and a
+// null headRepository decodes to a nil pointer rather than erroring.
+func TestParsePRsHeadFields(t *testing.T) {
+	out := ghJSON(
+		ghHeadFixture(1, "u1", "OPEN", "sahil87/run-kit", "feat", "2026-08-01T00:00:00Z") + "," +
+			ghHeadFixture(2, "u2", "MERGED", "", "gone", "2026-08-02T00:00:00Z"),
+	)
+	prs, err := parsePRs(out)
+	if err != nil {
+		t.Fatalf("parsePRs: %v", err)
+	}
+	if len(prs) != 2 {
+		t.Fatalf("parsed %d nodes, want 2", len(prs))
+	}
+	if prs[0].HeadRefName != "feat" {
+		t.Errorf("HeadRefName = %q, want feat", prs[0].HeadRefName)
+	}
+	if prs[0].HeadRepository == nil || prs[0].HeadRepository.NameWithOwner != "sahil87/run-kit" {
+		t.Errorf("HeadRepository = %+v, want sahil87/run-kit", prs[0].HeadRepository)
+	}
+	if want := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC); !prs[0].UpdatedAt.Equal(want) {
+		t.Errorf("UpdatedAt = %v, want %v", prs[0].UpdatedAt, want)
+	}
+	// A deleted head repository comes back as null — a nil pointer, not an error.
+	if prs[1].HeadRepository != nil {
+		t.Errorf("null headRepository should decode to nil, got %+v", prs[1].HeadRepository)
+	}
+}
+
+// TestViewerPRsFromProjection: the exported seed projection carries URL/number/
+// state/head identity/updatedAt faithfully and flattens a null headRepository to
+// an empty HeadRepo (the skip signal StoreViewerIndex keys on).
+func TestViewerPRsFromProjection(t *testing.T) {
+	prs, err := parsePRs(ghJSON(
+		ghHeadFixture(7, "u7", "OPEN", "sahil87/run-kit", "feat", "2026-08-01T00:00:00Z") + "," +
+			ghHeadFixture(8, "u8", "CLOSED", "", "gone", "2026-08-02T00:00:00Z"),
+	))
+	if err != nil {
+		t.Fatalf("parsePRs: %v", err)
+	}
+	got := viewerPRsFrom(prs)
+	if len(got) != 2 {
+		t.Fatalf("projected %d, want 2", len(got))
+	}
+	if got[0] != (ViewerPR{
+		Number:    7,
+		URL:       "u7",
+		State:     "OPEN",
+		HeadRepo:  "sahil87/run-kit",
+		HeadRef:   "feat",
+		UpdatedAt: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
+	}) {
+		t.Errorf("projection = %+v", got[0])
+	}
+	if got[1].HeadRepo != "" {
+		t.Errorf("null headRepository must project to empty HeadRepo, got %q", got[1].HeadRepo)
+	}
+}
+
+// TestRefreshInvokesViewerPRSink: a successful refresh hands the parsed nodes to
+// the sink (in addition to rebuilding byURL), and the sink sees every node —
+// filtering is the index's job, not the collector's.
+func TestRefreshInvokesViewerPRSink(t *testing.T) {
+	c := newTestCollector(func(context.Context) ([]byte, error) {
+		return ghJSON(ghHeadFixture(7, "u7", "OPEN", "sahil87/run-kit", "feat", "2026-08-01T00:00:00Z")), nil
+	})
+	var seen [][]ViewerPR
+	c.SetViewerPRSink(func(prs []ViewerPR) { seen = append(seen, prs) })
+
+	c.refresh(context.Background())
+
+	if len(seen) != 1 {
+		t.Fatalf("sink invoked %d times, want 1", len(seen))
+	}
+	if len(seen[0]) != 1 || seen[0][0].HeadRef != "feat" || seen[0][0].URL != "u7" {
+		t.Errorf("sink payload = %+v", seen[0])
+	}
+	// The existing URL-keyed rebuild is unaffected.
+	if _, ok := c.Snapshot()["u7"]; !ok {
+		t.Error("byURL rebuild must still happen alongside the seed")
+	}
+}
+
+// TestRefreshSinkOnlyOnSuccessfulParse: the seed is stale-while-revalidate — a gh
+// error, an unavailable gh, and malformed JSON must all leave the sink
+// UNINVOKED so the last-good index survives.
+func TestRefreshSinkOnlyOnSuccessfulParse(t *testing.T) {
+	mode := "ok"
+	c := newTestCollector(func(context.Context) ([]byte, error) {
+		switch mode {
+		case "err":
+			return nil, errors.New("network blip")
+		case "bad":
+			return []byte("not json"), nil
+		default:
+			return ghJSON(ghHeadFixture(7, "u7", "OPEN", "o/r", "feat", "2026-08-01T00:00:00Z")), nil
+		}
+	})
+	calls := 0
+	c.SetViewerPRSink(func([]ViewerPR) { calls++ })
+
+	c.refresh(context.Background()) // ok → 1
+	mode = "err"
+	c.refresh(context.Background()) // gh error → no seed
+	mode = "bad"
+	c.refresh(context.Background()) // parse error → no seed
+	mode = "ok"
+	c.available = func(context.Context) bool { return false }
+	c.refresh(context.Background()) // gh unavailable → no seed
+
+	if calls != 1 {
+		t.Errorf("sink invoked %d times, want 1 (successful parse only)", calls)
+	}
+}
+
+// TestRefreshNilSinkIsNoOp: an unwired collector (NewTestRouter, unit tests) must
+// refresh without panicking on the nil sink.
+func TestRefreshNilSinkIsNoOp(t *testing.T) {
+	c := newTestCollector(func(context.Context) ([]byte, error) {
+		return ghJSON(ghHeadFixture(7, "u7", "OPEN", "o/r", "feat", "2026-08-01T00:00:00Z")), nil
+	})
+	c.refresh(context.Background()) // sink never set — must not panic
+	if _, ok := c.Snapshot()["u7"]; !ok {
+		t.Error("refresh must still rebuild byURL with no sink wired")
+	}
+}
+
+// TestRefreshIsSingleFlighted: the interval tick and an on-demand RefreshNow
+// SERIALIZE rather than interleave, so a pass's byURL swap and its viewer-PR sink
+// publication always describe the same batch — the branch refresher's index can
+// never end up joining against a batch that disagrees with the snapshot SSE
+// serves.
+func TestRefreshIsSingleFlighted(t *testing.T) {
+	entered := make(chan struct{}, 2)
+	release := make(chan struct{})
+	var mu sync.Mutex
+	concurrent, maxConcurrent := 0, 0
+	c := newTestCollector(func(context.Context) ([]byte, error) {
+		mu.Lock()
+		concurrent++
+		if concurrent > maxConcurrent {
+			maxConcurrent = concurrent
+		}
+		mu.Unlock()
+		entered <- struct{}{}
+		<-release // hold the pass open inside the gh call
+		mu.Lock()
+		concurrent--
+		mu.Unlock()
+		return ghJSON(ghHeadFixture(7, "u7", "OPEN", "o/r", "feat", "2026-08-01T00:00:00Z")), nil
+	})
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() { defer wg.Done(); c.refresh(context.Background()) }() // the tick's pass
+	<-entered                                                        // it is inside the gh call
+
+	wg.Add(1)
+	go func() { defer wg.Done(); c.RefreshNow(context.Background()) }() // the on-demand kick
+
+	select {
+	case <-entered:
+		t.Fatal("a second pass entered the gh call while one was in flight — Collector.refresh is not single-flighted")
+	case <-time.After(50 * time.Millisecond):
+		// Blocked on the single-flight lock, as required.
+	}
+
+	close(release)
+	wg.Wait()
+
+	mu.Lock()
+	got := maxConcurrent
+	mu.Unlock()
+	if got != 1 {
+		t.Errorf("max concurrent refresh passes = %d, want 1", got)
+	}
+	if _, ok := c.Snapshot()["u7"]; !ok {
+		t.Error("the serialized passes must still rebuild byURL")
 	}
 }
 

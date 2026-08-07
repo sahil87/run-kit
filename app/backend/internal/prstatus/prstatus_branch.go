@@ -3,6 +3,7 @@ package prstatus
 import (
 	"context"
 	"encoding/json"
+	"net/url"
 	"os/exec"
 	"strings"
 	"sync"
@@ -36,6 +37,33 @@ import (
 // refresher goroutine, so the 2.5s SSE poll never spawns a process. This
 // preserves api/sse.go's documented zero-network-call hot-path invariant and
 // code-review.md's 5s API cap.
+//
+// Cold start (260807-2ept-pr-status-cold-start). Two mechanisms make the first
+// useful pass fast, without touching the 30s steady-state cadence:
+//
+//   - REGISTRATION WAKE. Start's immediate first refresh is a no-op at process
+//     start (no pair is registered until the SSE enrichment loop has run), so the
+//     first useful pass used to wait out a whole 30s tick. Register now signals a
+//     coalescing wake channel on FIRST-SIGHT pairs only, and Start's loop debounces
+//     it (branchPRWakeDebounce) so one SSE pass's burst of registrations triggers
+//     ONE refresh — event-driven, ~2.5s after start.
+//   - VIEWER HEAD-INDEX. The viewer-wide Collector's single batched GraphQL call
+//     already fetches every recent PR the user authored, including each one's head
+//     repository + ref. StoreViewerIndex keeps that as a
+//     (host/owner/name, branch) → candidates index, and each pass JOINS against it
+//     before falling back to `gh pr list` for misses only. Most observed pairs are
+//     the user's own PRs, so a pass costs ~0 subprocesses instead of one per pair —
+//     fixing both the cold-start latency and the O(N)-subprocess steady-state
+//     volume. Identity is HOST-QUALIFIED so a gitlab/GHE pane can never join a
+//     same-`owner/name` github.com PR.
+//
+// The two mechanisms wake the SAME channel: whichever of the two racing startup
+// events lands second (the SSE registrations or the collector's first batched
+// fetch) triggers the debounced pass, so cold start never depends on wiring order.
+//
+// An index miss is never an authoritative negative (the batch covers only
+// viewer-authored PRs within its top-prFetchLimit window), so only the gh
+// fallback or the default-branch exclusion may clear an entry.
 //
 // All subprocess execution uses exec.CommandContext with an explicit argv slice
 // and a timeout; no shell string, no user input in argv beyond the branch name,
@@ -72,6 +100,22 @@ const (
 	// has — never one per pair per pass. Sized like branchPRObservedTTL (minutes
 	// scale, comfortably longer than the 30s refresh tick).
 	branchDefaultBranchTTL = 5 * time.Minute
+
+	// branchOriginTTL bounds how long a per-repo origin-identity verdict (the
+	// resolved `host/owner/name` OR a fail-open lookup failure) is reused. An origin
+	// remote essentially never changes, so — exactly like branchDefaultBranchTTL —
+	// a minutes-range TTL keeps each repo to at most one `git remote get-url` per
+	// window regardless of pair count.
+	branchOriginTTL = 5 * time.Minute
+
+	// branchPRWakeDebounce is the settle window a registration wake waits out
+	// before running its refresh pass, draining any further wakes. One SSE
+	// enrichment pass registers every observed pair back-to-back, so a burst of
+	// dozens of first-sight registrations must collapse into ONE refresh — that
+	// coalescing is what makes the wake seam cheap enough to be additive to the
+	// 30s tick. The window is FIXED (drained wakes do not extend it), so a steady
+	// trickle of new pairs can never postpone the pass indefinitely.
+	branchPRWakeDebounce = 1 * time.Second
 )
 
 // BranchPR is the derived PR for a (repo, branch) pair. It carries only the
@@ -152,6 +196,114 @@ var branchDefaultExec = func(ctx context.Context, repoDir string) ([]byte, error
 	return cmd.Output()
 }
 
+// branchOriginExec resolves a repo's origin remote URL LOCALLY (no network) via
+// `git remote get-url origin` run in repoDir, returning its raw stdout (e.g.
+// `git@github.com:sahil87/run-kit.git\n`). It is a package var so tests can stub
+// git without a real repo, mirroring the branchPRExec / branchDefaultExec seams.
+// The default uses exec.CommandContext with a timeout and an explicit argv slice;
+// repoDir is set as cmd.Dir, never interpolated — no user input in argv
+// (Constitution §I). Reading a remote URL touches only local config, so it never
+// hits the network. A missing repo/remote makes git exit non-zero, which surfaces
+// here as an error → the caller fails open.
+var branchOriginExec = func(ctx context.Context, repoDir string) ([]byte, error) {
+	queryCtx, cancel := context.WithTimeout(ctx, ghTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(queryCtx, "git", "remote", "get-url", "origin")
+	cmd.Dir = repoDir
+	return cmd.Output()
+}
+
+// originSchemes are the URL schemes that carry a hosted-remote authority. A
+// `file://` (or any other) scheme names a filesystem location, not a host, so it
+// is rejected — it has no GitHub identity to join against.
+var originSchemes = map[string]bool{"https": true, "http": true, "ssh": true, "git": true}
+
+// parseOriginRepo normalizes a `git remote get-url origin` value to the
+// HOST-QUALIFIED `host/owner/name` identity used to key the viewer head-index, so
+// a local repoDir can be joined against the viewer-wide batch. The host is part of
+// the identity because `owner/name` alone is NOT unique across forges: a pane
+// whose origin is `gitlab.com/sahil87/tool` (or a GHE mirror) would otherwise join
+// a `github.com/sahil87/tool` viewer PR, attach a wrong-host PR link, AND suppress
+// the authoritative per-pair gh fallback that would have resolved it correctly.
+//
+// It accepts ONLY forms that carry an explicit host authority — a recognized
+// scheme, or the scp-like `user@host:owner/name`:
+//
+//	https://github.com/owner/name.git      → github.com/owner/name
+//	https://github.com/owner/name          → github.com/owner/name
+//	git@github.com:owner/name.git          → github.com/owner/name  (scp-like)
+//	ssh://git@github.com:22/owner/name.git → github.com/owner/name
+//	git://github.com/owner/name.git        → github.com/owner/name
+//	https://ghe.corp/owner/name.git        → ghe.corp/owner/name
+//
+// Everything else reports ok=false, notably every FILESYSTEM-path remote —
+// absolute (`/srv/mirrors/foo`), relative (`../sibling/foo`), `file://`, and the
+// dotted-relative-path lookalike (`cache.local/acme/tool`, which is a DIRECTORY,
+// not a host). A dot in the first path segment is NOT evidence of a host; only the
+// scheme or the scp-like colon is. ok=false is a fail-open signal: the caller
+// resolves the pair via `gh pr list` instead, which is always correct — just not
+// free.
+func parseOriginRepo(out []byte) (string, bool) {
+	s := strings.TrimSpace(string(out))
+	if s == "" {
+		return "", false
+	}
+
+	// Split into authority + path, requiring an explicit host authority.
+	var authority, path string
+	if i := strings.Index(s, "://"); i >= 0 {
+		if !originSchemes[strings.ToLower(s[:i])] {
+			return "", false // file:// and friends name a path, not a host
+		}
+		rest := s[i+3:]
+		slash := strings.Index(rest, "/")
+		if slash < 0 {
+			return "", false // authority only, no repo path
+		}
+		authority, path = rest[:slash], rest[slash+1:]
+	} else {
+		// The scp-like `user@host:owner/name` is the ONLY schemeless form with a
+		// host. Requiring the userinfo `@` before the `:` is what separates it from
+		// a bare filesystem path (`/srv/x`, `../x`, `cache.local/acme/tool`) and
+		// from a drive/path spec (`host:/abs/path`).
+		at := strings.Index(s, "@")
+		colon := strings.Index(s, ":")
+		if at <= 0 || colon <= at {
+			return "", false
+		}
+		authority, path = s[:colon], s[colon+1:]
+		if strings.HasPrefix(path, "/") {
+			return "", false // `user@host:/abs/path` is a local path spec
+		}
+	}
+
+	// Reduce the authority to a bare host: drop userinfo and any port.
+	host := authority
+	if i := strings.LastIndex(host, "@"); i >= 0 {
+		host = host[i+1:]
+	}
+	if i := strings.Index(host, ":"); i >= 0 {
+		host = host[:i]
+	}
+	if host == "" {
+		return "", false
+	}
+
+	// The trailing two path segments are `owner/name` (a deeper path — e.g. a
+	// GitLab sub-group — still ends in owner/name from GitHub's perspective).
+	path = strings.TrimSuffix(strings.TrimRight(path, "/"), ".git")
+	path = strings.TrimRight(path, "/")
+	parts := strings.Split(path, "/")
+	if len(parts) < 2 {
+		return "", false // no room for owner + name
+	}
+	owner, name := parts[len(parts)-2], parts[len(parts)-1]
+	if owner == "" || name == "" {
+		return "", false
+	}
+	return host + "/" + owner + "/" + name, true
+}
+
 // parseDefaultBranch extracts the bare default-branch name from
 // `git symbolic-ref refs/remotes/origin/HEAD` output. It strips the
 // `refs/remotes/origin/` prefix and any surrounding whitespace (the trailing
@@ -183,6 +335,17 @@ func parseDefaultBranch(out []byte) (string, bool) {
 type branchEntry struct {
 	pr         *BranchPR // last-known PR
 	observedAt time.Time // last Register time — drives age-out
+}
+
+// originEntry is a per-repo cached origin-identity verdict. Like
+// defaultBranchEntry it caches BOTH a successful resolution (repo set, ok=true)
+// AND a lookup failure (repo "", ok=false → the caller fails open to the per-pair
+// gh path), each with a taken-at timestamp, so a repo costs at most one
+// `git remote get-url origin` per branchOriginTTL window.
+type originEntry struct {
+	repo string    // resolved `host/owner/name` (empty on a cached failure)
+	ok   bool      // true when the lookup succeeded; false is a cached fail-open verdict
+	at   time.Time // wall-clock time the verdict was taken
 }
 
 // defaultBranchEntry is a per-repo cached default-branch verdict. It caches BOTH
@@ -220,14 +383,43 @@ type BranchRefresher struct {
 	// how many pairs it registers.
 	defaultBranches map[string]defaultBranchEntry
 
+	// Per-repo origin-identity cache (keyed by repoDir), guarded by mu. Same
+	// shape and lifecycle as defaultBranches: both outcomes cached with a
+	// taken-at timestamp, re-probed past branchOriginTTL, pruned when no live
+	// pair observes the repo. Feeds the viewer-index join (see viewerIndex).
+	origins map[string]originEntry
+
+	// viewerIndex is the head-index seeded from the viewer-wide Collector's ONE
+	// batched GraphQL call: (origin `host/owner/name`, headRefName) → candidate PRs
+	// (see viewerIndexKey). It is replaced WHOLESALE by StoreViewerIndex on each
+	// successful collector parse and consulted by every refresh pass before the
+	// per-pair `gh pr list` fallback — which is what collapses N sequential gh
+	// subprocesses per pass into one already-fetched batch. Guarded by mu.
+	viewerIndex map[string][]BranchPR
+
+	// wake is the coalescing registration-wake channel (capacity 1, non-blocking
+	// send). Register signals it when a pair is FIRST seen so the refresher's
+	// first useful pass starts as soon as the SSE enrichment loop has reported
+	// its pairs (~2.5s after start) instead of waiting out the first 30s tick.
+	// A capacity-1 buffer plus the wakeDebounce settle window collapse a burst of
+	// registrations into a single pass.
+	wake chan struct{}
+
+	// wakeDebounce is the settle window Start waits out after a wake before
+	// refreshing (defaults to branchPRWakeDebounce; a field so tests can shrink
+	// it, mirroring the now/exec per-instance seams).
+	wakeDebounce time.Duration
+
 	// exec runs the branch-list gh query; available reports gh installed+
 	// authenticated; defaultExec resolves a repo's default branch via git
-	// symbolic-ref. All are fields so tests can stub them per instance (matching
-	// the ghExec/available seams on Collector). They default to the package-var
+	// symbolic-ref; originExec resolves a repo's origin remote URL via git remote
+	// get-url. All are fields so tests can stub them per instance (matching the
+	// ghExec/available seams on Collector). They default to the package-var
 	// seams.
 	exec        func(ctx context.Context, repoDir, branch string) ([]byte, error)
 	available   func(ctx context.Context) bool
 	defaultExec func(ctx context.Context, repoDir string) ([]byte, error)
+	originExec  func(ctx context.Context, repoDir string) ([]byte, error)
 
 	// now is a clock seam for tests (defaults to time.Now).
 	now func() time.Time
@@ -240,10 +432,14 @@ func NewBranchRefresher(interval time.Duration) *BranchRefresher {
 	return &BranchRefresher{
 		entries:         make(map[string]branchEntry),
 		defaultBranches: make(map[string]defaultBranchEntry),
+		origins:         make(map[string]originEntry),
 		interval:        interval,
+		wake:            make(chan struct{}, 1),
+		wakeDebounce:    branchPRWakeDebounce,
 		exec:            branchPRExec,
 		available:       branchPRAvailable,
 		defaultExec:     branchDefaultExec,
+		originExec:      branchOriginExec,
 		now:             time.Now,
 	}
 }
@@ -263,10 +459,17 @@ func branchPRCacheKey(repoDir, branch string) string {
 }
 
 // Register records that a (repoDir, branch) pair is currently observed by a live
-// window. It is a cheap lock-guarded set touch — NO subprocess, NO network — so
-// it is safe on the SSE hot path. The background refresher resolves registered
+// window. It is a cheap lock-guarded set touch plus (on a FIRST-SIGHT pair) one
+// non-blocking channel send — NO subprocess, NO network, never blocking — so it
+// is safe on the SSE hot path. The background refresher resolves registered
 // pairs; unobserved pairs age out (branchPRObservedTTL). Empty inputs are
 // ignored.
+//
+// The wake fires ONLY when the key was not already present. Every SSE
+// enrichment pass (2.5s) re-registers every observed pair, so waking on any
+// registration would degenerate the refresher into a 2.5s gh poll; first-sight
+// only keeps the 30s steady-state cadence intact while still starting the first
+// useful pass as soon as the pairs exist.
 func (r *BranchRefresher) Register(repoDir, branch string) {
 	if repoDir == "" || branch == "" {
 		return
@@ -274,10 +477,28 @@ func (r *BranchRefresher) Register(repoDir, branch string) {
 	key := branchPRCacheKey(repoDir, branch)
 	now := r.now()
 	r.mu.Lock()
-	e := r.entries[key] // zero value on first sight (pr=nil, resolved=false)
+	e, seen := r.entries[key] // zero value on first sight (pr=nil, observedAt=0)
 	e.observedAt = now
 	r.entries[key] = e
 	r.mu.Unlock()
+	if !seen {
+		r.signalWake()
+	}
+}
+
+// signalWake performs the coalescing non-blocking send on the wake channel: a
+// wake already pending absorbs this one (capacity 1), and a full channel drops
+// the send rather than blocking the caller — the standard coalescing-wake shape
+// (mirroring api/sse.go's per-server wake seam). Safe from any goroutine,
+// including the SSE hot path.
+func (r *BranchRefresher) signalWake() {
+	if r.wake == nil {
+		return
+	}
+	select {
+	case r.wake <- struct{}{}:
+	default:
+	}
 }
 
 // Snapshot returns the last-good derived PR for a (repoDir, branch) pair from the
@@ -301,6 +522,89 @@ func (r *BranchRefresher) Snapshot(repoDir, branch string) (*BranchPR, bool) {
 	return &pr, true
 }
 
+// viewerIndexKey builds the viewer head-index key from a HOST-QUALIFIED head
+// repository identity (`host/owner/name` — the shape parseOriginRepo returns, and
+// what StoreViewerIndex composes from a node's URL host + nameWithOwner) and a
+// head ref name.
+//
+// The host is part of the key because `owner/name` is not unique across forges: a
+// gitlab.com or GHE pane must MISS a same-named github.com PR rather than attach
+// it (and thereby suppress the authoritative gh fallback). The identity half is
+// LOWERCASED — hostnames are case-insensitive, GitHub repository identities are
+// case-insensitive, and nameWithOwner returns the canonical case while a local
+// `origin` URL may be typed differently, so folding case prevents a spurious miss.
+// Branch names are NOT folded (git refs are case-sensitive). The NUL separator
+// avoids any identity/ref collision.
+func viewerIndexKey(hostRepo, headRef string) string {
+	return strings.ToLower(hostRepo) + "\x00" + headRef
+}
+
+// StoreViewerIndex replaces the viewer head-index WHOLESALE from one batched
+// viewer-wide fetch (wired to Collector.SetViewerPRSink in router.go). Candidates
+// are grouped by (head repo, head ref) so a refresh pass can join a
+// (repoDir, branch) pair against PRs the process ALREADY fetched, instead of
+// spawning one `gh pr list` per pair.
+//
+// Nodes with no URL (malformed/partial JSON — a URL-less PR can never key the
+// live-status join), no URL HOST (the host is half the index identity — see
+// viewerIndexKey), no head ref, or no head repository (a deleted fork) carry no
+// joinable identity and are skipped. Wholesale replacement mirrors the
+// collector's byURL rebuild: a PR that aged out of the batch simply stops being
+// an index candidate, so there is no eviction logic. In-memory only
+// (Constitution §II).
+//
+// A NON-EMPTY store signals the coalescing wake channel, so a seed that lands
+// AFTER the first registrations still triggers one debounced index-served pass.
+// This is what makes startup ordering safe WITHOUT relying on wiring order: the
+// collector's first batched fetch completes at an unpredictable time relative to
+// the first SSE registrations (and on the restart path the registrations win the
+// race), so both orderings must converge on an index-served pass. An EMPTY store
+// (no gh PRs, or every node unjoinable) signals nothing — there is no index to
+// serve a pass from, so a wake would only burn a `gh pr list` per pair.
+func (r *BranchRefresher) StoreViewerIndex(prs []ViewerPR) {
+	next := make(map[string][]BranchPR, len(prs))
+	for _, p := range prs {
+		if p.URL == "" || p.HeadRef == "" || p.HeadRepo == "" {
+			continue
+		}
+		host, ok := prURLHost(p.URL)
+		if !ok {
+			continue // no host authority → no joinable identity (see viewerIndexKey)
+		}
+		key := viewerIndexKey(host+"/"+p.HeadRepo, p.HeadRef)
+		next[key] = append(next[key], BranchPR{
+			Number:    p.Number,
+			URL:       p.URL,
+			State:     p.State,
+			UpdatedAt: p.UpdatedAt,
+		})
+	}
+	r.mu.Lock()
+	r.viewerIndex = next
+	r.mu.Unlock()
+	if len(next) > 0 {
+		r.signalWake()
+	}
+}
+
+// prURLHost extracts the bare host authority from a PR's canonical URL. The
+// batched viewer query carries no `--hostname`, so the PR URL is the ONLY host
+// authority available for a node — and the host is half the index identity
+// (viewerIndexKey), since an `owner/name` alone would let a gitlab.com or GHE
+// pane join a github.com PR. A URL that does not parse, or that carries no host,
+// yields ok=false and its node is skipped.
+func prURLHost(rawURL string) (string, bool) {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "", false
+	}
+	host := u.Hostname() // drops any :port
+	if host == "" {
+		return "", false
+	}
+	return host, true
+}
+
 // RefreshNow triggers an on-demand re-resolve of every registered
 // (repo, branch) pair (used by the POST /api/status/refresh endpoint). It
 // delegates to the same private refresh the background tick runs, mirroring
@@ -315,6 +619,14 @@ func (r *BranchRefresher) RefreshNow(ctx context.Context) {
 // immediately (so the snapshot warms before the first tick) then ticks on the
 // interval, exiting when ctx is cancelled — the same lifecycle as
 // metrics.Collector / prstatus.Collector.
+//
+// The loop additionally selects on the registration wake channel. The immediate
+// first refresh is a NO-OP at process start (no pair is registered yet —
+// registration only happens once the SSE enrichment loop observes panes), so
+// without the wake the first USEFUL pass would wait out a whole interval; the
+// wake makes it event-driven instead (~2.5s after start). Steady-state cadence
+// is unchanged: the ticker keeps running and the wake is purely additive, firing
+// only for first-sight pairs.
 func (r *BranchRefresher) Start(ctx context.Context) {
 	go func() {
 		r.refresh(ctx)
@@ -326,15 +638,48 @@ func (r *BranchRefresher) Start(ctx context.Context) {
 				return
 			case <-ticker.C:
 				r.refresh(ctx)
+			case <-r.wake:
+				if !r.settle(ctx) {
+					return // ctx cancelled mid-settle
+				}
+				r.refresh(ctx)
 			}
 		}
 	}()
 }
 
+// settle waits out the wakeDebounce window after a wake, DRAINING any further
+// wakes so a burst of registrations from one SSE enrichment pass yields exactly
+// one refresh pass. It reports whether the window elapsed (true) or ctx was
+// cancelled (false — the caller must exit without refreshing). The window is
+// fixed: a drained wake does not restart it, so a steady trickle of new pairs
+// can never postpone the pass. A wake arriving AFTER the window (including
+// during the refresh itself) stays buffered and triggers one more pass — the
+// same at-least-once guarantee the SSE hub's wake seam gives.
+func (r *BranchRefresher) settle(ctx context.Context) bool {
+	timer := time.NewTimer(r.wakeDebounce)
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-r.wake:
+			// Absorbed into this pass; keep waiting out the same window.
+		case <-timer.C:
+			return true
+		}
+	}
+}
+
 // refresh re-resolves every currently-registered pair and ages out pairs no
-// longer observed. It gates on ONE availability check per pass (cached, positive
-// and negative — an unauthenticated gh does not re-probe per pair). Resolution
-// rules per pair:
+// longer observed. Per pair it tries three resolvers IN ORDER — default-branch
+// exclusion, viewer head-index join, per-pair `gh pr list` fallback (see the loop
+// body) — so the gh subprocess runs only for pairs the already-fetched batch does
+// not cover. Availability is checked at most ONCE per pass, LAZILY: the probe
+// (itself a subprocess) runs only when a pair actually reaches the gh fallback, so
+// a pass resolved entirely by exclusions and index hits issues zero gh
+// subprocesses.
+// Resolution rules for the gh path:
 //   - transient exec error → KEEP the last-good entry (true stale-while-revalidate;
 //     never fail-to-negative)
 //   - a parsed empty/no-PR result → a valid NEGATIVE entry (nil pr, resolved)
@@ -380,19 +725,48 @@ func (r *BranchRefresher) refresh(ctx context.Context) {
 			delete(r.defaultBranches, repoDir)
 		}
 	}
+	// Prune per-repo origin-identity verdicts the same way, on the same guard —
+	// the two caches share a lifecycle (Constitution §II: bounded in-memory maps).
+	for repoDir, e := range r.origins {
+		if _, live := liveRepos[repoDir]; live {
+			continue
+		}
+		if now.Sub(e.at) > branchOriginTTL {
+			delete(r.origins, repoDir)
+		}
+	}
 	r.mu.Unlock()
 
 	if len(todo) == 0 {
 		return
 	}
 
-	// One availability check per pass (cached verdict — positive AND negative).
-	// NOTE: this is NOT an early return. The default-branch exclusion below needs
-	// only local `git symbolic-ref`, so it MUST run even when gh is unavailable —
-	// otherwise a stale positive (the #480 fork-PR case) would never be cleared
-	// while gh is down, defeating the whole point of the exclusion. Only the gh
-	// execution path (r.exec) is gated on ghOK.
-	ghOK := r.checkAvailable(ctx, now)
+	// At most ONE availability check per pass, resolved LAZILY — only when a pair
+	// actually reaches the gh fallback below — and memoized for the rest of the
+	// pass (the cross-pass branchPRAvailabilityTTL cache inside checkAvailable still
+	// applies on top).
+	//
+	// Laziness is load-bearing for cold start: `gh auth status` is a subprocess that
+	// can burn up to ghTimeout (10s) when the network hangs, and the two resolvers
+	// ahead of the fallback — the default-branch exclusion and the viewer head-index
+	// join — need no gh at all. A pass in which every pair resolves that way must
+	// therefore issue NO gh subprocess whatsoever, or the wake-driven first pass
+	// would stall behind a probe whose answer it never uses.
+	//
+	// NOTE: this is NOT an early return. The exclusion needs only local
+	// `git symbolic-ref`, so it MUST run even when gh is unavailable — otherwise a
+	// stale positive (the #480 fork-PR case) would never be cleared while gh is
+	// down, defeating the whole point of the exclusion. Only the gh execution path
+	// (r.exec) is gated on availability. The closure is confined to this pass, which
+	// runs on one goroutine, so the memo needs no lock.
+	ghProbed, ghOK := false, false
+	ghAvailableNow := func() bool {
+		if !ghProbed {
+			ghOK = r.checkAvailable(ctx, now)
+			ghProbed = true
+		}
+		return ghOK
+	}
 
 	for _, p := range todo {
 		// Default-branch exclusion: a pane parked on the repo's DEFAULT branch
@@ -416,10 +790,33 @@ func (r *BranchRefresher) refresh(ctx context.Context) {
 			continue
 		}
 
-		// gh path: only reachable for a non-default branch. Skip it when gh is
-		// unavailable (keeping last-good, stale-while-revalidate) — the exclusion
-		// above already ran regardless of gh.
-		if !ghOK {
+		// Viewer head-index join: the pair's PR may already have been fetched by
+		// the viewer-wide collector's ONE batched GraphQL call (most observed pairs
+		// are the user's own PRs). On a hit this resolves the pair with NO
+		// subprocess at all — the mechanism that turns an N-sequential-`gh pr list`
+		// pass into a join, and that makes the wake-driven first pass resolve
+		// immediately instead of over minutes.
+		//
+		// A MISS is never authoritative: the batch covers only viewer-authored PRs
+		// inside the top-prFetchLimit recently-updated window, so it cannot
+		// distinguish "no PR" from "not covered". Misses therefore fall THROUGH to
+		// the gh path, which alone may write a negative.
+		if pr, hit := r.viewerIndexPR(ctx, now, p.repoDir, p.branch); hit {
+			r.mu.Lock()
+			if e, present := r.entries[p.key]; present { // may have aged out concurrently
+				e.pr = pr
+				r.entries[p.key] = e
+			}
+			r.mu.Unlock()
+			continue
+		}
+
+		// gh path: only reachable for a non-default branch the index did not cover.
+		// This is also the FIRST point at which gh availability matters, so it is
+		// where the probe is resolved (once per pass, memoized). Skip the pair when
+		// gh is unavailable (keeping last-good, stale-while-revalidate) — the
+		// exclusion above already ran regardless of gh.
+		if !ghAvailableNow() {
 			continue
 		}
 
@@ -495,6 +892,75 @@ func (r *BranchRefresher) defaultBranch(ctx context.Context, now time.Time, repo
 	r.defaultBranches[repoDir] = defaultBranchEntry{name: name, ok: ok, at: now}
 	r.mu.Unlock()
 	return name, ok
+}
+
+// viewerIndexPR resolves a (repoDir, branch) pair against the stored viewer
+// head-index, reporting hit=false for every "not covered" case — no index seeded
+// yet, origin identity unresolvable, or no candidate under the pair's
+// HOST-QUALIFIED key (so a same-`owner/name` repo on a different forge is a MISS,
+// not a wrong-host hit) — all of which fall through to the per-pair gh path. It
+// NEVER writes a negative entry: the batch cannot prove a branch has no PR.
+//
+// A hit is ranked with pickBranchCandidate — the SAME precedence helper the gh
+// path's pickBranchPR uses — so indexed and gh-derived results agree on the
+// winner (open > merged > closed, most-recently-updated within a class).
+// Runs on the refresher goroutine only (it may resolve origin identity, a
+// subprocess), never on the hot path.
+func (r *BranchRefresher) viewerIndexPR(ctx context.Context, now time.Time, repoDir, branch string) (*BranchPR, bool) {
+	r.mu.RLock()
+	indexSize := len(r.viewerIndex)
+	r.mu.RUnlock()
+	if indexSize == 0 {
+		// No seed yet (collector unwired, or its first fetch has not landed).
+		// Short-circuit BEFORE resolving origin identity so an unwired collector
+		// costs zero `git remote get-url` subprocesses.
+		return nil, false
+	}
+
+	repo, ok := r.originRepo(ctx, now, repoDir)
+	if !ok {
+		return nil, false // identity unresolvable → fail open to the gh path
+	}
+
+	r.mu.RLock()
+	candidates := r.viewerIndex[viewerIndexKey(repo, branch)]
+	r.mu.RUnlock()
+	pr := pickBranchCandidate(candidates)
+	if pr == nil {
+		return nil, false
+	}
+	return pr, true
+}
+
+// originRepo returns the repo's HOST-QUALIFIED `host/owner/name` origin identity,
+// resolving it via the git-remote seam and caching the verdict per-repo for
+// branchOriginTTL (see parseOriginRepo for why the host is part of it). The
+// bool reports whether the lookup SUCCEEDED — ok=false is a fail-open signal (the
+// caller then resolves the pair via gh). BOTH outcomes are cached (a failure just
+// as much as a success) so a pathless/remoteless repo does not trigger a per-pass
+// retry storm. It NEVER runs a subprocess when a fresh verdict stands. Runs on
+// the refresher goroutine only, with the subprocess OUTSIDE the mu critical
+// section — exactly like defaultBranch, so a hung git never blocks
+// Register/Snapshot.
+func (r *BranchRefresher) originRepo(ctx context.Context, now time.Time, repoDir string) (string, bool) {
+	r.mu.RLock()
+	e, cached := r.origins[repoDir]
+	r.mu.RUnlock()
+	if cached && !e.at.IsZero() && now.Sub(e.at) < branchOriginTTL {
+		return e.repo, e.ok
+	}
+
+	repo, ok := "", false
+	if r.originExec != nil {
+		if out, err := r.originExec(ctx, repoDir); err == nil {
+			repo, ok = parseOriginRepo(out)
+		}
+	}
+
+	r.mu.Lock()
+	r.origins[repoDir] = originEntry{repo: repo, ok: ok, at: now}
+	r.mu.Unlock()
+	return repo, ok
 }
 
 // splitBranchPRKey inverts branchPRCacheKey.
@@ -581,6 +1047,18 @@ func pickBranchPR(out []byte) (*BranchPR, error) {
 	if err := json.Unmarshal(out, &prs); err != nil {
 		return nil, err
 	}
+	return pickBranchCandidate(prs), nil
+}
+
+// pickBranchCandidate is the precedence ranker shared by BOTH derivation paths —
+// the `gh pr list` fallback (via pickBranchPR) and the viewer head-index join
+// (via viewerIndexPR) — so an indexed candidate set and a gh result set can never
+// disagree on the winner. Precedence: open > merged > closed (branchStateRank),
+// ties WITHIN a class broken by most-recently-updated. URL-less candidates are
+// skipped (they could never key the live-status join). Returns nil when the slice
+// is empty or every candidate was skipped, and always returns a COPY so callers
+// cannot mutate the backing array.
+func pickBranchCandidate(prs []BranchPR) *BranchPR {
 	best := -1
 	for i := range prs {
 		if prs[i].URL == "" {
@@ -601,9 +1079,8 @@ func pickBranchPR(out []byte) (*BranchPR, error) {
 		}
 	}
 	if best < 0 {
-		return nil, nil
+		return nil
 	}
-	// Return a copy so callers can't mutate the parsed slice's backing array.
 	chosen := prs[best]
-	return &chosen, nil
+	return &chosen
 }

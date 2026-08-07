@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 )
@@ -21,10 +22,66 @@ func newTestRefresher(available bool, exec func(ctx context.Context, repoDir, br
 	r.defaultExec = func(context.Context, string) ([]byte, error) {
 		return nil, errors.New("no default branch (test default: fail-open)")
 	}
+	// Origin identity also defaults to a fail-open stub so no test ever spawns a
+	// real `git remote get-url`. Tests exercising the viewer-index join override
+	// it (an unseeded index short-circuits before it is even consulted).
+	r.originExec = func(context.Context, string) ([]byte, error) {
+		return nil, errors.New("no origin (test default: fail-open)")
+	}
 	// Fixed clock; tests advance it via r.now reassignment when they need TTL math.
 	base := time.Unix(1_000_000, 0)
 	r.now = func() time.Time { return base }
 	return r
+}
+
+// originURLOutput renders `git remote get-url origin` stdout (trailing newline as
+// git emits).
+func originURLOutput(url string) []byte { return []byte(url + "\n") }
+
+// prURL renders a canonical PR URL on a given host. Seed candidates must carry a
+// realistic URL: the index key is HOST-QUALIFIED and the host comes from the PR
+// URL (the batched query carries no --hostname), so a placeholder URL with no host
+// is skipped at index time.
+func prURL(host, repo string, number int) string {
+	return "https://" + host + "/" + repo + "/pull/" + strconv.Itoa(number)
+}
+
+// ghPRURL renders a github.com PR URL — the common seed case, matching a
+// github.com origin.
+func ghPRURL(repo string, number int) string { return prURL("github.com", repo, number) }
+
+// seedIndex stores a viewer head-index from (headRepo, headRef, candidate)
+// triples, going through the real StoreViewerIndex path so the skip rules and key
+// derivation under test are the ones production uses.
+func seedIndex(r *BranchRefresher, prs ...ViewerPR) { r.StoreViewerIndex(prs) }
+
+// viewerPR builds one seed candidate.
+func viewerPR(number int, url, state, headRepo, headRef string, updatedAt time.Time) ViewerPR {
+	return ViewerPR{Number: number, URL: url, State: state, HeadRepo: headRepo, HeadRef: headRef, UpdatedAt: updatedAt}
+}
+
+// ts parses an RFC3339 timestamp for candidate fixtures.
+func ts(t *testing.T, s string) time.Time {
+	t.Helper()
+	v, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		t.Fatalf("bad fixture timestamp %q: %v", s, err)
+	}
+	return v
+}
+
+// drainWake reports how many wake signals are currently pending (0 or 1 — the
+// channel is capacity-1), draining them.
+func drainWake(r *BranchRefresher) int {
+	n := 0
+	for {
+		select {
+		case <-r.wake:
+			n++
+		default:
+			return n
+		}
+	}
 }
 
 // defaultBranchRefOutput renders the `git symbolic-ref refs/remotes/origin/HEAD`
@@ -769,6 +826,873 @@ func TestParseDefaultBranch(t *testing.T) {
 			name, ok := parseDefaultBranch([]byte(tc.in))
 			if name != tc.wantName || ok != tc.wantOK {
 				t.Errorf("parseDefaultBranch(%q) = (%q, %v), want (%q, %v)", tc.in, name, ok, tc.wantName, tc.wantOK)
+			}
+		})
+	}
+}
+
+// --- registration wake seam (260807-2ept) ---------------------------------------
+
+// TestBranchRefresher_RegisterFirstSightSignalsWakeOnce: a FIRST-SIGHT pair wakes
+// the refresher; re-observing a known pair (which every 2.5s SSE enrichment pass
+// does for every pair) must NOT — otherwise the wake would degenerate the 30s
+// refresher into a 2.5s gh poll.
+func TestBranchRefresher_RegisterFirstSightSignalsWakeOnce(t *testing.T) {
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		return branchListJSON(), nil
+	})
+
+	r.Register("/repo", "feat")
+	if got := drainWake(r); got != 1 {
+		t.Fatalf("first-sight registration signalled %d wakes, want 1", got)
+	}
+
+	// Re-registrations of the SAME pair must be silent.
+	for i := 0; i < 5; i++ {
+		r.Register("/repo", "feat")
+	}
+	if got := drainWake(r); got != 0 {
+		t.Errorf("re-registration signalled %d wakes, want 0", got)
+	}
+
+	// A different pair is first-sight again → one wake.
+	r.Register("/repo", "other")
+	if got := drainWake(r); got != 1 {
+		t.Errorf("new pair signalled %d wakes, want 1", got)
+	}
+}
+
+// TestBranchRefresher_RegisterWakeCoalesces: a burst of first-sight registrations
+// leaves exactly ONE pending wake (capacity-1 channel, non-blocking send), and no
+// Register call blocks — the hot-path safety property.
+func TestBranchRefresher_RegisterWakeCoalesces(t *testing.T) {
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		return branchListJSON(), nil
+	})
+	for i := 0; i < 50; i++ {
+		r.Register("/repo", "feat-"+strconv.Itoa(i))
+	}
+	if got := drainWake(r); got != 1 {
+		t.Errorf("50 first-sight registrations left %d pending wakes, want 1 (coalesced)", got)
+	}
+}
+
+// TestBranchRefresher_RegisterEmptyInputsDoNotWake: an ignored registration must
+// not wake the refresher either (it creates no entry to resolve).
+func TestBranchRefresher_RegisterEmptyInputsDoNotWake(t *testing.T) {
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		return branchListJSON(), nil
+	})
+	r.Register("", "feat")
+	r.Register("/repo", "")
+	if got := drainWake(r); got != 0 {
+		t.Errorf("empty-input registrations signalled %d wakes, want 0", got)
+	}
+}
+
+// TestBranchRefresher_SettleDrainsWakes: settle waits out the debounce window and
+// absorbs wakes arriving inside it, so the burst becomes one pass.
+func TestBranchRefresher_SettleDrainsWakes(t *testing.T) {
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		return branchListJSON(), nil
+	})
+	r.wakeDebounce = 10 * time.Millisecond
+	r.signalWake()
+
+	if !r.settle(context.Background()) {
+		t.Fatal("settle should report the window elapsed")
+	}
+	if got := drainWake(r); got != 0 {
+		t.Errorf("settle left %d pending wakes, want 0 (drained)", got)
+	}
+}
+
+// TestBranchRefresher_SettleHonorsContextCancel: a ctx cancellation during the
+// settle window aborts the pass (the Start loop then exits) rather than
+// refreshing on a dead context.
+func TestBranchRefresher_SettleHonorsContextCancel(t *testing.T) {
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		return branchListJSON(), nil
+	})
+	r.wakeDebounce = time.Hour // long enough that only the cancel can return
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if r.settle(ctx) {
+		t.Error("settle must report false on a cancelled context")
+	}
+}
+
+// TestBranchRefresher_WakeBurstDrivesExactlyOneExtraPass: the cold-start
+// contract. A burst of first-sight registrations drives ONE additional refresh
+// pass, not one per registration — proved by exec counts on a started refresher
+// whose ticker is an hour out (so only the wake can drive a pass).
+//
+// The burst is registered BEFORE Start so the count is deterministic: the
+// immediate first refresh resolves all three pairs (3 execs) and the single
+// buffered wake drives exactly one more pass (3 more execs). A per-registration
+// wake would instead produce three extra passes.
+func TestBranchRefresher_WakeBurstDrivesExactlyOneExtraPass(t *testing.T) {
+	var mu sync.Mutex
+	calls := 0
+	reached := make(chan struct{})
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		mu.Lock()
+		calls++
+		if calls == 6 {
+			close(reached)
+		}
+		mu.Unlock()
+		return branchListJSON(branchNode(4, "https://x/pull/4", "2026-07-01T00:00:00Z")), nil
+	})
+	r.interval = time.Hour // the steady-state ticker must never fire in this test
+	r.wakeDebounce = 5 * time.Millisecond
+
+	r.Register("/repo", "a")
+	r.Register("/repo", "b")
+	r.Register("/repo", "c")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	r.Start(ctx)
+
+	select {
+	case <-reached:
+	case <-time.After(5 * time.Second):
+		mu.Lock()
+		got := calls
+		mu.Unlock()
+		t.Fatalf("wake did not drive a second pass: exec calls = %d, want 6", got)
+	}
+
+	// Nothing further may run — no new pair, and the ticker is an hour out.
+	time.Sleep(20 * r.wakeDebounce)
+	mu.Lock()
+	got := calls
+	mu.Unlock()
+	if got != 6 {
+		t.Errorf("exec calls = %d, want exactly 6 (initial pass + ONE coalesced wake pass)", got)
+	}
+}
+
+// --- viewer head-index join (260807-2ept) ---------------------------------------
+
+// withOrigin points the refresher's origin seam at a fixed remote URL and returns
+// a pointer to the call counter, so tests can assert lookup frequency.
+func withOrigin(r *BranchRefresher, url string) *int {
+	calls := 0
+	r.originExec = func(context.Context, string) ([]byte, error) {
+		calls++
+		return originURLOutput(url), nil
+	}
+	return &calls
+}
+
+// TestBranchRefresher_IndexHitSkipsGh: a pair covered by the seeded viewer index
+// resolves from the batch with ZERO `gh pr list` subprocesses — the mechanism that
+// collapses an N-sequential-gh pass into a join.
+func TestBranchRefresher_IndexHitSkipsGh(t *testing.T) {
+	ghCalls := 0
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		ghCalls++
+		return branchListJSON(), nil
+	})
+	withOrigin(r, "git@github.com:sahil87/run-kit.git")
+	seedIndex(r, viewerPR(538, ghPRURL("sahil87/run-kit", 538), "OPEN", "sahil87/run-kit", "feat", ts(t, "2026-08-01T00:00:00Z")))
+
+	r.Register("/repo", "feat")
+	r.refresh(context.Background())
+
+	pr, ok := r.Snapshot("/repo", "feat")
+	if !ok || pr == nil || pr.Number != 538 {
+		t.Fatalf("index hit must resolve the pair, got ok=%v pr=%v", ok, pr)
+	}
+	if ghCalls != 0 {
+		t.Errorf("gh pr list ran %d times for an index hit, want 0", ghCalls)
+	}
+}
+
+// TestBranchRefresher_IndexHitPrecedence: indexed candidates are ranked by the
+// SAME precedence as gh results — open > merged > closed across classes,
+// most-recently-updated within a class.
+func TestBranchRefresher_IndexHitPrecedence(t *testing.T) {
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		t.Fatal("gh must not run for an index hit")
+		return nil, nil
+	})
+	withOrigin(r, "https://github.com/sahil87/run-kit.git")
+	seedIndex(r,
+		// A newer MERGED PR must lose to an older OPEN one (state class beats
+		// recency across classes — the branch-reuse edge).
+		viewerPR(1, ghPRURL("sahil87/run-kit", 1), "MERGED", "sahil87/run-kit", "feat", ts(t, "2026-08-05T00:00:00Z")),
+		viewerPR(2, ghPRURL("sahil87/run-kit", 2), "OPEN", "sahil87/run-kit", "feat", ts(t, "2026-08-01T00:00:00Z")),
+		viewerPR(3, ghPRURL("sahil87/run-kit", 3), "OPEN", "sahil87/run-kit", "feat", ts(t, "2026-08-03T00:00:00Z")),
+	)
+
+	r.Register("/repo", "feat")
+	r.refresh(context.Background())
+
+	pr, ok := r.Snapshot("/repo", "feat")
+	if !ok || pr == nil || pr.Number != 3 {
+		t.Fatalf("want #3 (most-recent OPEN), got ok=%v pr=%v", ok, pr)
+	}
+}
+
+// TestBranchRefresher_IndexHitResolvesWhenGhUnavailable: the index join needs no
+// gh at all, so a covered pair still resolves while gh is down/unauthenticated.
+func TestBranchRefresher_IndexHitResolvesWhenGhUnavailable(t *testing.T) {
+	r := newTestRefresher(false, func(context.Context, string, string) ([]byte, error) {
+		t.Fatal("gh must not run when unavailable")
+		return nil, nil
+	})
+	withOrigin(r, "git@github.com:sahil87/run-kit.git")
+	seedIndex(r, viewerPR(9, ghPRURL("sahil87/run-kit", 9), "OPEN", "sahil87/run-kit", "feat", ts(t, "2026-08-01T00:00:00Z")))
+
+	r.Register("/repo", "feat")
+	r.refresh(context.Background())
+
+	if pr, ok := r.Snapshot("/repo", "feat"); !ok || pr == nil || pr.Number != 9 {
+		t.Errorf("index hit must resolve without gh, got ok=%v pr=%v", ok, pr)
+	}
+}
+
+// TestBranchRefresher_IndexMissFallsBackToGh: a pair the batch does not cover
+// (here: a branch with no indexed candidate) falls through to the existing
+// per-pair gh path unchanged.
+func TestBranchRefresher_IndexMissFallsBackToGh(t *testing.T) {
+	ghCalls := 0
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		ghCalls++
+		return branchListJSON(branchNode(77, "https://x/pull/77", "2026-08-01T00:00:00Z")), nil
+	})
+	withOrigin(r, "git@github.com:sahil87/run-kit.git")
+	// Indexed under a DIFFERENT branch, so the pair misses.
+	seedIndex(r, viewerPR(1, ghPRURL("sahil87/run-kit", 1), "OPEN", "sahil87/run-kit", "other", ts(t, "2026-08-01T00:00:00Z")))
+
+	r.Register("/repo", "feat")
+	r.refresh(context.Background())
+
+	pr, ok := r.Snapshot("/repo", "feat")
+	if !ok || pr == nil || pr.Number != 77 {
+		t.Fatalf("index miss must fall back to gh, got ok=%v pr=%v", ok, pr)
+	}
+	if ghCalls != 1 {
+		t.Errorf("gh pr list ran %d times on an index miss, want 1", ghCalls)
+	}
+}
+
+// TestBranchRefresher_ForkHeadMismatchFallsBackToGh: a fork PR's headRepository is
+// the FORK, not the pane repo's origin, so it misses the identity join and must
+// fall back to gh rather than resolving off a wrong-repo candidate.
+func TestBranchRefresher_ForkHeadMismatchFallsBackToGh(t *testing.T) {
+	ghCalls := 0
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		ghCalls++
+		return branchListJSON(branchNode(77, "https://x/pull/77", "2026-08-01T00:00:00Z")), nil
+	})
+	withOrigin(r, "git@github.com:sahil87/run-kit.git")
+	// Same branch name, but the head lives in a fork of a different owner.
+	seedIndex(r, viewerPR(5, ghPRURL("someone-else/run-kit", 5), "OPEN", "someone-else/run-kit", "feat", ts(t, "2026-08-01T00:00:00Z")))
+
+	r.Register("/repo", "feat")
+	r.refresh(context.Background())
+
+	pr, ok := r.Snapshot("/repo", "feat")
+	if !ok || pr == nil || pr.Number != 77 {
+		t.Fatalf("fork-head mismatch must fall back to gh, got ok=%v pr=%v", ok, pr)
+	}
+	if ghCalls != 1 {
+		t.Errorf("gh pr list ran %d times on a fork identity mismatch, want 1", ghCalls)
+	}
+}
+
+// TestBranchRefresher_HostMismatchFallsBackToGh: identity is HOST-QUALIFIED, so a
+// pane whose origin lives on gitlab.com must MISS a same-`owner/name` github.com
+// viewer PR (and fall back to the authoritative gh path) rather than attach a
+// wrong-forge PR link. `owner/name` is not unique across forges.
+func TestBranchRefresher_HostMismatchFallsBackToGh(t *testing.T) {
+	ghCalls := 0
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		ghCalls++
+		return branchListJSON(branchNode(77, "https://gitlab.com/sahil87/tool/-/merge_requests/77", "2026-08-01T00:00:00Z")), nil
+	})
+	withOrigin(r, "git@gitlab.com:sahil87/tool.git")
+	// Same owner/name and branch — but the indexed PR is hosted on github.com.
+	seedIndex(r, viewerPR(5, ghPRURL("sahil87/tool", 5), "OPEN", "sahil87/tool", "feat", ts(t, "2026-08-01T00:00:00Z")))
+
+	r.Register("/repo", "feat")
+	r.refresh(context.Background())
+
+	pr, ok := r.Snapshot("/repo", "feat")
+	if !ok || pr == nil || pr.Number != 77 {
+		t.Fatalf("host mismatch must fall back to gh, got ok=%v pr=%v", ok, pr)
+	}
+	if ghCalls != 1 {
+		t.Errorf("gh pr list ran %d times on a host mismatch, want 1", ghCalls)
+	}
+}
+
+// TestBranchRefresher_GHEHostJoins: the qualification is a match rule, not a
+// github.com-only rule — a GHE pane joins its OWN host's viewer PR.
+func TestBranchRefresher_GHEHostJoins(t *testing.T) {
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		t.Fatal("gh must not run for an index hit")
+		return nil, nil
+	})
+	withOrigin(r, "https://ghe.corp.example/sahil87/tool.git")
+	seedIndex(r, viewerPR(31, prURL("ghe.corp.example", "sahil87/tool", 31), "OPEN", "sahil87/tool", "feat", ts(t, "2026-08-01T00:00:00Z")))
+
+	r.Register("/repo", "feat")
+	r.refresh(context.Background())
+
+	if pr, ok := r.Snapshot("/repo", "feat"); !ok || pr == nil || pr.Number != 31 {
+		t.Errorf("same-host GHE pair must join the index, got ok=%v pr=%v", ok, pr)
+	}
+}
+
+// TestBranchRefresher_IndexRepoIdentityCaseInsensitive: GitHub repo identities are
+// case-insensitive (and nameWithOwner returns the canonical case), so an origin
+// URL typed in a different case must still join.
+func TestBranchRefresher_IndexRepoIdentityCaseInsensitive(t *testing.T) {
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		t.Fatal("gh must not run for an index hit")
+		return nil, nil
+	})
+	withOrigin(r, "git@github.com:Sahil87/Run-Kit.git")
+	seedIndex(r, viewerPR(12, ghPRURL("sahil87/run-kit", 12), "OPEN", "sahil87/run-kit", "feat", ts(t, "2026-08-01T00:00:00Z")))
+
+	r.Register("/repo", "feat")
+	r.refresh(context.Background())
+
+	if pr, ok := r.Snapshot("/repo", "feat"); !ok || pr == nil || pr.Number != 12 {
+		t.Errorf("case-differing origin must still join, got ok=%v pr=%v", ok, pr)
+	}
+}
+
+// TestBranchRefresher_IndexMissNeverWritesNegative: the batch covers only
+// viewer-authored PRs inside its top-limit window, so it cannot prove "no PR".
+// A miss must therefore leave a last-good positive entry intact when the gh
+// fallback cannot run (gh down) — never downgrade it to a negative.
+func TestBranchRefresher_IndexMissNeverWritesNegative(t *testing.T) {
+	ghUp := true
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		return branchListJSON(branchNode(4, "https://x/pull/4", "2026-07-01T00:00:00Z")), nil
+	})
+	r.available = func(context.Context) bool { return ghUp }
+	withOrigin(r, "git@github.com:sahil87/run-kit.git")
+
+	r.Register("/repo", "feat")
+	r.refresh(context.Background()) // gh resolves #4 (no index yet)
+	if pr, ok := r.Snapshot("/repo", "feat"); !ok || pr == nil || pr.Number != 4 {
+		t.Fatalf("precondition: #4 should be cached, got ok=%v pr=%v", ok, pr)
+	}
+
+	// A seeded index that does NOT cover this pair, plus gh down: the miss must be
+	// a pass-through, not a negative.
+	seedIndex(r, viewerPR(1, ghPRURL("sahil87/other", 1), "OPEN", "sahil87/other", "feat", ts(t, "2026-08-01T00:00:00Z")))
+	ghUp = false
+	now := time.Unix(1_000_000, 0).Add(branchPRAvailabilityTTL + time.Second)
+	r.now = func() time.Time { return now }
+	r.Register("/repo", "feat")
+	r.refresh(context.Background())
+
+	if pr, ok := r.Snapshot("/repo", "feat"); !ok || pr == nil || pr.Number != 4 {
+		t.Errorf("an index miss must never clear a last-good entry, got ok=%v pr=%v", ok, pr)
+	}
+}
+
+// TestBranchRefresher_DefaultBranchExclusionOutranksIndexHit: the exclusion stays
+// FIRST and authoritative — a default-branch pane resolves to a negative even when
+// the viewer index holds a candidate for that head (the degenerate
+// same-head-as-default case).
+func TestBranchRefresher_DefaultBranchExclusionOutranksIndexHit(t *testing.T) {
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		t.Fatal("gh must not run for an excluded default-branch pair")
+		return nil, nil
+	})
+	r.defaultExec = func(context.Context, string) ([]byte, error) {
+		return defaultBranchRefOutput("main"), nil
+	}
+	originCalls := withOrigin(r, "git@github.com:sahil87/run-kit.git")
+	seedIndex(r, viewerPR(480, ghPRURL("sahil87/run-kit", 480), "MERGED", "sahil87/run-kit", "main", ts(t, "2026-08-01T00:00:00Z")))
+
+	r.Register("/repo", "main")
+	r.refresh(context.Background())
+
+	if pr, ok := r.Snapshot("/repo", "main"); ok || pr != nil {
+		t.Errorf("default-branch exclusion must outrank an index hit, got ok=%v pr=%v", ok, pr)
+	}
+	if *originCalls != 0 {
+		t.Errorf("origin identity resolved %d times for an excluded pair, want 0 (exclusion short-circuits first)", *originCalls)
+	}
+}
+
+// TestBranchRefresher_UnseededIndexSkipsOriginLookup: with no index stored (an
+// unwired collector, or before its first fetch lands) the join short-circuits
+// BEFORE resolving origin identity, so it costs no `git remote get-url`.
+func TestBranchRefresher_UnseededIndexSkipsOriginLookup(t *testing.T) {
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		return branchListJSON(branchNode(4, "https://x/pull/4", "2026-07-01T00:00:00Z")), nil
+	})
+	originCalls := withOrigin(r, "git@github.com:sahil87/run-kit.git")
+
+	r.Register("/repo", "feat")
+	r.refresh(context.Background())
+
+	if *originCalls != 0 {
+		t.Errorf("origin identity resolved %d times with no index seeded, want 0", *originCalls)
+	}
+	if pr, ok := r.Snapshot("/repo", "feat"); !ok || pr == nil || pr.Number != 4 {
+		t.Errorf("pair must still resolve via gh, got ok=%v pr=%v", ok, pr)
+	}
+}
+
+// TestBranchRefresher_StoredIndexServesLaterPasses: the index is STORED (not
+// consumed once), so every later pass keeps joining against it with no gh call —
+// this is what removes the steady-state O(N)-subprocess volume.
+func TestBranchRefresher_StoredIndexServesLaterPasses(t *testing.T) {
+	ghCalls := 0
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		ghCalls++
+		return branchListJSON(), nil
+	})
+	withOrigin(r, "git@github.com:sahil87/run-kit.git")
+	seedIndex(r, viewerPR(538, ghPRURL("sahil87/run-kit", 538), "OPEN", "sahil87/run-kit", "feat", ts(t, "2026-08-01T00:00:00Z")))
+
+	r.Register("/repo", "feat")
+	for i := 0; i < 3; i++ {
+		r.Register("/repo", "feat") // as a live window does every SSE tick
+		r.refresh(context.Background())
+		if pr, ok := r.Snapshot("/repo", "feat"); !ok || pr == nil || pr.Number != 538 {
+			t.Fatalf("pass %d: index hit lost, got ok=%v pr=%v", i, ok, pr)
+		}
+	}
+	if ghCalls != 0 {
+		t.Errorf("gh pr list ran %d times across 3 index-covered passes, want 0", ghCalls)
+	}
+}
+
+// TestStoreViewerIndexSkipsUnjoinableNodes: nodes with no URL, no URL host, no
+// head ref, or no head repository carry no joinable identity and must never enter
+// the index. The URL host matters because the index key is host-qualified — a node
+// whose URL yields no host cannot be placed on a forge.
+func TestStoreViewerIndexSkipsUnjoinableNodes(t *testing.T) {
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		return branchListJSON(), nil
+	})
+	seedIndex(r,
+		viewerPR(1, "", "OPEN", "o/r", "feat", ts(t, "2026-08-01T00:00:00Z")),                // no URL
+		viewerPR(2, ghPRURL("o/r", 2), "OPEN", "o/r", "", ts(t, "2026-08-01T00:00:00Z")),     // no head ref
+		viewerPR(3, ghPRURL("", 3), "OPEN", "", "feat", ts(t, "2026-08-01T00:00:00Z")),       // null head repo
+		viewerPR(5, "o/r/pull/5", "OPEN", "o/r", "feat", ts(t, "2026-08-01T00:00:00Z")),      // URL carries no host
+		viewerPR(4, ghPRURL("o/r", 4), "OPEN", "o/r", "keep", ts(t, "2026-08-01T00:00:00Z")), // joinable
+	)
+
+	r.mu.RLock()
+	index := r.viewerIndex
+	r.mu.RUnlock()
+	if len(index) != 1 {
+		t.Fatalf("index holds %d keys, want 1 (only the joinable node): %v", len(index), index)
+	}
+	if got := index[viewerIndexKey("github.com/o/r", "keep")]; len(got) != 1 || got[0].Number != 4 {
+		t.Errorf("index entry = %v, want only #4", got)
+	}
+}
+
+// TestStoreViewerIndexReplacesWholesale: a re-seed REPLACES the index (mirroring
+// the collector's byURL rebuild) — a candidate that aged out of the batch stops
+// being joinable, with no eviction logic.
+func TestStoreViewerIndexReplacesWholesale(t *testing.T) {
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		return branchListJSON(), nil
+	})
+	seedIndex(r, viewerPR(1, ghPRURL("o/r", 1), "OPEN", "o/r", "old", ts(t, "2026-08-01T00:00:00Z")))
+	seedIndex(r, viewerPR(2, ghPRURL("o/r", 2), "OPEN", "o/r", "new", ts(t, "2026-08-02T00:00:00Z")))
+
+	r.mu.RLock()
+	index := r.viewerIndex
+	r.mu.RUnlock()
+	if _, ok := index[viewerIndexKey("github.com/o/r", "old")]; ok {
+		t.Error("stale candidate must be gone after a wholesale re-seed")
+	}
+	if _, ok := index[viewerIndexKey("github.com/o/r", "new")]; !ok {
+		t.Error("re-seeded candidate missing")
+	}
+}
+
+// --- wake-on-store (260807-2ept, rework cycle 1) --------------------------------
+
+// TestBranchRefresher_StoreViewerIndexSignalsWake: storing a NON-EMPTY index
+// signals the same coalescing wake Register uses, so a seed landing after the
+// first registrations still drives a debounced pass. An EMPTY store signals
+// nothing — there would be no index to serve the pass from, so the wake would only
+// buy a `gh pr list` per registered pair.
+func TestBranchRefresher_StoreViewerIndexSignalsWake(t *testing.T) {
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		return branchListJSON(), nil
+	})
+	candidate := viewerPR(1, ghPRURL("o/r", 1), "OPEN", "o/r", "feat", ts(t, "2026-08-01T00:00:00Z"))
+
+	seedIndex(r, candidate)
+	if got := drainWake(r); got != 1 {
+		t.Fatalf("non-empty store signalled %d wakes, want 1", got)
+	}
+
+	// Repeated stores coalesce onto one pending wake (capacity-1, non-blocking send).
+	for i := 0; i < 5; i++ {
+		seedIndex(r, candidate)
+	}
+	if got := drainWake(r); got != 1 {
+		t.Errorf("5 stores left %d pending wakes, want 1 (coalesced)", got)
+	}
+
+	seedIndex(r) // empty batch
+	if got := drainWake(r); got != 0 {
+		t.Errorf("empty store signalled %d wakes, want 0", got)
+	}
+	// Every node unjoinable ⇒ an empty index ⇒ still no wake.
+	seedIndex(r, viewerPR(2, "", "OPEN", "o/r", "feat", ts(t, "2026-08-01T00:00:00Z")))
+	if got := drainWake(r); got != 0 {
+		t.Errorf("all-unjoinable store signalled %d wakes, want 0", got)
+	}
+}
+
+// TestBranchRefresher_SeedAfterRegistrationDrivesIndexServedPass: the PRODUCTION
+// ordering (and the restart path). SSE registrations can land BEFORE the
+// collector's first batched fetch completes, so the SEED itself must wake the
+// refresher — wiring order alone cannot guarantee an index-served pass, because
+// the collector's first refresh finishes at an unpredictable time relative to the
+// first registrations.
+//
+// The ticker is set an hour out so ONLY a wake can drive a pass. The burst is
+// registered before Start, making the pre-seed pass count deterministic (the
+// immediate pass plus one coalesced wake pass, each resolving all three pairs via
+// gh while the index is empty). The seed then drives EXACTLY ONE further pass,
+// which resolves every pair from the index with ZERO additional gh calls.
+func TestBranchRefresher_SeedAfterRegistrationDrivesIndexServedPass(t *testing.T) {
+	var mu sync.Mutex
+	ghCalls, clockReads := 0, 0
+	preSeedDone := make(chan struct{})
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		mu.Lock()
+		ghCalls++
+		if ghCalls == 6 {
+			close(preSeedDone)
+		}
+		mu.Unlock()
+		return branchListJSON(), nil // no PR on any branch yet → negatives
+	})
+	r.interval = time.Hour // the steady-state ticker must never fire in this test
+	r.wakeDebounce = 5 * time.Millisecond
+	withOrigin(r, "git@github.com:sahil87/run-kit.git")
+
+	// refresh() takes exactly ONE clock read (at the top of the pass), so counting
+	// clock reads counts passes. Register reads the clock too, but every Register
+	// happens before the baseline below is captured, so the delta after it is passes
+	// alone.
+	base := time.Unix(1_000_000, 0)
+	r.now = func() time.Time {
+		mu.Lock()
+		clockReads++
+		mu.Unlock()
+		return base
+	}
+
+	branches := []string{"a", "b", "c"}
+	for _, b := range branches {
+		r.Register("/repo", b)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	r.Start(ctx)
+
+	select {
+	case <-preSeedDone:
+	case <-time.After(5 * time.Second):
+		mu.Lock()
+		got := ghCalls
+		mu.Unlock()
+		t.Fatalf("pre-seed passes did not complete: gh calls = %d, want 6", got)
+	}
+	time.Sleep(20 * r.wakeDebounce) // let the loop go quiet before sampling
+	mu.Lock()
+	ghBefore, readsBefore := ghCalls, clockReads
+	mu.Unlock()
+	if ghBefore != 6 {
+		t.Fatalf("pre-seed gh calls = %d, want 6 (initial pass + one coalesced wake pass)", ghBefore)
+	}
+	for _, b := range branches {
+		if pr, ok := r.Snapshot("/repo", b); ok || pr != nil {
+			t.Fatalf("precondition: %q must be unresolved before the seed, got %v", b, pr)
+		}
+	}
+
+	// The seed lands LAST — the ordering that used to leave the refresher asleep
+	// until the next 30s tick.
+	seedIndex(r,
+		viewerPR(1, ghPRURL("sahil87/run-kit", 1), "OPEN", "sahil87/run-kit", "a", ts(t, "2026-08-01T00:00:00Z")),
+		viewerPR(2, ghPRURL("sahil87/run-kit", 2), "OPEN", "sahil87/run-kit", "b", ts(t, "2026-08-02T00:00:00Z")),
+		viewerPR(3, ghPRURL("sahil87/run-kit", 3), "OPEN", "sahil87/run-kit", "c", ts(t, "2026-08-03T00:00:00Z")),
+	)
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		resolved := 0
+		for i, b := range branches {
+			if pr, ok := r.Snapshot("/repo", b); ok && pr != nil && pr.Number == i+1 {
+				resolved++
+			}
+		}
+		if resolved == len(branches) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the seed did not wake the refresher: %d/%d pairs resolved from the index", resolved, len(branches))
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	time.Sleep(20 * r.wakeDebounce) // nothing further may run
+	mu.Lock()
+	ghAfter, readsAfter := ghCalls, clockReads
+	mu.Unlock()
+	if ghAfter != ghBefore {
+		t.Errorf("the index-served pass issued %d gh calls, want 0", ghAfter-ghBefore)
+	}
+	if passes := readsAfter - readsBefore; passes != 1 {
+		t.Errorf("the seed drove %d refresh passes, want exactly 1 (debounced)", passes)
+	}
+}
+
+// --- lazy gh-availability probe (260807-2ept, rework cycle 1) --------------------
+
+// TestBranchRefresher_AvailabilityProbeIsLazy: `gh auth status` is itself a
+// subprocess that can burn up to ghTimeout, and neither the default-branch
+// exclusion nor the index join needs gh — so a pass resolved entirely by those two
+// must issue NO gh subprocess at all, the probe included. Otherwise the
+// wake-driven cold-start pass could stall behind a probe whose answer it never
+// uses.
+func TestBranchRefresher_AvailabilityProbeIsLazy(t *testing.T) {
+	availCalls := 0
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		t.Fatal("gh pr list must not run when every pair resolves without gh")
+		return nil, nil
+	})
+	r.available = func(context.Context) bool {
+		availCalls++
+		return true
+	}
+	r.defaultExec = func(context.Context, string) ([]byte, error) {
+		return defaultBranchRefOutput("main"), nil
+	}
+	withOrigin(r, "git@github.com:sahil87/run-kit.git")
+	seedIndex(r, viewerPR(538, ghPRURL("sahil87/run-kit", 538), "OPEN", "sahil87/run-kit", "feat", ts(t, "2026-08-01T00:00:00Z")))
+
+	r.Register("/repo", "main") // resolved by the default-branch exclusion
+	r.Register("/repo", "feat") // resolved by the index join
+	r.refresh(context.Background())
+
+	if availCalls != 0 {
+		t.Errorf("availability probed %d times on a pass with no gh fallback, want 0 (lazy)", availCalls)
+	}
+	if pr, ok := r.Snapshot("/repo", "feat"); !ok || pr == nil || pr.Number != 538 {
+		t.Errorf("the index hit must still resolve, got ok=%v pr=%v", ok, pr)
+	}
+}
+
+// TestBranchRefresher_AvailabilityProbedOnceWhenFallbackReached: the flip side of
+// laziness — on a MIXED pass the probe is resolved at the first pair that reaches
+// the fallback and memoized for the rest of the pass (never once per pair).
+func TestBranchRefresher_AvailabilityProbedOnceWhenFallbackReached(t *testing.T) {
+	availCalls, ghCalls := 0, 0
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		ghCalls++
+		return branchListJSON(branchNode(77, "https://github.com/sahil87/run-kit/pull/77", "2026-08-01T00:00:00Z")), nil
+	})
+	r.available = func(context.Context) bool {
+		availCalls++
+		return true
+	}
+	withOrigin(r, "git@github.com:sahil87/run-kit.git")
+	seedIndex(r, viewerPR(538, ghPRURL("sahil87/run-kit", 538), "OPEN", "sahil87/run-kit", "hit", ts(t, "2026-08-01T00:00:00Z")))
+
+	r.Register("/repo", "hit")    // index hit — no gh
+	r.Register("/repo", "miss-a") // fallback
+	r.Register("/repo", "miss-b") // fallback
+	r.refresh(context.Background())
+
+	if availCalls != 1 {
+		t.Errorf("availability probed %d times on a mixed pass, want 1 (memoized per pass)", availCalls)
+	}
+	if ghCalls != 2 {
+		t.Errorf("gh pr list ran %d times, want 2 (one per index miss)", ghCalls)
+	}
+}
+
+// --- origin identity cache (260807-2ept) ----------------------------------------
+
+// TestBranchRefresher_OriginCachedPerRepo: N pairs in one repo cost ONE
+// `git remote get-url origin` per pass/TTL window, mirroring the default-branch
+// and gh-availability caches.
+func TestBranchRefresher_OriginCachedPerRepo(t *testing.T) {
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		return branchListJSON(), nil
+	})
+	originCalls := withOrigin(r, "git@github.com:sahil87/run-kit.git")
+	seedIndex(r, viewerPR(1, ghPRURL("sahil87/run-kit", 1), "OPEN", "sahil87/run-kit", "feat-a", ts(t, "2026-08-01T00:00:00Z")))
+
+	r.Register("/repo", "feat-a")
+	r.Register("/repo", "feat-b")
+	r.Register("/repo", "feat-c")
+	r.refresh(context.Background())
+	if *originCalls != 1 {
+		t.Errorf("origin resolved %d times for 3 pairs in one repo, want 1 (per-repo cached)", *originCalls)
+	}
+
+	r.refresh(context.Background())
+	if *originCalls != 1 {
+		t.Errorf("origin resolved %d times across two passes, want 1 (verdict cached)", *originCalls)
+	}
+}
+
+// TestBranchRefresher_OriginLookupFailsOpenAndIsCached: an origin lookup failure
+// falls back to the gh path (fail open) and is CACHED, so a repo without a usable
+// origin does not trigger a per-pass `git remote get-url` retry storm.
+func TestBranchRefresher_OriginLookupFailsOpenAndIsCached(t *testing.T) {
+	ghCalls := 0
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		ghCalls++
+		return branchListJSON(branchNode(4, "https://x/pull/4", "2026-07-01T00:00:00Z")), nil
+	})
+	originCalls := 0
+	r.originExec = func(context.Context, string) ([]byte, error) {
+		originCalls++
+		return nil, errors.New("fatal: No such remote 'origin'")
+	}
+	seedIndex(r, viewerPR(1, ghPRURL("sahil87/run-kit", 1), "OPEN", "sahil87/run-kit", "feat", ts(t, "2026-08-01T00:00:00Z")))
+
+	r.Register("/repo", "feat")
+	r.refresh(context.Background())
+	r.refresh(context.Background()) // same (cached) clock
+
+	if pr, ok := r.Snapshot("/repo", "feat"); !ok || pr == nil || pr.Number != 4 {
+		t.Errorf("fail-open: pair must resolve via gh, got ok=%v pr=%v", ok, pr)
+	}
+	if originCalls != 1 {
+		t.Errorf("origin probed %d times across two passes, want 1 (failure cached)", originCalls)
+	}
+	if ghCalls != 2 {
+		t.Errorf("gh ran %d times, want 2 (one per pass — fail-open on both)", ghCalls)
+	}
+}
+
+// TestBranchRefresher_OriginReprobedAfterTTL: once the cached origin verdict ages
+// past branchOriginTTL, the next pass re-probes.
+func TestBranchRefresher_OriginReprobedAfterTTL(t *testing.T) {
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		return branchListJSON(), nil
+	})
+	originCalls := withOrigin(r, "git@github.com:sahil87/run-kit.git")
+	seedIndex(r, viewerPR(1, ghPRURL("sahil87/run-kit", 1), "OPEN", "sahil87/run-kit", "feat", ts(t, "2026-08-01T00:00:00Z")))
+
+	now := time.Unix(1_000_000, 0)
+	r.now = func() time.Time { return now }
+
+	r.Register("/repo", "feat")
+	r.refresh(context.Background()) // probe #1
+	now = now.Add(branchOriginTTL + time.Second)
+	r.Register("/repo", "feat") // keep the pair alive past its observed TTL
+	r.refresh(context.Background())
+
+	if *originCalls != 2 {
+		t.Errorf("origin probed %d times, want 2 (re-probe after TTL)", *originCalls)
+	}
+}
+
+// TestBranchRefresher_OriginPrunedWhenRepoUnobserved: the per-repo origin cache is
+// pruned on the same guard as defaultBranches — no live pair AND a verdict aged
+// past the TTL — so it cannot grow unbounded (Constitution §II).
+func TestBranchRefresher_OriginPrunedWhenRepoUnobserved(t *testing.T) {
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		return branchListJSON(), nil
+	})
+	withOrigin(r, "git@github.com:sahil87/run-kit.git")
+	seedIndex(r, viewerPR(1, ghPRURL("sahil87/run-kit", 1), "OPEN", "sahil87/run-kit", "feat", ts(t, "2026-08-01T00:00:00Z")))
+
+	now := time.Unix(1_000_000, 0)
+	r.now = func() time.Time { return now }
+
+	r.Register("/repo", "feat")
+	r.refresh(context.Background())
+	r.mu.RLock()
+	_, cached := r.origins["/repo"]
+	r.mu.RUnlock()
+	if !cached {
+		t.Fatal("precondition: /repo origin verdict should be cached after a refresh")
+	}
+
+	now = now.Add(branchPRObservedTTL + branchOriginTTL + time.Second)
+	r.now = func() time.Time { return now }
+	r.refresh(context.Background()) // pair ages out; unobserved+stale verdict pruned
+
+	r.mu.RLock()
+	_, stillCached := r.origins["/repo"]
+	r.mu.RUnlock()
+	if stillCached {
+		t.Error("origin verdict for an unobserved, aged-out repo must be pruned")
+	}
+}
+
+// TestParseOriginRepo covers origin-URL normalization to the HOST-QUALIFIED
+// `host/owner/name` identity the viewer head-index is keyed by, across every form
+// git emits — and the rejections. Two rejection families matter:
+//
+//   - filesystem paths (absolute, relative, `file://`, `~`) have no forge identity
+//     at all and must fail open rather than yield a bogus `parent/dir`;
+//   - a DOTTED first path segment is not evidence of a host — `cache.local/acme/tool`
+//     as a relative path is a directory, not a remote — so only an explicit scheme
+//     or the scp-like `user@host:` colon qualifies.
+func TestParseOriginRepo(t *testing.T) {
+	cases := []struct {
+		name     string
+		in       string
+		wantRepo string
+		wantOK   bool
+	}{
+		{"https with .git", "https://github.com/sahil87/run-kit.git\n", "github.com/sahil87/run-kit", true},
+		{"https without .git", "https://github.com/sahil87/run-kit\n", "github.com/sahil87/run-kit", true},
+		{"https with trailing slash", "https://github.com/sahil87/run-kit/\n", "github.com/sahil87/run-kit", true},
+		{"scp-like git@", "git@github.com:sahil87/run-kit.git\n", "github.com/sahil87/run-kit", true},
+		{"scp-like without .git", "git@github.com:sahil87/run-kit\n", "github.com/sahil87/run-kit", true},
+		{"ssh scheme", "ssh://git@github.com/sahil87/run-kit.git\n", "github.com/sahil87/run-kit", true},
+		{"ssh scheme with port", "ssh://git@github.com:22/sahil87/run-kit.git\n", "github.com/sahil87/run-kit", true},
+		{"git scheme", "git://github.com/sahil87/run-kit.git\n", "github.com/sahil87/run-kit", true},
+		{"https with credentials in authority", "https://user@github.com/sahil87/run-kit.git\n", "github.com/sahil87/run-kit", true},
+		{"self-hosted host", "https://git.example.org/team/tool.git\n", "git.example.org/team/tool", true},
+		// The two host-mismatch families the qualification exists for: same
+		// owner/name, different forge.
+		{"gitlab host qualified", "git@gitlab.com:sahil87/tool.git\n", "gitlab.com/sahil87/tool", true},
+		{"GHE host qualified", "https://ghe.corp.example/sahil87/tool.git\n", "ghe.corp.example/sahil87/tool", true},
+		{"surrounding whitespace trimmed", "  git@github.com:sahil87/run-kit.git  \n", "github.com/sahil87/run-kit", true},
+		{"case preserved (folded at key time)", "git@github.com:Sahil87/Run-Kit.git\n", "github.com/Sahil87/Run-Kit", true},
+		{"absolute filesystem path rejected", "/srv/mirrors/run-kit\n", "", false},
+		{"relative filesystem path rejected", "../sibling/run-kit\n", "", false},
+		{"dotted relative path is not a host", "cache.local/acme/tool\n", "", false},
+		{"dotted relative path with ./ prefix rejected", "./cache.local/acme/tool\n", "", false},
+		{"file scheme rejected", "file:///srv/mirrors/acme/tool\n", "", false},
+		{"home-relative path rejected", "~/repos/acme/tool\n", "", false},
+		{"schemeless host:path rejected (no userinfo)", "github.com:sahil87/run-kit\n", "", false},
+		{"scp-like with absolute path rejected", "git@myhost:/srv/mirrors/tool\n", "", false},
+		{"empty output rejected", "", "", false},
+		{"host only rejected", "https://github.com/\n", "", false},
+		{"authority with no path rejected", "https://github.com\n", "", false},
+		{"host plus single segment rejected", "https://github.com/sahil87\n", "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo, ok := parseOriginRepo([]byte(tc.in))
+			if repo != tc.wantRepo || ok != tc.wantOK {
+				t.Errorf("parseOriginRepo(%q) = (%q, %v), want (%q, %v)", tc.in, repo, ok, tc.wantRepo, tc.wantOK)
 			}
 		})
 	}

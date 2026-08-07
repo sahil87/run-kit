@@ -498,6 +498,20 @@ func NewRouterAndServer(ctx context.Context, logger *slog.Logger) (chi.Router, *
 	svc.Start(ctx)
 
 	pc := prstatus.NewCollector(prStatusPollInterval)
+	// Seed the branch refresher's viewer head-index from the collector's ONE
+	// batched GraphQL call (260807-2ept): the batch already carries every recent
+	// viewer-authored PR's head repo + ref, so the refresher can JOIN most
+	// observed pairs instead of spawning a `gh pr list` per pair. Wired BEFORE
+	// pc.Start so the collector's immediate first refresh has somewhere to land.
+	//
+	// The cold-start guarantee does NOT rest on this ordering: the collector's first
+	// fetch completes at an unpredictable time relative to the first SSE
+	// registrations (and on the restart path the registrations win), so
+	// StoreViewerIndex itself wakes the refresher after a non-empty store. Either
+	// arrival order converges on one debounced index-served pass. NewTestRouter
+	// leaves this unwired — an unseeded index simply misses and every pair falls
+	// back to gh.
+	pc.SetViewerPRSink(prstatus.DefaultBranchRefresher.StoreViewerIndex)
 	pc.Start(ctx)
 
 	// Branch→PR refresher (260705-dmex): resolves observed (repo, branch) pairs

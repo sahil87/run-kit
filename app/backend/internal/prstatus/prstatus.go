@@ -50,6 +50,35 @@ type PRStatus struct {
 	FetchedAt      time.Time // when this status was fetched
 }
 
+// ViewerPR is one PR from the viewer-wide batched fetch, projected down to what
+// the branch→PR head-index join needs: the canonical URL + number to serve, the
+// state and updatedAt to rank candidates by precedence, and the head identity
+// (repo `owner/name` + ref name) to key the index by.
+//
+// The URL is load-bearing twice over: it is what the live-status join is keyed by,
+// AND it is the only HOST authority a node carries — the batched query takes no
+// `--hostname`, so StoreViewerIndex parses the host out of this URL to build the
+// host-qualified index key (see viewerIndexKey).
+//
+// It exists as an EXPORTED projection because the seed seam is wired from
+// package api (router.go): the raw ghPR JSON shape stays private, and the sink
+// contract carries only stable, display-agnostic fields.
+type ViewerPR struct {
+	Number int
+	URL    string
+	// State is GitHub's raw PR-state enum (OPEN | MERGED | CLOSED) — the same
+	// values branchStateRank ranks, case-insensitively.
+	State string
+	// HeadRepo is the head repository's `owner/name` (GraphQL nameWithOwner), or
+	// "" when the head repository is absent (deleted fork). It is host-qualified at
+	// index time by joining it with the host parsed from URL.
+	HeadRepo string
+	// HeadRef is the head branch name (GraphQL headRefName).
+	HeadRef string
+	// UpdatedAt breaks precedence ties within a state class.
+	UpdatedAt time.Time
+}
+
 // Collector holds the latest PR-status snapshot, refreshed in the background.
 // The map is keyed by canonical PR URL, NOT by PR number: numbers are only
 // unique per repository, and the batched query spans ALL of the viewer's repos,
@@ -60,6 +89,20 @@ type Collector struct {
 	byURL    map[string]PRStatus
 	interval time.Duration
 
+	// refreshMu SERIALIZES whole refresh passes (the interval tick vs an on-demand
+	// RefreshNow), so a pass's byURL swap and its viewer-PR sink call can never
+	// interleave with another pass's. Without it two concurrent passes could swap in
+	// A's snapshot and then publish B's index (or vice versa), leaving the branch
+	// refresher joining against an index that disagrees with the snapshot SSE
+	// serves. It is DISTINCT from mu: mu guards the map for the (hot, lock-free-ish)
+	// Snapshot readers and is never held across a subprocess, while refreshMu is
+	// held for the whole pass INCLUDING the gh call. Blocking is acceptable here
+	// because both callers are background: the tick runs on the collector's own
+	// goroutine, and RefreshNow is invoked from the DETACHED goroutine behind
+	// POST /api/status/refresh (never inline in a handler), which additionally
+	// coalesces in-flight forced refreshes of its own.
+	refreshMu sync.Mutex
+
 	// ghExec runs the batched gh query and returns its raw stdout. It is a
 	// field so tests can stub gh without a real binary (matching the codebase's
 	// exec-seam test pattern). nil means "not available" (silent no-op).
@@ -69,6 +112,25 @@ type Collector struct {
 	// tests can force the guard true/false without a real gh binary. Defaults
 	// to ghAvailable.
 	available func(ctx context.Context) bool
+
+	// onViewerPRs, when non-nil, receives the parsed PR nodes after a SUCCESSFUL
+	// refresh parse — the seed seam that hands this ONE batched call's results to
+	// the branch→PR head-index (BranchRefresher.StoreViewerIndex), wired in
+	// router.go. Nil (the default, and every unwired/test collector) is a no-op.
+	// It is deliberately called only on a successful parse: stale-while-revalidate
+	// applies to the seed exactly as it does to byURL.
+	onViewerPRs func([]ViewerPR)
+}
+
+// SetViewerPRSink installs the viewer-PR seed sink invoked after every successful
+// refresh parse. Wired in api.NewRouterAndServer to
+// prstatus.DefaultBranchRefresher.StoreViewerIndex BEFORE Start, so the
+// collector's immediate first refresh stores the head-index before the branch
+// refresher's first pass. Passing nil clears it (back to a no-op).
+func (c *Collector) SetViewerPRSink(fn func([]ViewerPR)) {
+	c.mu.Lock()
+	c.onViewerPRs = fn
+	c.mu.Unlock()
 }
 
 // NewCollector creates a PR-status collector that polls on the given interval.
@@ -115,12 +177,19 @@ func (c *Collector) Snapshot() map[string]PRStatus {
 
 // RefreshNow triggers an on-demand refresh (used by the POST refresh endpoint).
 // Best-effort: errors are swallowed (stale-while-revalidate keeps the last-good
-// map), so callers never block on or surface a gh failure.
+// map), so callers never block on or surface a gh failure. It shares refresh's
+// single-flight lock with the interval tick, so it waits out an in-flight pass
+// rather than racing it — safe because the endpoint invokes this from a detached
+// goroutine, never inline in a handler.
 func (c *Collector) RefreshNow(ctx context.Context) {
 	c.refresh(ctx)
 }
 
 // refresh performs ONE batched gh call and rebuilds byURL wholesale.
+//
+// It is SINGLE-FLIGHTED (refreshMu): a tick and an on-demand RefreshNow serialize
+// instead of interleaving, so the byURL swap and the viewer-PR sink publication of
+// one pass always describe the same batch.
 //
 // Failure modes (all leave the last-good map untouched, return without error):
 //   - ghExec is nil (gh unavailable / collector not wired) → no-op
@@ -128,6 +197,9 @@ func (c *Collector) RefreshNow(ctx context.Context) {
 //   - the gh call errors (network blip) → stale-while-revalidate, keep last-good
 //   - the JSON fails to parse → keep last-good
 func (c *Collector) refresh(ctx context.Context) {
+	c.refreshMu.Lock()
+	defer c.refreshMu.Unlock()
+
 	if c.ghExec == nil {
 		return
 	}
@@ -172,7 +244,40 @@ func (c *Collector) refresh(ctx context.Context) {
 	// longer OPEN) is gone next cycle. This is the cleanup mechanism.
 	c.mu.Lock()
 	c.byURL = next
+	sink := c.onViewerPRs
 	c.mu.Unlock()
+
+	// Seed the branch→PR head-index from the SAME batch (successful parse only —
+	// a gh error or parse failure returned above, leaving the last-good index in
+	// place). Called after the swap and OUTSIDE the lock: the sink reaches into
+	// another type's mutex, so holding this one across the call would couple the
+	// two locks.
+	if sink != nil {
+		sink(viewerPRsFrom(prs))
+	}
+}
+
+// viewerPRsFrom projects parsed gh nodes onto the exported seed shape. It is a
+// faithful projection — the head-identity/URL skip rules live in
+// BranchRefresher.StoreViewerIndex, so there is exactly one place that decides
+// what is indexable.
+func viewerPRsFrom(prs []ghPR) []ViewerPR {
+	out := make([]ViewerPR, 0, len(prs))
+	for _, p := range prs {
+		headRepo := ""
+		if p.HeadRepository != nil {
+			headRepo = p.HeadRepository.NameWithOwner
+		}
+		out = append(out, ViewerPR{
+			Number:    p.Number,
+			URL:       p.URL,
+			State:     p.State,
+			HeadRepo:  headRepo,
+			HeadRef:   p.HeadRefName,
+			UpdatedAt: p.UpdatedAt,
+		})
+	}
+	return out
 }
 
 // ghAvailable reports whether the gh CLI is installed AND authenticated. Either
@@ -198,6 +303,15 @@ func ghAvailable(ctx context.Context) bool {
 // A just-merged PR is recently updated, so it sits near the top and is always
 // included. statusCheckRollup.state is GitHub's pre-collapsed rollup enum
 // (SUCCESS|FAILURE|PENDING|ERROR|EXPECTED) so we get the rollup for free.
+//
+// headRefName + headRepository.nameWithOwner + updatedAt are fetched for the
+// BRANCH-DERIVATION seed (see ViewerPR / BranchRefresher.StoreViewerIndex): they
+// let this ONE batched call pre-populate the (repo, branch) → PR index that the
+// branch refresher would otherwise rebuild with one sequential `gh pr list` per
+// observed pair. head identity is the join key; updatedAt is what lets indexed
+// candidates be ranked with the same most-recently-updated-within-a-state-class
+// tiebreak pickBranchPR applies to gh results. States, ordering, and $limit are
+// deliberately unchanged.
 const ghQuery = `query($limit: Int!) {
   viewer {
     pullRequests(first: $limit, states: [OPEN, MERGED, CLOSED], orderBy: {field: UPDATED_AT, direction: DESC}) {
@@ -207,6 +321,9 @@ const ghQuery = `query($limit: Int!) {
         state
         isDraft
         reviewDecision
+        updatedAt
+        headRefName
+        headRepository { nameWithOwner }
         commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
       }
     }
@@ -244,7 +361,17 @@ type ghPR struct {
 	State          string `json:"state"` // OPEN | CLOSED | MERGED
 	IsDraft        bool   `json:"isDraft"`
 	ReviewDecision string `json:"reviewDecision"` // APPROVED | CHANGES_REQUESTED | REVIEW_REQUIRED | ""
-	Commits        struct {
+	// UpdatedAt / HeadRefName / HeadRepository serve the branch-derivation seed
+	// only (ViewerPR); they are not part of the displayed PRStatus. HeadRepository
+	// is a POINTER because GraphQL returns null for it when the head repo was
+	// deleted (a deleted fork) — such a node carries no joinable identity and is
+	// skipped at index time.
+	UpdatedAt      time.Time `json:"updatedAt"`
+	HeadRefName    string    `json:"headRefName"`
+	HeadRepository *struct {
+		NameWithOwner string `json:"nameWithOwner"`
+	} `json:"headRepository"`
+	Commits struct {
 		Nodes []struct {
 			Commit struct {
 				StatusCheckRollup *struct {

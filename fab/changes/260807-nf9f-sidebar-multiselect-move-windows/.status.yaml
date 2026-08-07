@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 14
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-08-07T12:30:57Z", driver: fab-fff, iterations: 3, completed_at: "2026-08-07T12:43:56Z"}
     hydrate: {started_at: "2026-08-07T12:43:56Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-07T12:49:51Z"}
     ship: {started_at: "2026-08-07T12:49:51Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-07T12:54:04Z"}
-    review-pr: {started_at: "2026-08-07T12:54:04Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-08-07T12:54:04Z", driver: git-pr, iterations: 1, completed_at: "2026-08-07T13:13:56Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/537
 change_type_source: explicit
@@ -54,4 +54,4 @@ true_impact:
     computed_at_stage: ship
 summary: 'Sidebar window-row multi-select (aria-multiselectable tree, x toggle, cmd/shift-click, capture-phase Escape clear, dedicated zustand selection store with DATA-derived prune via a parallel registerGroupDataKeys/dataKeysVersion registry and settleBatch batch reconcile) plus the Selection: palette family — Select all merged and per-session Move N window(s) to <session> over the selection-derived server, executing N sequential move-to-session POSTs with continue-on-error and a count indicator'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-07T12:54:04Z
+last_updated: 2026-08-07T13:13:56Z

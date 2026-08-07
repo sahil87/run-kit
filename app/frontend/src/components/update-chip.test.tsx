@@ -439,3 +439,135 @@ describe("shouldReloadOnVersion (reload guard)", () => {
     expect(shouldReloadOnVersion("0.5.3", "b1", "0.6.0", "b1")).toBe(true);
   });
 });
+
+describe("UpdateChip — manual-check feed (260807-s6zs)", () => {
+  const manualRunKit: UpdateTool = { tool: "run-kit", current: "3.8.7", latest: "3.9.1" };
+  const manualTu: UpdateTool = { tool: "tu", current: "0.9.1", latest: "0.9.2" };
+
+  it("lights the chip from a manual result when the ambient feed is dark", () => {
+    renderChip({
+      daemonVersion: "3.8.7",
+      updateAvailable: null,
+      manualCheck: { tools: [manualRunKit], source: "github" },
+    });
+    expect(screen.getByText("⬆ v3.9.1")).toBeInTheDocument();
+    expect(screen.getByLabelText("Update run-kit: v3.8.7 → v3.9.1")).toBeInTheDocument();
+  });
+
+  it("uses the count form + per-tool aria for a multi-tool manual result", () => {
+    renderChip({
+      daemonVersion: "3.8.7",
+      updateAvailable: null,
+      manualCheck: { tools: [manualRunKit, manualTu], source: "github" },
+    });
+    expect(screen.getByText("⬆ updates (2)")).toBeInTheDocument();
+    expect(
+      screen.getByLabelText("Update: run-kit v3.8.7 → v3.9.1, tu v0.9.1 → v0.9.2"),
+    ).toBeInTheDocument();
+  });
+
+  it("lets the AMBIENT feed win wholesale when both feeds hold tools", () => {
+    renderChip({
+      daemonVersion: "0.5.3",
+      updateAvailable: updateAvailable([runKit("0.5.3", "0.6.0")]),
+      manualCheck: { tools: [manualTu], source: "github" },
+    });
+    // The ambient run-kit verdict renders; the manual tu row is not surfaced.
+    expect(screen.getByText("⬆ v0.6.0")).toBeInTheDocument();
+    expect(screen.queryByText("⬆ updates (1)")).not.toBeInTheDocument();
+  });
+
+  it("surfaces the manual feed when the ambient key is dismissed", () => {
+    renderChip({
+      daemonVersion: "0.5.3",
+      updateAvailable: updateAvailable([runKit("0.5.3", "0.6.0")]),
+      updateDismissedKey: "run-kit@0.6.0",
+      manualCheck: { tools: [manualTu], source: "github" },
+    });
+    expect(screen.getByText("⬆ updates (1)")).toBeInTheDocument();
+    expect(screen.getByLabelText("Update: tu v0.9.1 → v0.9.2")).toBeInTheDocument();
+  });
+
+  it("hides a manual-fed chip on the dev daemon (same suppression as the ambient feed)", () => {
+    renderChip({
+      daemonVersion: "dev",
+      updateAvailable: null,
+      manualCheck: { tools: [manualRunKit], source: "github" },
+    });
+    expect(screen.queryByText(/⬆ /)).not.toBeInTheDocument();
+  });
+
+  it("hides a manual-fed chip dismissed for its CLIENT-COMPUTED composite key", () => {
+    renderChip({
+      daemonVersion: "3.8.7",
+      updateAvailable: null,
+      manualCheck: { tools: [manualRunKit], source: "github" },
+      updateDismissedKey: "run-kit@3.9.1",
+    });
+    expect(screen.queryByText(/⬆ /)).not.toBeInTheDocument();
+  });
+
+  it("re-shows when a later manual check yields a DIFFERENT key", () => {
+    renderChip({
+      daemonVersion: "3.8.7",
+      updateAvailable: null,
+      manualCheck: { tools: [{ tool: "run-kit", current: "3.8.7", latest: "3.9.2" }], source: "github" },
+      updateDismissedKey: "run-kit@3.9.1",
+    });
+    expect(screen.getByText("⬆ v3.9.2")).toBeInTheDocument();
+  });
+
+  it("clicking a manual-fed chip runs the FORCE update, not the scoped one", () => {
+    const updateNow = vi.fn().mockResolvedValue(undefined);
+    const forceUpdateNow = vi.fn().mockResolvedValue(undefined);
+    renderChip({
+      daemonVersion: "3.8.7",
+      updateAvailable: null,
+      manualCheck: { tools: [manualRunKit], source: "github" },
+      updateNow,
+      forceUpdateNow,
+    });
+    fireEvent.click(screen.getByLabelText("Update run-kit: v3.8.7 → v3.9.1"));
+    expect(forceUpdateNow).toHaveBeenCalledTimes(1);
+    expect(updateNow).not.toHaveBeenCalled();
+  });
+
+  it("clicking an AMBIENT-fed chip keeps the scoped update path", () => {
+    const updateNow = vi.fn().mockResolvedValue(undefined);
+    const forceUpdateNow = vi.fn().mockResolvedValue(undefined);
+    renderChip({
+      daemonVersion: "0.5.3",
+      updateAvailable: updateAvailable([runKit("0.5.3", "0.6.0")]),
+      manualCheck: { tools: [manualTu], source: "github" },
+      updateNow,
+      forceUpdateNow,
+    });
+    fireEvent.click(screen.getByLabelText("Update run-kit: v0.5.3 → v0.6.0"));
+    expect(updateNow).toHaveBeenCalledTimes(1);
+    expect(forceUpdateNow).not.toHaveBeenCalled();
+  });
+
+  it("clicking ✕ on a manual-fed chip calls dismissUpdate", () => {
+    const dismissUpdate = vi.fn();
+    renderChip({
+      daemonVersion: "3.8.7",
+      updateAvailable: null,
+      manualCheck: { tools: [manualRunKit], source: "github" },
+      dismissUpdate,
+    });
+    fireEvent.click(screen.getByLabelText("Dismiss update notice"));
+    expect(dismissUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it("surfaces a manual-fed update on the overflow-menu version row too (no per-surface wiring)", () => {
+    renderChip({
+      daemonVersion: "3.8.7",
+      updateAvailable: null,
+      manualCheck: { tools: [manualRunKit], source: "github" },
+      updateDismissedKey: "run-kit@3.9.1", // chip dismissed → menu keeps the surface
+    });
+    fireEvent.click(screen.getByLabelText("More controls"));
+    const menu = screen.getByRole("menu", { name: "More controls" });
+    expect(within(menu).getByText("RunKit v3.8.7 → v3.9.1 ⬆")).toBeInTheDocument();
+  });
+});

@@ -4,6 +4,7 @@ import {
   buildMaintenanceActions,
   buildCheckActions,
   composeCheckToast,
+  computeUpdateKey,
   updateChipToolSummary,
   type CheckVerdictTool,
 } from "./palette-update";
@@ -243,5 +244,37 @@ describe("buildMaintenanceActions", () => {
 
     restart.onSelect();
     expect(onRestart).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("computeUpdateKey (client mirror of the backend composite key)", () => {
+  it("composes a single tool as `tool@latest`", () => {
+    expect(computeUpdateKey([{ tool: "run-kit", latest: "3.9.1" }])).toBe("run-kit@3.9.1");
+  });
+
+  it("sorts the pairs regardless of input order and comma-joins them", () => {
+    const key = computeUpdateKey([
+      { tool: "tu", latest: "0.9.2" },
+      { tool: "run-kit", latest: "3.9.1" },
+    ]);
+    expect(key).toBe("run-kit@3.9.1,tu@0.9.2");
+    // Input order is irrelevant — the reversed list composes the same key, which
+    // is what makes the dismissal stable across differently-ordered payloads.
+    expect(
+      computeUpdateKey([
+        { tool: "run-kit", latest: "3.9.1" },
+        { tool: "tu", latest: "0.9.2" },
+      ]),
+    ).toBe(key);
+  });
+
+  it("composes an empty set as the empty key", () => {
+    expect(computeUpdateKey([])).toBe("");
+  });
+
+  it("keys on `latest`, so a newer target yields a different key (re-show semantics)", () => {
+    expect(computeUpdateKey([{ tool: "run-kit", latest: "3.9.1" }])).not.toBe(
+      computeUpdateKey([{ tool: "run-kit", latest: "3.9.2" }]),
+    );
   });
 });

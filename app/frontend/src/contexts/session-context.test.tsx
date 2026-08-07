@@ -9,6 +9,7 @@ import {
   useMetrics,
   StandaloneSessionContextProvider,
   shouldReloadOnVersion,
+  deriveUpdateFeed,
 } from "./session-context";
 import { ChromeProvider } from "./chrome-context";
 import type { MetricsSnapshot } from "@/types";
@@ -859,5 +860,233 @@ describe("shouldReloadOnVersion — boot-aware reload guard", () => {
 
   it("tolerates a null first boot (first payload was boot-less), reloading when a boot later appears", () => {
     expect(shouldReloadOnVersion("0.5.3", null, "0.5.3", "b2")).toBe(true);
+  });
+});
+
+describe("SessionProvider — tab-local manual-check feed (260807-s6zs)", () => {
+  const runKitRow = { tool: "run-kit", current: "3.8.7", latest: "3.9.1" };
+  const tuRow = { tool: "tu", current: "0.9.1", latest: "0.9.2" };
+
+  // A manual result is stored by useUpdateCheck after a check resolves; here we
+  // drive the seam directly (the hook's own wiring is covered in
+  // use-update-check.test.tsx).
+  async function renderWithManual() {
+    const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
+    await settle();
+    return result;
+  }
+
+  it("holds no manual result until one is applied", async () => {
+    const result = await renderWithManual();
+    expect(result.current.manualCheck).toBeNull();
+  });
+
+  it("stores the applied tool set + echoed source", async () => {
+    const result = await renderWithManual();
+    await act(async () => {
+      result.current.applyManualCheckResult([runKitRow], "github");
+    });
+    expect(result.current.manualCheck).toEqual({ tools: [runKitRow], source: "github" });
+  });
+
+  it("supersedes a held result with a newer one", async () => {
+    const result = await renderWithManual();
+    await act(async () => {
+      result.current.applyManualCheckResult([runKitRow], "github");
+    });
+    await act(async () => {
+      result.current.applyManualCheckResult([tuRow], "released");
+    });
+    expect(result.current.manualCheck).toEqual({ tools: [tuRow], source: "released" });
+  });
+
+  it("CLEARS the held result when a fresh check reports nothing updatable", async () => {
+    const result = await renderWithManual();
+    await act(async () => {
+      result.current.applyManualCheckResult([runKitRow], "github");
+    });
+    await act(async () => {
+      result.current.applyManualCheckResult([], "github");
+    });
+    expect(result.current.manualCheck).toBeNull();
+  });
+
+  it("never persists the manual result (tab-local by design)", async () => {
+    const setItem = vi.spyOn(Storage.prototype, "setItem");
+    const result = await renderWithManual();
+    await act(async () => {
+      result.current.applyManualCheckResult([runKitRow], "github");
+    });
+    expect(
+      setItem.mock.calls.some(([k]) => typeof k === "string" && k.includes("manual")),
+    ).toBe(false);
+    // The only update-related key the surface writes is the shared dismissal one,
+    // and dismissal was not invoked here.
+    expect(setItem).not.toHaveBeenCalledWith("runkit-update-dismissed", expect.anything());
+    setItem.mockRestore();
+  });
+
+  it("clears the manual result when the AMBIENT composite key changes (update consumed)", async () => {
+    const result = await renderWithManual();
+    // An ambient verdict is live when the manual check runs.
+    await act(async () => {
+      WS.global()?.emit("update-available", {
+        tools: [{ tool: "run-kit", current: "3.8.0", latest: "3.9.0" }],
+        key: "run-kit@3.9.0",
+        current: "3.8.0",
+        latest: "3.9.0",
+      });
+    });
+    await act(async () => {
+      result.current.applyManualCheckResult([runKitRow], "github");
+    });
+    expect(result.current.manualCheck).not.toBeNull();
+
+    // The ambient feed moves on — the manual snapshot is superseded.
+    await act(async () => {
+      WS.global()?.emit("update-available", {
+        tools: [],
+        key: "",
+        current: "",
+        latest: "",
+      });
+    });
+    expect(result.current.manualCheck).toBeNull();
+  });
+
+  it("RETAINS the manual result while the ambient key is unchanged (idempotent replay)", async () => {
+    const result = await renderWithManual();
+    const ambient = {
+      tools: [{ tool: "run-kit", current: "3.8.0", latest: "3.9.0" }],
+      key: "run-kit@3.9.0",
+      current: "3.8.0",
+      latest: "3.9.0",
+    };
+    await act(async () => {
+      WS.global()?.emit("update-available", ambient);
+    });
+    await act(async () => {
+      result.current.applyManualCheckResult([runKitRow], "github");
+    });
+    // A reconnect replays the cached slot — same key, so nothing is consumed.
+    await act(async () => {
+      WS.global()?.emit("update-available", ambient);
+    });
+    expect(result.current.manualCheck).toEqual({ tools: [runKitRow], source: "github" });
+  });
+
+  it("retains the manual result when NO ambient verdict ever arrives", async () => {
+    const result = await renderWithManual();
+    await act(async () => {
+      result.current.applyManualCheckResult([runKitRow], "github");
+    });
+    await settle();
+    expect(result.current.manualCheck).toEqual({ tools: [runKitRow], source: "github" });
+  });
+});
+
+describe("deriveUpdateFeed — ambient-first two-feed merge (260807-s6zs)", () => {
+  const ambient = [{ tool: "run-kit", current: "3.8.0", latest: "3.9.0" }];
+  const manual = [{ tool: "tu", current: "0.9.1", latest: "0.9.2" }];
+
+  it("surfaces the ambient feed when it shows, even with a manual result held", () => {
+    expect(deriveUpdateFeed(ambient, "run-kit@3.9.0", manual, "tu@0.9.2", false, null)).toEqual({
+      tools: ambient,
+      key: "run-kit@3.9.0",
+      manualOnly: false,
+    });
+  });
+
+  it("falls back to the manual feed when the ambient feed has nothing", () => {
+    expect(deriveUpdateFeed([], null, manual, "tu@0.9.2", false, null)).toEqual({
+      tools: manual,
+      key: "tu@0.9.2",
+      manualOnly: true,
+    });
+  });
+
+  it("falls back to the manual feed when the ambient key is DISMISSED", () => {
+    expect(
+      deriveUpdateFeed(ambient, "run-kit@3.9.0", manual, "tu@0.9.2", false, "run-kit@3.9.0"),
+    ).toEqual({ tools: manual, key: "tu@0.9.2", manualOnly: true });
+  });
+
+  it("falls back to the manual feed on a dev daemon (the caller's !isDev gate still hides it)", () => {
+    // The dev sentinel stops the AMBIENT feed from showing; the manual feed is
+    // then selected, but the hook's own `qualifies = !isDev && …` gate keeps the
+    // chip dark — the dev suppression is not re-implemented here.
+    expect(deriveUpdateFeed(ambient, "run-kit@3.9.0", manual, "tu@0.9.2", true, null)).toEqual({
+      tools: manual,
+      key: "tu@0.9.2",
+      manualOnly: true,
+    });
+  });
+
+  it("returns the ambient (empty) shape when neither feed has anything", () => {
+    const empty: never[] = [];
+    const feed = deriveUpdateFeed(empty, null, [], null, false, null);
+    expect(feed).toEqual({ tools: empty, key: null, manualOnly: false });
+    // Identity is preserved so a no-update render keeps the frozen EMPTY_TOOLS.
+    expect(feed.tools).toBe(empty);
+  });
+});
+
+describe("SessionProvider — dismissUpdate writes the EFFECTIVE key (260807-s6zs)", () => {
+  it("writes the client-computed MANUAL key when the manual feed is the lit one", async () => {
+    const setItem = vi.spyOn(Storage.prototype, "setItem");
+    const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
+    await settle();
+    await act(async () => {
+      result.current.applyManualCheckResult(
+        [{ tool: "run-kit", current: "3.8.7", latest: "3.9.1" }],
+        "github",
+      );
+    });
+    await act(async () => {
+      result.current.dismissUpdate();
+    });
+    expect(setItem).toHaveBeenCalledWith("runkit-update-dismissed", "run-kit@3.9.1");
+    expect(result.current.updateDismissedKey).toBe("run-kit@3.9.1");
+    setItem.mockRestore();
+  });
+
+  it("still writes the AMBIENT key when the ambient feed is the lit one", async () => {
+    const setItem = vi.spyOn(Storage.prototype, "setItem");
+    const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
+    await settle();
+    await act(async () => {
+      WS.global()?.emit("update-available", {
+        tools: [{ tool: "run-kit", current: "3.8.0", latest: "3.9.0" }],
+        key: "run-kit@3.9.0",
+        current: "3.8.0",
+        latest: "3.9.0",
+      });
+    });
+    await act(async () => {
+      result.current.applyManualCheckResult(
+        [{ tool: "tu", current: "0.9.1", latest: "0.9.2" }],
+        "github",
+      );
+    });
+    await act(async () => {
+      result.current.dismissUpdate();
+    });
+    expect(setItem).toHaveBeenCalledWith("runkit-update-dismissed", "run-kit@3.9.0");
+    setItem.mockRestore();
+  });
+
+  it("is a no-op when neither feed has anything to dismiss", async () => {
+    // The dismissal key is localStorage-backed and read lazily on mount, so a
+    // prior test's write would otherwise seed this provider.
+    localStorage.removeItem("runkit-update-dismissed");
+    const setItem = vi.spyOn(Storage.prototype, "setItem");
+    const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
+    await settle();
+    await act(async () => {
+      result.current.dismissUpdate();
+    });
+    expect(setItem).not.toHaveBeenCalledWith("runkit-update-dismissed", expect.anything());
+    expect(result.current.updateDismissedKey).toBeNull();
+    setItem.mockRestore();
   });
 });

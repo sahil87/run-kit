@@ -12,6 +12,7 @@ import { useMatches } from "@tanstack/react-router";
 import { useChromeDispatch } from "./chrome-context";
 import { listServers, compareServersRanked, triggerUpdate, triggerForceUpdate, triggerRestart, type ServerInfo } from "@/api/client";
 import { StateSocket, type ChatSubscribeArgs, type ChatUnsubscribeArgs } from "@/lib/state-socket";
+import { computeUpdateKey } from "@/lib/palette-update";
 import type { MetricsSnapshot, ProjectSession, Service, ServicesSnapshot } from "@/types";
 
 export type { ChatSubscribeArgs, ChatUnsubscribeArgs };
@@ -115,6 +116,20 @@ export type UpdateAvailable = {
   latest: string;
 };
 
+/** The latest MANUAL update-check result held for this tab — the updatable tool
+ *  subset the check reported plus the echoed report `source` (`"released"`/
+ *  `"github"`). The manual check is a deliberate SIDE CHANNEL the daemon never
+ *  caches (it carries no notify policy, and caching it would starve the scoped
+ *  `shll update` argv), so its verdict has no SSE feed and no server-computed
+ *  key — this state is the frontend's only home for it, and the chip's key is
+ *  composed client-side by `computeUpdateKey`. Deliberately NOT persisted: a
+ *  page reload before updating forgets it (the accepted tab-local tradeoff —
+ *  the user re-clicks ⟳). `null` when no manual result is held. */
+export type ManualCheckResult = {
+  tools: UpdateTool[];
+  source: string;
+};
+
 export type SessionContextType = {
   sessionsByServer: Map<string, ProjectSession[]>;
   sessionOrderByServer: Map<string, string[]>;
@@ -188,9 +203,22 @@ export type SessionContextType = {
   /** A pending toolkit update (matched tools + composite key), from the
    *  server-global `event: update-available`. `null` when no update is pending. */
   updateAvailable: UpdateAvailable | null;
+  /** The latest manual update-check result (tab-local, non-persisted), or
+   *  `null` when none is held. The SECOND feed behind the persistent update
+   *  surfaces: `useUpdateNotification` merges it ambient-first, so a manual ⟳
+   *  check that finds updates lights the chip/menu row instead of evaporating
+   *  with its toast. */
+  manualCheck: ManualCheckResult | null;
+  /** Store a manual check's updatable tool subset + echoed report source.
+   *  Called by `useUpdateCheck` after a check resolves. An EMPTY `tools` array
+   *  CLEARS any held result — a fresh verdict supersedes a stale one, so a
+   *  clean re-check must not leave a lying chip lit. */
+  applyManualCheckResult: (tools: UpdateTool[], source: string) => void;
   /** The composite `key` the user dismissed the update notice for (localStorage
    *  `runkit-update-dismissed`), or `null` when none. The chip hides when this
-   *  equals `updateAvailable.key`; the palette action ignores it. */
+   *  equals the EFFECTIVE displayed key (the ambient `updateAvailable.key`, or
+   *  the client-computed manual key when the manual feed is the lit one); the
+   *  palette action ignores it. */
   updateDismissedKey: string | null;
   /** Trigger a one-click update: POST /api/update. Best-effort — the daemon
    *  restart then drops the state socket, and the reconnect's differing
@@ -325,6 +353,9 @@ export function SessionProvider({ children }: SessionProviderProps) {
   const [isBrew, setIsBrew] = useState(false);
   // Pending toolkit update from the server-global `event: update-available`.
   const [updateAvailable, setUpdateAvailable] = useState<UpdateAvailable | null>(null);
+  // The latest MANUAL update-check result (the ⟳ / palette check commands).
+  // Tab-local and deliberately non-persisted — see ManualCheckResult.
+  const [manualCheck, setManualCheck] = useState<ManualCheckResult | null>(null);
   // The composite key the user dismissed the notice for (localStorage-backed).
   const [updateDismissedKey, setUpdateDismissedKey] = useState<string | null>(() => {
     try {
@@ -386,8 +417,69 @@ export function SessionProvider({ children }: SessionProviderProps) {
     setUpdateAvailable((prev) => (prev && prev.key === next.key ? prev : next));
   }, []);
 
+  // The current ambient composite key, mirrored into a ref at render time (the
+  // established `eventRef` idiom below) so `applyManualCheckResult` can read it
+  // without taking `updateAvailable` as a dependency — the setter must keep a
+  // stable identity across ambient churn (`use-update-check.ts` memoizes
+  // `runUpdateCheck` on it, and board-page.tsx memoizes a large palette-action
+  // array on THAT).
+  const ambientKey = updateAvailable?.key ?? null;
+  const ambientKeyRef = useRef<string | null>(ambientKey);
+  ambientKeyRef.current = ambientKey;
+
+  // The ambient composite key observed at the moment the manual result was
+  // stored — the BASELINE for the update-consumed clearing signal below.
+  // `undefined` when no manual result is held. Baselining at store time (rather
+  // than watching `updateAvailable.key` raw) is what keeps the first ambient
+  // render after a manual check from clearing it immediately; the idiom mirrors
+  // use-update-click.ts's `clickKeyRef` R13 completion signal.
+  const manualAmbientKeyRef = useRef<string | null | undefined>(undefined);
+
+  // Store a manual check's updatable subset. An EMPTY set clears (a fresh
+  // verdict supersedes a stale one — keeping a consumed positive would light a
+  // chip the toast just contradicted).
+  const applyManualCheckResult = useCallback((tools: UpdateTool[], source: string) => {
+    if (tools.length === 0) {
+      manualAmbientKeyRef.current = undefined;
+      setManualCheck((prev) => (prev === null ? prev : null));
+      return;
+    }
+    manualAmbientKeyRef.current = ambientKeyRef.current;
+    setManualCheck({ tools, source });
+  }, []);
+
+  // Clear the held manual result once the AMBIENT composite key changes away
+  // from the key observed when it was stored — the update-consumed signal (the
+  // ambient feed is the durable, policy-driven one, so its verdict moving on
+  // supersedes a manual snapshot). Includes the cleared empty key, which the
+  // apply callback surfaces here as `null`. A daemon restart instead discards
+  // the state via the tab reload.
+  useEffect(() => {
+    if (manualCheck === null) return;
+    if (manualAmbientKeyRef.current === undefined) return;
+    if (ambientKey !== manualAmbientKeyRef.current) {
+      manualAmbientKeyRef.current = undefined;
+      setManualCheck(null);
+    }
+  }, [ambientKey, manualCheck]);
+
+  // Dismiss the EFFECTIVE displayed key — the ambient composite key when the
+  // ambient feed is the lit one, the client-composed manual key when the manual
+  // feed is. Re-deriving the same ambient-first merge the display uses
+  // (`deriveUpdateFeed`) is what lets the chip's ✕ and the palette's dismiss
+  // entry work unchanged against a manual-fed chip. Still a no-op on an empty
+  // effective key.
   const dismissUpdate = useCallback(() => {
-    const key = updateAvailable?.key;
+    const ambientTools = (updateAvailable?.tools ?? EMPTY_TOOLS).filter((t) => t.notable !== false);
+    const manualTools = manualCheck?.tools ?? EMPTY_TOOLS;
+    const { key } = deriveUpdateFeed(
+      ambientTools,
+      updateAvailable?.key ?? null,
+      manualTools,
+      manualTools.length > 0 ? computeUpdateKey(manualTools) : null,
+      daemonVersion === DEV_VERSION,
+      updateDismissedKey,
+    );
     if (!key) return;
     try {
       localStorage.setItem(UPDATE_DISMISSED_KEY, key);
@@ -395,7 +487,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
       // localStorage unavailable — dismissal is best-effort.
     }
     setUpdateDismissedKey(key);
-  }, [updateAvailable]);
+  }, [updateAvailable, manualCheck, daemonVersion, updateDismissedKey]);
 
   const updateNow = useCallback(() => triggerUpdate(), []);
   // Maintenance actions (palette-only): force a self-upgrade regardless of the
@@ -1040,6 +1132,8 @@ export function SessionProvider({ children }: SessionProviderProps) {
       socketConnected,
       daemonVersion,
       updateAvailable,
+      manualCheck,
+      applyManualCheckResult,
       updateDismissedKey,
       updateNow,
       dismissUpdate,
@@ -1070,6 +1164,8 @@ export function SessionProvider({ children }: SessionProviderProps) {
       socketConnected,
       daemonVersion,
       updateAvailable,
+      manualCheck,
+      applyManualCheckResult,
       updateDismissedKey,
       updateNow,
       dismissUpdate,
@@ -1116,19 +1212,72 @@ const RUN_KIT_TOOL = "run-kit";
  *  `tools` contract without a readonly ripple through its consumers. */
 const EMPTY_TOOLS: UpdateTool[] = Object.freeze([]) as unknown as UpdateTool[];
 
+/** The merged two-feed update verdict — what the persistent update surfaces
+ *  display. `manualOnly` names WHICH feed produced the other fields, so click
+ *  routing can branch without re-deriving the merge. */
+export type UpdateFeed = {
+  tools: UpdateTool[];
+  key: string | null;
+  manualOnly: boolean;
+};
+
+/**
+ * THE single two-feed merge (R6). Both persistent surfaces — the in-bar
+ * `UpdateChip` and the overflow-menu version row — plus both palette mounts
+ * consume it through `useUpdateNotification`, so the precedence rule exists in
+ * exactly one place and the surfaces cannot drift.
+ *
+ * **Ambient-first**: when the ambient (SSE `update-available`) feed SHOWS — it
+ * has notable tools, the daemon is not `dev`, and its key is not dismissed —
+ * every field is the ambient one, byte-identical to the pre-merge behavior. The
+ * ambient feed is the durable, policy-driven, cross-tab channel; a manual
+ * snapshot never displaces it.
+ *
+ * **Manual fallback**: only when the ambient feed does not show does a held
+ * manual result surface, with its key composed client-side (`computeUpdateKey`
+ * — the manual check is a side channel with no server-computed key), so the
+ * same composite-key dismissal and `!isDev` gates apply unchanged.
+ *
+ * Returns the ambient shape (with `manualOnly: false`) when neither feed has
+ * anything, so a no-update render keeps the frozen `EMPTY_TOOLS` identity.
+ */
+export function deriveUpdateFeed(
+  ambientTools: UpdateTool[],
+  ambientKey: string | null,
+  manualTools: UpdateTool[],
+  manualKey: string | null,
+  isDev: boolean,
+  dismissedKey: string | null,
+): UpdateFeed {
+  const ambientShows = !isDev && ambientTools.length > 0 && ambientKey !== dismissedKey;
+  if (ambientShows || manualTools.length === 0) {
+    return { tools: ambientTools, key: ambientKey, manualOnly: false };
+  }
+  return { tools: manualTools, key: manualKey, manualOnly: true };
+}
+
 /** Derived view of the update-notification state, shared by the top-bar chip and
- *  the command-palette actions so their gating can never drift.
- *   - `qualifies` — a NOTABLE pending update exists AND the daemon is not the
+ *  the command-palette actions so their gating can never drift. It merges TWO
+ *  feeds ambient-first (`deriveUpdateFeed`) — the durable SSE `update-available`
+ *  verdict, and the tab-local manual ⟳ check result — so a manually-discovered
+ *  update lands on the persistent surfaces instead of evaporating with its toast.
+ *   - `qualifies` — the EFFECTIVE feed has tools AND the daemon is not the
  *     `dev` sentinel. (This is the palette's gate; the palette IGNORES
  *     dismissal — dismissal silences only the ambient chip.)
- *   - `showChip` — `qualifies` AND the composite `key` is not dismissed. This is
- *     the chip's visibility gate. Sub-threshold (`notable: false`) verdicts in
- *     the payload never light the chip — a patch-only finding is toast-only
- *     (surfaced by the palette check commands), by policy.
- *   - `tools` — the NOTABLE tools (each `{tool, current, latest}`), filtered
- *     from the payload's full verdict list (a missing flag — old-daemon payload
- *     — counts as notable). Empty when nothing notable is pending.
- *   - `key` — the composite dismissal key (or `null`).
+ *   - `showChip` — `qualifies` AND the effective composite `key` is not
+ *     dismissed. This is the chip's visibility gate. Sub-threshold
+ *     (`notable: false`) verdicts in the AMBIENT payload never light the chip —
+ *     a patch-only ambient finding is toast-only, by policy. (A deliberate
+ *     manual incl.-patches check DOES light it: the user asked.)
+ *   - `tools` — the effective feed's tools (each `{tool, current, latest}`);
+ *     the ambient feed contributes its NOTABLE subset (a missing flag —
+ *     old-daemon payload — counts as notable), the manual feed contributes the
+ *     updatable subset the check's toast reported. Empty when neither shows.
+ *   - `key` — the effective composite dismissal key (or `null`): the ambient
+ *     payload's server-computed key, or the client-composed manual one.
+ *   - `manualOnly` — true exactly when the surfaced fields come from the manual
+ *     feed, so `use-update-click` can route the click to the full-roster force
+ *     update (the manual verdict has no scoped server-side match set).
  *   - `singleRunKit` — true when exactly one tool matched and it is run-kit, so
  *     the chip keeps today's `⬆ v{latest}` form; otherwise a count form.
  *   - `latest` / `current` — the run-kit row versions when `singleRunKit`, else
@@ -1143,6 +1292,7 @@ export function useUpdateNotification(): {
   showChip: boolean;
   tools: UpdateTool[];
   key: string | null;
+  manualOnly: boolean;
   singleRunKit: boolean;
   latest: string | null;
   current: string | null;
@@ -1160,6 +1310,7 @@ export function useUpdateNotification(): {
   const ctx = useContext(SessionContext);
   const daemonVersion = ctx?.daemonVersion ?? null;
   const updateAvailable = ctx?.updateAvailable ?? null;
+  const manualCheck = ctx?.manualCheck ?? null;
   const updateDismissedKey = ctx?.updateDismissedKey ?? null;
   const updateNow = ctx?.updateNow ?? (() => Promise.resolve());
   const dismissUpdate = ctx?.dismissUpdate ?? (() => {});
@@ -1173,12 +1324,29 @@ export function useUpdateNotification(): {
   // Memoized with identity preserved when nothing filters out, so a no-op
   // filter never mints a fresh array (same referential-equality concern as
   // EMPTY_TOOLS — see its comment).
-  const tools = useMemo(() => {
+  const ambientTools = useMemo(() => {
     const all = updateAvailable?.tools ?? EMPTY_TOOLS;
     const notable = all.filter((t) => t.notable !== false);
     return notable.length === all.length ? all : notable;
   }, [updateAvailable]);
-  const key = updateAvailable?.key ?? null;
+  const ambientKey = updateAvailable?.key ?? null;
+  // The manual feed's tools + its client-composed composite key (the manual
+  // check is a side channel with no server-computed key). Falls back to the
+  // frozen EMPTY_TOOLS so a no-manual-result render keeps a stable identity.
+  const manualTools = manualCheck?.tools ?? EMPTY_TOOLS;
+  const manualKey = useMemo(
+    () => (manualTools.length > 0 ? computeUpdateKey(manualTools) : null),
+    [manualTools],
+  );
+  // THE merge — ambient-first, in exactly one place (see deriveUpdateFeed).
+  const { tools, key, manualOnly } = deriveUpdateFeed(
+    ambientTools,
+    ambientKey,
+    manualTools,
+    manualKey,
+    isDev,
+    updateDismissedKey,
+  );
   const singleRunKit = tools.length === 1 && tools[0].tool === RUN_KIT_TOOL;
   // The run-kit row versions, surfaced only for the single-run-kit chip/palette
   // wording (`⬆ v{latest}` / `run-kit: Update to v{latest}`). Null otherwise —
@@ -1192,6 +1360,7 @@ export function useUpdateNotification(): {
     showChip,
     tools,
     key,
+    manualOnly,
     singleRunKit,
     latest,
     current,
@@ -1290,6 +1459,8 @@ export function StandaloneSessionContextProvider({
     socketConnected: value.socketConnected ?? false,
     daemonVersion: value.daemonVersion ?? null,
     updateAvailable: value.updateAvailable ?? null,
+    manualCheck: value.manualCheck ?? null,
+    applyManualCheckResult: value.applyManualCheckResult ?? (() => {}),
     updateDismissedKey: value.updateDismissedKey ?? null,
     updateNow: value.updateNow ?? (() => Promise.resolve()),
     dismissUpdate: value.dismissUpdate ?? (() => {}),

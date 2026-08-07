@@ -29,6 +29,26 @@ export function updateChipToolSummary(tools: UpdateActionTool[]): string {
     .join(", ");
 }
 
+/**
+ * Compose the composite dismissal key over a tool set: sorted `tool@latest`
+ * pairs, comma-joined — a verbatim client-side mirror of the backend's
+ * `computeKey` (`app/backend/internal/updatecheck/updatecheck.go`), which
+ * composes the `key` the ambient `update-available` payload carries. The MANUAL
+ * check feed has no server-computed key of its own (the github source is a
+ * side channel the daemon deliberately never caches), so the manual-fed chip
+ * derives its key here — which is what lets the existing `runkit-update-dismissed`
+ * localStorage dismissal machinery work unchanged against it (§ Update
+ * Notification). An empty set composes `""` (the cleared-key sentinel the
+ * dismissal path already no-ops on). Context-free, so it stays unit-testable
+ * alongside the other pure builders in this module.
+ */
+export function computeUpdateKey(tools: { tool: string; latest: string }[]): string {
+  return tools
+    .map((t) => `${t.tool}@${t.latest}`)
+    .sort()
+    .join(",");
+}
+
 export type UpdatePaletteAction = {
   id: string;
   label: string;

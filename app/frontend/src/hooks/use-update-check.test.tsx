@@ -7,15 +7,28 @@ vi.mock("@/api/client", () => ({
   checkForUpdates: (...args: unknown[]) => checkForUpdates(...args),
 }));
 
-// Context seam: a brew, non-dev daemon (Update Now action eligible).
+// Context seam: a brew, non-dev daemon (Update Now action eligible). The
+// manual-feed persistence seam is read via `useContext(SessionContext)`, so the
+// mock supplies a real context whose DEFAULT value carries the captured setter
+// (no provider is mounted in these renderHook calls).
 const forceUpdateNow = vi.fn();
-vi.mock("@/contexts/session-context", () => ({
-  useUpdateNotification: () => ({
-    brew: true,
-    daemonVersion: "3.8.0",
-    forceUpdateNow: (...args: unknown[]) => forceUpdateNow(...args),
-  }),
-}));
+const applyManualCheckResult = vi.fn();
+vi.mock("@/contexts/session-context", async () => {
+  const { createContext } = await import("react");
+  return {
+    SessionContext: createContext<{
+      applyManualCheckResult: (tools: unknown[], source: string) => void;
+    } | null>({
+      applyManualCheckResult: (tools: unknown[], source: string) =>
+        applyManualCheckResult(tools, source),
+    }),
+    useUpdateNotification: () => ({
+      brew: true,
+      daemonVersion: "3.8.0",
+      forceUpdateNow: (...args: unknown[]) => forceUpdateNow(...args),
+    }),
+  };
+});
 
 // Toast seam: capture composed messages without mounting the provider.
 const addToast = vi.fn();
@@ -29,6 +42,7 @@ beforeEach(() => {
   checkForUpdates.mockReset().mockResolvedValue({ tools: [], key: "", source: "released" });
   addToast.mockReset();
   forceUpdateNow.mockReset();
+  applyManualCheckResult.mockReset();
 });
 afterEach(() => {
   cleanup();
@@ -88,5 +102,82 @@ describe("useUpdateCheck source mapping (260720-wb3n)", () => {
     act(() => result.current.runUpdateCheck(true));
     await waitFor(() => expect(addToast).toHaveBeenCalled());
     expect(addToast).toHaveBeenCalledWith("update check unavailable — shll not found", "error");
+  });
+});
+
+describe("useUpdateCheck manual-feed persistence (260807-s6zs)", () => {
+  const notableRunKit = {
+    tool: "run-kit",
+    current: "3.8.0",
+    latest: "3.9.0",
+    updateAvailable: true,
+    notable: true,
+  };
+  const subThresholdTu = {
+    tool: "tu",
+    current: "0.9.1",
+    latest: "0.9.2",
+    updateAvailable: true,
+    notable: false,
+  };
+
+  it("persists the incl.-patches updatable subset + echoed source alongside the toast", async () => {
+    checkForUpdates.mockResolvedValue({
+      tools: [notableRunKit, subThresholdTu],
+      key: "",
+      source: "github",
+    });
+    const { result } = renderHook(() => useUpdateCheck());
+    act(() => result.current.runUpdateCheck(true));
+    await waitFor(() => expect(applyManualCheckResult).toHaveBeenCalled());
+
+    expect(applyManualCheckResult).toHaveBeenCalledWith([notableRunKit, subThresholdTu], "github");
+    // The toast flow is unchanged — persistence is IN ADDITION to it.
+    expect(addToast).toHaveBeenCalledTimes(1);
+    expect((addToast.mock.calls[0] as [string, string])[1]).toBe("info");
+  });
+
+  it("persists only the NOTABLE rows for the default check (matching its toast filter)", async () => {
+    checkForUpdates.mockResolvedValue({
+      tools: [notableRunKit, subThresholdTu],
+      key: "",
+      source: "released",
+    });
+    const { result } = renderHook(() => useUpdateCheck());
+    act(() => result.current.runUpdateCheck(false));
+    await waitFor(() => expect(applyManualCheckResult).toHaveBeenCalled());
+
+    expect(applyManualCheckResult).toHaveBeenCalledWith([notableRunKit], "released");
+  });
+
+  it("persists an EMPTY set when the default check finds only sub-threshold bumps (clears a stale positive)", async () => {
+    checkForUpdates.mockResolvedValue({
+      tools: [subThresholdTu],
+      key: "",
+      source: "released",
+    });
+    const { result } = renderHook(() => useUpdateCheck());
+    act(() => result.current.runUpdateCheck(false));
+    await waitFor(() => expect(applyManualCheckResult).toHaveBeenCalled());
+
+    expect(applyManualCheckResult).toHaveBeenCalledWith([], "released");
+    expect((addToast.mock.calls[0] as [string])[0]).toBe("All tools up to date");
+  });
+
+  it("persists an EMPTY set for an all-up-to-date verdict", async () => {
+    const { result } = renderHook(() => useUpdateCheck());
+    act(() => result.current.runUpdateCheck(true));
+    await waitFor(() => expect(applyManualCheckResult).toHaveBeenCalled());
+
+    expect(applyManualCheckResult).toHaveBeenCalledWith([], "released");
+  });
+
+  it("persists nothing when the check FAILS (the error toast is the only outcome)", async () => {
+    checkForUpdates.mockRejectedValue(new Error("update check unavailable"));
+    const { result } = renderHook(() => useUpdateCheck());
+    act(() => result.current.runUpdateCheck(true));
+    await waitFor(() => expect(addToast).toHaveBeenCalled());
+
+    expect(applyManualCheckResult).not.toHaveBeenCalled();
   });
 });

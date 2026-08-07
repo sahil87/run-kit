@@ -23,9 +23,17 @@ import { useToast } from "@/components/toast";
  *
  * On a request FAILURE (409 not-brew / no-update, network) it re-enables
  * immediately and surfaces the error toast so the user can retry or read it.
+ *
+ * Click routing by feed: a surface lit from the MANUAL check feed
+ * (`manualOnly`) triggers `forceUpdateNow()` (full-roster `shll update`) rather
+ * than the scoped `updateNow()` — exactly what the check toast's "Update Now"
+ * action already runs. The scoped path exists to move only the server's
+ * `Snapshot().Matched` set, which a side-channel manual verdict never
+ * populates, so a scoped click on a manual-fed chip would find nothing to do.
+ * The ambient feed's scoped path is unchanged when the ambient feed is lit.
  */
 export function useUpdateClick(): { updating: boolean; triggerUpdate: () => void } {
-  const { updateNow, key } = useUpdateNotification();
+  const { updateNow, forceUpdateNow, manualOnly, key } = useUpdateNotification();
   const { addToast } = useToast();
   const [updating, setUpdating] = useState(false);
   // The composite key at the moment the update was triggered. A later
@@ -38,12 +46,13 @@ export function useUpdateClick(): { updating: boolean; triggerUpdate: () => void
     if (updating) return;
     clickKeyRef.current = key;
     setUpdating(true);
-    void updateNow().catch((err: unknown) => {
+    const run = manualOnly ? forceUpdateNow : updateNow;
+    void run().catch((err: unknown) => {
       setUpdating(false);
       clickKeyRef.current = undefined;
       addToast(err instanceof Error ? err.message : "Update failed", "error");
     });
-  }, [updating, updateNow, key, addToast]);
+  }, [updating, updateNow, forceUpdateNow, manualOnly, key, addToast]);
 
   // Clear `updating` once the verdict's composite key changes away from the
   // click-time key — the siblings-only completion signal (R13). Keyed on `key`

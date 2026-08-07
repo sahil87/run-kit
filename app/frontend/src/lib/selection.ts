@@ -78,9 +78,16 @@ export function singleSelectedServer(
  * Drop selected keys whose rows are no longer live (window killed, or moved to
  * a server/session that is not currently rendered).
  *
+ * `liveKeys` is the DATA-derived live-key set — every window the SSE snapshot
+ * knows for the rendered server groups, expanded or collapsed — NOT the
+ * visible/rendered row set: a visibility-keyed liveness would read a merely
+ * collapsed session as departed and silently destroy the selection of its
+ * still-live windows.
+ *
  * Returns the SAME set instance when nothing was dropped, so the caller can
- * bail without a state write — the sidebar prunes on every visible-row
- * set-signature change, and the overwhelmingly common case is "nothing to do".
+ * bail without a state write — the sidebar prunes on every change of that
+ * data-derived key-set signature (`dataKeysVersion`), and the overwhelmingly
+ * common case is "nothing to do".
  */
 export function pruneSelection(
   selected: ReadonlySet<string>,

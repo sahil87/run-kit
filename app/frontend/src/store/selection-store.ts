@@ -44,6 +44,12 @@ type SelectionStoreActions = {
    * (`toggle` for one row, `clear` for Escape / plain click, `prune` for windows
    * leaving the SSE data, `settleBatch` for an async batch's own keys, and this
    * for a wholesale replacement).
+   *
+   * An explicit `setAnchor(key)` was dropped for the same reason: every action
+   * that should move the anchor already moves it as part of its own write
+   * (`toggle` onto the flipped row, `selectOnly` onto the last key, `clear` /
+   * `prune` / `settleBatch` dropping a stale one), so no consumer ever needed to
+   * set it standalone.
    */
   selectOnly: (keys: Iterable<string>) => void;
   /**
@@ -63,8 +69,6 @@ type SelectionStoreActions = {
    * Shift-click); an anchor the user has since moved elsewhere is untouched.
    */
   settleBatch: (batchKeys: Iterable<string>, retainKeys: Iterable<string>) => void;
-  /** Set the range anchor explicitly. */
-  setAnchor: (key: string | null) => void;
   /** Empty the selection and drop the anchor. */
   clear: () => void;
   /**
@@ -149,10 +153,6 @@ export const useSelectionStore = create<SelectionStoreState & SelectionStoreActi
       if (!dropped && nextAnchor === state.anchor) return state;
       return { selected: next, anchor: nextAnchor };
     });
-  },
-
-  setAnchor: (key) => {
-    set({ anchor: key });
   },
 
   clear: () => {

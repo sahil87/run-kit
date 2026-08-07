@@ -1549,8 +1549,16 @@ export function Sidebar({
             buttons and no action strip by design: the command palette is the
             sole action surface (Constitution IV minimal surface + V palette
             primary), so this only reports the count and names the two ways out.
-            `role="status"` so the count change is announced. */}
-        <SelectionIndicator count={selectedWindows.size} />
+            `role="status"` so the count change is announced.
+            `hasSelectionActions` is keyed on a non-null `currentServer`: the
+            `Selection:` family is current-server-scoped and composed in
+            `app.tsx`, while the board route mounts this tree with
+            `currentServer={null}` and its own `boardRouteActions` palette — so
+            there the "to act" hint would point at commands that do not exist. */}
+        <SelectionIndicator
+          count={selectedWindows.size}
+          hasSelectionActions={currentServer !== null}
+        />
       </div>
 
       {/* Status panels — pinned at bottom. Show metrics + selected window
@@ -1584,7 +1592,8 @@ export function Sidebar({
  * action strip, because the command palette is the sole action surface for the
  * selection (Constitution IV minimal surface area + V keyboard-first, ⌘K as the
  * primary discovery mechanism). It reports the live count and names the two
- * routes out — ⌘K to act, Esc to clear — plus the `x` row-toggle.
+ * routes out — the palette chord to act, Esc to clear — plus the `x`
+ * row-toggle.
  *
  * `x` is named here as well as on the palette entries' shortcut badge because
  * it is a bare key handled inside the tree's own keydown (deliberately not a
@@ -1593,11 +1602,32 @@ export function Sidebar({
  * place a user is already looking while building a selection, which is exactly
  * when the keyboard alternative to Cmd-clicking is worth learning.
  *
+ * The palette chord is DERIVED, never hard-coded: it is platform-dependent
+ * (⌘K on mac, Ctrl+K elsewhere) and user-rebindable, so it comes from the
+ * HOST-effective `command-palette` binding via the same
+ * `useKeybindings()` + `formatCombo` derivation `SidebarFooter` uses for its
+ * overlay/settings chords. The "to act" clause is omitted entirely when that
+ * binding is unbound or disabled, or when the mounting route has no
+ * `Selection:` palette actions (`hasSelectionActions={false}` — the board
+ * route, whose palette is `boardRouteActions`): advertising a route to an
+ * action surface that cannot act would be a lie either way.
+ *
  * Renders nothing while the selection is empty, so it costs no vertical space
  * in the resting sidebar. `role="status"` (polite by default) announces the
  * count as it changes without stealing focus.
  */
-function SelectionIndicator({ count }: { count: number }) {
+function SelectionIndicator({
+  count,
+  hasSelectionActions,
+}: {
+  count: number;
+  hasSelectionActions: boolean;
+}) {
+  const { byAction: keybindingsByAction, host: keybindingHost } = useKeybindings();
+  const paletteBinding = keybindingsByAction.get("command-palette");
+  const paletteChord = paletteBinding?.enabled
+    ? formatCombo({ code: paletteBinding.code, tier: paletteBinding.tier }, keybindingHost.platform)
+    : undefined;
   if (count === 0) return null;
   return (
     <div
@@ -1606,7 +1636,9 @@ function SelectionIndicator({ count }: { count: number }) {
       className="shrink-0 border-t border-border px-2 py-1 text-[10px] font-mono text-text-secondary truncate"
     >
       <span className="text-text-primary">{count} selected</span>
-      {" · x to toggle · ⌘K to act · Esc to clear"}
+      {" · x to toggle"}
+      {hasSelectionActions && paletteChord ? ` · ${paletteChord} to act` : ""}
+      {" · Esc to clear"}
     </div>
   );
 }

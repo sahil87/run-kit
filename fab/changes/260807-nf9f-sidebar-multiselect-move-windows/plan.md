@@ -13,7 +13,7 @@ A small dedicated zustand store (`app/frontend/src/store/selection-store.ts`, fo
 `ReadonlySet<string>` of composite `${server}:${windowId}` keys (the same key shape as
 `entryKey()` and the sidebar's `data-row-key`), plus a nullable `anchor` key for shift-range
 extension. It SHALL expose `toggle(key)`, `select(keys)`, `selectOnly(keys)`,
-`setAnchor(key)`, `clear()`, `prune(liveKeys)`, and `settleBatch(batchKeys, retainKeys)` — the
+`clear()`, `prune(liveKeys)`, and `settleBatch(batchKeys, retainKeys)` — the
 last scoping an async batch's terminal update to the keys that batch owned (see R15), since the
 bulk move runs fire-and-forget behind an already-closed palette and must not clobber a selection
 the user starts while it is still in flight.
@@ -410,8 +410,8 @@ independently.
 ### Functional Completeness
 
 - [x] A-001 R1: A dedicated selection store exists at `store/selection-store.ts` with the composite-key
-  `selected` set, an `anchor`, and the toggle/select/selectOnly/setAnchor/clear/prune actions
-  (`deselect` dropped per the amended R1 — no correct production call site), plus the rework-2
+  `selected` set, an `anchor`, and the toggle/select/selectOnly/clear/prune actions
+  (`deselect` and `setAnchor` both dropped per the amended R1 — no production call site), plus the rework-2
   addition `settleBatch(batchKeys, retainKeys)` for scoping an async batch's terminal update to the
   keys it owned.
 - [x] A-002 R2: `lib/selection.ts` is pure and dependency-free (no React, no zustand, no API imports)
@@ -554,7 +554,7 @@ independently.
 
 - ~~`app/frontend/src/store/selection-store.ts` (`deselect`)~~ — **RESOLVED (rework 1)**: dropped from the store, its action type, and its unit tests, and R1 amended to stop mandating it. Verified absent in review 2. Removal (not wiring) was the correct resolution: the partial-failure path must narrow via `selectOnly(failedKeys)` — subtracting the succeeded keys would wrongly retain any selected key that resolved to no window — and toggle/clear/prune already cover every other removal path.
 - ~~`app/frontend/src/components/sidebar/index.tsx:1057` (`setSelectionAnchor(selectionAnchor)`)~~ — **RESOLVED (rework 2)**: the self-assignment inside `extendSelectionTo` and its now-unused `setAnchor` subscription are deleted; the comment now states that `select()` itself leaves the anchor untouched. Verified absent in review 3.
-- `app/frontend/src/store/selection-store.ts:67,154` (`setAnchor`) — **OPEN (review 3)**: now verifiably dead surface — zero production call sites (the only two consumers, `sidebar/index.tsx` and `app.tsx`, subscribe to `selected`/`anchor`/`toggle`/`select`/`selectOnly`/`clear`/`prune`/`settleBatch` and never `setAnchor`) and zero test coverage. Retained only because R1 still lists it. Resolve the same way `deselect` was resolved in rework 1: drop the action + its type and amend R1, unless a consumer appears. Reported as should-fix rather than the parsimony `zero-call-sites` must-fix because R1 currently mandates it, so it is a plan/code mismatch to reconcile rather than an unmandated stray.
+- ~~`app/frontend/src/store/selection-store.ts:67,154` (`setAnchor`)~~ — **RESOLVED (PR review, Copilot)**: verifiably dead surface — zero production call sites (the only two consumers, `sidebar/index.tsx` and `app.tsx`, subscribe to `selected`/`anchor`/`toggle`/`select`/`selectOnly`/`clear`/`prune`/`settleBatch` and never `setAnchor`) and zero test coverage. Resolved the same way `deselect` was in rework 1: the action and its type are deleted, R1 and A-001 amended, and the `selectOnly` doc comment records why no consumer ever needed a standalone anchor write.
 - None otherwise — this change adds new frontend surface (selection store, pure lib, palette builder, sidebar gestures) without superseding existing code. The single-window drag-and-drop optimistic `executeMoveToSession` path is deliberately retained (plan Non-Goals), and `moveWindowToSession` / `entryKey` / `addToast` / `prState` are reused rather than duplicated.
 
 ## Assumptions

@@ -1250,6 +1250,61 @@ describe("ComposeStrip", () => {
     expect(input().value).toBe("b");
   });
 
+  /** Place a collapsed caret at `pos` without firing onChange (caret motion
+   * is not an edit, so it must not end the walk). */
+  function caret(pos: number, end = pos) {
+    act(() => input().setSelectionRange(pos, end));
+  }
+
+  it("arrows inside a multi-line recall move the caret natively — the walk steps only from the boundary rows", () => {
+    pushComposeSentHistory(KEY, "old");
+    pushComposeSentHistory(KEY, "line1\nline2");
+    renderFocused();
+    arrow("ArrowUp");
+    expect(input().value).toBe("line1\nline2");
+
+    // Caret inside line2 (not the first line): ↑ is native cursor movement —
+    // it must NOT nuke the recalled text by jumping to the older entry.
+    caret(8);
+    expect(arrow("ArrowUp")).toBe(true);
+    expect(input().value).toBe("line1\nline2");
+    // Caret on line1 (not the last line): ↓ is native cursor movement.
+    caret(2);
+    expect(arrow("ArrowDown")).toBe(true);
+    expect(input().value).toBe("line1\nline2");
+
+    // The walk survived the native motions (caret motion is not an edit):
+    // ↑ from the FIRST line steps to the older entry…
+    caret(2);
+    expect(arrow("ArrowUp")).toBe(false);
+    expect(input().value).toBe("old");
+    // …and ↓ (single-line entry — every caret is the last line) steps back.
+    caret(3);
+    expect(arrow("ArrowDown")).toBe(false);
+    expect(input().value).toBe("line1\nline2");
+    // ↓ from the LAST line steps past the newest and restores the stash.
+    caret(11);
+    expect(arrow("ArrowDown")).toBe(false);
+    expect(input().value).toBe("");
+  });
+
+  it("a selection inside a recalled entry keeps arrows native (bare arrow = collapse motion)", () => {
+    for (const t of ["a", "recalled"] as const) pushComposeSentHistory(KEY, t);
+    renderFocused();
+    arrow("ArrowUp");
+    expect(input().value).toBe("recalled");
+
+    caret(1, 4); // non-collapsed selection
+    expect(arrow("ArrowUp")).toBe(true);
+    expect(arrow("ArrowDown")).toBe(true);
+    expect(input().value).toBe("recalled");
+
+    // Collapsing the selection re-arms the walk.
+    caret(0);
+    expect(arrow("ArrowUp")).toBe(false);
+    expect(input().value).toBe("a");
+  });
+
   it("recall restores text only — no attachment is resurrected", async () => {
     uploadFilesMock.mockResolvedValueOnce([
       { path: "/wt/.uploads/x.png", file: new File(["x"], "x.png", { type: "image/png" }) },

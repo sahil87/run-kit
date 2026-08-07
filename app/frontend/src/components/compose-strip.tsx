@@ -111,7 +111,11 @@ import {
  * untouched; the text is simply always one keystroke away. ↑ is intercepted
  * ONLY on an empty textarea (or mid-walk) so a multi-line draft keeps native
  * cursor movement; ↓ walks toward newer and, past the newest entry, restores
- * the stashed pre-recall text and ends the walk. Only a BARE, non-composing
+ * the stashed pre-recall text and ends the walk. Mid-walk the arrows follow
+ * the REPL line-boundary discipline — a recalled entry can be multi-line, so
+ * ↑ steps older only from the FIRST line and ↓ steps newer only from the LAST
+ * line (collapsed selection required); everywhere else they move the caret
+ * natively within the recalled text. Only a BARE, non-composing
  * arrow can recall — an IME-composing arrow navigates the candidate list and a
  * modified one is a native editing motion (Shift=select, Alt/Cmd=paragraph or
  * document jump), the same exact-modifier discipline `classifyReadlineKey`
@@ -336,16 +340,33 @@ export function ComposeStrip() {
    * recalled, not composed). ↓ is intercepted only during a walk. Stepping
    * back past the oldest entry pins there (no wrap); stepping forward past the
    * newest restores the pre-walk stash and ends the walk.
+   *
+   * Mid-walk, recalled entries can be MULTI-LINE, so the walk only steps from
+   * a line boundary (the REPL discipline): ↑ steps older only with the caret
+   * on the FIRST line, ↓ steps newer only with the caret on the LAST line, and
+   * both require a collapsed selection (a bare arrow over a selection is the
+   * native collapse motion). Everywhere else the arrow moves the caret
+   * natively WITHIN the recalled text and the walk stays alive — caret motion
+   * is not an edit, so it must not end the session. A recall step lands the
+   * caret at the end of the entry (native value-set behavior), so on a
+   * single-line entry — first line == last line — repeated ↑ walks straight
+   * through, byte-identical to the pre-boundary behavior.
    */
-  function handleRecallKey(key: "ArrowUp" | "ArrowDown"): boolean {
+  function handleRecallKey(key: "ArrowUp" | "ArrowDown", el: HTMLTextAreaElement): boolean {
     if (draftKey === null) return false;
     // No stale-target check is needed here: the walk is torn down eagerly by
     // the `draftKey` effect above, so an in-progress walk always belongs to
     // the currently-focused target.
     const walking = recallIndexRef.current !== -1;
+    // Line-boundary gate. An empty textarea satisfies both sides trivially
+    // (selection 0/0, no newlines), so the session-start path is unaffected.
+    const collapsed = el.selectionStart === el.selectionEnd;
+    const onFirstLine = collapsed && !el.value.slice(0, el.selectionStart).includes("\n");
+    const onLastLine = collapsed && !el.value.includes("\n", el.selectionEnd);
 
     if (key === "ArrowDown") {
       if (!walking) return false; // outside a walk, ↓ is native cursor movement
+      if (!onLastLine) return false; // inside a multi-line recall — move natively
       const next = recallIndexRef.current - 1;
       if (next < 0) {
         // Past the newest entry — restore what the user had before the walk.
@@ -362,6 +383,7 @@ export function ComposeStrip() {
     // ArrowUp. Outside a walk it means recall ONLY on an empty textarea;
     // otherwise the caret is inside real composition and must move natively.
     if (!walking && text !== "") return false;
+    if (!onFirstLine) return false; // inside a multi-line recall — move natively
     const history = getComposeSentHistory(draftKey);
     if (history.length === 0) return false; // nothing to recall — stay native
     // Step back one, pinning at the oldest entry rather than wrapping.
@@ -406,7 +428,7 @@ export function ComposeStrip() {
       !e.metaKey &&
       !e.ctrlKey;
     if (bareArrow) {
-      if (handleRecallKey(e.key as "ArrowUp" | "ArrowDown")) {
+      if (handleRecallKey(e.key as "ArrowUp" | "ArrowDown", e.currentTarget)) {
         e.preventDefault();
         e.stopPropagation();
       }

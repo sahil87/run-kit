@@ -171,7 +171,7 @@ const tmuxShimTemplate = `#!/bin/sh
 # the invocation for every future pane. unset inside a function is global in
 # POSIX sh, so one list keeps both exec sites honest.
 _rk_scrub() {
-	unset _rk_path _rk_n _rk_ks _rk_sock _rk_a _rk_np _rk_shims _rk_real _rk_d _rk_c _rk_sniff
+	unset _rk_path _rk_n _rk_ks _rk_sock _rk_a _rk_np _rk_shims _rk_real _rk_d _rk_c _rk_sniff _rk_ifs _rk_ifs_set
 }
 
 _rk_path="%[2]s"
@@ -223,6 +223,13 @@ fi
 _rk_normpath "$HOME/%[5]s"
 _rk_shims="$_rk_np"
 _rk_real=""
+# IFS is the caller's, not ours: it may be EXPORTED, in which case assigning
+# to it hands the exec'd tmux our ":" (assignment keeps the export attribute —
+# the same trap the _rk_ namespace exists for), and an unconditional unset
+# would strip the caller's IFS from the environment entirely. Save the exact
+# state — set-to-a-value and unset are distinct — and put it back below.
+_rk_ifs_set="${IFS+1}"
+_rk_ifs="$IFS"
 set -f
 IFS=:
 for _rk_d in $PATH; do
@@ -242,7 +249,11 @@ for _rk_d in $PATH; do
 	_rk_real="$_rk_c"
 	break
 done
-unset IFS
+if [ -n "$_rk_ifs_set" ]; then
+	IFS="$_rk_ifs"
+else
+	unset IFS
+fi
 set +f
 
 if [ -n "$_rk_real" ]; then

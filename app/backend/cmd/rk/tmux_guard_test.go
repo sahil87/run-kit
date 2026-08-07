@@ -595,7 +595,7 @@ func TestTmuxShimFailsOpen(t *testing.T) {
 	// death vector the guard exists to close, re-opened by the fallback. The
 	// same run exports the shim's own variable names to prove the unset covers
 	// caller-exported names too (POSIX assignment keeps the export attribute).
-	t.Run("RK_TMUX_GUARD=off bypasses the backstop without reaching tmux", func(t *testing.T) {
+	t.Run("RK_TMUX_GUARD=off bypasses the backstop without forwarding the hatch to tmux", func(t *testing.T) {
 		t.Parallel()
 		res := runShim(t, shimRun{
 			shim: shim,
@@ -610,6 +610,45 @@ func TestTmuxShimFailsOpen(t *testing.T) {
 				res.stdout, res.code)
 		}
 		assertNoShimStateExported(t, res.stdout)
+	})
+
+	// IFS belongs to the caller, and the PATH walk borrows it. A shell resets
+	// IFS's VALUE at startup but KEEPS the export attribute an exported IFS
+	// arrived with (verified on both dash and bash), so assigning the walk's
+	// ":" would ride out to the exec'd tmux — and into a new server's global
+	// environment, where a one-character IFS breaks every field split in every
+	// future pane. Unsetting it unconditionally is the mirror-image leak: the
+	// caller's IFS would vanish from the environment entirely.
+	t.Run("does not hand the PATH walk's IFS to the exec'd tmux", func(t *testing.T) {
+		t.Parallel()
+		res := runShim(t, shimRun{
+			shim: shim,
+			home: home,
+			path: join(util, realEnvDir),
+			env:  []string{"IFS=|"},
+			args: []string{"list-panes"},
+		})
+
+		if res.code != 0 || !strings.HasPrefix(res.stdout, "REALTMUX list-panes\n") {
+			t.Fatalf("stdout=%q code=%d, want the fail-open path to reach the real tmux", res.stdout, res.code)
+		}
+		// dash prints `export IFS=':'`, bash `declare -x IFS=":"` — either
+		// spelling means the walk's separator escaped.
+		for _, leaked := range []string{`IFS=':'`, `IFS=":"`} {
+			if strings.Contains(res.stdout, leaked) {
+				t.Errorf("the exec'd env carries the walk's IFS (%s), got:\n%s", leaked, res.stdout)
+			}
+		}
+		// The walk must also not strip an exported IFS on its way out.
+		var sawIFS bool
+		for _, name := range exportedNames(res.stdout) {
+			if name == "IFS" {
+				sawIFS = true
+			}
+		}
+		if !sawIFS {
+			t.Errorf("the walk unset the caller's exported IFS instead of restoring it, got:\n%s", res.stdout)
+		}
 	})
 
 	t.Run("skips a relocated copy of the shim", func(t *testing.T) {

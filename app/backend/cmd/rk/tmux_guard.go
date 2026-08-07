@@ -94,25 +94,240 @@ const tmuxGuardBlockedMessage = "rk tmux-guard: BLOCKED: `tmux kill-server` with
 // avoid ever resolving the shim as "the real tmux" (exec recursion).
 const tmuxShimMarker = "managed-by: rk agent-setup (tmux guard shim)"
 
+// The shim probes a momentarily-unreachable rk path for
+// tmuxShimProbeAttempts × tmuxShimProbeInterval (~3s) before failing open.
+// The window being covered is a package manager's NON-ATOMIC relink: brew
+// upgrade unlinks the old keg's symlinks and then links the new keg's, so the
+// stable /…/bin/run-kit symlink dangles for a few seconds. The shim fronts
+// EVERY PATH-resolved tmux invocation on the machine, so during that window
+// every tmux command — rk's own, an agent's, a cron job's — died with exit 127
+// until this probe existed.
+const (
+	tmuxShimProbeAttempts = 15
+	tmuxShimProbeInterval = "0.2"
+)
+
+// rkShimsRelDir is the shims directory relative to $HOME. Shared by rkShimsDir
+// (Go) and the shim script's own fail-open PATH walk (shell, composed from
+// $HOME at run time), so the directory findRealTmux skips and the one the
+// script skips can never disagree.
+const rkShimsRelDir = ".local/share/rk/shims"
+
+// tmuxShimNormPathFunc is the shim's separator-normalizing helper, kept OUT of
+// tmuxShimTemplate and passed in as an argument: its ${x%%//*} / ${x%/}
+// expansions would otherwise have to be %-escaped for fmt.Sprintf, which is
+// exactly the kind of quoting that breaks silently. It collapses repeated
+// slashes and drops a trailing one — the separator half of what filepath.Clean
+// gives findRealTmux's directory exclusion — so `…/shims`, `…/shims/`, and
+// `…//shims` all compare equal. The result lands in $_rk_np rather than on
+// stdout so the PATH walk forks nothing per candidate.
+const tmuxShimNormPathFunc = `# Normalize a path for comparison into $_rk_np: collapse repeated slashes and
+# drop a trailing one, so ".../shims", ".../shims/", and "...//shims" all
+# compare equal (what filepath.Clean gives the Go-side exclusion).
+_rk_normpath() {
+	_rk_np="$1"
+	while :; do
+		case "$_rk_np" in
+		*//*) _rk_np="${_rk_np%%//*}/${_rk_np#*//}" ;;
+		*) break ;;
+		esac
+	done
+	case "$_rk_np" in
+	/) ;;
+	*/) _rk_np="${_rk_np%/}" ;;
+	esac
+}`
+
+// tmuxShimTemplate is the script rendered by tmuxShimScript. Verbs are
+// explicitly indexed so the rk path and the ownership marker can each appear
+// twice without duplicating an argument:
+//
+//	%[1]s tmuxShimMarker        %[2]s rk path (absolute, validated)
+//	%[3]d tmuxShimProbeAttempts %[4]s tmuxShimProbeInterval
+//	%[5]s rkShimsRelDir         %[6]s tmuxShimNormPathFunc
+//
+// Three stages, in order: probe the embedded rk path, exec `rk tmux-guard`
+// (the steady state — byte-identical behavior to the original one-line shim),
+// or fail OPEN to the real tmux behind a crude backstop. See tmuxShimScript
+// for why failing open is the right trade and which lines are load-bearing.
+//
+// Every literal `%` in this string is a format verb — a shell parameter
+// expansion needing one (`${x%/}`) belongs in an argument like
+// tmuxShimNormPathFunc, not inline.
+const tmuxShimTemplate = `#!/bin/sh
+# %[1]s
+#
+# Hands every PATH-resolved tmux invocation to rk tmux-guard, which refuses a
+# bare kill-server (no -L/-S). rk sits behind a package-manager symlink that
+# dangles for a few seconds during an upgrade, and this shim fronts EVERY tmux
+# caller on the machine — so a hard failure here is a machine-wide tmux outage.
+# Probe briefly, then fail OPEN to the real tmux.
+
+# Every variable this script owns lives in the _rk_ namespace and is dropped
+# before control is handed on. POSIX sh keeps the export attribute when
+# assigning to a name the caller exported, so a generic name (n, real, c…)
+# hands this script's own value to tmux — and tmux copies its starting
+# environment into a new server's GLOBAL environment, where it would outlive
+# the invocation for every future pane. unset inside a function is global in
+# POSIX sh, so one list keeps both exec sites honest.
+_rk_scrub() {
+	unset _rk_path _rk_n _rk_ks _rk_sock _rk_a _rk_np _rk_shims _rk_real _rk_d _rk_c _rk_sniff
+}
+
+_rk_path="%[2]s"
+
+# Wait out a transient dangling rk path (%[3]d probes, %[4]ss apart). The steady
+# state tests once and never sleeps.
+_rk_n=0
+while [ ! -x "$_rk_path" ] && [ "$_rk_n" -lt %[3]d ]; do
+	sleep %[4]s
+	_rk_n=$((_rk_n + 1))
+done
+
+# NOTE: keep this the FIRST exec line in the script, with the rk path spelled
+# LITERALLY — rk doctor reads the path back out of it (tmuxShimExecTarget).
+if [ -x "$_rk_path" ]; then
+	_rk_scrub
+	exec "%[2]s" tmux-guard "$@"
+fi
+
+# rk is still unreachable. Best-effort backstop for the one shape the guard
+# exists for: a literal bare kill-server with no -L/-S socket. Deliberately
+# crude — tmux's argv grammar is NOT reimplemented here. The documented
+# RK_TMUX_GUARD=off per-invocation hatch still applies. Checked BEFORE the
+# fail-open notice so a refusal never also claims the guard was bypassed.
+if [ "$RK_TMUX_GUARD" != off ]; then
+	_rk_ks=0
+	_rk_sock=0
+	for _rk_a in "$@"; do
+		case "$_rk_a" in
+		kill-server) _rk_ks=1 ;;
+		-L*|-S*) _rk_sock=1 ;;
+		esac
+	done
+	if [ "$_rk_ks" = 1 ] && [ "$_rk_sock" = 0 ]; then
+		echo "rk tmux-guard: BLOCKED: tmux kill-server without an explicit -L/-S socket (fallback guard — rk is unreachable at $_rk_path)." >&2
+		echo "Re-run with an explicit socket:  tmux -L <scratch-name> kill-server" >&2
+		exit 1
+	fi
+fi
+
+%[6]s
+
+# Resolve the real tmux the way findRealTmux does: skip empty PATH entries,
+# skip the rk shims dir (compared after normalizing BOTH sides, so a trailing
+# or doubled separator in $PATH or $HOME cannot smuggle the shims dir past the
+# exclusion), and skip any candidate that sniffs as an rk shim. set -f keeps a
+# PATH entry containing a glob character from being pathname-expanded during
+# word splitting.
+_rk_normpath "$HOME/%[5]s"
+_rk_shims="$_rk_np"
+_rk_real=""
+set -f
+IFS=:
+for _rk_d in $PATH; do
+	[ -n "$_rk_d" ] || continue
+	_rk_normpath "$_rk_d"
+	[ "$_rk_np" != "$_rk_shims" ] || continue
+	_rk_c="$_rk_d/tmux"
+	[ -f "$_rk_c" ] && [ -x "$_rk_c" ] || continue
+	# grep exits 0 on a match, 1 on a clean miss, and >=2 (or 127) when the
+	# sniff itself failed. Only a clean miss earns an exec: exec'ing a
+	# relocated copy of THIS script would fork-loop forever, so a candidate
+	# whose identity cannot be verified is skipped too. Refusing to resolve is
+	# recoverable; a fork loop is not.
+	grep -qF -e "%[1]s" -e tmux-guard "$_rk_c" 2>/dev/null
+	_rk_sniff=$?
+	[ "$_rk_sniff" -eq 1 ] || continue
+	_rk_real="$_rk_c"
+	break
+done
+unset IFS
+set +f
+
+if [ -n "$_rk_real" ]; then
+	# Move the resolved tmux into the positional parameters so the exec below
+	# needs no variable of ours to survive the unset.
+	set -- "$_rk_real" "$@"
+	# The notice sits here, not before the walk: the no-real-tmux path below
+	# must not first claim the invocation is running unguarded.
+	echo "rk tmux-guard: $_rk_path is not executable (rk may be mid-upgrade) — running tmux unguarded for this invocation." >&2
+	# RK_TMUX_GUARD goes too, for the same reason rk tmux-guard strips it
+	# (tmuxGuardExecEnv): forwarding it through "tmux new-session -d" would bake
+	# the per-invocation hatch into the new server's global environment, making
+	# it permanent for every future pane.
+	_rk_scrub
+	unset RK_TMUX_GUARD
+	exec "$@"
+fi
+
+echo "rk tmux-guard: no real tmux found on PATH (the rk shim itself is excluded); install tmux or fix PATH ordering." >&2
+exit 1
+`
+
 // tmuxShimScript renders the shim installed at ~/.local/share/rk/shims/tmux.
 // rkPath is the absolute run-kit binary path (resolved by resolveRkPath, the
 // stable Homebrew symlink) — embedded rather than the bare name `rk` so the
 // shim cannot break tmux in a shell where rk is off PATH at fire time,
 // mirroring the agent-state hook's stable-path rationale. The path sits inside
 // double quotes, so it MUST be pre-validated by validateHookPath (rejects
-// ' " $ ` \) — nothing else in the script is interpolated (Constitution §I).
+// ' " $ ` \); every other interpolated value is a compile-time constant, so
+// nothing environment-derived is unvalidated (Constitution §I).
+//
+// The script is self-healing rather than a single exec, because the embedded
+// path is only as stable as the package manager's symlink:
+//
+//   - Probe: when the rk path is not executable, poll it (see the probe
+//     constants above) so an invocation landing inside an upgrade's relink
+//     window stalls instead of exiting 127. An executable rk is tested once
+//     and never sleeps, so the steady state is unchanged.
+//   - Fail OPEN: after the budget, resolve the real tmux with a PATH walk
+//     mirroring findRealTmux's exclusions and exec it. The guard catches
+//     ACCIDENTAL kill-server; the chance of one firing inside a few-second
+//     window is negligible next to the certainty of breaking every tmux caller
+//     on the machine at every upgrade. Availability wins. The shell sniff is
+//     deliberately MORE conservative than sniffsAsTmuxShim: it scans the whole
+//     candidate rather than a 512-byte head, and skips any candidate it cannot
+//     verify — a false skip degrades to a clear "no real tmux" error, while a
+//     false accept would exec a relocated copy of this script and fork-loop.
+//   - Backstop: before failing open, refuse the literal bare-kill-server shape
+//     (a flat token scan, RK_TMUX_GUARD=off honored). Over- and under-blocking
+//     are both acceptable on a path that only runs while rk is unreachable;
+//     porting tmuxGuardBlocks to shell is not.
+//
+// Line order is load-bearing: tmuxShimExecTarget parses the FIRST exec line,
+// and the fail-open path adds a second one.
+//
+// Environment hygiene is load-bearing too. Every shell variable is _rk_-prefixed
+// and unset before each exec, because POSIX sh keeps the export attribute when
+// assigning to a name the caller exported — an unprefixed `n` handed tmux `n=0`
+// on the steady-state hot path. The fail-open exec additionally drops
+// RK_TMUX_GUARD, mirroring tmuxGuardExecEnv's strip: tmux copies its starting
+// environment into a new server's GLOBAL environment, so forwarding the hatch
+// through `RK_TMUX_GUARD=off tmux new-session -d` would make it permanent for
+// every future pane of that server — re-opening the exact death vector the
+// guard exists to close.
 func tmuxShimScript(rkPath string) string {
-	return fmt.Sprintf("#!/bin/sh\n# %s\nexec \"%s\" tmux-guard \"$@\"\n", tmuxShimMarker, rkPath)
+	return fmt.Sprintf(tmuxShimTemplate,
+		tmuxShimMarker,
+		rkPath,
+		tmuxShimProbeAttempts,
+		tmuxShimProbeInterval,
+		rkShimsRelDir,
+		tmuxShimNormPathFunc,
+	)
 }
 
 // tmuxShimExecTarget extracts the absolute rk path embedded in an installed
-// shim script: the value between the first double-quote pair on its `exec`
-// line (the exact shape tmuxShimScript renders — validateHookPath guarantees
-// the path itself contains no quote). Returns "" when no such line exists —
-// the shim then has no parseable exec target and cannot work. Doctor uses this
-// to verify the embedded rk binary still exists (a dangling path — e.g. after
-// a brew rename — breaks EVERY tmux command on the machine with `rk: not
-// found`).
+// shim script: the value between the first double-quote pair on its FIRST
+// `exec` line. tmuxShimScript pins that line to the literal rk path (its
+// fail-open stage execs the real tmux from a variable further down, so
+// first-match semantics are what keep this pointing at rk) — and
+// validateHookPath guarantees the path itself contains no quote. Returns ""
+// when no such line exists — the shim then has no parseable exec target and
+// cannot work. Doctor uses this to verify the embedded rk binary still exists
+// (a permanently dangling path — e.g. after a brew rename — degrades EVERY
+// tmux command on the machine to the shim's unguarded fallback).
 func tmuxShimExecTarget(content string) string {
 	for _, line := range strings.Split(content, "\n") {
 		line = strings.TrimSpace(line)
@@ -136,7 +351,7 @@ func tmuxShimExecTarget(content string) string {
 // rkShimsDir is the directory agent-setup installs PATH shims into, and the
 // directory the guard skips when resolving the real tmux.
 func rkShimsDir(home string) string {
-	return filepath.Join(home, ".local", "share", "rk", "shims")
+	return filepath.Join(home, filepath.FromSlash(rkShimsRelDir))
 }
 
 // --- guard decision ---------------------------------------------------------

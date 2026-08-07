@@ -77,13 +77,13 @@ func runDoctorChecks() doctorReport {
 // path exists but cannot be read (exec.LookPath can still resolve it, so tmux
 // commands may be dying against a file doctor cannot vouch for), the shim's
 // EMBEDDED rk path no longer exists (a dangling binary — the brew rk→run-kit
-// rename shape — makes every tmux command on the machine die with `rk: not
-// found` while the shim file itself looks installed), the shim is installed
-// but `tmux` no longer resolves to it (a PATH-ordering regression — the guard
-// is silently bypassed), or `tmux` resolves to the shim but NO real tmux
-// exists behind it (findRealTmux fails — every guarded tmux call would die at
-// exec time). Pure over an injected (home, pathEnv, lookPath) triple so tests
-// never depend on the host PATH.
+// rename shape — makes every tmux command on the machine stall through the
+// shim's ~3s probe budget and then run UNGUARDED, while the shim file itself
+// looks installed), the shim is installed but `tmux` no longer resolves to it
+// (a PATH-ordering regression — the guard is silently bypassed), or `tmux`
+// resolves to the shim but NO real tmux exists behind it (findRealTmux fails —
+// every guarded tmux call would die at exec time). Pure over an injected
+// (home, pathEnv, lookPath) triple so tests never depend on the host PATH.
 func tmuxGuardShimCheck(home, pathEnv string, lookPath func(string) (string, error)) doctorCheck {
 	check := doctorCheck{Name: "tmux-guard shim", failLabel: "tmux-guard shim", OK: true}
 	shimPath := tmuxShimPath(home)
@@ -110,10 +110,11 @@ func tmuxGuardShimCheck(home, pathEnv string, lookPath func(string) (string, err
 	// the embedded target is still a regular executable file before vouching
 	// for the install. The dangling case is real (the recorded brew
 	// rk→run-kit rename left a shim exec'ing a removed keg path) and is the
-	// single most damaging mis-wiring — every tmux command dies with `rk: not
-	// found` while the shim file itself looks healthy. A directory or
-	// non-executable file at the target breaks every shimmed invocation the
-	// same way, so bare existence is not enough.
+	// single most damaging mis-wiring — the shim's probe budget cannot outwait
+	// a PERMANENTLY dangling path, so every tmux command on the machine pays
+	// ~3s and then falls open to an unguarded run, while the shim file itself
+	// looks healthy. A directory or non-executable file at the target degrades
+	// every shimmed invocation the same way, so bare existence is not enough.
 	target := tmuxShimExecTarget(content)
 	if target == "" {
 		check.OK = false
@@ -123,12 +124,12 @@ func tmuxGuardShimCheck(home, pathEnv string, lookPath func(string) (string, err
 	info, statErr := os.Stat(target)
 	if statErr != nil {
 		check.OK = false
-		check.Hint = fmt.Sprintf("shim at %s execs %q, which is missing (%v) — every tmux command would fail with `rk: not found`; re-install the shim with `rk agent-setup`", shimPath, target, statErr)
+		check.Hint = fmt.Sprintf("shim at %s execs %q, which is missing (%v) — every tmux command would stall ~3s and then run UNGUARDED; re-install the shim with `rk agent-setup`", shimPath, target, statErr)
 		return check
 	}
 	if !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
 		check.OK = false
-		check.Hint = fmt.Sprintf("shim at %s execs %q, which is not an executable file (mode %v) — every tmux command would fail; re-install the shim with `rk agent-setup`", shimPath, target, info.Mode())
+		check.Hint = fmt.Sprintf("shim at %s execs %q, which is not an executable file (mode %v) — every tmux command would stall ~3s and then run UNGUARDED; re-install the shim with `rk agent-setup`", shimPath, target, info.Mode())
 		return check
 	}
 	resolved, err := lookPath("tmux")

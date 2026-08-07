@@ -292,9 +292,11 @@ func TestTmuxGuardShimCheckMarkerlessFile(t *testing.T) {
 
 // TestTmuxGuardShimCheckDanglingRkPath pins the cycle-3 must-fix: an installed
 // shim whose EMBEDDED rk path no longer exists (the recorded brew rk→run-kit
-// rename incident — a zombie keg path baked into the shim) breaks EVERY tmux
-// command on the machine with `rk: not found`, so the check must FAIL with a
-// re-install hint instead of vouching for the install.
+// rename incident — a zombie keg path baked into the shim) degrades EVERY tmux
+// command on the machine to a ~3s stall followed by an unguarded run — the
+// shim's probe budget covers a transient relink, not a permanent break — so
+// the check must FAIL with a re-install hint instead of vouching for the
+// install.
 func TestTmuxGuardShimCheckDanglingRkPath(t *testing.T) {
 	t.Run("embedded rk path missing", func(t *testing.T) {
 		home := t.TempDir()

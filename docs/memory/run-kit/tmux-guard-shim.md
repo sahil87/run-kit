@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "The tmux guard PATH shim — `rk tmux-guard` fronts the real tmux and refuses `kill-server` without an explicit `-L`/`-S` (resolution is `-L`/`-S` > `$TMUX` > `TMUX_TMPDIR`, so a bare kill in a pane destroys the HOST server). Covers the pure argv decision (global-flag window, `;`-chain command words, prefix match), shim-skipping tmux resolution, the `syscall.Exec` passthrough with `$TMUX` restored and `RK_TMUX_GUARD` stripped, the `rk agent-setup` shim + PATH-block contract, and doctor states."
+description: "The tmux guard PATH shim — `rk tmux-guard` fronts the real tmux and refuses `kill-server` without an explicit `-L`/`-S` (a bare kill in a pane destroys the HOST server — precedence `-L`/`-S` > `$TMUX` > `TMUX_TMPDIR`). Covers the argv decision, shim-skipping resolution, the exec passthrough (`$TMUX` restored, `RK_TMUX_GUARD` stripped), the self-healing shim script (~3s rk probe → guard exec → fail-open PATH walk behind a crude backstop), the `rk agent-setup` install contract, and doctor states."
 ---
 # tmux Guard PATH Shim (`rk tmux-guard`)
 
@@ -19,9 +19,11 @@ Two artifacts and one subcommand:
 - **`rk tmux-guard [tmux args…]`** (`app/backend/cmd/rk/tmux_guard.go`) — decides
   block vs pass over the tmux argv, then process-replaces itself with the real
   tmux on pass.
-- **The shim** at `~/.local/share/rk/shims/tmux` plus a marker-owned `PATH` block
-  in the user's shell startup files — installed and removed by `rk agent-setup`
-  (see [agent-state](/run-kit/agent-state.md) § `rk agent-setup`, which owns the
+- **The shim** at `~/.local/share/rk/shims/tmux` — a self-healing `#!/bin/sh`
+  script that probes the embedded rk path, execs `rk tmux-guard`, or fails open
+  to the real tmux — plus a marker-owned `PATH` block in the user's shell startup
+  files, both installed and removed by `rk agent-setup` (see
+  [agent-state](/run-kit/agent-state.md) § `rk agent-setup`, which owns the
   installer's consent/diff machinery).
 - **A `rk doctor` check** (`tmux-guard shim`) reporting install state and PATH
   resolution.
@@ -98,7 +100,8 @@ exists — it MUST never exec the shim (an infinite shim → `rk tmux-guard` →
 loop). Two independent exclusions apply: PATH entries equal to the rk shims dir
 are skipped, and any candidate whose head (first 512 bytes) sniffs as the rk shim
 — by ownership marker or by its `tmux-guard` invocation — is skipped regardless of
-location. Empty PATH entries (POSIX cwd) are skipped.
+location. Empty PATH entries (POSIX cwd) are skipped. The shim script's own
+fail-open walk (below) mirrors these exclusions in shell, more conservatively.
 
 #### Scenario: shim-first PATH resolves the real binary
 - **GIVEN** a PATH of `[shimsDir, realDir]` with the shim in `shimsDir` and an
@@ -133,7 +136,73 @@ why each half is load-bearing.
 `RK_TMUX_GUARD=off` in the environment SHALL bypass the guard for that one
 invocation — exec passthrough, no decision, no message — so deliberate host-server
 teardown stays possible without uninstalling the shim. The hatch is strictly
-per-invocation (see the strip requirement above).
+per-invocation (see the strip requirement above), and that guarantee SHALL hold on
+the shim's fail-open shell path too: the fallback backstop honors `off`, and the
+script unsets `RK_TMUX_GUARD` before exec'ing the real tmux — the shell mirror of
+`tmuxGuardExecEnv`'s strip.
+
+### Requirement: The shim survives a briefly-unreachable rk
+The installed shim (`tmuxShimScript`) SHALL run three stages, in file order:
+
+- **Probe** — when the embedded rk path is not an executable file, poll it
+  `tmuxShimProbeAttempts` × `tmuxShimProbeInterval` (15 probes, 0.2s apart, ~3s)
+  and proceed the moment it becomes executable. The steady state tests the
+  condition once and never sleeps; the stall itself is silent.
+- **Guard exec** — `exec "<abs-rk>" tmux-guard "$@"`, passing the original argv
+  verbatim. This MUST stay the script's **first** `exec ` line with the rk path
+  spelled **literally**, because `tmuxShimExecTarget` reads the first
+  double-quoted value on the first such line and every `rk doctor` shim state is
+  built on it; the fail-open exec of the resolved tmux comes later in file order.
+- **Fail open** — after the budget, the shim SHALL evaluate the bare-`kill-server`
+  backstop, then resolve the real tmux itself with a `set -f` + `IFS=:` `PATH`
+  walk mirroring `findRealTmux`'s exclusions (empty entries; the rk shims dir,
+  compared with both sides separator-normalized so a trailing or doubled slash
+  cannot smuggle it past; candidates that sniff as an rk shim) and exec it with
+  the original argv. Exactly **one** one-line stderr notice, naming the
+  unreachable rk path, SHALL be emitted immediately before that exec — so a
+  backstop refusal or a failed walk never also claims the invocation ran
+  unguarded. When no candidate survives, the shim prints an actionable message and
+  exits non-zero.
+
+The backstop refuses **only** the literal bare shape — some argv token exactly
+equal to `kill-server` while no `-L*`/`-S*` token is present — and names the
+canonical remedy (`tmux -L <scratch-name> kill-server`) on exit 1.
+
+Every shell variable the script owns lives in the `_rk_` namespace and is dropped
+by `_rk_scrub` before **both** exec sites; the fail-open exec additionally unsets
+`RK_TMUX_GUARD`. The shims directory reaches the script from the same
+`rkShimsRelDir` constant `rkShimsDir` uses, and the sniff pattern from
+`tmuxShimMarker`, so the Go-side and shell-side exclusions cannot disagree. The
+only environment-derived value interpolated into the script stays the
+`validateHookPath`-gated rk path (Constitution §I); everything else is a
+compile-time constant or composed at run time from `$HOME`.
+
+#### Scenario: an invocation inside an upgrade's relink window survives
+- **GIVEN** the embedded rk path is momentarily absent (a package manager's
+  non-atomic relink) and returns within the probe budget
+- **WHEN** any `tmux …` resolves through the shim
+- **THEN** the shim stalls silently and then execs `rk tmux-guard` with the
+  original argv — never exiting 127
+
+#### Scenario: a permanently dangling rk path falls open
+- **GIVEN** an embedded rk path that never becomes executable and a real `tmux`
+  on `PATH`
+- **WHEN** a `tmux …` resolves through the shim
+- **THEN** after ~3s stderr carries exactly one notice line and the real tmux runs
+  with the original argv, its own output, and its own exit code
+
+#### Scenario: a relocated copy of the shim never exec-loops
+- **GIVEN** a `PATH` whose only `tmux` behind the shim is a copy of the shim
+- **WHEN** the fail-open walk runs
+- **THEN** the copy is skipped by the content sniff and the shim exits non-zero
+  with "no real tmux found on PATH"
+
+#### Scenario: the fallback backstop refuses a bare kill-server
+- **GIVEN** a dangling rk path and argv `["kill-server"]`
+- **WHEN** the shim reaches the fail-open stage
+- **THEN** it refuses, exits 1, and never execs the real tmux — while
+  `["-L", "scratch", "kill-server"]` and `RK_TMUX_GUARD=off` both pass through,
+  and the exec'd environment carries neither `RK_TMUX_GUARD` nor any `_rk_*` value
 
 ### Requirement: `rk agent-setup` install/uninstall contract
 The shim is a **user-global** managed artifact (one shim, one PATH block), applied
@@ -143,9 +212,12 @@ previews, `--yes` writes unprompted, a non-TTY without either refuses), idempote
 replace-in-place, and exact removal on `--uninstall`.
 
 - **Shim file** at `~/.local/share/rk/shims/tmux`, mode 0755, carrying the
-  `managed-by: rk agent-setup (tmux guard shim)` ownership marker and exec'ing
-  `"<abs-rk>" tmux-guard "$@"` — an absolute path resolved by `resolveRkPath` and
-  validated by `validateHookPath`, not the bare name `rk`. A pre-existing
+  `managed-by: rk agent-setup (tmux guard shim)` ownership marker on line 2 and,
+  past its probe stage, exec'ing `"<abs-rk>" tmux-guard "$@"` — an absolute path
+  resolved by `resolveRkPath` and validated by `validateHookPath`, not the bare
+  name `rk`. Rollout of a new script shape is the same idempotent
+  replace-in-place: re-running `rk agent-setup` registers it as a content diff
+  under the existing consent flow, with no migration and no new file. A pre-existing
   **marker-less** file at that path — including a zero-byte one — is left untouched
   with a skip note; ownership keys on *existence* (`readFileIfExists`), not on
   content. An already-current shim is a reported no-op, except that a lost exec
@@ -195,7 +267,7 @@ The `tmux-guard shim` check SHALL be pure over an injected
 | No file at the shim path | OK + note "not installed (optional …)" |
 | Marker-less file at the shim path | OK + note (a user file, not an installed shim) |
 | File exists but cannot be read | FAIL + permissions hint (PATH resolution needs no read permission, so tmux may already be dying against it) |
-| Shim's embedded rk path missing, or its exec line unparseable | FAIL + `rk agent-setup` re-install hint naming the dangling path |
+| Shim's embedded rk path missing or not executable, or its exec line unparseable | FAIL + `rk agent-setup` re-install hint naming the dangling path and the ~3s-stall-then-unguarded consequence |
 | `LookPath("tmux")` resolves elsewhere, or nowhere | FAIL + PATH-ordering hint (open a new shell / check the block) |
 | Resolves to the shim but `findRealTmux` finds nothing behind it | FAIL + install-tmux hint |
 | Resolves to the shim, embedded rk alive, real tmux behind it | OK + note "installed; PATH resolves tmux to the shim" |
@@ -234,6 +306,12 @@ incidents share. These shapes pass by design, not by defect:
   PATH-resolution check is the detection surface.
 - **Scoped kills** (`kill-session`/`kill-window`/`kill-pane`) — deliberate v1
   scope, not an oversight.
+- **The fail-open window** — while the embedded rk path is unreachable, only the
+  crude shell backstop stands between an invocation and the real tmux, so every
+  shape the Go decision catches beyond a literal bare `kill-server` passes. The
+  trade is deliberate (see § Design Decisions → *Availability wins when rk is
+  unreachable*), and the window is a few seconds per upgrade unless the path is
+  permanently dangling — which `rk doctor` FAILs on.
 
 A harness-specific pre-tool hook (e.g. Claude Code `PreToolUse`) is a separate,
 complementary mechanism with a different owner surface — not part of this shim.
@@ -259,8 +337,10 @@ interactive clients, and its mandatory timeout would sever attached sessions.
 `resolveRkPath()` (the stable Homebrew symlink, never the version-pinned Cellar
 path) + `validateHookPath()`.
 **Why**: a bare `rk` makes every tmux invocation depend on rk being on `PATH` at
-fire time; in a shell where it is not, **tmux itself** breaks with `rk: not
-found`. The agent-state hook artifact already solved exactly this with the
+fire time — and the script's probe tests the embedded value with `[ -x … ]`, which
+a bare name can never satisfy, so every tmux invocation on the machine would pay
+the full probe budget and then drop the guard entirely. The agent-state hook
+artifact already solved the stable-path problem with the
 `resolveRkPath`/`validateHookPath` pattern, so the shim mirrors the established
 managed-artifact contract. The same shell-unsafe-char rejection applies, since the
 path sits inside double quotes in the script.
@@ -356,9 +436,13 @@ passing check with an informational note; the check FAILs only on mis-wiring
 tmux behind the shim).
 **Why**: the shim is optional, so failing every machine that has not installed it
 would make `rk doctor` useless as a dependency gate. The dangling-rk case is
-promoted to a FAIL specifically because it is the most damaging mis-wiring — the
-recorded brew `rk`→`run-kit` rename shape breaks **every** tmux command on the
-machine with `rk: not found` while the shim file itself looks healthy.
+promoted to a FAIL specifically because it is the most damaging mis-wiring the
+shim cannot self-heal: the probe budget absorbs a *transient* dangle (an upgrade's
+relink window) but cannot outwait a *permanent* one — the recorded brew
+`rk`→`run-kit` rename shape — so **every** tmux command on the machine pays ~3s
+and then runs UNGUARDED while the shim file itself looks healthy. That
+transient/permanent split is exactly what makes it a doctor concern rather than a
+runtime one: only the permanent shape needs a human.
 **Rejected**: failing on absence (useless gate); reporting OK whenever the shim
 file merely exists (vouches for a dangling install).
 *Introduced by*: `260805-blyf-tmux-guard-path-shim`
@@ -376,14 +460,97 @@ incident); making the block conditional on `$TMUX` being set (a bare kill with
 utils2 shape).
 *Introduced by*: `260805-blyf-tmux-guard-path-shim`
 
+### Availability wins when rk is unreachable: the shim fails open
+**Decision**: after a ~3s probe budget the shim runs the real tmux unguarded —
+behind a crude bare-`kill-server` backstop — rather than refusing to run.
+**Why**: the shim fronts **every** PATH-resolved `tmux` on the machine and execs
+one hard-coded path, and that path is a package manager's symlink which dangles
+for a few seconds on every upgrade (Homebrew unlinks the old keg, then links the
+new one). Failing hard there is a machine-wide tmux outage, not an edge case — it
+was observed live when a fab operator's `tmux list-panes` calls started exiting
+127 mid-update and its tick loop stopped. The guard exists to catch *accidental*
+agent `kill-server`; the chance of one firing inside a few-second window is
+negligible next to the certainty of breaking every tmux caller on the host at
+every upgrade, and the steady-state guard is untouched.
+**Rejected**: failing closed (turns a routine upgrade into a machine-wide
+outage); an rk-owned binary copy at `~/.local/share/rk/bin/` with atomic rename
+(~20MB duplicate binary, version skew, and a refresh seam that must fire after
+every upgrade); making the package manager's relink atomic (outside rk's control).
+*Introduced by*: `260807-8qvc-tmux-guard-shim-update-resilience`
+
+### The shell sniff scans the whole candidate and skips what it cannot verify
+**Decision**: the fail-open walk sniffs each candidate with a single
+`grep -qF -e "<marker>" -e tmux-guard "$c"` and discriminates its exit status
+three ways — 0 (it is a shim) and ≥2/127 (the sniff itself failed) both skip the
+candidate; only exit 1, a clean miss, earns an exec.
+**Why**: the shell walk's failure modes are not symmetric with `findRealTmux`'s.
+When Go's sniff returns false on a read error it merely execs a file that then
+fails; when the shell's sniff misfires it execs a *relocated copy of this very
+script*, which probes, fails open, and execs the copy again — an unbounded fork
+loop fronting every tmux call on the machine. A false skip degrades to a clear
+"no real tmux found" error, so the two directions are nowhere near equally bad.
+Using one tool rather than a pipeline is what makes the status unambiguous, and
+scanning a whole candidate once on a cold path costs nothing worth protecting.
+**Rejected**: mirroring `sniffsAsTmuxShim`'s 512-byte head bound via
+`head -c 512 | grep -q` — a pipeline reports only the last command's status, so a
+missing or failing `head` reads as a clean miss and reintroduces the fork loop
+(this exact shape looped during smoke testing), and it adds a second non-POSIX
+flag; reading the head with the shell's own `read`/`$(…)` (unbounded on a binary
+with no early newline, and bash's sh mode warns on NUL bytes for every candidate).
+*Introduced by*: `260807-8qvc-tmux-guard-shim-update-resilience`
+
+### Every shim variable is `_rk_`-namespaced and scrubbed before exec
+**Decision**: the script prefixes every variable it owns with `_rk_` and drops
+them through a single `_rk_scrub` function called immediately before **both**
+exec sites; the fail-open site additionally unsets `RK_TMUX_GUARD`.
+**Why**: POSIX sh keeps the **export attribute** when assigning to a name the
+caller already exported, so a generic name (`n`, `real`, `c`) silently hands the
+shim's own value to the exec'd tmux — and the steady-state exec is the hot path,
+so this leaked on every tmux invocation on the machine, not only on the fallback.
+tmux then copies its starting environment into a new server's *global*
+environment, where the leak outlives the invocation for every future pane. `unset`
+inside a function is global in POSIX sh, so one shared list keeps both exec sites
+honest rather than two inline lists that drift apart. The `RK_TMUX_GUARD` drop is
+the shell mirror of `tmuxGuardExecEnv`'s strip, for the same reason: forwarding
+the per-invocation hatch through `tmux new-session -d` would make it permanent.
+**Rejected**: generic short variable names (the leak is silent and rides the hot
+path); scrubbing only at the fail-open exec (the steady-state path leaks first and
+most); spelling the unset list inline at each exec site (two lists, one drift).
+*Introduced by*: `260807-8qvc-tmux-guard-shim-update-resilience`
+
+### The fail-open backstop is deliberately crude
+**Decision**: the fallback guard is a flat token scan for a token equal to
+`kill-server` with no `-L*`/`-S*` token, honoring `RK_TMUX_GUARD=off`; it models
+neither tmux's global-flag window, nor `;`-chains, nor prefix abbreviation.
+**Why**: it runs only in the window when rk is unreachable, and both failure
+directions are acceptable there — over-blocking costs one retry with an explicit
+socket, under-blocking is no worse than the fully-unguarded fallback it sits in
+front of. Reimplementing the argv grammar in shell would put a second copy of
+`tmuxGuardBlocks`'s subtle parsing in a language with no test parity, to defend a
+few seconds per upgrade.
+**Rejected**: no backstop at all (leaves the exact accident the guard exists for
+completely unguarded during every upgrade); a faithful shell port of
+`tmuxGuardBlocks` (a second, untestable copy of a subtle grammar).
+*Introduced by*: `260807-8qvc-tmux-guard-shim-update-resilience`
+
 ### Tests never touch a live tmux server
-**Decision**: the decision logic is table-driven over argv slices; the exec path
+**Decision**: the decision logic is table-driven over argv slices; the Go exec path
 is exercised only through the injectable `tmuxGuardExec` seam; resolution tests use
 stub executables in `t.TempDir()` PATHs; installer and doctor tests run against
-temp homes with an injected `lookPath`.
+temp homes with an injected `lookPath`. The shim script's own runtime behavior
+(probe, mid-probe recovery, fail-open, backstop, hatch, no-real-tmux) is covered by
+**executing the rendered script** under a bounded `exec.CommandContext` against stub
+`rk`/`tmux` executables and a minimal utility `PATH` dir, all in `t.TempDir()`.
 **Why**: a change whose entire purpose is preventing accidental tmux-server death
 must not risk one in its own test suite. No test starts, attaches to, or kills any
-tmux server, and the installer is never run against the real home.
+tmux server, and neither the installer nor the shim is ever run against the real
+`$HOME`. The shim is shell, so a content pin alone proves nothing about behavior —
+running it against stubs is the only way to observe the three stages, and stubs
+that identify themselves on stdout make "which binary got exec'd" directly
+assertable. One fixture rule is load-bearing for the parallel subtests: **every
+executable must be written before the first parallel exec**, since forking while
+another goroutine still holds the write fd makes the exec fail `ETXTBSY`.
 **Rejected**: live-tmux integration tests for the exec path (the exact risk being
-guarded against).
+guarded against); script-content pins alone for the shim stages (they pin text, not
+behavior — the fork-loop bug lived in a shape a content pin would have accepted).
 *Introduced by*: `260805-blyf-tmux-guard-path-shim`

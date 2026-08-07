@@ -6,6 +6,7 @@ import { useSessionContext, useUpdateNotification } from "@/contexts/session-con
 import { useFocusedPane } from "@/contexts/focused-pane-context";
 import { resolveFocusedWindow, thinWindowFromFocusedPane } from "@/lib/focused-pane-window";
 import { finalizeSafeName } from "@/lib/names";
+import { pinDragImage } from "@/lib/drag-image";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useOptimisticContext } from "@/contexts/optimistic-context";
 import { useToast } from "@/components/toast";
@@ -626,6 +627,7 @@ export function Sidebar({
   }, [handleRenameCommit]);
 
   const handleDragStart = useCallback((e: React.DragEvent, server: string, sessionName: string, windowIndex: number, windowId: string, windowName: string) => {
+    pinDragImage(e);
     setDragSource({ server, session: sessionName, index: windowIndex });
     e.dataTransfer.setData(
       "application/json",
@@ -719,6 +721,7 @@ export function Sidebar({
   // Per-server session drag-reorder. Source carries server so the drag is
   // confined to one server's group.
   const handleSessionReorderStart = useCallback((e: React.DragEvent, server: string, name: string, orderedNames: string[]) => {
+    pinDragImage(e);
     setSessionDragSource({ server, name });
     e.dataTransfer.setData("application/x-session-reorder", `${server}:${name}`);
     e.dataTransfer.effectAllowed = "move";

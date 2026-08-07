@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef } from "react";
 import { setBoardOrder, type BoardSummary } from "@/api/boards";
+import { pinDragImage } from "@/lib/drag-image";
 
 /** Debounce for the reorder POST, mirroring useServerReorder's
  *  SERVER_ORDER_DEBOUNCE_MS (250ms) — coalesces a rapid drag-over sweep into
@@ -106,6 +107,7 @@ export function useBoardListReorder(
   }
 
   const onDragStart = useCallback((e: React.DragEvent, name: string) => {
+    pinDragImage(e);
     dragNameRef.current = name;
     e.dataTransfer.setData(BOARD_LIST_REORDER_MIME, name);
     e.dataTransfer.effectAllowed = "move";

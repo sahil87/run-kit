@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef } from "react";
 import { isInfraServer, setServerOrder, type ServerInfo } from "@/api/client";
+import { pinDragImage } from "@/lib/drag-image";
 
 /** Debounce for the reorder POST, mirroring the sidebar session-reorder
  *  SESSION_ORDER_DEBOUNCE_MS (250ms) — coalesces a rapid drag-over sweep into
@@ -110,6 +111,7 @@ export function useServerReorder(
 
   const onDragStart = useCallback((e: React.DragEvent, name: string) => {
     if (isInfraServer(name)) return;
+    pinDragImage(e);
     dragNameRef.current = name;
     e.dataTransfer.setData(SERVER_REORDER_MIME, name);
     e.dataTransfer.effectAllowed = "move";

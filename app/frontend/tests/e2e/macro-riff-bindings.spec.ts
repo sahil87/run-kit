@@ -131,19 +131,16 @@ test.describe("overlay add-macro flow", () => {
     await expect(page.getByLabel("Macro name")).toHaveValue("riff: discuss");
     await page.getByRole("button", { name: "add + capture key" }).click();
 
-    // Capture armed on the fresh row — land the chord. ⇧Ctrl+Y, not ⇧Ctrl+D:
-    // D is `split-horizontal`'s shipped Win/Linux default (260807-rbx5) and
-    // e2e runs on Linux, so capturing it would assert a STEAL rather than the
-    // clean capture this test is about. Y is free in every claim set.
+    // Capture armed on the fresh row — land the chord.
     await expect(overlay.getByText("press keys…")).toBeVisible();
-    await page.keyboard.press("Shift+Control+KeyY");
+    await page.keyboard.press("Shift+Control+KeyD");
 
     // Definition + combo persisted to their two stores.
     const storedMacros = await page.evaluate(() => localStorage.getItem("runkit-macros"));
     expect(JSON.parse(storedMacros ?? "[]")).toEqual([DISCUSS_MACRO]);
     const storedBindings = await page.evaluate(() => localStorage.getItem("runkit-keybindings"));
     expect(JSON.parse(storedBindings ?? "{}")).toEqual({
-      "macro:riff-discuss": { code: "KeyY", tier: "shifted" },
+      "macro:riff-discuss": { code: "KeyD", tier: "shifted" },
     });
     // The row renders the resolved-command preview.
     await expect(overlay.getByText("rk riff --preset discuss")).toBeVisible();
@@ -152,7 +149,7 @@ test.describe("overlay add-macro flow", () => {
     await expect(overlay).toHaveCount(0);
 
     // The chord POSTs the preset name only and navigates to the spawned window.
-    await page.keyboard.press("Shift+Control+KeyY");
+    await page.keyboard.press("Shift+Control+KeyD");
     await expect(page.getByText("Spawned riff-swift-fox")).toBeVisible();
     expect(spawnBodies).toEqual([{ session: "dev", preset: "discuss" }]);
     await expect(page).toHaveURL(new RegExp(`/${SERVER}/9(?:$|[/?#])`));
@@ -161,7 +158,7 @@ test.describe("overlay add-macro flow", () => {
 
 test.describe("palette exposure", () => {
   test("a seeded macro appears as a kind-tagged Macro: entry with its hint and executes", async ({ page }) => {
-    await seedMacro(page, DISCUSS_MACRO, "KeyY");
+    await seedMacro(page, DISCUSS_MACRO, "KeyD");
     const spawnBodies = await mockBackend(page);
     await gotoWindowOne(page);
 
@@ -170,8 +167,8 @@ test.describe("palette exposure", () => {
     await expect(paletteInput).toBeVisible();
     await paletteInput.fill("Macro");
     await expect(page.getByText("Macro: riff: discuss")).toBeVisible();
-    // The effective combo decorates the entry (non-mac host → Shift+Ctrl+Y).
-    await expect(page.getByText("Shift+Ctrl+Y")).toBeVisible();
+    // The effective combo decorates the entry (non-mac host → Shift+Ctrl+D).
+    await expect(page.getByText("Shift+Ctrl+D")).toBeVisible();
 
     await page.keyboard.press("Enter");
     await expect(page.getByText("Spawned riff-swift-fox")).toBeVisible();

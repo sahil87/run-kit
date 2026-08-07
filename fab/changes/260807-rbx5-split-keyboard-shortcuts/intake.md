@@ -104,3 +104,13 @@ The palette entries are gated on a current window + session, so on non-window ro
 | 7 | Certain | Move the macro e2e capture chord off ⇧Ctrl+D (e.g., to ⇧Ctrl+Y) | e2e runs on Linux where ⇧Ctrl+D becomes split-horizontal's default; capturing it would assert a steal instead of a clean capture | S:50 R:90 A:90 D:85 |
 
 7 assumptions (4 certain, 3 confident, 0 tentative, 0 unresolved).
+
+## Revision (2026-08-07, in-PR)
+
+Assumptions 5 and 7 are superseded. The Win/Linux half was reworked from "horizontal on ⇧Ctrl+D, vertical unbound via a `platform` default gate" to **bound-everywhere per-platform pairs** via a `macCode?: string` default refinement in `defaultComboFor` (composing with `macTier` under the one mac host gate; the `platform` field is removed):
+
+- Base (Win/Linux) codes are keycap-as-divider mnemonics: `split-horizontal` = ⇧Ctrl+\ (shift+\ types `|`), `split-vertical` = ⇧Ctrl+-.
+- Both rows carry `macCode: "KeyD"`, so macOS keeps the requested ⌘D/⇧⌘D pair unchanged.
+- With shifted `KeyD` free again on Win/Linux, the macro/capture test suites revert to their original ⇧Ctrl+D chords (assumption 7 no longer applies).
+
+Rationale: no action ships unbound-by-default, each platform gets a coherent pair, and the change is one deliberate exception to 260730-n789's letters-constant rule, recorded in the registry docs and `docs/memory/run-kit/ui-patterns.md` § Design Decisions.

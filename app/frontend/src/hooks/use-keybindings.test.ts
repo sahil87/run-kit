@@ -125,11 +125,11 @@ describe("useKeybindings macro-awareness (260730-hbyh)", () => {
     localStorage.setItem("runkit-macros", JSON.stringify([DISCUSS]));
     localStorage.setItem(
       KEYBINDINGS_STORAGE_KEY,
-      JSON.stringify({ "macro:discuss": { code: "KeyY", tier: "shifted" } }),
+      JSON.stringify({ "macro:discuss": { code: "KeyD", tier: "shifted" } }),
     );
     const { result } = renderHook(() => useKeybindings());
     expect(result.current.byAction.get("macro:discuss")).toMatchObject({
-      code: "KeyY",
+      code: "KeyD",
       tier: "shifted",
       enabled: true,
     });
@@ -139,12 +139,12 @@ describe("useKeybindings macro-awareness (260730-hbyh)", () => {
     localStorage.setItem("runkit-macros", JSON.stringify([DISCUSS]));
     localStorage.setItem(
       KEYBINDINGS_STORAGE_KEY,
-      JSON.stringify({ "macro:discuss": { code: "KeyY", tier: "shifted" } }),
+      JSON.stringify({ "macro:discuss": { code: "KeyD", tier: "shifted" } }),
     );
     const { result } = renderHook(() => useKeybindings());
     let stolen: string | null = null;
     act(() => {
-      stolen = result.current.setBinding("window-next", { code: "KeyY", tier: "shifted" });
+      stolen = result.current.setBinding("window-next", { code: "KeyD", tier: "shifted" });
     });
     expect(stolen).toBe("macro:discuss");
     expect(result.current.byAction.get("macro:discuss")).toMatchObject({
@@ -157,11 +157,11 @@ describe("useKeybindings macro-awareness (260730-hbyh)", () => {
     localStorage.setItem("runkit-macros", JSON.stringify([DISCUSS]));
     const { result } = renderHook(() => useKeybindings());
     act(() => {
-      result.current.setBinding("macro:discuss", { code: "KeyY", tier: "shifted" });
+      result.current.setBinding("macro:discuss", { code: "KeyD", tier: "shifted" });
     });
     expect(JSON.parse(localStorage.getItem(KEYBINDINGS_STORAGE_KEY) ?? "{}")).toEqual({
-      "macro:discuss": { code: "KeyY", tier: "shifted" },
+      "macro:discuss": { code: "KeyD", tier: "shifted" },
     });
-    expect(result.current.byAction.get("macro:discuss")).toMatchObject({ enabled: true, code: "KeyY" });
+    expect(result.current.byAction.get("macro:discuss")).toMatchObject({ enabled: true, code: "KeyD" });
   });
 });

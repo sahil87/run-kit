@@ -211,13 +211,7 @@ describe("ShortcutsOverlay", () => {
     // ⇧Ctrl+A is owned by "Next waiting agent".
     fireEvent.keyDown(window, { key: "A", code: "KeyA", shiftKey: true, ctrlKey: true });
     expect(screen.getByText(/now unbound/)).toBeInTheDocument();
-    // Scoped to the victim's own row: `split-vertical` also renders an
-    // `unbound` button on this (non-mac) host — it ships mac-only (260807-rbx5).
-    const victimRow = screen
-      .getByTestId("shortcuts-overlay")
-      .querySelector<HTMLElement>('[data-actionid="agent-next-waiting"]');
-    if (!victimRow) throw new Error("missing agent-next-waiting row");
-    expect(within(victimRow).getByTitle("unbound — click to rebind")).toBeInTheDocument();
+    expect(screen.getByTitle("unbound — click to rebind")).toBeInTheDocument();
     expect(JSON.parse(localStorage.getItem(KEYBINDINGS_STORAGE_KEY) ?? "{}")).toEqual({
       "window-next": { code: "KeyA", tier: "shifted" },
       "agent-next-waiting": null,
@@ -510,9 +504,9 @@ describe("ShortcutsOverlay CUSTOM section (260730-hbyh)", () => {
     // Capture armed on the fresh row.
     expect(screen.getByText("press keys…")).toBeInTheDocument();
     // Land a chord — the combo persists as an ordinary keybindings diff.
-    fireEvent.keyDown(window, { code: "KeyY", key: "Y", shiftKey: true, ctrlKey: true });
+    fireEvent.keyDown(window, { code: "KeyD", key: "D", shiftKey: true, ctrlKey: true });
     expect(JSON.parse(localStorage.getItem(KEYBINDINGS_STORAGE_KEY) ?? "{}")).toEqual({
-      "macro:riff-discuss": { code: "KeyY", tier: "shifted" },
+      "macro:riff-discuss": { code: "KeyD", tier: "shifted" },
     });
   });
 
@@ -520,7 +514,7 @@ describe("ShortcutsOverlay CUSTOM section (260730-hbyh)", () => {
     localStorage.setItem("runkit-macros", JSON.stringify([DISCUSS]));
     localStorage.setItem(
       KEYBINDINGS_STORAGE_KEY,
-      JSON.stringify({ "macro:discuss": { code: "KeyY", tier: "shifted" } }),
+      JSON.stringify({ "macro:discuss": { code: "KeyD", tier: "shifted" } }),
     );
     renderWithTargets();
     fireEvent.click(screen.getByLabelText("Delete macro riff: discuss"));

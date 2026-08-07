@@ -34,10 +34,6 @@ the backend 400 as an error toast).
   a macro's key binding is an ordinary override entry) before page load.
 - Chords are pressed as `Shift+Control+<code>` — the registry matches on
   `KeyboardEvent.code` and accepts Ctrl in place of Meta on every platform.
-- The test macro rides **⇧Ctrl+Y**, deliberately not ⇧Ctrl+D: D is
-  `split-horizontal`'s shipped Win/Linux default (260807-rbx5) and e2e runs on
-  Linux, so a capture there would assert a steal instead of a clean capture. Y
-  is free in every claim set and every shipped binding.
 
 ## Tests
 
@@ -54,12 +50,12 @@ chord dispatching a validated riff spawn that toasts and navigates.
    `+ bind a key to a palette action or riff preset…`.
 3. Search targets for "discuss"; pick `riff: discuss`; the name input
    pre-fills with the target label; click `add + capture key`.
-4. Capture arms on the fresh row (`press keys…`); press Shift+Ctrl+Y.
+4. Capture arms on the fresh row (`press keys…`); press Shift+Ctrl+D.
 5. Assert `runkit-macros` holds the definition
    (`macro:riff-discuss` → preset `discuss`) and `runkit-keybindings` holds
-   `{code: "KeyY", tier: "shifted"}`; the row shows the preview
+   `{code: "KeyD", tier: "shifted"}`; the row shows the preview
    `rk riff --preset discuss`.
-6. Escape closes the overlay; press Shift+Ctrl+Y.
+6. Escape closes the overlay; press Shift+Ctrl+D.
 7. Assert exactly one POST with body `{session: "dev", preset: "discuss"}`
    (preset name only — no shell text), the `Spawned riff-swift-fox` toast,
    and navigation to `/default/9`.
@@ -72,10 +68,10 @@ its shortcut hint (via the shared `withShortcutHints` join on actionId) and
 selecting it runs the same execution path as the chord.
 
 **Steps:**
-1. Seed the `discuss` macro bound to ⇧Ctrl+Y; mock the backend; open
+1. Seed the `discuss` macro bound to ⇧Ctrl+D; mock the backend; open
    `/default/1`.
 2. Open the palette (Meta+K) and filter for "Macro".
-3. Assert `Macro: riff: discuss` is listed with the hint `Shift+Ctrl+Y`
+3. Assert `Macro: riff: discuss` is listed with the hint `Shift+Ctrl+D`
    (non-mac host formatting).
 4. Press Enter to select it; assert the spawn toast and the single POST body
    `{session: "dev", preset: "discuss"}`.

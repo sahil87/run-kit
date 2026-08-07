@@ -64,23 +64,26 @@ export type KeyBinding = {
   /** Base (Windows/Linux) default tier. */
   tier: BindingTier;
   /** macOS default-tier refinement (260730-n789): the tier this binding's
-   *  DEFAULT combo uses on mac hosts (the letter/code stays constant). Absent
-   *  = the base tier everywhere. Only the DEFAULT is refined — the stored
-   *  override shape `{ code, tier } | null` is untouched (overrides are
-   *  per-device, so per-platform is inherent). */
+   *  DEFAULT combo uses on mac hosts (the key code stays constant unless a
+   *  `macCode` refinement accompanies it). Absent = the base tier everywhere.
+   *  Only the DEFAULT is refined — the stored override shape
+   *  `{ code, tier } | null` is untouched (overrides are per-device, so
+   *  per-platform is inherent). */
   macTier?: BindingTier;
-  /** Restrict `macTier` to desktop-shell hosts (`isShell()`): a mac BROWSER
-   *  keeps the base tier (the unshifted ⌘ N/T/W set is browser-reserved and
-   *  uninterceptable there). */
+  /** macOS default-CODE refinement (260807-rbx5): the key code this binding's
+   *  DEFAULT combo uses on mac hosts, replacing `code`. The deliberate
+   *  exception to 260730-n789's letters-constant rule, for chords whose mac
+   *  convention has no legal cross-platform letter: the split pair wants
+   *  iTerm2's ⌘D/⇧⌘D on mac, but both rows on `KeyD` would collide on the
+   *  Win/Linux shifted tier and plain Ctrl+D is the pane's EOF — so Win/Linux
+   *  keeps its own divider-mnemonic codes and mac refines to `KeyD`. Composes
+   *  with `macTier`/`macShellOnly` (one host gate for both refinements); only
+   *  the DEFAULT is refined, same as `macTier`. */
+  macCode?: string;
+  /** Restrict `macTier`/`macCode` to desktop-shell hosts (`isShell()`): a mac
+   *  BROWSER keeps the base combo (the unshifted ⌘ N/T/W set is
+   *  browser-reserved and uninterceptable there). */
   macShellOnly?: boolean;
-  /** Restrict the SHIPPED DEFAULT to one keycap platform (260807-rbx5): on a
-   *  host whose platform differs, `defaultComboFor` yields no combo and the
-   *  binding resolves UNBOUND — the keyless-default state macro bindings
-   *  already produce, so the overlay's `unbound` affordance covers it. A user
-   *  override still applies verbatim on every platform; only the default is
-   *  gated. Used by `split-vertical`, whose ⇧⌘D chord has no free Win/Linux
-   *  counterpart (see `DEFAULT_BINDINGS`). */
-  platform?: BindingPlatform;
   scope: BindingScope;
   kind: BindingKind;
   /** Human label for overlay rows + tier-map keycaps. */
@@ -118,11 +121,12 @@ export const KEYBINDINGS_STORAGE_KEY = "runkit-keybindings";
  * N/T/W new-session/new-window/close-window, H/L prev/next window, [/] back/
  * forward, A next-waiting-agent, / the cheatsheet — joined by E compose-strip
  * toggle and O open-last-used (260801-sm6g), , settings (260801-mqim), and the
- * D split pair (260807-rbx5). Global scope (O and the D pair are
- * terminal-scoped): dispatch mounts decide per-route applicability by handler
- * presence.
+ * split pair (260807-rbx5: \/− on Win/Linux, ⌘D/⇧⌘D on mac via `macCode`).
+ * Global scope (O and the split pair are terminal-scoped): dispatch mounts
+ * decide per-route applicability by handler presence.
  *
- * macOS demotions (260730-n789 — letters constant, modifier varies): [/]//
+ * macOS demotions (260730-n789 — letters constant, modifier varies; the split
+ * pair's `macCode` is the one deliberate code exception): [/]//
  * default to the unshifted ⌘ tier on every mac host (interceptable in
  * browsers, native back/forward convention); N/T/W and , demote only inside
  * the desktop shell (`macShellOnly` — mac browsers reserve N/T/W even
@@ -152,23 +156,25 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // (last-used) target. Terminal scope — the Open control is
   // terminal-route-only; the board/server routes mount no handler.
   { actionId: "open-last-used", code: "KeyO", tier: "shifted", scope: "terminal", kind: "builtin", label: "Open in last-used app", description: "re-run the last Open target", mapLabel: "open" },
-  // Split pane (260807-rbx5) — the ⌘D/⇧⌘D pair from iTerm2/VS Code, reusing
-  // the `Window: Split Horizontal|Vertical` palette bodies. Direction
-  // semantics follow the top-bar chip (260806-2x2h): horizontal = side-by-side
-  // (tmux `-h`), and it is the primary/default split, so it takes the plain
-  // ⌘D and the sole Win/Linux chord. Terminal scope (the view-cycle
+  // Split pane (260807-rbx5) — per-platform pairs, reusing the
+  // `Window: Split Horizontal|Vertical` palette bodies. Direction semantics
+  // follow the top-bar chip (260806-2x2h): horizontal = side-by-side
+  // (tmux `-h`), the primary/default split. Terminal scope (the view-cycle
   // precedent — the palette bodies exist only on window routes).
   //
-  // Per-platform shape, forced by three established registry rules: plain
-  // Ctrl+D is EOF and belongs to the pane on Win/Linux (so the request's mac
-  // chords map to the mac tiers there); the two rows cannot share ⇧Ctrl+D
-  // (equal scope → `findConflicts`, a test-enforced invariant); and mac ⌘D
-  // (browser bookmark) is page-interceptable like the demoted ⌘[/⌘]/⌘/, so
-  // `macTier` applies in BOTH mac hosts with no `macShellOnly` and no
-  // browser-owner claim. `split-vertical` therefore ships mac-only
-  // (`platform`) — palette-reachable and user-rebindable elsewhere.
-  { actionId: "split-horizontal", code: "KeyD", tier: "shifted", macTier: "cmd", scope: "terminal", kind: "builtin", label: "Split horizontal", description: "split the pane side-by-side", mapLabel: "split h" },
-  { actionId: "split-vertical", code: "KeyD", tier: "shifted", platform: "mac", scope: "terminal", kind: "builtin", label: "Split vertical", description: "split the pane stacked", mapLabel: "split v" },
+  // Mac refines both rows to `KeyD` (`macCode`) for the iTerm2/Warp/Ghostty
+  // pair: ⌘D side-by-side (`macTier` demotion — browser bookmark is
+  // page-interceptable like the demoted ⌘[/⌘]/⌘/, so no `macShellOnly` and no
+  // browser-owner claim) and ⇧⌘D stacked. The pair is tier-disjoint on one
+  // code, so `findConflicts` stays clean.
+  //
+  // Win/Linux cannot host that pair — plain Ctrl+D is the pane's EOF and two
+  // rows cannot share ⇧Ctrl+D (equal scope → `findConflicts`, a test-enforced
+  // invariant) — so it keeps keycap-as-divider mnemonics instead: ⇧Ctrl+\
+  // (shift+\ types `|`, the divider a side-by-side split creates) and ⇧Ctrl+-
+  // (the stacked divider). Both bound on every host; both rebindable.
+  { actionId: "split-horizontal", code: "Backslash", tier: "shifted", macCode: "KeyD", macTier: "cmd", scope: "terminal", kind: "builtin", label: "Split horizontal", description: "split the pane side-by-side", mapLabel: "split h" },
+  { actionId: "split-vertical", code: "Minus", tier: "shifted", macCode: "KeyD", scope: "terminal", kind: "builtin", label: "Split vertical", description: "split the pane stacked", mapLabel: "split v" },
   { actionId: "window-prev", code: "KeyH", tier: "shifted", scope: "global", kind: "builtin", label: "Previous window", mapLabel: "prev win" },
   { actionId: "window-next", code: "KeyL", tier: "shifted", scope: "global", kind: "builtin", label: "Next window", mapLabel: "next win" },
   { actionId: "go-back", code: "BracketLeft", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Back", description: "history", mapLabel: "back" },
@@ -456,23 +462,20 @@ export function writeStoredOverrides(overrides: BindingOverrides): void {
 
 /**
  * The host-effective DEFAULT combo for a binding (260730-n789): on mac hosts
- * a `macTier` refinement replaces the base tier — gated on the desktop shell
- * when `macShellOnly` is set — with the code always constant. This is the
- * single seam where platform + shell are consulted for defaults; both
+ * a `macTier` and/or `macCode` refinement (260807-rbx5) replaces the base
+ * tier/code — gated on the desktop shell when `macShellOnly` is set. This is
+ * the single seam where platform + shell are consulted for defaults; both
  * `resolveBindings` (fallback + `isDefault`) and `applyCapture` (own-default
- * detection) read defaults through it.
- *
- * A `platform`-restricted binding (260807-rbx5) ships NO default outside its
- * platform: the KEYLESS combo (`code: ""`) that `resolveBindings` already
- * resolves unbound — no new effective state, and an override still wins
- * because `resolveBindings` consults it before this fallback.
+ * detection) read defaults through it, so a `macCode` binding's own-default
+ * re-capture and conflict detection come for free.
  */
 export function defaultComboFor(def: KeyBinding, host: BindingHost): BindingCombo {
-  if (def.platform && def.platform !== host.platform) {
-    return { code: "", tier: def.tier };
-  }
-  if (host.platform === "mac" && def.macTier && (!def.macShellOnly || host.shell)) {
-    return { code: def.code, tier: def.macTier };
+  if (
+    host.platform === "mac" &&
+    (def.macTier || def.macCode) &&
+    (!def.macShellOnly || host.shell)
+  ) {
+    return { code: def.macCode ?? def.code, tier: def.macTier ?? def.tier };
   }
   return { code: def.code, tier: def.tier };
 }

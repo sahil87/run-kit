@@ -57,6 +57,60 @@ function arraysEqual(a: string[], b: string[]): boolean {
   return true;
 }
 
+/** localStorage key holding the per-SESSION collapse map (260807-kddk) — a
+ *  single JSON object of collapsed EXCEPTIONS keyed by the session row key
+ *  (`{"default:utils2": true, "fabKit1:relay-spike": true}`). An expanded
+ *  session carries no entry, so the default (expanded) keeps applying to every
+ *  session the user has never collapsed, new sessions included.
+ *
+ *  One map key rather than one key per session: per-session keys would sprawl
+ *  unboundedly across killed sessions and could not be enumerated for cleanup.
+ *  The sibling per-SERVER section keys (`runkit-panel-sessions-{server}`) are
+ *  scalars only because their value is a single boolean per server. */
+export const SESSION_COLLAPSED_STORAGE_KEY = "runkit-session-collapsed";
+
+/** Tolerant read of the persisted collapse map. Malformed JSON, a non-object
+ *  root (an array included), a throwing `localStorage` (privacy mode,
+ *  sandboxed iframe), and non-`true` entry values all degrade to `{}` — i.e.
+ *  every session expanded. Normalizing to `true`-only entries on read is what
+ *  keeps the map exceptions-only: a stored `false` is dropped, not honored. */
+function readCollapsedSessions(): Record<string, boolean> {
+  let raw: string | null = null;
+  try {
+    raw = localStorage.getItem(SESSION_COLLAPSED_STORAGE_KEY);
+  } catch {
+    return {}; // localStorage unavailable
+  }
+  if (raw === null) return {};
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return {}; // malformed JSON
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return {};
+  const map: Record<string, boolean> = {};
+  for (const [key, value] of Object.entries(parsed)) {
+    if (value === true) map[key] = true;
+  }
+  return map;
+}
+
+/** Best-effort write-through of the collapse map. An empty map removes the key
+ *  outright rather than storing `{}` (the `compose-draft-store.ts` posture), so
+ *  "no exceptions" and "never used" are the same state on the next read. */
+function writeCollapsedSessions(map: Record<string, boolean>): void {
+  try {
+    if (Object.keys(map).length === 0) {
+      localStorage.removeItem(SESSION_COLLAPSED_STORAGE_KEY);
+    } else {
+      localStorage.setItem(SESSION_COLLAPSED_STORAGE_KEY, JSON.stringify(map));
+    }
+  } catch {
+    // localStorage unavailable
+  }
+}
+
 /** Identity of a roving tree row, keyed by its row key (`data-window-id` for a
  *  window, `${server}:${name}` for a session). A discriminated union so Enter/
  *  Space activation derives the right handler + args with no type assertions. */
@@ -263,7 +317,17 @@ export function Sidebar({
     }));
   }, [currentServer, attachServer, readServerOpen]);
 
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  // Per-session window-list collapse, keyed by `${server}:${session.name}` and
+  // persisted as collapsed exceptions in `runkit-session-collapsed` (kddk).
+  // Seeded lazily from storage so a collapsed session paints collapsed on the
+  // first frame; read sites keep their `?? false` default, so an unknown key
+  // (a new session, a cleared browser) stays expanded exactly as before.
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>(readCollapsedSessions);
+  // Synchronous mirror of `collapsed` for the toggle handler. React state is
+  // not readable until the next render, so two toggles batched into a single
+  // render would both derive from the same stale map and persist a value that
+  // disagrees with the committed state. The ref advances on every toggle.
+  const collapsedRef = useRef(collapsed);
   const [killTarget, setKillTarget] = useState<{
     type: "session" | "window";
     server: string;
@@ -768,7 +832,24 @@ export function Sidebar({
   }, []);
 
   const toggleSession = useCallback((server: string, name: string) => {
-    setCollapsed((prev) => ({ ...prev, [`${server}:${name}`]: !prev[`${server}:${name}`] }));
+    // The persistence write MUST stay outside the state updater — the same
+    // StrictMode purity constraint `toggleServerSection` documents above: React
+    // 19 double-invokes updaters, so a `localStorage.setItem` inside one runs
+    // twice and the second pass observes the first pass's write, turning a
+    // single click into a net no-op. Derive from the ref, write once, then
+    // commit an already-computed value (not an updater function).
+    const key = `${server}:${name}`;
+    const next = { ...collapsedRef.current };
+    if (next[key]) {
+      // Expanding drops the entry entirely, keeping the stored map
+      // exceptions-only so the (expanded) default keeps applying.
+      delete next[key];
+    } else {
+      next[key] = true;
+    }
+    collapsedRef.current = next;
+    writeCollapsedSessions(next);
+    setCollapsed(next);
   }, []);
 
   function handleKill() {

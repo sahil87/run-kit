@@ -1,7 +1,7 @@
 import { StrictMode } from "react";
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, fireEvent, cleanup, within, act, waitFor } from "@testing-library/react";
-import { Sidebar } from "./index";
+import { Sidebar, SESSION_COLLAPSED_STORAGE_KEY } from "./index";
 import { OptimisticProvider } from "@/contexts/optimistic-context";
 import { HostMetricsProvider, MetricsProvider, StandaloneSessionContextProvider } from "@/contexts/session-context";
 import { FocusedPaneProvider, useRegisterFocusedPane, type FocusedPane } from "@/contexts/focused-pane-context";
@@ -622,6 +622,161 @@ describe("Sidebar — per-server group toggle under StrictMode (mss7)", () => {
       screen.getByRole("button", { name: /Expand alpha sessions/ }),
     ).toHaveAttribute("aria-expanded", "false");
     expect(localStorage.getItem("runkit-panel-sessions-alpha")).toBe("false");
+  });
+});
+
+describe("Sidebar — per-session collapse persistence (kddk)", () => {
+  // Per-session collapse used to be plain React state, so every refresh reset
+  // every session to expanded. It now rides one localStorage key holding a JSON
+  // map of collapsed EXCEPTIONS — expanded sessions carry no entry, so the
+  // default (expanded) still applies to sessions the user never collapsed.
+
+  /** The chevron on the SESSION row (`Collapse main` / `Expand main`) — the
+   *  `$` anchor keeps it distinct from the server group header's
+   *  `Collapse primary sessions`. */
+  function collapseChipFor(session: string): HTMLElement {
+    return screen.getByRole("button", { name: new RegExp(`(Collapse|Expand) ${session}$`) });
+  }
+
+  function storedMap(): unknown {
+    const raw = localStorage.getItem(SESSION_COLLAPSED_STORAGE_KEY);
+    return raw === null ? null : JSON.parse(raw);
+  }
+
+  function windowRow(key: string): Element | null {
+    return document.querySelector(`[role="tree"] [data-row-key="${key}"]`);
+  }
+
+  it("persists a collapse and restores it on a remount (refresh)", () => {
+    renderSidebar({ currentServer: "primary" });
+    expect(collapseChipFor("main")).toHaveAttribute("aria-expanded", "true");
+
+    fireEvent.click(collapseChipFor("main"));
+
+    expect(collapseChipFor("main")).toHaveAttribute("aria-expanded", "false");
+    expect(windowRow("primary:@0")).toBeNull();
+    expect(storedMap()).toEqual({ "primary:main": true });
+
+    // Remount with the same storage — the refresh the feature exists for.
+    cleanup();
+    renderSidebar({ currentServer: "primary" });
+
+    expect(collapseChipFor("main")).toHaveAttribute("aria-expanded", "false");
+    expect(windowRow("primary:@0")).toBeNull();
+  });
+
+  it("removes the entry when the session is expanded again (exceptions-only)", () => {
+    localStorage.setItem(
+      SESSION_COLLAPSED_STORAGE_KEY,
+      JSON.stringify({ "primary:main": true }),
+    );
+    renderSidebar({ currentServer: "primary" });
+    expect(collapseChipFor("main")).toHaveAttribute("aria-expanded", "false");
+
+    fireEvent.click(collapseChipFor("main"));
+
+    expect(collapseChipFor("main")).toHaveAttribute("aria-expanded", "true");
+    expect(windowRow("primary:@0")).not.toBeNull();
+    // Not `{"primary:main": false}` — and an emptied map drops the key outright.
+    expect(localStorage.getItem(SESSION_COLLAPSED_STORAGE_KEY)).toBeNull();
+  });
+
+  it("leaves unrelated entries alone, including sessions not currently rendered", () => {
+    // Stale entries for killed/other-server sessions are deliberately not pruned
+    // (the client cannot enumerate sessions on non-attached servers).
+    localStorage.setItem(
+      SESSION_COLLAPSED_STORAGE_KEY,
+      JSON.stringify({ "other:archived": true }),
+    );
+    renderSidebar({ currentServer: "primary" });
+
+    fireEvent.click(collapseChipFor("main"));
+
+    expect(storedMap()).toEqual({ "other:archived": true, "primary:main": true });
+  });
+
+  it("renders every session expanded when the stored value is malformed JSON", () => {
+    localStorage.setItem(SESSION_COLLAPSED_STORAGE_KEY, "{not json");
+
+    expect(() => renderSidebar({ currentServer: "primary" })).not.toThrow();
+
+    expect(collapseChipFor("main")).toHaveAttribute("aria-expanded", "true");
+    expect(windowRow("primary:@0")).not.toBeNull();
+  });
+
+  it("ignores a non-object root and non-`true` entry values", () => {
+    localStorage.setItem(
+      SESSION_COLLAPSED_STORAGE_KEY,
+      JSON.stringify(["primary:main"]),
+    );
+    renderSidebar({ currentServer: "primary" });
+    expect(collapseChipFor("main")).toHaveAttribute("aria-expanded", "true");
+
+    cleanup();
+    // A truthy-but-not-`true` value must not resurrect as an exception.
+    localStorage.setItem(
+      SESSION_COLLAPSED_STORAGE_KEY,
+      JSON.stringify({ "primary:main": "yes" }),
+    );
+    renderSidebar({ currentServer: "primary" });
+    expect(collapseChipFor("main")).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("renders a session with no stored entry expanded (default preserved)", () => {
+    localStorage.setItem(
+      SESSION_COLLAPSED_STORAGE_KEY,
+      JSON.stringify({ "primary:other": true }),
+    );
+    renderSidebar({ currentServer: "primary" });
+
+    expect(collapseChipFor("main")).toHaveAttribute("aria-expanded", "true");
+    expect(windowRow("primary:@0")).not.toBeNull();
+  });
+
+  it("toggles exactly once per click under StrictMode", () => {
+    // The mss7 failure mode, one level down: a localStorage write INSIDE the
+    // state updater runs twice under React 19 StrictMode and the second pass
+    // observes the first pass's write, making a single click a net no-op.
+    renderSidebar({ currentServer: "primary", strict: true });
+
+    fireEvent.click(collapseChipFor("main"));
+    expect(collapseChipFor("main")).toHaveAttribute("aria-expanded", "false");
+    expect(storedMap()).toEqual({ "primary:main": true });
+
+    fireEvent.click(collapseChipFor("main"));
+    expect(collapseChipFor("main")).toHaveAttribute("aria-expanded", "true");
+    expect(localStorage.getItem(SESSION_COLLAPSED_STORAGE_KEY)).toBeNull();
+  });
+
+  it("renders and toggles when localStorage throws (privacy mode)", () => {
+    // Scoped to this key so the throw exercises the collapse seam only — the
+    // rest of the tree's preferences keep their real storage.
+    const realGet = Storage.prototype.getItem;
+    const realSet = Storage.prototype.setItem;
+    const getItem = vi
+      .spyOn(Storage.prototype, "getItem")
+      .mockImplementation(function (this: Storage, key: string) {
+        if (key === SESSION_COLLAPSED_STORAGE_KEY) throw new Error("access denied");
+        return realGet.call(this, key);
+      });
+    const setItem = vi
+      .spyOn(Storage.prototype, "setItem")
+      .mockImplementation(function (this: Storage, key: string, value: string) {
+        if (key === SESSION_COLLAPSED_STORAGE_KEY) throw new Error("access denied");
+        realSet.call(this, key, value);
+      });
+
+    try {
+      expect(() => renderSidebar({ currentServer: "primary" })).not.toThrow();
+      expect(collapseChipFor("main")).toHaveAttribute("aria-expanded", "true");
+
+      // The toggle still works in-session; only the persistence is lost.
+      expect(() => fireEvent.click(collapseChipFor("main"))).not.toThrow();
+      expect(collapseChipFor("main")).toHaveAttribute("aria-expanded", "false");
+    } finally {
+      getItem.mockRestore();
+      setItem.mockRestore();
+    }
   });
 });
 

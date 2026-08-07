@@ -1,3 +1,12 @@
 {"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-07T11:01:26Z"}
 {"args":"Persist sidebar per-session expand/collapse state across refreshes via localStorage","cmd":"fab-new","event":"command","ts":"2026-08-07T11:01:26Z"}
 {"delta":"+5.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-08-07T11:02:52Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-08-07T14:18:41Z"}
+{"action":"enter","driver":"fab-continue","event":"stage-transition","stage":"apply","ts":"2026-08-07T14:18:59Z"}
+{"action":"enter","driver":"fab-continue","event":"stage-transition","stage":"review","ts":"2026-08-07T14:34:42Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-08-07T14:36:55Z"}
+{"action":"enter","driver":"fab-continue","event":"stage-transition","stage":"hydrate","ts":"2026-08-07T14:43:24Z"}
+{"event":"review","result":"passed","ts":"2026-08-07T14:43:24Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-08-07T14:45:53Z"}
+{"action":"enter","driver":"fab-continue","event":"stage-transition","stage":"ship","ts":"2026-08-07T14:52:02Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-08-07T14:55:00Z"}

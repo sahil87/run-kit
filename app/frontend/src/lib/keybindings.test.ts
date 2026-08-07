@@ -70,6 +70,10 @@ describe("DEFAULT_BINDINGS integrity", () => {
       "agent-next-waiting": "KeyA",
       "shortcuts-overlay": "Slash",
       "settings-open": "Comma",
+      "split-horizontal": "Backslash",
+      "split-vertical": "Minus",
+      "board-split-horizontal": "Backslash",
+      "board-split-vertical": "Minus",
     });
   });
 
@@ -153,6 +157,54 @@ describe("DEFAULT_BINDINGS integrity", () => {
       enabled: true,
       isDefault: true,
     });
+  });
+
+  it("split pair: ⇧⌘\\ / ⇧⌘- on terminal AND board scopes, no mac demotion (260807-phc4)", () => {
+    // The keycap IS the divider: Shift+\ types `|` (vertical divider →
+    // side-by-side → Split Horizontal, tmux `-h`); `-` is the horizontal
+    // divider (→ stacked → Split Vertical).
+    const expected = [
+      { actionId: "split-horizontal", code: "Backslash", scope: "terminal" },
+      { actionId: "split-vertical", code: "Minus", scope: "terminal" },
+      { actionId: "board-split-horizontal", code: "Backslash", scope: "board" },
+      { actionId: "board-split-vertical", code: "Minus", scope: "board" },
+    ] as const;
+    for (const { actionId, code, scope } of expected) {
+      const def = DEFAULT_BINDINGS.find((b) => b.actionId === actionId);
+      expect(def).toMatchObject({ code, tier: "shifted", scope, kind: "builtin" });
+      // No mac demotion: ⌘\ is `sidebar-toggle` and ⌘- is the mac shell's
+      // zoom-out accelerator; the shifted tier is also the only one the
+      // terminal seam refuses on win/linux (plain Ctrl belongs to the pane).
+      expect(def?.macTier).toBeUndefined();
+      expect(def?.macShellOnly).toBeUndefined();
+      // Splits suppress in real text inputs like other action chords.
+      expect(def?.ignoreInputs).toBeUndefined();
+      for (const host of ALL_HOSTS) {
+        expect(byId(resolved(host), actionId)).toMatchObject({
+          code,
+          tier: "shifted",
+          scope,
+          enabled: true,
+        });
+      }
+    }
+  });
+
+  it("shifted \\ and - are unclaimed on every host; the ⌘ claims sit on a disjoint tier (260807-phc4)", () => {
+    // The split pair's conflict-freedom rests on TWO mechanisms the aggregate
+    // `ships conflict-free defaults` test does not name: the codes are
+    // unclaimed on the shifted tier, and the ⌘\ / mac-shell ⌘- claims live on
+    // the `cmd` tier, which never collides with `shifted`.
+    expect(tiersCollide("shifted", "cmd")).toBe(false);
+    for (const host of ALL_HOSTS) {
+      const colliding = claimedKeys(host.platform, host.shell).filter(
+        (c) => (c.code === "Backslash" || c.code === "Minus") && tiersCollide(c.tier, "shifted"),
+      );
+      expect(colliding).toEqual([]);
+    }
+    // Same-combo terminal/board registration is a scope shadow, not a
+    // conflict — the routes never co-mount.
+    expect(scopesOverlap("terminal", "board")).toBe(false);
   });
 
   it("migrates the five legacy chords with combos unchanged", () => {

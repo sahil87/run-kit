@@ -353,6 +353,42 @@ function BoardPageContent({ name }: { name: string }) {
   // board twin registers both the chord handler (below) and the palette
   // opener. Lifted above the handler memo for the dep (260801-mqim).
   const { openSettings } = useSettingsDialog();
+
+  // Palette-surface split/close executors (Constitution V; 260715-6jwn). Mirror
+  // the terminal palette's wiring (app.tsx — useOptimisticAction-wrapped
+  // splitWindow/closePane with error toasts). Declared ABOVE BOTH consumers —
+  // `boardKeyHandlers` (the ⇧⌘\ / ⇧⌘- chords, 260807-phc4) and
+  // `boardRouteActions` (the palette entries) — so each memo can list them in
+  // its dep array. Close schedules a self-heal refetch (`onSettled`) like the
+  // top-bar ✕.
+  const { execute: executeSplit } = useOptimisticAction<[string, string, boolean, string | undefined]>({
+    action: (srv, windowId, horizontal, cwd) => splitWindow(srv, windowId, horizontal, cwd),
+    onError: (err) => addToast(err.message || "Failed to split pane"),
+  });
+
+  // The focused tile's kill/split target — the SINGLE source of truth for the
+  // focused window shared by the top-bar SplitControl + Kill-row slot, the board
+  // split/close palette actions (260715-6jwn), AND the split chords
+  // (260807-phc4). `cwd` comes from the focused entry's ACTIVE pane (fallback:
+  // first pane; else undefined → splitWindow omits it and tmux uses its
+  // default). Board pins are LINK-based with dual home+pin membership: only the
+  // `_rk-pin-*` pin-session copy is filtered from session lists — the
+  // HOME-session copy of a pinned window IS in `ctx.sessionsByServer` (see the
+  // waitingWindowIds/homeSessionByKey joins below). `BoardEntry.panes` is used
+  // here anyway because it already carries per-pane cwd + isActive from the
+  // getBoard join (matching terminal-mode's active-pane worktreePath semantics)
+  // and stays available even for a pin-only window whose home session died. Null
+  // when the board is empty (no focused tile). Declared ABOVE both consumers so
+  // they use it directly instead of re-deriving the active-pane cwd (parsimony
+  // — one derivation, one source of truth).
+  const focusedPane = useMemo(() => {
+    const e = entries[focusedIndex];
+    if (!e) return null;
+    const panes = e.panes ?? [];
+    const active = panes.find((p) => p.isActive) ?? panes[0];
+    return { server: e.server, windowId: e.windowId, cwd: active?.cwd };
+  }, [entries, focusedIndex]);
+
   const boardKeyHandlers = useMemo(() => {
     const cycle = (delta: -1 | 1) => {
       if (entries.length === 0) return;
@@ -374,8 +410,23 @@ function BoardPageContent({ name }: { name: string }) {
       // AppShell, so a handler registered only there would leave the chord
       // dead here); a re-fire while the dialog is open is a no-op.
       "settings-open": openSettings,
+      // ⇧⌘\ / ⇧⌘- split pair (260807-phc4) — the board twins of the terminal
+      // chords, acting on the FOCUSED tile's window via the shared
+      // `focusedPane` memo (the same `{server, windowId, cwd}` the top-bar
+      // SplitControl and the board split palette entries consume — one
+      // derivation of the active-pane cwd, not a per-handler lookup). Split
+      // booleans match the top-bar chip's semantics (260806-2x2h): Horizontal →
+      // `horizontal: true` (tmux `-h`, side-by-side), Vertical → `false`
+      // (stacked). An empty board leaves `focusedPane` null → no handler → the
+      // chord falls through untouched, matching the pane-cycle gating above.
+      "board-split-horizontal": focusedPane
+        ? () => executeSplit(focusedPane.server, focusedPane.windowId, true, focusedPane.cwd)
+        : undefined,
+      "board-split-vertical": focusedPane
+        ? () => executeSplit(focusedPane.server, focusedPane.windowId, false, focusedPane.cwd)
+        : undefined,
     };
-  }, [entries.length, router, toggleComposeStrip, openSettings]);
+  }, [entries.length, router, toggleComposeStrip, openSettings, focusedPane, executeSplit]);
   useKeybindingDispatch(boardKeyHandlers);
 
   // Sidebar-footer Keyboard icon → overlay toggle (260801-sm6g) — the board
@@ -475,41 +526,6 @@ function BoardPageContent({ name }: { name: string }) {
   // same hook AppShell's palette uses, so the flow can never drift between the
   // two mounts (see use-update-check.ts).
   const { runUpdateCheck } = useUpdateCheck();
-
-  // Palette-surface split/close executors (Constitution V; 260715-6jwn). Mirror
-  // the terminal palette's wiring (app.tsx — useOptimisticAction-wrapped
-  // splitWindow/closePane with error toasts). Declared ABOVE `boardRouteActions`
-  // so the memo can list them in its dep array. The board palette mirrors the
-  // terminal PALETTE's `horizontal` mapping (Vertical → horizontal: true), a
-  // pre-existing top-bar-chip-vs-palette divergence left out of scope. Close
-  // schedules a self-heal refetch (`onSettled`) like the top-bar ✕.
-  const { execute: executeSplit } = useOptimisticAction<[string, string, boolean, string | undefined]>({
-    action: (srv, windowId, horizontal, cwd) => splitWindow(srv, windowId, horizontal, cwd),
-    onError: (err) => addToast(err.message || "Failed to split pane"),
-  });
-
-  // The focused tile's kill/split target — the SINGLE source of truth for the
-  // focused window shared by the top-bar SplitControl + Kill-row slot AND the three
-  // board split/close palette actions below (260715-6jwn). `cwd` comes from the
-  // focused entry's ACTIVE pane (fallback: first pane; else undefined →
-  // splitWindow omits it and tmux uses its default). Board pins are LINK-based
-  // with dual home+pin membership: only the `_rk-pin-*` pin-session copy is
-  // filtered from session lists — the HOME-session copy of a pinned window IS
-  // in `ctx.sessionsByServer` (see the waitingWindowIds/homeSessionByKey joins
-  // below). `BoardEntry.panes` is used here anyway because it already carries
-  // per-pane cwd + isActive from the getBoard join (matching terminal-mode's
-  // active-pane worktreePath semantics) and stays available even for a
-  // pin-only window whose home session died. Null when the board is empty (no
-  // focused tile). Declared ABOVE `boardRouteActions` so the palette handlers
-  // consume it directly instead of re-deriving the active-pane cwd (parsimony
-  // — one derivation, one source of truth).
-  const focusedPane = useMemo(() => {
-    const e = entries[focusedIndex];
-    if (!e) return null;
-    const panes = e.panes ?? [];
-    const active = panes.find((p) => p.isActive) ?? panes[0];
-    return { server: e.server, windowId: e.windowId, cwd: active?.cwd };
-  }, [entries, focusedIndex]);
 
   // Publish the focused tile into the shared focused-pane context (260720-zx4i)
   // so the sidebar's bottom PANE panel can follow it on the board route (where

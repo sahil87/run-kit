@@ -2678,6 +2678,12 @@ function AppShell() {
       // ⇧⌘,/⌘, settings (260801-mqim) — the palette body (`Settings: Open` →
       // `openSettings`); a re-fire while the dialog is open is a no-op.
       "settings-open": fromPalette("settings-open"),
+      // ⇧⌘\ / ⇧⌘- split pair (260807-phc4) — the palette bodies, which already
+      // gate on `sessionName` and target `currentWindow`. Session gating comes
+      // free: with no active session the split entries are not registered, so
+      // `fromPalette` yields undefined and the chord falls through untouched.
+      "split-horizontal": fromPalette("split-horizontal"),
+      "split-vertical": fromPalette("split-vertical"),
     };
   }, [paletteActions, currentSession, windowParam, navigateToWindow, macros, sessionName, executeMacro, toggleComposeStrip, addToast]);
   useKeybindingDispatch(keybindingHandlers);

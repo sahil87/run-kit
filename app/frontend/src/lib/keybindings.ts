@@ -109,9 +109,11 @@ export const KEYBINDINGS_STORAGE_KEY = "runkit-keybindings";
  * Shifted tier — the nine starter actions (intake §1, canonical letters):
  * N/T/W new-session/new-window/close-window, H/L prev/next window, [/] back/
  * forward, A next-waiting-agent, / the cheatsheet — joined by E compose-strip
- * toggle and O open-last-used (260801-sm6g) and , settings (260801-mqim).
- * Global scope (O is terminal-scoped): dispatch mounts decide per-route
- * applicability by handler presence.
+ * toggle and O open-last-used (260801-sm6g) and , settings (260801-mqim) and
+ * the \ / - split pair (260807-phc4, registered on BOTH the terminal and board
+ * scopes — see the entries). Global scope (O and the split pair are
+ * route-scoped): dispatch mounts decide per-route applicability by handler
+ * presence.
  *
  * macOS demotions (260730-n789 — letters constant, modifier varies): [/]//
  * default to the unshifted ⌘ tier on every mac host (interceptable in
@@ -155,6 +157,19 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // OS-conventional ⌘, — the create-session precedent. ignoreInputs mirrors
   // shortcuts-overlay/compose-toggle: a chrome-level opener fires from inputs.
   { actionId: "settings-open", code: "Comma", tier: "shifted", macTier: "cmd", macShellOnly: true, scope: "global", kind: "builtin", label: "Settings", description: "open the settings dialog", mapLabel: "settings", ignoreInputs: true },
+  // ⇧⌘\ / ⇧⌘- split pair (260807-phc4) — the mnemonic is the KEYCAP's divider,
+  // not the action's name: Shift+\ types `|` (a vertical divider → side-by-side
+  // panes → Split Horizontal, tmux `-h`), and `-` is the horizontal divider
+  // (→ stacked → Split Vertical). That sidesteps run-kit's horizontal/vertical
+  // naming ambiguity and matches the SplitControl's own glyphs
+  // (`SplitHorizontalGlyph` draws a vertical divider). No macTier: the `cmd`
+  // tier is unavailable as a base tier (on win/linux it matches plain Ctrl,
+  // which belongs to the pane — `shouldRefuseTerminalChord` never refuses
+  // plain-Ctrl there), and ⌘\ is `sidebar-toggle` while ⌘- is the mac shell's
+  // zoom-out accelerator. Shifted-tier matches are refused to the window
+  // dispatcher on every platform (rule 1), so these fire under pane focus.
+  { actionId: "split-horizontal", code: "Backslash", tier: "shifted", scope: "terminal", kind: "builtin", label: "Split horizontal", description: "side-by-side panes (tmux -h)", mapLabel: "split |" },
+  { actionId: "split-vertical", code: "Minus", tier: "shifted", scope: "terminal", kind: "builtin", label: "Split vertical", description: "stacked panes", mapLabel: "split -" },
   // — legacy chords, migrated with combos unchanged —
   { actionId: "command-palette", code: "KeyK", tier: "cmd", scope: "global", kind: "builtin", label: "Command palette", ignoreInputs: true },
   { actionId: "sidebar-toggle", code: "Backslash", tier: "cmd", scope: "global", kind: "builtin", label: "Toggle sidebar" },
@@ -162,6 +177,16 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   { actionId: "chat-toggle", code: "Backquote", tier: "ctrl", scope: "terminal", kind: "builtin", label: "Toggle chat view", description: "tty ↔ chat" },
   { actionId: "board-cycle-next", code: "BracketRight", tier: "cmd", scope: "board", kind: "builtin", label: "Cycle pane focus →" },
   { actionId: "board-cycle-prev", code: "BracketLeft", tier: "cmd", scope: "board", kind: "builtin", label: "Cycle pane focus ←" },
+  // The board twins of the ⇧⌘\ / ⇧⌘- split pair (260807-phc4): the SAME two
+  // combos on the `board` scope, acting on the focused tile. Distinct actionIds
+  // because `actionId` doubles as the palette id and the two routes have
+  // different split entries (`Window: Split …` vs `Board: Split Focused Pane …`)
+  // — registering both is what earns each palette its hint. Same-combo across
+  // terminal/board is not a conflict: `findConflicts` requires EQUAL scopes and
+  // `scopesOverlap("terminal","board")` is false (the routes never co-mount) —
+  // the established ⌘[/⌘] board/history shadow-pair shape.
+  { actionId: "board-split-horizontal", code: "Backslash", tier: "shifted", scope: "board", kind: "builtin", label: "Split focused pane horizontal", mapLabel: "split |" },
+  { actionId: "board-split-vertical", code: "Minus", tier: "shifted", scope: "board", kind: "builtin", label: "Split focused pane vertical", mapLabel: "split -" },
 ];
 
 // ── claimed keys ────────────────────────────────────────────────────────────

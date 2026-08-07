@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 9
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-08-07T18:31:03Z", driver: fab-fff, iterations: 2, completed_at: "2026-08-07T18:48:15Z"}
     review: {started_at: "2026-08-07T18:48:15Z", driver: fab-fff, iterations: 2, completed_at: "2026-08-07T18:57:56Z"}
     hydrate: {started_at: "2026-08-07T18:57:56Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-07T19:05:25Z"}
-    ship: {started_at: "2026-08-07T19:05:25Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-08-07T19:05:25Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-07T19:08:50Z"}
+    review-pr: {started_at: "2026-08-07T19:08:50Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/541
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 1386
+    deleted: 46
+    net: 1340
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 716
+        deleted: 26
+        net: 690
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-08-07T19:05:25Z"
-    computed_at_stage: hydrate
+        added: 477
+        deleted: 3
+        net: 474
+    computed_at: "2026-08-07T19:08:50Z"
+    computed_at_stage: ship
 summary: 'tmux guard shim becomes a self-healing script: ~3s probe of the embedded rk path, then fail-open to the real tmux behind a crude bare-kill-server backstop, so a package-manager relink window no longer 127s every tmux caller on the machine'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-07T19:05:25Z
+last_updated: 2026-08-07T19:08:50Z

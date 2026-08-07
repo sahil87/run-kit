@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 10
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-08-07T08:32:04Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-07T08:39:53Z"}
     review: {started_at: "2026-08-07T08:39:53Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-07T08:46:29Z"}
     hydrate: {started_at: "2026-08-07T08:46:29Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-07T08:51:27Z"}
-    ship: {started_at: "2026-08-07T08:51:27Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-08-07T08:51:27Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-07T08:55:38Z"}
+    review-pr: {started_at: "2026-08-07T08:55:38Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/534
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 555
+    deleted: 44
+    net: 511
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 138
+        deleted: 39
+        net: 99
     tests:
-        added: 0
+        added: 52
         deleted: 0
-        net: 0
-    computed_at: "2026-08-07T08:51:27Z"
-    computed_at_stage: hydrate
+        net: 52
+    computed_at: "2026-08-07T08:55:38Z"
+    computed_at_stage: ship
 summary: Added ⇧⌘\ / ⇧⌘- split chords on the shifted tier, registered on both terminal and board scopes, with route handlers reusing the split palette bodies and the shared focusedPane memo
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-07T08:51:27Z
+last_updated: 2026-08-07T08:55:38Z

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -1718,6 +1719,17 @@ func TestParseOriginRepo(t *testing.T) {
 		{"host only rejected", "https://github.com/\n", "", false},
 		{"authority with no path rejected", "https://github.com\n", "", false},
 		{"host plus single segment rejected", "https://github.com/sahil87\n", "", false},
+		// EXACTLY two segments (260809-r4vk): a deeper path is not an owner/name
+		// identity, and keeping only its trailing two would join the viewer index
+		// under a repo the pane is not — attaching a wrong PR while suppressing the
+		// authoritative gh fallback. All of these fail open instead.
+		{"proxy-prefixed github path rejected", "https://github.com/proxy/acme/tool.git\n", "", false},
+		{"gitlab subgroup rejected", "https://gitlab.com/group/subgroup/tool.git\n", "", false},
+		{"gitlab nested subgroups rejected", "git@gitlab.com:group/sub/deeper/tool.git\n", "", false},
+		{"bitbucket scm path rejected", "https://bitbucket.corp/scm/proj/tool.git\n", "", false},
+		{"scp-like deep path rejected", "git@github.com:proxy/acme/tool.git\n", "", false},
+		{"ssh scheme deep path rejected", "ssh://git@github.com:22/proxy/acme/tool.git\n", "", false},
+		{"empty middle segment rejected", "https://github.com//sahil87/run-kit.git\n", "", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1726,6 +1738,399 @@ func TestParseOriginRepo(t *testing.T) {
 				t.Errorf("parseOriginRepo(%q) = (%q, %v), want (%q, %v)", tc.in, repo, ok, tc.wantRepo, tc.wantOK)
 			}
 		})
+	}
+}
+
+// --- disk seed: branch refresher side (260809-r4vk) -----------------------------
+
+// seedBranch builds one positive seed derivation for (repoDir, branch).
+func seedBranch(repoDir, branch string, number int, url, state string, updatedAt time.Time) SeedBranchPR {
+	return SeedBranchPR{
+		RepoDir: repoDir,
+		Branch:  branch,
+		PR:      BranchPR{Number: number, URL: url, State: state, UpdatedAt: updatedAt},
+	}
+}
+
+// entryMark reports (seeded, present) for a pair's cache entry. White-box on
+// purpose: the seed mark is internal bookkeeping with exactly one consumer
+// (DiscardSeeded), so asserting it directly is what pins the propagation rules.
+func entryMark(r *BranchRefresher, repoDir, branch string) (seeded, present bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	e, ok := r.entries[branchPRCacheKey(repoDir, branch)]
+	return e.seeded, ok
+}
+
+// TestBranchRefresher_SeedEntriesServesAndSurvivesFirstPass: a seeded positive
+// entry serves immediately (the whole point — window PR glyphs are populated
+// before any gh call) and is NOT aged out by the first refresh pass. Its
+// observedAt is stamped at LOAD time precisely so the pass cannot evict it before
+// the SSE enrichment loop (~2.5s later) re-registers the live pairs.
+func TestBranchRefresher_SeedEntriesServesAndSurvivesFirstPass(t *testing.T) {
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		return nil, errors.New("gh offline at startup")
+	})
+	r.SeedEntries([]SeedBranchPR{
+		seedBranch("/repo", "feat", 542, ghPRURL("sahil87/run-kit", 542), "MERGED", ts(t, "2026-08-07T00:00:00Z")),
+	})
+
+	pr, ok := r.Snapshot("/repo", "feat")
+	if !ok || pr == nil || pr.Number != 542 {
+		t.Fatalf("seeded entry must serve immediately, got ok=%v pr=%v", ok, pr)
+	}
+
+	// No pair has been Registered yet — the pass runs over the seeded entry alone.
+	r.refresh(context.Background())
+	if pr, ok := r.Snapshot("/repo", "feat"); !ok || pr == nil || pr.Number != 542 {
+		t.Fatalf("seeded entry must survive the first pass, got ok=%v pr=%v", ok, pr)
+	}
+	if seeded, present := entryMark(r, "/repo", "feat"); !present || !seeded {
+		t.Errorf("entry should still be marked seed-originated (present=%v seeded=%v)", present, seeded)
+	}
+}
+
+// TestBranchRefresher_SeededEntryAgesOutLikeAnyPair: a seeded entry is an ordinary
+// entry — unobserved past the TTL it ages out, so entries for windows that no
+// longer exist do not linger.
+func TestBranchRefresher_SeededEntryAgesOutLikeAnyPair(t *testing.T) {
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		return branchListJSON(), nil
+	})
+	r.SeedEntries([]SeedBranchPR{
+		seedBranch("/gone", "feat", 1, ghPRURL("o/r", 1), "OPEN", ts(t, "2026-08-01T00:00:00Z")),
+	})
+
+	base := r.now()
+	r.now = func() time.Time { return base.Add(branchPRObservedTTL + time.Second) }
+	r.refresh(context.Background())
+
+	if _, present := entryMark(r, "/gone", "feat"); present {
+		t.Error("an unobserved seeded entry must age out like any other pair")
+	}
+}
+
+// TestBranchRefresher_SeedEntriesNeverOverwritesLiveState: the live derivation
+// always wins over a seed — a pair already in the map (even unresolved) is left
+// alone.
+func TestBranchRefresher_SeedEntriesNeverOverwritesLiveState(t *testing.T) {
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		return branchListJSON(branchNode(9, ghPRURL("o/r", 9), "2026-08-09T00:00:00Z")), nil
+	})
+	r.Register("/repo", "feat")
+	r.refresh(context.Background()) // resolves #9 from gh
+
+	r.SeedEntries([]SeedBranchPR{
+		seedBranch("/repo", "feat", 1, ghPRURL("o/r", 1), "OPEN", ts(t, "2026-08-01T00:00:00Z")),
+	})
+
+	pr, ok := r.Snapshot("/repo", "feat")
+	if !ok || pr == nil || pr.Number != 9 {
+		t.Fatalf("live entry must win over the seed, got ok=%v pr=%v", ok, pr)
+	}
+	if seeded, _ := entryMark(r, "/repo", "feat"); seeded {
+		t.Error("a live entry must not be marked seed-originated by a later seed")
+	}
+}
+
+// TestBranchRefresher_SeedEntriesSkipsUnservable: entries that could never serve
+// (no repoDir, no branch, no PR URL) are dropped at seed time.
+func TestBranchRefresher_SeedEntriesSkipsUnservable(t *testing.T) {
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		return branchListJSON(), nil
+	})
+	r.SeedEntries([]SeedBranchPR{
+		seedBranch("", "feat", 1, ghPRURL("o/r", 1), "OPEN", ts(t, "2026-08-01T00:00:00Z")),
+		seedBranch("/repo", "", 2, ghPRURL("o/r", 2), "OPEN", ts(t, "2026-08-01T00:00:00Z")),
+		seedBranch("/repo", "feat", 3, "", "OPEN", ts(t, "2026-08-01T00:00:00Z")),
+	})
+	r.mu.RLock()
+	n := len(r.entries)
+	r.mu.RUnlock()
+	if n != 0 {
+		t.Errorf("seeded %d unservable entries, want 0", n)
+	}
+}
+
+// TestBranchRefresher_SeedDoesNotWake: seeding signals no wake — nothing is
+// registered yet, so a woken pass would have nothing to resolve. Register fires
+// the wake on first sight moments later.
+func TestBranchRefresher_SeedDoesNotWake(t *testing.T) {
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		return branchListJSON(), nil
+	})
+	r.SeedEntries([]SeedBranchPR{
+		seedBranch("/repo", "feat", 1, ghPRURL("o/r", 1), "OPEN", ts(t, "2026-08-01T00:00:00Z")),
+	})
+	r.SeedViewerIndex([]ViewerPR{
+		viewerPR(1, ghPRURL("o/r", 1), "OPEN", "o/r", "feat", ts(t, "2026-08-01T00:00:00Z")),
+	})
+	if n := drainWake(r); n != 0 {
+		t.Errorf("seeding signalled %d wakes, want 0", n)
+	}
+
+	// A live store still wakes — the #542 seam is untouched.
+	r.StoreViewerIndex([]ViewerPR{
+		viewerPR(1, ghPRURL("o/r", 1), "OPEN", "o/r", "feat", ts(t, "2026-08-01T00:00:00Z")),
+	})
+	if n := drainWake(r); n != 1 {
+		t.Errorf("a live StoreViewerIndex signalled %d wakes, want 1", n)
+	}
+}
+
+// TestBranchRefresher_SeededIndexHitInheritsMark: a pair resolved from a
+// SEED-originated index is still the previous process's data, so it inherits the
+// seed mark and stays discardable on an account switch. The same resolution from a
+// freshly-fetched index does NOT.
+func TestBranchRefresher_SeededIndexHitInheritsMark(t *testing.T) {
+	cand := viewerPR(538, ghPRURL("sahil87/run-kit", 538), "OPEN", "sahil87/run-kit", "feat", ts(t, "2026-08-01T00:00:00Z"))
+
+	seededRun := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		t.Fatal("gh must not run for an index hit")
+		return nil, nil
+	})
+	withOrigin(seededRun, "git@github.com:sahil87/run-kit.git")
+	seededRun.SeedViewerIndex([]ViewerPR{cand})
+	seededRun.Register("/repo", "feat")
+	seededRun.refresh(context.Background())
+	if seeded, present := entryMark(seededRun, "/repo", "feat"); !present || !seeded {
+		t.Errorf("seed-index hit: present=%v seeded=%v, want present+seeded", present, seeded)
+	}
+
+	freshRun := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		t.Fatal("gh must not run for an index hit")
+		return nil, nil
+	})
+	withOrigin(freshRun, "git@github.com:sahil87/run-kit.git")
+	freshRun.StoreViewerIndex([]ViewerPR{cand})
+	freshRun.Register("/repo", "feat")
+	freshRun.refresh(context.Background())
+	if seeded, present := entryMark(freshRun, "/repo", "feat"); !present || seeded {
+		t.Errorf("fresh-index hit: present=%v seeded=%v, want present and NOT seeded", present, seeded)
+	}
+}
+
+// TestBranchRefresher_FreshDerivationClearsSeedMark: once THIS process has derived
+// a pair — from the gh fallback or from the default-branch exclusion — the entry is
+// no longer seed-originated and survives an account-switch discard.
+func TestBranchRefresher_FreshDerivationClearsSeedMark(t *testing.T) {
+	t.Run("gh result", func(t *testing.T) {
+		r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+			return branchListJSON(branchNode(9, ghPRURL("o/r", 9), "2026-08-09T00:00:00Z")), nil
+		})
+		r.SeedEntries([]SeedBranchPR{
+			seedBranch("/repo", "feat", 1, ghPRURL("o/r", 1), "OPEN", ts(t, "2026-08-01T00:00:00Z")),
+		})
+		r.refresh(context.Background())
+		if seeded, _ := entryMark(r, "/repo", "feat"); seeded {
+			t.Error("a gh-derived entry must not stay marked seed-originated")
+		}
+		r.DiscardSeeded()
+		if pr, ok := r.Snapshot("/repo", "feat"); !ok || pr == nil || pr.Number != 9 {
+			t.Errorf("a freshly-derived entry must survive a discard, got ok=%v pr=%v", ok, pr)
+		}
+	})
+
+	t.Run("default-branch exclusion", func(t *testing.T) {
+		r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+			t.Fatal("an excluded pair must not reach gh")
+			return nil, nil
+		})
+		r.defaultExec = func(context.Context, string) ([]byte, error) {
+			return defaultBranchRefOutput("main"), nil
+		}
+		r.SeedEntries([]SeedBranchPR{
+			seedBranch("/repo", "main", 1, ghPRURL("o/r", 1), "OPEN", ts(t, "2026-08-01T00:00:00Z")),
+		})
+		r.refresh(context.Background())
+		if _, ok := r.Snapshot("/repo", "main"); ok {
+			t.Error("the exclusion is authoritative — it must clear a seeded positive")
+		}
+		if seeded, present := entryMark(r, "/repo", "main"); !present || seeded {
+			t.Errorf("excluded entry: present=%v seeded=%v, want present and NOT seeded", present, seeded)
+		}
+	})
+}
+
+// TestBranchRefresher_SeededEntryClearedByAuthoritativeNegative: a successfully
+// parsed empty `gh pr list` clears a seeded positive — the seed is never
+// authoritative, and a real negative always wins.
+func TestBranchRefresher_SeededEntryClearedByAuthoritativeNegative(t *testing.T) {
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		return branchListJSON(), nil // parsed empty == confirmed no PR
+	})
+	r.SeedEntries([]SeedBranchPR{
+		seedBranch("/repo", "feat", 1, ghPRURL("o/r", 1), "OPEN", ts(t, "2026-08-01T00:00:00Z")),
+	})
+	r.refresh(context.Background())
+	if _, ok := r.Snapshot("/repo", "feat"); ok {
+		t.Error("an authoritative negative must clear a seeded positive")
+	}
+}
+
+// TestBranchRefresher_DiscardSeededClearsOnlyMarkedEntries: the account-switch
+// discard clears the PR of still-seeded entries and leaves everything else — and it
+// KEEPS the entry (cleared to a negative) rather than deleting it, so the pair's
+// registration and observedAt survive and no spurious first-sight wake fires.
+func TestBranchRefresher_DiscardSeededClearsOnlyMarkedEntries(t *testing.T) {
+	// gh is down for the seeded pair (transient → last-good kept, mark preserved)
+	// and answers for the pair this process derives itself.
+	r := newTestRefresher(true, func(_ context.Context, _ string, branch string) ([]byte, error) {
+		if branch == "seeded" {
+			return nil, errors.New("network blip")
+		}
+		return branchListJSON(branchNode(9, ghPRURL("o/r", 9), "2026-08-09T00:00:00Z")), nil
+	})
+	r.SeedEntries([]SeedBranchPR{
+		seedBranch("/repo", "seeded", 1, ghPRURL("o/r", 1), "OPEN", ts(t, "2026-08-01T00:00:00Z")),
+	})
+	r.Register("/repo", "derived")
+	r.refresh(context.Background())
+	drainWake(r)
+
+	if seeded, _ := entryMark(r, "/repo", "seeded"); !seeded {
+		t.Fatal("a transient gh failure must keep the entry's seed mark (nothing was derived)")
+	}
+
+	r.DiscardSeeded()
+
+	if _, ok := r.Snapshot("/repo", "seeded"); ok {
+		t.Error("a still-seeded entry must stop serving after the discard")
+	}
+	if _, present := entryMark(r, "/repo", "seeded"); !present {
+		t.Error("the discard must clear the entry, not delete it")
+	}
+	if pr, ok := r.Snapshot("/repo", "derived"); !ok || pr == nil || pr.Number != 9 {
+		t.Errorf("a derived entry must be untouched, got ok=%v pr=%v", ok, pr)
+	}
+	if n := drainWake(r); n != 0 {
+		t.Errorf("the discard signalled %d wakes, want 0", n)
+	}
+}
+
+// TestBranchRefresher_RefreshHookFiresPerPassWithPairs: the disk-cache write seam
+// runs once at the tail of a pass that had pairs to resolve, and not at all for an
+// empty pass (nothing to persist). A nil hook — every unwired refresher — is a
+// no-op.
+func TestBranchRefresher_RefreshHookFiresPerPassWithPairs(t *testing.T) {
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		return branchListJSON(branchNode(1, ghPRURL("o/r", 1), "2026-08-01T00:00:00Z")), nil
+	})
+	r.refresh(context.Background()) // nil hook, no pairs — must not panic
+
+	calls := 0
+	r.SetRefreshHook(func() { calls++ })
+
+	r.refresh(context.Background()) // still no registered pair
+	if calls != 0 {
+		t.Errorf("hook fired %d times for an empty pass, want 0", calls)
+	}
+
+	r.Register("/repo", "feat")
+	r.refresh(context.Background())
+	r.refresh(context.Background())
+	if calls != 2 {
+		t.Errorf("hook fired %d times for two passes with pairs, want 2", calls)
+	}
+}
+
+// TestBranchRefresher_RefreshHookSeesTheNewState: the hook runs at the TAIL of the
+// pass, so the entries it persists are the pass's own results.
+func TestBranchRefresher_RefreshHookSeesTheNewState(t *testing.T) {
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		return branchListJSON(branchNode(7, ghPRURL("o/r", 7), "2026-08-01T00:00:00Z")), nil
+	})
+	var got []SeedBranchPR
+	r.SetRefreshHook(func() { got = r.PositiveEntries() })
+
+	r.Register("/repo", "feat")
+	r.refresh(context.Background())
+
+	if len(got) != 1 || got[0].RepoDir != "/repo" || got[0].Branch != "feat" || got[0].PR.Number != 7 {
+		t.Errorf("hook observed %+v, want one (/repo, feat) → #7 entry", got)
+	}
+}
+
+// TestBranchRefresher_PositiveEntriesOmitsNegatives: only resolved POSITIVE
+// derivations are persistable — a negative re-derives cheaply, and an unresolved
+// pair has nothing to persist. Entries carry explicit repoDir/branch, never the
+// internal NUL-joined key.
+func TestBranchRefresher_PositiveEntriesOmitsNegatives(t *testing.T) {
+	r := newTestRefresher(true, func(_ context.Context, _ string, branch string) ([]byte, error) {
+		if branch == "none" {
+			return branchListJSON(), nil // confirmed no PR
+		}
+		return branchListJSON(branchNode(3, ghPRURL("o/r", 3), "2026-08-01T00:00:00Z")), nil
+	})
+	r.Register("/repo", "feat")
+	r.Register("/repo", "none")
+	r.refresh(context.Background())
+	r.Register("/repo", "unresolved") // registered after the pass — never resolved
+
+	got := r.PositiveEntries()
+	if len(got) != 1 {
+		t.Fatalf("PositiveEntries = %+v, want exactly the positive one", got)
+	}
+	if got[0].RepoDir != "/repo" || got[0].Branch != "feat" {
+		t.Errorf("entry = %+v, want (/repo, feat) as discrete fields", got[0])
+	}
+	if strings.Contains(got[0].RepoDir, "\x00") || strings.Contains(got[0].Branch, "\x00") {
+		t.Error("the internal NUL-joined cache key must never leak into a persisted entry")
+	}
+}
+
+// TestBranchRefresher_RefreshIsSingleFlighted: the interval/wake pass and an
+// on-demand RefreshNow SERIALIZE (mirroring Collector.refresh's T019 fix). Without
+// this, a pass blocked in a slow `gh pr list` could return a stale parsed-empty
+// result and clear an entry a concurrent pass had just resolved positively —
+// blanking the window's PR glyph until the next pass.
+func TestBranchRefresher_RefreshIsSingleFlighted(t *testing.T) {
+	entered := make(chan struct{}, 2)
+	release := make(chan struct{})
+	var mu sync.Mutex
+	concurrent, maxConcurrent := 0, 0
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		mu.Lock()
+		concurrent++
+		if concurrent > maxConcurrent {
+			maxConcurrent = concurrent
+		}
+		mu.Unlock()
+		entered <- struct{}{}
+		<-release // hold the pass open inside the gh call
+		mu.Lock()
+		concurrent--
+		mu.Unlock()
+		return branchListJSON(branchNode(1, ghPRURL("o/r", 1), "2026-08-01T00:00:00Z")), nil
+	})
+	r.Register("/repo", "feat")
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() { defer wg.Done(); r.refresh(context.Background()) }() // the tick's pass
+	<-entered                                                        // it is inside the gh call
+
+	wg.Add(1)
+	go func() { defer wg.Done(); r.RefreshNow(context.Background()) }() // the on-demand kick
+
+	select {
+	case <-entered:
+		t.Fatal("a second pass entered the gh call while one was in flight — BranchRefresher.refresh is not single-flighted")
+	case <-time.After(50 * time.Millisecond):
+		// Blocked on the single-flight lock, as required.
+	}
+
+	close(release)
+	wg.Wait()
+
+	mu.Lock()
+	got := maxConcurrent
+	mu.Unlock()
+	if got != 1 {
+		t.Errorf("max concurrent refresh passes = %d, want 1", got)
+	}
+	if pr, ok := r.Snapshot("/repo", "feat"); !ok || pr == nil || pr.Number != 1 {
+		t.Errorf("the serialized passes must still resolve the pair, got ok=%v pr=%v", ok, pr)
 	}
 }
 

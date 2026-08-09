@@ -1,0 +1,15 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-09T04:48:06Z"}
+{"args":"Disk-seed PR-status state across restarts (stale-while-revalidate cache under XDG_STATE_HOME/rk keyed by gh viewer login), constitution §II carve-out amendment, plus two #542 should-fixes: single-flight BranchRefresher.refresh and parseOriginRepo exact-two-segment tightening","cmd":"fab-new","event":"command","ts":"2026-08-09T04:48:06Z"}
+{"delta":"+0.0","event":"confidence","score":4.6,"trigger":"calc-score","ts":"2026-08-09T04:51:38Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-08-09T04:54:06Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-09T04:56:12Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-09T04:57:27Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-08-09T04:58:44Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-09T05:19:15Z"}
+{"event":"review","result":"failed","ts":"2026-08-09T05:30:11Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-09T05:30:11Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-09T05:40:32Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-09T06:25:46Z"}
+{"event":"review","result":"passed","ts":"2026-08-09T06:25:46Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-08-09T06:26:27Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-09T06:35:31Z"}

@@ -512,6 +512,17 @@ func NewRouterAndServer(ctx context.Context, logger *slog.Logger) (chi.Router, *
 	// leaves this unwired — an unseeded index simply misses and every pair falls
 	// back to gh.
 	pc.SetViewerPRSink(prstatus.DefaultBranchRefresher.StoreViewerIndex)
+
+	// Disk seed (260809-r4vk): pre-fill both pollers' last-good state from
+	// $XDG_STATE_HOME/rk/prstatus.json and attach the write hooks, BEFORE either
+	// Start — the cold-start machinery above is network-gated, so a restart while
+	// gh is slow/offline/rate-limited would otherwise start blank. The seed is
+	// never authoritative (the immediate first fetch replaces it wholesale,
+	// authoritative negatives included) and a missing/corrupt file is a silent
+	// cold start. NewTestRouter leaves this unwired — unit tests never touch the
+	// real state dir.
+	prstatus.AttachSeedCache(pc, prstatus.DefaultBranchRefresher)
+
 	pc.Start(ctx)
 
 	// Branch→PR refresher (260705-dmex): resolves observed (repo, branch) pairs

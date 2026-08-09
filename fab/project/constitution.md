@@ -8,6 +8,8 @@ All process execution MUST use `exec.CommandContext` with explicit argument slic
 ### II. No Database
 State MUST be derived from tmux and the filesystem at request time. run-kit SHALL NOT introduce a database, ORM, migration system, or persistent state store. Session metadata comes from `tmux list-sessions`/`tmux list-windows`. Fab state comes from `.status.yaml` and `fab/current`. If you can't derive it from these sources, you don't need it.
 
+Two bounded disk carve-outs exist under `$XDG_STATE_HOME/rk/`: **write-only recovery backups** (layout snapshots — artifacts about the past, never read at request time) and **startup seed caches**, which MAY pre-fill in-memory derived state at process start but are NEVER authoritative — state is still derived from tmux, the filesystem, and `gh`; a fresh derivation always overwrites a seeded value, and deleting any of these files changes nothing but cold-start latency. Neither class is a state store: no request-time read path may treat one as the source of truth, and a corrupt or absent file MUST degrade to the same behavior as a cold start.
+
 ### III. Wrap, Don't Reinvent
 Existing fab-kit utilities (`wt-create`, `wt-list`, `wt-delete`, `idea`, `changeman.sh`, `statusman.sh`) MUST be used via wrapper functions in `internal/` (Go). run-kit SHALL NOT reimplement worktree management, change management, or backlog management. When a fab-kit script does what you need, call it.
 
@@ -51,4 +53,4 @@ This tool is part of the shll toolkit and MUST conform to the toolkit's publishe
 
 ## Governance
 
-**Version**: 1.6.0 | **Ratified**: 2026-03-02 | **Last Amended**: 2026-07-18
+**Version**: 1.7.0 | **Ratified**: 2026-03-02 | **Last Amended**: 2026-08-09

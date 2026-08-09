@@ -1,5 +1,6 @@
 # Archived Changes
 
+- **260807-2ept-pr-status-cold-start** — PR Status Cold-Start Latency + Batched Branch Derivation
 - **260722-73al-tip-tooltip-system** — App-Wide Tier-1 Tooltip System (`Tip` Component)
 - **260720-t1ca-sidebar-server-group-header-tint** — Sidebar SESSIONS Pane — Tinted Server-Group Header Fill
 - **260720-2vpn-full-bleed-sidebar-window-rows** — Full-Bleed Sidebar Window Rows

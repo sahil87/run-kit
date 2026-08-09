@@ -1,0 +1,54 @@
+id: r4vk
+name: 260809-r4vk-pr-status-disk-seed
+created: 2026-08-09T04:48:06Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 17
+    acceptance_count: 39
+    acceptance_completed: 39
+confidence:
+    certain: 7
+    confident: 7
+    tentative: 0
+    unresolved: 0
+    score: 4.6
+    fuzzy: true
+    dimensions:
+        signal: 76.1
+        reversibility: 83.2
+        competence: 87.1
+        disambiguation: 81.1
+stage_metrics:
+    intake: {started_at: "2026-08-09T04:48:06Z", driver: fab-new, iterations: 1, completed_at: "2026-08-09T04:57:27Z"}
+    apply: {started_at: "2026-08-09T05:30:11Z", driver: fab-fff, iterations: 2, completed_at: "2026-08-09T05:40:32Z"}
+    review: {started_at: "2026-08-09T05:40:32Z", driver: fab-fff, iterations: 2, completed_at: "2026-08-09T06:25:46Z"}
+    hydrate: {started_at: "2026-08-09T06:25:46Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-09T06:35:31Z"}
+    ship: {started_at: "2026-08-09T06:35:31Z", driver: fab-fff, iterations: 1}
+prs: []
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-08-09T06:35:31Z"
+    computed_at_stage: hydrate
+summary: 'PR-status disk seed: droppable $XDG_STATE_HOME/rk/prstatus.json startup cache (login-keyed, never authoritative), single-flighted BranchRefresher.refresh, exactly-two-segment parseOriginRepo, Constitution §II carve-out v1.7.0'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-09T06:35:31Z

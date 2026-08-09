@@ -305,15 +305,21 @@ func parseOriginRepo(out []byte) (string, bool) {
 		return "", false
 	}
 
-	// The trailing two path segments are `owner/name` (a deeper path — e.g. a
-	// GitLab sub-group — still ends in owner/name from GitHub's perspective).
+	// The path must be EXACTLY `owner/name`. A GitHub/GHE repository path never has
+	// more (or fewer) segments, so a deeper path — a GitLab sub-group, a Bitbucket
+	// `/scm/` prefix, a proxy prefix like `github.com/proxy/acme/tool` — is NOT an
+	// `owner/name` identity: keeping only its trailing two segments would join the
+	// viewer index under a repo the pane is not, attaching a wrong PR AND
+	// suppressing the authoritative per-pair gh fallback (the same defect class as
+	// the host-mismatch fixed in 260807-2ept, narrower trigger). Anything not
+	// exactly two non-empty segments therefore fails open to the gh path.
 	path = strings.TrimSuffix(strings.TrimRight(path, "/"), ".git")
 	path = strings.TrimRight(path, "/")
 	parts := strings.Split(path, "/")
-	if len(parts) < 2 {
-		return "", false // no room for owner + name
+	if len(parts) != 2 {
+		return "", false // not an owner/name repository path
 	}
-	owner, name := parts[len(parts)-2], parts[len(parts)-1]
+	owner, name := parts[0], parts[1]
 	if owner == "" || name == "" {
 		return "", false
 	}
@@ -351,6 +357,15 @@ func parseDefaultBranch(out []byte) (string, bool) {
 type branchEntry struct {
 	pr         *BranchPR // last-known PR
 	observedAt time.Time // last Register time — drives age-out
+	// seeded marks an entry whose pr came from the DISK SEED rather than from this
+	// process's own derivation — either seeded directly (SeedEntries) or resolved
+	// from a seed-originated head-index. It is cleared the moment a pass writes a
+	// freshly-derived result (index hit on a fresh index, gh result, or the
+	// default-branch exclusion). Its only consumer is DiscardSeeded: when a
+	// successful fetch reveals the gh account changed, still-marked entries are the
+	// only state carrying the previous account's data (byURL, the viewer list, and
+	// the index are all replaced wholesale by that fetch).
+	seeded bool
 }
 
 // originEntry is a per-repo cached origin-identity verdict. Like
@@ -386,6 +401,19 @@ type BranchRefresher struct {
 	entries  map[string]branchEntry
 	interval time.Duration
 
+	// refreshMu SERIALIZES whole refresh passes (the interval tick / registration
+	// wake vs an on-demand RefreshNow), mirroring Collector.refreshMu. Without it a
+	// tick pass blocked in `gh pr list` (up to ghTimeout) can return a stale
+	// parsed-empty result and clear an entry that a concurrent wake/forced pass just
+	// resolved positively — blanking a PR glyph until the next pass. It is DISTINCT
+	// from mu: mu guards the maps for the hot-path Register/Snapshot readers and is
+	// never held across a subprocess, while refreshMu is held for the whole pass
+	// INCLUDING every subprocess. Blocking is acceptable because both callers are
+	// background: the tick owns this type's goroutine, and RefreshNow is invoked
+	// from the DETACHED goroutine behind POST /api/status/refresh, never inline in
+	// a handler.
+	refreshMu sync.Mutex
+
 	// Cached gh-availability verdict (positive AND negative). Guarded by mu.
 	// availAt is the wall-clock time the verdict was taken; a verdict older than
 	// branchPRAvailabilityTTL is re-probed on the next pass (at most once/pass).
@@ -413,6 +441,13 @@ type BranchRefresher struct {
 	// subprocesses per pass into one already-fetched batch. Guarded by mu.
 	viewerIndex map[string][]BranchPR
 
+	// viewerIndexSeeded reports whether the CURRENT viewerIndex came from the disk
+	// seed (SeedViewerIndex) rather than from a live collector fetch
+	// (StoreViewerIndex). A pair resolved from a seed-originated index is still the
+	// previous process's data, so the entry it produces inherits the seed mark and
+	// stays discardable on an account switch. Guarded by mu.
+	viewerIndexSeeded bool
+
 	// wake is the coalescing registration-wake channel (capacity 1, non-blocking
 	// send). Register signals it when a pair is FIRST seen so the refresher's
 	// first useful pass starts as soon as the SSE enrichment loop has reported
@@ -437,8 +472,117 @@ type BranchRefresher struct {
 	defaultExec func(ctx context.Context, repoDir string) ([]byte, error)
 	originExec  func(ctx context.Context, repoDir string) ([]byte, error)
 
+	// onRefreshed, when non-nil, is called at the TAIL of a refresh pass that had
+	// pairs to resolve — the disk-cache write seam (SeedCache.branchRefreshed).
+	// Nil (every unwired/test refresher) is a no-op, so an unwired refresher
+	// behaves exactly as before. It runs on the refresher goroutine, never on the
+	// SSE hot path. Guarded by mu.
+	onRefreshed func()
+
 	// now is a clock seam for tests (defaults to time.Now).
 	now func() time.Time
+}
+
+// SetRefreshHook installs the callback invoked at the tail of a refresh pass (the
+// disk-cache write seam, wired by SeedCache.Attach). Passing nil clears it.
+func (r *BranchRefresher) SetRefreshHook(fn func()) {
+	r.mu.Lock()
+	r.onRefreshed = fn
+	r.mu.Unlock()
+}
+
+// SeedEntries pre-fills the refresher's derivation cache from the disk seed
+// (prstatus_disk.go), before Start. Only POSITIVE entries are seeded — a seed
+// exists to fill blanks, and a negative re-derives cheaply.
+//
+// Each seeded entry's observedAt is stamped at LOAD TIME, not preserved:
+// observedAt is a LIVENESS field driving the branchPRObservedTTL age-out, not a
+// freshness field. Preserving a pre-restart timestamp would let the first refresh
+// pass delete every seeded entry before the SSE enrichment loop (~2.5s) had
+// re-registered the live ones — exactly the blank window the seed exists to
+// remove. Load-time stamping keeps each seeded entry serveable for one TTL window;
+// entries for windows that no longer exist age out like any unobserved pair.
+//
+// A pair already present is never overwritten (the live derivation always wins),
+// and seeding does NOT signal the wake channel: no pair is registered yet, so a
+// woken pass would have nothing to resolve — Register fires the wake on first
+// sight moments later.
+func (r *BranchRefresher) SeedEntries(seed []SeedBranchPR) {
+	if len(seed) == 0 {
+		return
+	}
+	now := r.now()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, s := range seed {
+		if s.RepoDir == "" || s.Branch == "" || s.PR.URL == "" {
+			continue
+		}
+		key := branchPRCacheKey(s.RepoDir, s.Branch)
+		if _, present := r.entries[key]; present {
+			continue // live state wins over a seed
+		}
+		pr := s.PR
+		r.entries[key] = branchEntry{pr: &pr, observedAt: now, seeded: true}
+	}
+}
+
+// SeedViewerIndex stores a head-index from the DISK SEED. It shares
+// StoreViewerIndex's store/skip/key rules exactly, differing in two ways: the
+// stored index is flagged seed-originated (so entries resolved from it inherit the
+// mark — see refresh), and no wake is signalled (nothing is registered yet at seed
+// time).
+func (r *BranchRefresher) SeedViewerIndex(prs []ViewerPR) {
+	r.storeViewerIndex(prs, true)
+}
+
+// PositiveEntries returns the currently-resolved POSITIVE derivations as the disk
+// cache's persistence shape, with explicit repoDir/branch (never the internal
+// NUL-joined key). Negative and unresolved entries are omitted. Hot-path safe in
+// the same sense as Snapshot — a lock-guarded map read, no subprocess — though its
+// only caller is the cache writer on a background goroutine.
+func (r *BranchRefresher) PositiveEntries() []SeedBranchPR {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]SeedBranchPR, 0, len(r.entries))
+	for key, e := range r.entries {
+		if e.pr == nil {
+			continue
+		}
+		repoDir, branch := splitBranchPRKey(key)
+		if repoDir == "" || branch == "" {
+			continue
+		}
+		out = append(out, SeedBranchPR{RepoDir: repoDir, Branch: branch, PR: *e.pr})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// DiscardSeeded clears the PR of every entry still marked seed-originated. It is
+// the account-switch invalidation step: called once, from the tail of the first
+// successful fetch that reports a DIFFERENT gh viewer login than the loaded cache
+// was written under (SeedCache.collectorRefreshed). That fetch has already
+// replaced byURL, the viewer list, and the head-index wholesale, so still-seeded
+// branch entries are the only place the previous account's data can survive.
+//
+// The entry itself is kept (cleared to a negative), not deleted: the pair is still
+// observed by a live window, so deleting it would drop its registration and
+// observedAt and force a spurious first-sight wake. A cleared entry simply serves
+// nothing until the next pass resolves it under the new account.
+func (r *BranchRefresher) DiscardSeeded() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for key, e := range r.entries {
+		if !e.seeded {
+			continue
+		}
+		e.pr = nil
+		e.seeded = false
+		r.entries[key] = e
+	}
 }
 
 // NewBranchRefresher creates a branch→PR refresher that re-resolves every
@@ -485,7 +629,10 @@ func branchPRCacheKey(repoDir, branch string) string {
 // enrichment pass (2.5s) re-registers every observed pair, so waking on any
 // registration would degenerate the refresher into a 2.5s gh poll; first-sight
 // only keeps the 30s steady-state cadence intact while still starting the first
-// useful pass as soon as the pairs exist.
+// useful pass as soon as the pairs exist. A pair the disk seed pre-filled
+// (SeedEntries, before Start) is therefore NOT first-sight and fires no wake —
+// deliberately: Start's immediate pass already covers every seeded pair, and the
+// seeded entry is already serving in the meantime.
 func (r *BranchRefresher) Register(repoDir, branch string) {
 	if repoDir == "" || branch == "" {
 		return
@@ -566,8 +713,10 @@ func viewerIndexKey(hostRepo, headRef string) string {
 // viewerIndexKey), no head ref, or no head repository (a deleted fork) carry no
 // joinable identity and are skipped. Wholesale replacement mirrors the
 // collector's byURL rebuild: a PR that aged out of the batch simply stops being
-// an index candidate, so there is no eviction logic. In-memory only
-// (Constitution §II).
+// an index candidate, so there is no eviction logic. The live index is in-memory
+// only; a fresh process may PRE-FILL it from the droppable startup seed
+// (SeedViewerIndex — Constitution §II's $XDG_STATE_HOME/rk/ carve-out), which this
+// method then replaces on the first successful fetch.
 //
 // A NON-EMPTY store signals the coalescing wake channel, so a seed that lands
 // AFTER the first registrations still triggers one debounced index-served pass.
@@ -578,6 +727,14 @@ func viewerIndexKey(hostRepo, headRef string) string {
 // (no gh PRs, or every node unjoinable) signals nothing — there is no index to
 // serve a pass from, so a wake would only burn a `gh pr list` per pair.
 func (r *BranchRefresher) StoreViewerIndex(prs []ViewerPR) {
+	r.storeViewerIndex(prs, false)
+}
+
+// storeViewerIndex is the shared implementation behind StoreViewerIndex (fresh
+// collector batch) and SeedViewerIndex (disk seed). `seeded` records where the
+// stored index came from — a pair resolved from a seed-originated index inherits
+// the mark — and a seeded store never signals the wake (see SeedViewerIndex).
+func (r *BranchRefresher) storeViewerIndex(prs []ViewerPR, seeded bool) {
 	next := make(map[string][]BranchPR, len(prs))
 	for _, p := range prs {
 		if p.URL == "" || p.HeadRef == "" || p.HeadRepo == "" {
@@ -597,8 +754,9 @@ func (r *BranchRefresher) StoreViewerIndex(prs []ViewerPR) {
 	}
 	r.mu.Lock()
 	r.viewerIndex = next
+	r.viewerIndexSeeded = seeded
 	r.mu.Unlock()
-	if len(next) > 0 {
+	if !seeded && len(next) > 0 {
 		r.signalWake()
 	}
 }
@@ -636,13 +794,18 @@ func (r *BranchRefresher) RefreshNow(ctx context.Context) {
 // interval, exiting when ctx is cancelled — the same lifecycle as
 // metrics.Collector / prstatus.Collector.
 //
-// The loop additionally selects on the registration wake channel. The immediate
-// first refresh is a NO-OP at process start (no pair is registered yet —
+// The loop additionally selects on the registration wake channel. On an UNSEEDED
+// start the immediate first refresh is a no-op (no pair is registered yet —
 // registration only happens once the SSE enrichment loop observes panes), so
 // without the wake the first USEFUL pass would wait out a whole interval; the
-// wake makes it event-driven instead (~2.5s after start). Steady-state cadence
-// is unchanged: the ticker keeps running and the wake is purely additive, firing
-// only for first-sight pairs.
+// wake makes it event-driven instead (~2.5s after start). When the disk seed ran
+// first (SeedEntries, before Start — see AttachSeedCache's call site in
+// api/router.go) the immediate pass already has the seeded pairs to re-resolve,
+// and those pairs never fire a wake: they are present in the map before their
+// first Register, so Register sees them as already-seen. The wake still covers
+// every pair the seed did not carry. Steady-state cadence is unchanged: the
+// ticker keeps running and the wake is purely additive, firing only for
+// first-sight pairs.
 func (r *BranchRefresher) Start(ctx context.Context) {
 	go func() {
 		r.refresh(ctx)
@@ -704,7 +867,15 @@ func (r *BranchRefresher) settle(ctx context.Context) bool {
 // Because the query is `--state all`, a merged PR keeps resolving positive on
 // every pass — its done-square is durable STATELESSLY (no grace clock, no
 // negative-stamp retention). Only a genuine empty/no-PR result clears the entry.
+//
+// It is SINGLE-FLIGHTED (refreshMu): a tick/wake pass and an on-demand RefreshNow
+// serialize instead of interleaving, so a pass blocked in a slow `gh pr list` can
+// no longer come back with a stale parsed-empty result and clear an entry a
+// concurrent pass just resolved positively.
 func (r *BranchRefresher) refresh(ctx context.Context) {
+	r.refreshMu.Lock()
+	defer r.refreshMu.Unlock()
+
 	now := r.now()
 
 	// Age out unobserved pairs and collect the live keys to resolve. Done under
@@ -800,6 +971,7 @@ func (r *BranchRefresher) refresh(ctx context.Context) {
 			r.mu.Lock()
 			if e, present := r.entries[p.key]; present { // may have aged out concurrently
 				e.pr = nil
+				e.seeded = false // freshly derived (an authoritative negative), no longer a seed
 				r.entries[p.key] = e
 			}
 			r.mu.Unlock()
@@ -817,10 +989,18 @@ func (r *BranchRefresher) refresh(ctx context.Context) {
 		// inside the top-prFetchLimit recently-updated window, so it cannot
 		// distinguish "no PR" from "not covered". Misses therefore fall THROUGH to
 		// the gh path, which alone may write a negative.
-		if pr, hit := r.viewerIndexPR(ctx, now, p.repoDir, p.branch); hit {
+		if pr, seeded, hit := r.viewerIndexPR(ctx, now, p.repoDir, p.branch); hit {
 			r.mu.Lock()
 			if e, present := r.entries[p.key]; present { // may have aged out concurrently
 				e.pr = pr
+				// A hit against a SEED-originated index is still the previous
+				// process's data, so the entry inherits the mark and stays
+				// discardable on an account switch; a hit against a freshly-fetched
+				// index clears it. The mark travels WITH the candidate (captured in
+				// the same critical section that read it) rather than being re-read
+				// here, so a concurrent index replacement can never leave account A's
+				// data written unmarked.
+				e.seeded = seeded
 				r.entries[p.key] = e
 			}
 			r.mu.Unlock()
@@ -856,9 +1036,22 @@ func (r *BranchRefresher) refresh(ctx context.Context) {
 			// clears to a true negative. No grace retention — `--state all` keeps
 			// a merged PR resolving positive, so the done-square is stateless.
 			e.pr = pr
+			e.seeded = false // derived by THIS process, no longer a seed
 			r.entries[p.key] = e
 		}
 		r.mu.Unlock()
+	}
+
+	// Mirror the new last-good derivations to the disk cache. Nil for every
+	// unwired refresher. The document this assembles carries the COLLECTOR's state
+	// too, whose fetchedAt is re-stamped by every successful 90s pass — the dedup
+	// key zeroes that freshness stamp (Store.dedupKey), so a quiet 30s pass writes
+	// nothing here rather than inheriting the collector's churn.
+	r.mu.RLock()
+	saved := r.onRefreshed
+	r.mu.RUnlock()
+	if saved != nil {
+		saved()
 	}
 }
 
@@ -922,7 +1115,15 @@ func (r *BranchRefresher) defaultBranch(ctx context.Context, now time.Time, repo
 // winner (open > merged > closed, most-recently-updated within a class).
 // Runs on the refresher goroutine only (it may resolve origin identity, a
 // subprocess), never on the hot path.
-func (r *BranchRefresher) viewerIndexPR(ctx context.Context, now time.Time, repoDir, branch string) (*BranchPR, bool) {
+//
+// The returned `seeded` flag is the PROVENANCE of the candidate, read in the SAME
+// critical section that read the candidate itself. Re-reading r.viewerIndexSeeded
+// at the caller's write point would be a TOCTOU: a collector pass replacing the
+// index (StoreViewerIndex clears the flag) and running the account-switch
+// DiscardSeeded can land in between, and the entry would then be written with
+// account A's data but NOT marked seed-originated — invisible to any later
+// discard, and persisted under account B's login.
+func (r *BranchRefresher) viewerIndexPR(ctx context.Context, now time.Time, repoDir, branch string) (pr *BranchPR, seeded, hit bool) {
 	r.mu.RLock()
 	indexSize := len(r.viewerIndex)
 	r.mu.RUnlock()
@@ -930,22 +1131,23 @@ func (r *BranchRefresher) viewerIndexPR(ctx context.Context, now time.Time, repo
 		// No seed yet (collector unwired, or its first fetch has not landed).
 		// Short-circuit BEFORE resolving origin identity so an unwired collector
 		// costs zero `git remote get-url` subprocesses.
-		return nil, false
+		return nil, false, false
 	}
 
 	repo, ok := r.originRepo(ctx, now, repoDir)
 	if !ok {
-		return nil, false // identity unresolvable → fail open to the gh path
+		return nil, false, false // identity unresolvable → fail open to the gh path
 	}
 
 	r.mu.RLock()
 	candidates := r.viewerIndex[viewerIndexKey(repo, branch)]
+	seeded = r.viewerIndexSeeded
 	r.mu.RUnlock()
-	pr := pickBranchCandidate(candidates)
+	pr = pickBranchCandidate(candidates)
 	if pr == nil {
-		return nil, false
+		return nil, false, false
 	}
-	return pr, true
+	return pr, seeded, true
 }
 
 // originRepo returns the repo's HOST-QUALIFIED `host/owner/name` origin identity,

@@ -15,7 +15,11 @@
 //   - gh absent or unauthenticated is a silent no-op (last-good kept), matching
 //     the `command -v rk` fail-silent posture used elsewhere in the codebase.
 //
-// No database, no disk, no tmux option — in-memory only (Constitution §II).
+// Runtime state is in-memory only. Since 260809-r4vk the last-good state is ALSO
+// mirrored to one droppable startup-seed file (prstatus_disk.go) so a restart
+// while gh is slow/offline does not start blank; that cache is never
+// authoritative and is covered by Constitution §II's $XDG_STATE_HOME/rk/
+// carve-out. No tmux option, no database.
 // All process execution uses exec.CommandContext with a timeout and an explicit
 // argument slice; no shell string and no user input in argv (Constitution §I).
 package prstatus
@@ -120,6 +124,25 @@ type Collector struct {
 	// It is deliberately called only on a successful parse: stale-while-revalidate
 	// applies to the seed exactly as it does to byURL.
 	onViewerPRs func([]ViewerPR)
+
+	// login is the gh viewer login of the LAST SUCCESSFUL fetch ("" until one
+	// lands). It keys the disk cache (prstatus_disk.go): an account switch is
+	// detected by comparing it against the login the loaded cache was written
+	// under. Guarded by mu.
+	login string
+
+	// viewerPRs is the last successful fetch's projected node list — the same
+	// payload onViewerPRs published, retained as last-good so the disk cache can
+	// be assembled from live state alone (and so a seed loaded at startup IS the
+	// last-good list until a fetch replaces it). Guarded by mu.
+	viewerPRs []ViewerPR
+
+	// onRefreshed, when non-nil, is called at the TAIL of a successful refresh
+	// pass — the disk-cache write seam (SeedCache.collectorRefreshed). Nil (every
+	// unwired/test collector) is a no-op, so nothing about an unwired collector's
+	// behavior changes. It runs on the collector's background goroutine, never on
+	// the SSE hot path.
+	onRefreshed func()
 }
 
 // SetViewerPRSink installs the viewer-PR seed sink invoked after every successful
@@ -131,6 +154,59 @@ func (c *Collector) SetViewerPRSink(fn func([]ViewerPR)) {
 	c.mu.Lock()
 	c.onViewerPRs = fn
 	c.mu.Unlock()
+}
+
+// SetRefreshHook installs the callback invoked at the tail of every SUCCESSFUL
+// refresh pass (the disk-cache write seam, wired by SeedCache.Attach). Passing
+// nil clears it.
+func (c *Collector) SetRefreshHook(fn func()) {
+	c.mu.Lock()
+	c.onRefreshed = fn
+	c.mu.Unlock()
+}
+
+// Seed pre-fills the collector's last-good state from the disk cache
+// (prstatus_disk.go), before Start. It applies each half ONLY while that half is
+// still empty, so a seed can never clobber fetched state.
+//
+// Each PRStatus keeps its ORIGINAL FetchedAt — the flyout's "checked Xs ago" line
+// must report honest staleness, and the first successful refresh stamps fresh
+// times as it always has. The seed is never authoritative: the immediate first
+// refresh replaces all of this wholesale, including dropping a PR the new batch
+// no longer carries.
+func (c *Collector) Seed(byURL map[string]PRStatus, viewerPRs []ViewerPR) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(byURL) > 0 && len(c.byURL) == 0 {
+		next := make(map[string]PRStatus, len(byURL))
+		for url, p := range byURL {
+			next[url] = p
+		}
+		c.byURL = next
+	}
+	if len(viewerPRs) > 0 && len(c.viewerPRs) == 0 {
+		c.viewerPRs = append([]ViewerPR(nil), viewerPRs...)
+	}
+}
+
+// Login returns the gh viewer login of the last successful fetch, or "" when none
+// has landed in this process. Read by the disk cache to key its file and to detect
+// an account switch.
+func (c *Collector) Login() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.login
+}
+
+// ViewerPRs returns a copy of the last successful fetch's projected node list (or
+// the seeded last-good list until a fetch lands).
+func (c *Collector) ViewerPRs() []ViewerPR {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if len(c.viewerPRs) == 0 {
+		return nil
+	}
+	return append([]ViewerPR(nil), c.viewerPRs...)
 }
 
 // NewCollector creates a PR-status collector that polls on the given interval.
@@ -214,10 +290,11 @@ func (c *Collector) refresh(ctx context.Context) {
 		return
 	}
 
-	prs, err := parsePRs(out)
+	batch, err := parseBatch(out)
 	if err != nil {
 		return
 	}
+	prs := batch.PRs
 
 	next := make(map[string]PRStatus, len(prs))
 	now := time.Now()
@@ -240,11 +317,18 @@ func (c *Collector) refresh(ctx context.Context) {
 		}
 	}
 
+	viewer := viewerPRsFrom(prs)
+
 	// REPLACE wholesale: a PR absent from the new result (merged/closed/no
-	// longer OPEN) is gone next cycle. This is the cleanup mechanism.
+	// longer OPEN) is gone next cycle. This is the cleanup mechanism. The login
+	// and the retained viewer list are replaced in the same critical section, so
+	// a cache assembled from this state always describes ONE batch.
 	c.mu.Lock()
 	c.byURL = next
+	c.viewerPRs = viewer
+	c.login = batch.Login
 	sink := c.onViewerPRs
+	saved := c.onRefreshed
 	c.mu.Unlock()
 
 	// Seed the branch→PR head-index from the SAME batch (successful parse only —
@@ -253,7 +337,14 @@ func (c *Collector) refresh(ctx context.Context) {
 	// another type's mutex, so holding this one across the call would couple the
 	// two locks.
 	if sink != nil {
-		sink(viewerPRsFrom(prs))
+		sink(viewer)
+	}
+
+	// Mirror the new last-good state to the disk cache (same reasoning: outside
+	// c.mu, and only on a successful pass). Still inside refreshMu, so writes from
+	// the collector side serialize with each other.
+	if saved != nil {
+		saved()
 	}
 }
 
@@ -312,8 +403,14 @@ func ghAvailable(ctx context.Context) bool {
 // candidates be ranked with the same most-recently-updated-within-a-state-class
 // tiebreak pickBranchPR applies to gh results. States, ordering, and $limit are
 // deliberately unchanged.
+//
+// `login` is selected on the same `viewer` node for the DISK CACHE (260809-r4vk):
+// the cache records the login its state was fetched as, and an account switch is
+// detected by comparing it at the next successful fetch — no extra call, since the
+// query already selects on viewer.
 const ghQuery = `query($limit: Int!) {
   viewer {
+    login
     pullRequests(first: $limit, states: [OPEN, MERGED, CLOSED], orderBy: {field: UPDATED_AT, direction: DESC}) {
       nodes {
         number
@@ -348,6 +445,7 @@ func defaultGhExec(ctx context.Context) ([]byte, error) {
 type ghResponse struct {
 	Data struct {
 		Viewer struct {
+			Login        string `json:"login"`
 			PullRequests struct {
 				Nodes []ghPR `json:"nodes"`
 			} `json:"pullRequests"`
@@ -395,13 +493,24 @@ func (p ghPR) rollupState() string {
 	return r.State
 }
 
-// parsePRs decodes the gh GraphQL response into the PR node list.
-func parsePRs(out []byte) ([]ghPR, error) {
+// ghBatch is one successful decode of the batched query: the viewer login the
+// batch was fetched as (the disk cache's key — "" when the field is absent) plus
+// its PR nodes. One decode carries both; they always describe the same fetch.
+type ghBatch struct {
+	Login string
+	PRs   []ghPR
+}
+
+// parseBatch decodes the gh GraphQL response into the login + PR node list.
+func parseBatch(out []byte) (ghBatch, error) {
 	var resp ghResponse
 	if err := json.Unmarshal(out, &resp); err != nil {
-		return nil, err
+		return ghBatch{}, err
 	}
-	return resp.Data.Viewer.PullRequests.Nodes, nil
+	return ghBatch{
+		Login: resp.Data.Viewer.Login,
+		PRs:   resp.Data.Viewer.PullRequests.Nodes,
+	}, nil
 }
 
 // --- enum collapse --------------------------------------------------------------

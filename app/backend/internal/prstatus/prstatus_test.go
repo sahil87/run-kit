@@ -4,15 +4,24 @@ import (
 	"context"
 	"errors"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 )
 
-// ghJSON builds a minimal gh GraphQL response body for the given PR nodes.
+// ghJSON builds a minimal gh GraphQL response body for the given PR nodes, with
+// NO viewer login — which also exercises the absent-login path (an empty login is
+// "unknown", never a mismatch). Login-keyed tests use ghJSONLogin.
 // Each node is the raw JSON for one PR (see ghFixture).
 func ghJSON(nodes string) []byte {
 	return []byte(`{"data":{"viewer":{"pullRequests":{"nodes":[` + nodes + `]}}}}`)
+}
+
+// ghJSONLogin is ghJSON plus the `viewer { login }` field the disk cache keys on.
+func ghJSONLogin(login, nodes string) []byte {
+	return []byte(`{"data":{"viewer":{"login":"` + login +
+		`","pullRequests":{"nodes":[` + nodes + `]}}}}`)
 }
 
 // ghFixture renders one PR node with the given fields. The head-identity fields
@@ -338,10 +347,11 @@ func TestParsePRsHeadFields(t *testing.T) {
 		ghHeadFixture(1, "u1", "OPEN", "sahil87/run-kit", "feat", "2026-08-01T00:00:00Z") + "," +
 			ghHeadFixture(2, "u2", "MERGED", "", "gone", "2026-08-02T00:00:00Z"),
 	)
-	prs, err := parsePRs(out)
+	batch, err := parseBatch(out)
 	if err != nil {
-		t.Fatalf("parsePRs: %v", err)
+		t.Fatalf("parseBatch: %v", err)
 	}
+	prs := batch.PRs
 	if len(prs) != 2 {
 		t.Fatalf("parsed %d nodes, want 2", len(prs))
 	}
@@ -364,14 +374,14 @@ func TestParsePRsHeadFields(t *testing.T) {
 // state/head identity/updatedAt faithfully and flattens a null headRepository to
 // an empty HeadRepo (the skip signal StoreViewerIndex keys on).
 func TestViewerPRsFromProjection(t *testing.T) {
-	prs, err := parsePRs(ghJSON(
+	batch, err := parseBatch(ghJSON(
 		ghHeadFixture(7, "u7", "OPEN", "sahil87/run-kit", "feat", "2026-08-01T00:00:00Z") + "," +
 			ghHeadFixture(8, "u8", "CLOSED", "", "gone", "2026-08-02T00:00:00Z"),
 	))
 	if err != nil {
-		t.Fatalf("parsePRs: %v", err)
+		t.Fatalf("parseBatch: %v", err)
 	}
-	got := viewerPRsFrom(prs)
+	got := viewerPRsFrom(batch.PRs)
 	if len(got) != 2 {
 		t.Fatalf("projected %d, want 2", len(got))
 	}
@@ -509,6 +519,243 @@ func TestRefreshIsSingleFlighted(t *testing.T) {
 	}
 	if _, ok := c.Snapshot()["u7"]; !ok {
 		t.Error("the serialized passes must still rebuild byURL")
+	}
+}
+
+// --- disk seed: collector side (260809-r4vk) ------------------------------------
+
+// TestParseBatchCarriesViewerLogin: the batched query's `viewer { login }`
+// addition decodes alongside the nodes, and a response WITHOUT the field parses to
+// an empty login (unknown, never an error).
+func TestParseBatchCarriesViewerLogin(t *testing.T) {
+	node := ghHeadFixture(1, "u1", "OPEN", "sahil87/run-kit", "feat", "2026-08-01T00:00:00Z")
+
+	batch, err := parseBatch(ghJSONLogin("sahil87", node))
+	if err != nil {
+		t.Fatalf("parseBatch: %v", err)
+	}
+	if batch.Login != "sahil87" {
+		t.Errorf("Login = %q, want sahil87", batch.Login)
+	}
+	if len(batch.PRs) != 1 || batch.PRs[0].URL != "u1" {
+		t.Errorf("PRs = %+v", batch.PRs)
+	}
+
+	batch, err = parseBatch(ghJSON(node)) // no login field at all
+	if err != nil {
+		t.Fatalf("parseBatch (no login): %v", err)
+	}
+	if batch.Login != "" {
+		t.Errorf("absent login should decode to \"\", got %q", batch.Login)
+	}
+	if len(batch.PRs) != 1 {
+		t.Errorf("nodes should still parse without a login: %+v", batch.PRs)
+	}
+}
+
+// TestGhQuerySelectsViewerLogin: the login is fetched by the SAME batched call —
+// no extra query, no extra subprocess.
+func TestGhQuerySelectsViewerLogin(t *testing.T) {
+	if !strings.Contains(ghQuery, "login") {
+		t.Error("ghQuery must select viewer { login } for the disk cache key")
+	}
+	// The states/ordering/limit contract is unchanged.
+	if !strings.Contains(ghQuery, "states: [OPEN, MERGED, CLOSED]") ||
+		!strings.Contains(ghQuery, "orderBy: {field: UPDATED_AT, direction: DESC}") ||
+		!strings.Contains(ghQuery, "first: $limit") {
+		t.Error("ghQuery states/ordering/limit must be unchanged")
+	}
+}
+
+// TestRefreshRecordsLoginAndViewerList: a successful pass retains the login and
+// the projected node list as last-good (the disk cache's two collector-side
+// sources); a FAILED pass leaves both untouched (stale-while-revalidate).
+func TestRefreshRecordsLoginAndViewerList(t *testing.T) {
+	mode := "ok"
+	c := newTestCollector(func(context.Context) ([]byte, error) {
+		if mode == "err" {
+			return nil, errors.New("network blip")
+		}
+		return ghJSONLogin("sahil87",
+			ghHeadFixture(7, "u7", "OPEN", "sahil87/run-kit", "feat", "2026-08-01T00:00:00Z")), nil
+	})
+
+	c.refresh(context.Background())
+	if got := c.Login(); got != "sahil87" {
+		t.Errorf("Login = %q, want sahil87", got)
+	}
+	if got := c.ViewerPRs(); len(got) != 1 || got[0].HeadRef != "feat" {
+		t.Errorf("ViewerPRs = %+v", got)
+	}
+
+	mode = "err"
+	c.refresh(context.Background())
+	if got := c.Login(); got != "sahil87" {
+		t.Errorf("failed pass changed Login to %q", got)
+	}
+	if got := c.ViewerPRs(); len(got) != 1 {
+		t.Errorf("failed pass changed ViewerPRs to %+v", got)
+	}
+}
+
+// TestViewerPRsIsCopy: the retained last-good list is handed out as a copy, so a
+// caller (the cache writer) cannot mutate collector state.
+func TestViewerPRsIsCopy(t *testing.T) {
+	c := newTestCollector(func(context.Context) ([]byte, error) {
+		return ghJSONLogin("a", ghHeadFixture(1, "u1", "OPEN", "o/r", "feat", "2026-08-01T00:00:00Z")), nil
+	})
+	c.refresh(context.Background())
+	got := c.ViewerPRs()
+	got[0].HeadRef = "mutated"
+	if again := c.ViewerPRs(); again[0].HeadRef != "feat" {
+		t.Errorf("mutating the returned slice affected collector state: %+v", again)
+	}
+}
+
+// TestSeedPreservesFetchedAt: a seeded PRStatus keeps its ORIGINAL FetchedAt — the
+// flyout's "checked Xs ago" line must report honest staleness across a restart,
+// not claim the data was just fetched.
+func TestSeedPreservesFetchedAt(t *testing.T) {
+	fetched := time.Date(2026, 8, 9, 9, 58, 0, 0, time.UTC)
+	c := NewCollector(time.Hour)
+	c.Seed(map[string]PRStatus{
+		"u542": {Number: 542, URL: "u542", State: "merged", Checks: "pass", FetchedAt: fetched},
+	}, []ViewerPR{{Number: 542, URL: "u542", State: "MERGED", HeadRepo: "o/r", HeadRef: "feat"}})
+
+	got, ok := c.Snapshot()["u542"]
+	if !ok {
+		t.Fatalf("seeded PR missing from snapshot: %v", c.Snapshot())
+	}
+	if !got.FetchedAt.Equal(fetched) {
+		t.Errorf("FetchedAt = %v, want the preserved %v", got.FetchedAt, fetched)
+	}
+	if got.State != "merged" || got.Checks != "pass" {
+		t.Errorf("seeded status not carried through: %+v", got)
+	}
+	if vp := c.ViewerPRs(); len(vp) != 1 || vp[0].Number != 542 {
+		t.Errorf("seeded viewer list = %+v", vp)
+	}
+	// The seed is NOT a fetch: it must not fabricate a login.
+	if got := c.Login(); got != "" {
+		t.Errorf("Seed must not set Login, got %q", got)
+	}
+}
+
+// TestSeedNeverClobbersFetchedState: seeding is a startup-only fill. Applied to a
+// collector that has already fetched, it must leave the fetched state alone.
+func TestSeedNeverClobbersFetchedState(t *testing.T) {
+	c := newTestCollector(func(context.Context) ([]byte, error) {
+		return ghJSONLogin("sahil87", ghHeadFixture(1, "fresh", "OPEN", "o/r", "feat", "2026-08-01T00:00:00Z")), nil
+	})
+	c.refresh(context.Background())
+
+	c.Seed(map[string]PRStatus{"stale": {Number: 9, URL: "stale"}},
+		[]ViewerPR{{Number: 9, URL: "stale", HeadRepo: "o/r", HeadRef: "old"}})
+
+	snap := c.Snapshot()
+	if _, ok := snap["stale"]; ok {
+		t.Errorf("seed clobbered fetched state: %v", snap)
+	}
+	if _, ok := snap["fresh"]; !ok {
+		t.Errorf("fetched state lost: %v", snap)
+	}
+	if vp := c.ViewerPRs(); len(vp) != 1 || vp[0].HeadRef != "feat" {
+		t.Errorf("seed clobbered the fetched viewer list: %+v", vp)
+	}
+}
+
+// TestSeedIsReplacedWholesaleByFetch: the seed is never authoritative — a
+// successful fetch rebuilds byURL wholesale, INCLUDING dropping a seeded PR the
+// new batch no longer carries (an authoritative negative).
+func TestSeedIsReplacedWholesaleByFetch(t *testing.T) {
+	c := newTestCollector(func(context.Context) ([]byte, error) {
+		return ghJSONLogin("sahil87", ghHeadFixture(2, "kept", "OPEN", "o/r", "feat", "2026-08-01T00:00:00Z")), nil
+	})
+	c.Seed(map[string]PRStatus{"dropped": {Number: 1, URL: "dropped"}}, nil)
+
+	c.refresh(context.Background())
+
+	snap := c.Snapshot()
+	if _, ok := snap["dropped"]; ok {
+		t.Error("a successful fetch must drop a seeded PR absent from the new batch")
+	}
+	if _, ok := snap["kept"]; !ok {
+		t.Errorf("fetched PR missing: %v", snap)
+	}
+}
+
+// TestSeedSurvivesFailedFetch: stale-while-revalidate across the process boundary
+// — a gh error, an unavailable gh, and malformed JSON all leave the seed serving.
+func TestSeedSurvivesFailedFetch(t *testing.T) {
+	mode := "err"
+	c := newTestCollector(func(context.Context) ([]byte, error) {
+		if mode == "bad" {
+			return []byte("not json"), nil
+		}
+		return nil, errors.New("gh offline")
+	})
+	c.Seed(map[string]PRStatus{"seeded": {Number: 1, URL: "seeded"}}, nil)
+
+	c.refresh(context.Background()) // gh error
+	mode = "bad"
+	c.refresh(context.Background()) // malformed JSON
+	c.available = func(context.Context) bool { return false }
+	c.refresh(context.Background()) // gh unavailable
+
+	if _, ok := c.Snapshot()["seeded"]; !ok {
+		t.Errorf("seed must survive every failed fetch: %v", c.Snapshot())
+	}
+}
+
+// TestRefreshHookFiresOnlyOnSuccess: the disk-cache write seam rides successful
+// passes only (a failed pass has nothing new to persist), and a nil hook — every
+// unwired collector — is a no-op.
+func TestRefreshHookFiresOnlyOnSuccess(t *testing.T) {
+	mode := "ok"
+	c := newTestCollector(func(context.Context) ([]byte, error) {
+		switch mode {
+		case "err":
+			return nil, errors.New("network blip")
+		case "bad":
+			return []byte("not json"), nil
+		default:
+			return ghJSONLogin("sahil87", ghHeadFixture(1, "u1", "OPEN", "o/r", "feat", "2026-08-01T00:00:00Z")), nil
+		}
+	})
+
+	c.refresh(context.Background()) // nil hook must not panic
+
+	calls := 0
+	c.SetRefreshHook(func() { calls++ })
+	c.refresh(context.Background()) // ok → 1
+	mode = "err"
+	c.refresh(context.Background())
+	mode = "bad"
+	c.refresh(context.Background())
+	mode = "ok"
+	c.available = func(context.Context) bool { return false }
+	c.refresh(context.Background())
+
+	if calls != 1 {
+		t.Errorf("refresh hook fired %d times, want 1 (successful passes only)", calls)
+	}
+}
+
+// TestRefreshHookSeesTheNewState: the hook runs at the TAIL of the pass, so the
+// state it persists is the pass's own — never the previous generation's.
+func TestRefreshHookSeesTheNewState(t *testing.T) {
+	c := newTestCollector(func(context.Context) ([]byte, error) {
+		return ghJSONLogin("sahil87", ghHeadFixture(7, "u7", "OPEN", "o/r", "feat", "2026-08-01T00:00:00Z")), nil
+	})
+	var login string
+	var prs int
+	c.SetRefreshHook(func() {
+		login = c.Login()
+		prs = len(c.Snapshot())
+	})
+	c.refresh(context.Background())
+	if login != "sahil87" || prs != 1 {
+		t.Errorf("hook observed login=%q prs=%d, want sahil87/1", login, prs)
 	}
 }
 

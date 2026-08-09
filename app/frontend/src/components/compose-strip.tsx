@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -182,11 +183,17 @@ export function ComposeStrip({
   // cannot overwrite the focused pane's draft or drift if live selection changes.
   // Both use the same module store and therefore survive strip unmounts. With no
   // target the key is null: setters no-op and the textarea is disabled.
-  const draftKey = isSelectionTarget
-    ? selectionDraftKey(selectionTarget.keys)
-    : focused
-      ? focusedKey(focused)
-      : null;
+  //
+  // Memoized because the store-controlled textarea re-renders the strip on EVERY
+  // keystroke, and the selection branch sorts + stringifies the whole recipient
+  // set. `keys` is the frozen snapshot the palette action captured (held in
+  // parent state), so its reference is stable for the life of a broadcast and
+  // the sort runs once per recipient-set change instead of once per keypress.
+  const selectionKeys = isSelectionTarget ? selectionTarget.keys : null;
+  const draftKey = useMemo(
+    () => (selectionKeys ? selectionDraftKey(selectionKeys) : focused ? focusedKey(focused) : null),
+    [selectionKeys, focused],
+  );
   const { text, attachments: files } = useSyncExternalStore(subscribeComposeDraft, () =>
     getComposeDraft(draftKey),
   );

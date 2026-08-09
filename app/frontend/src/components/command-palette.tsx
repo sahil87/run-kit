@@ -7,6 +7,8 @@ export type PaletteAction = {
   id: string;
   label: string;
   shortcut?: string;
+  /** When set, first selection enters a one-row confirmation step. */
+  confirmLabel?: string;
   onSelect: () => void;
 };
 
@@ -18,18 +20,33 @@ export function CommandPalette({ actions }: CommandPaletteProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [confirming, setConfirming] = useState<PaletteAction | null>(null);
   const paletteRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const listId = useId();
 
+  const closePalette = useCallback(() => {
+    setOpen(false);
+    setConfirming(null);
+  }, []);
+
   // The hook owns Escape (document-level, so it fires regardless of which
   // element inside the palette has focus), Tab containment, and initial focus
   // (the input is the container's first — and only — focusable element).
-  useFocusTrap(paletteRef, open, () => setOpen(false));
+  useFocusTrap(paletteRef, open, closePalette);
 
-  const filtered = actions.filter((a) =>
-    a.label.toLowerCase().includes(query.toLowerCase()),
-  );
+  const filtered = confirming
+    ? [
+        {
+          ...confirming,
+          id: `${confirming.id}-confirm`,
+          label: confirming.confirmLabel ?? confirming.label,
+          confirmLabel: undefined,
+        },
+      ]
+    : actions.filter((a) =>
+        a.label.toLowerCase().includes(query.toLowerCase()),
+      );
 
   // The toggle chord comes from the keybinding registry (260730-g40a): default
   // ⌘K / Ctrl+K (`command-palette`, cmd tier, `ignoreInputs` — it keeps firing
@@ -45,6 +62,7 @@ export function CommandPalette({ actions }: CommandPaletteProps) {
       const binding = toggleBindingRef.current;
       if (binding?.enabled && matchesCombo(e, binding)) {
         e.preventDefault();
+        setConfirming(null);
         setOpen((prev) => !prev);
         setQuery("");
         setSelectedIndex(0);
@@ -52,6 +70,7 @@ export function CommandPalette({ actions }: CommandPaletteProps) {
     }
     function handlePaletteOpen() {
       setOpen(true);
+      setConfirming(null);
       setQuery("");
       setSelectedIndex(0);
     }
@@ -74,10 +93,16 @@ export function CommandPalette({ actions }: CommandPaletteProps) {
 
   const handleSelect = useCallback(
     (action: PaletteAction) => {
-      setOpen(false);
+      if (action.confirmLabel) {
+        setConfirming(action);
+        setQuery("");
+        setSelectedIndex(0);
+        return;
+      }
+      closePalette();
       action.onSelect();
     },
-    [],
+    [closePalette],
   );
 
   function handleKeyDown(e: React.KeyboardEvent) {
@@ -103,7 +128,7 @@ export function CommandPalette({ actions }: CommandPaletteProps) {
     <div
       data-testid="palette-overlay"
       className="fixed inset-0 z-50 flex items-start justify-center pt-[20vh]"
-      onClick={() => setOpen(false)}
+      onClick={closePalette}
     >
       {/* Backdrop */}
       <div className="fixed inset-0 bg-black/50" aria-hidden="true" />
@@ -121,11 +146,13 @@ export function CommandPalette({ actions }: CommandPaletteProps) {
           type="text"
           value={query}
           onChange={(e) => {
+            if (confirming) return;
             setQuery(e.target.value);
             setSelectedIndex(0);
           }}
           onKeyDown={handleKeyDown}
-          placeholder="Type a command..."
+          readOnly={confirming !== null}
+          placeholder={confirming ? "Confirm action..." : "Type a command..."}
           aria-label="Search commands"
           aria-autocomplete="list"
           aria-controls={listId}

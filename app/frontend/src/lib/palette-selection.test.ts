@@ -1,10 +1,16 @@
 import { describe, it, expect, vi } from "vitest";
 import {
+  batchToast,
   mergedWindowKeys,
   buildSelectAllMergedAction,
+  buildSelectionCloseAction,
   buildSelectionMoveActions,
+  buildSelectionSendPromptAction,
+  executeSelectionBatch,
   SELECT_ALL_MERGED_ACTION_ID,
+  SELECTION_CLOSE_ACTION_ID,
   SELECTION_MOVE_ACTION_PREFIX,
+  SELECTION_SEND_PROMPT_ACTION_ID,
   SELECTION_GESTURE_HINT,
   type SelectableSession,
 } from "./palette-selection";
@@ -212,5 +218,165 @@ describe("buildSelectionMoveActions", () => {
     const action = buildSelectAllMergedAction(SRV, sessions, vi.fn());
     expect(action!.shortcut).toBe(SELECTION_GESTURE_HINT);
     expect(action!.shortcut).toContain("x");
+  });
+});
+
+describe("buildSelectionCloseAction", () => {
+  it("is omitted for an empty selection", () => {
+    expect(buildSelectionCloseAction(new Set(), vi.fn())).toBeNull();
+  });
+
+  it("uses singular copy and carries the palette confirmation label", () => {
+    const action = buildSelectionCloseAction(new Set(["srv:@1"]), vi.fn());
+    expect(action).toMatchObject({
+      id: SELECTION_CLOSE_ACTION_ID,
+      label: "Selection: Close 1 window",
+      confirmLabel: "Close 1 window — Enter to confirm",
+    });
+  });
+
+  it("allows cross-server selections and snapshots their keys", () => {
+    const onClose = vi.fn();
+    const selected = new Set(["srv:@1", "other:@2"]);
+    const action = buildSelectionCloseAction(selected, onClose)!;
+    expect(action.label).toBe("Selection: Close 2 windows");
+    selected.clear();
+    action.onSelect();
+    expect(onClose).toHaveBeenCalledWith(["srv:@1", "other:@2"]);
+  });
+});
+
+describe("buildSelectionSendPromptAction", () => {
+  it("is omitted for an empty selection", () => {
+    expect(buildSelectionSendPromptAction(new Set(), vi.fn())).toBeNull();
+  });
+
+  it("uses singular and plural agent labels", () => {
+    expect(
+      buildSelectionSendPromptAction(new Set(["srv:@1"]), vi.fn()),
+    ).toMatchObject({
+      id: SELECTION_SEND_PROMPT_ACTION_ID,
+      label: "Selection: Send prompt to 1 agent",
+    });
+    expect(
+      buildSelectionSendPromptAction(
+        new Set(["srv:@1", "other:@2"]),
+        vi.fn(),
+      )!.label,
+    ).toBe("Selection: Send prompt to 2 agents");
+  });
+
+  it("snapshots cross-server recipients for the compose target", () => {
+    const onCompose = vi.fn();
+    const selected = new Set(["srv:@1", "other:@2"]);
+    const action = buildSelectionSendPromptAction(selected, onCompose)!;
+    selected.delete("other:@2");
+    action.onSelect();
+    expect(onCompose).toHaveBeenCalledWith(["srv:@1", "other:@2"]);
+  });
+});
+
+describe("executeSelectionBatch", () => {
+  it("runs operations sequentially in key order", async () => {
+    const calls: string[] = [];
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const operation = vi.fn(async ({ server, windowId }) => {
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      calls.push(`${server}:${windowId}`);
+      await Promise.resolve();
+      inFlight--;
+    });
+
+    await executeSelectionBatch(["a:@1", "b:@2"], operation);
+
+    expect(calls).toEqual(["a:@1", "b:@2"]);
+    expect(maxInFlight).toBe(1);
+  });
+
+  it("continues after malformed keys and rejected operations", async () => {
+    const operation = vi
+      .fn<(target: { server: string; windowId: string }) => Promise<void>>()
+      .mockRejectedValueOnce(new Error("probe failed"))
+      .mockResolvedValueOnce();
+
+    const result = await executeSelectionBatch(
+      ["srv:@1", "malformed", "other:@2"],
+      operation,
+    );
+
+    expect(operation).toHaveBeenNthCalledWith(1, {
+      server: "srv",
+      windowId: "@1",
+    });
+    expect(operation).toHaveBeenNthCalledWith(2, {
+      server: "other",
+      windowId: "@2",
+    });
+    expect(result).toEqual({
+      failedKeys: ["srv:@1", "malformed"],
+      firstError: "probe failed",
+    });
+  });
+
+  it("uses malformed-key text as the first error when it occurs first", async () => {
+    const result = await executeSelectionBatch(
+      ["bad", "srv:@1"],
+      vi.fn().mockRejectedValue(new Error("later")),
+    );
+    expect(result.firstError).toBe("malformed window key");
+    expect(result.failedKeys).toEqual(["bad", "srv:@1"]);
+  });
+});
+
+describe("batchToast", () => {
+  const clean = { failedKeys: [], firstError: "" };
+
+  it("reports the plain count on full success", () => {
+    expect(
+      batchToast({ success: "Closed", failure: "Closed", noun: "window" }, 3, clean),
+    ).toEqual({ message: "Closed 3 windows", failed: false });
+  });
+
+  it("pluralizes on the batch total", () => {
+    expect(
+      batchToast({ success: "Closed", failure: "Closed", noun: "window" }, 1, clean)
+        .message,
+    ).toBe("Closed 1 window");
+  });
+
+  it("reports counts plus the first error on partial failure", () => {
+    expect(
+      batchToast({ success: "Sent prompt to", failure: "Sent to", noun: "agent" }, 3, {
+        failedKeys: ["srv:@2"],
+        firstError: "window not found",
+      }),
+    ).toEqual({
+      message: "Sent to 2 of 3 agents — 1 failed: window not found",
+      failed: true,
+    });
+  });
+
+  it("reports 0 delivered on a total failure", () => {
+    expect(
+      batchToast({ success: "Sent prompt to", failure: "Sent to", noun: "agent" }, 2, {
+        failedKeys: ["srv:@1", "srv:@2"],
+        firstError: "boom",
+      }).message,
+    ).toBe("Sent to 0 of 2 agents — 2 failed: boom");
+  });
+
+  it("carries the operation's trailing qualifier in both messages", () => {
+    const copy = {
+      success: "Moved",
+      failure: "Moved",
+      noun: "window",
+      qualifier: " to work",
+    };
+    expect(batchToast(copy, 2, clean).message).toBe("Moved 2 windows to work");
+    expect(
+      batchToast(copy, 2, { failedKeys: ["a:@1"], firstError: "nope" }).message,
+    ).toBe("Moved 1 of 2 windows to work — 1 failed: nope");
   });
 });

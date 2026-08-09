@@ -80,6 +80,60 @@ describe("CommandPalette", () => {
     expect(screen.queryByPlaceholderText("Type a command...")).not.toBeInTheDocument();
   });
 
+  it("requires a second Enter for an action with a confirmation label", () => {
+    const onSelect = vi.fn();
+    const actions: PaletteAction[] = [
+      {
+        id: "close-two",
+        label: "Selection: Close 2 windows",
+        confirmLabel: "Close 2 windows — Enter to confirm",
+        onSelect,
+      },
+    ];
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+
+    fireEvent.keyDown(screen.getByPlaceholderText("Type a command..."), {
+      key: "Enter",
+    });
+
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(screen.getByText("Close 2 windows — Enter to confirm")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Confirm action...")).toHaveAttribute(
+      "readonly",
+    );
+
+    fireEvent.keyDown(screen.getByPlaceholderText("Confirm action..."), {
+      key: "Enter",
+    });
+    expect(onSelect).toHaveBeenCalledOnce();
+    expect(screen.queryByPlaceholderText("Confirm action...")).not.toBeInTheDocument();
+  });
+
+  it("Escape cancels a pending confirmation without running its action", () => {
+    const onSelect = vi.fn();
+    const actions: PaletteAction[] = [
+      {
+        id: "close-one",
+        label: "Selection: Close 1 window",
+        confirmLabel: "Close 1 window — Enter to confirm",
+        onSelect,
+      },
+    ];
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+
+    fireEvent.keyDown(screen.getByPlaceholderText("Type a command..."), {
+      key: "Enter",
+    });
+    fireEvent.keyDown(screen.getByPlaceholderText("Confirm action..."), {
+      key: "Escape",
+    });
+
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(screen.queryByPlaceholderText("Confirm action...")).not.toBeInTheDocument();
+  });
+
   it("navigates with ArrowDown and ArrowUp", () => {
     const actions = makeActions(["First", "Second", "Third"]);
     render(<CommandPalette actions={actions} />);

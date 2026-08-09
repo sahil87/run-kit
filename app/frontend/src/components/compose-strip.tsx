@@ -3,6 +3,7 @@ import {
   useEffect,
   useLayoutEffect,
   useRef,
+  useState,
   useSyncExternalStore,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
@@ -44,10 +45,16 @@ import {
  * A real `<textarea>` gives mobile autocorrect/IME (xterm.js has neither) and is
  * a stable home for pasting large text blocks over a laggy relay.
  *
- * Target model (reverses the modal's frozen-target DD-6): the strip sends to the
+ * Target model has two explicit modes. Normal terminal composition sends to the
  * CURRENTLY-focused pane's `wsRef` from `FocusedTerminalContext`, read live at
- * send time — never a target snapshotted at open. The wrong-pane-send risk is
- * mitigated by the always-visible `→ {window}` target label, not by freezing.
+ * send time — never a target snapshotted at open. Selection broadcast instead
+ * receives a FROZEN composite-key set from the palette, labels it `→ N selected`,
+ * and submits the text through its callback. The target is always visible, so a
+ * user can tell which mode owns the draft before sending. Broadcast is
+ * SUBMIT-ONLY (no shared websocket for insert/raw, no shared worktree for
+ * upload), so it takes the chat surface's Enter policy — plain Enter is a local
+ * newline, Cmd/Ctrl+Enter is the sole submit, and `enterkeyhint` says so — and
+ * a submit that reached NO recipient (0 of N) keeps the composed draft.
  *
  * Interaction (the shared `classifyComposeEnter` classifier with
  * `surface: "strip"` — 260802-lj98, the terminal-faithful Enter matrix): plain
@@ -138,7 +145,28 @@ function focusedKey(f: NonNullable<FocusedTerminal>): string {
   return entryKey(f.server, f.windowId);
 }
 
-export function ComposeStrip() {
+export type ComposeSelectionTarget = {
+  /** Frozen composite selection keys captured by the palette action. */
+  keys: readonly string[];
+  /**
+   * Submit the composed prompt to the frozen recipients, resolving with the
+   * DELIVERED recipient count. `0` (nobody received it) retains the draft — the
+   * executor absorbs per-recipient failures into one aggregate toast, so a
+   * clear-on-resolve would destroy a prompt that reached no agent at all.
+   */
+  onSend: (text: string) => Promise<number>;
+};
+
+/** A stable, collision-resistant draft key for one frozen recipient set. */
+function selectionDraftKey(keys: readonly string[]): string {
+  return `selection:${JSON.stringify([...keys].sort())}`;
+}
+
+export function ComposeStrip({
+  selectionTarget = null,
+}: {
+  selectionTarget?: ComposeSelectionTarget | null;
+}) {
   const { focused } = useFocusedTerminal();
   // The header-row × fires the exact same toggle as the bottom-bar `>_` chip
   // and the `View: Text Input` palette entry. Consumed here (not threaded as a
@@ -148,14 +176,17 @@ export function ComposeStrip() {
   const { toggleComposeStrip } = useChromeDispatch();
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  // The draft key is the live focused target — `entryKey(server, windowId)`,
-  // resolved each render. Draft text + pending attachments live in the module
-  // store under that key, so they survive this component's unmount (toggle-off)
-  // and the terminal↔board route change (two separate footer mounts), and each
-  // target keeps its own draft (switching focus swaps the visible draft). With
-  // no target the key is null: the store yields the stable empty draft and the
-  // key-bound setters no-op (the strip is disabled anyway).
-  const draftKey = focused ? focusedKey(focused) : null;
+  const isSelectionTarget = selectionTarget !== null && selectionTarget.keys.length > 0;
+  // Normal drafts key on the live focused target (`entryKey(server, windowId)`).
+  // A selection-broadcast draft keys on the frozen, sorted recipient set, so it
+  // cannot overwrite the focused pane's draft or drift if live selection changes.
+  // Both use the same module store and therefore survive strip unmounts. With no
+  // target the key is null: setters no-op and the textarea is disabled.
+  const draftKey = isSelectionTarget
+    ? selectionDraftKey(selectionTarget.keys)
+    : focused
+      ? focusedKey(focused)
+      : null;
   const { text, attachments: files } = useSyncExternalStore(subscribeComposeDraft, () =>
     getComposeDraft(draftKey),
   );
@@ -202,10 +233,12 @@ export function ComposeStrip() {
     endRecall();
   }, [draftKey, endRecall]);
 
-  // Live send target — read at send time, NOT frozen at mount (reverses DD-6).
-  // The upload hook is scoped to the currently-focused target's worktree so
-  // eager uploads land where the agent can read them.
-  const hasTarget = focused !== null;
+  // Normal send target is read live at send time (reverses DD-6). Selection
+  // broadcast is the deliberate frozen-target exception. The upload hook stays
+  // scoped to the focused target's worktree and its controls are disabled in
+  // selection mode, where recipients may span unrelated worktrees/servers.
+  const hasTarget = isSelectionTarget || focused !== null;
+  const canUpload = !isSelectionTarget && focused !== null;
   const { uploadFiles, uploading } = useFileUpload(
     focused?.session ?? "",
     focused?.windowId ?? "",
@@ -220,13 +253,16 @@ export function ComposeStrip() {
   // at registration (board entries carry a server-derived windowName; the
   // store only covers servers whose sidebar group has delivered sessions, so
   // board panes from other servers would otherwise miss) → raw windowId.
-  const targetName = useWindowStore((s) =>
+  const focusedTargetName = useWindowStore((s) =>
     focused
       ? s.entries.get(focusedKey(focused))?.name ||
         focused.windowName ||
         focused.windowId
       : null,
   );
+  const targetName = isSelectionTarget
+    ? `${selectionTarget.keys.length} selected`
+    : focusedTargetName;
 
   // Auto-grow to content, bounded to MAX_TEXTAREA_ROWS (then internal scroll).
   const resize = useCallback(() => {
@@ -276,10 +312,37 @@ export function ComposeStrip() {
     return url;
   }
 
+  const [selectionSending, setSelectionSending] = useState(false);
+
   const send = useCallback(
     (mode: Exclude<ComposeEnterAction, "default">) => {
       if (draftKey === null) return; // no target — nothing to send or clear
       const empty = text.trim() === ""; // whitespace-only counts as empty
+      // Selection broadcast is deliberately TEXT-SUBMIT only. There is no
+      // shared terminal websocket for raw/insert modes and no shared worktree
+      // for upload; Cmd/Ctrl+Enter and the Send button both reach this submit
+      // branch. Shift+Enter remains the normal local-newline path.
+      if (isSelectionTarget) {
+        if (mode !== "submit" || empty || selectionSending) return;
+        setSelectionSending(true);
+        void selectionTarget
+          .onSend(text)
+          .then((delivered) => {
+            // 0 of N delivered: nobody saw the prompt, so keep it composed for
+            // the retry (the failed recipients also stay selected). A PARTIAL
+            // delivery clears like any delivered send — ↑ recalls the text.
+            if (delivered === 0) return;
+            pushComposeSentHistory(draftKey, text);
+            clearComposeDraft(draftKey);
+            endRecall();
+          })
+          // The integration executor absorbs per-recipient failures and
+          // reports them via one aggregate toast. Preserve the draft if an
+          // unexpected outer failure escapes that boundary.
+          .catch(() => undefined)
+          .finally(() => setSelectionSending(false));
+        return;
+      }
       // Empty policy is per mode: an empty SUBMIT sends a bare `\r` — "press
       // Enter in the pane", completing the stage-then-submit loop (whitespace
       // is discarded, never transmitted); empty insert/insert-line never send.
@@ -327,7 +390,16 @@ export function ComposeStrip() {
       // entry (which is the text just sent).
       endRecall();
     },
-    [draftKey, text, files, focused, endRecall],
+    [
+      draftKey,
+      text,
+      files,
+      focused,
+      endRecall,
+      isSelectionTarget,
+      selectionSending,
+      selectionTarget,
+    ],
   );
 
   /**
@@ -442,6 +514,12 @@ export function ComposeStrip() {
     // motivated divergence declared inside the one classifier, never forked
     // here). "default" means: do not intercept — the textarea inserts a
     // newline (Shift+Enter, IME composition, non-Enter keys).
+    //
+    // Selection broadcast takes the "chat" policy for the classifier's own
+    // stated reason: insert-line exists because the strip overlays the VISIBLE
+    // pane a staged line lands in, and a frozen cross-server recipient set has
+    // no such pane. Plain Enter therefore inserts a local newline (multiline
+    // compose is retained) and Cmd/Ctrl+Enter stays the sole submit.
     const action = classifyComposeEnter(
       {
         key: e.key,
@@ -451,9 +529,13 @@ export function ComposeStrip() {
         altKey: e.altKey,
         isComposing: e.nativeEvent.isComposing,
       },
-      "strip",
+      isSelectionTarget ? "chat" : "strip",
     );
     if (action === "default") return;
+    // Broadcast mode is submit-only, so the terminal-stream modes are left
+    // NATIVE rather than consumed into a silent no-op (Alt+Enter's raw insert
+    // would otherwise swallow the keystroke and do nothing).
+    if (isSelectionTarget && action !== "submit") return;
     // Consume every non-default action (preventDefault + stopPropagation so
     // it never bubbles to global chords) and hand it to send() as-is. An
     // insert-line on an EMPTY textarea is therefore a FULL no-op: the keydown
@@ -468,7 +550,7 @@ export function ComposeStrip() {
   const handleUpload = useCallback(
     async (list: FileList | File[]) => {
       const arr = Array.from(list);
-      if (!hasTarget || arr.length === 0) return;
+      if (!canUpload || arr.length === 0) return;
       const results = await uploadFiles(arr);
       if (results.length === 0) return;
       // Appending path lines is a text mutation exactly like typing, so it ends
@@ -483,7 +565,7 @@ export function ComposeStrip() {
         return current.endsWith("\n") ? current + paths : current + "\n" + paths;
       });
     },
-    [hasTarget, uploadFiles, setFiles, setText, endRecall],
+    [canUpload, uploadFiles, setFiles, setText, endRecall],
   );
 
   // Drain files handed off from the terminal's drag-drop / paste gestures
@@ -561,7 +643,10 @@ export function ComposeStrip() {
   // its Cmd/Ctrl+Enter chord INCLUDING the empty case (an empty click sends a
   // bare `\r` — "press Enter in the pane"), so it only needs a target. Button
   // and chord diverging on empty would be a lying affordance.
-  const canInsert = hasTarget && text.trim() !== "";
+  const canInsert = !isSelectionTarget && hasTarget && text.trim() !== "";
+  const canSubmit = isSelectionTarget
+    ? text.trim() !== "" && !selectionSending
+    : hasTarget;
 
   return (
     <div
@@ -659,11 +744,24 @@ export function ComposeStrip() {
           autoCorrect="off"
           autoCapitalize="off"
           spellCheck={false}
-          // Truthful hint: Enter transmits the text to the pane (insert-line)
-          // and clears the draft, so the mobile action key says "send".
-          enterKeyHint="send"
-          aria-label="Compose text to send to terminal"
-          placeholder={hasTarget ? "Compose text…" : "No focused terminal"}
+          // Truthful hint, per target mode: on a terminal target Enter
+          // transmits the text to the pane (insert-line) and clears the draft,
+          // so the mobile action key says "send"; in selection broadcast Enter
+          // is a local newline (submit is the Cmd/Ctrl+Enter chord), so it says
+          // "enter" rather than promising a send the key does not perform.
+          enterKeyHint={isSelectionTarget ? "enter" : "send"}
+          aria-label={
+            isSelectionTarget
+              ? "Compose prompt to send to selection"
+              : "Compose text to send to terminal"
+          }
+          placeholder={
+            isSelectionTarget
+              ? "Compose prompt…"
+              : hasTarget
+                ? "Compose text…"
+                : "No focused terminal"
+          }
           data-testid="compose-strip-input"
           className="w-full min-h-0 resize-none rounded border border-border bg-bg-card px-2 py-1.5 font-mono text-xs text-text-primary placeholder:text-text-secondary outline-none focus:border-accent disabled:opacity-50"
         />
@@ -683,7 +781,7 @@ export function ComposeStrip() {
           <button
             type="button"
             aria-label="Upload file"
-            disabled={!hasTarget}
+            disabled={!canUpload}
             onMouseDown={preventFocusSteal}
             onClick={() => uploadInputRef.current?.click()}
             className="rk-glint shrink-0 rounded border border-border px-2 py-1.5 text-xs text-text-secondary transition-colors hover:border-text-secondary disabled:opacity-50 coarse:min-h-[36px]"
@@ -717,13 +815,13 @@ export function ComposeStrip() {
               <button
                 type="button"
                 aria-label="Send text"
-                disabled={!hasTarget}
+                disabled={!canSubmit}
                 onMouseDown={preventFocusSteal}
                 onClick={() => send("submit")}
                 data-testid="compose-strip-send"
                 className="rk-glint shrink-0 rounded border border-accent bg-accent/20 px-3 py-1.5 text-xs text-accent transition-colors hover:bg-accent/30 disabled:opacity-40 disabled:cursor-not-allowed coarse:min-h-[36px]"
               >
-                Send
+                {selectionSending ? "Sending…" : "Send"}
               </button>
             </Tip>
           </div>

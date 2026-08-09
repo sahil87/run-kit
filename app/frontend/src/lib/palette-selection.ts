@@ -1,14 +1,13 @@
 /**
  * Pure builders for the command-palette SELECTION command family (260807-nf9f):
- * `Selection: Select all merged (N)` and one
+ * `Selection: Select all merged (N)`, bulk close/send, and one
  * `Selection: Move N window(s) to <session>` entry per eligible target session.
  *
  * Follows the lib/palette-pin.ts / lib/palette-move.ts pattern (pure,
  * dependency-free, unit-testable) so the label composition, merged derivation,
  * and eligibility gating are verifiable without mounting the shell. The action
- * bodies are thin `onSelectAll(keys)` / `onMove(targetSession)` callbacks passed
- * in by the caller (app.tsx wires them to the selection store and the sequential
- * bulk-move executor).
+ * bodies are thin callbacks passed in by the caller (app.tsx wires them to the
+ * selection store, compose target, and sequential batch executors).
  *
  * The bulk move is gated to a SINGLE server: tmux cannot move a window across
  * tmux servers (the sidebar's drag-and-drop path already rejects cross-server
@@ -17,13 +16,21 @@
  * picker dialog and no create-if-missing entry (Constitution IV).
  */
 import type { PaletteAction } from "@/components/command-palette";
-import { selectionKey, singleSelectedServer } from "@/lib/selection";
+import {
+  selectionKey,
+  singleSelectedServer,
+  splitSelectionKey,
+} from "@/lib/selection";
 
 /** Stable id for the select-all-merged entry — callers/tests reference it. */
 export const SELECT_ALL_MERGED_ACTION_ID = "selection-select-all-merged";
 
 /** Id prefix for the per-target-session move entries. */
 export const SELECTION_MOVE_ACTION_PREFIX = "selection-move-to-";
+
+/** Stable ids for the cross-server-capable bulk actions. */
+export const SELECTION_CLOSE_ACTION_ID = "selection-close";
+export const SELECTION_SEND_PROMPT_ACTION_ID = "selection-send-prompt";
 
 /**
  * The selection gestures, rendered as the palette entries' `shortcut` badge.
@@ -54,6 +61,122 @@ export type SelectableSession = {
 /** `N window` / `N windows` — the labels carry the live count. */
 function windowCount(n: number): string {
   return `${n} ${n === 1 ? "window" : "windows"}`;
+}
+
+/** `N agent` / `N agents` — prompt labels carry the live count. */
+function agentCount(n: number): string {
+  return `${n} ${n === 1 ? "agent" : "agents"}`;
+}
+
+/**
+ * Build the destructive bulk-close action. Unlike move, close is eligible for
+ * cross-server selections: every request derives its own server from the
+ * composite key. The optional `confirmLabel` is interpreted by CommandPalette
+ * as its one-entry confirmation sub-step.
+ */
+export function buildSelectionCloseAction(
+  selectedKeys: ReadonlySet<string>,
+  onClose: (keys: string[]) => void,
+): PaletteAction | null {
+  if (selectedKeys.size === 0) return null;
+  const keys = [...selectedKeys];
+  const count = windowCount(keys.length);
+  return {
+    id: SELECTION_CLOSE_ACTION_ID,
+    label: `Selection: Close ${count}`,
+    confirmLabel: `Close ${count} — Enter to confirm`,
+    onSelect: () => onClose(keys),
+  };
+}
+
+/**
+ * Build the selection-broadcast action. Its callback receives a snapshot of
+ * the selected composite keys so the compose target's count and eventual
+ * recipients cannot drift while the user types. Cross-server selections are
+ * valid because chat-send, like close, carries a per-request server.
+ */
+export function buildSelectionSendPromptAction(
+  selectedKeys: ReadonlySet<string>,
+  onCompose: (keys: string[]) => void,
+): PaletteAction | null {
+  if (selectedKeys.size === 0) return null;
+  const keys = [...selectedKeys];
+  return {
+    id: SELECTION_SEND_PROMPT_ACTION_ID,
+    label: `Selection: Send prompt to ${agentCount(keys.length)}`,
+    onSelect: () => onCompose(keys),
+  };
+}
+
+export type SelectionBatchResult = {
+  failedKeys: string[];
+  firstError: string;
+};
+
+/**
+ * Run one operation per composite selection key, strictly sequentially and
+ * continue-on-error. Close and send share this control-flow contract while
+ * keeping their operation-specific API calls and toast copy in app.tsx.
+ */
+export async function executeSelectionBatch(
+  keys: readonly string[],
+  operation: (target: { server: string; windowId: string }) => Promise<unknown>,
+): Promise<SelectionBatchResult> {
+  const failedKeys: string[] = [];
+  let firstError = "";
+  for (const key of keys) {
+    const target = splitSelectionKey(key);
+    if (!target) {
+      failedKeys.push(key);
+      if (!firstError) firstError = "malformed window key";
+      continue;
+    }
+    try {
+      await operation(target);
+    } catch (error) {
+      failedKeys.push(key);
+      if (!firstError) {
+        firstError = error instanceof Error ? error.message : String(error);
+      }
+    }
+  }
+  return { failedKeys, firstError };
+}
+
+/** Operation-specific copy for `batchToast` — the shared aggregate report. */
+export type BatchToastCopy = {
+  /** Verb phrase opening the all-succeeded message (`Closed`, `Sent prompt to`). */
+  success: string;
+  /** Verb phrase opening the partial/total-failure message (`Sent to`). */
+  failure: string;
+  /** Singular item noun, pluralized on the batch TOTAL (`window`, `agent`). */
+  noun: string;
+  /** Optional trailing qualifier, e.g. ` to <session>` for the bulk move. */
+  qualifier?: string;
+};
+
+/**
+ * Compose the ONE aggregate toast a selection batch reports — every batch says
+ * `<verb> N <noun>` on full success and
+ * `<verb> X of N <noun> — F failed: <first error>` on partial or total failure.
+ * The shape is identical for move/close/send, so only the verb/noun/qualifier
+ * copy lives at the call sites; `failed` picks the toast variant there.
+ */
+export function batchToast(
+  copy: BatchToastCopy,
+  total: number,
+  { failedKeys, firstError }: SelectionBatchResult,
+): { message: string; failed: boolean } {
+  const done = total - failedKeys.length;
+  const noun = total === 1 ? copy.noun : `${copy.noun}s`;
+  const qualifier = copy.qualifier ?? "";
+  if (failedKeys.length === 0) {
+    return { message: `${copy.success} ${done} ${noun}${qualifier}`, failed: false };
+  }
+  return {
+    message: `${copy.failure} ${done} of ${total} ${noun}${qualifier} — ${failedKeys.length} failed: ${firstError}`,
+    failed: true,
+  };
 }
 
 /**

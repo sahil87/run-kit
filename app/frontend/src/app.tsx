@@ -26,8 +26,15 @@ import { copyToClipboard } from "@/lib/clipboard";
 import { buildViewActions } from "@/lib/palette-view";
 import { buildStatusRefreshAction } from "@/lib/palette-status-refresh";
 import { buildPinActions } from "@/lib/palette-pin";
-import { buildSelectAllMergedAction, buildSelectionMoveActions } from "@/lib/palette-selection";
-import { singleSelectedServer, splitSelectionKey } from "@/lib/selection";
+import {
+  buildSelectAllMergedAction,
+  buildSelectionCloseAction,
+  buildSelectionMoveActions,
+  buildSelectionSendPromptAction,
+  batchToast,
+  executeSelectionBatch,
+} from "@/lib/palette-selection";
+import { singleSelectedServer } from "@/lib/selection";
 import { useSelectionStore } from "@/store/selection-store";
 import { buildServerKillActions } from "@/lib/palette-server-kill";
 import { buildShellServerActions } from "@/lib/palette-shell";
@@ -83,6 +90,7 @@ import { TerminalClient } from "@/components/terminal-client";
 import { IframeWindow } from "@/components/iframe-window";
 import { BottomBar } from "@/components/bottom-bar";
 import { ComposeStrip } from "@/components/compose-strip";
+import { focusComposeStrip } from "@/lib/compose-strip-events";
 import type { PaletteAction } from "@/components/command-palette";
 import { Dialog } from "@/components/dialog";
 import { SessionTiles } from "@/components/session-tiles/session-tiles";
@@ -90,7 +98,7 @@ import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 import { LogoSpinner } from "@/components/logo-spinner";
 import type { ServerInfo } from "@/api/client";
 
-import { selectWindow, createSession, createWindow, splitWindow, closePane, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, createServer, killServer as killServerApi, setWindowColor as setWindowColorApi, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, sendChatMessage, refreshStatus, isInfraServer, DAEMON_SERVER, spawnRiff, getRiffPresets, forkWindow } from "@/api/client";
+import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, createServer, killServer as killServerApi, setWindowColor as setWindowColorApi, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, sendChatMessage, refreshStatus, isInfraServer, DAEMON_SERVER, spawnRiff, getRiffPresets, forkWindow } from "@/api/client";
 import { useBoards } from "@/hooks/use-boards";
 import { useWindowPins } from "@/hooks/use-window-pins";
 import { usePinActions } from "@/hooks/use-pin-actions";
@@ -2029,6 +2037,21 @@ function AppShell() {
   const selectedWindows = useSelectionStore((s) => s.selected);
   const selectOnlySelection = useSelectionStore((s) => s.selectOnly);
   const settleBatchSelection = useSelectionStore((s) => s.settleBatch);
+  // A prompt target is a FROZEN snapshot captured when its palette action is
+  // selected. It remains aligned with the visible `N selected` label and the
+  // eventual settleBatch keys even if the live selection changes while typing.
+  const [selectionBroadcastKeys, setSelectionBroadcastKeys] = useState<
+    string[] | null
+  >(null);
+
+  // Toggling the global strip off cancels selection-target mode. Per-window
+  // drafts remain in their module store; only this transient recipient snapshot
+  // is cleared.
+  useEffect(() => {
+    if (!composeStripEnabled && selectionBroadcastKeys !== null) {
+      setSelectionBroadcastKeys(null);
+    }
+  }, [composeStripEnabled, selectionBroadcastKeys]);
 
   /**
    * Bulk move: N SEQUENTIAL `move-to-session` POSTs against the existing
@@ -2051,35 +2074,67 @@ function AppShell() {
    */
   const executeBulkMove = useCallback(
     async (srv: string, keys: string[], targetSession: string) => {
-      const failedKeys: string[] = [];
-      let firstError = "";
-      for (const key of keys) {
-        const parts = splitSelectionKey(key);
-        if (!parts) {
-          failedKeys.push(key);
-          if (!firstError) firstError = "malformed window key";
-          continue;
-        }
-        try {
-          await moveWindowToSession(srv, parts.windowId, targetSession);
-        } catch (err) {
-          failedKeys.push(key);
-          if (!firstError) {
-            firstError = err instanceof Error ? err.message : String(err);
-          }
-        }
-      }
-      const moved = keys.length - failedKeys.length;
-      const noun = keys.length === 1 ? "window" : "windows";
-      if (failedKeys.length === 0) {
-        addToast(`Moved ${moved} ${noun} to ${targetSession}`);
-      } else {
-        addToast(
-          `Moved ${moved} of ${keys.length} ${noun} to ${targetSession} — ${failedKeys.length} failed: ${firstError}`,
-          "error",
-        );
-      }
-      settleBatchSelection(keys, failedKeys);
+      // Move stays SINGLE-SERVER gated (`singleSelectedServer` omits the
+      // entries otherwise), so it deliberately ignores the per-key server and
+      // moves every window on `srv` — only the control flow is shared.
+      const result = await executeSelectionBatch(keys, ({ windowId }) =>
+        moveWindowToSession(srv, windowId, targetSession),
+      );
+      const { message, failed } = batchToast(
+        {
+          success: "Moved",
+          failure: "Moved",
+          noun: "window",
+          qualifier: ` to ${targetSession}`,
+        },
+        keys.length,
+        result,
+      );
+      addToast(message, failed ? "error" : undefined);
+      settleBatchSelection(keys, result.failedKeys);
+    },
+    [addToast, settleBatchSelection],
+  );
+
+  /** Close each selected window on its own server, sequentially. */
+  const executeBulkClose = useCallback(
+    async (keys: string[]) => {
+      const result = await executeSelectionBatch(
+        keys,
+        ({ server: targetServer, windowId }) =>
+          killWindow(targetServer, windowId),
+      );
+      const { message, failed } = batchToast(
+        { success: "Closed", failure: "Closed", noun: "window" },
+        keys.length,
+        result,
+      );
+      addToast(message, failed ? "error" : undefined);
+      settleBatchSelection(keys, result.failedKeys);
+    },
+    [addToast, settleBatchSelection],
+  );
+
+  /**
+   * Submit one prompt through the existing chat-send endpoint per recipient.
+   * Resolves with the DELIVERED count so the compose strip can retain a prompt
+   * that reached nobody (0 of N) instead of clearing text no agent ever saw.
+   */
+  const executeBulkSend = useCallback(
+    async (keys: string[], text: string): Promise<number> => {
+      const result = await executeSelectionBatch(
+        keys,
+        ({ server: targetServer, windowId }) =>
+          sendChatMessage(targetServer, windowId, text),
+      );
+      const { message, failed } = batchToast(
+        { success: "Sent prompt to", failure: "Sent to", noun: "agent" },
+        keys.length,
+        result,
+      );
+      addToast(message, failed ? "error" : undefined);
+      settleBatchSelection(keys, result.failedKeys);
+      return keys.length - result.failedKeys.length;
     },
     [addToast, settleBatchSelection],
   );
@@ -2095,6 +2150,32 @@ function AppShell() {
       selectOnlySelection,
     );
     if (selectAllMerged) actions.push(selectAllMerged);
+
+    // Close/send carry their own server on every selected key, so unlike move
+    // they remain eligible for a cross-server selection.
+    const closeSelection = buildSelectionCloseAction(
+      selectedWindows,
+      (keys) => {
+        void executeBulkClose(keys);
+      },
+    );
+    if (closeSelection) actions.push(closeSelection);
+
+    const sendPrompt = buildSelectionSendPromptAction(
+      selectedWindows,
+      (keys) => {
+        setSelectionBroadcastKeys(keys);
+        if (composeStripEnabled) {
+          // The strip is already mounted; focus after React swaps its disabled
+          // focused-terminal target for the selection target.
+          queueMicrotask(() => focusComposeStrip());
+        } else {
+          // The normal off→on path marks focus-on-open for the mounting strip.
+          toggleComposeStrip();
+        }
+      },
+    );
+    if (sendPrompt) actions.push(sendPrompt);
 
     // `Selection: Move N window(s) to <session>` — one entry per eligible
     // session on the SELECTION's server, which is NOT necessarily the route
@@ -2136,6 +2217,9 @@ function AppShell() {
     selectedWindows,
     selectOnlySelection,
     executeBulkMove,
+    executeBulkClose,
+    composeStripEnabled,
+    toggleComposeStrip,
   ]);
 
   const viewActions: PaletteAction[] = useMemo(
@@ -3210,7 +3294,28 @@ function AppShell() {
           `auto` footer row and shrinks the `1fr` content row, so the terminal's
           ResizeObserver refits automatically (260718-dhdj). */}
       <footer style={{ gridArea: "bottombar" }}>
-        {composeStripEnabled && <ComposeStrip />}
+        {composeStripEnabled && (
+          <ComposeStrip
+            selectionTarget={
+              selectionBroadcastKeys
+                ? {
+                    keys: selectionBroadcastKeys,
+                    onSend: async (text) => {
+                      const delivered = await executeBulkSend(
+                        selectionBroadcastKeys,
+                        text,
+                      );
+                      // A total failure keeps the frozen target so the retained
+                      // draft stays visible (it is keyed to this recipient set)
+                      // and the retry needs neither retyping nor reselecting.
+                      if (delivered > 0) setSelectionBroadcastKeys(null);
+                      return delivered;
+                    },
+                  }
+                : null
+            }
+          />
+        )}
         <div className="border-t-[3px] border-border px-1.5 h-[48px]">
           <BottomBar
             onOpenCompose={toggleComposeStrip}

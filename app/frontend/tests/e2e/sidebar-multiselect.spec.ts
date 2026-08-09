@@ -3,7 +3,8 @@ import { gotoServerReady, resolveWindow } from "./_ready";
 import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
 
 /**
- * Sidebar window-row multi-select + palette bulk move-to-session (260807-nf9f).
+ * Sidebar window-row multi-select + palette bulk actions (260807-nf9f,
+ * 260808-ebgs).
  *
  * The source session holds the windows to sweep; the target session is where
  * the bulk move lands them. Both are per-run unique so a shared e2e tmux server
@@ -20,8 +21,11 @@ function rowKey(windowId: string): string {
 
 test.describe("Sidebar window-row multi-select", () => {
   test.beforeAll(() => {
-    // Three windows so a shift-click range has a middle row to sweep in.
-    createSession(SRC_SESSION, { windows: ["alpha", "beta", "gamma"] });
+    // The first three preserve the range/move fixtures; the final pair is
+    // reserved for the destructive close test so later tests keep live panes.
+    createSession(SRC_SESSION, {
+      windows: ["alpha", "beta", "gamma", "close-one", "close-two"],
+    });
     createSession(DST_SESSION, { windows: ["keep"] });
   });
 
@@ -50,6 +54,16 @@ test.describe("Sidebar window-row multi-select", () => {
       alpha: (await resolveWindow(page, TMUX_SERVER, SRC_SESSION, "alpha")).windowId,
       beta: (await resolveWindow(page, TMUX_SERVER, SRC_SESSION, "beta")).windowId,
       gamma: (await resolveWindow(page, TMUX_SERVER, SRC_SESSION, "gamma")).windowId,
+    };
+  }
+
+  /** Resolve the pair reserved for the destructive confirmed-close test. */
+  async function closeWindowIds(page: Page) {
+    return {
+      one: (await resolveWindow(page, TMUX_SERVER, SRC_SESSION, "close-one"))
+        .windowId,
+      two: (await resolveWindow(page, TMUX_SERVER, SRC_SESSION, "close-two"))
+        .windowId,
     };
   }
 
@@ -200,6 +214,152 @@ test.describe("Sidebar window-row multi-select", () => {
     await expect(
       page.locator(`[data-session-row="${TMUX_SERVER}:${DST_SESSION}"]`),
     ).toHaveAttribute("aria-expanded", "true");
+  });
+
+  test("palette bulk close requires confirmation and closes every selected window", async ({
+    page,
+  }) => {
+    test.setTimeout(45_000);
+    await openTree(page);
+    const { one, two } = await closeWindowIds(page);
+    for (const id of [one, two]) {
+      await page
+        .locator(`[data-row-key="${rowKey(id)}"] button`)
+        .first()
+        .click({ modifiers: ["ControlOrMeta"] });
+    }
+
+    const actionLabel = "Selection: Close 2 windows";
+    const confirmLabel = "Close 2 windows — Enter to confirm";
+    await page.keyboard.press("Meta+k");
+    let paletteInput = page.getByPlaceholder("Type a command...");
+    await paletteInput.fill(actionLabel);
+    await page.keyboard.press("Enter");
+    await expect(page.getByRole("option", { name: confirmLabel })).toBeVisible();
+
+    // Escape cancels the sub-step; neither window is touched and the selection
+    // remains available for the second attempt.
+    await page.keyboard.press("Escape");
+    const liveAfterCancel = new Set(
+      listWindows(SRC_SESSION).map((win) => win.windowId),
+    );
+    expect(liveAfterCancel.has(one)).toBe(true);
+    expect(liveAfterCancel.has(two)).toBe(true);
+    await expect(page.getByTestId("selection-indicator")).toContainText(
+      "2 selected",
+    );
+
+    await page.keyboard.press("Meta+k");
+    paletteInput = page.getByPlaceholder("Type a command...");
+    await paletteInput.fill(actionLabel);
+    await page.keyboard.press("Enter");
+    await expect(page.getByRole("option", { name: confirmLabel })).toBeVisible();
+    await page.keyboard.press("Enter");
+
+    await expect(page.getByText("Closed 2 windows")).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(page.getByTestId("selection-indicator")).toHaveCount(0);
+    await expect
+      .poll(
+        () => {
+          const live = new Set(
+            listWindows(SRC_SESSION).map((win) => win.windowId),
+          );
+          return !live.has(one) && !live.has(two);
+        },
+        { timeout: 15_000 },
+      )
+      .toBe(true);
+  });
+
+  test("palette prompt broadcast targets a frozen selection sequentially", async ({
+    page,
+  }) => {
+    await openTree(page);
+    const { gamma } = await windowIds(page);
+    const keep = (
+      await resolveWindow(page, TMUX_SERVER, DST_SESSION, "keep")
+    ).windowId;
+
+    const requests: Array<{
+      server: string | null;
+      windowId: string;
+      body: unknown;
+    }> = [];
+    let inFlight = 0;
+    let maxInFlight = 0;
+    await page.route(/\/api\/windows\/[^/]+\/chat\/send\?server=/, async (route) => {
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      const request = route.request();
+      const url = new URL(request.url());
+      const segments = url.pathname.split("/");
+      requests.push({
+        server: url.searchParams.get("server"),
+        windowId: decodeURIComponent(segments[3] ?? ""),
+        body: request.postDataJSON(),
+      });
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ ok: true }),
+      });
+      inFlight--;
+    });
+
+    for (const id of [gamma, keep]) {
+      await page
+        .locator(`[data-row-key="${rowKey(id)}"] button`)
+        .first()
+        .click({ modifiers: ["ControlOrMeta"] });
+    }
+    const actionLabel = "Selection: Send prompt to 2 agents";
+    await page.keyboard.press("Meta+k");
+    const paletteInput = page.getByPlaceholder("Type a command...");
+    await paletteInput.fill(actionLabel);
+    await page.keyboard.press("Enter");
+
+    await expect(page.getByTestId("compose-strip-target")).toHaveText(
+      "2 selected",
+    );
+    const composeInput = page.getByTestId("compose-strip-input");
+    await expect(composeInput).toBeFocused();
+
+    // Mutating the live selection after opening must not retarget the frozen
+    // compose recipient set or its label.
+    await page
+      .locator(`[data-row-key="${rowKey(keep)}"] button`)
+      .first()
+      .click({ modifiers: ["ControlOrMeta"] });
+    await expect(page.getByTestId("selection-indicator")).toContainText(
+      "1 selected",
+    );
+    await expect(page.getByTestId("compose-strip-target")).toHaveText(
+      "2 selected",
+    );
+
+    await composeInput.fill("run tests and report");
+    await page.getByTestId("compose-strip-send").click();
+
+    await expect(page.getByText("Sent prompt to 2 agents")).toBeVisible({
+      timeout: 15_000,
+    });
+    expect(maxInFlight).toBe(1);
+    expect(requests).toEqual([
+      {
+        server: TMUX_SERVER,
+        windowId: gamma,
+        body: { text: "run tests and report" },
+      },
+      {
+        server: TMUX_SERVER,
+        windowId: keep,
+        body: { text: "run tests and report" },
+      },
+    ]);
+    await expect(page.getByTestId("selection-indicator")).toHaveCount(0);
   });
 
   test("palette 'Selection: Move N windows to <session>' bulk-moves the selection", async ({

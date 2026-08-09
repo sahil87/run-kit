@@ -1,10 +1,12 @@
 # sidebar-multiselect.spec.ts
 
 Behavioural contract for the sidebar's window-row multi-select and the palette's
-bulk move-to-session (260807-nf9f): the session/window tree is a W3C-APG
+bulk move, confirmed close, and prompt-broadcast actions (260807-nf9f,
+260808-ebgs): the session/window tree is a W3C-APG
 **multiselect** tree whose window rows can be gathered into a set by
 Cmd/Ctrl-click, Shift-click range, and the `x` key, cleared by Escape, and then
-moved to another existing tmux session in one palette command.
+moved, closed after an in-palette confirmation, or addressed through the docked
+compose strip in one palette workflow.
 
 ## DOM note
 
@@ -26,14 +28,17 @@ moved to another existing tmux session in one palette command.
 ## Shared setup
 
 - `beforeAll` creates two per-run sessions on the isolated e2e tmux server:
-  `e2e-msel-<timestamp>` with three windows (`alpha`, `beta`, `gamma`) as the
-  move source, and `e2e-mseldst-<timestamp>` with one window (`keep`) as the move
-  target. `afterAll` kills both. Per-run names keep the shared e2e server's other
-  sessions out of the way.
+  `e2e-msel-<timestamp>` with five windows (`alpha`, `beta`, `gamma`,
+  `close-one`, `close-two`) as the range/move/close source, and
+  `e2e-mseldst-<timestamp>` with one window (`keep`) as the move target and a
+  second prompt recipient. `afterAll` kills both. Per-run names keep the shared
+  e2e server's other sessions out of the way.
 - `openTree(page)` navigates to `/${TMUX_SERVER}`, waits for `Connected`, and
   asserts both session rows are rendered before any gesture is driven.
 - `windowIds(page)` resolves `alpha`/`beta`/`gamma` to their stable tmux ids
   (`@N`) from the `/api/sessions` snapshot.
+- `closeWindowIds(page)` resolves the dedicated `close-one`/`close-two` pair;
+  no later test tries to resolve them after the destructive close workflow.
 - `rowKey(windowId)` composes the `${server}:${windowId}` selection key.
 - `selectedKeys(page)` reads the `data-row-key` of every
   `treeitem[aria-selected="true"]` currently in the tree.
@@ -137,3 +142,42 @@ under the target session via SSE.
    present; assert neither remains in the source session.
 7. Assert both rows are now rendered inside the target session's
    `[data-session-group]` — the SSE repaint.
+
+### `palette bulk close requires confirmation and closes every selected window`
+
+**What it proves:** Close is destructive and therefore uses the palette's
+single-row confirmation sub-step. Escape cancels without issuing a kill, while a
+second Enter executes two existing per-window kill requests, reports one success
+toast, clears the owned selection, and removes both windows from tmux.
+
+**Steps:**
+1. `openTree`; resolve `close-one` and `close-two`; modifier-click both rows.
+2. Open the palette, filter to `Selection: Close 2 windows`, and press Enter.
+3. Assert the sole confirmation option reads
+   `Close 2 windows — Enter to confirm`.
+4. Press Escape; assert both ids remain in the source session and the indicator
+   still reads `2 selected`.
+5. Reopen and select the close action, then press Enter on the confirmation row.
+6. Assert the `Closed 2 windows` toast and an empty selection.
+7. Poll tmux until neither reserved id remains in the source session.
+
+### `palette prompt broadcast targets a frozen selection sequentially`
+
+**What it proves:** The prompt action opens and focuses the existing compose
+strip on a frozen two-recipient target. A later live-selection change cannot
+retarget it; Send reuses the existing chat-send endpoint once per original key,
+strictly sequentially with default `submit=true`, then reports aggregate success
+and reconciles the owned keys.
+
+**Steps:**
+1. `openTree`; resolve source `gamma` and target-session `keep`; route chat-send
+   requests to a recorder that tracks concurrent handlers and returns `{ok:true}`.
+2. Modifier-click both rows and choose `Selection: Send prompt to 2 agents`.
+3. Assert the compose target reads `2 selected` and its textarea has focus.
+4. Modifier-click `keep` again; assert the live indicator falls to `1 selected`
+   while the compose target remains `2 selected`.
+5. Fill `run tests and report` and click Send.
+6. Assert `Sent prompt to 2 agents`, maximum request concurrency of one, and two
+   ordered POSTs carrying each original window id, the tmux server query, and
+   exactly `{text:"run tests and report"}` (no explicit `submit` field).
+7. Assert the selection indicator is gone after settlement.

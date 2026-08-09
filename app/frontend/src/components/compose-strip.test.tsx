@@ -92,6 +92,22 @@ function stubPointer(coarse: boolean) {
   stubMatchMedia((query) => coarse && query === "(pointer: coarse)");
 }
 
+/** A frozen cross-server recipient set, and the draft key it derives (sorted
+ * keys — the strip's `selectionDraftKey`), for the broadcast-mode tests. */
+const SELECTION_KEYS = ["srv:@1", "other:@2"];
+const SELECTION_DRAFT_KEY = 'selection:["other:@2","srv:@1"]';
+
+/** Render the strip in selection-broadcast mode with no focused terminal. */
+function renderSelection(onSend: (text: string) => Promise<number>) {
+  return render(
+    <ChromeProvider>
+      <FocusedTerminalProvider>
+        <ComposeStrip selectionTarget={{ keys: SELECTION_KEYS, onSend }} />
+      </FocusedTerminalProvider>
+    </ChromeProvider>,
+  );
+}
+
 describe("ComposeStrip", () => {
   beforeEach(() => {
     useWindowStore.setState({ entries: new Map(), ghosts: [] });
@@ -132,6 +148,136 @@ describe("ComposeStrip", () => {
     expect(screen.getByTestId("compose-strip-target").textContent).toBe("no target");
     expect(input().disabled).toBe(true);
     expect(sendBtn().disabled).toBe(true);
+  });
+
+  it("renders a text-only selection target with the frozen recipient count", () => {
+    renderSelection(vi.fn().mockResolvedValue(2));
+
+    expect(screen.getByTestId("compose-strip-target")).toHaveTextContent(
+      "2 selected",
+    );
+    expect(input()).toBeEnabled();
+    expect(input()).toHaveAttribute(
+      "aria-label",
+      "Compose prompt to send to selection",
+    );
+    // Broadcast Enter is a local newline, so the mobile action key must not
+    // promise a send (the terminal-target strip keeps enterkeyhint="send").
+    expect(input()).toHaveAttribute("enterkeyhint", "enter");
+    expect(insertBtn()).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Upload file" })).toBeDisabled();
+    expect(sendBtn()).toBeDisabled();
+  });
+
+  it("submits a non-empty selection prompt once and ignores insert modes", async () => {
+    const onSend = vi.fn().mockResolvedValue(2);
+    renderSelection(onSend);
+
+    fireEvent.change(input(), { target: { value: "run tests\nand report" } });
+    fireEvent.keyDown(input(), { key: "Enter", code: "Enter", altKey: true });
+    expect(onSend).not.toHaveBeenCalled();
+    expect(input()).toHaveValue("run tests\nand report");
+
+    await act(async () => {
+      fireEvent.click(sendBtn());
+      await Promise.resolve();
+    });
+
+    expect(onSend).toHaveBeenCalledOnce();
+    expect(onSend).toHaveBeenCalledWith("run tests\nand report");
+    expect(input()).toHaveValue("");
+  });
+
+  // The broadcast has no visible pane composer to stage a line into, so it
+  // takes the chat surface's Enter policy. Plain Enter must not be swallowed
+  // into a dead key (consumed by the strip's insert-line branch, then dropped
+  // by the submit-only guard) — it stays a native newline.
+  it("plain Enter in broadcast mode is a native newline, never a dead key or a send", async () => {
+    const onSend = vi.fn().mockResolvedValue(1);
+    renderSelection(onSend);
+
+    fireEvent.change(input(), { target: { value: "first line" } });
+    // fireEvent returns false when preventDefault() was called.
+    let notPrevented = false;
+    act(() => {
+      notPrevented = fireEvent.keyDown(input(), { key: "Enter", code: "Enter" });
+    });
+    expect(notPrevented).toBe(true); // fell through to the textarea
+    expect(onSend).not.toHaveBeenCalled();
+    expect(input()).toHaveValue("first line");
+
+    // Cmd/Ctrl+Enter remains the sole submit chord in broadcast mode.
+    await act(async () => {
+      fireEvent.keyDown(input(), { key: "Enter", code: "Enter", metaKey: true });
+      await Promise.resolve();
+    });
+    expect(onSend).toHaveBeenCalledOnce();
+    expect(onSend).toHaveBeenCalledWith("first line");
+  });
+
+  it("keeps the composed prompt when the broadcast reached NO recipient (0 of N)", async () => {
+    const onSend = vi.fn().mockResolvedValue(0);
+    renderSelection(onSend);
+
+    fireEvent.change(input(), { target: { value: "retry me" } });
+    await act(async () => {
+      fireEvent.click(sendBtn());
+      await Promise.resolve();
+    });
+
+    expect(onSend).toHaveBeenCalledOnce();
+    // Nothing was delivered, so the text stays composed for the retry — and it
+    // is NOT recorded as sent history (nothing was sent).
+    expect(input()).toHaveValue("retry me");
+    expect(sendBtn()).toBeEnabled();
+    expect(getComposeSentHistory(SELECTION_DRAFT_KEY)).toEqual([]);
+  });
+
+  it("clears the prompt on a PARTIAL delivery (some recipients got it)", async () => {
+    const onSend = vi.fn().mockResolvedValue(1);
+    renderSelection(onSend);
+
+    fireEvent.change(input(), { target: { value: "partly through" } });
+    await act(async () => {
+      fireEvent.click(sendBtn());
+      await Promise.resolve();
+    });
+
+    expect(input()).toHaveValue("");
+    expect(getComposeSentHistory(SELECTION_DRAFT_KEY)).toEqual([
+      "partly through",
+    ]);
+  });
+
+  it("uses a recipient-set draft instead of the focused terminal's draft", () => {
+    const ws = makeWs();
+    render(
+      <ChromeProvider>
+        <FocusedTerminalProvider>
+          <FocusSetter
+            focus={{
+              wsRef: ws.ref,
+              server: "srv",
+              session: "sess",
+              windowId: "@1",
+            }}
+          />
+          <ComposeStrip
+            selectionTarget={{
+              keys: SELECTION_KEYS,
+              onSend: vi.fn().mockResolvedValue(2),
+            }}
+          />
+        </FocusedTerminalProvider>
+      </ChromeProvider>,
+    );
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+    fireEvent.change(input(), { target: { value: "broadcast draft" } });
+
+    expect(screen.getByTestId("compose-strip-target")).toHaveTextContent(
+      "2 selected",
+    );
+    expect(ws.sent).toEqual([]);
   });
 
   // Two-row stack (260724-2bmy): the textarea gets the whole first row at a

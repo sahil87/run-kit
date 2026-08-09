@@ -370,6 +370,23 @@ text; the pane is re-resolved server-side per request) and the same
 (handler + probe/lock orchestration) over new pane-targeted `internal/tmux`
 primitives; the read endpoints, stream, and schema are untouched.
 
+**Two frontend consumers, one unchanged per-window contract.** The chat lens's
+own send form (§ Send-form input box) is the single-window one. The second is the
+sidebar selection's **bulk prompt broadcast** (`Selection: Send prompt to N agents`
+→ `executeBulkSend` — [ui-patterns](/run-kit/ui-patterns.md) § Window-Row
+Multi-Select): one `sendChatMessage(server, windowId, text)` per selected window,
+**N-sequentially** and continue-on-error, each request carrying its own
+`?server=` (a selection may span tmux servers) and the default `submit:true`. It
+is a client-side fan-out only — there is **no batch endpoint and no batch body**,
+and every per-request semantic is untouched: the whole-sequence lock, the shared
+injection deadline, the sanitize pass, and the novelty probe all run per window.
+A probe failure surfaces as that window's structured `409` (text pasted, Enter
+withheld, recoverable — § 409 on probe failure), which the batch records as one
+recipient's failure and steps past rather than aborting the remaining sends. The
+broadcast's own `200` count is what the frontend calls **delivered**, and it
+drives whether the composed prompt is cleared or retained for a retry.
+(`260808-ebgs`)
+
 ### Requirement: Send endpoint `POST /api/windows/{windowId}/chat/send`
 The backend SHALL expose `POST /api/windows/{windowId}/chat/send?server={server}`
 (mutation ⇒ POST, Constitution IX), registered next to the two GET chat routes and

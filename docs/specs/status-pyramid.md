@@ -239,8 +239,9 @@ when failed) and the duration text — is **removed**; the name gets the freed
 width back (less truncation, especially on mobile).
 
 The row carries **two glyph-only status signals**: the leading StatusDot, and —
-for a window with an owned PR (`prOwnsGlyph`: `prNumber` present and not
-closed) — a **rest-state git-pull-request glyph** in the trailing cluster's
+for a window with an owned PR (`prOwnsGlyph`: `prNumber` present with a known
+owned state, `open` or `merged` — closed and unknown/unconfident states never
+own) — a **rest-state git-pull-request glyph** in the trailing cluster's
 last slot, colored from the shared PR vocabulary (`prGlyphColor`: red failing >
 gray open-draft > yellow checks-running > green open > purple merged). The
 glyph is informational decoration: `aria-hidden`, never focusable, never

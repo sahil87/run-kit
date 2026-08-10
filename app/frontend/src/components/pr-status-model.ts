@@ -184,16 +184,22 @@ function hasFreshAgent(win: WindowInfo): boolean {
 }
 
 /**
- * Gate for the row's rest-state PR glyph (93dy → aqo6): `prNumber` present and
- * not closed-unmerged (open, failing, and merged PRs all earn the glyph; a
- * dead closed PR never does — it keeps its register line only). Deliberately
+ * Gate for the row's rest-state PR glyph (93dy → aqo6): `prNumber` present
+ * with a KNOWN owned state — `open` or `merged` (open, failing, and merged PRs
+ * all earn the glyph; a dead closed PR never does — it keeps its register line
+ * only). The gate is a positive allowlist, not `!== "closed"`: the backend's
+ * branch channel deliberately maps an unconfident state to `""`
+ * (MapBranchState — serialized as an ABSENT `prState` via omitempty), and a
+ * stateless PR MUST NOT own the glyph any more than it owned the old dot —
+ * `!== "closed"` would let it through and paint a glyph (purple, via
+ * `prGlyphColor`'s merged fall-through) for an unknown/dead PR. Deliberately
  * NOT family-gated: the glyph shows for any owned PR, even on a plain floor
  * pane (derivation is universal, Principle X). Formerly `prOwnsDot` — renamed
  * when the PR was evicted from the dot: this predicate now gates ONLY the
  * glyph, never any dot tier.
  */
 export function prOwnsGlyph(win: WindowInfo): boolean {
-  return !!win.prNumber && win.prState !== "closed";
+  return !!win.prNumber && (win.prState === "open" || win.prState === "merged");
 }
 
 /**
@@ -217,7 +223,9 @@ export function prOwnsGlyph(win: WindowInfo): boolean {
  *   4. `text-accent-green` for open otherwise (checks pass or no decisive
  *      signal).
  *   5. `text-purple-400` for merged.
- * Closed never reaches here (the `prOwnsGlyph` gate excludes it). No new color
+ * Closed and unknown/absent states never reach here (the `prOwnsGlyph`
+ * allowlist admits only `open`/`merged`), so the merged fall-through in branch
+ * 4/5 is safe by construction. No new color
  * system — all five are established tokens (PR_STATE_COLORS /
  * `--color-text-secondary`).
  *

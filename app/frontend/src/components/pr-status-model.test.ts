@@ -64,7 +64,10 @@ describe("prDotState precedence", () => {
 
 // aqo6: `prOwnsDot` renamed `prOwnsGlyph` — after PR eviction the predicate
 // gates ONLY the rest-state PR glyph (window row + session tiles), never any
-// dot tier. Same semantics: any owned PR (open, failing, merged); never closed.
+// dot tier. The gate is a positive allowlist (`open`/`merged`): closed never
+// owns, and neither does an unknown/absent state — the backend's branch
+// channel maps an unconfident state to "" (MapBranchState, serialized absent),
+// and a stateless PR must not earn a glyph.
 describe("prOwnsGlyph — owned-PR gate", () => {
   it("owns for an open PR", () => {
     expect(prOwnsGlyph(makeWindow({ prNumber: 7, prState: "open" }))).toBe(true);
@@ -85,6 +88,13 @@ describe("prOwnsGlyph — owned-PR gate", () => {
   it("never owns without a prNumber", () => {
     expect(prOwnsGlyph(makeWindow({ prState: "open" }))).toBe(false);
     expect(prOwnsGlyph(makeWindow({}))).toBe(false);
+  });
+
+  it("never owns with an unknown/absent prState (unconfident branch fallback)", () => {
+    // MapBranchState maps an unrecognized GitHub state to "" (omitempty →
+    // absent on the wire): prNumber set with no confident state must not
+    // render a glyph — `!== "closed"` would wrongly admit it.
+    expect(prOwnsGlyph(makeWindow({ prNumber: 7 }))).toBe(false);
   });
 });
 

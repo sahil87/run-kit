@@ -76,7 +76,7 @@ dotted bead-ring stays legible).
 
 ### 3 · PR = the right-edge row glyph (one channel, five states — never the dot)
 
-A window with an **owned PR** (`prOwnsGlyph`: `prNumber` present and not closed-unmerged) shows a
+A window with an **owned PR** (`prOwnsGlyph`: `prNumber` present with a known owned state — `open` or `merged`; closed-unmerged and unknown/unconfident states never own) shows a
 git-pull-request glyph at the row's right edge, colored by `prGlyphColor` — first match wins, and
 the order is the design:
 

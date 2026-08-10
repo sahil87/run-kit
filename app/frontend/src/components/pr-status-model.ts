@@ -184,56 +184,66 @@ function hasFreshAgent(win: WindowInfo): boolean {
 }
 
 /**
- * Gate for the row's rest-state PR glyph (93dy → aqo6): `prNumber` present
- * with a KNOWN owned state — `open` or `merged` (open, failing, and merged PRs
- * all earn the glyph; a dead closed PR never does — it keeps its register line
- * only). The gate is a positive allowlist, not `!== "closed"`: the backend's
- * branch channel deliberately maps an unconfident state to `""`
- * (MapBranchState — serialized as an ABSENT `prState` via omitempty), and a
- * stateless PR MUST NOT own the glyph any more than it owned the old dot —
- * `!== "closed"` would let it through and paint a glyph (purple, via
- * `prGlyphColor`'s merged fall-through) for an unknown/dead PR. Deliberately
- * NOT family-gated: the glyph shows for any owned PR, even on a plain floor
- * pane (derivation is universal, Principle X). Formerly `prOwnsDot` — renamed
- * when the PR was evicted from the dot: this predicate now gates ONLY the
- * glyph, never any dot tier.
+ * Gate for the row's rest-state PR glyph (93dy → aqo6 → xuej): `prNumber`
+ * present with a KNOWN owned state — `open`, `merged`, or `closed`. Open,
+ * failing, and merged PRs all earn the glyph; a dead closed PR earns it too,
+ * in its distinct closed-icon muted form (the ✕ shape says "closed", the
+ * `text-text-secondary` token says "dead — ignore"). The gate is a positive
+ * allowlist, not `!== "closed"`: the backend's branch channel deliberately
+ * maps an unconfident state to `""` (MapBranchState — serialized as an
+ * ABSENT `prState` via omitempty), and a stateless PR MUST NOT own the glyph
+ * any more than it owned the old dot — a `!==` check would let it through
+ * and paint a glyph for an unknown PR. Deliberately NOT family-gated: the
+ * glyph shows for any owned PR, even on a plain floor pane (derivation is
+ * universal, Principle X). Formerly `prOwnsDot` — renamed when the PR was
+ * evicted from the dot: this predicate now gates ONLY the glyph, never any
+ * dot tier.
  */
 export function prOwnsGlyph(win: WindowInfo): boolean {
-  return !!win.prNumber && (win.prState === "open" || win.prState === "merged");
+  return !!win.prNumber && (win.prState === "open" || win.prState === "merged" || win.prState === "closed");
 }
 
 /**
  * Color token for the rest-state PR glyph (window row + session tiles),
  * reusing the shared PR vocabulary so the glyph stays in lock-step with the
- * segments. FIVE-WAY mapping, and the branch order IS the design:
- *   1. `text-red-400` for a fail-ish PR (`prDotState` → `fail`, i.e.
- *      `isFailish`). FAIL STAYS ON TOP — a draft whose checks fail (or that has
- *      changes requested) is a problem first and a draft second, the same
- *      `isFailish`-dominates rule `prDotState` encodes by ordering `fail` ahead
- *      of `healthy`.
- *   2. `text-text-secondary` for an OPEN DRAFT (e30p) — GitHub renders drafts
+ * segments. SIX-WAY mapping, and the branch order IS the design:
+ *   1. `text-text-secondary` for a CLOSED PR (xuej) — a dead PR renders
+ *      muted (the established inert/no-journey token, shared with draft;
+ *      the ✕ closed icon is what separates closed from draft). Closed sits
+ *      ABOVE fail on purpose: a closed PR's check/review state is historical
+ *      noise, the same first-match rationale that puts `merged` above `fail`
+ *      in `prDotState`. (The GitHub-exact red variant was considered and
+ *      rejected by the user: dead PRs should not draw rest-state attention.)
+ *   2. `text-red-400` for a fail-ish PR (`prDotState` → `fail`, i.e.
+ *      `isFailish`). FAIL STAYS ON TOP of everything open — a draft whose
+ *      checks fail (or that has changes requested) is a problem first and a
+ *      draft second, the same `isFailish`-dominates rule `prDotState`
+ *      encodes by ordering `fail` ahead of `healthy`.
+ *   3. `text-text-secondary` for an OPEN DRAFT (e30p) — GitHub renders drafts
  *      gray, and this is already the "inert / no journey" token in this model
  *      (`PHASE_HUE.none`). Draft sits ABOVE pending on purpose: drafts stay
  *      muted even while their checks run (pending would un-mute them). The
  *      branch is GATED ON `prState === "open"` so the merged→purple and
- *      closed→no-glyph paths are untouched BY CONSTRUCTION.
- *   3. `text-yellow-400` for open with `prChecks === "pending"` — CHECKS
+ *      closed paths are untouched BY CONSTRUCTION (a closed draft reads
+ *      closed, GitHub semantics).
+ *   4. `text-yellow-400` for open with `prChecks === "pending"` — CHECKS
  *      RUNNING (aqo6): the row-level signal that replaced the dot's retired
  *      purple pending ring; same token choice as `PR_CHECKS_COLORS.pending`.
- *   4. `text-accent-green` for open otherwise (checks pass or no decisive
+ *   5. `text-accent-green` for open otherwise (checks pass or no decisive
  *      signal).
- *   5. `text-purple-400` for merged.
- * Closed and unknown/absent states never reach here (the `prOwnsGlyph`
- * allowlist admits only `open`/`merged`), so the merged fall-through in branch
- * 4/5 is safe by construction. No new color
- * system — all five are established tokens (PR_STATE_COLORS /
+ *   6. `text-purple-400` for merged.
+ * Unknown/absent states never reach here (the `prOwnsGlyph` allowlist admits
+ * only `open`/`merged`/`closed`), so the merged fall-through in branch 5/6
+ * is safe by construction. No new color
+ * system — all are established tokens (PR_STATE_COLORS /
  * `--color-text-secondary`).
  *
  * NOTE: this is the GLYPH axis — the remote story. The status dot never
- * renders PR state at all (the local/remote split); draft, pending, and merged
- * are glyph-only distinctions.
+ * renders PR state at all (the local/remote split); draft, pending, merged,
+ * and closed are glyph-only distinctions.
  */
 export function prGlyphColor(win: WindowInfo): string {
+  if (win.prState === "closed") return "text-text-secondary"; // dead PR: muted; stale checks are noise
   if (prDotState(win) === "fail") return "text-red-400";
   if (win.prState === "open" && win.prIsDraft) return "text-text-secondary";
   if (win.prState === "open" && win.prChecks === "pending") return "text-yellow-400";

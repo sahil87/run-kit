@@ -1,0 +1,121 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="620" viewBox="0 0 760 620" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+  <defs>
+    <style>
+      .bg     { fill: #1a1b26; }
+      .txt    { fill: #c0caf5; }
+      .sub    { fill: #787c99; }
+      .dim    { fill: #565a73; }
+      .colhdr { fill: #787c99; font-size: 10px; letter-spacing: .04em; }
+      .stage  { fill: #c0caf5; font-size: 12px; }
+      .phase  { fill: #787c99; font-size: 10px; letter-spacing: .05em; }
+      .grid   { stroke: #2f3549; stroke-width: 1; }
+    </style>
+    <!-- Palette v3 hues (ref):
+         cool = fab: blue #60a5fa (intake) · green #9ece6a (apply-collapsed) · purple #c084fc (PR)
+         warm = ad-hoc agent: yellow #facc15 (working) · orange #fb923c (PR)
+         gray #787c99 (floor / skipped) · red #f87171 (failed center only) -->
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="760" height="620"/>
+
+  <!-- title -->
+  <text class="txt" x="24" y="30" font-size="16" font-weight="700">StatusDot — family × status matrix (palette v3)</text>
+  <text class="sub" x="24" y="48" font-size="11">Core hue = journey (cool = fab: blue→green→purple · warm = agent: yellow→orange · gray = floor) · Shape = status · Yellow halo = waiting (additive overlay)</text>
+
+  <!-- column headers -->
+  <text class="colhdr" x="60"  y="80">FAMILY \ STATUS</text>
+  <text class="colhdr" x="300" y="80" text-anchor="middle">PENDING</text>
+  <text class="colhdr" x="400" y="80" text-anchor="middle">ACTIVE / READY</text>
+  <text class="colhdr" x="500" y="80" text-anchor="middle">FAILED</text>
+  <text class="colhdr" x="600" y="80" text-anchor="middle">DONE</text>
+  <text class="colhdr" x="700" y="80" text-anchor="middle">SKIPPED</text>
+  <line class="grid" x1="24" y1="90" x2="740" y2="90"/>
+
+  <!-- Each cell is inlined (SVG <use> can't inherit an explicit color across cells). -->
+
+  <!-- Row: fab intake (blue) -->
+  <text class="phase" x="24" y="112">COOL · FAB · INTAKE — blue</text>
+  <text class="stage" x="60" y="138">intake</text>
+  <circle cx="300" cy="133" r="5" fill="none" stroke="#60a5fa" stroke-width="1.8"/>
+  <circle cx="400" cy="133" r="5" fill="#60a5fa"/>
+  <circle cx="500" cy="133" r="6" fill="none" stroke="#60a5fa" stroke-width="1.8" stroke-linecap="round" stroke-dasharray="0.1 3"/>
+  <circle cx="500" cy="133" r="2.2" fill="#f87171"/>
+  <rect x="594" y="127" width="12" height="12" rx="3" fill="#60a5fa"/>
+  <circle cx="700" cy="133" r="5" fill="none" stroke="#787c99" stroke-width="1.8"/>
+  <line class="grid" x1="24" y1="152" x2="740" y2="152"/>
+
+  <!-- Row: fab apply-collapsed (green) — the green collapse -->
+  <text class="phase" x="24" y="176">COOL · FAB · APPLY (collapsed) — green — apply / review / hydrate / ship / review-pr render identically</text>
+  <text class="stage" x="60" y="202">apply · review · hydrate · …</text>
+  <circle cx="300" cy="197" r="5" fill="none" stroke="#9ece6a" stroke-width="1.8"/>
+  <circle cx="400" cy="197" r="5" fill="#9ece6a"/>
+  <circle cx="500" cy="197" r="6" fill="none" stroke="#9ece6a" stroke-width="1.8" stroke-linecap="round" stroke-dasharray="0.1 3"/>
+  <circle cx="500" cy="197" r="2.2" fill="#f87171"/>
+  <rect x="594" y="191" width="12" height="12" rx="3" fill="#9ece6a"/>
+  <circle cx="700" cy="197" r="5" fill="none" stroke="#787c99" stroke-width="1.8"/>
+  <line class="grid" x1="24" y1="216" x2="740" y2="216"/>
+
+  <!-- Row: fab PR (purple) -->
+  <text class="phase" x="24" y="240">COOL · FAB · PR — purple</text>
+  <text class="stage" x="60" y="266">fab PR</text>
+  <circle cx="300" cy="261" r="5" fill="none" stroke="#c084fc" stroke-width="1.8"/>
+  <circle cx="400" cy="261" r="5" fill="#c084fc"/>
+  <circle cx="500" cy="261" r="6" fill="none" stroke="#c084fc" stroke-width="1.8" stroke-linecap="round" stroke-dasharray="0.1 3"/>
+  <circle cx="500" cy="261" r="2.2" fill="#f87171"/>
+  <rect x="594" y="255" width="12" height="12" rx="3" fill="#c084fc"/>
+  <circle cx="700" cy="261" r="5" fill="none" stroke="#787c99" stroke-width="1.8"/>
+  <text class="dim" x="300" y="281" font-size="8.5" text-anchor="middle">checks running</text>
+  <text class="dim" x="400" y="281" font-size="8.5" text-anchor="middle">open / healthy</text>
+  <text class="dim" x="500" y="281" font-size="8.5" text-anchor="middle">checks fail</text>
+  <text class="dim" x="600" y="281" font-size="8.5" text-anchor="middle">merged</text>
+  <text class="dim" x="700" y="281" font-size="8.5" text-anchor="middle">closed</text>
+  <line class="grid" x1="24" y1="292" x2="740" y2="292"/>
+
+  <!-- Row: ad-hoc agent (yellow) -->
+  <text class="phase" x="24" y="316">WARM · AD-HOC AGENT — yellow (a fresh @rk_agent_state, no fab change)</text>
+  <text class="stage" x="60" y="342">agent</text>
+  <circle cx="300" cy="337" r="5" fill="none" stroke="#facc15" stroke-width="1.8"/>
+  <circle cx="400" cy="337" r="5" fill="#facc15"/>
+  <text class="dim" x="300" y="357" font-size="8.5" text-anchor="middle">idle</text>
+  <text class="dim" x="400" y="357" font-size="8.5" text-anchor="middle">active / mid-turn</text>
+  <text class="dim" x="560" y="341" font-size="9" text-anchor="middle">— PR of an agent branch → orange row below —</text>
+  <line class="grid" x1="24" y1="368" x2="740" y2="368"/>
+
+  <!-- Row: ad-hoc agent PR (orange) -->
+  <text class="phase" x="24" y="392">WARM · AD-HOC AGENT · PR — orange (the agent's branch has a PR)</text>
+  <text class="stage" x="60" y="418">agent PR</text>
+  <circle cx="300" cy="413" r="5" fill="none" stroke="#fb923c" stroke-width="1.8"/>
+  <circle cx="400" cy="413" r="5" fill="#fb923c"/>
+  <circle cx="500" cy="413" r="6" fill="none" stroke="#fb923c" stroke-width="1.8" stroke-linecap="round" stroke-dasharray="0.1 3"/>
+  <circle cx="500" cy="413" r="2.2" fill="#f87171"/>
+  <rect x="594" y="407" width="12" height="12" rx="3" fill="#fb923c"/>
+  <circle cx="700" cy="413" r="5" fill="none" stroke="#787c99" stroke-width="1.8"/>
+  <line class="grid" x1="24" y1="428" x2="740" y2="428"/>
+
+  <!-- Row: floor (gray, tmux fallback) -->
+  <text class="phase" x="24" y="452">FLOOR · TMUX — monochrome (no fab change, no fresh agent) — color reserved for a journey</text>
+  <text class="stage" x="60" y="478">plain window</text>
+  <circle cx="400" cy="473" r="5" fill="#787c99"/>
+  <text class="dim" x="400" y="493" font-size="8.5" text-anchor="middle">active</text>
+  <!-- floor idle sits under SKIPPED (matching the markdown matrix: the idle
+       hollow ring is the same gray hollow-ring shape used for skipped). -->
+  <circle cx="700" cy="473" r="5" fill="none" stroke="#787c99" stroke-width="1.8"/>
+  <text class="dim" x="700" y="493" font-size="8.5" text-anchor="middle">idle</text>
+  <text class="dim" x="550" y="478" font-size="8.5" text-anchor="middle">a plain pane's PR never owns the dot (D1)</text>
+  <line class="grid" x1="24" y1="504" x2="740" y2="504"/>
+
+  <!-- Waiting overlay callout -->
+  <text class="sub" x="24" y="532" font-size="11" font-weight="700">Waiting = an ADDITIVE constant-yellow halo (over any core; core hue + shape kept):</text>
+  <!-- blue intake core + halo -->
+  <circle cx="40" cy="556" r="8.5" fill="none" stroke="#facc15" stroke-width="1.6" opacity="0.9"/>
+  <circle cx="40" cy="556" r="5" fill="#60a5fa"/>
+  <text class="dim" x="54" y="560" font-size="10">blue intake + halo = "fab intake asking"</text>
+  <!-- green failed core + halo -->
+  <circle cx="360" cy="556" r="9.5" fill="none" stroke="#facc15" stroke-width="1.6" opacity="0.9"/>
+  <circle cx="360" cy="556" r="6" fill="none" stroke="#9ece6a" stroke-width="1.8" stroke-linecap="round" stroke-dasharray="0.1 3"/>
+  <circle cx="360" cy="556" r="2.2" fill="#f87171"/>
+  <text class="dim" x="376" y="560" font-size="10">green failed + halo = "review failed, agent asking"</text>
+  <!-- reduced-motion note -->
+  <text class="dim" x="24" y="584" font-size="10">Under prefers-reduced-motion the halo is a STATIC yellow ring (no pulse). Yellow core = an ad-hoc agent lives here; yellow halo = an agent needs you now.</text>
+  <text class="dim" x="24" y="602" font-size="10">Red appears only as the small center dot of a failed ring — never as a whole dot, never as attention.</text>
+</svg>

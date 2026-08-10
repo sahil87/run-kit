@@ -435,10 +435,28 @@ describe("WindowRow", () => {
       expect(glyph.className).not.toContain("text-purple-400");
     });
 
-    it("renders NO glyph for a closed-unmerged PR (prOwnsGlyph gate)", () => {
+    // xuej: closed earns the glyph — muted gray with the distinct ✕ closed
+    // icon (GitPullRequestClosedIcon). Shape, not color, separates closed
+    // from failing (red normal icon) and from draft (gray normal icon).
+    it("renders the glyph muted with the closed ✕ icon for a closed-unmerged PR", () => {
       const win = makeWindow({ windowId: "@0", index: 0, prNumber: 386, prState: "closed" });
       renderRowWithIcons(win);
-      expect(screen.queryByTestId("row-pr-glyph")).toBeNull();
+      const glyph = screen.getByTestId("row-pr-glyph");
+      expect(glyph.className).toContain("text-text-secondary");
+      // The closed ✕ mark (m21 3-6 6) replaces the merge arc of the normal icon.
+      expect(glyph.querySelector('path[d="m21 3-6 6"]')).not.toBeNull();
+      expect(glyph.querySelector('path[d="M13 6h3a2 2 0 0 1 2 2v7"]')).toBeNull();
+    });
+
+    it("keeps the normal PR icon for open and merged PRs (state-picked icon)", () => {
+      for (const prState of ["open", "merged"] as const) {
+        const win = makeWindow({ windowId: "@0", index: 0, prNumber: 386, prState });
+        const { unmount } = renderRowWithIcons(win);
+        const glyph = screen.getByTestId("row-pr-glyph");
+        expect(glyph.querySelector('path[d="m21 3-6 6"]')).toBeNull();
+        expect(glyph.querySelector('path[d="M13 6h3a2 2 0 0 1 2 2v7"]')).not.toBeNull();
+        unmount();
+      }
     });
 
     it("renders NO glyph without a prNumber", () => {

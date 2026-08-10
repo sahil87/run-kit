@@ -196,6 +196,41 @@ export function GitPullRequestIcon({ size = 13 }: { size?: number }) {
   );
 }
 
+/** Closed-PR variant of the window row's rest-state PR glyph — a lucide
+ *  `git-pull-request-closed` silhouette: the same source circle + rail, but
+ *  an ✕ where the merge arc was, a truncated target rail, and the target
+ *  circle. GitHub disambiguates closed by SHAPE, not color — red ✕ icon =
+ *  closed, red normal icon = failing — so this icon is what lets closed and
+ *  failing coexist (and what separates a muted closed glyph from a muted
+ *  draft). Same fixed idiom as the siblings (`currentColor` stroke,
+ *  `strokeWidth={2}`, `fill="none"`, round caps/joins, 24-unit viewBox, 13px
+ *  default size). (xuej) */
+export function GitPullRequestClosedIcon({ size = 13 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {/* source branch: circle + vertical rail */}
+      <circle cx="6" cy="6" r="3" />
+      <path d="M6 9v12" />
+      {/* ✕ where the merge arc was — the "closed" mark */}
+      <path d="m21 3-6 6" />
+      <path d="m21 9-6-6" />
+      {/* truncated target rail + target circle */}
+      <path d="M18 11.5V15" />
+      <circle cx="18" cy="18" r="3" />
+    </svg>
+  );
+}
+
 /** Small close/kill icon for the session- and window-row kill triggers — a
  *  lucide `x` cross. Replaces the former U+2715 text glyph for the same
  *  one-stroke-system reason as `PlusIcon`. (260724-2bmy) */

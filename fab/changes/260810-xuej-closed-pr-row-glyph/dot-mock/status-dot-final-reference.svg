@@ -1,13 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="760" height="620" viewBox="0 0 760 620" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
   <defs>
     <!-- Hues (ref): blue #60a5fa (fab building) · green #9ece6a (fab PR-ready/done)
-         yellow #facc15 (ad-hoc agent + waiting halo) · gray #787c99 (floor;
-         also the GLYPH's inert token — draft, and closed)
+         yellow #facc15 (ad-hoc agent + waiting halo) · gray #787c99 (floor)
          red #f87171 (failed center on the DOT; failing state on the GLYPH)
          purple #c084fc (merged — GLYPH ONLY; the dot never renders purple) -->
-    <!-- octicon git-pull-request-closed-16: source circle + rail, ✕ where the
-         merge arc was, truncated target rail + target circle -->
-    <path id="prClosed" d="M3.25 1A2.25 2.25 0 0 1 4 5.372v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.251 2.251 0 0 1 3.25 1Zm9.5 5.5a.75.75 0 0 1 .75.75v3.378a2.251 2.251 0 1 1-1.5 0V7.25a.75.75 0 0 1 .75-.75Zm-2.03-5.273a.75.75 0 0 1 1.06 0l.97.97.97-.97a.748.748 0 0 1 1.265.332.75.75 0 0 1-.205.729l-.97.97.97.97a.751.751 0 0 1-.018 1.042.751.751 0 0 1-1.042.018l-.97-.97-.97.97a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734l.97-.97-.97-.97a.75.75 0 0 1 0-1.06ZM2.5 3.25a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0ZM3.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm9.5 0a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z"/>
     <path id="pr" d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z"/>
   </defs>
 
@@ -48,19 +44,17 @@
   <line x1="24" y1="330" x2="740" y2="330" stroke="#2f3549" stroke-width="1"/>
 
   <!-- 3 · GLYPH -->
-  <text x="24" y="356" font-size="11" font-weight="700" fill="#787c99">3 · PR = the right-edge row glyph (one channel, six states — never the dot)</text>
+  <text x="24" y="356" font-size="11" font-weight="700" fill="#787c99">3 · PR = the right-edge row glyph (one channel, five states — never the dot)</text>
   <g fill="#9ece6a" transform="translate(34,368) scale(0.9)"><use href="#pr"/></g>
   <text x="56" y="379" font-size="10" fill="#565a73">open</text>
   <g fill="#facc15" transform="translate(124,368) scale(0.9)"><use href="#pr"/></g>
   <text x="146" y="379" font-size="10" fill="#565a73">checks running</text>
   <g fill="#f87171" transform="translate(272,368) scale(0.9)"><use href="#pr"/></g>
   <text x="294" y="379" font-size="10" fill="#565a73">checks fail / changes req.</text>
-  <g fill="#c084fc" transform="translate(458,368) scale(0.9)"><use href="#pr"/></g>
-  <text x="480" y="379" font-size="10" fill="#565a73">merged</text>
-  <g fill="#787c99" transform="translate(552,368) scale(0.9)"><use href="#pr"/></g>
-  <text x="574" y="379" font-size="10" fill="#565a73">draft</text>
-  <g fill="#787c99" transform="translate(632,368) scale(0.9)"><use href="#prClosed"/></g>
-  <text x="654" y="379" font-size="10" fill="#565a73">closed (muted ✕)</text>
+  <g fill="#c084fc" transform="translate(478,368) scale(0.9)"><use href="#pr"/></g>
+  <text x="500" y="379" font-size="10" fill="#565a73">merged</text>
+  <g fill="#787c99" transform="translate(572,368) scale(0.9)"><use href="#pr"/></g>
+  <text x="594" y="379" font-size="10" fill="#565a73">draft · closed → none</text>
   <line x1="24" y1="398" x2="740" y2="398" stroke="#2f3549" stroke-width="1"/>
 
   <!-- 4 · HALO -->
@@ -90,6 +84,6 @@
   <text x="672" y="550" font-size="9" fill="#565a73" text-anchor="middle">quiet shell</text>
 
   <!-- bottom notes -->
-  <text x="24" y="584" font-size="10" fill="#565a73">Vocabulary: 4 hues × 3 shapes + 6 glyph states + 1 overlay. Retired: purple/orange dot hues, the done square, the skipped shape/column.</text>
+  <text x="24" y="584" font-size="10" fill="#565a73">Vocabulary: 4 hues × 3 shapes + 5 glyph states + 1 overlay. Retired: purple/orange dot hues, the done square, the skipped shape/column.</text>
   <text x="24" y="602" font-size="10" fill="#565a73">Dot = the local story (what runs in the pane) · glyph = the remote story (the branch's PR on GitHub). Merged stays durable via the state-all derivation (D2).</text>
 </svg>

@@ -221,14 +221,28 @@ describe("SessionTiles", () => {
       expect(screen.getByTestId("tile-pr-glyph").className).toContain("text-purple-400");
     });
 
-    it("renders NO glyph for a closed-unmerged PR or without a prNumber", () => {
+    // xuej: closed earns the glyph — muted with the distinct ✕ closed icon
+    // (same state-picked icon as the sidebar row). No glyph only without a
+    // prNumber.
+    it("renders the glyph muted with the closed ✕ icon for a closed-unmerged PR", () => {
       renderWithPr({ prNumber: 386, prState: "closed" });
       fireEvent.click(screen.getByLabelText("Expand run-kit"));
-      expect(screen.queryByTestId("tile-pr-glyph")).toBeNull();
+      const glyph = screen.getByTestId("tile-pr-glyph");
+      expect(glyph.className).toContain("text-text-secondary");
+      expect(glyph.querySelector('path[d="m21 3-6 6"]')).not.toBeNull();
+      expect(glyph.querySelector('path[d="M13 6h3a2 2 0 0 1 2 2v7"]')).toBeNull();
       cleanup();
       renderWithPr({});
       fireEvent.click(screen.getByLabelText("Expand run-kit"));
       expect(screen.queryByTestId("tile-pr-glyph")).toBeNull();
+    });
+
+    it("keeps the normal PR icon for open PRs (state-picked icon)", () => {
+      renderWithPr({ prNumber: 386, prState: "open", prChecks: "pass" });
+      fireEvent.click(screen.getByLabelText("Expand run-kit"));
+      const glyph = screen.getByTestId("tile-pr-glyph");
+      expect(glyph.querySelector('path[d="m21 3-6 6"]')).toBeNull();
+      expect(glyph.querySelector('path[d="M13 6h3a2 2 0 0 1 2 2v7"]')).not.toBeNull();
     });
   });
 

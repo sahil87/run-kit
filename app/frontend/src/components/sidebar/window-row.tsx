@@ -8,7 +8,7 @@ import { SwatchPopover } from "@/components/swatch-popover";
 import { StatusDot } from "@/components/status-dot";
 import { prOwnsGlyph, prGlyphColor } from "@/components/pr-status-model";
 import { PinPopover } from "./pin-popover";
-import { PaletteIcon, CloseIcon, GitPullRequestIcon } from "./icons";
+import { PaletteIcon, CloseIcon, GitPullRequestIcon, GitPullRequestClosedIcon } from "./icons";
 import { PinIcon } from "@/components/pin-icon";
 import { useRowFlyout } from "./row-flyout-card";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
@@ -555,7 +555,7 @@ function WindowRowInner({
       <div className="group/icons absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 z-10 pointer-events-none group-hover:pointer-events-auto coarse:pointer-events-auto has-[:focus-visible]:pointer-events-auto">
         {/* Rest-state PR glyph (93dy — user-approved partial Row-Minimalism
             reversal): a window with an OWNED PR (prOwnsGlyph — open/failing/
-            merged, never closed) shows a git-pull-request glyph at rest,
+            merged/closed) shows a git-pull-request glyph at rest,
             right-edge-aligned with the hover ✕ (an absolute overlay on the
             LAST slot, same 24px box — so pinned rows read rest `[pin][PR]` →
             hover `[pin][✕]`: the pin holds its slot, only the last slot
@@ -566,17 +566,21 @@ function WindowRowInner({
             are always visible there), and while keyboard focus is inside the
             action cluster — so it can never be a click target or occlude the
             revealed ✕. Color via the shared PR vocabulary (prGlyphColor),
-            five-way: red failing, gray open-draft, yellow checks-running,
-            green open, purple merged — draft is open-gated and sits BELOW
-            fail and ABOVE pending, and the glyph is the row's ONLY PR channel
-            (the dot never renders PR state; see pr-status-model.ts). */}
+            six-way: muted closed (dead PR), red failing, gray open-draft,
+            yellow checks-running, green open, purple merged — closed sits
+            ABOVE fail (stale checks are noise), draft is open-gated and sits
+            BELOW fail and ABOVE pending. Icon picked by state (xuej): a
+            closed PR gets the distinct ✕ `GitPullRequestClosedIcon` — shape,
+            not color, separates closed from failing and from draft — and the
+            glyph is the row's ONLY PR channel (the dot never renders PR
+            state; see pr-status-model.ts). */}
         {!ghost && prOwnsGlyph(win) && (
           <span
             aria-hidden="true"
             data-testid="row-pr-glyph"
             className={`absolute right-0 top-1/2 -translate-y-1/2 flex items-center justify-center px-0.5 min-w-[24px] min-h-[24px] pointer-events-none group-hover:hidden coarse:hidden group-has-[:focus-visible]/icons:hidden ${prGlyphColor(win)}`}
           >
-            <GitPullRequestIcon />
+            {win.prState === "closed" ? <GitPullRequestClosedIcon /> : <GitPullRequestIcon />}
           </span>
         )}
         {showPinIcon && (

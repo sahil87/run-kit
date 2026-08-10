@@ -9,8 +9,8 @@ progress:
     apply: skipped
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 1
@@ -33,14 +33,16 @@ stage_metrics:
     apply: {iterations: 1}
     review: {started_at: "2026-08-10T10:41:47Z", driver: fab-adopt, iterations: 1, completed_at: "2026-08-10T10:44:22Z"}
     hydrate: {started_at: "2026-08-10T10:44:22Z", driver: fab-adopt, iterations: 1, completed_at: "2026-08-10T10:47:39Z"}
-    ship: {started_at: "2026-08-10T10:47:39Z", driver: fab-adopt, iterations: 1}
-prs: []
+    ship: {started_at: "2026-08-10T10:47:39Z", driver: fab-adopt, iterations: 1, completed_at: "2026-08-10T10:50:03Z"}
+    review-pr: {started_at: "2026-08-10T10:50:03Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/548
 change_type_source: explicit
 summary: tmux configs report extended keys in kitty CSI-u form (extended-keys-format csi-u, -q-guarded) for kitty-protocol TUIs
 true_impact:
-    added: 7
-    deleted: 0
-    net: 7
+    added: 167
+    deleted: 1
+    net: 166
     excluding:
         added: 7
         deleted: 0
@@ -49,7 +51,7 @@ true_impact:
         added: 0
         deleted: 0
         net: 0
-    computed_at: "2026-08-10T10:47:39Z"
-    computed_at_stage: hydrate
+    computed_at: "2026-08-10T10:50:03Z"
+    computed_at_stage: ship
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-10T10:47:39Z
+last_updated: 2026-08-10T10:50:03Z

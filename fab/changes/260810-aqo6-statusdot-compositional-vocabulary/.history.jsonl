@@ -4,3 +4,5 @@
 {"delta":"+0.0","event":"confidence","score":3.8,"trigger":"calc-score","ts":"2026-08-10T03:26:04Z"}
 {"action":"enter","driver":"git-pr","event":"stage-transition","stage":"ship","ts":"2026-08-10T03:28:25Z"}
 {"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-08-10T03:29:07Z"}
+{"action":"re-entry","event":"stage-transition","stage":"ship","ts":"2026-08-10T03:29:43Z"}
+{"action":"re-entry","event":"stage-transition","stage":"intake","ts":"2026-08-10T03:29:54Z"}

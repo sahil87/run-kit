@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 10
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-08-10T11:10:19Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-10T11:13:57Z"}
     hydrate: {started_at: "2026-08-10T11:13:57Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-10T11:19:57Z"}
     ship: {started_at: "2026-08-10T11:19:57Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-10T11:22:30Z"}
-    review-pr: {started_at: "2026-08-10T11:22:30Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-08-10T11:22:30Z", driver: git-pr, iterations: 1, completed_at: "2026-08-10T11:35:17Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/549
 change_type_source: explicit
@@ -54,4 +54,4 @@ true_impact:
     computed_at_stage: ship
 summary: 'Row PR glyph grew to six states: prOwnsGlyph admits closed, prGlyphColor returns muted text-text-secondary for closed above the fail branch, and both glyph surfaces render the new ✕ GitPullRequestClosedIcon for closed PRs'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-10T11:22:30Z
+last_updated: 2026-08-10T11:35:17Z

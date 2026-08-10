@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 13
@@ -33,25 +33,26 @@ stage_metrics:
     apply: {started_at: "2026-08-10T04:02:58Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-10T04:25:26Z"}
     review: {started_at: "2026-08-10T04:25:26Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-10T04:43:25Z"}
     hydrate: {started_at: "2026-08-10T04:43:25Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-10T04:55:19Z"}
-    ship: {started_at: "2026-08-10T04:55:19Z", driver: fab-fff, iterations: 3}
-    review-pr: {iterations: 1}
+    ship: {started_at: "2026-08-10T04:55:19Z", driver: fab-fff, iterations: 3, completed_at: "2026-08-10T05:15:03Z"}
+    review-pr: {started_at: "2026-08-10T05:15:03Z", driver: git-pr, iterations: 2}
 prs:
     - https://github.com/sahil87/run-kit/pull/545
+    - https://github.com/sahil87/run-kit/pull/546
 change_type_source: explicit
 true_impact:
-    added: 738
-    deleted: 0
-    net: 738
+    added: 2003
+    deleted: 913
+    net: 1090
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 525
+        deleted: 494
+        net: 31
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-08-10T04:55:19Z"
-    computed_at_stage: hydrate
+        added: 46
+        deleted: 32
+        net: 14
+    computed_at: "2026-08-10T05:15:03Z"
+    computed_at_stage: ship
 summary: 'Evicted PR state from the StatusDot into the row/tile glyph: compositional 4-hue/3-shape dot vocabulary (blue building → green PR-ready, done parks as a green resting ring, skipped falls through), five-way prGlyphColor with a checks-pending yellow, prOwnsGlyph glyph gate, session-tile rest glyph, hue-word + status-word labels; docs rewritten to four legend strips'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-10T05:10:04Z
+last_updated: 2026-08-10T05:15:03Z

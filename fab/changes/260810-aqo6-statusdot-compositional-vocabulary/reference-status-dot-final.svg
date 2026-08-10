@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="620" viewBox="0 0 760 620" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+  <defs>
+    <!-- Hues (ref): blue #60a5fa (fab building) · green #9ece6a (fab PR-ready/done)
+         yellow #facc15 (ad-hoc agent + waiting halo) · gray #787c99 (floor)
+         red #f87171 (failed center on the DOT; failing state on the GLYPH)
+         purple #c084fc (merged — GLYPH ONLY; the dot never renders purple) -->
+    <path id="pr" d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z"/>
+  </defs>
+
+  <rect x="0" y="0" width="760" height="620" fill="#1a1b26"/>
+
+  <!-- title -->
+  <text x="24" y="30" font-size="16" font-weight="700" fill="#c0caf5">StatusDot — the compositional reference</text>
+  <text x="24" y="48" font-size="11" fill="#787c99">No matrix: hue × shape compose freely and no cell is special. Read hue (which journey), then shape (health), then glyph (PR).</text>
+
+  <!-- 1 · HUE -->
+  <text x="24" y="82" font-size="11" font-weight="700" fill="#787c99">1 · CORE HUE = journey (4)</text>
+  <circle cx="40" cy="106" r="5" fill="#60a5fa"/>
+  <text x="56" y="110" font-size="12" fill="#c0caf5">FAB · BUILDING</text>
+  <text x="220" y="110" font-size="10" fill="#565a73">intake · apply · review — pre-PR work</text>
+  <circle cx="40" cy="132" r="5" fill="#9ece6a"/>
+  <text x="56" y="136" font-size="12" fill="#c0caf5">FAB · PR-READY / DONE</text>
+  <text x="220" y="136" font-size="10" fill="#565a73">ship · review-pr · done — /git-pr creates the PR mid-ship</text>
+  <circle cx="40" cy="158" r="5" fill="#facc15"/>
+  <text x="56" y="162" font-size="12" fill="#c0caf5">AD-HOC AGENT</text>
+  <text x="220" y="162" font-size="10" fill="#565a73">a fresh @rk_agent_state, no fab change</text>
+  <circle cx="40" cy="184" r="5" fill="#787c99"/>
+  <text x="56" y="188" font-size="12" fill="#c0caf5">FLOOR</text>
+  <text x="220" y="188" font-size="10" fill="#565a73">plain terminal — color reserved for a journey</text>
+  <line x1="24" y1="206" x2="740" y2="206" stroke="#2f3549" stroke-width="1"/>
+
+  <!-- 2 · SHAPE -->
+  <text x="24" y="232" font-size="11" font-weight="700" fill="#787c99">2 · SHAPE = status (3 — the same meaning in every hue)</text>
+  <circle cx="40" cy="256" r="5" fill="#60a5fa"/>
+  <text x="56" y="260" font-size="12" fill="#c0caf5">solid</text>
+  <text x="220" y="260" font-size="10" fill="#565a73">running / live</text>
+  <circle cx="40" cy="282" r="5" fill="none" stroke="#60a5fa" stroke-width="1.8"/>
+  <text x="56" y="286" font-size="12" fill="#c0caf5">ring</text>
+  <text x="220" y="286" font-size="10" fill="#565a73">at rest — stage pending · parked done · idle agent · quiet shell</text>
+  <circle cx="40" cy="308" r="6" fill="none" stroke="#60a5fa" stroke-width="1.8" stroke-linecap="round" stroke-dasharray="0.1 3"/>
+  <circle cx="40" cy="308" r="2.2" fill="#f87171"/>
+  <text x="56" y="312" font-size="12" fill="#c0caf5">failed</text>
+  <text x="220" y="312" font-size="10" fill="#565a73">dotted ring + red center — review / review-pr failed (dot-red appears ONLY here)</text>
+  <line x1="24" y1="330" x2="740" y2="330" stroke="#2f3549" stroke-width="1"/>
+
+  <!-- 3 · GLYPH -->
+  <text x="24" y="356" font-size="11" font-weight="700" fill="#787c99">3 · PR = the right-edge row glyph (one channel, five states — never the dot)</text>
+  <g fill="#9ece6a" transform="translate(34,368) scale(0.9)"><use href="#pr"/></g>
+  <text x="56" y="379" font-size="10" fill="#565a73">open</text>
+  <g fill="#facc15" transform="translate(124,368) scale(0.9)"><use href="#pr"/></g>
+  <text x="146" y="379" font-size="10" fill="#565a73">checks running</text>
+  <g fill="#f87171" transform="translate(272,368) scale(0.9)"><use href="#pr"/></g>
+  <text x="294" y="379" font-size="10" fill="#565a73">checks fail / changes req.</text>
+  <g fill="#c084fc" transform="translate(478,368) scale(0.9)"><use href="#pr"/></g>
+  <text x="500" y="379" font-size="10" fill="#565a73">merged</text>
+  <g fill="#787c99" transform="translate(572,368) scale(0.9)"><use href="#pr"/></g>
+  <text x="594" y="379" font-size="10" fill="#565a73">draft · closed → none</text>
+  <line x1="24" y1="398" x2="740" y2="398" stroke="#2f3549" stroke-width="1"/>
+
+  <!-- 4 · HALO -->
+  <text x="24" y="424" font-size="11" font-weight="700" fill="#787c99">4 · ATTENTION = the waiting halo (additive over any hue × shape; reduced-motion: static ring)</text>
+  <circle cx="40" cy="450" r="8.5" fill="none" stroke="#facc15" stroke-width="1.6" opacity="0.9"/>
+  <circle cx="40" cy="450" r="5" fill="#60a5fa"/>
+  <text x="56" y="454" font-size="10" fill="#565a73">agent waiting on you — core hue + shape kept · yellow core = an agent lives here, yellow halo = an agent needs you now</text>
+  <line x1="24" y1="472" x2="740" y2="472" stroke="#2f3549" stroke-width="1"/>
+
+  <!-- Composed examples -->
+  <text x="24" y="498" font-size="11" font-weight="700" fill="#787c99">Composes freely — read hue, then shape, then glyph:</text>
+  <circle cx="52" cy="526" r="5" fill="#60a5fa"/>
+  <text x="52" y="550" font-size="9" fill="#565a73" text-anchor="middle">building</text>
+  <circle cx="164" cy="526" r="8.5" fill="none" stroke="#facc15" stroke-width="1.6" opacity="0.9"/>
+  <circle cx="164" cy="526" r="6" fill="none" stroke="#60a5fa" stroke-width="1.8" stroke-linecap="round" stroke-dasharray="0.1 3"/>
+  <circle cx="164" cy="526" r="2.2" fill="#f87171"/>
+  <text x="164" y="550" font-size="9" fill="#565a73" text-anchor="middle">review failed · asking</text>
+  <circle cx="296" cy="526" r="5" fill="#9ece6a"/>
+  <g fill="#9ece6a" transform="translate(306,519) scale(0.9)"><use href="#pr"/></g>
+  <text x="306" y="550" font-size="9" fill="#565a73" text-anchor="middle">PR open · landing</text>
+  <circle cx="432" cy="526" r="5" fill="none" stroke="#9ece6a" stroke-width="1.8"/>
+  <g fill="#c084fc" transform="translate(442,519) scale(0.9)"><use href="#pr"/></g>
+  <text x="446" y="550" font-size="9" fill="#565a73" text-anchor="middle">merged · parked — archive me</text>
+  <circle cx="576" cy="526" r="5" fill="#facc15"/>
+  <text x="576" y="550" font-size="9" fill="#565a73" text-anchor="middle">ad-hoc mid-turn</text>
+  <circle cx="672" cy="526" r="5" fill="none" stroke="#787c99" stroke-width="1.8"/>
+  <text x="672" y="550" font-size="9" fill="#565a73" text-anchor="middle">quiet shell</text>
+
+  <!-- bottom notes -->
+  <text x="24" y="584" font-size="10" fill="#565a73">Vocabulary: 4 hues × 3 shapes + 5 glyph states + 1 overlay. Retired: purple/orange dot hues, the done square, the skipped shape/column.</text>
+  <text x="24" y="602" font-size="10" fill="#565a73">Dot = the local story (what runs in the pane) · glyph = the remote story (the branch's PR on GitHub). Merged stays durable via the state-all derivation (D2).</text>
+</svg>

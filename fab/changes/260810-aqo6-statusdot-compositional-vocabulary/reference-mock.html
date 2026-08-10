@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StatusDot configurations</title>
+<style>
+  :root {
+    --bg: #0f0f13;
+    --panel: #17171d;
+    --panel-2: #1c1c24;
+    --row: #1a1a21;
+    --text: #d6d6d6;
+    --dim: #8a8f98;
+    --dimmer: #5c6068;
+    --border: #2a2a33;
+    --gray: #9ca3af;
+    --blue: #60a5fa;
+    --green: #4ade80;
+    --purple: #c084fc;
+    --yellow: #facc15;
+    --orange: #fb923c;
+    --red: #f87171;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+    font-size: 13px;
+    padding: 28px 32px 64px;
+  }
+  h1 { font-size: 16px; font-weight: 600; letter-spacing: .02em; margin-bottom: 4px; }
+  .sub { color: var(--dim); font-size: 12px; margin-bottom: 24px; max-width: 900px; line-height: 1.5; }
+
+  /* ---------- shape vocabulary legend ---------- */
+  .legend { display: flex; gap: 28px; flex-wrap: wrap; margin-bottom: 28px; padding: 12px 16px; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; width: fit-content; }
+  .legend .item { display: flex; align-items: center; gap: 8px; color: var(--dim); font-size: 11px; }
+
+  /* ---------- dots (mirrors status-dot.tsx) ---------- */
+  .dot { display: inline-block; width: 7px; height: 7px; border-radius: 9999px; flex: none; }
+  .dot.solid { background: currentColor; }
+  .dot.ring { border: 1.8px solid currentColor; background: transparent; }
+  .dot.done { border-radius: 0; background: currentColor; }
+  .dot.failed {
+    width: 9px; height: 9px;
+    border: 1.2px dotted currentColor; background: transparent;
+    position: relative;
+  }
+  .dot.failed::after {
+    content: ""; position: absolute; left: 50%; top: 50%;
+    width: 3px; height: 3px; margin: -1.5px 0 0 -1.5px;
+    border-radius: 9999px; background: var(--red);
+  }
+  .dot.halo { animation: halo 1.6s ease-in-out infinite; }
+  @keyframes halo {
+    0%, 100% { box-shadow: 0 0 0 2px rgba(250, 204, 21, .18); }
+    50%      { box-shadow: 0 0 0 3.5px rgba(250, 204, 21, .45); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .dot.halo { animation: none; box-shadow: 0 0 0 2.5px rgba(250, 204, 21, .38); }
+  }
+
+  .c-gray { color: var(--gray); } .c-blue { color: var(--blue); } .c-green { color: var(--green); }
+  .c-purple { color: var(--purple); } .c-yellow { color: var(--yellow); } .c-orange { color: var(--orange); }
+
+  /* ---------- comparison grid ---------- */
+  table { border-collapse: collapse; }
+  th, td { padding: 0; }
+  thead th {
+    text-align: left; font-size: 12px; font-weight: 600; color: var(--text);
+    padding: 8px 14px 10px; vertical-align: bottom;
+  }
+  thead th .tag { display: block; font-weight: 400; color: var(--dim); font-size: 10.5px; margin-top: 3px; line-height: 1.45; max-width: 230px; }
+  thead th.state-col { color: var(--dimmer); font-weight: 400; font-size: 11px; }
+  tbody td.state {
+    color: var(--dim); font-size: 11px; padding: 0 18px 0 14px; white-space: nowrap;
+  }
+  tbody td.state .layer { color: var(--dimmer); }
+  tr.group td {
+    padding: 20px 14px 6px; color: var(--dimmer); font-size: 10px;
+    text-transform: uppercase; letter-spacing: .14em;
+  }
+  tr.group:first-child td { padding-top: 4px; }
+
+  /* mini sidebar row */
+  .cell { padding: 2px 10px; }
+  .mrow {
+    display: flex; align-items: center; gap: 9px;
+    background: var(--row); border: 1px solid var(--border);
+    border-radius: 4px; padding: 6px 9px; width: 240px; height: 30px;
+    position: relative;
+  }
+  .mrow .name { color: var(--text); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+  .mrow .glyph { flex: none; display: flex; align-items: center; }
+  .mrow .glyph svg { display: block; }
+  .mrow.hi { outline: 1px solid rgba(250,204,21,.25); outline-offset: 1px; }
+  .fn { color: var(--dimmer); font-size: 9px; vertical-align: super; margin-left: 3px; }
+
+  /* ---------- per-config summary ---------- */
+  .summaries { display: grid; grid-template-columns: repeat(4, 260px); gap: 12px; margin-top: 34px; margin-left: 258px; }
+  .summary { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 12px 14px; font-size: 11px; line-height: 1.55; color: var(--dim); }
+  .summary b { color: var(--text); display: block; margin-bottom: 6px; font-size: 11.5px; }
+  .summary .vocab { color: var(--text); }
+  .summary .warn { color: var(--orange); }
+  .summary .good { color: var(--green); }
+
+  .notes { margin-top: 30px; max-width: 940px; color: var(--dim); font-size: 11.5px; line-height: 1.7; }
+  .notes b { color: var(--text); }
+  .scroller { overflow-x: auto; }
+</style>
+</head>
+<body>
+
+<h1>StatusDot configurations — PR glyph era</h1>
+<p class="sub">
+  Same 18 window states under four configurations. The right-edge git-pull-request glyph is the
+  rest-state PR indicator that already shipped (93dy) — the question is what the <em>dot</em> still owes
+  once the glyph carries the PR story. Waiting rows pulse (static ring under reduced motion).
+</p>
+
+<div class="legend">
+  <span class="item"><span class="dot solid c-gray"></span> solid = live/healthy</span>
+  <span class="item"><span class="dot ring c-gray"></span> ring = pending/idle</span>
+  <span class="item"><span class="dot failed c-gray"></span> failed = dotted + red center</span>
+  <span class="item"><span class="dot done c-gray"></span> done = sharp square</span>
+  <span class="item"><span class="dot solid c-yellow halo"></span> halo = waiting (additive)</span>
+</div>
+
+<div class="scroller">
+<table>
+  <thead>
+    <tr>
+      <th class="state-col">window state</th>
+      <th>CURRENT<span class="tag">6 hues · 5 shapes · PR owns the dot per family</span></th>
+      <th>A — PR evicted, square retired<span class="tag">4 hues · 3 shapes · glyph-only PR channel (+ yellow pending glyph) · blue = building (intake→review), green = PR-ready · done falls to floor</span></th>
+      <th>B — square-only removal<span class="tag">6 hues · 4 shapes · PR keeps the dot; merged→solid, done→solid</span></th>
+      <th>C — PR evicted, square kept<span class="tag">4 hues · 4 shapes · blue = building, green = PR-ready · square survives for parked-done fab only</span></th>
+    </tr>
+  </thead>
+  <tbody id="rows"></tbody>
+</table>
+</div>
+
+<div class="summaries">
+  <div class="summary">
+    <b>Current</b>
+    <span class="vocab">blue · green · purple · yellow · orange · gray × solid · ring · failed · done · skipped</span><br><br>
+    <span class="warn">Merged is double-encoded</span> — purple square <em>and</em> purple glyph on the same row (rows 16–17).
+    PR health lives in two places at once.
+  </div>
+  <div class="summary">
+    <b>A — full eviction</b>
+    <span class="vocab">blue · green · yellow · gray × solid · ring · failed</span><br><br>
+    <span class="good">Dot = local story, glyph = remote story.</span>
+    <span class="vocab">Blue = building (intake→review), green = PR-ready/landed/done</span> — hue is a two-stop progress bar, not a stage map.
+    Parked-done = <span class="vocab">green ring</span> (resting, journey complete) — no square needed, but done and a rare ship-pending share the ring.
+  </div>
+  <div class="summary">
+    <b>B — trim the shape only</b>
+    <span class="vocab">blue · green · purple · yellow · orange · gray × solid · ring · failed</span><br><br>
+    <span class="warn">Merged = open on the dot</span> (rows 13 vs 16) and <span class="warn">done = active</span> (rows 11 vs 18):
+    the glyph must disambiguate anyway, yet purple/orange and the double-encoding all stay.
+  </div>
+  <div class="summary">
+    <b>C — eviction, square for parked</b>
+    <span class="vocab">blue · green · yellow · gray × solid · ring · failed · done</span><br><br>
+    Same two-stop hue as A (blue building → green PR-ready), and rows 17–18 keep a distinct green
+    "done, archive me" square — green's "completed" meaning extends naturally to it.
+    <span class="warn">A whole shape retained for one rare-ish state</span> — the square's only remaining tenant.
+  </div>
+</div>
+
+<h1 style="margin-top:56px">FINAL reference — replaces docs/img/status-dot-matrix.svg</h1>
+<p class="sub">
+  The A-vocabulary is fully compositional (shape means the same thing in every hue), so the 6×5 matrix
+  retires in favor of four legend strips + composed examples. Decisions locked: PR evicted to the glyph
+  (incl. the NEW yellow checks-running glyph state) · square + skipped retired · blue = building,
+  green = PR-ready/done · halo unchanged.
+</p>
+<div class="scroller">
+  <img src="status-dot-final-reference.svg" width="760" height="620" alt="Final compositional reference" style="border:1px solid var(--border); border-radius:6px;">
+</div>
+
+<h1 style="margin-top:56px">Superseded — the before / matrix-draft pair kept for the record</h1>
+<p class="sub">
+  Left: the shipped palette-v3 matrix. Right: the intermediate matrix-form draft of configuration A
+  (superseded by the compositional reference above).
+</p>
+
+<div class="scroller" style="display:flex; gap:20px; align-items:flex-start;">
+  <img src="status-dot-matrix-current.svg" width="760" height="620" alt="Current matrix" style="flex:none; border:1px solid var(--border); border-radius:6px;">
+
+  <svg xmlns="http://www.w3.org/2000/svg" width="760" height="620" viewBox="0 0 760 620"
+       font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
+       style="flex:none; border:1px solid var(--border); border-radius:6px;">
+    <rect x="0" y="0" width="760" height="620" fill="#1a1b26"/>
+
+    <!-- title -->
+    <text x="24" y="30" font-size="16" font-weight="700" fill="#c0caf5">StatusDot — family × status matrix (draft: PR evicted)</text>
+    <text x="24" y="48" font-size="11" fill="#787c99">Core hue = journey (cool = fab: blue building → green PR-ready · warm = agent: yellow · gray = floor) · Shape = status · Halo = waiting</text>
+    <text x="24" y="64" font-size="11" fill="#787c99">The dot never speaks PR — the PR story lives on the row's right-edge glyph (strip below).</text>
+
+    <!-- column headers -->
+    <text x="60"  y="96" font-size="10" letter-spacing=".04em" fill="#787c99">FAMILY \ STATUS</text>
+    <text x="330" y="96" font-size="10" letter-spacing=".04em" fill="#787c99" text-anchor="middle">PENDING</text>
+    <text x="450" y="96" font-size="10" letter-spacing=".04em" fill="#787c99" text-anchor="middle">ACTIVE / READY</text>
+    <text x="570" y="96" font-size="10" letter-spacing=".04em" fill="#787c99" text-anchor="middle">FAILED</text>
+    <text x="680" y="96" font-size="10" letter-spacing=".04em" fill="#787c99" text-anchor="middle">DONE · PARKED</text>
+    <line x1="24" y1="106" x2="740" y2="106" stroke="#2f3549" stroke-width="1"/>
+
+    <!-- Row: fab building (blue) -->
+    <text x="24" y="128" font-size="10" letter-spacing=".05em" fill="#787c99">COOL · FAB · BUILDING — blue (pre-PR work)</text>
+    <text x="60" y="154" font-size="12" fill="#c0caf5">intake · apply · review</text>
+    <circle cx="330" cy="149" r="5" fill="none" stroke="#60a5fa" stroke-width="1.8"/>
+    <circle cx="450" cy="149" r="5" fill="#60a5fa"/>
+    <circle cx="570" cy="149" r="6" fill="none" stroke="#60a5fa" stroke-width="1.8" stroke-linecap="round" stroke-dasharray="0.1 3"/>
+    <circle cx="570" cy="149" r="2.2" fill="#f87171"/>
+    <text x="680" y="153" font-size="8.5" fill="#565a73" text-anchor="middle">— ⇒ green row —</text>
+    <line x1="24" y1="170" x2="740" y2="170" stroke="#2f3549" stroke-width="1"/>
+
+    <!-- Row: fab PR-ready (green) -->
+    <text x="24" y="192" font-size="10" letter-spacing=".05em" fill="#787c99">COOL · FAB · PR-READY — green (/git-pr creates the PR mid-ship; PR health = the glyph)</text>
+    <text x="60" y="218" font-size="12" fill="#c0caf5">ship · review-pr · done</text>
+    <circle cx="330" cy="213" r="5" fill="none" stroke="#9ece6a" stroke-width="1.8"/>
+    <circle cx="450" cy="213" r="5" fill="#9ece6a"/>
+    <circle cx="570" cy="213" r="6" fill="none" stroke="#9ece6a" stroke-width="1.8" stroke-linecap="round" stroke-dasharray="0.1 3"/>
+    <circle cx="570" cy="213" r="2.2" fill="#f87171"/>
+    <circle cx="680" cy="213" r="5" fill="none" stroke="#9ece6a" stroke-width="1.8"/>
+    <text x="330" y="233" font-size="8.5" fill="#565a73" text-anchor="middle">stage pending</text>
+    <text x="450" y="233" font-size="8.5" fill="#565a73" text-anchor="middle">shipping / landing</text>
+    <text x="570" y="233" font-size="8.5" fill="#565a73" text-anchor="middle">review-pr failed</text>
+    <text x="680" y="233" font-size="8.5" fill="#565a73" text-anchor="middle">parked — resting ring</text>
+    <line x1="24" y1="244" x2="740" y2="244" stroke="#2f3549" stroke-width="1"/>
+
+    <!-- Row: ad-hoc agent (yellow) -->
+    <text x="24" y="266" font-size="10" letter-spacing=".05em" fill="#787c99">WARM · AD-HOC AGENT — yellow (a fresh @rk_agent_state, no fab change)</text>
+    <text x="60" y="292" font-size="12" fill="#c0caf5">agent</text>
+    <circle cx="330" cy="287" r="5" fill="none" stroke="#facc15" stroke-width="1.8"/>
+    <circle cx="450" cy="287" r="5" fill="#facc15"/>
+    <text x="330" y="307" font-size="8.5" fill="#565a73" text-anchor="middle">idle</text>
+    <text x="450" y="307" font-size="8.5" fill="#565a73" text-anchor="middle">active / mid-turn</text>
+    <text x="625" y="291" font-size="9" fill="#565a73" text-anchor="middle">— the agent's PR shows on the glyph; no orange tier —</text>
+    <line x1="24" y1="318" x2="740" y2="318" stroke="#2f3549" stroke-width="1"/>
+
+    <!-- Row: floor (gray) -->
+    <text x="24" y="340" font-size="10" letter-spacing=".05em" fill="#787c99">FLOOR · TMUX — monochrome (no fab change, no fresh agent) — color reserved for a journey</text>
+    <text x="60" y="366" font-size="12" fill="#c0caf5">plain window</text>
+    <circle cx="330" cy="361" r="5" fill="none" stroke="#787c99" stroke-width="1.8"/>
+    <circle cx="450" cy="361" r="5" fill="#787c99"/>
+    <text x="330" y="381" font-size="8.5" fill="#565a73" text-anchor="middle">idle</text>
+    <text x="450" y="381" font-size="8.5" fill="#565a73" text-anchor="middle">active (output)</text>
+    <text x="625" y="365" font-size="8.5" fill="#565a73" text-anchor="middle">a plain pane's PR never owns the dot</text>
+    <line x1="24" y1="392" x2="740" y2="392" stroke="#2f3549" stroke-width="1"/>
+
+    <!-- PR glyph strip -->
+    <text x="24" y="420" font-size="11" font-weight="700" fill="#787c99">PR — the right-edge row glyph (one channel, five states; never the dot):</text>
+    <g fill="#9ece6a" transform="translate(38,432) scale(0.9)"><path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z"/></g>
+    <text x="60" y="443" font-size="9" fill="#565a73">open</text>
+    <g fill="#facc15" transform="translate(128,432) scale(0.9)"><path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z"/></g>
+    <text x="150" y="443" font-size="9" fill="#565a73">checks running (new)</text>
+    <g fill="#f87171" transform="translate(300,432) scale(0.9)"><path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z"/></g>
+    <text x="322" y="443" font-size="9" fill="#565a73">checks fail / changes req.</text>
+    <g fill="#c084fc" transform="translate(494,432) scale(0.9)"><path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z"/></g>
+    <text x="516" y="443" font-size="9" fill="#565a73">merged</text>
+    <g fill="#787c99" transform="translate(580,432) scale(0.9)"><path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z"/></g>
+    <text x="602" y="443" font-size="9" fill="#565a73">draft · closed → none</text>
+    <line x1="24" y1="462" x2="740" y2="462" stroke="#2f3549" stroke-width="1"/>
+
+    <!-- Waiting overlay callout -->
+    <text x="24" y="490" font-size="11" font-weight="700" fill="#787c99">Waiting = an ADDITIVE constant-yellow halo (over any core; core hue + shape kept):</text>
+    <circle cx="40" cy="514" r="8.5" fill="none" stroke="#facc15" stroke-width="1.6" opacity="0.9"/>
+    <circle cx="40" cy="514" r="5" fill="#60a5fa"/>
+    <text x="54" y="518" font-size="10" fill="#565a73">blue building + halo = "fab agent asking"</text>
+    <circle cx="360" cy="514" r="9.5" fill="none" stroke="#facc15" stroke-width="1.6" opacity="0.9"/>
+    <circle cx="360" cy="514" r="6" fill="none" stroke="#60a5fa" stroke-width="1.8" stroke-linecap="round" stroke-dasharray="0.1 3"/>
+    <circle cx="360" cy="514" r="2.2" fill="#f87171"/>
+    <text x="376" y="518" font-size="10" fill="#565a73">blue failed + halo = "review failed, agent asking"</text>
+
+    <!-- retirements -->
+    <text x="24" y="548" font-size="10" fill="#565a73">Retired: the purple + orange hues (PR is the glyph's) · the done square (parked = green ring) · the SKIPPED column (a skipped change renders the gray floor ring).</text>
+    <text x="24" y="566" font-size="10" fill="#565a73">Vocabulary: 4 hues (blue · green · yellow · gray) × 3 shapes (solid · ring · failed). Reduced motion: the halo is a static yellow ring.</text>
+    <text x="24" y="584" font-size="10" fill="#565a73">On the DOT red stays failed-center-only; the glyph reuses the shared PR vocabulary (red = failing) as it already does today.</text>
+  </svg>
+</div>
+
+<div class="notes">
+  <b>Footnotes</b> —
+  ¹ Config A/C extend the glyph with a <span style="color:var(--yellow)">yellow pending</span> state (checks running), compensating for the lost purple ring; today's glyph shows plain green while checks run.
+  · ² In A/C a failing PR keeps a healthy local dot — the <span style="color:var(--red)">red glyph</span> alone carries remote failure. The dot's <em>failed</em> shape becomes fab-review-failed only.
+  · ³ In A the parked-done change stays green (green = done fab change) but drops to a ring — resting, journey complete; the purple merged glyph says how it ended.
+  · Glyph is currently sidebar-only — session tiles &amp; board panes render just the dot, so A–C need the glyph ported there (or accept the loss on those surfaces).
+</div>
+
+<script>
+const D = (hue, shape, opts = {}) => ({ hue, shape, ...opts });
+const G = { green: "var(--green)", purple: "var(--purple)", red: "var(--red)", yellow: "var(--yellow)", gray: "var(--gray)" };
+
+const GLYPH = c => c ? `<span class="glyph" style="color:${G[c]}">
+  <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+    <path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z"/>
+  </svg></span>` : "";
+
+const CELL = (name, d) => {
+  if (!d) return `<td class="cell"></td>`;
+  const halo = d.halo ? " halo" : "";
+  const fn = d.fn ? `<span class="fn">${d.fn}</span>` : "";
+  return `<td class="cell"><div class="mrow${d.halo ? " hi" : ""}">
+    <span class="dot ${d.shape} c-${d.hue}${halo}"></span>
+    <span class="name">${name}${fn}</span>${GLYPH(d.glyph)}
+  </div></td>`;
+};
+
+// rows: [group | [label, stateDesc, current, A, B, C]]
+const rows = [
+  "floor — plain terminal",
+  ["htop", "output flowing", D("gray","solid"), D("gray","solid"), D("gray","solid"), D("gray","solid")],
+  ["scratch-shell", "quiet 23m", D("gray","ring"), D("gray","ring"), D("gray","ring"), D("gray","ring")],
+  ["old-branch-shell", "no agent · branch has open PR", D("gray","ring",{glyph:"green"}), D("gray","ring",{glyph:"green"}), D("gray","ring",{glyph:"green"}), D("gray","ring",{glyph:"green"})],
+
+  "ad-hoc agent",
+  ["riff-glazed-heron", "agent active", D("yellow","solid"), D("yellow","solid"), D("yellow","solid"), D("yellow","solid")],
+  ["riff-brisk-minnow", "agent idle 12m", D("yellow","ring"), D("yellow","ring"), D("yellow","ring"), D("yellow","ring")],
+  ["wise-weasel", "agent WAITING", D("yellow","solid",{halo:1}), D("yellow","solid",{halo:1}), D("yellow","solid",{halo:1}), D("yellow","solid",{halo:1})],
+  ["roaming-wolf", "agent · PR open healthy", D("orange","solid",{glyph:"green"}), D("yellow","solid",{glyph:"green"}), D("orange","solid",{glyph:"green"}), D("yellow","solid",{glyph:"green"})],
+  ["loyal-lemur", "agent idle · PR merged", D("orange","done",{glyph:"purple"}), D("yellow","ring",{glyph:"purple"}), D("orange","solid",{glyph:"purple"}), D("yellow","ring",{glyph:"purple"})],
+
+  "fab pipeline — pre-PR",
+  ["c4-intake-draft", "intake active", D("blue","solid"), D("blue","solid"), D("blue","solid"), D("blue","solid")],
+  ["c5-clarify", "intake WAITING (asking)", D("blue","solid",{halo:1}), D("blue","solid",{halo:1}), D("blue","solid",{halo:1}), D("blue","solid",{halo:1})],
+  ["c2-config-verbs", "apply→review-pr active", D("green","solid"), D("blue","solid"), D("green","solid"), D("blue","solid")],
+  ["c3-dispatch-mode", "review FAILED", D("green","failed"), D("blue","failed"), D("green","failed"), D("blue","failed")],
+
+  "fab pipeline — PR exists",
+  ["c6-ship-ready", "PR open · checks pass", D("purple","solid",{glyph:"green"}), D("green","solid",{glyph:"green"}), D("purple","solid",{glyph:"green"}), D("green","solid",{glyph:"green"})],
+  ["c7-just-pushed", "PR open · checks running", D("purple","ring",{glyph:"green"}), D("green","solid",{glyph:"yellow",fn:"1"}), D("purple","ring",{glyph:"green"}), D("green","solid",{glyph:"yellow",fn:"1"})],
+  ["c8-ci-broken", "PR open · checks FAIL", D("purple","failed",{glyph:"red"}), D("green","solid",{glyph:"red",fn:"2"}), D("purple","failed",{glyph:"red"}), D("green","solid",{glyph:"red",fn:"2"})],
+  ["c9-landing", "PR merged · change live", D("purple","done",{glyph:"purple"}), D("green","solid",{glyph:"purple"}), D("purple","solid",{glyph:"purple"}), D("green","solid",{glyph:"purple"})],
+
+  "parked — change done",
+  ["riff-tempered-mantis", "PR merged · change done", D("purple","done",{glyph:"purple"}), D("green","ring",{glyph:"purple",fn:"3"}), D("purple","solid",{glyph:"purple"}), D("green","done",{glyph:"purple"})],
+  ["c1-no-pr-done", "change done · no PR", D("green","done"), D("green","ring",{fn:"3"}), D("green","solid"), D("green","done")],
+];
+
+let n = 0;
+document.getElementById("rows").innerHTML = rows.map(r => {
+  if (typeof r === "string") return `<tr class="group"><td colspan="5">${r}</td></tr>`;
+  n++;
+  const [label, desc, ...cfgs] = r;
+  return `<tr>
+    <td class="state"><span class="layer">${String(n).padStart(2,"0")}</span>&nbsp; ${desc}</td>
+    ${cfgs.map(d => CELL(label, d)).join("")}
+  </tr>`;
+}).join("");
+</script>
+</body>
+</html>

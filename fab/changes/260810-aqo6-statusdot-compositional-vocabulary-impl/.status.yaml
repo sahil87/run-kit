@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 13
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-08-10T04:25:26Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-10T04:43:25Z"}
     hydrate: {started_at: "2026-08-10T04:43:25Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-10T04:55:19Z"}
     ship: {started_at: "2026-08-10T04:55:19Z", driver: fab-fff, iterations: 3, completed_at: "2026-08-10T05:15:03Z"}
-    review-pr: {started_at: "2026-08-10T05:15:03Z", driver: git-pr, iterations: 2}
+    review-pr: {started_at: "2026-08-10T05:15:03Z", driver: git-pr, iterations: 2, completed_at: "2026-08-10T05:32:30Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/545
     - https://github.com/sahil87/run-kit/pull/546
@@ -55,4 +55,4 @@ true_impact:
     computed_at_stage: ship
 summary: 'Evicted PR state from the StatusDot into the row/tile glyph: compositional 4-hue/3-shape dot vocabulary (blue building → green PR-ready, done parks as a green resting ring, skipped falls through), five-way prGlyphColor with a checks-pending yellow, prOwnsGlyph glyph gate, session-tile rest glyph, hue-word + status-word labels; docs rewritten to four legend strips'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-10T05:15:03Z
+last_updated: 2026-08-10T05:32:30Z

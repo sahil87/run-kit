@@ -23,8 +23,10 @@ to the returned window.
       agent (`agentState: waiting`, `3m`), a reconciled claude chat
       (`chatProvider: claude` + a uuid `chatSessionRef`), and an owned open PR
       (`prNumber: 386`, `prUrl`, `prState: open`, `prChecks: pass`,
-      `prReview: approved`, fresh `prFetchedAt`) → purple "PR — open…" dot,
-      rest PR glyph, full four-register card, fork link.
+      `prReview: approved`, fresh `prFetchedAt`) → blue
+      "building — active — agent waiting 3m" dot (the PR never owns the dot —
+      compositional vocabulary), rest PR glyph, full four-register card, fork
+      link.
     - `@2` "scratch-shell" — plain window → gray "idle" dot, no glyph,
       out-register-only card, no fork link.
 - Rows are located by `[role='treeitem'][data-window-id]`; the card by
@@ -50,7 +52,8 @@ and opens the PR in a new tab (`noopener noreferrer`).
 
 **Steps:**
 1. Hover the `@1` row; assert the card is visible.
-2. Assert the card contains "PR — open" (the dot label) and each register
+2. Assert the card contains "building — active — agent waiting 3m" (the dot
+   label — hue word + status word + waiting suffix, no PR words) and each register
    testid shows its expected content (`waiting 3m`, the fab id·slug·stage·state
    line, `#386`, the freshness line).
 3. Assert the pr-register anchor wraps the segments (`#386`, `↗`), carries
@@ -73,7 +76,7 @@ exists at a time, and the content follows the hovered row (the scratch row's
 card has no PR link).
 
 **Steps:**
-1. Hover `@1`; assert the card shows "PR — open".
+1. Hover `@1`; assert the card shows "building — active".
 2. Hover `@2`; assert exactly one card exists, containing "idle", with zero
    PR links.
 
@@ -130,7 +133,8 @@ not be mouse-only); Escape closes it (floating-ui `useDismiss`) with focus
 returning into the row so arrow-key tree nav continues.
 
 **Steps:**
-1. Focus the `@1` row element; assert the card is visible with "PR — open".
+1. Focus the `@1` row element; assert the card is visible with
+   "building — active".
 2. Press Tab (up to 6 times, walking the row's action icons first) and assert
    the docs link receives focus; one more Tab focuses the PR link.
 3. Press Escape (focus inside the card); assert the card is removed and the
@@ -161,7 +165,7 @@ and never hover-opens a card.
 1. With the coarse mock + `hasTouch`: coarse ⇒ `useIsMobile()` ⇒ the sidebar
    is a closed drawer, so first open it via the "Toggle navigation" hamburger
    (the mobile-layout.spec.ts idiom); then assert `@1`'s glyph is hidden.
-2. Tap `@1`'s dot wrapper: assert the card opens with "PR — open" and the URL
+2. Tap `@1`'s dot wrapper: assert the card opens with "building — active" and the URL
    is still the bare server route (the tap did not select the row).
 3. Escape-dismiss the card, tap `@2`'s row body: assert the URL left the bare
    server route (tap = select) and, after waiting past the 350ms open delay,

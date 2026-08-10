@@ -172,6 +172,66 @@ describe("SessionTiles", () => {
     expect(setPreviewScope).toHaveBeenLastCalledWith(SERVER, ["ao-server"]);
   });
 
+  // Rest-state PR glyph (aqo6) — the window tile's only PR channel, mirroring
+  // the sidebar row's glyph: prOwnsGlyph gate, shared prGlyphColor vocabulary,
+  // aria-hidden decoration.
+  describe("tile PR glyph", () => {
+    function renderWithPr(pr: Partial<ProjectSession["windows"][number]>) {
+      const withPr: ProjectSession[] = [
+        {
+          name: "run-kit",
+          windows: [{ ...sessions[0].windows[0], ...pr }],
+        },
+      ];
+      const previewsByServer = new Map<string, Record<string, string>>();
+      previewsByServer.set(SERVER, {});
+      return render(
+        <ThemeProvider>
+          <StandaloneSessionContextProvider
+            value={{ previewsByServer, setPreviewScope: vi.fn() }}
+          >
+            <SessionTiles
+              server={SERVER}
+              sessions={withPr}
+              onNavigate={vi.fn()}
+              onCreateSession={vi.fn()}
+              onCreateWindow={vi.fn()}
+            />
+          </StandaloneSessionContextProvider>
+        </ThemeProvider>,
+      );
+    }
+
+    it("renders the glyph for an owned open PR (green, aria-hidden)", () => {
+      renderWithPr({ prNumber: 386, prState: "open", prChecks: "pass" });
+      fireEvent.click(screen.getByLabelText("Expand run-kit"));
+      const glyph = screen.getByTestId("tile-pr-glyph");
+      expect(glyph).toHaveAttribute("aria-hidden", "true");
+      expect(glyph.className).toContain("text-accent-green");
+      expect(glyph.querySelector("svg")).not.toBeNull();
+    });
+
+    it("renders the glyph yellow for checks running and purple for merged", () => {
+      renderWithPr({ prNumber: 386, prState: "open", prChecks: "pending" });
+      fireEvent.click(screen.getByLabelText("Expand run-kit"));
+      expect(screen.getByTestId("tile-pr-glyph").className).toContain("text-yellow-400");
+      cleanup();
+      renderWithPr({ prNumber: 386, prState: "merged" });
+      fireEvent.click(screen.getByLabelText("Expand run-kit"));
+      expect(screen.getByTestId("tile-pr-glyph").className).toContain("text-purple-400");
+    });
+
+    it("renders NO glyph for a closed-unmerged PR or without a prNumber", () => {
+      renderWithPr({ prNumber: 386, prState: "closed" });
+      fireEvent.click(screen.getByLabelText("Expand run-kit"));
+      expect(screen.queryByTestId("tile-pr-glyph")).toBeNull();
+      cleanup();
+      renderWithPr({});
+      fireEvent.click(screen.getByLabelText("Expand run-kit"));
+      expect(screen.queryByTestId("tile-pr-glyph")).toBeNull();
+    });
+  });
+
   it("wires the New Session and New Window actions", () => {
     const onCreateSession = vi.fn();
     const onCreateWindow = vi.fn();

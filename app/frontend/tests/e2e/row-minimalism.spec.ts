@@ -83,9 +83,10 @@ test.describe("Row Minimalism", () => {
     await expect(tree.getByText("2m", { exact: true })).toHaveCount(0);
 
     // The leading StatusDot IS present as the row's status signal (role=img with
-    // a composed aria-label). The fab review window reads the green
-    // "review — active" dot (rendered in both the tree row and the panel header,
-    // so match the tree-scoped one).
-    await expect(tree.getByRole("img", { name: "review — active" })).toBeVisible();
+    // a composed aria-label). The fab review window reads the blue
+    // "building — active" dot (compositional vocabulary — review is a pre-PR
+    // building stage; rendered in both the tree row and the panel header, so
+    // match the tree-scoped one).
+    await expect(tree.getByRole("img", { name: "building — active" })).toBeVisible();
   });
 });

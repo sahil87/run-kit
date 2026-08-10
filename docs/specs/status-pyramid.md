@@ -9,7 +9,8 @@
 > Companions: [`agent-state.md`](agent-state.md) defines the `@rk_agent_state`
 > convention this spec consumes (states, staleness, reconciler, rollup);
 > the dot's shape/hue rendering vocabulary lives in `status-dot.tsx` /
-> `pr-status-model.ts` (`statusDotState`, `PHASE_HUE`, `fabShape`, `prShape`).
+> `pr-status-model.ts` (`statusDotState`, `PHASE_HUE`, `fabShape`,
+> `prOwnsGlyph`/`prGlyphColor` for the row's PR glyph channel).
 
 ---
 
@@ -63,25 +64,37 @@ output. Not v1.
 
 | Channel | Carries | Vocabulary |
 |---------|---------|------------|
-| Core hue **[current — palette v3]** | which journey + position in it | **cool = fab pipeline**: blue (intake) → green (apply→review-pr, collapsed) → purple (PR) · **warm = ad-hoc agent**: yellow (working) → orange (PR) · gray = floor (no agent, no journey) |
-| Shape | health/status of the owning tier | solid (live/healthy) · ring (pending/idle) · failed (dotted ring + red center) · done (sharp square) · skipped (gray hollow ring) |
+| Core hue **[current — compositional vocabulary]** | which journey + position in it (the LOCAL story) | **cool = fab pipeline**: blue (building — intake·apply·review) → green (PR-ready/done — ship·review-pr·done) · **warm = ad-hoc agent**: yellow · gray = floor (no agent, no journey). Purple/orange are retired from the dot |
+| Shape | health/status of the owning tier — the SAME meaning in every hue | solid (running/live) · ring (at rest — stage pending · parked done · idle agent · quiet shell) · failed (dotted ring + red center) |
+| PR glyph **[current]** | the REMOTE story — the branch's PR on GitHub; never the dot | right-edge git-pull-request glyph, five states via `prGlyphColor`: red failing > gray open-draft > yellow checks-running > green open > purple merged; gated on `prOwnsGlyph` (owned PR — never closed), un-family-gated |
 | Animation **[current]** | attention — **additive, never destructive** | constant-**yellow** pulsing halo = `waiting`, over any tier; core hue AND shape are kept. (future) slow-pulse halo = stuck. No halo = no attention needed |
 | Duration text | how long in the current resting state | `waiting Xm` (attention token) · `idle Xm` · tmux elapsed |
-| Hover card (row flyout) | full detail | phase + status label, the four registers, PR link, docs link |
+| Hover card (row flyout) | full detail | hue-word + status-word label, the four registers, PR link, docs link |
 | Rollup badges **[current]** | attention counts up the hierarchy | session row → server tile → board header |
 
-**Palette v3 — two families + floor.** The palette encodes *which journey* by
-temperature: **cool = fab pipeline** (blue intake → green working → purple PR —
-blue and purple keep their long-learned meanings; amber retires), **warm =
-ad-hoc agent** (yellow working → orange PR), **gray = floor**. The glance rule:
-warm core = my ad-hoc agents, cool core = my pipeline, gray = just a terminal,
-**yellow glow = needs me now**. The only adjacent hue pair (yellow/orange) sits
-*within* the warm family, where both read "ad-hoc agent" and the phase detail
-lives in the panel — cross-family pairs are all strongly separated. Deliberate
-consequence: the docs-site's alignment with fab-kit's 4-phase README grouping is
-broken by the green collapse — document it, don't hide it. (Supporting fact:
-the old ship/review-pr green barely ever rendered — `/git-pr` creates the PR
-mid-ship, and purple takes the dot the moment `prNumber` exists.)
+**Compositional vocabulary — split by story, not by precedence.** The **dot
+tells the local story** (what runs in this pane: which journey, is it healthy,
+does it need me) and the **glyph tells the remote story** (the branch's PR on
+GitHub). Four hues × three shapes, and shape means the same thing in every hue
+— fully compositional, no per-cell captions. The fab hue is a **two-stop
+progress bar, not a stage map**: blue = building (pre-PR work), green =
+PR-ready/landed/done ("still cooking vs out the door" at a glance); the exact
+stage lives in the `fab` register. The glance rule: cool core = my pipeline,
+warm core = my ad-hoc agents, gray = just a terminal, **yellow glow = needs me
+now**.
+
+> **Superseded — palette v3 (260706-y1ar).** The prior palette packed 6 hues ×
+> 5 shapes: the PR owned the dot per family (purple = fab PR, orange = agent
+> PR), `done` was a sharp square, `skipped` a gray ring, and every non-intake
+> fab stage collapsed to a single green (the "green collapse", freeing amber).
+> Once the row's rest-state PR glyph shipped (93dy), the dot's PR tier became
+> redundant — a merged PR rendered a purple square AND a purple glyph two
+> pixels apart — and shape meaning shifted per row (pending = "checks running"
+> only on PR rows). The eviction removed two hues (purple, orange) and two
+> shapes (done square, skipped ring) from the dot and made the vocabulary
+> compositional. Palette v3's rationale history (amber retirement, the green
+> collapse's supporting fact that the old ship/review-pr green barely rendered
+> because `/git-pr` creates the PR mid-ship) is kept here for the record.
 
 **Attention is additive: a constant-yellow pulsing halo around the dot, with the
 core hue and shape untouched.** Blue core + yellow halo = "pipeline at intake,
@@ -103,45 +116,50 @@ it no longer exists once fab collapses to blue/green).
 ## The Tier Ladder (dot ownership)
 
 The dot's core hue + shape are owned by **two ladders joined at the top** —
-first precondition wins **[current — palette v3]**:
+first precondition wins **[current — compositional vocabulary]**. No PR branch
+exists anywhere in the ladder:
 
 ```
-fabChange ?  (prNumber ? purple-PR : stage == intake ? blue : green)
-          :  (fresh agentState ? (prNumber ? orange-PR : yellow, shape by state) : gray floor)
+fabChange ?  (stage ∈ {intake, apply, review} ? blue-building : green-PR-ready,
+              shape by fabDisplayState)
+          :  (fresh agentState ? yellow (solid mid-turn / ring idle) : gray floor)
 waiting   →  additive yellow halo, over anything (core hue + shape kept)
 ```
 
-- **[D1 — resolved]** PR dot-ownership exists in *both* families but is colored
-  by family: **purple = fab change at PR phase** (unambiguous again),
-  **orange = ad-hoc agent's branch has a PR**. A pane with *neither* a fab
-  change *nor* a fresh agent stays on the gray floor even when its branch has a
-  PR — derivation stays universal (the L3 register and the hover card show the
-  PR for any pane, and the row's rest PR glyph is likewise un-family-gated;
-  Principle X), but a plain shell never renders a
-  mystifying PR dot.
-- **[current]** the agent tier is new and **warm**: a fresh `agentState` gives a
+- **[D1 — dissolved]** No family owns the dot via PR — the PR was evicted to
+  the row's rest-state glyph, which is (as it already was) un-family-gated:
+  any pane whose branch has an owned PR shows the glyph, even a plain floor
+  pane whose dot stays gray. Derivation stays universal (the L3 register and
+  the hover card show the PR for any pane; Principle X); a plain shell never
+  renders a mystifying PR dot.
+- The blue↔green split is **stage-based, never `prNumber`-based** — the dot
+  consults no PR field. A **`skipped`** display-state makes the window not
+  fab-owned: the ladder falls through (agent tier, then floor).
+- **[current]** the agent tier is **warm**: a fresh `agentState` gives a
   yellow core (solid mid-turn even while quiet; ring when idle — an agent
   parked here), replacing the 10-second output heuristic for those windows.
   Freshness rules are #314's (absent option / shell reconciler → fall through
   to the floor).
 - The **attention overlay is ladder-exempt and additive**: `waiting` wraps any
   tier's dot in the constant-yellow pulsing halo — a fab intake agent asking a
-  question keeps its blue core; a review-failed window keeps its green failed
+  question keeps its blue core; a review-failed window keeps its blue failed
   shape; only the halo is added.
 
 ### What-wins-when facts (the crisp version)
 
-1. **"PR state shows only from ship onward" is emergent, not a stage check.**
-   For a pipeline-run change, the PR is created by `/git-pr` at ship — so the
-   purple PR tier *in practice* begins at ship and the amber/blue fab tiers own
-   the dot before it. But the rule is *PR presence*, not `stage == ship`: an
-   adopted change (PR pre-exists) or a reused branch with an open PR shows the
-   PR tier earlier. There is deliberately no `stage` conditional in the ladder.
-2. **A live fab stage never outranks its own PR.** Once a PR exists, stage
-   progress (hydrate done, review-pr active…) surfaces in the hover card and the
-   PR-status line, not the dot. The dot answers "how is the PR" from ship on.
+1. **"Green aligns with PR existence" is emergent, not a PR check.** The
+   blue↔green split keys on the stage alone (`intake`/`apply`/`review` →
+   building, else PR-ready); for a pipeline-run change `/git-pr` creates the PR
+   mid-ship, so green *in practice* coincides with the PR's life — but the dot
+   never consults `prNumber`. An adopted change (PR pre-exists) or a reused
+   branch with an open PR shows its glyph earlier; the dot stays stage-true.
+2. **PR state never reaches the dot.** The remote story — open, checks
+   running, failing, merged — lives on the row's rest-state glyph
+   (`prGlyphColor`: red > draft-gray > pending-yellow > open-green >
+   merged-purple) and the register surfaces. Dot and glyph never share a fact:
+   dot-red = my pipeline failed here, glyph-red = the PR is failing on GitHub.
 3. **Agent state owns the warm family, but never surfaces in the dot on
-   fab windows** — a fab window's shape carries pipeline/PR health, which is
+   fab windows** — a fab window's shape carries pipeline health, which is
    rarer and more actionable than routine agent state. Agent state on fab
    windows lives in: the hover card's `agt` register, the PANE panel's, and
    (when waiting) the additive halo.
@@ -151,19 +169,21 @@ waiting   →  additive yellow halo, over anything (core hue + shape kept)
 5. **tmux output recency surfaces in exactly two places**: the bottom tier's
    solid/ring (no change, no PR, no agent), and the duration-mute rule (below).
    It is never an attention signal — output ≠ needs-me.
-6. **Merged-PR durability is derived, not remembered** **[current — D2 revised]**.
+6. **Merged-PR durability is derived, not remembered** **[current — D2 revised;
+   feeds the GLYPH post-eviction]**.
    The first implementation resolved D2 with an `--state open` lookup plus a
    10-minute **in-memory grace window** (`branchPRMergedGrace`) — which proved
-   wrong in production: the grace expires (and any rk restart wipes it), so a
-   merged PR's purple done-square silently decayed into a green fab done-square
-   minutes after merge. The revised rule: the branch→PR derivation queries
-   **all states** and picks by precedence **open (most recently updated) >
-   merged (most recent)**; closed-unmerged is derived (register view) but never
-   owns the dot (fab fallback / floor — unchanged). A merged PR then renders
-   its purple/orange done-square **statelessly and restart-proof** for as long
-   as the pane sits on that branch — no grace clock, no negative-stamp
-   machinery (`wentNegativeAt` retires). Branch-reuse edge: an open PR always
-   outranks an older merged one on the same branch.
+   wrong in production: the grace expires (and any rk restart wipes it), so the
+   merged-purple signal silently decayed minutes after merge. The revised rule:
+   the branch→PR derivation queries **all states** and picks by precedence
+   **open (most recently updated) > merged (most recent)**; closed-unmerged is
+   derived (register view) but earns no glyph. A merged PR then renders the
+   glyph's **durable purple merged state statelessly and restart-proof** for as
+   long as the pane sits on that branch — no grace clock, no negative-stamp
+   machinery (`wentNegativeAt` retired). Branch-reuse edge: an open PR always
+   outranks an older merged one on the same branch. (Pre-eviction this same
+   durability fed the dot's purple done-square; the derivation is unchanged —
+   only its consumer moved to the glyph.)
    **Default-branch carve-out (#389)**: a pane on the repo's *default* branch
    never derives a branch-PR at all. `gh pr list --head` matches by head-ref
    *name* only, so every default-branch match is degenerate (a fork PR whose
@@ -181,31 +201,34 @@ waiting   →  additive yellow halo, over anything (core hue + shape kept)
 
 ## Decision Table
 
-`—` = signal absent. Palette v3; the halo column is the additive waiting
-overlay (core hue/shape unchanged by it).
+`—` = signal absent. Compositional vocabulary; the halo column is the additive
+waiting overlay (core hue/shape unchanged by it); the glyph column is the
+row's rest-state PR glyph (the dot's column never encodes PR state).
 
-| # | journey | signals | Dot (core hue · shape [· halo]) | Tip/panel duration |
-|---|---------|---------|--------------------------------|--------------------|
-| 1 | floor | no agent · output flowing | gray · solid | *(none — muted)* |
-| 2 | floor | no agent · quiet | gray · ring | tmux elapsed |
-| 3 | ad-hoc | agent active | yellow · solid | *(none)* |
-| 4 | ad-hoc | agent idle | yellow · ring | `idle Xm` (from epoch) |
-| 5 | ad-hoc | agent **waiting** | yellow · solid · **halo** | `waiting Xm` — push after sustain |
-| 6 | ad-hoc | PR open · healthy | orange · solid | per agent state |
-| 7 | ad-hoc | PR checks fail | orange · failed | |
-| 8 | ad-hoc | PR merged | orange · done (square) | durable via state-all derivation (D2 revised) |
-| 9 | ad-hoc | PR open + **waiting** | orange · solid · **halo** | `waiting Xm` |
-| 10 | floor | PR on branch · no agent · no change | gray (floor) | PR in the L3 register + the row's rest PR glyph; never the dot |
-| 11 | fab | intake · active/ready | blue · solid | |
-| 12 | fab | intake · pending | blue · ring | |
-| 13 | fab | intake + **waiting** | blue · solid · **halo** | the asking stage — common case |
-| 14 | fab | apply→review-pr · active | green · solid | idle→`idle Xm`, else none |
-| 15 | fab | review · failed | green · failed | |
-| 16 | fab | review · failed + **waiting** | green · failed · **halo** | shape and hue survive the overlay |
-| 17 | fab | PR open · healthy | purple · solid | |
-| 18 | fab | PR checks fail / changes requested | purple · failed | |
-| 19 | fab | PR merged | purple · done (square) | durable via state-all derivation (D2 revised) |
-| 20 | fab | PR closed-unmerged · change live | green working tier (closed never owns the dot) **[current]** | |
+| # | journey | signals | Dot (core hue · shape [· halo]) | Glyph | Tip/panel duration |
+|---|---------|---------|--------------------------------|-------|--------------------|
+| 1 | floor | no agent · output flowing | gray · solid | — | *(none — muted)* |
+| 2 | floor | no agent · quiet | gray · ring | — | tmux elapsed |
+| 3 | ad-hoc | agent active | yellow · solid | — | *(none)* |
+| 4 | ad-hoc | agent idle | yellow · ring | — | `idle Xm` (from epoch) |
+| 5 | ad-hoc | agent **waiting** | yellow · solid · **halo** | — | `waiting Xm` — push after sustain |
+| 6 | ad-hoc | PR open · healthy | yellow (per agent state) | green | per agent state |
+| 7 | ad-hoc | PR checks fail | yellow (per agent state) | red | |
+| 8 | ad-hoc | PR merged | yellow (per agent state) | purple — durable via state-all derivation (D2 revised) | |
+| 9 | ad-hoc | PR open + **waiting** | yellow · solid · **halo** | green | `waiting Xm` |
+| 10 | floor | PR on branch · no agent · no change | gray (floor) | per PR state | PR also in the L3 register; never the dot |
+| 11 | fab | intake · active/ready | blue · solid | — | |
+| 12 | fab | intake · pending | blue · ring | — | |
+| 13 | fab | intake + **waiting** | blue · solid · **halo** | — | the asking stage — common case |
+| 14 | fab | apply/review · active | blue · solid | — | idle→`idle Xm`, else none |
+| 15 | fab | review · failed | blue · failed | — | |
+| 16 | fab | review · failed + **waiting** | blue · failed · **halo** | — | shape and hue survive the overlay |
+| 17 | fab | ship→done · PR open · healthy | green · solid | green | |
+| 18 | fab | ship→done · PR checks running | green · solid | **yellow** (checks running) | |
+| 19 | fab | ship→done · PR checks fail / changes requested | green · solid | red | |
+| 20 | fab | ship→done · PR merged | green · solid (live) / green · ring (parked done) | purple — durable via state-all derivation (D2 revised) | |
+| 21 | fab | PR closed-unmerged · change live | the live stage tier (closed earns no glyph) **[current]** | — | |
+| 22 | fab | displayState skipped | falls through — agent tier, else gray floor **[current]** | per PR state | |
 
 ---
 
@@ -216,9 +239,10 @@ when failed) and the duration text — is **removed**; the name gets the freed
 width back (less truncation, especially on mobile).
 
 The row carries **two glyph-only status signals**: the leading StatusDot, and —
-for a window with an owned PR (`prNumber` present and not closed) — a
-**rest-state git-pull-request glyph** in the trailing cluster's last slot,
-colored from the shared PR vocabulary (purple open/merged, red failing). The
+for a window with an owned PR (`prOwnsGlyph`: `prNumber` present and not
+closed) — a **rest-state git-pull-request glyph** in the trailing cluster's
+last slot, colored from the shared PR vocabulary (`prGlyphColor`: red failing >
+gray open-draft > yellow checks-running > green open > purple merged). The
 glyph is informational decoration: `aria-hidden`, never focusable, never
 clickable. It swaps out entirely on row hover, on coarse pointers, and on
 keyboard focus within the cluster, where the pin + kill actions take the slots.
@@ -232,9 +256,10 @@ Where each removed signal goes:
 
 | Removed from the row | Survives as |
 |----------------------|-------------|
-| stage word (`review`) | dot hue at a glance; exact stage in the row flyout card and the PANE panel |
+| stage word (`review`) | dot hue at a glance (blue building / green PR-ready); exact stage in the row flyout card and the PANE panel |
 | failed-red stage text | already redundant — the dot's `failed` shape (dotted ring + red center) |
-| `done`-parking suppression | the dot's `done` square |
+| `done`-parking suppression | the dot's green resting ring |
+| PR states (merged / failing / pending) | the rest-state PR glyph column (purple / red / yellow) |
 | idle/elapsed duration | row flyout card + PANE panel; the *attention* half ("sitting too long") migrates to the future `stuck` overlay |
 | `waiting Xm` | the waiting overlay itself (see D3 resolution) + the flyout card + PANE panel |
 
@@ -329,6 +354,6 @@ One overlay at a time: `waiting` outranks `stuck`.
 
 | ID | Question | Resolution |
 |----|----------|-----------|
-| ~~D1~~ | ~~PR tier gate: `prNumber` alone?~~ | **Resolved (palette v3)**: PR dot-ownership is per-family — purple requires `fabChange && prNumber`, orange requires `fresh agentState && prNumber`. A plain pane's PR never owns the dot (derivation stays universal in the register view, and the row's rest PR glyph is un-family-gated) |
-| D2 | Merged/closed PR retention under branch-derivation | **Revised after production observation** (first resolution — `--state open` + 10-min in-memory grace — decayed merged purple into green on grace expiry or rk restart): derivation queries **all PR states**; precedence open (most recent) > merged (most recent); merged owns the dot statelessly (durable done-square); closed-unmerged never owns (green fab fallback / floor — shipped). Grace-window machinery retired. **Default-branch carve-out (#389)**: the derivation never runs for a pane on the repo's default branch — head-name-only matching makes every such candidate degenerate, so excluded pairs resolve to an authoritative negative (invariant 6). **[current]** |
-| ~~D3~~ | ~~Is a 7px halo pulse salient enough for `waiting`?~~ | **Resolved (additive halo, palette v3)**: `waiting` = constant-**yellow** pulsing halo around the dot, core hue and shape untouched. Rejected: hue-flip (destroys family identity precisely when attention is highest — e.g. fab intake asking); self-colored halo (reduced-motion form nearly invisible + collides with the `ring` shape); fuchsia (its motivating amber collision no longer exists). Reduced-motion: static yellow outer ring. Final glow tuning at implementation with a visual check against all six core hues |
+| ~~D1~~ | ~~PR tier gate: `prNumber` alone?~~ | **Dissolved (compositional vocabulary — aqo6)**: no family owns the dot via PR — the PR was evicted to the row's rest-state glyph, which is un-family-gated as it already was (any pane with an owned PR shows it; derivation stays universal in the register view). *History*: palette v3 first resolved this per-family (purple = `fabChange && prNumber`, orange = `fresh agentState && prNumber`) before the eviction removed PR dot-ownership entirely |
+| D2 | Merged/closed PR retention under branch-derivation | **Revised after production observation** (first resolution — `--state open` + 10-min in-memory grace — decayed the merged-purple signal on grace expiry or rk restart): derivation queries **all PR states**; precedence open (most recent) > merged (most recent); merged renders **the glyph's durable purple state** statelessly; closed-unmerged earns no glyph (register line only). Grace-window machinery retired. Post-eviction the consumer is the GLYPH, not a dot square — the derivation itself is unchanged. **Default-branch carve-out (#389)**: the derivation never runs for a pane on the repo's default branch — head-name-only matching makes every such candidate degenerate, so excluded pairs resolve to an authoritative negative (invariant 6). **[current]** |
+| ~~D3~~ | ~~Is a 7px halo pulse salient enough for `waiting`?~~ | **Resolved (additive halo, palette v3 — carried forward unchanged)**: `waiting` = constant-**yellow** pulsing halo around the dot, core hue and shape untouched. Rejected: hue-flip (destroys family identity precisely when attention is highest — e.g. fab intake asking); self-colored halo (reduced-motion form nearly invisible + collides with the `ring` shape); fuchsia (its motivating amber collision no longer exists). Reduced-motion: static yellow outer ring |

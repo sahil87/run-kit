@@ -40,4 +40,6 @@ names and the leading StatusDot remain.
 3. Scope to the sidebar tree (`role="tree"`) and assert it contains no exact
    "review" text (count 0) and no exact "2m" text (count 0).
 4. Assert the leading StatusDot is present as the status signal: the fab review
-   window shows the green `role="img"` dot with aria-label `review — active`.
+   window shows the blue `role="img"` dot with aria-label `building — active`
+   (compositional vocabulary — the label composes hue word + status word, not
+   the stage word).

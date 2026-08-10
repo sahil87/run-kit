@@ -6,10 +6,11 @@ import type { WindowInfo } from "@/types";
 // PR-specific helpers (stateGlyph/summarySegments) went with it. This module is
 // RETAINED as the single source of truth for the shared PR color vocabulary
 // (PR_STATE_COLORS/PR_CHECKS_COLORS/PR_REVIEW_COLORS) AND the lifecycle
-// status-dot model (statusDotState/fabPhase/fabShape/prShape/PHASE_HUE/...) —
+// status-dot model (statusDotState/fabPhase/fabShape/PHASE_HUE/...) —
 // both still imported by status-dot.tsx, status-dot-label.ts, the register
 // module (sidebar/registers.ts), the sidebar row (window-row.tsx — rest PR
-// glyph gate/color), and the row flyout card (sidebar/row-flyout-card.tsx).
+// glyph gate/color), the session tiles (session-tiles.tsx — same glyph), and
+// the row flyout card (sidebar/row-flyout-card.tsx).
 
 /** Fail-ish states get the red token; everything else uses the secondary token. */
 export function isFailish(win: WindowInfo): boolean {
@@ -46,14 +47,16 @@ export const PR_REVIEW_COLORS: Record<string, string> = {
 };
 
 /**
- * The five "traffic-light" states for the sidebar PR dot, generalizing the old
+ * The five "traffic-light" states for the PR signal, generalizing the old
  * single red triage dot. GREEN MEANS HEALTH, NOT MERGE-READINESS — a draft with
- * passing checks is `healthy` (green), just not flipped to ready.
+ * passing checks is `healthy` (green), just not flipped to ready. Consumed by
+ * the glyph color chain (`prGlyphColor`) and the PR text surfaces — never by
+ * the status DOT, which carries no PR state.
  */
 export type PrDotState = "merged" | "fail" | "pending" | "healthy" | "neutral";
 
 /**
- * Derive the PR dot state from the live PR fields on a window. First match wins
+ * Derive the PR state from the live PR fields on a window. First match wins
  * — the precedence order IS the design:
  *   1. `merged` first — a landed PR; historical checks/review are noise (mirrors
  *      status-panel suppressing checks/review once `!open`). `closed` is NOT
@@ -66,7 +69,7 @@ export type PrDotState = "merged" | "fail" | "pending" | "healthy" | "neutral";
  *   4. `healthy` — checks pass (draft included; green = health, so no draft
  *      contradiction and deliberately NO `&& approved` requirement).
  *   5. `neutral` — open with no decisive signal yet, closed-unmerged, or an
- *      aged-out merge. Renders as a dim/hollow dot.
+ *      aged-out merge.
  */
 export function prDotState(win: WindowInfo): PrDotState {
   if (win.prState === "merged") return "merged";
@@ -77,33 +80,36 @@ export function prDotState(win: WindowInfo): PrDotState {
 }
 
 /**
- * Lifecycle status-dot model (palette v3 — status-pyramid.md) — TWO orthogonal
- * axes plus an additive attention overlay:
+ * Lifecycle status-dot model (compositional vocabulary — status-pyramid.md) —
+ * TWO orthogonal axes plus an additive attention overlay:
  *   - `phase` → CORE HUE (which journey + position in it)
- *   - `shape` → STATUS (health, using ONE shape vocabulary across fab AND PR)
+ *   - `shape` → STATUS (health — the SAME meaning in every hue)
  *   - `waiting` → ATTENTION overlay (additive constant-yellow halo; NEVER
  *     touches core hue/shape). See status-dot.tsx for the halo rendering.
  *
- * The core hue + shape are owned by TWO ladders joined at the top — first
- * precondition wins:
- *   fabChange ?  (prNumber ? purple-PR : stage==intake ? blue : green)   [cool = fab]
- *             :  (fresh agentState ? (prNumber ? orange-PR : yellow) : gray)  [warm = agent / floor]
- * The glance rule: cool core = my pipeline, warm core = my ad-hoc agents,
- * gray = just a terminal, yellow HALO = needs me now.
+ * The dot tells the LOCAL story only (what runs in this pane: which journey,
+ * is it healthy, does it need me). The REMOTE story — the branch's PR on
+ * GitHub — lives on the row's rest-state PR glyph (`prOwnsGlyph` /
+ * `prGlyphColor`), never on the dot. The core hue + shape are owned by two
+ * ladders joined at the top — first precondition wins:
+ *   fabChange ?  (stage ∈ {intake,apply,review} ? blue-building : green-prReady)
+ *             :  (fresh agentState ? yellow agent : gray floor)
+ * The glance rule: blue = still cooking, green = out the door / done,
+ * yellow core = my ad-hoc agents, gray = just a terminal, yellow HALO = needs
+ * me now.
  */
-export type DotShape = "ring" | "solid" | "failed" | "done" | "skipped";
+export type DotShape = "ring" | "solid" | "failed";
 
 /**
- * Palette-v3 phase model (status-pyramid.md § The Channel Model). The amber
- * `execution`/`completion` grouping RETIRES — apply/review/hydrate/ship/review-pr
- * all collapse to a single `apply` (green) phase (the "green collapse": the old
- * ship/review-pr green barely rendered, since /git-pr creates the PR mid-ship
- * and purple takes the dot the moment prNumber exists). The two families:
- *   cool = fab pipeline: `intake` (blue) → `apply` (green) → `pr` (purple)
- *   warm = ad-hoc agent: `agent` (yellow) → `agentPr` (orange)
+ * Compositional phase model (status-pyramid.md § The Channel Model). Four hues:
+ *   cool = fab pipeline: `building` (blue — intake·apply·review) →
+ *   `prReady` (green — ship·review-pr·done: local work complete, "PR is ready")
+ *   warm = ad-hoc agent: `agent` (yellow)
  *   `none` = gray floor (no journey)
+ * The purple/orange PR hues are RETIRED from the dot — PR state is the row
+ * glyph's channel (`prGlyphColor`).
  */
-export type DotPhase = "intake" | "apply" | "pr" | "agent" | "agentPr" | "none";
+export type DotPhase = "building" | "prReady" | "agent" | "none";
 
 export type StatusDotState = {
   phase: DotPhase; // → core hue
@@ -115,21 +121,26 @@ export type StatusDotState = {
 };
 
 /**
- * fabStage → cool-family phase (palette v3): only `intake` gets its own blue
- * hue; every other fab stage (apply/review/hydrate/ship/review-pr) collapses to
- * the single green `apply` phase. Unknown/absent → `apply` (a live fab window
- * with an unrecognized stage still reads as the green working tier, not gray) —
- * the purple `pr` phase is chosen in `statusDotState`, never here.
+ * fabStage → fab phase: the two-stop split. `intake`/`apply`/`review` are the
+ * pre-PR BUILDING stages (blue); every other stage — `ship`/`review-pr`/`done`,
+ * plus unknown/absent — reads `prReady` (green: the change has completed its
+ * local work). The split is STAGE-based, never `prNumber`-based — the dot must
+ * not consult PR fields (alignment with PR existence stays emergent, since
+ * /git-pr creates the PR mid-ship).
  */
 export function fabPhase(stage: string | undefined): DotPhase {
-  if (stage === "intake") return "intake";
-  return "apply";
+  if (stage === "intake" || stage === "apply" || stage === "review") return "building";
+  return "prReady";
 }
 
 /**
- * fabDisplayState → shape (the unified shape vocabulary). An unknown/absent
+ * fabDisplayState → shape. `done` maps to `ring` — a parked-done change is
+ * RESTING (journey complete), so it shares the at-rest ring; its green hue says
+ * "done", the merged glyph (if any) says how it ended. An unknown/absent
  * display-state on a fab window defaults to `solid` — a live fab window with a
  * future/unrecognized state should still read as a live dot, not vanish.
+ * A `skipped` display-state never reaches here — `statusDotState` treats a
+ * skipped change as not fab-owned (ladder fall-through).
  */
 export function fabShape(displayState: string | undefined): DotShape {
   switch (displayState) {
@@ -138,9 +149,7 @@ export function fabShape(displayState: string | undefined): DotShape {
     case "failed":
       return "failed";
     case "done":
-      return "done";
-    case "skipped":
-      return "skipped";
+      return "ring";
     case "active":
     case "ready":
     default:
@@ -149,51 +158,17 @@ export function fabShape(displayState: string | undefined): DotShape {
 }
 
 /**
- * PR fields → shape, reusing the existing `prDotState` semantics so the PR
- * surfaces stay in lock-step: merged→done, fail→failed, pending→ring,
- * healthy→solid. The PR is the purple `phase`; this maps only its status to a
- * shape.
- *
- * `neutral` splits by `prState`: a **closed-unmerged** PR maps to `skipped`
- * (the gray hollow ring, labelled "PR — closed" — matching docs/specs/status-dot.md
- * line 61/82 and `PR_SHAPE_LABEL.skipped`), while an open / aged-out-merge
- * neutral maps to `solid` (purple, "PR — open"). The closed check runs only on
- * the `neutral` fall-through, AFTER `prDotState`'s precedence — so a CLOSED PR
- * with failing checks still reads `failed` (`isFailish` wins inside
- * `prDotState`). `prDotState`'s own behavior is UNCHANGED (R9): the
- * closed→skipped mapping lives here in `prShape`, not in `prDotState`.
- */
-export function prShape(win: WindowInfo): DotShape {
-  switch (prDotState(win)) {
-    case "merged":
-      return "done";
-    case "fail":
-      return "failed";
-    case "pending":
-      return "ring";
-    case "healthy":
-      return "solid";
-    case "neutral":
-    default:
-      // Closed-unmerged → the gray `skipped` ring; open / aged-out-merge → solid.
-      return win.prState === "closed" ? "skipped" : "solid";
-  }
-}
-
-/**
- * phase → core-hue token (palette v3, status-pyramid.md § The Channel Model).
- * Two families + floor: cool fab (blue intake → green apply-collapsed → purple
- * PR), warm ad-hoc agent (yellow working → orange PR), gray floor. The amber
- * `execution`/`completion` tokens are GONE (green collapse). No raw hex —
- * `text-blue-400`/`text-yellow-400`/`text-orange-400` are standard Tailwind
- * classes; the rest are the established shared tokens.
+ * phase → core-hue token (compositional vocabulary, status-pyramid.md § The
+ * Channel Model). Four hues: blue building → green PR-ready (cool fab), yellow
+ * ad-hoc agent (warm), gray floor. `text-purple-400`/`text-orange-400` are
+ * GONE from the dot — purple stays in the glyph/segment vocabularies. No raw
+ * hex — `text-blue-400`/`text-yellow-400` are standard Tailwind classes; the
+ * rest are the established shared tokens.
  */
 export const PHASE_HUE: Record<DotPhase, string> = {
-  intake: "text-blue-400",
-  apply: "text-accent-green",
-  pr: "text-purple-400",
+  building: "text-blue-400",
+  prReady: "text-accent-green",
   agent: "text-yellow-400",
-  agentPr: "text-orange-400",
   none: "text-text-secondary",
 };
 
@@ -209,39 +184,22 @@ function hasFreshAgent(win: WindowInfo): boolean {
 }
 
 /**
- * Two ladders joined at the top (palette v3 — status-pyramid.md § The Tier
- * Ladder). First precondition wins for the CORE hue + shape; `waiting` is an
- * additive overlay computed independently (ladder-exempt).
- *
- *   fabChange ?  (prNumber ? purple-PR : intake ? blue : green)     [cool = fab]
- *             :  (fresh agent ? (prNumber ? orange-PR : yellow) : gray floor)  [warm/floor]
- *
- * D1 (resolved): PR dot-ownership is PER-FAMILY — purple requires
- * `fabChange && prNumber`, orange requires `fresh agent && prNumber`. A plain
- * pane with neither a fab change nor a fresh agent stays on the gray floor even
- * when its branch has a PR (the PR still shows in the L3 register / tip /
- * PR-status line — derivation stays universal, Principle X — but never as a
- * mystifying floor-pane dot).
- *
- * D2 (closed-unmerged fallback): a CLOSED-unmerged PR never owns the dot — it
- * falls through to the underlying tier (a fab window shows its live green stage,
- * not a dead PR's skipped ring; decision-table row 20). A merged PR still owns
- * the dot as the purple/orange done square — durably, because the backend keeps
- * deriving it statelessly (`gh pr list --state all`), not via any grace window.
- * `ownsDot` gates PR ownership on `prNumber` present AND not closed.
- *
- * Exported (93dy): the sidebar window row reuses this exact predicate as the
- * gate for its rest-state PR glyph — deliberately NOT family-gated like dot
- * ownership (the glyph shows for any owned PR: open, failing, or merged).
+ * Gate for the row's rest-state PR glyph (93dy → aqo6): `prNumber` present and
+ * not closed-unmerged (open, failing, and merged PRs all earn the glyph; a
+ * dead closed PR never does — it keeps its register line only). Deliberately
+ * NOT family-gated: the glyph shows for any owned PR, even on a plain floor
+ * pane (derivation is universal, Principle X). Formerly `prOwnsDot` — renamed
+ * when the PR was evicted from the dot: this predicate now gates ONLY the
+ * glyph, never any dot tier.
  */
-export function prOwnsDot(win: WindowInfo): boolean {
+export function prOwnsGlyph(win: WindowInfo): boolean {
   return !!win.prNumber && win.prState !== "closed";
 }
 
 /**
- * Color token for the window row's rest-state PR glyph (93dy), reusing the
- * shared PR vocabulary so the glyph stays in lock-step with the segments.
- * FOUR-WAY mapping, and the branch order IS the design:
+ * Color token for the rest-state PR glyph (window row + session tiles),
+ * reusing the shared PR vocabulary so the glyph stays in lock-step with the
+ * segments. FIVE-WAY mapping, and the branch order IS the design:
  *   1. `text-red-400` for a fail-ish PR (`prDotState` → `fail`, i.e.
  *      `isFailish`). FAIL STAYS ON TOP — a draft whose checks fail (or that has
  *      changes requested) is a problem first and a draft second, the same
@@ -249,38 +207,57 @@ export function prOwnsDot(win: WindowInfo): boolean {
  *      of `healthy`.
  *   2. `text-text-secondary` for an OPEN DRAFT (e30p) — GitHub renders drafts
  *      gray, and this is already the "inert / no journey" token in this model
- *      (it is `PHASE_HUE.none` and the color the `skipped` shape forces in
- *      status-dot.tsx). The branch is GATED ON `prState === "open"` on purpose:
- *      a merged/closed PR is never draft in practice (GitHub un-drafts on
- *      merge), and the gate makes the merged→purple and closed→no-glyph paths
- *      untouched BY CONSTRUCTION rather than incidentally. So draft displaces
- *      exactly one case — open-green — including when checks are still pending.
- *   3. `text-accent-green` for open (checks pending included).
- *   4. `text-purple-400` for merged.
- * Closed never reaches here (the `prOwnsDot` gate excludes it). No new color
- * system — all four are established tokens (PR_STATE_COLORS /
+ *      (`PHASE_HUE.none`). Draft sits ABOVE pending on purpose: drafts stay
+ *      muted even while their checks run (pending would un-mute them). The
+ *      branch is GATED ON `prState === "open"` so the merged→purple and
+ *      closed→no-glyph paths are untouched BY CONSTRUCTION.
+ *   3. `text-yellow-400` for open with `prChecks === "pending"` — CHECKS
+ *      RUNNING (aqo6): the row-level signal that replaced the dot's retired
+ *      purple pending ring; same token choice as `PR_CHECKS_COLORS.pending`.
+ *   4. `text-accent-green` for open otherwise (checks pass or no decisive
+ *      signal).
+ *   5. `text-purple-400` for merged.
+ * Closed never reaches here (the `prOwnsGlyph` gate excludes it). No new color
+ * system — all five are established tokens (PR_STATE_COLORS /
  * `--color-text-secondary`).
  *
- * NOTE: this is the GLYPH axis only. The status dot deliberately disagrees —
- * its hue encodes the phase/family and a passing draft stays `healthy` there
- * ("GREEN MEANS HEALTH, NOT MERGE-READINESS"); draft is a glyph-only distinction.
+ * NOTE: this is the GLYPH axis — the remote story. The status dot never
+ * renders PR state at all (the local/remote split); draft, pending, and merged
+ * are glyph-only distinctions.
  */
 export function prGlyphColor(win: WindowInfo): string {
   if (prDotState(win) === "fail") return "text-red-400";
   if (win.prState === "open" && win.prIsDraft) return "text-text-secondary";
+  if (win.prState === "open" && win.prChecks === "pending") return "text-yellow-400";
   return win.prState === "open" ? "text-accent-green" : "text-purple-400";
 }
 
+/**
+ * Two ladders joined at the top (status-pyramid.md § The Tier Ladder). First
+ * precondition wins for the CORE hue + shape; `waiting` is an additive overlay
+ * computed independently (ladder-exempt).
+ *
+ *   fabChange ?  (stage ∈ {intake,apply,review} ? blue-building : green-prReady,
+ *                 shape by fabDisplayState)
+ *             :  (fresh agent ? yellow (solid mid-turn / ring idle) : gray floor)
+ *
+ * NO PR BRANCH: the dot tells the local story only — a window's PR (open,
+ * failing, merged, whatever) never owns the dot in any family. The remote
+ * story lives on the row's rest-state glyph (`prOwnsGlyph`/`prGlyphColor`) and
+ * the register surfaces (derivation stays universal, Principle X).
+ *
+ * A `skipped` fabDisplayState makes the window NOT fab-owned — the change has
+ * left its journey, so the ladder falls through (fresh agent → yellow, else
+ * the gray floor), rather than rendering any fab hue.
+ */
 export function statusDotState(win: WindowInfo): StatusDotState {
   const waiting = win.agentState === "waiting";
-  if (win.fabChange) {
-    // Cool family — fab pipeline.
-    if (prOwnsDot(win)) return { phase: "pr", shape: prShape(win), waiting };
+  if (win.fabChange && win.fabDisplayState !== "skipped") {
+    // Cool family — fab pipeline: blue building → green PR-ready.
     return { phase: fabPhase(win.fabStage), shape: fabShape(win.fabDisplayState), waiting };
   }
   if (hasFreshAgent(win)) {
     // Warm family — ad-hoc agent.
-    if (prOwnsDot(win)) return { phase: "agentPr", shape: prShape(win), waiting };
     // A waiting/active agent is mid-turn → solid; only a resting `idle` agent is a ring.
     return { phase: "agent", shape: win.agentState === "idle" ? "ring" : "solid", waiting };
   }

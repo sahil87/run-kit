@@ -1,4 +1,4 @@
-import type { DotShape, StatusDotState } from "@/components/pr-status-model";
+import type { DotPhase, DotShape, StatusDotState } from "@/components/pr-status-model";
 import type { WindowInfo } from "@/types";
 
 /**
@@ -7,63 +7,71 @@ import type { WindowInfo } from "@/types";
  * row-hover register flyout card, which reuses the label as its header) can
  * import it without forming an import cycle. `status-dot.tsx` re-exports
  * `dotLabel` to keep its public surface stable.
+ *
+ * Compositional vocabulary (aqo6): the label is a pure function of what the
+ * DOT shows — hue word + status word — with NO PR words. The dot tells the
+ * local story only; PR facts ("merged", "checks running") belong to the glyph
+ * and the register surfaces, which already render them. The exact fab stage
+ * likewise lives in the `fab` register, not here.
  */
 
-/** Human word for the SHAPE/status axis used in the accessible label. */
-const SHAPE_LABEL: Record<DotShape, string> = {
-  ring: "pending",
-  solid: "active",
-  failed: "failed",
-  done: "done",
-  skipped: "skipped",
+/** Human word for the fab PHASE/hue axis. */
+const FAB_PHASE_LABEL: Record<Extract<DotPhase, "building" | "prReady">, string> = {
+  building: "building",
+  prReady: "PR-ready",
 };
 
-// PR-phase status words. The shared SHAPE_LABEL vocabulary is fab-stage language
-// ("active"/"done"); for a PR those read unnaturally, so the PR branch maps the
-// same shapes onto PR-native words — a PR is "open", "merged", "failing", not
-// "active"/"done"/"failed".
-const PR_SHAPE_LABEL: Record<DotShape, string> = {
-  ring: "checks running",
-  solid: "open",
-  failed: "failing",
-  done: "merged",
-  skipped: "closed",
-};
+/**
+ * Human status word for a fab window, derived from `fabDisplayState` (not the
+ * shape — `done` and `pending` both render the resting ring, but a parked-done
+ * change reads "parked", never "pending"). Unknown/absent reads "active",
+ * matching `fabShape`'s live-solid default.
+ */
+function fabStatusWord(displayState: string | undefined): string {
+  switch (displayState) {
+    case "pending":
+      return "pending";
+    case "failed":
+      return "failed";
+    case "done":
+      return "parked";
+    case "ready":
+      return "ready";
+    default:
+      return "active";
+  }
+}
 
 // Ad-hoc agent status words. The agent tier only ever produces `ring`
 // (agentState idle) or `solid` (active/mid-turn) — see statusDotState — so it
 // maps those two shapes onto agent-native words. `ring` reads "idle", NOT the
 // fab-stage "pending": the module doc + docs/site/status-dot.md pin
 // "agent — idle" / "agent — active" for this tier (the ring is the idle ring,
-// not a pending ring). The other shapes are unreachable here but are given
-// sensible fallbacks so the record is total.
+// not a pending ring). `failed` is unreachable here but is given a sensible
+// fallback so the record is total.
 const AGENT_SHAPE_LABEL: Record<DotShape, string> = {
   ring: "idle",
   solid: "active",
   failed: "failed",
-  done: "done",
-  skipped: "skipped",
 };
 
 /**
  * The core (journey) portion of the label — everything except the additive
- * attention suffix. Palette v3 (status-pyramid.md):
- *   - fab PR tier (`phase === "pr"`): PR-native words ("PR — merged").
- *   - fab non-PR tier (has `fabChange`): the real stage word ("apply — active").
- *     Gated on `win.fabChange`, not `phase`, so a fab window with an
- *     unknown/absent stage still reads "{stage-or-fab} — {status}", never a
- *     bare agent/tmux word.
- *   - warm agent tier (`phase === "agentPr"`): PR-native words ("PR — open").
+ * attention suffix. Compositional vocabulary (status-pyramid.md):
+ *   - fab tiers (`building` / `prReady`): hue word + displayState status word
+ *     ("building — active", "PR-ready — parked"). Keyed on the PHASE, so a fab
+ *     window whose `skipped` display-state fell through the ladder reads its
+ *     floor/agent word, matching the dot it actually renders.
  *   - warm agent tier (`phase === "agent"`): the agent-native state word via
- *     AGENT_SHAPE_LABEL ("agent — active"/"agent — idle"; the idle `ring` reads
- *     "idle", NOT the fab-stage "pending"). A waiting agent reads "agent —
- *     active" via the solid shape, and the waiting suffix below carries the
- *     attention.
+ *     AGENT_SHAPE_LABEL ("agent — active"/"agent — idle"). A waiting agent
+ *     reads "agent — active" via the solid shape, and the waiting suffix below
+ *     carries the attention.
  *   - L0 floor: the bare tmux activity word ("active"/"idle"), no journey.
  */
 function coreLabel(win: WindowInfo, state: StatusDotState): string {
-  if (state.phase === "pr" || state.phase === "agentPr") return `PR — ${PR_SHAPE_LABEL[state.shape]}`;
-  if (win.fabChange) return `${win.fabStage ?? "fab"} — ${SHAPE_LABEL[state.shape]}`;
+  if (state.phase === "building" || state.phase === "prReady") {
+    return `${FAB_PHASE_LABEL[state.phase]} — ${fabStatusWord(win.fabDisplayState)}`;
+  }
   if (state.phase === "agent") return `agent — ${AGENT_SHAPE_LABEL[state.shape]}`;
   return win.activity; // L0 floor: "active" | "idle"
 }
@@ -72,7 +80,7 @@ function coreLabel(win: WindowInfo, state: StatusDotState): string {
  * Compose the full accessible label = core journey label + additive attention
  * suffix. The `waiting` overlay is ADDITIVE on every tier (status-pyramid.md
  * § Accessibility): a review-failed window that is waiting 3m reads
- * "review — failed — agent waiting 3m"; a plain waiting agent reads
+ * "building — failed — agent waiting 3m"; a plain waiting agent reads
  * "agent — active — agent waiting 2m". The duration is taken from the
  * rk-computed `agentIdleDuration` (populated for `waiting` and `idle`). No
  * suffix when the window is not waiting.

@@ -6,7 +6,7 @@ import type { BoardSummary } from "@/api/boards";
 import { UNCOLORED_SELECTED_KEY, markerStripeStyle, type RowTint } from "@/themes";
 import { SwatchPopover } from "@/components/swatch-popover";
 import { StatusDot } from "@/components/status-dot";
-import { prOwnsDot, prGlyphColor } from "@/components/pr-status-model";
+import { prOwnsGlyph, prGlyphColor } from "@/components/pr-status-model";
 import { PinPopover } from "./pin-popover";
 import { PaletteIcon, CloseIcon, GitPullRequestIcon } from "./icons";
 import { PinIcon } from "@/components/pin-icon";
@@ -491,11 +491,12 @@ function WindowRowInner({
             ellipsis is unaffected; `min-w-0` stays so that inner truncation
             keeps working inside the flex row. */}
         <span className="flex items-center gap-1.5 min-w-0">
-          {/* Unified status dot: PR status when the window is change-bound with
-              a PR (purple/red/yellow/green/hollow per prDotState), else
-              monochrome terminal activity (filled=active, hollow ring=idle). One
-              dot in the leading position — the high-value PR signal now lands in
-              the primary scan anchor. See StatusDot / statusDotState.
+          {/* Unified status dot — the LOCAL story only (compositional
+              vocabulary): blue building / green PR-ready for a fab change,
+              yellow for a fresh ad-hoc agent, else monochrome terminal
+              activity (filled=active, hollow ring=idle). The PR story lives on
+              the trailing rest-state glyph, never here. See StatusDot /
+              statusDotState.
               On COARSE pointers the wrapper wires a dot-tap to open the flyout
               card (touch has no hover; hover-open is mouseOnly) — the tap stops
               propagation so it never selects the row. On fine pointers the
@@ -553,7 +554,7 @@ function WindowRowInner({
           PR glyph below can key its hide on focus WITHIN this cluster. */}
       <div className="group/icons absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 z-10 pointer-events-none group-hover:pointer-events-auto coarse:pointer-events-auto has-[:focus-visible]:pointer-events-auto">
         {/* Rest-state PR glyph (93dy — user-approved partial Row-Minimalism
-            reversal): a window with an OWNED PR (prOwnsDot — open/failing/
+            reversal): a window with an OWNED PR (prOwnsGlyph — open/failing/
             merged, never closed) shows a git-pull-request glyph at rest,
             right-edge-aligned with the hover ✕ (an absolute overlay on the
             LAST slot, same 24px box — so pinned rows read rest `[pin][PR]` →
@@ -564,11 +565,12 @@ function WindowRowInner({
             (display swap, not an opacity fade), on coarse pointers (actions
             are always visible there), and while keyboard focus is inside the
             action cluster — so it can never be a click target or occlude the
-            revealed ✕. Color via the shared PR vocabulary (prGlyphColor):
-            red failing, gray open-draft, green open, purple merged — draft is
-            open-gated and sits BELOW fail, and it is a glyph-only distinction
-            (the dot stays family-hued; see pr-status-model.ts). */}
-        {!ghost && prOwnsDot(win) && (
+            revealed ✕. Color via the shared PR vocabulary (prGlyphColor),
+            five-way: red failing, gray open-draft, yellow checks-running,
+            green open, purple merged — draft is open-gated and sits BELOW
+            fail and ABOVE pending, and the glyph is the row's ONLY PR channel
+            (the dot never renders PR state; see pr-status-model.ts). */}
+        {!ghost && prOwnsGlyph(win) && (
           <span
             aria-hidden="true"
             data-testid="row-pr-glyph"

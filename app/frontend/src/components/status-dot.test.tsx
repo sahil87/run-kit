@@ -1,37 +1,62 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 import { StatusDot, dotLabel } from "./status-dot";
-import { statusDotState, fabPhase, fabShape, prShape } from "./pr-status-model";
+import { statusDotState, fabPhase, fabShape } from "./pr-status-model";
 import { makeWindow } from "@/test-utils/fixtures";
 
 afterEach(() => {
   cleanup();
 });
 
-// Palette v3 (status-pyramid.md) — two families joined at the top plus an
-// additive waiting overlay. These cases enumerate the decision-table rows.
-describe("statusDotState — two-family ladder (palette v3)", () => {
-  it("fab PR: change-bound WITH a PR renders the purple `pr` phase", () => {
+// Compositional vocabulary (aqo6 — status-pyramid.md): two families joined at
+// the top plus an additive waiting overlay. The dot tells the LOCAL story only
+// — PR state never owns the dot (it lives on the row glyph). These cases
+// enumerate the decision-table rows.
+describe("statusDotState — two-family ladder (compositional vocabulary)", () => {
+  it("PR eviction: a change-bound window with a merged PR renders the FAB arm, never a PR phase", () => {
     const state = statusDotState(
       makeWindow({ fabChange: "260615-x", fabStage: "apply", prNumber: 7, prState: "merged" }),
     );
-    expect(state).toEqual({ phase: "pr", shape: "done", waiting: false });
+    expect(state).toEqual({ phase: "building", shape: "solid", waiting: false });
   });
 
-  it("fab intake (no PR) → blue", () => {
-    const state = statusDotState(
-      makeWindow({ fabChange: "260615-x", fabStage: "intake", fabDisplayState: "active" }),
-    );
-    expect(state).toEqual({ phase: "intake", shape: "solid", waiting: false });
-  });
-
-  it("fab apply/review/hydrate/ship all collapse to the green `apply` phase (green collapse)", () => {
-    for (const stage of ["apply", "review", "hydrate", "ship", "review-pr"]) {
+  it("fab building: intake/apply/review (no PR consulted) → blue", () => {
+    for (const stage of ["intake", "apply", "review"]) {
       const state = statusDotState(
         makeWindow({ fabChange: "260615-x", fabStage: stage, fabDisplayState: "active" }),
       );
-      expect(state).toEqual({ phase: "apply", shape: "solid", waiting: false });
+      expect(state).toEqual({ phase: "building", shape: "solid", waiting: false });
     }
+  });
+
+  it("fab PR-ready: ship/review-pr/done → green (the two-stop split)", () => {
+    for (const stage of ["ship", "review-pr", "done"]) {
+      const state = statusDotState(
+        makeWindow({ fabChange: "260615-x", fabStage: stage, fabDisplayState: "active" }),
+      );
+      expect(state).toEqual({ phase: "prReady", shape: "solid", waiting: false });
+    }
+  });
+
+  it("parked-done change → green resting ring (done maps to ring, not a square)", () => {
+    const state = statusDotState(
+      makeWindow({ fabChange: "260615-x", fabStage: "review-pr", fabDisplayState: "done" }),
+    );
+    expect(state).toEqual({ phase: "prReady", shape: "ring", waiting: false });
+  });
+
+  it("skipped displayState: NOT a fab-owned dot — falls through to the gray floor", () => {
+    const state = statusDotState(
+      makeWindow({ fabChange: "260615-x", fabStage: "apply", fabDisplayState: "skipped", activity: "idle" }),
+    );
+    expect(state).toEqual({ phase: "none", shape: "ring", waiting: false });
+  });
+
+  it("skipped displayState with a fresh agent: the ladder continues to the agent arm", () => {
+    const state = statusDotState(
+      makeWindow({ fabChange: "260615-x", fabStage: "apply", fabDisplayState: "skipped", agentState: "active" }),
+    );
+    expect(state).toEqual({ phase: "agent", shape: "solid", waiting: false });
   });
 
   it("ad-hoc agent active → yellow solid (warm family)", () => {
@@ -44,9 +69,9 @@ describe("statusDotState — two-family ladder (palette v3)", () => {
     expect(state).toEqual({ phase: "agent", shape: "ring", waiting: false });
   });
 
-  it("ad-hoc agent with a PR → orange `agentPr` phase (shape from prShape)", () => {
+  it("ad-hoc agent with a PR → still the yellow agent arm (no agentPr phase)", () => {
     const state = statusDotState(makeWindow({ agentState: "active", prNumber: 9, prState: "open", prChecks: "pass" }));
-    expect(state).toEqual({ phase: "agentPr", shape: "solid", waiting: false });
+    expect(state).toEqual({ phase: "agent", shape: "solid", waiting: false });
   });
 
   it("floor: no fab change, no fresh agent — monochrome tmux activity (solid for active)", () => {
@@ -59,96 +84,84 @@ describe("statusDotState — two-family ladder (palette v3)", () => {
     expect(state).toEqual({ phase: "none", shape: "ring", waiting: false });
   });
 
-  it("D1: a prNumber with NO fab change and NO fresh agent stays on the gray floor (PR never owns a plain pane's dot)", () => {
+  it("a prNumber with NO fab change and NO fresh agent stays on the gray floor (the glyph carries the PR)", () => {
     const state = statusDotState(makeWindow({ prNumber: 7, prState: "open", activity: "idle" }));
     expect(state).toEqual({ phase: "none", shape: "ring", waiting: false });
-  });
-
-  it("D2: a closed-unmerged PR on a live fab change falls back to the green fab tier (not a dead PR)", () => {
-    const state = statusDotState(
-      makeWindow({ fabChange: "260615-x", fabStage: "apply", fabDisplayState: "active", prNumber: 7, prState: "closed" }),
-    );
-    expect(state).toEqual({ phase: "apply", shape: "solid", waiting: false });
-  });
-
-  it("D2: a merged PR (retained) still owns the dot as the purple done-square", () => {
-    const state = statusDotState(
-      makeWindow({ fabChange: "260615-x", prNumber: 7, prState: "merged" }),
-    );
-    expect(state).toEqual({ phase: "pr", shape: "done", waiting: false });
   });
 
   it("waiting is additive: set on every tier, core phase/shape unchanged", () => {
     // fab intake + waiting → blue core kept, waiting flag set.
     expect(statusDotState(makeWindow({ fabChange: "x", fabStage: "intake", fabDisplayState: "active", agentState: "waiting" })))
-      .toEqual({ phase: "intake", shape: "solid", waiting: true });
-    // fab review failed + waiting → green failed kept.
+      .toEqual({ phase: "building", shape: "solid", waiting: true });
+    // fab review failed + waiting → blue failed kept.
     expect(statusDotState(makeWindow({ fabChange: "x", fabStage: "review", fabDisplayState: "failed", agentState: "waiting" })))
-      .toEqual({ phase: "apply", shape: "failed", waiting: true });
+      .toEqual({ phase: "building", shape: "failed", waiting: true });
     // ad-hoc waiting → yellow solid (mid-turn), waiting flag set.
     expect(statusDotState(makeWindow({ agentState: "waiting" })))
       .toEqual({ phase: "agent", shape: "solid", waiting: true });
   });
 });
 
-describe("fabPhase — palette-v3 (green collapse)", () => {
-  it("maps intake → intake", () => expect(fabPhase("intake")).toBe("intake"));
-  it("maps every other stage → apply (green collapse)", () => {
-    for (const s of ["apply", "review", "hydrate", "ship", "review-pr"]) {
-      expect(fabPhase(s)).toBe("apply");
+describe("fabPhase — the two-stop split (stage-based, never PR-based)", () => {
+  it("maps intake/apply/review → building", () => {
+    for (const s of ["intake", "apply", "review"]) {
+      expect(fabPhase(s)).toBe("building");
     }
   });
-  it("maps unknown/absent → apply (a live fab window still reads green, not gray)", () => {
-    expect(fabPhase("paused")).toBe("apply");
-    expect(fabPhase(undefined)).toBe("apply");
+  it("maps ship/review-pr/done → prReady", () => {
+    for (const s of ["ship", "review-pr", "done"]) {
+      expect(fabPhase(s)).toBe("prReady");
+    }
+  });
+  it("maps unknown/absent → prReady (a live fab window still reads green, not gray)", () => {
+    expect(fabPhase("hydrate")).toBe("prReady");
+    expect(fabPhase("paused")).toBe("prReady");
+    expect(fabPhase(undefined)).toBe("prReady");
   });
 });
 
-describe("fabShape — display-state → shape vocabulary (unchanged)", () => {
+describe("fabShape — display-state → shape vocabulary (three shapes)", () => {
   it("maps pending → ring", () => expect(fabShape("pending")).toBe("ring"));
   it("maps active → solid", () => expect(fabShape("active")).toBe("solid"));
   it("maps ready → solid", () => expect(fabShape("ready")).toBe("solid"));
   it("maps failed → failed", () => expect(fabShape("failed")).toBe("failed"));
-  it("maps done → done", () => expect(fabShape("done")).toBe("done"));
-  it("maps skipped → skipped", () => expect(fabShape("skipped")).toBe("skipped"));
+  it("maps done → ring (parked = resting)", () => expect(fabShape("done")).toBe("ring"));
   it("defaults unknown/absent → solid", () => {
     expect(fabShape("paused")).toBe("solid");
     expect(fabShape(undefined)).toBe("solid");
   });
 });
 
-describe("prShape — reuses prDotState semantics (unchanged)", () => {
-  it("merged → done", () => expect(prShape(makeWindow({ prState: "merged" }))).toBe("done"));
-  it("failing checks → failed", () =>
-    expect(prShape(makeWindow({ prState: "open", prChecks: "fail" }))).toBe("failed"));
-  it("pending checks → ring", () =>
-    expect(prShape(makeWindow({ prState: "open", prChecks: "pending" }))).toBe("ring"));
-  it("passing checks (healthy) → solid", () =>
-    expect(prShape(makeWindow({ prState: "open", prChecks: "pass" }))).toBe("solid"));
-  it("closed-unmerged (neutral) → skipped", () =>
-    expect(prShape(makeWindow({ prState: "closed" }))).toBe("skipped"));
-});
-
-describe("StatusDot — rendering shapes (palette v3)", () => {
-  it("renders a green solid circle for an active fab stage (apply → green)", () => {
+describe("StatusDot — rendering shapes (compositional vocabulary)", () => {
+  it("renders a blue solid circle for an active building stage (apply → blue)", () => {
     render(<StatusDot win={makeWindow({ fabChange: "x", fabStage: "apply", fabDisplayState: "active" })} />);
-    const dot = screen.getByLabelText("apply — active");
-    expect(dot.className).toContain("text-accent-green");
-    expect(dot.className).not.toContain("text-amber-400");
+    const dot = screen.getByLabelText("building — active");
+    expect(dot.className).toContain("text-blue-400");
+    expect(dot.className).not.toContain("text-accent-green");
     expect(dot.className).toContain("rounded-full");
     expect(dot.getAttribute("style")).toContain("background-color: currentcolor");
   });
 
-  it("renders intake in blue", () => {
-    render(<StatusDot win={makeWindow({ fabChange: "x", fabStage: "intake", fabDisplayState: "active" })} />);
-    expect(screen.getByLabelText("intake — active").className).toContain("text-blue-400");
+  it("renders ship (PR-ready) in green", () => {
+    render(<StatusDot win={makeWindow({ fabChange: "x", fabStage: "ship", fabDisplayState: "active" })} />);
+    const dot = screen.getByLabelText("PR-ready — active");
+    expect(dot.className).toContain("text-accent-green");
+    expect(dot.className).not.toContain("text-blue-400");
   });
 
-  it("renders review (green collapse) in green — NOT amber", () => {
+  it("renders review (building) in blue — NOT green", () => {
     render(<StatusDot win={makeWindow({ fabChange: "x", fabStage: "review", fabDisplayState: "active" })} />);
-    const dot = screen.getByLabelText("review — active");
+    const dot = screen.getByLabelText("building — active");
+    expect(dot.className).toContain("text-blue-400");
+    expect(dot.className).not.toContain("text-accent-green");
+  });
+
+  it("renders a parked-done change as a green hollow ring (no square anywhere)", () => {
+    render(<StatusDot win={makeWindow({ fabChange: "x", fabStage: "review-pr", fabDisplayState: "done" })} />);
+    const dot = screen.getByLabelText("PR-ready — parked");
     expect(dot.className).toContain("text-accent-green");
-    expect(dot.className).not.toContain("text-amber-400");
+    expect(dot.className).not.toContain("rounded-none");
+    expect(dot.getAttribute("style")).toContain("transparent");
   });
 
   it("renders an ad-hoc agent (active) as a yellow solid dot", () => {
@@ -167,38 +180,70 @@ describe("StatusDot — rendering shapes (palette v3)", () => {
     expect(dot.getAttribute("style")).toContain("transparent");
   });
 
-  it("renders a failed fab stage as a green dotted ring + red center (no whole-dot red)", () => {
+  it("renders a failed building stage as a blue dotted ring + red center (no whole-dot red)", () => {
     render(<StatusDot win={makeWindow({ fabChange: "x", fabStage: "review", fabDisplayState: "failed" })} />);
-    const dot = screen.getByLabelText("review — failed");
-    expect(dot.className).toContain("text-accent-green");
+    const dot = screen.getByLabelText("building — failed");
+    expect(dot.className).toContain("text-blue-400");
     expect(dot.className).not.toContain("text-red-400");
     expect(dot.getAttribute("style")).toContain("dotted");
     const center = dot.querySelector("span");
     expect(center!.className).toContain("bg-red-400");
   });
 
-  it("renders a gray hollow ring for a skipped stage regardless of phase", () => {
-    render(<StatusDot win={makeWindow({ fabChange: "x", fabStage: "apply", fabDisplayState: "skipped" })} />);
-    const dot = screen.getByLabelText("apply — skipped");
+  it("renders a failed review-pr stage as a green dotted ring + red center", () => {
+    render(<StatusDot win={makeWindow({ fabChange: "x", fabStage: "review-pr", fabDisplayState: "failed" })} />);
+    const dot = screen.getByLabelText("PR-ready — failed");
+    expect(dot.className).toContain("text-accent-green");
+    expect(dot.getAttribute("style")).toContain("dotted");
+  });
+
+  it("renders a skipped stage via the floor (gray tmux dot, bare activity label)", () => {
+    render(<StatusDot win={makeWindow({ fabChange: "x", fabStage: "apply", fabDisplayState: "skipped", activity: "idle" })} />);
+    const dot = screen.getByLabelText("idle");
     expect(dot.className).toContain("text-text-secondary");
-    expect(dot.className).not.toContain("text-accent-green");
+    expect(dot.className).not.toContain("text-blue-400");
+  });
+});
+
+describe("StatusDot — PR eviction (the dot never renders PR state)", () => {
+  it("fab window with a merged PR renders its fab tier, never purple", () => {
+    render(<StatusDot win={makeWindow({ fabChange: "260615-x", fabStage: "review-pr", fabDisplayState: "done", prNumber: 386, prState: "merged", prChecks: "fail" })} />);
+    expect(screen.queryByLabelText(/PR — /)).toBeNull();
+    const dot = screen.getByLabelText("PR-ready — parked");
+    expect(dot.className).toContain("text-accent-green");
+    expect(dot.className).not.toContain("text-purple-400");
+    expect(dot.className).not.toContain("rounded-none");
+  });
+
+  it("ad-hoc agent with an open PR stays a yellow agent dot, never orange", () => {
+    render(<StatusDot win={makeWindow({ agentState: "active", prNumber: 9, prState: "open", prChecks: "pass" })} />);
+    const dot = screen.getByLabelText("agent — active");
+    expect(dot.className).toContain("text-yellow-400");
+    expect(dot.className).not.toContain("text-orange-400");
+  });
+
+  it("a failing PR never turns the dot: the fab stage keeps its shape (glyph-red carries the failure)", () => {
+    render(<StatusDot win={makeWindow({ fabChange: "260615-x", fabStage: "ship", fabDisplayState: "active", prNumber: 386, prState: "open", prChecks: "fail" })} />);
+    const dot = screen.getByLabelText("PR-ready — active");
+    expect(dot.className).toContain("text-accent-green");
+    expect(dot.getAttribute("style")).toContain("background-color: currentcolor");
   });
 });
 
 describe("StatusDot — additive waiting halo", () => {
-  it("wraps a waiting dot in the constant-yellow halo, core hue+shape kept (blue intake stays blue)", () => {
+  it("wraps a waiting dot in the constant-yellow halo, core hue+shape kept (blue building stays blue)", () => {
     render(<StatusDot win={makeWindow({ fabChange: "x", fabStage: "intake", fabDisplayState: "active", agentState: "waiting", agentIdleDuration: "3m" })} />);
-    const dot = screen.getByLabelText("intake — active — agent waiting 3m");
+    const dot = screen.getByLabelText("building — active — agent waiting 3m");
     // Core hue kept.
     expect(dot.className).toContain("text-blue-400");
     // Additive halo class present (constant-yellow ring; static under reduced-motion via globals.css).
     expect(dot.className).toContain("rk-waiting-halo");
   });
 
-  it("waiting on a green-failed review keeps the failed shape + green hue, adds the halo", () => {
+  it("waiting on a failed review keeps the failed shape + blue hue, adds the halo", () => {
     render(<StatusDot win={makeWindow({ fabChange: "x", fabStage: "review", fabDisplayState: "failed", agentState: "waiting" })} />);
-    const dot = screen.getByLabelText("review — failed — agent waiting");
-    expect(dot.className).toContain("text-accent-green");
+    const dot = screen.getByLabelText("building — failed — agent waiting");
+    expect(dot.className).toContain("text-blue-400");
     expect(dot.getAttribute("style")).toContain("dotted");
     expect(dot.className).toContain("rk-waiting-halo");
   });
@@ -206,29 +251,6 @@ describe("StatusDot — additive waiting halo", () => {
   it("a non-waiting dot has no halo class", () => {
     render(<StatusDot win={makeWindow({ agentState: "active" })} />);
     expect(screen.getByLabelText("agent — active").className).not.toContain("rk-waiting-halo");
-  });
-});
-
-describe("StatusDot — PR phase (purple fab / orange agent)", () => {
-  it("fab merged → purple square (done)", () => {
-    render(<StatusDot win={makeWindow({ fabChange: "260615-x", prNumber: 386, prState: "merged", prChecks: "fail" })} />);
-    const dot = screen.getByLabelText("PR — merged");
-    expect(dot.className).toContain("text-purple-400");
-    expect(dot.className).toContain("rounded-none");
-  });
-
-  it("ad-hoc agent PR (open/healthy) → orange solid", () => {
-    render(<StatusDot win={makeWindow({ agentState: "active", prNumber: 9, prState: "open", prChecks: "pass" })} />);
-    const dot = screen.getByLabelText("PR — open");
-    expect(dot.className).toContain("text-orange-400");
-    expect(dot.getAttribute("style")).toContain("background-color: currentcolor");
-  });
-
-  it("fab PR wins over a failed fab stage (reads purple, no whole-dot red)", () => {
-    render(<StatusDot win={makeWindow({ fabChange: "260615-x", prNumber: 386, prState: "open", prChecks: "pass", fabStage: "review", fabDisplayState: "failed" })} />);
-    const dot = screen.getByLabelText("PR — open");
-    expect(dot.className).toContain("text-purple-400");
-    expect(dot.className).not.toContain("text-red-400");
   });
 });
 
@@ -248,24 +270,33 @@ describe("StatusDot — floor (monochrome)", () => {
   });
 });
 
-describe("dotLabel — attention composition", () => {
-  it("composes '{stage} — {status}' for fab windows (no native title)", () => {
+describe("dotLabel — hue-word + status-word composition", () => {
+  it("composes '{hue-word} — {status}' for fab windows (no native title)", () => {
     render(<StatusDot win={makeWindow({ fabChange: "x", fabStage: "apply", fabDisplayState: "pending" })} />);
-    const dot = screen.getByLabelText("apply — pending");
-    expect(dot.getAttribute("aria-label")).toBe("apply — pending");
+    const dot = screen.getByLabelText("building — pending");
+    expect(dot.getAttribute("aria-label")).toBe("building — pending");
     expect(dot.getAttribute("role")).toBe("img");
     expect(dot.getAttribute("title")).toBeNull();
   });
 
+  it("uses the displayState-derived status word (ready reads 'ready')", () => {
+    const win = makeWindow({ fabChange: "x", fabStage: "intake", fabDisplayState: "ready" });
+    expect(dotLabel(win, statusDotState(win))).toBe("building — ready");
+  });
+
   it("appends the agent-waiting suffix on every tier (with duration)", () => {
-    const state = statusDotState(makeWindow({ fabChange: "x", fabStage: "review", fabDisplayState: "failed", agentState: "waiting", agentIdleDuration: "3m" }));
-    expect(dotLabel(makeWindow({ fabChange: "x", fabStage: "review", fabDisplayState: "failed", agentState: "waiting", agentIdleDuration: "3m" }), state))
-      .toBe("review — failed — agent waiting 3m");
+    const win = makeWindow({ fabChange: "x", fabStage: "review", fabDisplayState: "failed", agentState: "waiting", agentIdleDuration: "3m" });
+    expect(dotLabel(win, statusDotState(win))).toBe("building — failed — agent waiting 3m");
   });
 
   it("no attention suffix when not waiting", () => {
     const win = makeWindow({ fabChange: "x", fabStage: "apply", fabDisplayState: "active" });
-    expect(dotLabel(win, statusDotState(win))).toBe("apply — active");
+    expect(dotLabel(win, statusDotState(win))).toBe("building — active");
+  });
+
+  it("never uses PR words — a merged-PR parked change reads 'PR-ready — parked'", () => {
+    const win = makeWindow({ fabChange: "x", fabStage: "review-pr", fabDisplayState: "done", prNumber: 7, prState: "merged" });
+    expect(dotLabel(win, statusDotState(win))).toBe("PR-ready — parked");
   });
 
   it("ad-hoc agent idle label reads 'agent — idle' (agent-native, not fab 'pending')", () => {

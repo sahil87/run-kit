@@ -11,40 +11,42 @@ export { dotLabel };
 /**
  * Unified lifecycle status dot reused on the sidebar window row, the dashboard
  * window cards, and the pane-panel header. It renders a single signal per
- * window via the `statusDotState` two-family ladder (palette v3 —
- * status-pyramid.md), using TWO orthogonal visual channels plus an additive
- * attention overlay:
+ * window via the `statusDotState` two-family ladder (compositional vocabulary
+ * — status-pyramid.md), using TWO orthogonal visual channels plus an additive
+ * attention overlay. THE DOT TELLS THE LOCAL STORY ONLY — what runs in this
+ * pane (which journey, is it healthy, does it need me); the REMOTE story (the
+ * branch's PR on GitHub) lives on the row's rest-state PR glyph
+ * (`prOwnsGlyph`/`prGlyphColor`), never on the dot.
  *
  *   - CORE HUE = phase (which journey + position in it). Cool = fab pipeline:
- *     blue (intake) → green (apply→review-pr, collapsed) → purple (the live PR).
- *     Warm = ad-hoc agent: yellow (working) → orange (its PR). Gray = floor
- *     (no fab change, no fresh agent) — color is reserved for a journey.
+ *     blue (building — intake·apply·review) → green (PR-ready — ship·
+ *     review-pr·done: local work complete). Warm = ad-hoc agent: yellow.
+ *     Gray = floor (no fab change, no fresh agent) — color is reserved for a
+ *     journey. Purple/orange are RETIRED from the dot.
  *   - ATTENTION = the additive constant-yellow pulsing halo when the agent is
  *     `waiting` (state.waiting). NEVER touches the core hue or shape; it is a
  *     box-shadow ring layered over ANY tier (blue core + yellow halo = "fab
- *     intake asking"; green failed core + halo = "review failed, agent asking").
- *     Static yellow ring under prefers-reduced-motion (see globals.css).
- *   - SHAPE = status (health), ONE vocabulary across fab stages AND PR:
- *       ring          → pending (PR: checks running)
- *       solid         → active / ready (PR: open / healthy)
- *       failed        → dotted ring in phase hue + a small RED center dot
- *                       (PR: checks fail / changes requested)
- *       done          → filled sharp-cornered square in phase hue (PR: merged)
- *       skipped       → gray hollow ring (PR: closed unmerged)
+ *     building asking"; blue failed core + halo = "review failed, agent
+ *     asking"). Static yellow ring under prefers-reduced-motion (globals.css).
+ *   - SHAPE = status (health), the SAME meaning in every hue:
+ *       solid  → running / live (active · ready · mid-turn agent · output)
+ *       ring   → at rest (stage pending · parked done · idle agent · quiet
+ *                shell)
+ *       failed → dotted ring in phase hue + a small RED center dot (review /
+ *                review-pr failed)
  *
- * Red is used in exactly ONE way across the whole system: the small center dot
- * inside a `failed` dotted ring — never as a whole-dot color (this removes the
- * old `fabDisplayState === "failed"` red tint and the old solid-red PR fail).
+ * DOT-red appears in exactly ONE way: the small center dot inside a `failed`
+ * dotted ring — never as a whole-dot color. (The row GLYPH separately uses red
+ * for a failing PR — that is the glyph channel's vocabulary, not the dot's.)
  *
- * Every shape EXCEPT `failed` renders at one uniform 7px footprint (`DOT_SIZE`)
- * so the filled square and the hollow circles read as the same size in the dense
- * sidebar; the square is distinguished by its sharp (`rounded-none`) corners, not
- * by being bigger. The `failed` dot is the lone exception — a slightly larger 9px
- * footprint so its dotted bead-ring stays legible (see the failed branch below).
+ * Every shape EXCEPT `failed` renders at one uniform 7px footprint
+ * (`DOT_SIZE`); the `failed` dot is the lone exception — a slightly larger 9px
+ * footprint so its dotted bead-ring stays legible (see the failed branch
+ * below).
  *
- * The dot always carries `role="img"` + `aria-label` composed from phase +
- * status (e.g. "apply — active", "PR — merged", "review — failed",
- * "intake — pending"), or "active"/"idle" for the tmux fallback — color is
+ * The dot always carries `role="img"` + `aria-label` composed from hue word +
+ * status word (e.g. "building — active", "PR-ready — parked",
+ * "building — failed"), or "active"/"idle" for the tmux fallback — color is
  * never the sole channel (colorblind a11y + keyboard-first constitution). The
  * native `title` tooltip is intentionally NOT set, and the dot is a PURE
  * decoration at both render sites: in the sidebar window rows the hover/focus
@@ -57,9 +59,8 @@ export { dotLabel };
  * panel's own register view alongside the dot is the detail surface.
  */
 
-// Every shape EXCEPT `failed` renders at one uniform footprint so the filled
-// square and the hollow circles read as the same size in the dense sidebar (a
-// filled 8px square next to a hollow 6px ring looks much bigger). The `failed`
+// Every shape EXCEPT `failed` renders at one uniform footprint so the solid
+// and hollow circles read as the same size in the dense sidebar. The `failed`
 // dot is the one exception — it uses a slightly larger 9px footprint so its
 // dotted bead-ring has room to read (see the failed branch below).
 const DOT_SIZE = "w-[7px] h-[7px]";
@@ -67,18 +68,16 @@ const DOT_SIZE = "w-[7px] h-[7px]";
 export function StatusDot({ win }: { win: WindowInfo }) {
   const state = statusDotState(win);
   const label = dotLabel(win, state);
-  // `skipped` forces the gray token regardless of phase (a closed/skipped item
-  // has left its journey hue behind); every other shape uses the phase hue.
-  const color = state.shape === "skipped" ? "text-text-secondary" : PHASE_HUE[state.phase];
+  const color = PHASE_HUE[state.phase];
 
-  // Additive waiting halo (palette v3 — status-pyramid.md § The Channel Model).
-  // When the rolled-up agent state is `waiting`, wrap the dot in a constant-
-  // yellow pulsing halo (a box-shadow ring, static under reduced-motion). It is
+  // Additive waiting halo (status-pyramid.md § The Channel Model). When the
+  // rolled-up agent state is `waiting`, wrap the dot in a constant-yellow
+  // pulsing halo (a box-shadow ring, static under reduced-motion). It is
   // ADDITIVE — the core hue (`color`) and shape below are untouched, so a blue
-  // intake dot keeps its blue core, a green failed dot keeps its failed shape;
-  // only the yellow halo is layered on. The class rides the dot element itself
-  // (box-shadow renders outside the border-box, so it disturbs neither the
-  // dot's size nor its hue).
+  // building dot keeps its blue core, a blue failed dot keeps its failed
+  // shape; only the yellow halo is layered on. The class rides the dot element
+  // itself (box-shadow renders outside the border-box, so it disturbs neither
+  // the dot's size nor its hue).
   const halo = state.waiting ? " rk-waiting-halo" : "";
 
   // The accessible name lives on `aria-label`; no native `title` (the flyout
@@ -87,20 +86,6 @@ export function StatusDot({ win }: { win: WindowInfo }) {
     role: "img" as const,
     "aria-label": label,
   };
-
-  if (state.shape === "done") {
-    // Sharp-cornered square (no rounding). At 7px even a 1px radius softens
-    // the corners enough to blur the square-vs-circle distinction, so render
-    // fully square (`rounded-none`) to keep `done` visually distinct from the
-    // round shapes. Same DOT_SIZE as every other shape so it doesn't dominate.
-    return (
-      <span
-        {...common}
-        className={`${DOT_SIZE} rounded-none shrink-0 ${color}${halo}`}
-        style={{ backgroundColor: "currentColor" }}
-      />
-    );
-  }
 
   if (state.shape === "failed") {
     // Dotted ring in the phase hue with a small red center dot. A CSS `dashed`
@@ -133,8 +118,8 @@ export function StatusDot({ win }: { win: WindowInfo }) {
     );
   }
 
-  // `ring` (pending) and `skipped` both render as a hollow ring; `skipped`
-  // differs only in the forced gray `color` resolved above.
+  // `ring` — the at-rest shape (stage pending, parked done, idle agent, quiet
+  // shell): a hollow circle in the phase hue.
   return (
     <span
       {...common}

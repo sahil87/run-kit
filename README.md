@@ -151,16 +151,15 @@ The daemon runs in its own dedicated tmux server (`rk-daemon`), completely separ
 
 ## Status dots — read every window at a glance
 
-Each window in the sidebar, dashboard, and pane panel carries a single **status dot** that tells you where it sits in the fab → PR lifecycle and how healthy it is — using two orthogonal channels:
+Each window in the sidebar, dashboard, and pane panel carries a single **status dot** that tells the window's **local story** — which journey runs in the pane and how healthy it is — using two orthogonal channels, plus a right-edge **PR glyph** for the remote story:
 
-- **Hue = phase** (where in the journey): ![](https://img.shields.io/badge/intake-60a5fa?label=) intake → ![](https://img.shields.io/badge/exec-fbbf24?label=) execution (apply/review) + completion (hydrate) → ![](https://img.shields.io/badge/ship-9ece6a?label=) shipping (ship/review-pr) → ![](https://img.shields.io/badge/pr-c084fc?label=) the live PR. A plain window with no fab change is gray — color is reserved for the journey.
-- **Shape = status** (health), one vocabulary across every phase: **ring** = pending · **solid circle** = active/ready · **dashed ring + red center** = failed · **square** = done/merged · **gray ring** = skipped/closed.
+- **Hue = journey**: ![](https://img.shields.io/badge/building-60a5fa?label=) fab **building** (intake/apply/review) → ![](https://img.shields.io/badge/PR--ready-9ece6a?label=) fab **PR-ready / done** (ship/review-pr/done) · ![](https://img.shields.io/badge/agent-facc15?label=) an ad-hoc agent. A plain window is gray — color is reserved for a journey.
+- **Shape = status** (health), the same meaning in every hue: **solid** = running/live · **ring** = at rest (stage pending, parked done, idle agent) · **dotted ring + red center** = failed.
+- **PR glyph** (right edge): the branch's PR on GitHub — green open · yellow checks running · red failing · purple merged · gray draft. The dot never renders PR state.
 
-Exactly one signal drives the dot, in precedence order **PR > fab > tmux**.
+![StatusDot compositional reference](https://raw.githubusercontent.com/sahil87/run-kit/main/docs/img/status-dot-reference.svg)
 
-![StatusDot stage × status matrix](https://raw.githubusercontent.com/sahil87/run-kit/main/docs/img/status-dot-matrix.svg)
-
-See the [status dot reference](docs/site/status-dot.md) for the full matrix, the per-state rendering, and the design rationale.
+See the [status dot reference](docs/site/status-dot.md) for the full legend, the per-state rendering, and the design rationale.
 
 ## Agent state — `run-kit agent-setup`
 

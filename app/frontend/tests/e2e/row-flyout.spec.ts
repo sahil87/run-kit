@@ -14,10 +14,11 @@ import { mockStateSocket } from "./_state-socket-mock";
 
 const SERVER = "default";
 
-// @1: change-bound window WITH an owned open PR (purple "PR — open" dot, rest
-// PR glyph, full four-register card) AND a reconciled claude chat (so the
-// conversation-fork affordance renders — 260806-s4av). @2: plain scratch window
-// (gray "idle" dot, no glyph, out-register-only card, no fork link).
+// @1: change-bound window WITH an owned open PR (blue "building — active" dot
+// — the PR never owns the dot; the rest PR glyph + full four-register card
+// carry the PR story) AND a reconciled claude chat (so the conversation-fork
+// affordance renders — 260806-s4av). @2: plain scratch window (gray "idle"
+// dot, no glyph, out-register-only card, no fork link).
 const sessionsPayload = JSON.stringify([
   {
     name: "dev",
@@ -122,8 +123,10 @@ test.describe("Row flyout card (fine pointer)", () => {
     await prRow(page).hover();
     await expect(card(page)).toBeVisible();
 
-    // Content: dot-label header + the four registers + freshness + links.
-    await expect(card(page)).toContainText("PR — open");
+    // Content: dot-label header (hue word + status word + waiting suffix — no
+    // PR words; the pr register below carries the PR) + the four registers +
+    // freshness + links.
+    await expect(card(page)).toContainText("building — active — agent waiting 3m");
     await expect(page.getByTestId("row-flyout-out")).toContainText("out");
     await expect(page.getByTestId("row-flyout-agt")).toContainText("waiting 3m");
     await expect(page.getByTestId("row-flyout-fab")).toContainText(
@@ -176,7 +179,7 @@ test.describe("Row flyout card (fine pointer)", () => {
 
   test("moving between rows retargets the card (warm window, single card)", async ({ page }) => {
     await prRow(page).hover();
-    await expect(card(page)).toContainText("PR — open");
+    await expect(card(page)).toContainText("building — active");
 
     // Sweep to the sibling row: the first card closes and the sibling's opens
     // (warm retarget — no strobing, never two cards).
@@ -262,7 +265,7 @@ test.describe("Row flyout card (fine pointer)", () => {
   }) => {
     await prRow(page).focus();
     await expect(card(page)).toBeVisible();
-    await expect(card(page)).toContainText("PR — open");
+    await expect(card(page)).toContainText("building — active");
 
     // The card's links are Tab-reachable from the focused row
     // (FloatingFocusManager modal={false} + the portal's tab-order guards).
@@ -335,7 +338,7 @@ test.describe("Row flyout card (coarse pointer)", () => {
     // route (@1's select would navigate to /default/1).
     await prRow(page).getByTestId("status-dot-tap").tap();
     await expect(card(page)).toBeVisible();
-    await expect(card(page)).toContainText("PR — open");
+    await expect(card(page)).toContainText("building — active");
     await expect(page).toHaveURL(new RegExp(`/${SERVER}/?$`));
 
     // A touch interaction with the row BODY does not hover-open a card: it

@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { cleanup } from "@testing-library/react";
-import { prDotState, prOwnsDot, prGlyphColor } from "./pr-status-model";
+import { prDotState, prOwnsGlyph, prGlyphColor } from "./pr-status-model";
 import { makeWindow } from "@/test-utils/fixtures";
 
 // NOTE (260715-jykd): the `PrStatusLine` component (and its render tests) were
@@ -62,35 +62,38 @@ describe("prDotState precedence", () => {
   });
 });
 
-// 93dy: prOwnsDot is now exported — the sidebar row's rest-state PR glyph
-// reuses it as its gate (any owned PR: open, failing, merged; never closed).
-describe("prOwnsDot — owned-PR gate", () => {
+// aqo6: `prOwnsDot` renamed `prOwnsGlyph` — after PR eviction the predicate
+// gates ONLY the rest-state PR glyph (window row + session tiles), never any
+// dot tier. Same semantics: any owned PR (open, failing, merged); never closed.
+describe("prOwnsGlyph — owned-PR gate", () => {
   it("owns for an open PR", () => {
-    expect(prOwnsDot(makeWindow({ prNumber: 7, prState: "open" }))).toBe(true);
+    expect(prOwnsGlyph(makeWindow({ prNumber: 7, prState: "open" }))).toBe(true);
   });
 
-  it("owns for a merged PR (durable done square)", () => {
-    expect(prOwnsDot(makeWindow({ prNumber: 7, prState: "merged" }))).toBe(true);
+  it("owns for a merged PR (durable purple glyph)", () => {
+    expect(prOwnsGlyph(makeWindow({ prNumber: 7, prState: "merged" }))).toBe(true);
   });
 
   it("owns for a failing open PR", () => {
-    expect(prOwnsDot(makeWindow({ prNumber: 7, prState: "open", prChecks: "fail" }))).toBe(true);
+    expect(prOwnsGlyph(makeWindow({ prNumber: 7, prState: "open", prChecks: "fail" }))).toBe(true);
   });
 
   it("never owns for a closed-unmerged PR (D2)", () => {
-    expect(prOwnsDot(makeWindow({ prNumber: 7, prState: "closed" }))).toBe(false);
+    expect(prOwnsGlyph(makeWindow({ prNumber: 7, prState: "closed" }))).toBe(false);
   });
 
   it("never owns without a prNumber", () => {
-    expect(prOwnsDot(makeWindow({ prState: "open" }))).toBe(false);
-    expect(prOwnsDot(makeWindow({}))).toBe(false);
+    expect(prOwnsGlyph(makeWindow({ prState: "open" }))).toBe(false);
+    expect(prOwnsGlyph(makeWindow({}))).toBe(false);
   });
 });
 
-// 93dy: glyph color follows the shared vocabulary — red ONLY for fail-ish,
-// then gray for an OPEN DRAFT (e30p), then GitHub-style by state: green for
-// open, purple for merged. The draft branch is gated on `prState === "open"`,
-// so it only ever displaces the open-green case.
+// 93dy → aqo6: glyph color follows the shared vocabulary — a FIVE-way chain:
+// red ONLY for fail-ish, then gray for an OPEN DRAFT (e30p), then YELLOW for
+// open with checks pending (the checks-running state that replaced the dot's
+// retired purple pending ring), then GitHub-style by state: green for open,
+// purple for merged. The draft branch is gated on `prState === "open"` and
+// sits ABOVE pending, so drafts stay muted even while their checks run.
 describe("prGlyphColor — rest-glyph color mapping", () => {
   it("open + passing checks → green", () => {
     expect(prGlyphColor(makeWindow({ prNumber: 7, prState: "open", prChecks: "pass" }))).toBe(
@@ -104,8 +107,15 @@ describe("prGlyphColor — rest-glyph color mapping", () => {
     );
   });
 
-  it("checks pending → green (pending is not failure, open wins)", () => {
+  it("checks pending → yellow (checks running — the NEW glyph state)", () => {
     expect(prGlyphColor(makeWindow({ prNumber: 7, prState: "open", prChecks: "pending" }))).toBe(
+      "text-yellow-400",
+    );
+  });
+
+  it("open with no decisive checks signal → green (pending requires prChecks === 'pending')", () => {
+    expect(prGlyphColor(makeWindow({ prNumber: 7, prState: "open" }))).toBe("text-accent-green");
+    expect(prGlyphColor(makeWindow({ prNumber: 7, prState: "open", prChecks: "none" }))).toBe(
       "text-accent-green",
     );
   });
@@ -125,8 +135,8 @@ describe("prGlyphColor — rest-glyph color mapping", () => {
   });
 
   // e30p: the draft branch — gray, below fail, gated on `prState === "open"`.
-  // Glyph-only: the DOT still reads a passing draft as `healthy` (green means
-  // health, not merge-readiness), so the two surfaces deliberately disagree.
+  // Glyph-only by construction post-eviction: the DOT never renders PR state
+  // at all, so draft (like every PR fact) lives solely on the glyph.
   it("open + draft → gray (GitHub renders drafts gray; the inert token)", () => {
     expect(
       prGlyphColor(makeWindow({ prNumber: 7, prState: "open", prIsDraft: true, prChecks: "pass" })),
@@ -153,7 +163,7 @@ describe("prGlyphColor — rest-glyph color mapping", () => {
     ).toBe("text-red-400");
   });
 
-  it("draft + checks pending → gray (draft sits above the open-green branch)", () => {
+  it("draft + checks pending → gray (draft outranks the pending-yellow branch)", () => {
     expect(
       prGlyphColor(
         makeWindow({ prNumber: 7, prState: "open", prIsDraft: true, prChecks: "pending" }),

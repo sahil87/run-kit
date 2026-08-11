@@ -126,7 +126,7 @@ describe("CmdK Move Window Actions", () => {
     openPalette();
 
     // Filter to Move up, then Enter
-    const input = screen.getByPlaceholderText("Type a command...");
+    const input = screen.getByPlaceholderText(/^Type a command/);
     fireEvent.change(input, { target: { value: "Move up" } });
     fireEvent.keyDown(input, { key: "Enter" });
 
@@ -146,7 +146,7 @@ describe("CmdK Move Window Actions", () => {
     render(<CommandPalette actions={actions} />);
     openPalette();
 
-    const input = screen.getByPlaceholderText("Type a command...");
+    const input = screen.getByPlaceholderText(/^Type a command/);
     fireEvent.change(input, { target: { value: "Move down" } });
     fireEvent.keyDown(input, { key: "Enter" });
 
@@ -251,7 +251,7 @@ describe("CmdK Move Window to Session Actions", () => {
     render(<CommandPalette actions={actions} />);
     openPalette();
 
-    const input = screen.getByPlaceholderText("Type a command...");
+    const input = screen.getByPlaceholderText(/^Type a command/);
     fireEvent.change(input, { target: { value: "Move to bravo" } });
     fireEvent.keyDown(input, { key: "Enter" });
 
@@ -311,7 +311,7 @@ describe("CmdK Session Creation Actions", () => {
     render(<CommandPalette actions={actions} />);
     openPalette();
 
-    const input = screen.getByPlaceholderText("Type a command...");
+    const input = screen.getByPlaceholderText(/^Type a command/);
     fireEvent.change(input, { target: { value: "Session: Create" } });
     fireEvent.keyDown(input, { key: "Enter" });
 
@@ -327,7 +327,7 @@ describe("CmdK Session Creation Actions", () => {
     render(<CommandPalette actions={actions} />);
     openPalette();
 
-    const input = screen.getByPlaceholderText("Type a command...");
+    const input = screen.getByPlaceholderText(/^Type a command/);
     fireEvent.change(input, { target: { value: "Create at Folder" } });
 
     expect(screen.getByText("Session: Create at Folder")).toBeInTheDocument();
@@ -347,7 +347,7 @@ describe("CmdK Session Creation Actions", () => {
     render(<CommandPalette actions={actions} />);
     openPalette();
 
-    const input = screen.getByPlaceholderText("Type a command...");
+    const input = screen.getByPlaceholderText(/^Type a command/);
     fireEvent.change(input, { target: { value: "create" } });
 
     expect(screen.getByText("Session: Create")).toBeInTheDocument();
@@ -396,7 +396,7 @@ describe("CmdK Window At-Folder Action", () => {
     render(<CommandPalette actions={actions} />);
     openPalette();
 
-    const input = screen.getByPlaceholderText("Type a command...");
+    const input = screen.getByPlaceholderText(/^Type a command/);
     fireEvent.change(input, { target: { value: "Window: Create at Folder" } });
     fireEvent.keyDown(input, { key: "Enter" });
 
@@ -488,7 +488,7 @@ describe("CmdK Window Switch Actions", () => {
     render(<CommandPalette actions={actions} />);
     openPalette();
 
-    const input = screen.getByPlaceholderText("Type a command...");
+    const input = screen.getByPlaceholderText(/^Type a command/);
     fireEvent.change(input, { target: { value: "logs" } });
     fireEvent.keyDown(input, { key: "Enter" });
 
@@ -577,7 +577,7 @@ describe("CmdK View Actions (AppShell palette)", () => {
     const actions = buildViewStaticActions({ onRefresh });
     render(<CommandPalette actions={actions} />);
     openPalette();
-    const input = screen.getByPlaceholderText("Type a command...");
+    const input = screen.getByPlaceholderText(/^Type a command/);
     fireEvent.change(input, { target: { value: "Refresh Page" } });
     fireEvent.keyDown(input, { key: "Enter" });
     expect(onRefresh).toHaveBeenCalledOnce();

@@ -128,7 +128,9 @@ describe("HostOverviewPage — Services zone", () => {
   it("renders a 'No services' fallback when the services list is empty", async () => {
     mockServices = [];
     renderPage();
-    expect(screen.getByText("No services")).toBeTruthy();
+    expect(
+      screen.getByText(/^No services/),
+    ).toBeTruthy();
   });
 
   it("renders a tile per service with port primary and process secondary", async () => {
@@ -384,7 +386,7 @@ describe("HostOverviewPage — BOARDS zone", () => {
     renderPage();
     expect(screen.getByText("0 boards")).toBeInTheDocument();
     expect(
-      screen.getByText("Pin a window to start a board"),
+      screen.getByText(/^No boards yet — hover a sidebar window row/),
     ).toBeInTheDocument();
   });
 

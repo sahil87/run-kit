@@ -13,6 +13,8 @@ import { HostMetrics } from "@/components/host-metrics";
 import { useBoards } from "@/hooks/use-boards";
 import { useBoardListReorder } from "@/hooks/use-board-list-reorder";
 import { useServerReorder } from "@/hooks/use-server-reorder";
+import { useKeybindings } from "@/hooks/use-keybindings";
+import { formatCombo } from "@/lib/keybindings";
 import { SectionHeading } from "@/components/section-heading";
 import { Tip } from "@/components/tip";
 import { displayVersion } from "@/lib/palette-version";
@@ -48,6 +50,14 @@ export function HostOverviewPage() {
   const navigate = useNavigate();
   const { addToast } = useToast();
   const hostMetrics = useHostMetrics();
+  // Effective palette chord for the empty-zone education copy (260811-ke2s) —
+  // derived, never hardcoded; the `→ Pin:` clause is omitted when the binding
+  // is unbound/disabled (a hint advertising a dead chord would lie).
+  const { byAction: keybindingsByAction, host: keybindingHost } = useKeybindings();
+  const paletteBinding = keybindingsByAction.get("command-palette");
+  const paletteChord = paletteBinding?.enabled
+    ? formatCombo({ code: paletteBinding.code, tier: paletteBinding.tier }, keybindingHost.platform)
+    : undefined;
   // Instance display name (o7q8): the HOST HEALTH hostname line prefers the
   // settings override; null falls back to the metrics hostname below.
   const { instanceName } = useInstanceName();
@@ -252,7 +262,9 @@ export function HostOverviewPage() {
           {hostMetrics ? (
             <HostMetrics metrics={hostMetrics} />
           ) : (
-            <div className="text-xs text-text-secondary">No metrics</div>
+            // Education copy (260811-ke2s): the zone's fill mechanism is the
+            // daemon's host-metrics stream — there is no user action to name.
+            <div className="text-xs text-text-secondary">No metrics — waiting for the host's first report</div>
           )}
         </section>
 
@@ -274,7 +286,9 @@ export function HostOverviewPage() {
           </div>
           {!boardsLoading && boards.length === 0 ? (
             <div className="text-xs text-text-secondary">
-              Pin a window to start a board
+              {paletteChord
+                ? `No boards yet — hover a sidebar window row and click its 📌, or ${paletteChord} → Pin:`
+                : "No boards yet — hover a sidebar window row and click its 📌"}
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -397,7 +411,10 @@ export function HostOverviewPage() {
         <section aria-label="Services" className="mb-6 max-w-md">
           <SectionHeading label="Services" className="mb-2" />
           {orderedServices.length === 0 ? (
-            <div className="text-xs text-text-secondary">No services</div>
+            // Education copy (260811-ke2s): the zone's fill mechanism is the
+            // backend's passive listening-port enumeration — no config source
+            // exists to point at.
+            <div className="text-xs text-text-secondary">No services — listening TCP ports appear here automatically</div>
           ) : (
             <div className="flex flex-col gap-1.5">
               {orderedServices.map((svc) => (

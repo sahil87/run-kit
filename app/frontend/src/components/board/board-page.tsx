@@ -34,7 +34,7 @@ import { selectLivePanes } from "./select-live-panes";
 import { useBoardPaneReorder } from "@/hooks/use-board-pane-reorder";
 import { computeMoveNeighbors, focusedIndexForKey, shouldFocusPane } from "@/lib/board-reorder";
 import { isWaiting } from "@/lib/waiting";
-import { withShortcutHints } from "@/lib/keybindings";
+import { withShortcutHints, formatCombo } from "@/lib/keybindings";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { useKeybindingDispatch } from "@/hooks/use-keybinding-dispatch";
 import { ShortcutsOverlay } from "@/components/shortcuts-overlay";
@@ -454,6 +454,15 @@ function BoardPageContent({ name }: { name: string }) {
   };
 
   const showEmptyState = !isLoading && entries.length === 0;
+
+  // Effective palette chord for the empty state's education copy
+  // (260811-ke2s) — derived, never hardcoded; the `→ Pin:` clause is omitted
+  // when the binding is unbound/disabled (a hint advertising a dead chord
+  // would lie).
+  const paletteBinding = bindingByAction.get("command-palette");
+  const paletteChord = paletteBinding?.enabled
+    ? formatCombo({ code: paletteBinding.code, tier: paletteBinding.tier }, bindingHost.platform)
+    : undefined;
 
   // Update notification (lifted above boardRouteActions so the qualify state +
   // triggers are in scope for the palette memo). Below `sm` the top-bar L3
@@ -1164,7 +1173,9 @@ function BoardPageContent({ name }: { name: string }) {
           ) : showEmptyState ? (
             <div className="p-4 flex flex-col items-start gap-2">
               <p className="text-sm text-text-secondary">
-                No panes pinned to this board yet. Pin a window from the sidebar.
+                {paletteChord
+                  ? `No panes pinned to this board yet — hover a sidebar window row and click its 📌, or ${paletteChord} → Pin:`
+                  : "No panes pinned to this board yet — hover a sidebar window row and click its 📌"}
               </p>
               <Link to="/" className="text-sm text-accent hover:underline">
                 ← Back to sessions

@@ -232,7 +232,7 @@ test.describe("Sidebar window-row multi-select", () => {
     const actionLabel = "Selection: Close 2 windows";
     const confirmLabel = "Close 2 windows — Enter to confirm";
     await page.keyboard.press("Meta+k");
-    let paletteInput = page.getByPlaceholder("Type a command...");
+    let paletteInput = page.getByPlaceholder("Type a command");
     await paletteInput.fill(actionLabel);
     await page.keyboard.press("Enter");
     await expect(page.getByRole("option", { name: confirmLabel })).toBeVisible();
@@ -250,7 +250,7 @@ test.describe("Sidebar window-row multi-select", () => {
     );
 
     await page.keyboard.press("Meta+k");
-    paletteInput = page.getByPlaceholder("Type a command...");
+    paletteInput = page.getByPlaceholder("Type a command");
     await paletteInput.fill(actionLabel);
     await page.keyboard.press("Enter");
     await expect(page.getByRole("option", { name: confirmLabel })).toBeVisible();
@@ -317,7 +317,7 @@ test.describe("Sidebar window-row multi-select", () => {
     }
     const actionLabel = "Selection: Send prompt to 2 agents";
     await page.keyboard.press("Meta+k");
-    const paletteInput = page.getByPlaceholder("Type a command...");
+    const paletteInput = page.getByPlaceholder("Type a command");
     await paletteInput.fill(actionLabel);
     await page.keyboard.press("Enter");
 
@@ -383,7 +383,7 @@ test.describe("Sidebar window-row multi-select", () => {
     // Run the per-target-session palette entry.
     const label = `Selection: Move 2 windows to ${DST_SESSION}`;
     await page.keyboard.press("Meta+k");
-    const paletteInput = page.getByPlaceholder("Type a command...");
+    const paletteInput = page.getByPlaceholder("Type a command");
     await expect(paletteInput).toBeVisible({ timeout: 5_000 });
     await paletteInput.fill(label);
     await expect(page.getByRole("option", { name: label })).toBeVisible({

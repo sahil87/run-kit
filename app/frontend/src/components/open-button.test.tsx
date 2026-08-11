@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, act } from "@testing-library/react";
 import { OpenButton, OpenMenuRows } from "./open-button";
 import { ToastProvider } from "./toast";
+import { TIP_OPEN_DELAY_MS } from "@/components/tip";
 import { openInApp } from "@/api/client";
 import { LAST_USED_OPEN_TARGET_KEY, type OpenTarget } from "@/lib/open-in-app";
 
@@ -266,5 +267,46 @@ describe("OpenMenuRows", () => {
         .getByRole("menuitem", { name: "Open: iTerm (on host)" })
         .querySelector("svg[data-icon='app']"),
     ).not.toBeNull();
+  });
+});
+
+describe("OpenButton primary tip kbd (260811-ke2s)", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.mocked(openInApp).mockClear();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+  });
+
+  it("carries the registry-resolved open-last-used keycap on the primary tip", () => {
+    localStorage.setItem(LAST_USED_OPEN_TARGET_KEY, "host:iterm");
+    renderButton([deeplinkTarget, hostTarget]);
+    const primary = screen.getByRole("button", { name: "Open in iTerm" });
+    act(() => {
+      fireEvent.mouseEnter(primary);
+      vi.advanceTimersByTime(TIP_OPEN_DELAY_MS);
+    });
+    const tooltip = screen.getByRole("tooltip");
+    expect(tooltip).toHaveTextContent("Open in iTerm");
+    // jsdom's platform resolves "other" — ⇧O default renders as Shift+Ctrl+O.
+    expect(tooltip.querySelector("kbd")).toHaveTextContent("Shift+Ctrl+O");
+  });
+
+  it("omits the keycap chip when open-last-used is unbound — a dead chord would lie", () => {
+    localStorage.setItem("runkit-keybindings", JSON.stringify({ "open-last-used": null }));
+    localStorage.setItem(LAST_USED_OPEN_TARGET_KEY, "host:iterm");
+    renderButton([deeplinkTarget, hostTarget]);
+    const primary = screen.getByRole("button", { name: "Open in iTerm" });
+    act(() => {
+      fireEvent.mouseEnter(primary);
+      vi.advanceTimersByTime(TIP_OPEN_DELAY_MS);
+    });
+    const tooltip = screen.getByRole("tooltip");
+    expect(tooltip).toHaveTextContent("Open in iTerm");
+    expect(tooltip.querySelector("kbd")).toBeNull();
   });
 });

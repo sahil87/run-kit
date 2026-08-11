@@ -14,6 +14,8 @@ import {
   type OpenTarget,
 } from "@/lib/open-in-app";
 import { Tip } from "@/components/tip";
+import { useKeybindings } from "@/hooks/use-keybindings";
+import { formatCombo } from "@/lib/keybindings";
 
 /**
  * OpenButton — the Conductor-style "Open in app" split-button for the top-bar
@@ -96,6 +98,15 @@ export function OpenButton({
   };
 
   const primaryLabel = lastUsed ? `Open in ${lastUsed.label}` : "Open in app";
+  // Effective `open-last-used` chord (default ⇧O) for the primary tip's kbd
+  // slot (260811-ke2s) — derived from the registry, never hardcoded, and
+  // omitted when the binding is unbound/disabled (a tip advertising a dead
+  // chord would lie).
+  const { byAction: keybindingsByAction, host: keybindingHost } = useKeybindings();
+  const openLastUsedBinding = keybindingsByAction.get("open-last-used");
+  const openLastUsedChord = openLastUsedBinding?.enabled
+    ? formatCombo({ code: openLastUsedBinding.code, tier: openLastUsedBinding.tier }, keybindingHost.platform)
+    : undefined;
   const deeplinks = targets.filter((t) => t.kind === "deeplink");
   const hostTargets = targets.filter((t) => t.kind === "host");
   // The "on host" section header renders only when the menu carries BOTH
@@ -109,7 +120,7 @@ export function OpenButton({
           ViewSwitcher segment-group treatment) so the pair reads as ONE
           control at cluster scale. */}
       <span className="inline-flex items-stretch rounded border border-border overflow-hidden">
-        <Tip label={primaryLabel}>
+        <Tip label={primaryLabel} kbd={openLastUsedChord}>
           <button
             ref={triggerRef}
             type="button"

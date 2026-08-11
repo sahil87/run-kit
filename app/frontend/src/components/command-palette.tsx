@@ -152,7 +152,11 @@ export function CommandPalette({ actions }: CommandPaletteProps) {
           }}
           onKeyDown={handleKeyDown}
           readOnly={confirming !== null}
-          placeholder={confirming ? "Confirm action..." : "Type a command..."}
+          // Placeholder education (260811-ke2s): the prefix namespaces
+          // (Board:/Pin:/View:/Window:) are an entire hidden command system with
+          // no other always-visible surface. Typed prefixes, not chords — so no
+          // coarse-pointer branch.
+          placeholder={confirming ? "Confirm action..." : "Type a command — try Board: Pin: View: Window:"}
           aria-label="Search commands"
           aria-autocomplete="list"
           aria-controls={listId}
@@ -170,7 +174,7 @@ export function CommandPalette({ actions }: CommandPaletteProps) {
         >
           {filtered.length === 0 ? (
             <div className="px-3 py-2 text-xs text-text-secondary">
-              No results
+              No results — try a prefix: Board:, Pin:, View:, Window:
             </div>
           ) : (
             filtered.map((action, i) => (

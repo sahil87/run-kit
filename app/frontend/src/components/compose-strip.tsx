@@ -11,6 +11,7 @@ import {
 import { useFocusedTerminal, type FocusedTerminal } from "@/contexts/focused-terminal-context";
 import { useChromeDispatch } from "@/contexts/chrome-context";
 import { useFileUpload } from "@/hooks/use-file-upload";
+import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import {
   classifyComposeEnter,
   composeSubmitKeycap,
@@ -246,6 +247,23 @@ export function ComposeStrip({
   // selection mode, where recipients may span unrelated worktrees/servers.
   const hasTarget = isSelectionTarget || focused !== null;
   const canUpload = !isSelectionTarget && focused !== null;
+  // Placeholder education (260811-ke2s): the strip's dead space teaches the
+  // Enter policy — and is the sole surfacing of ↑ sent-history recall anywhere
+  // in the UI. Fine pointers only: chord hints never render on touch, so
+  // coarse keeps the pre-existing short strings. The submit keycap comes from
+  // the shared `composeSubmitKeycap()` seam (⌘/Ctrl split); the Enter-policy
+  // chords are classifier-owned (not registry bindings), so a computed static
+  // keycap is the correct form.
+  const coarsePointer = useCoarsePointer();
+  const placeholder = isSelectionTarget
+    ? coarsePointer
+      ? "Compose prompt…"
+      : `Compose prompt — ${composeSubmitKeycap()} sends to all selected`
+    : hasTarget
+      ? coarsePointer
+        ? "Compose text…"
+        : `Compose text — Enter inserts · ${composeSubmitKeycap()} sends · ↑ history`
+      : "No focused terminal — click a pane to target it";
   const { uploadFiles, uploading } = useFileUpload(
     focused?.session ?? "",
     focused?.windowId ?? "",
@@ -762,13 +780,7 @@ export function ComposeStrip({
               ? "Compose prompt to send to selection"
               : "Compose text to send to terminal"
           }
-          placeholder={
-            isSelectionTarget
-              ? "Compose prompt…"
-              : hasTarget
-                ? "Compose text…"
-                : "No focused terminal"
-          }
+          placeholder={placeholder}
           data-testid="compose-strip-input"
           className="w-full min-h-0 resize-none rounded border border-border bg-bg-card px-2 py-1.5 font-mono text-xs text-text-primary placeholder:text-text-secondary outline-none focus:border-accent disabled:opacity-50"
         />

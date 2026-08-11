@@ -161,7 +161,7 @@ test.describe("Open-in-App split-button (260722-6d0f)", () => {
     await expect(openPrimary(page)).toBeVisible({ timeout: 10_000 });
 
     await page.keyboard.press("Meta+k");
-    const paletteInput = page.getByPlaceholder("Type a command...");
+    const paletteInput = page.getByPlaceholder("Type a command");
     await expect(paletteInput).toBeVisible({ timeout: 5_000 });
     await paletteInput.fill("Open:");
     await expect(page.getByRole("option", { name: "Open: VS Code" })).toBeVisible();
@@ -193,7 +193,7 @@ test.describe("Open-in-App split-button (260722-6d0f)", () => {
 
     // No Open: palette entries.
     await page.keyboard.press("Meta+k");
-    const paletteInput = page.getByPlaceholder("Type a command...");
+    const paletteInput = page.getByPlaceholder("Type a command");
     await expect(paletteInput).toBeVisible({ timeout: 5_000 });
     await paletteInput.fill("Open:");
     await expect(page.getByRole("option", { name: /^Open:/ })).toHaveCount(0);

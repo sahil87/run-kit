@@ -289,7 +289,7 @@ describe("CmdK Board Actions", () => {
     render(<CommandPalette actions={actions} />);
     openPalette();
     // Filter to deploy entry to get a deterministic Enter target.
-    const input = screen.getByPlaceholderText("Type a command...");
+    const input = screen.getByPlaceholderText(/^Type a command/);
     fireEvent.change(input, { target: { value: "deploy" } });
     fireEvent.keyDown(input, { key: "Enter" });
     expect(onSwitch).toHaveBeenCalledWith("deploy");
@@ -324,7 +324,7 @@ describe("CmdK Board Actions", () => {
     });
     render(<CommandPalette actions={actions} />);
     openPalette();
-    const input = screen.getByPlaceholderText("Type a command...");
+    const input = screen.getByPlaceholderText(/^Type a command/);
     fireEvent.change(input, { target: { value: "Refresh Page" } });
     fireEvent.keyDown(input, { key: "Enter" });
     expect(onRefresh).toHaveBeenCalledOnce();
@@ -365,7 +365,7 @@ describe("CmdK Board Actions", () => {
     });
     render(<CommandPalette actions={actions} />);
     openPalette();
-    const input = screen.getByPlaceholderText("Type a command...");
+    const input = screen.getByPlaceholderText(/^Type a command/);
     fireEvent.change(input, { target: { value: "Dismiss Update Notice" } });
     fireEvent.keyDown(input, { key: "Enter" });
     expect(onDismissUpdate).toHaveBeenCalledOnce();
@@ -406,7 +406,7 @@ describe("CmdK Board Actions", () => {
     });
     render(<CommandPalette actions={actions} />);
     openPalette();
-    const input = screen.getByPlaceholderText("Type a command...");
+    const input = screen.getByPlaceholderText(/^Type a command/);
     fireEvent.change(input, { target: { value: "Unpin Focused" } });
     fireEvent.keyDown(input, { key: "Enter" });
     expect(onUnpinFocused).toHaveBeenCalledOnce();
@@ -451,7 +451,7 @@ describe("CmdK Board Actions", () => {
     });
     render(<CommandPalette actions={actions} />);
     openPalette();
-    const input = screen.getByPlaceholderText("Type a command...");
+    const input = screen.getByPlaceholderText(/^Type a command/);
     fireEvent.change(input, { target: { value: "Split Focused Pane Vertical" } });
     fireEvent.keyDown(input, { key: "Enter" });
     expect(onSplitVertical).toHaveBeenCalledOnce();
@@ -468,7 +468,7 @@ describe("CmdK Board Actions", () => {
     });
     render(<CommandPalette actions={actions} />);
     openPalette();
-    const input = screen.getByPlaceholderText("Type a command...");
+    const input = screen.getByPlaceholderText(/^Type a command/);
     fireEvent.change(input, { target: { value: "Close Focused Pane" } });
     fireEvent.keyDown(input, { key: "Enter" });
     expect(onCloseFocused).toHaveBeenCalledOnce();
@@ -508,7 +508,7 @@ describe("CmdK Board Actions", () => {
     });
     render(<CommandPalette actions={actions} />);
     openPalette();
-    const input = screen.getByPlaceholderText("Type a command...");
+    const input = screen.getByPlaceholderText(/^Type a command/);
     fireEvent.change(input, { target: { value: "Go: Host" } });
     fireEvent.keyDown(input, { key: "Enter" });
     expect(onNavHost).toHaveBeenCalledOnce();

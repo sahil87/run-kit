@@ -382,16 +382,42 @@ describe("Sidebar", () => {
   it("shows empty-state hint row when no sessions", () => {
     const onCreateSession = vi.fn();
     renderSidebar({ sessions: [], onCreateSession });
-    const hint = screen.getByText("(no sessions — + new)");
+    const hint = screen.getByText(/^\(no sessions — \+ new/);
     expect(hint).toBeInTheDocument();
     fireEvent.click(hint);
     expect(onCreateSession).toHaveBeenCalledTimes(1);
   });
 
+  // Placeholder education (260811-ke2s): the no-sessions hint names the
+  // effective `create-session` chord — derived from the registry, never
+  // hardcoded, and dropped when the binding is disabled (a dead chord would
+  // lie). Note: the DEFAULT ⇧Ctrl+N is browser-reserved outside the shell
+  // (Chrome's incognito chord), so jsdom's bare default render omits the
+  // clause; an explicit override makes the derivation observable.
+  it("no-sessions hint names the derived create-session chord", () => {
+    localStorage.setItem(
+      "runkit-keybindings",
+      JSON.stringify({ "create-session": { code: "Comma", tier: "shifted" } }),
+    );
+    renderSidebar({ sessions: [], onCreateSession: vi.fn() });
+    expect(
+      screen.getByText("(no sessions — + new, or Shift+Ctrl+,)"),
+    ).toBeInTheDocument();
+    localStorage.removeItem("runkit-keybindings");
+  });
+
+  it("no-sessions hint drops the chord clause when create-session is unbound", () => {
+    localStorage.setItem("runkit-keybindings", JSON.stringify({ "create-session": null }));
+    renderSidebar({ sessions: [], onCreateSession: vi.fn() });
+    expect(screen.getByText("(no sessions — + new)")).toBeInTheDocument();
+    expect(screen.queryByText(/Shift\+Ctrl\+N/)).not.toBeInTheDocument();
+    localStorage.removeItem("runkit-keybindings");
+  });
+
   it("empty-state hint click calls onCreateSession directly (no dialog)", () => {
     const onCreateSession = vi.fn();
     renderSidebar({ sessions: [], onCreateSession });
-    fireEvent.click(screen.getByText("(no sessions — + new)"));
+    fireEvent.click(screen.getByText(/^\(no sessions — \+ new/));
     expect(onCreateSession).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });

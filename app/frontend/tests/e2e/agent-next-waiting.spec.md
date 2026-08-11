@@ -18,7 +18,7 @@ are waiting.
     (test 2).
   - The terminals mux WebSocket (`/ws/terminals`) is stubbed.
 - `runNextWaiting(page)` opens the palette (`Meta+k`), fills "Agent: Next
-  waiting" into the `Type a command...` input, and presses Enter.
+  waiting" into the `Type a command` input, and presses Enter.
 
 ## Tests
 

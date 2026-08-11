@@ -31,7 +31,7 @@ test.describe("Create server → waiting → view (no 'Server not found' flash)"
 
     // Open the command palette and trigger "Server: Create".
     await page.keyboard.press("Meta+k");
-    const paletteInput = page.getByPlaceholder("Type a command...");
+    const paletteInput = page.getByPlaceholder("Type a command");
     await expect(paletteInput).toBeVisible({ timeout: 5_000 });
     await paletteInput.fill("Server: Create");
     await page.keyboard.press("Enter");

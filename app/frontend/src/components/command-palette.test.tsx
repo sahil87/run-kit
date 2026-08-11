@@ -27,21 +27,21 @@ describe("CommandPalette", () => {
     const actions = makeActions(["New Session"]);
     render(<CommandPalette actions={actions} />);
     openPalette();
-    expect(screen.getByPlaceholderText("Type a command...")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/^Type a command/)).toBeInTheDocument();
   });
 
   it("focuses the search input when opened", () => {
     const actions = makeActions(["New Session"]);
     render(<CommandPalette actions={actions} />);
     openPalette();
-    expect(screen.getByPlaceholderText("Type a command...")).toHaveFocus();
+    expect(screen.getByPlaceholderText(/^Type a command/)).toHaveFocus();
   });
 
   it("opens on Ctrl+K", () => {
     const actions = makeActions(["New Session"]);
     render(<CommandPalette actions={actions} />);
     fireEvent.keyDown(document, { key: "k", code: "KeyK", ctrlKey: true });
-    expect(screen.getByPlaceholderText("Type a command...")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/^Type a command/)).toBeInTheDocument();
   });
 
   it("filters actions by search query (case-insensitive)", () => {
@@ -49,7 +49,7 @@ describe("CommandPalette", () => {
     render(<CommandPalette actions={actions} />);
     openPalette();
 
-    const input = screen.getByPlaceholderText("Type a command...");
+    const input = screen.getByPlaceholderText(/^Type a command/);
     fireEvent.change(input, { target: { value: "new" } });
 
     expect(screen.getByText("New Session")).toBeInTheDocument();
@@ -62,10 +62,10 @@ describe("CommandPalette", () => {
     render(<CommandPalette actions={actions} />);
     openPalette();
 
-    const input = screen.getByPlaceholderText("Type a command...");
+    const input = screen.getByPlaceholderText(/^Type a command/);
     fireEvent.change(input, { target: { value: "zzzzz" } });
 
-    expect(screen.getByText("No results")).toBeInTheDocument();
+    expect(screen.getByText(/^No results/)).toBeInTheDocument();
   });
 
   it("selects action with Enter and closes palette", () => {
@@ -73,11 +73,11 @@ describe("CommandPalette", () => {
     render(<CommandPalette actions={actions} />);
     openPalette();
 
-    const input = screen.getByPlaceholderText("Type a command...");
+    const input = screen.getByPlaceholderText(/^Type a command/);
     fireEvent.keyDown(input, { key: "Enter" });
 
     expect(actions[0].onSelect).toHaveBeenCalledOnce();
-    expect(screen.queryByPlaceholderText("Type a command...")).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/^Type a command/)).not.toBeInTheDocument();
   });
 
   it("requires a second Enter for an action with a confirmation label", () => {
@@ -93,7 +93,7 @@ describe("CommandPalette", () => {
     render(<CommandPalette actions={actions} />);
     openPalette();
 
-    fireEvent.keyDown(screen.getByPlaceholderText("Type a command..."), {
+    fireEvent.keyDown(screen.getByPlaceholderText(/^Type a command/), {
       key: "Enter",
     });
 
@@ -123,7 +123,7 @@ describe("CommandPalette", () => {
     render(<CommandPalette actions={actions} />);
     openPalette();
 
-    fireEvent.keyDown(screen.getByPlaceholderText("Type a command..."), {
+    fireEvent.keyDown(screen.getByPlaceholderText(/^Type a command/), {
       key: "Enter",
     });
     fireEvent.keyDown(screen.getByPlaceholderText("Confirm action..."), {
@@ -139,7 +139,7 @@ describe("CommandPalette", () => {
     render(<CommandPalette actions={actions} />);
     openPalette();
 
-    const input = screen.getByPlaceholderText("Type a command...");
+    const input = screen.getByPlaceholderText(/^Type a command/);
 
     fireEvent.keyDown(input, { key: "ArrowDown" });
     fireEvent.keyDown(input, { key: "ArrowDown" });
@@ -153,7 +153,7 @@ describe("CommandPalette", () => {
     render(<CommandPalette actions={actions} />);
     openPalette();
 
-    const input = screen.getByPlaceholderText("Type a command...");
+    const input = screen.getByPlaceholderText(/^Type a command/);
     fireEvent.keyDown(input, { key: "ArrowUp" });
     fireEvent.keyDown(input, { key: "Enter" });
 
@@ -165,10 +165,10 @@ describe("CommandPalette", () => {
     render(<CommandPalette actions={actions} />);
     openPalette();
 
-    const input = screen.getByPlaceholderText("Type a command...");
+    const input = screen.getByPlaceholderText(/^Type a command/);
     fireEvent.keyDown(input, { key: "Escape" });
 
-    expect(screen.queryByPlaceholderText("Type a command...")).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/^Type a command/)).not.toBeInTheDocument();
   });
 
   it("closes on Escape when focus is on an option row (document-level trap)", () => {
@@ -181,7 +181,7 @@ describe("CommandPalette", () => {
     const option = screen.getByText("Kill Window");
     fireEvent.keyDown(option, { key: "Escape" });
 
-    expect(screen.queryByPlaceholderText("Type a command...")).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/^Type a command/)).not.toBeInTheDocument();
   });
 
   it("keeps Tab focus inside the palette (wraps on the sole focusable input)", () => {
@@ -189,7 +189,7 @@ describe("CommandPalette", () => {
     render(<CommandPalette actions={actions} />);
     openPalette();
 
-    const input = screen.getByPlaceholderText("Type a command...");
+    const input = screen.getByPlaceholderText(/^Type a command/);
     expect(input).toHaveFocus();
 
     // The input is the palette's only focusable element, so the trap wraps
@@ -211,7 +211,7 @@ describe("CommandPalette", () => {
 
     fireEvent.click(screen.getByTestId("palette-overlay"));
 
-    expect(screen.queryByPlaceholderText("Type a command...")).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/^Type a command/)).not.toBeInTheDocument();
   });
 
   it("renders shortcut badges when provided", () => {
@@ -228,10 +228,10 @@ describe("CommandPalette", () => {
     const actions = makeActions(["New Session"]);
     render(<CommandPalette actions={actions} />);
     openPalette();
-    expect(screen.getByPlaceholderText("Type a command...")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/^Type a command/)).toBeInTheDocument();
 
     fireEvent.keyDown(document, { key: "k", code: "KeyK", metaKey: true });
-    expect(screen.queryByPlaceholderText("Type a command...")).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/^Type a command/)).not.toBeInTheDocument();
   });
 
   it("shows theme actions with (current) suffix on active preference", () => {
@@ -258,7 +258,7 @@ describe("CommandPalette", () => {
     render(<CommandPalette actions={actions} />);
     openPalette();
 
-    const input = screen.getByPlaceholderText("Type a command...");
+    const input = screen.getByPlaceholderText(/^Type a command/);
     fireEvent.change(input, { target: { value: "theme" } });
 
     expect(screen.getByText("Theme: System")).toBeInTheDocument();
@@ -278,7 +278,7 @@ describe("CommandPalette", () => {
     const scrollSpy = vi.fn();
     (secondOption as unknown as HTMLElement).scrollIntoView = scrollSpy;
 
-    const input = screen.getByPlaceholderText("Type a command...");
+    const input = screen.getByPlaceholderText(/^Type a command/);
     fireEvent.keyDown(input, { key: "ArrowDown" });
 
     const selected = listbox.querySelector('[aria-selected="true"]');
@@ -312,7 +312,7 @@ describe("CommandPalette", () => {
     render(<CommandPalette actions={actions} />);
     openPalette();
 
-    const input = screen.getByPlaceholderText("Type a command...");
+    const input = screen.getByPlaceholderText(/^Type a command/);
     fireEvent.keyDown(input, { key: "Enter" });
 
     expect(writeText).toHaveBeenCalledWith("tmux attach-session -t main:editor");
@@ -332,7 +332,7 @@ describe("CommandPalette", () => {
     render(<CommandPalette actions={actions} />);
     openPalette();
 
-    const input = screen.getByPlaceholderText("Type a command...");
+    const input = screen.getByPlaceholderText(/^Type a command/);
     fireEvent.keyDown(input, { key: "Enter" });
 
     expect(setLight).toHaveBeenCalledOnce();

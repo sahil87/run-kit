@@ -102,7 +102,7 @@ async function gotoTerminal(page: Page) {
 
 async function openViaPalette(page: Page) {
   await page.keyboard.press("Meta+k");
-  const paletteInput = page.getByPlaceholder("Type a command...");
+  const paletteInput = page.getByPlaceholder("Type a command");
   await expect(paletteInput).toBeVisible({ timeout: 5_000 });
   await paletteInput.fill("Agent: Spawn");
   await page.keyboard.press("Enter");

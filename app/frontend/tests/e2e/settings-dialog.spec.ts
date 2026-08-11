@@ -30,7 +30,7 @@ const BOARD_NAME = `set${Date.now().toString().slice(-6)}`;
 const TEST_INSTANCE_NAME = `e2e-name-${Date.now().toString().slice(-6)}`;
 
 async function openPaletteSettings(page: Page) {
-  const paletteInput = page.getByPlaceholder("Type a command...");
+  const paletteInput = page.getByPlaceholder("Type a command");
   // Retry the hotkey: a Meta+K pressed before the global keydown listener
   // attaches (cold dev-server first navigation) is dropped forever — a single
   // long wait on the input can never recover from that.

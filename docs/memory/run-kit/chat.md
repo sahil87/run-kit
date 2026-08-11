@@ -763,7 +763,12 @@ message) plus a `busy` boolean derived from `currentWindow.agentState === "activ
 lens/switcher machinery (`window-view.ts`, `ViewSwitcher`, search-param validation —
 [ui-patterns](/run-kit/ui-patterns.md) § Window Views) is NOT touched. The input UX:
 - An auto-growing monospace `<textarea>` (`.rk-chat-input`, placeholder
-  `Message the agent…`), bounded max-height then internal scroll, plus house-chip
+  `Message the agent — Enter for newline · {submitKeycap} sends` on fine pointers
+  and the short `Message the agent…` on coarse — `{submitKeycap}` is
+  `composeSubmitKeycap()`; chat's plain Enter is a local newline, diverging from
+  the strip, and the placeholder is where the divergence stops surprising —
+  [ui-patterns](/run-kit/ui-patterns.md) § Education micro-copy), bounded
+  max-height then internal scroll, plus house-chip
   (`rk-glint`) **Insert** and **Send** buttons for touch/mouse (Insert left of Send,
   `data-testid="chat-send-insert"`, same enable/disable as Send, `title` documenting
   the Alt+Enter chord). Insert routes through the shared in-flight-locked submission

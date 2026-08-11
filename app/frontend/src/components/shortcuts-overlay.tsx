@@ -1128,7 +1128,7 @@ export function ShortcutsOverlay({
           {/* No hits across every section (mock `#no-hits`). */}
           {filtering && totalHits === 0 && (
             <div className="text-center py-5 text-[11px] italic text-text-secondary">
-              no shortcuts match — try a shorter term
+              no shortcuts match — try a shorter term · the filter spans app, custom &amp; tmux keys
             </div>
           )}
         </div>

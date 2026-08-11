@@ -133,7 +133,7 @@ test.describe("shortcuts overlay", () => {
     await gotoWindowOne(page);
 
     await page.keyboard.press("Meta+k");
-    const paletteInput = page.getByPlaceholder("Type a command...");
+    const paletteInput = page.getByPlaceholder("Type a command");
     await expect(paletteInput).toBeVisible();
     await paletteInput.fill("Help: Keyboard Shortcuts");
     await page.keyboard.press("Enter");
@@ -174,7 +174,7 @@ test.describe("shortcuts overlay", () => {
     await gotoWindowOne(page);
 
     await page.keyboard.press("Meta+k");
-    const paletteInput = page.getByPlaceholder("Type a command...");
+    const paletteInput = page.getByPlaceholder("Type a command");
     await expect(paletteInput).toBeVisible();
     await paletteInput.fill("tmux Keybindings");
     await expect(page.getByText("Help: tmux Keybindings")).toHaveCount(0);
@@ -216,7 +216,7 @@ test.describe("palette hints", () => {
     await gotoWindowOne(page);
 
     await page.keyboard.press("Meta+k");
-    const paletteInput = page.getByPlaceholder("Type a command...");
+    const paletteInput = page.getByPlaceholder("Type a command");
     await expect(paletteInput).toBeVisible();
     await paletteInput.fill("Agent: Next waiting");
     // Playwright runs a non-mac browser host → "Shift+Ctrl+A".
@@ -348,7 +348,7 @@ test.describe("split chords (260807-rbx5)", () => {
     await gotoWindowOne(page);
 
     await page.keyboard.press("Meta+k");
-    const paletteInput = page.getByPlaceholder("Type a command...");
+    const paletteInput = page.getByPlaceholder("Type a command");
     await expect(paletteInput).toBeVisible();
     await paletteInput.fill("Window: Split");
     await expect(page.getByText("Window: Split Horizontal")).toBeVisible();

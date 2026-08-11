@@ -111,8 +111,8 @@ listing.
 5. Arm a `waitForRequest` for the click-triggered `POST /api/windows/<id>/kill`,
    click the dialog's exact `Kill` button, and await that request.
 6. Assert the `win-b` tile disappears from the DOM (`toHaveCount(0)`) and the
-   `No panes pinned to this board yet.` empty-state becomes visible — the
-   load-bearing self-heal-refetch assertion.
+   `No panes pinned to this board yet — hover a sidebar window row` empty-state
+   becomes visible — the load-bearing self-heal-refetch assertion.
 7. Poll `GET /api/boards` until the board disappears.
 
 ### the Kill dialog's `Unpin instead` unpins (POST /unpin) without killing the window

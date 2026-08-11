@@ -36,6 +36,7 @@ import { useWindowRename } from "@/hooks/use-window-rename";
 import { useWindowPins } from "@/hooks/use-window-pins";
 import { useSessionsScope } from "@/hooks/use-sessions-scope";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import { useChromeState } from "@/contexts/chrome-context";
 import { useActiveBoardName } from "@/hooks/use-active-board";
 import { useMergedSessions } from "@/contexts/optimistic-context";
@@ -1713,6 +1714,9 @@ function SelectionIndicator({
   const paletteChord = paletteBinding?.enabled
     ? formatCombo({ code: paletteBinding.code, tier: paletteBinding.tier }, keybindingHost.platform)
     : undefined;
+  // ⇧click extension is a keyboard/mouse gesture — the hint never renders on
+  // coarse pointers (the app's chord-hints-off-touch rule, 260811-ke2s).
+  const coarsePointer = useCoarsePointer();
   if (count === 0) return null;
   return (
     <div
@@ -1721,8 +1725,9 @@ function SelectionIndicator({
       className="shrink-0 border-t border-border px-2 py-1 text-[10px] font-mono text-text-secondary truncate"
     >
       <span className="text-text-primary">{count} selected</span>
+      {coarsePointer ? "" : " · ⇧click extends"}
       {" · x to toggle"}
-      {hasSelectionActions && paletteChord ? ` · ${paletteChord} to act` : ""}
+      {hasSelectionActions && paletteChord ? ` · ${paletteChord} → Selection:` : ""}
       {" · Esc to clear"}
     </div>
   );
@@ -2135,6 +2140,16 @@ function ServerGroupInner(props: ServerGroupProps) {
     onSessionReorderEnd,
   } = props;
 
+  // Effective `create-session` chord for the no-sessions empty state's
+  // education copy (260811-ke2s) — derived, never hardcoded, and omitted when
+  // the binding is unbound/disabled (a hint advertising a dead chord would
+  // lie; the shortcuts overlay's sheetChord rule).
+  const { byAction: groupByAction, host: groupHost } = useKeybindings();
+  const createSessionBinding = groupByAction.get("create-session");
+  const createSessionChord = createSessionBinding?.enabled
+    ? formatCombo({ code: createSessionBinding.code, tier: createSessionBinding.tier }, groupHost.platform)
+    : undefined;
+
   // Sync this server's session windows into the global window store. The
   // window store is what `useMergedSessions` reads to compose `MergedSession`
   // entries with ghost/rename overlays. Without this sync per-server,
@@ -2424,7 +2439,9 @@ function ServerGroupInner(props: ServerGroupProps) {
               onClick={() => onCreateSession(server)}
               className="block w-full pl-2 pr-2 py-1 text-left text-xs text-text-secondary hover:text-text-primary hover:bg-bg-card/30 transition-colors"
             >
-              (no sessions — + new)
+              {createSessionChord
+                ? `(no sessions — + new, or ${createSessionChord})`
+                : "(no sessions — + new)"}
             </button>
           ) : (
             orderedSessions.map((session, sessionIdx) => {

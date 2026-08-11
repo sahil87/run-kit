@@ -103,7 +103,7 @@ test.describe("Boards: Pin flow", () => {
 
     // Open the command palette and run the direct-pin action.
     await page.keyboard.press("Meta+k");
-    const paletteInput = page.getByPlaceholder("Type a command...");
+    const paletteInput = page.getByPlaceholder("Type a command");
     await expect(paletteInput).toBeVisible({ timeout: 5_000 });
     await paletteInput.fill(`Pin: Current Window to ${board}`);
     // The direct-pin entry only exists once useBoards' fetch and the

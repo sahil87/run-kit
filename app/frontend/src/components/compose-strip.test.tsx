@@ -293,6 +293,40 @@ describe("ComposeStrip", () => {
     expect(insertBtn().parentElement).toBe(sendBtn().parentElement);
   });
 
+  // Placeholder education (260811-ke2s): the placeholder teaches the strip's
+  // Enter policy — mode-aware (terminal vs selection broadcast), pointer-aware
+  // (chord hints never render on coarse pointers), and the sole surfacing of
+  // ↑ sent-history recall. jsdom's platform resolves "other" (no mac UA), so
+  // the submit keycap is `Ctrl+Enter` here.
+  it("educates via placeholder on a terminal target (fine pointer): Enter inserts · keycap sends · ↑ history", () => {
+    stubPointer(false);
+    render(<Harness focus={{ wsRef: makeWs().ref, server: "srv", session: "sess", windowId: "@1" }} />);
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+    expect(input().placeholder).toBe(
+      "Compose text — Enter inserts · Ctrl+Enter sends · ↑ history",
+    );
+  });
+
+  it("educates via placeholder in selection broadcast (fine pointer): keycap sends to all selected", () => {
+    stubPointer(false);
+    renderSelection(vi.fn().mockResolvedValue(2));
+    expect(input().placeholder).toBe(
+      "Compose prompt — Ctrl+Enter sends to all selected",
+    );
+  });
+
+  it("keeps the short placeholder strings on a coarse pointer (no chord hints on touch)", () => {
+    stubPointer(true);
+    render(<Harness focus={{ wsRef: makeWs().ref, server: "srv", session: "sess", windowId: "@1" }} />);
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+    expect(input().placeholder).toBe("Compose text…");
+  });
+
+  it("names the recovery action in the no-target placeholder", () => {
+    render(<Harness focus={null} />);
+    expect(input().placeholder).toBe("No focused terminal — click a pane to target it");
+  });
+
   it("shows the focused window name as the target label", () => {
     seedWindow("srv", "@1", "my-window");
     render(<Harness focus={{ wsRef: makeWs().ref, server: "srv", session: "sess", windowId: "@1" }} />);

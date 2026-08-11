@@ -60,7 +60,7 @@ async function mockBackend(page: Page, withWaiting: boolean) {
 
 async function runNextWaiting(page: Page) {
   await page.keyboard.press("Meta+k");
-  const paletteInput = page.getByPlaceholder("Type a command...");
+  const paletteInput = page.getByPlaceholder("Type a command");
   await expect(paletteInput).toBeVisible({ timeout: 5_000 });
   await paletteInput.fill("Agent: Next waiting");
   await page.keyboard.press("Enter");

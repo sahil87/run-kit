@@ -1,0 +1,9 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-11T07:45:53Z"}
+{"args":"Educate users about hidden features via always-visible micro-copy: placeholders, empty states, rename hint, multi-select hint, open-last-used chord","cmd":"fab-new","event":"command","ts":"2026-08-11T07:45:53Z"}
+{"delta":"+4.6","event":"confidence","score":4.6,"trigger":"calc-score","ts":"2026-08-11T07:48:03Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-11T07:49:27Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-11T07:49:37Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-11T08:14:18Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-11T08:22:40Z"}
+{"event":"review","result":"passed","ts":"2026-08-11T08:22:40Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-11T08:33:50Z"}

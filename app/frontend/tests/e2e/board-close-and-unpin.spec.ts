@@ -152,7 +152,7 @@ test.describe("Boards: tile-header unpin + top-bar consequence-gated Kill (co9z)
     // `executeKillWindow`'s `onSettled` in board-page.tsx) can drop the tile.
     await expect(page.getByText("win-b")).toHaveCount(0, { timeout: 10_000 });
     await expect(
-      page.getByText("No panes pinned to this board yet."),
+      page.getByText("No panes pinned to this board yet — hover a sidebar window row"),
     ).toBeVisible({ timeout: 10_000 });
 
     // ...and the emptied board is dropped from GET /api/boards.

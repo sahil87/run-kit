@@ -285,7 +285,17 @@ function ChatSendForm({
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={onKeyDown}
-          placeholder="Message the agent…"
+          // Placeholder education (260811-ke2s): the chat Enter policy
+          // deliberately diverges from the strip (Enter=newline here), so the
+          // placeholder is where the divergence stops surprising people. Fine
+          // pointers only — chord hints never render on touch; coarse keeps the
+          // pre-existing short string. Submit keycap via the shared
+          // `composeSubmitKeycap()` seam (⌘/Ctrl split).
+          placeholder={
+            coarse
+              ? "Message the agent…"
+              : `Message the agent — Enter for newline · ${composeSubmitKeycap()} sends`
+          }
           aria-label="Message the agent"
           // Truthful hint: Enter inserts a newline on every pointer type
           // (Cmd/Ctrl+Enter submits), so the hint is the default enter action.

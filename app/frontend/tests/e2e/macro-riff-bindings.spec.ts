@@ -163,7 +163,7 @@ test.describe("palette exposure", () => {
     await gotoWindowOne(page);
 
     await page.keyboard.press("Meta+k");
-    const paletteInput = page.getByPlaceholder("Type a command...");
+    const paletteInput = page.getByPlaceholder("Type a command");
     await expect(paletteInput).toBeVisible();
     await paletteInput.fill("Macro");
     await expect(page.getByText("Macro: riff: discuss")).toBeVisible();

@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 6
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-08-11T09:47:13Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-11T09:59:45Z"}
     review: {started_at: "2026-08-11T09:59:45Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-11T10:08:11Z"}
     hydrate: {started_at: "2026-08-11T10:08:11Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-11T10:15:02Z"}
-    ship: {started_at: "2026-08-11T10:15:02Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-08-11T10:15:02Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-11T10:18:53Z"}
+    review-pr: {started_at: "2026-08-11T10:18:53Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/553
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 542
+    deleted: 24
+    net: 518
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 220
+        deleted: 17
+        net: 203
     tests:
         added: 0
         deleted: 0
         net: 0
-    computed_at: "2026-08-11T10:15:02Z"
-    computed_at_stage: hydrate
+    computed_at: "2026-08-11T10:18:53Z"
+    computed_at_stage: ship
 summary: 'ui-patterns.md: six registry-chord tip sites (SplitControl primary), menu-row keycaps (MENU_ROW_KBD_CLASS) on split popover + overflow rows, w-max split menu, palette-before-compose chip order, gated compose education hint, 2 design decisions'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-11T10:15:02Z
+last_updated: 2026-08-11T10:18:53Z

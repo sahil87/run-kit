@@ -3,7 +3,9 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
+	"net"
 	"strings"
 	"sync"
 	"time"
@@ -259,6 +261,21 @@ type sseHub struct {
 	// consumed — so a reconnecting tab never replays a stale consumed match
 	// (R8). Empty until the first check changes the key.
 	cachedUpdateAvailableJSON string
+	// codeServerPort is the configured RK_CODE_SERVER_PORT (0 = unset = the
+	// code lens/surface is OFF and nothing is broadcast). Set post-construction
+	// by initSSEHub from the Server's config seed (the hub's many test
+	// constructions keep the 4-arg newSSEHub shape).
+	codeServerPort int
+	// codeServerProbeAt/codeServerReachable are the TTL-cached reachability
+	// probe result (guarded by h.mu; only the poll loop writes). The probe is a
+	// bare TCP dial of 127.0.0.1:{port} — never a per-request dial
+	// (Constitution X; intake k3vp §2).
+	codeServerProbeAt   time.Time
+	codeServerReachable bool
+	// cachedCodeServerJSON is the latest host-global `event: code-server`
+	// payload ({"port", "reachable"}), replayed on connect like
+	// cachedServicesJSON so late-joining clients see the signal immediately.
+	cachedCodeServerJSON string
 	// prStatus, when non-nil, supplies the in-memory PR-status snapshot the
 	// poll path joins onto change-bound windows. nil degrades gracefully (no
 	// PR fields attached) — used by tests and when no collector is wired.
@@ -494,6 +511,55 @@ func (h *sseHub) sendLocked(c *sseClient, ev hubEvent) {
 	}
 }
 
+// codeServerProbeTTL bounds how often the hub dials the configured code-server
+// port: the probe piggybacks the existing poll cadence and is never a
+// per-request dial (intake k3vp §2, assumption 9 — matches the 5s fab pane-map
+// cache precedent).
+const codeServerProbeTTL = 5 * time.Second
+
+// codeServerDialTimeout bounds the TCP reachability dial. Localhost refused is
+// instant; the timeout covers only a filtered/hung listener so the poll loop
+// never stalls on it.
+const codeServerDialTimeout = 500 * time.Millisecond
+
+// codeServerPayload is the host-global `event: code-server` body: the
+// configured port plus its current reachability. Availability (port configured
+// AND a window's gitRoot derived) is computed client-side; reachability
+// governs only the surface's CONTENT state (live iframe vs the not-running
+// empty state) — spec right-panel.md § Surface Registry (k3vp amendment).
+type codeServerPayload struct {
+	Port      int  `json:"port"`
+	Reachable bool `json:"reachable"`
+}
+
+// codeServerTick returns the configured code-server port and its TTL-cached
+// reachability, re-dialing 127.0.0.1:{port} only when the cache is stale.
+// Called from the poll loop only; (0, false) when the feature is off. The dial
+// itself runs OUTSIDE h.mu so a slow listener never stalls event delivery.
+func (h *sseHub) codeServerTick() (int, bool) {
+	h.mu.RLock()
+	port, at, reachable := h.codeServerPort, h.codeServerProbeAt, h.codeServerReachable
+	h.mu.RUnlock()
+	if port == 0 {
+		return 0, false
+	}
+	if time.Since(at) < codeServerProbeTTL {
+		return port, reachable
+	}
+
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), codeServerDialTimeout)
+	reachable = err == nil
+	if conn != nil {
+		conn.Close()
+	}
+
+	h.mu.Lock()
+	h.codeServerProbeAt = time.Now()
+	h.codeServerReachable = reachable
+	h.mu.Unlock()
+	return port, reachable
+}
+
 // replayGlobalSlots sends the cached host-global slots to a state-socket
 // connection ONCE, right after hello. This is the state-socket counterpart of
 // the per-connect global delivery the old SSE addClient performed. Ordering
@@ -507,6 +573,9 @@ func (h *sseHub) replayGlobalSlots(sc *stateConn) {
 	}
 	if h.cachedServicesJSON != "" {
 		h.sendConnLocked(sc, hubEvent{kind: kindGlobal, typ: "services", data: h.cachedServicesJSON})
+	}
+	if h.cachedCodeServerJSON != "" {
+		h.sendConnLocked(sc, hubEvent{kind: kindGlobal, typ: "code-server", data: h.cachedCodeServerJSON})
 	}
 	if h.cachedServerOrderJSON != "" {
 		h.sendConnLocked(sc, hubEvent{kind: kindGlobal, typ: "server-order", data: h.cachedServerOrderJSON})
@@ -1528,6 +1597,22 @@ func (h *sseHub) poll() {
 				h.mu.Lock()
 				h.cachedServicesJSON = servicesStr
 				h.broadcastGlobalLocked(hubEvent{kind: kindGlobal, typ: "services", data: servicesStr})
+				h.mu.Unlock()
+			}
+		}
+
+		// Broadcast the code-server signal (host-global, every tick when
+		// configured) — mirrors the services broadcast. Reachability comes from
+		// the TTL-cached probe; the payload is replayed to late joiners via
+		// cachedCodeServerJSON. Client-side raw-payload dedup (the services
+		// pattern) absorbs the per-tick repetition.
+		if h.codeServerPort != 0 {
+			port, reachable := h.codeServerTick()
+			if payload, err := json.Marshal(codeServerPayload{Port: port, Reachable: reachable}); err == nil {
+				str := string(payload)
+				h.mu.Lock()
+				h.cachedCodeServerJSON = str
+				h.broadcastGlobalLocked(hubEvent{kind: kindGlobal, typ: "code-server", data: str})
 				h.mu.Unlock()
 			}
 		}

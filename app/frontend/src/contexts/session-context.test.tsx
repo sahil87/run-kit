@@ -6,6 +6,7 @@ import {
   useSessionContext,
   useHostMetrics,
   useHostServices,
+  useCodeServer,
   useMetrics,
   StandaloneSessionContextProvider,
   shouldReloadOnVersion,
@@ -806,6 +807,43 @@ describe("SessionProvider — server-independent host services", () => {
     });
 
     expect(result.current).toEqual([]);
+  });
+});
+
+describe("SessionProvider — code-server signal (260811-k3vp)", () => {
+  it("returns null before the first code-server event (feature off)", async () => {
+    setMockMatches([{ params: {} }]);
+    const { result } = renderHook(() => useCodeServer(), { wrapper: Wrapper });
+    await settle();
+    expect(result.current).toBeNull();
+  });
+
+  it("populates port + reachable from the global event", async () => {
+    setMockMatches([{ params: {} }]);
+    const { result } = renderHook(() => useCodeServer(), { wrapper: Wrapper });
+    await settle();
+
+    act(() => {
+      WS.forHostMetrics()!.emit("code-server", { port: 3939, reachable: true });
+    });
+    expect(result.current).toEqual({ port: 3939, reachable: true });
+
+    // A reachability flip is a new payload — it lands.
+    act(() => {
+      WS.forHostMetrics()!.emit("code-server", { port: 3939, reachable: false });
+    });
+    expect(result.current).toEqual({ port: 3939, reachable: false });
+  });
+
+  it("ignores a malformed code-server event (no numeric port)", async () => {
+    setMockMatches([{ params: {} }]);
+    const { result } = renderHook(() => useCodeServer(), { wrapper: Wrapper });
+    await settle();
+
+    act(() => {
+      WS.forHostMetrics()!.emit("code-server", { port: "3939", reachable: true });
+    });
+    expect(result.current).toBeNull();
   });
 });
 

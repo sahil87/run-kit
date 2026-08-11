@@ -760,6 +760,70 @@ func TestRollupAgentState(t *testing.T) {
 	})
 }
 
+// TestDeriveGitRoot covers the code-lens availability derivation (260811-k3vp):
+// the window's git toplevel from its active pane's cwd, with the
+// first-pane-cwd → worktree-path fallbacks and the non-repo empty case.
+func TestDeriveGitRoot(t *testing.T) {
+	// A temp "repo" (a dir containing .git is enough for FindGitRoot) with a
+	// nested subdir, plus a plain non-repo dir.
+	repo := t.TempDir()
+	if err := os.Mkdir(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sub := filepath.Join(repo, "app", "backend")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	plain := t.TempDir()
+
+	t.Run("active pane cwd inside a repo resolves to the toplevel", func(t *testing.T) {
+		w := &tmux.WindowInfo{
+			Panes: []tmux.PaneInfo{
+				{Cwd: plain},
+				{IsActive: true, Cwd: sub},
+			},
+		}
+		if got := deriveGitRoot(w); got != repo {
+			t.Errorf("got %q, want %q", got, repo)
+		}
+	})
+
+	t.Run("falls back to the first pane's cwd when the active pane's is empty", func(t *testing.T) {
+		w := &tmux.WindowInfo{
+			Panes: []tmux.PaneInfo{
+				{Cwd: sub},
+				{IsActive: true, Cwd: ""}, // active, but blank — must not clobber the seed
+			},
+		}
+		if got := deriveGitRoot(w); got != repo {
+			t.Errorf("got %q, want %q", got, repo)
+		}
+	})
+
+	t.Run("falls back to the worktree path when there are no panes", func(t *testing.T) {
+		w := &tmux.WindowInfo{WorktreePath: sub}
+		if got := deriveGitRoot(w); got != repo {
+			t.Errorf("got %q, want %q", got, repo)
+		}
+	})
+
+	t.Run("non-repo cwd yields empty", func(t *testing.T) {
+		w := &tmux.WindowInfo{
+			Panes: []tmux.PaneInfo{{IsActive: true, Cwd: plain}},
+		}
+		if got := deriveGitRoot(w); got != "" {
+			t.Errorf("got %q, want empty (not a repo)", got)
+		}
+	})
+
+	t.Run("no cwd derivable yields empty", func(t *testing.T) {
+		w := &tmux.WindowInfo{}
+		if got := deriveGitRoot(w); got != "" {
+			t.Errorf("got %q, want empty", got)
+		}
+	})
+}
+
 func TestRollupChat(t *testing.T) {
 	t.Run("active pane wins", func(t *testing.T) {
 		panes := []tmux.PaneInfo{

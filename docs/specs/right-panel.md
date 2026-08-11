@@ -9,9 +9,13 @@
 > panel. Phase 1 — the always-on rail, the panel shell (resize + per-viewer
 > width, hide-never-unmount), and the `web` surface with its toggle chord and
 > palette entry — is **[current]** as of change
-> `260811-2r1w-right-panel-shell-web-surface`; everything else (the `code`
-> lens, the `@rk_owner` companion convention and the `agents` surface, the
-> amber attention dot, mobile) is **[target]**.
+> `260811-2r1w-right-panel-shell-web-surface`; phase 2 — the `code` lens
+> (`?view=code` + the panel's CODE surface), the proxy prerequisites
+> (`SetXForwarded`, the trailing-slash redirect, `allow-downloads`), and the
+> git-root/reachability derivation — is **[current]** as of change
+> `260811-k3vp-right-panel-code-lens`; the `@rk_owner` companion convention and
+> the `agents` surface, the amber attention dot, and mobile remain
+> **[target]**.
 >
 > Companions: [`agent-state.md`](agent-state.md) (the rollup the agents
 > surface feeds), [`status-pyramid.md`](status-pyramid.md) (untouched — status
@@ -54,7 +58,7 @@ Both needs share one substrate: a collapsed-by-default right panel.
 | Surface | Substrate | Lens | Available when |
 |---------|-----------|------|----------------|
 | `web` | current window | `web` | `@rk_url` set — same capability signal as the view registry row |
-| `code` | current window | `code` (new lens, below) | git root derivable from the active pane's cwd AND a code-server endpoint is configured and reachable |
+| `code` | current window | `code` (new lens, below) | git root derivable from the active pane's cwd AND a code-server endpoint configured (`RK_CODE_SERVER_PORT`). **Availability is the two STABLE capability signals only** — code-server *reachability* never gates the button/segment (it would strobe the rail); reachability selects the surface's CONTENT instead: live iframe when up, the "not running on :{port}" empty state when down (amended 2026-08-11, change `260811-k3vp`, resolving the former "configured and reachable" wording's tension with the not-running state) |
 | `agents` | companion window | `tty` | a window with `@rk_owner=<this window's id>` exists |
 
 ### The `code` lens (new view-registry row)

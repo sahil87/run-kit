@@ -112,6 +112,11 @@ export type WindowInfo = {
   prFetchedAt?: string;
   rkType?: string;
   rkUrl?: string;
+  /** The window's git toplevel, derived server-side from the active pane's cwd
+   *  (`internal/sessions` `deriveGitRoot`). Empty/absent when the cwd is not a
+   *  git repo. The per-window half of the code lens/surface availability gate
+   *  (`hasCode`); keyed by git ROOT so editor state follows the code. */
+  gitRoot?: string;
   /** Window-level rollup of the panes' `@rk_chat` pane option (active-pane-first,
    *  else first pane). `chatProvider` is the routing key (e.g. `claude`) and the
    *  SOLE gate for every chat affordance in the UI; `chatSessionRef` is the

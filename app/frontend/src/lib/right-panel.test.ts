@@ -35,6 +35,22 @@ describe("availableSurfaces", () => {
     expect(availableSurfaces(null)).toEqual([]);
     expect(availableSurfaces(undefined)).toEqual([]);
   });
+
+  // The `code` surface (260811-k3vp) mirrors the view registry's gate: gitRoot
+  // derived AND the host's code-server port configured. Registry order is
+  // web-then-code (spec § Surface Registry row order).
+  it("offers code exactly when gitRoot is set AND the port is configured", () => {
+    const codeWin: ViewWindow = { gitRoot: "/repo" };
+    expect(availableSurfaces(codeWin, 8080)).toEqual(["code"]);
+    expect(availableSurfaces({ rkUrl: "http://localhost:8080", gitRoot: "/repo" }, 8080))
+      .toEqual(["web", "code"]);
+  });
+
+  it("gates code off without a port or without a gitRoot", () => {
+    expect(availableSurfaces({ gitRoot: "/repo" })).toEqual([]); // port unset (0)
+    expect(availableSurfaces(plain, 8080)).toEqual([]); // no gitRoot
+    expect(availableSurfaces(null, 8080)).toEqual([]);
+  });
 });
 
 describe("resolvePanel", () => {
@@ -63,6 +79,16 @@ describe("resolvePanel", () => {
     expect(resolvePanel("web", undefined, plain)).toBeNull();
     expect(resolvePanel("web", "web", whitespaceWin)).toBeNull();
     expect(resolvePanel(undefined, "web", null)).toBeNull();
+  });
+
+  // The `code` surface (260811-k3vp): same precedence chain, gated by the
+  // gitRoot ∧ configured-port availability rule.
+  it("resolves code when available, drops it when not", () => {
+    const codeWin: ViewWindow = { gitRoot: "/repo" };
+    expect(resolvePanel("code", undefined, codeWin, 8080)).toBe("code");
+    expect(resolvePanel(undefined, "code", codeWin, 8080)).toBe("code");
+    expect(resolvePanel("code", undefined, codeWin)).toBeNull(); // port unset
+    expect(resolvePanel("code", undefined, plain, 8080)).toBeNull(); // no gitRoot
   });
 });
 

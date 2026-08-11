@@ -101,4 +101,24 @@ func TestLoad(t *testing.T) {
 			t.Errorf("sshHost = %q, want empty", cfg.SSHHost)
 		}
 	})
+
+	t.Run("reads code-server port from env", func(t *testing.T) {
+		t.Setenv("RK_CODE_SERVER_PORT", "8080")
+
+		cfg := Load()
+		if cfg.CodeServerPort != 8080 {
+			t.Errorf("codeServerPort = %d, want 8080", cfg.CodeServerPort)
+		}
+	})
+
+	t.Run("code-server port zero when unset, invalid, or out of range", func(t *testing.T) {
+		for _, v := range []string{"", "notanumber", "0", "99999"} {
+			t.Setenv("RK_CODE_SERVER_PORT", v)
+
+			cfg := Load()
+			if cfg.CodeServerPort != 0 {
+				t.Errorf("RK_CODE_SERVER_PORT=%q: codeServerPort = %d, want 0 (feature off)", v, cfg.CodeServerPort)
+			}
+		}
+	})
 }

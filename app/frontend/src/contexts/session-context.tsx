@@ -272,6 +272,18 @@ const HostMetricsContext = createContext<MetricsSnapshot | null | undefined>(und
 // yet" state (`[]`).
 const HostServicesContext = createContext<Service[] | undefined>(undefined);
 
+/** The host-global code-server signal broadcast as the `code-server` global
+ *  event (260811-k3vp): the configured `RK_CODE_SERVER_PORT` (0 = unset = the
+ *  code lens/surface is off) plus its TTL-cached reachability. Reachability
+ *  governs the surface's CONTENT state only — availability keys off `port`. */
+export type CodeServerSignal = { port: number; reachable: boolean };
+
+// The code-server signal lives in its OWN context (the HostServicesContext
+// precedent): host-global, delivered once per tick, so the per-tick repetition
+// does not cascade re-renders into unrelated consumers. `undefined` = outside
+// provider (throw); `null` = no signal yet OR unconfigured (feature off).
+const CodeServerContext = createContext<CodeServerSignal | null | undefined>(undefined);
+
 type SessionProviderProps = {
   children: React.ReactNode;
 };
@@ -344,6 +356,10 @@ export function SessionProvider({ children }: SessionProviderProps) {
   // (the `services` global event). Empty array until the first tick — never
   // null, so `/` consumers can map over it unconditionally.
   const [hostServices, setHostServices] = useState<Service[]>([]);
+  // Latest host-global code-server signal (the `code-server` event). `null`
+  // until the first event — which never arrives when RK_CODE_SERVER_PORT is
+  // unset, so `null` also means "feature off".
+  const [codeServer, setCodeServer] = useState<CodeServerSignal | null>(null);
   // Running daemon version from the server-global `event: version` (no leading
   // "v"). `null` until the first event. Drives the reload guard + update chip.
   const [daemonVersion, setDaemonVersion] = useState<string | null>(null);
@@ -523,6 +539,16 @@ export function SessionProvider({ children }: SessionProviderProps) {
     if (raw === hostServicesPrevRef.current) return;
     hostServicesPrevRef.current = raw;
     setHostServices(services);
+  }, []);
+
+  // Same raw-payload dedup as `applyHostServices`, for the `code-server` event
+  // (host-global, rebroadcast every tick — the dedup collapses that repetition
+  // to actual port/reachability transitions).
+  const codeServerPrevRef = useRef<string>("");
+  const applyCodeServer = useCallback((raw: string, signal: CodeServerSignal) => {
+    if (raw === codeServerPrevRef.current) return;
+    codeServerPrevRef.current = raw;
+    setCodeServer(signal);
   }, []);
 
   // Apply a host-global `server-order` payload: stamp each named server's rank
@@ -822,6 +848,16 @@ export function SessionProvider({ children }: SessionProviderProps) {
           applyHostServices(JSON.stringify(data), Array.isArray(d.services) ? d.services : []);
           break;
         }
+        case "code-server": {
+          const d = data as { port?: number; reachable?: boolean };
+          if (typeof d.port === "number") {
+            applyCodeServer(JSON.stringify(data), {
+              port: d.port,
+              reachable: d.reachable === true,
+            });
+          }
+          break;
+        }
         case "server-order": {
           const d = data as { order?: string[] };
           if (Array.isArray(d.order)) applyServerOrder(d.order);
@@ -886,7 +922,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
           break;
       }
     },
-    [applyHostMetrics, applyHostServices, applyServerOrder, fireBoardOrder, fireStatusRefresh, applyVersion, applyUpdateAvailable, updateSlice],
+    [applyHostMetrics, applyHostServices, applyCodeServer, applyServerOrder, fireBoardOrder, fireStatusRefresh, applyVersion, applyUpdateAvailable, updateSlice],
   );
 
   // Latest handlers, kept in a ref so the one-time socket-construction effect
@@ -1184,7 +1220,9 @@ export function SessionProvider({ children }: SessionProviderProps) {
       <MetricsContext.Provider value={currentMetrics}>
         <HostMetricsContext.Provider value={hostMetrics}>
           <HostServicesContext.Provider value={hostServices}>
-            {children}
+            <CodeServerContext.Provider value={codeServer}>
+              {children}
+            </CodeServerContext.Provider>
           </HostServicesContext.Provider>
         </HostMetricsContext.Provider>
       </MetricsContext.Provider>
@@ -1396,6 +1434,16 @@ export function useHostMetrics(): MetricsSnapshot | null {
 export function useHostServices(): Service[] {
   const ctx = useContext(HostServicesContext);
   if (ctx === undefined) throw new Error("useHostServices must be used within SessionProvider");
+  return ctx;
+}
+
+/** Host-global code-server signal from the state socket's `code-server` global
+ *  event (260811-k3vp). Available on EVERY route. Returns `null` before the
+ *  first event AND when the feature is unconfigured (the backend broadcasts
+ *  nothing without RK_CODE_SERVER_PORT) — so `null` means "code lens off". */
+export function useCodeServer(): CodeServerSignal | null {
+  const ctx = useContext(CodeServerContext);
+  if (ctx === undefined) throw new Error("useCodeServer must be used within SessionProvider");
   return ctx;
 }
 

@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"fmt"
+	"net"
 	"strings"
 	"sync"
 	"testing"
@@ -213,6 +214,84 @@ func TestSSEHubServicesBroadcast(t *testing.T) {
 			t.Fatal("metrics-only client did not receive an event: services")
 		}
 	}
+}
+
+// TestSSEHubCodeServerBroadcast proves the host-global `event: code-server`
+// signal (260811-k3vp): when a port is configured the poll loop broadcasts
+// {"port", "reachable"} from the TTL-cached probe to EVERY connection
+// (including the metrics-only sentinel), flips to reachable:false after the
+// listener dies and the TTL expires, and stays silent when unconfigured.
+func TestSSEHubCodeServerBroadcast(t *testing.T) {
+	newHub := func(port int) *sseHub {
+		hub := newSSEHub(&slowSessionFetcher{result: []sessions.ProjectSession{}}, nil, nil, nil)
+		hub.codeServerPort = port
+		hub.safetyInterval = 50 * time.Millisecond // cycle the poll loop quickly
+		return hub
+	}
+	waitFor := func(t *testing.T, ch chan hubEvent, want string) {
+		t.Helper()
+		deadline := time.After(3 * time.Second)
+		for {
+			select {
+			case ev := <-ch:
+				if s := ev.String(); strings.HasPrefix(s, "event: code-server") && strings.Contains(s, want) {
+					return
+				}
+			case <-deadline:
+				t.Fatalf("no code-server event containing %s", want)
+			}
+		}
+	}
+
+	t.Run("listener up → reachable true, down → false after TTL", func(t *testing.T) {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		port := ln.Addr().(*net.TCPAddr).Port
+		hub := newHub(port)
+		client := hub.addTestClient(make(chan hubEvent, 16), metricsOnlyServer)
+
+		waitFor(t, client.ch, fmt.Sprintf(`{"port":%d,"reachable":true}`, port))
+
+		// Kill the listener; the probe TTL (5s) must expire before the flip.
+		ln.Close()
+		hub.mu.Lock()
+		hub.codeServerProbeAt = time.Now().Add(-2 * codeServerProbeTTL) // expire the cache
+		hub.mu.Unlock()
+		waitFor(t, client.ch, fmt.Sprintf(`{"port":%d,"reachable":false}`, port))
+	})
+
+	t.Run("late joiner gets the replay slot", func(t *testing.T) {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer ln.Close()
+		port := ln.Addr().(*net.TCPAddr).Port
+		hub := newHub(port)
+		first := hub.addTestClient(make(chan hubEvent, 16), metricsOnlyServer)
+		waitFor(t, first.ch, fmt.Sprintf(`{"port":%d`, port))
+
+		// A second connection is replayed the cached payload from
+		// replayGlobalSlots without waiting for the next tick.
+		sc := &stateConn{ch: make(chan hubEvent, 16), subs: map[string]*sseClient{}}
+		hub.replayGlobalSlots(sc)
+		waitFor(t, sc.ch, fmt.Sprintf(`{"port":%d,"reachable":true}`, port))
+	})
+
+	t.Run("unconfigured port broadcasts nothing", func(t *testing.T) {
+		hub := newHub(0)
+		client := hub.addTestClient(make(chan hubEvent, 16), metricsOnlyServer)
+		select {
+		case ev := <-client.ch:
+			if strings.HasPrefix(ev.String(), "event: code-server") {
+				t.Fatalf("unconfigured port broadcast %q", ev.String())
+			}
+		case <-time.After(300 * time.Millisecond):
+			// pass — several ticks at the 50ms test cadence, no code-server event
+		}
+	})
 }
 
 func TestSSEHubDeduplication(t *testing.T) {

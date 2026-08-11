@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"rk/internal/config"
 	"rk/internal/prstatus"
 	"rk/internal/tmux"
 )
@@ -540,6 +541,36 @@ func rollupChat(panes []tmux.PaneInfo) (provider, ref string) {
 	return provider, ref
 }
 
+// deriveGitRoot resolves the window's git toplevel for the code lens/surface
+// (docs/specs/right-panel.md): the ACTIVE pane's cwd, else the first pane's
+// cwd, else the window's worktree path — the same precedence as api/riff.go's
+// windowCwd (duplicated here because api imports this package, not vice
+// versa) — walked up via config.FindGitRoot (a pure filesystem stat-walk, no
+// subprocess — Constitution I needs no timeout here). Keyed by git ROOT, not
+// window id or raw cwd: editor state follows the code, and two windows on one
+// worktree deliberately share one editor state. Returns "" when the cwd is
+// not inside a git repo.
+func deriveGitRoot(w *tmux.WindowInfo) string {
+	cwd := w.WorktreePath
+	if len(w.Panes) > 0 {
+		if first := w.Panes[0].Cwd; first != "" {
+			cwd = first
+		}
+		for _, p := range w.Panes {
+			if p.IsActive {
+				if p.Cwd != "" {
+					cwd = p.Cwd
+				}
+				break
+			}
+		}
+	}
+	if cwd == "" {
+		return ""
+	}
+	return config.FindGitRoot(cwd)
+}
+
 // windowBranchRepo returns the (repoDir, branch) to derive a window's PR from:
 // the active pane's cwd/branch when the active pane is on a branch, else the
 // first pane that has a resolved branch. A window is the UI unit that carries a
@@ -756,6 +787,10 @@ func FetchSessions(ctx context.Context, server string, provider ActiveWindowProv
 			// pane truth is preserved on the Panes entries; both ride the existing
 			// ProjectSession marshal to GET /api/sessions and SSE event: sessions.
 			sd.windows[j].ChatProvider, sd.windows[j].ChatSessionRef = rollupChat(sd.windows[j].Panes)
+			// Code-lens availability tier (260811-k3vp): the window's git root,
+			// derived from its active pane's cwd (Constitution II/X — nothing
+			// stored, nothing pushed). Empty when the cwd is not a repo.
+			sd.windows[j].GitRoot = deriveGitRoot(&sd.windows[j])
 			// PR-from-branch derivation (260705-dmex): register the window's
 			// branch with the prstatus refresher and join its last-good PR from
 			// the in-memory snapshot — no subprocess on this hot path.

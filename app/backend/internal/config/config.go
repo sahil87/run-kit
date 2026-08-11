@@ -13,6 +13,14 @@ type Config struct {
 	// host (env RK_SSH_HOST). It feeds the frontend's editor ssh-remote
 	// deeplinks; empty (unset) means the deeplink section stays hidden.
 	SSHHost string
+	// CodeServerPort is the optional code-server port (env
+	// RK_CODE_SERVER_PORT) the code lens/surface embeds via the same-origin
+	// relative /proxy/{port}/ path. 0 (unset/invalid) means the feature is
+	// off everywhere — no rail button, no switcher segment. The port is STATE
+	// IDENTITY: code-server keys browser-side workspace state (tabs, layout)
+	// by the proxy pathname, so a port that drifts across restarts silently
+	// blanks every user's workspace.
+	CodeServerPort int
 }
 
 var defaults = Config{
@@ -41,6 +49,12 @@ func Load() Config {
 	}
 
 	cfg.SSHHost = os.Getenv("RK_SSH_HOST")
+
+	if csPortStr := os.Getenv("RK_CODE_SERVER_PORT"); csPortStr != "" {
+		if p, err := strconv.Atoi(csPortStr); err == nil && validPort(p) {
+			cfg.CodeServerPort = p
+		}
+	}
 
 	return cfg
 }

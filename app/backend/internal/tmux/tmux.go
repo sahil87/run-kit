@@ -472,6 +472,12 @@ type WindowInfo struct {
 	PrFetchedAt *time.Time `json:"prFetchedAt,omitempty"`
 	RkType      string     `json:"rkType,omitempty"`
 	RkUrl       string     `json:"rkUrl,omitempty"`
+	// GitRoot is the git toplevel derived from the window's active-pane cwd
+	// (config.FindGitRoot — a filesystem walk, no subprocess), computed rk-side
+	// in FetchSessions. Empty when the cwd is not inside a git repo. It keys
+	// the code lens/surface availability (docs/specs/right-panel.md) — editor
+	// state follows the code, so it is keyed by git ROOT, never window id.
+	GitRoot string `json:"gitRoot,omitempty"`
 	// Marker is the window's left-gutter marker state, sourced from the
 	// @rk_marker window user option: "" (unset)/"dotted"/"dashed"/"solid"/
 	// "double"/"thick". An independent label axis from Color — see

@@ -110,6 +110,9 @@ export function killServer(server: string): void {
 export interface NewWindowOptions extends TmuxOptions {
   /** Shell command for the new window's pane (tmux runs it via `sh -c`). */
   command?: string;
+  /** Start directory for the new window's pane (tmux `-c`) — e.g. `/tmp` for
+   *  a NON-repo cwd (the code-surface spec's availability-negative case). */
+  cwd?: string;
 }
 
 /** Create a named window in `session` (exact-match target). Throws on
@@ -120,6 +123,7 @@ export function newWindow(
   opts: NewWindowOptions = {},
 ): void {
   const args = ["new-window", "-t", `=${session}:`, "-n", name];
+  if (opts.cwd) args.push("-c", opts.cwd);
   if (opts.command) args.push(opts.command);
   tmux(args, opts);
 }

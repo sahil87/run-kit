@@ -53,6 +53,13 @@ func getOrCreateProxy(port int) *httputil.ReverseProxy {
 			}
 			r.Out.URL.RawPath = ""
 			r.Out.Host = target.Host
+			// Set X-Forwarded-{For,Host,Proto} from the inbound request.
+			// code-server's authenticateOrigin compares the browser's Origin
+			// host against Forwarded → X-Forwarded-Host → Host; without this
+			// it 403s every WebSocket handshake and POST (browsers omit Origin
+			// on same-origin GETs, so the symptom is "loads, then sits
+			// disconnected forever"). Proven by spike 2026-08-11.
+			r.SetXForwarded()
 		},
 		ModifyResponse: makeModifyResponse(port),
 		Transport: &http.Transport{
@@ -154,6 +161,19 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 	port, err := strconv.Atoi(portStr)
 	if err != nil || port < 1 || port > 65535 {
 		writeError(w, http.StatusBadRequest, "invalid port")
+		return
+	}
+
+	// Redirect /proxy/{port} → /proxy/{port}/ (308, query preserved).
+	// Relative-base apps (code-server) resolve "./x" against "/proxy/"
+	// without the trailing slash; the redirect makes the proxy safe for any
+	// client, not only ones that always append a path.
+	if r.URL.Path == fmt.Sprintf("/proxy/%d", port) {
+		target := r.URL.Path + "/"
+		if r.URL.RawQuery != "" {
+			target += "?" + r.URL.RawQuery
+		}
+		http.Redirect(w, r, target, http.StatusPermanentRedirect)
 		return
 	}
 

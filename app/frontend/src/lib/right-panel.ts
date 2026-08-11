@@ -4,36 +4,46 @@
  *
  * The terminal route gains a SECOND render slot beside the main lens slot: a
  * collapsible panel (behind an always-visible ~38px rail) that renders one
- * additional (substrate, lens) pair — a SURFACE. Phase 1 ships exactly one
- * surface (`web`, the window's `web` lens beside the tty); the registry is
- * open-ended the way `window-view.ts`'s `ViewName` registry is — `code` and
- * `agents` add members later without a new code path.
+ * additional (substrate, lens) pair — a SURFACE. Phase 1 shipped the `web`
+ * surface; phase 2 (260811-k3vp) added `code` (the git-root-keyed code-server
+ * embed); the registry is open-ended the way `window-view.ts`'s `ViewName`
+ * registry is — `agents` adds a member later without a new code path.
  *
  * Everything here mirrors the shipped `window-view.ts` pattern: pure and
  * DOM-free except thin try/catch-noop localStorage wrappers, so the render
  * branch in `app.tsx` AND the unit tests share one drift-free source. Panel
- * availability derives from the same capability signal as the view registry
- * (`hasWebUrl` — the `@rk_url` → `rkUrl` SSE field), so phase 1 needs zero
- * backend work (Constitution II/X).
+ * availability derives from the same capability signals as the view registry
+ * (`hasWebUrl` for `web`, `hasCode` for `code` — the gitRoot ∧ configured-port
+ * gate; Constitution II/X).
  */
 
-import { hasWebUrl, type ViewWindow } from "./window-view";
+import { hasCode, hasWebUrl, type ViewWindow } from "./window-view";
 
 /**
  * A named (substrate, lens) pairing rendered in the panel slot (spec § Surface
- * Registry). `web` is the phase-1 surface; `code`/`agents` join the union when
- * their phases ship.
+ * Registry). `web` is the phase-1 surface; `code` joined in phase 2
+ * (260811-k3vp); `agents` joins when its phase ships.
  */
-export type SurfaceName = "web";
+export type SurfaceName = "web" | "code";
 
 /**
- * The surfaces a window offers in the panel slot. `web` is available exactly
- * when `hasWebUrl(win)` holds — reusing the shipped helper as the single
- * source of truth (no duplicate URL-trim logic; spec: "same capability signal
- * as the view registry row"). Returned in registry order.
+ * The surfaces a window offers in the panel slot, in Surface Registry order.
+ * `web` is available exactly when `hasWebUrl(win)` holds — reusing the shipped
+ * helper as the single source of truth (no duplicate URL-trim logic; spec:
+ * "same capability signal as the view registry row"). `code` mirrors the view
+ * registry's gate via the shared `hasCode` helper: the host's code-server port
+ * configured AND the window's gitRoot derived — the two STABLE capability
+ * signals. Reachability is NOT part of availability (it governs the surface's
+ * content — live iframe vs the not-running empty state).
  */
-export function availableSurfaces(win: ViewWindow | null | undefined): SurfaceName[] {
-  return hasWebUrl(win) ? ["web"] : [];
+export function availableSurfaces(
+  win: ViewWindow | null | undefined,
+  codeServerPort = 0,
+): SurfaceName[] {
+  const surfaces: SurfaceName[] = [];
+  if (hasWebUrl(win)) surfaces.push("web");
+  if (hasCode(win, codeServerPort)) surfaces.push("code");
+  return surfaces;
 }
 
 /**
@@ -51,10 +61,11 @@ export function resolvePanel(
   searchPanel: string | undefined,
   stored: string | undefined,
   win: ViewWindow | null | undefined,
+  codeServerPort = 0,
 ): SurfaceName | null {
-  const available = availableSurfaces(win);
+  const available = availableSurfaces(win, codeServerPort);
   const isAvailable = (s: string | undefined): s is SurfaceName =>
-    s === "web" && available.includes(s);
+    (s === "web" || s === "code") && available.includes(s);
 
   if (isAvailable(searchPanel)) return searchPanel;
   if (isAvailable(stored)) return stored;

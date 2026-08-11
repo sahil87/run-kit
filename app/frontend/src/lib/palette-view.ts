@@ -25,6 +25,7 @@ const VIEW_ACTION_LABEL: Record<ViewName, string> = {
   tty: "View: Terminal",
   web: "View: Web",
   chat: "View: Chat",
+  code: "View: Code",
 };
 
 /** Default hint strings — the registry defaults for `chat-toggle` and

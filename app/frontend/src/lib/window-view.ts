@@ -15,21 +15,25 @@
  */
 
 /**
- * A lens over a window's substrate. `tty`, `web`, and `chat` are implemented;
- * the registry (spec § The View Registry) is open-ended — `desktop` adds a
- * member here, a capability in `availableViews`, and a hint in `defaultView`.
+ * A lens over a window's substrate. `tty`, `web`, `chat`, and `code` are
+ * implemented; the registry (spec § The View Registry) is open-ended —
+ * `desktop` adds a member here, a capability in `availableViews`, and a hint
+ * in `defaultView`.
  */
-export type ViewName = "tty" | "web" | "chat";
+export type ViewName = "tty" | "web" | "chat" | "code";
 
 /**
  * The minimal window shape the view helpers need. Structural (assignable from
  * `WindowInfo`) so these stay pure and easy to unit-test without constructing a
- * whole `WindowInfo`.
+ * whole `WindowInfo`. `gitRoot` is the backend-derived git toplevel (the
+ * window's active-pane cwd walked to its repo root) — the code lens's
+ * availability half that lives per-window.
  */
 export type ViewWindow = {
   rkType?: string;
   rkUrl?: string;
   chatProvider?: string;
+  gitRoot?: string;
 };
 
 /**
@@ -39,9 +43,11 @@ export type ViewWindow = {
  * ordering and default-hint precedence. NOTE: `chat` appears here for capability
  * ORDERING only — it contributes no default HINT clause in `defaultView` (a
  * chat-capable window still defaults to `tty` unless the viewer chose chat),
- * matching #351's terminal-default behavior.
+ * matching #351's terminal-default behavior. `code` (260811-k3vp) follows the
+ * same rule: capability ordering only, NO default hint — a code-capable window
+ * still defaults to `tty`.
  */
-const HINT_ORDER: ViewName[] = ["chat", "web", "tty"];
+const HINT_ORDER: ViewName[] = ["chat", "code", "web", "tty"];
 
 /**
  * Whether a window carries a usable web URL. Requires non-whitespace content:
@@ -67,17 +73,41 @@ export function hasChat(win: ViewWindow | null | undefined): boolean {
 }
 
 /**
+ * Whether a window offers the code lens (spec right-panel.md § Surface
+ * Registry, amended by 260811-k3vp): AVAILABILITY = the host's code-server
+ * port is configured (`codeServerPort > 0`, from the state socket's
+ * `code-server` event) AND the window's `gitRoot` derived non-empty. These are
+ * the two STABLE capability signals. code-server REACHABILITY is deliberately
+ * NOT part of this gate — it fluctuates, and gating on it would strobe the
+ * switcher; reachability instead selects the surface's CONTENT (live iframe vs
+ * the not-running empty state). The single source of truth for code
+ * availability — `availableViews` and `right-panel.ts`'s `availableSurfaces`
+ * both key off it.
+ */
+export function hasCode(
+  win: ViewWindow | null | undefined,
+  codeServerPort = 0,
+): boolean {
+  return codeServerPort > 0 && (win?.gitRoot ?? "").length > 0;
+}
+
+/**
  * The capability set a window offers (spec R1/R3). `tty` is ALWAYS available;
  * `web` is available exactly when `rkUrl` is non-empty — decoupled from
  * `@rk_type` (an iframe-typed window with no URL offers only `tty`, matching the
  * pre-existing render gate's AND-condition, so no existing window changes
  * behavior); `chat` is available exactly when the window carries a
- * `chatProvider`. Capabilities are orthogonal and stack (spec R5). Returned in
- * the registry's fixed order (`chat` before `web` before `tty`).
+ * `chatProvider`; `code` is available exactly when `hasCode` holds (gitRoot ∧
+ * configured port). Capabilities are orthogonal and stack (spec R5). Returned in
+ * the registry's fixed order (HINT_ORDER).
  */
-export function availableViews(win: ViewWindow | null | undefined): ViewName[] {
+export function availableViews(
+  win: ViewWindow | null | undefined,
+  codeServerPort = 0,
+): ViewName[] {
   const views: ViewName[] = [];
   if (hasChat(win)) views.push("chat");
+  if (hasCode(win, codeServerPort)) views.push("code");
   if (hasWebUrl(win)) views.push("web");
   views.push("tty");
   // Return in HINT_ORDER so the switcher segment order is stable/registry-driven.
@@ -123,10 +153,11 @@ export function resolveView(
   searchView: string | undefined,
   stored: string | undefined,
   win: ViewWindow | null | undefined,
+  codeServerPort = 0,
 ): ViewName {
-  const available = availableViews(win);
+  const available = availableViews(win, codeServerPort);
   const isAvailable = (v: string | undefined): v is ViewName =>
-    v === "tty" || v === "web" || v === "chat" ? available.includes(v) : false;
+    v === "tty" || v === "web" || v === "chat" || v === "code" ? available.includes(v) : false;
 
   if (isAvailable(searchView)) return searchView;
   if (isAvailable(stored)) return stored;

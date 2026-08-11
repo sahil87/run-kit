@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -263,5 +264,80 @@ func TestGetOrCreateProxyCaching(t *testing.T) {
 	p3 := getOrCreateProxy(9998)
 	if p1 == p3 {
 		t.Error("expected different proxy instance for different port")
+	}
+}
+
+// TestProxySetsXForwardedHost proves the Rewrite hook sets X-Forwarded-Host
+// (and X-Forwarded-Proto) from the INBOUND request — code-server's
+// authenticateOrigin compares the browser's Origin host against
+// Forwarded → X-Forwarded-Host → Host and 403s every WS handshake / POST
+// without it (spiked 2026-08-11; the upgrade path shares this Rewrite hook).
+func TestProxySetsXForwardedHost(t *testing.T) {
+	var gotHost, gotProto string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotHost = r.Header.Get("X-Forwarded-Host")
+		gotProto = r.Header.Get("X-Forwarded-Proto")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	// Point the (cached) proxy at the upstream's real port.
+	portStr := strings.TrimPrefix(upstream.URL, "http://127.0.0.1:")
+
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+	req := httptest.NewRequest(http.MethodGet, "/proxy/"+portStr+"/stable", nil)
+	req.Host = "rk.example:3000"
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if gotHost != "rk.example:3000" {
+		t.Errorf("X-Forwarded-Host = %q, want %q (the inbound Host)", gotHost, "rk.example:3000")
+	}
+	if gotProto != "http" {
+		t.Errorf("X-Forwarded-Proto = %q, want %q", gotProto, "http")
+	}
+}
+
+// TestProxyTrailingSlashRedirect proves /proxy/{port} (no trailing slash)
+// redirects to /proxy/{port}/ with the query string preserved, so
+// relative-base apps (code-server) resolve "./x" against the right base for
+// any client — and that the slashed path proxies without a redirect.
+func TestProxyTrailingSlashRedirect(t *testing.T) {
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	// No trailing slash → 308 with Location preserving the query.
+	req := httptest.NewRequest(http.MethodGet, "/proxy/8080?folder=/repo", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusPermanentRedirect {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusPermanentRedirect)
+	}
+	if loc := rec.Header().Get("Location"); loc != "/proxy/8080/?folder=/repo" {
+		t.Errorf("Location = %q, want %q", loc, "/proxy/8080/?folder=/repo")
+	}
+
+	// No query → bare trailing-slash Location.
+	req = httptest.NewRequest(http.MethodGet, "/proxy/8080", nil)
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusPermanentRedirect {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusPermanentRedirect)
+	}
+	if loc := rec.Header().Get("Location"); loc != "/proxy/8080/" {
+		t.Errorf("Location = %q, want %q", loc, "/proxy/8080/")
+	}
+
+	// The slashed path is proxied, never redirected (no loop). Nothing listens
+	// on 8080, so a proxy attempt surfaces as 502 Bad Gateway — anything but a
+	// redirect proves the branch was skipped.
+	req = httptest.NewRequest(http.MethodGet, "/proxy/8080/", nil)
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code == http.StatusPermanentRedirect || rec.Code == http.StatusMovedPermanently {
+		t.Errorf("slashed path redirected (loop risk): status = %d", rec.Code)
 	}
 }

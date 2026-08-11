@@ -16,7 +16,7 @@ import {
   removeStoredPanel,
   type SurfaceName,
 } from "@/lib/right-panel";
-import { matchesCombo, shouldSuppressChord, withShortcutHints, formatCombo } from "@/lib/keybindings";
+import { matchesCombo, findMatches, shouldSuppressChord, withShortcutHints, formatCombo } from "@/lib/keybindings";
 import { isMacroActionId, type MacroAction } from "@/lib/macros";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { useKeybindingDispatch } from "@/hooks/use-keybinding-dispatch";
@@ -96,6 +96,7 @@ import { Shell } from "@/components/shell/shell";
 import { Sidebar } from "@/components/sidebar";
 import { TerminalClient } from "@/components/terminal-client";
 import { IframeWindow } from "@/components/iframe-window";
+import { CodeSurface } from "@/components/code-surface";
 import { RightPanel } from "@/components/right-panel";
 import { BottomBar } from "@/components/bottom-bar";
 import { ComposeStrip } from "@/components/compose-strip";
@@ -118,7 +119,7 @@ import {
   toSafeSessionName,
   toSafeWindowName,
 } from "@/lib/names";
-import { useSessionContext, useUpdateNotification } from "@/contexts/session-context";
+import { useSessionContext, useUpdateNotification, useCodeServer } from "@/contexts/session-context";
 import { useOptimisticContext, useMergedSessions } from "@/contexts/optimistic-context";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useUpdateCheck } from "@/hooks/use-update-check";
@@ -517,8 +518,16 @@ function AppShell() {
   const search = useSearch({ strict: false });
   const searchView = search.view;
   const storedView = windowParam ? readStoredView(server, windowParam) : undefined;
-  const currentViews = useMemo(() => availableViews(currentWindow), [currentWindow]);
-  const resolvedView: ViewName = resolveView(searchView, storedView, currentWindow);
+  // The host-level code-server signal (260811-k3vp) — the configured port gates
+  // the `code` lens/surface's availability (its `reachable` half gates only the
+  // surface CONTENT, passed to CodeSurface below). `null` = feature off.
+  const codeServer = useCodeServer();
+  const codeServerPort = codeServer?.port ?? 0;
+  const currentViews = useMemo(
+    () => availableViews(currentWindow, codeServerPort),
+    [currentWindow, codeServerPort],
+  );
+  const resolvedView: ViewName = resolveView(searchView, storedView, currentWindow, codeServerPort);
 
   // Right-panel surface state (260811-2r1w-right-panel-shell-web-surface; spec
   // right-panel.md P1) — the terminal route's SECOND render slot. Mirrors the
@@ -528,10 +537,13 @@ function AppShell() {
   // neither rail nor panel renders and `?panel=` is ignored (resolves closed).
   const searchPanel = search.panel;
   const storedPanel = windowParam ? readStoredPanel(server, windowParam) : undefined;
-  const panelSurfaces = useMemo(() => availableSurfaces(currentWindow), [currentWindow]);
+  const panelSurfaces = useMemo(
+    () => availableSurfaces(currentWindow, codeServerPort),
+    [currentWindow, codeServerPort],
+  );
   const resolvedPanel: SurfaceName | null = isMobile
     ? null
-    : resolvePanel(searchPanel, storedPanel, currentWindow);
+    : resolvePanel(searchPanel, storedPanel, currentWindow, codeServerPort);
 
   // Toggle a panel surface open/closed (spec P1/P6): persist per-window in
   // localStorage (open writes the value-bearing key, close REMOVES it — absent
@@ -590,6 +602,17 @@ function AppShell() {
   // overlay, and the palette `shortcut` hints.
   const keybindings = useKeybindings();
   const { byAction: bindingByAction, host: bindingHost } = keybindings;
+
+  // Chord-reclaim predicate for the code surface's iframe (keyboard-capture
+  // spike, intake k3vp §5): a keydown inside the same-origin code-server iframe
+  // is reclaimed exactly when it matches an ENABLED registry binding — so
+  // run-kit's chords (palette, view-cycle, panel-toggle, …) survive iframe
+  // focus while the embedded app's OWN Ctrl/⌘ chords (non-registry) pass
+  // through to it.
+  const reclaimChord = useCallback(
+    (e: KeyboardEvent) => findMatches(e, keybindings.bindings).length > 0,
+    [keybindings.bindings],
+  );
 
   // `Cmd/Ctrl+.` cycles the current window's lenses (Constitution V — every view
   // action is keyboard-reachable; palette parity is the `View:` actions above).
@@ -1447,6 +1470,7 @@ function AppShell() {
               undefined,
               readStoredView(server, fw.window.windowId),
               fw.window,
+              codeServerPort,
             ) !== "tty",
         )
         .map((fw) => fw.window.windowId),
@@ -2308,14 +2332,32 @@ function AppShell() {
           return b?.enabled ? formatCombo(b, bindingHost.platform) : "";
         })(),
       }),
-      // Right-panel surface toggle (260811-2r1w, spec right-panel.md P7) —
-      // Constitution V palette parity for the rail button. Offered only on a
-      // desktop window route where the `web` surface is available. The id IS
-      // the registry actionId, so `withShortcutHints` decorates the entry with
-      // the effective `panel-toggle` chord (⇧⌘.) — the code-review rule that
-      // new shortcuts are documented in the palette registration.
+      // Right-panel surface toggles (260811-2r1w + 260811-k3vp, spec
+      // right-panel.md P7) — Constitution V palette parity for the rail
+      // buttons. Each entry is offered only on a desktop window route where
+      // that surface is available. The `panel-toggle` id IS the registry
+      // actionId, so `withShortcutHints` decorates `Panel: Web` with the
+      // effective ⇧⌘. chord (the code-review rule that shortcuts are
+      // documented in the palette registration); `Panel: Code` carries the
+      // SAME hint explicitly — on a code-only window the chord toggles THIS
+      // surface, so it must be discoverable there. The chord itself toggles
+      // the OPEN surface, else the first available (spec P7 "last-used
+      // surface" — see the `panel-toggle` handler below).
       ...(windowParam && !isMobile && panelSurfaces.includes("web")
         ? [{ id: "panel-toggle", label: "Panel: Web", onSelect: () => togglePanel("web") }]
+        : []),
+      ...(windowParam && !isMobile && panelSurfaces.includes("code")
+        ? [{
+            id: "panel-code",
+            label: "Panel: Code",
+            // withShortcutHints has no `panel-code` binding to decorate (it
+            // leaves this entry untouched), so the hint rides manually.
+            shortcut: (() => {
+              const b = bindingByAction.get("panel-toggle");
+              return b?.enabled ? formatCombo(b, bindingHost.platform) : "";
+            })(),
+            onSelect: () => togglePanel("code"),
+          }]
         : []),
       {
         id: "toggle-fixed-width",
@@ -2960,12 +3002,18 @@ function AppShell() {
       // are terminal-route actions, like `open-last-used`).
       "split-horizontal": fromPalette("split-horizontal"),
       "split-vertical": fromPalette("split-vertical"),
-      // ⇧⌘. panel toggle (260811-2r1w) — the `Panel: Web` palette body; its
-      // gating (desktop window route + available `web` surface) gates the
-      // chord for free (the fromPalette convention).
-      "panel-toggle": fromPalette("panel-toggle"),
+      // ⇧⌘. panel toggle (260811-2r1w, generalized in 260811-k3vp) — spec P7's
+      // "toggles the last-used surface": with the value-bearing-key model the
+      // last-used surface exists only while OPEN, so the chord toggles the
+      // currently-open surface off, else opens the first AVAILABLE surface
+      // (web-only windows behave exactly as phase 1). Its gating (desktop
+      // window route + ≥1 available surface) gates the chord for free.
+      "panel-toggle":
+        windowParam && !isMobile && panelSurfaces.length > 0
+          ? () => togglePanel(resolvedPanel ?? panelSurfaces[0])
+          : undefined,
     };
-  }, [paletteActions, currentSession, windowParam, navigateToWindow, macros, sessionName, executeMacro, toggleComposeStrip, addToast]);
+  }, [paletteActions, currentSession, windowParam, navigateToWindow, macros, sessionName, executeMacro, toggleComposeStrip, addToast, isMobile, panelSurfaces, resolvedPanel, togglePanel]);
   useKeybindingDispatch(keybindingHandlers);
 
   // Sidebar-footer Keyboard icon → overlay toggle (260801-sm6g). The sidebar
@@ -3323,6 +3371,20 @@ function AppShell() {
                 }}
                 busy={currentWindow?.agentState === "active"}
               />
+            ) : resolvedView === "code" && currentWindow?.gitRoot ? (
+              // The code lens (260811-k3vp) in the MAIN slot — `?view=code`.
+              // `resolveView` baked in availability (gitRoot ∧ configured
+              // port), so the port is > 0 here; `gitRoot` is the TS narrowing.
+              // Reachability selects CodeSurface's content (live iframe vs the
+              // not-running empty state) — it never re-resolves the lens.
+              <div className="flex-1 min-h-0 flex flex-col">
+                <CodeSurface
+                  port={codeServerPort}
+                  gitRoot={currentWindow.gitRoot}
+                  reachable={codeServer?.reachable ?? false}
+                  shouldReclaimChord={reclaimChord}
+                />
+              </div>
             ) : resolvedView === "web" && currentWindow?.rkUrl ? (
               // `resolvedView === "web"` already implies web is AVAILABLE (so
               // `hasWebUrl` held — `resolveView` bakes availability in); the
@@ -3371,17 +3433,46 @@ function AppShell() {
                 active={resolvedPanel}
                 onToggle={togglePanel}
               >
-                {/* The `web` surface reuses the shipped IframeWindow renderer
+                {/* One subtree per AVAILABLE surface, each hidden at display
+                    level unless it is the ACTIVE surface (P3 hide-never-unmount
+                    extended across surface switches, 260811-k3vp): the web iframe
+                    and the code iframe BOTH stay mounted while the route lives,
+                    so switching surfaces or collapsing the panel preserves each
+                    iframe's in-memory state. The wrapper owns the visibility
+                    toggle; the renderer inside is unchanged.
+
+                    The `web` surface reuses the shipped IframeWindow renderer
                     with NO `onSwitchToTty` (the panel-context seam — the `>_`
                     switch-to-terminal affordance is meaningless beside the
                     visible tty; the URL bar and refresh stay). The
-                    `currentWindow?.rkUrl` guard narrows the prop type; an open
-                    `web` panel already implies `hasWebUrl` held. */}
-                {currentWindow?.rkUrl ? (
-                  <IframeWindow
-                    windowId={currentWindow.windowId}
-                    rkUrl={currentWindow.rkUrl}
-                  />
+                    `currentWindow?.rkUrl` guard narrows the prop type; an
+                    available `web` surface already implies `hasWebUrl` held. */}
+                {panelSurfaces.includes("web") && currentWindow?.rkUrl ? (
+                  <div
+                    data-testid="panel-surface-web"
+                    className={`flex-col flex-1 min-h-0 h-full ${resolvedPanel === "web" ? "flex" : "hidden"}`}
+                  >
+                    <IframeWindow
+                      windowId={currentWindow.windowId}
+                      rkUrl={currentWindow.rkUrl}
+                    />
+                  </div>
+                ) : null}
+                {/* The `code` surface renders the lean CodeSurface (no URL bar —
+                    the code-server URL is fully derived). An available `code`
+                    surface implies gitRoot ∧ configured port held. */}
+                {panelSurfaces.includes("code") && currentWindow?.gitRoot ? (
+                  <div
+                    data-testid="panel-surface-code"
+                    className={`flex-col flex-1 min-h-0 h-full ${resolvedPanel === "code" ? "flex" : "hidden"}`}
+                  >
+                    <CodeSurface
+                      port={codeServerPort}
+                      gitRoot={currentWindow.gitRoot}
+                      reachable={codeServer?.reachable ?? false}
+                      shouldReclaimChord={reclaimChord}
+                    />
+                  </div>
                 ) : null}
               </RightPanel>
             )}

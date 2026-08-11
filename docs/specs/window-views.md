@@ -57,6 +57,7 @@ Separate **what runs** from **what you can look at**:
 | `tty` | always | xterm.js `TerminalClient` | **[current]** |
 | `web` | `@rk_url` set (later: a listening HTTP port derived to be owned by the pane's process subtree) | `IframeWindow` (proxy iframe + URL bar) | **[current]** as a window *type*; **[target]** as a lens — change `260714-t97o-web-view-lens` |
 | `chat` | `@rk_chat` pane option present | chat renderer | **[target]** — [`agent-chat-view.md`](../../fab/plans/sahil/agent-chat-view.md) changes 2–3 |
+| `code` | git root derived from the active pane's cwd AND a code-server port configured (`RK_CODE_SERVER_PORT`) — reachability governs the renderer's CONTENT (live iframe vs not-running empty state), never availability | `CodeSurface` (lean proxy iframe, no URL bar) | **[current]** — change `260811-k3vp-right-panel-code-lens`; also the right panel's CODE surface (right-panel.md § Surface Registry) |
 | `desktop` | VNC-port window option present (set by the desktop launcher, reconciler-cleared) | noVNC canvas | **[target]** — [`fab/plans/sahil/desktop-view.md`](../../fab/plans/sahil/desktop-view.md) |
 
 The registry is open-ended: a new projection adds a row here, a capability

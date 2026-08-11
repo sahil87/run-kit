@@ -44,12 +44,14 @@ import {
 /** Human label for a surface's rail button + tooltip (the accessible name). */
 const SURFACE_LABEL: Record<SurfaceName, string> = {
   web: "Web",
+  code: "Code",
 };
 
 /** Short rail glyph — the lowercase surface name (the view-switcher's
  *  `[tty|web]` short-segment style). */
 const SURFACE_GLYPH: Record<SurfaceName, string> = {
   web: "web",
+  code: "code",
 };
 
 interface RightPanelProps {

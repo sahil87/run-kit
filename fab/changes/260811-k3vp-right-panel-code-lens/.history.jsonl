@@ -1,0 +1,12 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-11T11:13:22Z"}
+{"args":"Right panel phase 2 — code lens + CODE surface (backlog k3vp)","cmd":"fab-new","event":"command","ts":"2026-08-11T11:13:22Z"}
+{"delta":"+0.0","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-08-11T11:15:22Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-11T11:16:07Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-11T11:16:07Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-11T12:30:57Z"}
+{"event":"review","result":"failed","ts":"2026-08-11T12:49:08Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-11T12:49:08Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-11T13:05:32Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-11T13:37:34Z"}
+{"event":"review","result":"passed","ts":"2026-08-11T13:37:34Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-11T13:56:17Z"}

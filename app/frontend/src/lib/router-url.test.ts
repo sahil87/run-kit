@@ -57,6 +57,10 @@ describe("validateTerminalSearch (?view= drop)", () => {
     expect(validateTerminalSearch({ view: "chat" })).toEqual({ view: "chat" });
   });
 
+  it("accepts view=code (260811-k3vp)", () => {
+    expect(validateTerminalSearch({ view: "code" })).toEqual({ view: "code" });
+  });
+
   it("drops an unknown value without throwing (?view=bogus → view undefined)", () => {
     expect(() => validateTerminalSearch({ view: "bogus" })).not.toThrow();
     expect(validateTerminalSearch({ view: "bogus" }).view).toBeUndefined();
@@ -73,11 +77,16 @@ describe("validateTerminalSearch (?view= drop)", () => {
 });
 
 // The `?panel=` param (260811-2r1w-right-panel-shell-web-surface, right-panel
-// P1) carries the per-viewer right-panel surface — handled exactly like
-// `?view=`: `web` is the only valid value; anything else is DROPPED.
+// P1; `code` joined in 260811-k3vp) carries the per-viewer right-panel surface
+// — handled exactly like `?view=`: `web` and `code` are the valid values;
+// anything else is DROPPED.
 describe("validateTerminalSearch (?panel= drop)", () => {
   it("accepts panel=web", () => {
     expect(validateTerminalSearch({ panel: "web" })).toEqual({ panel: "web" });
+  });
+
+  it("accepts panel=code (260811-k3vp)", () => {
+    expect(validateTerminalSearch({ panel: "code" })).toEqual({ panel: "code" });
   });
 
   it("drops an unknown value without throwing (?panel=bogus → panel undefined)", () => {

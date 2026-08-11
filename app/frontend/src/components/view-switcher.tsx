@@ -41,6 +41,7 @@ const VIEW_LABEL: Record<ViewName, string> = {
   tty: "Terminal",
   web: "Web",
   chat: "Chat",
+  code: "Code",
 };
 
 /** Short segment glyph — the lowercase view name (spec R4's `[tty|chat]` style),
@@ -49,6 +50,7 @@ const VIEW_SHORT: Record<ViewName, string> = {
   tty: "tty",
   web: "web",
   chat: "chat",
+  code: "code",
 };
 
 /**
@@ -59,7 +61,7 @@ const VIEW_SHORT: Record<ViewName, string> = {
  * questions. Later lenses slot into this display order; any view not listed
  * sorts to the end (defensive — every implemented view is listed).
  */
-const DISPLAY_ORDER: ViewName[] = ["tty", "web", "chat"];
+const DISPLAY_ORDER: ViewName[] = ["tty", "web", "code", "chat"];
 
 /**
  * Order the incoming view list into the fixed left-to-right `DISPLAY_ORDER`

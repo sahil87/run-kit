@@ -27,28 +27,31 @@ export function urlSegmentToWindowId(segment: string): string {
 }
 
 // The `?view=` search param carries the per-viewer window-view lens (spec R2,
-// change 260714-t97o-web-view-lens; chat lens folded in from 260714-r7rq). It is
-// per-VIEWER client state, NOT part of the window's identity — no new route
-// (Constitution IV). `web` and `chat` are the valid values (`tty` is the absence
-// of the param — the always-available default lens); any other/unknown value is
-// DROPPED (treated as absent), never errored, so a stale/garbage deep link
-// degrades to the default view rather than a route error. The registry is
-// open-ended: `desktop` extends this union when it ships.
+// change 260714-t97o-web-view-lens; chat lens folded in from 260714-r7rq; the
+// `code` lens joined in 260811-k3vp). It is per-VIEWER client state, NOT part
+// of the window's identity — no new route (Constitution IV). `web`, `chat`, and
+// `code` are the valid values (`tty` is the absence of the param — the
+// always-available default lens); any other/unknown value is DROPPED (treated
+// as absent), never errored, so a stale/garbage deep link degrades to the
+// default view rather than a route error. The registry is open-ended:
+// `desktop` extends this union when it ships.
 //
 // The `?panel=` search param (260811-2r1w-right-panel-shell-web-surface, spec
 // right-panel.md P1) carries the per-viewer RIGHT-PANEL surface — handled
-// exactly like `?view=`: `web` is the only valid value (closed is the absence
-// of the param), unknown values are dropped here and availability-gated by
-// `resolvePanel` downstream. `view` and `panel` are independent slots and may
-// both be present (`?view=web&panel=web`).
-export type TerminalSearch = { view?: "web" | "chat"; panel?: "web" };
+// exactly like `?view=`: `web` and `code` are the valid values (closed is the
+// absence of the param), unknown values are dropped here and availability-gated
+// by `resolvePanel` downstream. `view` and `panel` are independent slots and
+// may both be present (`?view=web&panel=code`).
+export type TerminalSearch = { view?: "web" | "chat" | "code"; panel?: "web" | "code" };
 
 // Exported as a pure function so the unknown-value drop is unit-testable.
 export function validateTerminalSearch(
   search: Record<string, unknown>,
 ): TerminalSearch {
   const out: TerminalSearch = {};
-  if (search.view === "web" || search.view === "chat") out.view = search.view;
-  if (search.panel === "web") out.panel = search.panel;
+  if (search.view === "web" || search.view === "chat" || search.view === "code") {
+    out.view = search.view;
+  }
+  if (search.panel === "web" || search.panel === "code") out.panel = search.panel;
   return out;
 }

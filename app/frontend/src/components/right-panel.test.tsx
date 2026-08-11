@@ -2,16 +2,16 @@ import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { RightPanel } from "./right-panel";
 import { stubMatchMedia } from "@/test-utils/match-media";
-import { PANEL_WIDTH_STORAGE_KEY, DEFAULT_PANEL_WIDTH_PCT } from "@/lib/right-panel";
+import { PANEL_WIDTH_STORAGE_KEY, DEFAULT_PANEL_WIDTH_PCT, type SurfaceName } from "@/lib/right-panel";
 
 // jsdom does not implement matchMedia — Tip's coarse-pointer check needs it.
 // Default to the fine-pointer branch (tooltips enabled).
 stubMatchMedia(() => false);
 
 function renderPanel(overrides: {
-  available?: ("web")[];
-  active?: "web" | null;
-  onToggle?: (surface: "web") => void;
+  available?: SurfaceName[];
+  active?: SurfaceName | null;
+  onToggle?: (surface: SurfaceName) => void;
   children?: React.ReactNode;
 } = {}) {
   return render(

@@ -57,8 +57,15 @@ tmux -L "$E2E_TMUX_SERVER" new-session -d -s e2e-init -x 80 -y 24
 # rk-test-e2e* servers, so board routes open one SSE per test server instead of
 # one per live operator server on a busy box. This is distinct from
 # E2E_TMUX_SERVER, which scopes the WRITE socket the tests target.
+#
+# RK_CODE_SERVER_PORT (260811-k3vp) configures the code lens/surface for the
+# code-surface spec — the spec binds a stub HTTP server on this port (default
+# 3939) and toggles it to drive the reachable/not-running states. The same
+# value is exported to the playwright run below so the spec and the backend
+# agree on the port.
+RK_CODE_SERVER_PORT="${RK_CODE_SERVER_PORT:-3939}"
 set -m
-bash -c "RK_PORT=$E2E_PORT RK_SERVER_ALLOWLIST=$E2E_TMUX_SERVER exec just dev" &
+bash -c "RK_PORT=$E2E_PORT RK_SERVER_ALLOWLIST=$E2E_TMUX_SERVER RK_CODE_SERVER_PORT=$RK_CODE_SERVER_PORT exec just dev" &
 DEV_PID=$!
 set +m
 
@@ -106,4 +113,4 @@ done
 # Run tests — pass server name so specs can target the right tmux server.
 # Forward any extra args ("$@") to playwright so callers can scope the run
 # (e.g. `just test-e2e mobile-layout`) against the same seeded test server.
-cd app/frontend && RK_PORT=$E2E_PORT E2E_TMUX_SERVER="$E2E_TMUX_SERVER" pnpm exec playwright test "$@"
+cd app/frontend && RK_PORT=$E2E_PORT E2E_TMUX_SERVER="$E2E_TMUX_SERVER" RK_CODE_SERVER_PORT="$RK_CODE_SERVER_PORT" pnpm exec playwright test "$@"

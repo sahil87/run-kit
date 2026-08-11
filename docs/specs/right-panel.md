@@ -161,8 +161,10 @@ creep); boards remain the "many things at once" answer.
 
 ### P7 — Keyboard-first
 
-`⌘.` toggles the last-used surface; the palette gains `Panel: Code` /
-`Panel: Web` / `Panel: Agents`; rail buttons are focusable. (Constitution V.)
+`⇧⌘.` toggles the last-used surface (the shifted tier of `⌘.`, which is the
+shipped `view-cycle` lens chord — the spec originally named `⌘.` before that
+collision was known); the palette gains `Panel: Code` / `Panel: Web` /
+`Panel: Agents`; rail buttons are focusable. (Constitution V.)
 
 ---
 

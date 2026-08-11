@@ -6,7 +6,12 @@
 > what lenses *are* and how availability derives; this one adds a second
 > *placement* for them, one new lens (`code`), and the **companion window**
 > convention (`@rk_owner`) that lets hidden sibling substrates render in the
-> panel. Everything here is **[target]**; nothing is shipped.
+> panel. Phase 1 — the always-on rail, the panel shell (resize + per-viewer
+> width, hide-never-unmount), and the `web` surface with its toggle chord and
+> palette entry — is **[current]** as of change
+> `260811-2r1w-right-panel-shell-web-surface`; everything else (the `code`
+> lens, the `@rk_owner` companion convention and the `agents` surface, the
+> amber attention dot, mobile) is **[target]**.
 >
 > Companions: [`agent-state.md`](agent-state.md) (the rollup the agents
 > surface feeds), [`status-pyramid.md`](status-pyramid.md) (untouched — status

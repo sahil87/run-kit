@@ -114,7 +114,12 @@ export function RightPanel({ available, active, onToggle, children }: RightPanel
   const endDrag = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!dragRef.current) return;
     dragRef.current = null;
-    e.currentTarget.releasePointerCapture(e.pointerId);
+    // `pointercancel` has already released the capture implicitly — releasing
+    // again throws NotFoundError and would strand the panel in `dragging`
+    // (pointer-events: none) with the width unpersisted.
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
     setDragging(false);
     writeStoredPanelWidth(widthRef.current);
   };

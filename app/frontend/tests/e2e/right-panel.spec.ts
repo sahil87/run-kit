@@ -75,7 +75,9 @@ test.describe("Right panel — rail, shell & web surface (phase 1)", () => {
     const web = await makeWindow(page, `rp-cap-${Date.now()}`, { url: IFRAME_URL });
     await gotoWindow(page, web);
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
-    await expect(railWebButton(page)).toBeVisible({ timeout: 10_000 });
+    // Availability rides the SSE window payload — the same readiness class the
+    // shared CI-aware budget exists for.
+    await expect(railWebButton(page)).toBeVisible({ timeout: READY_TIMEOUT });
   });
 
   test("clicking the rail button opens the panel beside a live terminal; clicking again closes it", async ({ page }) => {
@@ -225,7 +227,7 @@ test.describe("Right panel — rail, shell & web surface (phase 1)", () => {
     // Wait for the rail button — the chord's handler is gated on the web
     // surface's availability, which arrives via the SSE `@rk_url` push; firing
     // before it lands would hit a handler-less chord (a no-op by design).
-    await expect(railWebButton(page)).toBeVisible({ timeout: 10_000 });
+    await expect(railWebButton(page)).toBeVisible({ timeout: READY_TIMEOUT });
 
     // xterm owns focus after the terminal renders — the shifted-tier chord must
     // fire from there (the dispatcher's `.xterm` carve-out).

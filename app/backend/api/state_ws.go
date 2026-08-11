@@ -180,7 +180,9 @@ func (e hubEvent) renderEnvelope() []byte {
 // populated so the channel-full drop logs (sendLocked / sendConnLockedOK)
 // still name the event. Fan-out producers only: per-subscriber events whose
 // payload differs per recipient (preview) and single-recipient sends stay
-// structured.
+// structured. Convention: call BEFORE acquiring h.mu — the envelope marshal
+// must not extend hub lock hold time (it used to run per-conn in the writer
+// pumps, entirely outside the lock).
 func preRendered(ev hubEvent) hubEvent {
 	return hubEvent{raw: ev.renderEnvelope(), typ: ev.typ}
 }

@@ -727,11 +727,13 @@ func (h *sseHub) broadcastSessionOrder(server string, order []string) {
 	}
 	jsonStr := string(jsonBytes)
 
+	// Render once, before the lock — every recipient gets the same bytes and
+	// the envelope marshal never extends h.mu hold time.
+	ev := preRendered(hubEvent{kind: kindServer, typ: "session-order", key: server, data: jsonStr})
+
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.previousOrderJSON[server] = jsonStr
-	// Render once before the loop — every recipient gets the same bytes.
-	ev := preRendered(hubEvent{kind: kindServer, typ: "session-order", key: server, data: jsonStr})
 	for _, c := range h.clients[server] {
 		h.sendLocked(c, ev)
 	}
@@ -761,10 +763,13 @@ func (h *sseHub) broadcastServerOrder(order []string) {
 	}
 	jsonStr := string(jsonBytes)
 
+	// Rendered before the lock — see broadcastSessionOrder.
+	ev := preRendered(hubEvent{kind: kindGlobal, typ: "server-order", data: jsonStr})
+
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.cachedServerOrderJSON = jsonStr
-	h.broadcastGlobalLocked(preRendered(hubEvent{kind: kindGlobal, typ: "server-order", data: jsonStr}))
+	h.broadcastGlobalLocked(ev)
 }
 
 // broadcastBoardOrder pushes a server-global `event: board-order` to EVERY
@@ -791,10 +796,13 @@ func (h *sseHub) broadcastBoardOrder(order []string) {
 	}
 	jsonStr := string(jsonBytes)
 
+	// Rendered before the lock — see broadcastSessionOrder.
+	ev := preRendered(hubEvent{kind: kindGlobal, typ: "board-order", data: jsonStr})
+
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.cachedBoardOrderJSON = jsonStr
-	h.broadcastGlobalLocked(preRendered(hubEvent{kind: kindGlobal, typ: "board-order", data: jsonStr}))
+	h.broadcastGlobalLocked(ev)
 }
 
 // setVersion seeds the server-global `event: version` cached slot with the
@@ -908,10 +916,13 @@ func (h *sseHub) broadcastUpdateAvailable(verdict updatecheck.Result) {
 	}
 	jsonStr := string(jsonBytes)
 
+	// Rendered before the lock — see broadcastSessionOrder.
+	ev := preRendered(hubEvent{kind: kindGlobal, typ: "update-available", data: jsonStr})
+
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.cachedUpdateAvailableJSON = jsonStr
-	h.broadcastGlobalLocked(preRendered(hubEvent{kind: kindGlobal, typ: "update-available", data: jsonStr}))
+	h.broadcastGlobalLocked(ev)
 }
 
 // broadcastStatusRefresh pushes a server-global `event: status-refresh` to EVERY
@@ -937,9 +948,12 @@ func (h *sseHub) broadcastStatusRefresh(completedAt time.Time) {
 		slog.Warn("status-refresh broadcast marshal failed", "err", err)
 		return
 	}
+	// Rendered before the lock — see broadcastSessionOrder.
+	ev := preRendered(hubEvent{kind: kindGlobal, typ: "status-refresh", data: string(jsonBytes)})
+
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.broadcastGlobalLocked(preRendered(hubEvent{kind: kindGlobal, typ: "status-refresh", data: string(jsonBytes)}))
+	h.broadcastGlobalLocked(ev)
 }
 
 // broadcastGlobalLocked fans a host-global event out to every live state-socket
@@ -963,9 +977,11 @@ func (h *sseHub) broadcastBoardChanged(server string, payload boardChangedPayloa
 		slog.Warn("board-changed broadcast marshal failed", "err", err, "server", server)
 		return
 	}
+	// Rendered before the lock — see broadcastSessionOrder.
+	ev := preRendered(hubEvent{kind: kindServer, typ: boardEventName, key: server, data: string(jsonBytes)})
+
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	ev := preRendered(hubEvent{kind: kindServer, typ: boardEventName, key: server, data: string(jsonBytes)})
 	for _, c := range h.clients[server] {
 		h.sendLocked(c, ev)
 	}
@@ -1335,17 +1351,32 @@ func (h *sseHub) poll() {
 			}
 			jsonStr := string(jsonBytes)
 
+			// Dedup-check and cache-update under the lock, but render OUTSIDE
+			// it: the envelope marshal on this hot tick must not extend h.mu
+			// hold time (it would block subscribe/unsubscribe/preview-scope
+			// updates). Splitting the critical section is safe:
+			//   - the ack-ordering invariant holds — previousJSON is updated
+			//     BEFORE any fan-out of that tick, so a subscribe ack reading
+			//     it is always ≥ every sessions frame already enqueued
+			//     (TestStateWS_SubscribeAckNotStaleUnderPollInterleave);
+			//   - a client subscribing in the gap replays the NEW snapshot in
+			//     addClient and then also receives the identical event below —
+			//     a benign duplicate (the client applies state by replacement).
 			h.mu.Lock()
-			if jsonStr != h.previousJSON[server] {
+			changed := jsonStr != h.previousJSON[server]
+			if changed {
 				h.previousJSON[server] = jsonStr
-				// Render once before the loop — every client on this server
-				// gets the same bytes.
+			}
+			h.mu.Unlock()
+			if changed {
+				// Render once — every client on this server gets the same bytes.
 				ev := preRendered(hubEvent{kind: kindServer, typ: "sessions", key: server, data: jsonStr})
+				h.mu.Lock()
 				for _, c := range h.clients[server] {
 					h.sendLocked(c, ev)
 				}
+				h.mu.Unlock()
 			}
-			h.mu.Unlock()
 
 			// Pane-text previews (tile grid). Bounded to the union of sessions
 			// any client on this server has expanded — capture-nothing when the
@@ -1517,9 +1548,11 @@ func (h *sseHub) poll() {
 			metricsJSON, err := json.Marshal(snap)
 			if err == nil {
 				metricsStr := string(metricsJSON)
+				// Rendered before the lock — see broadcastSessionOrder.
+				ev := preRendered(hubEvent{kind: kindGlobal, typ: "metrics", data: metricsStr})
 				h.mu.Lock()
 				h.cachedMetricsJSON = metricsStr
-				h.broadcastGlobalLocked(preRendered(hubEvent{kind: kindGlobal, typ: "metrics", data: metricsStr}))
+				h.broadcastGlobalLocked(ev)
 				h.mu.Unlock()
 			}
 		}
@@ -1531,9 +1564,11 @@ func (h *sseHub) poll() {
 			servicesJSON, err := json.Marshal(snap)
 			if err == nil {
 				servicesStr := string(servicesJSON)
+				// Rendered before the lock — see broadcastSessionOrder.
+				ev := preRendered(hubEvent{kind: kindGlobal, typ: "services", data: servicesStr})
 				h.mu.Lock()
 				h.cachedServicesJSON = servicesStr
-				h.broadcastGlobalLocked(preRendered(hubEvent{kind: kindGlobal, typ: "services", data: servicesStr}))
+				h.broadcastGlobalLocked(ev)
 				h.mu.Unlock()
 			}
 		}

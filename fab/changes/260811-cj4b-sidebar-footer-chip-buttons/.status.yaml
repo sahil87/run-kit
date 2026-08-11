@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 6
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-08-11T07:52:27Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-11T07:56:56Z"}
     hydrate: {started_at: "2026-08-11T07:56:56Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-11T08:00:48Z"}
     ship: {started_at: "2026-08-11T08:00:48Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-11T08:05:10Z"}
-    review-pr: {started_at: "2026-08-11T08:05:10Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-08-11T08:05:10Z", driver: git-pr, iterations: 1, completed_at: "2026-08-11T08:13:01Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/550
 change_type_source: explicit
@@ -54,4 +54,4 @@ true_impact:
     computed_at_stage: ship
 summary: Sidebar footer actions adopt the top-bar bordered rk-glint chip idiom at footer scale (24px fine / 30px coarse, shared TOP_BAR_BUTTON_REST, gap-1), reversing the borderless footer decision
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-11T08:05:10Z
+last_updated: 2026-08-11T08:13:01Z

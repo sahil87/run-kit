@@ -70,6 +70,7 @@ afterEach(() => {
   mockNavigate.mockClear();
   pinWindowMock.mockClear();
   setBoardOrderMock.mockClear();
+  addToastMock.mockClear();
   localStorage.clear();
 });
 

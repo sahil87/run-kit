@@ -122,14 +122,23 @@ export function BoardsSection() {
                     // client-side gating (cross-server, already-pinned): the
                     // backend's re-stamp/no-op semantics decide, matching the
                     // popover path.
-                    let data: { server?: string; windowId?: string };
+                    let parsed: unknown;
                     try {
-                      data = JSON.parse(e.dataTransfer.getData("application/json"));
+                      parsed = JSON.parse(e.dataTransfer.getData("application/json"));
                     } catch {
                       return; // malformed payload — ignore, mirroring handleDrop
                     }
-                    if (typeof data.server === "string" && typeof data.windowId === "string") {
-                      pin(data.server, data.windowId, b.name);
+                    // JSON.parse can legally yield null/primitives — narrow
+                    // before reading properties so those are ignored too.
+                    if (
+                      typeof parsed === "object" &&
+                      parsed !== null &&
+                      "server" in parsed &&
+                      typeof parsed.server === "string" &&
+                      "windowId" in parsed &&
+                      typeof parsed.windowId === "string"
+                    ) {
+                      pin(parsed.server, parsed.windowId, b.name);
                     }
                   }}
                   onClick={() => navigate({ to: "/board/$name", params: { name: b.name } })}

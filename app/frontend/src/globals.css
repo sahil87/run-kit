@@ -36,6 +36,13 @@
   --color-accent: #5b8af0;
   --color-accent-bright: #82a8f7;
   --color-accent-green: #22c55e;
+  /* Signal hues (status dots, PR glyphs, waiting attention, errors). Dark
+     values are the legacy Tailwind -400 hexes — dark stays pixel-identical;
+     light values meet the ≥3:1 WCAG 1.4.11 graphics bar on light surfaces. */
+  --color-signal-yellow: #facc15;
+  --color-signal-purple: #c084fc;
+  --color-signal-blue: #60a5fa;
+  --color-signal-red: #f87171;
   --font-mono: "MonaspiceNe Nerd Font Mono", monospace;
 }
 
@@ -50,6 +57,10 @@ html[data-theme="dark"] {
   --color-accent: #5b8af0;
   --color-accent-bright: #82a8f7;
   --color-accent-green: #22c55e;
+  --color-signal-yellow: #facc15;
+  --color-signal-purple: #c084fc;
+  --color-signal-blue: #60a5fa;
+  --color-signal-red: #f87171;
 }
 
 html[data-theme="light"] {
@@ -65,6 +76,10 @@ html[data-theme="light"] {
      lighter on dark, darker + more saturated on light (lighter would wash out). */
   --color-accent-bright: #3b66d6;
   --color-accent-green: #16a34a;
+  --color-signal-yellow: #b07d02;
+  --color-signal-purple: #9333ea;
+  --color-signal-blue: #2563eb;
+  --color-signal-red: #dc2626;
 }
 
 body {
@@ -260,14 +275,16 @@ summary {
    agent is `waiting` (blocked on a human), the single most notification-worthy
    state. A constant-YELLOW pulsing halo (a box-shadow ring) is layered around
    the status dot; the dot's own core hue + shape are untouched (family identity
-   must survive attention). Yellow is a CONSTANT (#facc15 — Tailwind yellow-400),
-   theme-independent by design: yellow = "an agent needs you now" in every
-   theme. Applied to the wrapper span so it never disturbs the inner dot markup.
+   must survive attention). The SEMANTIC is constant — yellow = "an agent needs
+   you now" in every theme — but the VALUE is per-theme via
+   `--color-signal-yellow` (dark keeps the legacy #facc15; light darkens to a
+   gold that meets the ≥3:1 graphics bar). Applied to the wrapper span so it
+   never disturbs the inner dot markup.
    Reduced motion: a STATIC yellow ring (no pulse) — attention is never encoded
    in motion alone (gated below). */
 @keyframes rk-waiting-halo {
-  0%, 100% { box-shadow: 0 0 0 1.5px color-mix(in srgb, #facc15 55%, transparent); }
-  50% { box-shadow: 0 0 0 3px color-mix(in srgb, #facc15 85%, transparent); }
+  0%, 100% { box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--color-signal-yellow) 55%, transparent); }
+  50% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-signal-yellow) 85%, transparent); }
 }
 .rk-waiting-halo {
   /* NO border-radius here: the halo is a box-shadow, which follows the
@@ -281,15 +298,15 @@ summary {
 }
 
 /* Waiting seam = the board-pane form of the same attention overlay. A waiting
-   pane's border pulses in the constant yellow (3px, border-width system —
+   pane's border pulses in the signal yellow (3px, border-width system —
    board-pane.tsx switches to border-[3px] and adds this class). Reduced motion:
    a static yellow border (gated below). */
 @keyframes rk-waiting-seam {
-  0%, 100% { border-color: color-mix(in srgb, #facc15 55%, transparent); }
-  50% { border-color: #facc15; }
+  0%, 100% { border-color: color-mix(in srgb, var(--color-signal-yellow) 55%, transparent); }
+  50% { border-color: var(--color-signal-yellow); }
 }
 .rk-waiting-seam {
-  border-color: #facc15;
+  border-color: var(--color-signal-yellow);
   animation: rk-waiting-seam 1.4s ease-in-out infinite;
 }
 
@@ -528,8 +545,8 @@ summary {
   .rk-bracket-caret,
   .rk-bracket-group:hover .rk-bracket-caret { animation: none; opacity: 0; }
   /* Waiting overlay → static yellow ring / seam (attention never motion-only). */
-  .rk-waiting-halo { animation: none; box-shadow: 0 0 0 2px #facc15; }
-  .rk-waiting-seam { animation: none; border-color: #facc15; }
+  .rk-waiting-halo { animation: none; box-shadow: 0 0 0 2px var(--color-signal-yellow); }
+  .rk-waiting-seam { animation: none; border-color: var(--color-signal-yellow); }
   /* Pending-switch mask still SHOWS (input safety is never motion-only) — only
      its fade-in is dropped so it appears as an instant cut. */
   .rk-window-switch-mask { animation: none; }

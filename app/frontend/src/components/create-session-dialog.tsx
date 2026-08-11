@@ -309,7 +309,7 @@ export function CreateSessionDialog({ sessions, onClose, defaultPath, mode = "se
             }`}
           />
           {nameCollision && (
-            <p className="text-xs text-red-400 mt-1">
+            <p className="text-xs text-signal-red mt-1">
               Session "{finalName}" already exists
             </p>
           )}
@@ -318,7 +318,7 @@ export function CreateSessionDialog({ sessions, onClose, defaultPath, mode = "se
 
       {/* Error message */}
       {error && (
-        <p className="text-xs text-red-400 mb-2">{error}</p>
+        <p className="text-xs text-signal-red mb-2">{error}</p>
       )}
 
       <button

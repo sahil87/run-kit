@@ -472,7 +472,7 @@ function WindowContent({ win }: { win: WindowInfo }) {
         <span className={ICON_CLASS} aria-hidden="true">{"\uF413"}</span>
         {" "}
         {cwdMissing ? (
-          <span className="text-red-400">
+          <span className="text-signal-red">
             {cwd} <span data-testid="cwd-deleted">(deleted)</span>
           </span>
         ) : (

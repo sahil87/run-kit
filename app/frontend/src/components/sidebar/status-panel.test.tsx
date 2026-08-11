@@ -459,7 +459,7 @@ describe("StatusPanel copy behavior", () => {
         prChecks: "pending",
       });
       render(<StatusPanel window={win} />);
-      expect(screen.getByText("checks pending").className).toContain("text-yellow-400");
+      expect(screen.getByText("checks pending").className).toContain("text-signal-yellow");
     });
 
     it("colors a draft's open state green (green = health, not readiness)", () => {
@@ -576,7 +576,7 @@ describe("StatusPanel copy behavior", () => {
       // once a PR lands, so they're suppressed.
       expect(screen.getByTestId("pr-line")).toHaveTextContent("#247 · merged");
       expect(screen.queryByText(/checks/)).toBeNull();
-      expect(screen.getByText("merged").className).toContain("text-purple-400");
+      expect(screen.getByText("merged").className).toContain("text-signal-purple");
     });
 
     it("shows the terminal state and suppresses checks/review for a closed PR", () => {
@@ -605,8 +605,8 @@ describe("StatusPanel copy behavior", () => {
       // state segment refers to "closed" itself (GitHub convention), never to a
       // hidden failure reason, which must not leak into other segments.
       expect(screen.queryByText(/checks/)).toBeNull();
-      expect(screen.getByText("closed").className).toContain("text-red-400");
-      expect(screen.getByText("#247").className).not.toContain("text-red-400");
+      expect(screen.getByText("closed").className).toContain("text-signal-red");
+      expect(screen.getByText("#247").className).not.toContain("text-signal-red");
     });
 
     it("renders the row body itself as an open-in-new-tab link to the PR URL", () => {
@@ -671,7 +671,7 @@ describe("StatusPanel copy behavior", () => {
       });
       render(<StatusPanel window={win} />);
       expect(screen.getByTestId("pr-line")).toHaveTextContent("#241 · open · checks fail");
-      expect(screen.getByText("checks fail").className).toContain("text-red-400");
+      expect(screen.getByText("checks fail").className).toContain("text-signal-red");
       // The failure is scoped to its segment — the still-open state stays green.
       expect(screen.getByText("open").className).toContain("text-accent-green");
     });

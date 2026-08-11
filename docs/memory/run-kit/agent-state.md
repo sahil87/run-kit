@@ -412,7 +412,7 @@ The `agentState` three-state value is a first-class UI input across every surfac
 - **`StatusDot` (palette-v3 two-family ladder)**: a fresh `agentState` on a
   non-fab window drives the **warm ad-hoc-agent family** — yellow working / orange
   PR (vs the cool fab family blue/green/purple, vs the gray floor). A `waiting`
-  window of ANY tier gets an **additive constant-yellow pulsing halo** (core hue +
+  window of ANY tier gets an **additive signal-yellow pulsing halo** (core hue +
   shape untouched — never a hue-flip). `agentState === "idle"` is a ring;
   `active`/`waiting` are solid (mid-turn). See
   [ui-patterns](/run-kit/ui-patterns.md) § Status Dot.

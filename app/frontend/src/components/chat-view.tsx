@@ -104,7 +104,7 @@ export function ChatView({
         {error ? (
           <div
             role="alert"
-            className="rounded border border-red-500/50 bg-red-500/10 px-3 py-2 text-red-400"
+            className="rounded border border-red-500/50 bg-red-500/10 px-3 py-2 text-signal-red"
             data-testid="chat-error"
           >
             {error}
@@ -119,11 +119,11 @@ export function ChatView({
 
         {pendingBubble && (
           <div
-            className="self-stretch rounded border border-yellow-400/50 bg-yellow-400/10 px-3 py-2 text-yellow-300"
+            className="self-stretch rounded border border-signal-yellow/50 bg-signal-yellow/10 px-3 py-2 text-signal-yellow"
             data-testid="chat-pending"
             role="status"
           >
-            <div className="text-xs uppercase tracking-wide text-yellow-400/80 mb-1">
+            <div className="text-xs uppercase tracking-wide text-signal-yellow/80 mb-1">
               Waiting for input
               {pendingBubble.toolName ? ` · ${pendingBubble.toolName}` : ""}
             </div>
@@ -261,7 +261,7 @@ function ChatSendForm({
       {error && (
         <div
           role="alert"
-          className="rounded border border-red-500/50 bg-red-500/10 px-3 py-1.5 text-xs text-red-400"
+          className="rounded border border-red-500/50 bg-red-500/10 px-3 py-1.5 text-xs text-signal-red"
           data-testid="chat-send-error"
         >
           {error}
@@ -430,7 +430,7 @@ function ToolCard({ card }: { card: ToolCardData }) {
           {use.toolName ?? "tool"}
         </span>
         {isError && (
-          <span className="text-xs text-red-400 uppercase tracking-wide">error</span>
+          <span className="text-xs text-signal-red uppercase tracking-wide">error</span>
         )}
       </button>
       {open && (
@@ -448,7 +448,7 @@ function ToolCard({ card }: { card: ToolCardData }) {
               <div className="text-text-secondary mb-0.5">output</div>
               <pre
                 className={`whitespace-pre-wrap break-words rounded p-2 overflow-x-auto ${
-                  isError ? "text-red-400 bg-red-500/10" : "text-text-primary bg-bg-inset"
+                  isError ? "text-signal-red bg-red-500/10" : "text-text-primary bg-bg-inset"
                 }`}
               >
                 {result.toolOutput}
@@ -468,7 +468,7 @@ function ToolResultOrphan({ event }: { event: ChatEvent }) {
     <div className="rounded border border-border bg-bg-card px-3 py-2 text-xs" data-testid="chat-tool-result-orphan">
       <pre
         className={`whitespace-pre-wrap break-words ${
-          event.isError ? "text-red-400" : "text-text-primary"
+          event.isError ? "text-signal-red" : "text-text-primary"
         }`}
       >
         {event.toolOutput}

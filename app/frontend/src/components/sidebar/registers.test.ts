@@ -98,7 +98,7 @@ describe("getPrSegments (L3)", () => {
     );
     expect(segs).toEqual([
       { text: "#241", color: "text-text-primary" },
-      { text: "merged", color: "text-purple-400" },
+      { text: "merged", color: "text-signal-purple" },
     ]);
   });
 
@@ -111,7 +111,7 @@ describe("getPrSegments (L3)", () => {
     const segs = getPrSegments(
       makeWindow({ prNumber: 7, prState: "open", prChecks: "fail", prReview: "changes_requested" }),
     );
-    expect(segs?.[2]).toEqual({ text: "checks fail", color: "text-red-400" });
-    expect(segs?.[3]).toEqual({ text: "review: changes requested", color: "text-red-400" });
+    expect(segs?.[2]).toEqual({ text: "checks fail", color: "text-signal-red" });
+    expect(segs?.[3]).toEqual({ text: "review: changes requested", color: "text-signal-red" });
   });
 });

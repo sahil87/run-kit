@@ -25,25 +25,26 @@ export function isFailish(win: WindowInfo): boolean {
  * merged=purple, closed=red; checks/review
  * pass/approved=green, fail/changes_requested=red, pending/review_required=
  * yellow. No new hex — `text-accent-green` is the theme token (themes.ts); the
- * other four are the established PR Tailwind tokens. This is the single source
- * of truth so a token rename touches one place and every surface stays in step.
+ * other four are the `--color-signal-*` theme tokens (globals.css). This is
+ * the single source of truth so a token rename touches one place and every
+ * surface stays in step.
  */
 export const PR_STATE_COLORS: Record<NonNullable<WindowInfo["prState"]>, string> = {
   open: "text-accent-green",
-  merged: "text-purple-400",
-  closed: "text-red-400",
+  merged: "text-signal-purple",
+  closed: "text-signal-red",
 };
 
 export const PR_CHECKS_COLORS: Record<string, string> = {
   pass: "text-accent-green",
-  fail: "text-red-400",
-  pending: "text-yellow-400",
+  fail: "text-signal-red",
+  pending: "text-signal-yellow",
 };
 
 export const PR_REVIEW_COLORS: Record<string, string> = {
   approved: "text-accent-green",
-  changes_requested: "text-red-400",
-  review_required: "text-yellow-400",
+  changes_requested: "text-signal-red",
+  review_required: "text-signal-yellow",
 };
 
 /**
@@ -162,13 +163,13 @@ export function fabShape(displayState: string | undefined): DotShape {
  * Channel Model). Four hues: blue building → green PR-ready (cool fab), yellow
  * ad-hoc agent (warm), gray floor. `text-purple-400`/`text-orange-400` are
  * GONE from the dot — purple stays in the glyph/segment vocabularies. No raw
- * hex — `text-blue-400`/`text-yellow-400` are standard Tailwind classes; the
- * rest are the established shared tokens.
+ * hex — `text-signal-blue`/`text-signal-yellow` are the per-theme signal
+ * tokens (globals.css); the rest are the established shared tokens.
  */
 export const PHASE_HUE: Record<DotPhase, string> = {
-  building: "text-blue-400",
+  building: "text-signal-blue",
   prReady: "text-accent-green",
-  agent: "text-yellow-400",
+  agent: "text-signal-yellow",
   none: "text-text-secondary",
 };
 
@@ -214,7 +215,7 @@ export function prOwnsGlyph(win: WindowInfo): boolean {
  *      noise, the same first-match rationale that puts `merged` above `fail`
  *      in `prDotState`. (The GitHub-exact red variant was considered and
  *      rejected by the user: dead PRs should not draw rest-state attention.)
- *   2. `text-red-400` for a fail-ish PR (`prDotState` → `fail`, i.e.
+ *   2. `text-signal-red` for a fail-ish PR (`prDotState` → `fail`, i.e.
  *      `isFailish`). FAIL STAYS ON TOP of everything open — a draft whose
  *      checks fail (or that has changes requested) is a problem first and a
  *      draft second, the same `isFailish`-dominates rule `prDotState`
@@ -226,12 +227,12 @@ export function prOwnsGlyph(win: WindowInfo): boolean {
  *      branch is GATED ON `prState === "open"` so the merged→purple and
  *      closed paths are untouched BY CONSTRUCTION (a closed draft reads
  *      closed, GitHub semantics).
- *   4. `text-yellow-400` for open with `prChecks === "pending"` — CHECKS
+ *   4. `text-signal-yellow` for open with `prChecks === "pending"` — CHECKS
  *      RUNNING (aqo6): the row-level signal that replaced the dot's retired
  *      purple pending ring; same token choice as `PR_CHECKS_COLORS.pending`.
  *   5. `text-accent-green` for open otherwise (checks pass or no decisive
  *      signal).
- *   6. `text-purple-400` for merged.
+ *   6. `text-signal-purple` for merged.
  * Unknown/absent states never reach here (the `prOwnsGlyph` allowlist admits
  * only `open`/`merged`/`closed`), so the merged fall-through in branch 5/6
  * is safe by construction. No new color
@@ -244,10 +245,10 @@ export function prOwnsGlyph(win: WindowInfo): boolean {
  */
 export function prGlyphColor(win: WindowInfo): string {
   if (win.prState === "closed") return "text-text-secondary"; // dead PR: muted; stale checks are noise
-  if (prDotState(win) === "fail") return "text-red-400";
+  if (prDotState(win) === "fail") return "text-signal-red";
   if (win.prState === "open" && win.prIsDraft) return "text-text-secondary";
-  if (win.prState === "open" && win.prChecks === "pending") return "text-yellow-400";
-  return win.prState === "open" ? "text-accent-green" : "text-purple-400";
+  if (win.prState === "open" && win.prChecks === "pending") return "text-signal-yellow";
+  return win.prState === "open" ? "text-accent-green" : "text-signal-purple";
 }
 
 /**

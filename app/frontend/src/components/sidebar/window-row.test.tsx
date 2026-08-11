@@ -237,10 +237,10 @@ describe("WindowRow", () => {
       });
       renderRow(win);
       const dot = screen.getByLabelText("building — failed");
-      expect(dot.className).toContain("text-blue-400"); // building (review is pre-PR)
-      expect(dot.className).not.toContain("text-red-400"); // whole-dot red is gone
+      expect(dot.className).toContain("text-signal-blue"); // building (review is pre-PR)
+      expect(dot.className).not.toContain("text-signal-red"); // whole-dot red is gone
       expect(dot.getAttribute("style")).toContain("dotted");
-      expect(dot.querySelector("span")!.className).toContain("bg-red-400"); // red center only
+      expect(dot.querySelector("span")!.className).toContain("bg-signal-red"); // red center only
     });
 
     it("renders an additive yellow halo on a waiting window (core hue kept)", () => {
@@ -254,7 +254,7 @@ describe("WindowRow", () => {
       });
       renderRow(win);
       const dot = screen.getByLabelText("building — active — agent waiting");
-      expect(dot.className).toContain("text-blue-400"); // core hue kept
+      expect(dot.className).toContain("text-signal-blue"); // core hue kept
       expect(dot.className).toContain("rk-waiting-halo"); // additive overlay
     });
 
@@ -265,7 +265,7 @@ describe("WindowRow", () => {
       renderRow(win);
       const dot = screen.getByLabelText("idle");
       expect(dot.className).toContain("text-text-secondary");
-      expect(dot.className).not.toContain("text-red-400");
+      expect(dot.className).not.toContain("text-signal-red");
     });
 
     it("PR eviction: a merged PR never turns the dot purple — the fab tier renders (glyph carries merged)", () => {
@@ -283,7 +283,7 @@ describe("WindowRow", () => {
       expect(screen.queryByLabelText("PR — merged")).toBeNull();
       const dot = screen.getByLabelText("PR-ready — parked");
       expect(dot.className).toContain("text-accent-green");
-      expect(dot.className).not.toContain("text-purple-400");
+      expect(dot.className).not.toContain("text-signal-purple");
       expect(dot.className).not.toContain("rounded-none"); // the square is retired
     });
 
@@ -314,7 +314,7 @@ describe("WindowRow", () => {
         fabDisplayState: "active",
       });
       renderRow(apply);
-      expect(screen.getByLabelText("building — active").className).toContain("text-blue-400");
+      expect(screen.getByLabelText("building — active").className).toContain("text-signal-blue");
       cleanup();
       const ship = makeWindow({
         windowId: "@0",
@@ -357,8 +357,8 @@ describe("WindowRow", () => {
       renderRow(win);
       expect(screen.queryByLabelText("PR — closed")).toBeNull();
       const dot = screen.getByLabelText("building — active");
-      expect(dot.className).toContain("text-blue-400");
-      expect(dot.className).not.toContain("text-purple-400");
+      expect(dot.className).toContain("text-signal-blue");
+      expect(dot.className).not.toContain("text-signal-purple");
     });
 
     it("does not render a fab dot for a window that is not change-bound (no fabChange)", () => {
@@ -399,7 +399,7 @@ describe("WindowRow", () => {
     it("renders the glyph for a merged PR (purple)", () => {
       const win = makeWindow({ windowId: "@0", index: 0, prNumber: 386, prState: "merged" });
       renderRowWithIcons(win);
-      expect(screen.getByTestId("row-pr-glyph").className).toContain("text-purple-400");
+      expect(screen.getByTestId("row-pr-glyph").className).toContain("text-signal-purple");
     });
 
     // e30p → aqo6: draft is glyph-only by construction — the dot never renders
@@ -423,7 +423,7 @@ describe("WindowRow", () => {
       const win = makeWindow({ windowId: "@0", index: 0, prNumber: 386, prState: "open", prChecks: "pending" });
       renderRowWithIcons(win);
       const glyph = screen.getByTestId("row-pr-glyph");
-      expect(glyph.className).toContain("text-yellow-400");
+      expect(glyph.className).toContain("text-signal-yellow");
       expect(glyph.className).not.toContain("text-accent-green");
     });
 
@@ -431,8 +431,8 @@ describe("WindowRow", () => {
       const win = makeWindow({ windowId: "@0", index: 0, prNumber: 386, prState: "open", prChecks: "fail" });
       renderRowWithIcons(win);
       const glyph = screen.getByTestId("row-pr-glyph");
-      expect(glyph.className).toContain("text-red-400");
-      expect(glyph.className).not.toContain("text-purple-400");
+      expect(glyph.className).toContain("text-signal-red");
+      expect(glyph.className).not.toContain("text-signal-purple");
     });
 
     // xuej: closed earns the glyph — muted gray with the distinct ✕ closed

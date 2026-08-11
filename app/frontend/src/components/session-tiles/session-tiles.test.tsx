@@ -214,11 +214,11 @@ describe("SessionTiles", () => {
     it("renders the glyph yellow for checks running and purple for merged", () => {
       renderWithPr({ prNumber: 386, prState: "open", prChecks: "pending" });
       fireEvent.click(screen.getByLabelText("Expand run-kit"));
-      expect(screen.getByTestId("tile-pr-glyph").className).toContain("text-yellow-400");
+      expect(screen.getByTestId("tile-pr-glyph").className).toContain("text-signal-yellow");
       cleanup();
       renderWithPr({ prNumber: 386, prState: "merged" });
       fireEvent.click(screen.getByLabelText("Expand run-kit"));
-      expect(screen.getByTestId("tile-pr-glyph").className).toContain("text-purple-400");
+      expect(screen.getByTestId("tile-pr-glyph").className).toContain("text-signal-purple");
     });
 
     // xuej: closed earns the glyph — muted with the distinct ✕ closed icon

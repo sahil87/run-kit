@@ -3598,7 +3598,7 @@ function AppShell() {
             Kill server <strong>{killServerTarget}</strong> and all its sessions? This cannot be undone.
           </p>
           {killServerTarget === DAEMON_SERVER && (
-            <p className="text-red-400 mb-2.5">
+            <p className="text-signal-red mb-2.5">
               <strong>{DAEMON_SERVER}</strong> hosts the run-kit daemon serving this dashboard — killing it takes the dashboard down.
             </p>
           )}

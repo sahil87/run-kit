@@ -171,7 +171,7 @@ function TextSetting({
         className="w-full max-w-[320px] bg-transparent text-text-primary p-2 border border-border rounded outline-none placeholder:text-text-secondary focus:border-text-secondary"
       />
       {error && (
-        <p className="text-xs text-red-400 mt-1" role="alert">
+        <p className="text-xs text-signal-red mt-1" role="alert">
           {error}
         </p>
       )}

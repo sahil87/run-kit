@@ -7,9 +7,10 @@
  * you"), so callers can mount it unconditionally.
  *
  * Styling follows the existing count-chip vocabulary (session-tiles' fab-stage
- * chip: `text-xs px-1.5 py-0.5 rounded`) but in the CONSTANT yellow of the
+ * chip: `text-xs px-1.5 py-0.5 rounded`) but in the signal yellow of the
  * waiting overlay — the same "yellow = an agent needs you now" glance language
- * the status-dot halo uses (yellow-400, theme-independent). It is text, not
+ * the status-dot halo uses (semantic constant; value per-theme via
+ * `--color-signal-yellow`). It is text, not
  * motion — the count is legible with color and the accessible label, never
  * color-only. No pulse here (the pulse lives on the per-window dot/seam); the
  * rollup is a quiet count.
@@ -36,7 +37,7 @@ export function WaitingBadge({
   if (count <= 0) return null;
   const resolvedLabel = label ?? `${count} agent${count === 1 ? "" : "s"} waiting for input`;
   const className =
-    "shrink-0 text-xs leading-none px-1.5 py-0.5 rounded bg-yellow-400/15 text-yellow-400 font-medium tabular-nums";
+    "shrink-0 text-xs leading-none px-1.5 py-0.5 rounded bg-signal-yellow/15 text-signal-yellow font-medium tabular-nums";
   // Placement `right` — the sidebar-row tooltip convention (the badge's mount
   // sites are row/tile trailing chips); flip()/shift() handle tight edges.
   if (onClick) {
@@ -47,7 +48,7 @@ export function WaitingBadge({
         <button
           type="button"
           data-testid="waiting-badge"
-          className={`${className} rk-glint hover:bg-yellow-400/25 transition-colors cursor-pointer`}
+          className={`${className} rk-glint hover:bg-signal-yellow/25 transition-colors cursor-pointer`}
           aria-label={`${resolvedLabel} — go to next waiting`}
           onClick={(e) => {
             // Don't let the click bubble to a parent row/tile navigation.

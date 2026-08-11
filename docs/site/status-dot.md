@@ -51,9 +51,9 @@ agents, gray = just a terminal, yellow glow = needs me now.**
 
 | Hue | Token | Hex (ref) | Means |
 |-----|-------|-----------|-------|
-| blue | `text-blue-400` | `#60a5fa` | fab **building** — intake · apply · review (pre-PR work) |
+| blue | `text-signal-blue` | `#60a5fa` (dark; `#2563eb` light) | fab **building** — intake · apply · review (pre-PR work) |
 | green | `text-accent-green` | theme green | fab **PR-ready / done** — ship · review-pr · done (local work complete) |
-| yellow | `text-yellow-400` | `#facc15` | **ad-hoc agent** — a fresh `@rk_agent_state`, no fab change |
+| yellow | `text-signal-yellow` | `#facc15` (dark; `#b07d02` light) | **ad-hoc agent** — a fresh `@rk_agent_state`, no fab change |
 | gray | `text-text-secondary` | gray | **floor** — plain terminal; color is reserved for a journey |
 
 The purple and orange PR hues are **retired from the dot** — purple survives in the glyph and the
@@ -83,11 +83,11 @@ the order is the design:
 | Color | Token | Icon | Means |
 |-------|-------|------|-------|
 | gray | `text-text-secondary` | ✕ closed icon | **closed** — a dead PR, muted; sits above fail (stale checks are noise); the ✕ shape separates it from draft |
-| red | `text-red-400` | normal | checks fail / changes requested — fail stays on top (of open states) |
+| red | `text-signal-red` | normal | checks fail / changes requested — fail stays on top (of open states) |
 | gray | `text-text-secondary` | normal | open **draft** — muted even while its checks run (draft outranks pending) |
-| yellow | `text-yellow-400` | normal | open, **checks running** (`prChecks: pending`) |
+| yellow | `text-signal-yellow` | normal | open, **checks running** (`prChecks: pending`) |
 | green | `text-accent-green` | normal | open, checks pass or no decisive signal |
-| purple | `text-purple-400` | normal | merged |
+| purple | `text-signal-purple` | normal | merged |
 
 A closed-unmerged PR earns the **muted ✕ glyph** (its register line is unchanged) — a dead PR is a
 glance-level "this window needs a decision" signal, and shape (not color) separates it from both a

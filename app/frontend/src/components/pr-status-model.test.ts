@@ -117,13 +117,13 @@ describe("prGlyphColor — rest-glyph color mapping", () => {
 
   it("merged → purple (historical failing checks ignored — merged wins)", () => {
     expect(prGlyphColor(makeWindow({ prNumber: 7, prState: "merged", prChecks: "fail" }))).toBe(
-      "text-purple-400",
+      "text-signal-purple",
     );
   });
 
   it("checks pending → yellow (checks running — the NEW glyph state)", () => {
     expect(prGlyphColor(makeWindow({ prNumber: 7, prState: "open", prChecks: "pending" }))).toBe(
-      "text-yellow-400",
+      "text-signal-yellow",
     );
   });
 
@@ -136,7 +136,7 @@ describe("prGlyphColor — rest-glyph color mapping", () => {
 
   it("failing checks → red", () => {
     expect(prGlyphColor(makeWindow({ prNumber: 7, prState: "open", prChecks: "fail" }))).toBe(
-      "text-red-400",
+      "text-signal-red",
     );
   });
 
@@ -145,7 +145,7 @@ describe("prGlyphColor — rest-glyph color mapping", () => {
       prGlyphColor(
         makeWindow({ prNumber: 7, prState: "open", prChecks: "pass", prReview: "changes_requested" }),
       ),
-    ).toBe("text-red-400");
+    ).toBe("text-signal-red");
   });
 
   // e30p: the draft branch — gray, below fail, gated on `prState === "open"`.
@@ -160,7 +160,7 @@ describe("prGlyphColor — rest-glyph color mapping", () => {
   it("draft + failing checks → red (fail still wins over draft)", () => {
     expect(
       prGlyphColor(makeWindow({ prNumber: 7, prState: "open", prIsDraft: true, prChecks: "fail" })),
-    ).toBe("text-red-400");
+    ).toBe("text-signal-red");
   });
 
   it("draft + changes requested → red (isFailish covers review too)", () => {
@@ -174,7 +174,7 @@ describe("prGlyphColor — rest-glyph color mapping", () => {
           prReview: "changes_requested",
         }),
       ),
-    ).toBe("text-red-400");
+    ).toBe("text-signal-red");
   });
 
   it("draft + checks pending → gray (draft outranks the pending-yellow branch)", () => {
@@ -190,7 +190,7 @@ describe("prGlyphColor — rest-glyph color mapping", () => {
     // assertion pins that the draft branch is `prState === "open"`-gated, which
     // is what keeps merged→purple untouched BY CONSTRUCTION rather than by luck.
     expect(prGlyphColor(makeWindow({ prNumber: 7, prState: "merged", prIsDraft: true }))).toBe(
-      "text-purple-400",
+      "text-signal-purple",
     );
   });
 

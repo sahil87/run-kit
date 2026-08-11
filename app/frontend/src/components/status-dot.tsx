@@ -103,7 +103,7 @@ export function StatusDot({ win }: { win: WindowInfo }) {
         className={`relative inline-flex items-center justify-center w-[9px] h-[9px] rounded-full shrink-0 ${color}${halo}`}
         style={{ border: "1.2px dotted currentColor", backgroundColor: "transparent" }}
       >
-        <span aria-hidden="true" className="w-[3px] h-[3px] rounded-full bg-red-400" />
+        <span aria-hidden="true" className="w-[3px] h-[3px] rounded-full bg-signal-red" />
       </span>
     );
   }

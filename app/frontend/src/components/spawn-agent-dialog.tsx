@@ -281,7 +281,7 @@ export function SpawnAgentDialog({ server, session, onSpawned, onClose }: SpawnA
       )}
 
       {/* Error — rendered in-dialog; nothing was created on a 400. */}
-      {error && !busy && <p className="text-xs text-red-400 mb-2">{error}</p>}
+      {error && !busy && <p className="text-xs text-signal-red mb-2">{error}</p>}
 
       <button
         onClick={handleSubmit}

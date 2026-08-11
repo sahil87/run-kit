@@ -261,7 +261,7 @@ function SessionRowInner({
           <button
             onClick={(e) => onKillClick(server, name, session.windows.length, e.ctrlKey || e.metaKey)}
             aria-label={`Kill session ${session.name}`}
-            className="text-text-secondary hover:text-red-400 transition-colors px-0.5 min-w-[24px] coarse:min-w-[32px] min-h-[24px] coarse:min-h-[36px] flex items-center justify-center"
+            className="text-text-secondary hover:text-signal-red transition-colors px-0.5 min-w-[24px] coarse:min-w-[32px] min-h-[24px] coarse:min-h-[36px] flex items-center justify-center"
           >
             <CloseIcon />
           </button>

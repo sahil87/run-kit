@@ -1594,7 +1594,7 @@ describe("Sidebar — server-group header action cluster (x4sf)", () => {
 
     // Non-current: the cluster wrapper carries the contrast-guarded accent as
     // an inline color; the buttons themselves carry NO inline color so their
-    // hover: classes (text-text-primary / text-red-400) can win on hover.
+    // hover: classes (text-text-primary / text-signal-red) can win on hover.
     const alphaPalette = within(headerContainer("alpha")).getByRole("button", {
       name: "Set color for server alpha",
     });
@@ -1604,7 +1604,7 @@ describe("Sidebar — server-group header action cluster (x4sf)", () => {
       name: "Kill server alpha",
     });
     expect(alphaClose.style.color).toBe("");
-    expect(alphaClose.className).toContain("hover:text-red-400");
+    expect(alphaClose.className).toContain("hover:text-signal-red");
 
     // Current: brightest text via class, no inline accent.
     const primaryPalette = within(headerContainer("primary")).getByRole("button", {

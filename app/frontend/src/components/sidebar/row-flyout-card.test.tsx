@@ -173,7 +173,7 @@ describe("RowFlyout card content", () => {
       (s) => s.textContent === "checks fail",
     );
     expect(fail).toBeTruthy();
-    expect(fail!.className).toContain("text-red-400");
+    expect(fail!.className).toContain("text-signal-red");
     // No URL → the line stays plain read-only text, no anchor. Its RegisterLine
     // prefix carries the same pinned "pr" + 2-NBSP codepoints.
     expect(screen.queryByTestId("row-flyout-pr-link")).toBeNull();

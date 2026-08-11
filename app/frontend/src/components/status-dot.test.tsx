@@ -136,7 +136,7 @@ describe("StatusDot — rendering shapes (compositional vocabulary)", () => {
   it("renders a blue solid circle for an active building stage (apply → blue)", () => {
     render(<StatusDot win={makeWindow({ fabChange: "x", fabStage: "apply", fabDisplayState: "active" })} />);
     const dot = screen.getByLabelText("building — active");
-    expect(dot.className).toContain("text-blue-400");
+    expect(dot.className).toContain("text-signal-blue");
     expect(dot.className).not.toContain("text-accent-green");
     expect(dot.className).toContain("rounded-full");
     expect(dot.getAttribute("style")).toContain("background-color: currentcolor");
@@ -146,13 +146,13 @@ describe("StatusDot — rendering shapes (compositional vocabulary)", () => {
     render(<StatusDot win={makeWindow({ fabChange: "x", fabStage: "ship", fabDisplayState: "active" })} />);
     const dot = screen.getByLabelText("PR-ready — active");
     expect(dot.className).toContain("text-accent-green");
-    expect(dot.className).not.toContain("text-blue-400");
+    expect(dot.className).not.toContain("text-signal-blue");
   });
 
   it("renders review (building) in blue — NOT green", () => {
     render(<StatusDot win={makeWindow({ fabChange: "x", fabStage: "review", fabDisplayState: "active" })} />);
     const dot = screen.getByLabelText("building — active");
-    expect(dot.className).toContain("text-blue-400");
+    expect(dot.className).toContain("text-signal-blue");
     expect(dot.className).not.toContain("text-accent-green");
   });
 
@@ -167,7 +167,7 @@ describe("StatusDot — rendering shapes (compositional vocabulary)", () => {
   it("renders an ad-hoc agent (active) as a yellow solid dot", () => {
     render(<StatusDot win={makeWindow({ agentState: "active" })} />);
     const dot = screen.getByLabelText("agent — active");
-    expect(dot.className).toContain("text-yellow-400");
+    expect(dot.className).toContain("text-signal-yellow");
     expect(dot.getAttribute("style")).toContain("background-color: currentcolor");
   });
 
@@ -176,18 +176,18 @@ describe("StatusDot — rendering shapes (compositional vocabulary)", () => {
     // Agent-native word: the idle ad-hoc agent reads "agent — idle" (NOT the
     // fab-stage "pending"), per the module doc + docs/site/status-dot.md.
     const dot = screen.getByLabelText("agent — idle");
-    expect(dot.className).toContain("text-yellow-400");
+    expect(dot.className).toContain("text-signal-yellow");
     expect(dot.getAttribute("style")).toContain("transparent");
   });
 
   it("renders a failed building stage as a blue dotted ring + red center (no whole-dot red)", () => {
     render(<StatusDot win={makeWindow({ fabChange: "x", fabStage: "review", fabDisplayState: "failed" })} />);
     const dot = screen.getByLabelText("building — failed");
-    expect(dot.className).toContain("text-blue-400");
-    expect(dot.className).not.toContain("text-red-400");
+    expect(dot.className).toContain("text-signal-blue");
+    expect(dot.className).not.toContain("text-signal-red");
     expect(dot.getAttribute("style")).toContain("dotted");
     const center = dot.querySelector("span");
-    expect(center!.className).toContain("bg-red-400");
+    expect(center!.className).toContain("bg-signal-red");
   });
 
   it("renders a failed review-pr stage as a green dotted ring + red center", () => {
@@ -201,7 +201,7 @@ describe("StatusDot — rendering shapes (compositional vocabulary)", () => {
     render(<StatusDot win={makeWindow({ fabChange: "x", fabStage: "apply", fabDisplayState: "skipped", activity: "idle" })} />);
     const dot = screen.getByLabelText("idle");
     expect(dot.className).toContain("text-text-secondary");
-    expect(dot.className).not.toContain("text-blue-400");
+    expect(dot.className).not.toContain("text-signal-blue");
   });
 });
 
@@ -211,14 +211,14 @@ describe("StatusDot — PR eviction (the dot never renders PR state)", () => {
     expect(screen.queryByLabelText(/PR — /)).toBeNull();
     const dot = screen.getByLabelText("PR-ready — parked");
     expect(dot.className).toContain("text-accent-green");
-    expect(dot.className).not.toContain("text-purple-400");
+    expect(dot.className).not.toContain("text-signal-purple");
     expect(dot.className).not.toContain("rounded-none");
   });
 
   it("ad-hoc agent with an open PR stays a yellow agent dot, never orange", () => {
     render(<StatusDot win={makeWindow({ agentState: "active", prNumber: 9, prState: "open", prChecks: "pass" })} />);
     const dot = screen.getByLabelText("agent — active");
-    expect(dot.className).toContain("text-yellow-400");
+    expect(dot.className).toContain("text-signal-yellow");
     expect(dot.className).not.toContain("text-orange-400");
   });
 
@@ -235,7 +235,7 @@ describe("StatusDot — additive waiting halo", () => {
     render(<StatusDot win={makeWindow({ fabChange: "x", fabStage: "intake", fabDisplayState: "active", agentState: "waiting", agentIdleDuration: "3m" })} />);
     const dot = screen.getByLabelText("building — active — agent waiting 3m");
     // Core hue kept.
-    expect(dot.className).toContain("text-blue-400");
+    expect(dot.className).toContain("text-signal-blue");
     // Additive halo class present (constant-yellow ring; static under reduced-motion via globals.css).
     expect(dot.className).toContain("rk-waiting-halo");
   });
@@ -243,7 +243,7 @@ describe("StatusDot — additive waiting halo", () => {
   it("waiting on a failed review keeps the failed shape + blue hue, adds the halo", () => {
     render(<StatusDot win={makeWindow({ fabChange: "x", fabStage: "review", fabDisplayState: "failed", agentState: "waiting" })} />);
     const dot = screen.getByLabelText("building — failed — agent waiting");
-    expect(dot.className).toContain("text-blue-400");
+    expect(dot.className).toContain("text-signal-blue");
     expect(dot.getAttribute("style")).toContain("dotted");
     expect(dot.className).toContain("rk-waiting-halo");
   });

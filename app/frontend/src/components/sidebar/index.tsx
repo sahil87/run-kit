@@ -2409,7 +2409,7 @@ function ServerGroupInner(props: ServerGroupProps) {
               type="button"
               onClick={() => onKillServer(server)}
               aria-label={`Kill server ${server}`}
-              className="hover:text-red-400 transition-colors text-[13px] px-1 pr-1.5 sm:pr-2 flex items-center justify-center"
+              className="hover:text-signal-red transition-colors text-[13px] px-1 pr-1.5 sm:pr-2 flex items-center justify-center"
             >
               {"✕"}
             </button>

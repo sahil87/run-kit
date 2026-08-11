@@ -617,7 +617,7 @@ function WindowRowInner({
             e.stopPropagation();
             if (!ghost) onKillClick(srv, session, win.windowId, e.ctrlKey || e.metaKey);
           }}
-          className="text-text-secondary hover:text-red-400 transition-opacity cursor-pointer opacity-0 group-hover:opacity-100 coarse:opacity-100 focus-visible:opacity-100 px-0.5 min-w-[24px] coarse:min-w-[32px] min-h-[24px] coarse:min-h-[36px] flex items-center justify-center"
+          className="text-text-secondary hover:text-signal-red transition-opacity cursor-pointer opacity-0 group-hover:opacity-100 coarse:opacity-100 focus-visible:opacity-100 px-0.5 min-w-[24px] coarse:min-w-[32px] min-h-[24px] coarse:min-h-[36px] flex items-center justify-center"
         >
           <CloseIcon />
         </button>

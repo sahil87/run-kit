@@ -8,38 +8,40 @@ import { buildUpdateActions } from "@/lib/palette-update";
  * Tests for the board-related palette entries — covers conditional visibility
  * rules and selection actions. The `buildBoardActions` helper below is a hand-
  * written mirror that draws from TWO distinct production sources, not one:
- *   - `boardRouteActions` in `components/board/board-page.tsx` — the palette the
- *     board route mounts (it does not render AppShell — DD-8). Source of the
- *     Switch/Leave/Cycle entries and the unconditional "View: Refresh Page"
- *     entry (R4).
- *   - `boardActions` in `app.tsx` — the AppShell-mounted palette's board block.
- *     Source of the Pin/Unpin Current Window entries (gated on
+ *   - `boardRouteActions` in `components/board/board-page.tsx` — the route-
+ *     scoped entries the board registers into the palette-actions slot
+ *     (260811-239r; the single CommandPalette mounts in AppLayout). Source of
+ *     the Switch/Leave/Cycle entries.
+ *   - `boardActions` in `app.tsx` — the AppShell-registered route list's board
+ *     block. Source of the Pin/Unpin Current Window entries (gated on
  *     `hasCurrentWindow`/`isCurrentWindowPinned`), which do NOT exist in
  *     `boardRouteActions`, and of the "hides Leave/Cycle when not on a board
  *     route" rule (`boardRouteActions` renders Leave unconditionally).
  *
+ * The "View: Refresh Page" / nav / update groups are layout-level globals now
+ * (`use-global-palette-actions.ts`, 260811-239r — previously DD-8 duplicates
+ * inside `boardRouteActions`); the mirror keeps them so these tests still pin
+ * their presence/shape RULES in the merged list the board palette renders.
+ *
  * The mirror is deliberately partial and does NOT reproduce production 1:1: it
- * omits `boardRouteActions`' `fontEntries` (terminal-font trio) + `helpEntry`
- * and positions `refreshEntry` right after the nav entries rather than after
- * `fontEntries` as production does. It also never executes either production
- * `onSelect` (the mirror wires its own stubs). So these tests verify the
- * entry-shape and visibility RULES the mirror reproduces — not full parity, and
- * not the production selection wiring; treat them as rule checks, not a drift
- * alarm for the parts left out.
+ * omits the global font trio + help entry and positions `refreshEntry` right
+ * after the nav entries rather than after the font trio as production does. It
+ * also never executes either production `onSelect` (the mirror wires its own
+ * stubs). So these tests verify the entry-shape and visibility RULES the
+ * mirror reproduces — not full parity, and not the production selection
+ * wiring; treat them as rule checks, not a drift alarm for the parts left out.
  *
- * The nav entries (`Go: Back` / `Go: Forward` / `Go: Host`) are folded into
- * `boardRouteActions` unconditionally (i996 — palette parity for the top-bar
- * history arrows + the board breadcrumb's Host ancestor; the board route
- * mounts its own palette, so AppShell's `navActions` are unreachable here).
- * Production builds them via `buildNavActions("board", ...)` (unit-tested in
+ * The nav entries (`Go: Back` / `Go: Forward` / `Go: Host`) are unconditional
+ * globals (i996 — palette parity for the top-bar history arrows + the board
+ * breadcrumb's Host ancestor). Production builds them via
+ * `buildNavActions("board", ...)` at the layout level (unit-tested in
  * `lib/palette-nav.test` — the source of truth for gating/labels); the mirror
- * uses the SAME production helper, positioned after `conditional` as
- * production does, matching the `buildUpdateActions` treatment.
+ * uses the SAME production helper, positioned after `conditional` as the
+ * merged list does, matching the `buildUpdateActions` treatment.
  *
- * The update entry (`run-kit: Dismiss Update Notice`) is an
- * AppShell-duplicated block folded into `boardRouteActions` (260713-4zap;
- * Dismiss-only since the dynamic `Update to v{X}` entry was deleted —
- * 260720-n2ai) — below `sm` the top-bar UpdateChip is hidden, so the board
+ * The update entry (`run-kit: Dismiss Update Notice`) is a global group
+ * (260713-4zap; Dismiss-only since the dynamic `Update to v{X}` entry was
+ * deleted — 260720-n2ai) — below `sm` the top-bar UpdateChip is hidden, so the
  * palette is a phone user's ONLY update surface. Production builds it via
  * `buildUpdateActions` (unit-tested in `lib/palette-update.test` — the source
  * of truth for its shape/gating/wiring); here the mirror only verifies the
@@ -172,17 +174,17 @@ function buildBoardActions(opts: BuildOpts): PaletteAction[] {
     onHost: () => opts.onNavHost?.(),
   });
 
-  // Always-present in boardRouteActions (unconditional refreshEntry) — the board
-  // route mounts its own palette, so the AppShell "View: Refresh Page" entry is
-  // unreachable here and is duplicated in (R4).
+  // Always-present global (unconditional refreshEntry) — a layout-level global
+  // group since 260811-239r (previously duplicated into boardRouteActions, R4).
   const refreshEntry: PaletteAction = {
     id: "refresh-page",
     label: "View: Refresh Page",
     onSelect: () => opts.onRefresh?.(),
   };
 
-  // Update entry — folded into boardRouteActions after refresh/help
-  // (260713-4zap; Dismiss-only since 260720-n2ai). Built via the SAME
+  // Update entry — a layout-level global group since 260811-239r (previously
+  // folded into boardRouteActions after refresh/help; 260713-4zap;
+  // Dismiss-only since 260720-n2ai). Built via the SAME
   // production helper (`buildUpdateActions`), gated on a qualifying pending
   // update, dismissal-independent.
   const updateEntries = buildUpdateActions(

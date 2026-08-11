@@ -1764,8 +1764,9 @@ describe("Sidebar — server-group header action cluster (x4sf)", () => {
     );
 
     expect(onKillServer).toHaveBeenCalledExactlyOnceWith("alpha");
-    // No sidebar-owned dialog: the kill confirmation lives in the parent
-    // (app.tsx / board-page.tsx killServerTarget), so nothing renders here.
+    // No sidebar-owned dialog: the kill confirmation lives in the layout-
+    // mounted ServerDialogs (server-dialogs-context `killServerTarget`,
+    // 260811-239r), so nothing renders here.
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 

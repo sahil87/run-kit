@@ -16,7 +16,12 @@ cp -r "$REPO_ROOT/app/frontend/dist" "$REPO_ROOT/app/backend/build/frontend"
 # Restore .gitkeep so the embed directory stays tracked in git
 touch "$REPO_ROOT/app/backend/build/frontend/.gitkeep"
 
-VERSION="$(cat "$REPO_ROOT/VERSION")"
+# Version comes from the latest git tag (fallback 0.0.0-dev), mirroring
+# build-desktop.sh — there is deliberately NO VERSION file in this repo
+# (tag-driven release flow, ea750837).
+VERSION="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+VERSION="${VERSION#v}"
+[ -n "$VERSION" ] || VERSION="0.0.0-dev"
 echo "==> Building rk v${VERSION}..."
 
 cd "$REPO_ROOT/app/backend"

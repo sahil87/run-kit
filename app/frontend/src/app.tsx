@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useMemo, useState, useCallback, useSyncExternalStore } from "react";
-import { useNavigate, useMatches, useSearch, useRouter, Outlet } from "@tanstack/react-router";
+import { useNavigate, useMatches, useSearch, Outlet } from "@tanstack/react-router";
 import {
   availableViews,
   resolveView,
@@ -28,9 +28,6 @@ import { TopBarSlotProvider, useTopBarSlot, useTopBarNotFound, useRegisterTopBar
 import { FocusedPaneProvider } from "@/contexts/focused-pane-context";
 import { computeKillRedirect } from "@/lib/navigation";
 import { deriveEffectiveSessionOrder, computeMoveOrder, computeWindowMoveTarget } from "@/lib/palette-move";
-import { buildUpdateActions, buildMaintenanceActions, buildCheckActions } from "@/lib/palette-update";
-import { buildVersionAction, displayVersion } from "@/lib/palette-version";
-import { copyToClipboard } from "@/lib/clipboard";
 import { buildViewActions } from "@/lib/palette-view";
 import { buildStatusRefreshAction } from "@/lib/palette-status-refresh";
 import { buildPinActions } from "@/lib/palette-pin";
@@ -51,7 +48,6 @@ import { ShellTitlebarStrip } from "@/components/shell-titlebar-strip";
 import { ShellBadgeReporter } from "@/components/shell-badge-reporter";
 import { useShellServers } from "@/hooks/use-shell-servers";
 import { readLastPinnedBoard } from "@/lib/last-pinned-board";
-import { buildNavActions } from "@/lib/palette-nav";
 import { buildOpenActions, buildOpenLastUsedAction, buildOpenPrAction } from "@/lib/palette-open";
 import { activePaneCwd, buildOpenTargets, readLastUsedOpenTarget, resolveLastUsedTarget } from "@/lib/open-in-app";
 import { useOpenTargets } from "@/hooks/use-open-targets";
@@ -82,7 +78,11 @@ import {
 import { ThemeProvider, useTheme, useThemeActions } from "@/contexts/theme-context";
 import { InstanceAccentProvider, useInstanceAccent } from "@/contexts/instance-accent-context";
 import { InstanceNameProvider, useInstanceName } from "@/contexts/instance-name-context";
-import { SettingsDialogProvider, useSettingsDialog } from "@/contexts/settings-dialog-context";
+import { SettingsDialogProvider } from "@/contexts/settings-dialog-context";
+import { ServerDialogsProvider, useServerDialogs } from "@/contexts/server-dialogs-context";
+import { PaletteActionsProvider, usePaletteActions, usePaletteActionsApi, usePaletteGlobals, useRegisterPaletteActions } from "@/contexts/palette-actions-context";
+import { ServerDialogs } from "@/components/server-dialogs";
+import { useGlobalPaletteActions } from "@/hooks/use-global-palette-actions";
 import { SessionProvider } from "@/contexts/session-context";
 import { ToastProvider } from "@/components/toast";
 import { OptimisticProvider } from "@/contexts/optimistic-context";
@@ -90,7 +90,6 @@ import { useDialogState } from "@/hooks/use-dialog-state";
 import { useSessionsScope } from "@/hooks/use-sessions-scope";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { TopBar, type TopBarMode } from "@/components/top-bar";
-import { HELP_URL } from "@/components/global-chrome";
 import { useVisualViewport } from "@/hooks/use-visual-viewport";
 import { Shell } from "@/components/shell/shell";
 import { Sidebar } from "@/components/sidebar";
@@ -108,21 +107,19 @@ import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 import { LogoSpinner } from "@/components/logo-spinner";
 import type { ServerInfo } from "@/api/client";
 
-import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, createServer, killServer as killServerApi, setWindowColor as setWindowColorApi, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, sendChatMessage, refreshStatus, isInfraServer, DAEMON_SERVER, spawnRiff, getRiffPresets, forkWindow } from "@/api/client";
+import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, sendChatMessage, refreshStatus, isInfraServer, spawnRiff, getRiffPresets, forkWindow } from "@/api/client";
 import { useBoards } from "@/hooks/use-boards";
 import { useWindowPins } from "@/hooks/use-window-pins";
 import { usePinActions } from "@/hooks/use-pin-actions";
 import {
   deriveNameFromPath,
   finalizeSafeName,
-  toSafeServerName,
   toSafeSessionName,
   toSafeWindowName,
 } from "@/lib/names";
-import { useSessionContext, useUpdateNotification, useCodeServer } from "@/contexts/session-context";
+import { useSessionContext, useCodeServer } from "@/contexts/session-context";
 import { useOptimisticContext, useMergedSessions } from "@/contexts/optimistic-context";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
-import { useUpdateCheck } from "@/hooks/use-update-check";
 import { useToast } from "@/components/toast";
 import { useBrowserTitle } from "@/hooks/use-browser-title";
 import { usePushSubscription } from "@/hooks/use-push-subscription";
@@ -234,19 +231,65 @@ export function RootWrapper() {
  * lazy-chunk load (e.g. the board) blanks the body while the bar stays painted.
  */
 export function AppLayout() {
-  // Instance accent (1etw): a 2px stripe across the top of the persistent top
-  // bar plus a subtle wash behind it — the "which run-kit instance is this"
-  // color channel (server colors own the sidebar). Both hexes are theme-derived
-  // (contrast-guarded stripe, ~6.5% background blend wash); nothing renders
-  // until an accent is resolved.
-  const { stripeHex, washHex } = useInstanceAccent();
   return (
     // Settings dialog (o7q8): provided HERE — the true every-page layer — so
     // any descendant (AppShell palette, board palette, sidebar gear) can call
     // `openSettings()` while the dialog renders exactly once below. AppShell
     // is server-scoped and `/board/$name` doesn't render it, so a lower mount
     // would either miss boards or duplicate the dialog.
+    //
+    // Server dialogs + the palette-actions slot (260811-239r) join it at the
+    // same layer: the create/kill server dialogs, the single CommandPalette,
+    // and the ShortcutsOverlay each mount exactly once below, and any route
+    // (boards included) triggers them through `server-dialogs-context` /
+    // registers route-scoped palette actions into `palette-actions-context`.
+    // Order matters: the palette slot's global actions are built INSIDE
+    // `SettingsDialogProvider` (`Settings: Open` consumes it), and
+    // `ServerDialogs` reads `SessionContext` (RootWrapper, above all of this).
     <SettingsDialogProvider>
+      <ServerDialogsProvider>
+        <AppLayoutContent />
+      </ServerDialogsProvider>
+    </SettingsDialogProvider>
+  );
+}
+
+/** AppLayout's body — split out so the layout-level global palette actions
+ *  (which consume the settings-dialog context) can be built above the
+ *  `PaletteActionsProvider` they feed. */
+function AppLayoutContent() {
+  // Instance accent (1etw): a 2px stripe across the top of the persistent top
+  // bar plus a subtle wash behind it — the "which run-kit instance is this"
+  // color channel (server colors own the sidebar). Both hexes are theme-derived
+  // (contrast-guarded stripe, ~6.5% background blend wash); nothing renders
+  // until an accent is resolved.
+  const { stripeHex, washHex } = useInstanceAccent();
+
+  // The registry cheatsheet overlay state (260730-g40a), lifted from the
+  // AppShell/BoardPage twins to the layout (260811-239r, R12) — the
+  // `Help: Keyboard Shortcuts` global palette entry cannot toggle route-local
+  // state. Toggled by the per-platform shortcuts chord (which resolves this
+  // entry's `onSelect` through the merged palette list), the palette entry
+  // itself, and the sidebar-footer Keyboard icon (the listener below). THE
+  // single shortcuts surface — its TMUX section absorbed the retired tmux
+  // keybindings modal (260801-sm6g).
+  const [showShortcutsOverlay, setShowShortcutsOverlay] = useState(false);
+  const toggleShortcutsOverlay = useCallback(() => setShowShortcutsOverlay((prev) => !prev), []);
+  const globalActions = useGlobalPaletteActions({ onToggleShortcutsOverlay: toggleShortcutsOverlay });
+
+  // Sidebar-footer Keyboard icon → overlay toggle (260801-sm6g). The sidebar
+  // mounts from BOTH route shells (AppShell; the board route in
+  // board-page.tsx), so the affordance signals via a document CustomEvent —
+  // the `palette:open` precedent. The listener lived in each route shell while
+  // the overlay was twinned; the single layout-lifted overlay owns it now.
+  useEffect(() => {
+    const onOverlayOpen = () => setShowShortcutsOverlay((prev) => !prev);
+    document.addEventListener("shortcuts-overlay:open", onOverlayOpen);
+    return () => document.removeEventListener("shortcuts-overlay:open", onOverlayOpen);
+  }, []);
+
+  return (
+    <PaletteActionsProvider globalActions={globalActions}>
     <div
       className="app-root flex flex-col"
       style={{ height: "var(--app-height, 100vh)" }}
@@ -282,7 +325,104 @@ export function AppLayout() {
         <SettingsDialog />
       </Suspense>
     </div>
-    </SettingsDialogProvider>
+    {/* The ONE server create/kill dialog mount (260811-239r) — every route's
+        sidebar/palette triggers funnel through `server-dialogs-context`. */}
+    <ServerDialogs />
+    {/* The ONE (lazy) command-palette mount (260811-239r) — renders the merged
+        list: the active route's registered actions first, then the global
+        groups built above. The per-route palette mounts are gone. */}
+    <LayoutCommandPalette />
+    {/* The ONE shortcuts-overlay mount (260811-239r, R12) — lifted from the
+        AppShell/BoardPage twins alongside its state. */}
+    <LayoutShortcutsOverlay
+      open={showShortcutsOverlay}
+      onClose={() => setShowShortcutsOverlay(false)}
+    />
+    </PaletteActionsProvider>
+  );
+}
+
+/** The layout palette mount — an inner component because the merged
+ *  `allActions` list (`[...routeActions, ...globalActions]`) is computed by
+ *  `PaletteActionsProvider` and read back via `usePaletteActions()`. */
+function LayoutCommandPalette() {
+  const allActions = usePaletteActions();
+  return (
+    <Suspense fallback={null}>
+      <CommandPalette actions={allActions} />
+    </Suspense>
+  );
+}
+
+/** The layout shortcuts-overlay mount (260811-239r). Carries the session-
+ *  scoped add-flow inputs AppShell used to feed its own mount: the macro
+ *  add-flow's palette-target candidates (every merged palette action except
+ *  the macro entries themselves — no macro→macro chains) and the best-effort
+ *  riff-preset fetch. Both stay gated on a route with a server + session
+ *  (derived from the same deepest-first route-param walk + SSE snapshot
+ *  AppShell used), so a board-route overlay behaves exactly as before (no add
+ *  flow, no badges). */
+function LayoutShortcutsOverlay({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const ctx = useSessionContext();
+  const matches = useMatches();
+  const allActions = usePaletteActions();
+
+  let serverParam: string | undefined;
+  let windowParam: string | undefined;
+  for (let i = matches.length - 1; i >= 0; i--) {
+    const p = (matches[i]?.params ?? {}) as { server?: string; window?: string };
+    if (serverParam === undefined && typeof p.server === "string") serverParam = p.server;
+    if (windowParam === undefined && typeof p.window === "string") windowParam = p.window;
+  }
+  const server = ctx.currentServer ?? serverParam ?? "";
+  // The session of the URL's window, derived from the streamed sessions — the
+  // same derivation AppShell used to scope the riff-preset fetch.
+  const sessionName = useMemo(() => {
+    if (!windowParam || !server) return undefined;
+    return (ctx.sessionsByServer.get(server) ?? []).find((s) =>
+      s.windows.some((w) => w.windowId === windowParam),
+    )?.name;
+  }, [ctx.sessionsByServer, server, windowParam]);
+
+  const macroPaletteTargets = useMemo(
+    () =>
+      server
+        ? allActions
+            .filter((a) => !isMacroActionId(a.id))
+            .map((a) => ({ id: a.id, label: a.label }))
+        : undefined,
+    [server, allActions],
+  );
+
+  // Best-effort riff-preset names for the overlay's CUSTOM section (add-flow
+  // targets + missing-preset badges), fetched while the overlay is open on a
+  // route with a session (GET /api/riff/presets derives the repo from the
+  // session's active pane — the same preflight seam the spawn dialog uses).
+  // null = unknown: the overlay shows no badges and offers palette targets
+  // only.
+  const [riffPresetNames, setRiffPresetNames] = useState<string[] | null>(null);
+  useEffect(() => {
+    if (!open || !sessionName) return;
+    let cancelled = false;
+    getRiffPresets(server, sessionName)
+      .then((data) => {
+        if (!cancelled) setRiffPresetNames(data.presets.map((p) => p.name));
+      })
+      .catch(() => {
+        if (!cancelled) setRiffPresetNames(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, server, sessionName]);
+
+  return (
+    <ShortcutsOverlay
+      open={open}
+      onClose={onClose}
+      paletteTargets={macroPaletteTargets}
+      riffPresetNames={riffPresetNames}
+    />
   );
 }
 
@@ -466,18 +606,12 @@ function AppShell() {
   const rawSessions = ctx.sessionsByServer.get(server) ?? [];
   const isConnected = ctx.isConnectedByServer.get(server) ?? false;
   const servers = ctx.servers;
-  const refreshServers = ctx.refreshServers;
   const serversLoaded = ctx.serversLoaded;
   const pendingServer = ctx.pendingServer;
-  const markServerPending = ctx.markServerPending;
   const sessions = useMergedSessions(rawSessions, server);
   const { sidebarOpen, sidebarWidth, fixedWidth, composeStripEnabled } = useChromeState();
-  const { setCurrentSession, setCurrentWindow, setSidebarOpen, setSidebarWidth, persistSidebarWidth, toggleFixedWidth, increaseTerminalFont, decreaseTerminalFont, resetTerminalFont, toggleComposeStrip } = useChromeDispatch();
+  const { setCurrentSession, setCurrentWindow, setSidebarOpen, setSidebarWidth, persistSidebarWidth, toggleFixedWidth, toggleComposeStrip } = useChromeDispatch();
   const navigate = useNavigate();
-  // Router handle for the browser-history palette actions (`Go: Back` /
-  // `Go: Forward`, 260714-uco1) — the same `router.history` the top-bar arrows
-  // drive. Stable across renders.
-  const router = useRouter();
   const isMobile = useIsMobile();
   const wsRef = useRef<WebSocket | null>(null);
   const focusTerminalRef = useRef<(() => void) | null>(null);
@@ -651,16 +785,23 @@ function AppShell() {
   // `composeStripEnabled` chrome preference, toggled by the `>_` chip and the
   // `View: Text Input` palette action. No per-terminal compose-open state.
   const [scrollLocked, setScrollLocked] = useState(false);
-  const [showCreateServerDialog, setShowCreateServerDialog] = useState(false);
-  const [createServerName, setCreateServerName] = useState("");
-  const [killServerTarget, setKillServerTarget] = useState<string | null>(null);
-  // The registry cheatsheet overlay (260730-g40a) — toggled by the per-platform
-  // shortcuts chord (⌘/ on macOS, ⇧Ctrl+/ on win/linux — 260730-n789, via the
-  // keybinding dispatcher below), the `Help: Keyboard Shortcuts` palette entry,
-  // and the sidebar-footer Keyboard icon (`shortcuts-overlay:open` event). THE
-  // single shortcuts surface — its TMUX section absorbed the retired tmux
-  // keybindings modal (260801-sm6g).
-  const [showShortcutsOverlay, setShowShortcutsOverlay] = useState(false);
+  // Server create/kill dialogs + the merged palette list (260811-239r): both
+  // dialogs mount ONCE in AppLayout (`ServerDialogs`); this route shell only
+  // consumes the triggers (sidebar/palette call sites) and the open-state (the
+  // dialogOpenRef gating predicate below). For id-resolution seams the route
+  // subscribes to the GLOBALS-ONLY channel (`usePaletteGlobals`) and resolves
+  // against `[...paletteActions, ...paletteGlobals]` — both sides fresh THIS
+  // render, no slot lag — while macro invocation uses the imperative
+  // `getAllActions` at call time. Routes never subscribe to the merged route
+  // state they publish into (render-loop guard; see palette-actions-context).
+  const {
+    openCreateServer,
+    requestKillServer,
+    createServerOpen,
+    killServerTarget,
+  } = useServerDialogs();
+  const { getAllActions } = usePaletteActionsApi();
+  const paletteGlobals = usePaletteGlobals();
   const [showTmuxCommands, setShowTmuxCommands] = useState(false);
   const [showCreateSessionAtFolderDialog, setShowCreateSessionAtFolderDialog] = useState(false);
   const [showCreateWindowAtFolderDialog, setShowCreateWindowAtFolderDialog] = useState(false);
@@ -674,7 +815,7 @@ function AppShell() {
   const [iframeWindowName, setIframeWindowName] = useState("");
   const [iframeWindowUrl, setIframeWindowUrl] = useState("");
 
-  const { removeGhost, addGhostSession, addGhostServer, markKilled, unmarkKilled } = useOptimisticContext();
+  const { removeGhost, addGhostSession } = useOptimisticContext();
   const { addToast } = useToast();
   const addGhostWindowStore = useWindowStore((s) => s.addGhostWindow);
   const removeWindowGhost = useWindowStore((s) => s.removeGhost);
@@ -682,8 +823,6 @@ function AppShell() {
   const clearSession = useWindowStore((s) => s.clearSession);
   const ghostWindowIdRef = useRef<string | null>(null);
   const ghostSessionIdRef = useRef<string | null>(null);
-  const ghostServerIdRef = useRef<string | null>(null);
-  const killedServerNameRef = useRef<string | null>(null);
 
   // SSE sync: keep window store in sync with real session data for the
   // current server. windowIds are unique per server only — pass `server`
@@ -1418,25 +1557,36 @@ function AppShell() {
     (next) => switchView(next),
   );
 
-  // Dialog state management
+  // Dialog state management. The two option callbacks are useCallback-stable:
+  // inline arrows would churn the `dialogs` object every render, which cascades
+  // through the palette action memos into a per-render slot re-registration
+  // (260811-239r — observed as a "Maximum update depth exceeded" storm).
+  const handleDialogKillComplete = useCallback(
+    () => navigate({ to: "/$server", params: { server }, replace: true }),
+    [navigate, server],
+  );
+  const handleDialogSessionRenamed = useCallback(() => {
+    // The route no longer carries a session segment, so a rename needs no
+    // navigation when a window is in view — the breadcrumb re-derives the new
+    // session name from the next SSE snapshot. Only redirect to the dashboard
+    // when no window is selected (nothing to keep us anchored).
+    if (!windowParam) {
+      navigate({ to: "/$server", params: { server }, replace: true });
+    }
+  }, [navigate, server, windowParam]);
   const dialogs = useDialogState({
     sessionName,
     windowId: currentWindow?.windowId,
-    onKillComplete: () => navigate({ to: "/$server", params: { server }, replace: true }),
-    onSessionRenamed: () => {
-      // The route no longer carries a session segment, so a rename needs no
-      // navigation when a window is in view — the breadcrumb re-derives the new
-      // session name from the next SSE snapshot. Only redirect to the dashboard
-      // when no window is selected (nothing to keep us anchored).
-      if (!windowParam) {
-        navigate({ to: "/$server", params: { server }, replace: true });
-      }
-    },
+    onKillComplete: handleDialogKillComplete,
+    onSessionRenamed: handleDialogSessionRenamed,
   });
 
-  // Keep dialogOpenRef in sync so the activeWindow effect can check it without deps
+  // Keep dialogOpenRef in sync so the activeWindow effect can check it without deps.
+  // The server create/kill open-state comes from the layout-owned
+  // `server-dialogs-context` (260811-239r) — the dialogs mount in AppLayout now,
+  // but gating this route's URL writeback while one is up is unchanged.
   dialogOpenRef.current =
-    dialogs.showRenameSessionDialog || dialogs.showKillConfirm || dialogs.showKillSessionConfirm || showCreateServerDialog || killServerTarget != null || showTmuxCommands || showCreateSessionAtFolderDialog || showCreateWindowAtFolderDialog || showCreateIframeDialog || spawnAgentTarget != null;
+    dialogs.showRenameSessionDialog || dialogs.showKillConfirm || dialogs.showKillSessionConfirm || createServerOpen || killServerTarget != null || showTmuxCommands || showCreateSessionAtFolderDialog || showCreateWindowAtFolderDialog || showCreateIframeDialog || spawnAgentTarget != null;
 
   // Flat window list for palette actions
   const flatWindows = useMemo(() => {
@@ -1659,81 +1809,10 @@ function AppShell() {
     [server, navigate],
   );
 
-  const { execute: executeCreateServer } = useOptimisticAction<[string]>({
-    action: (name) => createServer(name),
-    onOptimistic: (name) => {
-      ghostServerIdRef.current = addGhostServer(name);
-    },
-    onRollback: () => {
-      if (ghostServerIdRef.current) {
-        removeGhost(ghostServerIdRef.current);
-        ghostServerIdRef.current = null;
-      }
-    },
-    onError: (err) => {
-      addToast(err.message || "Failed to create server");
-    },
-    onSettled: () => {
-      ghostServerIdRef.current = null;
-    },
-    // Refresh the (otherwise one-time-fetched) server list once the create
-    // resolves so the new server appears and the waiting state swaps to the
-    // view. `onAlwaysSettled` runs even though the create dialog has already
-    // unmounted on navigation — AppShell (which owns this hook) stays mounted,
-    // and `refreshServers` only touches root-level SessionContext.
-    onAlwaysSettled: () => {
-      refreshServers();
-    },
-    // A failed create must not strand the UI on the waiting state — clear the
-    // pending marker (empty string clears to null) on the rollback path (also
-    // unmount-safe, root-context only).
-    onAlwaysRollback: () => {
-      markServerPending("");
-    },
-  });
-
-  const handleCreateServer = useCallback(() => {
-    const trimmed = finalizeSafeName(createServerName.trim());
-    if (!trimmed || !/^[a-zA-Z0-9_-]+$/.test(trimmed)) return;
-    executeCreateServer(trimmed);
-    // Mark the just-created server pending so the route guard shows the brief
-    // waiting state (not "Server not found") until the refreshed list includes
-    // it. Cleared automatically by SessionContext once it appears.
-    markServerPending(trimmed);
-    navigate({ to: "/$server", params: { server: trimmed } });
-    setShowCreateServerDialog(false);
-    setCreateServerName("");
-  }, [createServerName, navigate, executeCreateServer, markServerPending]);
-
-  const { execute: executeKillServer } = useOptimisticAction<[string]>({
-    action: (name) => killServerApi(name),
-    onOptimistic: (name) => {
-      killedServerNameRef.current = name;
-      markKilled("server", name);
-    },
-    onRollback: () => {
-      if (killedServerNameRef.current) {
-        unmarkKilled("server", killedServerNameRef.current);
-        killedServerNameRef.current = null;
-      }
-    },
-    onError: (err) => {
-      addToast(err.message || "Failed to kill server");
-    },
-    onSettled: () => {
-      killedServerNameRef.current = null;
-    },
-  });
-
-  const handleKillServer = useCallback(() => {
-    if (!killServerTarget) return;
-    const target = killServerTarget;
-    executeKillServer(target);
-    // Route away only when killing the currently-active server; killing another
-    // server in the panel should leave the user where they are.
-    if (target === server) navigate({ to: "/" });
-    setKillServerTarget(null);
-  }, [killServerTarget, server, navigate, executeKillServer]);
+  // The create/kill server flows (useOptimisticAction wrappers, pending/killed
+  // markers, post-create/kill navigation) live in the layout-mounted
+  // `ServerDialogs` component now (260811-239r) — this shell only triggers
+  // them via `openCreateServer`/`requestKillServer` from the context above.
 
   // File upload ref for palette
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -2022,9 +2101,10 @@ function AppShell() {
 
   // Boards palette block (server-route variant). AppShell only mounts under
   // `/$server/...`, so the board-route-only entries (Leave Board View, Cycle
-  // Pane Focus) live in BoardPage's own palette mount. Here we provide the
-  // entries that make sense from a server route: Switch to <board>, Pin Current
-  // Window, and Unpin Current Window when the current window is pinned.
+  // Pane Focus) live in BoardPage's own registered route list. Here we provide
+  // the entries that make sense from a server route: Switch to <board>, Pin
+  // Current Window, and Unpin Current Window when the current window is
+  // pinned.
   const { boards: boardSummaries } = useBoards();
   const { pinnedToBoard } = useWindowPins();
   const { pin: pinPinAction, unpin: unpinPinAction } = usePinActions();
@@ -2041,7 +2121,7 @@ function AppShell() {
 
   const boardActions: PaletteAction[] = useMemo(() => {
     // No `currentBoardName` here — AppShell isn't on a board route, so no
-    // entry is ever annotated `(current)` from this palette mount.
+    // entry is ever annotated `(current)` from this route's list.
     const switchEntries = boardSummaries.map((b) => ({
       id: `board-switch-${b.name}`,
       label: `Board: Switch to ${b.name}`,
@@ -2364,40 +2444,14 @@ function AppShell() {
         label: fixedWidth ? "View: Full Width" : "View: Fixed Width (900px)",
         onSelect: toggleFixedWidth,
       },
-      // Ungated within viewActions — a full-page reload is meaningful on every
-      // AppShell route (tmux Server `/$server`, Terminal `/$server/$window`),
-      // unlike the top-bar RefreshButton which lives in the terminal-only
-      // cluster. Reachable via THIS palette (AppShell's); the board route mounts
-      // its own palette and carries a duplicate entry (board-page.tsx
-      // `refreshEntry`), while the Host `/` mounts no palette at all. A
-      // keyboard-reachable recovery affordance (constitution V).
-      {
-        id: "refresh-page",
-        label: "View: Refresh Page",
-        onSelect: () => window.location.reload(),
-      },
     ],
     [sessionName, fixedWidth, toggleFixedWidth, toggleComposeStrip, currentViews, resolvedView, switchView, bindingByAction, bindingHost, windowParam, isMobile, panelSurfaces, togglePanel],
   );
 
-  // Navigation actions (260714-uco1) — palette parity (Constitution V) for the
-  // top-bar history arrows + hierarchy dropdown. `Go: Back` / `Go: Forward`
-  // drive browser history (the same `router.history` the arrows use); the
-  // ancestor entries mirror the hierarchy dropdown for THIS route. AppShell
-  // mounts only under `/$server/...`, so the mode here is `terminal` (a window
-  // route) or `server` (the tmux Server) — never board/host (those routes
-  // mount their own palette or none). The gating/labels live in the pure
-  // `buildNavActions` (lib/palette-nav.ts) so they are unit-testable.
-  const navActions: PaletteAction[] = useMemo(
-    () =>
-      buildNavActions(windowParam ? "terminal" : "server", server, {
-        onBack: () => router.history.back(),
-        onForward: () => router.history.forward(),
-        onTmuxServer: () => navigate({ to: "/$server", params: { server } }),
-        onHost: () => navigate({ to: "/" }),
-      }),
-    [windowParam, server, router, navigate],
-  );
+  // Navigation actions (`Go: Back` / `Go: Forward` / ancestor entries,
+  // 260714-uco1) moved to the layout-level global palette groups
+  // (260811-239r, `use-global-palette-actions.ts`) — their mode now comes from
+  // the same deepest-first route-param walk `RootTopBar` uses.
 
   // Open-in-App actions (260722-6d0f) — Constitution V palette parity for the
   // top-bar Open split-button: one `Open: <label>` entry per available target
@@ -2451,18 +2505,9 @@ function AppShell() {
     [openTargets, lastUsedOpenTarget?.id, server, openPath, currentWindow?.prUrl, currentWindow?.prNumber],
   );
 
-  // Terminal font-size actions. No `shortcut` — Cmd +/- is deliberately not
-  // intercepted (native browser zoom stays available); the palette + the
-  // top-bar combo are the only font levers. Global setting → applies to every
-  // live terminal.
-  const terminalFontActions: PaletteAction[] = useMemo(
-    () => [
-      { id: "terminal-font-increase", label: "Increase terminal font", onSelect: increaseTerminalFont },
-      { id: "terminal-font-decrease", label: "Decrease terminal font", onSelect: decreaseTerminalFont },
-      { id: "terminal-font-reset", label: "Reset terminal font", onSelect: resetTerminalFont },
-    ],
-    [increaseTerminalFont, decreaseTerminalFont, resetTerminalFont],
-  );
+  // Terminal font-size actions moved to the layout-level global palette groups
+  // (260811-239r, `use-global-palette-actions.ts`) — the setting is global and
+  // the board route needs the same entries without duplicating them (DD-8).
 
   const { execute: executeReloadConfig } = useOptimisticAction<[string]>({
     action: (srv) => reloadTmuxConfig(srv),
@@ -2476,17 +2521,10 @@ function AppShell() {
     onError: () => addToast("Failed to reset tmux config", "error"),
   });
 
-  // Settings dialog (o7q8): the palette is the primary keyboard path (no
-  // dedicated shortcut — Cmd+, is browser-reserved). The dialog itself mounts
-  // once in AppLayout; this is just the one-line trigger. The board palette
-  // (board-page.tsx) registers its own identical one-liner (dual-mount
-  // duplication until [239r]).
-  const { openSettings } = useSettingsDialog();
-  const settingsActions: PaletteAction[] = useMemo(
-    () => [{ id: "settings-open", label: "Settings: Open", onSelect: openSettings }],
-    [openSettings],
-  );
-
+  // `Settings: Open`, `Help: Keyboard Shortcuts`, and `Help: Documentation`
+  // moved to the layout-level global palette groups (260811-239r) — the board
+  // route carried DD-8 duplicates of each. What remains here is server-scoped
+  // (they POST against `server`).
   const configActions: PaletteAction[] = useMemo(
     () => [
       {
@@ -2498,22 +2536,6 @@ function AppShell() {
         id: "init-tmux-conf",
         label: "Config: Reset tmux to default",
         onSelect: () => executeResetConfig(server),
-      },
-      {
-        // The registry cheatsheet overlay (260730-g40a). The id doubles as the
-        // registry actionId, so the effective-chord hint (⌘/ on macOS,
-        // ⇧Ctrl+/ on win/linux) renders on this entry. The single shortcuts
-        // surface — the `Help: tmux Keybindings` entry (id `keyboard-shortcuts`)
-        // was removed with the legacy dialog it opened; the overlay's TMUX
-        // section carries that content now (260801-sm6g).
-        id: "shortcuts-overlay",
-        label: "Help: Keyboard Shortcuts",
-        onSelect: () => setShowShortcutsOverlay((prev) => !prev),
-      },
-      {
-        id: "help-documentation",
-        label: "Help: Documentation",
-        onSelect: () => window.open(HELP_URL, "_blank", "noopener,noreferrer"),
       },
     ],
     [server, executeReloadConfig, executeResetConfig],
@@ -2529,83 +2551,10 @@ function AppShell() {
     [],
   );
 
-  // Update actions — keyboard-first parity (Constitution V) for the top-bar
-  // update chip. Gated on a qualifying pending update (dev version suppressed).
-  // Only the Dismiss action remains here (mirroring the chip's `✕` for
-  // keyboard users; it deliberately IGNORES chip dismissal — the palette is
-  // deliberate discovery). The dynamic `run-kit: Update to v{X}` entry was
-  // deleted (multi-tool ambiguous + stale between checks): `run-kit: Update
-  // Now` (maintenanceActions) is THE single update action, and version detail
-  // lives in the check-result toasts + chip summary.
-  const {
-    qualifies: updateQualifies,
-    tools: updateTools,
-    dismissUpdate,
-    daemonVersion,
-    brew,
-    forceUpdateNow,
-    restartNow,
-  } = useUpdateNotification();
-  const updateActions: PaletteAction[] = useMemo(
-    () => buildUpdateActions(updateQualifies, updateTools, dismissUpdate),
-    [updateQualifies, updateTools, dismissUpdate],
-  );
-
-  // Check actions — the two on-demand check commands (`run-kit: Check for
-  // Updates` / `… (incl. patches)`). One POST /api/updates/check, client-side
-  // filtering, single result toast (shared flow: useUpdateCheck). Dev-gated
-  // inside buildCheckActions, same pattern as the maintenance entries.
-  const { runUpdateCheck } = useUpdateCheck();
-  const checkActions: PaletteAction[] = useMemo(
-    () =>
-      buildCheckActions(
-        daemonVersion,
-        () => runUpdateCheck(false),
-        () => runUpdateCheck(true),
-      ),
-    [daemonVersion, runUpdateCheck],
-  );
-
-  // Maintenance actions — palette-only force-update / restart (Constitution V).
-  // Always available (independent of the qualifying-update gate): force update
-  // reaches patch releases; restart bounces a wedged daemon without SSH. Both
-  // fire immediately (no confirmation) — the SSE drop + boot/version reload IS
-  // the feedback; failures land in ~/.rk logs and a toast. Dev-gated + (for
-  // force) brew-gated inside buildMaintenanceActions.
-  const maintenanceActions: PaletteAction[] = useMemo(
-    () =>
-      buildMaintenanceActions(
-        brew,
-        daemonVersion,
-        () => {
-          void forceUpdateNow().catch((err: unknown) =>
-            addToast(err instanceof Error ? err.message : "Update failed", "error"),
-          );
-        },
-        () => {
-          void restartNow().catch((err: unknown) =>
-            addToast(err instanceof Error ? err.message : "Restart failed", "error"),
-          );
-        },
-      ),
-    [brew, daemonVersion, forceUpdateNow, restartNow, addToast],
-  );
-
-  // Version palette entry — surfaces the running version and copies it on
-  // select (useful for bug reports). Shown whenever `daemonVersion` is known,
-  // INCLUDING the `dev` sentinel (pure display, unlike the dev-gated
-  // update/restart actions above). What-you-see-is-what-you-copy: the copied
-  // string is the displayed form. Success → info toast, failure → error toast.
-  const versionActions: PaletteAction[] = useMemo(
-    () =>
-      buildVersionAction(daemonVersion, () => {
-        if (!daemonVersion) return;
-        void copyToClipboard(displayVersion(daemonVersion)).then((ok) => {
-          addToast(ok ? "Version copied" : "Copy failed", ok ? "info" : "error");
-        });
-      }),
-    [daemonVersion, addToast],
-  );
+  // Update/check/maintenance/version actions moved to the layout-level global
+  // palette groups (260811-239r, `use-global-palette-actions.ts`) — the board
+  // route carried DD-8 duplicates of all four (it is a phone user's ONLY
+  // update surface below `sm`, where the top-bar cluster is hidden).
 
   // Regular-class effective order (infra servers ignore rank and are not
   // reorderable). `servers` is already effective-sorted by the context, so this
@@ -2649,18 +2598,19 @@ function AppShell() {
       {
         id: "create-server",
         label: "Server: Create",
-        onSelect: () => setShowCreateServerDialog(true),
+        onSelect: openCreateServer,
       },
       // Per-server kill entries (bylc): with the hover ✕ removed from the
       // SERVER-panel tiles, this listing is the keyboard escape hatch that
       // keeps every server killable — including non-current servers, which
       // have no SESSIONS-pane group header under the `current` scope mode.
-      // Each entry funnels through the existing killServerTarget confirm
-      // Dialog (incl. its DAEMON_SERVER warning) → executeKillServer.
+      // Each entry funnels through the layout-mounted kill-server confirm
+      // Dialog (incl. its DAEMON_SERVER warning) via the context trigger
+      // (260811-239r) → ServerDialogs' executeKillServer.
       ...buildServerKillActions(
         servers.map(({ name }) => name),
         server,
-        setKillServerTarget,
+        requestKillServer,
       ),
       // Move up/down act on the CURRENT server within the regular class. Hidden
       // when the current server is infra (not reorderable) or at the boundary
@@ -2689,7 +2639,7 @@ function AppShell() {
         onSelect: () => handleSwitchServer(name),
       })),
     ],
-    [servers, server, handleSwitchServer, currentRegularIdx, regularOrder, moveCurrentServer],
+    [servers, server, handleSwitchServer, currentRegularIdx, regularOrder, moveCurrentServer, openCreateServer, requestKillServer],
   );
 
   // Desktop-shell server switching (Constitution V): `Server: Switch to
@@ -2822,28 +2772,6 @@ function AppShell() {
   // ── macros over riff presets / palette actions (260730-hbyh) ─────────────
   const { macros } = useMacros();
 
-  // Best-effort riff-preset names for the overlay's CUSTOM section (add-flow
-  // targets + missing-preset badges), fetched while the overlay is open on a
-  // route with a session (GET /api/riff/presets derives the repo from the
-  // session's active pane — the same preflight seam the spawn dialog uses).
-  // null = unknown: the overlay shows no badges and offers palette targets
-  // only.
-  const [riffPresetNames, setRiffPresetNames] = useState<string[] | null>(null);
-  useEffect(() => {
-    if (!showShortcutsOverlay || !sessionName) return;
-    let cancelled = false;
-    getRiffPresets(server, sessionName)
-      .then((data) => {
-        if (!cancelled) setRiffPresetNames(data.presets.map((p) => p.name));
-      })
-      .catch(() => {
-        if (!cancelled) setRiffPresetNames(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [showShortcutsOverlay, server, sessionName]);
-
   // Macro execution. Palette targets dispatch the existing palette action
   // body in-place (id lookup — the `fromPalette` convention; `macro:` ids are
   // never resolved as targets, so no macro→macro recursion). Riff targets
@@ -2851,16 +2779,17 @@ function AppShell() {
   // shell text, no new exec surface — Constitution I): success toasts and
   // navigates to the spawned window (the spawn dialog's falsy-windowId guard
   // preserved); failure — incl. a 400 for a preset gone from fabconfig —
-  // surfaces as an error toast. No fire-and-forget. The ref breaks the
-  // palette↔macro cycle: macro palette entries fold into `paletteActions`,
-  // while execution resolves targets against the same array at call time.
-  const paletteActionsRef = useRef<PaletteAction[]>([]);
+  // surfaces as an error toast. No fire-and-forget. The imperative
+  // `getAllActions` resolves targets against the MERGED list (route actions +
+  // the layout-level globals, 260811-239r) at call time, breaking the
+  // palette↔macro cycle: macro palette entries fold into the registered route
+  // list, while execution may target any palette entry, global ones included.
   const executeMacro = useCallback(
     (macro: MacroAction) => {
       if (macro.target.type === "palette") {
         const targetId = macro.target.paletteActionId;
         if (isMacroActionId(targetId)) return;
-        paletteActionsRef.current.find((a) => a.id === targetId)?.onSelect();
+        getAllActions().find((a) => a.id === targetId)?.onSelect();
         return;
       }
       if (!sessionName) return;
@@ -2873,7 +2802,7 @@ function AppShell() {
           addToast(err instanceof Error ? err.message : "Macro spawn failed", "error"),
         );
     },
-    [server, sessionName, addToast, navigateToWindow],
+    [server, sessionName, addToast, navigateToWindow, getAllActions],
   );
 
   // Macros are palette-reachable without their key (kind-tagged `Macro:`
@@ -2907,6 +2836,12 @@ function AppShell() {
 
   const { actions: pushActions } = usePushSubscription();
 
+  // AppShell's ROUTE-SCOPED palette list (260811-239r): the global groups
+  // (nav, terminal-font, refresh/help/shortcuts/settings, update/check/
+  // maintenance/version) live at the layout level now
+  // (`use-global-palette-actions.ts`) and arrive merged AFTER these via the
+  // palette-actions slot — ordering stays route groups first, then the global
+  // groups in their prior relative order (R11).
   const paletteActions: PaletteAction[] = useMemo(
     () =>
       // Every registered action with a palette entry renders its EFFECTIVE
@@ -2914,25 +2849,17 @@ function AppShell() {
       // formatted per platform and reflecting overrides; disabled bindings
       // (user-disabled or browser-reserved) render no hint (260730-g40a).
       withShortcutHints(
-        [...sessionActions, ...sessionsScopeActions, ...windowActions, ...boardActions, ...selectionActions, ...viewActions, ...openActions, ...navActions, ...terminalFontActions, ...themeActions, ...settingsActions, ...configActions, ...statusRefreshActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions, ...serverActions, ...shellServerActions, ...pushActions, ...windowSwitchActions, ...agentActions, ...agentSpawnActions, ...macroPaletteActions],
+        [...sessionActions, ...sessionsScopeActions, ...windowActions, ...boardActions, ...selectionActions, ...viewActions, ...openActions, ...themeActions, ...configActions, ...statusRefreshActions, ...serverActions, ...shellServerActions, ...pushActions, ...windowSwitchActions, ...agentActions, ...agentSpawnActions, ...macroPaletteActions],
         bindingByAction,
         bindingHost.platform,
       ),
-    [sessionActions, sessionsScopeActions, windowActions, boardActions, selectionActions, viewActions, openActions, navActions, terminalFontActions, themeActions, settingsActions, configActions, statusRefreshActions, updateActions, checkActions, maintenanceActions, versionActions, serverActions, shellServerActions, pushActions, windowSwitchActions, agentActions, agentSpawnActions, macroPaletteActions, bindingByAction, bindingHost],
+    [sessionActions, sessionsScopeActions, windowActions, boardActions, selectionActions, viewActions, openActions, themeActions, configActions, statusRefreshActions, serverActions, shellServerActions, pushActions, windowSwitchActions, agentActions, agentSpawnActions, macroPaletteActions, bindingByAction, bindingHost],
   );
-  // Render-updated ref: macro palette-target execution resolves against the
-  // final decorated array at invocation time (see `executeMacro` above).
-  paletteActionsRef.current = paletteActions;
-
-  // The overlay add-flow's palette-target candidates: every palette action
-  // except the macro entries themselves (no macro→macro chains).
-  const macroPaletteTargets = useMemo(
-    () =>
-      paletteActions
-        .filter((a) => !isMacroActionId(a.id))
-        .map((a) => ({ id: a.id, label: a.label })),
-    [paletteActions],
-  );
+  // Publish this route's (already shortcut-decorated) list into the
+  // palette-actions slot — the single layout-mounted CommandPalette renders
+  // `[...routeActions, ...globalActions]`; cleared on unmount so the next
+  // route never sees stale entries (260811-239r).
+  useRegisterPaletteActions(paletteActions);
 
   // ── keybinding dispatch (260730-g40a) ────────────────────────────────────
   // The shifted-tier chords reuse the PALETTE ACTION BODIES (actionId doubles
@@ -2943,7 +2870,14 @@ function AppShell() {
   // CURRENT session's windows in sidebar order with wraparound, via the rich
   // `navigateToWindow` path (tmux align + transition + writeback suppression).
   const keybindingHandlers = useMemo(() => {
-    const fromPalette = (id: string) => paletteActions.find((a) => a.id === id)?.onSelect;
+    // Resolve over the MERGED list (260811-239r): chords such as `go-back`,
+    // `settings-open`, and `shortcuts-overlay` name ids that live in the
+    // layout-level global groups now — resolving against the route list alone
+    // would silently drop those handlers (R10). The merge is local
+    // (`paletteActions` from THIS render + the globals-only channel), so the
+    // handlers below never lag the registration slot by a commit.
+    const merged = [...paletteActions, ...paletteGlobals];
+    const fromPalette = (id: string) => merged.find((a) => a.id === id)?.onSelect;
     const windows = currentSession?.windows ?? [];
     const cycleWindow = (delta: -1 | 1) => {
       const idx = windows.findIndex((w) => w.windowId === windowParam);
@@ -2977,7 +2911,7 @@ function AppShell() {
       "go-forward": fromPalette("go-forward"),
       "window-prev": canCycle ? () => cycleWindow(-1) : undefined,
       "window-next": canCycle ? () => cycleWindow(1) : undefined,
-      "shortcuts-overlay": () => setShowShortcutsOverlay((prev) => !prev),
+      "shortcuts-overlay": fromPalette("shortcuts-overlay"),
       // ⇧⌘E compose toggle (260801-sm6g) — same body as the `>_` chip and the
       // `View: Text Input` palette entry; ignoreInputs on the binding lets the
       // chord close the strip from inside its own textarea.
@@ -3013,19 +2947,8 @@ function AppShell() {
           ? () => togglePanel(resolvedPanel ?? panelSurfaces[0])
           : undefined,
     };
-  }, [paletteActions, currentSession, windowParam, navigateToWindow, macros, sessionName, executeMacro, toggleComposeStrip, addToast, isMobile, panelSurfaces, resolvedPanel, togglePanel]);
+  }, [paletteActions, paletteGlobals, currentSession, windowParam, navigateToWindow, macros, sessionName, executeMacro, toggleComposeStrip, addToast, isMobile, panelSurfaces, resolvedPanel, togglePanel]);
   useKeybindingDispatch(keybindingHandlers);
-
-  // Sidebar-footer Keyboard icon → overlay toggle (260801-sm6g). The sidebar
-  // mounts from BOTH route shells (AppShell here; the board route in
-  // board-page.tsx), so the affordance signals via a document CustomEvent —
-  // the `palette:open` precedent — and each shell toggles its own
-  // showShortcutsOverlay state (only one shell is ever mounted).
-  useEffect(() => {
-    const onOverlayOpen = () => setShowShortcutsOverlay((prev) => !prev);
-    document.addEventListener("shortcuts-overlay:open", onOverlayOpen);
-    return () => document.removeEventListener("shortcuts-overlay:open", onOverlayOpen);
-  }, []);
 
   const displayName = currentWindow?.name ?? windowParam ?? "";
   const displaySession = sessionName ?? "";
@@ -3084,13 +3007,11 @@ function AppShell() {
     },
     [server, handleCreateSessionInstant, executeCreateSessionInstant],
   );
-  // Stable kill-server handler (260721-x4sf): `onKillServer` now threads into
-  // the memoized `ServerGroup` header cluster, so an inline arrow here would
-  // hand every group a fresh identity per SSE tick and defeat the memo skip.
-  // `setKillServerTarget` is a stable state setter — no deps.
-  const handleSidebarKillServer = useCallback((name: string) => {
-    setKillServerTarget(name);
-  }, []);
+  // Stable kill-server handler (260721-x4sf): `onKillServer` threads into the
+  // memoized `ServerGroup` header cluster, so an inline arrow here would hand
+  // every group a fresh identity per SSE tick and defeat the memo skip. The
+  // context trigger (`requestKillServer`, 260811-239r) is referentially stable
+  // by construction — it passes straight through at the Sidebar call site.
 
   // Waiting-badge click (260714-r7rq): navigate to the NEXT waiting window
   // within the clicked session's scope, reusing the `nextWaitingTarget` cycle
@@ -3233,8 +3154,8 @@ function AppShell() {
       onCreateSession={handleSidebarCreateSession}
       onSpawnAgent={handleOpenSpawnAgent}
       onForkWindow={handleForkWindow}
-      onCreateServer={() => setShowCreateServerDialog(true)}
-      onKillServer={handleSidebarKillServer}
+      onCreateServer={openCreateServer}
+      onKillServer={requestKillServer}
       onSidebarResizeStart={isMobile ? undefined : (e) => handleDragStart(e.clientX)}
     />
   );
@@ -3657,58 +3578,9 @@ function AppShell() {
         </Dialog>
       )}
 
-      {showCreateServerDialog && (
-        <Dialog title="Create tmux server" onClose={() => { setShowCreateServerDialog(false); setCreateServerName(""); }}>
-          <input
-            autoFocus
-            type="text"
-            value={createServerName}
-            onChange={(e) => setCreateServerName(toSafeServerName(e.target.value))}
-            onKeyDown={(e) => e.key === "Enter" && handleCreateServer()}
-            onFocus={(e) => e.target.select()}
-            aria-label="Server name"
-            placeholder="Server name..."
-            className="w-full bg-transparent text-text-primary p-2 border border-border rounded outline-none placeholder:text-text-secondary"
-          />
-          <p className="text-xs text-text-secondary mt-1.5">
-            Alphanumeric, hyphens, and underscores only.
-          </p>
-          <button
-            onClick={handleCreateServer}
-            disabled={!createServerName.trim() || !/^[a-zA-Z0-9_-]+$/.test(createServerName.trim())}
-            className="mt-2.5 w-full py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary disabled:opacity-50"
-          >
-            Create
-          </button>
-        </Dialog>
-      )}
-
-      {killServerTarget && (
-        <Dialog title="Kill tmux server?" onClose={() => setKillServerTarget(null)}>
-          <p className="text-text-secondary mb-2.5">
-            Kill server <strong>{killServerTarget}</strong> and all its sessions? This cannot be undone.
-          </p>
-          {killServerTarget === DAEMON_SERVER && (
-            <p className="text-signal-red mb-2.5">
-              <strong>{DAEMON_SERVER}</strong> hosts the run-kit daemon serving this dashboard — killing it takes the dashboard down.
-            </p>
-          )}
-          <div className="flex gap-2">
-            <button
-              onClick={() => setKillServerTarget(null)}
-              className="flex-1 py-1.5 border border-border rounded hover:border-text-secondary"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleKillServer}
-              className="flex-1 py-1.5 bg-red-900/30 border border-red-900 rounded hover:bg-red-900/50"
-            >
-              Kill
-            </button>
-          </div>
-        </Dialog>
-      )}
+      {/* Server create/kill dialogs moved to the single layout-level mount
+          (`components/server-dialogs.tsx`, 260811-239r) — this shell triggers
+          them via `server-dialogs-context`. */}
 
       {showTmuxCommands && sessionName && currentWindow && (
         <TmuxCommandsDialog
@@ -3781,19 +3653,14 @@ function AppShell() {
         }}
       />
 
-      <Suspense fallback={null}>
-        <CommandPalette actions={paletteActions} />
-      </Suspense>
+      {/* The command palette + shortcuts overlay mount ONCE in AppLayout now
+          (260811-239r): the palette renders this route's registered actions
+          ahead of the layout-level globals; the overlay's state is
+          layout-owned. */}
+
       <Suspense fallback={null}>
         <ThemeSelector />
       </Suspense>
-
-      <ShortcutsOverlay
-        open={showShortcutsOverlay}
-        onClose={() => setShowShortcutsOverlay(false)}
-        paletteTargets={macroPaletteTargets}
-        riffPresetNames={riffPresetNames}
-      />
     </Shell>
   );
 }

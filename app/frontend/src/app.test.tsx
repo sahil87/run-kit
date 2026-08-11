@@ -4,6 +4,14 @@ import { CommandPalette, type PaletteAction } from "@/components/command-palette
 import { resolveServerView } from "@/app";
 import type { ServerInfo } from "@/api/client";
 
+// `@/app` transitively imports terminal-client → @xterm/addon-unicode-graphemes,
+// whose import-time trie init is a documented CI flake ("Data error" — see
+// lib/router-url.test.ts). Mock the addon (the terminal-client.test.tsx
+// pattern) so this suite never loads the real module.
+vi.mock("@xterm/addon-unicode-graphemes", () => ({
+  UnicodeGraphemesAddon: vi.fn(),
+}));
+
 /**
  * Tests for move window CmdK actions (T010).
  *
@@ -537,10 +545,11 @@ describe("resolveServerView — three-way route guard", () => {
 });
 
 /**
- * Tests for the ungated `View:` palette entries (R4) — the static block of
- * `viewActions` in `app.tsx` that flows into AppShell's palette. Focused on
- * "View: Refresh Page", the full-page-reload recovery affordance (constitution
- * V). Mirrors the action-construction logic in `app.tsx` so the test catches
+ * Tests for the ungated `View:` palette entries (R4) — `toggle-fixed-width`
+ * from `viewActions` in `app.tsx` (AppShell's route list) plus the global
+ * "View: Refresh Page" (`use-global-palette-actions.ts`, layout-level since
+ * 260811-239r), the full-page-reload recovery affordance (constitution V).
+ * Mirrors the action-construction logic in production so the test catches
  * drift if either side changes.
  */
 function buildViewStaticActions(opts: {

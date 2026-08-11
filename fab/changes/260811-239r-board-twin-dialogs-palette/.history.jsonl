@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-11T11:47:30Z"}
+{"args":"Dissolve the remaining board-twin problem: lift server create/kill dialogs to AppLayout and route command-palette actions through a slot context (backlog 239r)","cmd":"fab-new","event":"command","ts":"2026-08-11T11:47:30Z"}
+{"delta":"+4.3","event":"confidence","score":4.3,"trigger":"calc-score","ts":"2026-08-11T11:51:19Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-11T11:52:27Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-11T11:53:01Z"}
+{"cmd":"fab-continue-apply","event":"command","ts":"2026-08-11T11:55:06Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-11T14:52:46Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-11T15:18:50Z"}
+{"event":"review","result":"passed","ts":"2026-08-11T15:18:50Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-11T15:36:34Z"}

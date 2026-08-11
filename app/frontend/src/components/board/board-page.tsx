@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useRouter } from "@tanstack/react-router";
 import { useBoardEntries, useBoards } from "@/hooks/use-boards";
 import { useIsMobile } from "@/hooks/use-is-mobile";
@@ -6,26 +6,22 @@ import { usePaneWidths, BOARD_PANE_DEFAULT_WIDTH } from "@/hooks/use-pane-widths
 import { useBoardAutofit } from "@/hooks/use-board-autofit";
 import { usePinActions } from "@/hooks/use-pin-actions";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
-import { useUpdateCheck } from "@/hooks/use-update-check";
 import { useOptimisticContext } from "@/contexts/optimistic-context";
-import { useSessionContext, useUpdateNotification } from "@/contexts/session-context";
+import { useSessionContext } from "@/contexts/session-context";
 import { useChromeState, useChromeDispatch } from "@/contexts/chrome-context";
 import { useSettingsDialog } from "@/contexts/settings-dialog-context";
+import { useServerDialogs } from "@/contexts/server-dialogs-context";
+import { usePaletteGlobals, useRegisterPaletteActions } from "@/contexts/palette-actions-context";
 import { useToast } from "@/components/toast";
 import { BottomBar } from "@/components/bottom-bar";
 import { ComposeStrip } from "@/components/compose-strip";
 import { Shell } from "@/components/shell/shell";
 import { Sidebar } from "@/components/sidebar";
-import { HELP_URL } from "@/components/global-chrome";
 import { useRegisterTopBarSlot } from "@/contexts/top-bar-slot-context";
 import { useRegisterFocusedPane } from "@/contexts/focused-pane-context";
-import { createSession, createWindow as createWindowApi, killServer as killServerApi, createServer, splitWindow, killWindow } from "@/api/client";
+import { createSession, createWindow as createWindowApi, splitWindow, killWindow } from "@/api/client";
 import { setBoardOrder } from "@/api/boards";
 import { computeMoveOrder } from "@/lib/palette-move";
-import { buildNavActions } from "@/lib/palette-nav";
-import { buildUpdateActions, buildMaintenanceActions, buildCheckActions } from "@/lib/palette-update";
-import { buildVersionAction, displayVersion } from "@/lib/palette-version";
-import { copyToClipboard } from "@/lib/clipboard";
 import { Dialog } from "@/components/dialog";
 import type { PaletteAction } from "@/components/command-palette";
 import { ValidBoardName } from "./board-name";
@@ -38,12 +34,7 @@ import { withShortcutHints, formatCombo } from "@/lib/keybindings";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import { useKeybindingDispatch } from "@/hooks/use-keybinding-dispatch";
-import { ShortcutsOverlay } from "@/components/shortcuts-overlay";
 import { NotFoundPage } from "@/router";
-
-const CommandPalette = lazy(() =>
-  import("@/components/command-palette").then((m) => ({ default: m.CommandPalette })),
-);
 
 interface BoardPageRouteProps {
   // tanstack-router passes route params via useParams, but for type-safety
@@ -110,16 +101,22 @@ function BoardPageContent({ name }: { name: string }) {
   // untouched so toggling off restores the hand-tuned layout.
   const { autofit, toggleAutofit } = useBoardAutofit(name);
 
-  // Session/window/server creation handlers — match AppShell's wiring so the
-  // unified Sidebar can fire the same optimistic flows on the board route.
+  // Session/window creation handlers — match AppShell's wiring so the unified
+  // Sidebar can fire the same optimistic flows on the board route. The server
+  // create/kill dialogs live at the layout level now (260811-239r): this route
+  // only consumes the `server-dialogs-context` triggers, plus the imperative
+  // merged palette list (route actions + layout globals) for the keybinding
+  // `shortcuts-overlay` resolution below.
   const ctx = useSessionContext();
   const { addToast } = useToast();
-  const { addGhostSession, addGhostServer, removeGhost } = useOptimisticContext();
+  const { addGhostSession, removeGhost } = useOptimisticContext();
+  const { openCreateServer, requestKillServer } = useServerDialogs();
+  // The `shortcuts-overlay` chord resolves the layout-level global entry
+  // (260811-239r, R12) — via the globals-ONLY channel, which never changes in
+  // response to this route's own registration (no render loop; see
+  // palette-actions-context.tsx).
+  const paletteGlobals = usePaletteGlobals();
   const ghostSessionIdRef = useRef<string | null>(null);
-  const ghostServerIdRef = useRef<string | null>(null);
-  const [showCreateServerDialog, setShowCreateServerDialog] = useState(false);
-  const [createServerName, setCreateServerName] = useState("");
-  const [killServerTarget, setKillServerTarget] = useState<string | null>(null);
 
   const { execute: executeCreateSession } = useOptimisticAction<[string, string, string | undefined]>({
     action: (srv, sessName, cwd) => createSession(srv, sessName, cwd),
@@ -139,24 +136,6 @@ function BoardPageContent({ name }: { name: string }) {
   const { execute: executeCreateWindow } = useOptimisticAction<[string, string]>({
     action: (srv, sess) => createWindowApi(srv, sess),
     onError: (err) => addToast(err.message || "Failed to create window"),
-  });
-
-  const { execute: executeCreateServer } = useOptimisticAction<[string]>({
-    action: (n) => createServer(n),
-    onOptimistic: (n) => { ghostServerIdRef.current = addGhostServer(n); },
-    onRollback: () => {
-      if (ghostServerIdRef.current) {
-        removeGhost(ghostServerIdRef.current);
-        ghostServerIdRef.current = null;
-      }
-    },
-    onError: (err) => addToast(err.message || "Failed to create server"),
-    onSettled: () => { ghostServerIdRef.current = null; },
-  });
-
-  const { execute: executeKillServer } = useOptimisticAction<[string]>({
-    action: (n) => killServerApi(n),
-    onError: (err) => addToast(err.message || "Failed to kill server"),
   });
 
   // `ctx.sessionsByServer` is a fresh Map every SSE tick; read it at click time
@@ -186,20 +165,6 @@ function BoardPageContent({ name }: { name: string }) {
     (srv: string, session: string) => executeCreateWindow(srv, session),
     [executeCreateWindow],
   );
-
-  const handleCreateServerSubmit = useCallback(() => {
-    const trimmed = createServerName.trim();
-    if (!trimmed || !/^[a-zA-Z0-9_-]+$/.test(trimmed)) return;
-    executeCreateServer(trimmed);
-    setShowCreateServerDialog(false);
-    setCreateServerName("");
-  }, [createServerName, executeCreateServer]);
-
-  const handleKillServer = useCallback(() => {
-    if (!killServerTarget) return;
-    executeKillServer(killServerTarget);
-    setKillServerTarget(null);
-  }, [killServerTarget, executeKillServer]);
 
   const paneRefs = useRef<Array<BoardPaneHandle | null>>([]);
   paneRefs.current = entries.map((_, i) => paneRefs.current[i] ?? null);
@@ -335,9 +300,9 @@ function BoardPageContent({ name }: { name: string }) {
 
   // Chrome dispatch — lifted above the keybinding handlers so the ⇧⌘E
   // compose-toggle chord (260801-sm6g) and the palette memos below can consume
-  // it (also feeds the sidebar toggle + terminal-font palette actions).
+  // it (also feeds the sidebar toggle).
   const { sidebarOpen, composeStripEnabled } = useChromeState();
-  const { setSidebarOpen, increaseTerminalFont, decreaseTerminalFont, resetTerminalFont, toggleComposeStrip } = useChromeDispatch();
+  const { setSidebarOpen, toggleComposeStrip } = useChromeDispatch();
 
   // Keyboard chords (260730-g40a): the pane-cycle ⌘[/⌘] pair migrated into
   // the keybinding registry (`board-cycle-prev`/`board-cycle-next`, combos
@@ -348,7 +313,6 @@ function BoardPageContent({ name }: { name: string }) {
   // through). One dispatcher mount per route shell — AppShell mounts its own;
   // the two never co-mount. A missing handler (no panes) falls through
   // untouched, matching the old `entries.length === 0` early-return.
-  const [showShortcutsOverlay, setShowShortcutsOverlay] = useState(false);
   const { byAction: bindingByAction, host: bindingHost } = useKeybindings();
   // Settings dialog trigger (o7q8) — the dialog mounts once in AppLayout; the
   // board twin registers both the chord handler (below) and the palette
@@ -368,7 +332,11 @@ function BoardPageContent({ name }: { name: string }) {
       "board-cycle-prev": entries.length > 0 ? () => cycle(-1) : undefined,
       "go-back": () => router.history.back(),
       "go-forward": () => router.history.forward(),
-      "shortcuts-overlay": () => setShowShortcutsOverlay((prev) => !prev),
+      // The overlay state is layout-owned now (260811-239r, R12): resolve the
+      // global `Help: Keyboard Shortcuts` entry's `onSelect` through the merged
+      // palette list (the fromPalette convention) — same toggle as the palette
+      // entry and the sidebar-footer Keyboard icon.
+      "shortcuts-overlay": paletteGlobals.find((a) => a.id === "shortcuts-overlay")?.onSelect,
       "compose-toggle": toggleComposeStrip,
       // ⇧⌘,/⌘, settings (260801-mqim) — the board twin mounts the same
       // shared-context opener as AppShell (the board route renders no
@@ -376,17 +344,12 @@ function BoardPageContent({ name }: { name: string }) {
       // dead here); a re-fire while the dialog is open is a no-op.
       "settings-open": openSettings,
     };
-  }, [entries.length, router, toggleComposeStrip, openSettings]);
+  }, [entries.length, router, paletteGlobals, toggleComposeStrip, openSettings]);
   useKeybindingDispatch(boardKeyHandlers);
 
-  // Sidebar-footer Keyboard icon → overlay toggle (260801-sm6g) — the board
-  // twin of AppShell's listener (the sidebar dispatches a document
-  // CustomEvent; each route shell owns its overlay state, DD-8).
-  useEffect(() => {
-    const onOverlayOpen = () => setShowShortcutsOverlay((prev) => !prev);
-    document.addEventListener("shortcuts-overlay:open", onOverlayOpen);
-    return () => document.removeEventListener("shortcuts-overlay:open", onOverlayOpen);
-  }, []);
+  // The sidebar-footer Keyboard icon's `shortcuts-overlay:open` listener moved
+  // to AppLayout with the overlay state (260811-239r) — one listener for the
+  // single layout-mounted overlay.
 
   // Drag-resize state — separate from the persisted widths; live during drag.
   // Handlers live in refs so an unmount cleanup or a `pointercancel` (e.g.
@@ -468,26 +431,11 @@ function BoardPageContent({ name }: { name: string }) {
       ? formatCombo({ code: paletteBinding.code, tier: paletteBinding.tier }, bindingHost.platform)
       : undefined;
 
-  // Update notification (lifted above boardRouteActions so the qualify state +
-  // triggers are in scope for the palette memo). Below `sm` the top-bar L3
-  // cluster — including the UpdateChip — is hidden, so a phone user on
-  // /board/$name has NO update surface unless the palette carries it. The board
-  // mounts its own palette (DD-8, § Boards Command Palette), so the AppShell
-  // `updateActions` (app.tsx) are unreachable here — these are duplicated in for
-  // the same reason as the font trio / refresh / help entries below.
-  const {
-    qualifies: updateQualifies,
-    tools: updateTools,
-    dismissUpdate,
-    daemonVersion,
-    brew,
-    forceUpdateNow,
-    restartNow,
-  } = useUpdateNotification();
-  // Shared check-command flow (POST /api/updates/check → result toast) — the
-  // same hook AppShell's palette uses, so the flow can never drift between the
-  // two mounts (see use-update-check.ts).
-  const { runUpdateCheck } = useUpdateCheck();
+  // The update/check/maintenance/version palette groups moved to the
+  // layout-level global list (260811-239r, `use-global-palette-actions.ts`) —
+  // they were the DD-8 duplicates here; below `sm` the top-bar L3 cluster is
+  // hidden, so the layout palette is still a phone board user's only update
+  // surface, now without the twin.
 
   // Palette-surface split/close executors (Constitution V; 260715-6jwn). Mirror
   // the terminal palette's wiring (app.tsx — useOptimisticAction-wrapped
@@ -602,17 +550,16 @@ function BoardPageContent({ name }: { name: string }) {
     setKillTarget(null);
   }, [killTarget, unpin, name]);
 
-  // Board-route-scoped command palette actions. Constitution V (Keyboard-First)
-  // requires every action be keyboard-reachable — AppShell's palette is not
-  // mounted here (the board route does not render AppShell, see DD-8), so
-  // BoardPage owns its own palette mount with the entries that are meaningful
-  // on a board route: switch to other boards, leave the board view, cycle pane
-  // focus, split/close the focused pane, the `Go: Back`/`Go: Forward`/`Go: Host`
-  // nav entries (see navEntries below), the global terminal-font controls (the
-  // board's panes are live terminals; the setting is global), and "View: Refresh
-  // Page" (duplicated from AppShell's viewActions — see refreshEntry below).
-  // Pin/Unpin Current Window are AppShell-only (no current window exists in
-  // single-window sense on a board route).
+  // Board-route-scoped command palette actions (260811-239r). Constitution V
+  // (Keyboard-First) requires every action be keyboard-reachable — the board
+  // route does not render AppShell (DD-8), so these route-scoped entries
+  // (switch to other boards, leave the board view, cycle pane focus,
+  // split/close the focused pane) are registered into the palette-actions slot
+  // and rendered by the single layout-mounted CommandPalette ahead of the
+  // layout-level global groups (nav, font, refresh, help, shortcuts, settings,
+  // update/check/maintenance/version — `use-global-palette-actions.ts`, no
+  // longer duplicated here). Pin/Unpin Current Window are AppShell-only (no
+  // current window exists in single-window sense on a board route).
   const boardRouteActions: PaletteAction[] = useMemo(() => {
     const switchEntries: PaletteAction[] = boards.map((b) => ({
       id: `board-switch-${b.name}`,
@@ -663,136 +610,10 @@ function BoardPageContent({ name }: { name: string }) {
       });
     }
 
-    // Navigation entries (260714-uco1 builder) — palette parity (Constitution V)
-    // for the top-bar history arrows + the board breadcrumb's Host ancestor.
-    // AppShell's palette doesn't mount here (DD-8), so the board palette wires
-    // its own `buildNavActions("board", ...)` call, handlers mirroring
-    // AppShell's `navActions` (app.tsx). `server` is "" — board mode never
-    // emits `Go: tmux Server` (its gate is `mode === "terminal" && server`),
-    // so `onTmuxServer` is an unreachable no-op. Positioned after the
-    // board-specific entries and before the font trio, mirroring AppShell's
-    // group ordering (nav after the route groups, before terminalFontActions).
-    const navEntries: PaletteAction[] = buildNavActions("board", "", {
-      onBack: () => router.history.back(),
-      onForward: () => router.history.forward(),
-      onTmuxServer: () => {}, // unreachable in board mode (entry only emitted for terminal)
-      onHost: () => navigate({ to: "/" }),
-    });
-
-    const fontEntries: PaletteAction[] = [
-      // No `shortcut` — Cmd +/- is deliberately not intercepted.
-      { id: "terminal-font-increase", label: "Increase terminal font", onSelect: increaseTerminalFont },
-      { id: "terminal-font-decrease", label: "Decrease terminal font", onSelect: decreaseTerminalFont },
-      { id: "terminal-font-reset", label: "Reset terminal font", onSelect: resetTerminalFont },
-    ];
-
-    // Full-page reload — duplicated from AppShell's `viewActions` because the
-    // board route mounts its OWN palette (this one) and does NOT render AppShell
-    // (DD-8), so AppShell's "View: Refresh Page" is unreachable here. The board
-    // is the intake's core degraded-relay recovery scenario (N live relay
-    // WebSockets, no top-bar RefreshButton since `currentWindow` is null on a
-    // board route), so keyboard-reachable reload matters most here (DD-4).
-    const refreshEntry: PaletteAction = {
-      id: "refresh-page",
-      label: "View: Refresh Page",
-      onSelect: () => window.location.reload(),
-    };
-
-    // Help docs — duplicated from AppShell's `configActions` for the same
-    // reason as refreshEntry: the board route mounts its OWN palette and does
-    // NOT render AppShell (DD-8), so AppShell's "Help: Documentation" is
-    // unreachable here. The help affordance is route-agnostic (the sidebar
-    // footer's Help anchor, 260724-6j1v), so keeping it keyboard-reachable
-    // on `/board/*` too honors constitution V. Shares the HELP_URL exported
-    // from `global-chrome.tsx` so the URL can never drift from the footer /
-    // AppShell action.
-    const helpEntry: PaletteAction = {
-      id: "help-documentation",
-      label: "Help: Documentation",
-      onSelect: () => window.open(HELP_URL, "_blank", "noopener,noreferrer"),
-    };
-
-    // Shortcuts cheatsheet overlay (260730-g40a) — duplicated from AppShell's
-    // `configActions` for the DD-8 reason above (the board mounts its OWN
-    // palette). The id doubles as the registry actionId, so the effective-chord
-    // hint (⌘/ on macOS, ⇧Ctrl+/ on win/linux) renders on this entry.
-    const shortcutsEntry: PaletteAction = {
-      id: "shortcuts-overlay",
-      label: "Help: Keyboard Shortcuts",
-      onSelect: () => setShowShortcutsOverlay((prev) => !prev),
-    };
-
-    // Settings dialog (o7q8) — the one-line registration duplicated from
-    // AppShell's `settingsActions` for the same DD-8 reason as the entries
-    // above. The dialog itself mounts ONCE in AppLayout (never here);
-    // `openSettings` is the shared context trigger.
-    const settingsEntry: PaletteAction = {
-      id: "settings-open",
-      label: "Settings: Open",
-      onSelect: openSettings,
-    };
-
-    // Update actions — duplicated from AppShell's `updateActions` (app.tsx) for
-    // the same reason as refreshEntry/helpEntry: the board route mounts its OWN
-    // palette and does NOT render AppShell (DD-8). Critically, below `sm` the
-    // top-bar UpdateChip is hidden, so on a phone /board/$name the palette is the
-    // ONLY update surface. Only the Dismiss entry remains (the dynamic
-    // `run-kit: Update to v{X}` entry was deleted — `run-kit: Update Now` in
-    // maintenanceEntries is THE single update action). Gated on `qualifies`
-    // only — the palette deliberately ignores chip dismissal (see
-    // lib/palette-update).
-    const updateEntries: PaletteAction[] = buildUpdateActions(
-      updateQualifies,
-      updateTools,
-      dismissUpdate,
-    );
-
-    // Check actions — duplicated from AppShell's `checkActions` (app.tsx) for
-    // the same reason as updateEntries. Both commands POST the same
-    // /api/updates/check and report via toast through the SHARED useUpdateCheck
-    // flow (only the entry wiring is duplicated). Dev-gated inside
-    // buildCheckActions.
-    const checkEntries: PaletteAction[] = buildCheckActions(
-      daemonVersion,
-      () => runUpdateCheck(false),
-      () => runUpdateCheck(true),
-    );
-
-    // Maintenance actions — palette-only force-update / restart, duplicated from
-    // AppShell's `maintenanceActions` for the same reason as updateEntries: the
-    // board route mounts its OWN palette and does NOT render AppShell (DD-8), and
-    // below `sm` the top-bar cluster is hidden, so on a phone /board/$name the
-    // palette is the ONLY maintenance surface. Dev-gated + (for force) brew-gated
-    // inside buildMaintenanceActions; both fire immediately with toast-on-failure.
-    const maintenanceEntries: PaletteAction[] = buildMaintenanceActions(
-      brew,
-      daemonVersion,
-      () => {
-        void forceUpdateNow().catch((err: unknown) =>
-          addToast(err instanceof Error ? err.message : "Update failed"),
-        );
-      },
-      () => {
-        void restartNow().catch((err: unknown) =>
-          addToast(err instanceof Error ? err.message : "Restart failed"),
-        );
-      },
-    );
-
-    // Version entry — duplicated from AppShell's `versionActions` (app.tsx) for
-    // the same reason as updateEntries: the board route mounts its OWN palette
-    // and does NOT render AppShell (DD-8), and below `sm` the top-bar cluster
-    // (which has no version chip anyway) is hidden, so on a phone /board/$name
-    // the palette is the ONLY version surface. Shown whenever daemonVersion is
-    // known, including `dev` (pure display). Copies the displayed form; success
-    // → info toast, failure defaults to the board's error toast.
-    const versionEntries: PaletteAction[] = buildVersionAction(daemonVersion, () => {
-      if (!daemonVersion) return;
-      void copyToClipboard(displayVersion(daemonVersion)).then((ok) => {
-        if (ok) addToast("Version copied", "info");
-        else addToast("Copy failed");
-      });
-    });
+    // The global groups (nav/font/refresh/help/shortcuts/settings/update/
+    // check/maintenance/version) moved to the layout-level builder
+    // (`use-global-palette-actions.ts`, 260811-239r) — the seven DD-8
+    // duplicates that lived here are gone.
 
     if (entries.length > 0) {
       conditional.push({
@@ -916,14 +737,20 @@ function BoardPageContent({ name }: { name: string }) {
     }
 
     // Palette hints (260730-g40a): registered actions with palette entries
-    // (`go-back`/`go-forward`, the pane-cycle pair, `shortcuts-overlay`)
-    // render their EFFECTIVE combos per platform, reflecting overrides.
+    // (the pane-cycle pair) render their EFFECTIVE combos per platform,
+    // reflecting overrides. The global groups are decorated at the layout
+    // level (260811-239r).
     return withShortcutHints(
-      [...switchEntries, ...conditional, ...navEntries, ...fontEntries, refreshEntry, helpEntry, shortcutsEntry, settingsEntry, ...updateEntries, ...checkEntries, ...maintenanceEntries, ...versionEntries],
+      [...switchEntries, ...conditional],
       bindingByAction,
       bindingHost.platform,
     );
-  }, [boards, name, entries, focusedIndex, autofit, toggleAutofit, unpinFocused, requestKillFocused, focusedPane, reorderWithFollow, executeSplit, navigate, router, addToast, increaseTerminalFont, decreaseTerminalFont, resetTerminalFont, openSettings, updateQualifies, updateTools, runUpdateCheck, dismissUpdate, brew, daemonVersion, forceUpdateNow, restartNow, bindingByAction, bindingHost]);
+  }, [boards, name, entries, focusedIndex, autofit, toggleAutofit, unpinFocused, requestKillFocused, focusedPane, reorderWithFollow, executeSplit, navigate, addToast, bindingByAction, bindingHost]);
+  // Publish this route's (already shortcut-decorated) list into the
+  // palette-actions slot — the single layout-mounted CommandPalette renders
+  // `[...routeActions, ...globalActions]`; cleared on unmount so the next
+  // route never sees stale entries (260811-239r).
+  useRegisterPaletteActions(boardRouteActions);
 
   // Pane-server count (distinct servers) used by TopBar board-mode info.
   const serverCount = useMemo(() => {
@@ -1117,10 +944,9 @@ function BoardPageContent({ name }: { name: string }) {
   // Stable kill-server handler — same R6a reasoning as handleSelectWindow:
   // `onKillServer` threads into the memoized `ServerGroup` header cluster
   // (260721-x4sf), so an inline arrow would defeat the memo skip on every SSE
-  // tick. `setKillServerTarget` is a stable state setter — no deps.
-  const handleSidebarKillServer = useCallback((name: string) => {
-    setKillServerTarget(name);
-  }, []);
+  // tick. The context trigger (`requestKillServer`, 260811-239r) is
+  // referentially stable by construction — it passes straight through at the
+  // Sidebar call site.
 
   // Sidebar element shared between desktop grid placement and mobile overlay.
   // `currentServer = null` because the board route has no `$server` param —
@@ -1134,8 +960,8 @@ function BoardPageContent({ name }: { name: string }) {
       onSelectWindow={handleSelectWindow}
       onCreateWindow={handleCreateWindow}
       onCreateSession={handleCreateSession}
-      onCreateServer={() => setShowCreateServerDialog(true)}
-      onKillServer={handleSidebarKillServer}
+      onCreateServer={openCreateServer}
+      onKillServer={requestKillServer}
     />
   );
 
@@ -1236,73 +1062,13 @@ function BoardPageContent({ name }: { name: string }) {
         </footer>
       </Shell>
 
-      {/* Command palette — board-route mount. The board route does NOT render
-          AppShell (DD-8), so AppShell's palette is unreachable here. Mounting
-          a second instance with board-scoped actions satisfies Constitution V
-          (Keyboard-First) by keeping every board-route action reachable via
-          Cmd+K. */}
-      <Suspense fallback={null}>
-        <CommandPalette actions={boardRouteActions} />
-      </Suspense>
-
-      {/* Shortcuts cheatsheet overlay (260730-g40a) — board-route mount, for
-          the same DD-8 reason as the palette above (AppShell never renders
-          here). Toggled by ⌘/ on macOS / ⇧Ctrl+/ on win/linux and the
-          `Help: Keyboard Shortcuts` entry. */}
-      <ShortcutsOverlay
-        open={showShortcutsOverlay}
-        onClose={() => setShowShortcutsOverlay(false)}
-      />
-
-      {/* Server create/kill dialogs — wired so the unified Sidebar's "+ tmux
-          server" and "kill server" affordances work on the board route too. */}
-      {showCreateServerDialog && (
-        <Dialog title="Create tmux server" onClose={() => { setShowCreateServerDialog(false); setCreateServerName(""); }}>
-          <input
-            autoFocus
-            type="text"
-            value={createServerName}
-            onChange={(e) => setCreateServerName(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleCreateServerSubmit()}
-            onFocus={(e) => e.target.select()}
-            aria-label="Server name"
-            placeholder="Server name..."
-            className="w-full bg-transparent text-text-primary p-2 border border-border rounded outline-none placeholder:text-text-secondary"
-          />
-          <p className="text-xs text-text-secondary mt-1.5">
-            Alphanumeric, hyphens, and underscores only.
-          </p>
-          <button
-            onClick={handleCreateServerSubmit}
-            disabled={!createServerName.trim() || !/^[a-zA-Z0-9_-]+$/.test(createServerName.trim())}
-            className="mt-2.5 w-full py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary disabled:opacity-50"
-          >
-            Create
-          </button>
-        </Dialog>
-      )}
-
-      {killServerTarget && (
-        <Dialog title="Kill tmux server?" onClose={() => setKillServerTarget(null)}>
-          <p className="text-text-secondary mb-2.5">
-            Kill server <strong>{killServerTarget}</strong> and all its sessions? This cannot be undone.
-          </p>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setKillServerTarget(null)}
-              className="flex-1 py-1.5 border border-border rounded hover:border-text-secondary"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleKillServer}
-              className="flex-1 py-1.5 bg-red-900/30 border border-red-900 rounded hover:bg-red-900/50"
-            >
-              Kill
-            </button>
-          </div>
-        </Dialog>
-      )}
+      {/* Command palette, shortcuts overlay, and the server create/kill
+          dialogs mount ONCE in AppLayout now (260811-239r): this route
+          registers its board-scoped actions into the palette-actions slot
+          (above) and triggers the dialogs via `server-dialogs-context`; the
+          DD-8 twins are gone. The board's kill-WINDOW confirm below stays
+          route-owned (co9z — kill-everywhere semantics + the `Unpin instead`
+          escape differ from the terminal route's current-window confirm). */}
 
       {/* Board kill confirm (co9z). A board Kill destroys the window EVERYWHERE
           (its home session too), not just the board pane — so it is

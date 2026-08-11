@@ -44,8 +44,11 @@ import {
  * `role="dialog"`/`aria-modal`, no focus trap, no Escape-closes, no
  * close-on-send.
  *
- * A real `<textarea>` gives mobile autocorrect/IME (xterm.js has neither) and is
- * a stable home for pasting large text blocks over a laggy relay.
+ * A real `<textarea>` gives IME/dictation (xterm.js renders to a `<canvas>`, so
+ * the OS has no text input to attach to) and is a stable home for pasting large
+ * text blocks over a laggy relay. Autocorrect, autocapitalize, and spellcheck
+ * are all switched OFF below: this text goes to a shell, where a helpful
+ * rewrite of a path or a flag is a bug, not a convenience.
  *
  * Target model has two explicit modes. Normal terminal composition sends to the
  * CURRENTLY-focused pane's `wsRef` from `FocusedTerminalContext`, read live at
@@ -607,7 +610,7 @@ export function ComposeStrip({
   }, [handleUpload]);
 
   // Register the strip's textarea focuser so the touch ⌨ keyboard button can
-  // focus this real input (the mobile IME/autocorrect surface) without reaching
+  // focus this real input (the IME surface xterm's canvas lacks) without reaching
   // into the DOM by test id. Reads the textarea's live `disabled` state so the
   // "no target" case declines and the caller falls back to the terminal. Stable
   // (reads a ref), so a single register/unregister at mount suffices.

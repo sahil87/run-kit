@@ -44,7 +44,7 @@ export function drainComposeStripAttachments(): File[] {
  * Module-level focus registry for the compose strip's textarea.
  *
  * The touch ⌨ keyboard button (in `bottom-bar.tsx`) must focus the strip's real
- * `<textarea>` (the mobile IME/autocorrect surface xterm lacks) when the compose
+ * `<textarea>` (the IME surface xterm's canvas lacks) when the compose
  * preference is on. It previously located it via
  * `document.querySelector('[data-testid="compose-strip-input"]')`, but test ids
  * are test-only in this repo — production code must not read them. The strip

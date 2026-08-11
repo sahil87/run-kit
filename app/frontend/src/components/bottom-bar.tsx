@@ -238,10 +238,11 @@ export function BottomBar({ onOpenCompose, onFocusTerminal, onScrollLockChange }
   }, [cancelLongPress]);
 
   // Summon the keyboard: when the compose strip is on, focus the strip's
-  // textarea (its real DOM input is the mobile IME/autocorrect surface xterm
-  // lacks) via the strip's module-level focus registry — NOT a test-id DOM
-  // query (test ids are test-only in this repo). Falls back to the terminal if
-  // the strip is off, unmounted, or declines (its "no target" disabled state).
+  // textarea (its real DOM input is the IME surface xterm's canvas lacks; the
+  // strip disables autocorrect) via the strip's module-level focus registry —
+  // NOT a test-id DOM query (test ids are test-only in this repo). Falls back
+  // to the terminal if the strip is off, unmounted, or declines (its "no
+  // target" disabled state).
   const focusInput = useCallback(() => {
     if (composeStripEnabled && focusComposeStrip()) return;
     onFocusTerminal?.();
@@ -437,8 +438,14 @@ export function BottomBar({ onOpenCompose, onFocusTerminal, onScrollLockChange }
           strip is OFF (once open, the feature has been found), never on coarse
           pointers (chords are noise on touch), and never below lg (the 375px
           single-row budget is hard). Non-interactive; aria-hidden — the
-          adjacent chip carries the accessible name. */}
-      {onOpenCompose && !composeStripEnabled && !coarse && (
+          adjacent chip carries the accessible name.
+          Gated on a live `focused` target too: the copy promises delivery to a
+          pane, and `onOpenCompose` is wired unconditionally, so without this
+          the hint would advertise a send with nowhere to send it (the strip
+          itself degrades to "No focused terminal — click a pane to target it").
+          A selection-broadcast target cannot be missed here — starting one
+          always turns the strip on, and the hint is strip-off only. */}
+      {onOpenCompose && focused !== null && !composeStripEnabled && !coarse && (
         <span
           aria-hidden="true"
           className="hidden lg:flex items-center gap-1.5 ml-2 text-[11px] text-text-secondary opacity-60 select-none whitespace-nowrap"

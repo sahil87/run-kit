@@ -1084,10 +1084,9 @@ describe("TopBar", () => {
             fireEvent.mouseEnter(primary);
             vi.advanceTimersByTime(TIP_OPEN_DELAY_MS);
           });
-          // jsdom keeps the control in the aria-hidden measurement probe —
-          // locate the tooltip by attribute (role queries exclude it). jsdom's
-          // platform is "other", so the chord renders in the Ctrl spelling.
-          const tooltip = document.querySelector('[role="tooltip"]');
+          // jsdom's platform is "other", so the chord renders in the Ctrl
+          // spelling.
+          const tooltip = screen.getByRole("tooltip");
           expect(tooltip).toHaveTextContent("Split horizontally");
           expect(tooltip!.querySelector("kbd")).toHaveTextContent("Shift+Ctrl+\\");
         } finally {

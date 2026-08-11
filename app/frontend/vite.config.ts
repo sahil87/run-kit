@@ -37,9 +37,15 @@ export default defineConfig({
         target: `ws://127.0.0.1:${(parseInt(process.env.RK_PORT ?? "3000") + 1)}`,
         ws: true,
       },
+      // NO changeOrigin here (deliberate asymmetry with /api): rk's proxy
+      // derives X-Forwarded-Host from the INBOUND Host, and proxied apps
+      // (code-server) compare it against the browser's Origin on WebSocket
+      // handshakes. changeOrigin would rewrite Host to 127.0.0.1:{backend},
+      // making every proxied WS 403 (close 1006) while plain GETs still pass
+      // (same-origin GETs carry no Origin header). Preserving the original
+      // Host keeps the forwarded-host chain truthful end to end.
       "/proxy": {
         target: `http://127.0.0.1:${(parseInt(process.env.RK_PORT ?? "3000") + 1)}`,
-        changeOrigin: true,
         ws: true,
       },
       // PWA identity assets — served dynamically by the Go backend so the

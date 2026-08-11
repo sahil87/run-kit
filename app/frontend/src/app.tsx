@@ -402,7 +402,13 @@ function LayoutShortcutsOverlay({ open, onClose }: { open: boolean; onClose: () 
   // only.
   const [riffPresetNames, setRiffPresetNames] = useState<string[] | null>(null);
   useEffect(() => {
-    if (!open || !sessionName) return;
+    if (!open || !sessionName) {
+      // Reset on close / sessionless routes — this mount persists across
+      // routes (unlike the per-route twins it replaced), so a previously
+      // fetched list would otherwise leak into later opens elsewhere.
+      setRiffPresetNames(null);
+      return;
+    }
     let cancelled = false;
     getRiffPresets(server, sessionName)
       .then((data) => {

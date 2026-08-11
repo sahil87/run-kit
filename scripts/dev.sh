@@ -33,21 +33,16 @@ command -v air &>/dev/null || { echo "error: air not found (go install github.co
 
 # code-server — the `code` lens upstream (change 260811-k3vp): deterministic
 # port RK_PORT+2, loopback-only, auth off (the rk origin is the trust boundary;
-# the embed rides the same-origin /proxy/{port}/ path). Optional: absent
-# code-server just means the code lens stays unavailable. An RK_CODE_SERVER_PORT
-# already set in the environment wins — a user-managed instance is respected and
-# nothing is started here. The deterministic port matters beyond convenience:
-# code-server keys browser-side workspace state by the proxy pathname, so a
-# stable port is what keeps tabs/layout across dev restarts.
-if [[ -z "${RK_CODE_SERVER_PORT:-}" ]] && command -v code-server &>/dev/null; then
-  export RK_CODE_SERVER_PORT=$(( RK_PORT + 2 ))
-  (code-server --bind-addr "127.0.0.1:${RK_CODE_SERVER_PORT}" --auth none >/dev/null 2>&1) &
-  echo "code-server: 127.0.0.1:${RK_CODE_SERVER_PORT} (code lens enabled)"
-elif [[ -z "${RK_CODE_SERVER_PORT:-}" ]]; then
-  echo "code-server: not installed — code lens unavailable (install: brew install code-server)"
-else
-  echo "code-server: using externally managed RK_CODE_SERVER_PORT=${RK_CODE_SERVER_PORT}"
-fi
+# the embed rides the same-origin /proxy/{port}/ path). code-server is a
+# required dependency (Homebrew formula dependency). The deterministic port is
+# load-bearing: code-server keys browser-side workspace state by the proxy
+# pathname, so a stable port is what keeps tabs/layout across dev restarts.
+# Output goes to a port-suffixed log (never /dev/null) so a silent startup
+# death is diagnosable.
+export RK_CODE_SERVER_PORT=$(( RK_PORT + 2 ))
+CODE_SERVER_LOG="/tmp/rk-dev-code-server-${RK_CODE_SERVER_PORT}.log"
+code-server --bind-addr "127.0.0.1:${RK_CODE_SERVER_PORT}" --auth none > "$CODE_SERVER_LOG" 2>&1 &
+echo "code-server: 127.0.0.1:${RK_CODE_SERVER_PORT} (log: ${CODE_SERVER_LOG})"
 
 (cd app/backend && RK_PORT=$(( RK_PORT + 1 )) air) &
 

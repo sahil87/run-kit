@@ -291,7 +291,7 @@ func TestWindowOptionsInvalidWindowID(t *testing.T) {
 // --- /select re-route tests (POST /api/windows/{id}/select) ---
 //
 // The handler must resolve the owning session and issue SelectWindowInSession
-// (scoped), never a bare SelectWindow.
+// (scoped); the bare SelectWindow variant no longer exists.
 func TestWindowSelectResolvesSession(t *testing.T) {
 	ops := &mockTmuxOps{resolveWindowSessionResult: "real-session"}
 	router := newTestRouter(&mockSessionFetcher{}, ops)
@@ -315,9 +315,6 @@ func TestWindowSelectResolvesSession(t *testing.T) {
 	if ops.selectWindowInSessionWindowID != "@2" {
 		t.Errorf("scoped windowID = %q, want %q", ops.selectWindowInSessionWindowID, "@2")
 	}
-	if ops.selectWindowCalled {
-		t.Error("bare SelectWindow must NOT be called")
-	}
 }
 
 // A resolve failure (stale @N) surfaces a non-2xx error and issues no select.
@@ -335,9 +332,6 @@ func TestWindowSelectResolveFailure(t *testing.T) {
 	if ops.selectWindowInSessionCalled {
 		t.Error("SelectWindowInSession must NOT be called on resolve failure")
 	}
-	if ops.selectWindowCalled {
-		t.Error("bare SelectWindow must NOT be called on resolve failure")
-	}
 }
 
 func TestWindowSelectInvalidWindowID(t *testing.T) {
@@ -351,7 +345,7 @@ func TestWindowSelectInvalidWindowID(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
 	}
-	if ops.selectWindowInSessionCalled || ops.selectWindowCalled {
+	if ops.selectWindowInSessionCalled {
 		t.Error("no select must be issued for an invalid window ID")
 	}
 }

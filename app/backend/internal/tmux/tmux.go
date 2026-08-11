@@ -1784,15 +1784,6 @@ func UnsetWindowColor(windowID string, server string) error {
 	return err
 }
 
-// SelectWindow selects (focuses) a window by its window ID on the specified server.
-func SelectWindow(windowID string, server string) error {
-	ctx, cancel := withTimeout()
-	defer cancel()
-
-	_, err := tmuxExecServer(ctx, server, "select-window", "-t", windowID)
-	return err
-}
-
 // SelectWindowInSession selects a window scoped to a specific session, targeting
 // "<session>:<windowID>". A bare window-id target (`select-window -t @N`) is
 // ambiguous inside a tmux session group — group members share window membership

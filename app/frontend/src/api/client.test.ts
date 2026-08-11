@@ -7,7 +7,6 @@ import {
   getOpenApps,
   openInApp,
   getSessions,
-  getSessionOrder,
   setSessionOrder,
   createSession,
   renameSession,
@@ -497,36 +496,6 @@ describe("API request deduplication", () => {
     const results = await Promise.allSettled([getHealth(), getHealth()]);
     expect(results[0].status).toBe("rejected");
     expect(results[1].status).toBe("rejected");
-  });
-
-  it("getSessionOrder fetches GET /api/sessions/order with server query", async () => {
-    let capturedUrl = "";
-    mswServer.use(
-      http.get("/api/sessions/order", ({ request }) => {
-        capturedUrl = request.url;
-        return HttpResponse.json({ order: ["main", "dev"] });
-      }),
-    );
-    const order = await getSessionOrder("server-B");
-    expect(capturedUrl).toContain("?server=server-B");
-    expect(order).toEqual(["main", "dev"]);
-  });
-
-  it("getSessionOrder defaults to empty array when order is absent", async () => {
-    mswServer.use(
-      http.get("/api/sessions/order", () => HttpResponse.json({})),
-    );
-    const order = await getSessionOrder("default");
-    expect(order).toEqual([]);
-  });
-
-  it("getSessionOrder throws on non-2xx response", async () => {
-    mswServer.use(
-      http.get("/api/sessions/order", () =>
-        HttpResponse.json({ error: "boom" }, { status: 500 }),
-      ),
-    );
-    await expect(getSessionOrder("default")).rejects.toThrow("boom");
   });
 
   it("setSessionOrder sends POST /api/sessions/order with JSON body and server query", async () => {

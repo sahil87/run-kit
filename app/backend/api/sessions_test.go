@@ -65,8 +65,6 @@ type mockTmuxOps struct {
 	sendKeysCalled       bool
 	sendKeysWindowID     string
 	sendKeysKeys         string
-	selectWindowCalled   bool
-	selectWindowWindowID string
 
 	selectWindowInSessionCalled   bool
 	selectWindowInSessionSession  string
@@ -323,11 +321,6 @@ func (m *mockTmuxOps) SplitWindow(windowID string, horizontal bool, cwd string, 
 	m.splitWindowID = windowID
 	m.splitWindowHorizontal = horizontal
 	return m.splitWindowResult, m.splitWindowErr
-}
-func (m *mockTmuxOps) SelectWindow(windowID, server string) error {
-	m.selectWindowCalled = true
-	m.selectWindowWindowID = windowID
-	return m.err
 }
 func (m *mockTmuxOps) SelectWindowInSession(session, windowID, server string) error {
 	m.selectWindowInSessionCalled = true

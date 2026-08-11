@@ -104,13 +104,6 @@ export async function getSessions(server: string): Promise<ProjectSession[]> {
   return res.json();
 }
 
-export async function getSessionOrder(server: string): Promise<string[]> {
-  const res = await deduplicatedFetch(withServer("/api/sessions/order", server));
-  if (!res.ok) await throwOnError(res);
-  const body = (await res.json()) as { order?: string[] };
-  return body.order ?? [];
-}
-
 export async function setSessionOrder(server: string, order: string[]): Promise<void> {
   const res = await fetch(withServer("/api/sessions/order", server), {
     method: "POST",

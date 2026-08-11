@@ -30,12 +30,12 @@ import (
 // handleRelay behavior assertions (direct-attach render, no ephemeral session
 // leak, 4004-on-bad-window, initial-size attach).
 
-// withRelayTmux starts an isolated tmux server with a single real session
+// withTerminalsTmux starts an isolated tmux server with a single real session
 // containing two windows whose payloads are deterministic (echo + sleep) so a
 // relay client can identify which window it is attached to from the PTY bytes.
 // Skips the test if tmux is not on PATH. Returns the live window IDs (@N) for
 // the two windows in list-order so callers can address them by stable ID.
-func withRelayTmux(t *testing.T) (server, real, win0ID, win1ID string) {
+func withTerminalsTmux(t *testing.T) (server, real, win0ID, win1ID string) {
 	t.Helper()
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux not available — skipping integration test")
@@ -91,9 +91,9 @@ func withRelayTmux(t *testing.T) (server, real, win0ID, win1ID string) {
 	return server, real, win0ID, win1ID
 }
 
-// relayServerWithProdTmux returns an httptest.Server whose router is wired
+// terminalsServerWithProdTmux returns an httptest.Server whose router is wired
 // against the real tmux package (prodTmuxOps). A live tmux server is required.
-func relayServerWithProdTmux(t *testing.T) *httptest.Server {
+func terminalsServerWithProdTmux(t *testing.T) *httptest.Server {
 	t.Helper()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	router := NewTestRouter(logger, &prodSessionFetcher{}, &prodTmuxOps{}, "test-host")
@@ -283,8 +283,8 @@ func realSessionNames(t *testing.T, server string) []string {
 // would fight over that pointer. Sequential attaches exercise the direct-attach +
 // select-window path per window without that race.
 func TestTerminals_DirectAttachRendersSelectedWindow(t *testing.T) {
-	tmuxServer, real, win0ID, win1ID := withRelayTmux(t)
-	ts := relayServerWithProdTmux(t)
+	tmuxServer, real, win0ID, win1ID := withTerminalsTmux(t)
+	ts := terminalsServerWithProdTmux(t)
 	defer ts.Close()
 
 	connA := dialTerminals(t, ts)
@@ -334,8 +334,8 @@ func activeWindowID(t *testing.T, server, session string) string {
 // for win1 must render its content (attach worked) while `real` still points at
 // win0.
 func TestTerminals_PinPreferenceAttachesPinSession(t *testing.T) {
-	tmuxServer, real, win0ID, win1ID := withRelayTmux(t)
-	ts := relayServerWithProdTmux(t)
+	tmuxServer, real, win0ID, win1ID := withTerminalsTmux(t)
+	ts := terminalsServerWithProdTmux(t)
 	defer ts.Close()
 
 	// Ensure real's active window is win0, then pin win1 (dual membership).
@@ -372,8 +372,8 @@ func TestTerminals_PinPreferenceAttachesPinSession(t *testing.T) {
 // TestTerminals_NoEphemeralCreated asserts a stream attaches directly to the
 // real session and leaves NO ephemeral or extra session behind.
 func TestTerminals_NoEphemeralCreated(t *testing.T) {
-	tmuxServer, real, win0ID, _ := withRelayTmux(t)
-	ts := relayServerWithProdTmux(t)
+	tmuxServer, real, win0ID, _ := withTerminalsTmux(t)
+	ts := terminalsServerWithProdTmux(t)
 	defer ts.Close()
 
 	conn := dialTerminals(t, ts)
@@ -395,8 +395,8 @@ func TestTerminals_NoEphemeralCreated(t *testing.T) {
 // itself must stay open (a stream-level failure never closes the mux), and no
 // extra session may leak on the tmux server.
 func TestTerminals_MissingWindowClosed4004(t *testing.T) {
-	tmuxServer, real, _, _ := withRelayTmux(t)
-	ts := relayServerWithProdTmux(t)
+	tmuxServer, real, _, _ := withTerminalsTmux(t)
+	ts := terminalsServerWithProdTmux(t)
 	defer ts.Close()
 
 	conn := dialTerminals(t, ts)
@@ -466,8 +466,8 @@ func TestTerminals_BadWindowIDClosed4004(t *testing.T) {
 // first data frame (M2 — the client arms its deferred per-stream reset on
 // `opened`, so a data-before-opened frame would repaint over un-reset content).
 func TestTerminals_OpenedPrecedesData(t *testing.T) {
-	tmuxServer, _, win0ID, _ := withRelayTmux(t)
-	ts := relayServerWithProdTmux(t)
+	tmuxServer, _, win0ID, _ := withTerminalsTmux(t)
+	ts := terminalsServerWithProdTmux(t)
 	defer ts.Close()
 
 	conn := dialTerminals(t, ts)
@@ -488,8 +488,8 @@ func TestTerminals_OpenedPrecedesData(t *testing.T) {
 // and with TERM forced to xterm-256color (forceTERM). Both are read directly
 // from tmux via list-clients after the stream opens.
 func TestTerminals_InitialSizeAndTERM(t *testing.T) {
-	tmuxServer, _, win0ID, _ := withRelayTmux(t)
-	ts := relayServerWithProdTmux(t)
+	tmuxServer, _, win0ID, _ := withTerminalsTmux(t)
+	ts := terminalsServerWithProdTmux(t)
 	defer ts.Close()
 
 	conn := dialTerminals(t, ts)
@@ -526,8 +526,8 @@ func TestTerminals_InitialSizeAndTERM(t *testing.T) {
 // TestTerminals_ResizeSetsClientSize proves a `resize` control op re-sizes the
 // live stream's PTY (observed via the attached tmux client's dimensions).
 func TestTerminals_ResizeSetsClientSize(t *testing.T) {
-	tmuxServer, _, win0ID, _ := withRelayTmux(t)
-	ts := relayServerWithProdTmux(t)
+	tmuxServer, _, win0ID, _ := withTerminalsTmux(t)
+	ts := terminalsServerWithProdTmux(t)
 	defer ts.Close()
 
 	conn := dialTerminals(t, ts)
@@ -560,8 +560,8 @@ func TestTerminals_ResizeSetsClientSize(t *testing.T) {
 // stream down and replies `closed` with code 1000 (graceful), and leaves no
 // extra session behind.
 func TestTerminals_ClientCloseYields1000(t *testing.T) {
-	tmuxServer, real, win0ID, _ := withRelayTmux(t)
-	ts := relayServerWithProdTmux(t)
+	tmuxServer, real, win0ID, _ := withTerminalsTmux(t)
+	ts := terminalsServerWithProdTmux(t)
 	defer ts.Close()
 
 	conn := dialTerminals(t, ts)

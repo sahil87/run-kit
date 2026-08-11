@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-11T11:33:42Z"}
+{"args":"Reap pre-existing dead code surfaced by the sockets-v2 review (PR #378): frontend getSessionOrder, backend bare SelectWindow chain, relay_test.go helper rename rider","cmd":"fab-new","event":"command","ts":"2026-08-11T11:33:42Z"}
+{"delta":"+4.7","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-08-11T11:36:41Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-11T11:43:07Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-11T11:43:18Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-11T11:51:55Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-11T12:04:25Z"}
+{"event":"review","result":"passed","ts":"2026-08-11T12:04:25Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-11T12:08:31Z"}
+{"cmd":"git-pr","event":"command","ts":"2026-08-11T12:09:33Z"}

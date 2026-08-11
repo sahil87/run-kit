@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-11T11:35:18Z"}
+{"args":"Sidebar tree ARIA: interpose role='presentation' on the server \u003csection\u003e wrappers under role='tree' for a stricter APG structure","cmd":"fab-new","event":"command","ts":"2026-08-11T11:35:18Z"}
+{"delta":"+4.8","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-08-11T11:37:28Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-11T11:42:51Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-11T11:43:04Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-11T11:50:16Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-11T11:54:46Z"}
+{"event":"review","result":"passed","ts":"2026-08-11T11:54:46Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-11T11:57:32Z"}
+{"cmd":"git-pr","event":"command","ts":"2026-08-11T11:58:56Z"}

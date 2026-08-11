@@ -967,6 +967,23 @@ describe("Sidebar — tree ARIA + roving keyboard navigation (wt1v)", () => {
     expect(treeEl).toHaveAttribute("aria-label", "Session tree");
   });
 
+  it("marks each per-server section wrapper role=presentation with no aria-labelledby", () => {
+    renderTree();
+    // Presentational wrappers keep the tree semantically transparent: a
+    // <section> with an accessible name would map to a `region` landmark —
+    // an invalid interposed node between the tree and its treeitems. The
+    // aria-labelledby removal is spec-required (WAI-ARIA presentational
+    // conflict resolution: a global ARIA property voids the presentation role).
+    const wrappers = Array.from(
+      tree().querySelectorAll<HTMLElement>(":scope > section"),
+    );
+    expect(wrappers.length).toBeGreaterThan(0);
+    for (const w of wrappers) {
+      expect(w).toHaveAttribute("role", "presentation");
+      expect(w).not.toHaveAttribute("aria-labelledby");
+    }
+  });
+
   it("wires each session row's aria-controls to a role=group window list with the matching id", () => {
     renderTree();
     const sessionRows = visibleRows().filter((r) => r.getAttribute("aria-level") === "1");

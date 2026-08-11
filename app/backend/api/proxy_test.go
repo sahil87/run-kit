@@ -491,3 +491,35 @@ func TestCodeRouteUnresolvablePort(t *testing.T) {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusServiceUnavailable)
 	}
 }
+
+// TestCodeRouteFollowsResolvedPort proves the proxy cache is keyed by target
+// port, not by the /code prefix alone: /code's prefix is fixed while its port
+// resolves per request, so a prefix-only key would pin whichever port resolved
+// first and route every later request to the wrong upstream.
+func TestCodeRouteFollowsResolvedPort(t *testing.T) {
+	newUpstream := func(marker string) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			fmt.Fprint(w, marker)
+		}))
+	}
+	first, second := newUpstream("FIRST"), newUpstream("SECOND")
+	defer first.Close()
+	defer second.Close()
+
+	get := func(t *testing.T, upstream *httptest.Server) string {
+		t.Helper()
+		t.Setenv("RK_CODE_SERVER_PORT", strings.TrimPrefix(upstream.URL, "http://127.0.0.1:"))
+		router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/code/", nil))
+		body, _ := io.ReadAll(rec.Result().Body)
+		return string(body)
+	}
+
+	if got := get(t, first); got != "FIRST" {
+		t.Fatalf("first request body = %q, want %q", got, "FIRST")
+	}
+	if got := get(t, second); got != "SECOND" {
+		t.Errorf("body after the resolved port changed = %q, want %q (stale cached proxy)", got, "SECOND")
+	}
+}

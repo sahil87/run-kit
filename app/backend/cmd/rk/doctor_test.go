@@ -501,3 +501,28 @@ func TestCodeServerCheckReachabilityNotes(t *testing.T) {
 		t.Errorf("unreachable: %+v, want OK + not-reachable note with :3002", down)
 	}
 }
+
+// TestCodeServerCheckUnresolvablePort proves a degenerate config (RK_PORT whose
+// +2 leaves 1-65535, no override) reports an explicit not-resolvable state
+// instead of probing 127.0.0.1:0 and reporting a confusing ":0" note.
+func TestCodeServerCheckUnresolvablePort(t *testing.T) {
+	t.Setenv("RK_PORT", "65535")
+	t.Setenv("RK_CODE_SERVER_PORT", "")
+	dialed := false
+	c := codeServerCheck(
+		func(string) (string, error) { return "/usr/bin/code-server", nil },
+		func(string) bool { dialed = true; return false },
+	)
+	if !c.OK {
+		t.Error("an unresolvable port must not fail the check (WARN case)")
+	}
+	if dialed {
+		t.Error("reachability was probed on an unresolvable port")
+	}
+	if !strings.Contains(c.Note, "not resolvable") {
+		t.Errorf("note = %q, want an explicit not-resolvable state", c.Note)
+	}
+	if strings.Contains(c.Note, ":0") {
+		t.Errorf("note = %q, must not surface the degenerate :0 port", c.Note)
+	}
+}

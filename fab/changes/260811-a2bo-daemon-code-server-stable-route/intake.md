@@ -5,7 +5,7 @@
 
 ## Origin
 
-Backlog item `[a2bo]` (fab/backlog.md — redesigned 2026-08-12 in conversation with the user, superseding the port-only sketch; the working tree carries the updated entry uncommitted). This is the `docs/specs/right-panel.md` § The `code` lens **Topology** follow-up — "a run-kit-managed lifecycle … is a later change" — and it IS that change. Phase 2 (`260811-k3vp`, PR #561) is merged: the `code` lens ships, `just dev` starts code-server on `RK_PORT+2`, and the Homebrew formula declares `depends_on "code-server"`.
+Backlog item `[a2bo]` (fab/backlog.md — redesigned 2026-08-12 in conversation with the user, superseding the port-only sketch; the redesigned entry ships in this change). This is the `docs/specs/right-panel.md` § The `code` lens **Topology** follow-up — "a run-kit-managed lifecycle … is a later change" — and it IS that change. Phase 2 (`260811-k3vp`, PR #561) is merged: the `code` lens ships, `just dev` starts code-server on `RK_PORT+2`, and the Homebrew formula declares `depends_on "code-server"`.
 
 > Can we make rk daemon similar to just dev — start code-server on a deterministic port. Then proxy it via the go server, like we do for the react app?
 

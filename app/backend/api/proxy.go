@@ -20,8 +20,9 @@ import (
 	"rk/internal/config"
 )
 
-// proxyCache holds per-route ReverseProxy instances. Keyed by the route prefix
-// ("/proxy/{port}", "/code") — read-heavy, write-rare, single-digit entry count.
+// proxyCache holds per-route ReverseProxy instances. Keyed by route prefix AND
+// target port ("/proxy/{port}|{port}", "/code|{port}") — read-heavy,
+// write-rare, single-digit entry count.
 var proxyCache sync.Map
 
 // rewritePattern matches localhost/127.0.0.1 URLs in HTML attributes.
@@ -67,13 +68,19 @@ func newPrefixProxy(port int, stripPrefix string, pathFor func(matchedPort int) 
 	}
 }
 
-// cachedPrefixProxy returns a cached ReverseProxy for the given route prefix,
-// creating one on demand if absent.
+// cachedPrefixProxy returns a cached ReverseProxy for the given route prefix
+// and target port, creating one on demand if absent. The port is part of the
+// key because /code's prefix is FIXED while its target resolves per request:
+// keying on the prefix alone would pin whichever port resolved first for the
+// rest of the process, misrouting every later request (and making package
+// tests order-dependent). For /proxy/{port} the port is already in the prefix,
+// so it only makes the key's contract explicit.
 func cachedPrefixProxy(port int, stripPrefix string, pathFor func(matchedPort int) string) *httputil.ReverseProxy {
-	if cached, ok := proxyCache.Load(stripPrefix); ok {
+	key := fmt.Sprintf("%s|%d", stripPrefix, port)
+	if cached, ok := proxyCache.Load(key); ok {
 		return cached.(*httputil.ReverseProxy)
 	}
-	actual, _ := proxyCache.LoadOrStore(stripPrefix, newPrefixProxy(port, stripPrefix, pathFor))
+	actual, _ := proxyCache.LoadOrStore(key, newPrefixProxy(port, stripPrefix, pathFor))
 	return actual.(*httputil.ReverseProxy)
 }
 

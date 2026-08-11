@@ -97,6 +97,13 @@ func dialTCP(addr string) bool {
 func codeServerCheck(lookPath func(string) (string, error), dial func(string) bool) doctorCheck {
 	port := config.Load().ResolvedCodeServerPort()
 	check := doctorCheck{Name: "code-server", OK: true}
+	// A degenerate config (RK_PORT whose +2 leaves 1-65535, no valid override)
+	// resolves to 0 — the feature is off, so report that rather than probing
+	// the meaningless 127.0.0.1:0. Mirrors the /code route's 503 branch.
+	if port == 0 {
+		check.Note = "port not resolvable — RK_PORT+2 falls outside 1-65535 and no valid RK_CODE_SERVER_PORT is set, so /code/ is off (lower RK_PORT or set RK_CODE_SERVER_PORT)"
+		return check
+	}
 	if _, err := lookPath("code-server"); err != nil {
 		check.Note = fmt.Sprintf("not installed — the daemon-managed editor behind /code/ is unavailable (resolved port :%d; install code-server, e.g. brew install code-server)", port)
 		return check

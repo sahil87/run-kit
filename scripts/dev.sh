@@ -28,8 +28,27 @@ cd "$(dirname "$0")/.." || exit 1
 # Ensure tmux.conf exists for Go embed (canonical source: configs/tmux/default.conf)
 cp "$PWD/configs/tmux/default.conf" "$PWD/app/backend/build/tmux.conf"
 
-# Dev mode: Vite serves on RK_PORT, Go backend on RK_PORT+1.
+# Dev mode: Vite serves on RK_PORT, Go backend on RK_PORT+1, code-server on RK_PORT+2.
 command -v air &>/dev/null || { echo "error: air not found (go install github.com/air-verse/air@latest)"; exit 1; }
+
+# code-server — the `code` lens upstream (change 260811-k3vp): deterministic
+# port RK_PORT+2, loopback-only, auth off (the rk origin is the trust boundary;
+# the embed rides the same-origin /proxy/{port}/ path). Optional: absent
+# code-server just means the code lens stays unavailable. An RK_CODE_SERVER_PORT
+# already set in the environment wins — a user-managed instance is respected and
+# nothing is started here. The deterministic port matters beyond convenience:
+# code-server keys browser-side workspace state by the proxy pathname, so a
+# stable port is what keeps tabs/layout across dev restarts.
+if [[ -z "${RK_CODE_SERVER_PORT:-}" ]] && command -v code-server &>/dev/null; then
+  export RK_CODE_SERVER_PORT=$(( RK_PORT + 2 ))
+  (code-server --bind-addr "127.0.0.1:${RK_CODE_SERVER_PORT}" --auth none >/dev/null 2>&1) &
+  echo "code-server: 127.0.0.1:${RK_CODE_SERVER_PORT} (code lens enabled)"
+elif [[ -z "${RK_CODE_SERVER_PORT:-}" ]]; then
+  echo "code-server: not installed — code lens unavailable (install: brew install code-server)"
+else
+  echo "code-server: using externally managed RK_CODE_SERVER_PORT=${RK_CODE_SERVER_PORT}"
+fi
+
 (cd app/backend && RK_PORT=$(( RK_PORT + 1 )) air) &
 
 (cd app/frontend && pnpm dev --port "$RK_PORT") &

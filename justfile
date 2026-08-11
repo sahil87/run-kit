@@ -23,7 +23,8 @@ setup: _ensure-tmux-conf
     cd app/frontend && pnpm exec playwright install --with-deps chromium
 
 # Start Go backend (live-reload) + Vite dev server concurrently (just dev --port 4000)
-# Backend runs at Frontend port + 1. Default: 3000
+# Backend runs at Frontend port + 1; code-server (when installed) at Frontend
+# port + 2 with RK_CODE_SERVER_PORT exported — enables the `code` lens. Default: 3000
 dev *args:
     scripts/dev.sh {{args}}
 

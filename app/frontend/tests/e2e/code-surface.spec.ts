@@ -8,12 +8,30 @@ import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
 const TEST_SESSION = `e2e-codesurface-${Date.now()}`;
 const DESKTOP_VIEWPORT = { width: 1440, height: 800 };
 
-// The code-server port the e2e backend is configured with (scripts/test-e2e.sh
-// seeds RK_CODE_SERVER_PORT for both the backend and this playwright run; the
-// default mirrors the script's). code-server itself is NOT installable here —
-// the spec binds a STUB HTTP server on this port to drive the reachable /
-// not-running states (intake k3vp §6).
-const CODE_PORT = Number(process.env.RK_CODE_SERVER_PORT ?? 3939);
+/** The code-server port the e2e backend is configured with (scripts/test-e2e.sh
+ *  seeds RK_CODE_SERVER_PORT for both the backend and this playwright run; the
+ *  default mirrors the script's). code-server itself is NOT installable here —
+ *  the spec binds a STUB HTTP server on this port to drive the reachable /
+ *  not-running states (intake k3vp §6).
+ *
+ *  An out-of-range value is rejected here rather than at `srv.listen()`: the
+ *  backend's validPort silently leaves CodeServerPort at 0 (feature off), so a
+ *  bad value would surface as unrelated missing-affordance failures. */
+function resolveCodePort(): number {
+  const raw = process.env.RK_CODE_SERVER_PORT;
+  if (raw === undefined || raw === "") return 3939; // unset — same as the backend
+  const port = Number(raw);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(
+      `RK_CODE_SERVER_PORT="${raw}" is not a valid port (1-65535). The backend ` +
+        `ignores it and disables the code lens, so this spec cannot pass. Run ` +
+        `via \`just test-e2e code-surface\`, which seeds a valid port.`,
+    );
+  }
+  return port;
+}
+
+const CODE_PORT = resolveCodePort();
 
 // The git root every in-repo window derives (windows inherit the tmux server's
 // start cwd — the repo root). FindGitRoot walks to the toplevel, so the

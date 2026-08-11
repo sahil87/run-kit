@@ -537,18 +537,18 @@ func NewRouterAndServer(ctx context.Context, logger *slog.Logger) (chi.Router, *
 	// viewer-wide collector; both exit on ctx cancellation.
 	prstatus.DefaultBranchRefresher.Start(ctx)
 
+	cfg := config.Load()
+
 	s := &Server{
-		logger:   logger,
-		sessions: &prodSessionFetcher{},
-		tmux:     &prodTmuxOps{},
-		riff:     prodRiffEngine{},
-		wt:       prodWtOps{},
-		hostname: hostname,
-		sshHost:  config.Load().SSHHost,
-		sshUser:  sshUser,
-		// One Load() for the whole struct would drift the sshHost seed above;
-		// CodeServerPort is read from the same env layer (0 = feature off).
-		codeServerPort: config.Load().CodeServerPort,
+		logger:         logger,
+		sessions:       &prodSessionFetcher{},
+		tmux:           &prodTmuxOps{},
+		riff:           prodRiffEngine{},
+		wt:             prodWtOps{},
+		hostname:       hostname,
+		sshHost:        cfg.SSHHost,
+		sshUser:        sshUser,
+		codeServerPort: cfg.CodeServerPort, // 0 = code lens/surface off
 		metrics:        mc,
 		services:       svc,
 		prStatus:       pc,

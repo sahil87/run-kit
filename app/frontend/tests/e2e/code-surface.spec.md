@@ -20,7 +20,10 @@ the parent.
   `RK_CODE_SERVER_PORT` (default 3939 — the same env the test-e2e script seeds
   the backend with) serving a minimal page with a focusable `#inner` button;
   the second describe runs with the stub DOWN. The backend's reachability
-  probe is TTL-cached (~5s), so down-state assertions use a 30s budget.
+  probe is TTL-cached (~5s), so down-state assertions use a 30s budget. The
+  port is validated against the backend's own 1-65535 range before the stub
+  binds, so an out-of-range env value fails with a named error instead of
+  surfacing as unrelated missing-affordance assertions.
 - **`beforeAll`**: create one dedicated session `e2e-codesurface-<ts>` (80×24)
   so this file never collides with other specs (`fullyParallel` off), then
   warm the dev server with a throwaway TERMINAL-route page load (this

@@ -36,6 +36,7 @@ import { computeMoveNeighbors, focusedIndexForKey, shouldFocusPane } from "@/lib
 import { isWaiting } from "@/lib/waiting";
 import { withShortcutHints, formatCombo } from "@/lib/keybindings";
 import { useKeybindings } from "@/hooks/use-keybindings";
+import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import { useKeybindingDispatch } from "@/hooks/use-keybinding-dispatch";
 import { ShortcutsOverlay } from "@/components/shortcuts-overlay";
 import { NotFoundPage } from "@/router";
@@ -458,11 +459,14 @@ function BoardPageContent({ name }: { name: string }) {
   // Effective palette chord for the empty state's education copy
   // (260811-ke2s) — derived, never hardcoded; the `→ Pin:` clause is omitted
   // when the binding is unbound/disabled (a hint advertising a dead chord
-  // would lie).
+  // would lie) or when the pointer is coarse (the app's chord-hints-off-touch
+  // rule — touch users get the pin-icon path only).
+  const coarsePointer = useCoarsePointer();
   const paletteBinding = bindingByAction.get("command-palette");
-  const paletteChord = paletteBinding?.enabled
-    ? formatCombo({ code: paletteBinding.code, tier: paletteBinding.tier }, bindingHost.platform)
-    : undefined;
+  const paletteChord =
+    !coarsePointer && paletteBinding?.enabled
+      ? formatCombo({ code: paletteBinding.code, tier: paletteBinding.tier }, bindingHost.platform)
+      : undefined;
 
   // Update notification (lifted above boardRouteActions so the qualify state +
   // triggers are in scope for the palette memo). Below `sm` the top-bar L3

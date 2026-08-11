@@ -1709,14 +1709,16 @@ function SelectionIndicator({
   count: number;
   hasSelectionActions: boolean;
 }) {
+  // ⇧click extension and the palette chord are keyboard/mouse affordances —
+  // neither hint renders on coarse pointers (the app's chord-hints-off-touch
+  // rule, 260811-ke2s).
+  const coarsePointer = useCoarsePointer();
   const { byAction: keybindingsByAction, host: keybindingHost } = useKeybindings();
   const paletteBinding = keybindingsByAction.get("command-palette");
-  const paletteChord = paletteBinding?.enabled
-    ? formatCombo({ code: paletteBinding.code, tier: paletteBinding.tier }, keybindingHost.platform)
-    : undefined;
-  // ⇧click extension is a keyboard/mouse gesture — the hint never renders on
-  // coarse pointers (the app's chord-hints-off-touch rule, 260811-ke2s).
-  const coarsePointer = useCoarsePointer();
+  const paletteChord =
+    !coarsePointer && paletteBinding?.enabled
+      ? formatCombo({ code: paletteBinding.code, tier: paletteBinding.tier }, keybindingHost.platform)
+      : undefined;
   if (count === 0) return null;
   return (
     <div
@@ -2143,12 +2145,15 @@ function ServerGroupInner(props: ServerGroupProps) {
   // Effective `create-session` chord for the no-sessions empty state's
   // education copy (260811-ke2s) — derived, never hardcoded, and omitted when
   // the binding is unbound/disabled (a hint advertising a dead chord would
-  // lie; the shortcuts overlay's sheetChord rule).
+  // lie; the shortcuts overlay's sheetChord rule) or when the pointer is
+  // coarse (the app's chord-hints-off-touch rule).
+  const groupCoarsePointer = useCoarsePointer();
   const { byAction: groupByAction, host: groupHost } = useKeybindings();
   const createSessionBinding = groupByAction.get("create-session");
-  const createSessionChord = createSessionBinding?.enabled
-    ? formatCombo({ code: createSessionBinding.code, tier: createSessionBinding.tier }, groupHost.platform)
-    : undefined;
+  const createSessionChord =
+    !groupCoarsePointer && createSessionBinding?.enabled
+      ? formatCombo({ code: createSessionBinding.code, tier: createSessionBinding.tier }, groupHost.platform)
+      : undefined;
 
   // Sync this server's session windows into the global window store. The
   // window store is what `useMergedSessions` reads to compose `MergedSession`

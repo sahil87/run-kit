@@ -11,6 +11,7 @@ import { ChromeProvider } from "@/contexts/chrome-context";
 import { SettingsDialogProvider } from "@/contexts/settings-dialog-context";
 import { ToastProvider } from "@/components/toast";
 import { useWindowStore, entryKey } from "@/store/window-store";
+import { stubMatchMedia } from "@/test-utils/match-media";
 import type { ProjectSession } from "@/types";
 
 // HostPanel (inside Sidebar) consumes the instance-accent context; inject a
@@ -68,6 +69,15 @@ vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({
   removeListener: vi.fn(),
   onchange: null,
 }));
+
+/** The blanket stub above answers `true` for EVERY query — `(pointer: coarse)`
+ *  included — so the file's default pointer is COARSE. Chord-hint copy is
+ *  fine-pointer-only (the app's chord-hints-off-touch rule, 260811-ke2s), so a
+ *  pointer-sensitive test re-stubs per query; the `afterEach` below restores
+ *  the blanket default so the stub never leaks into a later test. */
+function stubPointer(coarse: boolean) {
+  stubMatchMedia((query) => (query === "(pointer: coarse)" ? coarse : true));
+}
 
 const sessions: ProjectSession[] = [
   {
@@ -222,6 +232,9 @@ function getSessionRowNameSpan(name: string): HTMLElement {
 
 describe("Sidebar", () => {
   afterEach(cleanup);
+  // Undo any per-test `stubPointer` so the blanket (all-true) default is what
+  // the next test sees.
+  afterEach(() => stubPointer(true));
 
   it("renders all sessions", () => {
     renderSidebar();
@@ -395,6 +408,7 @@ describe("Sidebar", () => {
   // (Chrome's incognito chord), so jsdom's bare default render omits the
   // clause; an explicit override makes the derivation observable.
   it("no-sessions hint names the derived create-session chord", () => {
+    stubPointer(false);
     localStorage.setItem(
       "runkit-keybindings",
       JSON.stringify({ "create-session": { code: "Comma", tier: "shifted" } }),
@@ -403,6 +417,19 @@ describe("Sidebar", () => {
     expect(
       screen.getByText("(no sessions — + new, or Shift+Ctrl+,)"),
     ).toBeInTheDocument();
+    localStorage.removeItem("runkit-keybindings");
+  });
+
+  it("no-sessions hint drops the chord clause on a coarse pointer", () => {
+    // Chord hints never render on touch (the app's chord-hints-off-touch rule)
+    // even when the binding is live — the `+ new` row is the touch path.
+    stubPointer(true);
+    localStorage.setItem(
+      "runkit-keybindings",
+      JSON.stringify({ "create-session": { code: "Comma", tier: "shifted" } }),
+    );
+    renderSidebar({ sessions: [], onCreateSession: vi.fn() });
+    expect(screen.getByText("(no sessions — + new)")).toBeInTheDocument();
     localStorage.removeItem("runkit-keybindings");
   });
 

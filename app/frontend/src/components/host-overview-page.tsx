@@ -14,6 +14,7 @@ import { useBoards } from "@/hooks/use-boards";
 import { useBoardListReorder } from "@/hooks/use-board-list-reorder";
 import { useServerReorder } from "@/hooks/use-server-reorder";
 import { useKeybindings } from "@/hooks/use-keybindings";
+import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import { formatCombo } from "@/lib/keybindings";
 import { SectionHeading } from "@/components/section-heading";
 import { Tip } from "@/components/tip";
@@ -52,12 +53,16 @@ export function HostOverviewPage() {
   const hostMetrics = useHostMetrics();
   // Effective palette chord for the empty-zone education copy (260811-ke2s) —
   // derived, never hardcoded; the `→ Pin:` clause is omitted when the binding
-  // is unbound/disabled (a hint advertising a dead chord would lie).
+  // is unbound/disabled (a hint advertising a dead chord would lie) or when the
+  // pointer is coarse (the app's chord-hints-off-touch rule — touch users get
+  // the pin-icon path only).
+  const coarsePointer = useCoarsePointer();
   const { byAction: keybindingsByAction, host: keybindingHost } = useKeybindings();
   const paletteBinding = keybindingsByAction.get("command-palette");
-  const paletteChord = paletteBinding?.enabled
-    ? formatCombo({ code: paletteBinding.code, tier: paletteBinding.tier }, keybindingHost.platform)
-    : undefined;
+  const paletteChord =
+    !coarsePointer && paletteBinding?.enabled
+      ? formatCombo({ code: paletteBinding.code, tier: paletteBinding.tier }, keybindingHost.platform)
+      : undefined;
   // Instance display name (o7q8): the HOST HEALTH hostname line prefers the
   // settings override; null falls back to the metrics hostname below.
   const { instanceName } = useInstanceName();

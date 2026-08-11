@@ -4,6 +4,7 @@ import { BottomBar } from "./bottom-bar";
 import { TIP_OPEN_DELAY_MS } from "@/components/tip";
 import { FocusedTerminalProvider } from "@/contexts/focused-terminal-context";
 import { ChromeProvider } from "@/contexts/chrome-context";
+import { stubMatchMedia } from "@/test-utils/match-media";
 
 function renderBottomBar(overrides: Partial<React.ComponentProps<typeof BottomBar>> = {}) {
   // Tests render the BottomBar with no focused terminal; the existing
@@ -321,5 +322,67 @@ describe("BottomBar chip tips (260723-fm08)", () => {
       const chip = screen.getByLabelText(name);
       expect(chip).not.toHaveAttribute("title");
     }
+  });
+});
+
+describe("BottomBar chip order + compose hint (260811-0f3d)", () => {
+  // The fine-pointer chip run renders ⌘K (palette) FIRST and >_ (compose)
+  // LAST — compose is the higher-touch control and takes the end-of-run
+  // position. The dead space right of the pair carries a dimmed compose
+  // education line, gated on: compose target present, strip OFF, fine
+  // pointer, ≥lg viewport (the lg gate is the CSS `hidden lg:flex` pair —
+  // jsdom asserts the classes; the 375px budget is untouched). jsdom
+  // platform is "other", so the chord renders in the Ctrl spelling.
+  const HINT_TEXT = /compose — type to the pane with autocorrect/;
+
+  afterEach(() => {
+    cleanup();
+    localStorage.clear();
+    vi.unstubAllGlobals();
+  });
+
+  it("renders the palette chip before the compose chip in DOM order", () => {
+    renderBottomBar({ onOpenCompose: vi.fn() });
+    const palette = screen.getByLabelText("Open command palette");
+    const compose = screen.getByLabelText("Compose text");
+    expect(
+      palette.compareDocumentPosition(compose) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("shows the compose hint with the registry-resolved chord keycap while the strip is off", () => {
+    renderBottomBar({ onOpenCompose: vi.fn() });
+    const hint = screen.getByText(HINT_TEXT);
+    const line = hint.parentElement!;
+    // Non-interactive education copy: aria-hidden (the adjacent chip carries
+    // the accessible name), CSS-gated to wide viewports.
+    expect(line).toHaveAttribute("aria-hidden", "true");
+    expect(line.className).toContain("hidden");
+    expect(line.className).toContain("lg:flex");
+    expect(line.querySelector("kbd")).toHaveTextContent("Shift+Ctrl+E");
+  });
+
+  it("hides the hint once the compose strip is on — the feature has been found", () => {
+    localStorage.setItem("runkit-compose-strip", "true");
+    renderBottomBar({ onOpenCompose: vi.fn() });
+    expect(screen.queryByText(HINT_TEXT)).not.toBeInTheDocument();
+  });
+
+  it("hides the hint on coarse pointers — chords are noise on touch", () => {
+    stubMatchMedia((query) => query === "(pointer: coarse)");
+    renderBottomBar({ onOpenCompose: vi.fn() });
+    expect(screen.queryByText(HINT_TEXT)).not.toBeInTheDocument();
+  });
+
+  it("omits the hint when there is no compose target", () => {
+    renderBottomBar();
+    expect(screen.queryByText(HINT_TEXT)).not.toBeInTheDocument();
+  });
+
+  it("keeps the hint text but drops the keycap when compose-toggle is disabled", () => {
+    localStorage.setItem("runkit-keybindings", JSON.stringify({ "compose-toggle": null }));
+    renderBottomBar({ onOpenCompose: vi.fn() });
+    const hint = screen.getByText(HINT_TEXT);
+    expect(hint.parentElement!.querySelector("kbd")).toBeNull();
   });
 });

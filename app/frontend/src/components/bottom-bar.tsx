@@ -8,6 +8,7 @@ import { Tip, TipGroup } from "@/components/tip";
 import { focusComposeStrip } from "@/lib/compose-strip-events";
 import { formatCombo } from "@/lib/keybindings";
 import { useKeybindings } from "@/hooks/use-keybindings";
+import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 
 type BottomBarProps = {
   onOpenCompose?: () => void;
@@ -95,6 +96,9 @@ export function BottomBar({ onOpenCompose, onFocusTerminal, onScrollLockChange }
   };
   const composeChord = chordFor("compose-toggle");
   const paletteChord = chordFor("command-palette");
+  // Pointer gate for the compose hint (260811-0f3d): chords are noise on
+  // touch — the § Education micro-copy coarse-pointer rule.
+  const coarse = useCoarsePointer();
 
   useEffect(() => {
     if (!fnOpen) return;
@@ -400,6 +404,20 @@ export function BottomBar({ onOpenCompose, onFocusTerminal, onScrollLockChange }
 
       <div className="w-px h-5 bg-border mx-0.5" aria-hidden="true" />
 
+      {/* kbd slot: the registry-resolved command-palette chord (⌘K on mac,
+          Ctrl+K elsewhere) — reflects rebinds; omitted when disabled
+          (260801-mqim). The chip's FACE keeps the ⌘K brand glyph everywhere.
+          Order (260811-0f3d): palette FIRST, compose LAST — compose is the
+          higher-touch control and takes the end-of-run position. */}
+      <Tip label="Command palette" kbd={paletteChord} placement="top">
+        <button
+          aria-label="Open command palette"
+          className={`${KBD_CLASS} text-text-secondary`}
+          onClick={() => document.dispatchEvent(new CustomEvent("palette:open"))}
+        >
+          <kbd aria-hidden="true">{"\u2318K"}</kbd>
+        </button>
+      </Tip>
       {onOpenCompose && (
         <Tip label="Compose text" kbd={composeChord} placement="top">
           <button
@@ -414,18 +432,25 @@ export function BottomBar({ onOpenCompose, onFocusTerminal, onScrollLockChange }
           </button>
         </Tip>
       )}
-      {/* kbd slot: the registry-resolved command-palette chord (⌘K on mac,
-          Ctrl+K elsewhere) — reflects rebinds; omitted when disabled
-          (260801-mqim). The chip's FACE keeps the ⌘K brand glyph everywhere. */}
-      <Tip label="Command palette" kbd={paletteChord} placement="top">
-        <button
-          aria-label="Open command palette"
-          className={`${KBD_CLASS} text-text-secondary`}
-          onClick={() => document.dispatchEvent(new CustomEvent("palette:open"))}
+      {/* Compose education hint (260811-0f3d) — fills the dead space right of
+          the chip pair. Educate-toward, not a label: it renders only while the
+          strip is OFF (once open, the feature has been found), never on coarse
+          pointers (chords are noise on touch), and never below lg (the 375px
+          single-row budget is hard). Non-interactive; aria-hidden — the
+          adjacent chip carries the accessible name. */}
+      {onOpenCompose && !composeStripEnabled && !coarse && (
+        <span
+          aria-hidden="true"
+          className="hidden lg:flex items-center gap-1.5 ml-2 text-[11px] text-text-secondary opacity-60 select-none whitespace-nowrap"
         >
-          <kbd aria-hidden="true">{"\u2318K"}</kbd>
-        </button>
-      </Tip>
+          <span>&gt;_ compose — type to the pane with autocorrect</span>
+          {composeChord && (
+            <kbd className="text-xs text-text-secondary bg-bg-card px-1.5 py-0.5 rounded border border-border">
+              {composeChord}
+            </kbd>
+          )}
+        </span>
+      )}
 
       <div className="ml-auto flex items-center gap-1.5 coarse:gap-1">
         {/* Keyboard toggle — visible only on touch devices; long-press for scroll-lock */}

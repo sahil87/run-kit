@@ -41,6 +41,8 @@ import {
   TerminalFontGlyph,
 } from "@/components/top-bar-icons";
 import { computeVisibleCount } from "@/lib/top-bar-overflow";
+import { useKeybindings } from "@/hooks/use-keybindings";
+import { formatCombo } from "@/lib/keybindings";
 import type { ViewName } from "@/lib/window-view";
 import type { ProjectSession, WindowInfo } from "@/types";
 import type { BreadcrumbDropdownItem } from "@/contexts/chrome-context";
@@ -1897,6 +1899,17 @@ function BoardSwitcher({
 // SVGs) live in `components/global-chrome.tsx`.
 
 /**
+ * Trailing menu-row keycap (260811-0f3d) — the right-aligned chord chip on
+ * menu rows whose action has a registry binding (SplitControl's direction
+ * popover rows, the overflow menu's SplitMenuRows). Matches the palette rows'
+ * kbd visual weight (command-palette.tsx), `ml-auto`-pinned to the row's right
+ * edge; `aria-hidden` at the call sites keeps the chord out of the accessible
+ * name (the row's label is the name; the keycap is visual education).
+ */
+const MENU_ROW_KBD_CLASS =
+  "ml-auto text-xs text-text-secondary bg-bg-card px-1.5 py-0.5 rounded border border-border";
+
+/**
  * SplitControl — the ONE merged split control (260731-oiho), replacing the two
  * per-direction SplitButtons. A split-button chip (the in-bar `OpenButton`
  * precedent — primary + ▾ share one bordered chip so the pair reads as ONE
@@ -1966,12 +1979,27 @@ function SplitControl({
     execute(horizontal);
   };
 
+  // Host-effective split chords for the primary tip's kbd slot and the
+  // direction-menu rows' trailing keycaps (260811-0f3d — the OpenButton
+  // primary-tip pattern, 260811-ke2s): registry-derived, reflecting rebinds,
+  // omitted when unbound/disabled (a keycap advertising a dead chord would
+  // lie). The chevron tip stays keycap-free — it opens a menu, no chord.
+  const { byAction: keybindingsByAction, host: keybindingHost } = useKeybindings();
+  const splitChordFor = (actionId: string) => {
+    const binding = keybindingsByAction.get(actionId);
+    return binding?.enabled
+      ? formatCombo({ code: binding.code, tier: binding.tier }, keybindingHost.platform)
+      : undefined;
+  };
+  const splitHorizontalChord = splitChordFor("split-horizontal");
+  const splitVerticalChord = splitChordFor("split-vertical");
+
   const segmentClass = `rk-glint px-1.5 ${TOP_BAR_SEGMENT_H} flex items-center justify-center text-text-secondary hover:text-text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed`;
 
   return (
     <div ref={containerRef} className="relative inline-flex items-center">
       <span className="inline-flex items-stretch rounded border border-border overflow-hidden">
-        <Tip label="Split horizontally">
+        <Tip label="Split horizontally" kbd={splitHorizontalChord}>
           <button
             type="button"
             onClick={() => run(true)}
@@ -2014,11 +2042,13 @@ function SplitControl({
         <div
           role="menu"
           aria-label="Split direction"
-          // 170px floor: the leading direction glyph (14px + 8px gap) pushes
-          // "Split horizontal" past the old 150px, wrapping it to two lines —
-          // the absolutely-positioned menu shrink-wraps against the tiny chip
-          // container, so the min-width is the effective width.
-          className="absolute top-full right-0 mt-1 min-w-[170px] bg-bg-primary border border-border rounded-lg shadow-2xl py-1 z-50"
+          // 170px floor + `w-max` (260811-0f3d): the absolutely-positioned menu
+          // shrink-wraps against the tiny chip container, so the min-width was
+          // the effective width — with the trailing keycaps the rows' content
+          // varies per platform (⇧⌘D on mac, Shift+Ctrl+\ elsewhere), so the
+          // menu now sizes to its content and the floor only guards the
+          // unbound case. Rows never wrap.
+          className="absolute top-full right-0 mt-1 w-max min-w-[170px] bg-bg-primary border border-border rounded-lg shadow-2xl py-1 z-50"
         >
           <button
             type="button"
@@ -2029,6 +2059,11 @@ function SplitControl({
           >
             <SplitHorizontalGlyph />
             Split horizontal
+            {splitHorizontalChord && (
+              <kbd aria-hidden="true" className={MENU_ROW_KBD_CLASS}>
+                {splitHorizontalChord}
+              </kbd>
+            )}
           </button>
           <button
             type="button"
@@ -2039,6 +2074,11 @@ function SplitControl({
           >
             <SplitVerticalGlyph />
             Split vertical
+            {splitVerticalChord && (
+              <kbd aria-hidden="true" className={MENU_ROW_KBD_CLASS}>
+                {splitVerticalChord}
+              </kbd>
+            )}
           </button>
         </div>
       )}
@@ -2464,10 +2504,23 @@ function SplitMenuRow({
     action: () => splitWindow(server, windowId, !!horizontal, cwd),
     onError: (err) => addToast(err.message || "Failed to split pane"),
   });
+  // Trailing keycap (260811-0f3d): the effective chord for this direction,
+  // registry-derived and omitted when unbound — the SplitControl popover-row
+  // treatment applied to the overflow menu's split rows.
+  const { byAction: keybindingsByAction, host: keybindingHost } = useKeybindings();
+  const binding = keybindingsByAction.get(horizontal ? "split-horizontal" : "split-vertical");
+  const chord = binding?.enabled
+    ? formatCombo({ code: binding.code, tier: binding.tier }, keybindingHost.platform)
+    : undefined;
   return (
     <button type="button" role="menuitem" tabIndex={-1} disabled={isPending} onClick={() => execute()} className={MENU_ROW_CLASS}>
       {horizontal ? <SplitHorizontalGlyph /> : <SplitVerticalGlyph />}
       {label}
+      {chord && (
+        <kbd aria-hidden="true" className={MENU_ROW_KBD_CLASS}>
+          {chord}
+        </kbd>
+      )}
     </button>
   );
 }

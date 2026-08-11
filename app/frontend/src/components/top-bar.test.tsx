@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, cleanup, fireEvent, act, waitFor, within } from "@testing-library/react";
 import { TopBar } from "./top-bar";
 import { TopBarOverflowMenu } from "./top-bar-overflow-menu";
+import { TIP_OPEN_DELAY_MS } from "@/components/tip";
 import { ChromeProvider } from "@/contexts/chrome-context";
 import { ThemeProvider } from "@/contexts/theme-context";
 import { ToastProvider } from "@/components/toast";
@@ -1067,6 +1068,67 @@ describe("TopBar", () => {
       const menu = screen.getByRole("menu", { name: "More controls" });
       expect(within(menu).getByRole("menuitem", { name: "Split vertical" })).toBeInTheDocument();
       expect(within(menu).getByRole("menuitem", { name: "Split horizontal" })).toBeInTheDocument();
+    });
+
+    describe("keycaps (260811-0f3d)", () => {
+      afterEach(() => {
+        localStorage.clear();
+      });
+
+      it("the primary segment's tip carries the registry-resolved split-horizontal keycap", () => {
+        vi.useFakeTimers();
+        try {
+          renderTopBar();
+          const primary = screen.getByLabelText("Split horizontally");
+          act(() => {
+            fireEvent.mouseEnter(primary);
+            vi.advanceTimersByTime(TIP_OPEN_DELAY_MS);
+          });
+          // jsdom keeps the control in the aria-hidden measurement probe —
+          // locate the tooltip by attribute (role queries exclude it). jsdom's
+          // platform is "other", so the chord renders in the Ctrl spelling.
+          const tooltip = document.querySelector('[role="tooltip"]');
+          expect(tooltip).toHaveTextContent("Split horizontally");
+          expect(tooltip!.querySelector("kbd")).toHaveTextContent("Shift+Ctrl+\\");
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      it("direction-menu rows carry right-aligned keycaps with their per-direction chords", () => {
+        renderTopBar();
+        act(() => fireEvent.click(screen.getByLabelText("Split… (choose direction)")));
+        const rows = Array.from(splitDirectionMenu()!.querySelectorAll('[role="menuitem"]'));
+        for (const [row, chord] of [[rows[0], "Shift+Ctrl+\\"], [rows[1], "Shift+Ctrl+-"]] as const) {
+          const kbd = row.querySelector("kbd");
+          expect(kbd).toHaveTextContent(chord);
+          expect(kbd!.className).toContain("ml-auto");
+          // Visual education only — the chord stays out of the accessible name.
+          expect(kbd).toHaveAttribute("aria-hidden", "true");
+        }
+      });
+
+      it("omits a row's keycap when its binding is disabled — a dead chord would lie", () => {
+        localStorage.setItem("runkit-keybindings", JSON.stringify({ "split-vertical": null }));
+        renderTopBar();
+        act(() => fireEvent.click(screen.getByLabelText("Split… (choose direction)")));
+        const rows = Array.from(splitDirectionMenu()!.querySelectorAll('[role="menuitem"]'));
+        expect(rows[0].querySelector("kbd")).toHaveTextContent("Shift+Ctrl+\\");
+        expect(rows[1].querySelector("kbd")).toBeNull();
+      });
+
+      it("the overflow menu's split rows carry the same keycap treatment", () => {
+        renderTopBar();
+        act(() => fireEvent.click(screen.getByLabelText("More controls")));
+        const menu = screen.getByRole("menu", { name: "More controls" });
+        const hRow = within(menu).getByRole("menuitem", { name: "Split horizontal" });
+        const vRow = within(menu).getByRole("menuitem", { name: "Split vertical" });
+        expect(hRow.querySelector("kbd")).toHaveTextContent("Shift+Ctrl+\\");
+        expect(vRow.querySelector("kbd")).toHaveTextContent("Shift+Ctrl+-");
+        // Rows with no matching registry binding stay keycap-free.
+        const closeRow = within(menu).getByRole("menuitem", { name: "Close pane" });
+        expect(closeRow.querySelector("kbd")).toBeNull();
+      });
     });
 
     it("shows spinner and disables the primary segment while pending", async () => {

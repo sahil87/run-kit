@@ -72,6 +72,7 @@ describe("DEFAULT_BINDINGS integrity", () => {
       "agent-next-waiting": "KeyA",
       "shortcuts-overlay": "Slash",
       "settings-open": "Comma",
+      "panel-toggle": "Period",
     });
   });
 
@@ -164,6 +165,21 @@ describe("DEFAULT_BINDINGS integrity", () => {
     expect(byId(resolved(), "chat-toggle")).toMatchObject({ code: "Backquote", tier: "ctrl", scope: "terminal" });
     expect(byId(resolved(), "board-cycle-next")).toMatchObject({ code: "BracketRight", tier: "cmd", scope: "board" });
     expect(byId(resolved(), "board-cycle-prev")).toMatchObject({ code: "BracketLeft", tier: "cmd", scope: "board" });
+  });
+
+  it("ships panel-toggle on the shifted tier of Period (260811-2r1w) — disjoint from view-cycle's ⌘.", () => {
+    expect(byId(resolved(), "panel-toggle")).toMatchObject({
+      code: "Period",
+      tier: "shifted",
+      scope: "terminal",
+      enabled: true,
+    });
+    // Same code, different tier: a ⇧⌘. keydown matches ONLY panel-toggle and
+    // a ⌘. keydown matches ONLY view-cycle — no shadow, no conflict.
+    const shiftPeriod = chord({ code: "Period", shiftKey: true, metaKey: true });
+    expect(findMatches(shiftPeriod, resolved()).map((b) => b.actionId)).toEqual(["panel-toggle"]);
+    const cmdPeriod = chord({ code: "Period", metaKey: true });
+    expect(findMatches(cmdPeriod, resolved()).map((b) => b.actionId)).toEqual(["view-cycle"]);
   });
 
   it("ships conflict-free defaults in every host", () => {

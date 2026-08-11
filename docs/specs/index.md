@@ -26,6 +26,7 @@
 | [API](api.md) | HTTP, SSE, and WebSocket endpoint specification — the target API surface |
 | [Architecture](architecture.md) | System architecture, repository structure, data flow, build & deploy |
 | [Project Plan](project-plan.md) | 4-phase reimplementation plan: scaffold → backend → frontend → cleanup |
+| [Right Panel](right-panel.md) | Collapsible right panel on the terminal route — a second (substrate, lens) slot behind an icon rail: surface registry (web/code/agents), the `code` lens (code-server embed, git-root keyed), the `@rk_owner` companion-window convention, mobile sheet degradation, phasing |
 | [Design Philosophy](design.md) | Core design principles and mental models behind fab-kit |
 | [Short-Term Goal](short-term-goal.md) | Minimum viable product requirements and priorities |
 | [Status Pyramid](status-pyramid.md) | Precedence model for status signals — tier ladder (PR > fab > agent > tmux), channel model (hue/shape/animation), attention overlay, decision table, rollups |

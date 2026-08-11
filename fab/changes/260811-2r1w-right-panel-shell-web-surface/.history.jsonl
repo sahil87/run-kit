@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-11T07:54:31Z"}
+{"args":"Right panel phase 1: collapsible right panel shell + icon rail + web surface on the terminal route, per docs/specs/right-panel.md § Phasing row 1 (P1-P7; phases 2/3 out of scope)","cmd":"fab-new","event":"command","ts":"2026-08-11T07:54:31Z"}
+{"delta":"+3.6","event":"confidence","score":3.6,"trigger":"calc-score","ts":"2026-08-11T07:56:33Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-08-11T07:58:25Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-11T08:00:30Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-11T08:00:45Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-11T08:32:46Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-11T08:53:04Z"}
+{"event":"review","result":"passed","ts":"2026-08-11T08:53:04Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-11T09:04:24Z"}

@@ -34,13 +34,21 @@ export function urlSegmentToWindowId(segment: string): string {
 // DROPPED (treated as absent), never errored, so a stale/garbage deep link
 // degrades to the default view rather than a route error. The registry is
 // open-ended: `desktop` extends this union when it ships.
-export type TerminalSearch = { view?: "web" | "chat" };
+//
+// The `?panel=` search param (260811-2r1w-right-panel-shell-web-surface, spec
+// right-panel.md P1) carries the per-viewer RIGHT-PANEL surface — handled
+// exactly like `?view=`: `web` is the only valid value (closed is the absence
+// of the param), unknown values are dropped here and availability-gated by
+// `resolvePanel` downstream. `view` and `panel` are independent slots and may
+// both be present (`?view=web&panel=web`).
+export type TerminalSearch = { view?: "web" | "chat"; panel?: "web" };
 
 // Exported as a pure function so the unknown-value drop is unit-testable.
 export function validateTerminalSearch(
   search: Record<string, unknown>,
 ): TerminalSearch {
-  return search.view === "web" || search.view === "chat"
-    ? { view: search.view }
-    : {};
+  const out: TerminalSearch = {};
+  if (search.view === "web" || search.view === "chat") out.view = search.view;
+  if (search.panel === "web") out.panel = search.panel;
+  return out;
 }

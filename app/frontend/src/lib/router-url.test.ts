@@ -71,3 +71,34 @@ describe("validateTerminalSearch (?view= drop)", () => {
     expect(validateTerminalSearch({ other: "x" }).view).toBeUndefined();
   });
 });
+
+// The `?panel=` param (260811-2r1w-right-panel-shell-web-surface, right-panel
+// P1) carries the per-viewer right-panel surface — handled exactly like
+// `?view=`: `web` is the only valid value; anything else is DROPPED.
+describe("validateTerminalSearch (?panel= drop)", () => {
+  it("accepts panel=web", () => {
+    expect(validateTerminalSearch({ panel: "web" })).toEqual({ panel: "web" });
+  });
+
+  it("drops an unknown value without throwing (?panel=bogus → panel undefined)", () => {
+    expect(() => validateTerminalSearch({ panel: "bogus" })).not.toThrow();
+    expect(validateTerminalSearch({ panel: "bogus" }).panel).toBeUndefined();
+  });
+
+  it("drops a non-string panel (?panel=1 → panel undefined)", () => {
+    expect(validateTerminalSearch({ panel: 1 }).panel).toBeUndefined();
+  });
+
+  it("keeps view and panel independent (both may be present)", () => {
+    expect(validateTerminalSearch({ view: "web", panel: "web" })).toEqual({
+      view: "web",
+      panel: "web",
+    });
+    expect(validateTerminalSearch({ view: "bogus", panel: "web" })).toEqual({
+      panel: "web",
+    });
+    expect(validateTerminalSearch({ view: "web", panel: "bogus" })).toEqual({
+      view: "web",
+    });
+  });
+});

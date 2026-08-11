@@ -8,6 +8,14 @@ import {
   nextView,
   type ViewName,
 } from "@/lib/window-view";
+import {
+  availableSurfaces,
+  resolvePanel,
+  readStoredPanel,
+  writeStoredPanel,
+  removeStoredPanel,
+  type SurfaceName,
+} from "@/lib/right-panel";
 import { matchesCombo, shouldSuppressChord, withShortcutHints, formatCombo } from "@/lib/keybindings";
 import { isMacroActionId, type MacroAction } from "@/lib/macros";
 import { useKeybindings } from "@/hooks/use-keybindings";
@@ -88,6 +96,7 @@ import { Shell } from "@/components/shell/shell";
 import { Sidebar } from "@/components/sidebar";
 import { TerminalClient } from "@/components/terminal-client";
 import { IframeWindow } from "@/components/iframe-window";
+import { RightPanel } from "@/components/right-panel";
 import { BottomBar } from "@/components/bottom-bar";
 import { ComposeStrip } from "@/components/compose-strip";
 import { focusComposeStrip } from "@/lib/compose-strip-events";
@@ -511,13 +520,53 @@ function AppShell() {
   const currentViews = useMemo(() => availableViews(currentWindow), [currentWindow]);
   const resolvedView: ViewName = resolveView(searchView, storedView, currentWindow);
 
+  // Right-panel surface state (260811-2r1w-right-panel-shell-web-surface; spec
+  // right-panel.md P1) — the terminal route's SECOND render slot. Mirrors the
+  // lens model exactly: the `?panel=` search param, then the per-window
+  // localStorage key, then `null` (closed) — all resolved by the pure
+  // `resolvePanel`. Desktop-only in phase 1: below `isMobileViewport()`
+  // neither rail nor panel renders and `?panel=` is ignored (resolves closed).
+  const searchPanel = search.panel;
+  const storedPanel = windowParam ? readStoredPanel(server, windowParam) : undefined;
+  const panelSurfaces = useMemo(() => availableSurfaces(currentWindow), [currentWindow]);
+  const resolvedPanel: SurfaceName | null = isMobile
+    ? null
+    : resolvePanel(searchPanel, storedPanel, currentWindow);
+
+  // Toggle a panel surface open/closed (spec P1/P6): persist per-window in
+  // localStorage (open writes the value-bearing key, close REMOVES it — absent
+  // = closed) AND update the URL `?panel=` param so the state is deep-linkable
+  // (closing drops the param — closed is the clean-URL default). The `?view=`
+  // param rides along untouched (P2: the panel never changes the main slot's
+  // lens). Stable across SSE ticks.
+  const togglePanel = useCallback(
+    (surface: SurfaceName) => {
+      if (!windowParam) return;
+      const next = resolvedPanel === surface ? null : surface;
+      if (next) writeStoredPanel(server, windowParam, next);
+      else removeStoredPanel(server, windowParam);
+      navigate({
+        to: "/$server/$window",
+        params: { server, window: windowParam },
+        search: {
+          ...(searchView ? { view: searchView } : {}),
+          ...(next ? { panel: next } : {}),
+        },
+        replace: true,
+      });
+    },
+    [server, windowParam, navigate, resolvedPanel, searchView],
+  );
+
   // Switch the current window's lens (spec R2/R7): persist per-window in
   // localStorage (survives R6's param-drop on a window switch) AND update the
   // URL `?view=` param so the state is copy-paste shareable / deep-linkable.
   // `tty` DROPS the param (clean URL — tty is the always-available default);
   // `web`/`chat` ride the URL (`?view=web` / `?view=chat`). Never mutates
-  // `@rk_type` (that is substrate state, not view state). Stable across SSE
-  // ticks (deps: server/windowParam/navigate).
+  // `@rk_type` (that is substrate state, not view state). An active `?panel=`
+  // param is PRESERVED (right-panel P2 — the panel slot is independent of the
+  // main slot's lens). Stable across SSE ticks (deps: server/windowParam/
+  // navigate/searchPanel).
   const switchView = useCallback(
     (view: ViewName) => {
       if (!windowParam) return;
@@ -525,11 +574,14 @@ function AppShell() {
       navigate({
         to: "/$server/$window",
         params: { server, window: windowParam },
-        search: view !== "tty" ? { view } : {},
+        search: {
+          ...(view !== "tty" ? { view } : {}),
+          ...(searchPanel ? { panel: searchPanel } : {}),
+        },
         replace: true,
       });
     },
-    [server, windowParam, navigate],
+    [server, windowParam, navigate, searchPanel],
   );
 
   // The effective keybinding map (260730-g40a): drives the migrated `⌘.` lens
@@ -2256,6 +2308,15 @@ function AppShell() {
           return b?.enabled ? formatCombo(b, bindingHost.platform) : "";
         })(),
       }),
+      // Right-panel surface toggle (260811-2r1w, spec right-panel.md P7) —
+      // Constitution V palette parity for the rail button. Offered only on a
+      // desktop window route where the `web` surface is available. The id IS
+      // the registry actionId, so `withShortcutHints` decorates the entry with
+      // the effective `panel-toggle` chord (⇧⌘.) — the code-review rule that
+      // new shortcuts are documented in the palette registration.
+      ...(windowParam && !isMobile && panelSurfaces.includes("web")
+        ? [{ id: "panel-toggle", label: "Panel: Web", onSelect: () => togglePanel("web") }]
+        : []),
       {
         id: "toggle-fixed-width",
         label: fixedWidth ? "View: Full Width" : "View: Fixed Width (900px)",
@@ -2274,7 +2335,7 @@ function AppShell() {
         onSelect: () => window.location.reload(),
       },
     ],
-    [sessionName, fixedWidth, toggleFixedWidth, toggleComposeStrip, currentViews, resolvedView, switchView, bindingByAction, bindingHost],
+    [sessionName, fixedWidth, toggleFixedWidth, toggleComposeStrip, currentViews, resolvedView, switchView, bindingByAction, bindingHost, windowParam, isMobile, panelSurfaces, togglePanel],
   );
 
   // Navigation actions (260714-uco1) — palette parity (Constitution V) for the
@@ -2899,6 +2960,10 @@ function AppShell() {
       // are terminal-route actions, like `open-last-used`).
       "split-horizontal": fromPalette("split-horizontal"),
       "split-vertical": fromPalette("split-vertical"),
+      // ⇧⌘. panel toggle (260811-2r1w) — the `Panel: Web` palette body; its
+      // gating (desktop window route + available `web` surface) gates the
+      // chord for free (the fromPalette convention).
+      "panel-toggle": fromPalette("panel-toggle"),
     };
   }, [paletteActions, currentSession, windowParam, navigateToWindow, macros, sessionName, executeMacro, toggleComposeStrip, addToast]);
   useKeybindingDispatch(keybindingHandlers);
@@ -3214,6 +3279,14 @@ function AppShell() {
               <LogoSpinner size={48} />
             </div>
           )}
+          {/* Right-panel layout row (260811-2r1w-right-panel-shell-web-surface,
+              spec right-panel.md): the terminal-route content area is a
+              horizontal flex row [ main lens slot | panel (when open) | rail ].
+              The main slot keeps the existing lens model unchanged (P2 — the
+              panel never touches `?view=` resolution); rail + panel render only
+              on desktop window routes (phase 1 is desktop-only, P5). */}
+          <div className="flex-1 min-h-0 flex flex-row">
+            <div className="flex-1 min-w-0 min-h-0 flex flex-col">
           {/* Render gate keys on `windowParam` (the URL's @N) ALONE, not the
               SSE-derived `sessionName`. The session name is only needed for the
               breadcrumb/title and resolves a beat after the first snapshot; the
@@ -3284,6 +3357,35 @@ function AppShell() {
               onCreateWindow={handleCreateWindow}
             />
           )}
+            </div>
+            {windowParam && !isMobile && (
+              // Rail + panel shell (260811-2r1w). Keyed by server:window so a
+              // window switch REMOUNTS the panel (its content is per-window
+              // state); within one window the surface subtree mounts lazily on
+              // first open and then hides at display level — never unmounts
+              // (P3). The rail is always present here (spec: "always visible
+              // on desktop"); its buttons render per AVAILABLE surface.
+              <RightPanel
+                key={`${server}:${windowParam}`}
+                available={panelSurfaces}
+                active={resolvedPanel}
+                onToggle={togglePanel}
+              >
+                {/* The `web` surface reuses the shipped IframeWindow renderer
+                    with NO `onSwitchToTty` (the panel-context seam — the `>_`
+                    switch-to-terminal affordance is meaningless beside the
+                    visible tty; the URL bar and refresh stay). The
+                    `currentWindow?.rkUrl` guard narrows the prop type; an open
+                    `web` panel already implies `hasWebUrl` held. */}
+                {currentWindow?.rkUrl ? (
+                  <IframeWindow
+                    windowId={currentWindow.windowId}
+                    rkUrl={currentWindow.rkUrl}
+                  />
+                ) : null}
+              </RightPanel>
+            )}
+          </div>
         </div>
       </main>
 

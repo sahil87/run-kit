@@ -1,0 +1,55 @@
+id: 2r1w
+name: 260811-2r1w-right-panel-shell-web-surface
+created: 2026-08-11T07:54:31Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 10
+    acceptance_count: 24
+    acceptance_completed: 24
+confidence:
+    certain: 8
+    confident: 5
+    tentative: 1
+    unresolved: 0
+    score: 3.6
+    fuzzy: true
+    dimensions:
+        signal: 78.6
+        reversibility: 83.9
+        competence: 81.1
+        disambiguation: 77.5
+stage_metrics:
+    intake: {started_at: "2026-08-11T07:54:31Z", driver: fab-new, iterations: 1, completed_at: "2026-08-11T08:00:45Z"}
+    apply: {started_at: "2026-08-11T08:00:45Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-11T08:32:46Z"}
+    review: {started_at: "2026-08-11T08:32:46Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-11T08:53:04Z"}
+    hydrate: {started_at: "2026-08-11T08:53:04Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-11T09:04:24Z"}
+    ship: {started_at: "2026-08-11T09:04:24Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-08-11T09:04:24Z"
+    computed_at_stage: hydrate
+summary: 'Right panel phase 1: rail + panel second render slot on the terminal route, web surface via IframeWindow, ?panel= param + per-window/per-viewer localStorage, hide-never-unmount, ⇧⌘. panel-toggle + Panel: Web palette entry (memory: run-kit/ui-patterns)'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-11T09:04:24Z

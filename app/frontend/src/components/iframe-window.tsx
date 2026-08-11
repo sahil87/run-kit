@@ -10,8 +10,11 @@ interface IframeWindowProps {
    *  `app.tsx`'s `switchView("tty")` — drops the `?view=` param (tty is the
    *  clean-URL default) and records tty in localStorage. The `>_` button calls
    *  THIS; it no longer mutates `@rk_type` (view choice is per-viewer client
-   *  state, not window identity — spec R7). */
-  onSwitchToTty: () => void;
+   *  state, not window identity — spec R7). OPTIONAL (260811-2r1w): the
+   *  right-panel `web` surface omits it, suppressing the `>_` affordance — in
+   *  the panel the tty is already beside the iframe, so switching the MAIN
+   *  slot is meaningless. The URL bar and refresh render in both contexts. */
+  onSwitchToTty?: () => void;
 }
 
 /** Renders an iframe with a URL bar for proxy windows. */
@@ -95,15 +98,17 @@ export function IframeWindow({ windowId, rkUrl, onSwitchToTty }: IframeWindowPro
         <span className="shrink-0 text-text-secondary text-xs select-none" aria-hidden="true">
           &#x23ce;
         </span>
-        <Tip label="Switch to terminal">
-          <button
-            onClick={onSwitchToTty}
-            className="shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-bg-card text-text-secondary"
-            aria-label="Switch to terminal"
-          >
-            <span className="text-xs font-mono">&gt;_</span>
-          </button>
-        </Tip>
+        {onSwitchToTty && (
+          <Tip label="Switch to terminal">
+            <button
+              onClick={onSwitchToTty}
+              className="shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-bg-card text-text-secondary"
+              aria-label="Switch to terminal"
+            >
+              <span className="text-xs font-mono">&gt;_</span>
+            </button>
+          </Tip>
+        )}
       </div>
       </TipGroup>
 

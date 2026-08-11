@@ -191,6 +191,12 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   { actionId: "command-palette", code: "KeyK", tier: "cmd", scope: "global", kind: "builtin", label: "Command palette", ignoreInputs: true },
   { actionId: "sidebar-toggle", code: "Backslash", tier: "cmd", scope: "global", kind: "builtin", label: "Toggle sidebar" },
   { actionId: "view-cycle", code: "Period", tier: "cmd", scope: "terminal", kind: "builtin", label: "Cycle view lens", description: "tty → web → chat" },
+  // ⇧⌘. panel toggle (260811-2r1w-right-panel-shell-web-surface): spec
+  // right-panel.md P7 names ⌘., but ⌘. is already `view-cycle` above — the
+  // panel takes the SHIFTED tier of the same key (Period), leaving the shipped
+  // lens cycle untouched; the tiers are disjoint so `findConflicts` stays
+  // clean. Terminal scope: the rail/panel exist only on the window route.
+  { actionId: "panel-toggle", code: "Period", tier: "shifted", scope: "terminal", kind: "builtin", label: "Toggle right panel", description: "open/close the web panel", mapLabel: "panel" },
   { actionId: "chat-toggle", code: "Backquote", tier: "ctrl", scope: "terminal", kind: "builtin", label: "Toggle chat view", description: "tty ↔ chat" },
   { actionId: "board-cycle-next", code: "BracketRight", tier: "cmd", scope: "board", kind: "builtin", label: "Cycle pane focus →" },
   { actionId: "board-cycle-prev", code: "BracketLeft", tier: "cmd", scope: "board", kind: "builtin", label: "Cycle pane focus ←" },

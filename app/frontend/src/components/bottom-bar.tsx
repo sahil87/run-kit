@@ -443,7 +443,7 @@ export function BottomBar({ onOpenCompose, onFocusTerminal, onScrollLockChange }
           aria-hidden="true"
           className="hidden lg:flex items-center gap-1.5 ml-2 text-[11px] text-text-secondary opacity-60 select-none whitespace-nowrap"
         >
-          <span>&gt;_ compose — type to the pane with autocorrect</span>
+          <span>&gt;_ compose — type here, send to the pane</span>
           {composeChord && (
             <kbd className="text-xs text-text-secondary bg-bg-card px-1.5 py-0.5 rounded border border-border">
               {composeChord}

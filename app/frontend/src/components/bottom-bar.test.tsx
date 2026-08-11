@@ -333,7 +333,7 @@ describe("BottomBar chip order + compose hint (260811-0f3d)", () => {
   // pointer, ≥lg viewport (the lg gate is the CSS `hidden lg:flex` pair —
   // jsdom asserts the classes; the 375px budget is untouched). jsdom
   // platform is "other", so the chord renders in the Ctrl spelling.
-  const HINT_TEXT = /compose — type to the pane with autocorrect/;
+  const HINT_TEXT = /compose — type here, send to the pane/;
 
   afterEach(() => {
     cleanup();

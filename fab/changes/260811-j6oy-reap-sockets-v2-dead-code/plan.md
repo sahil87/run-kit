@@ -114,9 +114,9 @@ The runtime guard assertions in `app/backend/api/windows_test.go` become uncompi
 
 ### Removal Verification
 
-- [x] A-007 R1: Repo-wide grep for `getSessionOrder` returns zero matches
-- [x] A-008 R3: Repo-wide grep for `SelectWindow(` returns only `SelectWindowInSession` matches; no `selectWindowCalled`/`selectWindowWindowID` remain
-- [x] A-009 R5: Repo-wide grep for `withRelayTmux` / `relayServerWithProdTmux` / `relay_test.go` returns zero matches
+- [x] A-007 R1: Grep of `app/frontend/src/` for `getSessionOrder` returns zero matches (the backend `tmux.GetSessionOrder` wrapper and its `internal/snapshot` alias are live, unrelated symbols and stay)
+- [x] A-008 R3: Grep of `app/backend/` shows no bare `SelectWindow` declaration — interface method, `prodTmuxOps` wrapper, `tmux.go` implementation, and mock method all gone — and no `selectWindowCalled`/`selectWindowWindowID` remain (`SelectWindowInSession` and the frontend `onSelectWindow` callbacks are distinct symbols and stay)
+- [x] A-009 R5: Grep of `app/backend/` for `withRelayTmux` / `relayServerWithProdTmux` returns zero matches, and no file named exactly `relay_test.go` exists (the renamed `terminals_relay_test.go` intentionally carries the old name as a suffix substring)
 
 ### Scenario Coverage
 

@@ -357,9 +357,10 @@ export function SessionProvider({ children }: SessionProviderProps) {
   // (the `services` global event). Empty array until the first tick — never
   // null, so `/` consumers can map over it unconditionally.
   const [hostServices, setHostServices] = useState<Service[]>([]);
-  // Latest host-global code-server signal (the `code-server` event). `null`
-  // until the first event — which never arrives when RK_CODE_SERVER_PORT is
-  // unset, so `null` also means "feature off".
+  // Latest host-global code-server signal (the `code-server` event) — just
+  // `{reachable}` since 260811-a2bo. `null` until the first event; the port
+  // now resolves by convention (RK_PORT+2), so the broadcast is always on and
+  // `null` means "no signal yet", never "feature off".
   const [codeServer, setCodeServer] = useState<CodeServerSignal | null>(null);
   // Running daemon version from the server-global `event: version` (no leading
   // "v"). `null` until the first event. Drives the reload guard + update chip.
@@ -1436,9 +1437,10 @@ export function useHostServices(): Service[] {
 }
 
 /** Host-global code-server signal from the state socket's `code-server` global
- *  event (260811-k3vp). Available on EVERY route. Returns `null` before the
- *  first event AND when the feature is unconfigured (the backend broadcasts
- *  nothing without RK_CODE_SERVER_PORT) — so `null` means "code lens off". */
+ *  event (260811-k3vp; `{reachable}` only since 260811-a2bo). Available on
+ *  EVERY route. Returns `null` only before the first event — the port resolves
+ *  by convention, so the broadcast is always on and `null` never means "code
+ *  lens off" (availability is gitRoot-derived — see `hasCode`). */
 export function useCodeServer(): CodeServerSignal | null {
   const ctx = useContext(CodeServerContext);
   if (ctx === undefined) throw new Error("useCodeServer must be used within SessionProvider");

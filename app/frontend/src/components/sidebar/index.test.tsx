@@ -1783,7 +1783,8 @@ describe("sidebar footer chrome (260723-o7q8 gear; 260724-6j1v cluster)", () => 
     ];
     for (const action of actions) {
       expect(action.className).toContain("rk-glint");
-      expect(action.className).toContain("border");
+      // Exact token match — `toContain("border")` would pass vacuously via "border-border".
+      expect(action.classList.contains("border")).toBe(true);
       expect(action.className).toContain("border-border");
       // Fixed-size chip (24px fine / 30px coarse) — no min-* floors.
       expect(action.className).toContain("w-[24px]");

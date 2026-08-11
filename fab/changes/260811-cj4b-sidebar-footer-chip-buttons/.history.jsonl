@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-11T07:42:11Z"}
+{"args":"Sidebar footer action buttons (Help · Keyboard · Theme · Settings) adopt the top-bar chip idiom — bordered rounded square chips with rk-glint CRT sweep and green-line hover — scaled to 24px, replacing the borderless FOOTER_ICON_CLASS idiom (reverses the o7q8 deliberate-contrast decision)","cmd":"fab-new","event":"command","ts":"2026-08-11T07:42:11Z"}
+{"delta":"+5.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-08-11T07:43:42Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-11T07:44:16Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-11T07:44:29Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-11T07:52:27Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-11T07:56:56Z"}
+{"event":"review","result":"passed","ts":"2026-08-11T07:56:56Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-11T08:00:48Z"}
+{"cmd":"git-pr","event":"command","ts":"2026-08-11T08:01:58Z"}

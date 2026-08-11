@@ -17,6 +17,7 @@ import { PaletteIcon, GearIcon, KeyboardIcon } from "./icons";
 import { useSettingsDialog } from "@/contexts/settings-dialog-context";
 import { useTheme, useThemeActions } from "@/contexts/theme-context";
 import { HELP_URL, cycleTheme, HelpIcon, ThemeModeIcon } from "@/components/global-chrome";
+import { TOP_BAR_BUTTON_REST } from "@/components/top-bar-overflow-menu";
 import { displayVersion } from "@/lib/palette-version";
 import { copyToClipboard } from "@/lib/clipboard";
 import { formatCombo } from "@/lib/keybindings";
@@ -1727,11 +1728,15 @@ function SelectionIndicator({
   );
 }
 
-/** Borderless footer-action idiom (the gear's, o7q8) shared by every icon in
- *  the footer's right cluster — deliberately NOT the top bar's bordered
- *  `rk-glint` chips. */
-const FOOTER_ICON_CLASS =
-  "min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] flex items-center justify-center rounded text-text-secondary hover:text-text-primary transition-colors";
+/** Footer-action idiom (260811-cj4b) shared by every icon in the footer's
+ *  right cluster: the top bar's bordered `rk-glint` chip at footer scale —
+ *  fixed 24×24 on fine pointers, 30×30 on coarse (the same anti-drift
+ *  fixed-size rationale as `TOP_BAR_BUTTON_BASE`). Rest/hover colors come
+ *  from the exported `TOP_BAR_BUTTON_REST` so the two surfaces cannot drift;
+ *  `rk-glint` supplies the hover sweep + green border/glyph flip. Reverses
+ *  o7q8's deliberately borderless contrast in favor of one app-wide button
+ *  vocabulary. */
+const FOOTER_ICON_CLASS = `rk-glint w-[24px] h-[24px] coarse:w-[30px] coarse:h-[30px] rounded border transition-colors flex items-center justify-center shrink-0 ${TOP_BAR_BUTTON_REST}`;
 
 /**
  * Sidebar footer — the app-global chrome row (260724-6j1v). `justify-between`:
@@ -1743,7 +1748,9 @@ const FOOTER_ICON_CLASS =
  *    a version — never `vundefined`). The overflow menu's fixed version row is
  *    unchanged and remains the update surface; this is a readout only.
  *  - RIGHT — actions, in order Help · Keyboard · Theme · Gear, all in the
- *    gear's borderless footer idiom. Help/Theme share the single
+ *    shared chip idiom (260811-cj4b — the top bar's bordered `rk-glint`
+ *    vocabulary at 24px footer scale, reversing o7q8's borderless contrast).
+ *    Help/Theme share the single
  *    `global-chrome.tsx` definitions with the command palettes (no drift).
  *    The theme button keeps the retired top-bar ThemeToggle's behavior: click
  *    cycles system → light → dark → system; Ctrl/Cmd-click opens the theme
@@ -1844,9 +1851,9 @@ function SidebarFooter({
         )}
       </span>
 
-      {/* RIGHT — actions: Help · Keyboard · Theme · Gear (the borderless
-          footer idiom). */}
-      <span className="flex items-center gap-0.5">
+      {/* RIGHT — actions: Help · Keyboard · Theme · Gear (the shared chip
+          idiom, 260811-cj4b). gap-1 keeps the bordered chips from fusing. */}
+      <span className="flex items-center gap-1">
         <Tip label="Help — run-kit docs" placement="top">
           <a
             href={HELP_URL}

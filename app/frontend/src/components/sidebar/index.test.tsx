@@ -1763,14 +1763,36 @@ describe("sidebar footer chrome (260723-o7q8 gear; 260724-6j1v cluster)", () => 
     expect(help).not.toHaveAttribute("title");
   });
 
-  it("cycles the theme on click (system → light) and keeps the borderless footer idiom", () => {
+  it("cycles the theme on click (system → light) and carries the chip idiom", () => {
     renderSidebar();
     const theme = screen.getByRole("button", { name: "System theme" });
-    // Borderless footer idiom — no bordered rk-glint chip.
-    expect(theme.className).not.toContain("border-border");
-    expect(theme.className).not.toContain("rk-glint");
+    // Chip footer idiom (260811-cj4b) — the top bar's bordered rk-glint chip.
+    expect(theme.className).toContain("rk-glint");
+    expect(theme.className).toContain("border-border");
     fireEvent.click(theme);
     expect(screen.getByRole("button", { name: "Light theme" })).toBeInTheDocument();
+  });
+
+  it("styles all four footer actions as bordered rk-glint chips (260811-cj4b)", () => {
+    renderSidebar();
+    const actions = [
+      screen.getByLabelText("Help — run-kit docs"),
+      screen.getByRole("button", { name: "Keyboard shortcuts" }),
+      screen.getByRole("button", { name: "System theme" }),
+      screen.getByRole("button", { name: "Open settings" }),
+    ];
+    for (const action of actions) {
+      expect(action.className).toContain("rk-glint");
+      expect(action.className).toContain("border");
+      expect(action.className).toContain("border-border");
+      // Fixed-size chip (24px fine / 30px coarse) — no min-* floors.
+      expect(action.className).toContain("w-[24px]");
+      expect(action.className).toContain("h-[24px]");
+      expect(action.className).toContain("coarse:w-[30px]");
+      expect(action.className).toContain("coarse:h-[30px]");
+      // Hover is the rk-glint green line, not a color flip.
+      expect(action.className).not.toContain("hover:text-text-primary");
+    }
   });
 
   it("Ctrl/Cmd-click on the theme button opens the theme selector instead of cycling", () => {
@@ -1818,13 +1840,13 @@ describe("sidebar footer chrome (260723-o7q8 gear; 260724-6j1v cluster)", () => 
     expect(tooltip.querySelector("kbd")).toHaveTextContent("Shift+Ctrl+,");
   });
 
-  it("the Keyboard button dispatches shortcuts-overlay:open in the borderless idiom (260801-sm6g)", () => {
+  it("the Keyboard button dispatches shortcuts-overlay:open in the chip idiom (260801-sm6g)", () => {
     renderSidebar();
     const keyboard = screen.getByRole("button", { name: "Keyboard shortcuts" });
-    // Borderless footer idiom — no bordered rk-glint chip, no native title
-    // (the Tip carries the label + effective-chord kbd slot).
-    expect(keyboard.className).not.toContain("border-border");
-    expect(keyboard.className).not.toContain("rk-glint");
+    // Chip footer idiom (260811-cj4b) — bordered rk-glint chip, no native
+    // title (the Tip carries the label + effective-chord kbd slot).
+    expect(keyboard.className).toContain("border-border");
+    expect(keyboard.className).toContain("rk-glint");
     expect(keyboard).not.toHaveAttribute("title");
     const openListener = vi.fn();
     document.addEventListener("shortcuts-overlay:open", openListener);

@@ -1,0 +1,55 @@
+id: cj4b
+name: 260811-cj4b-sidebar-footer-chip-buttons
+created: 2026-08-11T07:42:11Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 6
+    acceptance_count: 12
+    acceptance_completed: 12
+confidence:
+    certain: 6
+    confident: 0
+    tentative: 0
+    unresolved: 0
+    score: 5.0
+    fuzzy: true
+    dimensions:
+        signal: 80.0
+        reversibility: 91.7
+        competence: 89.2
+        disambiguation: 83.3
+stage_metrics:
+    intake: {started_at: "2026-08-11T07:42:11Z", driver: fab-new, iterations: 1, completed_at: "2026-08-11T07:44:29Z"}
+    apply: {started_at: "2026-08-11T07:44:29Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-11T07:52:27Z"}
+    review: {started_at: "2026-08-11T07:52:27Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-11T07:56:56Z"}
+    hydrate: {started_at: "2026-08-11T07:56:56Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-11T08:00:48Z"}
+    ship: {started_at: "2026-08-11T08:00:48Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-08-11T08:00:48Z"
+    computed_at_stage: hydrate
+summary: Sidebar footer actions adopt the top-bar bordered rk-glint chip idiom at footer scale (24px fine / 30px coarse, shared TOP_BAR_BUTTON_REST, gap-1), reversing the borderless footer decision
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-11T08:00:48Z

@@ -109,6 +109,18 @@ export function ShellTitlebarStrip() {
   // shells expose only list/switch and render the menu without it.
   const canAdd = canAddShellHost();
 
+  // Latest COMMITTED host-row count, read live inside the capture-phase
+  // keydown handler: that handler stays attached from a commit until the
+  // passive-effect flush swaps the subscription, so a closure capture would
+  // observe the OLD count in that window. A layout effect writes the ref at
+  // commit time — before any keydown dispatched after an emptied-list commit
+  // can reach the stale handler (a passive useEffect write would flush in
+  // the same phase it is meant to beat).
+  const hostCountRef = useRef(0);
+  useLayoutEffect(() => {
+    hostCountRef.current = rows.length;
+  }, [rows.length]);
+
   // An open-time refetch can EMPTY the list: the trigger and menu unmount
   // (interactive flips false) while `open` would otherwise stay true, leaving
   // the capture-phase key handling subscribed with nothing visible. Release
@@ -134,10 +146,6 @@ export function ShellTitlebarStrip() {
   // handler — the focused row is a native <button>.
   useEffect(() => {
     if (!open) return;
-    const hostCount = rows.length;
-    // The roving set spans the host rows PLUS the Add-Host footer when the
-    // bridge carries it — the footer is the last stop in the arrow cycle.
-    const count = hostCount + (canAdd ? 1 : 0);
     function handleKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
         e.stopPropagation();
@@ -148,12 +156,22 @@ export function ShellTitlebarStrip() {
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         // Never swallow arrows the menu cannot act on: an emptied-list
         // refetch unmounts the rows one render before the close-on-empty
-        // effect flips `open`, and this capture-phase handler must not
-        // preventDefault app-wide during that window. Keyed on the HOST
-        // count — the menu (footer included) unmounts when it hits zero.
+        // effect flips `open`, and this handler may still be the STALE
+        // subscription (attached until the passive-effect flush swaps it).
+        // The guard therefore reads the live committed count from
+        // `hostCountRef` — written at commit time — so even a stale
+        // subscription sees the zero and releases the key instead of
+        // preventDefaulting app-wide. Keyed on the HOST count — the menu
+        // (footer included) unmounts when it hits zero.
+        const hostCount = hostCountRef.current;
         if (hostCount === 0) return;
         e.preventDefault();
         e.stopPropagation();
+        // The roving set spans the host rows PLUS the Add-Host footer when
+        // the bridge carries it — the footer is the last stop in the arrow
+        // cycle. The modulus derives from the same live read, so a
+        // shrunk-but-non-empty list also cycles over the live count.
+        const count = hostCount + (canAdd ? 1 : 0);
         const delta = e.key === "ArrowDown" ? 1 : -1;
         setFocusedIndex((prev) => {
           const next = (prev + delta + count) % count;

@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-11T11:17:33Z"}
+{"args":"Fix the shell-titlebar host-switcher arrow-key release flake at its root: handleKey closes over stale hostCount; read live row count from a ref","cmd":"fab-new","event":"command","ts":"2026-08-11T11:17:33Z"}
+{"delta":"+5.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-08-11T11:20:18Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-11T11:43:52Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-11T11:44:10Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-11T11:50:30Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-11T11:54:37Z"}
+{"event":"review","result":"passed","ts":"2026-08-11T11:54:37Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-11T11:59:05Z"}
+{"cmd":"git-pr","event":"command","ts":"2026-08-11T12:00:11Z"}

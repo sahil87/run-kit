@@ -1239,6 +1239,76 @@ describe("Sidebar — session-reorder self-target drop acceptance (i41e snap-bac
   });
 });
 
+describe("Sidebar — window drag-to-pin marker MIME (g0t1)", () => {
+  /** A minimal mutable dataTransfer bag, mirroring the session-reorder block. */
+  function makeDataTransfer(types: string[] = []) {
+    const store = new Map<string, string>();
+    const t = [...types];
+    return {
+      setData: (type: string, data: string) => {
+        store.set(type, data);
+        if (!t.includes(type)) t.push(type);
+      },
+      getData: (type: string) => store.get(type) ?? "",
+      get types() {
+        return t;
+      },
+      dropEffect: "none",
+      effectAllowed: "none",
+    };
+  }
+
+  function windowRow(): HTMLElement {
+    const row = document.querySelector('[data-window-id="@0"]');
+    expect(row).toBeTruthy();
+    return row as HTMLElement;
+  }
+
+  it("window drag start sets the x-window-drag marker MIME and widens effectAllowed to copyMove", () => {
+    renderSidebar({ currentServer: "primary" });
+
+    const dataTransfer = makeDataTransfer();
+    act(() => {
+      fireEvent.dragStart(windowRow(), { dataTransfer });
+    });
+
+    // Marker for foreign drop targets (board rows) rides alongside the existing
+    // JSON payload, which keeps its {server, session, index, windowId, name}
+    // shape so the reorder/move handlers stay untouched.
+    expect(dataTransfer.types).toContain("application/x-window-drag");
+    expect(dataTransfer.types).toContain("application/json");
+    expect(dataTransfer.getData("application/x-window-drag")).toBe("@0");
+    expect(JSON.parse(dataTransfer.getData("application/json"))).toEqual({
+      server: "primary",
+      session: "main",
+      index: 0,
+      windowId: "@0",
+      name: "shell",
+    });
+    // Widened from "move" so board rows can offer the copy (link) cursor.
+    expect(dataTransfer.effectAllowed).toBe("copyMove");
+  });
+
+  it("within-session reorder dragover still accepts with dropEffect move", () => {
+    renderSidebar({ currentServer: "primary" });
+    const row = windowRow();
+
+    const dataTransfer = makeDataTransfer();
+    act(() => {
+      fireEvent.dragStart(row, { dataTransfer });
+    });
+
+    // Self-target dragover (single-window session): the reorder handler accepts
+    // with a move cursor — unchanged under the widened "copyMove" allowance.
+    let notPrevented: boolean;
+    act(() => {
+      notPrevented = fireEvent.dragOver(row, { dataTransfer });
+    });
+    expect(notPrevented!).toBe(false); // preventDefault() was called → accepted
+    expect(dataTransfer.dropEffect).toBe("move");
+  });
+});
+
 describe("BottomPanels — board-route focused-pane fallback + HOST dot (zx4i)", () => {
   // Sessions live on server "boardsrv" (NOT the current server — the board
   // route has currentServer=null). The enriched window @9 carries fab data the

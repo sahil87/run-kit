@@ -761,10 +761,12 @@ describe("Sidebar", () => {
       const mainBtn = screen.getAllByText("main")[0].closest("button");
       const draggableDiv = mainBtn?.closest("[draggable]") as HTMLElement;
 
-      let transferredData = "";
+      // Capture per type: drag start writes the JSON payload AND the
+      // application/x-window-drag marker (g0t1 drag-to-pin).
+      const transferredByType = new Map<string, string>();
       const dataTransfer = {
-        setData: vi.fn((_type: string, data: string) => {
-          transferredData = data;
+        setData: vi.fn((type: string, data: string) => {
+          transferredByType.set(type, data);
         }),
         effectAllowed: "",
       };
@@ -775,7 +777,7 @@ describe("Sidebar", () => {
         "application/json",
         JSON.stringify({ server: "runkit", session: "run-kit", index: 0, windowId: "@0", name: "main" }),
       );
-      const parsed = JSON.parse(transferredData);
+      const parsed = JSON.parse(transferredByType.get("application/json")!);
       expect(parsed.server).toBe("runkit");
       expect(parsed.session).toBe("run-kit");
       expect(parsed.index).toBe(0);

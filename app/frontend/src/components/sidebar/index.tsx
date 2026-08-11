@@ -41,7 +41,7 @@ import { useChromeState } from "@/contexts/chrome-context";
 import { useActiveBoardName } from "@/hooks/use-active-board";
 import { useMergedSessions } from "@/contexts/optimistic-context";
 import { countWaitingInSessions } from "@/lib/waiting";
-import { BoardsSection } from "./boards-section";
+import { BoardsSection, WINDOW_DRAG_MIME } from "./boards-section";
 import { HostPanel } from "./host-panel";
 import { KillDialog } from "./kill-dialog";
 import { ServerPanel } from "./server-panel";
@@ -704,7 +704,14 @@ export function Sidebar({
       "application/json",
       JSON.stringify({ server, session: sessionName, index: windowIndex, windowId, name: windowName }),
     );
-    e.dataTransfer.effectAllowed = "move";
+    // Marker for foreign drop targets (sidebar board rows — drag-to-pin):
+    // dragover can only inspect types (payload is sealed until drop) and
+    // application/json is too generic to gate on.
+    e.dataTransfer.setData(WINDOW_DRAG_MIME, windowId);
+    // Widened from "move": pinning LINKS the window (dual presence), so board
+    // rows offer a copy cursor; "move" stays permitted for the reorder/move
+    // targets.
+    e.dataTransfer.effectAllowed = "copyMove";
   }, []);
 
   const handleDragOver = useCallback((e: React.DragEvent, server: string, sessionName: string, windowIndex: number) => {

@@ -4,6 +4,12 @@ class RunKit < Formula
   version "VERSION_PLACEHOLDER"
   license "MIT"
 
+  # code-server backs the `code` lens (change 260811-k3vp) — the dashboard
+  # embeds it via /proxy on the deterministic RK_PORT+2 port and treats it
+  # as always installed. (tmux is deliberately NOT declared — long-standing
+  # assumption that the host provides it; changing that is a separate call.)
+  depends_on "code-server"
+
   on_macos do
     on_arm do
       url "https://github.com/sahil87/run-kit/releases/download/v#{version}/rk-darwin-arm64.tar.gz"

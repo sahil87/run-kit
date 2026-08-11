@@ -172,10 +172,10 @@ export function RightPanel({ available, active, onToggle, children }: RightPanel
                 onClick={() => onToggle(surface)}
                 aria-pressed={isActive}
                 aria-label={`${SURFACE_LABEL[surface]} panel`}
-                className={`rk-glint relative w-7 h-7 flex items-center justify-center rounded text-[10px] font-mono transition-colors focus-visible:outline-2 focus-visible:outline-accent-green ${
+                className={`rk-glint relative w-7 h-7 flex items-center justify-center rounded border text-[10px] font-mono transition-colors focus-visible:outline-2 focus-visible:outline-accent-green ${
                   isActive
-                    ? "bg-accent-green text-bg-primary"
-                    : "text-text-secondary hover:text-text-primary"
+                    ? "border-accent-green bg-accent-green/10 text-accent-green"
+                    : "border-border hover:border-text-secondary text-text-secondary hover:text-text-primary"
                 }`}
               >
                 {SURFACE_GLYPH[surface]}
@@ -184,7 +184,7 @@ export function RightPanel({ available, active, onToggle, children }: RightPanel
                     availability state; the amber attention state is phase 3. */}
                 <span
                   aria-hidden="true"
-                  className={`absolute top-0.5 right-0.5 w-1 h-1 rounded-full ${isActive ? "bg-bg-primary" : "bg-accent-green"}`}
+                  className="absolute top-0.5 right-0.5 w-1 h-1 rounded-full bg-accent-green"
                 />
               </button>
             </Tip>

@@ -253,8 +253,11 @@ delegating wrapper** that keeps all logic in the rk binary (see § `rk agent-hoo
 below) —
 
 ```sh
-sh -c '[ -n "$TMUX_PANE" ] || exit 0; "<abs-rk>" agent-hook --agent claude <state> 2>/dev/null || true'
+/bin/sh -c '[ -n "$TMUX_PANE" ] || exit 0; "<abs-rk>" agent-hook --agent claude <state> 2>/dev/null || true'
 ```
+
+The interpreter is absolute like `<abs-rk>` itself: hooks fire under the
+harness's environment, and a bare `sh` fails on sessions whose PATH lacks /bin.
 
 The `$TMUX_PANE` guard stays in the wrapper as a cheap short-circuit (no binary
 spawn outside tmux); `|| true` preserves the never-fail contract even if the
@@ -581,7 +584,7 @@ The Claude `agentRegistry` carries a SessionStart entry:
 - The installed command uses the standard `agentStateHookCommand(rkPath, state, comm)`
   wrapper — the positional-token `state` parameter carries the
   `stamp` literal from `h.state = agentHookStampToken`, producing
-  `sh -c '[ -n "$TMUX_PANE" ] || exit 0; "<abs-rk>" agent-hook --agent claude stamp 2>/dev/null || true'`.
+  `/bin/sh -c '[ -n "$TMUX_PANE" ] || exit 0; "<abs-rk>" agent-hook --agent claude stamp 2>/dev/null || true'`.
   The `isRkEntry` marker
   (`" agent-hook "`) matches it, so idempotent re-run replacement and
   `--uninstall` need no marker changes.

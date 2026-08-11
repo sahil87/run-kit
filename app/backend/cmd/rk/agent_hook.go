@@ -22,7 +22,7 @@ import (
 // docs/specs/agent-state.md). It replaces the former self-contained shell
 // one-liner: the harness config now carries only a thin
 //
-//	sh -c '[ -n "$TMUX_PANE" ] || exit 0; "<abs-rk>" agent-hook --agent claude <state> 2>/dev/null || true'
+//	/bin/sh -c '[ -n "$TMUX_PANE" ] || exit 0; "<abs-rk>" agent-hook --agent claude <state> 2>/dev/null || true'
 //
 // wrapper (installed by `run-kit agent-setup`), and ALL logic — the comm-validated
 // ancestor walk, the value formatting — lives here in Go where it is testable and

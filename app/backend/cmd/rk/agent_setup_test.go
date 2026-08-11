@@ -414,6 +414,11 @@ func TestAgentStateHookCommandShape(t *testing.T) {
 	// The NEW stable form: self-locate via $TMUX_PANE, no-op outside tmux, never
 	// fail the agent, and DELEGATE to `rk agent-hook` (all logic — the walk, the
 	// value formatting — lives in the binary, so it tracks `brew upgrade rk`).
+	// The interpreter must be absolute: hooks fire under the harness's
+	// environment, and a bare `sh` fails on sessions whose PATH lacks /bin.
+	if !strings.HasPrefix(cmd, `/bin/sh -c '`) {
+		t.Errorf("hook command must start with /bin/sh -c: %s", cmd)
+	}
 	for _, want := range []string{
 		`[ -n "$TMUX_PANE" ] || exit 0`,
 		`"/opt/homebrew/bin/rk"`,      // absolute path, embedded quoted

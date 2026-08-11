@@ -105,10 +105,12 @@ Hook commands that write the option MUST:
 Canonical command — the stable delegating wrapper installed by `rk agent-setup`
 (state and comm are fixed registry literals; nothing user-provided is
 interpolated; `<abs-rk>` is the absolute rk path resolved at install time, a
-stable symlink rather than a version-pinned path):
+stable symlink rather than a version-pinned path; the interpreter is absolute
+for the same reason — hooks fire under the harness's environment, and a bare
+`sh` fails on sessions whose PATH lacks /bin):
 
 ```sh
-sh -c '[ -n "$TMUX_PANE" ] || exit 0; "<abs-rk>" agent-hook --agent claude <state> 2>/dev/null || true'
+/bin/sh -c '[ -n "$TMUX_PANE" ] || exit 0; "<abs-rk>" agent-hook --agent claude <state> 2>/dev/null || true'
 ```
 
 All logic — the comm-validated ancestor walk, the value formatting, the

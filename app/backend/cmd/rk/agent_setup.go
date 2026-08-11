@@ -90,8 +90,12 @@ const (
 // every session was restarted (the #320↔#321 skew). Delegating to the binary
 // lifts that freeze.
 //
-//	sh -c '[ -n "$TMUX_PANE" ] || exit 0; "<abs-rk>" agent-hook --agent <comm> <state> 2>/dev/null || true'
+//	/bin/sh -c '[ -n "$TMUX_PANE" ] || exit 0; "<abs-rk>" agent-hook --agent <comm> <state> 2>/dev/null || true'
 //
+// The interpreter is absolute for the same reason rkPath is (below): hooks fire
+// under the HARNESS's environment, and an agent session launched with a PATH
+// missing /bin and /usr/bin cannot resolve a bare `sh` — every hook fire then
+// fails loudly ("sh: not found") before the $TMUX_PANE guard can even run.
 // The $TMUX_PANE guard stays in the wrapper as a cheap short-circuit (no binary
 // spawn outside tmux). `|| true` preserves the never-fail contract even if the
 // binary is missing or moved. rkPath is the absolute rk path resolved at install
@@ -105,7 +109,7 @@ const (
 // (Constitution §I).
 func agentStateHookCommand(rkPath, state, comm string) string {
 	return fmt.Sprintf(
-		`sh -c '[ -n "$TMUX_PANE" ] || exit 0; "%s" agent-hook --agent %s %s 2>/dev/null || true'`,
+		`/bin/sh -c '[ -n "$TMUX_PANE" ] || exit 0; "%s" agent-hook --agent %s %s 2>/dev/null || true'`,
 		rkPath, comm, state,
 	)
 }

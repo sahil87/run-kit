@@ -277,8 +277,8 @@ summary {
    the status dot; the dot's own core hue + shape are untouched (family identity
    must survive attention). The SEMANTIC is constant — yellow = "an agent needs
    you now" in every theme — but the VALUE is per-theme via
-   `--color-signal-yellow` (dark keeps the legacy #facc15; light darkens to a
-   gold that meets the ≥3:1 graphics bar). Applied to the wrapper span so it
+   `--color-signal-yellow` (dark keeps the legacy yellow-400 value; light
+   darkens to a gold that meets the ≥3:1 graphics bar). Applied to the wrapper span so it
    never disturbs the inner dot markup.
    Reduced motion: a STATIC yellow ring (no pulse) — attention is never encoded
    in motion alone (gated below). */

@@ -236,7 +236,8 @@ describe("StatusDot — additive waiting halo", () => {
     const dot = screen.getByLabelText("building — active — agent waiting 3m");
     // Core hue kept.
     expect(dot.className).toContain("text-signal-blue");
-    // Additive halo class present (constant-yellow ring; static under reduced-motion via globals.css).
+    // Additive halo class present (signal-yellow ring — semantic constant, value
+    // per-theme via --color-signal-yellow; static under reduced-motion via globals.css).
     expect(dot.className).toContain("rk-waiting-halo");
   });
 

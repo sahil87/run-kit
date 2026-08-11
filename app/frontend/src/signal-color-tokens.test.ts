@@ -27,7 +27,9 @@ function blockBody(header: string): string {
   const start = css.indexOf(header);
   expect(start, `block ${header} exists`).toBeGreaterThanOrEqual(0);
   const open = css.indexOf("{", start);
+  expect(open, `block ${header} has an opening brace`).toBeGreaterThan(start);
   const close = css.indexOf("\n}", open);
+  expect(close, `block ${header} has a closing brace`).toBeGreaterThan(open);
   return css.slice(open, close);
 }
 

@@ -810,40 +810,40 @@ describe("SessionProvider — server-independent host services", () => {
   });
 });
 
-describe("SessionProvider — code-server signal (260811-k3vp)", () => {
-  it("returns null before the first code-server event (feature off)", async () => {
+describe("SessionProvider — code-server signal (260811-k3vp; portless payload since 260811-a2bo)", () => {
+  it("returns null before the first code-server event", async () => {
     setMockMatches([{ params: {} }]);
     const { result } = renderHook(() => useCodeServer(), { wrapper: Wrapper });
     await settle();
     expect(result.current).toBeNull();
   });
 
-  it("populates port + reachable from the global event", async () => {
+  it("populates reachable from the global event", async () => {
     setMockMatches([{ params: {} }]);
     const { result } = renderHook(() => useCodeServer(), { wrapper: Wrapper });
     await settle();
 
     act(() => {
-      WS.forHostMetrics()!.emit("code-server", { port: 3939, reachable: true });
+      WS.forHostMetrics()!.emit("code-server", { reachable: true });
     });
-    expect(result.current).toEqual({ port: 3939, reachable: true });
+    expect(result.current).toEqual({ reachable: true });
 
     // A reachability flip is a new payload — it lands.
     act(() => {
-      WS.forHostMetrics()!.emit("code-server", { port: 3939, reachable: false });
+      WS.forHostMetrics()!.emit("code-server", { reachable: false });
     });
-    expect(result.current).toEqual({ port: 3939, reachable: false });
+    expect(result.current).toEqual({ reachable: false });
   });
 
-  it("ignores a malformed code-server event (no numeric port)", async () => {
+  it("treats a missing reachable field as not-running", async () => {
     setMockMatches([{ params: {} }]);
     const { result } = renderHook(() => useCodeServer(), { wrapper: Wrapper });
     await settle();
 
     act(() => {
-      WS.forHostMetrics()!.emit("code-server", { port: "3939", reachable: true });
+      WS.forHostMetrics()!.emit("code-server", { nope: true });
     });
-    expect(result.current).toBeNull();
+    expect(result.current).toEqual({ reachable: false });
   });
 });
 

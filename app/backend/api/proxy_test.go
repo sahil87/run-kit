@@ -3,7 +3,9 @@ package api
 import (
 	"bytes"
 	"compress/gzip"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -84,7 +86,7 @@ func TestRewriteHTML(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := string(rewriteHTML([]byte(tt.input), tt.port))
+			got := string(rewriteHTML([]byte(tt.input), proxyPathFor))
 			if got != tt.want {
 				t.Errorf("rewriteHTML() =\n%s\nwant:\n%s", got, tt.want)
 			}
@@ -93,7 +95,7 @@ func TestRewriteHTML(t *testing.T) {
 }
 
 func TestModifyResponseHTMLRewrite(t *testing.T) {
-	fn := makeModifyResponse(8080)
+	fn := makeModifyResponse(proxyPathFor)
 
 	body := `<a href="http://localhost:8080/docs">docs</a>`
 	resp := &http.Response{
@@ -119,7 +121,7 @@ func TestModifyResponseHTMLRewrite(t *testing.T) {
 // httputil.ReverseProxy copies the header map (not resp.ContentLength) to the
 // client, so a stale header causes ERR_CONTENT_LENGTH_MISMATCH in browsers.
 func TestModifyResponseStaleContentLengthHeader(t *testing.T) {
-	fn := makeModifyResponse(8080)
+	fn := makeModifyResponse(proxyPathFor)
 
 	body := `<img src="http://127.0.0.1:5000/logo.png">`
 	resp := &http.Response{
@@ -151,7 +153,7 @@ func TestModifyResponseStaleContentLengthHeader(t *testing.T) {
 // GET entity length. The rewrite must pass HEAD through untouched — an
 // unconditional header sync would overwrite the entity length with 0.
 func TestModifyResponseHEADPassthrough(t *testing.T) {
-	fn := makeModifyResponse(8080)
+	fn := makeModifyResponse(proxyPathFor)
 
 	const entityLength = "1234"
 	resp := &http.Response{
@@ -181,7 +183,7 @@ func TestModifyResponseHEADPassthrough(t *testing.T) {
 }
 
 func TestModifyResponseNonHTMLPassthrough(t *testing.T) {
-	fn := makeModifyResponse(8080)
+	fn := makeModifyResponse(proxyPathFor)
 
 	body := `{"url": "http://localhost:8080/api"}`
 	resp := &http.Response{
@@ -200,7 +202,7 @@ func TestModifyResponseNonHTMLPassthrough(t *testing.T) {
 }
 
 func TestModifyResponseGzipHTML(t *testing.T) {
-	fn := makeModifyResponse(8080)
+	fn := makeModifyResponse(proxyPathFor)
 
 	html := `<a href="http://localhost:8080/docs">docs</a>`
 	var buf bytes.Buffer
@@ -339,5 +341,153 @@ func TestProxyTrailingSlashRedirect(t *testing.T) {
 	router.ServeHTTP(rec, req)
 	if rec.Code == http.StatusPermanentRedirect || rec.Code == http.StatusMovedPermanently {
 		t.Errorf("slashed path redirected (loop risk): status = %d", rec.Code)
+	}
+}
+
+// TestCodeRouteForwards proves the stable /code route (260811-a2bo): it
+// proxies to the resolved code-server port with the /code prefix stripped,
+// sets X-Forwarded-Host from the inbound Host (the WS-handshake origin-check
+// requirement), and rewrites localhost:{port} references in HTML to /code.
+func TestCodeRouteForwards(t *testing.T) {
+	var gotPath, gotRawQuery, gotHost string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotRawQuery = r.URL.RawQuery
+		gotHost = r.Header.Get("X-Forwarded-Host")
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprintf(w, `<a href="http://127.0.0.1:%s/x">x</a>`, strings.TrimPrefix(upstreamURL(r), "http://127.0.0.1:"))
+	}))
+	defer upstream.Close()
+	portStr := strings.TrimPrefix(upstream.URL, "http://127.0.0.1:")
+
+	t.Setenv("RK_CODE_SERVER_PORT", portStr)
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	req := httptest.NewRequest(http.MethodGet, "/code/?folder=/repo", nil)
+	req.Host = "rk.example:3000"
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if gotPath != "/" {
+		t.Errorf("upstream path = %q, want %q (/code prefix stripped)", gotPath, "/")
+	}
+	if gotRawQuery != "folder=/repo" {
+		t.Errorf("upstream query = %q, want %q", gotRawQuery, "folder=/repo")
+	}
+	if gotHost != "rk.example:3000" {
+		t.Errorf("X-Forwarded-Host = %q, want %q (the inbound Host)", gotHost, "rk.example:3000")
+	}
+	// The HTML rewrite targets /code — the route is the identity, the port
+	// never appears in a rewritten reference.
+	body, _ := io.ReadAll(rec.Result().Body)
+	want := `<a href="/code/x">x</a>`
+	if string(body) != want {
+		t.Errorf("body = %q, want %q", string(body), want)
+	}
+
+	// A nested path strips only the /code prefix.
+	req = httptest.NewRequest(http.MethodGet, "/code/static/out/main.js", nil)
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if gotPath != "/static/out/main.js" {
+		t.Errorf("upstream path = %q, want %q", gotPath, "/static/out/main.js")
+	}
+}
+
+// upstreamURL reports the test server's own URL from its handler (for building
+// self-referencing HTML that the proxy must rewrite).
+func upstreamURL(r *http.Request) string {
+	return "http://" + r.Host
+}
+
+// TestCodeRouteTrailingSlashRedirect proves /code (no trailing slash) 308-
+// redirects to /code/ with the query preserved — and that /code/ proxies
+// directly (no loop). Nothing listens on the resolved port for the slashed
+// probe, so a proxy attempt surfaces as 502 — anything but a redirect proves
+// the branch was skipped.
+func TestCodeRouteTrailingSlashRedirect(t *testing.T) {
+	t.Setenv("RK_CODE_SERVER_PORT", "3939")
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	req := httptest.NewRequest(http.MethodGet, "/code?folder=/repo", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusPermanentRedirect {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusPermanentRedirect)
+	}
+	if loc := rec.Header().Get("Location"); loc != "/code/?folder=/repo" {
+		t.Errorf("Location = %q, want %q", loc, "/code/?folder=/repo")
+	}
+
+	// No query → bare trailing-slash Location.
+	req = httptest.NewRequest(http.MethodGet, "/code", nil)
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusPermanentRedirect {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusPermanentRedirect)
+	}
+	if loc := rec.Header().Get("Location"); loc != "/code/" {
+		t.Errorf("Location = %q, want %q", loc, "/code/")
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/code/", nil)
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code == http.StatusPermanentRedirect || rec.Code == http.StatusMovedPermanently {
+		t.Errorf("slashed path redirected (loop risk): status = %d", rec.Code)
+	}
+}
+
+// TestCodeRouteConventionPort proves the route resolves the RK_PORT+2
+// convention when RK_CODE_SERVER_PORT is unset (R1): the proxy target is the
+// convention port, so a listener there is what answers.
+func TestCodeRouteConventionPort(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	t.Setenv("RK_PORT", strconv.Itoa(port-2))
+	t.Setenv("RK_CODE_SERVER_PORT", "")
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	// Nothing serves the listener's socket at the HTTP layer, but a bare
+	// accept is enough: the proxy dials 127.0.0.1:RK_PORT+2 and the request
+	// fails differently (EOF/503-ish) than a connection-refused 502 would on
+	// an unserved port. The assertion that matters: NOT a redirect, NOT a 503
+	// from the unresolvable branch.
+	go func() {
+		conn, err := ln.Accept()
+		if err == nil {
+			conn.Close()
+		}
+	}()
+	req := httptest.NewRequest(http.MethodGet, "/code/", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code == http.StatusServiceUnavailable {
+		t.Errorf("status = 503 — convention port not resolved")
+	}
+}
+
+// TestCodeRouteUnresolvablePort proves the degenerate-config branch: an
+// RK_PORT whose +2 falls outside 1-65535 resolves to 0 and the route answers
+// 503 rather than proxying nowhere.
+func TestCodeRouteUnresolvablePort(t *testing.T) {
+	t.Setenv("RK_PORT", "65535")
+	t.Setenv("RK_CODE_SERVER_PORT", "")
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	req := httptest.NewRequest(http.MethodGet, "/code/", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusServiceUnavailable)
 	}
 }

@@ -3,11 +3,15 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
+
+	"rk/internal/config"
 
 	"github.com/spf13/cobra"
 )
@@ -65,7 +69,44 @@ func runDoctorChecks() doctorReport {
 		}
 	}
 
+	// code-server (260811-a2bo) — the daemon-managed editor behind /code/.
+	// Always WARN-shaped (OK with a note), never a FAIL: an absent or
+	// not-yet-started editor must not fail doctor — daemon start itself only
+	// warns and continues (internal/daemon ensureCodeServer).
+	report.Checks = append(report.Checks, codeServerCheck(exec.LookPath, dialTCP))
+
 	return report
+}
+
+// dialTCP is the production reachability probe for the code-server doctor row:
+// a bare TCP dial of 127.0.0.1:{port}, mirroring the SSE hub's probe shape.
+func dialTCP(addr string) bool {
+	conn, err := net.DialTimeout("tcp", addr, 400*time.Millisecond)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
+}
+
+// codeServerCheck reports the daemon-managed code-server's state: binary
+// presence, the resolved port (preset RK_CODE_SERVER_PORT, else RK_PORT+2),
+// and reachability. Pure over an injected (lookPath, dial) pair so tests never
+// depend on the host. Never OK=false — absence is the WARN case (the daemon
+// warns and continues without it), so the row carries a remediation Note.
+func codeServerCheck(lookPath func(string) (string, error), dial func(string) bool) doctorCheck {
+	port := config.Load().ResolvedCodeServerPort()
+	check := doctorCheck{Name: "code-server", OK: true}
+	if _, err := lookPath("code-server"); err != nil {
+		check.Note = fmt.Sprintf("not installed — the daemon-managed editor behind /code/ is unavailable (resolved port :%d; install code-server, e.g. brew install code-server)", port)
+		return check
+	}
+	if dial(fmt.Sprintf("127.0.0.1:%d", port)) {
+		check.Note = fmt.Sprintf("reachable on 127.0.0.1:%d", port)
+	} else {
+		check.Note = fmt.Sprintf("installed; not currently reachable on 127.0.0.1:%d (the daemon starts it on `rk daemon start`)", port)
+	}
+	return check
 }
 
 // tmuxGuardShimCheck reports the tmux guard shim's install state (see

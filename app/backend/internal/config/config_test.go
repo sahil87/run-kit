@@ -117,8 +117,46 @@ func TestLoad(t *testing.T) {
 
 			cfg := Load()
 			if cfg.CodeServerPort != 0 {
-				t.Errorf("RK_CODE_SERVER_PORT=%q: codeServerPort = %d, want 0 (feature off)", v, cfg.CodeServerPort)
+				t.Errorf("RK_CODE_SERVER_PORT=%q: codeServerPort = %d, want 0 (unset)", v, cfg.CodeServerPort)
 			}
+		}
+	})
+}
+
+func TestResolvedCodeServerPort(t *testing.T) {
+	t.Run("preset wins over the convention", func(t *testing.T) {
+		t.Setenv("RK_PORT", "3020")
+		t.Setenv("RK_CODE_SERVER_PORT", "3939")
+
+		if got := Load().ResolvedCodeServerPort(); got != 3939 {
+			t.Errorf("ResolvedCodeServerPort = %d, want 3939 (preset)", got)
+		}
+	})
+
+	t.Run("convention default is RK_PORT+2", func(t *testing.T) {
+		t.Setenv("RK_PORT", "3000")
+		t.Setenv("RK_CODE_SERVER_PORT", "")
+
+		if got := Load().ResolvedCodeServerPort(); got != 3002 {
+			t.Errorf("ResolvedCodeServerPort = %d, want 3002 (RK_PORT+2)", got)
+		}
+	})
+
+	t.Run("invalid preset falls back to the convention", func(t *testing.T) {
+		t.Setenv("RK_PORT", "3000")
+		t.Setenv("RK_CODE_SERVER_PORT", "notanumber")
+
+		if got := Load().ResolvedCodeServerPort(); got != 3002 {
+			t.Errorf("ResolvedCodeServerPort = %d, want 3002 (invalid preset = unset)", got)
+		}
+	})
+
+	t.Run("degenerate RK_PORT resolves to 0 (feature off)", func(t *testing.T) {
+		t.Setenv("RK_PORT", "65535")
+		t.Setenv("RK_CODE_SERVER_PORT", "")
+
+		if got := Load().ResolvedCodeServerPort(); got != 0 {
+			t.Errorf("ResolvedCodeServerPort = %d, want 0 (RK_PORT+2 out of range)", got)
 		}
 	})
 }

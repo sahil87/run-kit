@@ -58,7 +58,7 @@ Both needs share one substrate: a collapsed-by-default right panel.
 | Surface | Substrate | Lens | Available when |
 |---------|-----------|------|----------------|
 | `web` | current window | `web` | `@rk_url` set — same capability signal as the view registry row |
-| `code` | current window | `code` (new lens, below) | git root derivable from the active pane's cwd AND a code-server endpoint configured (`RK_CODE_SERVER_PORT`). **Availability is the two STABLE capability signals only** — code-server *reachability* never gates the button/segment (it would strobe the rail); reachability selects the surface's CONTENT instead: live iframe when up, the "not running on :{port}" empty state when down (amended 2026-08-11, change `260811-k3vp`, resolving the former "configured and reachable" wording's tension with the not-running state) |
+| `code` | current window | `code` (new lens, below) | git root derivable from the active pane's cwd — the ONE stable capability signal (since `260811-a2bo` the code-server endpoint always resolves by convention: preset `RK_CODE_SERVER_PORT`, else `RK_PORT+2`). **Availability is the STABLE capability signal only** — code-server *reachability* never gates the button/segment (it would strobe the rail); reachability selects the surface's CONTENT instead: live iframe when up, the portless "code-server not running — check rk doctor" empty state when down (amended 2026-08-11, change `260811-k3vp`; port dropped by `260811-a2bo`) |
 | `agents` | companion window | `tty` | a window with `@rk_owner=<this window's id>` exists |
 
 ### The `code` lens (new view-registry row)
@@ -68,7 +68,8 @@ full lens — so it is also reachable in the **main** slot via `?view=code` and
 the shared switcher; the panel is merely its natural home.
 
 - **Renderer**: iframe of code-server at `?folder=<git root>`, same-origin via
-  the relative `/proxy/{port}/` path.
+  the stable relative `/code/` route (`260811-a2bo` — the port is a
+  server-side implementation detail and never appears in a URL).
 - **Keyed by git root, not window id and not raw cwd** — editor state follows
   the code; agents `cd` constantly; two windows on one worktree deliberately
   share one editor state.
@@ -77,13 +78,15 @@ the shared switcher; the panel is merely its natural home.
   (user-data-dir — dirty buffers survive reload and even a browser switch);
   open tabs and layout live in **browser IndexedDB keyed by the proxy
   pathname**; the undo stack is in-memory and dies on reload. Consequence:
-  **the proxy path is state identity** — the code-server port/path MUST be
-  stable across restarts, or users silently get a blank workspace that reads
-  as data loss.
-- **Topology**: one code-server instance per host. **v1: configured, not
-  managed** — run-kit reads an endpoint setting and renders "not running"
-  when unreachable. A run-kit-managed lifecycle (service window on the daemon
-  socket, mirroring Constitution VI's independence) is a later change.
+  **the proxy path is state identity** — the code-server path MUST be stable
+  across restarts, or users silently get a blank workspace that reads as data
+  loss. The dedicated `/code/` route (`260811-a2bo`) makes the pathname a
+  constant — immune to port changes by construction.
+- **Topology**: one code-server instance per host, **run-kit-managed**
+  (`260811-a2bo`): the daemon starts it as a sibling tmux session
+  (`rk-code-server`) on the rk-daemon socket, bound to the convention port
+  (`RK_PORT+2`; a preset `RK_CODE_SERVER_PORT` overrides — e.g. an externally
+  managed instance), and `rk daemon stop` deliberately leaves it running.
 - **Diff is not a separate surface** — code-server's own git decorations, SCM
   view, and diff editors carry it.
 
@@ -179,8 +182,8 @@ collision was known); the palette gains `Panel: Code` / `Panel: Web` /
   is pushed, nothing stored.
 - **IV** — no new routes; one search param; one rail; one surface at a time.
 - **V** — P7.
-- **VI** — code-server (when later managed) runs under tmux, not the Go
-  server; server restarts never touch it.
+- **VI** — code-server runs under tmux (its own `rk-code-server` session on
+  the daemon socket), not the Go server; server restarts never touch it.
 
 ---
 

@@ -48,6 +48,14 @@ export default defineConfig({
         target: `http://127.0.0.1:${(parseInt(process.env.RK_PORT ?? "3000") + 1)}`,
         ws: true,
       },
+      // The stable code-server route (260811-a2bo) — forwarded to the Go
+      // backend, which proxies to the resolved code-server port. Same rule as
+      // /proxy: `ws: true`, NO changeOrigin (the Origin-vs-X-Forwarded-Host
+      // WS-403 lesson).
+      "/code": {
+        target: `http://127.0.0.1:${(parseInt(process.env.RK_PORT ?? "3000") + 1)}`,
+        ws: true,
+      },
       // PWA identity assets — served dynamically by the Go backend so the
       // instance accent can tint the manifest/icons in dev too. `server.proxy`
       // runs before Vite's public-dir middleware, so these shadow the static

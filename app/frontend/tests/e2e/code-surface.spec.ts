@@ -12,11 +12,13 @@ const DESKTOP_VIEWPORT = { width: 1440, height: 800 };
  *  seeds RK_CODE_SERVER_PORT for both the backend and this playwright run; the
  *  default mirrors the script's). code-server itself is NOT installable here —
  *  the spec binds a STUB HTTP server on this port to drive the reachable /
- *  not-running states (intake k3vp §6).
+ *  not-running states (intake k3vp §6). Since 260811-a2bo the iframe src is the
+ *  STABLE /code/ route — the backend resolves this port server-side and the
+ *  spec asserts the port never appears in the URL.
  *
  *  An out-of-range value is rejected here rather than at `srv.listen()`: the
- *  backend's validPort silently leaves CodeServerPort at 0 (feature off), so a
- *  bad value would surface as unrelated missing-affordance failures. */
+ *  backend's validPort silently leaves the preset unset (convention fallback),
+ *  so a bad value would surface as unrelated missing-content failures. */
 function resolveCodePort(): number {
   const raw = process.env.RK_CODE_SERVER_PORT;
   if (raw === undefined || raw === "") return 3939; // unset — same as the backend
@@ -41,7 +43,8 @@ const GIT_ROOT = execFileSync("git", ["rev-parse", "--show-toplevel"], {
 }).trim();
 
 /** The stub "code-server": a minimal same-origin page with a focusable button
- *  (the keyboard-spike test clicks into it). Proxied at /proxy/{port}/. */
+ *  (the keyboard-spike test clicks into it). Reached via the stable /code/
+ *  route — the backend forwards it to this port. */
 function startStub(): Promise<http.Server> {
   const srv = http.createServer((_req, res) => {
     res.setHeader("Content-Type", "text/html");
@@ -57,25 +60,35 @@ function startStub(): Promise<http.Server> {
 
 /** Resolve a window's stable tmux id (`@N`) from the backend snapshot by name. */
 async function resolveWindow(page: Page, windowName: string): Promise<string> {
-  return (await resolveWindowRaw(page, TMUX_SERVER, TEST_SESSION, windowName)).windowId;
+  return (await resolveWindowRaw(page, TMUX_SERVER, TEST_SESSION, windowName))
+    .windowId;
 }
 
 /** Create a window (optionally in a NON-repo cwd) and return its @N id. */
-async function makeWindow(page: Page, name: string, opts: { cwd?: string } = {}): Promise<string> {
+async function makeWindow(
+  page: Page,
+  name: string,
+  opts: { cwd?: string } = {},
+): Promise<string> {
   newWindow(TEST_SESSION, name, opts);
   return resolveWindow(page, name);
 }
 
 /** Navigate to a window's terminal route (optionally with a search string) and
  *  wait for the SSE connection. */
-async function gotoWindow(page: Page, windowId: string, search = ""): Promise<void> {
+async function gotoWindow(
+  page: Page,
+  windowId: string,
+  search = "",
+): Promise<void> {
   await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(windowId)}${search}`);
   await expect(page.locator("[aria-label='Connected']")).toBeVisible({
     timeout: READY_TIMEOUT,
   });
 }
 
-const railCodeButton = (page: Page) => page.getByRole("button", { name: "Code panel" });
+const railCodeButton = (page: Page) =>
+  page.getByRole("button", { name: "Code panel" });
 const panel = (page: Page) => page.getByTestId("right-panel");
 const codeIframe = (page: Page) => page.getByTitle("Code editor");
 const notRunning = (page: Page) => page.getByTestId("code-surface-empty");
@@ -92,7 +105,9 @@ test.beforeAll(async ({ browser }) => {
   const page = await browser.newPage();
   const first = await resolveWindowRaw(page, TMUX_SERVER, TEST_SESSION);
   await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(first.windowId)}`);
-  await expect(page.locator("[aria-label='Connected']")).toBeVisible({ timeout: 60_000 });
+  await expect(page.locator("[aria-label='Connected']")).toBeVisible({
+    timeout: 60_000,
+  });
   await expect(page.locator(".xterm").first()).toBeVisible({ timeout: 60_000 });
   await page.close();
 });
@@ -116,10 +131,12 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
     await page.setViewportSize(DESKTOP_VIEWPORT);
   });
 
-  test("the code rail button + View: Code menu row appear only on a git-repo window", async ({ page }) => {
+  test("the code rail button + View: Code menu row appear only on a git-repo window", async ({
+    page,
+  }) => {
     // A repo-cwd window gains the code affordances once the SSE window payload
-    // carries gitRoot (availability = gitRoot ∧ configured port — never
-    // reachability).
+    // carries gitRoot (availability = gitRoot derived — since 260811-a2bo the
+    // port resolves by convention and no longer gates; never reachability).
     const repo = await makeWindow(page, `cs-repo-${Date.now()}`);
     await gotoWindow(page, repo);
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
@@ -128,34 +145,42 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
     // per-view row in the "More controls" chevron menu.
     await page.getByRole("button", { name: "More controls" }).click();
     await expect(
-      page.getByRole("menu", { name: "More controls" }).getByRole("menuitemradio", { name: "View: Code" }),
+      page
+        .getByRole("menu", { name: "More controls" })
+        .getByRole("menuitemradio", { name: "View: Code" }),
     ).toBeVisible();
     await page.keyboard.press("Escape");
 
-    // A NON-repo cwd (/tmp) derives no gitRoot → neither affordance renders,
-    // even with the port configured.
-    const offRepo = await makeWindow(page, `cs-tmp-${Date.now()}`, { cwd: "/tmp" });
+    // A NON-repo cwd (/tmp) derives no gitRoot → neither affordance renders.
+    const offRepo = await makeWindow(page, `cs-tmp-${Date.now()}`, {
+      cwd: "/tmp",
+    });
     await gotoWindow(page, offRepo);
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
     await expect(railCodeButton(page)).toHaveCount(0);
     await page.getByRole("button", { name: "More controls" }).click();
     await expect(
-      page.getByRole("menu", { name: "More controls" }).getByRole("menuitemradio", { name: "View: Code" }),
+      page
+        .getByRole("menu", { name: "More controls" })
+        .getByRole("menuitemradio", { name: "View: Code" }),
     ).toHaveCount(0);
   });
 
-  test("?panel=code opens the surface; the iframe src is /proxy/{port}/?folder=<git root>", async ({ page }) => {
+  test("?panel=code opens the surface; the iframe src is the stable /code/?folder=<git root>", async ({
+    page,
+  }) => {
     const id = await makeWindow(page, `cs-panel-${Date.now()}`);
     await gotoWindow(page, id, "?panel=code");
 
-    // The iframe renders (stub reachable) at the fully DERIVED relative src —
-    // never an absolute origin (the toProxySrc path discipline).
+    // The iframe renders (stub reachable) at the fully DERIVED relative src on
+    // the STABLE /code/ route (260811-a2bo) — never an absolute origin, and the
+    // port never appears (it's a server-side implementation detail).
     await expect(panel(page)).toBeVisible({ timeout: 10_000 });
     const iframe = codeIframe(page);
     await expect(iframe).toBeVisible({ timeout: READY_TIMEOUT });
     await expect(iframe).toHaveAttribute(
       "src",
-      `/proxy/${CODE_PORT}/?folder=${encodeURIComponent(GIT_ROOT)}`,
+      `/code/?folder=${encodeURIComponent(GIT_ROOT)}`,
     );
     // The sandbox carries the k3vp prerequisite set incl. allow-downloads.
     const sandbox = await iframe.getAttribute("sandbox");
@@ -164,7 +189,22 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
     await expect(terminal(page)).toBeVisible();
   });
 
-  test("?view=code renders the code lens in the MAIN slot", async ({ page }) => {
+  test("/code 308-redirects to /code/ (query preserved) before proxying", async ({
+    page,
+  }) => {
+    // The relative-base rule (code-server resolves "./x" against the trailing
+    // slash) enforced by the backend route — asserted through the Vite dev
+    // proxy (maxRedirects: 0 so the redirect itself is observed).
+    const res = await page.request.get("/code?folder=/repo", {
+      maxRedirects: 0,
+    });
+    expect(res.status()).toBe(308);
+    expect(res.headers()["location"]).toBe("/code/?folder=/repo");
+  });
+
+  test("?view=code renders the code lens in the MAIN slot", async ({
+    page,
+  }) => {
     const id = await makeWindow(page, `cs-view-${Date.now()}`);
     await gotoWindow(page, id, "?view=code");
     await expect(codeIframe(page)).toBeVisible({ timeout: READY_TIMEOUT });
@@ -172,18 +212,33 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
     await expect(page.getByTestId("right-panel-rail")).toBeVisible();
   });
 
-  test("unavailable params fall through: ?view=code → tty and ?panel=code → closed on a /tmp window", async ({ page }) => {
-    const id = await makeWindow(page, `cs-fallthrough-${Date.now()}`, { cwd: "/tmp" });
+  test("unavailable params fall through: ?view=code → tty and ?panel=code → closed on a /tmp window", async ({
+    page,
+  }) => {
+    const id = await makeWindow(page, `cs-fallthrough-${Date.now()}`, {
+      cwd: "/tmp",
+    });
     await gotoWindow(page, id, "?view=code&panel=code");
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
     await expect(codeIframe(page)).toHaveCount(0);
     await expect(panel(page)).toHaveCount(0);
   });
 
-  test("switching surfaces hides but never unmounts the web iframe (P3 across surfaces)", async ({ page }) => {
+  test("switching surfaces hides but never unmounts the web iframe (P3 across surfaces)", async ({
+    page,
+  }) => {
     const id = await makeWindow(page, `cs-p3-${Date.now()}`);
     // Stamp @rk_url so BOTH surfaces are available on this repo-cwd window.
-    execFileSync("tmux", ["-L", TMUX_SERVER, "set-option", "-w", "-t", id, "@rk_url", "http://localhost:8080/"]);
+    execFileSync("tmux", [
+      "-L",
+      TMUX_SERVER,
+      "set-option",
+      "-w",
+      "-t",
+      id,
+      "@rk_url",
+      "http://localhost:8080/",
+    ]);
     await gotoWindow(page, id);
     const railWebButton = page.getByRole("button", { name: "Web panel" });
     await expect(railWebButton).toBeVisible({ timeout: READY_TIMEOUT });
@@ -191,7 +246,9 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
 
     // Open web, then switch to code (P6 swaps content in place).
     await railWebButton.click();
-    await expect(panel(page).getByTitle("Proxied content")).toBeVisible({ timeout: 10_000 });
+    await expect(panel(page).getByTitle("Proxied content")).toBeVisible({
+      timeout: 10_000,
+    });
     await railCodeButton(page).click();
     await expect(codeIframe(page)).toBeVisible({ timeout: READY_TIMEOUT });
 
@@ -204,10 +261,14 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
     await railWebButton.click();
     await expect(webIframe).toBeVisible({ timeout: 10_000 });
     const handleAfter = await webIframe.elementHandle();
-    expect(await page.evaluate(([a, b]) => a === b, [handleBefore, handleAfter])).toBe(true);
+    expect(
+      await page.evaluate(([a, b]) => a === b, [handleBefore, handleAfter]),
+    ).toBe(true);
   });
 
-  test("keyboard spike: a registry chord pressed INSIDE the iframe reaches the parent (chord reclaim)", async ({ page }) => {
+  test("keyboard spike: a registry chord pressed INSIDE the iframe reaches the parent (chord reclaim)", async ({
+    page,
+  }) => {
     const id = await makeWindow(page, `cs-chord-${Date.now()}`);
     await gotoWindow(page, id, "?panel=code");
     const iframe = codeIframe(page);
@@ -215,9 +276,14 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
 
     // Focus INSIDE the same-origin stub frame, then press the palette chord —
     // without the capture-phase reclaim listener, the iframe would swallow it.
-    await page.frameLocator('iframe[title="Code editor"]').locator("#inner").click();
+    await page
+      .frameLocator('iframe[title="Code editor"]')
+      .locator("#inner")
+      .click();
     await page.keyboard.press("Control+K");
-    await expect(page.getByRole("dialog", { name: "Command palette" })).toBeVisible({
+    await expect(
+      page.getByRole("dialog", { name: "Command palette" }),
+    ).toBeVisible({
       timeout: 5_000,
     });
   });
@@ -230,17 +296,22 @@ test.describe("Code lens & CODE surface (phase 2) — stub down", () => {
     await page.setViewportSize(DESKTOP_VIEWPORT);
   });
 
-  test("the surface renders the not-running empty state when the port is unreachable", async ({ page }) => {
+  test("the surface renders the not-running empty state when the port is unreachable", async ({
+    page,
+  }) => {
     const id = await makeWindow(page, `cs-down-${Date.now()}`);
     await gotoWindow(page, id, "?panel=code");
 
-    // Availability still holds (port configured ∧ gitRoot derived) — the rail
-    // button renders; only the CONTENT is the empty state. Generous timeout:
-    // the backend's ~5s probe TTL must expire before the flip lands.
+    // Availability still holds (gitRoot derived — the port is conventional) —
+    // the rail button renders; only the CONTENT is the empty state. Generous
+    // timeout: the backend's ~5s probe TTL must expire before the flip lands.
     await expect(railCodeButton(page)).toBeVisible({ timeout: READY_TIMEOUT });
-    await expect(notRunning(page)).toHaveText(`code-server not running on :${CODE_PORT}`, {
-      timeout: 30_000,
-    });
+    await expect(notRunning(page)).toHaveText(
+      "code-server not running — check rk doctor",
+      {
+        timeout: 30_000,
+      },
+    );
     await expect(codeIframe(page)).toHaveCount(0);
   });
 });

@@ -261,10 +261,13 @@ type sseHub struct {
 	// consumed — so a reconnecting tab never replays a stale consumed match
 	// (R8). Empty until the first check changes the key.
 	cachedUpdateAvailableJSON string
-	// codeServerPort is the configured RK_CODE_SERVER_PORT (0 = unset = the
-	// code lens/surface is OFF and nothing is broadcast). Set post-construction
-	// by initSSEHub from the Server's config seed (the hub's many test
-	// constructions keep the 4-arg newSSEHub shape).
+	// codeServerPort is the RESOLVED code-server port (preset
+	// RK_CODE_SERVER_PORT, else the RK_PORT+2 convention; 0 = degenerate
+	// config = nothing is probed or broadcast). Set post-construction by
+	// initSSEHub from the Server's config seed (the hub's many test
+	// constructions keep the 4-arg newSSEHub shape). Probe-only since
+	// 260811-a2bo — the broadcast payload carries just reachability; the port
+	// stays server-private behind the /code route.
 	codeServerPort int
 	// codeServerProbeAt/codeServerReachable are the TTL-cached reachability
 	// probe result (guarded by h.mu; only the poll loop writes). The probe is a
@@ -273,7 +276,7 @@ type sseHub struct {
 	codeServerProbeAt   time.Time
 	codeServerReachable bool
 	// cachedCodeServerJSON is the latest host-global `event: code-server`
-	// payload ({"port", "reachable"}), replayed on connect like
+	// payload ({"reachable"}), replayed on connect like
 	// cachedServicesJSON so late-joining clients see the signal immediately.
 	cachedCodeServerJSON string
 	// prStatus, when non-nil, supplies the in-memory PR-status snapshot the
@@ -522,13 +525,14 @@ const codeServerProbeTTL = 5 * time.Second
 // never stalls on it.
 const codeServerDialTimeout = 500 * time.Millisecond
 
-// codeServerPayload is the host-global `event: code-server` body: the
-// configured port plus its current reachability. Availability (port configured
-// AND a window's gitRoot derived) is computed client-side; reachability
-// governs only the surface's CONTENT state (live iframe vs the not-running
-// empty state) — spec right-panel.md § Surface Registry (k3vp amendment).
+// codeServerPayload is the host-global `event: code-server` body: the current
+// reachability of the resolved code-server port. The port itself is NOT
+// carried — since 260811-a2bo it is a private implementation detail behind the
+// stable /code/ route (the client builds no URL from it). Availability (a
+// window's gitRoot derived) is computed client-side; reachability governs only
+// the surface's CONTENT state (live iframe vs the not-running empty state) —
+// spec right-panel.md § Surface Registry (k3vp amendment).
 type codeServerPayload struct {
-	Port      int  `json:"port"`
 	Reachable bool `json:"reachable"`
 }
 
@@ -1648,8 +1652,8 @@ func (h *sseHub) poll() {
 		// cachedCodeServerJSON. Client-side raw-payload dedup (the services
 		// pattern) absorbs the per-tick repetition.
 		if h.codeServerPort != 0 {
-			port, reachable := h.codeServerTick()
-			if payload, err := json.Marshal(codeServerPayload{Port: port, Reachable: reachable}); err == nil {
+			_, reachable := h.codeServerTick()
+			if payload, err := json.Marshal(codeServerPayload{Reachable: reachable}); err == nil {
 				str := string(payload)
 				h.mu.Lock()
 				h.cachedCodeServerJSON = str

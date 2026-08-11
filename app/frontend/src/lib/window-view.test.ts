@@ -88,23 +88,23 @@ describe("availableViews", () => {
     expect(availableViews(undefined)).toEqual(["tty"]);
   });
 
-  // The `code` lens (260811-k3vp): available exactly when the window's gitRoot
-  // derived AND the host's code-server port is configured — the two stable
-  // capability signals (reachability governs content, not availability).
-  it("offers code when gitRoot is set AND the port is configured", () => {
+  // The `code` lens (260811-k3vp, availability simplified by 260811-a2bo):
+  // available exactly when the window's gitRoot derived — the one stable
+  // capability signal (the port resolves by convention; reachability governs
+  // content, not availability).
+  it("offers code when gitRoot is set", () => {
     const codeWin: ViewWindow = { gitRoot: "/repo" };
-    expect(availableViews(codeWin, 8080)).toEqual(["code", "tty"]);
+    expect(availableViews(codeWin)).toEqual(["code", "tty"]);
   });
 
-  it("gates code off without the port or without a gitRoot", () => {
-    expect(availableViews({ gitRoot: "/repo" })).toEqual(["tty"]); // port 0 (unset)
-    expect(availableViews(plain, 8080)).toEqual(["tty"]); // no gitRoot
-    expect(availableViews(null, 8080)).toEqual(["tty"]);
+  it("gates code off without a gitRoot", () => {
+    expect(availableViews(plain)).toEqual(["tty"]);
+    expect(availableViews(null)).toEqual(["tty"]);
   });
 
   it("stacks chat + code + web + tty in registry order", () => {
     const all: ViewWindow = { chatProvider: "claude", gitRoot: "/repo", rkUrl: "http://localhost:8080" };
-    expect(availableViews(all, 8080)).toEqual(["chat", "code", "web", "tty"]);
+    expect(availableViews(all)).toEqual(["chat", "code", "web", "tty"]);
   });
 });
 
@@ -198,15 +198,14 @@ describe("resolveView precedence: URL -> localStorage -> default, unavailable ->
 
   it("resolves code from the URL param on a code-capable window, else falls through to tty", () => {
     const codeWin: ViewWindow = { gitRoot: "/repo" };
-    expect(resolveView("code", undefined, codeWin, 8080)).toBe("code");
+    expect(resolveView("code", undefined, codeWin)).toBe("code");
     // No default hint: without URL/localStorage, code-capable still means tty.
-    expect(resolveView(undefined, undefined, codeWin, 8080)).toBe("tty");
-    // Unavailable (port unset / no gitRoot) → falls through to tty, never a
-    // broken iframe (spec R2's terminal bottom-out).
-    expect(resolveView("code", undefined, codeWin)).toBe("tty");
-    expect(resolveView("code", undefined, plain, 8080)).toBe("tty");
+    expect(resolveView(undefined, undefined, codeWin)).toBe("tty");
+    // Unavailable (no gitRoot) → falls through to tty, never a broken iframe
+    // (spec R2's terminal bottom-out).
+    expect(resolveView("code", undefined, plain)).toBe("tty");
     // Stored code survives when still available.
-    expect(resolveView(undefined, "code", codeWin, 8080)).toBe("code");
+    expect(resolveView(undefined, "code", codeWin)).toBe("code");
   });
 });
 

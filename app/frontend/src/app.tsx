@@ -658,16 +658,16 @@ function AppShell() {
   const search = useSearch({ strict: false });
   const searchView = search.view;
   const storedView = windowParam ? readStoredView(server, windowParam) : undefined;
-  // The host-level code-server signal (260811-k3vp) — the configured port gates
-  // the `code` lens/surface's availability (its `reachable` half gates only the
-  // surface CONTENT, passed to CodeSurface below). `null` = feature off.
+  // The host-level code-server signal (260811-k3vp; portless since
+  // 260811-a2bo) — `reachable` gates only the surface CONTENT (passed to
+  // CodeSurface below); availability is gitRoot-derived (hasCode). `null` = no
+  // signal yet (treated as not-running until the first event lands).
   const codeServer = useCodeServer();
-  const codeServerPort = codeServer?.port ?? 0;
   const currentViews = useMemo(
-    () => availableViews(currentWindow, codeServerPort),
-    [currentWindow, codeServerPort],
+    () => availableViews(currentWindow),
+    [currentWindow],
   );
-  const resolvedView: ViewName = resolveView(searchView, storedView, currentWindow, codeServerPort);
+  const resolvedView: ViewName = resolveView(searchView, storedView, currentWindow);
 
   // Right-panel surface state (260811-2r1w-right-panel-shell-web-surface; spec
   // right-panel.md P1) — the terminal route's SECOND render slot. Mirrors the
@@ -678,12 +678,12 @@ function AppShell() {
   const searchPanel = search.panel;
   const storedPanel = windowParam ? readStoredPanel(server, windowParam) : undefined;
   const panelSurfaces = useMemo(
-    () => availableSurfaces(currentWindow, codeServerPort),
-    [currentWindow, codeServerPort],
+    () => availableSurfaces(currentWindow),
+    [currentWindow],
   );
   const resolvedPanel: SurfaceName | null = isMobile
     ? null
-    : resolvePanel(searchPanel, storedPanel, currentWindow, codeServerPort);
+    : resolvePanel(searchPanel, storedPanel, currentWindow);
 
   // Toggle a panel surface open/closed (spec P1/P6): persist per-window in
   // localStorage (open writes the value-bearing key, close REMOVES it — absent
@@ -1626,7 +1626,6 @@ function AppShell() {
               undefined,
               readStoredView(server, fw.window.windowId),
               fw.window,
-              codeServerPort,
             ) !== "tty",
         )
         .map((fw) => fw.window.windowId),
@@ -3300,13 +3299,12 @@ function AppShell() {
               />
             ) : resolvedView === "code" && currentWindow?.gitRoot ? (
               // The code lens (260811-k3vp) in the MAIN slot — `?view=code`.
-              // `resolveView` baked in availability (gitRoot ∧ configured
-              // port), so the port is > 0 here; `gitRoot` is the TS narrowing.
-              // Reachability selects CodeSurface's content (live iframe vs the
-              // not-running empty state) — it never re-resolves the lens.
+              // `resolveView` baked in availability (gitRoot derived);
+              // `gitRoot` here is the TS narrowing. Reachability selects
+              // CodeSurface's content (live iframe vs the not-running empty
+              // state) — it never re-resolves the lens.
               <div className="flex-1 min-h-0 flex flex-col">
                 <CodeSurface
-                  port={codeServerPort}
                   gitRoot={currentWindow.gitRoot}
                   reachable={codeServer?.reachable ?? false}
                   shouldReclaimChord={reclaimChord}
@@ -3387,14 +3385,13 @@ function AppShell() {
                 ) : null}
                 {/* The `code` surface renders the lean CodeSurface (no URL bar —
                     the code-server URL is fully derived). An available `code`
-                    surface implies gitRoot ∧ configured port held. */}
+                    surface implies gitRoot derived. */}
                 {panelSurfaces.includes("code") && currentWindow?.gitRoot ? (
                   <div
                     data-testid="panel-surface-code"
                     className={`flex-col flex-1 min-h-0 h-full ${resolvedPanel === "code" ? "flex" : "hidden"}`}
                   >
                     <CodeSurface
-                      port={codeServerPort}
                       gitRoot={currentWindow.gitRoot}
                       reachable={codeServer?.reachable ?? false}
                       shouldReclaimChord={reclaimChord}

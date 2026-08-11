@@ -149,6 +149,8 @@ run-kit daemon status                        # show daemon state and port owner
 
 The daemon runs in its own dedicated tmux server (`rk-daemon`), completely separate from your sessions. Restart the daemon and everything you're running keeps running — the console reconnects automatically.
 
+The daemon also starts a managed **code-server** beside it (its own `rk-code-server` tmux session on the same socket), powering the dashboard's `code` lens and CODE panel surface — a full editor at the window's git root, served same-origin behind the stable `/code/` route. It binds loopback-only on `RK_PORT+2`; set `RK_CODE_SERVER_PORT` only to point rk at an externally managed instance instead. `run-kit daemon stop` deliberately leaves code-server running; `run-kit doctor` reports its presence and reachability.
+
 ## Status dots — read every window at a glance
 
 Each window in the sidebar, dashboard, and pane panel carries a single **status dot** that tells the window's **local story** — which journey runs in the pane and how healthy it is — using two orthogonal channels, plus a right-edge **PR glyph** for the remote story:

@@ -2,24 +2,27 @@ import { useEffect, useRef } from "react";
 
 /**
  * CodeSurface — the renderer for the `code` lens AND the panel's CODE surface
- * (change 260811-k3vp-right-panel-code-lens; spec docs/specs/right-panel.md §
- * The code lens).
+ * (change 260811-k3vp-right-panel-code-lens; the daemon-managed stable route
+ * 260811-a2bo; spec docs/specs/right-panel.md § The code lens).
  *
  * Deliberately a NEW lean component, NOT `IframeWindow`: the code-server URL is
- * fully DERIVED (`/proxy/{port}/?folder=<git root>`), so the URL bar — `@rk_url`
+ * fully DERIVED (`/code/?folder=<git root>`), so the URL bar — `@rk_url`
  * substrate state — is meaningless here, and IframeWindow reuse would drag in
  * inapplicable chrome. It is exactly an iframe plus the not-running empty
  * state.
  *
- * - **Availability vs reachability**: availability (gitRoot ∧ configured port)
- *   is computed upstream — this component renders only when the lens/surface
- *   was resolved. REACHABILITY selects the content: a reachable port renders
- *   the iframe; an unreachable one renders the terse monospace empty state
- *   instead of a dead iframe.
- * - **Relative path discipline**: `codeServerSrc` returns a root-relative path
- *   and never composes an absolute origin — the same `/proxy/{port}/…`
- *   convention `toProxySrc` (iframe-window.tsx) follows, so the embed works
- *   behind any origin or reverse proxy.
+ * - **Availability vs reachability**: availability (gitRoot derived — the port
+ *   is always resolvable by convention since a2bo) is computed upstream — this
+ *   component renders only when the lens/surface was resolved. REACHABILITY
+ *   selects the content: a reachable code-server renders the iframe; an
+ *   unreachable one renders the terse monospace empty state instead of a dead
+ *   iframe.
+ * - **Relative path discipline**: `codeServerSrc` returns the STABLE
+ *   root-relative path `/code/?folder=…` and never composes an absolute origin
+ *   — the same convention `toProxySrc` (iframe-window.tsx) follows, so the
+ *   embed works behind any origin or reverse proxy. The pathname is workspace-
+ *   state identity (code-server keys IndexedDB by it); it never carries the
+ *   port, so it can never change.
  * - **Chord reclaim (keyboard-capture spike, intake §5)**: same-origin makes an
  *   escape hatch possible — a capture-phase `keydown` listener on the iframe's
  *   `contentDocument` intercepts run-kit's registry chords BEFORE the embedded
@@ -32,28 +35,27 @@ import { useEffect, useRef } from "react";
  */
 
 /**
- * The relative proxy URL for the window's code-server folder. code-server
- * restores per-folder state from the `?folder=` param, and keys browser-side
- * workspace state by the proxy PATHNAME — so the port (path segment) is state
- * identity and must stay stable across restarts.
+ * The relative URL for the window's code-server folder, via the stable /code/
+ * route (260811-a2bo — the code-server port is a server-side implementation
+ * detail and never appears here). code-server restores per-folder state from
+ * the `?folder=` param, and keys browser-side workspace state by the proxy
+ * PATHNAME — /code/ is deliberately constant so the state survives restarts.
  */
-export function codeServerSrc(port: number, gitRoot: string): string {
-  return `/proxy/${port}/?folder=${encodeURIComponent(gitRoot)}`;
+export function codeServerSrc(gitRoot: string): string {
+  return `/code/?folder=${encodeURIComponent(gitRoot)}`;
 }
 
 interface CodeSurfaceProps {
-  /** The configured code-server port (`RK_CODE_SERVER_PORT`; > 0 here). */
-  port: number;
   /** The window's derived git toplevel (absolute path). */
   gitRoot: string;
-  /** The host's TTL-cached reachability probe result for the port. */
+  /** The host's TTL-cached code-server reachability probe result. */
   reachable: boolean;
   /** Keyboard spike: return true when the event matches a run-kit registry
    *  chord that should be reclaimed from the iframe. Absent ⇒ no reclaim. */
   shouldReclaimChord?: (e: KeyboardEvent) => boolean;
 }
 
-export function CodeSurface({ port, gitRoot, reachable, shouldReclaimChord }: CodeSurfaceProps) {
+export function CodeSurface({ gitRoot, reachable, shouldReclaimChord }: CodeSurfaceProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const reclaimRef = useRef(shouldReclaimChord);
   reclaimRef.current = shouldReclaimChord;
@@ -122,7 +124,7 @@ export function CodeSurface({ port, gitRoot, reachable, shouldReclaimChord }: Co
         data-testid="code-surface-empty"
         className="flex-1 min-h-0 flex items-center justify-center text-text-secondary text-xs font-mono select-none"
       >
-        code-server not running on :{port}
+        code-server not running — check rk doctor
       </div>
     );
   }
@@ -130,7 +132,7 @@ export function CodeSurface({ port, gitRoot, reachable, shouldReclaimChord }: Co
   return (
     <iframe
       ref={iframeRef}
-      src={codeServerSrc(port, gitRoot)}
+      src={codeServerSrc(gitRoot)}
       className="flex-1 w-full border-0"
       title="Code editor"
       // Same sandbox as IframeWindow, plus allow-downloads (without it VS Code

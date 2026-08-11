@@ -154,10 +154,11 @@ type Server struct {
 	// RK_SSH_HOST is unset. Pure derivation per Constitution X — no config.
 	// Empty on lookup failure = the frontend omits the `user@` prefix.
 	sshUser string
-	// codeServerPort is the optional RK_CODE_SERVER_PORT config value (0 =
-	// unset = the code lens/surface is off). Seeded from config.Load() at
-	// startup; handed to the SSE hub, which broadcasts the host-level
-	// {"port", "reachable"} signal.
+	// codeServerPort is the RESOLVED code-server port (preset
+	// RK_CODE_SERVER_PORT, else the RK_PORT+2 convention). Seeded from
+	// config.Load() at startup; handed to the SSE hub, which probes it and
+	// broadcasts the host-level {"reachable"} signal. Never leaves the server
+	// — the frontend embeds via the stable /code/ route.
 	codeServerPort int
 	metrics        *metrics.Collector
 	services       *ports.Collector
@@ -544,7 +545,7 @@ func NewRouterAndServer(ctx context.Context, logger *slog.Logger) (chi.Router, *
 		hostname:       hostname,
 		sshHost:        cfg.SSHHost,
 		sshUser:        sshUser,
-		codeServerPort: cfg.CodeServerPort, // 0 = code lens/surface off
+		codeServerPort: cfg.ResolvedCodeServerPort(), // 0 = degenerate config (probe off)
 		metrics:        mc,
 		services:       svc,
 		prStatus:       pc,
@@ -708,6 +709,12 @@ func (s *Server) buildRouter() chi.Router {
 	// Reverse proxy for iframe windows
 	r.HandleFunc("/proxy/{port}/*", s.handleProxy)
 	r.HandleFunc("/proxy/{port}", s.handleProxy)
+
+	// The stable code-server route (260811-a2bo) — same proxy machinery as
+	// /proxy/{port} with a FIXED pathname (workspace-state identity); the port
+	// is resolved server-side and never appears in a URL.
+	r.HandleFunc("/code/*", s.handleCode)
+	r.HandleFunc("/code", s.handleCode)
 
 	// State socket — muxed session-state + host-metrics stream (replaces the
 	// retired GET /api/sessions/stream SSE edge; see api/state_ws.go).

@@ -13,8 +13,8 @@
  * DOM-free except thin try/catch-noop localStorage wrappers, so the render
  * branch in `app.tsx` AND the unit tests share one drift-free source. Panel
  * availability derives from the same capability signals as the view registry
- * (`hasWebUrl` for `web`, `hasCode` for `code` — the gitRoot ∧ configured-port
- * gate; Constitution II/X).
+ * (`hasWebUrl` for `web`, `hasCode` for `code` — gitRoot-derived since
+ * 260811-a2bo; Constitution II/X).
  */
 
 import { hasCode, hasWebUrl, type ViewWindow } from "./window-view";
@@ -31,18 +31,17 @@ export type SurfaceName = "web" | "code";
  * `web` is available exactly when `hasWebUrl(win)` holds — reusing the shipped
  * helper as the single source of truth (no duplicate URL-trim logic; spec:
  * "same capability signal as the view registry row"). `code` mirrors the view
- * registry's gate via the shared `hasCode` helper: the host's code-server port
- * configured AND the window's gitRoot derived — the two STABLE capability
- * signals. Reachability is NOT part of availability (it governs the surface's
- * content — live iframe vs the not-running empty state).
+ * registry's gate via the shared `hasCode` helper: the window's gitRoot
+ * derived — the one STABLE capability signal (the port resolves by convention
+ * since 260811-a2bo). Reachability is NOT part of availability (it governs the
+ * surface's content — live iframe vs the not-running empty state).
  */
 export function availableSurfaces(
   win: ViewWindow | null | undefined,
-  codeServerPort = 0,
 ): SurfaceName[] {
   const surfaces: SurfaceName[] = [];
   if (hasWebUrl(win)) surfaces.push("web");
-  if (hasCode(win, codeServerPort)) surfaces.push("code");
+  if (hasCode(win)) surfaces.push("code");
   return surfaces;
 }
 
@@ -61,9 +60,8 @@ export function resolvePanel(
   searchPanel: string | undefined,
   stored: string | undefined,
   win: ViewWindow | null | undefined,
-  codeServerPort = 0,
 ): SurfaceName | null {
-  const available = availableSurfaces(win, codeServerPort);
+  const available = availableSurfaces(win);
   const isAvailable = (s: string | undefined): s is SurfaceName =>
     (s === "web" || s === "code") && available.includes(s);
 

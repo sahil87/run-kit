@@ -36,20 +36,19 @@ describe("availableSurfaces", () => {
     expect(availableSurfaces(undefined)).toEqual([]);
   });
 
-  // The `code` surface (260811-k3vp) mirrors the view registry's gate: gitRoot
-  // derived AND the host's code-server port configured. Registry order is
-  // web-then-code (spec § Surface Registry row order).
-  it("offers code exactly when gitRoot is set AND the port is configured", () => {
+  // The `code` surface (260811-k3vp, simplified by 260811-a2bo) mirrors the
+  // view registry's gate: gitRoot derived (the port resolves by convention).
+  // Registry order is web-then-code (spec § Surface Registry row order).
+  it("offers code exactly when gitRoot is set", () => {
     const codeWin: ViewWindow = { gitRoot: "/repo" };
-    expect(availableSurfaces(codeWin, 8080)).toEqual(["code"]);
-    expect(availableSurfaces({ rkUrl: "http://localhost:8080", gitRoot: "/repo" }, 8080))
+    expect(availableSurfaces(codeWin)).toEqual(["code"]);
+    expect(availableSurfaces({ rkUrl: "http://localhost:8080", gitRoot: "/repo" }))
       .toEqual(["web", "code"]);
   });
 
-  it("gates code off without a port or without a gitRoot", () => {
-    expect(availableSurfaces({ gitRoot: "/repo" })).toEqual([]); // port unset (0)
-    expect(availableSurfaces(plain, 8080)).toEqual([]); // no gitRoot
-    expect(availableSurfaces(null, 8080)).toEqual([]);
+  it("gates code off without a gitRoot", () => {
+    expect(availableSurfaces(plain)).toEqual([]);
+    expect(availableSurfaces(null)).toEqual([]);
   });
 });
 
@@ -81,14 +80,13 @@ describe("resolvePanel", () => {
     expect(resolvePanel(undefined, "web", null)).toBeNull();
   });
 
-  // The `code` surface (260811-k3vp): same precedence chain, gated by the
-  // gitRoot ∧ configured-port availability rule.
+  // The `code` surface (260811-k3vp, simplified by 260811-a2bo): same
+  // precedence chain, gated by the gitRoot-derived availability rule.
   it("resolves code when available, drops it when not", () => {
     const codeWin: ViewWindow = { gitRoot: "/repo" };
-    expect(resolvePanel("code", undefined, codeWin, 8080)).toBe("code");
-    expect(resolvePanel(undefined, "code", codeWin, 8080)).toBe("code");
-    expect(resolvePanel("code", undefined, codeWin)).toBeNull(); // port unset
-    expect(resolvePanel("code", undefined, plain, 8080)).toBeNull(); // no gitRoot
+    expect(resolvePanel("code", undefined, codeWin)).toBe("code");
+    expect(resolvePanel(undefined, "code", codeWin)).toBe("code");
+    expect(resolvePanel("code", undefined, plain)).toBeNull(); // no gitRoot
   });
 });
 

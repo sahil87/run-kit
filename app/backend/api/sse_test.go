@@ -217,10 +217,11 @@ func TestSSEHubServicesBroadcast(t *testing.T) {
 }
 
 // TestSSEHubCodeServerBroadcast proves the host-global `event: code-server`
-// signal (260811-k3vp): when a port is configured the poll loop broadcasts
-// {"port", "reachable"} from the TTL-cached probe to EVERY connection
-// (including the metrics-only sentinel), flips to reachable:false after the
-// listener dies and the TTL expires, and stays silent when unconfigured.
+// signal (260811-k3vp; portless payload since 260811-a2bo): when a port is
+// resolved the poll loop broadcasts {"reachable"} from the TTL-cached probe to
+// EVERY connection (including the metrics-only sentinel), flips to
+// reachable:false after the listener dies and the TTL expires, and stays
+// silent when unresolvable.
 func TestSSEHubCodeServerBroadcast(t *testing.T) {
 	newHub := func(port int) *sseHub {
 		hub := newSSEHub(&slowSessionFetcher{result: []sessions.ProjectSession{}}, nil, nil, nil)
@@ -252,14 +253,16 @@ func TestSSEHubCodeServerBroadcast(t *testing.T) {
 		hub := newHub(port)
 		client := hub.addTestClient(make(chan hubEvent, 16), metricsOnlyServer)
 
-		waitFor(t, client.ch, fmt.Sprintf(`{"port":%d,"reachable":true}`, port))
+		// The payload carries reachability only — the port is server-private
+		// behind the /code route and must never appear on the wire.
+		waitFor(t, client.ch, `{"reachable":true}`)
 
 		// Kill the listener; the probe TTL (5s) must expire before the flip.
 		ln.Close()
 		hub.mu.Lock()
 		hub.codeServerProbeAt = time.Now().Add(-2 * codeServerProbeTTL) // expire the cache
 		hub.mu.Unlock()
-		waitFor(t, client.ch, fmt.Sprintf(`{"port":%d,"reachable":false}`, port))
+		waitFor(t, client.ch, `{"reachable":false}`)
 	})
 
 	t.Run("late joiner gets the replay slot", func(t *testing.T) {
@@ -271,13 +274,13 @@ func TestSSEHubCodeServerBroadcast(t *testing.T) {
 		port := ln.Addr().(*net.TCPAddr).Port
 		hub := newHub(port)
 		first := hub.addTestClient(make(chan hubEvent, 16), metricsOnlyServer)
-		waitFor(t, first.ch, fmt.Sprintf(`{"port":%d`, port))
+		waitFor(t, first.ch, `{"reachable":true}`)
 
 		// A second connection is replayed the cached payload from
 		// replayGlobalSlots without waiting for the next tick.
 		sc := &stateConn{ch: make(chan hubEvent, 16), subs: map[string]*sseClient{}}
 		hub.replayGlobalSlots(sc)
-		waitFor(t, sc.ch, fmt.Sprintf(`{"port":%d,"reachable":true}`, port))
+		waitFor(t, sc.ch, `{"reachable":true}`)
 	})
 
 	t.Run("unconfigured port broadcasts nothing", func(t *testing.T) {

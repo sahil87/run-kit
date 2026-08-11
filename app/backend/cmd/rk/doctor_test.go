@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -458,5 +459,45 @@ func TestDoctorFailRowWording(t *testing.T) {
 	}
 	if got := doctorFailLabel(c); got != "tmux-guard shim" {
 		t.Errorf("shim [FAIL] label = %q, want %q", got, "tmux-guard shim")
+	}
+}
+
+// TestCodeServerCheckAbsentBinaryIsWarnNotFail proves the daemon-managed
+// editor's doctor row never fails the report (260811-a2bo): an absent binary
+// is the WARN case — OK with a remediation note — matching daemon start's
+// warn-and-continue discipline.
+func TestCodeServerCheckAbsentBinaryIsWarnNotFail(t *testing.T) {
+	t.Setenv("RK_CODE_SERVER_PORT", "3939")
+	c := codeServerCheck(
+		func(string) (string, error) { return "", fmt.Errorf("not found") },
+		func(string) bool { return false },
+	)
+	if c.Name != "code-server" {
+		t.Errorf("name = %q, want code-server", c.Name)
+	}
+	if !c.OK {
+		t.Error("absent binary must not fail the check (WARN case)")
+	}
+	if !strings.Contains(c.Note, "not installed") || !strings.Contains(c.Note, ":3939") {
+		t.Errorf("note = %q, want remediation + resolved port", c.Note)
+	}
+}
+
+// TestCodeServerCheckReachabilityNotes covers the two installed states:
+// reachable reports the loopback address; unreachable reports the
+// daemon-starts-it hint. Both stay OK.
+func TestCodeServerCheckReachabilityNotes(t *testing.T) {
+	t.Setenv("RK_PORT", "3000")
+	t.Setenv("RK_CODE_SERVER_PORT", "")
+	lookPath := func(string) (string, error) { return "/usr/bin/code-server", nil }
+
+	up := codeServerCheck(lookPath, func(string) bool { return true })
+	if !up.OK || !strings.Contains(up.Note, "reachable on 127.0.0.1:3002") {
+		t.Errorf("reachable: %+v, want OK + convention port :3002 note", up)
+	}
+
+	down := codeServerCheck(lookPath, func(string) bool { return false })
+	if !down.OK || !strings.Contains(down.Note, "not currently reachable on 127.0.0.1:3002") {
+		t.Errorf("unreachable: %+v, want OK + not-reachable note with :3002", down)
 	}
 }

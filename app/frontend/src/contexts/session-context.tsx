@@ -273,15 +273,16 @@ const HostMetricsContext = createContext<MetricsSnapshot | null | undefined>(und
 const HostServicesContext = createContext<Service[] | undefined>(undefined);
 
 /** The host-global code-server signal broadcast as the `code-server` global
- *  event (260811-k3vp): the configured `RK_CODE_SERVER_PORT` (0 = unset = the
- *  code lens/surface is off) plus its TTL-cached reachability. Reachability
- *  governs the surface's CONTENT state only — availability keys off `port`. */
-export type CodeServerSignal = { port: number; reachable: boolean };
+ *  event (260811-k3vp; portless since 260811-a2bo — the port is server-private
+ *  behind the stable /code/ route): just the TTL-cached reachability.
+ *  Reachability governs the surface's CONTENT state only — availability is
+ *  gitRoot-derived and never needs this signal. */
+export type CodeServerSignal = { reachable: boolean };
 
 // The code-server signal lives in its OWN context (the HostServicesContext
 // precedent): host-global, delivered once per tick, so the per-tick repetition
 // does not cascade re-renders into unrelated consumers. `undefined` = outside
-// provider (throw); `null` = no signal yet OR unconfigured (feature off).
+// provider (throw); `null` = no signal yet.
 const CodeServerContext = createContext<CodeServerSignal | null | undefined>(undefined);
 
 type SessionProviderProps = {
@@ -849,13 +850,10 @@ export function SessionProvider({ children }: SessionProviderProps) {
           break;
         }
         case "code-server": {
-          const d = data as { port?: number; reachable?: boolean };
-          if (typeof d.port === "number") {
-            applyCodeServer(JSON.stringify(data), {
-              port: d.port,
-              reachable: d.reachable === true,
-            });
-          }
+          const d = data as { reachable?: boolean };
+          applyCodeServer(JSON.stringify(data), {
+            reachable: d.reachable === true,
+          });
           break;
         }
         case "server-order": {

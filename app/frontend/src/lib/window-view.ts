@@ -74,21 +74,19 @@ export function hasChat(win: ViewWindow | null | undefined): boolean {
 
 /**
  * Whether a window offers the code lens (spec right-panel.md § Surface
- * Registry, amended by 260811-k3vp): AVAILABILITY = the host's code-server
- * port is configured (`codeServerPort > 0`, from the state socket's
- * `code-server` event) AND the window's `gitRoot` derived non-empty. These are
- * the two STABLE capability signals. code-server REACHABILITY is deliberately
- * NOT part of this gate — it fluctuates, and gating on it would strobe the
- * switcher; reachability instead selects the surface's CONTENT (live iframe vs
- * the not-running empty state). The single source of truth for code
- * availability — `availableViews` and `right-panel.ts`'s `availableSurfaces`
- * both key off it.
+ * Registry, amended by 260811-k3vp, simplified by 260811-a2bo): AVAILABILITY =
+ * the window's `gitRoot` derived non-empty — the one STABLE capability signal.
+ * The host-side leg (a resolvable code-server port) is always true since a2bo:
+ * the port resolves by convention (`RK_PORT+2`) unless a preset override wins,
+ * so "configured" no longer gates anything. code-server REACHABILITY is
+ * deliberately NOT part of this gate — it fluctuates, and gating on it would
+ * strobe the switcher; reachability instead selects the surface's CONTENT
+ * (live iframe vs the not-running empty state). The single source of truth for
+ * code availability — `availableViews` and `right-panel.ts`'s
+ * `availableSurfaces` both key off it.
  */
-export function hasCode(
-  win: ViewWindow | null | undefined,
-  codeServerPort = 0,
-): boolean {
-  return codeServerPort > 0 && (win?.gitRoot ?? "").length > 0;
+export function hasCode(win: ViewWindow | null | undefined): boolean {
+  return (win?.gitRoot ?? "").length > 0;
 }
 
 /**
@@ -97,17 +95,16 @@ export function hasCode(
  * `@rk_type` (an iframe-typed window with no URL offers only `tty`, matching the
  * pre-existing render gate's AND-condition, so no existing window changes
  * behavior); `chat` is available exactly when the window carries a
- * `chatProvider`; `code` is available exactly when `hasCode` holds (gitRoot ∧
- * configured port). Capabilities are orthogonal and stack (spec R5). Returned in
+ * `chatProvider`; `code` is available exactly when `hasCode` holds (gitRoot
+ * derived). Capabilities are orthogonal and stack (spec R5). Returned in
  * the registry's fixed order (HINT_ORDER).
  */
 export function availableViews(
   win: ViewWindow | null | undefined,
-  codeServerPort = 0,
 ): ViewName[] {
   const views: ViewName[] = [];
   if (hasChat(win)) views.push("chat");
-  if (hasCode(win, codeServerPort)) views.push("code");
+  if (hasCode(win)) views.push("code");
   if (hasWebUrl(win)) views.push("web");
   views.push("tty");
   // Return in HINT_ORDER so the switcher segment order is stable/registry-driven.
@@ -153,9 +150,8 @@ export function resolveView(
   searchView: string | undefined,
   stored: string | undefined,
   win: ViewWindow | null | undefined,
-  codeServerPort = 0,
 ): ViewName {
-  const available = availableViews(win, codeServerPort);
+  const available = availableViews(win);
   const isAvailable = (v: string | undefined): v is ViewName =>
     v === "tty" || v === "web" || v === "chat" || v === "code" ? available.includes(v) : false;
 

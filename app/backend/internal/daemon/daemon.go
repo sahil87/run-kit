@@ -308,6 +308,11 @@ func startSession(exe string) error {
 		return fmt.Errorf("creating tmux session: %w", err)
 	}
 
+	// Bring up the managed code-server beside the daemon (260811-a2bo).
+	// Best-effort and re-entrant: an absent binary or a spawn failure warns
+	// and NEVER fails daemon start — the dashboard must come up regardless.
+	ensureCodeServer()
+
 	return nil
 }
 

@@ -1,14 +1,17 @@
 # code-surface.spec.ts
 
 Proves the right panel's phase 2 (change `260811-k3vp-right-panel-code-lens`,
-`docs/specs/right-panel.md` § The code lens + § Surface Registry): the `code`
-lens joins the view registry (`?view=code` in the main slot + the `View: Code`
-overflow-menu row) AND the panel's CODE surface (rail button, `?panel=code`),
-with availability = gitRoot derived ∧ `RK_CODE_SERVER_PORT` configured, and
-code-server reachability governing only the surface CONTENT (live iframe vs
-the not-running empty state). Also proves the keyboard-capture spike: a
-run-kit registry chord pressed inside the same-origin iframe is reclaimed by
-the parent.
+managed lifecycle + stable route `260811-a2bo`; `docs/specs/right-panel.md` §
+The code lens + § Surface Registry): the `code` lens joins the view registry
+(`?view=code` in the main slot + the `View: Code` overflow-menu row) AND the
+panel's CODE surface (rail button, `?panel=code`), with availability = gitRoot
+derived (since a2bo the port resolves by convention — `RK_CODE_SERVER_PORT`
+preset, else `RK_PORT+2` — and no longer gates), and code-server reachability
+governing only the surface CONTENT (live iframe vs the not-running empty
+state). The iframe src is the STABLE `/code/?folder=<git root>` route — the
+port never appears in a URL. Also proves the `/code` → `/code/` redirect and
+the keyboard-capture spike: a run-kit registry chord pressed inside the
+same-origin iframe is reclaimed by the parent.
 
 ## Shared setup
 
@@ -23,7 +26,8 @@ the parent.
   probe is TTL-cached (~5s), so down-state assertions use a 30s budget. The
   port is validated against the backend's own 1-65535 range before the stub
   binds, so an out-of-range env value fails with a named error instead of
-  surfacing as unrelated missing-affordance assertions.
+  surfacing as unrelated missing-affordance assertions. The backend resolves
+  the same port server-side (the preset wins) and forwards `/code/*` to it.
 - **`beforeAll`**: create one dedicated session `e2e-codesurface-<ts>` (80×24)
   so this file never collides with other specs (`fullyParallel` off), then
   warm the dev server with a throwaway TERMINAL-route page load (this
@@ -49,10 +53,10 @@ the parent.
 ## Tests
 
 ### the code rail button + View: Code menu row appear only on a git-repo window
-What it proves: availability derives from the SSE `gitRoot` field ∧ the
-configured port (Constitution II/X — no client-side declaration); a non-repo
-cwd (`/tmp`) derives no gitRoot, so neither affordance renders even with the
-port configured.
+What it proves: availability derives from the SSE `gitRoot` field alone
+(Constitution II/X — no client-side declaration; the port is conventional
+since a2bo); a non-repo cwd (`/tmp`) derives no gitRoot, so neither affordance
+renders.
 Steps:
 1. Create a repo-cwd window; navigate; assert the terminal, then the `Code
    panel` rail button (SSE-gated).
@@ -60,17 +64,25 @@ Steps:
 3. Create a `/tmp`-cwd window; navigate; assert NO `Code panel` button and no
    `View: Code` row.
 
-### ?panel=code opens the surface; the iframe src is /proxy/{port}/?folder=<git root>
+### ?panel=code opens the surface; the iframe src is the stable /code/?folder=<git root>
 What it proves: the P1 deep link resolves the code surface, and the renderer
-iframed the fully derived RELATIVE proxy URL (never an absolute origin) with
-the k3vp sandbox set (incl. `allow-downloads`); the terminal stays mounted
-beside the panel (P2).
+iframed the fully derived RELATIVE `/code/` URL (never an absolute origin, the
+port never appears — a2bo) with the k3vp sandbox set (incl.
+`allow-downloads`); the terminal stays mounted beside the panel (P2).
 Steps:
 1. Create a repo-cwd window; navigate with `?panel=code`.
 2. Assert the panel and the `Code editor` iframe are visible; assert its `src`
-   attribute is exactly `/proxy/{port}/?folder=<url-encoded git root>` and its
+   attribute is exactly `/code/?folder=<url-encoded git root>` and its
    sandbox contains `allow-downloads`.
 3. Assert the terminal is still visible.
+
+### /code 308-redirects to /code/ (query preserved) before proxying
+What it proves: the relative-base rule on the new stable route — code-server
+resolves `./x` against the trailing slash, so the backend 308-redirects the
+bare `/code` to `/code/` with the query preserved (a2bo R3).
+Steps:
+1. `GET /code?folder=/repo` through the dev proxy with `maxRedirects: 0`.
+2. Assert status 308 and `Location: /code/?folder=/repo`.
 
 ### ?view=code renders the code lens in the MAIN slot
 What it proves: `code` is a full view-registry lens (window-views R4) — the
@@ -115,12 +127,12 @@ Steps:
 ### the surface renders the not-running empty state when the port is unreachable
 What it proves: reachability governs CONTENT, not availability — with the stub
 down, the rail button still renders (capability signals are stable) but the
-panel shows the terse `code-server not running on :{port}` empty state instead
-of a dead iframe.
+panel shows the terse portless `code-server not running — check rk doctor`
+empty state (a2bo) instead of a dead iframe.
 Steps:
 1. (Stub is closed — this describe never binds the port.)
 2. Create a repo-cwd window; navigate with `?panel=code`; assert the `Code
    panel` rail button is visible.
-3. Assert the `code-surface-empty` state reads `code-server not running on
-   :{port}` (30s budget — the backend's ~5s probe TTL must expire first) and
-   no `Code editor` iframe exists.
+3. Assert the `code-surface-empty` state reads `code-server not running —
+   check rk doctor` (30s budget — the backend's ~5s probe TTL must expire
+   first) and no `Code editor` iframe exists.

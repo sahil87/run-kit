@@ -41,7 +41,10 @@ command -v air &>/dev/null || { echo "error: air not found (go install github.co
 # death is diagnosable.
 export RK_CODE_SERVER_PORT=$(( RK_PORT + 2 ))
 CODE_SERVER_LOG="/tmp/rk-dev-code-server-${RK_CODE_SERVER_PORT}.log"
-code-server --bind-addr "127.0.0.1:${RK_CODE_SERVER_PORT}" --auth none > "$CODE_SERVER_LOG" 2>&1 &
+# `env -u VSCODE_IPC_HOOK_CLI`: inside a VS Code integrated terminal that var
+# makes code-server act as the `code` CLI ("open in existing instance") and
+# exit with "Please specify at least one file or folder" instead of serving.
+env -u VSCODE_IPC_HOOK_CLI code-server --bind-addr "127.0.0.1:${RK_CODE_SERVER_PORT}" --auth none > "$CODE_SERVER_LOG" 2>&1 &
 echo "code-server: 127.0.0.1:${RK_CODE_SERVER_PORT} (log: ${CODE_SERVER_LOG})"
 
 (cd app/backend && RK_PORT=$(( RK_PORT + 1 )) air) &

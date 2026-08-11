@@ -730,8 +730,10 @@ func (h *sseHub) broadcastSessionOrder(server string, order []string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.previousOrderJSON[server] = jsonStr
+	// Render once before the loop — every recipient gets the same bytes.
+	ev := preRendered(hubEvent{kind: kindServer, typ: "session-order", key: server, data: jsonStr})
 	for _, c := range h.clients[server] {
-		h.sendLocked(c, hubEvent{kind: kindServer, typ: "session-order", key: server, data: jsonStr})
+		h.sendLocked(c, ev)
 	}
 }
 
@@ -762,7 +764,7 @@ func (h *sseHub) broadcastServerOrder(order []string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.cachedServerOrderJSON = jsonStr
-	h.broadcastGlobalLocked(hubEvent{kind: kindGlobal, typ: "server-order", data: jsonStr})
+	h.broadcastGlobalLocked(preRendered(hubEvent{kind: kindGlobal, typ: "server-order", data: jsonStr}))
 }
 
 // broadcastBoardOrder pushes a server-global `event: board-order` to EVERY
@@ -792,7 +794,7 @@ func (h *sseHub) broadcastBoardOrder(order []string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.cachedBoardOrderJSON = jsonStr
-	h.broadcastGlobalLocked(hubEvent{kind: kindGlobal, typ: "board-order", data: jsonStr})
+	h.broadcastGlobalLocked(preRendered(hubEvent{kind: kindGlobal, typ: "board-order", data: jsonStr}))
 }
 
 // setVersion seeds the server-global `event: version` cached slot with the
@@ -909,7 +911,7 @@ func (h *sseHub) broadcastUpdateAvailable(verdict updatecheck.Result) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.cachedUpdateAvailableJSON = jsonStr
-	h.broadcastGlobalLocked(hubEvent{kind: kindGlobal, typ: "update-available", data: jsonStr})
+	h.broadcastGlobalLocked(preRendered(hubEvent{kind: kindGlobal, typ: "update-available", data: jsonStr}))
 }
 
 // broadcastStatusRefresh pushes a server-global `event: status-refresh` to EVERY
@@ -937,7 +939,7 @@ func (h *sseHub) broadcastStatusRefresh(completedAt time.Time) {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.broadcastGlobalLocked(hubEvent{kind: kindGlobal, typ: "status-refresh", data: string(jsonBytes)})
+	h.broadcastGlobalLocked(preRendered(hubEvent{kind: kindGlobal, typ: "status-refresh", data: string(jsonBytes)}))
 }
 
 // broadcastGlobalLocked fans a host-global event out to every live state-socket
@@ -963,8 +965,9 @@ func (h *sseHub) broadcastBoardChanged(server string, payload boardChangedPayloa
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	ev := preRendered(hubEvent{kind: kindServer, typ: boardEventName, key: server, data: string(jsonBytes)})
 	for _, c := range h.clients[server] {
-		h.sendLocked(c, hubEvent{kind: kindServer, typ: boardEventName, key: server, data: string(jsonBytes)})
+		h.sendLocked(c, ev)
 	}
 }
 
@@ -1335,8 +1338,11 @@ func (h *sseHub) poll() {
 			h.mu.Lock()
 			if jsonStr != h.previousJSON[server] {
 				h.previousJSON[server] = jsonStr
+				// Render once before the loop — every client on this server
+				// gets the same bytes.
+				ev := preRendered(hubEvent{kind: kindServer, typ: "sessions", key: server, data: jsonStr})
 				for _, c := range h.clients[server] {
-					h.sendLocked(c, hubEvent{kind: kindServer, typ: "sessions", key: server, data: jsonStr})
+					h.sendLocked(c, ev)
 				}
 			}
 			h.mu.Unlock()
@@ -1513,7 +1519,7 @@ func (h *sseHub) poll() {
 				metricsStr := string(metricsJSON)
 				h.mu.Lock()
 				h.cachedMetricsJSON = metricsStr
-				h.broadcastGlobalLocked(hubEvent{kind: kindGlobal, typ: "metrics", data: metricsStr})
+				h.broadcastGlobalLocked(preRendered(hubEvent{kind: kindGlobal, typ: "metrics", data: metricsStr}))
 				h.mu.Unlock()
 			}
 		}
@@ -1527,7 +1533,7 @@ func (h *sseHub) poll() {
 				servicesStr := string(servicesJSON)
 				h.mu.Lock()
 				h.cachedServicesJSON = servicesStr
-				h.broadcastGlobalLocked(hubEvent{kind: kindGlobal, typ: "services", data: servicesStr})
+				h.broadcastGlobalLocked(preRendered(hubEvent{kind: kindGlobal, typ: "services", data: servicesStr}))
 				h.mu.Unlock()
 			}
 		}

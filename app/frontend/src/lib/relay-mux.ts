@@ -411,7 +411,13 @@ export class RelayMux {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
     const payload = toBytes(data);
     const frame = new Uint8Array(4 + payload.length);
-    new DataView(frame.buffer).setUint32(0, id, false); // big-endian
+    // Big-endian u32 stream id via direct byte stores — the same bytes
+    // DataView.setUint32(0, id, false) writes, without the per-frame
+    // DataView allocation on this per-keystroke path.
+    frame[0] = (id >>> 24) & 0xff;
+    frame[1] = (id >>> 16) & 0xff;
+    frame[2] = (id >>> 8) & 0xff;
+    frame[3] = id & 0xff;
     frame.set(payload, 4);
     this.ws.send(frame);
   }

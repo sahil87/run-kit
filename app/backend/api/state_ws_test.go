@@ -23,10 +23,19 @@ import (
 // String renders a hubEvent as an SSE-style frame. Used ONLY by tests that
 // assert on the legacy frame shape; production rendering is renderEnvelope. For
 // a gone marker it mirrors the retired `event: server-gone\ndata: {}` frame.
-// Defined here (a _test.go file, same package) so this test-only helper — and
-// its `fmt` dependency — never ship in the production binary.
+// A raw frame carrying an `event` envelope (the pre-rendered broadcast fan-out
+// form) is DECODED and re-rendered to the same SSE-style shape a structured
+// event produces, so string assertions see identical decoded semantics whether
+// the event rode structured or raw; other raw frames (ack/error/pong) pass
+// through verbatim. Defined here (a _test.go file, same package) so this
+// test-only helper — and its `fmt` dependency — never ship in the production
+// binary.
 func (e hubEvent) String() string {
 	if e.raw != nil {
+		var f eventFrame
+		if json.Unmarshal(e.raw, &f) == nil && f.Op == "event" {
+			return fmt.Sprintf("event: %s\ndata: %s\n\n", f.Type, string(f.Data))
+		}
 		return string(e.raw)
 	}
 	if e.gone {

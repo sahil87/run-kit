@@ -142,9 +142,12 @@ type hubEvent struct {
 	data string
 	gone bool
 	// raw, when non-nil, is a pre-rendered frame delivered verbatim (bypassing
-	// envelope rendering). Used for the subscribe `ack` frame, which is composed
-	// by the handler but must ride the same ordered channel as the subscription's
-	// events.
+	// envelope rendering). Its primary use is broadcast fan-out: producers render
+	// an event once (preRendered) and every recipient's writer pump passes the
+	// same bytes through, instead of each marshalling an identical envelope. It
+	// also carries handler-composed frames that must ride the ordered channel —
+	// the subscribe `ack`, error frames, pongs. Convention: raw broadcast events
+	// keep `typ` populated so the channel-full drop logs stay informative.
 	raw []byte
 }
 
@@ -168,6 +171,18 @@ func (e hubEvent) renderEnvelope() []byte {
 		Data: json.RawMessage(e.data),
 	})
 	return b
+}
+
+// preRendered renders ev ONCE and returns the raw-bypass form fanned out to
+// every recipient verbatim — a broadcast to C connections costs 1 marshal
+// instead of C identical ones (renderEnvelope passes raw through unchanged, so
+// the wire bytes are byte-identical to per-recipient rendering). typ is kept
+// populated so the channel-full drop logs (sendLocked / sendConnLockedOK)
+// still name the event. Fan-out producers only: per-subscriber events whose
+// payload differs per recipient (preview) and single-recipient sends stay
+// structured.
+func preRendered(ev hubEvent) hubEvent {
+	return hubEvent{raw: ev.renderEnvelope(), typ: ev.typ}
 }
 
 // stateWSWriteWait bounds a single WebSocket write. A stuck client must not

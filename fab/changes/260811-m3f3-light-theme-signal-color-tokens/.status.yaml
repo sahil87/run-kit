@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 10
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-08-11T10:27:17Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-11T10:58:10Z"}
     review: {started_at: "2026-08-11T10:58:10Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-11T11:20:32Z"}
     hydrate: {started_at: "2026-08-11T11:20:32Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-11T11:28:12Z"}
-    ship: {started_at: "2026-08-11T11:28:12Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-08-11T11:28:12Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-11T11:33:46Z"}
+    review-pr: {started_at: "2026-08-11T11:33:46Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/554
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 658
+    deleted: 115
+    net: 543
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 222
+        deleted: 96
+        net: 126
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-08-11T11:28:12Z"
-    computed_at_stage: hydrate
+        added: 117
+        deleted: 10
+        net: 107
+    computed_at: "2026-08-11T11:33:46Z"
+    computed_at_stage: ship
 summary: 'Promoted the four signal hues to per-theme --color-signal-* tokens (dark pixel-identical, light ≥3:1 WCAG); swapped all *-400 classes and #facc15 literals to signal-* utilities'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-11T11:28:12Z
+last_updated: 2026-08-11T11:33:46Z

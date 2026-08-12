@@ -9,6 +9,7 @@ import {
   defaultComboFor,
   findConflicts,
   findMatches,
+  hasReclaimableMatch,
   tiersCollide,
   formatCombo,
   keyLabel,
@@ -1260,5 +1261,59 @@ describe("split chords + the macCode refinement — 260807-rbx5", () => {
     );
     expect(mac[0].shortcut).toBe("⌘D");
     expect(mac[1].shortcut).toBe("⇧⌘D");
+  });
+});
+
+describe("ttyOnly registry flag — 260812-wfic (R7)", () => {
+  it("exactly the split pair carries ttyOnly; no other row does", () => {
+    const flagged = DEFAULT_BINDINGS.filter((b) => b.ttyOnly).map((b) => b.actionId);
+    expect(flagged).toEqual(["split-horizontal", "split-vertical"]);
+  });
+
+  it("survives resolution onto the effective map in every host", () => {
+    for (const host of ALL_HOSTS) {
+      const bindings = resolved(host);
+      expect(byId(bindings, "split-horizontal").ttyOnly).toBe(true);
+      expect(byId(bindings, "split-vertical").ttyOnly).toBe(true);
+      expect(byId(bindings, "command-palette").ttyOnly).toBeUndefined();
+    }
+  });
+});
+
+describe("hasReclaimableMatch — the code-iframe reclaim carve-out (260812-wfic R9)", () => {
+  it("a chord whose only matches are ttyOnly is NOT reclaimed (⌘D / ⇧Ctrl+\\)", () => {
+    // mac ⌘D (split-horizontal's mac refinement) and the win/linux divider
+    // chord both match ONLY ttyOnly bindings — code-server keeps them.
+    expect(hasReclaimableMatch(chord({ code: "KeyD", metaKey: true }), resolved(SHELL_MAC))).toBe(false);
+    expect(
+      hasReclaimableMatch(chord({ code: "Backslash", shiftKey: true, ctrlKey: true }), resolved(SHELL_OTHER)),
+    ).toBe(false);
+  });
+
+  it("non-ttyOnly registry chords are still reclaimed (⌘K, ⌘.)", () => {
+    const bindings = resolved(SHELL_MAC);
+    expect(hasReclaimableMatch(chord({ code: "KeyK", metaKey: true }), bindings)).toBe(true);
+    expect(hasReclaimableMatch(chord({ code: "Period", metaKey: true }), bindings)).toBe(true);
+  });
+
+  it("no match at all → false (the embedded app's own chords pass through)", () => {
+    expect(hasReclaimableMatch(chord({ code: "KeyQ" }), resolved(SHELL_OTHER))).toBe(false);
+  });
+
+  it("a chord matching BOTH a ttyOnly and a non-ttyOnly binding IS reclaimed (.some semantics, A-016)", () => {
+    // No such default pair ships today; construct it to pin the semantics: a
+    // shared chord keeps its global meaning, so the reclaim must fire.
+    const shared: KeyBinding = {
+      actionId: "test-global",
+      code: "Backslash",
+      tier: "shifted",
+      scope: "global",
+      kind: "builtin",
+      label: "test",
+    };
+    const bindings = resolveBindings([...DEFAULT_BINDINGS, shared], {}, SHELL_OTHER);
+    expect(
+      hasReclaimableMatch(chord({ code: "Backslash", shiftKey: true, ctrlKey: true }), bindings),
+    ).toBe(true);
   });
 });

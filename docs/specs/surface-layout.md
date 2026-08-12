@@ -143,18 +143,20 @@ before the ladder has run.
 ## Verbs
 
 Every arrangement of (shape × order) is reachable in ≤2 actions without
-drag-drop. Verbs live as hover buttons in each tile's surface header and as
-palette entries; the shape-cycle chord is bound directly (Constitution V —
-buttons are the mouse mirror, not the mechanism). *Amended at phase-2 ship
-(`260812-ab5v`): per-verb chords (zoom / promote / directional swap / close)
-shipped palette-reachable rather than direct-bound — one cycle chord plus
-palette rows covers keyboard-first with far less chord-surface; direct
-per-verb bindings remain open to a later phase if palette latency proves
-irritating.*
+drag-drop. Verbs live as boxed, rest-visible buttons in each tile's surface
+header and as palette entries; the shape-cycle chord is bound directly
+(Constitution V — buttons are the mouse mirror, not the mechanism). *Amended
+at phase-2 ship (`260812-ab5v`): per-verb chords (zoom / promote /
+directional swap / close) shipped palette-reachable rather than direct-bound
+— one cycle chord plus palette rows covers keyboard-first with far less
+chord-surface; direct per-verb bindings remain open to a later phase if
+palette latency proves irritating. Amended at `260812-wfic`: the verb buttons
+shipped as fixed-size boxed buttons visible at rest (the hover-reveal cluster
+was retired).*
 
 | Verb | Effect on (shape, order) |
 |------|--------------------------|
-| **⏶ Zoom** | Tile goes full-center, others hidden (not closed); toggle back. No state change — a transient, like tmux `resize-pane -Z` |
+| **⛶ Zoom** | Tile goes full-center, others hidden (not closed); toggle back. No state change — a transient, like tmux `resize-pane -Z` |
 | **◧ Promote** | Move this surface to slot A; order permutes, shape unchanged |
 | **⇄ Swap** | Swap with neighbor (directional chords: swap-left/right/up/down); order permutes |
 | **▦ Cycle shape** | Next preset, same order — one chip on the layout (top-bar right cluster), not per-tile; its popover shows the preset glyphs for direct jump |

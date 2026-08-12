@@ -4,8 +4,10 @@ import { TerminalClient } from "@/components/terminal-client";
 import { CodeSurface } from "@/components/code-surface";
 import { IframeWindow } from "@/components/iframe-window";
 import { ChatView } from "@/components/chat-view";
+import { StatusDot } from "@/components/status-dot";
 import {
   SHAPE_ARITY,
+  SURFACE_GLYPH,
   SURFACE_LABEL,
   readStoredRatios,
   writeStoredRatios,
@@ -17,6 +19,7 @@ import {
 import { clampRatio, MIN_PANEL_WIDTH_PX } from "@/lib/right-panel";
 import type { ViewWindow } from "@/lib/window-view";
 import type { ChatEvent, ChatPending } from "@/lib/chat-stream";
+import type { WindowInfo } from "@/types";
 
 /**
  * SurfaceLayout — the tile grid renderer for the terminal route's center
@@ -27,12 +30,28 @@ import type { ChatEvent, ChatPending } from "@/lib/chat-stream";
  * `TerminalClient` (tty), `IframeWindow` (web), `ChatView` (chat),
  * `CodeSurface` (code).
  *
- * - **Tile chrome (R7)**: each tile carries a slim header — surface name +
- *   small meta (git-root basename for code, `@rk_url` host for web) — with
- *   hover-revealed verb buttons following the sidebar's hover-cluster pattern
- *   (`opacity-0 group-hover:opacity-100`): ⏶ zoom, ◧ promote, ⇄
- *   swap-with-next, ✕ close. `single` layouts render NO verbs (promote/swap
- *   are meaningless and closing the last tile is disallowed).
+ * - **Tile chrome (R7, redesigned in 260812-wfic)**: the desktop grid is a
+ *   `gap-[3px]` grid on `bg-bg-inset`, each tile a framed card (`border
+ *   border-border rounded`). Each tile carries a 30px `bg-bg-card` header —
+ *   kind glyph (`SURFACE_GLYPH`) + surface name + the small meta as an inset
+ *   chip (git-root basename for code, `@rk_url` host for web) — with
+ *   rest-visible boxed verb buttons (22×22, 26×26 coarse): ⛶ zoom, ◧
+ *   promote, ⇄ swap-with-next, ✕ close (a hairline rule separates ✕ from the
+ *   safe verbs; its hover turns `text-signal-red`). While a tile is zoomed
+ *   its ⛶ stays `accent-green` and its ◧/⇄ verbs hide (no-ops there).
+ *   `single` layouts render NO verbs (promote/swap are meaningless and
+ *   closing the last tile is disallowed). The tty header also mounts the
+ *   shared `StatusDot` (agent state) when the parent passes `statusWindow`.
+ * - **Focused tile (260812-wfic R2)**: transient component state — the slot
+ *   that last received pointer/keyboard interaction (pointerdown-capture +
+ *   focusin seams on the tile wrapper; the code tile's `CodeSurface` reports
+ *   contentDocument interaction via `onInteract`). The focused tile's border
+ *   and kind glyph turn `accent-green` (the tmux active-pane metaphor);
+ *   suppressed at arity 1. Default = slot A; falls back to slot A when the
+ *   focused slot leaves the layout. The focused KIND is reported upward via
+ *   `onFocusedKindChange` (app.tsx mirrors it for the `ttyOnly` shortcut
+ *   gate) and settable by kind through the `focusTileRef` seam (the
+ *   `zoomToggleRef` pattern — the palette's `Layout: Focus <Surface>`).
  * - **Zoom (R6)**: transient component state ONLY — one tile full-center, the
  *   others hidden at display level. No URL/localStorage write; the toggle
  *   renders only when arity > 1.
@@ -123,6 +142,18 @@ interface SurfaceLayoutProps {
    *  palette list rebuilds. */
   zoomToggleRef?: React.MutableRefObject<(() => void) | null>;
   onZoomChange?: (zoomed: boolean) => void;
+  /** Focused-tile reporting (260812-wfic R2): fired with the focused slot's
+   *  KIND whenever it changes (default slot A). Arity-1 still reports — the
+   *  shell's `ttyOnly` shortcut gate treats `single:tty` as tty-focused. */
+  onFocusedKindChange?: (kind: SurfaceKind) => void;
+  /** `Layout: Focus <Surface>` palette seam (260812-wfic R10): the component
+   *  registers a focus-by-kind setter here (the FIRST slot of that kind),
+   *  cleared on unmount — the `zoomToggleRef` pattern. */
+  focusTileRef?: React.MutableRefObject<((kind: SurfaceKind) => void) | null>;
+  /** The SSE `WindowInfo` for the tty header's status dot (260812-wfic R6).
+   *  The FULL record because `StatusDot` consumes `WindowInfo` — the `window`
+   *  prop stays the pure-lib narrow `ViewWindow`. Null/non-tty → no dot. */
+  statusWindow?: WindowInfo | null;
 }
 
 /** Equal-split default ratios (cumulative boundary percentages): arity 2 →
@@ -132,6 +163,15 @@ function defaultRatios(arity: 1 | 2 | 3): LayoutRatios {
   if (arity === 2) return [50];
   return [100 / 3, 200 / 3];
 }
+
+/** Verb button chrome (260812-wfic R4): fixed-size boxed buttons — 22×22,
+ *  26×26 on coarse pointers (the `TOP_BAR_BUTTON*` fixed-size precedent:
+ *  rendered size must not drift with content) — VISIBLE AT REST at ~65%
+ *  opacity (the retired hover-cluster pattern had zero discoverability),
+ *  hover giving an inset background + full opacity. Touch pointers keep the
+ *  always-full-opacity rule (no hover to reveal them). */
+const VERB_BUTTON_CLASS =
+  "inline-flex items-center justify-center h-[22px] w-[22px] coarse:h-[26px] coarse:w-[26px] rounded opacity-65 coarse:opacity-100 hover:opacity-100 focus-visible:opacity-100 hover:bg-bg-inset transition-opacity";
 
 /** The ratios a (window, shape) render starts from: the persisted value when
  *  it is well-formed for the shape's arity (right length, finite, strictly
@@ -321,6 +361,9 @@ export function SurfaceLayout({
   onRatioCommit,
   zoomToggleRef,
   onZoomChange,
+  onFocusedKindChange,
+  focusTileRef,
+  statusWindow,
 }: SurfaceLayoutProps) {
   const arity = SHAPE_ARITY[layout.shape];
 
@@ -368,6 +411,48 @@ export function SurfaceLayout({
   useEffect(() => {
     onZoomChange?.(zoomed);
   }, [zoomed, onZoomChange]);
+
+  // Focused tile (260812-wfic R2) — transient, like zoom: the slot that last
+  // received pointer/keyboard interaction. Default slot A; falls back to slot
+  // A when the focused slot leaves the layout (a close collapsed the arity).
+  // The per-window reset comes free from the parent's `${server}:${windowId}`
+  // key (the zoom precedent).
+  const [focusedSlot, setFocusedSlot] = useState(0);
+  useEffect(() => {
+    setFocusedSlot((s) => (s >= layout.order.length ? 0 : s));
+  }, [layout.order.length]);
+  // Render-time clamp mirrors the ratio fallback: the clearing effect lands a
+  // beat after the render carrying the shrunken order.
+  const focusedKind = layout.order[Math.min(focusedSlot, layout.order.length - 1)];
+  // Interaction seams report SYNCHRONOUSLY (`focusSlot` below): the shell's
+  // `ttyOnly` chord gate consumes the reported kind, and discrete-event
+  // flushing guarantees the dispatcher's handler map reflects the click
+  // before the next keydown — reporting only via this effect would leave a
+  // two-render gap where the accent border shows but the chord still fires.
+  // The effect remains for the non-interaction transitions: the slot-A
+  // default on mount and the fallback when the focused slot leaves.
+  const focusSlot = (slot: number) => {
+    setFocusedSlot(slot);
+    const kind = layout.order[slot];
+    if (kind) onFocusedKindChange?.(kind);
+  };
+  useEffect(() => {
+    if (focusedKind) onFocusedKindChange?.(focusedKind);
+  }, [focusedKind, onFocusedKindChange]);
+
+  // Palette focus seam (R10): `Layout: Focus <Surface>` routes through this
+  // ref — focus the FIRST slot of the given kind (duplicate tty tiles: slot A
+  // wins). No-op for a kind that is not open.
+  useEffect(() => {
+    if (!focusTileRef) return;
+    focusTileRef.current = (kind: SurfaceKind) => {
+      const slot = layout.order.indexOf(kind);
+      if (slot >= 0) focusSlot(slot);
+    };
+    return () => {
+      focusTileRef.current = null;
+    };
+  }, [focusTileRef, layout.order]);
 
   // Ratios (R5): read per (window, shape), normalized for the shape's arity;
   // persisted ON DRAG RELEASE ONLY.
@@ -442,8 +527,13 @@ export function SurfaceLayout({
     onRatioCommit?.();
   };
 
-  /** A tile's renderer, unchanged from the legacy lens/panel mounts. */
-  const renderContent = (kind: SurfaceKind, primaryTty: boolean) => {
+  /** A tile's renderer, unchanged from the legacy lens/panel mounts. The code
+   *  tile also wires the focus seam (260812-wfic R2): `CodeSurface`'s
+   *  contentDocument listeners report editor interaction via `onInteract`, so
+   *  typing/clicking INSIDE the iframe counts as tile focus (the iframe
+   *  element's own focusin covers the click-to-focus case; keydowns never
+   *  reach the parent without this). */
+  const renderContent = (kind: SurfaceKind, slot: number, primaryTty: boolean) => {
     switch (kind) {
       case "tty":
         return (
@@ -479,6 +569,7 @@ export function SurfaceLayout({
             gitRoot={win.gitRoot}
             reachable={codeReachable}
             shouldReclaimChord={shouldReclaimChord}
+            onInteract={slot >= 0 ? () => focusSlot(slot) : undefined}
           />
         ) : null;
       case "chat":
@@ -521,18 +612,40 @@ export function SurfaceLayout({
     const meta = tileMeta(kind, win);
     const isZoomed = zoomed && slot === zoomedIndex;
     const showVerbs = !mobile && arity > 1 && slot >= 0;
+    // Focused-tile highlight (260812-wfic R2): accent-green border + kind
+    // glyph, suppressed at arity 1 (no verbs, no highlight — the tmux
+    // active-pane metaphor). Focus assignment: pointerdown (capture) anywhere
+    // in the tile + focusin on the tile (clicking into the code iframe
+    // focuses the iframe element in the parent document); the code tile's
+    // in-document interaction arrives via CodeSurface's `onInteract`.
+    const isFocused = !mobile && arity > 1 && slot >= 0 && slot === focusedSlot;
     return (
       <div
         key={`${kind}${suffix}`}
         data-testid={testId}
-        className={`group min-w-0 min-h-0 flex-col overflow-hidden ${hidden ? "hidden" : "flex"}`}
+        className={`group min-w-0 min-h-0 flex-col overflow-hidden ${hidden ? "hidden" : "flex"}${
+          mobile
+            ? ""
+            : ` border rounded ${isFocused ? "border-accent-green" : "border-border"}`
+        }`}
         style={hidden || mobile ? undefined : slotStyle(layout.shape, slot, zoomed)}
+        onPointerDownCapture={slot >= 0 ? () => focusSlot(slot) : undefined}
+        onFocus={slot >= 0 ? () => focusSlot(slot) : undefined}
       >
         {!mobile && (
-          <div className="flex items-center gap-1.5 px-1.5 h-6 shrink-0 border-b border-border bg-bg-primary font-mono text-[10px] text-text-secondary select-none">
+          <div className="flex items-center gap-1.5 px-1.5 h-[30px] shrink-0 border-b border-border bg-bg-card font-mono text-[11px] text-text-secondary select-none">
+            {kind === "tty" && statusWindow && <StatusDot win={statusWindow} />}
+            <span
+              aria-hidden="true"
+              className={`shrink-0 ${isFocused ? "text-accent-green" : ""}`}
+            >
+              {SURFACE_GLYPH[kind]}
+            </span>
             <span className="shrink-0 text-text-primary">{label}</span>
             {meta && (
-              <span className="min-w-0 truncate text-text-secondary">{meta}</span>
+              <span className="min-w-0 truncate rounded bg-bg-inset px-1.5 text-[10px] text-text-secondary">
+                {meta}
+              </span>
             )}
             <span className="flex-1" />
             {showVerbs && (
@@ -542,37 +655,48 @@ export function SurfaceLayout({
                     type="button"
                     aria-label={isZoomed ? `Unzoom ${label}` : `Zoom ${label}`}
                     onClick={() => setZoomedIndex(isZoomed ? null : slot)}
-                    className="opacity-0 group-hover:opacity-100 coarse:opacity-100 focus-visible:opacity-100 transition-opacity px-0.5 hover:text-text-primary"
+                    className={`${VERB_BUTTON_CLASS} hover:text-text-primary${
+                      isZoomed ? " text-accent-green opacity-100" : ""
+                    }`}
                   >
-                    ⏶
+                    ⛶
                   </button>
                 </Tip>
-                <Tip label={`Promote ${label}`}>
-                  <button
-                    type="button"
-                    aria-label={`Promote ${label}`}
-                    onClick={() => onPromote(kind)}
-                    className="opacity-0 group-hover:opacity-100 coarse:opacity-100 focus-visible:opacity-100 transition-opacity px-0.5 hover:text-text-primary"
-                  >
-                    ◧
-                  </button>
-                </Tip>
-                <Tip label={`Swap ${label}`}>
-                  <button
-                    type="button"
-                    aria-label={`Swap ${label}`}
-                    onClick={() => onSwap(kind)}
-                    className="opacity-0 group-hover:opacity-100 coarse:opacity-100 focus-visible:opacity-100 transition-opacity px-0.5 hover:text-text-primary"
-                  >
-                    ⇄
-                  </button>
-                </Tip>
+                {/* Promote/swap are no-ops on a zoomed render — hidden while
+                    this tile is zoomed (R5 feedback; ✕ stays). */}
+                {!isZoomed && (
+                  <>
+                    <Tip label={`Promote ${label}`}>
+                      <button
+                        type="button"
+                        aria-label={`Promote ${label}`}
+                        onClick={() => onPromote(kind)}
+                        className={`${VERB_BUTTON_CLASS} hover:text-text-primary`}
+                      >
+                        ◧
+                      </button>
+                    </Tip>
+                    <Tip label={`Swap ${label}`}>
+                      <button
+                        type="button"
+                        aria-label={`Swap ${label}`}
+                        onClick={() => onSwap(kind)}
+                        className={`${VERB_BUTTON_CLASS} hover:text-text-primary`}
+                      >
+                        ⇄
+                      </button>
+                    </Tip>
+                  </>
+                )}
+                {/* A 1px hairline separates the destructive ✕ from the safe
+                    verbs; its hover turns signal-red. */}
+                <span aria-hidden="true" className="mx-0.5 h-3.5 w-px bg-border" />
                 <Tip label={`Close ${label}`}>
                   <button
                     type="button"
                     aria-label={`Close ${label}`}
                     onClick={() => onClose(kind)}
-                    className="opacity-0 group-hover:opacity-100 coarse:opacity-100 focus-visible:opacity-100 transition-opacity px-0.5 hover:text-text-primary"
+                    className={`${VERB_BUTTON_CLASS} hover:text-signal-red`}
                   >
                     ✕
                   </button>
@@ -586,7 +710,7 @@ export function SurfaceLayout({
           // (the drag would stall at the iframe boundary).
           className={`flex-1 min-h-0 flex flex-col ${draggingIndex !== null ? "pointer-events-none" : ""}`}
         >
-          {renderContent(kind, slot === firstTtySlot)}
+          {renderContent(kind, slot, slot === firstTtySlot)}
         </div>
       </div>
     );
@@ -635,7 +759,12 @@ export function SurfaceLayout({
     <div
       ref={gridRef}
       data-testid="surface-layout"
-      className="relative flex-1 min-h-0 min-w-0 grid"
+      // Framed grid (260812-wfic R1): the 3px gutter IS the separation — the
+      // inset-colored container shows between the bordered tiles. The
+      // absolutely-positioned dividers keep their ratio-boundary placement;
+      // their 6px hit zones cover the 3px gutter, so drag mechanics are
+      // unchanged.
+      className="relative flex-1 min-h-0 min-w-0 grid gap-[3px] bg-bg-inset"
       style={gridStyle(layout.shape, effRatios, zoomed)}
     >
       {allTiles.map(({ tile, hidden }) => renderTile(tile, hidden, false))}

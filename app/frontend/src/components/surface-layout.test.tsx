@@ -1,7 +1,8 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
-import { render, screen, cleanup, fireEvent, act } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, act, within } from "@testing-library/react";
 import { SurfaceLayout } from "./surface-layout";
 import { ratiosStorageKey, type Layout, type SurfaceKind } from "@/lib/surface-layout";
+import type { WindowInfo } from "@/types";
 import { stubMatchMedia } from "@/test-utils/match-media";
 
 // jsdom does not implement matchMedia — Tip's coarse-pointer check needs it.
@@ -11,8 +12,10 @@ stubMatchMedia(() => false);
 // Heavy children are mocked (the RightPanel/app-test precedent): TerminalClient
 // opens websockets and pulls in xterm's import-time addon init; the iframe/chat
 // renderers are asserted by testid instead. `terminalSpy` records each mount's
-// props so the duplicate-tty ref/focus rules are assertable.
+// props so the duplicate-tty ref/focus rules are assertable; `codeSpy` does the
+// same for the code tile's focus-seam prop (`onInteract`, 260812-wfic R2).
 const terminalSpy = vi.hoisted(() => vi.fn());
+const codeSpy = vi.hoisted(() => vi.fn());
 vi.mock("@/components/terminal-client", () => ({
   TerminalClient: (props: Record<string, unknown>) => {
     terminalSpy(props);
@@ -20,7 +23,10 @@ vi.mock("@/components/terminal-client", () => ({
   },
 }));
 vi.mock("@/components/code-surface", () => ({
-  CodeSurface: () => <div data-testid="mock-code" />,
+  CodeSurface: (props: Record<string, unknown>) => {
+    codeSpy(props);
+    return <div data-testid="mock-code" />;
+  },
 }));
 vi.mock("@/components/iframe-window", () => ({
   IframeWindow: () => <div data-testid="mock-iframe" />,
@@ -58,6 +64,22 @@ type LayoutOverrides = {
   onRatioCommit?: () => void;
   zoomToggleRef?: { current: (() => void) | null };
   onZoomChange?: (zoomed: boolean) => void;
+  onFocusedKindChange?: (kind: SurfaceKind) => void;
+  focusTileRef?: { current: ((kind: SurfaceKind) => void) | null };
+  statusWindow?: WindowInfo | null;
+};
+
+/** The minimal WindowInfo the tty header's StatusDot consumes (260812-wfic
+ *  R6) — `agentState: "active"` renders the sidebar's active-agent dot. */
+const STATUS_WINDOW: WindowInfo = {
+  windowId: "@1",
+  index: 0,
+  name: "win",
+  worktreePath: "/repo",
+  activity: "idle",
+  isActiveWindow: true,
+  activityTimestamp: 0,
+  agentState: "active",
 };
 
 /** The SurfaceLayout element with test-default props (shared by renderLayout
@@ -93,6 +115,9 @@ function layoutElement(overrides: LayoutOverrides = {}) {
       onRatioCommit={overrides.onRatioCommit}
       zoomToggleRef={overrides.zoomToggleRef}
       onZoomChange={overrides.onZoomChange}
+      onFocusedKindChange={overrides.onFocusedKindChange}
+      focusTileRef={overrides.focusTileRef}
+      statusWindow={overrides.statusWindow}
     />
   );
 }
@@ -104,6 +129,7 @@ function renderLayout(overrides: LayoutOverrides = {}) {
 beforeEach(() => {
   localStorage.clear();
   terminalSpy.mockClear();
+  codeSpy.mockClear();
 });
 
 afterEach(() => {
@@ -117,7 +143,7 @@ describe("SurfaceLayout shape rendering", () => {
     expect(screen.getByTestId("surface-layout")).toBeTruthy();
     expect(screen.getByTestId("surface-tile-tty")).toBeTruthy();
     expect(screen.queryByTestId("surface-divider-0")).toBeNull();
-    // single renders no ⏶/◧/⇄/✕ (zoom is arity>1-only; closing the last
+    // single renders no ⛶/◧/⇄/✕ (zoom is arity>1-only; closing the last
     // tile is disallowed).
     expect(screen.queryByRole("button", { name: "Zoom Terminal" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Promote Terminal" })).toBeNull();
@@ -190,11 +216,23 @@ describe("SurfaceLayout tile verbs", () => {
     expect(onClose).toHaveBeenCalledWith("code");
   });
 
-  it("verb buttons fade at rest (hover-cluster pattern)", () => {
+  it("verb buttons are boxed and visible at rest (260812-wfic R4)", () => {
     renderLayout({ layout: { shape: "split-h", order: ["tty", "code"] } });
-    const button = screen.getByRole("button", { name: "Close Code" });
-    expect(button.className).toContain("opacity-0");
-    expect(button.className).toContain("group-hover:opacity-100");
+    const close = screen.getByRole("button", { name: "Close Code" });
+    // Rest-visible (~65% opacity) boxed 22×22 buttons (26×26 coarse) — the
+    // retired pattern was hover-revealed (`opacity-0 group-hover:opacity-100`).
+    expect(close.className).toContain("opacity-65");
+    expect(close.className).toContain("h-[22px]");
+    expect(close.className).toContain("w-[22px]");
+    expect(close.className).toContain("coarse:h-[26px]");
+    expect(close.className).toContain("coarse:w-[26px]");
+    expect(close.className).not.toContain("opacity-0");
+    expect(close.className).not.toContain("group-hover");
+    // The destructive verb reddens on hover; the safe verbs brighten.
+    expect(close.className).toContain("hover:text-signal-red");
+    const swap = screen.getByRole("button", { name: "Swap Code" });
+    expect(swap.className).toContain("hover:text-text-primary");
+    expect(swap.className).toContain("hover:bg-bg-inset");
   });
 });
 
@@ -212,6 +250,154 @@ describe("SurfaceLayout zoom", () => {
     fireEvent.click(screen.getByRole("button", { name: "Unzoom Code" }));
     expect(screen.getByTestId("surface-tile-tty").classList.contains("hidden")).toBe(false);
     expect(screen.getByTestId("surface-divider-0")).toBeTruthy();
+  });
+
+  it("zoomed tile shows an accent-green ⛶ and hides its promote/swap verbs (260812-wfic R5)", () => {
+    renderLayout({ layout: { shape: "split-h", order: ["tty", "code"] } });
+    fireEvent.click(screen.getByRole("button", { name: "Zoom Code" }));
+    const unzoom = screen.getByRole("button", { name: "Unzoom Code" });
+    expect(unzoom.textContent).toBe("⛶");
+    expect(unzoom.className).toContain("text-accent-green");
+    // Promote/swap are no-ops on a zoomed render — hidden; ✕ stays.
+    expect(screen.queryByRole("button", { name: "Promote Code" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Swap Code" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Close Code" })).toBeTruthy();
+    // Unzoom restores the default glyph color and the hidden verbs.
+    fireEvent.click(unzoom);
+    const zoom = screen.getByRole("button", { name: "Zoom Code" });
+    expect(zoom.className).not.toContain("text-accent-green");
+    expect(screen.getByRole("button", { name: "Promote Code" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Swap Code" })).toBeTruthy();
+  });
+});
+
+describe("SurfaceLayout focused tile (260812-wfic R2)", () => {
+  it("defaults to slot A: accent border + glyph there, and the callback reports its kind", () => {
+    const onFocusedKindChange = vi.fn();
+    renderLayout({
+      layout: { shape: "split-h", order: ["tty", "code"] },
+      onFocusedKindChange,
+    });
+    expect(screen.getByTestId("surface-tile-tty").className).toContain("border-accent-green");
+    expect(screen.getByTestId("surface-tile-code").className).toContain("border-border");
+    expect(screen.getByTestId("surface-tile-code").className).not.toContain(
+      "border-accent-green",
+    );
+    expect(onFocusedKindChange).toHaveBeenLastCalledWith("tty");
+  });
+
+  it("pointerdown in a tile moves the accent border and reports the kind", () => {
+    const onFocusedKindChange = vi.fn();
+    renderLayout({
+      layout: { shape: "split-h", order: ["tty", "code"] },
+      onFocusedKindChange,
+    });
+    fireEvent.pointerDown(screen.getByTestId("surface-tile-code"));
+    expect(screen.getByTestId("surface-tile-code").className).toContain("border-accent-green");
+    expect(screen.getByTestId("surface-tile-tty").className).not.toContain(
+      "border-accent-green",
+    );
+    expect(onFocusedKindChange).toHaveBeenLastCalledWith("code");
+  });
+
+  it("focusin on a tile (e.g. the code iframe gaining focus) moves the focus", () => {
+    renderLayout({ layout: { shape: "split-h", order: ["tty", "code"] } });
+    fireEvent.focusIn(screen.getByTestId("surface-tile-code"));
+    expect(screen.getByTestId("surface-tile-code").className).toContain("border-accent-green");
+  });
+
+  it("the code tile's onInteract seam (editor keydown/pointerdown) moves the focus", () => {
+    renderLayout({ layout: { shape: "split-h", order: ["tty", "code"] } });
+    const onInteract = codeSpy.mock.calls.at(-1)?.[0]?.onInteract;
+    expect(typeof onInteract).toBe("function");
+    act(() => onInteract());
+    expect(screen.getByTestId("surface-tile-code").className).toContain("border-accent-green");
+  });
+
+  it("closing the focused tile falls back to slot A (no stale highlight)", () => {
+    const { rerender } = renderLayout({
+      layout: { shape: "main-left", order: ["tty", "code", "web"] },
+    });
+    fireEvent.pointerDown(screen.getByTestId("surface-tile-web"));
+    expect(screen.getByTestId("surface-tile-web").className).toContain("border-accent-green");
+    // The parent applies the close: web leaves, the layout collapses 3→2.
+    rerender(layoutElement({ layout: { shape: "split-h", order: ["tty", "code"] } }));
+    expect(screen.getByTestId("surface-tile-tty").className).toContain("border-accent-green");
+    expect(screen.getByTestId("surface-tile-code").className).not.toContain(
+      "border-accent-green",
+    );
+  });
+
+  it("arity 1 suppresses the highlight but still reports the kind (single:tty reads tty-focused)", () => {
+    const onFocusedKindChange = vi.fn();
+    renderLayout({ layout: { shape: "single", order: ["tty"] }, onFocusedKindChange });
+    expect(screen.getByTestId("surface-tile-tty").className).not.toContain(
+      "border-accent-green",
+    );
+    expect(onFocusedKindChange).toHaveBeenLastCalledWith("tty");
+  });
+
+  it("the focusTileRef seam focuses the first slot of a kind (the palette's path)", () => {
+    const focusTileRef: { current: ((kind: SurfaceKind) => void) | null } = { current: null };
+    const onFocusedKindChange = vi.fn();
+    renderLayout({
+      layout: { shape: "split-h", order: ["tty", "code"] },
+      focusTileRef,
+      onFocusedKindChange,
+    });
+    expect(focusTileRef.current).not.toBeNull();
+    act(() => focusTileRef.current?.("code"));
+    expect(screen.getByTestId("surface-tile-code").className).toContain("border-accent-green");
+    expect(onFocusedKindChange).toHaveBeenLastCalledWith("code");
+    // A kind that is not open is a no-op.
+    act(() => focusTileRef.current?.("chat"));
+    expect(screen.getByTestId("surface-tile-code").className).toContain("border-accent-green");
+  });
+});
+
+describe("SurfaceLayout header chrome (260812-wfic R3)", () => {
+  it("renders the kind glyph, a 30px bg-bg-card header, and the meta as an inset chip", () => {
+    renderLayout({ layout: { shape: "split-h", order: ["code", "web"] } });
+    const codeTile = screen.getByTestId("surface-tile-code");
+    const header = codeTile.firstElementChild!;
+    expect(header.className).toContain("h-[30px]");
+    expect(header.className).toContain("bg-bg-card");
+    expect(header.className).toContain("text-[11px]");
+    // The SURFACE_GLYPH kind glyph precedes the label.
+    expect(header.textContent).toContain("{}");
+    expect(header.textContent).toContain("Code");
+    // The meta text is an inset chip, subordinate to the label.
+    const chip = within(codeTile as HTMLElement).getByText("repo");
+    expect(chip.className).toContain("bg-bg-inset");
+    expect(chip.className).toContain("rounded");
+    expect(chip.className).toContain("px-1.5");
+    expect(chip.className).toContain("text-[10px]");
+    expect(chip.className).toContain("truncate");
+  });
+});
+
+describe("SurfaceLayout tty header status dot (260812-wfic R6)", () => {
+  it("renders the StatusDot in tty headers only, and only when statusWindow is set", () => {
+    renderLayout({
+      layout: { shape: "split-h", order: ["tty", "code"] },
+      statusWindow: STATUS_WINDOW,
+    });
+    expect(
+      within(screen.getByTestId("surface-tile-tty")).getByRole("img"),
+    ).toBeTruthy();
+    expect(
+      within(screen.getByTestId("surface-tile-code")).queryByRole("img"),
+    ).toBeNull();
+  });
+
+  it("a null statusWindow renders no dot", () => {
+    renderLayout({
+      layout: { shape: "split-h", order: ["tty", "code"] },
+      statusWindow: null,
+    });
+    expect(
+      within(screen.getByTestId("surface-tile-tty")).queryByRole("img"),
+    ).toBeNull();
   });
 });
 

@@ -7,7 +7,9 @@ URL > localStorage > hint > `single:tty` resolution ladder with `replaceState`
 mirroring, rail open-tile toggles + tile verbs as the only mouse path to a
 3-tile layout, history semantics (layout tweaks replace, window switches
 push), divider-ratio persistence keyed per (window, shape), and the mobile
-slot-A + sheet-tabs branch.
+slot-A + sheet-tabs branch. From `260812-wfic`: the focused-tile accent border
+(click-to-focus across tiles) and the tty-scoped split-chord gate (the chord
+is inert while the code tile owns focus, splits while the tty tile does).
 
 **Perf budget (binding)**: the plaintext e2e origin is HTTP/1.1 with a 6-slot
 connection pool (spec § Performance note; the board-route postmortem class).
@@ -33,6 +35,8 @@ tiles.
   no shell strings). Windows inherit the tmux server's repo-root cwd, so every
   window is code-capable (gitRoot derived); `@rk_url` adds web availability.
   Returns the stable `@N` id.
+- **`paneCount(id)`**: `tmux display-message -t <id> -p '#{window_panes}'` —
+  the split-chord gate's ground truth (a real backend split, not a DOM read).
 - **`gotoWindow(id, search?)`**: navigate to `/<server>/<@N>[?<search>]` and
   wait for the `Connected` SSE indicator (desktop-only — the dot lives in the
   sidebar footer; the mobile test gates on the terminal instead).
@@ -45,8 +49,12 @@ tiles.
   dividers `surface-divider-<i>` (`role="separator"`, `aria-valuenow` = rounded
   pct); the `.xterm` terminal surface; the `Proxied content` web iframe; the
   mobile `mobile-surfaces-chip` / `mobile-surface-sheet` / `mobile-surface-tab-<kind>`
-  testids. Tile verb buttons (`Zoom/Promote/Swap/Close <Surface>`) are
-  hover-revealed — tests `.hover()` the tile before clicking.
+  testids. Tile verb buttons (`Zoom/Promote/Swap/Close <Surface>`) are boxed
+  and visible at rest since 260812-wfic (R4) — tests still `.hover()` the tile
+  before clicking to exercise the hover affordance.
+- **Focus clicks**: the focused-tile seam is pointerdown-capture anywhere in
+  the tile, so tests click the tile HEADER at `position: {x: 6, y: 15}` (the
+  30px header's padding — never a verb button).
 
 ## Tests
 
@@ -157,3 +165,33 @@ Steps:
    Terminal/Code/Web tabs, Terminal marked `aria-pressed`.
 5. Click the Code tab; assert the sheet closes, the code tile becomes visible
    (tty hidden), and the URL still reads `?layout=main-left:tty,code,web`.
+
+### the focused-tile accent border follows clicks across tiles (260812-wfic R2, A-013)
+What it proves: the focused-tile state — the framed tile border turns
+`border-accent-green` on the tile that last received pointer interaction
+(the tmux active-pane metaphor), defaults to slot A, and moves with each
+click. Steps:
+1. Create a web-capable window; navigate; open the web tile via the rail.
+2. Assert the tty tile (slot A) carries `border-accent-green` and the web
+   tile the default `border-border`.
+3. Click the web tile's header (`{x: 6, y: 15}`); assert the accent border
+   moved to the web tile and left the tty tile.
+4. Click the tty tile's header; assert the border returned.
+
+### the split chord is tty-scoped: inert with the code tile focused, splits with tty focused (260812-wfic R8, A-014)
+What it proves: the `ttyOnly` dispatcher gate — a `ttyOnly` binding's handler
+is absent unless the tty tile owns focus, so the split chord (⇧Ctrl+\ on this
+Linux host) falls through untouched (no `preventDefault`, no split POST) while
+the code tile is focused, and splits exactly as before while the tty tile is
+focused (the tty-focused path is byte-equivalent to the pre-gate behavior,
+A-012). Ground truth is the live tmux pane count, not the DOM. Steps:
+1. Create a plain (code-capable) window; navigate; assert the terminal.
+2. Open the code tile via the rail; assert the tile renders. Pane count = 1.
+3. Click the code tile's header; assert its `border-accent-green` (the gate's
+   input is visibly engaged).
+4. Press `Shift+Control+Backslash`; wait a beat; assert the pane count is
+   UNCHANGED (the chord fell through — code-server would own it on a real
+   reachable code-server).
+5. Click the tty tile's header; assert its `border-accent-green`.
+6. Press `Shift+Control+Backslash` again; assert the pane count grows to 2
+   (retrying — the split POST + tmux mutation land asynchronously).

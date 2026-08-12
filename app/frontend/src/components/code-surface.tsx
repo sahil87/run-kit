@@ -53,12 +53,20 @@ interface CodeSurfaceProps {
   /** Keyboard spike: return true when the event matches a run-kit registry
    *  chord that should be reclaimed from the iframe. Absent ⇒ no reclaim. */
   shouldReclaimChord?: (e: KeyboardEvent) => boolean;
+  /** Tile-focus seam (260812-wfic R2): fired when a keydown/pointerdown
+   *  arrives inside the same-origin contentDocument — editor interaction
+   *  counts as tile focus (the iframe element's own focusin covers the
+   *  click-to-focus case; keydowns never reach the parent document). Absent
+   *  ⇒ no reporting. */
+  onInteract?: () => void;
 }
 
-export function CodeSurface({ gitRoot, reachable, shouldReclaimChord }: CodeSurfaceProps) {
+export function CodeSurface({ gitRoot, reachable, shouldReclaimChord, onInteract }: CodeSurfaceProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const reclaimRef = useRef(shouldReclaimChord);
   reclaimRef.current = shouldReclaimChord;
+  const interactRef = useRef(onInteract);
+  interactRef.current = onInteract;
 
   // Chord-reclaim spike: attach a capture-phase keydown listener to the
   // iframe's same-origin contentDocument after every load (each navigation
@@ -69,12 +77,15 @@ export function CodeSurface({ gitRoot, reachable, shouldReclaimChord }: CodeSurf
   // the ⌘. view cycle). Keyed on `reachable`: the iframe only MOUNTS when
   // reachable (the not-running empty state renders otherwise), so a
   // reachability flip re-runs this effect against the fresh iframe. Cleanup
-  // removes the listener from the document it was attached to.
+  // removes the listener from the document it was attached to. The
+  // capture-phase keydown/pointerdown pair ALSO feeds `onInteract`
+  // (260812-wfic): any in-editor interaction reports tile focus.
   useEffect(() => {
     const iframe = iframeRef.current;
-    if (!iframe || !reclaimRef.current) return;
+    if (!iframe || (!reclaimRef.current && !interactRef.current)) return;
     let attachedDoc: Document | null = null;
     const onKey = (e: KeyboardEvent) => {
+      interactRef.current?.();
       const reclaim = reclaimRef.current;
       if (!reclaim?.(e)) return;
       e.preventDefault();
@@ -91,6 +102,7 @@ export function CodeSurface({ gitRoot, reachable, shouldReclaimChord }: CodeSurf
         }),
       );
     };
+    const onPointer = () => interactRef.current?.();
     const attach = () => {
       try {
         // Cross-origin frames throw on contentDocument access — the /proxy/
@@ -100,6 +112,7 @@ export function CodeSurface({ gitRoot, reachable, shouldReclaimChord }: CodeSurf
         const doc = iframe.contentDocument;
         if (doc && doc !== attachedDoc) {
           doc.addEventListener("keydown", onKey, true);
+          doc.addEventListener("pointerdown", onPointer, true);
           attachedDoc = doc;
         }
       } catch {
@@ -112,6 +125,7 @@ export function CodeSurface({ gitRoot, reachable, shouldReclaimChord }: CodeSurf
       iframe.removeEventListener("load", attach);
       try {
         attachedDoc?.removeEventListener("keydown", onKey, true);
+        attachedDoc?.removeEventListener("pointerdown", onPointer, true);
       } catch {
         /* noop */
       }

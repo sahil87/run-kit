@@ -96,6 +96,14 @@ export type KeyBinding = {
    *  everywhere-behavior (Constitution V primary discovery); everything else
    *  goes through `shouldSuppressChord`. */
   ignoreInputs?: boolean;
+  /** This chord targets the tmux pane; only meaningful when the tty tile owns
+   *  focus (260812-wfic). Gate sites (the app.tsx dispatcher handler map, the
+   *  code-iframe reclaim predicate) consult this DATA flag rather than
+   *  hardcoding actionId lists: a `ttyOnly` binding's handler is treated as
+   *  absent when the focused tile is not tty, and the reclaim predicate never
+   *  intercepts a keydown whose only matches are `ttyOnly` (a keydown inside
+   *  the code-server iframe means the code tile owns focus). */
+  ttyOnly?: boolean;
 };
 
 /** A resolved binding after the override layer + host reservations applied. */
@@ -173,8 +181,8 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // invariant) — so it keeps keycap-as-divider mnemonics instead: ⇧Ctrl+\
   // (shift+\ types `|`, the divider a side-by-side split creates) and ⇧Ctrl+-
   // (the stacked divider). Both bound on every host; both rebindable.
-  { actionId: "split-horizontal", code: "Backslash", tier: "shifted", macCode: "KeyD", macTier: "cmd", scope: "terminal", kind: "builtin", label: "Split horizontal", description: "split the pane side-by-side", mapLabel: "split h" },
-  { actionId: "split-vertical", code: "Minus", tier: "shifted", macCode: "KeyD", scope: "terminal", kind: "builtin", label: "Split vertical", description: "split the pane stacked", mapLabel: "split v" },
+  { actionId: "split-horizontal", code: "Backslash", tier: "shifted", macCode: "KeyD", macTier: "cmd", scope: "terminal", kind: "builtin", label: "Split horizontal", description: "split the pane side-by-side", mapLabel: "split h", ttyOnly: true },
+  { actionId: "split-vertical", code: "Minus", tier: "shifted", macCode: "KeyD", scope: "terminal", kind: "builtin", label: "Split vertical", description: "split the pane stacked", mapLabel: "split v", ttyOnly: true },
   { actionId: "window-prev", code: "KeyH", tier: "shifted", scope: "global", kind: "builtin", label: "Previous window", mapLabel: "prev win" },
   { actionId: "window-next", code: "KeyL", tier: "shifted", scope: "global", kind: "builtin", label: "Next window", mapLabel: "next win" },
   { actionId: "go-back", code: "BracketLeft", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Back", description: "history", mapLabel: "back" },
@@ -388,6 +396,23 @@ export function findMatches(
     ...matches.filter((b) => b.scope !== "global"),
     ...matches.filter((b) => b.scope === "global"),
   ];
+}
+
+/**
+ * The code-iframe reclaim predicate (260812-wfic R9): whether a keydown inside
+ * the code-server iframe should be reclaimed and re-dispatched to the parent
+ * document. A keydown arriving there means the CODE tile owns focus, so a
+ * chord whose only registry matches are `ttyOnly` (the split pair — tmux
+ * pane-targeting) must NOT be reclaimed: it belongs to code-server's own
+ * keybinding service (its ⌘D add-selection-to-next-match). A chord matching
+ * BOTH a `ttyOnly` and a non-`ttyOnly` binding is still reclaimed (`.some`
+ * semantics) — the non-ttyOnly match has a global meaning.
+ */
+export function hasReclaimableMatch(
+  e: ChordEvent,
+  bindings: readonly EffectiveBinding[],
+): boolean {
+  return findMatches(e, bindings).some((b) => !b.ttyOnly);
 }
 
 /**

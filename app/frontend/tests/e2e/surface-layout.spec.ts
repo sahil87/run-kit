@@ -10,8 +10,9 @@ import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
 // (the ONLY 3-tile test in the file — the plaintext origin's h1 connection
 // pool is 6 slots, so every other flow stays at ≤2 tiles, per the spec's
 // Performance note), refresh/window-switch/history semantics (L2–L4), divider
-// ratio persistence (R5), and the mobile slot-A + sheet-tabs branch (R13).
-// See surface-layout.spec.md for intent + steps.
+// ratio persistence (R5), the mobile slot-A + sheet-tabs branch (R13), and —
+// from 260812-wfic — the focused-tile accent border (R2) and the tty-scoped
+// split-chord gate (R8). See surface-layout.spec.md for intent + steps.
 
 // Own session so this file never collides with other specs (fullyParallel off).
 const TEST_SESSION = `e2e-surflayout-${Date.now()}`;
@@ -39,6 +40,15 @@ async function makeWindow(page: Page, name: string, opts: { url?: string } = {})
     execFileSync("tmux", ["-L", TMUX_SERVER, "set-option", "-w", "-t", id, "@rk_url", opts.url]);
   }
   return id;
+}
+
+/** The window's live tmux pane count (the split-chord gate's ground truth). */
+function paneCount(windowId: string): number {
+  return Number(
+    execFileSync("tmux", ["-L", TMUX_SERVER, "display-message", "-t", windowId, "-p", "#{window_panes}"])
+      .toString()
+      .trim(),
+  );
 }
 
 /** Navigate to a window's terminal route (optionally with a search string) and
@@ -139,7 +149,8 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     await expect(codeRail).toHaveAttribute("aria-pressed", "true");
 
     // ◧ Promote on the code tile: slot A becomes code, the rest permute
-    // unchanged (shape untouched) — hover first, the verbs are hover-revealed.
+    // unchanged (shape untouched) — hover first (the verbs are visible at
+    // rest since 260812-wfic; the hover still exercises the hover affordance).
     await tile(page, "code").hover();
     await tile(page, "code").getByRole("button", { name: "Promote Code" }).click();
     await expectLayoutParam(page, "main-left:code,tty,web");
@@ -366,5 +377,70 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     await expect(tile(page, "code")).toBeVisible({ timeout: 10_000 });
     await expect(tile(page, "tty")).toBeHidden();
     await expectLayoutParam(page, "main-left:tty,code,web");
+  });
+
+  test("the focused-tile accent border follows clicks across tiles (260812-wfic R2, A-013)", async ({
+    page,
+  }) => {
+    test.setTimeout(30_000);
+    const id = await makeWindow(page, `sl-focus-${Date.now()}`, { url: IFRAME_URL });
+    await gotoWindow(page, id);
+    const webRail = railButton(page, "Web");
+    await expect(webRail).toBeVisible({ timeout: READY_TIMEOUT });
+    await webRail.click();
+    await expect(tile(page, "web")).toBeVisible({ timeout: 10_000 });
+
+    // Default focus = slot A (tty): its framed border reads accent-green, the
+    // web tile's stays the default border color.
+    await expect(tile(page, "tty")).toHaveClass(/border-accent-green/);
+    await expect(tile(page, "web")).toHaveClass(/border-border/);
+
+    // Click the web tile (its header — the focus seam is pointerdown-capture
+    // anywhere in the tile) → the accent border moves.
+    await tile(page, "web").click({ position: { x: 6, y: 15 } });
+    await expect(tile(page, "web")).toHaveClass(/border-accent-green/);
+    await expect(tile(page, "tty")).not.toHaveClass(/border-accent-green/);
+
+    // Click back into the tty tile → the border returns.
+    await tile(page, "tty").click({ position: { x: 6, y: 15 } });
+    await expect(tile(page, "tty")).toHaveClass(/border-accent-green/);
+    await expect(tile(page, "web")).not.toHaveClass(/border-accent-green/);
+  });
+
+  test("the split chord is tty-scoped: inert with the code tile focused, splits with tty focused (260812-wfic R8, A-014)", async ({
+    page,
+  }) => {
+    test.setTimeout(40_000);
+    const id = await makeWindow(page, `sl-ttyonly-${Date.now()}`);
+    await gotoWindow(page, id);
+    await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
+
+    // Open the code tile (every window here is code-capable — repo-root cwd).
+    const codeRail = railButton(page, "Code");
+    await expect(codeRail).toBeVisible({ timeout: READY_TIMEOUT });
+    await codeRail.click();
+    await expect(tile(page, "code")).toBeVisible({ timeout: 10_000 });
+
+    const before = paneCount(id);
+    expect(before).toBe(1);
+
+    // Focus the CODE tile (header click) — the accent border confirms the
+    // gate's input. The split chord (⇧Ctrl+\ on this Linux host) must fall
+    // through untouched: NO split, pane count unchanged.
+    await tile(page, "code").click({ position: { x: 6, y: 15 } });
+    await expect(tile(page, "code")).toHaveClass(/border-accent-green/);
+    await page.keyboard.press("Shift+Control+Backslash");
+    // Give a would-be split a beat to land — then assert nothing happened.
+    await page.waitForTimeout(750);
+    expect(paneCount(id)).toBe(before);
+
+    // Focus the tty tile — the SAME chord splits exactly as today (the
+    // tty-focused path is byte-equivalent to the pre-gate behavior).
+    await tile(page, "tty").click({ position: { x: 6, y: 15 } });
+    await expect(tile(page, "tty")).toHaveClass(/border-accent-green/);
+    await page.keyboard.press("Shift+Control+Backslash");
+    await expect
+      .poll(() => paneCount(id), { timeout: 10_000 })
+      .toBe(before + 1);
   });
 });

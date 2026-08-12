@@ -24,8 +24,9 @@ import {
   translateLegacyParams,
   writeStoredLayout,
   type Layout,
+  type SurfaceKind,
 } from "@/lib/surface-layout";
-import { matchesCombo, findMatches, shouldSuppressChord, withShortcutHints, formatCombo } from "@/lib/keybindings";
+import { matchesCombo, hasReclaimableMatch, shouldSuppressChord, withShortcutHints, formatCombo } from "@/lib/keybindings";
 import { isMacroActionId, type MacroAction } from "@/lib/macros";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { useKeybindingDispatch } from "@/hooks/use-keybinding-dispatch";
@@ -827,6 +828,19 @@ function AppShell() {
       ? mobileSlotA
       : layout.order[0];
 
+  // Focused tile (260812-wfic R2/R8): SurfaceLayout owns the focused SLOT as
+  // transient state (the zoom precedent — the per-window reset comes free
+  // from its `${server}:${windowId}` key) and reports the focused KIND up via
+  // `onFocusedKindChange`; the shell mirrors only the kind — it's all the
+  // `ttyOnly` dispatcher gate and the `Layout: Focus <Surface>` palette
+  // entries need. On mobile the single VISIBLE slot counts as focused (the
+  // sheet-tab selection), so the split chords fire only when the shown tile
+  // is tty. `focusTileRef` is the palette's focus-by-kind seam (the
+  // `zoomToggleRef` pattern).
+  const [reportedFocusedKind, setReportedFocusedKind] = useState<SurfaceKind>("tty");
+  const focusedTileKind: SurfaceKind = isMobile ? mobileActiveTile : reportedFocusedKind;
+  const layoutFocusTileRef = useRef<((kind: SurfaceKind) => void) | null>(null);
+
   // The effective keybinding map (260730-g40a): drives the migrated `⌘.` lens
   // cycle below, the shifted-tier dispatch mount (see the `useKeybindingDispatch`
   // call further down, after the palette actions it reuses), the shortcuts
@@ -835,13 +849,15 @@ function AppShell() {
   const { byAction: bindingByAction, host: bindingHost } = keybindings;
 
   // Chord-reclaim predicate for the code surface's iframe (keyboard-capture
-  // spike, intake k3vp §5): a keydown inside the same-origin code-server iframe
-  // is reclaimed exactly when it matches an ENABLED registry binding — so
-  // run-kit's chords (palette, view-cycle, panel-toggle, …) survive iframe
-  // focus while the embedded app's OWN Ctrl/⌘ chords (non-registry) pass
-  // through to it.
+  // spike, intake k3vp §5; tty-scoped carve-out 260812-wfic R9): a keydown
+  // inside the same-origin code-server iframe is reclaimed exactly when it
+  // matches an ENABLED NON-`ttyOnly` registry binding — so run-kit's chords
+  // (palette, view-cycle, panel-toggle, …) survive iframe focus while both
+  // the embedded app's OWN Ctrl/⌘ chords AND the tmux-pane split pair (a
+  // keydown inside the iframe means the code tile owns focus) pass through
+  // to code-server's keybinding service.
   const reclaimChord = useCallback(
-    (e: KeyboardEvent) => findMatches(e, keybindings.bindings).length > 0,
+    (e: KeyboardEvent) => hasReclaimableMatch(e, keybindings.bindings),
     [keybindings.bindings],
   );
 
@@ -2535,6 +2551,13 @@ function AppShell() {
             zoomEnabled: !isMobile && layout.order.length > 1,
             onApply: applyLayout,
             onZoomToggle: () => layoutZoomToggleRef.current?.(),
+            // `Layout: Focus <Surface>` (260812-wfic R10) — keyboard parity
+            // for click-to-focus; desktop only (mobile's switcher is the
+            // sheet tabs), routed through SurfaceLayout's focus seam.
+            focusedKind: focusedTileKind,
+            onFocus: !isMobile
+              ? (kind: SurfaceKind) => layoutFocusTileRef.current?.(kind)
+              : undefined,
             toggleTarget: panelSurfaces.find((s) => s !== "tty") ?? null,
             toggleShortcut: (() => {
               const b = bindingByAction.get("panel-toggle");
@@ -2557,7 +2580,7 @@ function AppShell() {
         onSelect: toggleFixedWidth,
       },
     ],
-    [sessionName, fixedWidth, toggleFixedWidth, toggleComposeStrip, currentViews, resolvedView, switchView, bindingByAction, bindingHost, windowParam, isMobile, layout, panelSurfaces, applyLayout, layoutZoomed, onToggleRail],
+    [sessionName, fixedWidth, toggleFixedWidth, toggleComposeStrip, currentViews, resolvedView, switchView, bindingByAction, bindingHost, windowParam, isMobile, layout, panelSurfaces, applyLayout, layoutZoomed, focusedTileKind, onToggleRail],
   );
 
   // Navigation actions (`Go: Back` / `Go: Forward` / ancestor entries,
@@ -2990,6 +3013,14 @@ function AppShell() {
     // handlers below never lag the registration slot by a commit.
     const merged = [...paletteActions, ...paletteGlobals];
     const fromPalette = (id: string) => merged.find((a) => a.id === id)?.onSelect;
+    // ttyOnly gate (260812-wfic R8): a binding flagged `ttyOnly` in the
+    // registry yields NO handler unless the tty tile owns focus — handler
+    // presence is the dispatcher contract, so the chord then falls through
+    // untouched (rule 3, no preventDefault).
+    const ttyGated = (id: string) =>
+      bindingByAction.get(id)?.ttyOnly && focusedTileKind !== "tty"
+        ? undefined
+        : fromPalette(id);
     const windows = currentSession?.windows ?? [];
     const cycleWindow = (delta: -1 | 1) => {
       const idx = windows.findIndex((w) => w.windowId === windowParam);
@@ -3046,8 +3077,18 @@ function AppShell() {
       // window, so on non-window routes `fromPalette` yields undefined and
       // the chord falls through untouched (BoardPage mounts neither — splits
       // are terminal-route actions, like `open-last-used`).
-      "split-horizontal": fromPalette("split-horizontal"),
-      "split-vertical": fromPalette("split-vertical"),
+      //
+      // tty-scoped gate (260812-wfic R8): the pair carries the registry's
+      // `ttyOnly` data flag — its handler is treated as ABSENT unless the
+      // focused tile is the tty tile (single:tty and mobile's visible tty
+      // count), so the chord falls through per dispatcher rule 3 (no
+      // preventDefault) when e.g. the code tile owns focus. The gate consults
+      // the flag, never a hardcoded actionId list; PALETTE invocation is
+      // unaffected (the gate applies to chords, not the `Window: Split …`
+      // rows). The tty-side path is untouched — `shouldRefuseTerminalChord`
+      // still bounces the chord out of the xterm pane to this dispatcher.
+      "split-horizontal": ttyGated("split-horizontal"),
+      "split-vertical": ttyGated("split-vertical"),
       // ⇧⌘. panel toggle (260811-2r1w, generalized in 260811-k3vp) — retargeted
       // to the layout model in 260812-ab5v: toggles the first NON-TTY available
       // surface's TILE via addSurface/closeSurface (through `togglePanel`).
@@ -3066,7 +3107,7 @@ function AppShell() {
       // ring) gates the chord for free.
       "layout-cycle": fromPalette("layout-cycle"),
     };
-  }, [paletteActions, paletteGlobals, currentSession, windowParam, navigateToWindow, macros, sessionName, executeMacro, toggleComposeStrip, addToast, isMobile, panelSurfaces, togglePanel]);
+  }, [paletteActions, paletteGlobals, currentSession, windowParam, navigateToWindow, macros, sessionName, executeMacro, toggleComposeStrip, addToast, isMobile, panelSurfaces, togglePanel, bindingByAction, focusedTileKind]);
   useKeybindingDispatch(keybindingHandlers);
 
   const displayName = currentWindow?.name ?? windowParam ?? "";
@@ -3472,6 +3513,15 @@ function AppShell() {
               // entries stay fresh.
               zoomToggleRef={layoutZoomToggleRef}
               onZoomChange={setLayoutZoomed}
+              // Focused tile (260812-wfic R2/R10): the component owns the
+              // focused SLOT and reports the focused KIND for the ttyOnly
+              // chord gate; the palette's `Layout: Focus <Surface>` entries
+              // drive focus through the ref seam.
+              onFocusedKindChange={setReportedFocusedKind}
+              focusTileRef={layoutFocusTileRef}
+              // tty header status dot (R6): the SSE window record — consumed
+              // by tty tile headers only (no dot when null/non-tty).
+              statusWindow={currentWindow ?? null}
             />
           ) : (
             <SessionTiles

@@ -21,6 +21,13 @@
  *  - `Layout: Promote <Surface>` / `Layout: Swap <Surface>` — per open kind
  *                                 (promote of slot A is a no-op, so it's
  *                                 omitted; swap-with-next always wraps).
+ *  - `Layout: Focus <Surface>`   — per open, not-currently-focused kind
+ *                                 (260812-wfic R10 — keyboard parity for the
+ *                                 pointer's click-to-focus, Constitution V);
+ *                                 desktop multi-tile only (the caller passes
+ *                                 `onFocus` only then). Selecting one routes
+ *                                 through SurfaceLayout's `focusTileRef` seam
+ *                                 (first slot of that kind).
  *  - `Layout: <Shape>`          — per-shape jumps for the CURRENT arity
  *                                 (`shapesForArity`), destination shapes only
  *                                 (never the current — the `buildViewActions`
@@ -75,6 +82,12 @@ export type LayoutPaletteOptions = {
    *  its effective combo — stamped on that surface's Add/Close entry. */
   toggleTarget?: SurfaceKind | null;
   toggleShortcut?: string;
+  /** Focused-tile palette parity (260812-wfic R10): the currently focused
+   *  kind (omitted from the entries) and the focus-by-kind callback (app.tsx
+   *  routes it through SurfaceLayout's `focusTileRef` seam). `onFocus`
+   *  absent ⇒ no Focus entries (mobile; focus is the sheet tabs there). */
+  focusedKind?: SurfaceKind | null;
+  onFocus?: (kind: SurfaceKind) => void;
 };
 
 export function buildLayoutActions(
@@ -132,6 +145,22 @@ export function buildLayoutActions(
         ? { id: "layout-unzoom", label: "Layout: Unzoom", onSelect: opts.onZoomToggle }
         : { id: "layout-zoom", label: "Layout: Zoom", onSelect: opts.onZoomToggle },
     );
+  }
+
+  // Focus (260812-wfic R10) — keyboard parity for click-to-focus: one entry
+  // per OPEN, not-currently-focused kind. Desktop multi-tile only: at arity 1
+  // there is nothing to move focus to, and the caller passes no `onFocus` on
+  // mobile (the sheet tabs are the switcher there). Duplicate kinds (two tty
+  // tiles) yield one entry — the seam focuses the first slot of the kind.
+  if (order.length > 1 && opts.onFocus && opts.focusedKind) {
+    for (const kind of openKinds) {
+      if (kind === opts.focusedKind) continue;
+      actions.push({
+        id: `layout-focus-${kind}`,
+        label: `Layout: Focus ${SURFACE_LABEL[kind]}`,
+        onSelect: () => opts.onFocus?.(kind),
+      });
+    }
   }
 
   // Promote / Swap — per open kind on multi-tile layouts (promote of slot A

@@ -188,3 +188,63 @@ describe("buildLayoutActions — the ⇧⌘. hint (panel-toggle documentation)",
     expect(actions.find((a) => a.id === "layout-add-web")?.shortcut).toBeUndefined();
   });
 });
+
+describe("buildLayoutActions — Layout: Focus <Surface> (260812-wfic R10)", () => {
+  it("offers one Focus entry per open NON-focused kind (the focused one is omitted)", () => {
+    const actions = build(
+      { shape: "split-h", order: ["tty", "code"] },
+      { focusedKind: "tty", onFocus: vi.fn() },
+    ).map((a) => a.id);
+    expect(actions).toContain("layout-focus-code");
+    expect(actions).not.toContain("layout-focus-tty"); // already focused
+  });
+
+  it("a Focus entry fires onFocus with the kind (the focusTileRef seam), never onApply", () => {
+    const onApply = vi.fn();
+    const onFocus = vi.fn();
+    const actions = build(
+      { shape: "split-h", order: ["tty", "code"] },
+      { onApply, focusedKind: "tty", onFocus },
+    );
+    const entry = actions.find((a) => a.id === "layout-focus-code")!;
+    expect(entry.label).toBe("Layout: Focus Code");
+    entry.onSelect();
+    expect(onFocus).toHaveBeenCalledWith("code");
+    expect(onApply).not.toHaveBeenCalled();
+  });
+
+  it("duplicate kinds yield ONE Focus entry (the seam focuses the first slot)", () => {
+    const actions = build(
+      { shape: "split-h", order: ["tty", "tty"] },
+      { focusedKind: "code", onFocus: vi.fn() },
+      ["tty", "code"],
+    ).map((a) => a.id);
+    expect(actions.filter((id) => id === "layout-focus-tty")).toHaveLength(1);
+  });
+
+  it("hidden at arity 1, without onFocus (mobile), and without focusedKind", () => {
+    const onFocus = vi.fn();
+    expect(
+      build({ shape: "single", order: ["tty"] }, { focusedKind: "tty", onFocus })
+        .some((a) => a.id.startsWith("layout-focus-")),
+    ).toBe(false);
+    expect(
+      build({ shape: "split-h", order: ["tty", "code"] }, { focusedKind: "tty" })
+        .some((a) => a.id.startsWith("layout-focus-")),
+    ).toBe(false);
+    expect(
+      build({ shape: "split-h", order: ["tty", "code"] }, { onFocus })
+        .some((a) => a.id.startsWith("layout-focus-")),
+    ).toBe(false);
+  });
+
+  it("a 3-tile layout lists both non-focused kinds", () => {
+    const actions = build(
+      { shape: "main-left", order: ["tty", "code", "web"] },
+      { focusedKind: "code", onFocus: vi.fn() },
+    ).map((a) => a.id);
+    expect(actions).toContain("layout-focus-tty");
+    expect(actions).toContain("layout-focus-web");
+    expect(actions).not.toContain("layout-focus-code");
+  });
+});

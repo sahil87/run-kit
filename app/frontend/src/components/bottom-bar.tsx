@@ -84,8 +84,8 @@ export function BottomBar({ onOpenCompose, onFocusTerminal, onScrollLockChange }
   const [fnOpen, setFnOpen] = useState(false);
   const [scrollLocked, setScrollLocked] = useState(false);
   const fnRef = useRef<HTMLDivElement>(null);
-  // HOST-effective chords for the chip tips' kbd slots (the sidebar-footer
-  // overlayChord pattern, 260801-mqim): reflect overrides, omitted when
+  // HOST-effective chords for the chip tips' kbd slots (the settings-gear
+  // chord pattern, 260801-mqim): reflect overrides, omitted when
   // unbound/disabled (a tip advertising a dead chord would lie).
   const { byAction: keybindingsByAction, host: keybindingHost } = useKeybindings();
   const chordFor = (actionId: string) => {

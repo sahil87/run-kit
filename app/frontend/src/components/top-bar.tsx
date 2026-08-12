@@ -21,9 +21,13 @@ import { useOpenTargets } from "@/hooks/use-open-targets";
 import { activePaneCwd, buildOpenTargets } from "@/lib/open-in-app";
 import {
   TopBarOverflowMenu,
+  HelpMenuRow,
+  KeyboardMenuRow,
+  ThemeMenuRow,
   type OverflowMenuRow,
   type MenuGroup,
   MENU_ROW_CLASS,
+  MENU_ROW_KBD_CLASS,
   POPOVER_ROW_CLASS,
   TOP_BAR_BUTTON,
   TOP_BAR_BUTTON_BASE,
@@ -31,6 +35,8 @@ import {
   TOP_BAR_BUTTON_H,
   TOP_BAR_SEGMENT_H,
 } from "@/components/top-bar-overflow-menu";
+import { GearIcon } from "@/components/sidebar/icons";
+import { useSettingsDialog } from "@/contexts/settings-dialog-context";
 import {
   SplitVerticalGlyph,
   SplitHorizontalGlyph,
@@ -107,9 +113,10 @@ type TopBarProps = {
    *   the solo `Host` word. No hamburger
    *   (the Host page has no sidebar), no terminal-font control, no split/close
    *   buttons, no fixed-width button (terminal-only since 260704-9o7k). The L3
-   *   always-block (Notification · Theme · Refresh · Help) still renders, plus
-   *   the connection dot — which on the Host page reflects host-metrics stream health
-   *   (260704-9o7k; formerly hidden). Session/server-dependent props are passed
+   *   always-block (Refresh · Settings gear, plus UpdateChip when qualifying)
+   *   still renders; the connection dot left the bar for the sidebar footer in
+   *   260724-6j1v (the Host page, having no sidebar, shows no dot).
+   *   Session/server-dependent props are passed
    *   empty (`sessions=[]`, `currentSession=null`, `currentWindow=null`,
    *   `sessionName=""`, `server=""`, no-op callbacks) — the same tolerant-empty
    *   shape board mode already uses.
@@ -680,9 +687,11 @@ export function TopBar({
           <ClosePaneMenuRow server={server} windowId={currentWindow.windowId} label="Close pane" />
         ) : null,
     },
-    // L3 — always (all four modes): update chip · refresh. Theme, help, and the
-    // notification bell LEFT the bar in 260724-6j1v — theme/help live in the
-    // sidebar footer, notifications in the settings dialog.
+    // L3 — always (all four modes): update chip · refresh · settings gear
+    // (260812-d1at — the gear relocated here from the sidebar footer; Help,
+    // Keyboard, and Theme moved with it but are `menuOnly` App-section rows
+    // below). The notification bell folded into the settings dialog in
+    // 260724-6j1v and stays there.
     // The UpdateChip has NO menu row: when overflowed, its function merges into
     // the version row (the menu component owns that — including the dismissed-
     // pending update surface and the resting version + ⟳ check affordance,
@@ -705,6 +714,50 @@ export function TopBar({
       menuGroup: "app",
       barRender: () => <RefreshButton />,
       menuRender: () => <RefreshMenuRow />,
+    },
+    // Settings gear (260812-d1at) — relocated from the sidebar footer to the
+    // right cluster on ALL modes (app-global chrome, not a terminal control).
+    // The LAST fit candidate (L3 tail): it survives longest in-bar and, when
+    // the cluster can't fit it, degrades to the Settings menu row — never
+    // shrinks or clips. Order in the bar: … · Refresh · Gear · chevron ▾ ·
+    // rail-toggle (the 260812-nm4p rail toggle keeps the outermost corner,
+    // inside the exempt trailing block).
+    {
+      id: "settings",
+      modes: ["terminal", "board", "server", "host"],
+      menuGroup: "app",
+      barRender: () => <SettingsGearButton />,
+      menuRender: () => <SettingsMenuRow />,
+    },
+    // Help / Keyboard / Theme (260812-d1at) — the sidebar footer's other three
+    // actions, relocated to the chevron menu's App section. MENU-ONLY: they
+    // never render in-bar (not in the visible row, not in the probe, zero fit
+    // pixels); their rows ALWAYS render in the menu, above the fixed version
+    // row (which rides the App section's tail). Theme click-cycling is
+    // retired — the row opens the theme selector.
+    {
+      id: "help",
+      modes: ["terminal", "board", "server", "host"],
+      menuOnly: true,
+      menuGroup: "app",
+      barRender: () => null,
+      menuRender: () => <HelpMenuRow />,
+    },
+    {
+      id: "keyboard",
+      modes: ["terminal", "board", "server", "host"],
+      menuOnly: true,
+      menuGroup: "app",
+      barRender: () => null,
+      menuRender: () => <KeyboardMenuRow />,
+    },
+    {
+      id: "theme",
+      modes: ["terminal", "board", "server", "host"],
+      menuOnly: true,
+      menuGroup: "app",
+      barRender: () => null,
+      menuRender: () => <ThemeMenuRow />,
     },
   ];
 
@@ -1926,22 +1979,12 @@ function BoardSwitcher({
   );
 }
 
-// ThemeToggle, HelpLink, and NotificationControl LEFT this file in 260724-6j1v:
-// theme + help chrome moved to the sidebar footer (`sidebar/index.tsx`
-// SidebarFooter) and notifications folded into the settings dialog. The shared
-// definitions (HELP_URL, NOTIFICATIONS_HELP_URL, cycleTheme, the theme/help
-// SVGs) live in `components/global-chrome.tsx`.
-
-/**
- * Trailing menu-row keycap (260811-0f3d) — the right-aligned chord chip on
- * menu rows whose action has a registry binding (SplitControl's direction
- * popover rows, the overflow menu's SplitMenuRows). Matches the palette rows'
- * kbd visual weight (command-palette.tsx), `ml-auto`-pinned to the row's right
- * edge; `aria-hidden` at the call sites keeps the chord out of the accessible
- * name (the row's label is the name; the keycap is visual education).
- */
-const MENU_ROW_KBD_CLASS =
-  "ml-auto text-xs text-text-secondary bg-bg-card px-1.5 py-0.5 rounded border border-border";
+// ThemeToggle, HelpLink, and NotificationControl LEFT this file in 260724-6j1v
+// (theme + help chrome moved to the sidebar footer, notifications folded into
+// the settings dialog); the footer actions then relocated HERE in 260812-d1at —
+// Settings as a right-cluster gear chip, Help/Keyboard/Theme as chevron-menu
+// App-section rows. The shared definitions (HELP_URL, NOTIFICATIONS_HELP_URL,
+// the theme/help SVGs) live in `components/global-chrome.tsx`.
 
 /**
  * SplitControl — the ONE merged split control (260731-oiho), replacing the two
@@ -2688,5 +2731,63 @@ function RefreshMenuRow() {
         Refresh page
       </button>
     </Tip>
+  );
+}
+
+/** Host-effective chord for a registry-bound action (the sidebar footer's
+ *  derivation, 260801-mqim): reflects per-platform tiers and user overrides;
+ *  undefined when the binding is unbound/disabled so no dead chord is
+ *  advertised (a tip/row advertising a dead chord would lie). */
+function useActionChord(actionId: string): string | undefined {
+  const { byAction, host } = useKeybindings();
+  const binding = byAction.get(actionId);
+  return binding?.enabled
+    ? formatCombo({ code: binding.code, tier: binding.tier }, host.platform)
+    : undefined;
+}
+
+/** Settings gear (260812-d1at) — the sidebar footer's gear relocated to the
+ *  top-bar right cluster, immediately before the overflow chevron. Opens the
+ *  single AppLayout-mounted settings dialog via `useSettingsDialog()` (the
+ *  same seam the footer used — no new event). The LAST fit candidate, so it
+ *  survives longest in-bar and degrades to the Settings menu row under width
+ *  pressure. */
+function SettingsGearButton() {
+  const { openSettings } = useSettingsDialog();
+  const chord = useActionChord("settings-open");
+  return (
+    <Tip label="Settings" kbd={chord}>
+      <button
+        type="button"
+        onClick={openSettings}
+        aria-label="Open settings"
+        className={TOP_BAR_BUTTON}
+      >
+        <GearIcon size={14} />
+      </button>
+    </Tip>
+  );
+}
+
+/** Settings row — the gear's menu fallback when the chip overflows. */
+function SettingsMenuRow() {
+  const { openSettings } = useSettingsDialog();
+  const chord = useActionChord("settings-open");
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      tabIndex={-1}
+      onClick={openSettings}
+      className={MENU_ROW_CLASS}
+    >
+      <GearIcon size={14} />
+      <span className="flex-1">Settings</span>
+      {chord && (
+        <kbd aria-hidden="true" className={MENU_ROW_KBD_CLASS}>
+          {chord}
+        </kbd>
+      )}
+    </button>
   );
 }

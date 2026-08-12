@@ -3,7 +3,7 @@ import { createContext, useContext, useState, useCallback, useMemo } from "react
 /**
  * Settings-dialog open/close state (260723-o7q8). Provided at the `AppLayout`
  * level — the true every-page layer (boards included) — so any descendant
- * (command-palette actions, the sidebar footer gear) can call `openSettings()`
+ * (command-palette actions, the top-bar Settings gear — 260812-d1at) can call `openSettings()`
  * while the dialog itself renders exactly once in `AppLayout`. Deliberately
  * small: instance data (display name, accent) lives in its own contexts.
  */

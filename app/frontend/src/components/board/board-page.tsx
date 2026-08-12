@@ -335,7 +335,7 @@ function BoardPageContent({ name }: { name: string }) {
       // The overlay state is layout-owned now (260811-239r, R12): resolve the
       // global `Help: Keyboard Shortcuts` entry's `onSelect` through the merged
       // palette list (the fromPalette convention) — same toggle as the palette
-      // entry and the sidebar-footer Keyboard icon.
+      // entry and the top-bar overflow menu's Keyboard shortcuts row.
       "shortcuts-overlay": paletteGlobals.find((a) => a.id === "shortcuts-overlay")?.onSelect,
       "compose-toggle": toggleComposeStrip,
       // ⇧⌘,/⌘, settings (260801-mqim) — the board twin mounts the same
@@ -347,7 +347,8 @@ function BoardPageContent({ name }: { name: string }) {
   }, [entries.length, router, paletteGlobals, toggleComposeStrip, openSettings]);
   useKeybindingDispatch(boardKeyHandlers);
 
-  // The sidebar-footer Keyboard icon's `shortcuts-overlay:open` listener moved
+  // The `shortcuts-overlay:open` CustomEvent's listener (fired by the top-bar
+  // overflow menu's Keyboard shortcuts row since 260812-d1at) moved
   // to AppLayout with the overlay state (260811-239r) — one listener for the
   // single layout-mounted overlay.
 

@@ -88,8 +88,9 @@ type TipProps = {
   /** Optional keycap chip, e.g. "Enter". For a registry-bound action the call
    *  site resolves the EFFECTIVE chord (`useKeybindings()` → `byAction.get(id)`
    *  → `formatCombo(..., host.platform)` when `enabled`, else `undefined` — a
-   *  chip advertising a dead chord would lie; the sidebar-footer overlayChord
-   *  pattern, 260801-sm6g/mqim). A static string is correct only for chords
+   *  chip advertising a dead chord would lie; the settings-gear /
+   *  shortcuts-row chord pattern, 260801-sm6g/mqim + 260812-d1at). A static
+   *  string is correct only for chords
    *  with no registry binding (the compose/chat Enter / Alt+Enter editing
    *  chords). */
   kbd?: string;

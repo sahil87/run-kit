@@ -42,7 +42,8 @@ export function PaletteIcon({ size = 13 }: { size?: number }) {
   );
 }
 
-/** Small gear icon for the sidebar-footer settings trigger — a lucide
+/** Small gear icon for the settings trigger (the top-bar right-cluster chip
+ *  since 260812-d1at, the sidebar footer before) — a lucide
  *  `settings` silhouette (cog outline + hub dot). Line-art matching the
  *  sibling icons' idiom (`currentColor` stroke, `strokeWidth={2}`,
  *  `aria-hidden`, 24-unit viewBox, 13px default size). (o7q8) */
@@ -65,7 +66,9 @@ export function GearIcon({ size = 13 }: { size?: number }) {
   );
 }
 
-/** Small keyboard icon for the sidebar-footer shortcuts trigger — a lucide
+/** Small keyboard icon for the shortcuts trigger (the top-bar overflow menu's
+ *  Keyboard shortcuts row since 260812-d1at, the sidebar footer before) — a
+ *  lucide
  *  `keyboard` silhouette (rounded rect + key dots + space bar). Line-art
  *  matching the sibling `GearIcon` idiom (`currentColor` stroke,
  *  `strokeWidth={2}`, `aria-hidden`, 24-unit viewBox, 13px default size).

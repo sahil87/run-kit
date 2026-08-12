@@ -13,13 +13,18 @@ chevron menu contains the dropped + menuOnly rows + the version row, grouped
 under View / Window / App section labels (260731-oiho); (d) the version row
 copies to the clipboard; (e) the exempt chevron is always visible (the
 connection dot left the bar in 260724-6j1v — it lives in the sidebar footer);
-(f) a menu action (fixed-width toggle) works from the menu; (g) the three
-demoted controls (fixed-width, Aa, close-pane — `menuOnly` since 260731-oiho)
-render in-bar NOWHERE at any width while their rows are ALWAYS in the menu.
-Since 260731-oiho the terminal fit tiers are: L1 = the ONE merged split control
+(f) a menu action (fixed-width toggle) works from the menu; (g) the demoted
+controls (fixed-width, Aa, close-pane — `menuOnly` since 260731-oiho — plus
+the relocated Help / Keyboard / Theme… chrome rows, `menuOnly` since
+260812-d1at) render in-bar NOWHERE at any width while their rows are ALWAYS in
+the menu; (h) the Settings gear (260812-d1at, relocated from the sidebar
+footer) is a real fit candidate — the LAST one (Refresh drops before it) —
+rendering in-bar between Refresh and the chevron at desktop widths.
+Since 260812-d1at the terminal fit tiers are: L1 = the ONE merged split control
 (primary segment `Split horizontally` — the default flipped from vertical in
-260806-2x2h), L2 = empty, L3 = Refresh — the in-bar end state is
-Open · Split(▾) · Refresh · chevron.
+260806-2x2h), L2 = empty, L3 = Refresh + Settings gear — the in-bar end state
+is Open · Split(▾) · Refresh · Gear · chevron · rail-toggle (rail toggle
+desktop-only, 260812-nm4p).
 
 ## Shared setup
 
@@ -67,15 +72,14 @@ menuOnly controls render in-bar NOWHERE at any width (g, 260731-oiho).
 
 **What it proves:** the M1 fix (in-bar controls exist at wide widths) AND the
 pyramid drop order — overflow consumes from the front, so L1 (the merged split
-control) empties before L3 (Refresh) starts dropping (L2 is empty since the
-260731-oiho demotions); each tier's in-bar count is monotonic non-increasing as
-width shrinks WITHIN each viewport regime — the desktop-only rail toggle
-(260812-nm4p) unmounts below 640px, shrinking the trailing exempt block, so the
-monotonic baseline resets once at the desktop→mobile crossing while the
-per-width pyramid-order assertions run unconditionally; at 375px the pyramid's
-front (the L1 split) has overflowed — the lightened 260731-oiho cluster
-deliberately keeps the L3 Refresh in-bar at the mobile leaf, so the ORDER (not
-an all-gone cliff) is the contract.
+control) empties before L3 (Refresh · Settings gear) starts dropping (L2 is
+empty since the 260731-oiho demotions); each tier's in-bar count is monotonic
+non-increasing as width shrinks WITHIN each viewport regime — the desktop-only
+rail toggle (260812-nm4p) unmounts below 640px, shrinking the trailing exempt
+block, so the monotonic baseline resets once at the desktop→mobile crossing
+while the per-width pyramid-order assertions run unconditionally; at 375px the
+pyramid's front (the L1 split) has overflowed while the L3 tail survives — the
+ORDER (not an all-gone cliff) is the contract.
 
 **Steps:**
 1. At 1280px assert at least some L3 controls render in-bar (the direct M1
@@ -94,10 +98,12 @@ an all-gone cliff) is the contract.
 ### `the chevron menu contains the overflowed + menuOnly rows plus the version row, grouped under section labels`
 
 **What it proves:** at 375px the menu lists the overflowed split rows (the
-merged entry's two one-action rows) and the menuOnly trio's rows plus the
-always-present version row, grouped under the View / Window / App uppercase
-section labels (c, 260731-oiho). Refresh (L3) survives in-bar at the mobile
-leaf on the lightened cluster, so its row is deliberately NOT asserted.
+merged entry's two one-action rows), the menuOnly trio's rows, and the
+relocated App-section chrome rows (260812-d1at: Help — run-kit docs, Keyboard
+shortcuts, Theme…), plus the always-present version row — grouped under the
+View / Window / App uppercase section labels (c, 260731-oiho). Whichever L3
+controls still fit at 375px stay in-bar (the suffix rule), so no Refresh /
+Settings row is asserted either way.
 
 **Steps:**
 1. At 375px open the `More controls` menu.
@@ -105,23 +111,43 @@ leaf on the lightened cluster, so its row is deliberately NOT asserted.
    horizontal first — the 260806-2x2h default) / Fixed width (checkbox) /
    Terminal font (stepper group) / Close pane rows are present, plus a `RunKit`
    version row; assert the View / Window / App section labels render; assert
-   the Theme: / Help / Documentation / notification rows are ABSENT
-   (260724-6j1v — that chrome left the top bar entirely).
+   the Help / Keyboard shortcuts / Theme… rows are PRESENT (260812-d1at) and
+   the notification row is ABSENT (260724-6j1v — the bell lives in the
+   settings dialog).
 
-### `the menuOnly rows (fixed-width / Aa / close-pane) are in the menu even at a WIDE width`
+### `the menuOnly rows (fixed-width / Aa / close-pane / Help / Keyboard / Theme…) are in the menu even at a WIDE width`
 
 **What it proves:** the 260731-oiho demotion is menu-ONLY, not space-driven —
 at 1280px the bar has room (the split control is in-bar) yet the demoted trio
-still renders only as menu rows; and an in-bar entry's rows are NOT duplicated
-into the menu.
+AND the menuOnly chrome rows render only as menu rows; the Settings gear is a
+real fit candidate, rendering in-bar between Refresh and the chevron; and an
+in-bar entry's rows are NOT duplicated into the menu.
 
 **Steps:**
 1. Navigate to the terminal window; set 1280×800; gate on the in-bar
    `Split horizontally` segment.
-2. Assert the in-bar count of the `MENU_ONLY` trio is 0.
-3. Open the menu; assert the Fixed width checkbox row, the Terminal font stepper
-   group, and the Close pane row are present; assert NO `Split horizontal` row
-   (the split is in-bar, so it contributes no menu rows).
+2. Assert the in-bar count of the `MENU_ONLY` trio and of the Help / Keyboard
+   shortcuts / Theme… rows is 0; assert the `Open settings` gear is visible
+   in-bar with a bounding box between Refresh's and the chevron's.
+3. Open the menu; assert the Fixed width checkbox row, the Terminal font
+   stepper group, the Close pane row, and the three chrome rows are present;
+   assert NO `Split horizontal` row and NO `Settings` row (both are in-bar,
+   so they contribute no menu rows).
+
+### `the App-section chrome rows work: Help links out, Keyboard opens the overlay, Theme… opens the selector`
+
+**What it proves:** the relocated rows (260812-d1at) are functional, not just
+present — Help is a safe external link, Keyboard shortcuts opens the
+ShortcutsOverlay, and Theme… opens the theme selector (the retired footer
+button's click-cycling is gone).
+
+**Steps:**
+1. Navigate to the terminal window; set 375×800; open the `More controls` menu.
+2. Assert the Help row's `href` / `target="_blank"` / `rel="noopener…"`.
+3. Click `Keyboard shortcuts`; assert the `shortcuts-overlay` testid is
+   visible; Escape-close it.
+4. Reopen the menu; click `Theme…`; assert the `Theme selector` dialog is
+   visible; Escape-close it.
 
 ### `the version row copies the version to the clipboard`
 
@@ -137,8 +163,8 @@ into the menu.
 ### `a menu action (fixed-width toggle) works from the menu`
 
 **What it proves:** a menu action mutates app state from within the menu (f).
-The theme row left the menu (260724-6j1v), so the fixed-width checkbox row is
-the representative stateful menu action.
+The fixed-width checkbox row is the representative stateful menu action (the
+one-shot chrome rows — Keyboard / Theme… — have their own coverage above).
 
 **Steps:**
 1. Open the menu at 375px; read the `Fixed width` row's `aria-checked`.

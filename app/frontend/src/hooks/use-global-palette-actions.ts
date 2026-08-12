@@ -111,7 +111,8 @@ export function useGlobalPaletteActions({
     [],
   );
 
-  // Help docs — route-agnostic (the sidebar footer's Help anchor, 260724-6j1v).
+  // Help docs — route-agnostic (the top-bar overflow menu's Help row shares
+  // this URL, 260812-d1at).
   // Shares the HELP_URL exported from `global-chrome.tsx` so the URL can never
   // drift from the footer. Ex AppShell's `configActions` / the board's
   // `helpEntry` (both DD-8).

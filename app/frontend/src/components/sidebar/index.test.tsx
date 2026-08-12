@@ -22,6 +22,7 @@ import {
   DEFAULT_DARK_THEME,
 } from "@/themes";
 import type { MetricsSnapshot, ProjectSession } from "@/types";
+import type { UpdateAvailable } from "@/contexts/session-context";
 
 // HostPanel (inside Sidebar) consumes the instance-accent context; inject a
 // static null accent so sidebar tests need no fetching provider (1etw).
@@ -111,6 +112,9 @@ type RenderOpts = {
   isConnected?: boolean;
   /** Daemon version fed to the footer version readout (defaults null = hidden). */
   daemonVersion?: string | null;
+  /** Pending-update payload fed to the footer status slot (defaults null = no
+   *  update → the slot renders nothing). */
+  updateAvailable?: UpdateAvailable | null;
   /** Host-global metrics snapshot fed to HostMetricsProvider (defaults null). */
   hostMetrics?: MetricsSnapshot | null;
   /** Override the Sidebar's onKillServer prop (x4sf) — the header ✕ routes
@@ -142,6 +146,7 @@ function sidebarTree(opts: RenderOpts = {}) {
               sessionOrderByServer: new Map(servers.map((s) => [s.name, []])),
               isConnectedByServer: new Map(servers.map((s) => [s.name, false])),
               daemonVersion: opts.daemonVersion ?? null,
+              updateAvailable: opts.updateAvailable ?? null,
               metricsByServer: new Map(),
               currentServer,
               servers,
@@ -1799,12 +1804,13 @@ describe("Sidebar — server-group header action cluster (x4sf)", () => {
   });
 });
 
-describe("sidebar footer chrome (260723-o7q8 gear; 260724-6j1v cluster)", () => {
-  it("renders the gear with an aria-label and NO native title (Tip-named)", () => {
+describe("sidebar footer status row (260812-d1at — readouts + quiet status slot)", () => {
+  it("renders NO action buttons — Help/Keyboard/Theme/Gear relocated to the top bar (260812-d1at)", () => {
     renderSidebar();
-    const gear = screen.getByRole("button", { name: "Open settings" });
-    expect(gear).toBeInTheDocument();
-    expect(gear.getAttribute("title")).toBeNull();
+    expect(screen.queryByLabelText("Help — run-kit docs")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Keyboard shortcuts" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: / theme$/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open settings" })).not.toBeInTheDocument();
   });
 
   it("renders the connection dot as a left readout with the top-bar dot's exact semantics", () => {
@@ -1839,112 +1845,57 @@ describe("sidebar footer chrome (260723-o7q8 gear; 260724-6j1v cluster)", () => 
     expect(screen.queryByText(/vundefined/)).not.toBeInTheDocument();
   });
 
-  it("renders the Help anchor with the shared HELP_URL and safe new-tab attrs", () => {
-    renderSidebar();
-    const help = screen.getByLabelText("Help — run-kit docs");
-    expect(help.tagName).toBe("A");
-    expect(help).toHaveAttribute("href", "https://shll.ai/run-kit");
-    expect(help).toHaveAttribute("target", "_blank");
-    const rel = help.getAttribute("rel") ?? "";
-    expect(rel).toContain("noopener");
-    expect(rel).toContain("noreferrer");
-    expect(help).not.toHaveAttribute("title");
-  });
-
-  it("cycles the theme on click (system → light) and carries the chip idiom", () => {
-    renderSidebar();
-    const theme = screen.getByRole("button", { name: "System theme" });
-    // Chip footer idiom (260811-cj4b) — the top bar's bordered rk-glint chip.
-    expect(theme.className).toContain("rk-glint");
-    expect(theme.className).toContain("border-border");
-    fireEvent.click(theme);
-    expect(screen.getByRole("button", { name: "Light theme" })).toBeInTheDocument();
-  });
-
-  it("styles all four footer actions as bordered rk-glint chips (260811-cj4b)", () => {
-    renderSidebar();
-    const actions = [
-      screen.getByLabelText("Help — run-kit docs"),
-      screen.getByRole("button", { name: "Keyboard shortcuts" }),
-      screen.getByRole("button", { name: "System theme" }),
-      screen.getByRole("button", { name: "Open settings" }),
-    ];
-    for (const action of actions) {
-      expect(action.className).toContain("rk-glint");
-      // Exact token match — `toContain("border")` would pass vacuously via "border-border".
-      expect(action.classList.contains("border")).toBe(true);
-      expect(action.className).toContain("border-border");
-      // Fixed-size chip (24px fine / 30px coarse) — no min-* floors.
-      expect(action.className).toContain("w-[24px]");
-      expect(action.className).toContain("h-[24px]");
-      expect(action.className).toContain("coarse:w-[30px]");
-      expect(action.className).toContain("coarse:h-[30px]");
-      // Hover is the rk-glint green line, not a color flip.
-      expect(action.className).not.toContain("hover:text-text-primary");
-    }
-  });
-
-  it("Ctrl/Cmd-click on the theme button opens the theme selector instead of cycling", () => {
-    renderSidebar();
-    const openListener = vi.fn();
-    document.addEventListener("theme-selector:open", openListener);
-    try {
-      fireEvent.click(screen.getByRole("button", { name: "System theme" }), { ctrlKey: true });
-      expect(openListener).toHaveBeenCalledTimes(1);
-      // No cycle happened — the label is still the system mode.
-      expect(screen.getByRole("button", { name: "System theme" })).toBeInTheDocument();
-    } finally {
-      document.removeEventListener("theme-selector:open", openListener);
-    }
-  });
-
-  it("lays the footer out readouts-left / actions-right in Help · Keyboard · Theme · Gear order", () => {
+  it("lays the footer out readouts-left with no action cluster (dot → version)", () => {
     renderSidebar({ isConnected: true, daemonVersion: "0.9.3" });
     const dot = screen.getByLabelText("Connected");
     const version = screen.getByRole("button", { name: "RunKit v0.9.3 (copy)" });
-    const help = screen.getByLabelText("Help — run-kit docs");
-    const keyboard = screen.getByRole("button", { name: "Keyboard shortcuts" });
-    const theme = screen.getByRole("button", { name: "System theme" });
-    const gear = screen.getByRole("button", { name: "Open settings" });
     const follows = (a: Element, b: Element) =>
       Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
     expect(follows(dot, version)).toBe(true);
-    expect(follows(version, help)).toBe(true);
-    expect(follows(help, keyboard)).toBe(true);
-    expect(follows(keyboard, theme)).toBe(true);
-    expect(follows(theme, gear)).toBe(true);
-    // One justify-between row: readout segment left, action cluster right.
-    const row = gear.closest(".justify-between")!;
+    // One justify-between row holding the readouts; the version copy button is
+    // the footer's ONLY interactive element now.
+    const row = version.closest(".justify-between")!;
     expect(row).toContainElement(dot as HTMLElement);
+    expect(row.querySelectorAll("button")).toHaveLength(1);
   });
 
-  it("the Settings gear tip carries the registry-resolved chord keycap (260801-mqim)", async () => {
-    renderSidebar();
-    const gear = screen.getByRole("button", { name: "Open settings" });
-    fireEvent.mouseEnter(gear);
-    const tooltip = await screen.findByRole("tooltip");
-    expect(tooltip).toHaveTextContent("Settings");
-    // jsdom detects platform "other" → the Shift+Ctrl spelling of the new
-    // `settings-open` default (Comma).
-    expect(tooltip.querySelector("kbd")).toHaveTextContent("Shift+Ctrl+,");
+  it("shows a quiet accent-green update hint in the status slot while an update qualifies", () => {
+    renderSidebar({
+      daemonVersion: "0.9.3",
+      updateAvailable: {
+        tools: [{ tool: "run-kit", current: "0.9.3", latest: "3.16.0" }],
+        key: "run-kit@3.16.0",
+        current: "0.9.3",
+        latest: "3.16.0",
+      },
+    });
+    const hint = screen.getByText("v3.16.0 available");
+    expect(hint.className).toContain("text-accent-green");
+    // Non-interactive readout — the overflow menu's version row stays the
+    // update surface.
+    expect(hint.tagName).toBe("SPAN");
+    expect(hint.closest("button, a")).toBeNull();
   });
 
-  it("the Keyboard button dispatches shortcuts-overlay:open in the chip idiom (260801-sm6g)", () => {
-    renderSidebar();
-    const keyboard = screen.getByRole("button", { name: "Keyboard shortcuts" });
-    // Chip footer idiom (260811-cj4b) — bordered rk-glint chip, no native
-    // title (the Tip carries the label + effective-chord kbd slot).
-    expect(keyboard.className).toContain("border-border");
-    expect(keyboard.className).toContain("rk-glint");
-    expect(keyboard).not.toHaveAttribute("title");
-    const openListener = vi.fn();
-    document.addEventListener("shortcuts-overlay:open", openListener);
-    try {
-      fireEvent.click(keyboard);
-      expect(openListener).toHaveBeenCalledTimes(1);
-    } finally {
-      document.removeEventListener("shortcuts-overlay:open", openListener);
-    }
+  it("uses the count form when the qualifying update is not a single run-kit bump", () => {
+    renderSidebar({
+      daemonVersion: "0.9.3",
+      updateAvailable: {
+        tools: [
+          { tool: "run-kit", current: "0.9.3", latest: "3.16.0" },
+          { tool: "shll", current: "1.0.0", latest: "1.1.0" },
+        ],
+        key: "run-kit@3.16.0,shll@1.1.0",
+        current: "0.9.3",
+        latest: "3.16.0",
+      },
+    });
+    expect(screen.getByText("2 updates available")).toBeInTheDocument();
+  });
+
+  it("renders NO status-slot content when no update qualifies (quiet at rest)", () => {
+    renderSidebar({ daemonVersion: "0.9.3", updateAvailable: null });
+    expect(screen.queryByText(/available/)).not.toBeInTheDocument();
   });
 });
 

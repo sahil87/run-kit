@@ -4,6 +4,7 @@ import { TopBar } from "./top-bar";
 import { ChromeProvider } from "@/contexts/chrome-context";
 import { ThemeProvider } from "@/contexts/theme-context";
 import { ToastProvider } from "@/components/toast";
+import { SettingsDialogProvider } from "@/contexts/settings-dialog-context";
 import {
   StandaloneSessionContextProvider,
   shouldReloadOnVersion,
@@ -51,7 +52,9 @@ function renderChip(sessionValue: Partial<SessionContextType>) {
     <ToastProvider>
       <ThemeProvider>
         <ChromeProvider>
-          <StandaloneSessionContextProvider value={sessionValue}>
+          {/* The top bar's Settings gear (260812-d1at) consumes this context. */}
+          <SettingsDialogProvider>
+            <StandaloneSessionContextProvider value={sessionValue}>
             <TopBar
               mode="server"
               sessions={[]}
@@ -66,7 +69,8 @@ function renderChip(sessionValue: Partial<SessionContextType>) {
               onCreateSession={vi.fn()}
               onCreateWindow={vi.fn()}
             />
-          </StandaloneSessionContextProvider>
+            </StandaloneSessionContextProvider>
+          </SettingsDialogProvider>
         </ChromeProvider>
       </ThemeProvider>
     </ToastProvider>,
@@ -288,6 +292,7 @@ describe("UpdateChip", () => {
       <ToastProvider>
         <ThemeProvider>
           <ChromeProvider>
+            <SettingsDialogProvider>
             <StandaloneSessionContextProvider value={{ daemonVersion: "3.9.0", updateAvailable: null }}>
               <TopBar
                 mode="server"
@@ -304,6 +309,7 @@ describe("UpdateChip", () => {
                 onCreateWindow={vi.fn()}
               />
             </StandaloneSessionContextProvider>
+            </SettingsDialogProvider>
           </ChromeProvider>
         </ThemeProvider>
       </ToastProvider>,
@@ -332,6 +338,7 @@ describe("UpdateChip", () => {
       <ToastProvider>
         <ThemeProvider>
           <ChromeProvider>
+            <SettingsDialogProvider>
             <StandaloneSessionContextProvider value={{ daemonVersion: "3.9.0", updateAvailable: after, updateNow }}>
               <TopBar
                 mode="server"
@@ -348,6 +355,7 @@ describe("UpdateChip", () => {
                 onCreateWindow={vi.fn()}
               />
             </StandaloneSessionContextProvider>
+            </SettingsDialogProvider>
           </ChromeProvider>
         </ThemeProvider>
       </ToastProvider>,

@@ -1,13 +1,15 @@
 # sidebar-footer.spec.ts
 
-Verifies the **sidebar footer global-chrome row** (260724-6j1v): the app-global
-chrome that moved down from the top bar. The footer is `justify-between` —
-passive readouts LEFT (connection dot, version click-to-copy) and actions RIGHT
-(**Help · Keyboard · Theme · Gear**, all in the gear's borderless icon idiom;
-the Keyboard shortcuts trigger joined in 260801-sm6g). The connection dot
-keeps its top-bar semantics (`role="status"`,
-`aria-label="Connected"/"Disconnected"`), which is also what keeps `_ready.ts`'s
-readiness gate working.
+Verifies the **sidebar footer status row** (260812-d1at): after the four
+action chips (Help · Keyboard · Theme · Gear) relocated to the top bar — the
+gear as a right-cluster chip, the other three as chevron-menu App-section rows
+— the footer is a **passive** `justify-between` row: readouts LEFT (connection
+dot, version click-to-copy) and a quiet status/hints slot RIGHT (empty at
+rest; the update-available hint is unit-tested in `sidebar/index.test.tsx`).
+The connection dot keeps its semantics (`role="status"`,
+`aria-label="Connected"/"Disconnected"`), which is also what keeps
+`_ready.ts`'s readiness gate working. The gear/menu-row behavior itself is
+e2e-covered in `top-bar-overflow.spec.ts` and `settings-dialog.spec.ts`.
 
 ## Shared setup
 
@@ -16,13 +18,13 @@ readiness gate working.
   directly visible. `gotoServerReady` (from `_ready.ts`) navigates to
   `/${TMUX_SERVER}` and waits for the `Connected` dot.
 - All footer locators are scoped to `navigation[name='Sessions']` (the Sidebar
-  nav) so they can never match top-bar remnants.
+  nav) so they can never match top-bar elements.
 
 ## Tests
 
 ### `hosts the connection dot (left readout) — and the top bar carries none`
 
-**What it proves:** the connection dot now lives in the sidebar footer (the
+**What it proves:** the connection dot lives in the sidebar footer (the
 `[aria-label='Connected']` element `_ready.ts` gates on resolves inside the
 sidebar), and the top-bar right cell contains zero `role="status"` elements.
 
@@ -32,60 +34,25 @@ sidebar), and the top-bar right cell contains zero `role="status"` elements.
 3. Assert the top-bar right cell (`data-testid="top-bar-right"`) has no
    `role="status"` element.
 
-### `renders Help · Theme · Gear as borderless right-cluster actions`
+### `the four action chips are GONE from the footer (relocated to the top bar)`
 
-**What it proves:** the footer's action cluster carries the moved Help anchor
-(same `HELP_URL`, `target="_blank"`, `rel="noopener noreferrer"`, Tip-named —
-no native `title`), the moved theme toggle (mode-labeled button), and the
-existing settings gear.
+**What it proves:** the footer's action cluster is removed — no Help link, no
+Keyboard shortcuts button, no theme button, and no Settings gear render
+anywhere in the sidebar nav.
 
 **Steps:**
 1. `gotoServerReady`.
-2. Assert the `Help — run-kit docs` link's href/target/rel attributes and the
-   absence of a native `title`.
-3. Assert the `Keyboard shortcuts` button (260801-sm6g), a `* theme` button,
-   and the `Open settings` gear are visible in the sidebar.
-
-### `keyboard button opens the shortcuts overlay from the footer (260801-sm6g)`
-
-**What it proves:** the footer's Keyboard icon dispatches the
-`shortcuts-overlay:open` CustomEvent and the route shell opens the
-ShortcutsOverlay; the affordance stays live across close/re-open.
-
-**Steps:**
-1. `gotoServerReady`; click the sidebar footer's `Keyboard shortcuts` button.
-2. Assert the `shortcuts-overlay` dialog is visible.
-3. Press Escape → overlay closes; click the button again → it reopens.
-
-### `theme button cycles the mode from the footer`
-
-**What it proves:** the footer theme button keeps the retired top-bar toggle's
-cycle behavior — clicking steps system → light → dark → system, reflected in
-its `aria-label`.
-
-**Steps:**
-1. `gotoServerReady`; read the theme button's `aria-label`.
-2. Click it and poll until the `aria-label` changes.
-3. Click twice more and assert the label returns to the original (full cycle —
-   restores the pre-test preference).
+2. Assert zero matches inside the sidebar nav for the Help link, the
+   `Keyboard shortcuts` button, any `* theme` button, and the `Open settings`
+   button.
 
 ### `version readout copies the displayed version form`
 
-**What it proves:** the footer version line (NEW, left readout) renders once
-the daemon reports a version and click-copies exactly the displayed form
+**What it proves:** the footer version line (left readout) renders once the
+daemon reports a version and click-copies exactly the displayed form
 (`v0.9.3`, or the bare `dev` sentinel on a dev daemon).
 
 **Steps:**
 1. Grant clipboard permissions; `gotoServerReady`.
 2. Wait for the `RunKit … (copy)` button in the sidebar; read its text.
 3. Click it and assert the clipboard equals the displayed text.
-
-### `gear opens the settings dialog from the footer`
-
-**What it proves:** the gear (the row's original occupant, o7q8) still opens
-the settings dialog after the footer rework.
-
-**Steps:**
-1. `gotoServerReady`.
-2. Click `Open settings` in the sidebar.
-3. Assert the `Settings` dialog is visible.

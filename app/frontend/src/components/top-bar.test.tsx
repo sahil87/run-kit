@@ -5,6 +5,7 @@ import { TopBarOverflowMenu } from "./top-bar-overflow-menu";
 import { TIP_OPEN_DELAY_MS } from "@/components/tip";
 import { ChromeProvider } from "@/contexts/chrome-context";
 import { ThemeProvider } from "@/contexts/theme-context";
+import { SettingsDialogProvider, useSettingsDialog } from "@/contexts/settings-dialog-context";
 import { ToastProvider } from "@/components/toast";
 import type { ProjectSession, WindowInfo } from "@/types";
 import { stubMatchMedia } from "@/test-utils/match-media";
@@ -85,7 +86,11 @@ function renderTopBar(overrides: Partial<React.ComponentProps<typeof TopBar>> = 
   return render(
     <ToastProvider>
       <ThemeProvider>
-        <ChromeProvider>
+        {/* SettingsDialogProvider: the top-bar Settings gear (260812-d1at)
+            consumes useSettingsDialog(); the dialog itself is not mounted
+            here. */}
+        <SettingsDialogProvider>
+          <ChromeProvider>
           <TopBar
             sessions={sessions}
             currentSession={sessions[0]}
@@ -101,6 +106,7 @@ function renderTopBar(overrides: Partial<React.ComponentProps<typeof TopBar>> = 
             {...overrides}
           />
         </ChromeProvider>
+        </SettingsDialogProvider>
       </ThemeProvider>
     </ToastProvider>,
   );
@@ -504,25 +510,34 @@ describe("TopBar", () => {
     noFixedWidthAnywhere();
   });
 
-  it("keeps the L3 pyramid order (Refresh → chevron, right-most) with theme/help/bell gone from the bar (260724-6j1v)", () => {
-    // The right cluster is registry-driven (260715-h1ck). After 260724-6j1v the
-    // L3 tier is UpdateChip (context-gated) + Refresh only — theme/help moved to
-    // the sidebar footer and the bell folded into the settings dialog. The
-    // always-present overflow chevron is the right-most element (the trailing
-    // exempt block; the connection dot left the bar too). Order is asserted via
-    // document position (robust to whether each control is currently in-bar or
-    // in the hidden measurement probe).
+  it("keeps the L3 pyramid order (Refresh → Gear → chevron, right-most) with the bell still gone from the bar (260812-d1at)", () => {
+    // The right cluster is registry-driven (260715-h1ck). As of 260812-d1at the
+    // L3 tier is UpdateChip (context-gated) + Refresh + the Settings gear
+    // (relocated from the sidebar footer) — Help/Keyboard/Theme moved with it
+    // but as menuOnly App-section menu rows, and the bell stays folded into the
+    // settings dialog. The always-present overflow chevron terminates the
+    // cluster (the trailing exempt block; the rail toggle — absent here —
+    // would follow it). Order is asserted via document position (robust to
+    // whether each control is currently in-bar or in the hidden measurement
+    // probe).
     renderTopBar();
     const cluster = screen.getByTestId("top-bar-right");
     const refresh = screen.getByLabelText("Refresh page");
+    const gear = screen.getByLabelText("Open settings");
     const chevron = screen.getByLabelText("More controls");
     // DOCUMENT_POSITION_FOLLOWING (4) means the arg comes AFTER the node.
     const follows = (a: Element, b: Element) =>
       Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(follows(refresh, chevron)).toBe(true);
+    expect(follows(refresh, gear)).toBe(true);
+    expect(follows(gear, chevron)).toBe(true);
     // The chevron is the deepest-last element of the trailing exempt block.
     expect(cluster.lastElementChild!.contains(chevron)).toBe(true);
-    // The moved chrome renders NOWHERE in the top bar (bar, probe, or menu).
+    // The gear is the standard chip idiom (rk-glint + fixed-size border token).
+    expect(gear.className).toContain("rk-glint");
+    expect(gear.className).toContain("w-[28px]");
+    expect(gear.className).toContain("coarse:w-[30px]");
+    // Theme/Help render NOWHERE in the bar or probe (menuOnly rows) — and the
+    // bell is gone entirely. (The menu itself mounts only when open.)
     expect(screen.queryByLabelText(/Notifications/)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/theme/i)).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Help — run-kit docs")).not.toBeInTheDocument();
@@ -1261,10 +1276,14 @@ describe("TopBar", () => {
       ).toBe(true);
       expect(within(menu).getByRole("menuitemcheckbox", { name: /Fixed width/ })).toBeInTheDocument();
       expect(within(menu).getByText("Refresh page")).toBeInTheDocument();
-      // Theme / Help / Notifications rows are GONE (260724-6j1v — theme+help
-      // moved to the sidebar footer, the bell folded into the settings dialog).
-      expect(within(menu).queryByText(/Theme:/)).not.toBeInTheDocument();
-      expect(within(menu).queryByText("Help / Documentation")).not.toBeInTheDocument();
+      // The App section's relocated chrome rows (260812-d1at): Settings (the
+      // gear's overflow fallback — everything overflows in jsdom), Help,
+      // Keyboard shortcuts, Theme…. Notifications stay GONE (folded into the
+      // settings dialog, 260724-6j1v).
+      expect(within(menu).getByRole("menuitem", { name: "Settings" })).toBeInTheDocument();
+      expect(within(menu).getByRole("menuitem", { name: /Help — run-kit docs/ })).toBeInTheDocument();
+      expect(within(menu).getByRole("menuitem", { name: /Keyboard shortcuts/ })).toBeInTheDocument();
+      expect(within(menu).getByRole("menuitem", { name: /Theme…/ })).toBeInTheDocument();
       expect(within(menu).queryByText("Enable notifications")).not.toBeInTheDocument();
       // The fixed version row is always present (last).
       expect(within(menu).getByText("RunKit")).toBeInTheDocument();
@@ -1282,19 +1301,29 @@ describe("TopBar", () => {
       expect(viewLabel).toHaveAttribute("aria-hidden", "true");
       // Membership + fixed section order: a known View row (Fixed width) sits
       // between the View and Window labels; a Window row (Split vertical)
-      // between Window and App; the App section carries Refresh + the version
-      // row.
+      // between Window and App; the App section carries Refresh + the relocated
+      // chrome rows (260812-d1at: Settings · Help · Keyboard · Theme…) + the
+      // version row.
       const follows = (a: Element, b: Element) =>
         Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
       const fixedWidthRow = within(menu).getByRole("menuitemcheckbox", { name: /Fixed width/ });
       const splitRow = within(menu).getByRole("menuitem", { name: "Split vertical" });
       const refreshRow = within(menu).getByRole("menuitem", { name: "Refresh page" });
+      const settingsRow = within(menu).getByRole("menuitem", { name: "Settings" });
+      const helpRow = within(menu).getByRole("menuitem", { name: /Help — run-kit docs/ });
+      const keyboardRow = within(menu).getByRole("menuitem", { name: /Keyboard shortcuts/ });
+      const themeRow = within(menu).getByRole("menuitem", { name: /Theme…/ });
       expect(follows(viewLabel, fixedWidthRow)).toBe(true);
       expect(follows(fixedWidthRow, windowLabel)).toBe(true);
       expect(follows(windowLabel, splitRow)).toBe(true);
       expect(follows(splitRow, appLabel)).toBe(true);
       expect(follows(appLabel, refreshRow)).toBe(true);
-      expect(follows(refreshRow, within(menu).getByText("RunKit"))).toBe(true);
+      expect(follows(refreshRow, settingsRow)).toBe(true);
+      expect(follows(settingsRow, helpRow)).toBe(true);
+      expect(follows(helpRow, keyboardRow)).toBe(true);
+      expect(follows(keyboardRow, themeRow)).toBe(true);
+      // The fixed version row rides the App section's tail.
+      expect(follows(themeRow, within(menu).getByText("RunKit"))).toBe(true);
     });
 
     it("renders NO section labels when the menu holds only the version row", () => {
@@ -1630,6 +1659,145 @@ describe("TopBar", () => {
         .getByLabelText("Toggle panel")
         .querySelector('rect[fill="currentColor"]');
       expect(closedFill!.getAttribute("fill-opacity")).toBe("0");
+    });
+  });
+
+  describe("settings gear + App-section chrome rows (260812-d1at)", () => {
+    /** Probe rendering the layout-level settings-dialog state, so a gear/menu
+     *  click has an observable effect without mounting the dialog itself. */
+    function SettingsState() {
+      const { isOpen } = useSettingsDialog();
+      return <span data-testid="settings-open-state">{isOpen ? "open" : "closed"}</span>;
+    }
+
+    function renderTopBarWithSettingsProbe(
+      overrides: Partial<React.ComponentProps<typeof TopBar>> = {},
+    ) {
+      return render(
+        <ToastProvider>
+          <ThemeProvider>
+            <SettingsDialogProvider>
+              <ChromeProvider>
+                <SettingsState />
+                <TopBar
+                  sessions={sessions}
+                  currentSession={sessions[0]}
+                  currentWindow={fabWindow}
+                  sessionName="run-kit"
+                  windowName="main"
+                  sidebarOpen={false}
+                  server="runkit"
+                  onNavigate={vi.fn()}
+                  onToggleSidebar={vi.fn()}
+                  onCreateSession={vi.fn()}
+                  onCreateWindow={vi.fn()}
+                  {...overrides}
+                />
+              </ChromeProvider>
+            </SettingsDialogProvider>
+          </ThemeProvider>
+        </ToastProvider>,
+      );
+    }
+
+    it("renders the Settings gear on ALL four modes (app-global chrome)", () => {
+      // jsdom's zero widths overflow everything, so the gear's only copy is in
+      // the (aria-hidden) measurement probe — getByLabelText still resolves it.
+      renderTopBar();
+      expect(screen.getByLabelText("Open settings")).toBeInTheDocument();
+      cleanup();
+      renderTopBar({ mode: "server", currentWindow: null, windowName: "" });
+      expect(screen.getByLabelText("Open settings")).toBeInTheDocument();
+      cleanup();
+      renderTopBar({ mode: "board", currentWindow: null, boardName: "b", paneCount: 1, serverCount: 1, boards: [{ name: "b" }] });
+      expect(screen.getByLabelText("Open settings")).toBeInTheDocument();
+      cleanup();
+      renderTopBar({ mode: "host", sessions: [], currentSession: null, currentWindow: null, sessionName: "", windowName: "", server: "" });
+      expect(screen.getByLabelText("Open settings")).toBeInTheDocument();
+    });
+
+    it("clicking the gear opens the settings dialog via useSettingsDialog()", () => {
+      renderTopBarWithSettingsProbe();
+      expect(screen.getByTestId("settings-open-state")).toHaveTextContent("closed");
+      fireEvent.click(screen.getByLabelText("Open settings"));
+      expect(screen.getByTestId("settings-open-state")).toHaveTextContent("open");
+    });
+
+    it("the gear tip carries the registry-resolved settings-open keycap", () => {
+      vi.useFakeTimers();
+      try {
+        renderTopBar();
+        const gear = screen.getByLabelText("Open settings");
+        expect(gear).not.toHaveAttribute("title");
+        act(() => {
+          fireEvent.mouseEnter(gear);
+          vi.advanceTimersByTime(TIP_OPEN_DELAY_MS);
+        });
+        const tooltip = screen.getByRole("tooltip");
+        expect(tooltip).toHaveTextContent("Settings");
+        // jsdom's platform is "other" → the Shift+Ctrl spelling of the
+        // `settings-open` browser default (Comma).
+        expect(tooltip.querySelector("kbd")).toHaveTextContent("Shift+Ctrl+,");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("the Help App-section row is a safe external link to the shared HELP_URL", () => {
+      renderTopBar();
+      act(() => fireEvent.click(screen.getByLabelText("More controls")));
+      const menu = screen.getByRole("menu", { name: "More controls" });
+      const help = within(menu).getByRole("menuitem", { name: /Help — run-kit docs/ });
+      expect(help.tagName).toBe("A");
+      expect(help).toHaveAttribute("href", "https://shll.ai/run-kit");
+      expect(help).toHaveAttribute("target", "_blank");
+      const rel = help.getAttribute("rel") ?? "";
+      expect(rel).toContain("noopener");
+      expect(rel).toContain("noreferrer");
+    });
+
+    it("the Keyboard shortcuts row dispatches shortcuts-overlay:open and carries the effective chord", () => {
+      renderTopBar();
+      act(() => fireEvent.click(screen.getByLabelText("More controls")));
+      const menu = screen.getByRole("menu", { name: "More controls" });
+      const row = within(menu).getByRole("menuitem", { name: "Keyboard shortcuts" });
+      // The trailing keycap is aria-hidden (visual education, not part of the
+      // name) and shows the host-effective chord (jsdom platform "other").
+      expect(row.querySelector("kbd")).toHaveTextContent("Shift+Ctrl+/");
+      const openListener = vi.fn();
+      document.addEventListener("shortcuts-overlay:open", openListener);
+      try {
+        act(() => fireEvent.click(row));
+        expect(openListener).toHaveBeenCalledTimes(1);
+      } finally {
+        document.removeEventListener("shortcuts-overlay:open", openListener);
+      }
+    });
+
+    it("the Theme… row opens the theme selector (click-cycling retired) and shows the effective mode", () => {
+      renderTopBar();
+      act(() => fireEvent.click(screen.getByLabelText("More controls")));
+      const menu = screen.getByRole("menu", { name: "More controls" });
+      // Default preference is "system" (the stub matches dark scheme), so the
+      // trailing slot reads "system".
+      const row = within(menu).getByRole("menuitem", { name: /Theme…/ });
+      expect(row).toHaveTextContent("system");
+      const openListener = vi.fn();
+      document.addEventListener("theme-selector:open", openListener);
+      try {
+        act(() => fireEvent.click(row));
+        expect(openListener).toHaveBeenCalledTimes(1);
+      } finally {
+        document.removeEventListener("theme-selector:open", openListener);
+      }
+    });
+
+    it("the Settings menu row (the gear's overflow fallback) also opens the dialog", () => {
+      renderTopBarWithSettingsProbe();
+      act(() => fireEvent.click(screen.getByLabelText("More controls")));
+      const menu = screen.getByRole("menu", { name: "More controls" });
+      act(() => fireEvent.click(within(menu).getByRole("menuitem", { name: "Settings" })));
+      expect(screen.getByTestId("settings-open-state")).toHaveTextContent("open");
     });
   });
 });

@@ -29,8 +29,9 @@ import {
  * dialog (Constitution IV: NOT a route; the route set is fixed), opened by
  * the per-platform shortcuts chord (⌘/ on macOS, ⇧Ctrl+/ on Win/Linux —
  * 260730-n789), the `Help: Keyboard Shortcuts` palette action, and the
- * sidebar-footer Keyboard icon (`shortcuts-overlay:open` CustomEvent —
- * 260801-sm6g), mounted on both AppShell and BoardPage.
+ * top-bar overflow menu's Keyboard shortcuts row (`shortcuts-overlay:open`
+ * CustomEvent — 260801-sm6g; relocated from the sidebar footer in 260812-d1at),
+ * mounted on both AppShell and BoardPage.
  *
  * THE single merged shortcuts surface (260801-sm6g, per the reviewed
  * `design-mock.html` in the change folder — it absorbed and retired the

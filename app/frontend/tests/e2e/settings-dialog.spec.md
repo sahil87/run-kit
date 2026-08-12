@@ -4,7 +4,7 @@ Validates the VS Code-style settings dialog (260723-o7q8; desktop
 preference-pane layout + Notifications row 260724-6j1v): mounted once at
 `AppLayout` so it opens on every route (server routes AND `/board/$name`,
 which renders no AppShell), triggered from the command palette and the
-sidebar-footer gear, with a visible This-host/This-device persistence-scope
+top-bar gear, with a visible This-host/This-device persistence-scope
 split, and host-scoped edits persisting through `/api/settings/*`.
 
 Control-level behavior (input commit/cancel semantics, inline errors, theme
@@ -109,17 +109,18 @@ and mounts its own palette (`boardRouteActions`).
 5. Finally: `POST /api/boards/<name>/unpin` so the board does not outlive
    the run.
 
-### `sidebar footer gear opens the dialog (Tip-named, no native title)`
+### `top-bar gear opens the dialog (Tip-named, no native title)`
 
-**What it proves:** The sidebar-footer gear is a working trigger on server
-routes, named by `aria-label` + the tier-1 `Tip` system — it carries NO
-native `title=` attribute.
+**What it proves:** The top-bar right-cluster gear (relocated from the sidebar
+footer in 260812-d1at) is a working trigger on server routes, named by
+`aria-label` + the tier-1 `Tip` system — it carries NO native `title=`
+attribute.
 
 **Steps:**
 
 1. Navigate to `/rk-test-e2e` and wait for the Connected indicator.
-2. Locate the `Open settings` button; assert it is visible and has no
-   `title` attribute.
+2. Locate the `Open settings` button (the in-bar top-bar gear); assert it is
+   visible and has no `title` attribute.
 3. Click it; assert the `Settings` dialog is visible.
 
 ### `editing the instance name persists a host-scoped value (and clears)`
@@ -131,7 +132,7 @@ override live (no reload), and clearing the field clears the setting.
 
 **Steps:**
 
-1. Navigate to `/rk-test-e2e`; open the dialog via the sidebar gear.
+1. Navigate to `/rk-test-e2e`; open the dialog via the top-bar gear.
 2. Fill the Instance name input with the unique test name; press Enter.
 3. Poll `GET /api/settings/instance-name` until it returns the test name.
 4. Assert the sidebar (HOST panel hostname line) shows the test name.

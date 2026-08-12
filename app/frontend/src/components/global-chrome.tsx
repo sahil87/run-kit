@@ -1,14 +1,16 @@
 /**
  * Shared app-global chrome definitions (260724-6j1v). The theme/help chrome
- * moved from the top bar to the sidebar footer, and notifications folded into
- * the settings dialog — the URLs, the theme-cycle step, and the icon SVGs live
- * here as SINGLE definitions so the footer, the settings dialog, and the
- * command palettes (`app.tsx`, `board-page.tsx`) can never drift.
+ * relocated to the top bar's overflow menu in 260812-d1at (Settings rides as a
+ * right-cluster gear chip) — the URLs and the icon SVGs live here as SINGLE
+ * definitions so the menu rows, the settings dialog, and the command palettes
+ * (`app.tsx`, `board-page.tsx`) can never drift. The footer button's
+ * click-to-cycle (`cycleTheme`) was retired with the relocation — the theme
+ * selector is the only chrome theme-switch surface.
  */
 
 /** Help — external docs/landing page. Opens in a new tab. Shared by the
- *  sidebar-footer Help anchor and the command-palette "Help: Documentation"
- *  actions (app + board palettes). */
+ *  top-bar overflow menu's Help row (260812-d1at) and the command-palette
+ *  "Help: Documentation" actions (app + board palettes). */
 export const HELP_URL = "https://shll.ai/run-kit";
 
 /** Notifications help page (rendered by GitHub). Opens in a new tab from the
@@ -16,22 +18,6 @@ export const HELP_URL = "https://shll.ai/run-kit";
  *  nothing shows" guide. */
 export const NOTIFICATIONS_HELP_URL =
   "https://github.com/sahil87/run-kit/blob/main/docs/site/notifications.md";
-
-/**
- * Shared theme-cycle step: system → light → dark → system. One definition so
- * every cycle surface (the sidebar-footer theme button today) steps
- * IDENTICALLY and can't drift. `mode` is the current effective mode.
- */
-export function cycleTheme(
-  mode: "system" | "light" | "dark",
-  themeLight: string,
-  themeDark: string,
-  setTheme: (preference: string) => void,
-) {
-  if (mode === "system") setTheme(themeLight);
-  else if (mode === "light") setTheme(themeDark);
-  else setTheme("system");
-}
 
 /** The three theme-mode glyphs (monitor / sun / moon), keyed by the effective
  *  mode — the same SVGs the retired top-bar ThemeToggle carried. */

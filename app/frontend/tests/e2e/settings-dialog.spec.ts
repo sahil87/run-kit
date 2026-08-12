@@ -11,7 +11,8 @@ import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
  *   1. palette-open on a server route with the This-host/This-device split,
  *   2. palette-open on /board/$name (the AppLayout mount's whole point —
  *      the board route renders no AppShell),
- *   3. sidebar-footer gear open,
+ *   3. top-bar gear open (the gear relocated from the sidebar footer to the
+ *      top-bar right cluster in 260812-d1at),
  *   4. a host-scoped edit (instance name) persists through the API.
  *
  * scripts/test-e2e.sh isolates the tmux server/port but NOT $HOME, so the
@@ -208,9 +209,12 @@ test.describe("Settings dialog", () => {
     }
   });
 
-  test("sidebar footer gear opens the dialog (Tip-named, no native title)", async ({ page }) => {
+  test("top-bar gear opens the dialog (Tip-named, no native title)", async ({ page }) => {
     await gotoServerReady(page, TMUX_SERVER);
 
+    // The gear is a top-bar right-cluster chip since 260812-d1at (in-bar at
+    // the default desktop viewport; the aria-hidden fit probe copy is excluded
+    // from role queries, so this resolves the in-bar chip).
     const gear = page.getByRole("button", { name: "Open settings" });
     await expect(gear).toBeVisible({ timeout: 10_000 });
     // Tip system: no native title attribute on the gear.

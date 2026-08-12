@@ -270,7 +270,8 @@ function AppLayoutContent() {
   // `Help: Keyboard Shortcuts` global palette entry cannot toggle route-local
   // state. Toggled by the per-platform shortcuts chord (which resolves this
   // entry's `onSelect` through the merged palette list), the palette entry
-  // itself, and the sidebar-footer Keyboard icon (the listener below). THE
+  // itself, and the top-bar overflow menu's Keyboard shortcuts row (the
+  // listener below; the row relocated from the sidebar footer in 260812-d1at). THE
   // single shortcuts surface — its TMUX section absorbed the retired tmux
   // keybindings modal (260801-sm6g).
   const [showShortcutsOverlay, setShowShortcutsOverlay] = useState(false);

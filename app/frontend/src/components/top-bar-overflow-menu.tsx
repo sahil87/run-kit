@@ -15,6 +15,11 @@ import { LogoSpinner } from "@/components/logo-spinner";
 import { useUpdateClick } from "@/hooks/use-update-click";
 import { useUpdateCheck } from "@/hooks/use-update-check";
 import { Tip } from "@/components/tip";
+import { HELP_URL, HelpIcon, ThemeModeIcon } from "@/components/global-chrome";
+import { KeyboardIcon } from "@/components/sidebar/icons";
+import { useTheme } from "@/contexts/theme-context";
+import { useKeybindings } from "@/hooks/use-keybindings";
+import { formatCombo } from "@/lib/keybindings";
 
 /** Sentinel running version for local (non-ldflags) builds — the version row's
  *  check-again affordance is hidden for it (a dev daemon never checks; the same
@@ -119,6 +124,97 @@ export type MenuGroup = "view" | "window" | "app";
  * or a stepper row whose first control is focusable).
  */
 export type OverflowMenuRow = { id: string; group: MenuGroup; node: ReactNode };
+
+/** Trailing menu-row keycap (260811-0f3d, hosted here since d1at so both
+ *  top-bar.tsx and this file's rows share one definition) — the right-aligned
+ *  chord chip on menu rows whose action has a registry binding. Matches the
+ *  palette rows' kbd visual weight (command-palette.tsx), `ml-auto`-pinned to
+ *  the row's right edge; `aria-hidden` at the call sites keeps the chord out
+ *  of the accessible name (the row's label is the name; the keycap is visual
+ *  education). */
+export const MENU_ROW_KBD_CLASS =
+  "ml-auto text-xs text-text-secondary bg-bg-card px-1.5 py-0.5 rounded border border-border";
+
+/**
+ * The App section's relocated global-chrome rows (260812-d1at) — Help,
+ * Keyboard shortcuts, and Theme…, moved out of the sidebar footer. All three
+ * reuse the shared `global-chrome.tsx` definitions (and the sidebar's
+ * `KeyboardIcon`) so the menu can never drift from the command palettes. They
+ * are `menuOnly` registry entries in `top-bar.tsx`: always in the menu, never
+ * in the bar, on every top-bar mode.
+ */
+
+/** Help — external docs link. An anchor, never a button: external navigation
+ *  must not unload the live dashboard's terminals/socket. */
+export function HelpMenuRow() {
+  return (
+    <a
+      role="menuitem"
+      tabIndex={-1}
+      href={HELP_URL}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={MENU_ROW_CLASS}
+    >
+      <HelpIcon />
+      <span className="flex-1">Help — run-kit docs</span>
+      <span aria-hidden="true">↗</span>
+    </a>
+  );
+}
+
+/** Keyboard shortcuts — toggles the layout-mounted ShortcutsOverlay via the
+ *  `shortcuts-overlay:open` document CustomEvent (the retired footer button's
+ *  exact mechanism). The trailing keycap shows the HOST-effective
+ *  `shortcuts-overlay` chord, omitted when the binding is unbound/disabled (a
+ *  chord slot advertising a dead chord would lie). */
+export function KeyboardMenuRow() {
+  const { byAction, host } = useKeybindings();
+  const binding = byAction.get("shortcuts-overlay");
+  const chord = binding?.enabled
+    ? formatCombo({ code: binding.code, tier: binding.tier }, host.platform)
+    : undefined;
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      tabIndex={-1}
+      onClick={() => document.dispatchEvent(new CustomEvent("shortcuts-overlay:open"))}
+      className={MENU_ROW_CLASS}
+    >
+      <KeyboardIcon size={14} />
+      <span className="flex-1">Keyboard shortcuts</span>
+      {chord && (
+        <kbd aria-hidden="true" className={MENU_ROW_KBD_CLASS}>
+          {chord}
+        </kbd>
+      )}
+    </button>
+  );
+}
+
+/** Theme… — opens the theme selector via the `theme-selector:open` document
+ *  CustomEvent. This REPLACES the retired footer button's click-cycling
+ *  (260812-d1at): cycle-on-click doesn't map to a menu row, and the selector
+ *  is the clearer interaction. The trailing slot shows the current effective
+ *  mode. */
+export function ThemeMenuRow() {
+  const { preference, resolved } = useTheme();
+  const themeMode = preference === "system" ? "system" : resolved;
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      tabIndex={-1}
+      onClick={() => document.dispatchEvent(new CustomEvent("theme-selector:open"))}
+      className={MENU_ROW_CLASS}
+    >
+      <ThemeModeIcon mode={themeMode} />
+      <span className="flex-1">Theme…</span>
+      <span className="shrink-0 text-text-secondary">{themeMode}</span>
+    </button>
+  );
+}
 
 type Props = {
   /** Overflowed controls, already in pyramid order, each pre-rendered as a row. */

@@ -13,11 +13,8 @@ import { useToast } from "@/components/toast";
 import { TypedLabel } from "@/components/typed-label";
 import { Tip, TipGroup } from "@/components/tip";
 import { SwatchPopover } from "@/components/swatch-popover";
-import { PaletteIcon, GearIcon, KeyboardIcon } from "./icons";
-import { useSettingsDialog } from "@/contexts/settings-dialog-context";
-import { useTheme, useThemeActions } from "@/contexts/theme-context";
-import { HELP_URL, cycleTheme, HelpIcon, ThemeModeIcon } from "@/components/global-chrome";
-import { TOP_BAR_BUTTON_REST } from "@/components/top-bar-overflow-menu";
+import { PaletteIcon } from "./icons";
+import { useTheme } from "@/contexts/theme-context";
 import { displayVersion } from "@/lib/palette-version";
 import { copyToClipboard } from "@/lib/clipboard";
 import { formatCombo } from "@/lib/keybindings";
@@ -201,10 +198,6 @@ export function Sidebar({
   }, [sessionsByServer]);
   const navigate = useNavigate();
   const { addToast } = useToast();
-
-  // Settings dialog trigger for the footer gear (o7q8) — the dialog itself
-  // mounts once in AppLayout; the sidebar only opens it.
-  const { openSettings } = useSettingsDialog();
 
   // Sessions-pane scope — explicit persisted state (`runkit-panel-sessions-scope`),
   // fully decoupled from the SERVER panel's expansion. `current` filters the
@@ -1658,13 +1651,11 @@ export function Sidebar({
           status only when there's a current server. */}
       <BottomPanels currentServer={currentServer} currentSessionName={currentSession} currentWindowId={currentWindowId} />
 
-      {/* Footer — the app-global chrome row (o7q8 gear; 6j1v full cluster).
-          The Sidebar renders on server routes AND boards, so these affordances
-          work everywhere; the settings dialog itself mounts once in AppLayout.
-          Split by role: LEFT = passive readouts (connection dot + version),
-          RIGHT = actions (Help · Theme · Gear). Tips placement `top` since the
-          row hugs the viewport bottom. */}
-      <SidebarFooter isConnected={isConnected} onOpenSettings={openSettings} />
+      {/* Footer — a passive status row (260812-d1at): LEFT = readouts
+          (connection dot + version), RIGHT = a quiet status/hints slot
+          (update-available hint only). The action chips relocated to the top
+          bar (gear chip + chevron-menu App rows). */}
+      <SidebarFooter isConnected={isConnected} />
 
       {/* Kill confirmation */}
       {killTarget && (
@@ -1698,8 +1689,8 @@ export function Sidebar({
  * The palette chord is DERIVED, never hard-coded: it is platform-dependent
  * (⌘K on mac, Ctrl+K elsewhere) and user-rebindable, so it comes from the
  * HOST-effective `command-palette` binding via the same
- * `useKeybindings()` + `formatCombo` derivation `SidebarFooter` uses for its
- * overlay/settings chords. The "to act" clause is omitted entirely when that
+ * `useKeybindings()` + `formatCombo` derivation the top-bar gear and menu-row
+ * keycaps use (260812-d1at). The "to act" clause is omitted entirely when that
  * binding is unbound or disabled, or when the mounting route has no
  * `Selection:` palette actions (`hasSelectionActions={false}` — the board
  * route, whose palette is `boardRouteActions`): advertising a route to an
@@ -1742,67 +1733,30 @@ function SelectionIndicator({
   );
 }
 
-/** Footer-action idiom (260811-cj4b) shared by every icon in the footer's
- *  right cluster: the top bar's bordered `rk-glint` chip at footer scale —
- *  fixed 24×24 on fine pointers, 30×30 on coarse (the same anti-drift
- *  fixed-size rationale as `TOP_BAR_BUTTON_BASE`). Rest/hover colors come
- *  from the exported `TOP_BAR_BUTTON_REST` so the two surfaces cannot drift;
- *  `rk-glint` supplies the hover sweep + green border/glyph flip. Reverses
- *  o7q8's deliberately borderless contrast in favor of one app-wide button
- *  vocabulary. */
-const FOOTER_ICON_CLASS = `rk-glint w-[24px] h-[24px] coarse:w-[30px] coarse:h-[30px] rounded border transition-colors flex items-center justify-center shrink-0 ${TOP_BAR_BUTTON_REST}`;
-
 /**
- * Sidebar footer — the app-global chrome row (260724-6j1v). `justify-between`:
+ * Sidebar footer — a passive status row (260812-d1at). `justify-between`:
  *
- *  - LEFT — passive readouts (a status segment): the connection dot (moved
- *    from the top bar; same per-page `isConnected` semantics, markup, and
- *    aria) and the resting version line (`v0.9.3`, click-to-copy with the
- *    overflow menu's toast pattern; renders nothing until the daemon reports
- *    a version — never `vundefined`). The overflow menu's fixed version row is
- *    unchanged and remains the update surface; this is a readout only.
- *  - RIGHT — actions, in order Help · Keyboard · Theme · Gear, all in the
- *    shared chip idiom (260811-cj4b — the top bar's bordered `rk-glint`
- *    vocabulary at 24px footer scale, reversing o7q8's borderless contrast).
- *    Help/Theme share the single
- *    `global-chrome.tsx` definitions with the command palettes (no drift).
- *    The theme button keeps the retired top-bar ThemeToggle's behavior: click
- *    cycles system → light → dark → system; Ctrl/Cmd-click opens the theme
- *    selector. The Keyboard button (260801-sm6g) toggles the ShortcutsOverlay
- *    via the `shortcuts-overlay:open` document CustomEvent (the `palette:open`
- *    precedent — the sidebar mounts from both AppShell and the board route,
- *    and each route shell owns its overlay state); its Tip carries the
- *    HOST-effective overlay chord in the kbd slot (hidden when unbound).
- *    Accepted trade: the affordance hides with the sidebar/drawer — the
- *    `Help: Keyboard Shortcuts` palette entry stays the always-available route.
+ *  - LEFT — passive readouts (a status segment): the connection dot (same
+ *    per-page `isConnected` semantics, markup, and aria as ever) and the
+ *    resting version line (`v0.9.3`, click-to-copy with the overflow menu's
+ *    toast pattern; renders nothing until the daemon reports a version —
+ *    never `vundefined`). The overflow menu's fixed version row is unchanged
+ *    and remains the update surface; this is a readout only.
+ *  - RIGHT — a truncating, non-interactive status/hints span filling the
+ *    remaining row width. Deliberately quiet: it shows an accent-green
+ *    `v{latest} available` hint only while `useUpdateNotification()` reports
+ *    a qualifying update, and renders NOTHING otherwise (no resting copy —
+ *    Constitution IV).
  *
+ * The four action chips (Help · Keyboard · Theme · Gear) LEFT this row in
+ * 260812-d1at: Settings is a top-bar right-cluster gear chip and Help /
+ * Keyboard / Theme are chevron-menu App-section rows (§ top-bar.tsx); the
+ * palette entries stay the always-available keyboard path (Constitution V).
  * Tips use `placement="top"` since the row hugs the viewport bottom.
  */
-function SidebarFooter({
-  isConnected,
-  onOpenSettings,
-}: {
-  isConnected: boolean;
-  onOpenSettings: () => void;
-}) {
-  const { daemonVersion } = useUpdateNotification();
-  const { preference, resolved, themeDark, themeLight } = useTheme();
-  const { setTheme } = useThemeActions();
+function SidebarFooter({ isConnected }: { isConnected: boolean }) {
+  const { daemonVersion, qualifies, singleRunKit, latest, tools } = useUpdateNotification();
   const { addToast } = useToast();
-  // HOST-effective overlay chord for the Keyboard button's Tip kbd slot
-  // (260801-sm6g) — reflects overrides; omitted when unbound/disabled (a tip
-  // advertising a dead chord would lie).
-  const { byAction: keybindingsByAction, host: keybindingHost } = useKeybindings();
-  const overlayBinding = keybindingsByAction.get("shortcuts-overlay");
-  const overlayChord = overlayBinding?.enabled
-    ? formatCombo({ code: overlayBinding.code, tier: overlayBinding.tier }, keybindingHost.platform)
-    : undefined;
-  // Same derivation for the Settings gear (260801-mqim): ⇧⌘,/⇧Ctrl+, in
-  // browsers, ⌘, in the mac desktop shell.
-  const settingsBinding = keybindingsByAction.get("settings-open");
-  const settingsChord = settingsBinding?.enabled
-    ? formatCombo({ code: settingsBinding.code, tier: settingsBinding.tier }, keybindingHost.platform)
-    : undefined;
 
   // Same title derivation the top-bar dot carried: extend "Connected" with the
   // running version once known (hover-discovery detail; the aria-label stays
@@ -1821,18 +1775,14 @@ function SidebarFooter({
     });
   };
 
-  // Effective theme mode drives the label, the glyph, and the cycle step.
-  const themeMode = preference === "system" ? "system" : resolved;
-  const themeLabel =
-    themeMode === "system" ? "System theme" : themeMode === "light" ? "Light theme" : "Dark theme";
-  const handleThemeClick = (e: React.MouseEvent) => {
-    if (e.ctrlKey || e.metaKey) {
-      e.preventDefault();
-      document.dispatchEvent(new CustomEvent("theme-selector:open"));
-      return;
-    }
-    cycleTheme(themeMode, themeLight, themeDark, setTheme);
-  };
+  // The status slot's only content policy so far: a quiet update hint. A
+  // readout, never a link/button — the overflow menu's version row remains
+  // the update surface.
+  const updateHint = qualifies
+    ? singleRunKit && latest
+      ? `v${latest} available`
+      : `${tools.length} updates available`
+    : null;
 
   return (
     <div className="shrink-0 border-t border-border px-2 py-1 flex items-center justify-between">
@@ -1865,51 +1815,12 @@ function SidebarFooter({
         )}
       </span>
 
-      {/* RIGHT — actions: Help · Keyboard · Theme · Gear (the shared chip
-          idiom, 260811-cj4b). gap-1 keeps the bordered chips from fusing. */}
-      <span className="flex items-center gap-1">
-        <Tip label="Help — run-kit docs" placement="top">
-          <a
-            href={HELP_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label="Help — run-kit docs"
-            className={FOOTER_ICON_CLASS}
-          >
-            <HelpIcon />
-          </a>
-        </Tip>
-        <Tip label="Keyboard shortcuts" kbd={overlayChord} placement="top">
-          <button
-            type="button"
-            onClick={() => document.dispatchEvent(new CustomEvent("shortcuts-overlay:open"))}
-            aria-label="Keyboard shortcuts"
-            className={FOOTER_ICON_CLASS}
-          >
-            <KeyboardIcon />
-          </button>
-        </Tip>
-        <Tip label={themeLabel} placement="top">
-          <button
-            type="button"
-            onClick={handleThemeClick}
-            aria-label={themeLabel}
-            className={FOOTER_ICON_CLASS}
-          >
-            <ThemeModeIcon mode={themeMode} />
-          </button>
-        </Tip>
-        <Tip label="Settings" kbd={settingsChord} placement="top">
-          <button
-            type="button"
-            onClick={onOpenSettings}
-            aria-label="Open settings"
-            className={FOOTER_ICON_CLASS}
-          >
-            <GearIcon />
-          </button>
-        </Tip>
-      </span>
+      {/* RIGHT — the status/hints slot: quiet by default (empty at rest). */}
+      {updateHint && (
+        <span className="flex-1 min-w-0 truncate text-right text-[10px] text-accent-green">
+          {updateHint}
+        </span>
+      )}
     </div>
   );
 }

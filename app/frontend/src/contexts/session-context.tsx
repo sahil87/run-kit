@@ -10,7 +10,7 @@ import {
 } from "react";
 import { useMatches } from "@tanstack/react-router";
 import { useChromeDispatch } from "./chrome-context";
-import { listServers, compareServersRanked, triggerUpdate, triggerForceUpdate, triggerRestart, type ServerInfo } from "@/api/client";
+import { listServers, compareServersRanked, triggerUpdate, triggerForceUpdate, triggerRestart, type ServerInfo, type UpdateTriggerResult } from "@/api/client";
 import { StateSocket, type ChatSubscribeArgs, type ChatUnsubscribeArgs } from "@/lib/state-socket";
 import { computeUpdateKey } from "@/lib/palette-update";
 import type { MetricsSnapshot, ProjectSession, Service, ServicesSnapshot } from "@/types";
@@ -220,11 +220,12 @@ export type SessionContextType = {
    *  the client-computed manual key when the manual feed is the lit one); the
    *  palette action ignores it. */
   updateDismissedKey: string | null;
-  /** Trigger a one-click update: POST /api/update. Best-effort — the daemon
-   *  restart then drops the state socket, and the reconnect's differing
-   *  `version` drives the reload guard. Rejects on a non-2xx so the caller can
-   *  surface an error. */
-  updateNow: () => Promise<void>;
+  /** Trigger a one-click update: POST /api/update. Resolves with the trigger
+   *  result (status + optional `watch` job-window target — 260812-z1ya).
+   *  Best-effort — the daemon restart then drops the state socket, and the
+   *  reconnect's differing `version` drives the reload guard. Rejects on a
+   *  non-2xx so the caller can surface an error. */
+  updateNow: () => Promise<UpdateTriggerResult>;
   /** Dismiss the update notice for the current pending `latest`, persisted
    *  per-version in localStorage. A later release re-shows the chip. */
   dismissUpdate: () => void;
@@ -236,11 +237,11 @@ export type SessionContextType = {
    *  /api/update `{"force":true}`. Best-effort — the ensuing restart drops the
    *  state socket and the reconnect's differing version/boot drives the reload.
    *  Rejects on a non-2xx (e.g. 409 not-brew) so the caller can catch it. */
-  forceUpdateNow: () => Promise<void>;
+  forceUpdateNow: () => Promise<UpdateTriggerResult>;
   /** Restart the daemon: POST /api/restart. Best-effort — the restart drops the
    *  state socket and the reconnect's differing `boot` drives the reload guard
    *  even at the same version. Rejects on a non-2xx (e.g. 409 on a dev build). */
-  restartNow: () => Promise<void>;
+  restartNow: () => Promise<UpdateTriggerResult>;
 };
 
 export const SessionContext = createContext<SessionContextType | null>(null);
@@ -1333,12 +1334,12 @@ export function useUpdateNotification(): {
   singleRunKit: boolean;
   latest: string | null;
   current: string | null;
-  updateNow: () => Promise<void>;
+  updateNow: () => Promise<UpdateTriggerResult>;
   dismissUpdate: () => void;
   daemonVersion: string | null;
   brew: boolean;
-  forceUpdateNow: () => Promise<void>;
-  restartNow: () => Promise<void>;
+  forceUpdateNow: () => Promise<UpdateTriggerResult>;
+  restartNow: () => Promise<UpdateTriggerResult>;
 } {
   // Tolerant of a missing provider: the update chip/palette are chrome that must
   // degrade to "no update" (never crash) when mounted outside SessionProvider
@@ -1349,11 +1350,11 @@ export function useUpdateNotification(): {
   const updateAvailable = ctx?.updateAvailable ?? null;
   const manualCheck = ctx?.manualCheck ?? null;
   const updateDismissedKey = ctx?.updateDismissedKey ?? null;
-  const updateNow = ctx?.updateNow ?? (() => Promise.resolve());
+  const updateNow = ctx?.updateNow ?? (() => Promise.resolve({ status: "" }));
   const dismissUpdate = ctx?.dismissUpdate ?? (() => {});
   const brew = ctx?.brew ?? false;
-  const forceUpdateNow = ctx?.forceUpdateNow ?? (() => Promise.resolve());
-  const restartNow = ctx?.restartNow ?? (() => Promise.resolve());
+  const forceUpdateNow = ctx?.forceUpdateNow ?? (() => Promise.resolve({ status: "" }));
+  const restartNow = ctx?.restartNow ?? (() => Promise.resolve({ status: "" }));
   const isDev = daemonVersion === DEV_VERSION;
   // The payload's tools list is the FULL verdict list (incl. sub-threshold
   // rows); chip/palette consumers care about the NOTABLE subset only. A missing
@@ -1510,11 +1511,11 @@ export function StandaloneSessionContextProvider({
     manualCheck: value.manualCheck ?? null,
     applyManualCheckResult: value.applyManualCheckResult ?? (() => {}),
     updateDismissedKey: value.updateDismissedKey ?? null,
-    updateNow: value.updateNow ?? (() => Promise.resolve()),
+    updateNow: value.updateNow ?? (() => Promise.resolve({ status: "" })),
     dismissUpdate: value.dismissUpdate ?? (() => {}),
     brew: value.brew ?? false,
-    forceUpdateNow: value.forceUpdateNow ?? (() => Promise.resolve()),
-    restartNow: value.restartNow ?? (() => Promise.resolve()),
+    forceUpdateNow: value.forceUpdateNow ?? (() => Promise.resolve({ status: "" })),
+    restartNow: value.restartNow ?? (() => Promise.resolve({ status: "" })),
   };
   return <SessionContext.Provider value={fullValue}>{children}</SessionContext.Provider>;
 }

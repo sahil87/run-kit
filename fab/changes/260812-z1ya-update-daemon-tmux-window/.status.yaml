@@ -1,0 +1,55 @@
+id: z1ya
+name: 260812-z1ya-update-daemon-tmux-window
+created: 2026-08-12T07:52:12Z
+created_by: Sahil Ahuja
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 11
+    acceptance_count: 20
+    acceptance_completed: 20
+confidence:
+    certain: 11
+    confident: 1
+    tentative: 0
+    unresolved: 0
+    score: 5.0
+    fuzzy: true
+    dimensions:
+        signal: 82.5
+        reversibility: 87.1
+        competence: 90.4
+        disambiguation: 88.3
+stage_metrics:
+    intake: {started_at: "2026-08-12T07:52:12Z", driver: fab-new, iterations: 1, completed_at: "2026-08-12T08:16:09Z"}
+    apply: {started_at: "2026-08-12T08:16:09Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-12T08:44:55Z"}
+    review: {started_at: "2026-08-12T08:44:55Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-12T08:50:42Z"}
+    hydrate: {started_at: "2026-08-12T08:50:42Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-12T09:03:32Z"}
+    ship: {started_at: "2026-08-12T09:03:32Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-08-12T09:03:32Z"
+    computed_at_stage: hydrate
+summary: update/restart run in managed rk-jobs job windows via daemon.RunJob + new rk daemon run; detached Setsid spawn deleted; API responses carry watch (202/200 already-running/502, daemon-down 409); UI consumes watch (navigate on already-running, Watch toast on fresh spawn)
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-12T09:03:32Z

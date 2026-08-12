@@ -453,19 +453,50 @@ export async function refreshStatus(): Promise<{ status: RefreshStatusOutcome }>
   return { status };
 }
 
+/** Where a daemon-managed job window lives (260812-z1ya): the `watch` key of
+ *  the POST /api/update and /api/restart responses. `window_id` is the tmux
+ *  `@N` id — the terminal route param the client navigates to. */
+export type UpdateWatchTarget = { server: string; session: string; window: string; window_id: string };
+
+/** The resolved result of an update/restart trigger. `status` is the server's
+ *  verbatim status string (`"updating"` / `"restarting"` on a fresh spawn,
+ *  `"already-running"` when a live job window exists — a RESOLVED result, not
+ *  an error). `watch` is absent against an old daemon that predates the
+ *  job-window mechanism (tolerant parse). */
+export type UpdateTriggerResult = { status: string; watch?: UpdateWatchTarget };
+
+/** Tolerant parse of the trigger response body: a missing/malformed `watch`
+ *  key resolves with `watch: undefined` (old-daemon compat); a missing status
+ *  resolves as "". */
+function parseUpdateTriggerResult(body: unknown): UpdateTriggerResult {
+  const b = (typeof body === "object" && body !== null ? body : {}) as Record<string, unknown>;
+  const w = (typeof b.watch === "object" && b.watch !== null ? b.watch : {}) as Record<string, unknown>;
+  const watch: UpdateWatchTarget | undefined =
+    typeof w.server === "string" &&
+    typeof w.session === "string" &&
+    typeof w.window === "string" &&
+    typeof w.window_id === "string"
+      ? { server: w.server, session: w.session, window: w.window, window_id: w.window_id }
+      : undefined;
+  return { status: typeof b.status === "string" ? b.status : "", watch };
+}
+
 /** Trigger a one-click self-upgrade of the daemon: POST /api/update. The server
- *  responds 202 and spawns a detached `rk update` (which restarts the daemon).
- *  Best-effort from the caller's view — the ensuing daemon restart drops the SSE
- *  connection, and the reconnect's differing `version` event drives the tab
- *  reload. Rejects on a non-2xx (e.g. 409 not-brew / no-update) so the chip can
- *  surface the failure. Server-independent (the daemon is one process). */
-export async function triggerUpdate(): Promise<void> {
+ *  runs the update in a managed job window on the rk-daemon tmux server
+ *  (260812-z1ya) and answers 202 with a `watch` target (200 already-running
+ *  when a job window is live). Best-effort from the caller's view — the ensuing
+ *  daemon restart drops the SSE connection, and the reconnect's differing
+ *  `version` event drives the tab reload. Rejects on a non-2xx (e.g. 409
+ *  daemon-down / not-brew / no-update) so the chip can surface the failure.
+ *  Server-independent (the daemon is one process). */
+export async function triggerUpdate(): Promise<UpdateTriggerResult> {
   const res = await fetch("/api/update", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({}),
   });
   if (!res.ok) await throwOnError(res);
+  return parseUpdateTriggerResult(await res.json().catch(() => ({})));
 }
 
 /** One tool's verdict from an on-demand update check: `updateAvailable` =
@@ -545,32 +576,36 @@ export async function checkForUpdates(source?: "github"): Promise<UpdateCheckRes
 
 /** Force a self-upgrade regardless of the update checker's qualifying snapshot:
  *  POST /api/update with `{"force":true}`. The server skips the qualify check
- *  (but still requires a brew install) and spawns a detached `rk update`, so a
- *  patch release — unreachable via the qualifying-gated `triggerUpdate()` — is
- *  installable from the web. Best-effort from the caller's view (the ensuing
- *  daemon restart drops SSE; the reconnect's differing version/boot drives the
- *  reload). Rejects on a non-2xx (e.g. 409 not-brew). */
-export async function triggerForceUpdate(): Promise<void> {
+ *  (but still requires a brew install) and runs the update in the managed job
+ *  window, so a patch release — unreachable via the qualifying-gated
+ *  `triggerUpdate()` — is installable from the web. Same result contract as
+ *  `triggerUpdate()` (watch target; already-running is a resolved result).
+ *  Rejects on a non-2xx (e.g. 409 not-brew). */
+export async function triggerForceUpdate(): Promise<UpdateTriggerResult> {
   const res = await fetch("/api/update", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ force: true }),
   });
   if (!res.ok) await throwOnError(res);
+  return parseUpdateTriggerResult(await res.json().catch(() => ({})));
 }
 
-/** Restart the daemon: POST /api/restart. The server responds 202 and spawns a
- *  detached `rk daemon restart` (no brew requirement). Best-effort — the restart
- *  drops the SSE connection, and the reconnect's differing `boot` id drives the
- *  reload guard even when the version is unchanged. Rejects on a non-2xx (e.g.
- *  409 on a dev build). Server-independent (the daemon is one process). */
-export async function triggerRestart(): Promise<void> {
+/** Restart the daemon: POST /api/restart. The server runs `rk daemon restart`
+ *  in the managed `restart` job window (260812-z1ya; no brew requirement).
+ *  Best-effort — the restart drops the SSE connection, and the reconnect's
+ *  differing `boot` id drives the reload guard even when the version is
+ *  unchanged. Same result contract as `triggerUpdate()`. Rejects on a non-2xx
+ *  (e.g. 409 on a dev build or a down daemon). Server-independent (the daemon
+ *  is one process). */
+export async function triggerRestart(): Promise<UpdateTriggerResult> {
   const res = await fetch("/api/restart", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({}),
   });
   if (!res.ok) await throwOnError(res);
+  return parseUpdateTriggerResult(await res.json().catch(() => ({})));
 }
 
 export async function uploadFile(

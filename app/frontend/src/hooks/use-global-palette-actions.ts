@@ -4,6 +4,7 @@ import { useChromeDispatch } from "@/contexts/chrome-context";
 import { useSettingsDialog } from "@/contexts/settings-dialog-context";
 import { useUpdateNotification } from "@/contexts/session-context";
 import { useUpdateCheck } from "@/hooks/use-update-check";
+import { consumeUpdateWatchTarget } from "@/hooks/use-update-click";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { useToast } from "@/components/toast";
 import type { PaletteAction } from "@/components/command-palette";
@@ -196,17 +197,23 @@ export function useGlobalPaletteActions({
         brew,
         daemonVersion,
         () => {
-          void forceUpdateNow().catch((err: unknown) =>
-            addToast(err instanceof Error ? err.message : "Update failed", "error"),
-          );
+          void forceUpdateNow()
+            .then((result) => consumeUpdateWatchTarget(result, navigate, addToast))
+            .catch((err: unknown) =>
+              addToast(err instanceof Error ? err.message : "Update failed", "error"),
+            );
         },
         () => {
-          void restartNow().catch((err: unknown) =>
-            addToast(err instanceof Error ? err.message : "Restart failed", "error"),
-          );
+          // Restart shares the identical watch affordance (no special-casing):
+          // the post-restart reload discards the toast harmlessly.
+          void restartNow()
+            .then((result) => consumeUpdateWatchTarget(result, navigate, addToast))
+            .catch((err: unknown) =>
+              addToast(err instanceof Error ? err.message : "Restart failed", "error"),
+            );
         },
       ),
-    [brew, daemonVersion, forceUpdateNow, restartNow, addToast],
+    [brew, daemonVersion, forceUpdateNow, restartNow, addToast, navigate],
   );
 
   // Version palette entry — surfaces the running version and copies it on

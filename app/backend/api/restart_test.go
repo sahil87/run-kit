@@ -1,12 +1,15 @@
 package api
 
 import (
-	"encoding/json"
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+
+	"rk/internal/daemon"
 )
 
 func newRestartServer(version string) *Server {
@@ -21,13 +24,13 @@ func postRestart(t *testing.T, s *Server) *httptest.ResponseRecorder {
 	return rec
 }
 
-// TestHandleRestartAcceptedSpawns verifies R3: a non-dev restart returns
-// 202 {"status":"restarting"} and spawns `rk daemon restart` via the shared
-// seam, recorded as ("restart.log", "daemon", "restart"). No brew requirement —
-// a plain (non-Cellar) self path still restarts.
+// TestHandleRestartAcceptedSpawns verifies a non-dev restart returns
+// 202 {"status":"restarting","watch":{…}} and runs `rk daemon restart` in the
+// `restart` job window via the shared runJobFn seam (260812-z1ya). No brew
+// requirement — a plain (non-Cellar) self path still restarts.
 func TestHandleRestartAcceptedSpawns(t *testing.T) {
-	var rec spawnRecord
-	withSeams(t, "/usr/local/bin/run-kit", nil, "", errNoShll, recordingSpawn(&rec))
+	var rec jobRecord
+	withSeams(t, "/usr/local/bin/run-kit", nil, "", errNoShll, recordingJob(&rec))
 	s := newRestartServer("0.5.3")
 
 	res := postRestart(t, s)
@@ -35,32 +38,24 @@ func TestHandleRestartAcceptedSpawns(t *testing.T) {
 	if res.Code != http.StatusAccepted {
 		t.Fatalf("status = %d, want 202 (body=%s)", res.Code, res.Body.String())
 	}
-	var body map[string]string
-	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
-		t.Fatalf("decode body: %v", err)
-	}
-	if body["status"] != "restarting" {
-		t.Errorf("body status = %q, want restarting", body["status"])
-	}
+	assertJobBody(t, res, "restarting", "restart")
 	if !rec.called {
-		t.Fatalf("expected a spawn")
+		t.Fatalf("expected a job spawn")
 	}
-	if rec.logName != "restart.log" {
-		t.Errorf("spawn logName = %q, want restart.log", rec.logName)
+	if rec.window != "restart" {
+		t.Errorf("job window = %q, want restart", rec.window)
 	}
-	if len(rec.args) != 2 || rec.args[0] != "daemon" || rec.args[1] != "restart" {
-		t.Errorf("spawn args = %v, want [daemon restart]", rec.args)
-	}
-	if rec.selfArg != "/usr/local/bin/run-kit" {
-		t.Errorf("spawn self path = %q, want the resolved self path", rec.selfArg)
+	want := []string{"/usr/local/bin/run-kit", "daemon", "restart"}
+	if strings.Join(rec.argv, " ") != strings.Join(want, " ") {
+		t.Errorf("job argv = %v, want %v", rec.argv, want)
 	}
 }
 
-// TestHandleRestartDevReturns409 verifies R4: the "dev" version is refused with
+// TestHandleRestartDevReturns409 verifies the "dev" version is refused with
 // 409 and does NOT spawn (a dev serve process must not bounce the real daemon).
 func TestHandleRestartDevReturns409(t *testing.T) {
-	var rec spawnRecord
-	withSeams(t, "/usr/local/bin/run-kit", nil, "", errNoShll, recordingSpawn(&rec))
+	var rec jobRecord
+	withSeams(t, "/usr/local/bin/run-kit", nil, "", errNoShll, recordingJob(&rec))
 	s := newRestartServer("dev")
 
 	res := postRestart(t, s)
@@ -73,24 +68,62 @@ func TestHandleRestartDevReturns409(t *testing.T) {
 	}
 }
 
-// TestHandleRestartSpawnFailureKeeps202 verifies R3 (edge): a spawn error AFTER
-// the 202 is committed does not alter the already-written response.
-func TestHandleRestartSpawnFailureKeeps202(t *testing.T) {
-	withSeams(t, "/usr/local/bin/run-kit", nil, "", errNoShll, func(selfPath, logName string, args ...string) error {
-		return errors.New("boom")
-	})
+// TestHandleRestartDaemonDown409 verifies the daemon gate: with the rk-daemon
+// tmux server down, restart refuses 409 (the managed job window is the only
+// spawn mechanism — intake decision 1, no detached-spawn fallback).
+func TestHandleRestartDaemonDown409(t *testing.T) {
+	var rec jobRecord
+	withSeams(t, "/usr/local/bin/run-kit", nil, "", errNoShll, recordingJob(&rec))
+	daemonRunningFn = func() bool { return false }
 	s := newRestartServer("0.5.3")
 
 	res := postRestart(t, s)
 
-	if res.Code != http.StatusAccepted {
-		t.Fatalf("status = %d, want 202 even when the spawn fails after commit (body=%s)", res.Code, res.Body.String())
+	if res.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409 when the daemon is not running (body=%s)", res.Code, res.Body.String())
 	}
-	var body map[string]string
-	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
-		t.Fatalf("decode body: %v", err)
+	if !strings.Contains(res.Body.String(), "rk serve -d") {
+		t.Errorf("error body = %q, want it to name the fix (rk serve -d)", res.Body.String())
 	}
-	if body["status"] != "restarting" {
-		t.Errorf("body status = %q, want restarting", body["status"])
+	if rec.called {
+		t.Error("must not spawn the restart job when the daemon is not running")
+	}
+}
+
+// TestHandleRestartAlreadyRunning200 verifies the in-flight contract: with a
+// live restart window (RunJob reports started=false) the handler answers 200
+// already-running with the existing window's target instead of respawning.
+func TestHandleRestartAlreadyRunning200(t *testing.T) {
+	withSeams(t, "/usr/local/bin/run-kit", nil, "", errNoShll,
+		func(_ context.Context, window string, _ []string) (daemon.JobTarget, bool, error) {
+			return daemon.JobTarget{Server: "rk-daemon", Session: "rk-jobs", Window: window, WindowID: "@5"}, false, nil
+		})
+	s := newRestartServer("0.5.3")
+
+	res := postRestart(t, s)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 already-running (body=%s)", res.Code, res.Body.String())
+	}
+	assertJobBody(t, res, "already-running", "restart")
+}
+
+// TestHandleRestartSpawnError502 verifies spawn-before-respond: a RunJob
+// failure is a reportable 502 (the window survives the daemon restart, so the
+// response is no longer committed before the spawn).
+func TestHandleRestartSpawnError502(t *testing.T) {
+	withSeams(t, "/usr/local/bin/run-kit", nil, "", errNoShll,
+		func(context.Context, string, []string) (daemon.JobTarget, bool, error) {
+			return daemon.JobTarget{}, false, errors.New("boom")
+		})
+	s := newRestartServer("0.5.3")
+
+	res := postRestart(t, s)
+
+	if res.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want 502 on a spawn error (body=%s)", res.Code, res.Body.String())
+	}
+	if !strings.Contains(res.Body.String(), "boom") {
+		t.Errorf("error body = %q, want the spawn failure reason", res.Body.String())
 	}
 }

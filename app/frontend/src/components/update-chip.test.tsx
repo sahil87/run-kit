@@ -223,10 +223,10 @@ describe("UpdateChip", () => {
   });
 
   it("clicking the chip triggers updateNow and enters updating…", async () => {
-    let resolveUpdate!: () => void;
+    let resolveUpdate!: (v: { status: string }) => void;
     const updateNow = vi.fn(
       () =>
-        new Promise<void>((res) => {
+        new Promise<{ status: string }>((res) => {
           resolveUpdate = res;
         }),
     );
@@ -244,7 +244,7 @@ describe("UpdateChip", () => {
     // guards against a JS escape sequence leaking into JSX text as literal chars.
     expect(screen.getByText("updating…")).toBeInTheDocument();
     expect(screen.queryByLabelText("Dismiss update notice")).not.toBeInTheDocument();
-    resolveUpdate();
+    resolveUpdate({ status: "updating" });
   });
 
   it("re-enables and toasts on update failure", async () => {
@@ -315,15 +315,15 @@ describe("UpdateChip", () => {
     // The user clicks update; a siblings-only spawn produces no daemon restart /
     // reload, so `updating` can only clear when a later verdict's key differs
     // from the click-time key. Simulate that key change via a re-render.
-    let resolveUpdate!: () => void;
+    let resolveUpdate!: (v: { status: string }) => void;
     const updateNow = vi.fn(
-      () => new Promise<void>((res) => { resolveUpdate = res; }),
+      () => new Promise<{ status: string }>((res) => { resolveUpdate = res; }),
     );
     const before = updateAvailable([{ tool: "fab-kit", current: "2.16.0", latest: "2.17.0" }]);
     const { rerender } = renderChip({ daemonVersion: "3.9.0", updateAvailable: before, updateNow });
 
     fireEvent.click(screen.getByLabelText("Update: fab-kit v2.16.0 → v2.17.0"));
-    resolveUpdate(); // the POST resolves 202; no reload follows (siblings-only)
+    resolveUpdate({ status: "updating" }); // the POST resolves 202; no reload follows (siblings-only)
     await waitFor(() => expect(screen.getByLabelText("Updating run-kit")).toBeDisabled());
 
     // A later verdict with a DIFFERENT key (fab-kit now updated further) arrives.
@@ -405,7 +405,7 @@ describe("overflow menu version row (260715-h1ck)", () => {
   });
 
   it("triggers updateNow() from the version-row update surface", () => {
-    const updateNow = vi.fn(() => Promise.resolve());
+    const updateNow = vi.fn(() => Promise.resolve({ status: "updating" }));
     renderChip({
       daemonVersion: "0.5.3",
       updateAvailable: updateAvailable([runKit("0.5.3", "0.6.0")]),

@@ -3,21 +3,15 @@ package api
 import (
 	"encoding/json"
 	"net/http"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"strconv"
-	"syscall"
 	"time"
 
+	"rk/internal/daemon"
 	"rk/internal/selfpath"
 	"rk/internal/updatecheck"
 	"rk/internal/validate"
 )
-
-// updateLogRelPath is the ~/.rk-relative log name the detached `rk update`
-// child's stdout/stderr are redirected to, so a silent failure is diagnosable.
-const updateLogRelPath = "update.log"
 
 // postRemediationRecheckDelay is how long after a scoped `shll update` spawn the
 // handler asks the checker to re-run its fetch+match pass (R17). A brew upgrade
@@ -25,11 +19,6 @@ const updateLogRelPath = "update.log"
 // propagates as a cleared/changed verdict within minutes instead of waiting for
 // the 6h ticker. Single-shot, daemon-context-bound (see Checker.RecheckAfter).
 const postRemediationRecheckDelay = 2 * time.Minute
-
-// restartLogRelPath is the ~/.rk-relative log name the detached `rk daemon
-// restart` child (handleRestart) redirects to. Separate from update.log so the
-// update and restart spawn logs stay independent.
-const restartLogRelPath = "restart.log"
 
 // maxUpdatesCheckBodyBytes bounds the POST /api/updates/check request body
 // (mirroring push.go's MaxBytesReader cap). The body is a tiny source selector,
@@ -51,48 +40,65 @@ var resolveSelfPathFn = selfpath.Resolve
 // the run-kit-self `rk update` path (§5) — fail-silent per the toolkit rule.
 var lookShllFn = func() (string, error) { return exec.LookPath("shll") }
 
-// spawnSelfFn spawns a detached `rk <args...>` child logging to ~/.rk/<logName>.
-// Package var seam (mirrors cmd/rk/upgrade.go's runBrewFn/restartDaemonFn) so
-// handler tests can record the spawn (logName + args) without launching a real
-// child. Generalized from the former spawnUpdateFn so BOTH the update
-// (`("update.log", "update")`) and restart (`("restart.log", "daemon",
-// "restart")`) handlers share ONE spawn implementation.
-//
-// The default spawns a DETACHED child: it must outlive this server process
-// because both `rk update` and `rk daemon restart` restart the daemon, which
-// kills the serving process mid-request. It is deliberately NOT context-bound —
-// a detached child that must survive the server cannot inherit the request/server
-// context; the Constitution I timeout rule exists to stop a hung subprocess
-// BLOCKING the server, and a detached spawn cannot block it. Argument-slice
-// construction is used (no shell string) and there is no user-provided input in
-// the argv.
-var spawnSelfFn = func(selfPath string, logName string, args ...string) error {
-	cmd := exec.Command(selfPath, args...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	if logFile, err := openRkLog(logName); err == nil {
-		cmd.Stdout = logFile
-		cmd.Stderr = logFile
-		// cmd.Start (below) dups the fd into the child; this deferred close then
-		// releases the PARENT's handle when spawnSelfFn returns — the child
-		// keeps its own copy, so the log stays open for the detached child.
-		defer logFile.Close()
-	}
-	return cmd.Start()
+// daemonRunningFn probes the rk-daemon tmux server. Package var seam so
+// handler tests drive the daemon-not-running 409 without a live tmux server.
+var daemonRunningFn = daemon.IsRunning
+
+// runJobFn is the spawn seam over daemon.RunJob (260812-z1ya): the update and
+// restart handlers run their job in a managed window of the rk-jobs sibling
+// session on the rk-daemon socket instead of the removed detached-child spawn. The window survives the daemon restart the job itself triggers
+// (Constitution VI), so the spawn is honest — it runs BEFORE the response and
+// a failure is a reportable 502, not a logged-after-202. Package var seam so
+// handler tests record the window + argv without a live tmux server.
+var runJobFn = daemon.RunJob
+
+// daemonRequiredError is the 409 body for update/restart when the rk-daemon
+// tmux server is down (intake decision 1: no fallback fork — the managed
+// window IS the spawn mechanism).
+const daemonRequiredError = "updates require the rk daemon — start it with `rk serve -d`"
+
+// jobWatchPayload is the `watch` key of the update/restart responses: where
+// the job window lives, so the client can offer jump-to-window (terminal route
+// /$server/$window, window param = the @N id).
+type jobWatchPayload struct {
+	Server   string `json:"server"`
+	Session  string `json:"session"`
+	Window   string `json:"window"`
+	WindowID string `json:"window_id"`
 }
 
-// openRkLog opens ~/.rk/<logName> for append (creating ~/.rk if needed),
-// mirroring the ~/.rk daemon-adjacent state dir used by the push subsystem. A
-// failure to open the log is non-fatal — the spawn proceeds without redirection.
-func openRkLog(logName string) (*os.File, error) {
-	home, err := os.UserHomeDir()
+// jobResponse is the response body for a successful update/restart trigger.
+type jobResponse struct {
+	Status string          `json:"status"`
+	Watch  jobWatchPayload `json:"watch"`
+}
+
+// runJobAndRespond runs the job through the runJobFn seam and writes the
+// response: 202 on a fresh spawn, 200 already-running when a live window
+// exists (the second click becomes navigation, intake decision 4), 502 on a
+// spawn error. Returns false when it wrote an error response.
+func (s *Server) runJobAndRespond(w http.ResponseWriter, r *http.Request, status string, window string, argv []string) bool {
+	target, started, err := runJobFn(r.Context(), window, argv)
 	if err != nil {
-		return nil, err
+		s.logger.Error("failed to spawn job window", "window", window, "error", err)
+		writeError(w, http.StatusBadGateway, "could not start the "+window+" job — "+err.Error())
+		return false
 	}
-	dir := filepath.Join(home, ".rk")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, err
+	code := http.StatusAccepted
+	if !started {
+		status = "already-running"
+		code = http.StatusOK
 	}
-	return os.OpenFile(filepath.Join(dir, logName), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	writeJSON(w, code, jobResponse{
+		Status: status,
+		Watch: jobWatchPayload{
+			Server:   target.Server,
+			Session:  target.Session,
+			Window:   target.Window,
+			WindowID: target.WindowID,
+		},
+	})
+	return true
 }
 
 // updateRequest is the tolerant body of POST /api/update. An absent body, empty
@@ -113,28 +119,34 @@ type updatesCheckRequest struct {
 
 // handleUpdate triggers a one-click toolkit upgrade. POST per Constitution IX.
 //
-// Remediation branches on whether `shll` is on PATH:
+// The FIRST gate is daemon liveness: the update runs in a managed `update`
+// window of the rk-jobs session on the rk-daemon socket (260812-z1ya), so a
+// daemon that isn't running 409s — there is deliberately no detached-spawn
+// fallback (intake decision 1).
+//
+// Remediation then branches on whether `shll` is on PATH:
 //
 //   - shll PRESENT → a SCOPED toolkit update. Non-force: require a non-empty
-//     match set from the in-memory checker — else 409 — then respond 202 and
-//     spawn a detached `shll update <matched tools…>` (argv from the checker
-//     snapshot). Force: skip the match 409 and spawn a full-roster `shll update`
+//     match set from the in-memory checker — else 409 — then run
+//     `shll update <matched tools…>` in the job window (argv from the checker
+//     snapshot). Force: skip the match 409 and run a full-roster `shll update`
 //     (no tool args). `shll update` normalizes subset order to roster order and
 //     preserves run-kit's daemon-restart side effect by delegating to
-//     `rk update --skip-brew-update`, so the detached spawn side effects carry
-//     over. There is NO brew-409 on this path — a run-kit-not-brew daemon simply
-//     never matches its own row (§2), while sibling tools remain updatable.
+//     `rk update --skip-brew-update`. There is NO brew-409 on this path — a
+//     run-kit-not-brew daemon simply never matches its own row (§2), while
+//     sibling tools remain updatable.
 //
-//   - shll ABSENT → today's run-kit-self behavior verbatim: (1) require a
-//     Homebrew install (Cellar marker) — else 409; (2) unless force, require a
-//     qualifying pending update — else 409; (3) 202 then spawn a detached
-//     `rk update` (self). The brew-409 (which also covers dev builds — a dev
-//     binary never lives under /Cellar/run-kit/) applies ONLY here.
+//   - shll ABSENT → the run-kit-self behavior: (1) require a Homebrew install
+//     (Cellar marker) — else 409; (2) unless force, require a qualifying
+//     pending update — else 409; (3) run `rk update` (self) in the job window.
+//     The brew-409 (which also covers dev builds — a dev binary never lives
+//     under /Cellar/run-kit/) applies ONLY here.
 //
-// There is deliberately no in-flight lock: a second click spawns again, which
-// exits harmlessly with "already up to date" once brew resolves.
+// Response shapes: fresh spawn → 202 {"status":"updating","watch":{…}}; a live
+// in-flight window → 200 {"status":"already-running","watch":{…}} (the second
+// click becomes navigation, not an error); spawn failure → 502.
 //
-// POST /api/update → 202 {"status":"updating"} | 409 {"error":...}
+// POST /api/update → 202/200 {"status":...,"watch":{...}} | 409 {"error":...} | 502 {"error":...}
 func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	// Tolerant body parse: absent/empty/`{}` ⇒ force=false. A malformed body is
 	// treated as force=false rather than erroring — the endpoint's default has
@@ -147,23 +159,30 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// shll present → scoped toolkit update. The lookup is fail-silent (an error
-	// simply routes to the run-kit-self fallback below).
-	if shllPath, err := lookShllFn(); err == nil {
-		s.handleShllUpdate(w, shllPath, force)
+	// Daemon gate first: the managed job window is the only spawn mechanism.
+	if !daemonRunningFn() {
+		writeError(w, http.StatusConflict, daemonRequiredError)
 		return
 	}
 
-	s.handleSelfUpdate(w, force)
+	// shll present → scoped toolkit update. The lookup is fail-silent (an error
+	// simply routes to the run-kit-self fallback below).
+	if shllPath, err := lookShllFn(); err == nil {
+		s.handleShllUpdate(w, r, shllPath, force)
+		return
+	}
+
+	s.handleSelfUpdate(w, r, force)
 }
 
-// handleShllUpdate spawns a scoped (or full-roster, on force) `shll update`.
-// The match set is read from the checker snapshot; on the non-force path an
-// empty match set 409s before spawning (mirroring today's qualify-409 gate).
-// After spawning it schedules a ~2min post-remediation re-check (R17) so a
-// consumed match clears promptly on the siblings-only path (no daemon restart).
-func (s *Server) handleShllUpdate(w http.ResponseWriter, shllPath string, force bool) {
-	args := []string{"update"}
+// handleShllUpdate runs a scoped (or full-roster, on force) `shll update` in
+// the `update` job window. The match set is read from the checker snapshot; on
+// the non-force path an empty match set 409s before spawning (mirroring today's
+// qualify-409 gate). After spawning it schedules a ~2min post-remediation
+// re-check (R17) so a consumed match clears promptly on the siblings-only path
+// (no daemon restart).
+func (s *Server) handleShllUpdate(w http.ResponseWriter, r *http.Request, shllPath string, force bool) {
+	args := []string{shllPath, "update"}
 	if !force {
 		var matched []string
 		if s.updateChecker != nil {
@@ -186,16 +205,10 @@ func (s *Server) handleShllUpdate(w http.ResponseWriter, shllPath string, force 
 		}
 		args = append(args, matched...)
 	}
-	// force keeps args == ["update"] — a full-roster sweep with no tool args.
+	// force keeps args == [shll update] — a full-roster sweep with no tool args.
 
-	// Accept before spawning: `shll update` restarts the daemon (via its
-	// delegation to `rk update`), which kills THIS process, so the client must
-	// get its response first.
-	writeJSON(w, http.StatusAccepted, map[string]string{"status": "updating"})
-
-	if err := spawnSelfFn(shllPath, updateLogRelPath, args...); err != nil {
-		// The response is already committed (202); log for diagnosis only.
-		s.logger.Error("failed to spawn shll update", "error", err)
+	if !s.runJobAndRespond(w, r, "updating", "update", args) {
+		return
 	}
 
 	// Schedule a delayed re-check so a consumed match clears within minutes
@@ -272,10 +285,10 @@ func (s *Server) handleUpdatesCheck(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, buildUpdateAvailablePayload(verdict))
 }
 
-// handleSelfUpdate is the shll-absent fallback — the pre-manifest run-kit-self
-// behavior verbatim: brew-409 gate, qualify/force gate, then a detached
-// `rk update` (self).
-func (s *Server) handleSelfUpdate(w http.ResponseWriter, force bool) {
+// handleSelfUpdate is the shll-absent fallback — the run-kit-self gates
+// verbatim (brew-409, qualify/force 409), then `rk update` (self) in the
+// `update` job window.
+func (s *Server) handleSelfUpdate(w http.ResponseWriter, r *http.Request, force bool) {
 	selfPath, err := resolveSelfPathFn()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "could not determine executable path")
@@ -293,12 +306,5 @@ func (s *Server) handleSelfUpdate(w http.ResponseWriter, force bool) {
 		return
 	}
 
-	// Accept before spawning: the detached `rk update` restarts the daemon, which
-	// kills THIS process, so the client must get its response first.
-	writeJSON(w, http.StatusAccepted, map[string]string{"status": "updating"})
-
-	if err := spawnSelfFn(selfPath, updateLogRelPath, "update"); err != nil {
-		// The response is already committed (202); log for diagnosis only.
-		s.logger.Error("failed to spawn rk update", "error", err)
-	}
+	s.runJobAndRespond(w, r, "updating", "update", []string{selfPath, "update"})
 }

@@ -1,0 +1,9 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-12T07:52:12Z"}
+{"args":"update-runs-in-daemon-tmux-window — move the one-click update (and daemon restart) spawn from a detached Setsid child to a managed tmux window on the rk-daemon server, via a new daemon-scoped rk daemon run subcommand","cmd":"fab-new","event":"command","ts":"2026-08-12T07:52:12Z"}
+{"delta":"+5.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-08-12T07:55:30Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-12T08:15:47Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-12T08:16:09Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-12T08:44:55Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-12T08:50:42Z"}
+{"event":"review","result":"passed","ts":"2026-08-12T08:50:42Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-12T09:03:32Z"}

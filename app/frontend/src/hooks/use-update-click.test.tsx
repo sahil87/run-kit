@@ -21,12 +21,21 @@ vi.mock("@/components/toast", () => ({
   useToast: () => ({ addToast }),
 }));
 
-import { useUpdateClick } from "./use-update-click";
+// Router seam: capture watch-target navigations without mounting a router.
+const mockNavigate = vi.fn();
+vi.mock("@tanstack/react-router", () => ({
+  useNavigate: () => mockNavigate,
+}));
+
+import { useUpdateClick, consumeUpdateWatchTarget } from "./use-update-click";
+
+const WATCH = { server: "rk-daemon", session: "rk-jobs", window: "update", window_id: "@5" };
 
 beforeEach(() => {
-  updateNow.mockReset().mockResolvedValue(undefined);
-  forceUpdateNow.mockReset().mockResolvedValue(undefined);
+  updateNow.mockReset().mockResolvedValue({ status: "updating" });
+  forceUpdateNow.mockReset().mockResolvedValue({ status: "updating" });
   addToast.mockReset();
+  mockNavigate.mockReset();
   feed = { manualOnly: false, key: "run-kit@3.9.0" };
 });
 afterEach(() => {
@@ -98,5 +107,62 @@ describe("useUpdateClick — failure + completion (unchanged shape)", () => {
 
     rerender();
     expect(result.current.updating).toBe(true);
+  });
+});
+
+describe("useUpdateClick — watch-target affordance (260812-z1ya)", () => {
+  it("navigates straight to the job window on already-running", async () => {
+    updateNow.mockResolvedValue({ status: "already-running", watch: WATCH });
+    const { result } = renderHook(() => useUpdateClick());
+    act(() => result.current.triggerUpdate());
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledTimes(1));
+    expect(mockNavigate).toHaveBeenCalledWith({
+      to: "/$server/$window",
+      params: { server: "rk-daemon", window: "@5" },
+    });
+    // Navigation, not a toast action.
+    expect(addToast).not.toHaveBeenCalled();
+  });
+
+  it("offers a Watch toast action on a fresh 202 spawn", async () => {
+    updateNow.mockResolvedValue({ status: "updating", watch: WATCH });
+    const { result } = renderHook(() => useUpdateClick());
+    act(() => result.current.triggerUpdate());
+    await waitFor(() => expect(addToast).toHaveBeenCalledTimes(1));
+    const [message, variant, action] = addToast.mock.calls[0] as [
+      string,
+      string,
+      { label: string; onSelect: () => void },
+    ];
+    expect(variant).toBe("info");
+    expect(message).toContain("rk-jobs:update");
+    expect(action.label).toBe("Watch");
+    // The action navigates to the job window's terminal route.
+    action.onSelect();
+    expect(mockNavigate).toHaveBeenCalledWith({
+      to: "/$server/$window",
+      params: { server: "rk-daemon", window: "@5" },
+    });
+  });
+
+  it("old daemon (no watch) — no toast action, no navigation", async () => {
+    updateNow.mockResolvedValue({ status: "updating" });
+    const { result } = renderHook(() => useUpdateClick());
+    act(() => result.current.triggerUpdate());
+    await waitFor(() => expect(result.current.updating).toBe(true));
+    expect(addToast).not.toHaveBeenCalled();
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+});
+
+describe("consumeUpdateWatchTarget (shared helper)", () => {
+  it("restart result navigates on already-running, same as update", () => {
+    const restartWatch = { ...WATCH, window: "restart", window_id: "@9" };
+    consumeUpdateWatchTarget({ status: "already-running", watch: restartWatch }, mockNavigate, addToast);
+    expect(mockNavigate).toHaveBeenCalledWith({
+      to: "/$server/$window",
+      params: { server: "rk-daemon", window: "@9" },
+    });
+    expect(addToast).not.toHaveBeenCalled();
   });
 });

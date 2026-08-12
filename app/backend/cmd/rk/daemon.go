@@ -16,6 +16,7 @@ Subcommands:
   stop     Stop the daemon (and optionally reclaim the port)
   restart  Stop and start the daemon
   status   Show daemon state and current port owner
+  run      Run a command in a managed job window (rk-jobs session)
 
 See 'run-kit daemon <subcommand> --help' for flags on each.`,
 }
@@ -25,4 +26,5 @@ func init() {
 	daemonCmd.AddCommand(daemonStopCmd)
 	daemonCmd.AddCommand(daemonRestartCmd)
 	daemonCmd.AddCommand(daemonStatusCmd)
+	daemonCmd.AddCommand(daemonRunCmd)
 }

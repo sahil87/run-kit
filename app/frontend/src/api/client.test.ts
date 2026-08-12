@@ -27,6 +27,7 @@ import {
   setWindowColor,
   updateWindowUrl,
   updateWindowType,
+  triggerUpdate,
   triggerForceUpdate,
   triggerRestart,
   refreshStatus,
@@ -687,6 +688,71 @@ describe("maintenance actions (force update + restart)", () => {
       ),
     );
     await expect(triggerRestart()).rejects.toThrow();
+  });
+});
+
+describe("update trigger watch-target parse (260812-z1ya)", () => {
+  const WATCH = { server: "rk-daemon", session: "rk-jobs", window: "update", window_id: "@5" };
+
+  it("triggerUpdate resolves the status + watch target from a 202", async () => {
+    mswServer.use(
+      http.post("/api/update", () =>
+        HttpResponse.json({ status: "updating", watch: WATCH }, { status: 202 }),
+      ),
+    );
+    const result = await triggerUpdate();
+    expect(result).toEqual({ status: "updating", watch: WATCH });
+  });
+
+  it("a 200 already-running is a RESOLVED result carrying the existing window", async () => {
+    mswServer.use(
+      http.post("/api/update", () =>
+        HttpResponse.json({ status: "already-running", watch: WATCH }, { status: 200 }),
+      ),
+    );
+    const result = await triggerUpdate();
+    expect(result.status).toBe("already-running");
+    expect(result.watch).toEqual(WATCH);
+  });
+
+  it("an old-daemon body ({status} only) resolves with watch undefined", async () => {
+    mswServer.use(
+      http.post("/api/update", () => HttpResponse.json({ status: "updating" }, { status: 202 })),
+    );
+    const result = await triggerUpdate();
+    expect(result).toEqual({ status: "updating", watch: undefined });
+  });
+
+  it("a malformed watch key resolves with watch undefined", async () => {
+    mswServer.use(
+      http.post("/api/update", () =>
+        HttpResponse.json({ status: "updating", watch: { server: "rk-daemon" } }, { status: 202 }),
+      ),
+    );
+    const result = await triggerUpdate();
+    expect(result.status).toBe("updating");
+    expect(result.watch).toBeUndefined();
+  });
+
+  it("triggerRestart parses the same shape", async () => {
+    const restartWatch = { ...WATCH, window: "restart", window_id: "@9" };
+    mswServer.use(
+      http.post("/api/restart", () =>
+        HttpResponse.json({ status: "restarting", watch: restartWatch }, { status: 202 }),
+      ),
+    );
+    const result = await triggerRestart();
+    expect(result).toEqual({ status: "restarting", watch: restartWatch });
+  });
+
+  it("triggerForceUpdate parses the same shape", async () => {
+    mswServer.use(
+      http.post("/api/update", () =>
+        HttpResponse.json({ status: "updating", watch: WATCH }, { status: 202 }),
+      ),
+    );
+    const result = await triggerForceUpdate();
+    expect(result).toEqual({ status: "updating", watch: WATCH });
   });
 });
 

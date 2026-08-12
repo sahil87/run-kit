@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -10,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"rk/internal/daemon"
 	"rk/internal/updatecheck"
 )
 
@@ -50,30 +52,31 @@ func multiToolChecker(t *testing.T) *updatecheck.Checker {
 	return c
 }
 
-// spawnRecord captures a recorded spawn (path + logName + args) from the
-// generalized spawnSelfFn seam, so tests can assert the spawned binary and argv
-// without launching a real child.
-type spawnRecord struct {
-	called  bool
-	selfArg string
-	logName string
-	args    []string
+// jobRecord captures a recorded RunJob call (window + argv) from the runJobFn
+// seam, so tests can assert the job window and argv without a live tmux server.
+type jobRecord struct {
+	called bool
+	window string
+	argv   []string
 }
 
-// withSeams swaps the update handler's package-var seams for the duration of a
-// test and restores them afterward. shllPath="" (with shllErr non-nil) forces
-// the shll-absent fallback path; a non-empty shllPath forces the shll-present
-// scoped path.
-func withSeams(t *testing.T, selfPath string, resolveErr error, shllPath string, shllErr error, spawn func(selfPath, logName string, args ...string) error) {
+// withSeams swaps the update/restart handlers' package-var seams for the
+// duration of a test and restores them afterward. The daemon is scripted
+// RUNNING (the 260812-z1ya first gate); shllPath="" (with shllErr non-nil)
+// forces the shll-absent fallback path; a non-empty shllPath forces the
+// shll-present scoped path.
+func withSeams(t *testing.T, selfPath string, resolveErr error, shllPath string, shllErr error, runJob func(ctx context.Context, window string, argv []string) (daemon.JobTarget, bool, error)) {
 	t.Helper()
-	origResolve, origSpawn, origShll := resolveSelfPathFn, spawnSelfFn, lookShllFn
+	origResolve, origShll, origRunning, origRunJob := resolveSelfPathFn, lookShllFn, daemonRunningFn, runJobFn
 	resolveSelfPathFn = func() (string, error) { return selfPath, resolveErr }
-	spawnSelfFn = spawn
 	lookShllFn = func() (string, error) { return shllPath, shllErr }
+	daemonRunningFn = func() bool { return true }
+	runJobFn = runJob
 	t.Cleanup(func() {
 		resolveSelfPathFn = origResolve
-		spawnSelfFn = origSpawn
 		lookShllFn = origShll
+		daemonRunningFn = origRunning
+		runJobFn = origRunJob
 	})
 }
 
@@ -81,14 +84,31 @@ func withSeams(t *testing.T, selfPath string, resolveErr error, shllPath string,
 // the shll-absent branch of handleUpdate).
 var errNoShll = errors.New("exec: \"shll\": executable file not found in $PATH")
 
-// recordingSpawn returns a spawn fn that records its call into rec and succeeds.
-func recordingSpawn(rec *spawnRecord) func(selfPath, logName string, args ...string) error {
-	return func(selfPath, logName string, args ...string) error {
+// recordingJob returns a RunJob stub that records its call into rec and
+// reports a fresh spawn (window id @5).
+func recordingJob(rec *jobRecord) func(context.Context, string, []string) (daemon.JobTarget, bool, error) {
+	return func(_ context.Context, window string, argv []string) (daemon.JobTarget, bool, error) {
 		rec.called = true
-		rec.selfArg = selfPath
-		rec.logName = logName
-		rec.args = args
-		return nil
+		rec.window = window
+		rec.argv = argv
+		return daemon.JobTarget{Server: "rk-daemon", Session: "rk-jobs", Window: window, WindowID: "@5"}, true, nil
+	}
+}
+
+// assertJobBody decodes a 202/200 job response and verifies the status and the
+// populated watch target.
+func assertJobBody(t *testing.T, res *httptest.ResponseRecorder, wantStatus, wantWindow string) {
+	t.Helper()
+	var body jobResponse
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body.Status != wantStatus {
+		t.Errorf("body status = %q, want %q", body.Status, wantStatus)
+	}
+	want := jobWatchPayload{Server: "rk-daemon", Session: "rk-jobs", Window: wantWindow, WindowID: "@5"}
+	if body.Watch != want {
+		t.Errorf("watch = %+v, want %+v", body.Watch, want)
 	}
 }
 
@@ -110,14 +130,39 @@ func postUpdate(t *testing.T, s *Server, body string) *httptest.ResponseRecorder
 	return rec
 }
 
+// ----- daemon gate (260812-z1ya) -----
+
+// TestHandleUpdateDaemonDown409 verifies the new first gate: with the rk-daemon
+// tmux server down, POST /api/update refuses 409 naming the requirement and
+// never reaches the spawn (intake decision 1 — no detached-spawn fallback).
+func TestHandleUpdateDaemonDown409(t *testing.T) {
+	var rec jobRecord
+	withSeams(t, "/opt/homebrew/Cellar/run-kit/3.8.0/bin/run-kit", nil, "/opt/homebrew/bin/shll", nil, recordingJob(&rec))
+	daemonRunningFn = func() bool { return false }
+	s := newUpdateServer(multiToolChecker(t))
+
+	res := postUpdate(t, s, "")
+
+	if res.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409 when the daemon is not running (body=%s)", res.Code, res.Body.String())
+	}
+	if !strings.Contains(res.Body.String(), "rk serve -d") {
+		t.Errorf("error body = %q, want it to name the fix (rk serve -d)", res.Body.String())
+	}
+	if rec.called {
+		t.Error("must not spawn the job window when the daemon is not running")
+	}
+}
+
 // ----- shll-present (scoped toolkit update) path -----
 
 // TestHandleUpdateShllScopedSpawnsMatched verifies R9: with shll present and a
-// non-force click, the handler spawns `shll update <matched tools…>` with the
-// checker's match set as argv.
+// non-force click, the handler runs `shll update <matched tools…>` in the
+// `update` job window with the checker's match set as argv, and the 202 carries
+// the watch target.
 func TestHandleUpdateShllScopedSpawnsMatched(t *testing.T) {
-	var rec spawnRecord
-	withSeams(t, "/opt/homebrew/Cellar/run-kit/3.8.0/bin/run-kit", nil, "/opt/homebrew/bin/shll", nil, recordingSpawn(&rec))
+	var rec jobRecord
+	withSeams(t, "/opt/homebrew/Cellar/run-kit/3.8.0/bin/run-kit", nil, "/opt/homebrew/bin/shll", nil, recordingJob(&rec))
 	s := newUpdateServer(multiToolChecker(t))
 
 	res := postUpdate(t, s, "")
@@ -125,17 +170,15 @@ func TestHandleUpdateShllScopedSpawnsMatched(t *testing.T) {
 	if res.Code != http.StatusAccepted {
 		t.Fatalf("status = %d, want 202 (body=%s)", res.Code, res.Body.String())
 	}
-	if rec.selfArg != "/opt/homebrew/bin/shll" {
-		t.Errorf("spawn path = %q, want the resolved shll path", rec.selfArg)
+	assertJobBody(t, res, "updating", "update")
+	if rec.window != "update" {
+		t.Errorf("job window = %q, want update", rec.window)
 	}
-	if rec.logName != "update.log" {
-		t.Errorf("spawn logName = %q, want update.log", rec.logName)
-	}
-	// argv = ["update", <matched roster order>]. Matched is roster order
-	// (fab-kit before run-kit, sorted names).
-	want := []string{"update", "fab-kit", "run-kit"}
-	if strings.Join(rec.args, " ") != strings.Join(want, " ") {
-		t.Errorf("spawn args = %v, want %v", rec.args, want)
+	// argv = [<shll path> update <matched roster order>]. Matched is roster
+	// order (fab-kit before run-kit, sorted names).
+	want := []string{"/opt/homebrew/bin/shll", "update", "fab-kit", "run-kit"}
+	if strings.Join(rec.argv, " ") != strings.Join(want, " ") {
+		t.Errorf("job argv = %v, want %v", rec.argv, want)
 	}
 }
 
@@ -145,8 +188,8 @@ func TestHandleUpdateShllScopedSpawnsMatched(t *testing.T) {
 // never inject into shll's flag parser. A legitimate sibling in the same match
 // set is still passed.
 func TestHandleUpdateShllDropsFlagLikeToolName(t *testing.T) {
-	var rec spawnRecord
-	withSeams(t, "/opt/homebrew/Cellar/run-kit/3.9.0/bin/run-kit", nil, "/opt/homebrew/bin/shll", nil, recordingSpawn(&rec))
+	var rec jobRecord
+	withSeams(t, "/opt/homebrew/Cellar/run-kit/3.9.0/bin/run-kit", nil, "/opt/homebrew/bin/shll", nil, recordingJob(&rec))
 	// A checker whose match set contains a hostile report tool name ("--force")
 	// next to a legitimate sibling. run-kit itself is at latest so its row won't
 	// match, keeping the assertion focused on the sibling verdicts.
@@ -169,13 +212,13 @@ func TestHandleUpdateShllDropsFlagLikeToolName(t *testing.T) {
 		t.Fatalf("status = %d, want 202 (body=%s)", res.Code, res.Body.String())
 	}
 	// argv must carry the legit sibling only — the flag-like name is dropped.
-	want := []string{"update", "fab-kit"}
-	if strings.Join(rec.args, " ") != strings.Join(want, " ") {
-		t.Errorf("spawn args = %v, want %v (flag-like tool name must be dropped)", rec.args, want)
+	want := []string{"/opt/homebrew/bin/shll", "update", "fab-kit"}
+	if strings.Join(rec.argv, " ") != strings.Join(want, " ") {
+		t.Errorf("job argv = %v, want %v (flag-like tool name must be dropped)", rec.argv, want)
 	}
-	for _, a := range rec.args {
+	for _, a := range rec.argv {
 		if a == "--force" {
-			t.Errorf("hostile manifest tool name reached argv: %v", rec.args)
+			t.Errorf("hostile manifest tool name reached argv: %v", rec.argv)
 		}
 	}
 }
@@ -183,8 +226,8 @@ func TestHandleUpdateShllDropsFlagLikeToolName(t *testing.T) {
 // TestHandleUpdateShllNoMatch409 verifies R9: shll present but nothing matches →
 // 409 before any spawn (the non-force qualify gate).
 func TestHandleUpdateShllNoMatch409(t *testing.T) {
-	var rec spawnRecord
-	withSeams(t, "/opt/homebrew/Cellar/run-kit/3.9.0/bin/run-kit", nil, "/opt/homebrew/bin/shll", nil, recordingSpawn(&rec))
+	var rec jobRecord
+	withSeams(t, "/opt/homebrew/Cellar/run-kit/3.9.0/bin/run-kit", nil, "/opt/homebrew/bin/shll", nil, recordingJob(&rec))
 	// A checker at latest — no match.
 	c := updatecheck.New("3.9.0", true)
 	s := newUpdateServer(c)
@@ -200,10 +243,10 @@ func TestHandleUpdateShllNoMatch409(t *testing.T) {
 }
 
 // TestHandleUpdateShllForceFullRoster verifies R10: force with shll present
-// spawns a full-roster `shll update` (no tool args) and skips the match 409.
+// runs a full-roster `shll update` (no tool args) and skips the match 409.
 func TestHandleUpdateShllForceFullRoster(t *testing.T) {
-	var rec spawnRecord
-	withSeams(t, "/opt/homebrew/Cellar/run-kit/3.9.0/bin/run-kit", nil, "/opt/homebrew/bin/shll", nil, recordingSpawn(&rec))
+	var rec jobRecord
+	withSeams(t, "/opt/homebrew/Cellar/run-kit/3.9.0/bin/run-kit", nil, "/opt/homebrew/bin/shll", nil, recordingJob(&rec))
 	// No matching update — force must bypass the match 409.
 	s := newUpdateServer(updatecheck.New("3.9.0", true))
 
@@ -213,13 +256,11 @@ func TestHandleUpdateShllForceFullRoster(t *testing.T) {
 		t.Fatalf("status = %d, want 202 on force even without a match (body=%s)", res.Code, res.Body.String())
 	}
 	if !rec.called {
-		t.Fatalf("force must spawn shll update")
+		t.Fatalf("force must run shll update")
 	}
-	if rec.selfArg != "/opt/homebrew/bin/shll" || rec.logName != "update.log" {
-		t.Errorf("force spawn = (%q, %q), want (shll path, update.log)", rec.selfArg, rec.logName)
-	}
-	if len(rec.args) != 1 || rec.args[0] != "update" {
-		t.Errorf("force spawn args = %v, want [update] (full-roster sweep)", rec.args)
+	want := []string{"/opt/homebrew/bin/shll", "update"}
+	if strings.Join(rec.argv, " ") != strings.Join(want, " ") {
+		t.Errorf("force job argv = %v, want %v (full-roster sweep)", rec.argv, want)
 	}
 }
 
@@ -227,10 +268,10 @@ func TestHandleUpdateShllForceFullRoster(t *testing.T) {
 // run-kit-not-brew daemon is NOT refused with the brew-409 — the scoped path has
 // no brew gate. (The checker matches a sibling so there's something to update.)
 func TestHandleUpdateShllPresentIgnoresBrew409(t *testing.T) {
-	var rec spawnRecord
+	var rec jobRecord
 	// resolveSelfPathFn returns a NON-brew path, but the shll-present path never
 	// consults it.
-	withSeams(t, "/usr/local/bin/run-kit", nil, "/opt/homebrew/bin/shll", nil, recordingSpawn(&rec))
+	withSeams(t, "/usr/local/bin/run-kit", nil, "/opt/homebrew/bin/shll", nil, recordingJob(&rec))
 	// A checker matching fab-kit only (run-kit not brew, so its row is gated off).
 	c := updatecheck.New("3.9.0", false)
 	c.SetCheckForTest(func(string) (updatecheck.CheckReport, error) {
@@ -246,9 +287,48 @@ func TestHandleUpdateShllPresentIgnoresBrew409(t *testing.T) {
 	if res.Code != http.StatusAccepted {
 		t.Fatalf("status = %d, want 202 (no brew-409 on the shll path) (body=%s)", res.Code, res.Body.String())
 	}
-	want := []string{"update", "fab-kit"}
-	if strings.Join(rec.args, " ") != strings.Join(want, " ") {
-		t.Errorf("spawn args = %v, want %v", rec.args, want)
+	want := []string{"/opt/homebrew/bin/shll", "update", "fab-kit"}
+	if strings.Join(rec.argv, " ") != strings.Join(want, " ") {
+		t.Errorf("job argv = %v, want %v", rec.argv, want)
+	}
+}
+
+// TestHandleUpdateAlreadyRunning200 verifies intake decision 4: with a live
+// in-flight update window (RunJob reports started=false), the handler answers
+// 200 already-running with the EXISTING window's watch target — the second
+// click becomes navigation, not an error and not a duplicate spawn.
+func TestHandleUpdateAlreadyRunning200(t *testing.T) {
+	withSeams(t, "/opt/homebrew/Cellar/run-kit/3.8.0/bin/run-kit", nil, "/opt/homebrew/bin/shll", nil,
+		func(_ context.Context, window string, _ []string) (daemon.JobTarget, bool, error) {
+			return daemon.JobTarget{Server: "rk-daemon", Session: "rk-jobs", Window: window, WindowID: "@5"}, false, nil
+		})
+	s := newUpdateServer(multiToolChecker(t))
+
+	res := postUpdate(t, s, "")
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 already-running (body=%s)", res.Code, res.Body.String())
+	}
+	assertJobBody(t, res, "already-running", "update")
+}
+
+// TestHandleUpdateSpawnError502 verifies spawn-before-respond: a RunJob failure
+// is a reportable 502 (the window survives the daemon restart, so the handler
+// no longer has to commit 202 before spawning).
+func TestHandleUpdateSpawnError502(t *testing.T) {
+	withSeams(t, "/opt/homebrew/Cellar/run-kit/3.8.0/bin/run-kit", nil, "/opt/homebrew/bin/shll", nil,
+		func(context.Context, string, []string) (daemon.JobTarget, bool, error) {
+			return daemon.JobTarget{}, false, errors.New("tmux exploded")
+		})
+	s := newUpdateServer(multiToolChecker(t))
+
+	res := postUpdate(t, s, "")
+
+	if res.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want 502 on a spawn error (body=%s)", res.Code, res.Body.String())
+	}
+	if !strings.Contains(res.Body.String(), "tmux exploded") {
+		t.Errorf("error body = %q, want the spawn failure reason", res.Body.String())
 	}
 }
 
@@ -256,7 +336,7 @@ func TestHandleUpdateShllPresentIgnoresBrew409(t *testing.T) {
 // `shll update` spawn triggers a post-remediation re-check on the checker with
 // the ~2min delay, so a consumed match clears without waiting for the 6h tick.
 func TestHandleUpdateShllScopedSchedulesRecheck(t *testing.T) {
-	withSeams(t, "/opt/homebrew/Cellar/run-kit/3.8.0/bin/run-kit", nil, "/opt/homebrew/bin/shll", nil, recordingSpawn(&spawnRecord{}))
+	withSeams(t, "/opt/homebrew/Cellar/run-kit/3.8.0/bin/run-kit", nil, "/opt/homebrew/bin/shll", nil, recordingJob(&jobRecord{}))
 	c := multiToolChecker(t)
 	var gotDelays []time.Duration
 	c.SetRecheckHookForTest(func(d time.Duration) { gotDelays = append(gotDelays, d) })
@@ -276,7 +356,7 @@ func TestHandleUpdateShllScopedSchedulesRecheck(t *testing.T) {
 // TestHandleUpdateShllForceSchedulesRecheck verifies R17 for the force sweep:
 // a full-roster `shll update` also schedules the post-remediation re-check.
 func TestHandleUpdateShllForceSchedulesRecheck(t *testing.T) {
-	withSeams(t, "/opt/homebrew/Cellar/run-kit/3.9.0/bin/run-kit", nil, "/opt/homebrew/bin/shll", nil, recordingSpawn(&spawnRecord{}))
+	withSeams(t, "/opt/homebrew/Cellar/run-kit/3.9.0/bin/run-kit", nil, "/opt/homebrew/bin/shll", nil, recordingJob(&jobRecord{}))
 	c := updatecheck.New("3.9.0", true) // no match — force bypasses the 409
 	var scheduled int
 	c.SetRecheckHookForTest(func(time.Duration) { scheduled++ })
@@ -293,7 +373,7 @@ func TestHandleUpdateShllForceSchedulesRecheck(t *testing.T) {
 // TestHandleUpdateSelfPathNoRecheck verifies R17: the shll-absent `rk update`
 // fallback schedules NO re-check (the restart resets state on its own).
 func TestHandleUpdateSelfPathNoRecheck(t *testing.T) {
-	withSeams(t, "/opt/homebrew/Cellar/run-kit/3.8.0/bin/run-kit", nil, "", errNoShll, recordingSpawn(&spawnRecord{}))
+	withSeams(t, "/opt/homebrew/Cellar/run-kit/3.8.0/bin/run-kit", nil, "", errNoShll, recordingJob(&jobRecord{}))
 	c := qualifyingChecker(t)
 	scheduled := 0
 	c.SetRecheckHookForTest(func(time.Duration) { scheduled++ })
@@ -310,8 +390,8 @@ func TestHandleUpdateSelfPathNoRecheck(t *testing.T) {
 // ----- shll-absent (run-kit-self) fallback path -----
 
 func TestHandleUpdateAcceptedSpawns(t *testing.T) {
-	var rec spawnRecord
-	withSeams(t, "/opt/homebrew/Cellar/run-kit/3.8.0/bin/run-kit", nil, "", errNoShll, recordingSpawn(&rec))
+	var rec jobRecord
+	withSeams(t, "/opt/homebrew/Cellar/run-kit/3.8.0/bin/run-kit", nil, "", errNoShll, recordingJob(&rec))
 	s := newUpdateServer(qualifyingChecker(t))
 
 	res := postUpdate(t, s, "")
@@ -319,27 +399,16 @@ func TestHandleUpdateAcceptedSpawns(t *testing.T) {
 	if res.Code != http.StatusAccepted {
 		t.Fatalf("status = %d, want 202 (body=%s)", res.Code, res.Body.String())
 	}
-	var body map[string]string
-	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
-		t.Fatalf("decode body: %v", err)
-	}
-	if body["status"] != "updating" {
-		t.Errorf("body status = %q, want updating", body["status"])
-	}
-	if rec.selfArg != "/opt/homebrew/Cellar/run-kit/3.8.0/bin/run-kit" {
-		t.Errorf("spawn self path = %q, want the resolved Cellar path", rec.selfArg)
-	}
-	if rec.logName != "update.log" {
-		t.Errorf("spawn logName = %q, want update.log", rec.logName)
-	}
-	if len(rec.args) != 1 || rec.args[0] != "update" {
-		t.Errorf("spawn args = %v, want [update]", rec.args)
+	assertJobBody(t, res, "updating", "update")
+	want := []string{"/opt/homebrew/Cellar/run-kit/3.8.0/bin/run-kit", "update"}
+	if strings.Join(rec.argv, " ") != strings.Join(want, " ") {
+		t.Errorf("job argv = %v, want %v", rec.argv, want)
 	}
 }
 
 func TestHandleUpdateNotBrewInstalled(t *testing.T) {
-	var rec spawnRecord
-	withSeams(t, "/usr/local/bin/run-kit", nil, "", errNoShll, recordingSpawn(&rec))
+	var rec jobRecord
+	withSeams(t, "/usr/local/bin/run-kit", nil, "", errNoShll, recordingJob(&rec))
 	s := newUpdateServer(qualifyingChecker(t))
 
 	res := postUpdate(t, s, "")
@@ -353,8 +422,8 @@ func TestHandleUpdateNotBrewInstalled(t *testing.T) {
 }
 
 func TestHandleUpdateNoUpdateAvailable(t *testing.T) {
-	var rec spawnRecord
-	withSeams(t, "/opt/homebrew/Cellar/run-kit/3.9.0/bin/run-kit", nil, "", errNoShll, recordingSpawn(&rec))
+	var rec jobRecord
+	withSeams(t, "/opt/homebrew/Cellar/run-kit/3.9.0/bin/run-kit", nil, "", errNoShll, recordingJob(&rec))
 	// A checker with no matching update (never checked / same version).
 	c := updatecheck.New("3.9.0", true)
 	s := newUpdateServer(c)
@@ -370,9 +439,9 @@ func TestHandleUpdateNoUpdateAvailable(t *testing.T) {
 }
 
 func TestHandleUpdateNilCheckerNoUpdate(t *testing.T) {
-	withSeams(t, "/opt/homebrew/Cellar/run-kit/3.9.0/bin/run-kit", nil, "", errNoShll, func(selfPath, logName string, args ...string) error {
+	withSeams(t, "/opt/homebrew/Cellar/run-kit/3.9.0/bin/run-kit", nil, "", errNoShll, func(context.Context, string, []string) (daemon.JobTarget, bool, error) {
 		t.Fatalf("must not spawn with a nil checker")
-		return nil
+		return daemon.JobTarget{}, false, nil
 	})
 	s := newUpdateServer(nil)
 
@@ -383,33 +452,38 @@ func TestHandleUpdateNilCheckerNoUpdate(t *testing.T) {
 	}
 }
 
-// TestHandleUpdateSecondClickAccepted verifies R12: a second POST while matching
-// is accepted again (no in-flight lock).
-func TestHandleUpdateSecondClickAccepted(t *testing.T) {
+// TestHandleUpdateSecondClick verifies the in-flight contract end to end: the
+// first click spawns (202), and a second POST — with RunJob reporting the live
+// window (started=false) — answers 200 already-running with the same watch
+// target (intake decision 4; no duplicate window is ever spawned).
+func TestHandleUpdateSecondClick(t *testing.T) {
 	spawns := 0
-	withSeams(t, "/opt/homebrew/Cellar/run-kit/3.8.0/bin/run-kit", nil, "", errNoShll, func(selfPath, logName string, args ...string) error {
-		spawns++
-		return nil
-	})
+	withSeams(t, "/opt/homebrew/Cellar/run-kit/3.8.0/bin/run-kit", nil, "", errNoShll,
+		func(_ context.Context, window string, _ []string) (daemon.JobTarget, bool, error) {
+			spawns++
+			// The first call reports a fresh spawn; every later call finds the
+			// live window (RunJob's dedup branch).
+			return daemon.JobTarget{Server: "rk-daemon", Session: "rk-jobs", Window: window, WindowID: "@5"}, spawns == 1, nil
+		})
 	s := newUpdateServer(qualifyingChecker(t))
 
-	for i := 0; i < 2; i++ {
-		res := postUpdate(t, s, "")
-		if res.Code != http.StatusAccepted {
-			t.Fatalf("click %d: status = %d, want 202", i+1, res.Code)
-		}
+	res := postUpdate(t, s, "")
+	if res.Code != http.StatusAccepted {
+		t.Fatalf("click 1: status = %d, want 202", res.Code)
 	}
-	if spawns != 2 {
-		t.Errorf("expected 2 spawns across 2 clicks (no lock), got %d", spawns)
+	res = postUpdate(t, s, "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("click 2: status = %d, want 200 already-running", res.Code)
 	}
+	assertJobBody(t, res, "already-running", "update")
 }
 
 // TestHandleUpdateForceSkipsQualifyKeepsBrew verifies R11: on the shll-absent
 // path, force=true skips the qualify 409 (no pending update) but still spawns
 // for a brew install.
 func TestHandleUpdateForceSkipsQualifyKeepsBrew(t *testing.T) {
-	var rec spawnRecord
-	withSeams(t, "/opt/homebrew/Cellar/run-kit/3.9.0/bin/run-kit", nil, "", errNoShll, recordingSpawn(&rec))
+	var rec jobRecord
+	withSeams(t, "/opt/homebrew/Cellar/run-kit/3.9.0/bin/run-kit", nil, "", errNoShll, recordingJob(&rec))
 	// A checker with NO matching update — force must bypass the qualify 409.
 	s := newUpdateServer(updatecheck.New("3.9.0", true))
 
@@ -421,8 +495,9 @@ func TestHandleUpdateForceSkipsQualifyKeepsBrew(t *testing.T) {
 	if !rec.called {
 		t.Errorf("force=true must spawn rk update even without a matching update")
 	}
-	if rec.logName != "update.log" || len(rec.args) != 1 || rec.args[0] != "update" {
-		t.Errorf("force spawn = (%q, %v), want (update.log, [update])", rec.logName, rec.args)
+	want := []string{"/opt/homebrew/Cellar/run-kit/3.9.0/bin/run-kit", "update"}
+	if strings.Join(rec.argv, " ") != strings.Join(want, " ") {
+		t.Errorf("force job argv = %v, want %v", rec.argv, want)
 	}
 }
 
@@ -430,8 +505,8 @@ func TestHandleUpdateForceSkipsQualifyKeepsBrew(t *testing.T) {
 // 409 too on the shll-absent path (the qualify branch is fully gated behind
 // !force).
 func TestHandleUpdateForceNilChecker(t *testing.T) {
-	var rec spawnRecord
-	withSeams(t, "/opt/homebrew/Cellar/run-kit/3.9.0/bin/run-kit", nil, "", errNoShll, recordingSpawn(&rec))
+	var rec jobRecord
+	withSeams(t, "/opt/homebrew/Cellar/run-kit/3.9.0/bin/run-kit", nil, "", errNoShll, recordingJob(&rec))
 	s := newUpdateServer(nil)
 
 	res := postUpdate(t, s, `{"force":true}`)
@@ -447,8 +522,8 @@ func TestHandleUpdateForceNilChecker(t *testing.T) {
 // TestHandleUpdateForceKeepsBrew409 verifies R11: on the shll-absent path, force
 // does NOT bypass the brew 409 — a non-brew install is still refused.
 func TestHandleUpdateForceKeepsBrew409(t *testing.T) {
-	var rec spawnRecord
-	withSeams(t, "/usr/local/bin/run-kit", nil, "", errNoShll, recordingSpawn(&rec))
+	var rec jobRecord
+	withSeams(t, "/usr/local/bin/run-kit", nil, "", errNoShll, recordingJob(&rec))
 	s := newUpdateServer(nil)
 
 	res := postUpdate(t, s, `{"force":true}`)
@@ -687,8 +762,8 @@ func TestHandleUpdateBodyVariantsPreserveNonForce(t *testing.T) {
 		"absent":      "",
 	} {
 		t.Run(name, func(t *testing.T) {
-			var rec spawnRecord
-			withSeams(t, "/opt/homebrew/Cellar/run-kit/3.9.0/bin/run-kit", nil, "", errNoShll, recordingSpawn(&rec))
+			var rec jobRecord
+			withSeams(t, "/opt/homebrew/Cellar/run-kit/3.9.0/bin/run-kit", nil, "", errNoShll, recordingJob(&rec))
 			s := newUpdateServer(updatecheck.New("3.9.0", true)) // no matching update
 
 			res := postUpdate(t, s, body)

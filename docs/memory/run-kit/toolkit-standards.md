@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "run-kit's shll-toolkit-standards conformance posture — constitution binding (§ Toolkit Standards), audit-against-HEAD-build rule, per-standard status. help-dump, readme-extraction, skill, ten principles, update, version PASS. Covers skill topic pages, `rk url`, Principle 9 `--quiet`/reaper caps, SIGTERM-with-grace brew mutations, the help-dump + Principle 9 check every new command surface gets (`rk desktop`, `rk remote`), and install-composition Policy B PASS (Policy A unaudited)."
+description: "run-kit's shll-toolkit-standards conformance posture — constitution binding (§ Toolkit Standards), audit-against-HEAD-build rule, per-standard status. help-dump, readme-extraction, skill, ten principles, update, version PASS. Covers skill topic pages, Principle 9 `--quiet`/reaper caps, SIGTERM-with-grace brew mutations, the help-dump + Principle 9 check every new command surface gets (`rk desktop`, `rk remote`, `rk daemon run`), and install-composition Policy B PASS (Policy A unaudited)."
 ---
 # Toolkit Standards Conformance
 
@@ -177,6 +177,24 @@ measured against the same two checks:
 - **The `rk skill` bundle stays untouched**, for the same reason as `desktop`:
   the bundle is a capability briefing, not a command enumeration, and editing it
   would trip its byte-equality drift guard for no standard-mandated gain.
+
+The `rk daemon run` verb (`--window <name> -- <cmd> [args…]` — see
+[architecture](/run-kit/architecture.md) § Daemon Lifecycle, the `rk-jobs`
+sibling session) is the third surface measured against the same two checks
+(`260812-z1ya-update-daemon-tmux-window`):
+
+- **help-dump: platform-stable registration.** `daemonRunCmd` is registered
+  unconditionally on `daemonCmd` (alongside start/stop/restart/status) and
+  carries a `Long:` block, so the cobra tree walk picks it up with no help-dump
+  code change and the dumped contract is identical on every platform — nothing
+  about the command is build- or host-conditional (the daemon-running gate is an
+  operational error at run time, not a registration condition).
+- **Principle 9: one bounded line, no narration.** Success prints exactly one
+  data line naming the target — `spawned rk-daemon:rk-jobs:<name> (@N)`, or
+  `already running: rk-daemon:rk-jobs:<name> (@N)` (exit 0) when a live job
+  window exists — and there is no progress chatter to drop under `--quiet`.
+  Errors are operational (down daemon names the fix, `rk serve -d`); a missing
+  `--window` or a missing `--` command is a usage error.
 
 #### Scenario: A new subcommand group keeps the help tree platform-stable
 - **GIVEN** the `rk desktop` group on a Linux host
@@ -408,9 +426,9 @@ The violation was the **brew-mutation timeout**: `brew upgrade` ran under a
 un-timed `api.github.com` call inside every tap-formula upgrade; a stall past
 120s got the wrapper's `SIGKILL` between `brew unlink` and `brew link`, leaving a
 corrupted keg and a dead binary. Both update entry points shared the hazard —
-the web one-click upgrade (`POST /api/update` → detached `rk update
---skip-brew-update`) routes through the same `updateCmd`, so fixing the CLI seam
-fixed both.
+the web one-click upgrade (`POST /api/update` → `rk update` in the managed
+`update` job window, via `daemon.RunJob`) routes through the same `updateCmd`,
+so fixing the CLI seam fixed both.
 
 ### Brew invocation discipline — the read-only vs mutating split
 run-kit splits brew calls by whether they mutate the install, and treats the two

@@ -97,8 +97,8 @@ the single-view gate is deterministic (no gitRoot-probe race).
 Steps:
 1. Create a plain window (no `@rk_url`, `/tmp` cwd).
 2. Navigate to `…?view=web`.
-3. Assert the terminal renders, there is no iframe, the mirrored URL reads
-   a clean URL (default drops the param), and the menu carries no `View:` rows (single view).
+3. Assert the terminal renders, there is no iframe, the URL is clean (the
+   default drops the param), and the menu carries no `View:` rows (single view).
 
 ### legacy @rk_type=iframe window defaults to web with the `View: Web` row marked
 What it proves: `@rk_type=iframe` is demoted to a default-view HINT (R5 —
@@ -107,9 +107,11 @@ web (`single:web`) with the tty still one menu row away.
 Steps:
 1. Create a window with `@rk_url` AND `@rk_type=iframe`.
 2. Navigate with no `?view` param and no localStorage.
-3. Assert the iframe renders and the URL mirrors `?layout=single:web`; open
-   the menu and assert both `View:` rows are visible with `View: Web` the
-   active (`aria-checked`) row; Escape-close.
+3. Assert the iframe renders with a CLEAN URL — `single:web` is this
+   window's default (the hint), and the default mirrors with the param
+   dropped, matching the retired `@rk_type` bare-URL behavior; open the menu
+   and assert both `View:` rows are visible with `View: Web` the active
+   (`aria-checked`) row; Escape-close.
 
 ### last-view persists across a window switch away and back
 What it proves: per-window value-bearing localStorage persistence (R2/R5 —

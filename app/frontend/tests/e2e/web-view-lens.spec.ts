@@ -246,10 +246,12 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
       iframeType: true,
     });
     // No ?view param, no localStorage → the iframe-typed default hint wins →
-    // single:web (ladder rung 3 in the layout model).
+    // single:web (ladder rung 3 in the layout model). It is this window's
+    // DEFAULT, so the mirror leaves the URL clean (param dropped) — exactly
+    // the retired @rk_type behavior (bare URL rendered the iframe).
     await gotoWindow(page, id);
     await expect(iframe(page)).toBeVisible({ timeout: 10_000 });
-    await expectLayoutParam(page, "single:web");
+    await expectLayoutParam(page, null);
     await menuButton(page).click();
     await expect(viewRow(page, "Terminal")).toBeVisible({ timeout: 10_000 });
     const webRow = viewRow(page, "Web");

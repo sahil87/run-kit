@@ -100,7 +100,7 @@ const terminal = (page: Page) => page.locator(".xterm").first();
 /** Assert the mirrored `?layout=` param (decoded — the router may
  *  percent-encode `:`/`,`). Retrying: the replaceState mirror lands a beat
  *  after the arrival/mutation that triggered it. */
-async function expectLayoutParam(page: Page, expected: string): Promise<void> {
+async function expectLayoutParam(page: Page, expected: string | null): Promise<void> {
   await expect
     .poll(() => new URL(page.url()).searchParams.get("layout"), { timeout: 10_000 })
     .toBe(expected);
@@ -242,7 +242,7 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
     await expect(codeIframe(page)).toHaveCount(0);
     await expect(codeTile(page)).toHaveCount(0);
-    await expectLayoutParam(page, "single:tty");
+    await expectLayoutParam(page, null); // default layout mirrors as a CLEAN URL (param dropped)
   });
 
   test("tiles coexist and a closed tile hides but never unmounts its iframe (P3 across surfaces)", async ({

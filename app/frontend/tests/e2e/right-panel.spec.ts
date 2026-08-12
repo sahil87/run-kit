@@ -55,7 +55,7 @@ async function gotoWindow(page: Page, windowId: string, search = ""): Promise<vo
 /** Assert the mirrored `?layout=` param (decoded — the router may
  *  percent-encode `:`/`,`). Retrying: the replaceState mirror lands a beat
  *  after the mutation that triggered it. */
-async function expectLayoutParam(page: Page, expected: string): Promise<void> {
+async function expectLayoutParam(page: Page, expected: string | null): Promise<void> {
   await expect
     .poll(() => new URL(page.url()).searchParams.get("layout"), { timeout: 10_000 })
     .toBe(expected);
@@ -146,10 +146,10 @@ test.describe("Right rail — open-tile toggles over the surface layout", () => 
     await expect(webTile(page).getByRole("textbox", { name: "URL" })).toBeVisible();
 
     // Close via the same rail toggle: the web tile hides (R7 close semantics —
-    // the layout collapses 2→1) and the URL mirrors `single:tty`.
+    // the layout collapses 2→1) and the URL goes clean (default drops the param).
     await railWebButton(page).click();
     await expect(webTile(page)).toBeHidden();
-    await expectLayoutParam(page, "single:tty");
+    await expectLayoutParam(page, null); // default layout mirrors as a CLEAN URL (param dropped)
     await expect(railWebButton(page)).toHaveAttribute("aria-pressed", "false");
     await expect(terminal(page)).toBeVisible();
   });
@@ -241,7 +241,7 @@ test.describe("Right rail — open-tile toggles over the surface layout", () => 
     await expect(page.locator("[aria-label='Connected']")).toBeVisible({ timeout: READY_TIMEOUT });
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
     await expect(webTile(page)).toHaveCount(0);
-    await expectLayoutParam(page, "single:tty");
+    await expectLayoutParam(page, null); // default layout mirrors as a CLEAN URL (param dropped)
   });
 
   test("?view=web&panel=web (a repeated non-tty kind after the shim) never renders a broken tile (R4/A-019)", async ({ page }) => {
@@ -277,7 +277,7 @@ test.describe("Right rail — open-tile toggles over the surface layout", () => 
 
     await page.keyboard.press("Shift+Control+Period");
     await expect(webTile(page)).toBeHidden();
-    await expectLayoutParam(page, "single:tty");
+    await expectLayoutParam(page, null); // default layout mirrors as a CLEAN URL (param dropped)
   });
 
   test("375px mobile: no rail; a 2-tile deep link renders slot A with the surfaces chip", async ({ page }) => {

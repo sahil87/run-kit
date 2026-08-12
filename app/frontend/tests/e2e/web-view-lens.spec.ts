@@ -76,7 +76,7 @@ const terminal = (page: Page) => page.locator(".xterm").first();
  *  `?view=X` → `single:X` at route entry and REWRITES the URL via
  *  replaceState, so URL assertions key off `layout`, never `view`. Retrying:
  *  the mirror lands a beat after the arrival/switch that triggered it. */
-async function expectLayoutParam(page: Page, expected: string): Promise<void> {
+async function expectLayoutParam(page: Page, expected: string | null): Promise<void> {
   await expect
     .poll(() => new URL(page.url()).searchParams.get("layout"), { timeout: 10_000 })
     .toBe(expected);
@@ -191,7 +191,7 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     // Flip back to tty via `View: Terminal` → terminal renders as `single:tty`.
     await switchLens(page, "Terminal");
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
-    await expectLayoutParam(page, "single:tty");
+    await expectLayoutParam(page, null); // default layout mirrors as a CLEAN URL (param dropped)
 
     // The window still exists in the snapshot (never destroyed) and its id is
     // unchanged — a view switch mutates neither identity nor options.
@@ -228,7 +228,7 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     await gotoWindow(page, id, "web");
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
     await expect(iframe(page)).toHaveCount(0);
-    await expectLayoutParam(page, "single:tty");
+    await expectLayoutParam(page, null); // default layout mirrors as a CLEAN URL (param dropped)
     // Single available view → no `View:` rows in the menu.
     await menuButton(page).click();
     await expect(controlsMenu(page)).toBeVisible();
@@ -288,7 +288,7 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     // B resolves independently to single:tty, and the outgoing layout param was
     // dropped by the router seam (R6) — not carried onto B.
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
-    await expectLayoutParam(page, "single:tty");
+    await expectLayoutParam(page, null); // default layout mirrors as a CLEAN URL (param dropped)
 
     // Back to A WITHOUT a layout param — the persisted per-window layout
     // (single:web, localStorage rung) resolves.

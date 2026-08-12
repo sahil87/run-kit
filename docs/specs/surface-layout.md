@@ -109,7 +109,11 @@ On route entry:
 4. **else** single `tty` tile.
 
 The applied layout is mirrored into the URL via `replaceState`, so the address
-bar is at all times a valid deep link to what is on screen. **URL = address
+bar is at all times a valid deep link to what is on screen — **except the
+window's default layout, which mirrors as a clean URL with the param
+dropped** (the retired `?view=` convention, "tty drops the param", carried
+forward at phase-2 ship: a bare URL *is* the deep link to the default, and
+bare internal-nav URLs stay bare). **URL = address
 (of this exact sight, shareable with anyone); localStorage = the viewer's
 window→layout map (consulted when arriving without an explicit address);
 settings.yaml boards = shared named layouts** (phase 4).

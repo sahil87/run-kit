@@ -79,7 +79,7 @@ Steps:
    terminal is still visible, the URL carries `?layout=split-h:tty,web`, the
    toggle is `aria-pressed`, and the tile keeps its URL textbox.
 3. Click the toggle again; assert the web tile is hidden, the URL mirrors
-   `single:tty`, the toggle is unlit, and the terminal is still visible.
+   a clean URL (the default `single:tty` mirrors with the param DROPPED), the toggle is unlit, and the terminal is still visible.
 
 ### closing a tile hides but never unmounts the iframe (P3 carried into tiles)
 What it proves: closing is a display-level hide — the iframe element survives
@@ -131,7 +131,7 @@ Steps:
 1. Create a web-capable window; navigate; open the web tile via the rail,
    then close it; assert the tile is hidden.
 2. Full-load the bare route; wait for `Connected`; assert the terminal is
-   visible, no web tile exists in the DOM, and the URL mirrors `single:tty`.
+   visible, no web tile exists in the DOM, and the URL is clean (the default `single:tty` mirrors with the param dropped).
 
 ### ?view=web&panel=web (a repeated non-tty kind after the shim) never renders a broken tile (R4/A-019)
 What it proves: the layout grammar's duplicate-kind rejection — the shim maps
@@ -158,7 +158,7 @@ Steps:
 2. Press `Shift+Control+Period`; assert the web iframe appears and the URL
    mirrors `split-h:tty,web`.
 3. Press `Shift+Control+Period` again; assert the web tile is hidden and the
-   URL mirrors `single:tty`.
+   URL is clean — the default `single:tty` mirrors with the param dropped.
 
 ### 375px mobile: no rail; a 2-tile deep link renders slot A with the surfaces chip
 What it proves: the desktop-only gate (P5 → surface-layout R13) — below

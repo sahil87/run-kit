@@ -47,7 +47,7 @@ async function switchLens(page: Page, label: "Terminal" | "Chat"): Promise<void>
  *  replaceState; the `View:` rows and the Ctrl+` chord set `single:<view>`
  *  through the same mutation path (R12). Retrying: the mirror lands a beat
  *  after the arrival/switch that triggered it. */
-async function expectLayoutParam(page: Page, expected: string): Promise<void> {
+async function expectLayoutParam(page: Page, expected: string | null): Promise<void> {
   await expect
     .poll(() => new URL(page.url()).searchParams.get("layout"), { timeout: 10_000 })
     .toBe(expected);
@@ -287,7 +287,7 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
     // A second Ctrl+` flips back to tty (single:tty). The heading is the
     // static `Window:` throughout (does not vary with the lens).
     await page.keyboard.press("Control+`");
-    await expectLayoutParam(page, "single:tty");
+    await expectLayoutParam(page, null); // default layout mirrors as a CLEAN URL (param dropped)
     await expect(page.getByText("Window", { exact: true })).toBeVisible();
   });
 

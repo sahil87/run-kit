@@ -100,7 +100,7 @@ window rename affordance carries over.
 
 **What it proves:** the `Ctrl+\`` binding (plain Ctrl on both platforms — the
 VS-Code "toggle terminal" association) flips the chat lens on and off, keeping
-the mirrored `?layout=` param in sync (`single:chat` ⇄ `single:tty`), exactly
+the mirrored `?layout=` param in sync (`single:chat` open, param DROPPED on the return to the default `single:tty`), exactly
 like the switcher row. The heading stays the static `Window:` throughout (it
 does not vary with the lens).
 
@@ -109,7 +109,7 @@ does not vary with the lens).
    readiness surface — there is no in-bar pill to gate on since `260722-n2n4`).
 2. Press `Control+\``; assert the decoded `layout` param is `single:chat` and
    `chat-view` is visible.
-3. Press `Control+\`` again; assert the `layout` param is `single:tty` and the
+3. Press `Control+\`` again; assert the `layout` param is ABSENT (default drops it) and the
    `Window:` prefix is still shown.
 
 ### `deep link ?view=chat cold-loads into the chat view`

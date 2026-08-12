@@ -54,7 +54,7 @@ async function gotoWindow(page: Page, windowId: string, search = ""): Promise<vo
 /** Assert the mirrored `?layout=` param (decoded — the router may
  *  percent-encode `:`/`,`). Retrying: the replaceState mirror lands a beat
  *  after the mutation/arrival that triggered it. */
-async function expectLayoutParam(page: Page, expected: string): Promise<void> {
+async function expectLayoutParam(page: Page, expected: string | null): Promise<void> {
   await expect
     .poll(() => new URL(page.url()).searchParams.get("layout"), { timeout: 10_000 })
     .toBe(expected);
@@ -210,7 +210,7 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     await expect(rowB).toHaveAttribute("aria-current", "page", { timeout: 10_000 });
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
     await expect(tile(page, "web")).toHaveCount(0);
-    await expectLayoutParam(page, "single:tty");
+    await expectLayoutParam(page, null); // default layout mirrors as a CLEAN URL (param dropped)
 
     // Back to A via the sidebar (bare route again) — A's stored layout
     // resolves and is mirrored into the URL.
@@ -245,7 +245,7 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     await expect(rowB).toBeVisible({ timeout: 10_000 });
     await rowB.click();
     await expect(rowB).toHaveAttribute("aria-current", "page", { timeout: 10_000 });
-    await expectLayoutParam(page, "single:tty");
+    await expectLayoutParam(page, null); // default layout mirrors as a CLEAN URL (param dropped)
 
     // Back → the A entry carries the layout it had when the viewer LEFT (rung 1
     // honors it) — split-h:tty,web renders again.
@@ -256,7 +256,7 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
 
     // Forward → B's entry restores its own (single:tty).
     await page.goForward();
-    await expectLayoutParam(page, "single:tty");
+    await expectLayoutParam(page, null); // default layout mirrors as a CLEAN URL (param dropped)
 
     // Back twice more: past A, straight to the E0 server route. If the rail
     // toggle had PUSHED an entry, the second back would land on a stale

@@ -14,6 +14,7 @@ import {
 import {
   addSurface,
   closeSurface,
+  hintLayout,
   promote,
   readStoredLayout,
   resolveLayout,
@@ -705,47 +706,59 @@ function AppShell() {
 
   // Mirror the APPLIED layout into the URL via replaceState (L2 — never
   // pushState for layout changes), so the address bar is at all times a valid
-  // deep link to what is on screen. Only when the URL's RAW `layout` param
-  // differs from the resolved one (a carried legacy `view`/`panel` shim input
-  // must ALSO be rewritten — R2's "the URL is rewritten via replaceState" —
-  // which is why the comparison keys off `search.layout`, not the translated
-  // `searchLayout`) — otherwise this effect would navigate every render.
-  // Gated on `currentWindow` so a cold deep link is NOT clobbered by the
-  // pre-snapshot frame (capabilities unknown → everything degrades to tty).
-  // The stored value is re-read post-seed so a just-migrated legacy window
-  // mirrors its SEEDED layout, not the pre-seed fallback. localStorage is
-  // deliberately NOT written here — arrival via a carried `?layout=` is not a
-  // user mutation (L3).
+  // deep link to what is on screen. The window's DEFAULT layout (`hintLayout`
+  // — `single:tty`, or `single:web` for a legacy iframe window) mirrors as a
+  // CLEAN URL with the param dropped: the retired `?view=` convention ("tty
+  // DROPS the param") carried forward, so bare internal-nav URLs stay bare
+  // and history/bookmark noise stays zero for the overwhelmingly common
+  // default case (a bare URL IS the deep link to the default). Only when the
+  // URL's RAW `layout` param differs from the desired one (a carried legacy
+  // `view`/`panel` shim input must ALSO be rewritten — R2's "the URL is
+  // rewritten via replaceState" — which is why the comparison keys off
+  // `search.layout`, not the translated `searchLayout`) — otherwise this
+  // effect would navigate every render. Gated on `currentWindow` so a cold
+  // deep link is NOT clobbered by the pre-snapshot frame (capabilities
+  // unknown → everything degrades to tty). The stored value is re-read
+  // post-seed so a just-migrated legacy window mirrors its SEEDED layout, not
+  // the pre-seed fallback. localStorage is deliberately NOT written here —
+  // arrival via a carried `?layout=` is not a user mutation (L3).
   useEffect(() => {
     if (!windowParam || !currentWindow) return;
     const target = serializeLayout(
       resolveLayout(searchLayout, readStoredLayout(server, windowParam), currentWindow),
     );
-    if (search.layout === target) return;
+    const desired =
+      target === serializeLayout(hintLayout(currentWindow)) ? undefined : target;
+    if (search.layout === desired) return;
     navigate({
       to: "/$server/$window",
       params: { server, window: windowParam },
-      search: { layout: target },
+      search: desired ? { layout: desired } : {},
       replace: true,
     });
   }, [server, windowParam, currentWindow, search.layout, searchLayout, navigate]);
 
   // The ONE mutation path (R3 write discipline — user-initiated mutations
   // only): persist per-window in localStorage AND mirror the URL via
-  // replaceState. Tile verbs, rail toggles, the view-cycle chord, and the
-  // ViewSwitcher all funnel through this. Stable across SSE ticks.
+  // replaceState (the mirror's default-drops-param rule applies here too — a
+  // mutation BACK to the window's default, e.g. closing the last non-tty
+  // tile, leaves a clean URL; localStorage still records the choice). Tile
+  // verbs, rail toggles, the view-cycle chord, and the ViewSwitcher all
+  // funnel through this. Stable across SSE ticks.
   const applyLayout = useCallback(
     (next: Layout) => {
       if (!windowParam) return;
       writeStoredLayout(server, windowParam, next);
+      const serialized = serializeLayout(next);
+      const isDefault = serialized === serializeLayout(hintLayout(currentWindow));
       navigate({
         to: "/$server/$window",
         params: { server, window: windowParam },
-        search: { layout: serializeLayout(next) },
+        search: isDefault ? {} : { layout: serialized },
         replace: true,
       });
     },
-    [server, windowParam, navigate],
+    [server, windowParam, currentWindow, navigate],
   );
 
   // Rail visibility (260812-nm4p, reinterpreted under 260812-ab5v): the

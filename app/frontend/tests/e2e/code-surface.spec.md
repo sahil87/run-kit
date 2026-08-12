@@ -112,7 +112,7 @@ paths land on `single:tty`, never a broken iframe.
 Steps:
 1. Create a `/tmp`-cwd window; navigate with `?view=code&panel=code`.
 2. Assert the terminal is visible, neither the code iframe nor the code tile
-   exists in the DOM, and the mirrored URL reads `single:tty`.
+   exists in the DOM, and the resolved layout is `single:tty` (the default — the mirror DROPS the param, leaving a clean URL).
 
 ### tiles coexist and a closed tile hides but never unmounts its iframe (P3 across surfaces)
 What it proves: P3 generalized to tiles — with two surfaces available, opening

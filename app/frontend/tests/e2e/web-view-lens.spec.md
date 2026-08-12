@@ -74,7 +74,7 @@ Steps:
 3. `switchLens("Web")` — open the menu, click the `View: Web` row; assert the
    iframe renders and the mirrored URL carries `?layout=single:web`.
 4. `switchLens("Terminal")`; assert the terminal renders and the URL mirrors
-   `?layout=single:tty`.
+   a clean URL — the default `single:tty` mirrors with the param dropped.
 5. Re-resolve the window by name; assert the id is unchanged AND zero
    `/options` POSTs were recorded across both flips.
 
@@ -98,7 +98,7 @@ Steps:
 1. Create a plain window (no `@rk_url`, `/tmp` cwd).
 2. Navigate to `…?view=web`.
 3. Assert the terminal renders, there is no iframe, the mirrored URL reads
-   `?layout=single:tty`, and the menu carries no `View:` rows (single view).
+   a clean URL (default drops the param), and the menu carries no `View:` rows (single view).
 
 ### legacy @rk_type=iframe window defaults to web with the `View: Web` row marked
 What it proves: `@rk_type=iframe` is demoted to a default-view HINT (R5 —

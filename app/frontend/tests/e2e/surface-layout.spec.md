@@ -96,15 +96,15 @@ Steps:
 ### window switch A→B→A restores each window's own layout (A-012)
 What it proves: R3/L4 — internal navigation (sidebar) targets the bare route,
 so each window resolves its own layout: B (never customized) falls to
-`single:tty`, A restores its stored `split-h:tty,web`; each is mirrored into
-the URL. The A→B hop is a REAL client-side navigation (sidebar row click),
+`single:tty` (the default — mirrored as a CLEAN URL, param dropped), A
+restores its stored `split-h:tty,web` (mirrored into the URL). The A→B hop is a REAL client-side navigation (sidebar row click),
 not a `page.goto`.
 Steps:
 1. Create window A (web-capable) and window B (plain).
 2. On A, open the web tile via the rail; assert `?layout=split-h:tty,web`.
 3. Click B's row in the `Sessions` sidebar; assert selection settles on B
-   (`aria-current="page"`), no web tile exists, and the URL mirrors
-   `single:tty`.
+   (`aria-current="page"`), no web tile exists, and the URL is clean (the
+   default drops the param).
 4. Click A's row; assert the web tile renders again and the URL mirrors
    `split-h:tty,web`.
 
@@ -119,9 +119,9 @@ Steps:
 2. Navigate to the server route (history entry E0), then to A (E1).
 3. Open the web tile on A via the rail (replaceState — E1 updated in place);
    assert `?layout=split-h:tty,web`.
-4. Sidebar-click B (push E2); assert B resolves `single:tty`.
+4. Sidebar-click B (push E2); assert B resolves `single:tty` (bare URL — the default drops the param).
 5. `goBack` → A renders `split-h:tty,web` again (the layout E1 carried).
-6. `goForward` → B's `single:tty` restores.
+6. `goForward` → B's default (bare URL) restores.
 7. `goBack` twice → the SECOND back lands on the bare server route
    (`/<server>`, E0) — a pushed layout entry would have stranded a stale A URL
    in between.

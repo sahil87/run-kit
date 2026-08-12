@@ -115,9 +115,13 @@ func jobTargetFor(window string) string {
 //     session's last window would kill the session); absent → spawn fresh.
 //  4. Spawn (session-exists path): new-window -d … -P -F '#{window_id}'
 //     <argv…>. tmux joins the trailing argv words with spaces into its own
-//     sh -c — the same boundary the shipped codeserver spawn crosses; every
-//     word is rk-controlled or validated upstream (ValidateToolName on
-//     manifest tool names).
+//     sh -c — the same boundary the shipped codeserver spawn crosses. argv is
+//     CALLER-SUPPLIED and shell-sensitive: RunJob validates only the window
+//     name. The web handlers pass rk-controlled binaries plus
+//     ValidateToolName-validated tool names; `rk daemon run` passes the CLI
+//     user's own command verbatim (their own shell authority — the same trust
+//     as typing the tmux command themselves). Multi-word arguments do not
+//     survive the unquoted join.
 //  5. Post-spawn window options, BEST-EFFORT (warn-only, never fail the
 //     spawn): remain-on-exit failed (pane persists only on non-zero exit,
 //     tmux ≥ 3.2) and a pipe-pane tee to ~/.rk/<window>.log for durable log

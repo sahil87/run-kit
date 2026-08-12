@@ -42,15 +42,24 @@ var jobSessionExists = func(ctx context.Context, name string) bool {
 }
 
 // jobWindowState queries a job window: exists, dead (remained-on-exit pane),
-// and its window id. One display-message call carries both format fields; an
-// error (window absent — "can't find window") maps to exists=false. A package
+// and its window id. One list-panes call carries both format fields; an error
+// (window absent — "can't find window", exit 1) maps to exists=false. A package
 // seam so tests drive the three dedup branches without a live tmux server.
+//
+// list-panes, NOT display-message: display-message with a target whose window
+// part does not resolve silently falls back to the session's ACTIVE window and
+// exits 0 (verified on tmux 3.6a) — which read the rk-jobs idle window as a
+// live in-flight job and made RunJob spawn nothing (260812-anac, the released
+// 3.15.10 first-click bug). list-panes hard-fails on a missing window.
 var jobWindowState = func(ctx context.Context, target string) (id string, dead bool, exists bool) {
-	out, err := runTmuxOutput(ctx, "display-message", "-p", "-t", target, "#{window_id} #{pane_dead}")
+	out, err := jobRunTmuxOutput(ctx, "list-panes", "-t", target, "-F", "#{window_id} #{pane_dead}")
 	if err != nil {
 		return "", false, false
 	}
-	fields := strings.Fields(string(out))
+	// A job window is single-pane by construction; parse the first line and
+	// tolerate extras from a manual split.
+	line, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\n")
+	fields := strings.Fields(line)
 	if len(fields) != 2 {
 		return "", false, false
 	}
@@ -94,15 +103,21 @@ func jobTargetFor(window string) string {
 //  1. Daemon gate: the daemon must be running — otherwise error. Any tmux
 //     command on a dead socket would silently BIRTH a server; the gate refuses
 //     instead of paying that side effect (no fallback fork, intake decision 1).
-//  2. Session ensure: rk-jobs is created (new-session -d) when absent.
+//  2. Session-absent fast path: rk-jobs is created WITH the job window as its
+//     first window (new-session -d -n <window> <argv…> — the tunnel.go
+//     pattern), so no idle default window ever exists; the dedup probe is
+//     skipped (no session ⇒ no in-flight job). A lost duplicate-session race
+//     falls through to the session-exists path below.
 //  3. Window dedup on the exact-match target: a live pane → in-flight, return
 //     started=false; a dead pane (remained after a failed run — remain-on-exit
-//     failed) → kill-window and respawn (reap-on-rerun, intake decision 5);
-//     absent → spawn fresh.
-//  4. Spawn: new-window -d … -P -F '#{window_id}' <argv…>. tmux joins the
-//     trailing argv words with spaces into its own sh -c — the same boundary
-//     the shipped codeserver spawn crosses; every word is rk-controlled or
-//     validated upstream (ValidateToolName on manifest tool names).
+//     failed) → respawn-window -k relaunches argv in the dead window
+//     (reap-on-rerun, intake decision 5 — in place, because killing a
+//     session's last window would kill the session); absent → spawn fresh.
+//  4. Spawn (session-exists path): new-window -d … -P -F '#{window_id}'
+//     <argv…>. tmux joins the trailing argv words with spaces into its own
+//     sh -c — the same boundary the shipped codeserver spawn crosses; every
+//     word is rk-controlled or validated upstream (ValidateToolName on
+//     manifest tool names).
 //  5. Post-spawn window options, BEST-EFFORT (warn-only, never fail the
 //     spawn): remain-on-exit failed (pane persists only on non-zero exit,
 //     tmux ≥ 3.2) and a pipe-pane tee to ~/.rk/<window>.log for durable log
@@ -134,39 +149,62 @@ func RunJob(ctx context.Context, window string, argv []string) (target JobTarget
 		return target, false, fmt.Errorf("rk daemon is not running — start it with `rk serve -d`")
 	}
 
-	// 2. Session ensure (sibling of rk-daemon on the same socket).
-	if !jobSessionExists(cmdCtx, JobsSessionName) {
-		if err := jobRunTmux(cmdCtx, "new-session", "-d", "-s", JobsSessionName); err != nil {
-			// A concurrent RunJob can win the create race — that is the ensured
-			// state, not a failure.
-			if !strings.Contains(err.Error(), "duplicate session") {
-				return target, false, fmt.Errorf("creating %s session: %w", JobsSessionName, err)
-			}
-		}
-	}
-
-	// 3. Window dedup (exact-match targets throughout).
+	// 2. Session-absent fast path: create rk-jobs WITH the job window as its
+	// first window (the internal/remote/tunnel.go pattern) — new-session -d
+	// alone would mint a permanent idle default shell window, and no session
+	// means no job can be in flight, so the dedup probe is skipped.
 	winTarget := jobTargetFor(window)
-	if id, dead, exists := jobWindowState(cmdCtx, winTarget); exists {
-		if !dead {
-			// In-flight: hand back the live window, spawn nothing.
-			target.WindowID = id
-			return target, false, nil
-		}
-		// Stale failed window (remained on non-zero exit): reap and respawn.
-		if err := jobRunTmux(cmdCtx, "kill-window", "-t", winTarget); err != nil {
-			return target, false, fmt.Errorf("reaping stale %q job window: %w", window, err)
+	spawned := false
+	if !jobSessionExists(cmdCtx, JobsSessionName) {
+		createArgs := []string{"new-session", "-d", "-s", JobsSessionName, "-n", window, "-P", "-F", "#{window_id}"}
+		createArgs = append(createArgs, argv...)
+		out, err := jobRunTmuxOutput(cmdCtx, createArgs...)
+		switch {
+		case err == nil:
+			target.WindowID = strings.TrimSpace(string(out))
+			spawned = true
+		case strings.Contains(err.Error(), "duplicate session"):
+			// A concurrent RunJob won the create race — ITS job window may be in
+			// flight, so fall through to the session-exists probe + spawn path.
+		default:
+			return target, false, fmt.Errorf("creating %s session with %q job window: %w", JobsSessionName, window, err)
 		}
 	}
 
-	// 4. Spawn.
-	spawnArgs := []string{"new-window", "-d", "-t", "=" + JobsSessionName + ":", "-n", window, "-P", "-F", "#{window_id}"}
-	spawnArgs = append(spawnArgs, argv...)
-	out, err := jobRunTmuxOutput(cmdCtx, spawnArgs...)
-	if err != nil {
-		return target, false, fmt.Errorf("spawning %q job window: %w", window, err)
+	if !spawned {
+		// 3. Window dedup (exact-match targets throughout).
+		if id, dead, exists := jobWindowState(cmdCtx, winTarget); exists {
+			if !dead {
+				// In-flight: hand back the live window, spawn nothing.
+				target.WindowID = id
+				return target, false, nil
+			}
+			// Stale failed window (remained on non-zero exit): relaunch argv IN
+			// the dead window (reap-on-rerun). respawn-window, NOT kill-window +
+			// new-window: the job window is usually the session's ONLY window,
+			// and killing a session's last window kills the session out from
+			// under the follow-up spawn (caught by the scratch-socket
+			// integration test).
+			respawnArgs := []string{"respawn-window", "-k", "-t", winTarget}
+			respawnArgs = append(respawnArgs, argv...)
+			if err := jobRunTmux(cmdCtx, respawnArgs...); err != nil {
+				return target, false, fmt.Errorf("respawning stale %q job window: %w", window, err)
+			}
+			target.WindowID = id
+			spawned = true
+		}
 	}
-	target.WindowID = strings.TrimSpace(string(out))
+
+	if !spawned {
+		// 4. Spawn into the existing session.
+		spawnArgs := []string{"new-window", "-d", "-t", "=" + JobsSessionName + ":", "-n", window, "-P", "-F", "#{window_id}"}
+		spawnArgs = append(spawnArgs, argv...)
+		out, err := jobRunTmuxOutput(cmdCtx, spawnArgs...)
+		if err != nil {
+			return target, false, fmt.Errorf("spawning %q job window: %w", window, err)
+		}
+		target.WindowID = strings.TrimSpace(string(out))
+	}
 
 	// 5. Post-spawn window options — best-effort, warn-only.
 	if err := jobRunTmux(cmdCtx, "set-option", "-w", "-t", winTarget, "remain-on-exit", "failed"); err != nil {

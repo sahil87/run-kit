@@ -3,8 +3,12 @@ package daemon
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // jobCall records one seam invocation: the tmux argv (minus the runner's own
@@ -28,6 +32,10 @@ type jobFixture struct {
 	// runErr / outputErr fail the corresponding seam when non-nil.
 	runErr    error
 	outputErr error
+	// outputFn, when non-nil, scripts the output seam per call (overrides
+	// outputErr/output) — e.g. failing the first new-session but not the
+	// new-window that follows a duplicate-session race.
+	outputFn func(args []string) ([]byte, error)
 	// output is what the output seam returns (the spawned window id).
 	output string
 }
@@ -65,6 +73,9 @@ func withJobSeams(t *testing.T, f *jobFixture) {
 	}
 	jobRunTmuxOutput = func(_ context.Context, args ...string) ([]byte, error) {
 		*f.calls = append(*f.calls, jobCall{op: "output", args: append([]string(nil), args...)})
+		if f.outputFn != nil {
+			return f.outputFn(args)
+		}
 		if f.outputErr != nil {
 			return nil, f.outputErr
 		}
@@ -120,31 +131,27 @@ func TestRunJobFreshSpawnEnsuresSessionAndSpawns(t *testing.T) {
 	}
 
 	runs := callsOf(*f.calls, "run")
-	if len(runs) != 3 {
-		t.Fatalf("run calls = %v, want [new-session, set-option, pipe-pane]", runs)
+	if len(runs) != 2 {
+		t.Fatalf("run calls = %v, want [set-option, pipe-pane] — session creation rides the spawn itself", runs)
 	}
-	if got := strings.Join(runs[0], " "); got != "new-session -d -s rk-jobs" {
-		t.Errorf("session ensure argv = %q, want %q", got, "new-session -d -s rk-jobs")
-	}
-	if got := strings.Join(runs[1], " "); got != "set-option -w -t =rk-jobs:=update remain-on-exit failed" {
+	if got := strings.Join(runs[0], " "); got != "set-option -w -t =rk-jobs:=update remain-on-exit failed" {
 		t.Errorf("remain-on-exit argv = %q", got)
 	}
-	pipe := strings.Join(runs[2], " ")
+	pipe := strings.Join(runs[1], " ")
 	if !strings.HasPrefix(pipe, "pipe-pane -o -t =rk-jobs:=update cat >> '") || !strings.HasSuffix(pipe, ".rk/update.log'") {
 		t.Errorf("pipe-pane argv = %q, want a cat >> '…/.rk/update.log' tee on the exact-match target", pipe)
 	}
 
 	outputs := callsOf(*f.calls, "output")
 	if len(outputs) != 1 {
-		t.Fatalf("output calls = %v, want [new-window]", outputs)
+		t.Fatalf("output calls = %v, want the one session-creating spawn", outputs)
 	}
-	if got := strings.Join(outputs[0], " "); got != "new-window -d -t =rk-jobs: -n update -P -F #{window_id} shll update wt" {
-		t.Errorf("spawn argv = %q", got)
+	if got := strings.Join(outputs[0], " "); got != "new-session -d -s rk-jobs -n update -P -F #{window_id} shll update wt" {
+		t.Errorf("spawn argv = %q, want the job window created AS the session's first window (no idle default window)", got)
 	}
 
-	states := callsOf(*f.calls, "state")
-	if len(states) != 1 || states[0][0] != "=rk-jobs:=update" {
-		t.Errorf("window-state probes = %v, want one exact-match probe on =rk-jobs:=update", states)
+	if states := callsOf(*f.calls, "state"); len(states) != 0 {
+		t.Errorf("window-state probes = %v, want none — no session means no in-flight job to dedup against", states)
 	}
 }
 
@@ -189,18 +196,33 @@ func TestRunJobSkipsSessionEnsureWhenPresent(t *testing.T) {
 }
 
 func TestRunJobToleratesDuplicateSessionRace(t *testing.T) {
-	f := &jobFixture{daemonRunning: true, sessionExists: false, runErr: fmt.Errorf("exit status 1: duplicate session: rk-jobs")}
+	// The session-creating spawn loses a concurrent create race; RunJob falls
+	// through to the session-exists path — probe (absent) then new-window.
+	f := &jobFixture{daemonRunning: true, sessionExists: false}
+	f.outputFn = func(args []string) ([]byte, error) {
+		if args[0] == "new-session" {
+			return nil, fmt.Errorf("exit status 1: duplicate session: rk-jobs")
+		}
+		return []byte("@7\n"), nil
+	}
 	withJobSeams(t, f)
 
-	// The create loses a concurrent-ensure race; RunJob proceeds to spawn
-	// (the remaining run calls also error — set-option/pipe-pane are
-	// best-effort, so the spawn still reports success).
-	_, started, err := RunJob(context.Background(), "update", []string{"true"})
+	target, started, err := RunJob(context.Background(), "update", []string{"true"})
 	if err != nil {
 		t.Fatalf("RunJob: %v", err)
 	}
 	if !started {
-		t.Error("started = false, want true — a duplicate-session race is the ensured state")
+		t.Error("started = false, want true — the race loser spawns via new-window into the winner's session")
+	}
+	if target.WindowID != "@7" {
+		t.Errorf("target.WindowID = %q, want the new-window spawn's @7", target.WindowID)
+	}
+	outputs := callsOf(*f.calls, "output")
+	if len(outputs) != 2 || outputs[0][0] != "new-session" || outputs[1][0] != "new-window" {
+		t.Errorf("output calls = %v, want [new-session (lost race), new-window (fallthrough)]", outputs)
+	}
+	if states := callsOf(*f.calls, "state"); len(states) != 1 {
+		t.Errorf("window-state probes = %v, want exactly one on the fallthrough path (the winner's job may be in flight)", states)
 	}
 }
 
@@ -245,14 +267,17 @@ func TestRunJobDeadPaneWindowIsReapedAndRespawned(t *testing.T) {
 		t.Fatalf("RunJob: %v", err)
 	}
 	if !started {
-		t.Error("started = false, want true — the stale window is reaped and respawned")
+		t.Error("started = false, want true — the stale window is respawned in place")
 	}
-	if target.WindowID != "@7" {
-		t.Errorf("target.WindowID = %q, want the FRESH spawn's id @7, not the reaped @4", target.WindowID)
+	if target.WindowID != "@4" {
+		t.Errorf("target.WindowID = %q, want the respawned window's own id @4", target.WindowID)
 	}
 	runs := callsOf(*f.calls, "run")
-	if len(runs) == 0 || strings.Join(runs[0], " ") != "kill-window -t =rk-jobs:=update" {
-		t.Errorf("first run call = %v, want the kill-window reap of the dead window", runs)
+	if len(runs) == 0 || strings.Join(runs[0], " ") != "respawn-window -k -t =rk-jobs:=update shll update" {
+		t.Errorf("first run call = %v, want respawn-window -k in the dead window (kill-window on a session's last window would kill the session)", runs)
+	}
+	if n := len(callsOf(*f.calls, "output")); n != 0 {
+		t.Errorf("new-window/new-session spawns = %d, want 0 — the respawn reuses the dead window", n)
 	}
 }
 
@@ -312,5 +337,148 @@ func TestRunJobRejectsEmptyArgv(t *testing.T) {
 	}
 	if len(*f.calls) != 0 {
 		t.Errorf("tmux calls = %v, want none", *f.calls)
+	}
+}
+
+// --- Integration tests: REAL seams against an isolated scratch socket ---
+//
+// The released 3.15.10 first-click bug (260812-anac) lived exclusively in
+// jobWindowState's DEFAULT implementation — the one code path the seam-stubbed
+// tests above can never exercise. These tests run the real probe and both real
+// spawn shapes, following daemon_test.go's harness conventions.
+
+// jobsIntegrationSocket spins up an isolated tmux server carrying a stand-in
+// rk-daemon session (so the real jobDaemonRunning gate passes) and points the
+// package's serverSocket at it. Every tmux-facing seam stays REAL; only the
+// home dir is stubbed so pipe-pane can never touch the real ~/.rk.
+func jobsIntegrationSocket(t *testing.T) string {
+	t.Helper()
+	if !hasTmux() {
+		t.Skip("tmux not in PATH")
+	}
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	socket := testSocketName("jobs")
+	_ = exec.Command("tmux", "-L", socket, "kill-server").Run()
+	t.Cleanup(func() { _ = exec.Command("tmux", "-L", socket, "kill-server").Run() })
+	withServerSocket(t, socket)
+	if err := startOn(socket, SessionName); err != nil {
+		t.Fatalf("starting stand-in daemon session: %v", err)
+	}
+	origHome := jobUserHomeDir
+	home := t.TempDir()
+	jobUserHomeDir = func() (string, error) { return home, nil }
+	t.Cleanup(func() { jobUserHomeDir = origHome })
+	return socket
+}
+
+// jobsWindowNames lists the window names of the rk-jobs session on the socket.
+func jobsWindowNames(t *testing.T, socket string) []string {
+	t.Helper()
+	out, err := exec.Command("tmux", "-L", socket,
+		"list-windows", "-t", "="+JobsSessionName+":", "-F", "#{window_name}").Output()
+	if err != nil {
+		t.Fatalf("listing rk-jobs windows: %v", err)
+	}
+	return strings.Fields(string(out))
+}
+
+func TestJobWindowStateIntegration_IdleWindowIsNotAJob(t *testing.T) {
+	socket := jobsIntegrationSocket(t)
+
+	// The exact released state: an rk-jobs session whose ONLY window is the
+	// idle default shell that a bare `new-session -d` mints.
+	if err := exec.Command("tmux", "-L", socket, "new-session", "-d", "-s", JobsSessionName).Run(); err != nil {
+		t.Fatalf("creating idle rk-jobs session: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
+	defer cancel()
+	if id, _, exists := jobWindowState(ctx, jobTargetFor("update")); exists {
+		t.Fatalf("probe reported the idle default window (%s) as a live `update` job — the display-message active-window fallback regression", id)
+	}
+}
+
+func TestRunJobIntegration_SessionCreatedWithJobWindow(t *testing.T) {
+	socket := jobsIntegrationSocket(t)
+
+	target, started, err := RunJob(context.Background(), "update", []string{"sleep", "60"})
+	if err != nil {
+		t.Fatalf("RunJob: %v", err)
+	}
+	if !started {
+		t.Fatal("started = false, want true on a fresh host")
+	}
+	if names := jobsWindowNames(t, socket); len(names) != 1 || names[0] != "update" {
+		t.Errorf("rk-jobs windows = %v, want exactly [update] — no idle default window", names)
+	}
+	if !strings.HasPrefix(target.WindowID, "@") {
+		t.Errorf("target.WindowID = %q, want a real @N window id", target.WindowID)
+	}
+
+	// A second call must report the live job truthfully — the released bug's
+	// false already-running is only trustworthy if the true one works too.
+	again, started, err := RunJob(context.Background(), "update", []string{"sleep", "60"})
+	if err != nil {
+		t.Fatalf("RunJob (in-flight): %v", err)
+	}
+	if started {
+		t.Error("started = true on an in-flight job, want false")
+	}
+	if again.WindowID != target.WindowID {
+		t.Errorf("in-flight WindowID = %q, want the live window's %q", again.WindowID, target.WindowID)
+	}
+}
+
+func TestRunJobIntegration_FailedJobRemainsDeadThenRespawns(t *testing.T) {
+	jobsIntegrationSocket(t)
+
+	// A job that lives long enough for remain-on-exit to land, then fails.
+	// (A single-word argv — tmux joins argv with spaces unquoted, so multi-word
+	// sh -c scripts do not survive the join; a script file does.)
+	script := filepath.Join(t.TempDir(), "failing-job.sh")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nsleep 0.3\nexit 1\n"), 0o755); err != nil {
+		t.Fatalf("writing failing job script: %v", err)
+	}
+
+	target, started, err := RunJob(context.Background(), "update", []string{script})
+	if err != nil || !started {
+		t.Fatalf("RunJob = (started=%v, err=%v), want a fresh spawn", started, err)
+	}
+
+	// The pane must survive the non-zero exit (remain-on-exit failed) and the
+	// probe must report it dead.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
+		id, dead, exists := jobWindowState(ctx, jobTargetFor("update"))
+		cancel()
+		if exists && dead {
+			if id != target.WindowID {
+				t.Errorf("dead window id = %q, want %q", id, target.WindowID)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("probe = (id=%q dead=%v exists=%v), want the failed window to remain and read dead", id, dead, exists)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	// Reap-on-rerun: the next run relaunches IN the dead window (respawn-window
+	// — killing the session's only window would kill the session) and the
+	// probe reads it live again.
+	fresh, started, err := RunJob(context.Background(), "update", []string{"sleep", "60"})
+	if err != nil || !started {
+		t.Fatalf("RunJob (respawn) = (started=%v, err=%v), want a respawn over the dead window", started, err)
+	}
+	if fresh.WindowID != target.WindowID {
+		t.Errorf("respawn window id = %q, want the dead window reused in place (%q)", fresh.WindowID, target.WindowID)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
+	defer cancel()
+	if id, dead, exists := jobWindowState(ctx, jobTargetFor("update")); !exists || dead || id != target.WindowID {
+		t.Errorf("post-respawn probe = (id=%q dead=%v exists=%v), want the same window live", id, dead, exists)
 	}
 }

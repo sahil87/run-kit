@@ -1,0 +1,9 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-12T19:02:02Z"}
+{"args":"fix: RunJob dedup probe false-positives on tmux display-message active-window fallback — update command never spawns; probe via list-panes, create rk-jobs session with the first job window, close the seam test gap","cmd":"fab-new","event":"command","ts":"2026-08-12T19:02:02Z"}
+{"delta":"+5.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-08-12T19:02:58Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-12T19:03:09Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-12T19:03:09Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-12T19:11:05Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-12T19:17:08Z"}
+{"event":"review","result":"passed","ts":"2026-08-12T19:17:08Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-12T19:18:06Z"}

@@ -1,17 +1,20 @@
 # code-surface.spec.ts
 
-Proves the right panel's phase 2 (change `260811-k3vp-right-panel-code-lens`,
+Proves the code surface end to end (change `260811-k3vp-right-panel-code-lens`,
 managed lifecycle + stable route `260811-a2bo`; `docs/specs/right-panel.md` §
-The code lens + § Surface Registry): the `code` lens joins the view registry
-(`?view=code` in the main slot + the `View: Code` overflow-menu row) AND the
-panel's CODE surface (rail button, `?panel=code`), with availability = gitRoot
-derived (since a2bo the port resolves by convention — `RK_CODE_SERVER_PORT`
-preset, else `RK_PORT+2` — and no longer gates), and code-server reachability
-governing only the surface CONTENT (live iframe vs the not-running empty
-state). The iframe src is the STABLE `/code/?folder=<git root>` route — the
-port never appears in a URL. Also proves the `/code` → `/code/` redirect and
-the keyboard-capture spike: a run-kit registry chord pressed inside the
-same-origin iframe is reclaimed by the parent.
+The code lens + § Surface Registry), retargeted to the surface-layout model in
+`260812-ab5v-surface-layout-core` (`docs/specs/surface-layout.md`): the `code`
+lens joins the view registry (`?view=code` → `single:code` via the permanent
+shim + the `View: Code` overflow-menu row) AND the tileable code surface
+(`Code tile` rail toggle, `?panel=code` → `split-h:tty,code` via the shim),
+with availability = gitRoot derived (since a2bo the port resolves by
+convention — `RK_CODE_SERVER_PORT` preset, else `RK_PORT+2` — and no longer
+gates), and code-server reachability governing only the surface CONTENT (live
+iframe vs the not-running empty state). The iframe src is the STABLE
+`/code/?folder=<git root>` route — the port never appears in a URL. Also
+proves the `/code` → `/code/` redirect and the keyboard-capture spike: a
+run-kit registry chord pressed inside the same-origin iframe is reclaimed by
+the parent.
 
 ## Shared setup
 
@@ -37,7 +40,7 @@ same-origin iframe is reclaimed by the parent.
   xterm chunk).
 - **`afterAll`**: kill the session (best-effort); the stub-listening describe
   also closes the stub.
-- **`beforeEach`**: set a wide desktop viewport (1440×800) — the rail/panel are
+- **`beforeEach`**: set a wide desktop viewport (1440×800) — the rail is
   desktop-only.
 - **`makeWindow(name, {cwd?})`**: create a window via `tmux new-window`
   (optionally with `-c /tmp` for a NON-repo cwd — the availability-negative
@@ -45,10 +48,15 @@ same-origin iframe is reclaimed by the parent.
 - **`GIT_ROOT`**: `git rev-parse --show-toplevel` from the spec process — the
   toplevel every in-repo test window derives (windows inherit the tmux
   server's repo-root cwd).
-- **Locators**: the `Code panel` rail button (role + accessible name), the
-  `right-panel` testid, the `Code editor` iframe title, the
-  `code-surface-empty` testid, the `.xterm` terminal surface, and the
-  "More controls" chevron menu (the view switcher's menuOnly rendering).
+- **`expectLayoutParam(page, expected)`**: retrying read of the DECODED
+  `?layout=` search param (`URL.searchParams` — the router may percent-encode
+  `:`/`,`); the `replaceState` mirror lands a beat after the arrival/mutation.
+- **Locators**: the `Code tile` / `Web tile` rail toggles (role + accessible
+  name — the retired `Code panel` name and the `right-panel` testid are GONE;
+  surfaces render as layout tiles now), the `surface-tile-code` tile testid,
+  the `Code editor` iframe title, the `code-surface-empty` testid, the
+  `.xterm` terminal surface, and the "More controls" chevron menu (the view
+  switcher's menuOnly rendering).
 
 ## Tests
 
@@ -59,20 +67,23 @@ since a2bo); a non-repo cwd (`/tmp`) derives no gitRoot, so neither affordance
 renders.
 Steps:
 1. Create a repo-cwd window; navigate; assert the terminal, then the `Code
-   panel` rail button (SSE-gated).
+   tile` rail toggle (SSE-gated).
 2. Open the "More controls" menu; assert the `View: Code` menuitemradio row.
-3. Create a `/tmp`-cwd window; navigate; assert NO `Code panel` button and no
+3. Create a `/tmp`-cwd window; navigate; assert NO `Code tile` button and no
    `View: Code` row.
 
-### ?panel=code opens the surface; the iframe src is the stable /code/?folder=<git root>
-What it proves: the P1 deep link resolves the code surface, and the renderer
-iframed the fully derived RELATIVE `/code/` URL (never an absolute origin, the
-port never appears — a2bo) with the k3vp sandbox set (incl.
-`allow-downloads`); the terminal stays mounted beside the panel (P2).
+### ?panel=code opens the code tile (shim); the iframe src is the stable /code/?folder=<git root>
+What it proves: the retired `?panel=code` deep link resolves through the
+permanent shim (a bare panel value maps against the tty default slot A →
+`split-h:tty,code`), and the tile's renderer iframes the fully derived
+RELATIVE `/code/` URL (never an absolute origin, the port never appears —
+a2bo) with the k3vp sandbox set (incl. `allow-downloads`); the terminal stays
+mounted beside the tile (the layout is additive).
 Steps:
 1. Create a repo-cwd window; navigate with `?panel=code`.
-2. Assert the panel and the `Code editor` iframe are visible; assert its `src`
-   attribute is exactly `/code/?folder=<url-encoded git root>` and its
+2. Assert the `surface-tile-code` tile and the `Code editor` iframe are
+   visible, the mirrored URL reads `split-h:tty,code`, the iframe `src`
+   attribute is exactly `/code/?folder=<url-encoded git root>`, and its
    sandbox contains `allow-downloads`.
 3. Assert the terminal is still visible.
 
@@ -84,32 +95,38 @@ Steps:
 1. `GET /code?folder=/repo` through the dev proxy with `maxRedirects: 0`.
 2. Assert status 308 and `Location: /code/?folder=/repo`.
 
-### ?view=code renders the code lens in the MAIN slot
+### ?view=code renders the code lens as the single slot-A tile
 What it proves: `code` is a full view-registry lens (window-views R4) — the
-main slot renders it while the rail stays put (slots are independent, P2).
+shim maps `?view=code` to `single:code`, the code tile fills the center, and
+the rail stays put (tiles are additive).
 Steps:
 1. Create a repo-cwd window; navigate with `?view=code`.
-2. Assert the `Code editor` iframe is visible and the rail still renders.
+2. Assert the `Code editor` iframe is visible, the mirrored URL reads
+   `single:code`, and the rail still renders.
 
-### unavailable params fall through: ?view=code → tty and ?panel=code → closed on a /tmp window
-What it proves: the resolveView/resolvePanel fall-throughs — an unavailable
-`code` value renders the terminal and a closed panel, never a broken iframe.
+### unavailable params fall through: ?view=code&panel=code resolves to plain tty on a /tmp window
+What it proves: the resolve/degrade fall-throughs — `?view=code&panel=code`
+shims to `split-h:code,code`, which the grammar rejects (a repeated non-tty
+kind), and `code` is unavailable on a `/tmp` window anyway (no gitRoot); both
+paths land on `single:tty`, never a broken iframe.
 Steps:
 1. Create a `/tmp`-cwd window; navigate with `?view=code&panel=code`.
-2. Assert the terminal is visible and neither the code iframe nor the panel
-   exists in the DOM.
+2. Assert the terminal is visible, neither the code iframe nor the code tile
+   exists in the DOM, and the mirrored URL reads `single:tty`.
 
-### switching surfaces hides but never unmounts the web iframe (P3 across surfaces)
-What it proves: P3 generalized — with two surfaces available, switching
-web → code → web keeps BOTH iframe subtrees mounted (display-level hide), and
-the re-shown web iframe is the identical element (in-memory state preserved).
+### tiles coexist and a closed tile hides but never unmounts its iframe (P3 across surfaces)
+What it proves: P3 generalized to tiles — with two surfaces available, opening
+web then code renders BOTH iframes simultaneously (tiles are additive, R10
+growth), and closing the web tile keeps its iframe subtree mounted
+(display-level hide); the re-opened web iframe is the identical element
+(in-memory state preserved).
 Steps:
 1. Create a repo-cwd window and stamp `@rk_url` (both surfaces available);
-   navigate; assert both rail buttons.
+   navigate; assert both rail toggles.
 2. Open web; assert the `Proxied content` iframe is visible. Click the code
-   rail button; assert the code iframe is visible and the web iframe is hidden
-   but still in the DOM (count 1).
-3. Capture the web iframe's element handle, switch back to web, and assert the
+   rail toggle; assert the code iframe is visible AND the web iframe still is.
+3. Close web via its lit toggle; assert the web iframe is hidden but still in
+   the DOM (count 1). Capture its element handle, reopen web, and assert the
    visible iframe is the same element.
 
 ### keyboard spike: a registry chord pressed INSIDE the iframe reaches the parent (chord reclaim)
@@ -126,13 +143,13 @@ Steps:
 
 ### the surface renders the not-running empty state when the port is unreachable
 What it proves: reachability governs CONTENT, not availability — with the stub
-down, the rail button still renders (capability signals are stable) but the
-panel shows the terse portless `code-server not running — check rk doctor`
+down, the rail toggle still renders (capability signals are stable) but the
+code tile shows the terse portless `code-server not running — check rk doctor`
 empty state (a2bo) instead of a dead iframe.
 Steps:
 1. (Stub is closed — this describe never binds the port.)
 2. Create a repo-cwd window; navigate with `?panel=code`; assert the `Code
-   panel` rail button is visible.
+   tile` rail toggle is visible.
 3. Assert the `code-surface-empty` state reads `code-server not running —
    check rk doctor` (30s budget — the backend's ~5s probe TTL must expire
    first) and no `Code editor` iframe exists.

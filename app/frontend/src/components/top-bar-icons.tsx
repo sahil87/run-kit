@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import type { LayoutShape } from "@/lib/surface-layout";
 
 /**
  * Shared top-bar control glyphs (260801-3q1z) — one definition per mirrored
@@ -169,5 +170,66 @@ export function TerminalFontGlyph() {
     >
       Aa
     </span>
+  );
+}
+
+/** Layout chip face (260812-ab5v R9) — the ▦ preset-grid pictogram: a rounded
+ *  frame quartered into a 2×2 tile grid ("the center is a layout of tiles").
+ *  14-viewBox/1.5-stroke, the AutofitGlyph register (a tile-frame sibling). */
+export function LayoutGlyph() {
+  return (
+    <ControlGlyph name="layout" viewBox="0 0 14 14" strokeWidth={1.5}>
+      <rect x="1" y="2.5" width="12" height="9" rx="1" />
+      <line x1="7" y1="2.5" x2="7" y2="11.5" />
+      <line x1="1" y1="7" x2="13" y2="7" />
+    </ControlGlyph>
+  );
+}
+
+/**
+ * Per-shape preset glyphs (260812-ab5v R9) — the ▦ chip popover's rows and the
+ * overflow menu's `Layout: …` rows, one miniaturized arrangement pictogram per
+ * preset (spec § Shape presets ASCII, reduced to strokes): dividers split the
+ * frame the way the shape splits the center — `split-h` one vertical divider,
+ * `row` two, the `main-*` shapes an off-center A boundary plus the B/C divider
+ * on A's far side. `single` is the bare frame.
+ */
+export function LayoutShapeGlyph({ shape }: { shape: LayoutShape }) {
+  return (
+    <ControlGlyph name={`layout-${shape}`} viewBox="0 0 14 14" strokeWidth={1.5}>
+      <rect x="1" y="2.5" width="12" height="9" rx="1" />
+      {shape === "split-h" && <line x1="7" y1="2.5" x2="7" y2="11.5" />}
+      {shape === "split-v" && <line x1="1" y1="7" x2="13" y2="7" />}
+      {shape === "row" && (
+        <>
+          <line x1="5" y1="2.5" x2="5" y2="11.5" />
+          <line x1="9" y1="2.5" x2="9" y2="11.5" />
+        </>
+      )}
+      {shape === "col" && (
+        <>
+          <line x1="1" y1="5.5" x2="13" y2="5.5" />
+          <line x1="1" y1="8.5" x2="13" y2="8.5" />
+        </>
+      )}
+      {shape === "main-left" && (
+        <>
+          <line x1="8.5" y1="2.5" x2="8.5" y2="11.5" />
+          <line x1="8.5" y1="7" x2="13" y2="7" />
+        </>
+      )}
+      {shape === "main-right" && (
+        <>
+          <line x1="5.5" y1="2.5" x2="5.5" y2="11.5" />
+          <line x1="1" y1="7" x2="5.5" y2="7" />
+        </>
+      )}
+      {shape === "main-top" && (
+        <>
+          <line x1="1" y1="5.5" x2="13" y2="5.5" />
+          <line x1="7" y1="5.5" x2="7" y2="11.5" />
+        </>
+      )}
+    </ControlGlyph>
   );
 }

@@ -11,6 +11,7 @@ import {
   MIN_PANEL_WIDTH_PX,
   MAX_PANEL_WIDTH_PCT,
   clampPanelWidth,
+  clampRatio,
   readStoredPanelWidth,
   writeStoredPanelWidth,
 } from "./right-panel";
@@ -25,30 +26,37 @@ beforeEach(() => {
 });
 
 describe("availableSurfaces", () => {
-  it("offers web exactly when hasWebUrl holds", () => {
-    expect(availableSurfaces(webWin)).toEqual(["web"]);
+  // Since 260812-ab5v (R8) the registry is the SHARED tileable-surface
+  // registry (`availableTiles`): `tty` is always available and listed FIRST,
+  // then `web`/`chat`/`code` per capability.
+  it("offers tty first, then web exactly when hasWebUrl holds", () => {
+    expect(availableSurfaces(webWin)).toEqual(["tty", "web"]);
   });
 
-  it("offers nothing without a usable rkUrl", () => {
-    expect(availableSurfaces(plain)).toEqual([]);
-    expect(availableSurfaces(whitespaceWin)).toEqual([]);
-    expect(availableSurfaces(null)).toEqual([]);
-    expect(availableSurfaces(undefined)).toEqual([]);
+  it("offers only tty without a usable rkUrl", () => {
+    expect(availableSurfaces(plain)).toEqual(["tty"]);
+    expect(availableSurfaces(whitespaceWin)).toEqual(["tty"]);
+    expect(availableSurfaces(null)).toEqual(["tty"]);
+    expect(availableSurfaces(undefined)).toEqual(["tty"]);
+  });
+
+  it("offers chat exactly when the window carries a chatProvider", () => {
+    expect(availableSurfaces({ chatProvider: "claude" })).toEqual(["tty", "chat"]);
   });
 
   // The `code` surface (260811-k3vp, simplified by 260811-a2bo) mirrors the
   // view registry's gate: gitRoot derived (the port resolves by convention).
-  // Registry order is web-then-code (spec § Surface Registry row order).
+  // Registry order is tty, web, chat, code (surface-layout R8).
   it("offers code exactly when gitRoot is set", () => {
     const codeWin: ViewWindow = { gitRoot: "/repo" };
-    expect(availableSurfaces(codeWin)).toEqual(["code"]);
-    expect(availableSurfaces({ rkUrl: "http://localhost:8080", gitRoot: "/repo" }))
-      .toEqual(["web", "code"]);
+    expect(availableSurfaces(codeWin)).toEqual(["tty", "code"]);
+    expect(availableSurfaces({ rkUrl: "http://localhost:8080", chatProvider: "claude", gitRoot: "/repo" }))
+      .toEqual(["tty", "web", "chat", "code"]);
   });
 
   it("gates code off without a gitRoot", () => {
-    expect(availableSurfaces(plain)).toEqual([]);
-    expect(availableSurfaces(null)).toEqual([]);
+    expect(availableSurfaces(plain)).toEqual(["tty"]);
+    expect(availableSurfaces(null)).toEqual(["tty"]);
   });
 });
 
@@ -136,6 +144,30 @@ describe("clampPanelWidth", () => {
   it("applies only the cap when the container is unmeasured", () => {
     expect(clampPanelWidth(10, 0)).toBe(10);
     expect(clampPanelWidth(90, 0)).toBe(MAX_PANEL_WIDTH_PCT);
+  });
+});
+
+describe("clampRatio", () => {
+  // The divider-boundary clamp (260812-ab5v R5): the 280px floor bounds BOTH
+  // sides, so the range is [floor, 100 − floor] — no 65% cap (a dominant main
+  // tile is legitimate in `main-*` shapes).
+  it("passes through an in-range percentage", () => {
+    expect(clampRatio(50, 1000)).toBe(50);
+  });
+
+  it("applies the 280px floor on both sides of the boundary", () => {
+    // 280px on a 1000px container = 28% on each side.
+    expect(clampRatio(10, 1000)).toBeCloseTo(28);
+    expect(clampRatio(90, 1000)).toBeCloseTo(72);
+  });
+
+  it("allows dominant tiles past the panel's 65% cap", () => {
+    expect(clampRatio(80, 2000)).toBe(80);
+  });
+
+  it("skips the floor when the container is unmeasured", () => {
+    expect(clampRatio(10, 0)).toBe(10);
+    expect(clampRatio(90, 0)).toBe(90);
   });
 });
 

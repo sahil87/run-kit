@@ -2,18 +2,21 @@
 
 Verifies the **HTML chat view**: the read side (260714-r7rq — Change 3) plus the
 **send** side (260714-jdyg-chat-send — Change 4). Read: the `?view=chat`
-search-param view over the existing terminal route, the `Chat: <window>` heading,
-the message-bubble / collapsible-tool-card / pending-question renderer, mobile
-single-row budget, and reduced-motion honoring. Send: the input footer (replacing
-the old read-only disabled footer) POSTs to the chat-send endpoint, clears on
-success, surfaces a 409 probe failure inline while keeping the text, and shows a
-non-blocking busy hint while the window agent is active. The chat lens is reached
-through the UNIFIED window-view switcher (spec R4, `web-view-lens`), which is
-MENU-ONLY as of `260722-n2n4`: the segmented pill never renders in-bar, and a
-chat-capable window (gated on a non-empty `chatProvider`) offers `View: Terminal`
-/ `View: Chat` `menuitemradio` rows in the "More controls" chevron menu — the
-`View: Chat` row flips into chat, and the shipped `Ctrl+\`` binding toggles
-tty↔chat.
+deep-link lens over the existing terminal route (since
+`260812-ab5v-surface-layout-core` the lens IS a single-tile surface layout —
+`?view=chat` resolves through the permanent shim to `single:chat` and the URL
+mirrors `?layout=`), the `Chat: <window>` heading, the message-bubble /
+collapsible-tool-card / pending-question renderer, mobile single-row budget,
+and reduced-motion honoring. Send: the input footer (replacing the old
+read-only disabled footer) POSTs to the chat-send endpoint, clears on success,
+surfaces a 409 probe failure inline while keeping the text, and shows a
+non-blocking busy hint while the window agent is active. The chat lens is
+reached through the UNIFIED window-view switcher (spec R4, `web-view-lens`),
+which is MENU-ONLY as of `260722-n2n4`: the segmented pill never renders
+in-bar, and a chat-capable window (gated on a non-empty `chatProvider`) offers
+`View: Terminal` / `View: Chat` `menuitemradio` rows in the "More controls"
+chevron menu — the `View: Chat` row flips into chat, and the shipped
+`Ctrl+\`` binding toggles tty↔chat.
 
 ## Shared setup
 
@@ -58,8 +61,8 @@ absent on `@2` (plain, which offers only `tty` so the registry entry is hidden
 everywhere) — and the menu-only contract (`260722-n2n4`): even on the capable
 window there is no in-bar pill and no `view-toggle` testid anywhere in the DOM
 (bar or probe). A `?view=chat` deep link on a chat-less window degrades
-gracefully to the terminal (param inert, dropped by `resolveView`'s availability
-check).
+gracefully to the terminal (the shim's `single:chat` translation degrades
+tile-by-tile to `single:tty` — chat is unavailable there).
 
 **Steps:**
 1. Mock the backend; navigate to `/default/1`; gate on the `Window:` heading.
@@ -78,33 +81,35 @@ check).
 
 **What it proves:** activating the chevron menu's `View: Chat` row (the
 switcher's only rendering, `260722-n2n4`) flips the view without changing the
-window — the URL gains `?view=chat` on the same `@1` and the chat renderer
-mounts. The center heading is a static `Window:` throughout (260714-uco1 — it
-does not change with the lens; the marked `View:` menu row is the lens
-indicator), so the heading anchor does not jump on the switch. The window rename
-affordance carries over.
+window — the URL mirrors `?layout=single:chat` on the same `@1` (R12's shim: a
+view selection is a single-tile layout mutation through the shared path) and
+the chat renderer mounts. The center heading is a static `Window:` throughout
+(260714-uco1 — it does not change with the lens; the marked `View:` menu row
+is the lens indicator), so the heading anchor does not jump on the switch. The
+window rename affordance carries over.
 
 **Steps:**
 1. Navigate to `/default/1`; gate on the `Window:` prefix.
 2. `switchLens("Chat")` — open the "More controls" menu, click the `View: Chat`
    row, and wait for the menu to close.
-3. Assert the URL is `/default/1?view=chat`, the `chat-view` renderer is visible,
-   the heading still shows the `Window:` prefix, and the `Rename window agent-win`
-   heading button is present.
+3. Assert the decoded `layout` param is `single:chat`, the `chat-view` renderer
+   is visible, the heading still shows the `Window:` prefix, and the `Rename
+   window agent-win` heading button is present.
 
 ### `Ctrl+\` toggles tty↔chat (the shipped keyboard binding)`
 
 **What it proves:** the `Ctrl+\`` binding (plain Ctrl on both platforms — the
 VS-Code "toggle terminal" association) flips the chat lens on and off, keeping
-the URL `?view=` param in sync, exactly like the switcher segment. The heading
-stays the static `Window:` throughout (it does not vary with the lens).
+the mirrored `?layout=` param in sync (`single:chat` ⇄ `single:tty`), exactly
+like the switcher row. The heading stays the static `Window:` throughout (it
+does not vary with the lens).
 
 **Steps:**
 1. Navigate to `/default/1`; gate on the `Window:` prefix (the always-present
    readiness surface — there is no in-bar pill to gate on since `260722-n2n4`).
-2. Press `Control+\``; assert the URL is `/default/1?view=chat` and `chat-view`
-   is visible.
-3. Press `Control+\`` again; assert the `?view` param is dropped and the
+2. Press `Control+\``; assert the decoded `layout` param is `single:chat` and
+   `chat-view` is visible.
+3. Press `Control+\`` again; assert the `layout` param is `single:tty` and the
    `Window:` prefix is still shown.
 
 ### `deep link ?view=chat cold-loads into the chat view`

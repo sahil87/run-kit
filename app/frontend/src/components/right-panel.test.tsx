@@ -1,31 +1,30 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
-import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, act } from "@testing-library/react";
 import { RightPanel } from "./right-panel";
-import { Shell } from "./shell/shell";
-import { ChromeProvider } from "@/contexts/chrome-context";
+import { TIP_OPEN_DELAY_MS } from "@/components/tip";
 import { stubMatchMedia } from "@/test-utils/match-media";
-import { PANEL_WIDTH_STORAGE_KEY, MIN_PANEL_WIDTH_PX, MAX_PANEL_WIDTH_PCT, type SurfaceName } from "@/lib/right-panel";
+import type { SurfaceName } from "@/lib/right-panel";
 
 // jsdom does not implement matchMedia — Tip's coarse-pointer check needs it.
 // Default to the fine-pointer branch (tooltips enabled).
 stubMatchMedia(() => false);
 
-function renderPanel(overrides: {
+/**
+ * Rail-only RightPanel (260812-ab5v T011, spec surface-layout.md R10): the
+ * panel slot is subsumed by layout tiles — what remains is the rail of
+ * OPEN-TILE TOGGLES. `open` is the resolved layout's `order`.
+ */
+function renderRail(overrides: {
   available?: SurfaceName[];
-  active?: SurfaceName | null;
+  open?: SurfaceName[];
   onToggle?: (surface: SurfaceName) => void;
-  children?: React.ReactNode;
 } = {}) {
   return render(
-    <ChromeProvider>
-      <RightPanel
-        available={overrides.available ?? []}
-        active={overrides.active ?? null}
-        onToggle={overrides.onToggle ?? vi.fn()}
-      >
-        {overrides.children}
-      </RightPanel>
-    </ChromeProvider>,
+    <RightPanel
+      available={overrides.available ?? []}
+      open={overrides.open ?? ["tty"]}
+      onToggle={overrides.onToggle ?? vi.fn()}
+    />,
   );
 }
 
@@ -36,151 +35,76 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   localStorage.clear();
+  vi.useRealTimers();
 });
 
-describe("RightPanel rail", () => {
+describe("RightPanel rail — open-tile toggles (R10)", () => {
   it("always renders the rail, with a button per available surface only", () => {
-    renderPanel();
-    const rail = screen.getByTestId("right-panel-rail");
-    expect(rail).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Web panel" })).toBeNull();
+    renderRail();
+    expect(screen.getByTestId("right-panel-rail")).toBeTruthy();
+    expect(screen.queryByRole("button")).toBeNull();
   });
 
-  it("renders a focusable web button (with availability dot) when available", () => {
-    renderPanel({ available: ["web"] });
-    const button = screen.getByRole("button", { name: "Web panel" });
-    expect(button.getAttribute("aria-pressed")).toBe("false");
-    // Availability dot (P4) rides the button.
-    expect(button.querySelector("[aria-hidden='true']")).not.toBeNull();
+  it("renders icon glyphs with the surface names as aria-labels (`<Label> tile`)", () => {
+    renderRail({ available: ["tty", "web", "chat", "code"] });
+    // Icon glyphs (R10's user-requested fold-in): `>_` tty, `◫` web, `⌸` chat,
+    // `{}` code — the text labels moved to the accessible names + tooltips.
+    expect(screen.getByRole("button", { name: "Terminal tile" }).textContent).toContain(">_");
+    expect(screen.getByRole("button", { name: "Web tile" }).textContent).toContain("◫");
+    expect(screen.getByRole("button", { name: "Chat tile" }).textContent).toContain("⌸");
+    expect(screen.getByRole("button", { name: "Code tile" }).textContent).toContain("{}");
+    // Availability dot (P4) still rides every button.
+    expect(
+      screen.getByRole("button", { name: "Web tile" }).querySelector("[aria-hidden='true']"),
+    ).not.toBeNull();
   });
 
-  it("clicking a rail button toggles that surface", () => {
+  it("lights a button per OPEN tile (aria-pressed), not just one active surface", () => {
+    renderRail({ available: ["tty", "web", "code"], open: ["tty", "code"] });
+    expect(screen.getByRole("button", { name: "Terminal tile" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "Code tile" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "Web tile" }).getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("clicking an unlit button ADDS the surface, clicking a lit one CLOSES it (same callback)", () => {
     const onToggle = vi.fn();
-    renderPanel({ available: ["web"], onToggle });
-    fireEvent.click(screen.getByRole("button", { name: "Web panel" }));
+    renderRail({ available: ["tty", "web"], open: ["tty"], onToggle });
+    fireEvent.click(screen.getByRole("button", { name: "Web tile" }));
     expect(onToggle).toHaveBeenCalledWith("web");
+    fireEvent.click(screen.getByRole("button", { name: "Terminal tile" }));
+    expect(onToggle).toHaveBeenCalledWith("tty");
   });
 
-  it("marks the active surface inverse-video (aria-pressed)", () => {
-    renderPanel({ available: ["web"], active: "web", children: <div>content</div> });
-    expect(screen.getByRole("button", { name: "Web panel" }).getAttribute("aria-pressed")).toBe("true");
-  });
-});
-
-describe("RightPanel hide-never-unmount (P3)", () => {
-  it("mounts no surface content before the first open", () => {
-    renderPanel({ available: ["web"], children: <div>web content</div> });
-    expect(screen.queryByTestId("right-panel")).toBeNull();
-    expect(screen.queryByText("web content")).toBeNull();
-  });
-
-  it("shows the panel while a surface is active", () => {
-    renderPanel({ available: ["web"], active: "web", children: <div>web content</div> });
-    const panel = screen.getByTestId("right-panel");
-    expect(panel.classList.contains("hidden")).toBe(false);
-    expect(screen.getByText("web content")).toBeTruthy();
-  });
-
-  it("closing hides the subtree at display level WITHOUT unmounting it", () => {
-    const { rerender } = render(
-      <ChromeProvider>
-        <RightPanel available={["web"]} active="web" onToggle={vi.fn()}>
-          <div>web content</div>
-        </RightPanel>
-      </ChromeProvider>,
-    );
-    expect(screen.getByText("web content")).toBeTruthy();
-
-    rerender(
-      <ChromeProvider>
-        <RightPanel available={["web"]} active={null} onToggle={vi.fn()}>
-          <div>web content</div>
-        </RightPanel>
-      </ChromeProvider>,
-    );
-    const panel = screen.getByTestId("right-panel");
-    expect(panel.classList.contains("hidden")).toBe(true);
-    // Still mounted — the iframe's in-memory state survives the collapse.
-    expect(screen.getByText("web content")).toBeTruthy();
-  });
-});
-
-describe("RightPanel width (pixel-sized grid column, 260812-nm4p)", () => {
-  // The panel's width basis is the Shell grid width minus the sidebar column,
-  // measured via the Shell-provided grid ref (never the panel's own parent).
-  // Pin the sidebar closed (0px column) and mock clientWidth so the basis is a
-  // deterministic 1000px; the test-setup ResizeObserver stub never fires, so
-  // the synchronous layout-effect read is the measurement under test.
-  function renderPanelInShell(widthPct?: string) {
-    localStorage.setItem("runkit-sidebar-open", "false");
-    if (widthPct !== undefined) localStorage.setItem(PANEL_WIDTH_STORAGE_KEY, widthPct);
-    const clientWidth = vi
-      .spyOn(HTMLElement.prototype, "clientWidth", "get")
-      .mockReturnValue(1000);
-    render(
-      <ChromeProvider>
-        <Shell
-          rightPanelChildren={
-            <RightPanel available={["web"]} active="web" onToggle={vi.fn()}>
-              <div />
-            </RightPanel>
-          }
-          rightPanelVisible={true}
-        >
-          <main style={{ gridArea: "content" }} data-testid="content">CONTENT</main>
-          <footer style={{ gridArea: "bottombar" }}>BOTTOM</footer>
-        </Shell>
-      </ChromeProvider>,
-    );
-    return clientWidth;
-  }
-
-  it("resolves the default 38% against the content+panel basis in pixels", () => {
-    const spy = renderPanelInShell();
-    // 38% of the 1000px basis (sidebar collapsed → no column subtracted).
-    expect(screen.getByTestId("right-panel").style.width).toBe("380px");
-    spy.mockRestore();
+  it("at 3 open tiles the remaining unlit buttons render DISABLED with a 'Close a tile first' tooltip", () => {
+    vi.useFakeTimers();
+    const onToggle = vi.fn();
+    renderRail({ available: ["tty", "web", "chat", "code"], open: ["tty", "web", "chat"], onToggle });
+    const code = screen.getByRole("button", { name: "Code tile" });
+    expect(code).toHaveProperty("disabled", true);
+    // A lit button stays enabled at 3 tiles (closing is always allowed).
+    expect(screen.getByRole("button", { name: "Web tile" })).toHaveProperty("disabled", false);
+    // The tooltip explains the constraint instead of silently no-oping (plan
+    // assumption 5). The Tip wraps a span so it survives the disabled button —
+    // hover the WRAPPER (Tip's handlers live on its direct child; mouseenter
+    // does not bubble from the button).
+    fireEvent.mouseEnter(code.parentElement!);
+    act(() => {
+      vi.advanceTimersByTime(TIP_OPEN_DELAY_MS);
+    });
+    expect(screen.getByRole("tooltip").textContent).toBe("Close a tile first");
+    // A disabled button never fires the toggle.
+    fireEvent.click(code);
+    expect(onToggle).not.toHaveBeenCalled();
   });
 
-  it("restores a persisted per-viewer width against the basis", () => {
-    const spy = renderPanelInShell("50");
-    expect(screen.getByTestId("right-panel").style.width).toBe("500px");
-    spy.mockRestore();
-  });
-
-  it("enforces the 280px floor at restore time", () => {
-    const spy = renderPanelInShell("10");
-    expect(screen.getByTestId("right-panel").style.width).toBe(`${MIN_PANEL_WIDTH_PX}px`);
-    spy.mockRestore();
-  });
-
-  it("enforces the 65% cap at restore time", () => {
-    const spy = renderPanelInShell("90");
-    expect(screen.getByTestId("right-panel").style.width).toBe(`${(MAX_PANEL_WIDTH_PCT / 100) * 1000}px`);
-    spy.mockRestore();
-  });
-
-  it("subtracts the sidebar column from the basis when the sidebar is open", () => {
-    localStorage.setItem("runkit-sidebar-open", "true"); // 220px default column
-    const spy = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(1000);
-    render(
-      <ChromeProvider>
-        <Shell
-          sidebarChildren={<div>SIDEBAR</div>}
-          rightPanelChildren={
-            <RightPanel available={["web"]} active="web" onToggle={vi.fn()}>
-              <div />
-            </RightPanel>
-          }
-          rightPanelVisible={true}
-        >
-          <main style={{ gridArea: "content" }} data-testid="content">CONTENT</main>
-          <footer style={{ gridArea: "bottombar" }}>BOTTOM</footer>
-        </Shell>
-      </ChromeProvider>,
-    );
-    // Basis = 1000 - 220 = 780; 38% → 296.4 → 296px.
-    expect(screen.getByTestId("right-panel").style.width).toBe("296px");
-    spy.mockRestore();
+  it("the tooltip carries the surface's text label (the icon's name moved here)", () => {
+    vi.useFakeTimers();
+    renderRail({ available: ["tty", "web"], open: ["tty"] });
+    const web = screen.getByRole("button", { name: "Web tile" });
+    fireEvent.mouseEnter(web.parentElement!);
+    act(() => {
+      vi.advanceTimersByTime(TIP_OPEN_DELAY_MS);
+    });
+    expect(screen.getByRole("tooltip").textContent).toBe("Web");
   });
 });

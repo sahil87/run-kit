@@ -88,11 +88,23 @@ async function gotoWindow(
 }
 
 const railCodeButton = (page: Page) =>
-  page.getByRole("button", { name: "Code panel" });
-const panel = (page: Page) => page.getByTestId("right-panel");
+  page.getByRole("button", { name: "Code tile" });
+const railWebButton = (page: Page) =>
+  page.getByRole("button", { name: "Web tile" });
+// The panel slot is gone (260812-ab5v) — surfaces render as layout TILES.
+const codeTile = (page: Page) => page.getByTestId("surface-tile-code");
 const codeIframe = (page: Page) => page.getByTitle("Code editor");
 const notRunning = (page: Page) => page.getByTestId("code-surface-empty");
 const terminal = (page: Page) => page.locator(".xterm").first();
+
+/** Assert the mirrored `?layout=` param (decoded — the router may
+ *  percent-encode `:`/`,`). Retrying: the replaceState mirror lands a beat
+ *  after the arrival/mutation that triggered it. */
+async function expectLayoutParam(page: Page, expected: string): Promise<void> {
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get("layout"), { timeout: 10_000 })
+    .toBe(expected);
+}
 
 test.beforeAll(async ({ browser }) => {
   createSession(TEST_SESSION);
@@ -166,16 +178,19 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
     ).toHaveCount(0);
   });
 
-  test("?panel=code opens the surface; the iframe src is the stable /code/?folder=<git root>", async ({
+  test("?panel=code opens the code tile (shim); the iframe src is the stable /code/?folder=<git root>", async ({
     page,
   }) => {
     const id = await makeWindow(page, `cs-panel-${Date.now()}`);
     await gotoWindow(page, id, "?panel=code");
 
-    // The iframe renders (stub reachable) at the fully DERIVED relative src on
-    // the STABLE /code/ route (260811-a2bo) — never an absolute origin, and the
-    // port never appears (it's a server-side implementation detail).
-    await expect(panel(page)).toBeVisible({ timeout: 10_000 });
+    // The retired ?panel= param resolves through the shim (bare panel value →
+    // split-h:tty,code). The code TILE renders its iframe (stub reachable) at
+    // the fully DERIVED relative src on the STABLE /code/ route (260811-a2bo)
+    // — never an absolute origin, and the port never appears (it's a
+    // server-side implementation detail).
+    await expect(codeTile(page)).toBeVisible({ timeout: 10_000 });
+    await expectLayoutParam(page, "split-h:tty,code");
     const iframe = codeIframe(page);
     await expect(iframe).toBeVisible({ timeout: READY_TIMEOUT });
     await expect(iframe).toHaveAttribute(
@@ -185,7 +200,7 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
     // The sandbox carries the k3vp prerequisite set incl. allow-downloads.
     const sandbox = await iframe.getAttribute("sandbox");
     expect(sandbox).toContain("allow-downloads");
-    // The terminal stays mounted beside the panel (P2).
+    // The terminal stays mounted beside the code tile (the layout is additive).
     await expect(terminal(page)).toBeVisible();
   });
 
@@ -202,29 +217,35 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
     expect(res.headers()["location"]).toBe("/code/?folder=/repo");
   });
 
-  test("?view=code renders the code lens in the MAIN slot", async ({
+  test("?view=code renders the code lens as the single slot-A tile", async ({
     page,
   }) => {
     const id = await makeWindow(page, `cs-view-${Date.now()}`);
     await gotoWindow(page, id, "?view=code");
     await expect(codeIframe(page)).toBeVisible({ timeout: READY_TIMEOUT });
-    // The rail is still there (the panel slot is independent, P2).
+    // The shim maps ?view=code → single:code and the URL mirror rewrites it.
+    await expectLayoutParam(page, "single:code");
+    // The rail is still there (tiles are additive — the rail never leaves).
     await expect(page.getByTestId("right-panel-rail")).toBeVisible();
   });
 
-  test("unavailable params fall through: ?view=code → tty and ?panel=code → closed on a /tmp window", async ({
+  test("unavailable params fall through: ?view=code&panel=code resolves to plain tty on a /tmp window", async ({
     page,
   }) => {
     const id = await makeWindow(page, `cs-fallthrough-${Date.now()}`, {
       cwd: "/tmp",
     });
+    // The shim maps this to split-h:code,code — a repeated non-tty kind, which
+    // the grammar rejects — and code is unavailable here anyway (no gitRoot);
+    // both paths degrade tile-by-tile to single:tty, never a broken iframe.
     await gotoWindow(page, id, "?view=code&panel=code");
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
     await expect(codeIframe(page)).toHaveCount(0);
-    await expect(panel(page)).toHaveCount(0);
+    await expect(codeTile(page)).toHaveCount(0);
+    await expectLayoutParam(page, "single:tty");
   });
 
-  test("switching surfaces hides but never unmounts the web iframe (P3 across surfaces)", async ({
+  test("tiles coexist and a closed tile hides but never unmounts its iframe (P3 across surfaces)", async ({
     page,
   }) => {
     const id = await makeWindow(page, `cs-p3-${Date.now()}`);
@@ -240,25 +261,25 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
       "http://localhost:8080/",
     ]);
     await gotoWindow(page, id);
-    const railWebButton = page.getByRole("button", { name: "Web panel" });
-    await expect(railWebButton).toBeVisible({ timeout: READY_TIMEOUT });
+    await expect(railWebButton(page)).toBeVisible({ timeout: READY_TIMEOUT });
     await expect(railCodeButton(page)).toBeVisible();
 
-    // Open web, then switch to code (P6 swaps content in place).
-    await railWebButton.click();
-    await expect(panel(page).getByTitle("Proxied content")).toBeVisible({
-      timeout: 10_000,
-    });
+    // Open web, then code — tiles are ADDITIVE now (R10 growth): both
+    // iframes render simultaneously (main-left:tty,web,code).
+    await railWebButton(page).click();
+    const webIframe = page.getByTitle("Proxied content");
+    await expect(webIframe).toBeVisible({ timeout: 10_000 });
     await railCodeButton(page).click();
     await expect(codeIframe(page)).toBeVisible({ timeout: READY_TIMEOUT });
+    await expect(webIframe).toBeVisible();
 
-    // The web iframe is hidden but STILL MOUNTED — the same element returns
-    // when switching back.
-    const webIframe = panel(page).getByTitle("Proxied content");
+    // Close web via its lit toggle: hidden but STILL MOUNTED — the same
+    // element returns when the tile reopens.
+    await railWebButton(page).click();
     await expect(webIframe).toBeHidden();
     await expect(webIframe).toHaveCount(1);
     const handleBefore = await webIframe.elementHandle();
-    await railWebButton.click();
+    await railWebButton(page).click();
     await expect(webIframe).toBeVisible({ timeout: 10_000 });
     const handleAfter = await webIframe.elementHandle();
     expect(

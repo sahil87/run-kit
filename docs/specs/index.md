@@ -30,6 +30,7 @@
 | [Design Philosophy](design.md) | Core design principles and mental models behind fab-kit |
 | [Short-Term Goal](short-term-goal.md) | Minimum viable product requirements and priorities |
 | [Status Pyramid](status-pyramid.md) | Precedence model for status signals — tier ladder (PR > fab > agent > tmux), channel model (hue/shape/animation), attention overlay, decision table, rollups |
+| [Surface Layout](surface-layout.md) | The center as a layout of surfaces — preset shapes × ordered surfaces × ratios, the `?layout=` state ladder, tile verbs, rail toggles, and the `@rk_type`/view-switcher retirement map |
 | [Themes](themes.md) | Theme system architecture: ANSI palettes, derivation, tmux integration, import script |
 | [Window Views](window-views.md) | Rows are substrates, views are lenses — the parallel-view model (tty/web/chat/desktop): derived availability vs per-viewer choice, the shared switcher contract, two-species taxonomy, migration map for iframe / desktop (PR #71) / chat |
 

@@ -182,6 +182,19 @@ describe("DEFAULT_BINDINGS integrity", () => {
     expect(findMatches(cmdPeriod, resolved()).map((b) => b.actionId)).toEqual(["view-cycle"]);
   });
 
+  it("ships layout-cycle on ⌘; (260812-ab5v R9/R11) — the ▦ chip's same-arity shape cycle", () => {
+    expect(byId(resolved(), "layout-cycle")).toMatchObject({
+      code: "Semicolon",
+      tier: "cmd",
+      scope: "terminal",
+      enabled: true,
+    });
+    // A ⌘; keydown matches ONLY layout-cycle (Semicolon is free in every
+    // claimed set; the ⌘<punctuation> siblings live on other codes).
+    const cmdSemicolon = chord({ code: "Semicolon", metaKey: true });
+    expect(findMatches(cmdSemicolon, resolved()).map((b) => b.actionId)).toEqual(["layout-cycle"]);
+  });
+
   it("ships conflict-free defaults in every host", () => {
     for (const host of ALL_HOSTS) {
       expect(findConflicts(resolved(host))).toEqual([]);

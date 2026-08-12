@@ -42,7 +42,20 @@ export function urlSegmentToWindowId(segment: string): string {
 // absence of the param), unknown values are dropped here and availability-gated
 // by `resolvePanel` downstream. `view` and `panel` are independent slots and
 // may both be present (`?view=web&panel=code`).
-export type TerminalSearch = { view?: "web" | "chat" | "code"; panel?: "web" | "code" };
+//
+// The `?layout=` search param (260812-ab5v-surface-layout-core, spec
+// surface-layout.md L1) SUBSUMES and retires both: `?layout=<shape>:<a>,<b>[,<c>]`
+// is the whole tile layout. `view`/`panel` remain ACCEPTED (the permanent
+// translation shim in `lib/surface-layout.ts` maps them to an equivalent
+// layout) but the route mirrors the resolved layout back as `?layout=` only.
+// The value is passed through as a raw string — validation/degradation lives
+// in `resolveLayout` (this module is a deliberately dependency-free leaf, so
+// the parse helpers can't be imported here).
+export type TerminalSearch = {
+  view?: "web" | "chat" | "code";
+  panel?: "web" | "code";
+  layout?: string;
+};
 
 // Exported as a pure function so the unknown-value drop is unit-testable.
 export function validateTerminalSearch(
@@ -53,5 +66,8 @@ export function validateTerminalSearch(
     out.view = search.view;
   }
   if (search.panel === "web" || search.panel === "code") out.panel = search.panel;
+  if (typeof search.layout === "string" && search.layout.length > 0) {
+    out.layout = search.layout;
+  }
   return out;
 }

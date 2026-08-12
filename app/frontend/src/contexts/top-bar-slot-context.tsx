@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ProjectSession, WindowInfo } from "@/types";
 import type { ViewName } from "@/lib/window-view";
+import type { Layout } from "@/lib/surface-layout";
 
 /**
  * TopBar slot context — the prop-delivery channel for the single persistent
@@ -76,15 +77,21 @@ export type TopBarSlot = {
   availableViews?: ViewName[];
   activeView?: ViewName;
   onSelectView?: (view: ViewName) => void;
-  /** Terminal-mode right-RAIL toggle (260812-nm4p): the sidebar toggle's
-   *  far-right mirror — collapses/restores the whole right column (rail AND
-   *  any open panel), never a panel surface. `railOpen` carries the DERIVED
-   *  visibility (`railOpen || resolvedPanel != null`) for the icon fill, not
-   *  the raw preference. Registered by `AppShell` on every desktop terminal
-   *  route (`windowParam && !isMobile`, even with zero available surfaces);
-   *  `onToggleRail` absent → the top bar renders no rail toggle. */
+  /** Terminal-mode right-RAIL toggle (260812-nm4p, reinterpreted by
+   *  260812-ab5v): the sidebar toggle's far-right mirror — collapses/restores
+   *  the RAIL column only. Layout tiles live in the content column and are
+   *  never closed by a rail collapse (they carry their own ✕ verbs; palette
+   *  and chords stay live while the rail is hidden). Registered by `AppShell`
+   *  on every desktop terminal route (`windowParam && !isMobile`, even with
+   *  zero available surfaces); `onToggleRail` absent → no rail toggle. */
   railOpen?: boolean;
   onToggleRail?: () => void;
+  /** Surface-layout machinery (260812-ab5v R9), registered by `AppShell` on the
+   *  terminal route: the RESOLVED layout + the single user-mutation path
+   *  (`applyLayout`). Feed the top bar's ▦ Layout chip. Absent on non-terminal
+   *  routes (BoardPage does not register them) → no chip. */
+  layout?: Layout;
+  onApplyLayout?: (next: Layout) => void;
 } | null;
 
 type TopBarSlotContextValue = {

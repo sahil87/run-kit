@@ -197,6 +197,15 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // lens cycle untouched; the tiers are disjoint so `findConflicts` stays
   // clean. Terminal scope: the rail/panel exist only on the window route.
   { actionId: "panel-toggle", code: "Period", tier: "shifted", scope: "terminal", kind: "builtin", label: "Toggle right panel", description: "open/close the web panel", mapLabel: "panel" },
+  // ⌘; layout-shape cycle (260812-ab5v-surface-layout-core R9/R11): the ▦
+  // chip's chord — the NEXT same-arity preset, order kept (tmux `next-layout`
+  // muscle memory). It joins the legacy `⌘<punctuation>` family beside ⌘.
+  // view-cycle: Semicolon is free in every claimed set and ⌘; is not
+  // browser-reserved on either platform (⌘, is the browser's Preferences
+  // claim; ⌘/ is the cheatsheet). Terminal scope like its siblings — the
+  // palette body (`Layout: Cycle Shape`) exists only on window routes, so
+  // elsewhere the chord falls through untouched.
+  { actionId: "layout-cycle", code: "Semicolon", tier: "cmd", scope: "terminal", kind: "builtin", label: "Cycle layout shape", description: "next same-arity preset, order kept", mapLabel: "layout" },
   { actionId: "chat-toggle", code: "Backquote", tier: "ctrl", scope: "terminal", kind: "builtin", label: "Toggle chat view", description: "tty ↔ chat" },
   { actionId: "board-cycle-next", code: "BracketRight", tier: "cmd", scope: "board", kind: "builtin", label: "Cycle pane focus →" },
   { actionId: "board-cycle-prev", code: "BracketLeft", tier: "cmd", scope: "board", kind: "builtin", label: "Cycle pane focus ←" },

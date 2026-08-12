@@ -9,13 +9,16 @@ import { mockStateSocket } from "./_state-socket-mock";
 // for intent + steps.
 //
 // Chat read frontend (260714-r7rq — Change 3 of the agent-chat-view plan): a
-// read-only HTML chat view over the same agent pane, toggled via `?view=chat`
-// on the existing terminal route. The view toggle is the UNIFIED window-view
-// lens switcher (spec R4, `web-view-lens`) — MENU-ONLY as of 260722-n2n4: the
-// segmented pill never renders in-bar (the registry entry is `menuOnly`), and
-// a chat-capable window with no `@rk_url` offers `View: Terminal` /
-// `View: Chat` menuitemradio rows in the "More controls" chevron menu, which
-// are the switcher's only rendering at every width.
+// read-only HTML chat view over the same agent pane, reachable via the
+// `?view=chat` deep link (shimmed to `?layout=single:chat` since
+// 260812-ab5v-surface-layout-core) on the existing terminal route. The view
+// toggle is the UNIFIED window-view lens switcher (spec R4, `web-view-lens`) —
+// MENU-ONLY as of 260722-n2n4: the segmented pill never renders in-bar (the
+// registry entry is `menuOnly`), and a chat-capable window with no `@rk_url`
+// offers `View: Terminal` / `View: Chat` menuitemradio rows in the "More
+// controls" chevron menu, which are the switcher's only rendering at every
+// width. The rows and the Ctrl+` chord set `single:<view>` through the shared
+// layout mutation path (surface-layout R12).
 
 const SERVER = "default";
 const MOBILE = { width: 375, height: 812 };
@@ -36,6 +39,18 @@ async function switchLens(page: Page, label: "Terminal" | "Chat"): Promise<void>
   await expect(row).toBeVisible({ timeout: 10_000 });
   await row.click();
   await expect(controlsMenu(page)).toBeHidden();
+}
+
+/** Assert the mirrored `?layout=` param (decoded — the router may
+ *  percent-encode `:`/`,`). The surface-layout shim (260812-ab5v) translates
+ *  `?view=chat` → `single:chat` at route entry and REWRITES the URL via
+ *  replaceState; the `View:` rows and the Ctrl+` chord set `single:<view>`
+ *  through the same mutation path (R12). Retrying: the mirror lands a beat
+ *  after the arrival/switch that triggered it. */
+async function expectLayoutParam(page: Page, expected: string): Promise<void> {
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get("layout"), { timeout: 10_000 })
+    .toBe(expected);
 }
 
 // Two windows: @1 is a chat-capable claude window; @2 is a plain (no
@@ -242,11 +257,12 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
     await expect(page.getByText("Window", { exact: true })).toBeVisible({ timeout: 10_000 });
 
     // Switch via the chevron menu's `View: Chat` row — the switcher's only
-    // rendering (menu-only, 260722-n2n4).
+    // rendering (menu-only, 260722-n2n4). R12's shim turns the selection into
+    // a `single:chat` layout through the shared mutation path.
     await switchLens(page, "Chat");
 
-    // Same window (@1 → segment `1`), now with ?view=chat.
-    await expect(page).toHaveURL(new RegExp(`/${SERVER}/1\\?view=chat`));
+    // Same window (@1 → segment `1`), now mirrored as ?layout=single:chat.
+    await expectLayoutParam(page, "single:chat");
     // The renderer mounts; the heading stays `Window:` across the lens switch
     // (the anchor no longer jumps). The chat lens is proven by the chat-view.
     await expect(page.getByTestId("chat-view")).toBeVisible();
@@ -262,15 +278,16 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
     await expect(page.getByText("Window", { exact: true })).toBeVisible({ timeout: 10_000 });
 
     // Ctrl+` (plain Ctrl on both platforms — the VS-Code "toggle terminal"
-    // association) flips into the chat lens: URL gains ?view=chat, chat mounts.
+    // association) flips into the chat lens: the URL mirrors single:chat and
+    // the chat tile mounts.
     await page.keyboard.press("Control+`");
-    await expect(page).toHaveURL(new RegExp(`/${SERVER}/1\\?view=chat`));
+    await expectLayoutParam(page, "single:chat");
     await expect(page.getByTestId("chat-view")).toBeVisible();
 
-    // A second Ctrl+` flips back to tty and drops the ?view param. The heading
-    // is the static `Window:` throughout (does not vary with the lens).
+    // A second Ctrl+` flips back to tty (single:tty). The heading is the
+    // static `Window:` throughout (does not vary with the lens).
     await page.keyboard.press("Control+`");
-    await expect(page).not.toHaveURL(/\?view=/);
+    await expectLayoutParam(page, "single:tty");
     await expect(page.getByText("Window", { exact: true })).toBeVisible();
   });
 

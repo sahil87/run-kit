@@ -17,32 +17,34 @@
  * 260811-a2bo; Constitution II/X).
  */
 
-import { hasCode, hasWebUrl, type ViewWindow } from "./window-view";
+import type { ViewWindow } from "./window-view";
+import { availableTiles, type SurfaceKind } from "./surface-layout";
 
 /**
  * A named (substrate, lens) pairing rendered in the panel slot (spec § Surface
  * Registry). `web` is the phase-1 surface; `code` joined in phase 2
- * (260811-k3vp); `agents` joins when its phase ships.
+ * (260811-k3vp). Since 260812-ab5v (surface-layout R8) the registry is the
+ * SHARED tileable-surface registry — `SurfaceName` is an alias of
+ * `surface-layout.ts`'s `SurfaceKind` (itself `ViewName`), so the rail, the
+ * layout manager, and the view switcher can never drift: `tty` (always
+ * available, listed first) and `chat` are surfaces like any other.
  */
-export type SurfaceName = "web" | "code";
+export type SurfaceName = SurfaceKind;
 
 /**
- * The surfaces a window offers in the panel slot, in Surface Registry order.
- * `web` is available exactly when `hasWebUrl(win)` holds — reusing the shipped
- * helper as the single source of truth (no duplicate URL-trim logic; spec:
- * "same capability signal as the view registry row"). `code` mirrors the view
- * registry's gate via the shared `hasCode` helper: the window's gitRoot
- * derived — the one STABLE capability signal (the port resolves by convention
- * since 260811-a2bo). Reachability is NOT part of availability (it governs the
- * surface's content — live iframe vs the not-running empty state).
+ * The surfaces a window offers, `tty` FIRST then `web`/`chat`/`code` per
+ * capability (260812-ab5v R8). Delegates to `surface-layout.ts`'s
+ * `availableTiles` — the ONE registry rail + layout + switcher share — which
+ * in turn keys off `window-view.ts`'s capability helpers (`hasWebUrl` for
+ * `web`, `hasChat` for `chat`, `hasCode` for `code` — gitRoot-derived since
+ * 260811-a2bo) as the single availability source. Reachability is NOT part of
+ * availability (it governs a surface's content — live iframe vs the
+ * not-running empty state).
  */
 export function availableSurfaces(
   win: ViewWindow | null | undefined,
 ): SurfaceName[] {
-  const surfaces: SurfaceName[] = [];
-  if (hasWebUrl(win)) surfaces.push("web");
-  if (hasCode(win)) surfaces.push("code");
-  return surfaces;
+  return availableTiles(win);
 }
 
 /**
@@ -149,6 +151,22 @@ export function clampPanelWidth(pct: number, containerWidthPx: number): number {
   const floorPct =
     containerWidthPx > 0 ? (MIN_PANEL_WIDTH_PX / containerWidthPx) * 100 : 0;
   return Math.min(Math.max(pct, floorPct), Math.max(MAX_PANEL_WIDTH_PCT, floorPct));
+}
+
+/**
+ * Clamp a layout-divider boundary percentage (surface-layout R5,
+ * 260812-ab5v) — the `clampPanelWidth` approach generalized to a tile grid:
+ * the 280px floor is converted to a percentage of the container along the
+ * split axis and bounds BOTH sides (a divider may never strand a tile below
+ * the floor), so the range is [floor, 100 − floor] instead of the panel's
+ * one-sided 65% cap. A non-positive container size (unmeasured, jsdom) skips
+ * the floor exactly like `clampPanelWidth`. Neighbor-boundary bounds (a
+ * divider may not cross its siblings) are applied by the caller, which owns
+ * the ratios array.
+ */
+export function clampRatio(pct: number, containerPx: number): number {
+  const floorPct = containerPx > 0 ? (MIN_PANEL_WIDTH_PX / containerPx) * 100 : 0;
+  return Math.min(Math.max(pct, floorPct), 100 - floorPct);
 }
 
 /**

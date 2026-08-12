@@ -13,6 +13,12 @@
 > view's capability signal); [`status-pyramid.md`](status-pyramid.md) is
 > untouched by this model — status signals describe the substrate, never the
 > lens.
+>
+> **Succession note (2026-08-12)**: [`surface-layout.md`](surface-layout.md)
+> **[target]** generalizes *placement* — the exclusive main slot becomes a
+> multi-tile surface layout, and R4's switcher retires in its phase 3. R1–R3
+> and R5–R7 (availability derivation, per-viewer choice, tty reachability,
+> default hints, dot semantics, substrate/view split) carry over unchanged.
 
 ---
 

@@ -34,13 +34,16 @@ function intersects(
 }
 
 // Right-cluster controls in pyramid order (L1 → L2 → L3), by accessible name.
-// Terminal route as of 260812-d1at: L1 is the ONE merged split control (its
-// primary segment's accessible name), L2 is empty (fixed-width, Aa, and ✕ are
-// `menuOnly` now — see MENU_ONLY below), L3 is Refresh + the Settings gear
-// (relocated from the sidebar footer; the LAST fit candidate, so Refresh drops
-// before it). The update chip is context-gated and omitted from the ordering
-// assertion. Help/Keyboard/Theme are menuOnly App-section rows (never in-bar);
-// the bell and dot stay out of the bar (settings dialog / sidebar footer).
+// Terminal route as of 260812-d1at + 260812-ab5v: L1 is the merged split
+// control (its primary segment's accessible name) + the ▦ Layout chip
+// (260812-ab5v R9 — joined the registry right after `split`; overflowed, it
+// renders `Layout: …` radio rows in the menu), L2 is empty (fixed-width, Aa,
+// and ✕ are `menuOnly` now — see MENU_ONLY below), L3 is Refresh + the
+// Settings gear (relocated from the sidebar footer, 260812-d1at; the LAST fit
+// candidate, so Refresh drops before it). The update chip is context-gated
+// and omitted from the ordering assertion. Help/Keyboard/Theme are menuOnly
+// App-section rows (never in-bar); the bell and dot stay out of the bar
+// (settings dialog / sidebar footer).
 // The IN-BAR detection uses accessible-name ROLE queries (getByRole/getByLabel):
 // the always-present measurement probe is `aria-hidden`, so its duplicate
 // controls are OUTSIDE the accessibility tree and never matched — this is what
@@ -48,7 +51,7 @@ function intersects(
 // NOT work: the probe sits off-screen at -9999px but Playwright still considers
 // a sized off-screen element "visible").
 type NameMatcher = string | RegExp;
-const L1: NameMatcher[] = ["Split horizontally"];
+const L1: NameMatcher[] = ["Split horizontally", "Layout"];
 const L2: NameMatcher[] = [];
 const L3: NameMatcher[] = ["Refresh page", "Open settings"];
 // The three demoted controls (260731-oiho, the n2n4 menuOnly mechanism): their
@@ -61,11 +64,12 @@ const MENU_ONLY: NameMatcher[] = [
 
 /** Locate a control by accessible name across button OR link roles. `getByRole`
  *  excludes the aria-hidden measurement probe subtree, so a match means the
- *  control is rendered IN-BAR (Help is a link; the rest are buttons). */
+ *  control is rendered IN-BAR (Help is a link; the rest are buttons). String
+ *  names match EXACTLY — a substring "Layout" would also hit sidebar window
+ *  rows whose names carry the worktree slug ("…surface-layout-core"). */
 function byRoleName(page: Page, name: NameMatcher) {
-  return page
-    .getByRole("button", { name })
-    .or(page.getByRole("link", { name }));
+  const opts = typeof name === "string" ? { name, exact: true } : { name };
+  return page.getByRole("button", opts).or(page.getByRole("link", opts));
 }
 
 /** How many of the given controls are currently rendered IN-BAR (found in the
@@ -233,11 +237,14 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
       prevL1 = l1;
       prevL2 = l2;
     }
-    // At the narrowest width the pyramid's FRONT has been consumed: the L1
-    // split control has overflowed. The L3 tail (Refresh · Settings gear —
-    // the gear last, 260812-d1at) deliberately survives at the mobile leaf —
-    // the pyramid ORDER, not an all-gone cliff, is the contract.
-    expect(await inBarCount(page, L1), "L1 (split) overflowed at 375px").toBe(0);
+    // At the narrowest width the pyramid's FRONT has been fully consumed: both
+    // L1 members (split control + ▦ Layout chip) have overflowed. The L3 tail
+    // (Refresh · Settings gear — the gear last, 260812-d1at) deliberately
+    // survives at the mobile leaf — the pyramid ORDER, not an all-gone cliff,
+    // is the contract. (Exact-name matching matters here: a substring
+    // "Layout" would false-positive on sidebar window rows whose names carry
+    // the worktree slug.)
+    expect(await inBarCount(page, L1), "L1 (split + layout chip) overflowed at 375px").toBe(0);
   });
 
   test("the chevron menu contains the overflowed + menuOnly rows plus the version row, grouped under section labels", async ({
@@ -256,13 +263,18 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
 
     // The dropped controls appear as menu rows (mapped labels; the merged split
     // entry contributes BOTH one-action-per-row directions, horizontal first —
-    // the 260806-2x2h default), the menuOnly rows
+    // the 260806-2x2h default), the overflowed ▦ Layout chip (260812-ab5v)
+    // contributes its `Layout: …` radio rows (one per arity-valid shape — this
+    // 1-tile window has just `Layout: Single`), the menuOnly rows
     // are present (fixed-width / terminal-font stepper / close-pane), and the
     // version row is present (last). Whichever L3 controls still fit at 375px
     // stay in-bar (the pyramid's suffix rule), so no Refresh/Settings row is
     // asserted here — an in-bar entry contributes no menu row.
     await expect(menu.getByRole("menuitem", { name: "Split horizontal" })).toBeVisible();
     await expect(menu.getByRole("menuitem", { name: "Split vertical" })).toBeVisible();
+    await expect(
+      menu.getByRole("menuitemradio", { name: "Layout: Single" }),
+    ).toBeVisible();
     await expect(menu.getByRole("menuitemcheckbox", { name: /Fixed width/ })).toBeVisible();
     await expect(menu.getByRole("group", { name: "Terminal font size" })).toBeVisible();
     await expect(menu.getByRole("menuitem", { name: "Close pane" })).toBeVisible();
@@ -286,10 +298,11 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
     page,
   }) => {
     // The distinguishing 260731-oiho case: the bar has room at 1280px — the
-    // in-bar end state is Open · Split(▾) · Refresh · Gear · chevron — yet the
-    // demoted controls still live ONLY in the menu (menu-only, not
-    // space-driven overflow). The 260812-d1at chrome rows share that
-    // placement: Help / Keyboard / Theme… are `menuOnly` App-section rows.
+    // in-bar end state is Open · Split(▾) · ▦Layout · Refresh · Gear ·
+    // chevron — yet the demoted controls still live ONLY in the menu
+    // (menu-only, not space-driven overflow). The 260812-d1at chrome rows
+    // share that placement: Help / Keyboard / Theme… are `menuOnly`
+    // App-section rows.
     const id = await resolveWindow(page, WINDOW_NAME);
     await gotoWindow(page, id);
     const heading = page.getByRole("button", { name: `Rename window ${WINDOW_NAME}` });
@@ -515,6 +528,7 @@ test.describe("Top-bar overflow: ViewSwitcher is menu-only (260722-n2n4)", () =>
     // order). This retargets the former first-to-drop coverage (the pre-n2n4
     // pill) onto the new first candidate.
     const splitControl = () => byRoleName(page, "Split horizontally");
+    const allCandidates = [...L1, ...L2, ...L3];
     let sawInBar = false;
     for (const width of [1440, ...WIDTHS]) {
       await page.setViewportSize({ width, height: 800 });
@@ -528,10 +542,14 @@ test.describe("Top-bar overflow: ViewSwitcher is menu-only (260722-n2n4)", () =>
       const inBar = (await splitControl().count()) > 0;
       if (inBar) {
         sawInBar = true;
-        expect(
-          await inBarCount(page, [...L1, ...L2, ...L3]),
-          `every fit candidate in-bar while the split control survives at ${width}px`,
-        ).toBe(L1.length + L2.length + L3.length);
+        // RETRYING: right after a resize the ResizeObserver-driven re-fit can
+        // still be mid-cascade — a plain read can catch a transient frame where
+        // the split is in-bar but a tail control hasn't re-rendered yet (flaked
+        // at 700px with the 260812-ab5v layout chip in the fit). When the split
+        // is SETTLED in-bar, the suffix-fit guarantees every candidate is too.
+        await expect
+          .poll(() => inBarCount(page, allCandidates), { timeout: 10_000 })
+          .toBe(allCandidates.length);
       }
     }
     // The sweep genuinely exercised both sides of the drop threshold: in-bar at
@@ -564,10 +582,13 @@ test.describe("Top-bar overflow: ViewSwitcher is menu-only (260722-n2n4)", () =>
     await expect(ttyRow).toHaveAttribute("aria-checked", "true");
     await expect(webRow).toHaveAttribute("aria-checked", "false");
 
-    // Activating the Web row switches the lens: the URL gains `?view=web` and the
-    // proxied iframe renders.
+    // Activating the Web row switches the lens: R12's shim turns the selection
+    // into a `single:web` layout and the URL mirrors `?layout=single:web`
+    // (decoded — the router may percent-encode the `:`).
     await webRow.click();
-    await expect(page).toHaveURL(/\?view=web/, { timeout: 10_000 });
+    await expect
+      .poll(() => new URL(page.url()).searchParams.get("layout"), { timeout: 10_000 })
+      .toBe("single:web");
     await expect(page.getByTitle("Proxied content")).toBeVisible({ timeout: 10_000 });
     // The `View:` row is a `role="menuitemradio"` activation, so the chevron menu
     // closes (single-shot menu action). No in-bar pill appears after the switch.

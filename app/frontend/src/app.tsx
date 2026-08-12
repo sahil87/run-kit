@@ -2,20 +2,28 @@ import { lazy, Suspense, useEffect, useRef, useMemo, useState, useCallback, useS
 import { useNavigate, useMatches, useSearch, Outlet } from "@tanstack/react-router";
 import {
   availableViews,
-  resolveView,
-  readStoredView,
-  writeStoredView,
   nextView,
+  readStoredView,
   type ViewName,
 } from "@/lib/window-view";
 import {
   availableSurfaces,
-  resolvePanel,
   readStoredPanel,
-  writeStoredPanel,
-  removeStoredPanel,
   type SurfaceName,
 } from "@/lib/right-panel";
+import {
+  addSurface,
+  closeSurface,
+  promote,
+  readStoredLayout,
+  resolveLayout,
+  seedLayoutFromLegacy,
+  serializeLayout,
+  swapWithNext,
+  translateLegacyParams,
+  writeStoredLayout,
+  type Layout,
+} from "@/lib/surface-layout";
 import { matchesCombo, findMatches, shouldSuppressChord, withShortcutHints, formatCombo } from "@/lib/keybindings";
 import { isMacroActionId, type MacroAction } from "@/lib/macros";
 import { useKeybindings } from "@/hooks/use-keybindings";
@@ -29,6 +37,7 @@ import { FocusedPaneProvider } from "@/contexts/focused-pane-context";
 import { computeKillRedirect } from "@/lib/navigation";
 import { deriveEffectiveSessionOrder, computeMoveOrder, computeWindowMoveTarget } from "@/lib/palette-move";
 import { buildViewActions } from "@/lib/palette-view";
+import { buildLayoutActions } from "@/lib/palette-layout";
 import { buildStatusRefreshAction } from "@/lib/palette-status-refresh";
 import { buildPinActions } from "@/lib/palette-pin";
 import {
@@ -56,7 +65,6 @@ import { nextWaitingTarget, chatSearchForTarget, type WaitingTarget } from "@/li
 import { isWaiting } from "@/lib/waiting";
 import { useChatSubscription } from "@/hooks/use-chat-subscription";
 import { useChatViewShortcut } from "@/hooks/use-chat-view-shortcut";
-import { ChatView } from "@/components/chat-view";
 import {
   windowSwitchDirection,
   viewTransitionSupported,
@@ -93,10 +101,8 @@ import { TopBar, type TopBarMode } from "@/components/top-bar";
 import { useVisualViewport } from "@/hooks/use-visual-viewport";
 import { Shell } from "@/components/shell/shell";
 import { Sidebar } from "@/components/sidebar";
-import { TerminalClient } from "@/components/terminal-client";
-import { IframeWindow } from "@/components/iframe-window";
-import { CodeSurface } from "@/components/code-surface";
 import { RightPanel } from "@/components/right-panel";
+import { SurfaceLayout } from "@/components/surface-layout";
 import { BottomBar } from "@/components/bottom-bar";
 import { ComposeStrip } from "@/components/compose-strip";
 import { focusComposeStrip } from "@/lib/compose-strip-events";
@@ -524,6 +530,8 @@ function RootTopBar() {
       onSelectView={slot?.onSelectView}
       railOpen={slot?.railOpen}
       onToggleRail={slot?.onToggleRail}
+      layout={slot?.layout}
+      onApplyLayout={slot?.onApplyLayout}
     />
   );
 }
@@ -646,21 +654,21 @@ function AppShell() {
   // snapshot (not the URL). Undefined until the snapshot resolves the window.
   const sessionName = currentSession?.name;
 
-  // Window-view lens state (spec R2/R5; chat folded in from 260714-r7rq). Which
-  // lens THIS viewer looks through is per-viewer client state: the `?view=`
-  // search param (spec R2), then per-window localStorage, then the window's
-  // derived default hint (spec R5) — all resolved by the pure `resolveView`.
-  // Read the param with `strict:false` because AppShell also mounts on
-  // `/$server` (no window, no `view` param) — a non-strict read returns
-  // `view: undefined` there rather than throwing. An unavailable value (e.g.
-  // `?view=web` on a window with no `rkUrl`, or `?view=chat` on a window with no
-  // `chatProvider`) falls through inside `resolveView` to the terminal — never a
-  // broken iframe or an empty chat. The router module registration
-  // (`declare module` in router.tsx) types `.view` as `"web" | "chat" |
-  // undefined`, so no cast is needed (`resolveView` accepts it as-is).
+  // Surface-layout state (260812-ab5v-surface-layout-core; spec
+  // surface-layout.md L1–L3). The terminal route's center is a LAYOUT of 1–3
+  // surface tiles; the retired `?view=`/`?panel=` params feed a permanent
+  // translation shim (`?view=X` → `single:X`, `?view=X&panel=Y` →
+  // `split-h:X,Y`) so old deep links never break. Resolution (URL > per-window
+  // localStorage > default-view hint > `single:tty`, with tile-by-tile
+  // availability degradation) lives in the pure `resolveLayout`. The search
+  // params are read with `strict:false` because AppShell also mounts on
+  // `/$server` (no window) — a non-strict read returns `undefined` there
+  // rather than throwing. The router module registration
+  // (`validateTerminalSearch` in lib/router-url.ts) types `.view`/`.panel`/
+  // `.layout`, so no casts are needed.
   const search = useSearch({ strict: false });
   const searchView = search.view;
-  const storedView = windowParam ? readStoredView(server, windowParam) : undefined;
+  const searchPanel = search.panel;
   // The host-level code-server signal (260811-k3vp; portless since
   // 260811-a2bo) — `reachable` gates only the surface CONTENT (passed to
   // CodeSurface below); availability is gitRoot-derived (hasCode). `null` = no
@@ -670,107 +678,141 @@ function AppShell() {
     () => availableViews(currentWindow),
     [currentWindow],
   );
-  const resolvedView: ViewName = resolveView(searchView, storedView, currentWindow);
 
-  // Right-panel surface state (260811-2r1w-right-panel-shell-web-surface; spec
-  // right-panel.md P1) — the terminal route's SECOND render slot. Mirrors the
-  // lens model exactly: the `?panel=` search param, then the per-window
-  // localStorage key, then `null` (closed) — all resolved by the pure
-  // `resolvePanel`. Desktop-only in phase 1: below `isMobileViewport()`
-  // neither rail nor panel renders and `?panel=` is ignored (resolves closed).
-  const searchPanel = search.panel;
-  const storedPanel = windowParam ? readStoredPanel(server, windowParam) : undefined;
+  // The URL's EFFECTIVE layout candidate: a carried `?layout=` wins; absent
+  // that, the legacy params translate through the shim. Compared against the
+  // serialized resolved layout for the replaceState mirror below.
+  const searchLayout = search.layout ?? translateLegacyParams(searchView, searchPanel);
+  const storedLayout = windowParam ? readStoredLayout(server, windowParam) : undefined;
+  const layout = useMemo(
+    () => resolveLayout(searchLayout, storedLayout, currentWindow),
+    [searchLayout, storedLayout, currentWindow],
+  );
+  const serializedLayout = serializeLayout(layout);
+  // The lens model's consumers (view-cycle chord, palette `View:` actions,
+  // the ViewSwitcher, the top-bar slot) key off slot A — R12's shim: a
+  // multi-tile layout reflects slot A's surface; selecting a view collapses
+  // to `single:<view>` (see `switchView`).
+  const resolvedView: ViewName = layout.order[0];
+
+  // One-time migration seeding (R2): when no `rk-layout:` key exists for the
+  // window, translate the legacy `runkit-window-view`/`runkit-window-panel`
+  // keys into the equivalent layout value. Declared BEFORE the mirror effect
+  // so seeding lands first within a commit (effects run in order).
+  useEffect(() => {
+    if (windowParam) seedLayoutFromLegacy(server, windowParam);
+  }, [server, windowParam]);
+
+  // Mirror the APPLIED layout into the URL via replaceState (L2 — never
+  // pushState for layout changes), so the address bar is at all times a valid
+  // deep link to what is on screen. Only when the URL's RAW `layout` param
+  // differs from the resolved one (a carried legacy `view`/`panel` shim input
+  // must ALSO be rewritten — R2's "the URL is rewritten via replaceState" —
+  // which is why the comparison keys off `search.layout`, not the translated
+  // `searchLayout`) — otherwise this effect would navigate every render.
+  // Gated on `currentWindow` so a cold deep link is NOT clobbered by the
+  // pre-snapshot frame (capabilities unknown → everything degrades to tty).
+  // The stored value is re-read post-seed so a just-migrated legacy window
+  // mirrors its SEEDED layout, not the pre-seed fallback. localStorage is
+  // deliberately NOT written here — arrival via a carried `?layout=` is not a
+  // user mutation (L3).
+  useEffect(() => {
+    if (!windowParam || !currentWindow) return;
+    const target = serializeLayout(
+      resolveLayout(searchLayout, readStoredLayout(server, windowParam), currentWindow),
+    );
+    if (search.layout === target) return;
+    navigate({
+      to: "/$server/$window",
+      params: { server, window: windowParam },
+      search: { layout: target },
+      replace: true,
+    });
+  }, [server, windowParam, currentWindow, search.layout, searchLayout, navigate]);
+
+  // The ONE mutation path (R3 write discipline — user-initiated mutations
+  // only): persist per-window in localStorage AND mirror the URL via
+  // replaceState. Tile verbs, rail toggles, the view-cycle chord, and the
+  // ViewSwitcher all funnel through this. Stable across SSE ticks.
+  const applyLayout = useCallback(
+    (next: Layout) => {
+      if (!windowParam) return;
+      writeStoredLayout(server, windowParam, next);
+      navigate({
+        to: "/$server/$window",
+        params: { server, window: windowParam },
+        search: { layout: serializeLayout(next) },
+        replace: true,
+      });
+    },
+    [server, windowParam, navigate],
+  );
+
+  // Rail visibility (260812-nm4p, reinterpreted under 260812-ab5v): the
+  // top-bar rail toggle — the sidebar toggle's far-right mirror — collapses
+  // the RAIL COLUMN ONLY. Layout tiles live in the content column and are
+  // deliberately unaffected: each tile carries its own ✕ verb, and the
+  // palette/chords stay live while the rail is hidden, so nothing is ever
+  // dead. The pre-layout "collapse closes the open panel" rule is retired
+  // with the panel slot itself; visibility is the raw persisted preference.
+  const rightAreaVisible = railOpen;
+  const onToggleRail = useCallback(() => {
+    setRailOpen(!railOpen);
+  }, [railOpen, setRailOpen]);
+
+  // Switch the current window's lens (window-view spec R2/R7) — R12's shim:
+  // selecting a view sets the layout to `single:<view>` through the shared
+  // mutation path (a user mutation — persisted + mirrored). Never mutates
+  // `@rk_type` (that is substrate state, not view state).
+  const switchView = useCallback(
+    (view: ViewName) => applyLayout({ shape: "single", order: [view] }),
+    [applyLayout],
+  );
+
+  // Rail/palette surface toggle (right-panel P1/P6, retargeted to tiles in
+  // 260812-ab5v): an OPEN surface closes its tile (closeSurface — arity
+  // collapses), a closed one appends a tile (addSurface — 1→2 `split-h`,
+  // 2→3 `main-left`). A disallowed mutation (closing the last tile, adding a
+  // fourth) is a null no-op. Stable across SSE ticks.
+  const togglePanel = useCallback(
+    (surface: SurfaceName) => {
+      const next = layout.order.includes(surface)
+        ? closeSurface(layout, surface)
+        : addSurface(layout, surface);
+      if (next) applyLayout(next);
+    },
+    [layout, applyLayout],
+  );
+
+  // The surfaces the current window can tile (`tty` first — R8's shared
+  // registry), consumed by the rail and the palette gating.
   const panelSurfaces = useMemo(
     () => availableSurfaces(currentWindow),
     [currentWindow],
   );
-  const resolvedPanel: SurfaceName | null = isMobile
-    ? null
-    : resolvePanel(searchPanel, storedPanel, currentWindow);
 
-  // Toggle a panel surface open/closed (spec P1/P6): persist per-window in
-  // localStorage (open writes the value-bearing key, close REMOVES it — absent
-  // = closed) AND update the URL `?panel=` param so the state is deep-linkable
-  // (closing drops the param — closed is the clean-URL default). The `?view=`
-  // param rides along untouched (P2: the panel never changes the main slot's
-  // lens). Stable across SSE ticks.
-  const togglePanel = useCallback(
-    (surface: SurfaceName) => {
-      if (!windowParam) return;
-      const next = resolvedPanel === surface ? null : surface;
-      if (next) writeStoredPanel(server, windowParam, next);
-      else removeStoredPanel(server, windowParam);
-      navigate({
-        to: "/$server/$window",
-        params: { server, window: windowParam },
-        search: {
-          ...(searchView ? { view: searchView } : {}),
-          ...(next ? { panel: next } : {}),
-        },
-        replace: true,
-      });
-    },
-    [server, windowParam, navigate, resolvedPanel, searchView],
-  );
+  // ⏶ Zoom palette seam (T012/R11): the zoom itself is SurfaceLayout-internal
+  // transient state (R6 — no URL/localStorage); the palette's `Layout: Zoom`/
+  // `Layout: Unzoom` entries need to OBSERVE it (label gating) and TRIGGER it
+  // (the slot-A toggle). The component registers its toggle into this ref and
+  // reports flips through `onZoomChange`, so the palette list rebuilds on every
+  // zoom change. Not lifted: keying SurfaceLayout per window keeps the reset
+  // semantics where the state lives.
+  const layoutZoomToggleRef = useRef<(() => void) | null>(null);
+  const [layoutZoomed, setLayoutZoomed] = useState(false);
 
-  // Rail-collapse preference + DERIVED right-area visibility (260812-nm4p):
-  // `rightAreaVisible = railOpen || resolvedPanel != null` — an open panel
-  // always forces the right area visible, so `?panel=` deep links, the ⇧⌘.
-  // chord, and the `Panel: …` palette entries are never dead while the rail is
-  // collapsed. Computed at render, NEVER synchronized by an effect (the
-  // 2026-08-11 design discussion: derivation cannot race or desync, and an
-  // effect would corrupt the persisted `railOpen` preference).
-  const rightAreaVisible = railOpen || resolvedPanel != null;
-
-  // The top-bar rail toggle (260812-nm4p — the sidebar toggle's far-right
-  // mirror): toggles the RAIL STRIP ITSELF, never a panel surface. Collapse
-  // hides the whole right column (rail AND any open panel) so the terminal
-  // runs edge-to-edge; restore brings back only the rail (a panel closed by a
-  // collapse stays closed). Collapsing WITH an open panel closes it through
-  // the same path as `togglePanel`'s close branch (removeStoredPanel + drop
-  // `?panel=`) — a hidden-but-open panel would contradict its own URL.
-  const onToggleRail = useCallback(() => {
-    if (rightAreaVisible) {
-      if (resolvedPanel != null && windowParam) {
-        removeStoredPanel(server, windowParam);
-        navigate({
-          to: "/$server/$window",
-          params: { server, window: windowParam },
-          search: { ...(searchView ? { view: searchView } : {}) },
-          replace: true,
-        });
-      }
-      setRailOpen(false);
-    } else {
-      setRailOpen(true);
-    }
-  }, [rightAreaVisible, resolvedPanel, windowParam, server, navigate, searchView, setRailOpen]);
-
-  // Switch the current window's lens (spec R2/R7): persist per-window in
-  // localStorage (survives R6's param-drop on a window switch) AND update the
-  // URL `?view=` param so the state is copy-paste shareable / deep-linkable.
-  // `tty` DROPS the param (clean URL — tty is the always-available default);
-  // `web`/`chat` ride the URL (`?view=web` / `?view=chat`). Never mutates
-  // `@rk_type` (that is substrate state, not view state). An active `?panel=`
-  // param is PRESERVED (right-panel P2 — the panel slot is independent of the
-  // main slot's lens). Stable across SSE ticks (deps: server/windowParam/
-  // navigate/searchPanel).
-  const switchView = useCallback(
-    (view: ViewName) => {
-      if (!windowParam) return;
-      writeStoredView(server, windowParam, view);
-      navigate({
-        to: "/$server/$window",
-        params: { server, window: windowParam },
-        search: {
-          ...(view !== "tty" ? { view } : {}),
-          ...(searchPanel ? { panel: searchPanel } : {}),
-        },
-        replace: true,
-      });
-    },
-    [server, windowParam, navigate, searchPanel],
-  );
+  // Mobile slot-A tab state (T014/R13): below `isMobileViewport()` the center
+  // renders ONE tile; the bottom-bar ▦ chip's sheet tabs swap WHICH surface
+  // that is. This is TRANSIENT local state — the shared layout is never
+  // mutated (it stays desktop's arrangement; no URL/localStorage write, the
+  // same discipline as zoom). Resets on a window switch; a surface that left
+  // the layout falls back to slot A.
+  const [mobileSlotA, setMobileSlotA] = useState<SurfaceName | null>(null);
+  useEffect(() => setMobileSlotA(null), [server, windowParam]);
+  const mobileActiveTile: SurfaceName =
+    mobileSlotA && layout.order.includes(mobileSlotA)
+      ? mobileSlotA
+      : layout.order[0];
 
   // The effective keybinding map (260730-g40a): drives the migrated `⌘.` lens
   // cycle below, the shifted-tier dispatch mount (see the `useKeybindingDispatch`
@@ -1576,13 +1618,13 @@ function AppShell() {
 
   // Chat subscription (260717-vhvz — succeeds the dedicated per-view chat SSE) —
   // a single `kind:"chat"` subscription on the shared state socket, owned here so
-  // it feeds BOTH the `ChatView` renderer (below) and the connection dot's health
-  // (R13). The chat lens is active exactly when `resolveView` resolves to `chat`
-  // (which already bakes in the `chatProvider` availability gate, so a chat-less
-  // window never resolves here). Opened only when the chat view is active; the
-  // hook is a no-op with empty ids otherwise (it early-returns without
-  // subscribing), so a terminal-view window never streams.
-  const chatViewActive = resolvedView === "chat";
+  // it feeds BOTH the `ChatView` renderer (below) and the connection dot's
+  // health (R13).
+  // Opened when a chat tile is visible in ANY slot (260812-ab5v — a chat tile
+  // outside slot A still needs its stream); a chat-less window never resolves
+  // one (the ladder's degradation bakes in the `chatProvider` availability
+  // gate), so a terminal-only window never streams.
+  const chatViewActive = layout.order.includes("chat");
   const chatStream = useChatSubscription(
     chatViewActive ? server : "",
     chatViewActive ? windowParam ?? "" : "",
@@ -1643,26 +1685,35 @@ function AppShell() {
   switchTransitionRef.current = {
     order: flatWindows.map((fw) => fw.window.windowId),
     // A target is UNGATED (ungated capture, no xterm first-write receipt seam)
-    // exactly when its EFFECTIVE resolved view is NOT `tty` — i.e. it will
-    // render the IframeWindow (web) or ChatView (chat) branch, neither of which
-    // has the terminal's first-write seam (260714-t97o-web-view-lens R12; chat
-    // folded in from 260714-r7rq). The URL `?view=` param is NOT known for a
-    // not-yet-navigated target, so we resolve from localStorage + the window's
-    // default hint only (URL passed `undefined`). `resolveView` bakes in
-    // availability, so an iframe-typed window with no `rkUrl`, a chat-capable
-    // window whose last-view is `tty`, or any window whose last-view is `tty`
-    // resolves to `tty` and STAYS on the gated terminal path — getting this
-    // wrong reintroduces the blank-pane/stuck-transition class of bugs
-    // (ui-patterns.md § Window-Switch Slide Transition).
+    // exactly when its effective MAIN SLOT (slot A of the resolved layout,
+    // 260812-ab5v) is NOT `tty` — i.e. it renders the IframeWindow (web),
+    // ChatView (chat), or CodeSurface (code) surface in its main slot, none of
+    // which has the terminal's first-write seam (260714-t97o-web-view-lens R12;
+    // chat folded in from 260714-r7rq). The URL `?layout=` param is NOT known
+    // for a not-yet-navigated target, so we resolve from localStorage + the
+    // window's default hint only (URL passed `undefined`) — honoring BOTH the
+    // new `rk-layout:` key and its legacy `runkit-window-view`/`-panel`
+    // predecessors via the translation shim (the per-window seeding only runs
+    // for the CURRENT window at route entry). `resolveLayout` bakes in
+    // availability degradation, so an iframe-typed window with no `rkUrl`, a
+    // chat-capable window whose last layout is `single:tty`, or any window
+    // whose last layout is tty-led resolves tty-led and STAYS on the gated
+    // terminal path — getting this wrong reintroduces the
+    // blank-pane/stuck-transition class of bugs (ui-patterns.md §
+    // Window-Switch Slide Transition).
     ungatedIds: new Set(
       flatWindows
         .filter(
           (fw) =>
-            resolveView(
+            resolveLayout(
+              readStoredLayout(server, fw.window.windowId) ??
+                translateLegacyParams(
+                  readStoredView(server, fw.window.windowId),
+                  readStoredPanel(server, fw.window.windowId),
+                ),
               undefined,
-              readStoredView(server, fw.window.windowId),
               fw.window,
-            ) !== "tty",
+            ).order[0] !== "tty",
         )
         .map((fw) => fw.window.windowId),
     ),
@@ -2453,32 +2504,30 @@ function AppShell() {
           return b?.enabled ? formatCombo(b, bindingHost.platform) : "";
         })(),
       }),
-      // Right-panel surface toggles (260811-2r1w + 260811-k3vp, spec
-      // right-panel.md P7) — Constitution V palette parity for the rail
-      // buttons. Each entry is offered only on a desktop window route where
-      // that surface is available. The `panel-toggle` id IS the registry
-      // actionId, so `withShortcutHints` decorates `Panel: Web` with the
-      // effective ⇧⌘. chord (the code-review rule that shortcuts are
-      // documented in the palette registration); `Panel: Code` carries the
-      // SAME hint explicitly — on a code-only window the chord toggles THIS
-      // surface, so it must be discoverable there. The chord itself toggles
-      // the OPEN surface, else the first available (spec P7 "last-used
-      // surface" — see the `panel-toggle` handler below).
-      ...(windowParam && !isMobile && panelSurfaces.includes("web")
-        ? [{ id: "panel-toggle", label: "Panel: Web", onSelect: () => togglePanel("web") }]
-        : []),
-      ...(windowParam && !isMobile && panelSurfaces.includes("code")
-        ? [{
-            id: "panel-code",
-            label: "Panel: Code",
-            // withShortcutHints has no `panel-code` binding to decorate (it
-            // leaves this entry untouched), so the hint rides manually.
-            shortcut: (() => {
+      // Layout entries (260812-ab5v R11, T012) — Constitution V palette parity
+      // for the rail toggles, tile verbs, and ▦ chip: `Layout: Add/Close
+      // <Surface>` (the rail's toggles), `Layout: Zoom`/`Unzoom` (the
+      // transient slot-A zoom), `Layout: Promote/Swap <Surface>` (the tile
+      // verbs), per-shape jumps for the current arity, and `Layout: Cycle
+      // Shape` (the `layout-cycle` chord's body — its id IS the registry
+      // actionId, so `withShortcutHints` decorates it with the effective ⌘;
+      // combo). These REPLACE the retired `Panel: Web`/`Panel: Code` entries —
+      // the layout model subsumes the panel; the ⇧⌘. `panel-toggle` chord
+      // (first non-tty tile) is documented via the target surface's Add/Close
+      // entry hint. The gating + labels live in the pure `buildLayoutActions`
+      // (lib/palette-layout.ts), the `buildViewActions` precedent.
+      ...(windowParam
+        ? buildLayoutActions(layout, panelSurfaces, {
+            zoomed: layoutZoomed,
+            zoomEnabled: !isMobile && layout.order.length > 1,
+            onApply: applyLayout,
+            onZoomToggle: () => layoutZoomToggleRef.current?.(),
+            toggleTarget: panelSurfaces.find((s) => s !== "tty") ?? null,
+            toggleShortcut: (() => {
               const b = bindingByAction.get("panel-toggle");
               return b?.enabled ? formatCombo(b, bindingHost.platform) : "";
             })(),
-            onSelect: () => togglePanel("code"),
-          }]
+          })
         : []),
       // Rail toggle (260812-nm4p) — Constitution V keyboard path for the
       // top-bar's far-right rail chip: collapses/restores the whole right
@@ -2495,7 +2544,7 @@ function AppShell() {
         onSelect: toggleFixedWidth,
       },
     ],
-    [sessionName, fixedWidth, toggleFixedWidth, toggleComposeStrip, currentViews, resolvedView, switchView, bindingByAction, bindingHost, windowParam, isMobile, panelSurfaces, togglePanel, onToggleRail],
+    [sessionName, fixedWidth, toggleFixedWidth, toggleComposeStrip, currentViews, resolvedView, switchView, bindingByAction, bindingHost, windowParam, isMobile, layout, panelSurfaces, applyLayout, layoutZoomed, onToggleRail],
   );
 
   // Navigation actions (`Go: Back` / `Go: Forward` / ancestor entries,
@@ -2986,18 +3035,25 @@ function AppShell() {
       // are terminal-route actions, like `open-last-used`).
       "split-horizontal": fromPalette("split-horizontal"),
       "split-vertical": fromPalette("split-vertical"),
-      // ⇧⌘. panel toggle (260811-2r1w, generalized in 260811-k3vp) — spec P7's
-      // "toggles the last-used surface": with the value-bearing-key model the
-      // last-used surface exists only while OPEN, so the chord toggles the
-      // currently-open surface off, else opens the first AVAILABLE surface
-      // (web-only windows behave exactly as phase 1). Its gating (desktop
-      // window route + ≥1 available surface) gates the chord for free.
+      // ⇧⌘. panel toggle (260811-2r1w, generalized in 260811-k3vp) — retargeted
+      // to the layout model in 260812-ab5v: toggles the first NON-TTY available
+      // surface's TILE via addSurface/closeSurface (through `togglePanel`).
+      // Its gating (desktop window route + ≥1 available non-tty surface) gates
+      // the chord for free.
       "panel-toggle":
-        windowParam && !isMobile && panelSurfaces.length > 0
-          ? () => togglePanel(resolvedPanel ?? panelSurfaces[0])
+        windowParam && !isMobile && panelSurfaces.some((s) => s !== "tty")
+          ? () => {
+              const first = panelSurfaces.find((s) => s !== "tty");
+              if (first) togglePanel(first);
+            }
           : undefined,
+      // ⌘; layout-shape cycle (260812-ab5v R9) — the ▦ chip's chord: the next
+      // same-arity preset, order kept. Reuses the `Layout: Cycle Shape`
+      // palette body, whose gating (window route + a non-degenerate arity
+      // ring) gates the chord for free.
+      "layout-cycle": fromPalette("layout-cycle"),
     };
-  }, [paletteActions, paletteGlobals, currentSession, windowParam, navigateToWindow, macros, sessionName, executeMacro, toggleComposeStrip, addToast, isMobile, panelSurfaces, resolvedPanel, togglePanel]);
+  }, [paletteActions, paletteGlobals, currentSession, windowParam, navigateToWindow, macros, sessionName, executeMacro, toggleComposeStrip, addToast, isMobile, panelSurfaces, togglePanel]);
   useKeybindingDispatch(keybindingHandlers);
 
   const displayName = currentWindow?.name ?? windowParam ?? "";
@@ -3149,13 +3205,19 @@ function AppShell() {
       availableViews: currentViews,
       activeView: resolvedView,
       onSelectView: switchView,
-      // Rail toggle (260812-nm4p): `railOpen` carries the DERIVED
-      // rightAreaVisible (icon fill tracks what the user sees, not the raw
-      // preference). The handler registers on EVERY desktop terminal route —
-      // even with zero available surfaces, the rail still renders (plan A2
-      // landing-pad behavior). Absent on board/host/mobile → no toggle.
+      // Rail toggle (260812-nm4p, reinterpreted under 260812-ab5v): `railOpen`
+      // carries the raw persisted preference (tiles are content-column state
+      // and never force the rail visible). The handler registers on EVERY
+      // desktop terminal route — even with zero available surfaces, the rail
+      // still renders (landing-pad behavior). Absent on board/host/mobile →
+      // no toggle.
       railOpen: rightAreaVisible,
       onToggleRail: windowParam && !isMobile ? onToggleRail : undefined,
+      // ▦ Layout chip machinery (260812-ab5v R9): the resolved layout + the
+      // single mutation path. The top bar's chip/rows jump presets through
+      // `applyLayout` like every other mutation.
+      layout,
+      onApplyLayout: applyLayout,
     }),
     [
       sessions,
@@ -3177,6 +3239,8 @@ function AppShell() {
       windowParam,
       isMobile,
       onToggleRail,
+      layout,
+      applyLayout,
     ],
   );
   useRegisterTopBarSlot(topBarSlot);
@@ -3227,62 +3291,21 @@ function AppShell() {
       rightPanelVisible={rightAreaVisible}
       rightPanelChildren={
         windowParam && !isMobile ? (
-          // Rail + panel shell (260811-2r1w), now the Shell grid's full-height
-          // third column (260812-nm4p). Keyed by server:window so a window
-          // switch REMOUNTS the panel (its content is per-window state);
-          // within one window the surface subtree mounts lazily on first open
-          // and then hides at display level — never unmounts (P3). Collapse
-          // via `rightAreaVisible` is ALSO display-level (Shell's hidden
-          // aside), so the iframes survive a rail collapse too. The rail
-          // renders on EVERY desktop terminal route (even with zero available
-          // surfaces); its buttons render per AVAILABLE surface.
+          // Rail (260811-2r1w; rail-only since 260812-ab5v T011 — layout
+          // tiles subsume the panel slot, so the Shell's third column
+          // (260812-nm4p) now holds JUST the rail; surface content lives in
+          // the content column's tile grid). Buttons are open-tile TOGGLES
+          // (R10): lit per open tile (`layout.order`), click adds/closes via
+          // `togglePanel` → applyLayout; disabled+tooltip at 3 tiles. Keyed
+          // by server:window like the panel was. Collapse via
+          // `rightAreaVisible` is display-level (Shell's hidden aside) and
+          // never touches the tiles.
           <RightPanel
             key={`${server}:${windowParam}`}
             available={panelSurfaces}
-            active={resolvedPanel}
+            open={layout.order}
             onToggle={togglePanel}
-          >
-            {/* One subtree per AVAILABLE surface, each hidden at display
-                level unless it is the ACTIVE surface (P3 hide-never-unmount
-                extended across surface switches, 260811-k3vp): the web iframe
-                and the code iframe BOTH stay mounted while the route lives,
-                so switching surfaces or collapsing the panel preserves each
-                iframe's in-memory state. The wrapper owns the visibility
-                toggle; the renderer inside is unchanged.
-
-                The `web` surface reuses the shipped IframeWindow renderer
-                with NO `onSwitchToTty` (the panel-context seam — the `>_`
-                switch-to-terminal affordance is meaningless beside the
-                visible tty; the URL bar and refresh stay). The
-                `currentWindow?.rkUrl` guard narrows the prop type; an
-                available `web` surface already implies `hasWebUrl` held. */}
-            {panelSurfaces.includes("web") && currentWindow?.rkUrl ? (
-              <div
-                data-testid="panel-surface-web"
-                className={`flex-col flex-1 min-h-0 h-full ${resolvedPanel === "web" ? "flex" : "hidden"}`}
-              >
-                <IframeWindow
-                  windowId={currentWindow.windowId}
-                  rkUrl={currentWindow.rkUrl}
-                />
-              </div>
-            ) : null}
-            {/* The `code` surface renders the lean CodeSurface (no URL bar —
-                the code-server URL is fully derived). An available `code`
-                surface implies gitRoot derived. */}
-            {panelSurfaces.includes("code") && currentWindow?.gitRoot ? (
-              <div
-                data-testid="panel-surface-code"
-                className={`flex-col flex-1 min-h-0 h-full ${resolvedPanel === "code" ? "flex" : "hidden"}`}
-              >
-                <CodeSurface
-                  gitRoot={currentWindow.gitRoot}
-                  reachable={codeServer?.reachable ?? false}
-                  shouldReclaimChord={reclaimChord}
-                />
-              </div>
-            ) : null}
-          </RightPanel>
+          />
         ) : undefined
       }
       sidebarResizeHandle={
@@ -3370,10 +3393,15 @@ function AppShell() {
               <LogoSpinner size={48} />
             </div>
           )}
-          {/* Main lens slot — the panel/rail pair left this row in 260812-nm4p
-              (they are now the Shell grid's full-height third column, passed
-              via `rightPanelChildren`); the lens model itself is unchanged
-              (P2 — the panel never touches `?view=` resolution). */}
+          {/* Surface-layout column (260812-ab5v-surface-layout-core, spec
+              surface-layout.md): the tile grid (SurfaceLayout) renders the
+              RESOLVED layout as 1–3 tiles mounting the existing renderers
+              unchanged — it SUBSUMES both the legacy exclusive-lens branch
+              (the ViewSwitcher now drives `single:<view>` through applyLayout
+              — R12) and the right-panel surface mount (the panel slot is a
+              tile now — R6). The rail left this row in 260812-nm4p — it is
+              the Shell grid's full-height third column, passed via
+              `rightPanelChildren` — and renders open-tile toggles (R10). */}
           <div className="flex-1 min-w-0 min-h-0 flex flex-col">
           {/* Render gate keys on `windowParam` (the URL's @N) ALONE, not the
               SSE-derived `sessionName`. The session name is only needed for the
@@ -3382,73 +3410,56 @@ function AppShell() {
               session would needlessly delay the mount on a cold deep-link (and
               briefly flash the Dashboard). */}
           {windowParam ? (
-            chatViewActive ? (
-              // Chat view (260714-r7rq) — read-only HTML renderer over the same
-              // pane, swapped in ahead of the iframe/terminal branches. The chat
-              // stream is owned by AppShell (`chatStream`, the `kind:"chat"` state
-              // -socket subscription — 260717-vhvz) so one subscription feeds both
-              // this renderer and the connection dot's health.
-              <ChatView
-                // Key by SERVER + window so switching chat-lens targets REMOUNTS
-                // ChatView (and its ChatSendForm) rather than reusing the mounted
-                // instance: a half-typed draft and a stale inline 409 error must
-                // not carry over to the new pane, and the desktop autofocus must
-                // re-fire for the newly-focused window. The server is part of the
-                // key because two different servers can share a window id (@1 ↔
-                // @1) — a window-only key would fail to remount across a server
-                // switch, carrying one server's draft/error into another's pane.
-                key={`${server}:${windowParam}`}
-                events={chatStream.events}
-                pending={chatStream.pending}
-                connected={chatStream.connected}
-                error={chatStream.error}
+            <SurfaceLayout
+              // Keyed by server:window so a window switch REMOUNTS the grid —
+              // its hide-never-unmount set, zoom, and ratio-drag state are
+              // per-window (the RightPanel keying precedent).
+              key={`${server}:${windowParam}`}
+              layout={layout}
+              server={server}
+              windowId={windowParam}
+              sessionName={sessionName ?? ""}
+              window={currentWindow}
+              isMobile={isMobile}
+              // T014: on mobile the sheet tabs pick which slot renders
+              // (transient — the layout itself is untouched).
+              mobileActiveSlot={layout.order.indexOf(mobileActiveTile)}
+              wsRef={wsRef}
+              focusRef={focusTerminalRef}
+              scrollLocked={scrollLocked}
+              onSessionNotFound={() => navigate({ to: "/$server", params: { server }, replace: true })}
+              chat={{
+                events: chatStream.events,
+                pending: chatStream.pending,
+                connected: chatStream.connected,
+                error: chatStream.error,
                 // AppShell wires the send callback (chat-send POST) + the busy
                 // signal (agentState === "active"); ChatView stays pure. The
-                // chat lens is only active with a real windowParam, so `@N` is a
-                // non-empty string here.
-                onSend={async (text, submit) => {
+                // chat tile only resolves on a chat-capable window, so `@N`
+                // is a non-empty string here.
+                onSend: async (text, submit) => {
                   await sendChatMessage(server, windowParam, text, submit);
-                }}
-                busy={currentWindow?.agentState === "active"}
-              />
-            ) : resolvedView === "code" && currentWindow?.gitRoot ? (
-              // The code lens (260811-k3vp) in the MAIN slot — `?view=code`.
-              // `resolveView` baked in availability (gitRoot derived);
-              // `gitRoot` here is the TS narrowing. Reachability selects
-              // CodeSurface's content (live iframe vs the not-running empty
-              // state) — it never re-resolves the lens.
-              <div className="flex-1 min-h-0 flex flex-col">
-                <CodeSurface
-                  gitRoot={currentWindow.gitRoot}
-                  reachable={codeServer?.reachable ?? false}
-                  shouldReclaimChord={reclaimChord}
-                />
-              </div>
-            ) : resolvedView === "web" && currentWindow?.rkUrl ? (
-              // `resolvedView === "web"` already implies web is AVAILABLE (so
-              // `hasWebUrl` held — `resolveView` bakes availability in); the
-              // `currentWindow?.rkUrl` here is the TS narrowing that proves
-              // `rkUrl` is a non-empty string for the prop below.
-              <div className="flex-1 min-h-0 flex flex-col">
-                <IframeWindow
-                  windowId={currentWindow.windowId}
-                  rkUrl={currentWindow.rkUrl}
-                  onSwitchToTty={() => switchView("tty")}
-                />
-              </div>
-            ) : (
-              <div className="flex-1 min-h-0 py-0.5 px-1 flex flex-col">
-                <TerminalClient
-                  sessionName={sessionName ?? ""}
-                  windowId={windowParam}
-                  server={server}
-                  wsRef={wsRef}
-                  onSessionNotFound={() => navigate({ to: "/$server", params: { server }, replace: true })}
-                  focusRef={focusTerminalRef}
-                  scrollLocked={scrollLocked}
-                />
-              </div>
-            )
+                },
+                busy: currentWindow?.agentState === "active",
+              }}
+              codeReachable={codeServer?.reachable ?? false}
+              shouldReclaimChord={reclaimChord}
+              // The web tile's `>_` affordance keeps the legacy "switch to
+              // terminal" behavior: collapse to `single:tty`.
+              onSwitchToTty={() => applyLayout({ shape: "single", order: ["tty"] })}
+              onPromote={(surface) => applyLayout(promote(layout, surface))}
+              onSwap={(surface) => applyLayout(swapWithNext(layout, surface))}
+              onClose={(surface) => {
+                const next = closeSurface(layout, surface);
+                if (next) applyLayout(next);
+              }}
+              // ⏶ Zoom palette seam (T012/R11): the component owns the
+              // transient zoom state and registers its slot-A toggle here;
+              // flips report back so the `Layout: Zoom`/`Unzoom` palette
+              // entries stay fresh.
+              zoomToggleRef={layoutZoomToggleRef}
+              onZoomChange={setLayoutZoomed}
+            />
           ) : (
             <SessionTiles
               server={server}
@@ -3496,6 +3507,20 @@ function AppShell() {
             onOpenCompose={toggleComposeStrip}
             onFocusTerminal={() => focusTerminalRef.current?.()}
             onScrollLockChange={setScrollLocked}
+            // Mobile surface tabs (T014/R13): only on the mobile terminal
+            // route with a multi-tile layout — the ▦ chip's sheet swaps the
+            // mobile slot-A surface via transient state (never a layout
+            // mutation). Tabs are deduped (a duplicate-tty layout gets one
+            // Terminal tab).
+            surfaceSheet={
+              isMobile && windowParam && layout.order.length > 1
+                ? {
+                    surfaces: [...new Set(layout.order)],
+                    active: mobileActiveTile,
+                    onSelect: (surface) => setMobileSlotA(surface),
+                  }
+                : undefined
+            }
           />
         </div>
       </footer>

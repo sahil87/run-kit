@@ -25,6 +25,12 @@
 > Companions: [`agent-state.md`](agent-state.md) (the rollup the agents
 > surface feeds), [`status-pyramid.md`](status-pyramid.md) (untouched — status
 > describes substrates, and companions roll into their owner's substrate).
+>
+> **Succession note (2026-08-12)**: [`surface-layout.md`](surface-layout.md)
+> **[target]** generalizes the panel slot into a full surface layout manager —
+> P6's one-surface rule and the panel-slot placement mechanics are superseded
+> there; the rail, availability derivation, the `code` lens, companions, and
+> P4 carry forward unchanged.
 
 ---
 

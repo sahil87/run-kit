@@ -114,6 +114,18 @@ describe("ViewSwitcher", () => {
     render(<ViewSwitcher views={["web", "tty"]} active="web" onSelect={() => {}} />);
     expect(screen.getByRole("group", { name: "Window view" })).toBeTruthy();
   });
+
+  it("reflects an arbitrary surface as active — the layout's slot A (260812-ab5v R12)", () => {
+    // Multi-tile layouts feed the switcher slot A (`layout.order[0]`), which
+    // may be ANY available surface — e.g. `main-left:code,tty,web` shows the
+    // code segment lit while the layout keeps three tiles. The component is
+    // prop-driven, so this needs no layout awareness.
+    render(<ViewSwitcher views={["tty", "web", "code"]} active="code" onSelect={() => {}} />);
+    const code = screen.getByRole("button", { name: "Code view" });
+    expect(code.getAttribute("aria-pressed")).toBe("true");
+    expect(code.className).toContain("bg-accent-green");
+    expect(screen.getByRole("button", { name: "Terminal view" }).getAttribute("aria-pressed")).toBe("false");
+  });
 });
 
 describe("ViewSwitcherMenuRows (overflow-menu representation, 260717-6anu)", () => {

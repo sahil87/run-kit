@@ -46,10 +46,12 @@ import {
   AutofitGlyph,
   TerminalFontGlyph,
 } from "@/components/top-bar-icons";
+import { LayoutChip, LayoutMenuRows } from "@/components/layout-chip";
 import { computeVisibleCount } from "@/lib/top-bar-overflow";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { formatCombo } from "@/lib/keybindings";
 import type { ViewName } from "@/lib/window-view";
+import type { Layout } from "@/lib/surface-layout";
 import type { ProjectSession, WindowInfo } from "@/types";
 import type { BreadcrumbDropdownItem } from "@/contexts/chrome-context";
 
@@ -184,6 +186,13 @@ type TopBarProps = {
   /** Handler that switches the current window's lens (URL param + localStorage);
    *  wired from AppShell's `switchView`. Absent → no switcher rendered. */
   onSelectView?: (view: ViewName) => void;
+  /** Surface-layout machinery (260812-ab5v R9), registered by AppShell on the
+   *  terminal route via the slot context: the RESOLVED layout + the shared
+   *  user-mutation path (`applyLayout`). Feed the L1 ▦ Layout chip (preset
+   *  popover, current shape marked, direct jump). Absent → no chip, no menu
+   *  rows. */
+  layout?: Layout;
+  onApplyLayout?: (next: Layout) => void;
 };
 
 function HamburgerIcon({ isOpen, side = "left" }: { isOpen: boolean; side?: "left" | "right" }) {
@@ -419,6 +428,8 @@ export function TopBar({
   availableViews,
   activeView,
   onSelectView,
+  layout,
+  onApplyLayout,
 }: TopBarProps) {
   // `showChip` tells us whether the UpdateChip WOULD render in the bar (a
   // qualifying, undismissed, non-dev update). When it does but the chip's
@@ -608,6 +619,27 @@ export function TopBar({
             <SplitMenuRow horizontal server={server} windowId={currentWindow.windowId} cwd={currentWindow.worktreePath} />
             <SplitMenuRow server={server} windowId={currentWindow.windowId} cwd={currentWindow.worktreePath} />
           </>
+        ) : null,
+    },
+    // ▦ Layout chip (260812-ab5v R9) — terminal-only, L1 tier: click opens a
+    // popover of the preset-shape glyphs valid for the CURRENT tile count
+    // (current marked, direct jump via `setShape` → `onApplyLayout`); the
+    // same-arity cycle chord is the registry's `layout-cycle` binding with
+    // palette parity (`Layout: Cycle Shape`). Overflowed, its rows are one
+    // `Layout: …` radio row per arity-valid shape (LayoutMenuRows). Hidden
+    // until AppShell registers the layout slot (or off the window route).
+    {
+      id: "layout",
+      modes: ["terminal"],
+      menuGroup: "view",
+      hidden: !(mode === "terminal" && currentWindow && layout && onApplyLayout),
+      barRender: () =>
+        layout && onApplyLayout ? (
+          <LayoutChip layout={layout} onApply={onApplyLayout} />
+        ) : null,
+      menuRender: () =>
+        layout && onApplyLayout ? (
+          <LayoutMenuRows layout={layout} onApply={onApplyLayout} />
         ) : null,
     },
     // Fixed-width toggle — MENU-ONLY as of 260731-oiho: a sticky per-device

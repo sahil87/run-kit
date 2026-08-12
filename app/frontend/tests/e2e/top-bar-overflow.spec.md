@@ -20,11 +20,13 @@ the relocated Help / Keyboard / Theme… chrome rows, `menuOnly` since
 the menu; (h) the Settings gear (260812-d1at, relocated from the sidebar
 footer) is a real fit candidate — the LAST one (Refresh drops before it) —
 rendering in-bar between Refresh and the chevron at desktop widths.
-Since 260812-d1at the terminal fit tiers are: L1 = the ONE merged split control
+Since 260812-d1at + 260812-ab5v the terminal fit tiers are: L1 = the merged split control
 (primary segment `Split horizontally` — the default flipped from vertical in
-260806-2x2h), L2 = empty, L3 = Refresh + Settings gear — the in-bar end state
-is Open · Split(▾) · Refresh · Gear · chevron · rail-toggle (rail toggle
-desktop-only, 260812-nm4p).
+260806-2x2h) + the ▦ Layout chip (260812-ab5v R9 — a fit candidate right after
+`split`; overflowed, it renders one `Layout: …` radio row per arity-valid
+shape), L2 = empty, L3 = Refresh + Settings gear — the in-bar end state is
+Open · Split(▾) · ▦Layout · Refresh · Gear · chevron · rail-toggle (rail
+toggle desktop-only, 260812-nm4p).
 
 ## Shared setup
 
@@ -72,20 +74,23 @@ menuOnly controls render in-bar NOWHERE at any width (g, 260731-oiho).
 
 **What it proves:** the M1 fix (in-bar controls exist at wide widths) AND the
 pyramid drop order — overflow consumes from the front, so L1 (the merged split
-control) empties before L3 (Refresh · Settings gear) starts dropping (L2 is
-empty since the 260731-oiho demotions); each tier's in-bar count is monotonic
-non-increasing as width shrinks WITHIN each viewport regime — the desktop-only
-rail toggle (260812-nm4p) unmounts below 640px, shrinking the trailing exempt
-block, so the monotonic baseline resets once at the desktop→mobile crossing
-while the per-width pyramid-order assertions run unconditionally; at 375px the
-pyramid's front (the L1 split) has overflowed while the L3 tail survives — the
-ORDER (not an all-gone cliff) is the contract.
+control + the ▦ Layout chip, 260812-ab5v) empties before L3 (Refresh ·
+Settings gear) starts dropping (L2 is empty since the 260731-oiho demotions);
+each tier's in-bar count is monotonic non-increasing as width shrinks WITHIN
+each viewport regime — the desktop-only rail toggle (260812-nm4p) unmounts
+below 640px, shrinking the trailing exempt block, so the monotonic baseline
+resets once at the desktop→mobile crossing while the per-width pyramid-order
+assertions run unconditionally; at 375px the pyramid's front (both L1 members)
+has overflowed while the L3 tail survives — the ORDER (not an all-gone cliff)
+is the contract.
 
 **Steps:**
 1. At 1280px assert at least some L3 controls render in-bar (the direct M1
    regression assertion — pre-fix this is 0).
 2. Sweep the widths; at each, count in-bar members of L1 / L2 / L3 (accessible-name
-   role queries, probe excluded), re-reading until two consecutive (L1, L2, L3)
+   role queries with EXACT string matching — a substring "Layout" would
+   false-positive on sidebar window rows carrying the worktree slug; the probe
+   is excluded), re-reading until two consecutive (L1, L2, L3)
    snapshots agree — the three tier reads are not atomic, and the
    ResizeObserver-driven overflow recompute can re-render between them, so
    invariants are asserted on a settled layout, not a transient frame. Assert L1
@@ -93,27 +98,30 @@ ORDER (not an all-gone cliff) is the contract.
    the 640px mobile boundary, where the desktop-only rail toggle unmounts and
    frees trailing width); assert L2 is full while any L1 is in-bar and
    L3 is full while any L2 is in-bar.
-3. At 375px assert the L1 in-bar count is 0 (the split has overflowed).
+3. At 375px assert the L1 in-bar count is 0 (split AND layout chip overflowed;
+   Refresh survives — the ORDER, not an all-gone cliff, is the contract).
 
 ### `the chevron menu contains the overflowed + menuOnly rows plus the version row, grouped under section labels`
 
 **What it proves:** at 375px the menu lists the overflowed split rows (the
-merged entry's two one-action rows), the menuOnly trio's rows, and the
-relocated App-section chrome rows (260812-d1at: Help — run-kit docs, Keyboard
-shortcuts, Theme…), plus the always-present version row — grouped under the
-View / Window / App uppercase section labels (c, 260731-oiho). Whichever L3
-controls still fit at 375px stay in-bar (the suffix rule), so no Refresh /
-Settings row is asserted either way.
+merged entry's two one-action rows), the overflowed ▦ Layout chip's
+`Layout: Single` radio row (260812-ab5v — one row per arity-valid shape; this
+1-tile window has just the one), the menuOnly trio's rows, and the relocated
+App-section chrome rows (260812-d1at: Help — run-kit docs, Keyboard shortcuts,
+Theme…), plus the always-present version row — grouped under the View /
+Window / App uppercase section labels (c, 260731-oiho). Whichever L3 controls
+still fit at 375px stay in-bar (the suffix rule), so no Refresh / Settings row
+is asserted either way.
 
 **Steps:**
 1. At 375px open the `More controls` menu.
 2. Assert the Split horizontal / Split vertical (the merged entry emits
-   horizontal first — the 260806-2x2h default) / Fixed width (checkbox) /
-   Terminal font (stepper group) / Close pane rows are present, plus a `RunKit`
-   version row; assert the View / Window / App section labels render; assert
-   the Help / Keyboard shortcuts / Theme… rows are PRESENT (260812-d1at) and
-   the notification row is ABSENT (260724-6j1v — the bell lives in the
-   settings dialog).
+   horizontal first — the 260806-2x2h default) / `Layout: Single` (radio) /
+   Fixed width (checkbox) / Terminal font (stepper group) / Close pane rows
+   are present, plus a `RunKit` version row; assert the View / Window / App
+   section labels render; assert the Help / Keyboard shortcuts / Theme… rows
+   are PRESENT (260812-d1at) and the notification row is ABSENT (260724-6j1v —
+   the bell lives in the settings dialog).
 
 ### `the menuOnly rows (fixed-width / Aa / close-pane / Help / Keyboard / Theme…) are in the menu even at a WIDE width`
 
@@ -220,8 +228,10 @@ pre-n2n4 pill) onto the new first candidate.
 
 **What it proves:** the menu rows are a fully functional lens switcher at a WIDE
 width — the distinguishing menu-only case (the bar has room, yet the switcher
-lives only in the menu): the active row is marked, activation switches the lens,
-and the menu closes.
+lives only in the menu): the active row is marked, activation switches the lens
+(R12's shim: the selection becomes a `single:web` layout through the shared
+mutation path, mirrored into the URL as `?layout=single:web`), and the menu
+closes.
 
 **Steps:**
 1. Navigate to the web-capable window; set 1440×800.
@@ -229,7 +239,7 @@ and the menu closes.
 3. Assert the `View: Terminal` and `View: Web` rows (each a `role="menuitemradio"`)
    are visible; the default tty lens marks `View: Terminal` `aria-checked="true"`
    and `View: Web` `aria-checked="false"`.
-4. Click `View: Web`; assert the URL gains `?view=web` and the proxied iframe
-   (`title="Proxied content"`) renders.
+4. Click `View: Web`; assert the decoded `layout` param reads `single:web` and
+   the proxied iframe (`title="Proxied content"`) renders.
 5. Assert the chevron menu closed (the `View:` row is a `menuitemradio` activation,
    a single-shot menu action) and no in-bar pill appeared after the switch.

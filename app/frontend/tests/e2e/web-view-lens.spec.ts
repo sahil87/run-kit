@@ -26,13 +26,17 @@ async function resolveWindow(page: Page, windowName: string): Promise<string> {
 }
 
 /** Create a window and (optionally) stamp @rk_url / @rk_type directly via tmux —
- *  the same window-option seam the backend tmux test uses. Returns the @N id. */
+ *  the same window-option seam the backend tmux test uses. `cwd: "/tmp"` makes
+ *  the window NON-repo (no gitRoot → code unavailable) — the deterministic
+ *  single-view (tty-only) case; a repo-cwd window is code-capable since k3vp,
+ *  so "plain" assertions must not rely on the gitRoot probe's timing.
+ *  Returns the @N id. */
 async function makeWindow(
   page: Page,
   name: string,
-  opts: { url?: string; iframeType?: boolean } = {},
+  opts: { url?: string; iframeType?: boolean; cwd?: string } = {},
 ): Promise<string> {
-  newWindow(TEST_SESSION, name);
+  newWindow(TEST_SESSION, name, { cwd: opts.cwd });
   const id = await resolveWindow(page, name);
   if (opts.url !== undefined) {
     execSync(
@@ -66,6 +70,17 @@ async function gotoWindow(
 
 const iframe = (page: Page) => page.getByTitle("Proxied content");
 const terminal = (page: Page) => page.locator(".xterm").first();
+
+/** Assert the mirrored `?layout=` param (decoded — the router may
+ *  percent-encode `:`/`,`). The surface-layout shim (260812-ab5v) translates
+ *  `?view=X` → `single:X` at route entry and REWRITES the URL via
+ *  replaceState, so URL assertions key off `layout`, never `view`. Retrying:
+ *  the mirror lands a beat after the arrival/switch that triggered it. */
+async function expectLayoutParam(page: Page, expected: string): Promise<void> {
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get("layout"), { timeout: 10_000 })
+    .toBe(expected);
+}
 
 // The switcher's menu-only surface (260722-n2n4): the chevron menu's per-view
 // `View:` rows. There is no in-bar pill — `inBarSwitcher` must always be empty.
@@ -121,9 +136,10 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
   });
 
   test("the `View:` menu rows appear only on a web-capable window (no in-bar pill ever)", async ({ page }) => {
-    // A plain terminal window (no @rk_url) offers only tty → the multi-view gate
-    // fails, so the chevron menu carries no `View:` rows.
-    const plain = await makeWindow(page, `wv-plain-${Date.now()}`);
+    // A plain window (no @rk_url, NON-repo cwd so code is unavailable too)
+    // offers only tty → the multi-view gate fails, so the chevron menu carries
+    // no `View:` rows.
+    const plain = await makeWindow(page, `wv-plain-${Date.now()}`, { cwd: "/tmp" });
     await gotoWindow(page, plain);
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
     await menuButton(page).click();
@@ -166,16 +182,16 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     await gotoWindow(page, id);
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
 
-    // Flip to web via the menu's `View: Web` row → iframe renders, URL carries
-    // ?view=web.
+    // Flip to web via the menu's `View: Web` row → iframe renders; R12's shim
+    // turns the selection into `single:web` and the URL mirrors `?layout=`.
     await switchLens(page, "Web");
     await expect(iframe(page)).toBeVisible({ timeout: 10_000 });
-    await expect(page).toHaveURL(/\?view=web/);
+    await expectLayoutParam(page, "single:web");
 
-    // Flip back to tty via `View: Terminal` → terminal renders, ?view dropped.
+    // Flip back to tty via `View: Terminal` → terminal renders as `single:tty`.
     await switchLens(page, "Terminal");
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
-    await expect(page).not.toHaveURL(/\?view=/);
+    await expectLayoutParam(page, "single:tty");
 
     // The window still exists in the snapshot (never destroyed) and its id is
     // unchanged — a view switch mutates neither identity nor options.
@@ -190,9 +206,11 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
   test("deep link ?view=web cold-loads the iframe", async ({ page }) => {
     const id = await makeWindow(page, `wv-deep-${Date.now()}`, { url: IFRAME_URL });
     await gotoWindow(page, id, "web");
-    // Cold load resolves straight to the web lens; the menu's `View: Web` row is
-    // the lens indicator (marked aria-checked).
+    // Cold load resolves straight to the web lens (the shim maps ?view=web →
+    // single:web and the URL mirror rewrites it); the menu's `View: Web` row
+    // is the lens indicator (marked aria-checked).
     await expect(iframe(page)).toBeVisible({ timeout: 10_000 });
+    await expectLayoutParam(page, "single:web");
     await expectLensMarked(page, "Web", true);
     // The center heading is a STATIC `Window:` in every lens (260714-uco1 — the
     // heading no longer follows the lens; the marked `View:` menu row, asserted
@@ -204,11 +222,13 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
   test("?view=web on a window with no @rk_url falls back to the terminal", async ({
     page,
   }) => {
-    // No url → web is unavailable → the unavailable deep link degrades to tty.
-    const id = await makeWindow(page, `wv-nourl-${Date.now()}`);
+    // No url AND a non-repo cwd → neither web nor code is available → the
+    // unavailable deep link degrades to tty and the window is single-view.
+    const id = await makeWindow(page, `wv-nourl-${Date.now()}`, { cwd: "/tmp" });
     await gotoWindow(page, id, "web");
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
     await expect(iframe(page)).toHaveCount(0);
+    await expectLayoutParam(page, "single:tty");
     // Single available view → no `View:` rows in the menu.
     await menuButton(page).click();
     await expect(controlsMenu(page)).toBeVisible();
@@ -225,9 +245,11 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
       url: IFRAME_URL,
       iframeType: true,
     });
-    // No ?view param, no localStorage → the iframe-typed default hint wins → web.
+    // No ?view param, no localStorage → the iframe-typed default hint wins →
+    // single:web (ladder rung 3 in the layout model).
     await gotoWindow(page, id);
     await expect(iframe(page)).toBeVisible({ timeout: 10_000 });
+    await expectLayoutParam(page, "single:web");
     await menuButton(page).click();
     await expect(viewRow(page, "Terminal")).toBeVisible({ timeout: 10_000 });
     const webRow = viewRow(page, "Web");
@@ -242,7 +264,9 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     const a = await makeWindow(page, `wv-persist-a-${Date.now()}`, { url: IFRAME_URL });
     const b = await makeWindow(page, `wv-persist-b-${Date.now()}`);
 
-    // On A, switch to web via the menu row (writes localStorage + ?view=web).
+    // On A, switch to web via the menu row (writes the rk-layout localStorage
+    // key + mirrors ?layout=single:web — R12's shim: a view selection is a
+    // single-tile layout mutation).
     await gotoWindow(page, a);
     await switchLens(page, "Web");
     await expect(iframe(page)).toBeVisible({ timeout: 10_000 });
@@ -250,7 +274,7 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     // Switch to B via a REAL client-side navigation (sidebar row click), not a
     // page.goto — this exercises the R6 search-param drop through the router
     // seam (`navigateToWindow`), guarding against a future retainSearchParams /
-    // router-upgrade regression that would silently carry `?view=web` onto B.
+    // router-upgrade regression that would silently carry A's layout onto B.
     const sidebar = page.locator("nav[aria-label='Sessions']");
     const rowB = sidebar
       .locator(`[data-window-id="${b}"]`)
@@ -261,14 +285,16 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
 
     // Selection settles on B — the client-side switch was accepted.
     await expect(rowB).toHaveAttribute("aria-current", "page", { timeout: 10_000 });
-    // B resolves independently to tty, and the outgoing `?view=web` was dropped
-    // by the router seam (R6) — not carried onto B.
+    // B resolves independently to single:tty, and the outgoing layout param was
+    // dropped by the router seam (R6) — not carried onto B.
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
-    await expect(page).not.toHaveURL(/\?view=/);
+    await expectLayoutParam(page, "single:tty");
 
-    // Back to A WITHOUT a ?view param — the persisted last-view (web) resolves.
+    // Back to A WITHOUT a layout param — the persisted per-window layout
+    // (single:web, localStorage rung) resolves.
     await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(a)}`);
     await expect(iframe(page)).toBeVisible({ timeout: 10_000 });
+    await expectLayoutParam(page, "single:web");
     await expectLensMarked(page, "Web", true);
   });
 

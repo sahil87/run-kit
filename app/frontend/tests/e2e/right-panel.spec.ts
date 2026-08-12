@@ -3,12 +3,23 @@ import { execFileSync } from "node:child_process";
 import { READY_TIMEOUT, resolveWindow as resolveWindowRaw } from "./_ready";
 import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
 
+// The right RAIL e2e (260811-2r1w-right-panel-shell-web-surface, retargeted to
+// the surface-layout model in 260812-ab5v-surface-layout-core; spec
+// docs/specs/surface-layout.md § Verbs — "Rail semantics change"). The panel
+// SLOT (surface mount + width drag) is GONE — subsumed by layout tiles; what
+// remains of this spec's subject is the rail: always-on on desktop, buttons
+// are availability-gated OPEN-TILE TOGGLES (lit per open tile; unlit click
+// appends a tile, lit click closes it), with the retired `?panel=` param still
+// resolving through the permanent translation shim. Divider-ratio drag
+// coverage moved to surface-layout.spec.ts (the divider lives in the tile
+// grid now). See right-panel.spec.md for intent + steps.
+
 // Own session so this file never collides with other specs (fullyParallel off).
 const TEST_SESSION = `e2e-rightpanel-${Date.now()}`;
 const MOBILE_VIEWPORT = { width: 375, height: 812 };
-// The rail/panel are DESKTOP-ONLY in phase 1 (spec right-panel.md P5, Open
-// Question 3) — the suite defaults to a wide desktop width; the mobile test
-// overrides to 375px.
+// The rail is DESKTOP-ONLY (right-panel P5 carried into surface-layout R13) —
+// the suite defaults to a wide desktop width; the mobile test overrides to
+// 375px.
 const DESKTOP_VIEWPORT = { width: 1440, height: 800 };
 
 // A URL that the proxy converts to a same-origin `/proxy/<port>/…` path — the
@@ -41,13 +52,28 @@ async function gotoWindow(page: Page, windowId: string, search = ""): Promise<vo
   });
 }
 
+/** Assert the mirrored `?layout=` param (decoded — the router may
+ *  percent-encode `:`/`,`). Retrying: the replaceState mirror lands a beat
+ *  after the mutation that triggered it. */
+async function expectLayoutParam(page: Page, expected: string): Promise<void> {
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get("layout"), { timeout: 10_000 })
+    .toBe(expected);
+}
+
 const rail = (page: Page) => page.getByTestId("right-panel-rail");
-const railWebButton = (page: Page) => page.getByRole("button", { name: "Web panel" });
+// Rail buttons are icon glyphs now (R10) — the accessible names carry the
+// retired text labels' meaning as "<Surface> tile".
+const railWebButton = (page: Page) =>
+  rail(page).getByRole("button", { name: "Web tile" });
+const railTtyButton = (page: Page) =>
+  rail(page).getByRole("button", { name: "Terminal tile" });
+// The top-bar rail toggle (260812-nm4p) — collapses the RAIL COLUMN only
+// under the layout model; tiles are content-column state and survive it.
 const railToggle = (page: Page) => page.getByRole("button", { name: "Toggle panel" });
-const panel = (page: Page) => page.getByTestId("right-panel");
-const panelIframe = (page: Page) => panel(page).getByTitle("Proxied content");
+const webTile = (page: Page) => page.getByTestId("surface-tile-web");
+const webIframe = (page: Page) => page.getByTitle("Proxied content");
 const terminal = (page: Page) => page.locator(".xterm").first();
-const resizeHandle = (page: Page) => page.getByTestId("right-panel-resize-handle");
 
 test.beforeAll(() => {
   createSession(TEST_SESSION);
@@ -57,7 +83,7 @@ test.afterAll(() => {
   killSession(TEST_SESSION);
 });
 
-test.describe("Right panel — rail, shell & web surface (phase 1)", () => {
+test.describe("Right rail — open-tile toggles over the surface layout", () => {
   test.beforeEach(async ({ page }) => {
     await page.setViewportSize(DESKTOP_VIEWPORT);
     // The `runkit-rail-open` preference persists across tests (localStorage) —
@@ -76,16 +102,20 @@ test.describe("Right panel — rail, shell & web surface (phase 1)", () => {
     });
   });
 
-  test("the rail renders on every desktop terminal route; the web button only when @rk_url is set", async ({ page }) => {
-    // A plain window (no @rk_url) still gets the always-on rail, but with no
-    // surface buttons.
+  test("the rail renders on every desktop terminal route with the always-available tty toggle; the web toggle only when @rk_url is set", async ({ page }) => {
+    test.setTimeout(30_000);
+    // A plain window (no @rk_url) still gets the always-on rail — with the
+    // `tty` toggle (always available, R8) lit for the default single:tty
+    // layout, but NO web toggle.
     const plain = await makeWindow(page, `rp-plain-${Date.now()}`);
     await gotoWindow(page, plain);
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
     await expect(rail(page)).toBeVisible();
+    await expect(railTtyButton(page)).toBeVisible();
+    await expect(railTtyButton(page)).toHaveAttribute("aria-pressed", "true");
     await expect(railWebButton(page)).toHaveCount(0);
 
-    // A window with @rk_url gains the web rail button (availability derives
+    // A window with @rk_url gains the web rail toggle (availability derives
     // from the SSE window payload — no client-side declaration).
     const web = await makeWindow(page, `rp-cap-${Date.now()}`, { url: IFRAME_URL });
     await gotoWindow(page, web);
@@ -93,157 +123,148 @@ test.describe("Right panel — rail, shell & web surface (phase 1)", () => {
     // Availability rides the SSE window payload — the same readiness class the
     // shared CI-aware budget exists for.
     await expect(railWebButton(page)).toBeVisible({ timeout: READY_TIMEOUT });
+    // Not lit yet — only the tty tile is open.
+    await expect(railWebButton(page)).toHaveAttribute("aria-pressed", "false");
   });
 
-  test("clicking the rail button opens the panel beside a live terminal; clicking again closes it", async ({ page }) => {
+  test("clicking the rail toggle opens a web tile beside a live terminal; clicking again closes it", async ({ page }) => {
+    test.setTimeout(30_000);
     const id = await makeWindow(page, `rp-toggle-${Date.now()}`, { url: IFRAME_URL });
     await gotoWindow(page, id);
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
 
-    // Open: the panel renders the proxied iframe; the terminal stays mounted
-    // and visible BESIDE it (P2 — the panel is additive).
+    // Open: 1→2 growth appends a `split-h:tty,web` tile (R10) — the proxied
+    // iframe renders BESIDE the terminal, which stays mounted and visible (the
+    // layout is additive, like the panel was). The URL mirrors the layout and
+    // the toggle lights.
     await railWebButton(page).click();
-    await expect(panelIframe(page)).toBeVisible({ timeout: 10_000 });
+    await expect(webIframe(page)).toBeVisible({ timeout: 10_000 });
     await expect(terminal(page)).toBeVisible();
-    await expect(page).toHaveURL(/\?panel=web/);
-    // The panel-context iframe has NO `>_` switch-to-terminal affordance (the
-    // tty is already beside it) but keeps its URL bar.
-    await expect(panel(page).getByRole("button", { name: "Switch to terminal" })).toHaveCount(0);
-    await expect(panel(page).getByRole("textbox", { name: "URL" })).toBeVisible();
+    await expectLayoutParam(page, "split-h:tty,web");
+    await expect(railWebButton(page)).toHaveAttribute("aria-pressed", "true");
+    // The tile-context iframe keeps its URL bar.
+    await expect(webTile(page).getByRole("textbox", { name: "URL" })).toBeVisible();
 
-    // Close via the same rail button: the panel hides and the param drops
-    // (closed is the clean-URL default).
+    // Close via the same rail toggle: the web tile hides (R7 close semantics —
+    // the layout collapses 2→1) and the URL mirrors `single:tty`.
     await railWebButton(page).click();
-    await expect(panel(page)).toBeHidden();
-    await expect(page).not.toHaveURL(/[?&]panel=/);
+    await expect(webTile(page)).toBeHidden();
+    await expectLayoutParam(page, "single:tty");
+    await expect(railWebButton(page)).toHaveAttribute("aria-pressed", "false");
     await expect(terminal(page)).toBeVisible();
   });
 
-  test("collapse hides but never unmounts the iframe (P3)", async ({ page }) => {
+  test("closing a tile hides but never unmounts the iframe (P3 carried into tiles)", async ({ page }) => {
+    test.setTimeout(30_000);
     const id = await makeWindow(page, `rp-hide-${Date.now()}`, { url: IFRAME_URL });
     await gotoWindow(page, id);
     await railWebButton(page).click();
-    await expect(panelIframe(page)).toBeVisible({ timeout: 10_000 });
+    await expect(webIframe(page)).toBeVisible({ timeout: 10_000 });
 
-    // Collapse: the panel subtree stays in the DOM at display-level hidden —
-    // the iframe element is NOT removed (in-memory state survives).
+    // Close: the tile subtree stays in the DOM at display-level hidden — the
+    // iframe element is NOT removed (in-memory state survives).
     await railWebButton(page).click();
-    await expect(panel(page)).toBeHidden();
-    await expect(panelIframe(page)).toHaveCount(1);
+    await expect(webTile(page)).toBeHidden();
+    await expect(webIframe(page)).toHaveCount(1);
 
     // Re-open: the SAME iframe element becomes visible again (no remount).
-    const handleBefore = await panelIframe(page).elementHandle();
+    const handleBefore = await webIframe(page).elementHandle();
     await railWebButton(page).click();
-    await expect(panelIframe(page)).toBeVisible({ timeout: 10_000 });
-    const handleAfter = await panelIframe(page).elementHandle();
+    await expect(webIframe(page)).toBeVisible({ timeout: 10_000 });
+    const handleAfter = await webIframe(page).elementHandle();
     expect(handleBefore).not.toBeNull();
     expect(await page.evaluate(([a, b]) => a === b, [handleBefore, handleAfter])).toBe(true);
   });
 
-  test("?panel=web deep link opens the panel on load; unavailable/unknown values resolve closed", async ({ page }) => {
+  test("?panel=web and ?layout=split-h:tty,web deep links open the web tile on load; unavailable/invalid values degrade", async ({ page }) => {
     // Three full page loads + two tmux window creations — wider budget for a
     // loaded box (the sidebar-panels precedent); the per-assertion waits stay
     // at their own timeouts.
     test.setTimeout(30_000);
-    // Deep link on a web-capable window → panel opens cold.
+    // The retired ?panel=web param resolves through the permanent shim (a bare
+    // panel value maps against the tty default slot A → split-h:tty,web) — the
+    // tile opens cold on a web-capable window.
     const web = await makeWindow(page, `rp-deep-${Date.now()}`, { url: IFRAME_URL });
     await gotoWindow(page, web, "?panel=web");
-    await expect(panelIframe(page)).toBeVisible({ timeout: 10_000 });
+    await expect(webIframe(page)).toBeVisible({ timeout: 10_000 });
+    await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
+    await expectLayoutParam(page, "split-h:tty,web");
+
+    // The native ?layout= form resolves identically.
+    const web2 = await makeWindow(page, `rp-deep2-${Date.now()}`, { url: IFRAME_URL });
+    await gotoWindow(page, web2, "?layout=split-h:tty,web");
+    await expect(webIframe(page)).toBeVisible({ timeout: 10_000 });
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
 
-    // ?panel=web on a window with NO @rk_url → unavailable → falls through to
-    // closed (never a broken iframe).
+    // ?panel=web on a window with NO @rk_url → the web surface is unavailable →
+    // tile-by-tile degradation drops it (R4) → single:tty, never a broken iframe.
     const plain = await makeWindow(page, `rp-nourl-${Date.now()}`);
     await gotoWindow(page, plain, "?panel=web");
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
     await expect(rail(page)).toBeVisible();
     await expect(railWebButton(page)).toHaveCount(0);
-    await expect(panel(page)).toHaveCount(0);
+    await expect(webTile(page)).toHaveCount(0);
 
-    // ?panel=bogus is dropped by the route's search validation → closed.
+    // ?panel=bogus is dropped by the route's search validation → single:tty.
     await gotoWindow(page, web, "?panel=bogus");
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
-    await expect(panel(page)).toHaveCount(0);
+    await expect(webTile(page)).toHaveCount(0);
   });
 
-  test("an open panel persists across reload", async ({ page }) => {
+  test("an open tile persists across reload", async ({ page }) => {
+    test.setTimeout(30_000);
     const id = await makeWindow(page, `rp-persist-open-${Date.now()}`, { url: IFRAME_URL });
     await gotoWindow(page, id);
 
-    // Open → reload → still open (the value-bearing per-window key resolves).
+    // Open → reload → still open (the value-bearing rk-layout per-window key
+    // resolves on the bare re-arrival).
     await railWebButton(page).click();
-    await expect(panelIframe(page)).toBeVisible({ timeout: 10_000 });
-    await page.reload();
+    await expect(webIframe(page)).toBeVisible({ timeout: 10_000 });
+    await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(id)}`);
     await expect(page.locator("[aria-label='Connected']")).toBeVisible({ timeout: READY_TIMEOUT });
-    await expect(panelIframe(page)).toBeVisible({ timeout: 10_000 });
-    await expect(page).toHaveURL(/\?panel=web/);
+    await expect(webIframe(page)).toBeVisible({ timeout: 10_000 });
+    await expectLayoutParam(page, "split-h:tty,web");
   });
 
-  test("a closed panel stays closed across reload", async ({ page }) => {
+  test("a closed tile stays closed across reload", async ({ page }) => {
+    test.setTimeout(30_000);
     const id = await makeWindow(page, `rp-persist-close-${Date.now()}`, { url: IFRAME_URL });
     await gotoWindow(page, id);
 
-    // Open then close (closing REMOVES the key; absent = closed) → reload →
-    // still closed: no panel subtree mounts and the terminal renders.
+    // Open then close (closing writes single:tty as the window's layout) →
+    // reload → still closed: no web tile mounts and the terminal renders.
     await railWebButton(page).click();
-    await expect(panelIframe(page)).toBeVisible({ timeout: 10_000 });
+    await expect(webIframe(page)).toBeVisible({ timeout: 10_000 });
     await railWebButton(page).click();
-    await expect(panel(page)).toBeHidden();
-    await page.reload();
+    await expect(webTile(page)).toBeHidden();
+    await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(id)}`);
     await expect(page.locator("[aria-label='Connected']")).toBeVisible({ timeout: READY_TIMEOUT });
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
-    await expect(panel(page)).toHaveCount(0);
+    await expect(webTile(page)).toHaveCount(0);
+    await expectLayoutParam(page, "single:tty");
   });
 
-  test("?view=web and ?panel=web render two independent iframe slots simultaneously (P2)", async ({ page }) => {
-    const id = await makeWindow(page, `rp-both-${Date.now()}`, { url: IFRAME_URL });
+  test("?view=web&panel=web (a repeated non-tty kind after the shim) never renders a broken tile (R4/A-019)", async ({ page }) => {
+    test.setTimeout(30_000);
+    // The shim maps ?view=web&panel=web to split-h:web,web — a REPEATED
+    // non-tty kind, which the layout grammar rejects (R1: one tile per surface
+    // kind). The invalid value falls through the ladder to the hint/default
+    // rung; no malformed tile ever mounts.
+    const id = await makeWindow(page, `rp-dupe-${Date.now()}`, { url: IFRAME_URL });
     await gotoWindow(page, id, "?view=web&panel=web");
-    // The main slot renders the web lens (with its `>_` switch affordance) and
-    // the panel renders its own IframeWindow beside it — two instances.
-    await expect(page.getByTitle("Proxied content")).toHaveCount(2, { timeout: 10_000 });
-    await expect(panelIframe(page)).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "Switch to terminal" }),
-    ).toHaveCount(1); // only the MAIN slot's iframe carries the >_ button
-  });
-
-  test("drag-resize changes the panel width and the terminal survives (refit, no unmount)", async ({ page }) => {
-    const id = await makeWindow(page, `rp-drag-${Date.now()}`, { url: IFRAME_URL });
-    await gotoWindow(page, id);
-    await railWebButton(page).click();
-    await expect(panelIframe(page)).toBeVisible({ timeout: 10_000 });
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
-
-    const panelBox = await panel(page).boundingBox();
-    const handleBox = await resizeHandle(page).boundingBox();
-    expect(panelBox).not.toBeNull();
-    expect(handleBox).not.toBeNull();
-    const xtermBefore = await terminal(page).elementHandle();
-
-    // Drag the handle 120px LEFT — the panel widens by ~120px.
-    const startX = handleBox!.x + handleBox!.width / 2;
-    const startY = handleBox!.y + handleBox!.height / 2;
-    await page.mouse.move(startX, startY);
-    await page.mouse.down();
-    await page.mouse.move(startX - 120, startY, { steps: 6 });
-    await page.mouse.up();
-
-    const panelBoxAfter = await panel(page).boundingBox();
-    expect(panelBoxAfter).not.toBeNull();
-    expect(panelBoxAfter!.width).toBeGreaterThan(panelBox!.width + 60);
-
-    // The terminal pane stayed MOUNTED (same xterm element handle) and visible
-    // — the refit rides TerminalClient's ResizeObserver; nothing suspended.
-    const xtermAfter = await terminal(page).elementHandle();
-    expect(await page.evaluate(([a, b]) => a === b, [xtermBefore, xtermAfter])).toBe(true);
-    await expect(terminal(page)).toBeVisible();
+    // Exactly ONE layout render with a valid single tile — never two web
+    // slots (the retired main+panel arrangement).
+    await expect(page.getByTestId("surface-layout")).toHaveCount(1);
+    await expect(webTile(page)).toHaveCount(0);
   });
 
-  test("⇧⌘. / Shift+Ctrl+. toggles the web panel (P7)", async ({ page }) => {
+  test("⇧⌘. / Shift+Ctrl+. toggles the first non-tty tile (P7, retargeted)", async ({ page }) => {
+    test.setTimeout(30_000);
     const id = await makeWindow(page, `rp-chord-${Date.now()}`, { url: IFRAME_URL });
     await gotoWindow(page, id);
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
-    // Wait for the rail button — the chord's handler is gated on the web
+    // Wait for the rail button — the chord's handler is gated on a non-tty
     // surface's availability, which arrives via the SSE `@rk_url` push; firing
     // before it lands would hit a handler-less chord (a no-op by design).
     await expect(railWebButton(page)).toBeVisible({ timeout: READY_TIMEOUT });
@@ -251,22 +272,33 @@ test.describe("Right panel — rail, shell & web surface (phase 1)", () => {
     // xterm owns focus after the terminal renders — the shifted-tier chord must
     // fire from there (the dispatcher's `.xterm` carve-out).
     await page.keyboard.press("Shift+Control+Period");
-    await expect(panelIframe(page)).toBeVisible({ timeout: 10_000 });
+    await expect(webIframe(page)).toBeVisible({ timeout: 10_000 });
+    await expectLayoutParam(page, "split-h:tty,web");
 
     await page.keyboard.press("Shift+Control+Period");
-    await expect(panel(page)).toBeHidden();
+    await expect(webTile(page)).toBeHidden();
+    await expectLayoutParam(page, "single:tty");
   });
 
-  test("375px mobile: neither rail nor panel renders and ?panel= is ignored", async ({ page }) => {
+  test("375px mobile: no rail; a 2-tile deep link renders slot A with the surfaces chip", async ({ page }) => {
+    test.setTimeout(30_000);
     await page.setViewportSize(MOBILE_VIEWPORT);
     const id = await makeWindow(page, `rp-mobile-${Date.now()}`, { url: IFRAME_URL });
     // Do NOT gate on the `Connected` dot here: it lives in the sidebar footer,
     // and at 375px the sidebar is an unmounted drawer (the web-view-lens mobile
     // test's documented reason). Gate on the terminal instead.
-    await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(id)}?panel=web`);
+    await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(id)}?layout=split-h:tty,web`);
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
+    // The rail does not render on mobile (desktop-only, P5 → R13). The center
+    // renders ONLY slot A (tty) full-width; the web tile stays mounted-hidden
+    // and reachable via the ▦ Surfaces chip's sheet.
     await expect(rail(page)).toHaveCount(0);
-    await expect(panel(page)).toHaveCount(0);
+    await expect(webTile(page)).toBeHidden();
+    // READY_TIMEOUT: on a cold deep link the second surface (and so the chip)
+    // resolves only once the window payload lands with rkUrl.
+    await expect(page.getByTestId("mobile-surfaces-chip")).toBeVisible({
+      timeout: READY_TIMEOUT,
+    });
   });
 });
 
@@ -332,100 +364,85 @@ test.describe("Top-bar rail toggle & full-height column (260812-nm4p)", () => {
     await expect(rail(page)).toBeVisible();
   });
 
-  test("collapse with an open panel hides BOTH and drops ?panel=; restore brings back only the rail", async ({ page }) => {
+  test("collapse with an open web TILE hides only the rail; the tile and its ?layout= survive", async ({ page }) => {
     const id = await makeWindow(page, `rp-railpanel-${Date.now()}`, { url: IFRAME_URL });
     await gotoWindow(page, id);
     await railWebButton(page).click();
-    await expect(panelIframe(page)).toBeVisible({ timeout: 10_000 });
-    await expect(page).toHaveURL(/\?panel=web/);
+    await expect(webIframe(page)).toBeVisible({ timeout: 10_000 });
+    await expectLayoutParam(page, "split-h:tty,web");
 
-    // Collapse: rail AND panel hide, the param drops, and the per-window
-    // panel key is removed (a hidden-but-open panel would contradict its URL).
-    const iframeBefore = await panelIframe(page).elementHandle();
+    // Collapse: the RAIL hides — tiles are content-column state (260812-ab5v)
+    // and are deliberately untouched: the web tile keeps rendering and the
+    // layout param stays (each tile carries its own ✕ verb, so nothing is
+    // stranded behind a hidden rail).
     await railToggle(page).click();
     await expect(rail(page)).toBeHidden();
-    await expect(panel(page)).toBeHidden();
-    await expect(page).not.toHaveURL(/[?&]panel=/);
-    await expect
-      .poll(() =>
-        page.evaluate(
-          (key) => localStorage.getItem(key),
-          `runkit-window-panel:${TMUX_SERVER}:${id}`,
-        ),
-      )
-      .toBeNull();
+    await expect(webTile(page)).toBeVisible();
+    await expect(webIframe(page)).toBeVisible();
+    await expectLayoutParam(page, "split-h:tty,web");
 
-    // The iframe element was NOT unmounted by the collapse (display-level
-    // hide all the way up — in-memory state survives).
-    await expect(panelIframe(page)).toHaveCount(1);
-    const iframeAfter = await panelIframe(page).elementHandle();
-    expect(await page.evaluate(([a, b]) => a === b, [iframeBefore, iframeAfter])).toBe(true);
-
-    // Restore: the rail returns; the panel stays closed (a panel closed by a
-    // collapse stays closed).
+    // Restore: the rail returns lit for the still-open tile.
     await railToggle(page).click();
     await expect(rail(page)).toBeVisible();
-    await expect(panel(page)).toBeHidden();
-    await expect(page).not.toHaveURL(/[?&]panel=/);
+    await expect(railWebButton(page)).toHaveAttribute("aria-pressed", "true");
   });
 
-  test("⇧⌘. after a collapse re-shows the rail WITH the panel (derived visibility)", async ({ page }) => {
+  test("⇧⌘. works while the rail is collapsed — the tile opens in the content column, the rail stays hidden", async ({ page }) => {
     const id = await makeWindow(page, `rp-railchord-${Date.now()}`, { url: IFRAME_URL });
     await gotoWindow(page, id);
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
     await expect(railWebButton(page)).toBeVisible({ timeout: READY_TIMEOUT });
 
-    // Collapse the rail, then fire the panel chord: opening a panel forces
-    // the right area visible (rightAreaVisible = railOpen || panel != null)
-    // without flipping the persisted railOpen preference.
+    // Collapse the rail, then fire the surface chord: the tile opens in the
+    // CONTENT column (260812-ab5v — tiles are not rail state), so the chord
+    // is never dead behind a collapse; the rail itself stays hidden and the
+    // persisted preference is untouched.
     await railToggle(page).click();
     await expect(rail(page)).toBeHidden();
     await page.keyboard.press("Shift+Control+Period");
-    await expect(rail(page)).toBeVisible();
-    await expect(panelIframe(page)).toBeVisible({ timeout: 10_000 });
-    await expect(page).toHaveURL(/\?panel=web/);
-    // railOpen stayed false — the visibility is derived, not synchronized.
+    await expect(webIframe(page)).toBeVisible({ timeout: 10_000 });
+    await expectLayoutParam(page, "split-h:tty,web");
+    await expect(rail(page)).toBeHidden();
     await expect
       .poll(() => page.evaluate(() => localStorage.getItem("runkit-rail-open")))
       .toBe("false");
   });
 
-  test("full-height layout: the rail+panel column reaches the shell bottom; the bottom bar spans only the terminal column", async ({ page }) => {
+  test("full-height layout: the rail column reaches the shell bottom; the bottom bar spans only the content column", async ({ page }) => {
     const id = await makeWindow(page, `rp-fullheight-${Date.now()}`, { url: IFRAME_URL });
     await gotoWindow(page, id);
     await railWebButton(page).click();
-    await expect(panelIframe(page)).toBeVisible({ timeout: 10_000 });
+    await expect(webIframe(page)).toBeVisible({ timeout: 10_000 });
 
     const shellBox = await page.locator(".app-shell").boundingBox();
     const railBox = await rail(page).boundingBox();
-    const panelBox = await panel(page).boundingBox();
     const footerBox = await page.locator("footer").boundingBox();
     const mainBox = await page.locator("main").boundingBox();
     expect(shellBox).not.toBeNull();
     expect(railBox).not.toBeNull();
-    expect(panelBox).not.toBeNull();
     expect(footerBox).not.toBeNull();
     expect(mainBox).not.toBeNull();
 
-    // The right column is full-height: the rail and the panel both reach the
-    // shell's bottom edge (below the bottom bar's top edge).
+    // The right column is full-height: the rail reaches the shell's bottom
+    // edge (below the bottom bar's top edge). The panel left this column in
+    // 260812-ab5v — surface content is a content-column TILE now.
     const shellBottom = shellBox!.y + shellBox!.height;
     expect(railBox!.y + railBox!.height).toBeCloseTo(shellBottom, 0);
-    expect(panelBox!.y + panelBox!.height).toBeCloseTo(shellBottom, 0);
     expect(railBox!.y + railBox!.height).toBeGreaterThan(footerBox!.y);
 
     // The bottom bar is scoped to the content column: its width equals the
-    // terminal column's — NOT the full viewport.
+    // content column's — NOT the full viewport (the rail column is outside).
     expect(footerBox!.width).toBeCloseTo(mainBox!.width, 0);
     expect(footerBox!.width).toBeLessThan(DESKTOP_VIEWPORT.width);
   });
 
-  test("a ?panel= deep link on a collapsed rail renders rail+panel (never a dead link)", async ({ page }) => {
-    // Seed the COLLAPSED preference so the deep link lands on a collapsed rail
-    // (registered after the suite's reset script, so it wins on every load;
-    // top-frame only — init scripts run for every frame, including the panel's
-    // same-origin /proxy/ iframe). Derived visibility (`railOpen || panel
-    // open`) must then force the right area open — the deep link is never dead.
+  test("a legacy ?panel= deep link on a collapsed rail still renders its tile (never a dead link); the rail stays hidden", async ({ page }) => {
+    // Seed the COLLAPSED preference so the deep link lands on a collapsed
+    // rail (registered after the suite's reset script, so it wins on every
+    // load; top-frame only — init scripts run for every frame, including the
+    // web tile's same-origin /proxy/ iframe). Tiles are content-column state
+    // (260812-ab5v), so the deep link renders WITHOUT forcing the rail
+    // visible — the old derived-visibility rule is retired with the panel.
     await page.addInitScript(() => {
       if (window !== window.top) return;
       try {
@@ -437,7 +454,8 @@ test.describe("Top-bar rail toggle & full-height column (260812-nm4p)", () => {
     const id = await makeWindow(page, `rp-raildeep-${Date.now()}`, { url: IFRAME_URL });
     await gotoWindow(page, id, "?panel=web");
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
-    await expect(rail(page)).toBeVisible();
-    await expect(panelIframe(page)).toBeVisible({ timeout: 10_000 });
+    await expect(webIframe(page)).toBeVisible({ timeout: 10_000 });
+    await expectLayoutParam(page, "split-h:tty,web");
+    await expect(rail(page)).toBeHidden();
   });
 });

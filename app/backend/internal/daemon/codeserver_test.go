@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"slices"
 	"strings"
 	"testing"
 
@@ -44,10 +45,19 @@ func TestEnsureCodeServerSpawnsSiblingSession(t *testing.T) {
 	if len(*spawned) != 1 {
 		t.Fatalf("spawn calls = %d, want 1", len(*spawned))
 	}
-	got := strings.Join((*spawned)[0], " ")
-	want := fmt.Sprintf("new-session -d -s rk-code-server -n code-server env -u VSCODE_IPC_HOOK_CLI code-server --bind-addr 127.0.0.1:%d --auth none --disable-telemetry --disable-update-check --disable-workspace-trust --disable-getting-started-override --app-name run-kit", port)
-	if got != want {
-		t.Errorf("spawn argv =\n%s\nwant:\n%s", got, want)
+	// Element-wise compare: a joined-string assertion could not tell two
+	// elements ("--app-name", "run-kit") from one element containing a space.
+	want := []string{
+		"new-session", "-d",
+		"-s", "rk-code-server",
+		"-n", "code-server",
+		"env", "-u", "VSCODE_IPC_HOOK_CLI",
+		"code-server", "--bind-addr", fmt.Sprintf("127.0.0.1:%d", port), "--auth", "none",
+		"--disable-telemetry", "--disable-update-check", "--disable-workspace-trust",
+		"--disable-getting-started-override", "--app-name", "run-kit",
+	}
+	if !slices.Equal((*spawned)[0], want) {
+		t.Errorf("spawn argv =\n%q\nwant:\n%q", (*spawned)[0], want)
 	}
 }
 

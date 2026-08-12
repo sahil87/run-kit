@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Tip } from "@/components/tip";
 import { TerminalClient } from "@/components/terminal-client";
 import { CodeSurface } from "@/components/code-surface";
@@ -430,15 +430,26 @@ export function SurfaceLayout({
   // before the next keydown — reporting only via this effect would leave a
   // two-render gap where the accent border shows but the chord still fires.
   // The effect remains for the non-interaction transitions: the slot-A
-  // default on mount and the fallback when the focused slot leaves.
+  // default on mount and the fallback when the focused slot leaves. The ref
+  // dedupes the two seams — a sync interaction report and the effect firing
+  // after the same state update hand up the kind exactly once.
+  const lastReportedKindRef = useRef<SurfaceKind | null>(null);
+  const reportFocusedKind = useCallback(
+    (kind: SurfaceKind) => {
+      if (kind === lastReportedKindRef.current) return;
+      lastReportedKindRef.current = kind;
+      onFocusedKindChange?.(kind);
+    },
+    [onFocusedKindChange],
+  );
   const focusSlot = (slot: number) => {
     setFocusedSlot(slot);
     const kind = layout.order[slot];
-    if (kind) onFocusedKindChange?.(kind);
+    if (kind) reportFocusedKind(kind);
   };
   useEffect(() => {
-    if (focusedKind) onFocusedKindChange?.(focusedKind);
-  }, [focusedKind, onFocusedKindChange]);
+    if (focusedKind) reportFocusedKind(focusedKind);
+  }, [focusedKind, reportFocusedKind]);
 
   // Palette focus seam (R10): `Layout: Focus <Surface>` routes through this
   // ref — focus the FIRST slot of the given kind (duplicate tty tiles: slot A

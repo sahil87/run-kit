@@ -836,9 +836,15 @@ function AppShell() {
   // entries need. On mobile the single VISIBLE slot counts as focused (the
   // sheet-tab selection), so the split chords fire only when the shown tile
   // is tty. `focusTileRef` is the palette's focus-by-kind seam (the
-  // `zoomToggleRef` pattern).
-  const [reportedFocusedKind, setReportedFocusedKind] = useState<SurfaceKind>("tty");
-  const focusedTileKind: SurfaceKind = isMobile ? mobileActiveTile : reportedFocusedKind;
+  // `zoomToggleRef` pattern). Until the component reports (first render,
+  // window switch), slot A is the fallback — never a hardcoded tty guess, so
+  // a persisted layout with a non-tty slot A can't briefly enable the split
+  // chords. The reset effect mirrors `mobileSlotA` above.
+  const [reportedFocusedKind, setReportedFocusedKind] = useState<SurfaceKind | null>(null);
+  useEffect(() => setReportedFocusedKind(null), [server, windowParam]);
+  const focusedTileKind: SurfaceKind = isMobile
+    ? mobileActiveTile
+    : (reportedFocusedKind ?? layout.order[0]);
   const layoutFocusTileRef = useRef<((kind: SurfaceKind) => void) | null>(null);
 
   // The effective keybinding map (260730-g40a): drives the migrated `⌘.` lens

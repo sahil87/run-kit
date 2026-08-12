@@ -83,9 +83,12 @@ func codeServerExtensionsDir(home string) string {
 }
 
 // seedCodeServerSettings writes the baseline User/settings.json into the
-// rk-owned profile dir, only when the file does not already exist. An
-// existing file — any content — is left byte-for-byte untouched: the seed is
-// a baseline, not enforcement.
+// rk-owned profile dir, only when the path does not already exist. An
+// existing entry — any content, even a non-regular file — is left untouched:
+// the seed is a baseline, not enforcement. The write is temp-file + rename so
+// an interrupted daemon start can never leave a truncated settings.json for
+// code-server to choke on (a stray .tmp is the worst case, and a later run
+// renames over it).
 func seedCodeServerSettings(profileDir string) error {
 	path := filepath.Join(profileDir, "User", "settings.json")
 	if _, err := os.Stat(path); err == nil {
@@ -96,7 +99,11 @@ func seedCodeServerSettings(profileDir string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(path, []byte(codeServerSeedSettings), 0o644)
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(codeServerSeedSettings), 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 // ensureCodeServer starts the daemon-managed code-server beside the daemon on
@@ -104,10 +111,12 @@ func seedCodeServerSettings(profileDir string) error {
 // (Start/StartWithBinary both funnel through startSession):
 //
 //  1. the rk-code-server session already exists ⇒ skip silently;
-//  2. the resolved port already accepts connections ⇒ skip with a note (an
+//  2. no resolvable port (degenerate RK_PORT whose +2 is out of range) ⇒
+//     warn and skip;
+//  3. the resolved port already accepts connections ⇒ skip with a note (an
 //     externally managed instance is respected — the mirror of dev.sh's
 //     preset-port carve-out);
-//  3. the code-server binary is absent ⇒ warn loudly and continue — an editor
+//  4. the code-server binary is absent ⇒ warn loudly and continue — an editor
 //     must never block the dashboard; the lens degrades to the not-running
 //     state and `rk doctor` reports it.
 //

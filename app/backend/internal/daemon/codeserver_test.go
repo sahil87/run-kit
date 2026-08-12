@@ -145,6 +145,7 @@ func TestEnsureCodeServerExtensionsDirHonorsXDGDataHome(t *testing.T) {
 func TestEnsureCodeServerSeedFailureKeepsProfileFlags(t *testing.T) {
 	testutil.StubOnPath(t, "code-server", "#!/bin/sh\nexit 0\n")
 	t.Setenv("RK_CODE_SERVER_PORT", fmt.Sprint(freeLoopbackPort(t)))
+	t.Setenv("XDG_DATA_HOME", "") // deterministic extensions-dir fallback
 	spawned, home := withCodeServerSeams(t, false)
 
 	// A FILE at ~/.rk makes MkdirAll under it fail — the seed errors, but the
@@ -161,7 +162,10 @@ func TestEnsureCodeServerSeedFailureKeepsProfileFlags(t *testing.T) {
 	}
 	got := strings.Join((*spawned)[0], " ")
 	if !strings.Contains(got, "--user-data-dir "+filepath.Join(home, ".rk", "code-server")) {
-		t.Errorf("spawn argv = %q, want the profile flags despite the failed seed", got)
+		t.Errorf("spawn argv = %q, want --user-data-dir despite the failed seed", got)
+	}
+	if !strings.Contains(got, "--extensions-dir "+filepath.Join(home, ".local", "share", "code-server", "extensions")) {
+		t.Errorf("spawn argv = %q, want --extensions-dir despite the failed seed", got)
 	}
 }
 

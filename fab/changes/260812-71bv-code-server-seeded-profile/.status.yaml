@@ -1,0 +1,55 @@
+id: 71bv
+name: 260812-71bv-code-server-seeded-profile
+created: 2026-08-12T05:30:56Z
+created_by: Sahil Ahuja
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 5
+    acceptance_count: 10
+    acceptance_completed: 10
+confidence:
+    certain: 5
+    confident: 3
+    tentative: 0
+    unresolved: 0
+    score: 4.8
+    fuzzy: true
+    dimensions:
+        signal: 74.4
+        reversibility: 82.5
+        competence: 86.9
+        disambiguation: 85.0
+stage_metrics:
+    intake: {started_at: "2026-08-12T05:30:56Z", driver: fab-new, iterations: 1, completed_at: "2026-08-12T05:36:21Z"}
+    apply: {started_at: "2026-08-12T05:36:21Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-12T05:41:59Z"}
+    review: {started_at: "2026-08-12T05:41:59Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-12T05:46:38Z"}
+    hydrate: {started_at: "2026-08-12T05:46:38Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-12T05:48:23Z"}
+    ship: {started_at: "2026-08-12T05:48:23Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-08-12T05:48:23Z"
+    computed_at_stage: hydrate
+summary: code-server spawn gains an rk-owned --user-data-dir (~/.rk/code-server) with a write-once settings seed and --extensions-dir pinned to the default location
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-12T05:48:23Z

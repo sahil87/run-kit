@@ -2,9 +2,13 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
+	"os"
 	"os/exec"
+	"path/filepath"
 
 	"rk/internal/config"
 )
@@ -42,6 +46,59 @@ var codeServerSpawn = func(ctx context.Context, args ...string) error {
 // without depending on the host's PATH contents.
 var codeServerLookPath = exec.LookPath
 
+// codeServerUserHomeDir resolves the user's home directory for the rk-owned
+// profile paths. A package seam (os.UserHomeDir reads platform-specific env)
+// so tests point the profile at a temp dir and never touch the real ~/.rk.
+var codeServerUserHomeDir = os.UserHomeDir
+
+// codeServerSeedSettings is the write-once baseline for the rk-owned profile:
+// both settings are settings-only (no CLI flags exist — verified code-server
+// 4.112.0 / Code 1.112.0). chat.disableAIFeatures hides the "Build with
+// Agent" chat panel; workbench.startupEditor "none" suppresses the welcome
+// tab in the embedded /code lens. Seeded ONLY when settings.json is absent —
+// user edits win forever after.
+const codeServerSeedSettings = `{
+    "chat.disableAIFeatures": true,
+    "workbench.startupEditor": "none"
+}
+`
+
+// codeServerProfileDir is the rk-owned --user-data-dir: ~/.rk/code-server
+// (the ~/.rk/tmux.conf config-namespace precedent — the seeded settings.json
+// is the user-editable artifact here).
+func codeServerProfileDir(home string) string {
+	return filepath.Join(home, ".rk", "code-server")
+}
+
+// codeServerExtensionsDir is code-server's DEFAULT extensions location:
+// $XDG_DATA_HOME/code-server/extensions, else ~/.local/share/code-server/
+// extensions. Pinned explicitly because code-server derives its default
+// extensions dir from the user-data-dir (<user-data-dir>/extensions), so
+// overriding the data dir alone would hide the user's installed extensions.
+func codeServerExtensionsDir(home string) string {
+	if v := os.Getenv("XDG_DATA_HOME"); v != "" {
+		return filepath.Join(v, "code-server", "extensions")
+	}
+	return filepath.Join(home, ".local", "share", "code-server", "extensions")
+}
+
+// seedCodeServerSettings writes the baseline User/settings.json into the
+// rk-owned profile dir, only when the file does not already exist. An
+// existing file — any content — is left byte-for-byte untouched: the seed is
+// a baseline, not enforcement.
+func seedCodeServerSettings(profileDir string) error {
+	path := filepath.Join(profileDir, "User", "settings.json")
+	if _, err := os.Stat(path); err == nil {
+		return nil // user edits persist
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(codeServerSeedSettings), 0o644)
+}
+
 // ensureCodeServer starts the daemon-managed code-server beside the daemon on
 // the rk-daemon socket. It is BEST-EFFORT and re-entrant on every daemon start
 // (Start/StartWithBinary both funnel through startSession):
@@ -65,6 +122,14 @@ var codeServerLookPath = exec.LookPath
 // flag, so killing the feature is the mechanism), the Coder getting-started
 // promo removed, and the app name set to run-kit. Flags apply only to
 // instances rk spawns — the externally-managed skip below is unchanged.
+//
+// The spawn also carries the rk-owned profile (260812-71bv): --user-data-dir
+// ~/.rk/code-server, seeded write-once with settings that have no CLI flags
+// (codeServerSeedSettings), plus --extensions-dir pinned back to code-server's
+// default location so the user's installed extensions stay visible. Both
+// degrade best-effort: a failed seed keeps the flags (code-server creates its
+// own dir); an unresolvable home drops the profile flags entirely (a relative
+// or empty path would be worse than the status quo).
 func ensureCodeServer() {
 	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
 	defer cancel()
@@ -95,6 +160,15 @@ func ensureCodeServer() {
 		"code-server", "--bind-addr", fmt.Sprintf("%s:%d", localhostAddr, port), "--auth", "none",
 		"--disable-telemetry", "--disable-update-check", "--disable-workspace-trust",
 		"--disable-getting-started-override", "--app-name", "run-kit",
+	}
+	if home, err := codeServerUserHomeDir(); err != nil {
+		slog.Warn("code-server profile skipped: home directory unresolvable; spawning without the rk-owned profile", "err", err)
+	} else {
+		profileDir := codeServerProfileDir(home)
+		if err := seedCodeServerSettings(profileDir); err != nil {
+			slog.Warn("code-server settings seed failed; continuing with an unseeded profile", "err", err)
+		}
+		args = append(args, "--user-data-dir", profileDir, "--extensions-dir", codeServerExtensionsDir(home))
 	}
 	if err := codeServerSpawn(ctx, args...); err != nil {
 		slog.Warn("code-server session spawn failed; the daemon continues without it", "err", err)

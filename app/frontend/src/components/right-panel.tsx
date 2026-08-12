@@ -151,9 +151,16 @@ export function RightPanel({ available, active, onToggle, children }: RightPanel
 
   const clampedPct = clampPanelWidth(widthPct, basisWidth);
   // The grid column is `auto` — the panel sizes it in PIXELS (the clamped
-  // percentage resolved against the content+panel basis). A 0 basis (first
-  // paint pre-measurement, or jsdom) renders 0px for a frame at worst; the
-  // layout-effect read corrects before paint in real browsers.
+  // percentage resolved against the content+panel basis). A 0 basis (the
+  // pre-measurement first paint, jsdom, or a null grid seam) renders 0px. The
+  // measuring effect above is PASSIVE by necessity, so that 0 CAN paint for a
+  // frame: a ~5px sliver (the left border plus the resize handle) before the
+  // measured width lands. The panel stays RENDERED rather than
+  // hidden-until-measured on purpose — hiding removes the sliver but not the
+  // reflow (the content column resizes when the width lands either way), and a
+  // basis that never becomes non-zero (RightPanel mounted outside a Shell,
+  // where `useShellGridRef()` is null) would then hide the panel FOREVER
+  // instead of degrading to a visible one.
   const panelPx = Math.round((clampedPct / 100) * basisWidth);
 
   return (

@@ -45,7 +45,7 @@ func TestEnsureCodeServerSpawnsSiblingSession(t *testing.T) {
 		t.Fatalf("spawn calls = %d, want 1", len(*spawned))
 	}
 	got := strings.Join((*spawned)[0], " ")
-	want := fmt.Sprintf("new-session -d -s rk-code-server -n code-server env -u VSCODE_IPC_HOOK_CLI code-server --bind-addr 127.0.0.1:%d --auth none", port)
+	want := fmt.Sprintf("new-session -d -s rk-code-server -n code-server env -u VSCODE_IPC_HOOK_CLI code-server --bind-addr 127.0.0.1:%d --auth none --disable-telemetry --disable-update-check --disable-workspace-trust --disable-getting-started-override --app-name run-kit", port)
 	if got != want {
 		t.Errorf("spawn argv =\n%s\nwant:\n%s", got, want)
 	}

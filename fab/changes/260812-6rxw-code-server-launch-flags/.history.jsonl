@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-12T04:49:22Z"}
+{"args":"Curated launch flags for the daemon-managed code-server spawn: append --disable-telemetry, --disable-update-check, --disable-workspace-trust, --disable-getting-started-override, --app-name run-kit to the ensureCodeServer argv (argv-only change; test updated via codeServerSpawn seam)","cmd":"fab-new","event":"command","ts":"2026-08-12T04:49:22Z"}
+{"delta":"+4.9","event":"confidence","score":4.9,"trigger":"calc-score","ts":"2026-08-12T04:51:03Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-08-12T04:52:23Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-12T04:54:04Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-12T04:54:22Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-12T04:56:10Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-12T04:59:40Z"}
+{"event":"review","result":"passed","ts":"2026-08-12T04:59:40Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-12T05:00:50Z"}

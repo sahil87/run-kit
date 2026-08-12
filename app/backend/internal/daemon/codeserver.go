@@ -59,6 +59,12 @@ var codeServerLookPath = exec.LookPath
 // into `code`-CLI mode — "open in existing instance" → exits with "Please
 // specify at least one file or folder"; the dev.sh lesson). Loopback-only +
 // --auth none: the rk origin is the trust boundary, same posture as dev.
+// The remaining flags curate the embedded /code lens: telemetry and the
+// update notifier off (updates arrive via brew), workspace trust disabled
+// (the lens only opens rk-managed worktrees — code-server has no auto-accept
+// flag, so killing the feature is the mechanism), the Coder getting-started
+// promo removed, and the app name set to run-kit. Flags apply only to
+// instances rk spawns — the externally-managed skip below is unchanged.
 func ensureCodeServer() {
 	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
 	defer cancel()
@@ -87,6 +93,8 @@ func ensureCodeServer() {
 		"-n", CodeServerWindowName,
 		"env", "-u", "VSCODE_IPC_HOOK_CLI",
 		"code-server", "--bind-addr", fmt.Sprintf("%s:%d", localhostAddr, port), "--auth", "none",
+		"--disable-telemetry", "--disable-update-check", "--disable-workspace-trust",
+		"--disable-getting-started-override", "--app-name", "run-kit",
 	}
 	if err := codeServerSpawn(ctx, args...); err != nil {
 		slog.Warn("code-server session spawn failed; the daemon continues without it", "err", err)

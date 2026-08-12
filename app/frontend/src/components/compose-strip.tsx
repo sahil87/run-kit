@@ -329,12 +329,16 @@ export function ComposeStrip({
       const outer = outerRef.current;
       const pane = focused.containerRef.current;
       // A null pane element (registrant unmounted mid-measure) degrades to
-      // full width without throwing.
+      // full width without throwing. Capture each rect once — every
+      // getBoundingClientRect() call can force layout, and this runs from
+      // ResizeObserver callbacks (e.g. divider drags).
+      const paneRect = pane?.getBoundingClientRect();
+      const outerRect = outer?.getBoundingClientRect();
       const next =
-        outer && pane
+        paneRect && outerRect
           ? computeStripGeometry(
-              { left: pane.getBoundingClientRect().left, width: pane.getBoundingClientRect().width },
-              { left: outer.getBoundingClientRect().left, width: outer.getBoundingClientRect().width },
+              { left: paneRect.left, width: paneRect.width },
+              { left: outerRect.left, width: outerRect.width },
             )
           : null;
       setGeometry((prev) =>

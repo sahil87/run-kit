@@ -196,10 +196,25 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
     // consumes from the FRONT of the pyramid).
     let prevL1 = L1.length;
     let prevL2 = L2.length;
+    let prevWasDesktop = true;
     for (const width of WIDTHS) {
       await page.setViewportSize({ width, height: 800 });
       await expect(heading).toBeVisible({ timeout: 10_000 });
       const [l1, l2, l3] = await settledTierCounts(page);
+
+      // The trailing exempt block shrinks at the mobile boundary: the
+      // desktop-only rail toggle (260812-nm4p) unmounts below 640px
+      // (MOBILE_BREAKPOINT_PX), freeing reserved width that can legitimately
+      // re-admit an already-dropped candidate. Monotonicity therefore holds
+      // WITHIN each viewport regime (desktop ≥640 / mobile <640) — re-baseline
+      // once at the crossing. The per-width pyramid-order assertions below are
+      // regime-independent and still run at every width.
+      const isDesktopWidth = width >= 640;
+      if (prevWasDesktop && !isDesktopWidth) {
+        prevL1 = L1.length;
+        prevL2 = L2.length;
+      }
+      prevWasDesktop = isDesktopWidth;
 
       // Monotonic non-increasing as width shrinks (each tier only loses members).
       expect(l1, `L1 in-bar non-increasing at ${width}px`).toBeLessThanOrEqual(prevL1);

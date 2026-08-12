@@ -69,9 +69,13 @@ menuOnly controls render in-bar NOWHERE at any width (g, 260731-oiho).
 pyramid drop order — overflow consumes from the front, so L1 (the merged split
 control) empties before L3 (Refresh) starts dropping (L2 is empty since the
 260731-oiho demotions); each tier's in-bar count is monotonic non-increasing as
-width shrinks; at 375px the pyramid's front (the L1 split) has overflowed — the
-lightened 260731-oiho cluster deliberately keeps the L3 Refresh in-bar at the
-mobile leaf, so the ORDER (not an all-gone cliff) is the contract.
+width shrinks WITHIN each viewport regime — the desktop-only rail toggle
+(260812-nm4p) unmounts below 640px, shrinking the trailing exempt block, so the
+monotonic baseline resets once at the desktop→mobile crossing while the
+per-width pyramid-order assertions run unconditionally; at 375px the pyramid's
+front (the L1 split) has overflowed — the lightened 260731-oiho cluster
+deliberately keeps the L3 Refresh in-bar at the mobile leaf, so the ORDER (not
+an all-gone cliff) is the contract.
 
 **Steps:**
 1. At 1280px assert at least some L3 controls render in-bar (the direct M1
@@ -81,7 +85,9 @@ mobile leaf, so the ORDER (not an all-gone cliff) is the contract.
    snapshots agree — the three tier reads are not atomic, and the
    ResizeObserver-driven overflow recompute can re-render between them, so
    invariants are asserted on a settled layout, not a transient frame. Assert L1
-   and L2 counts are non-increasing; assert L2 is full while any L1 is in-bar and
+   and L2 counts are non-increasing (re-baselining once when the sweep crosses
+   the 640px mobile boundary, where the desktop-only rail toggle unmounts and
+   frees trailing width); assert L2 is full while any L1 is in-bar and
    L3 is full while any L2 is in-bar.
 3. At 375px assert the L1 in-bar count is 0 (the split has overflowed).
 

@@ -14,8 +14,12 @@ textarea, "press Enter in the pane"; Alt+Enter is the chord-only byte-exact
 raw insert; the Insert button follows Enter), `enterkeyhint="send"`
 (pointer-independent; the readline editing chords are unit-tested in
 `readline-keys.test.ts` / `compose-strip.test.tsx`),
-Escape-blurs focus routing, and the target label following board-pane focus
-(closing the per-pane STDIN routing gap noted in `shell-rotation.spec.ts:14`).
+Escape-blurs focus routing, the target label following board-pane focus
+(closing the per-pane STDIN routing gap noted in `shell-rotation.spec.ts:14`),
+and pane-aligned geometry (260812-fryz — the strip's visible box narrows to
+the focused pane's measured span on split layouts and boards, re-aligns on
+pane-focus cycles, stays full width in selection broadcast, and does not
+overflow a 375px mobile viewport).
 The chat send form deliberately does NOT follow the strip's Enter policy (it
 keeps Enter=newline — the chat lens cannot show the pane's input box); its
 coverage lives in `chat-view.spec.ts`.
@@ -25,7 +29,9 @@ coverage lives in `chat-view.spec.ts`.
 - `beforeAll` creates two tmux sessions on the `rk-test-e2e` server:
   - `e2e-compose-<ts>` — a single window running `cat`, so STDIN typed via the
     strip echoes back into the pane (used to verify Cmd/Ctrl+Enter sends
-    `text + \r`).
+    `text + \r`). Its window carries a `@rk_url` option (stamped here, not
+    mid-test — the backend's window payload refreshes on an interval, and the
+    split-layout test's web tile reads rkUrl from it).
   - `e2e-compose-board-<ts>` — two named windows (`cs-alpha`, `cs-bravo`) pinned
     to a fresh board for the target-label test.
 - A unique board name (`cs<digits>`) is used per run so reruns don't collide on
@@ -177,3 +183,79 @@ to the newly-focused pane's window name — the live-target signal (reverses DD-
 4. Assert the label reads `cs-alpha` (initial focused pane, index 0).
 5. Press `Meta+]`; assert the label updates to `cs-bravo`.
 6. Press `Meta+[`; assert the label returns to `cs-alpha`.
+
+### `the strip's visible box aligns under the tty tile on a split layout (260812-fryz)`
+
+**What it proves:** On a `split-h:tty,web` terminal layout, the compose strip's
+visible chrome (the `compose-strip-inner` wrapper) narrows to the focused tty
+tile's horizontal span instead of spanning the full footer row — while the
+outer `compose-strip` element keeps occupying the whole row (the refit mechanic
+is untouched).
+
+**Steps:**
+
+1. Set a 1440×800 viewport; resolve the `cat` session's window (its `@rk_url`
+   was stamped in `beforeAll` — the backend's window payload refreshes on an
+   interval, so a mid-test set raced that propagation; the iframe content is
+   never asserted).
+2. Navigate to `/<server>/<windowId>?layout=split-h:tty,web`; wait for the
+   `Connected` dot and both `surface-tile-tty` and `surface-tile-web`.
+3. Enable the strip via the `>_` chip.
+4. Measure the tty tile and the strip's outer row; poll until the inner
+   wrapper's left/width match the tile's span within 16px (the measured
+   container is the TerminalClient root inside the tile's `px-1` padding, and
+   the retarget slide is a 200ms transition — never assert mid-slide).
+5. Assert the inner box is at least 40px narrower than the outer row (it did
+   NOT stay full width).
+
+### `the strip aligns under the focused board pane and re-aligns on pane cycle (260812-fryz)`
+
+**What it proves:** On a board, the strip's visible box sits under the focused
+pane and slides to the newly focused pane on `Meta+]` / `Meta+[` cycles —
+pane-alignment doubles as target disambiguation.
+
+**Steps:**
+
+1. Set a 1440×800 viewport; resolve `cs-alpha`/`cs-bravo`; pin both to a fresh
+   per-run board (`csa<digits>`).
+2. Navigate to the board; assert two `.xterm` instances mount.
+3. Enable the strip via the `>_` chip; press Escape to blur the textarea
+   (focus-on-open) so the pane-cycle chords are not input-suppressed.
+4. Measure both pane roots (`role=group`, `board pane cs-alpha` / `cs-bravo`);
+   poll until the inner wrapper matches cs-alpha's span (a pane narrower than
+   the 420px clamp still centers the box on its span, so the comparison holds).
+5. Press `Meta+]`; assert the target label reads `cs-bravo` and poll until the
+   inner box matches cs-bravo's span.
+6. Press `Meta+[`; poll until the inner box is back under cs-alpha.
+
+### `selection broadcast keeps the strip full width (260812-fryz)`
+
+**What it proves:** In selection-broadcast mode (`Selection: Send prompt to N
+agents` — a frozen multi-window target with no single anchor) the strip's
+visible box spans the full footer row and carries no inline alignment styles.
+
+**Steps:**
+
+1. Set a 1440×800 viewport; resolve `cs-alpha`/`cs-bravo` and navigate to the
+   server route (`/<server>`); wait for the `Connected` dot.
+2. Cmd/Ctrl-click both window rows in the sidebar tree to select them.
+3. Open the palette (`Meta+k`), run `Selection: Send prompt to 2 agents`;
+   assert the strip's target label reads `2 selected` (no send — geometry only).
+4. Measure the strip's outer row; poll until the inner wrapper spans it (±2px)
+   and assert the inner element has no `margin-left` inline style.
+
+### `375px mobile: the aligned strip causes no horizontal overflow (260812-fryz)`
+
+**What it proves:** At a 375px viewport the single visible pane fills the
+content width, so pane-aligned and full-width converge: the strip causes no
+page-level horizontal overflow and its visible box stays fully inside the
+viewport.
+
+**Steps:**
+
+1. Set a 375×812 viewport; navigate to the `cat` session's window; wait for the
+   terminal (no `Connected` dot on mobile — the sidebar is an unmounted drawer).
+2. Enable the strip via the `>_` chip; assert the inner wrapper is visible.
+3. Poll `document.documentElement.scrollWidth` until ≤ 375 (no horizontal page
+   overflow).
+4. Assert the inner box's `x ≥ 0` and `x + width ≤ 375`.

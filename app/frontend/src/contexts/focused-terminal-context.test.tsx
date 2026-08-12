@@ -22,9 +22,10 @@ function Producer({
   windowId: string;
 }) {
   const wsRef = useRef<WebSocket | null>(null);
+  const containerRef = useRef<HTMLElement | null>(null);
   const { setFocused } = useFocusedTerminal();
   useEffect(() => {
-    setFocused({ wsRef, server, session, windowId });
+    setFocused({ wsRef, containerRef, server, session, windowId });
     return () => setFocused(null);
   }, [setFocused, server, session, windowId]);
   return null;

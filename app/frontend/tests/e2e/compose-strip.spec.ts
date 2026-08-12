@@ -1,8 +1,8 @@
 import { test, expect } from "@playwright/test";
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import { pinWindow } from "./_boards";
-import { resolveWindow } from "./_ready";
-import { TMUX_SERVER, createSession, killSession } from "./_tmux";
+import { READY_TIMEOUT, resolveWindow } from "./_ready";
+import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
 
 /**
  * Docked compose strip (260718-dhdj) e2e coverage. The strip replaces the modal
@@ -15,8 +15,11 @@ import { TMUX_SERVER, createSession, killSession } from "./_tmux";
  * pane"); Alt+Enter = chord-only byte-exact raw insert; Shift+Enter is the
  * only local newline. Drafts are PER TARGET (260801-cyth): keyed by the
  * focused window and persisted (text only) to localStorage, so they stay with
- * their addressee across navigation and survive reloads. See the sibling
- * `.spec.md` for the per-test contract.
+ * their addressee across navigation and survive reloads. Pane-aligned geometry
+ * (260812-fryz): the visible box narrows to the focused pane's span on split
+ * layouts and boards (re-aligning on pane cycles) while the outer element
+ * keeps the full footer row; selection broadcast and the no-target state stay
+ * full width. See the sibling `.spec.md` for the per-test contract.
  */
 
 const TERM_SESSION = `e2e-compose-${Date.now()}`;
@@ -41,12 +44,48 @@ async function resolveWindowId(
   return (await resolveWindow(page, TMUX_SERVER, session, name)).windowId;
 }
 
+/** Bounding box or throw (a hidden/absent element is a real failure here). */
+async function boxOf(
+  locator: import("@playwright/test").Locator,
+): Promise<{ x: number; y: number; width: number; height: number }> {
+  const box = await locator.boundingBox();
+  if (!box) throw new Error("element has no bounding box");
+  return box;
+}
+
+/** Poll until the locator's left/width land within `tol` px of the target's —
+ * the retarget slide is a 200ms CSS transition (260812-fryz), so a one-shot
+ * assert could catch the box mid-slide. */
+async function expectAlignedTo(
+  locator: import("@playwright/test").Locator,
+  target: { x: number; width: number },
+  tol = 4,
+): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        const b = await locator.boundingBox();
+        if (!b) return Infinity;
+        return Math.max(Math.abs(b.x - target.x), Math.abs(b.width - target.width));
+      },
+      { timeout: 5_000 },
+    )
+    .toBeLessThanOrEqual(tol);
+}
+
 test.describe("Docked compose strip", () => {
   test.beforeAll(() => {
     // Terminal-route session runs `cat` so typed STDIN echoes into the pane —
     // this is how we verify Enter sends `text + \r` end-to-end.
     createSession(TERM_SESSION);
     tmux(`send-keys -t ${TERM_SESSION} 'cat' Enter`);
+    // Stamp @rk_url up front: the split-layout test's web tile reads rkUrl
+    // from the backend's window payload, which refreshes on an interval —
+    // setting the option mid-test raced that propagation (a >10s cold wait).
+    const first = listWindows(TERM_SESSION)[0];
+    if (first) {
+      execFileSync("tmux", ["-L", TMUX_SERVER, "set-option", "-w", "-t", first.windowId, "@rk_url", "http://localhost:8080/"]);
+    }
     // Board-route session with two named windows for the target-label test.
     createSession(BOARD_SESSION, { windows: ["cs-alpha", "cs-bravo"] });
   });
@@ -326,5 +365,130 @@ test.describe("Docked compose strip", () => {
     await expect(label).toHaveText("cs-bravo");
     await page.keyboard.press("Meta+[");
     await expect(label).toHaveText("cs-alpha");
+  });
+
+  test("the strip's visible box aligns under the tty tile on a split layout (260812-fryz)", async ({ page }) => {
+    test.setTimeout(60_000);
+    await page.setViewportSize({ width: 1440, height: 800 });
+    const windowId = await resolveWindowId(page, TERM_SESSION);
+    // @rk_url was stamped in beforeAll (the backend payload refreshes on an
+    // interval — setting it here raced that propagation). The iframe src is
+    // deterministic regardless of whether anything listens there (we assert
+    // geometry, never iframe content).
+    await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(windowId)}?layout=split-h:tty,web`, {
+      waitUntil: "domcontentloaded",
+    });
+    await expect(page.locator("[aria-label='Connected']")).toBeVisible({ timeout: READY_TIMEOUT });
+    const ttyTile = page.getByTestId("surface-tile-tty");
+    await expect(ttyTile).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId("surface-tile-web")).toBeVisible({ timeout: 15_000 });
+
+    await page.getByRole("button", { name: "Compose text" }).click();
+    const strip = page.getByTestId("compose-strip");
+    const inner = page.getByTestId("compose-strip-inner");
+    await expect(inner).toBeVisible();
+
+    // The visible box sits under the focused tty tile — NOT the full footer
+    // row. (The measured container is the TerminalClient root inside the
+    // tile's px-1 padding, hence the loose 16px tolerance.)
+    const tileBox = await boxOf(ttyTile);
+    const rowBox = await boxOf(strip);
+    await expectAlignedTo(inner, tileBox, 16);
+    const innerBox = await boxOf(inner);
+    expect(innerBox.width).toBeLessThan(rowBox.width - 40);
+  });
+
+  test("the strip aligns under the focused board pane and re-aligns on pane cycle (260812-fryz)", async ({ page }) => {
+    test.setTimeout(60_000);
+    await page.setViewportSize({ width: 1440, height: 800 });
+    const alpha = await resolveWindowId(page, BOARD_SESSION, "cs-alpha");
+    const bravo = await resolveWindowId(page, BOARD_SESSION, "cs-bravo");
+    // A second, per-run-unique board so this test's pins never tangle with the
+    // target-label test's board above.
+    const alignBoard = `csa${Date.now().toString().slice(-6)}`;
+    for (const winId of [alpha, bravo]) {
+      await pinWindow(page.request, alignBoard, TMUX_SERVER, winId);
+    }
+
+    await page.goto(`/board/${alignBoard}`, { waitUntil: "domcontentloaded" });
+    await expect(page.locator(".xterm")).toHaveCount(2, { timeout: 15_000 });
+
+    await page.getByRole("button", { name: "Compose text" }).click();
+    const inner = page.getByTestId("compose-strip-inner");
+    await expect(inner).toBeVisible();
+    // Focus-on-open grabbed the textarea; blur it so the pane-cycle chords
+    // below are not input-suppressed.
+    await page.keyboard.press("Escape");
+
+    const paneAlpha = page.getByRole("group", { name: "board pane cs-alpha" });
+    const paneBravo = page.getByRole("group", { name: "board pane cs-bravo" });
+    const alphaBox = await boxOf(paneAlpha);
+    const bravoBox = await boxOf(paneBravo);
+
+    // Initially under the focused pane (index 0 = cs-alpha); a narrow pane
+    // (< 420px) still centers the clamped box on the pane's span, so the
+    // comparison holds either way.
+    await expectAlignedTo(inner, alphaBox);
+    await page.keyboard.press("Meta+]");
+    await expect(page.getByTestId("compose-strip-target")).toHaveText("cs-bravo");
+    await expectAlignedTo(inner, bravoBox);
+    await page.keyboard.press("Meta+[");
+    await expectAlignedTo(inner, alphaBox);
+  });
+
+  test("selection broadcast keeps the strip full width (260812-fryz)", async ({ page }) => {
+    test.setTimeout(60_000);
+    await page.setViewportSize({ width: 1440, height: 800 });
+    const alpha = await resolveWindowId(page, BOARD_SESSION, "cs-alpha");
+    const bravo = await resolveWindowId(page, BOARD_SESSION, "cs-bravo");
+
+    // Select both windows in the sidebar tree, then open the broadcast strip
+    // via the palette action (no send — geometry only).
+    await page.goto(`/${TMUX_SERVER}`, { waitUntil: "domcontentloaded" });
+    await expect(page.locator("[aria-label='Connected']")).toBeVisible({ timeout: READY_TIMEOUT });
+    for (const winId of [alpha, bravo]) {
+      const row = page.locator(`[data-row-key="${TMUX_SERVER}:${winId}"] button`).first();
+      await expect(row).toBeVisible({ timeout: 10_000 });
+      await row.click({ modifiers: ["ControlOrMeta"] });
+    }
+    await page.keyboard.press("Meta+k");
+    await page.getByPlaceholder("Type a command").fill("Selection: Send prompt to 2 agents");
+    await page.keyboard.press("Enter");
+    await expect(page.getByTestId("compose-strip-target")).toHaveText("2 selected");
+
+    // A frozen multi-window target has no single anchor: the visible box spans
+    // the full footer row and carries no inline alignment styles.
+    const rowBox = await boxOf(page.getByTestId("compose-strip"));
+    await expectAlignedTo(page.getByTestId("compose-strip-inner"), rowBox, 2);
+    await expect(page.getByTestId("compose-strip-inner")).not.toHaveAttribute(
+      "style",
+      /margin-left/,
+    );
+  });
+
+  test("375px mobile: the aligned strip causes no horizontal overflow (260812-fryz)", async ({ page }) => {
+    test.setTimeout(60_000);
+    await page.setViewportSize({ width: 375, height: 812 });
+    const windowId = await resolveWindowId(page, TERM_SESSION);
+    await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(windowId)}`, {
+      waitUntil: "domcontentloaded",
+    });
+    // No `Connected` dot on mobile (the sidebar is an unmounted drawer) — gate
+    // on the terminal itself.
+    await expect(page.locator(".xterm").first()).toBeVisible({ timeout: 15_000 });
+
+    await page.getByRole("button", { name: "Compose text" }).click();
+    const inner = page.getByTestId("compose-strip-inner");
+    await expect(inner).toBeVisible();
+
+    // The single visible pane fills the content width, so pane-aligned and
+    // full-width converge: no page-level horizontal overflow, and the visible
+    // box stays fully inside the 375px viewport.
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
+      .toBeLessThanOrEqual(375);
+    const innerBox = await boxOf(inner);
+    expect(innerBox.x).toBeGreaterThanOrEqual(0);
+    expect(innerBox.x + innerBox.width).toBeLessThanOrEqual(375);
   });
 });

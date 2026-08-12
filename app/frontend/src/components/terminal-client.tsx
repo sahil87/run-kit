@@ -124,6 +124,10 @@ export function TerminalClient({
   registerFocus = true,
 }: TerminalClientProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
+  // The component's root wrapper div — registered as the focused terminal's
+  // `containerRef` so the compose strip can measure this pane's box for
+  // pane-aligned docking (260812-fryz).
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const xtermRef = useRef<import("@xterm/xterm").Terminal | null>(null);
   const fitAddonRef = useRef<import("@xterm/addon-fit").FitAddon | null>(null);
   const [terminalReady, setTerminalReady] = useState(false);
@@ -154,7 +158,7 @@ export function TerminalClient({
   // based on its focused-pane state.
   useEffect(() => {
     if (!registerFocus) return;
-    setFocused({ wsRef, server, session: sessionName, windowId });
+    setFocused({ wsRef, containerRef, server, session: sessionName, windowId });
     return () => {
       setFocused(null);
     };
@@ -1053,7 +1057,7 @@ export function TerminalClient({
   }, [terminalReady, server, wsRef, connectionEpoch]);
 
   return (
-    <div className="relative flex-1 min-h-0 flex flex-col">
+    <div ref={containerRef} className="relative flex-1 min-h-0 flex flex-col">
       <div
         ref={terminalRef}
         role="application"

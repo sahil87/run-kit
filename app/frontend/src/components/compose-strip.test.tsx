@@ -257,6 +257,7 @@ describe("ComposeStrip", () => {
           <FocusSetter
             focus={{
               wsRef: ws.ref,
+              containerRef: { current: null },
               server: "srv",
               session: "sess",
               windowId: "@1",
@@ -300,7 +301,7 @@ describe("ComposeStrip", () => {
   // the submit keycap is `Ctrl+Enter` here.
   it("educates via placeholder on a terminal target (fine pointer): Enter inserts · keycap sends · ↑ history", () => {
     stubPointer(false);
-    render(<Harness focus={{ wsRef: makeWs().ref, server: "srv", session: "sess", windowId: "@1" }} />);
+    render(<Harness focus={{ wsRef: makeWs().ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />);
     act(() => fireEvent.click(screen.getByTestId("set-focus")));
     expect(input().placeholder).toBe(
       "Compose text — Enter inserts · Ctrl+Enter sends · ↑ history",
@@ -317,7 +318,7 @@ describe("ComposeStrip", () => {
 
   it("keeps the short placeholder strings on a coarse pointer (no chord hints on touch)", () => {
     stubPointer(true);
-    render(<Harness focus={{ wsRef: makeWs().ref, server: "srv", session: "sess", windowId: "@1" }} />);
+    render(<Harness focus={{ wsRef: makeWs().ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />);
     act(() => fireEvent.click(screen.getByTestId("set-focus")));
     expect(input().placeholder).toBe("Compose text…");
   });
@@ -329,7 +330,7 @@ describe("ComposeStrip", () => {
 
   it("shows the focused window name as the target label", () => {
     seedWindow("srv", "@1", "my-window");
-    render(<Harness focus={{ wsRef: makeWs().ref, server: "srv", session: "sess", windowId: "@1" }} />);
+    render(<Harness focus={{ wsRef: makeWs().ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />);
     act(() => fireEvent.click(screen.getByTestId("set-focus")));
     expect(screen.getByTestId("compose-strip-target").textContent).toBe("my-window");
   });
@@ -340,7 +341,7 @@ describe("ComposeStrip", () => {
     render(
       <ChromeProvider>
         <FocusedTerminalProvider>
-          <FocusSetter focus={{ wsRef: makeWs().ref, server: "srv", session: "sess", windowId: "@7" }} />
+          <FocusSetter focus={{ wsRef: makeWs().ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@7" }} />
           <ComposeStrip />
         </FocusedTerminalProvider>
       </ChromeProvider>,
@@ -358,6 +359,7 @@ describe("ComposeStrip", () => {
           <FocusSetter
             focus={{
               wsRef: makeWs().ref,
+              containerRef: { current: null },
               server: "srv",
               session: "sess",
               windowId: "@7",
@@ -379,6 +381,7 @@ describe("ComposeStrip", () => {
       <Harness
         focus={{
           wsRef: makeWs().ref,
+          containerRef: { current: null },
           server: "srv",
           session: "sess",
           windowId: "@1",
@@ -397,7 +400,7 @@ describe("ComposeStrip", () => {
       const view = render(
         <ChromeProvider>
           <FocusedTerminalProvider>
-            <FocusSetter focus={{ wsRef: ref, server: "srv", session: "sess", windowId: "@1" }} />
+            <FocusSetter focus={{ wsRef: ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />
             <ComposeStrip />
           </FocusedTerminalProvider>
         </ChromeProvider>,
@@ -419,7 +422,7 @@ describe("ComposeStrip", () => {
     render(
       <ChromeProvider>
         <FocusedTerminalProvider>
-          <FocusSetter focus={{ wsRef: ref, server: "srv", session: "sess", windowId: "@1" }} />
+          <FocusSetter focus={{ wsRef: ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />
           <ComposeStrip />
         </FocusedTerminalProvider>
       </ChromeProvider>,
@@ -446,7 +449,7 @@ describe("ComposeStrip", () => {
     render(
       <ChromeProvider>
         <FocusedTerminalProvider>
-          <FocusSetter focus={{ wsRef: ref, server: "srv", session: "sess", windowId: "@1" }} />
+          <FocusSetter focus={{ wsRef: ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />
           <ComposeStrip />
         </FocusedTerminalProvider>
       </ChromeProvider>,
@@ -462,7 +465,7 @@ describe("ComposeStrip", () => {
     render(
       <ChromeProvider>
         <FocusedTerminalProvider>
-          <FocusSetter focus={{ wsRef: ref, server: "srv", session: "sess", windowId: "@1" }} />
+          <FocusSetter focus={{ wsRef: ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />
           <ComposeStrip />
         </FocusedTerminalProvider>
       </ChromeProvider>,
@@ -477,7 +480,7 @@ describe("ComposeStrip", () => {
     render(
       <ChromeProvider>
         <FocusedTerminalProvider>
-          <FocusSetter focus={{ wsRef: ref, server: "srv", session: "sess", windowId: "@1" }} />
+          <FocusSetter focus={{ wsRef: ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />
           <ComposeStrip />
         </FocusedTerminalProvider>
       </ChromeProvider>,
@@ -494,7 +497,7 @@ describe("ComposeStrip", () => {
     render(
       <ChromeProvider>
         <FocusedTerminalProvider>
-          <FocusSetter focus={{ wsRef: ref, server: "srv", session: "sess", windowId: "@1" }} />
+          <FocusSetter focus={{ wsRef: ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />
           <ComposeStrip />
         </FocusedTerminalProvider>
       </ChromeProvider>,
@@ -516,7 +519,7 @@ describe("ComposeStrip", () => {
         const view = render(
           <ChromeProvider>
             <FocusedTerminalProvider>
-              <FocusSetter focus={{ wsRef: ref, server: "srv", session: "sess", windowId: "@1" }} />
+              <FocusSetter focus={{ wsRef: ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />
               <ComposeStrip />
             </FocusedTerminalProvider>
           </ChromeProvider>,
@@ -536,7 +539,7 @@ describe("ComposeStrip", () => {
     render(
       <ChromeProvider>
         <FocusedTerminalProvider>
-          <FocusSetter focus={{ wsRef: ref, server: "srv", session: "sess", windowId: "@1" }} />
+          <FocusSetter focus={{ wsRef: ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />
           <ComposeStrip />
         </FocusedTerminalProvider>
       </ChromeProvider>,
@@ -553,7 +556,7 @@ describe("ComposeStrip", () => {
     render(
       <ChromeProvider>
         <FocusedTerminalProvider>
-          <FocusSetter focus={{ wsRef: ref, server: "srv", session: "sess", windowId: "@1" }} />
+          <FocusSetter focus={{ wsRef: ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />
           <ComposeStrip />
         </FocusedTerminalProvider>
       </ChromeProvider>,
@@ -575,7 +578,7 @@ describe("ComposeStrip", () => {
     render(
       <ChromeProvider>
         <FocusedTerminalProvider>
-          <FocusSetter focus={{ wsRef: ref, server: "srv", session: "sess", windowId: "@1" }} />
+          <FocusSetter focus={{ wsRef: ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />
           <ComposeStrip />
         </FocusedTerminalProvider>
       </ChromeProvider>,
@@ -591,7 +594,7 @@ describe("ComposeStrip", () => {
     render(
       <ChromeProvider>
         <FocusedTerminalProvider>
-          <FocusSetter focus={{ wsRef: ref, server: "srv", session: "sess", windowId: "@1" }} />
+          <FocusSetter focus={{ wsRef: ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />
           <ComposeStrip />
         </FocusedTerminalProvider>
       </ChromeProvider>,
@@ -609,7 +612,7 @@ describe("ComposeStrip", () => {
       const view = render(
         <ChromeProvider>
           <FocusedTerminalProvider>
-            <FocusSetter focus={{ wsRef: makeWs().ref, server: "srv", session: "sess", windowId: "@1" }} />
+            <FocusSetter focus={{ wsRef: makeWs().ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />
             <ComposeStrip />
           </FocusedTerminalProvider>
         </ChromeProvider>,
@@ -626,7 +629,7 @@ describe("ComposeStrip", () => {
     render(
       <ChromeProvider>
         <FocusedTerminalProvider>
-          <FocusSetter focus={{ wsRef: ref, server: "srv", session: "sess", windowId: "@1" }} />
+          <FocusSetter focus={{ wsRef: ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />
           <ComposeStrip />
         </FocusedTerminalProvider>
       </ChromeProvider>,
@@ -645,7 +648,7 @@ describe("ComposeStrip", () => {
     render(
       <ChromeProvider>
         <FocusedTerminalProvider>
-          <FocusSetter focus={{ wsRef: makeWs().ref, server: "srv", session: "sess", windowId: "@1" }} />
+          <FocusSetter focus={{ wsRef: makeWs().ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />
           <ComposeStrip />
         </FocusedTerminalProvider>
       </ChromeProvider>,
@@ -666,7 +669,7 @@ describe("ComposeStrip", () => {
     render(
       <ChromeProvider>
         <FocusedTerminalProvider>
-          <FocusSetter focus={{ wsRef: makeWs().ref, server: "srv", session: "sess", windowId: "@1" }} />
+          <FocusSetter focus={{ wsRef: makeWs().ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />
           <ComposeStrip />
         </FocusedTerminalProvider>
       </ChromeProvider>,
@@ -705,7 +708,7 @@ describe("ComposeStrip", () => {
   }
 
   it("focuses the textarea on the open transition (toggle off→on)", () => {
-    render(<ToggleHarness focus={{ wsRef: makeWs().ref, server: "srv", session: "sess", windowId: "@1" }} />);
+    render(<ToggleHarness focus={{ wsRef: makeWs().ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />);
     act(() => fireEvent.click(screen.getByTestId("set-focus")));
     act(() => fireEvent.click(screen.getByTestId("toggle-strip")));
     expect(document.activeElement).toBe(input());
@@ -724,7 +727,7 @@ describe("ComposeStrip", () => {
     render(
       <ChromeProvider>
         <FocusedTerminalProvider>
-          <FocusSetter focus={{ wsRef: makeWs().ref, server: "srv", session: "sess", windowId: "@1" }} />
+          <FocusSetter focus={{ wsRef: makeWs().ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />
           <ComposeStrip />
         </FocusedTerminalProvider>
       </ChromeProvider>,
@@ -747,8 +750,8 @@ describe("ComposeStrip", () => {
     const { setFocused } = useFocusedTerminal();
     return (
       <>
-        <button data-testid="focus-a" onClick={() => setFocused({ wsRef: wsA.ref, server: "srv", session: "sa", windowId: "@a" })}>a</button>
-        <button data-testid="focus-b" onClick={() => setFocused({ wsRef: wsB.ref, server: "srv", session: "sb", windowId: "@b" })}>b</button>
+        <button data-testid="focus-a" onClick={() => setFocused({ wsRef: wsA.ref, containerRef: { current: null }, server: "srv", session: "sa", windowId: "@a" })}>a</button>
+        <button data-testid="focus-b" onClick={() => setFocused({ wsRef: wsB.ref, containerRef: { current: null }, server: "srv", session: "sb", windowId: "@b" })}>b</button>
         <ComposeStrip />
       </>
     );
@@ -888,7 +891,7 @@ describe("ComposeStrip", () => {
     const { unmount } = render(
       <ChromeProvider>
         <FocusedTerminalProvider>
-          <FocusSetter focus={{ wsRef: makeWs().ref, server: "srv", session: "sess", windowId: "@1" }} />
+          <FocusSetter focus={{ wsRef: makeWs().ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />
           <ComposeStrip />
         </FocusedTerminalProvider>
       </ChromeProvider>,
@@ -906,7 +909,7 @@ describe("ComposeStrip", () => {
     render(
       <ChromeProvider>
         <FocusedTerminalProvider>
-          <FocusSetter focus={{ wsRef: makeWs().ref, server: "srv", session: "sess", windowId: "@1" }} />
+          <FocusSetter focus={{ wsRef: makeWs().ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />
           <ComposeStrip />
         </FocusedTerminalProvider>
       </ChromeProvider>,
@@ -922,7 +925,7 @@ describe("ComposeStrip", () => {
     const { unmount } = render(
       <ChromeProvider>
         <FocusedTerminalProvider>
-          <FocusSetter focus={{ wsRef: makeWs().ref, server: "srv", session: "sess", windowId: "@1" }} />
+          <FocusSetter focus={{ wsRef: makeWs().ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />
           <ComposeStrip />
         </FocusedTerminalProvider>
       </ChromeProvider>,
@@ -936,7 +939,7 @@ describe("ComposeStrip", () => {
     render(
       <ChromeProvider>
         <FocusedTerminalProvider>
-          <FocusSetter focus={{ wsRef: makeWs().ref, server: "srv", session: "sess", windowId: "@1" }} />
+          <FocusSetter focus={{ wsRef: makeWs().ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />
           <ComposeStrip />
         </FocusedTerminalProvider>
       </ChromeProvider>,
@@ -952,7 +955,7 @@ describe("ComposeStrip", () => {
     render(
       <ChromeProvider>
         <FocusedTerminalProvider>
-          <FocusSetter focus={{ wsRef: ref, server: "srv", session: "sess", windowId: "@1" }} />
+          <FocusSetter focus={{ wsRef: ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />
           <ComposeStrip />
         </FocusedTerminalProvider>
       </ChromeProvider>,
@@ -969,7 +972,7 @@ describe("ComposeStrip", () => {
     render(
       <ChromeProvider>
         <FocusedTerminalProvider>
-          <FocusSetter focus={{ wsRef: ref, server: "srv", session: "sess", windowId: "@1" }} />
+          <FocusSetter focus={{ wsRef: ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />
           <ComposeStrip />
         </FocusedTerminalProvider>
       </ChromeProvider>,
@@ -987,12 +990,13 @@ describe("ComposeStrip", () => {
     // registered one (mirrors BoardPane / terminal-client.tsx:139). After
     // unmount the strip must fall back to the disabled "no target" state.
     const wsRef = { current: null } as React.RefObject<WebSocket | null>;
+    const containerRef = { current: null } as React.RefObject<HTMLElement | null>;
     function FakeBoardPane() {
       const { focused, setFocused } = useFocusedTerminal();
       const focusedRef = useRef(focused);
       focusedRef.current = focused;
       useEffect(() => {
-        setFocused({ wsRef, server: "srv", session: "sess", windowId: "@board" });
+        setFocused({ wsRef, containerRef, server: "srv", session: "sess", windowId: "@board" });
         return () => {
           if (focusedRef.current?.wsRef === wsRef) setFocused(null);
         };
@@ -1053,7 +1057,7 @@ describe("ComposeStrip", () => {
     // Seed the preference ON so the gated strip mounts (readComposeStrip reads
     // localStorage at provider mount).
     localStorage.setItem("runkit-compose-strip", "true");
-    const first = render(<GatedHarness focus={{ wsRef: makeWs().ref, server: "srv", session: "sess", windowId: "@1" }} />);
+    const first = render(<GatedHarness focus={{ wsRef: makeWs().ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />);
     act(() => fireEvent.click(screen.getByTestId("set-focus")));
 
     // The × renders in the strip with its accessible name.
@@ -1071,13 +1075,13 @@ describe("ComposeStrip", () => {
     // needed (drafts are keyed by target, so the same focus recalls it).
     first.unmount();
     localStorage.setItem("runkit-compose-strip", "true");
-    render(<GatedHarness focus={{ wsRef: makeWs().ref, server: "srv", session: "sess", windowId: "@1" }} />);
+    render(<GatedHarness focus={{ wsRef: makeWs().ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />);
     act(() => fireEvent.click(screen.getByTestId("set-focus")));
     expect(input().value).toBe("before-close");
   });
 
   it("the × does not steal focus (mousedown is default-prevented)", () => {
-    render(<Harness focus={{ wsRef: makeWs().ref, server: "srv", session: "sess", windowId: "@1" }} />);
+    render(<Harness focus={{ wsRef: makeWs().ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />);
     act(() => fireEvent.click(screen.getByTestId("set-focus")));
     // fireEvent returns false when preventDefault() was called — the strip's
     // no-focus-steal invariant (same contract as 📎 / Insert / Send).
@@ -1094,7 +1098,7 @@ describe("ComposeStrip", () => {
     const { unmount } = render(
       <ChromeProvider>
         <FocusedTerminalProvider>
-          <FocusSetter focus={{ wsRef: makeWs().ref, server: "srv", session: "sess", windowId: "@1" }} />
+          <FocusSetter focus={{ wsRef: makeWs().ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />
           <ComposeStrip />
         </FocusedTerminalProvider>
       </ChromeProvider>,
@@ -1121,7 +1125,7 @@ describe("ComposeStrip", () => {
     const view = render(
       <ChromeProvider>
         <FocusedTerminalProvider>
-          <FocusSetter focus={{ wsRef: ref, server: "srv", session: "sess", windowId: "@1" }} />
+          <FocusSetter focus={{ wsRef: ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />
           <ComposeStrip />
         </FocusedTerminalProvider>
       </ChromeProvider>,
@@ -1507,5 +1511,132 @@ describe("ComposeStrip", () => {
     // and therefore the preview, does not.
     expect(input().value).toBe("/wt/.uploads/x.png");
     expect(screen.queryByTestId("compose-strip-previews")).not.toBeInTheDocument();
+  });
+});
+
+// ── Pane-aligned geometry (260812-fryz) ─────────────────────────────────────
+// jsdom returns zero rects, so these tests mock getBoundingClientRect: the
+// focused pane's container element gets a real span, and the strip's outer
+// row (data-testid="compose-strip") gets a 1000px row at x=0. Assertions key
+// on the inner visible-chrome wrapper (compose-strip-inner) — the outer keeps
+// the full footer row untouched.
+describe("ComposeStrip pane-aligned geometry (260812-fryz)", () => {
+  // Same reset discipline as the main describe above (separate top-level
+  // block, so its hooks do not apply): store/storage wipes and cleanup.
+  beforeEach(() => {
+    useWindowStore.setState({ entries: new Map(), ghosts: [] });
+    localStorage.clear();
+    hydrateComposeDrafts();
+    hydrateComposeSentHistory();
+    consumeComposeStripFocusOnOpen();
+    uploadFilesMock.mockReset();
+  });
+  afterEach(() => {
+    cleanup();
+    localStorage.clear();
+  });
+
+  function domRect(left: number, width: number): DOMRect {
+    return {
+      left,
+      width,
+      right: left + width,
+      top: 0,
+      bottom: 10,
+      height: 10,
+      x: left,
+      y: 0,
+      toJSON: () => ({}),
+    } as DOMRect;
+  }
+
+  /** Mock rects: `pane` reports paneRect; the strip's outer row reports
+   *  1000px at x=0; everything else reports zero. Returns the spy. */
+  function stubRects(pane: Element, paneRect: { left: number; width: number }) {
+    return vi
+      .spyOn(Element.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: Element) {
+        if (this === pane) return domRect(paneRect.left, paneRect.width);
+        if ((this as HTMLElement).dataset?.testid === "compose-strip")
+          return domRect(0, 1000);
+        return domRect(0, 0);
+      });
+  }
+
+  const inner = () => screen.getByTestId("compose-strip-inner");
+  const outer = () => screen.getByTestId("compose-strip");
+
+  it("applies margin-left + width matching the focused pane's span in aligned mode", () => {
+    const pane = document.createElement("div");
+    const rectSpy = stubRects(pane, { left: 100, width: 600 });
+    render(
+      <Harness
+        focus={{
+          wsRef: makeWs().ref,
+          containerRef: { current: pane },
+          server: "srv",
+          session: "sess",
+          windowId: "@1",
+        }}
+      />,
+    );
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+
+    expect(inner().style.marginLeft).toBe("100px");
+    expect(inner().style.width).toBe("600px");
+    // The outer element keeps the full footer row — no geometry styles.
+    expect(outer().style.marginLeft).toBe("");
+    expect(outer().style.width).toBe("");
+    rectSpy.mockRestore();
+  });
+
+  it("clamps a narrow pane to the 420px minimum, centered on its span", () => {
+    const pane = document.createElement("div");
+    const rectSpy = stubRects(pane, { left: 100, width: 300 });
+    render(
+      <Harness
+        focus={{
+          wsRef: makeWs().ref,
+          containerRef: { current: pane },
+          server: "srv",
+          session: "sess",
+          windowId: "@1",
+        }}
+      />,
+    );
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+
+    expect(inner().style.width).toBe("420px");
+    expect(inner().style.marginLeft).toBe("40px"); // 100 + (300-420)/2
+    rectSpy.mockRestore();
+  });
+
+  it("applies NO alignment styles in selection-broadcast mode (full width)", () => {
+    renderSelection(vi.fn().mockResolvedValue(2));
+    expect(inner().style.marginLeft).toBe("");
+    expect(inner().style.width).toBe("");
+  });
+
+  it("applies NO alignment styles in the no-target disabled state (full width)", () => {
+    render(<Harness focus={null} />);
+    expect(inner().style.marginLeft).toBe("");
+    expect(inner().style.width).toBe("");
+  });
+
+  it("degrades to full width when containerRef.current is null (unmounted mid-measure)", () => {
+    render(
+      <Harness
+        focus={{
+          wsRef: makeWs().ref,
+          containerRef: { current: null },
+          server: "srv",
+          session: "sess",
+          windowId: "@1",
+        }}
+      />,
+    );
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+    expect(inner().style.marginLeft).toBe("");
+    expect(inner().style.width).toBe("");
   });
 });

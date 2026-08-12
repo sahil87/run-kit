@@ -36,6 +36,7 @@ import {
   clearComposeDraft,
   type ComposeAttachment,
 } from "@/lib/compose-draft-store";
+import { computeStripGeometry } from "@/lib/compose-strip-geometry";
 
 /**
  * The docked compose strip — a single global, sticky text-input surface docked
@@ -139,6 +140,21 @@ import {
  * rather than at the next keydown — on a target switch. Recall restores TEXT
  * ONLY: the `File` objects were revoked at send and are unpersistable, but
  * their path lines ride the recalled text.
+ *
+ * Pane-aligned geometry (260812-fryz): the strip's outer element keeps
+ * occupying the FULL footer row (the row-growth that drives every terminal's
+ * ResizeObserver refit, 260718-dhdj, is untouched); only the visible chrome —
+ * border, background, input, buttons — narrows, via inline `marginLeft` +
+ * `width` on an inner wrapper measured from the focused pane's
+ * `containerRef` (`FocusedTerminalContext`). The box clamps to a 420px
+ * minimum (overhanging a narrow pane's neighbors, centered on its span) and
+ * never overflows the footer row (`computeStripGeometry`). Re-measure fires on
+ * focused-target change, window resize, and pane ResizeObserver events
+ * (sidebar toggles and ratio drags change pane rects without a window
+ * resize), rAF-debounced; the retarget slides via a CSS transition, zeroed
+ * under `prefers-reduced-motion`. Full-width fallbacks (no alignment styles):
+ * selection broadcast (a frozen multi-window target has no single anchor) and
+ * the no-target disabled state.
  */
 
 /** Max input rows before the textarea scrolls internally (bounded auto-grow) —
@@ -291,6 +307,59 @@ export function ComposeStrip({
   const targetName = isSelectionTarget
     ? `${selectionTarget.keys.length} selected`
     : focusedTargetName;
+
+  // ── pane-aligned geometry (260812-fryz) ─────────────────────────────────
+  // The outer row keeps the full footer width; `geometry` positions the inner
+  // visible-chrome wrapper under the focused pane. Null = full width (the
+  // selection-broadcast and no-target fallbacks, or an unmeasurable pane).
+  const outerRef = useRef<HTMLDivElement>(null);
+  const [geometry, setGeometry] = useState<{ left: number; width: number } | null>(null);
+
+  // Measure the focused pane's container against the strip's own row. The
+  // first measure is synchronous (layout effect — no full-width flash);
+  // later ones are rAF-debounced. Re-measures on: focused-target change
+  // (effect re-run), window resize, and pane ResizeObserver events (sidebar
+  // toggles / ratio drags change pane rects without a window resize).
+  useLayoutEffect(() => {
+    if (isSelectionTarget || !focused) {
+      setGeometry(null);
+      return;
+    }
+    const applyMeasure = () => {
+      const outer = outerRef.current;
+      const pane = focused.containerRef.current;
+      // A null pane element (registrant unmounted mid-measure) degrades to
+      // full width without throwing.
+      const next =
+        outer && pane
+          ? computeStripGeometry(
+              { left: pane.getBoundingClientRect().left, width: pane.getBoundingClientRect().width },
+              { left: outer.getBoundingClientRect().left, width: outer.getBoundingClientRect().width },
+            )
+          : null;
+      setGeometry((prev) =>
+        prev && next && prev.left === next.left && prev.width === next.width ? prev : next,
+      );
+    };
+    let rafId: number | null = null;
+    const scheduleMeasure = () => {
+      if (rafId !== null) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        applyMeasure();
+      });
+    };
+    applyMeasure();
+    window.addEventListener("resize", scheduleMeasure);
+    const pane = focused.containerRef.current;
+    const observer = pane ? new ResizeObserver(scheduleMeasure) : null;
+    if (pane && observer) observer.observe(pane);
+    return () => {
+      window.removeEventListener("resize", scheduleMeasure);
+      observer?.disconnect();
+      if (rafId !== null) cancelAnimationFrame(rafId);
+    };
+  }, [focused, isSelectionTarget]);
 
   // Auto-grow to content, bounded to MAX_TEXTAREA_ROWS (then internal scroll).
   const resize = useCallback(() => {
@@ -677,10 +746,18 @@ export function ComposeStrip({
     : hasTarget;
 
   return (
-    <div
-      className="border-t border-border bg-bg-primary px-1.5 py-1.5 flex flex-col gap-1"
-      data-testid="compose-strip"
-    >
+    <div ref={outerRef} data-testid="compose-strip">
+      {/* Inner wrapper carries ALL the visible chrome (border, background,
+          input, buttons) so pane-aligned geometry narrows only what the user
+          sees; the outer element keeps occupying the full footer row, leaving
+          the row-growth/refit mechanic (260718-dhdj) byte-identical. Geometry
+          arrives as inline marginLeft/width; the transition slides the box on
+          retarget (zeroed under prefers-reduced-motion). */}
+      <div
+        className="border-t border-border bg-bg-primary px-1.5 py-1.5 flex flex-col gap-1 transition-[margin-left,width] duration-200 motion-reduce:transition-none"
+        style={geometry ? { marginLeft: geometry.left, width: geometry.width } : undefined}
+        data-testid="compose-strip-inner"
+      >
       <div className="flex items-center gap-2 text-xs text-text-secondary">
         <span aria-hidden="true">{"→"}</span>
         <span data-testid="compose-strip-target" className={hasTarget ? "text-text-primary" : "italic"}>
@@ -850,6 +927,7 @@ export function ComposeStrip({
         </div>
       </div>
       </TipGroup>
+      </div>
     </div>
   );
 }

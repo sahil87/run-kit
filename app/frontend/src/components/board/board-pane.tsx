@@ -91,6 +91,10 @@ export const BoardPane = forwardRef<BoardPaneHandle, BoardPaneProps>(function Bo
 ) {
   const wsRef = useRef<WebSocket | null>(null);
   const focusFnRef = useRef<(() => void) | null>(null);
+  // The pane's root div, registered as the focused terminal's `containerRef`
+  // so the compose strip can measure this pane's box for pane-aligned
+  // docking (260812-fryz). Composed with the optional `rootRef` callback.
+  const containerRef = useRef<HTMLDivElement | null>(null);
   // The pane registers itself as the focused terminal so the shell-level
   // `<BottomBar>` and the docked compose strip target it. The strip is a single
   // global component reading `focused.wsRef` live at send time (260718-dhdj) —
@@ -116,6 +120,7 @@ export const BoardPane = forwardRef<BoardPaneHandle, BoardPaneProps>(function Bo
     if (!isFocused) return;
     setFocused({
       wsRef,
+      containerRef,
       server: entry.server,
       session: entry.session,
       windowId: entry.windowId,
@@ -147,7 +152,10 @@ export const BoardPane = forwardRef<BoardPaneHandle, BoardPaneProps>(function Bo
 
   return (
     <div
-      ref={rootRef}
+      ref={(el) => {
+        containerRef.current = el;
+        rootRef?.(el);
+      }}
       role="group"
       aria-label={`board pane ${entry.windowName}${waiting ? " (agent waiting)" : ""}`}
       onClick={onClick}

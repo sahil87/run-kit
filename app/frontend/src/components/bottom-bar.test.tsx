@@ -14,6 +14,7 @@ import { stubMatchMedia } from "@/test-utils/match-media";
 /** A compose target, as TerminalClient/BoardPane would register one. */
 const COMPOSE_TARGET: FocusedTerminal = {
   wsRef: { current: null },
+  containerRef: { current: null },
   server: "srv",
   session: "sess",
   windowId: "@1",

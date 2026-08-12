@@ -124,6 +124,14 @@ type TopBarProps = {
   server: string;
   onNavigate: (windowId: string) => void;
   onToggleSidebar: () => void;
+  /** Right-RAIL toggle (260812-nm4p): the sidebar toggle's far-right mirror —
+   *  collapses/restores the whole right column (rail AND any open panel),
+   *  never a panel surface. `railOpen` is the DERIVED right-area visibility
+   *  (`railOpen pref || panel open`) that drives the icon fill. Registered by
+   *  AppShell on every desktop terminal route (even with zero available
+   *  surfaces); `onToggleRail` absent → no button rendered. */
+  railOpen?: boolean;
+  onToggleRail?: () => void;
   onCreateSession: () => void;
   onCreateWindow: (session: string) => void;
   /** Open the spawn-agent dialog for a session (260713-sbk1). When present, the
@@ -171,11 +179,16 @@ type TopBarProps = {
   onSelectView?: (view: ViewName) => void;
 };
 
-function HamburgerIcon({ isOpen }: { isOpen: boolean }) {
+function HamburgerIcon({ isOpen, side = "left" }: { isOpen: boolean; side?: "left" | "right" }) {
   // Notion-style sidebar pictogram: rounded-rect with an internal vertical
   // divider ~30% from the left. The left column fills when the sidebar is
   // open and empties when collapsed — same shape both states, only the fill
   // flips, so the icon's identity ("this is a sidebar toggle") never changes.
+  // `side="right"` (260812-nm4p) mirrors the geometry — divider ~30% from the
+  // RIGHT, right column fills — for the rail toggle: one icon language, both
+  // edges.
+  const fillX = side === "left" ? 2.5 : 11.5;
+  const dividerX = side === "left" ? 6.5 : 11.5;
   return (
     <svg
       width="16"
@@ -190,11 +203,11 @@ function HamburgerIcon({ isOpen }: { isOpen: boolean }) {
     >
       {/* Outer panel — rounded rectangle */}
       <rect x="2.5" y="3.5" width="13" height="11" rx="2" />
-      {/* Sidebar slot fill — left column, filled when sidebar is open.
-          Uses fillOpacity to tone the fill down to a subtle wash rather
-          than matching the stroke at full intensity. */}
+      {/* Panel slot fill — the edge column (left or right per `side`), filled
+          when that area is visible. Uses fillOpacity to tone the fill down to
+          a subtle wash rather than matching the stroke at full intensity. */}
       <rect
-        x="2.5"
+        x={fillX}
         y="3.5"
         width="4"
         height="11"
@@ -204,8 +217,8 @@ function HamburgerIcon({ isOpen }: { isOpen: boolean }) {
         stroke="none"
         style={{ transition: "fill-opacity 150ms ease" }}
       />
-      {/* Internal divider — separates sidebar slot from content area */}
-      <line x1="6.5" y1="3.5" x2="6.5" y2="14.5" />
+      {/* Internal divider — separates the panel slot from the content area */}
+      <line x1={dividerX} y1="3.5" x2={dividerX} y2="14.5" />
     </svg>
   );
 }
@@ -382,6 +395,8 @@ export function TopBar({
   server,
   onNavigate,
   onToggleSidebar,
+  railOpen,
+  onToggleRail,
   onCreateSession,
   onCreateWindow,
   onSpawnAgent,
@@ -1155,6 +1170,25 @@ export function TopBar({
               before fitting. */}
           <div ref={trailingRef} className="flex items-center gap-3 shrink-0">
             <TopBarOverflowMenu rows={overflowRows} updateOverflowed={updateOverflowed} />
+            {/* Right-rail toggle (260812-nm4p) — the OUTERMOST right element,
+                mirroring the sidebar toggle at the far-left edge: same
+                fixed-size token, same primary text weight, the sidebar
+                pictogram mirrored (the right column fills while the right area
+                is visible — `railOpen` here is the DERIVED visibility, so the
+                fill also tracks an open panel while the rail is collapsed).
+                Rendered only when AppShell registered a toggler (every desktop
+                terminal route, even with zero available surfaces). Lives
+                inside the trailing exempt block so its width is measured and
+                reserved by the fit — like the chevron, it never overflows. */}
+            {onToggleRail && (
+              <button
+                onClick={onToggleRail}
+                aria-label="Toggle panel"
+                className={`rk-glint ${TOP_BAR_BUTTON_BASE} border-border hover:border-text-secondary text-text-primary`}
+              >
+                <HamburgerIcon isOpen={railOpen ?? false} side="right" />
+              </button>
+            )}
           </div>
         </div>
         </TipGroup>

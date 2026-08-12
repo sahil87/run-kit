@@ -1,8 +1,10 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { RightPanel } from "./right-panel";
+import { Shell } from "./shell/shell";
+import { ChromeProvider } from "@/contexts/chrome-context";
 import { stubMatchMedia } from "@/test-utils/match-media";
-import { PANEL_WIDTH_STORAGE_KEY, DEFAULT_PANEL_WIDTH_PCT, type SurfaceName } from "@/lib/right-panel";
+import { PANEL_WIDTH_STORAGE_KEY, MIN_PANEL_WIDTH_PX, MAX_PANEL_WIDTH_PCT, type SurfaceName } from "@/lib/right-panel";
 
 // jsdom does not implement matchMedia — Tip's coarse-pointer check needs it.
 // Default to the fine-pointer branch (tooltips enabled).
@@ -15,13 +17,15 @@ function renderPanel(overrides: {
   children?: React.ReactNode;
 } = {}) {
   return render(
-    <RightPanel
-      available={overrides.available ?? []}
-      active={overrides.active ?? null}
-      onToggle={overrides.onToggle ?? vi.fn()}
-    >
-      {overrides.children}
-    </RightPanel>,
+    <ChromeProvider>
+      <RightPanel
+        available={overrides.available ?? []}
+        active={overrides.active ?? null}
+        onToggle={overrides.onToggle ?? vi.fn()}
+      >
+        {overrides.children}
+      </RightPanel>
+    </ChromeProvider>,
   );
 }
 
@@ -79,16 +83,20 @@ describe("RightPanel hide-never-unmount (P3)", () => {
 
   it("closing hides the subtree at display level WITHOUT unmounting it", () => {
     const { rerender } = render(
-      <RightPanel available={["web"]} active="web" onToggle={vi.fn()}>
-        <div>web content</div>
-      </RightPanel>,
+      <ChromeProvider>
+        <RightPanel available={["web"]} active="web" onToggle={vi.fn()}>
+          <div>web content</div>
+        </RightPanel>
+      </ChromeProvider>,
     );
     expect(screen.getByText("web content")).toBeTruthy();
 
     rerender(
-      <RightPanel available={["web"]} active={null} onToggle={vi.fn()}>
-        <div>web content</div>
-      </RightPanel>,
+      <ChromeProvider>
+        <RightPanel available={["web"]} active={null} onToggle={vi.fn()}>
+          <div>web content</div>
+        </RightPanel>
+      </ChromeProvider>,
     );
     const panel = screen.getByTestId("right-panel");
     expect(panel.classList.contains("hidden")).toBe(true);
@@ -97,15 +105,82 @@ describe("RightPanel hide-never-unmount (P3)", () => {
   });
 });
 
-describe("RightPanel width", () => {
-  it("defaults to the 38% width", () => {
-    renderPanel({ available: ["web"], active: "web", children: <div /> });
-    expect(screen.getByTestId("right-panel").style.width).toBe(`${DEFAULT_PANEL_WIDTH_PCT}%`);
+describe("RightPanel width (pixel-sized grid column, 260812-nm4p)", () => {
+  // The panel's width basis is the Shell grid width minus the sidebar column,
+  // measured via the Shell-provided grid ref (never the panel's own parent).
+  // Pin the sidebar closed (0px column) and mock clientWidth so the basis is a
+  // deterministic 1000px; the test-setup ResizeObserver stub never fires, so
+  // the synchronous layout-effect read is the measurement under test.
+  function renderPanelInShell(widthPct?: string) {
+    localStorage.setItem("runkit-sidebar-open", "false");
+    if (widthPct !== undefined) localStorage.setItem(PANEL_WIDTH_STORAGE_KEY, widthPct);
+    const clientWidth = vi
+      .spyOn(HTMLElement.prototype, "clientWidth", "get")
+      .mockReturnValue(1000);
+    render(
+      <ChromeProvider>
+        <Shell
+          rightPanelChildren={
+            <RightPanel available={["web"]} active="web" onToggle={vi.fn()}>
+              <div />
+            </RightPanel>
+          }
+          rightPanelVisible={true}
+        >
+          <main style={{ gridArea: "content" }} data-testid="content">CONTENT</main>
+          <footer style={{ gridArea: "bottombar" }}>BOTTOM</footer>
+        </Shell>
+      </ChromeProvider>,
+    );
+    return clientWidth;
+  }
+
+  it("resolves the default 38% against the content+panel basis in pixels", () => {
+    const spy = renderPanelInShell();
+    // 38% of the 1000px basis (sidebar collapsed → no column subtracted).
+    expect(screen.getByTestId("right-panel").style.width).toBe("380px");
+    spy.mockRestore();
   });
 
-  it("restores a persisted per-viewer width", () => {
-    localStorage.setItem(PANEL_WIDTH_STORAGE_KEY, "50");
-    renderPanel({ available: ["web"], active: "web", children: <div /> });
-    expect(screen.getByTestId("right-panel").style.width).toBe("50%");
+  it("restores a persisted per-viewer width against the basis", () => {
+    const spy = renderPanelInShell("50");
+    expect(screen.getByTestId("right-panel").style.width).toBe("500px");
+    spy.mockRestore();
+  });
+
+  it("enforces the 280px floor at restore time", () => {
+    const spy = renderPanelInShell("10");
+    expect(screen.getByTestId("right-panel").style.width).toBe(`${MIN_PANEL_WIDTH_PX}px`);
+    spy.mockRestore();
+  });
+
+  it("enforces the 65% cap at restore time", () => {
+    const spy = renderPanelInShell("90");
+    expect(screen.getByTestId("right-panel").style.width).toBe(`${(MAX_PANEL_WIDTH_PCT / 100) * 1000}px`);
+    spy.mockRestore();
+  });
+
+  it("subtracts the sidebar column from the basis when the sidebar is open", () => {
+    localStorage.setItem("runkit-sidebar-open", "true"); // 220px default column
+    const spy = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(1000);
+    render(
+      <ChromeProvider>
+        <Shell
+          sidebarChildren={<div>SIDEBAR</div>}
+          rightPanelChildren={
+            <RightPanel available={["web"]} active="web" onToggle={vi.fn()}>
+              <div />
+            </RightPanel>
+          }
+          rightPanelVisible={true}
+        >
+          <main style={{ gridArea: "content" }} data-testid="content">CONTENT</main>
+          <footer style={{ gridArea: "bottombar" }}>BOTTOM</footer>
+        </Shell>
+      </ChromeProvider>,
+    );
+    // Basis = 1000 - 220 = 780; 38% → 296.4 → 296px.
+    expect(screen.getByTestId("right-panel").style.width).toBe("296px");
+    spy.mockRestore();
   });
 });

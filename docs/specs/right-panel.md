@@ -1,19 +1,24 @@
 # Right Panel — A Second Slot Beside the Terminal
 
 > A collapsible right-side panel on the terminal route that renders a **second
-> (substrate, lens) pair** beside the tty, behind an always-visible icon rail.
+> (substrate, lens) pair** beside the tty, behind an icon rail rendered on
+> every desktop terminal route and collapsible from the top bar
+> (`260812-nm4p`).
 > This spec extends [`window-views.md`](window-views.md) — that spec defines
 > what lenses *are* and how availability derives; this one adds a second
 > *placement* for them, one new lens (`code`), and the **companion window**
 > convention (`@rk_owner`) that lets hidden sibling substrates render in the
-> panel. Phase 1 — the always-on rail, the panel shell (resize + per-viewer
+> panel. Phase 1 — the rail, the panel shell (resize + per-viewer
 > width, hide-never-unmount), and the `web` surface with its toggle chord and
 > palette entry — is **[current]** as of change
 > `260811-2r1w-right-panel-shell-web-surface`; phase 2 — the `code` lens
 > (`?view=code` + the panel's CODE surface), the proxy prerequisites
 > (`SetXForwarded`, the trailing-slash redirect, `allow-downloads`), and the
 > git-root/reachability derivation — is **[current]** as of change
-> `260811-k3vp-right-panel-code-lens`; the `@rk_owner` companion convention and
+> `260811-k3vp-right-panel-code-lens`; the top-bar rail toggle and the
+> full-height column layout (rail+panel as a Shell grid column, the bottom bar
+> scoped to the terminal column) are **[current]** as of change
+> `260812-nm4p-top-bar-rail-toggle`; the `@rk_owner` companion convention and
 > the `agents` surface, the amber attention dot, and mobile remain
 > **[target]**.
 >
@@ -45,13 +50,28 @@ Both needs share one substrate: a collapsed-by-default right panel.
    current window *or one of its companions*. This is the
    [`window-views.md`](window-views.md) § Boards "(window, view) pair"
    generalization landing on the terminal route first.
-2. **The rail is the affordance.** A ~38px icon rail on the right edge, always
-   visible on desktop, one button per available surface. Availability is
+2. **The rail is the affordance.** A ~38px icon rail on the right edge,
+   rendered on every desktop terminal route and collapsible from the top bar
+   (the `Toggle panel` chip — the sidebar toggle's far-right mirror,
+   `260812-nm4p`), one button per available surface. Availability is
    derived server-side and rides the SSE window payload (Constitution II/X);
    buttons carry an availability dot and an amber **attention dot** when the
-   surface holds a waiting agent.
+   surface holds a waiting agent. The collapse preference is the
+   `runkit-rail-open` localStorage boolean (default open); actual right-area
+   visibility is DERIVED — `railOpen || panel open` — so an open panel always
+   shows the rail (deep links, the `⇧⌘.` chord, and palette entries are never
+   dead), and collapsing with a panel open closes the panel too.
 3. **A surface = a named (substrate, lens) pairing** registered below. The
    registry is open-ended the same way the view registry is.
+4. **The right column is a full-height Shell grid column** (`260812-nm4p`).
+   The terminal route's Shell grid grows an optional third column —
+   `"sidebar content rightpanel" / "sidebar bottombar rightpanel"`, columns
+   `${sidebarWidth}px 1fr auto` — so the rail and any open panel span both
+   rows to the viewport bottom (mirroring the sidebar on the left), while the
+   bottom bar + compose strip stay scoped to the content column. Collapse
+   hides the column at width/display level — NEVER unmounting it (P3) — so
+   the web/code iframes keep their in-memory state. Board/host routes pass no
+   right-panel slot and render the two-column grid unchanged.
 
 ### Surface Registry (initial)
 

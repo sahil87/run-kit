@@ -1593,6 +1593,45 @@ describe("TopBar", () => {
       expect(screen.getByRole("banner").className).not.toContain("pt-[env(safe-area-inset-top)]");
     });
   });
+
+  describe("right-rail toggle (260812-nm4p)", () => {
+    it("renders no rail toggle when onToggleRail is absent (board/host/unregistered)", () => {
+      renderTopBar();
+      expect(screen.queryByLabelText("Toggle panel")).toBeNull();
+    });
+
+    it("renders the toggle as the outermost right element (after the overflow chevron) and clicking calls it", () => {
+      const onToggleRail = vi.fn();
+      renderTopBar({ onToggleRail, railOpen: true });
+      const toggle = screen.getByLabelText("Toggle panel");
+      // The toggle lives in the trailing exempt block, AFTER the chevron menu.
+      const cluster = screen.getByTestId("top-bar-right");
+      const buttons = Array.from(cluster.querySelectorAll(":scope > div:last-child > *"));
+      expect(buttons[buttons.length - 1]).toBe(toggle);
+      fireEvent.click(toggle);
+      expect(onToggleRail).toHaveBeenCalledTimes(1);
+    });
+
+    it("mirrors the sidebar pictogram: right-column fill tracks the derived visibility flag", () => {
+      const { unmount } = renderTopBar({ onToggleRail: vi.fn(), railOpen: true });
+      const openFill = screen
+        .getByLabelText("Toggle panel")
+        .querySelector('rect[fill="currentColor"]');
+      expect(openFill).not.toBeNull();
+      // Mirrored geometry: the fill column + divider sit at the RIGHT edge
+      // (x=11.5), not the sidebar toggle's left column (x=2.5 / 6.5).
+      expect(openFill!.getAttribute("x")).toBe("11.5");
+      expect(openFill!.getAttribute("fill-opacity")).toBe("0.5");
+      const divider = screen.getByLabelText("Toggle panel").querySelector("line");
+      expect(divider!.getAttribute("x1")).toBe("11.5");
+      unmount();
+      renderTopBar({ onToggleRail: vi.fn(), railOpen: false });
+      const closedFill = screen
+        .getByLabelText("Toggle panel")
+        .querySelector('rect[fill="currentColor"]');
+      expect(closedFill!.getAttribute("fill-opacity")).toBe("0");
+    });
+  });
 });
 
 // Centered, highlighted, editable window heading (change 260703-5ilm).

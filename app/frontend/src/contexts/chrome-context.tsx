@@ -11,6 +11,7 @@ export type BreadcrumbDropdownItem = {
 
 const FIXED_WIDTH_STORAGE_KEY = "runkit-fixed-width";
 const SIDEBAR_OPEN_STORAGE_KEY = "runkit-sidebar-open";
+const RAIL_OPEN_STORAGE_KEY = "runkit-rail-open";
 const SIDEBAR_WIDTH_STORAGE_KEY = "runkit-sidebar-width";
 const TERMINAL_FONT_STORAGE_KEY = "runkit-terminal-font-size";
 const COMPOSE_STRIP_STORAGE_KEY = "runkit-compose-strip";
@@ -85,6 +86,20 @@ function readSidebarOpen(): boolean {
   return !isMobileViewport();
 }
 
+/** Whether the right rail strip is open on the terminal route (the sidebar
+ * toggle's far-right mirror, 260812-nm4p). Desktop-only — mobile renders no
+ * rail at all — so unlike `sidebarOpen` there is no mobile-aware default:
+ * absent key = `true`. This is the persisted *preference*; whether the right
+ * area actually renders is derived (`railOpen || panel open`). */
+function readRailOpen(): boolean {
+  try {
+    const stored = localStorage.getItem(RAIL_OPEN_STORAGE_KEY);
+    if (stored === "true") return true;
+    if (stored === "false") return false;
+  } catch { /* noop */ }
+  return true;
+}
+
 function readSidebarWidth(): number {
   try {
     const stored = localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY);
@@ -121,6 +136,11 @@ type ChromeState = {
   currentWindow: WindowInfo | null;
   sidebarOpen: boolean;
   sidebarWidth: number;
+  /** Whether the right rail strip is open (the sidebar toggle's far-right
+   * mirror, 260812-nm4p) — persisted to `runkit-rail-open`, default true,
+   * desktop-only. The persisted PREFERENCE; actual right-area visibility is
+   * derived in AppShell (`railOpen || resolvedPanel != null`). */
+  railOpen: boolean;
   isConnected: boolean;
   fixedWidth: boolean;
   /** Effective terminal font size in px — the stored preference if set, else
@@ -137,6 +157,8 @@ type ChromeDispatch = {
   setCurrentSession: (session: ProjectSession | null) => void;
   setCurrentWindow: (win: WindowInfo | null) => void;
   setSidebarOpen: (open: boolean) => void;
+  /** Set the right rail strip open/closed, persisting to `runkit-rail-open`. */
+  setRailOpen: (open: boolean) => void;
   /** In-memory only — does NOT touch localStorage. Use during drag for live
    * resize updates; call `persistSidebarWidth` once the drag completes to
    * commit the final value. Persisting on every pointermove (40-100/s)
@@ -168,10 +190,16 @@ export function ChromeProvider({ children }: { children: React.ReactNode }) {
   const [currentWindow, setCurrentWindow] = useState<WindowInfo | null>(null);
   const [sidebarOpen, setSidebarOpenState] = useState(readSidebarOpen);
   const [sidebarWidth, setSidebarWidthState] = useState(readSidebarWidth);
+  const [railOpen, setRailOpenState] = useState(readRailOpen);
 
   const setSidebarOpen = useCallback((open: boolean) => {
     try { localStorage.setItem(SIDEBAR_OPEN_STORAGE_KEY, String(open)); } catch { /* noop */ }
     setSidebarOpenState(open);
+  }, []);
+
+  const setRailOpen = useCallback((open: boolean) => {
+    try { localStorage.setItem(RAIL_OPEN_STORAGE_KEY, String(open)); } catch { /* noop */ }
+    setRailOpenState(open);
   }, []);
 
   // In-memory only — see ChromeDispatch.setSidebarWidth doc above. Drag handlers
@@ -245,8 +273,8 @@ export function ChromeProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const stateValue = useMemo<ChromeState>(
-    () => ({ currentSession, currentWindow, sidebarOpen, sidebarWidth, isConnected, fixedWidth, terminalFontSize, composeStripEnabled }),
-    [currentSession, currentWindow, sidebarOpen, sidebarWidth, isConnected, fixedWidth, terminalFontSize, composeStripEnabled],
+    () => ({ currentSession, currentWindow, sidebarOpen, sidebarWidth, railOpen, isConnected, fixedWidth, terminalFontSize, composeStripEnabled }),
+    [currentSession, currentWindow, sidebarOpen, sidebarWidth, railOpen, isConnected, fixedWidth, terminalFontSize, composeStripEnabled],
   );
 
   const dispatchRef = useRef<ChromeDispatch | null>(null);
@@ -256,6 +284,7 @@ export function ChromeProvider({ children }: { children: React.ReactNode }) {
       setCurrentWindow,
       setSidebarOpen,
       setSidebarWidth,
+      setRailOpen,
       persistSidebarWidth,
       setIsConnected,
       toggleFixedWidth,

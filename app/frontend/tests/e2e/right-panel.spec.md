@@ -2,10 +2,14 @@
 
 Proves the terminal route's right panel (change
 `260811-2r1w-right-panel-shell-web-surface`, `docs/specs/right-panel.md` phase
-1, rules P1–P7): an always-visible desktop rail, a collapsible panel BESIDE
-the terminal (never instead of it), the `web` surface rendered by the shared
+1, rules P1–P7): a desktop rail rendered on every terminal route (collapsible
+from the top bar since `260812-nm4p`), a collapsible panel BESIDE the terminal
+(never instead of it), the `web` surface rendered by the shared
 `IframeWindow`, `?panel=` deep links + value-bearing per-window persistence,
 drag-resize with a live (never unmounted) terminal, and the desktop-only gate.
+The second describe covers `260812-nm4p`: the top-bar rail toggle (the sidebar
+toggle's far-right mirror), the full-height Shell grid column, and the derived
+`rightAreaVisible = railOpen || panel open` visibility model.
 
 ## Shared setup
 
@@ -16,7 +20,13 @@ drag-resize with a live (never unmounted) terminal, and the desktop-only gate.
   this file never collides with other specs (Playwright `fullyParallel` is off).
 - **`afterAll`**: kill the session (best-effort) to keep the shared server clean.
 - **`beforeEach`**: set a wide desktop viewport (1440×800) — the rail/panel are
-  desktop-only in phase 1; the mobile test overrides to 375×812.
+  desktop-only in phase 1; the mobile test overrides to 375×812. Also register
+  an init script that REMOVES the persisted `runkit-rail-open` preference per
+  test — the pref otherwise leaks across tests and would silently collapse the
+  rail for the next one. The reset is guarded to the TOP FRAME
+  (`window !== window.top`): Playwright runs init scripts for EVERY frame, and
+  the panel's same-origin `/proxy/` iframe shares this origin's localStorage —
+  an unguarded reset would wipe the pref the moment a panel opens.
 - **`makeWindow(name, {url?})`**: create a window via `tmux new-window`, then
   stamp `@rk_url` with `tmux set-option -w` (`execFileSync` argument arrays —
   no shell strings). The option surfaces as `rkUrl` in the SSE snapshot, so no
@@ -25,15 +35,17 @@ drag-resize with a live (never unmounted) terminal, and the desktop-only gate.
 - **`gotoWindow(id, search?)`**: navigate to `/<server>/<@N>[?<search>]` and
   wait for the `Connected` SSE indicator.
 - **Locators**: `right-panel-rail` testid, the `Web panel` rail button (role +
-  accessible name), the `right-panel` testid, the panel's `Proxied content`
-  iframe, the `.xterm` terminal surface, and the `right-panel-resize-handle`
-  testid (the panel's left-edge drag handle).
+  accessible name), the `Toggle panel` top-bar rail toggle (role + accessible
+  name), the `right-panel` testid, the panel's `Proxied content` iframe, the
+  `.xterm` terminal surface, and the `right-panel-resize-handle` testid (the
+  panel's left-edge drag handle).
 
 ## Tests
 
 ### the rail renders on every desktop terminal route; the web button only when @rk_url is set
-What it proves: the rail is always visible on desktop (spec § The Model) while
-its buttons are availability-gated — derived from the SSE `@rk_url` field
+What it proves: the rail renders on every desktop terminal route (spec § The
+Model — collapsible from the top bar since `260812-nm4p`) while its buttons
+are availability-gated — derived from the SSE `@rk_url` field
 (P4's availability state; Constitution II/X, zero backend change).
 Steps:
 1. Create a plain window (no `@rk_url`); navigate; assert the terminal, the
@@ -70,6 +82,9 @@ What it proves: P1 URL-addressability plus the resolvePanel fall-through — a
 valid deep link on a capable window opens the panel cold; an unavailable value
 (window without `@rk_url`) or an unknown value (`bogus`, dropped by
 `validateTerminalSearch`) renders closed, never a broken iframe.
+The test carries a 30s budget (`test.setTimeout`, the sidebar-panels
+precedent): three full page loads plus two window creations exceed the 10s
+default on a loaded box.
 Steps:
 1. Create a web-capable window; navigate with `?panel=web`; assert the panel
    iframe and the terminal are both visible.
@@ -138,3 +153,82 @@ Steps:
    `Connected` dot — the mobile drawer leaves it unmounted).
 3. Assert the terminal is visible and neither the rail nor the panel exists in
    the DOM.
+
+## Tests — Top-bar rail toggle & full-height column (260812-nm4p)
+
+### the toggle renders on a PLAIN window too (zero available surfaces)
+What it proves: the rail toggle's gate is `windowParam && !isMobile` ONLY —
+it renders even when neither surface is available (no `@rk_url`, no git root),
+because the rail is landing-pad chrome, not surface-gated (plan A2).
+Steps:
+1. Create a window with cwd `/tmp` (no git root) and no `@rk_url`; navigate.
+2. Assert the terminal, the visible rail with NO `Web panel` button, and the
+   visible `Toggle panel` top-bar chip.
+
+### collapse hides the rail and the terminal grows; restore brings the rail back
+What it proves: the toggle collapses the whole right column at display level
+(never unmounting it), so the terminal runs edge-to-edge; the preference
+persists to `runkit-rail-open`; restoring brings back only the rail.
+Steps:
+1. Create a web-capable window; navigate; assert the terminal, toggle, and
+   rail are visible; record the terminal's bounding-box width.
+2. Click `Toggle panel`; assert the rail is hidden and (polling) the
+   terminal's width GROWS.
+3. Assert `runkit-rail-open` persisted as `"false"`.
+4. Click the toggle again; assert the rail is visible again.
+
+### collapse with an open panel hides BOTH and drops ?panel=; restore brings back only the rail
+What it proves: R6 collapse-closes-panel — collapsing with an open panel runs
+the same close path as `togglePanel`'s close branch (`removeStoredPanel` +
+dropping `?panel=`), because a hidden-but-open panel would contradict its own
+URL. The collapse is still display-level: the iframe element is never
+unmounted (the SAME element survives). Restoring returns only the rail — a
+panel closed by a collapse stays closed.
+Steps:
+1. Create a web-capable window; navigate; open the panel via the rail button;
+   assert `?panel=web` in the URL.
+2. Capture the iframe element handle; click `Toggle panel`.
+3. Assert the rail and panel are both hidden, the `panel` param is gone, and
+   the `runkit-window-panel:{server}:{@N}` localStorage key is removed.
+4. Assert the iframe still exists in the DOM (count 1) and is the identical
+   element (no reload/remount).
+5. Click the toggle again; assert the rail is visible, the panel stays
+   hidden, and the URL stays clean.
+
+### ⇧⌘. after a collapse re-shows the rail WITH the panel (derived visibility)
+What it proves: R5 — opening a panel while the rail is collapsed forces the
+right area visible (derived `rightAreaVisible`, no synchronizing effect), so
+the panel chord is never dead; the persisted `railOpen` preference is NOT
+flipped by it.
+Steps:
+1. Create a web-capable window; navigate; wait for the `Web panel` rail
+   button (the chord's handler is gated on the SSE availability push).
+2. Click `Toggle panel`; assert the rail is hidden.
+3. Press `Shift+Control+Period`; assert the rail AND the panel iframe become
+   visible and the URL carries `?panel=web`.
+4. Assert `runkit-rail-open` is still `"false"` (derivation, not sync).
+
+### full-height layout: the rail+panel column reaches the shell bottom; the bottom bar spans only the terminal column
+What it proves: R1 — the right panel is a full-height Shell grid column
+beside the content column (not inside it): with a panel open, the rail and
+panel bounding boxes reach the `.app-shell` bottom edge (below the bottom
+bar's top), and the bottom bar's width equals the terminal column's width,
+not the full viewport.
+Steps:
+1. Create a web-capable window; navigate; open the panel.
+2. Measure the `.app-shell`, rail, panel, `footer`, and `main` bounding
+   boxes.
+3. Assert the rail's and panel's bottom edges equal the shell's bottom edge
+   and extend below the footer's top edge.
+4. Assert the footer's width equals `main`'s width and is less than the
+   viewport width.
+
+### a ?panel= deep link on a collapsed rail renders rail+panel (never a dead link)
+What it proves: R5 deep-link arm — a `?panel=web` URL loaded with the rail
+preference collapsed still shows the rail + panel (an open panel always
+forces the right area visible).
+Steps:
+1. Register an init script pinning `runkit-rail-open` to `"false"` (it runs
+   after the suite's reset script, so it wins on every navigation).
+2. Create a web-capable window; navigate with `?panel=web`.
+3. Assert the terminal, the rail, and the panel iframe are all visible.

@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Tip } from "@/components/tip";
+import { useChromeState } from "@/contexts/chrome-context";
+import { useShellGridRef } from "@/components/shell/shell";
 import {
   clampPanelWidth,
   readStoredPanelWidth,
@@ -12,8 +14,10 @@ import {
  * slot (change 260811-2r1w-right-panel-shell-web-surface; spec
  * docs/specs/right-panel.md, phase 1: rail + panel shell + `web` surface).
  *
- * The component renders a fragment — [panel, rail] — as direct children of the
- * terminal-route content row in `app.tsx` (`[ main lens slot | panel | rail ]`).
+ * Since 260812-nm4p the component renders INSIDE the Shell grid's full-height
+ * third column (`rightpanel` area) as a fragment — [panel, rail] — direct
+ * children of the Shell-owned right aside; the column (not this component)
+ * owns the collapse-to-zero-width hide.
  *
  * - **Rail**: a fixed ~38px vertical strip on the right edge, always rendered
  *   by the caller on desktop terminal routes (spec § The Model). One focusable
@@ -21,14 +25,17 @@ import {
  *   availability dot (P4 — the amber attention semantics arrive in phase 3).
  *   The active surface renders inverse-video, matching the view-switcher's
  *   active-segment treatment. Click toggles the surface open/closed.
- * - **Panel**: opens between the main lens slot and the rail. Width is the
- *   per-viewer `runkit-panel-width` percentage (default 38%, clamped to
- *   min 280px / max 65% of the row — `clampPanelWidth`). A drag handle on the
- *   panel's LEFT edge resizes it; during the drag the panel content gets
- *   `pointer-events: none` so the iframe cannot swallow pointermove, and the
- *   terminal stays mounted — its refit rides TerminalClient's existing
- *   container ResizeObserver (no IntersectionObserver suspension — the
- *   board-page pane-resize bug class).
+ * - **Panel**: opens between the main lens slot and the rail, sized in PIXELS
+ *   (its grid column is `auto` — percent-of-parent would be circular, so the
+ *   `width: N%` model is gone). The per-viewer `runkit-panel-width` percentage
+ *   (default 38%) resolves against the content+panel region — the Shell grid
+ *   width minus the sidebar column, measured through the Shell-provided grid
+ *   ref, NEVER the panel's own parentElement — clamped to min 280px / max 65%
+ *   (`clampPanelWidth`). A drag handle on the panel's LEFT edge resizes it;
+ *   during the drag the panel content gets `pointer-events: none` so the
+ *   iframe cannot swallow pointermove, and the terminal stays mounted — its
+ *   refit rides TerminalClient's existing container ResizeObserver (no
+ *   IntersectionObserver suspension — the board-page pane-resize bug class).
  * - **Hide, never unmount (P3)**: the surface subtree mounts lazily on first
  *   open, then hides at `display` level (`hidden` class) when closed — iframe
  *   in-memory state survives a collapse.
@@ -67,15 +74,19 @@ interface RightPanelProps {
 }
 
 export function RightPanel({ available, active, onToggle, children }: RightPanelProps) {
-  // The rail is always rendered, so its parent (the content row) is the
-  // measurement basis for the width floor/cap math.
-  const railRef = useRef<HTMLDivElement>(null);
-  const [rowWidth, setRowWidth] = useState(0);
+  // Width basis (260812-nm4p): the panel IS its own grid column now, so the old
+  // percent-of-parent measure (railRef.parentElement — the content row) is
+  // circular. The basis is the content+panel region = the Shell grid width
+  // minus the sidebar column, measured through the Shell-provided grid ref
+  // (`useShellGridRef`) — a seam that is NOT the panel's own parent.
+  const gridRef = useShellGridRef();
+  const { sidebarOpen, sidebarWidth } = useChromeState();
+  const [gridWidth, setGridWidth] = useState(0);
   const [widthPct, setWidthPct] = useState(() => readStoredPanelWidth());
   const widthRef = useRef(widthPct);
   widthRef.current = widthPct;
   const [dragging, setDragging] = useState(false);
-  const dragRef = useRef<{ startX: number; startPct: number; rowWidth: number } | null>(null);
+  const dragRef = useRef<{ startX: number; startPct: number; basisWidth: number } | null>(null);
 
   // Hide-never-unmount (P3): mount the surface subtree lazily on first open,
   // then keep it mounted (display-level hide) for the route's lifetime.
@@ -84,15 +95,27 @@ export function RightPanel({ available, active, onToggle, children }: RightPanel
     if (active !== null) setEverOpened(true);
   }, [active]);
 
-  // Track the content row's width so the 280px floor / 65% cap resolve to
-  // pixels at render and drag time (restores included).
+  // Track the Shell grid's width. The initial read sits in a PASSIVE effect —
+  // child layout effects run before the parent Shell attaches its grid ref, so
+  // a layout effect would read null here; in real browsers the ResizeObserver
+  // delivers its initial callback with observe() anyway, and a passive effect
+  // still lands within the first frames (the old `rowWidth` tracker had the
+  // same cadence). The sidebar column is subtracted below, leaving the
+  // content+panel region — the equivalent of the pre-260812 content-row basis.
   useEffect(() => {
-    const row = railRef.current?.parentElement;
-    if (!row) return;
-    const observer = new ResizeObserver(() => setRowWidth(row.clientWidth));
-    observer.observe(row);
+    const grid = gridRef?.current;
+    if (!grid) return;
+    setGridWidth(grid.clientWidth);
+    const observer = new ResizeObserver(() => setGridWidth(grid.clientWidth));
+    observer.observe(grid);
     return () => observer.disconnect();
-  }, []);
+  }, [gridRef]);
+
+  // The content+panel region in px: grid minus the sidebar column (0px when
+  // the sidebar is collapsed — the grid column literally is).
+  const basisWidth = Math.max(0, gridWidth - (sidebarOpen ? sidebarWidth : 0));
+  const basisRef = useRef(basisWidth);
+  basisRef.current = basisWidth;
 
   const onHandlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -100,17 +123,17 @@ export function RightPanel({ available, active, onToggle, children }: RightPanel
     dragRef.current = {
       startX: e.clientX,
       startPct: widthRef.current,
-      rowWidth: railRef.current?.parentElement?.clientWidth ?? 0,
+      basisWidth: basisRef.current,
     };
     setDragging(true);
   };
 
   const onHandlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     const drag = dragRef.current;
-    if (!drag || drag.rowWidth <= 0) return;
+    if (!drag || drag.basisWidth <= 0) return;
     // The handle sits on the panel's LEFT edge: dragging left widens.
-    const deltaPct = ((drag.startX - e.clientX) / drag.rowWidth) * 100;
-    setWidthPct(clampPanelWidth(drag.startPct + deltaPct, drag.rowWidth));
+    const deltaPct = ((drag.startX - e.clientX) / drag.basisWidth) * 100;
+    setWidthPct(clampPanelWidth(drag.startPct + deltaPct, drag.basisWidth));
   };
 
   const endDrag = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -126,7 +149,12 @@ export function RightPanel({ available, active, onToggle, children }: RightPanel
     writeStoredPanelWidth(widthRef.current);
   };
 
-  const clampedPct = clampPanelWidth(widthPct, rowWidth);
+  const clampedPct = clampPanelWidth(widthPct, basisWidth);
+  // The grid column is `auto` — the panel sizes it in PIXELS (the clamped
+  // percentage resolved against the content+panel basis). A 0 basis (first
+  // paint pre-measurement, or jsdom) renders 0px for a frame at worst; the
+  // layout-effect read corrects before paint in real browsers.
+  const panelPx = Math.round((clampedPct / 100) * basisWidth);
 
   return (
     <>
@@ -136,7 +164,7 @@ export function RightPanel({ available, active, onToggle, children }: RightPanel
           // P3: closed = display-level hide, never unmount (the iframe keeps
           // its in-memory state across a collapse).
           className={`h-full min-h-0 shrink-0 border-l border-border ${active !== null ? "flex flex-row" : "hidden"}`}
-          style={{ width: `${clampedPct}%` }}
+          style={{ width: `${panelPx}px` }}
         >
           <div
             role="separator"
@@ -159,7 +187,6 @@ export function RightPanel({ available, active, onToggle, children }: RightPanel
         </div>
       )}
       <div
-        ref={railRef}
         data-testid="right-panel-rail"
         className="w-[38px] shrink-0 border-l border-border flex flex-col items-center py-1 gap-1"
       >

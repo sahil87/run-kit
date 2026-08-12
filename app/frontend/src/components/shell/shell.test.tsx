@@ -171,6 +171,73 @@ describe("Shell", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
+  describe("right panel column (260812-nm4p)", () => {
+    function renderWithRightPanel(opts: { visible?: boolean } = {}) {
+      const { visible = true } = opts;
+      localStorage.setItem("runkit-sidebar-open", "true");
+      stubMatchMedia(() => false); // desktop
+      return render(
+        <ChromeProvider>
+          <Shell
+            sidebarChildren={<div data-testid="sidebar">SIDEBAR</div>}
+            rightPanelChildren={<div data-testid="rail">RAIL</div>}
+            rightPanelVisible={visible}
+          >
+            <main style={{ gridArea: "content" }} data-testid="content">CONTENT</main>
+            <footer style={{ gridArea: "bottombar" }} data-testid="bottombar">BOTTOM</footer>
+          </Shell>
+        </ChromeProvider>,
+      );
+    }
+
+    it("adds a third 'auto' grid column spanning both rows when the slot is filled", () => {
+      renderWithRightPanel();
+      const root = screen.getByTestId("content").parentElement!;
+      expect(root.style.gridTemplateColumns).toBe("220px 1fr auto");
+      expect(root.style.gridTemplateAreas).toContain('"sidebar content rightpanel"');
+      expect(root.style.gridTemplateAreas).toContain('"sidebar bottombar rightpanel"');
+      const aside = screen.getByRole("complementary", { name: "Right panel" });
+      expect(aside).toContainElement(screen.getByTestId("rail"));
+      expect(aside.style.gridArea).toBe("rightpanel");
+    });
+
+    it("hides at display level (never unmounts) when rightPanelVisible is false", () => {
+      renderWithRightPanel({ visible: false });
+      // The aside element stays in the DOM — children (iframes) keep state —
+      // it is only display-hidden (which collapses the `auto` column).
+      const rail = screen.getByTestId("rail");
+      expect(rail).toBeInTheDocument();
+      expect(rail.parentElement!.className).toContain("hidden");
+    });
+
+    it("keeps the two-column grid byte-identical when the slot is absent", () => {
+      renderShell({ open: true, mobile: false });
+      const root = screen.getByTestId("content").parentElement!;
+      expect(root.style.gridTemplateColumns).toBe("220px 1fr");
+      expect(root.style.gridTemplateAreas).not.toContain("rightpanel");
+      expect(screen.queryByRole("complementary", { name: "Right panel" })).not.toBeInTheDocument();
+    });
+
+    it("ignores the slot on mobile — single-column grid, no right aside", () => {
+      localStorage.setItem("runkit-sidebar-open", "false");
+      stubMatchMedia((q) => q.includes("max-width"));
+      render(
+        <ChromeProvider>
+          <Shell
+            rightPanelChildren={<div data-testid="rail">RAIL</div>}
+            rightPanelVisible={true}
+          >
+            <main style={{ gridArea: "content" }} data-testid="content">CONTENT</main>
+            <footer style={{ gridArea: "bottombar" }} data-testid="bottombar">BOTTOM</footer>
+          </Shell>
+        </ChromeProvider>,
+      );
+      const root = screen.getByTestId("content").parentElement!;
+      expect(root.style.gridTemplateColumns).toBe("1fr");
+      expect(screen.queryByTestId("rail")).not.toBeInTheDocument();
+    });
+  });
+
   describe("mobile drawer focus trap", () => {
     it("focuses inside the <aside> on mount when mobile + open", () => {
       renderShell({ open: true, mobile: true, sidebarChildren: trapChildren() });

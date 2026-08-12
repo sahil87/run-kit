@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, cleanup, act } from "@testing-library/react";
 import { useMemo } from "react";
 import {
@@ -100,6 +100,47 @@ describe("TopBarSlotContext", () => {
       );
     });
     expect(screen.getByTestId("slot").textContent).toBe("beta::false");
+  });
+
+  it("carries the rail-toggle fields (railOpen + onToggleRail) through the slot", () => {
+    const onToggleRail = vi.fn();
+    const RailRegistrant = () => {
+      const slot = useMemo<NonNullable<TopBarSlot>>(
+        () => ({
+          sessions: [],
+          currentSession: null,
+          currentWindow: null,
+          sessionName: "",
+          windowName: "",
+          sidebarOpen: true,
+          server: "rk",
+          onNavigate: () => {},
+          onToggleSidebar: () => {},
+          onCreateSession: () => {},
+          onCreateWindow: () => {},
+          railOpen: true,
+          onToggleRail,
+        }),
+        [],
+      );
+      useRegisterTopBarSlot(slot);
+      return null;
+    };
+    const RailView = () => {
+      const slot = useTopBarSlot();
+      return (
+        <span data-testid="rail-slot">
+          {slot ? `${String(slot.railOpen)}:${typeof slot.onToggleRail}` : "null"}
+        </span>
+      );
+    };
+    render(
+      <TopBarSlotProvider>
+        <RailRegistrant />
+        <RailView />
+      </TopBarSlotProvider>,
+    );
+    expect(screen.getByTestId("rail-slot").textContent).toBe("true:function");
   });
 
   it("useTopBarSlot throws outside the provider", () => {

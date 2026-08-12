@@ -521,6 +521,8 @@ function RootTopBar() {
       availableViews={slot?.availableViews}
       activeView={slot?.activeView}
       onSelectView={slot?.onSelectView}
+      railOpen={slot?.railOpen}
+      onToggleRail={slot?.onToggleRail}
     />
   );
 }
@@ -615,8 +617,8 @@ function AppShell() {
   const serversLoaded = ctx.serversLoaded;
   const pendingServer = ctx.pendingServer;
   const sessions = useMergedSessions(rawSessions, server);
-  const { sidebarOpen, sidebarWidth, fixedWidth, composeStripEnabled } = useChromeState();
-  const { setCurrentSession, setCurrentWindow, setSidebarOpen, setSidebarWidth, persistSidebarWidth, toggleFixedWidth, toggleComposeStrip } = useChromeDispatch();
+  const { sidebarOpen, sidebarWidth, railOpen, fixedWidth, composeStripEnabled } = useChromeState();
+  const { setCurrentSession, setCurrentWindow, setSidebarOpen, setSidebarWidth, setRailOpen, persistSidebarWidth, toggleFixedWidth, toggleComposeStrip } = useChromeDispatch();
   const navigate = useNavigate();
   const isMobile = useIsMobile();
   const wsRef = useRef<WebSocket | null>(null);
@@ -709,6 +711,39 @@ function AppShell() {
     },
     [server, windowParam, navigate, resolvedPanel, searchView],
   );
+
+  // Rail-collapse preference + DERIVED right-area visibility (260812-nm4p):
+  // `rightAreaVisible = railOpen || resolvedPanel != null` — an open panel
+  // always forces the right area visible, so `?panel=` deep links, the ⇧⌘.
+  // chord, and the `Panel: …` palette entries are never dead while the rail is
+  // collapsed. Computed at render, NEVER synchronized by an effect (the
+  // 2026-08-11 design discussion: derivation cannot race or desync, and an
+  // effect would corrupt the persisted `railOpen` preference).
+  const rightAreaVisible = railOpen || resolvedPanel != null;
+
+  // The top-bar rail toggle (260812-nm4p — the sidebar toggle's far-right
+  // mirror): toggles the RAIL STRIP ITSELF, never a panel surface. Collapse
+  // hides the whole right column (rail AND any open panel) so the terminal
+  // runs edge-to-edge; restore brings back only the rail (a panel closed by a
+  // collapse stays closed). Collapsing WITH an open panel closes it through
+  // the same path as `togglePanel`'s close branch (removeStoredPanel + drop
+  // `?panel=`) — a hidden-but-open panel would contradict its own URL.
+  const onToggleRail = useCallback(() => {
+    if (rightAreaVisible) {
+      if (resolvedPanel != null && windowParam) {
+        removeStoredPanel(server, windowParam);
+        navigate({
+          to: "/$server/$window",
+          params: { server, window: windowParam },
+          search: { ...(searchView ? { view: searchView } : {}) },
+          replace: true,
+        });
+      }
+      setRailOpen(false);
+    } else {
+      setRailOpen(true);
+    }
+  }, [rightAreaVisible, resolvedPanel, windowParam, server, navigate, searchView, setRailOpen]);
 
   // Switch the current window's lens (spec R2/R7): persist per-window in
   // localStorage (survives R6's param-drop on a window switch) AND update the
@@ -2444,13 +2479,22 @@ function AppShell() {
             onSelect: () => togglePanel("code"),
           }]
         : []),
+      // Rail toggle (260812-nm4p) — Constitution V keyboard path for the
+      // top-bar's far-right rail chip: collapses/restores the whole right
+      // column (rail AND any open panel), never a panel surface. Offered on
+      // EVERY desktop terminal route (even with zero available surfaces — the
+      // rail renders regardless), mirroring the button's own gate. No
+      // registry binding, so no shortcut hint.
+      ...(windowParam && !isMobile
+        ? [{ id: "panel-rail-toggle", label: "Panel: Toggle rail", onSelect: onToggleRail }]
+        : []),
       {
         id: "toggle-fixed-width",
         label: fixedWidth ? "View: Full Width" : "View: Fixed Width (900px)",
         onSelect: toggleFixedWidth,
       },
     ],
-    [sessionName, fixedWidth, toggleFixedWidth, toggleComposeStrip, currentViews, resolvedView, switchView, bindingByAction, bindingHost, windowParam, isMobile, panelSurfaces, togglePanel],
+    [sessionName, fixedWidth, toggleFixedWidth, toggleComposeStrip, currentViews, resolvedView, switchView, bindingByAction, bindingHost, windowParam, isMobile, panelSurfaces, togglePanel, onToggleRail],
   );
 
   // Navigation actions (`Go: Back` / `Go: Forward` / ancestor entries,
@@ -3104,6 +3148,13 @@ function AppShell() {
       availableViews: currentViews,
       activeView: resolvedView,
       onSelectView: switchView,
+      // Rail toggle (260812-nm4p): `railOpen` carries the DERIVED
+      // rightAreaVisible (icon fill tracks what the user sees, not the raw
+      // preference). The handler registers on EVERY desktop terminal route —
+      // even with zero available surfaces, the rail still renders (plan A2
+      // landing-pad behavior). Absent on board/host/mobile → no toggle.
+      railOpen: rightAreaVisible,
+      onToggleRail: windowParam && !isMobile ? onToggleRail : undefined,
     }),
     [
       sessions,
@@ -3121,6 +3172,10 @@ function AppShell() {
       currentViews,
       resolvedView,
       switchView,
+      rightAreaVisible,
+      windowParam,
+      isMobile,
+      onToggleRail,
     ],
   );
   useRegisterTopBarSlot(topBarSlot);
@@ -3168,6 +3223,67 @@ function AppShell() {
   return (
     <Shell
       sidebarChildren={sidebarElement}
+      rightPanelVisible={rightAreaVisible}
+      rightPanelChildren={
+        windowParam && !isMobile ? (
+          // Rail + panel shell (260811-2r1w), now the Shell grid's full-height
+          // third column (260812-nm4p). Keyed by server:window so a window
+          // switch REMOUNTS the panel (its content is per-window state);
+          // within one window the surface subtree mounts lazily on first open
+          // and then hides at display level — never unmounts (P3). Collapse
+          // via `rightAreaVisible` is ALSO display-level (Shell's hidden
+          // aside), so the iframes survive a rail collapse too. The rail
+          // renders on EVERY desktop terminal route (even with zero available
+          // surfaces); its buttons render per AVAILABLE surface.
+          <RightPanel
+            key={`${server}:${windowParam}`}
+            available={panelSurfaces}
+            active={resolvedPanel}
+            onToggle={togglePanel}
+          >
+            {/* One subtree per AVAILABLE surface, each hidden at display
+                level unless it is the ACTIVE surface (P3 hide-never-unmount
+                extended across surface switches, 260811-k3vp): the web iframe
+                and the code iframe BOTH stay mounted while the route lives,
+                so switching surfaces or collapsing the panel preserves each
+                iframe's in-memory state. The wrapper owns the visibility
+                toggle; the renderer inside is unchanged.
+
+                The `web` surface reuses the shipped IframeWindow renderer
+                with NO `onSwitchToTty` (the panel-context seam — the `>_`
+                switch-to-terminal affordance is meaningless beside the
+                visible tty; the URL bar and refresh stay). The
+                `currentWindow?.rkUrl` guard narrows the prop type; an
+                available `web` surface already implies `hasWebUrl` held. */}
+            {panelSurfaces.includes("web") && currentWindow?.rkUrl ? (
+              <div
+                data-testid="panel-surface-web"
+                className={`flex-col flex-1 min-h-0 h-full ${resolvedPanel === "web" ? "flex" : "hidden"}`}
+              >
+                <IframeWindow
+                  windowId={currentWindow.windowId}
+                  rkUrl={currentWindow.rkUrl}
+                />
+              </div>
+            ) : null}
+            {/* The `code` surface renders the lean CodeSurface (no URL bar —
+                the code-server URL is fully derived). An available `code`
+                surface implies gitRoot derived. */}
+            {panelSurfaces.includes("code") && currentWindow?.gitRoot ? (
+              <div
+                data-testid="panel-surface-code"
+                className={`flex-col flex-1 min-h-0 h-full ${resolvedPanel === "code" ? "flex" : "hidden"}`}
+              >
+                <CodeSurface
+                  gitRoot={currentWindow.gitRoot}
+                  reachable={codeServer?.reachable ?? false}
+                  shouldReclaimChord={reclaimChord}
+                />
+              </div>
+            ) : null}
+          </RightPanel>
+        ) : undefined
+      }
       sidebarResizeHandle={
         // Drag handle — Shell places it at the sidebar aside's right edge and
         // renders it only when the desktop aside is up (never on the mobile
@@ -3253,14 +3369,11 @@ function AppShell() {
               <LogoSpinner size={48} />
             </div>
           )}
-          {/* Right-panel layout row (260811-2r1w-right-panel-shell-web-surface,
-              spec right-panel.md): the terminal-route content area is a
-              horizontal flex row [ main lens slot | panel (when open) | rail ].
-              The main slot keeps the existing lens model unchanged (P2 — the
-              panel never touches `?view=` resolution); rail + panel render only
-              on desktop window routes (phase 1 is desktop-only, P5). */}
-          <div className="flex-1 min-h-0 flex flex-row">
-            <div className="flex-1 min-w-0 min-h-0 flex flex-col">
+          {/* Main lens slot — the panel/rail pair left this row in 260812-nm4p
+              (they are now the Shell grid's full-height third column, passed
+              via `rightPanelChildren`); the lens model itself is unchanged
+              (P2 — the panel never touches `?view=` resolution). */}
+          <div className="flex-1 min-w-0 min-h-0 flex flex-col">
           {/* Render gate keys on `windowParam` (the URL's @N) ALONE, not the
               SSE-derived `sessionName`. The session name is only needed for the
               breadcrumb/title and resolves a beat after the first snapshot; the
@@ -3344,62 +3457,6 @@ function AppShell() {
               onCreateWindow={handleCreateWindow}
             />
           )}
-            </div>
-            {windowParam && !isMobile && (
-              // Rail + panel shell (260811-2r1w). Keyed by server:window so a
-              // window switch REMOUNTS the panel (its content is per-window
-              // state); within one window the surface subtree mounts lazily on
-              // first open and then hides at display level — never unmounts
-              // (P3). The rail is always present here (spec: "always visible
-              // on desktop"); its buttons render per AVAILABLE surface.
-              <RightPanel
-                key={`${server}:${windowParam}`}
-                available={panelSurfaces}
-                active={resolvedPanel}
-                onToggle={togglePanel}
-              >
-                {/* One subtree per AVAILABLE surface, each hidden at display
-                    level unless it is the ACTIVE surface (P3 hide-never-unmount
-                    extended across surface switches, 260811-k3vp): the web iframe
-                    and the code iframe BOTH stay mounted while the route lives,
-                    so switching surfaces or collapsing the panel preserves each
-                    iframe's in-memory state. The wrapper owns the visibility
-                    toggle; the renderer inside is unchanged.
-
-                    The `web` surface reuses the shipped IframeWindow renderer
-                    with NO `onSwitchToTty` (the panel-context seam — the `>_`
-                    switch-to-terminal affordance is meaningless beside the
-                    visible tty; the URL bar and refresh stay). The
-                    `currentWindow?.rkUrl` guard narrows the prop type; an
-                    available `web` surface already implies `hasWebUrl` held. */}
-                {panelSurfaces.includes("web") && currentWindow?.rkUrl ? (
-                  <div
-                    data-testid="panel-surface-web"
-                    className={`flex-col flex-1 min-h-0 h-full ${resolvedPanel === "web" ? "flex" : "hidden"}`}
-                  >
-                    <IframeWindow
-                      windowId={currentWindow.windowId}
-                      rkUrl={currentWindow.rkUrl}
-                    />
-                  </div>
-                ) : null}
-                {/* The `code` surface renders the lean CodeSurface (no URL bar —
-                    the code-server URL is fully derived). An available `code`
-                    surface implies gitRoot derived. */}
-                {panelSurfaces.includes("code") && currentWindow?.gitRoot ? (
-                  <div
-                    data-testid="panel-surface-code"
-                    className={`flex-col flex-1 min-h-0 h-full ${resolvedPanel === "code" ? "flex" : "hidden"}`}
-                  >
-                    <CodeSurface
-                      gitRoot={currentWindow.gitRoot}
-                      reachable={codeServer?.reachable ?? false}
-                      shouldReclaimChord={reclaimChord}
-                    />
-                  </div>
-                ) : null}
-              </RightPanel>
-            )}
           </div>
         </div>
       </main>

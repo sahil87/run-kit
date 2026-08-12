@@ -76,6 +76,15 @@ export type TopBarSlot = {
   availableViews?: ViewName[];
   activeView?: ViewName;
   onSelectView?: (view: ViewName) => void;
+  /** Terminal-mode right-RAIL toggle (260812-nm4p): the sidebar toggle's
+   *  far-right mirror — collapses/restores the whole right column (rail AND
+   *  any open panel), never a panel surface. `railOpen` carries the DERIVED
+   *  visibility (`railOpen || resolvedPanel != null`) for the icon fill, not
+   *  the raw preference. Registered by `AppShell` on every desktop terminal
+   *  route (`windowParam && !isMobile`, even with zero available surfaces);
+   *  `onToggleRail` absent → the top bar renders no rail toggle. */
+  railOpen?: boolean;
+  onToggleRail?: () => void;
 } | null;
 
 type TopBarSlotContextValue = {

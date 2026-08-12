@@ -1,9 +1,23 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, type ReactNode } from "react";
 import { useChromeState, useChromeDispatch } from "@/contexts/chrome-context";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useFocusTrap } from "@/hooks/use-focus-trap";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { matchesCombo, shouldSuppressChord } from "@/lib/keybindings";
+
+/**
+ * Ref to the `.app-shell` grid element, provided to the right-panel subtree so
+ * its width math can measure the content+panel region (shell width minus the
+ * sidebar column) through a seam that is NOT the panel's own parentElement —
+ * once the panel IS its own grid column, percent-of-parent is circular
+ * (260812-nm4p). `null` outside a `<Shell>`.
+ */
+const ShellGridRefContext = createContext<React.RefObject<HTMLDivElement | null> | null>(null);
+
+/** Read the Shell grid element ref (see `ShellGridRefContext`). */
+export function useShellGridRef(): React.RefObject<HTMLDivElement | null> | null {
+  return useContext(ShellGridRefContext);
+}
 
 /**
  * `Cmd+\` (macOS) / `Ctrl+\` (Linux/Windows) toggles the sidebar. Constitution V
@@ -46,16 +60,30 @@ function useSidebarKeyboardToggle(toggle: () => void) {
  * root layout is a geometric no-op — the visual stack is preserved.
  *
  * Topology (desktop, viewport ≥ 640px):
- *   ┌──────────┬───────────────┐
- *   │ sidebar  │   content     │
- *   │          ├───────────────┤
- *   │          │   bottombar   │
- *   └──────────┴───────────────┘
+ *   ┌──────────┬───────────────┬─────────────┐
+ *   │ sidebar  │   content     │             │
+ *   │          ├───────────────┤  rightpanel │
+ *   │          │   bottombar   │             │
+ *   └──────────┴───────────────┴─────────────┘
  *
- * - `grid-template-areas`: `"sidebar content" / "sidebar bottombar"`.
+ * - `grid-template-areas`: `"sidebar content" / "sidebar bottombar"` — or, when
+ *   the optional `rightPanelChildren` slot is filled (desktop only),
+ *   `"sidebar content rightpanel" / "sidebar bottombar rightpanel"` with
+ *   columns `${sidebarWidth}px 1fr auto` (260812-nm4p): the right column spans
+ *   BOTH rows full-height, exactly like the sidebar, and the bottombar stays
+ *   scoped to the content column with no consumer change.
  * - `grid-template-rows`: `1fr auto`
  * - `grid-template-columns`: `${sidebarWidth}px 1fr` when `sidebarOpen` is `true`,
- *   else `0 1fr`. CSS transition (~150ms ease-out) animates collapse.
+ *   else `0 1fr` (plus the `auto` right column when the slot is filled).
+ *   CSS transition (~150ms ease-out) animates collapse.
+ * - Without `rightPanelChildren` (board/host consumers, mobile) the grid is
+ *   byte-identical to the two-column layout.
+ *
+ * The `rightpanel` area mirrors `sidebarChildren` with ONE deliberate
+ * divergence (right-panel spec P3): the right aside NEVER unmounts — collapse
+ * (`rightPanelVisible === false`) hides it at display level (`hidden`, so the
+ * `auto` column collapses to zero width) while the subtree stays mounted and
+ * the web/code iframes keep their in-memory state.
  *
  * Topology (mobile, viewport < 640px):
  *   - Single-column grid (`content / bottombar`); the `sidebar` slot
@@ -81,6 +109,8 @@ export function Shell({
   children,
   sidebarChildren,
   sidebarResizeHandle,
+  rightPanelChildren,
+  rightPanelVisible = true,
 }: {
   children: ReactNode;
   sidebarChildren?: ReactNode;
@@ -92,11 +122,22 @@ export function Shell({
    * aside keeps `border-r border-border` as the seam.
    */
   sidebarResizeHandle?: ReactNode;
+  /**
+   * Optional full-height right column (260812-nm4p) — the terminal route's
+   * rail + panel subtree, mirroring the `sidebarChildren` slot. When present
+   * on desktop the grid gains a third `auto` column spanning both rows. Unlike
+   * the sidebar aside, this column NEVER unmounts (right-panel spec P3):
+   * `rightPanelVisible === false` hides it at display level only.
+   */
+  rightPanelChildren?: ReactNode;
+  /** Visibility gate for the right column — display-level hide, never unmount. */
+  rightPanelVisible?: boolean;
 }) {
   const { sidebarOpen, sidebarWidth } = useChromeState();
   const { setSidebarOpen } = useChromeDispatch();
   const isMobile = useIsMobile();
   const drawerRef = useRef<HTMLElement>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
 
   // Cmd+\ / Ctrl+\ toggles the sidebar. Cmd captures only — see hook for
   // the input/textarea/contenteditable suppression rules.
@@ -111,7 +152,9 @@ export function Shell({
 
   // Grid-template-columns on desktop: animate width on collapse via CSS transition.
   // On mobile we use a single column ('1fr') so collapsed/open is purely a function
-  // of whether the overlay renders.
+  // of whether the overlay renders. The right column (260812-nm4p) is desktop-only:
+  // the slot is ignored on mobile so that grid stays byte-identical.
+  const hasRightPanel = !isMobile && !!rightPanelChildren;
   const gridStyle: React.CSSProperties = isMobile
     ? {
         height: "100%",
@@ -124,14 +167,18 @@ export function Shell({
     : {
         height: "100%",
         display: "grid",
-        gridTemplateColumns: sidebarOpen ? `${sidebarWidth}px 1fr` : "0 1fr",
+        gridTemplateColumns:
+          (sidebarOpen ? `${sidebarWidth}px 1fr` : "0 1fr") + (hasRightPanel ? " auto" : ""),
         gridTemplateRows: "1fr auto",
-        gridTemplateAreas: '"sidebar content" "sidebar bottombar"',
+        gridTemplateAreas: hasRightPanel
+          ? '"sidebar content rightpanel" "sidebar bottombar rightpanel"'
+          : '"sidebar content" "sidebar bottombar"',
         transition: "grid-template-columns 150ms ease-out",
       };
 
   return (
-    <div className="app-shell" style={gridStyle}>
+    <ShellGridRefContext.Provider value={gridRef}>
+    <div className="app-shell" ref={gridRef} style={gridStyle}>
       {/* Desktop sidebar aside (Shell-owned — 260719-rwqf). Gated the same way
           the callers used to gate their own asides (`!isMobile && sidebarOpen`,
           plus a `sidebarChildren` presence check), so it fully unmounts on
@@ -155,6 +202,22 @@ export function Shell({
       )}
 
       {children}
+
+      {/* Desktop right column (260812-nm4p — the `sidebarChildren` mirror).
+          Rendered whenever the slot is filled, gated by `rightPanelVisible` at
+          DISPLAY level only (`hidden` collapses the `auto` grid column to zero
+          width) — NEVER unmounted, so the web/code iframes inside keep their
+          in-memory state across a collapse (right-panel spec P3; a deliberate
+          divergence from the sidebar aside's unmount gating above). */}
+      {hasRightPanel && (
+        <aside
+          style={{ gridArea: "rightpanel" }}
+          aria-label="Right panel"
+          className={rightPanelVisible ? "flex flex-row overflow-hidden" : "hidden"}
+        >
+          {rightPanelChildren}
+        </aside>
+      )}
 
       {/* Mobile overlay: renders below the topbar so the hamburger stays
           visible as a close affordance (matches the project convention
@@ -189,5 +252,6 @@ export function Shell({
         </div>
       )}
     </div>
+    </ShellGridRefContext.Provider>
   );
 }

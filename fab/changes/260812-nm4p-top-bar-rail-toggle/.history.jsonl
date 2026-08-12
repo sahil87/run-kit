@@ -1,0 +1,12 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-12T04:11:01Z"}
+{"args":"nm4p","cmd":"fab-new","event":"command","ts":"2026-08-12T04:11:01Z"}
+{"delta":"+4.9","event":"confidence","score":4.9,"trigger":"calc-score","ts":"2026-08-12T04:13:03Z"}
+{"delta":"+0.0","event":"confidence","score":4.9,"trigger":"calc-score","ts":"2026-08-12T04:13:21Z"}
+{"delta":"-0.2","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-08-12T04:47:43Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-12T04:48:02Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-12T04:49:00Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-12T06:10:41Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-12T06:20:49Z"}
+{"event":"review","result":"passed","ts":"2026-08-12T06:20:49Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-12T06:30:33Z"}
+{"cmd":"git-pr","event":"command","ts":"2026-08-12T06:32:18Z"}

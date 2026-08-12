@@ -43,6 +43,7 @@ async function gotoWindow(page: Page, windowId: string, search = ""): Promise<vo
 
 const rail = (page: Page) => page.getByTestId("right-panel-rail");
 const railWebButton = (page: Page) => page.getByRole("button", { name: "Web panel" });
+const railToggle = (page: Page) => page.getByRole("button", { name: "Toggle panel" });
 const panel = (page: Page) => page.getByTestId("right-panel");
 const panelIframe = (page: Page) => panel(page).getByTitle("Proxied content");
 const terminal = (page: Page) => page.locator(".xterm").first();
@@ -59,6 +60,20 @@ test.afterAll(() => {
 test.describe("Right panel — rail, shell & web surface (phase 1)", () => {
   test.beforeEach(async ({ page }) => {
     await page.setViewportSize(DESKTOP_VIEWPORT);
+    // The `runkit-rail-open` preference persists across tests (localStorage) —
+    // reset it per test so a collapsing test cannot leak a hidden rail into
+    // the next one. The TOP-FRAME guard is load-bearing: init scripts run for
+    // EVERY frame, and the panel's same-origin iframe (/proxy/…) shares this
+    // origin's localStorage — without the guard, a panel opening (an iframe
+    // navigation) would wipe the pref mid-test.
+    await page.addInitScript(() => {
+      if (window !== window.top) return;
+      try {
+        localStorage.removeItem("runkit-rail-open");
+      } catch {
+        /* noop */
+      }
+    });
   });
 
   test("the rail renders on every desktop terminal route; the web button only when @rk_url is set", async ({ page }) => {
@@ -126,6 +141,10 @@ test.describe("Right panel — rail, shell & web surface (phase 1)", () => {
   });
 
   test("?panel=web deep link opens the panel on load; unavailable/unknown values resolve closed", async ({ page }) => {
+    // Three full page loads + two tmux window creations — wider budget for a
+    // loaded box (the sidebar-panels precedent); the per-assertion waits stay
+    // at their own timeouts.
+    test.setTimeout(30_000);
     // Deep link on a web-capable window → panel opens cold.
     const web = await makeWindow(page, `rp-deep-${Date.now()}`, { url: IFRAME_URL });
     await gotoWindow(page, web, "?panel=web");
@@ -248,5 +267,177 @@ test.describe("Right panel — rail, shell & web surface (phase 1)", () => {
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
     await expect(rail(page)).toHaveCount(0);
     await expect(panel(page)).toHaveCount(0);
+  });
+});
+
+test.describe("Top-bar rail toggle & full-height column (260812-nm4p)", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.setViewportSize(DESKTOP_VIEWPORT);
+    // Reset the persisted rail preference per test — it leaks across tests
+    // otherwise and would silently collapse the rail for the next one. The
+    // TOP-FRAME guard is load-bearing: init scripts run for EVERY frame, and
+    // the panel's same-origin iframe (/proxy/…) shares this origin's
+    // localStorage — without the guard, a panel opening (an iframe
+    // navigation) would wipe the pref mid-test.
+    await page.addInitScript(() => {
+      if (window !== window.top) return;
+      try {
+        localStorage.removeItem("runkit-rail-open");
+      } catch {
+        /* noop */
+      }
+    });
+  });
+
+  test("the toggle renders on a PLAIN window too (zero available surfaces)", async ({ page }) => {
+    // cwd /tmp keeps the window git-root-less, so NEITHER surface (web via
+    // @rk_url, code via gitRoot) is available — the rail renders with zero
+    // buttons and the toggle still renders (the rail is landing-pad chrome,
+    // not surface-gated).
+    const name = `rp-toggle-plain-${Date.now()}`;
+    newWindow(TEST_SESSION, name, { cwd: "/tmp" });
+    const plain = await resolveWindow(page, name);
+    await gotoWindow(page, plain);
+    await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
+    await expect(rail(page)).toBeVisible();
+    await expect(railWebButton(page)).toHaveCount(0);
+    await expect(railToggle(page)).toBeVisible();
+  });
+
+  test("collapse hides the rail and the terminal grows; restore brings the rail back", async ({ page }) => {
+    const id = await makeWindow(page, `rp-rail-${Date.now()}`, { url: IFRAME_URL });
+    await gotoWindow(page, id);
+    await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
+    await expect(railToggle(page)).toBeVisible();
+    await expect(rail(page)).toBeVisible();
+
+    const widthBefore = (await terminal(page).boundingBox())!.width;
+
+    // Collapse: the whole right column hides at display level (never
+    // unmounts) and the terminal's box GROWS to run edge-to-edge.
+    await railToggle(page).click();
+    await expect(rail(page)).toBeHidden();
+    await expect
+      .poll(async () => (await terminal(page).boundingBox())?.width ?? 0, { timeout: 10_000 })
+      .toBeGreaterThan(widthBefore);
+
+    // The preference persisted.
+    await expect
+      .poll(() => page.evaluate(() => localStorage.getItem("runkit-rail-open")))
+      .toBe("false");
+
+    // Restore: only the rail returns (no panel was open — nothing else to
+    // restore).
+    await railToggle(page).click();
+    await expect(rail(page)).toBeVisible();
+  });
+
+  test("collapse with an open panel hides BOTH and drops ?panel=; restore brings back only the rail", async ({ page }) => {
+    const id = await makeWindow(page, `rp-railpanel-${Date.now()}`, { url: IFRAME_URL });
+    await gotoWindow(page, id);
+    await railWebButton(page).click();
+    await expect(panelIframe(page)).toBeVisible({ timeout: 10_000 });
+    await expect(page).toHaveURL(/\?panel=web/);
+
+    // Collapse: rail AND panel hide, the param drops, and the per-window
+    // panel key is removed (a hidden-but-open panel would contradict its URL).
+    const iframeBefore = await panelIframe(page).elementHandle();
+    await railToggle(page).click();
+    await expect(rail(page)).toBeHidden();
+    await expect(panel(page)).toBeHidden();
+    await expect(page).not.toHaveURL(/[?&]panel=/);
+    await expect
+      .poll(() =>
+        page.evaluate(
+          (key) => localStorage.getItem(key),
+          `runkit-window-panel:${TMUX_SERVER}:${id}`,
+        ),
+      )
+      .toBeNull();
+
+    // The iframe element was NOT unmounted by the collapse (display-level
+    // hide all the way up — in-memory state survives).
+    await expect(panelIframe(page)).toHaveCount(1);
+    const iframeAfter = await panelIframe(page).elementHandle();
+    expect(await page.evaluate(([a, b]) => a === b, [iframeBefore, iframeAfter])).toBe(true);
+
+    // Restore: the rail returns; the panel stays closed (a panel closed by a
+    // collapse stays closed).
+    await railToggle(page).click();
+    await expect(rail(page)).toBeVisible();
+    await expect(panel(page)).toBeHidden();
+    await expect(page).not.toHaveURL(/[?&]panel=/);
+  });
+
+  test("⇧⌘. after a collapse re-shows the rail WITH the panel (derived visibility)", async ({ page }) => {
+    const id = await makeWindow(page, `rp-railchord-${Date.now()}`, { url: IFRAME_URL });
+    await gotoWindow(page, id);
+    await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
+    await expect(railWebButton(page)).toBeVisible({ timeout: READY_TIMEOUT });
+
+    // Collapse the rail, then fire the panel chord: opening a panel forces
+    // the right area visible (rightAreaVisible = railOpen || panel != null)
+    // without flipping the persisted railOpen preference.
+    await railToggle(page).click();
+    await expect(rail(page)).toBeHidden();
+    await page.keyboard.press("Shift+Control+Period");
+    await expect(rail(page)).toBeVisible();
+    await expect(panelIframe(page)).toBeVisible({ timeout: 10_000 });
+    await expect(page).toHaveURL(/\?panel=web/);
+    // railOpen stayed false — the visibility is derived, not synchronized.
+    await expect
+      .poll(() => page.evaluate(() => localStorage.getItem("runkit-rail-open")))
+      .toBe("false");
+  });
+
+  test("full-height layout: the rail+panel column reaches the shell bottom; the bottom bar spans only the terminal column", async ({ page }) => {
+    const id = await makeWindow(page, `rp-fullheight-${Date.now()}`, { url: IFRAME_URL });
+    await gotoWindow(page, id);
+    await railWebButton(page).click();
+    await expect(panelIframe(page)).toBeVisible({ timeout: 10_000 });
+
+    const shellBox = await page.locator(".app-shell").boundingBox();
+    const railBox = await rail(page).boundingBox();
+    const panelBox = await panel(page).boundingBox();
+    const footerBox = await page.locator("footer").boundingBox();
+    const mainBox = await page.locator("main").boundingBox();
+    expect(shellBox).not.toBeNull();
+    expect(railBox).not.toBeNull();
+    expect(panelBox).not.toBeNull();
+    expect(footerBox).not.toBeNull();
+    expect(mainBox).not.toBeNull();
+
+    // The right column is full-height: the rail and the panel both reach the
+    // shell's bottom edge (below the bottom bar's top edge).
+    const shellBottom = shellBox!.y + shellBox!.height;
+    expect(railBox!.y + railBox!.height).toBeCloseTo(shellBottom, 0);
+    expect(panelBox!.y + panelBox!.height).toBeCloseTo(shellBottom, 0);
+    expect(railBox!.y + railBox!.height).toBeGreaterThan(footerBox!.y);
+
+    // The bottom bar is scoped to the content column: its width equals the
+    // terminal column's — NOT the full viewport.
+    expect(footerBox!.width).toBeCloseTo(mainBox!.width, 0);
+    expect(footerBox!.width).toBeLessThan(DESKTOP_VIEWPORT.width);
+  });
+
+  test("a ?panel= deep link on a collapsed rail renders rail+panel (never a dead link)", async ({ page }) => {
+    // Seed the COLLAPSED preference so the deep link lands on a collapsed rail
+    // (registered after the suite's reset script, so it wins on every load;
+    // top-frame only — init scripts run for every frame, including the panel's
+    // same-origin /proxy/ iframe). Derived visibility (`railOpen || panel
+    // open`) must then force the right area open — the deep link is never dead.
+    await page.addInitScript(() => {
+      if (window !== window.top) return;
+      try {
+        localStorage.setItem("runkit-rail-open", "false");
+      } catch {
+        /* noop */
+      }
+    });
+    const id = await makeWindow(page, `rp-raildeep-${Date.now()}`, { url: IFRAME_URL });
+    await gotoWindow(page, id, "?panel=web");
+    await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
+    await expect(rail(page)).toBeVisible();
+    await expect(panelIframe(page)).toBeVisible({ timeout: 10_000 });
   });
 });

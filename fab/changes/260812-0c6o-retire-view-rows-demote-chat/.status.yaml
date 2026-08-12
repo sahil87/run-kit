@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 15
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-08-12T16:51:39Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-12T17:36:27Z"}
     review: {started_at: "2026-08-12T17:36:27Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-12T17:45:25Z"}
     hydrate: {started_at: "2026-08-12T17:45:25Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-12T18:06:26Z"}
-    ship: {started_at: "2026-08-12T18:06:26Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-08-12T18:06:26Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-12T18:09:47Z"}
+    review-pr: {started_at: "2026-08-12T18:09:47Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/573
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 1120
+    deleted: 1261
+    net: -141
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 589
+        deleted: 1191
+        net: -602
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-08-12T18:06:26Z"
-    computed_at_stage: hydrate
+        added: 271
+        deleted: 372
+        net: -101
+    computed_at: "2026-08-12T18:09:47Z"
+    computed_at_stage: ship
 summary: 'ui-patterns: ViewSwitcher/View: menu rows retired (palette + view-cycle are the lens-switch surfaces); SURFACE_RAIL_HIDDEN demotes chat to palette-only; chat-toggle deleted, layout-zoom takes Ctrl+Backquote via a dedicated AppShell handler'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-12T18:06:26Z
+last_updated: 2026-08-12T18:09:47Z

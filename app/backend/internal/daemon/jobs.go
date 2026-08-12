@@ -68,6 +68,13 @@ var jobRunTmuxOutput = runTmuxOutput
 // temp dir and never touch the real ~/.rk.
 var jobUserHomeDir = os.UserHomeDir
 
+// shellQuote single-quotes s for a POSIX shell (pipe-pane's command string is
+// shell-interpreted by tmux), escaping embedded single quotes with the
+// canonical '\'' sequence — paths like /Users/Jane Doe survive intact.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
 // jobTargetFor returns the exact-match window target (=rk-jobs:=<window>) used
 // for every dedup/probe/kill/options call — prefix-match hijack is the class
 // of footgun the `=` anchors exist to prevent (tmux-sessions memory).
@@ -114,9 +121,11 @@ func RunJob(ctx context.Context, window string, argv []string) (target JobTarget
 		return target, false, fmt.Errorf("no command given for job window %q", window)
 	}
 
-	// Every tmux probe below runs under its own cmdTimeout-bounded context
-	// derived from the caller's (the daemon package's per-command-context
-	// pattern — see Stop).
+	// Every tmux call below shares ONE cmdTimeout-bounded context derived from
+	// the caller's — deliberately NOT Stop's per-command-context pattern: the
+	// single budget bounds the whole gate→ensure→dedup→spawn→options sequence,
+	// so an API handler calling RunJob blocks at most one cmdTimeout end-to-end
+	// rather than accumulating a fresh budget per command.
 	cmdCtx, cancel := context.WithTimeout(ctx, cmdTimeout)
 	defer cancel()
 
@@ -171,10 +180,10 @@ func RunJob(ctx context.Context, window string, argv []string) (target JobTarget
 			slog.Warn("job window log dir creation failed; the pipe-pane tee may not write", "window", window, "err", err)
 		}
 		// The one shell string in the spawn path — pipe-pane's command is shell-
-		// interpreted by tmux. Both components are safe by construction: home is
-		// os.UserHomeDir output and window passed the ValidateToolName class
-		// above (no whitespace, quotes, or metacharacters).
-		if err := jobRunTmux(cmdCtx, "pipe-pane", "-o", "-t", winTarget, "cat >> "+logPath); err != nil {
+		// interpreted by tmux. window passed the ValidateToolName class above
+		// (no whitespace, quotes, or metacharacters), but home is arbitrary
+		// (e.g. /Users/Jane Doe), so the path is single-quoted for the shell.
+		if err := jobRunTmux(cmdCtx, "pipe-pane", "-o", "-t", winTarget, "cat >> "+shellQuote(logPath)); err != nil {
 			slog.Warn("job window log pipe failed; output lives in scrollback only", "window", window, "err", err)
 		}
 	}

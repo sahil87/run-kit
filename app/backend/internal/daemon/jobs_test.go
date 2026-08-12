@@ -130,8 +130,8 @@ func TestRunJobFreshSpawnEnsuresSessionAndSpawns(t *testing.T) {
 		t.Errorf("remain-on-exit argv = %q", got)
 	}
 	pipe := strings.Join(runs[2], " ")
-	if !strings.HasPrefix(pipe, "pipe-pane -o -t =rk-jobs:=update cat >> ") || !strings.HasSuffix(pipe, ".rk/update.log") {
-		t.Errorf("pipe-pane argv = %q, want a cat >> …/.rk/update.log tee on the exact-match target", pipe)
+	if !strings.HasPrefix(pipe, "pipe-pane -o -t =rk-jobs:=update cat >> '") || !strings.HasSuffix(pipe, ".rk/update.log'") {
+		t.Errorf("pipe-pane argv = %q, want a cat >> '…/.rk/update.log' tee on the exact-match target", pipe)
 	}
 
 	outputs := callsOf(*f.calls, "output")
@@ -145,6 +145,32 @@ func TestRunJobFreshSpawnEnsuresSessionAndSpawns(t *testing.T) {
 	states := callsOf(*f.calls, "state")
 	if len(states) != 1 || states[0][0] != "=rk-jobs:=update" {
 		t.Errorf("window-state probes = %v, want one exact-match probe on =rk-jobs:=update", states)
+	}
+}
+
+func TestRunJobQuotesLogPathForPipePane(t *testing.T) {
+	f := &jobFixture{daemonRunning: true, sessionExists: true}
+	withJobSeams(t, f)
+	// A home with a space (e.g. /Users/Jane Doe) must not break the shell-
+	// interpreted pipe-pane redirection — the path is single-quoted.
+	jobUserHomeDir = func() (string, error) { return "/Users/Jane Doe", nil }
+
+	if _, _, err := RunJob(context.Background(), "update", []string{"shll", "update"}); err != nil {
+		t.Fatalf("RunJob: %v", err)
+	}
+
+	var pipe []string
+	for _, r := range callsOf(*f.calls, "run") {
+		if r[0] == "pipe-pane" {
+			pipe = r
+		}
+	}
+	if pipe == nil {
+		t.Fatal("no pipe-pane call recorded")
+	}
+	want := "cat >> '/Users/Jane Doe/.rk/update.log'"
+	if got := pipe[len(pipe)-1]; got != want {
+		t.Errorf("pipe-pane command = %q, want %q", got, want)
 	}
 }
 

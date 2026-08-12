@@ -163,9 +163,16 @@ export function clampPanelWidth(pct: number, containerWidthPx: number): number {
  * the floor exactly like `clampPanelWidth`. Neighbor-boundary bounds (a
  * divider may not cross its siblings) are applied by the caller, which owns
  * the ratios array.
+ *
+ * Below `2 × MIN_PANEL_WIDTH_PX` the container cannot honor the floor on both
+ * sides at once and the range inverts (floor > 100 − floor); the boundary
+ * collapses to 50/50 so both tiles are equally undersized rather than one
+ * being stranded — the same "impossible bounds" guard the caller applies to
+ * its neighbor boundaries.
  */
 export function clampRatio(pct: number, containerPx: number): number {
   const floorPct = containerPx > 0 ? (MIN_PANEL_WIDTH_PX / containerPx) * 100 : 0;
+  if (floorPct > 50) return 50;
   return Math.min(Math.max(pct, floorPct), 100 - floorPct);
 }
 

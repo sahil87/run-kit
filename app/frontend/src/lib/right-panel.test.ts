@@ -169,6 +169,21 @@ describe("clampRatio", () => {
     expect(clampRatio(10, 0)).toBe(10);
     expect(clampRatio(90, 0)).toBe(90);
   });
+
+  it("collapses to 50/50 when the container cannot fit two floors", () => {
+    // Below 2 × 280px the range [floor, 100 − floor] inverts; the boundary
+    // must stay inside [0, 100] and treat both tiles alike.
+    expect(clampRatio(10, 500)).toBe(50); // floor = 56%
+    expect(clampRatio(90, 500)).toBe(50);
+    expect(clampRatio(50, 200)).toBe(50); // floor = 140%
+    expect(clampRatio(10, 200)).toBe(50);
+  });
+
+  it("still honors the floor at exactly two floors of width", () => {
+    // 560px = 2 × 280px — the last width where the range is non-empty.
+    expect(clampRatio(10, 560)).toBeCloseTo(50);
+    expect(clampRatio(90, 560)).toBeCloseTo(50);
+  });
 });
 
 describe("panel width storage", () => {

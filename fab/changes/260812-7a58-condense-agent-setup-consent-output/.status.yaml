@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 4
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-08-12T16:06:42Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-12T16:12:04Z"}
     hydrate: {started_at: "2026-08-12T16:12:04Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-12T16:14:35Z"}
     ship: {started_at: "2026-08-12T16:14:35Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-12T16:16:01Z"}
-    review-pr: {started_at: "2026-08-12T16:16:01Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-08-12T16:16:01Z", driver: git-pr, iterations: 1, completed_at: "2026-08-12T16:24:42Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/570
 change_type_source: explicit
@@ -54,4 +54,4 @@ true_impact:
     computed_at_stage: ship
 summary: agent-setup consent renders semantic summaries (hooks entry list, one-line shim, 3-line PATH block) on interactive/--yes; full bodies are --dry-run-only
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-12T16:16:01Z
+last_updated: 2026-08-12T16:24:42Z

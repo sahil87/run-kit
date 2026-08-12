@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -16,20 +17,6 @@ import (
 // installs (the SessionStart stamp-only row included).
 func claudeHooks() []agentHook {
 	return agentRegistry("")[0].hooks
-}
-
-// countRkEntries counts rk-owned entries across all event arrays under hooks.
-func countRkEntries(settings map[string]any) int {
-	n := 0
-	root := asMap(settings["hooks"])
-	for _, ev := range root {
-		for _, e := range asSlice(ev) {
-			if isRkEntry(asMap(e)) {
-				n++
-			}
-		}
-	}
-	return n
 }
 
 func TestMergeHooksAddsEntriesAndPreservesExisting(t *testing.T) {
@@ -1726,5 +1713,245 @@ func TestTmuxShimDeclinedWriteSkipsPathBlock(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "skipping the PATH block") {
 		t.Errorf("expected a PATH-block skip note, got: %q", out.String())
+	}
+}
+
+// --- consent summaries (260812-7a58) ---------------------------------------------
+//
+// On the interactive and --yes paths every pending write renders a SEMANTIC
+// summary — the full current+proposed bodies are --dry-run-only preview data.
+// These tests pin both halves: the summaries carry the honest content (entry
+// list, counts, the owned PATH block) and never dump full bodies or echo user
+// file content; --dry-run still renders the full renderArtifactDiff blocks.
+
+func TestApplyAgentHooksSummaryFreshInstall(t *testing.T) {
+	dir := t.TempDir()
+	ac := agentConfig{name: "Test", settingsPath: filepath.Join(dir, "settings.json"), comm: "claude", hooks: claudeHooks()}
+
+	var out bytes.Buffer
+	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("y\n")), ac, "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
+		t.Fatalf("install error: %v", err)
+	}
+	got := out.String()
+	for _, want := range []string{
+		"+ UserPromptSubmit → active",
+		"+ PreToolUse → active",
+		"+ Notification (permission_prompt|elicitation_dialog|agent_needs_input) → waiting",
+		"+ Notification (idle_prompt) → idle",
+		"+ Stop → idle",
+		"+ SessionStart → chat stamp",
+		"(all other settings and non-rk hooks preserved)",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("fresh-install summary missing %q, got: %q", want, got)
+		}
+	}
+	// The full-body diff is dry-run-only.
+	if strings.Contains(got, "--- current") || strings.Contains(got, "+++ proposed") {
+		t.Errorf("interactive consent must not dump full bodies, got: %q", got)
+	}
+	// The installed hook command (the sh -c one-liner) appears only in the file,
+	// never in the summary.
+	if strings.Contains(got, "/bin/sh -c") {
+		t.Errorf("summary must not print hook command bodies, got: %q", got)
+	}
+}
+
+func TestApplyAgentHooksSummaryReplacementCount(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+	// Seed ONE legacy-generation rk entry (identified by the inlined option
+	// name) so the merge replaces it in place and the summary must say so with
+	// a count derived from the file — singular form included.
+	seed := map[string]any{
+		"hooks": map[string]any{
+			"Stop": []any{
+				map[string]any{"hooks": []any{
+					map[string]any{"type": "command", "command": "tmux set-option -p " + rkHookMarker + " idle"},
+				}},
+			},
+		},
+	}
+	if err := writeSettings(path, seed); err != nil {
+		t.Fatal(err)
+	}
+	ac := agentConfig{name: "Test", settingsPath: path, comm: "claude", hooks: claudeHooks()}
+
+	var out bytes.Buffer
+	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("y\n")), ac, "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
+		t.Fatalf("install error: %v", err)
+	}
+	if !strings.Contains(out.String(), "(replaces 1 existing rk-owned entry in place; all other settings and non-rk hooks preserved)") {
+		t.Errorf("replacement summary missing or count wrong, got: %q", out.String())
+	}
+}
+
+func TestApplyAgentHooksSummaryUninstall(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+	ac := agentConfig{name: "Test", settingsPath: path, comm: "claude", hooks: claudeHooks()}
+	var out bytes.Buffer
+	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("")), ac, "/opt/homebrew/bin/rk", false, consent{yes: true}); err != nil {
+		t.Fatalf("install error: %v", err)
+	}
+
+	out.Reset()
+	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("y\n")), ac, "", true, consent{stdinIsTTY: true}); err != nil {
+		t.Fatalf("uninstall error: %v", err)
+	}
+	got := out.String()
+	// The count derives from the file's actual rk entries — the whole registry
+	// was just installed, so it must equal the registry row count.
+	want := "- removes " + strconv.Itoa(len(claudeHooks())) + " rk-owned hook entries; all other settings and non-rk hooks preserved"
+	if !strings.Contains(got, want) {
+		t.Errorf("uninstall summary missing %q, got: %q", want, got)
+	}
+	if strings.Contains(got, "+++ proposed") {
+		t.Errorf("uninstall consent must not dump full bodies, got: %q", got)
+	}
+}
+
+func TestApplyAgentHooksDryRunFullBodies(t *testing.T) {
+	dir := t.TempDir()
+	ac := agentConfig{name: "Test", settingsPath: filepath.Join(dir, "settings.json"), comm: "claude", hooks: claudeHooks()}
+
+	var out bytes.Buffer
+	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("")), ac, "/opt/homebrew/bin/rk", false, consent{dryRun: true}); err != nil {
+		t.Fatalf("dry-run error: %v", err)
+	}
+	got := out.String()
+	if !strings.Contains(got, "--- current") || !strings.Contains(got, "+++ proposed") {
+		t.Errorf("--dry-run must keep the full-body diff, got: %q", got)
+	}
+	// The proposed body is the real merged document — hook commands included.
+	if !strings.Contains(got, rkHookMarkerAgentHook) {
+		t.Errorf("--dry-run proposed body should carry the hook commands, got: %q", got)
+	}
+}
+
+func TestTmuxShimConsentSummaries(t *testing.T) {
+	home := t.TempDir()
+	// Seed user content in a startup file — the summary must never echo it.
+	if err := os.WriteFile(filepath.Join(home, ".zshenv"), []byte("# my private zshenv line\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	sink := newSinkWriters(&out, &out)
+	// Interactive: y to the shim, y to each startup file (.zshenv, .bashrc).
+	if err := applyTmuxShim(sink, bufio.NewReader(strings.NewReader("y\ny\ny\n")), home, "", "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
+		t.Fatalf("install error: %v", err)
+	}
+	got := out.String()
+
+	// Shim: one summary line with the path and a line count — never the script.
+	if !strings.Contains(got, "will install the tmux shim at "+tmuxShimPath(home)+" (rk-owned guard script,") {
+		t.Errorf("shim summary line missing, got: %q", got)
+	}
+	if strings.Contains(got, tmuxShimMarker) {
+		t.Errorf("shim script body leaked into consent output, got: %q", got)
+	}
+
+	// PATH block: the owned 3 lines + placement — never the user's content.
+	if !strings.Contains(got, "(appended at end):") {
+		t.Errorf("PATH-block placement wording missing, got: %q", got)
+	}
+	if !strings.Contains(got, `export PATH="$HOME/.local/share/rk/shims:$PATH"`) {
+		t.Errorf("PATH-block excerpt missing the export line, got: %q", got)
+	}
+	if strings.Contains(got, "# my private zshenv line") {
+		t.Errorf("user startup-file content echoed back in consent output, got: %q", got)
+	}
+	if strings.Contains(got, "--- current") {
+		t.Errorf("interactive consent must not render full-body diffs, got: %q", got)
+	}
+}
+
+func TestTmuxShimUpdateSummaryLine(t *testing.T) {
+	home := t.TempDir()
+	installShim(t, home, "/opt/homebrew/bin/rk")
+
+	// Same home, different rk path → rk-owned shim content changes → update line.
+	var out bytes.Buffer
+	sink := newSinkWriters(&out, &out)
+	if err := applyTmuxShim(sink, bufio.NewReader(strings.NewReader("y\n")), home, "", "/usr/local/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
+		t.Fatalf("re-install error: %v", err)
+	}
+	if !strings.Contains(out.String(), "will update the rk-owned tmux shim at "+tmuxShimPath(home)) {
+		t.Errorf("rk-owned update summary line missing, got: %q", out.String())
+	}
+	if strings.Contains(out.String(), "+++ proposed") {
+		t.Errorf("update consent must not dump the script diff, got: %q", out.String())
+	}
+}
+
+func TestTmuxShimPathBlockReplaceInPositionWording(t *testing.T) {
+	home := t.TempDir()
+	// Seed a well-formed but stale rk block (edited inner line) so upsert
+	// replaces it in position.
+	stale := "# user top\n" + tmuxGuardBlockBegin + "\nexport PATH=\"$HOME/old:$PATH\"\n" + tmuxGuardBlockEnd + "\n"
+	if err := os.WriteFile(filepath.Join(home, ".zshenv"), []byte(stale), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Pre-install the shim so the run reaches the PATH blocks directly.
+	installShim(t, home, "/opt/homebrew/bin/rk")
+
+	// installShim used --yes, so the block is already replaced; re-seed the stale
+	// block and run interactively to capture the wording.
+	if err := os.WriteFile(filepath.Join(home, ".zshenv"), []byte(stale), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	sink := newSinkWriters(&out, &out)
+	if err := applyTmuxShim(sink, bufio.NewReader(strings.NewReader("y\n")), home, "", "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
+		t.Fatalf("re-install error: %v", err)
+	}
+	if !strings.Contains(out.String(), "(replaced in position):") {
+		t.Errorf("in-position replace wording missing, got: %q", out.String())
+	}
+	if strings.Contains(out.String(), "# user top") {
+		t.Errorf("user content echoed back, got: %q", out.String())
+	}
+}
+
+func TestTmuxShimUninstallSummaryLine(t *testing.T) {
+	home := t.TempDir()
+	if err := os.WriteFile(filepath.Join(home, ".bashrc"), []byte("# my bashrc\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	installShim(t, home, "/opt/homebrew/bin/rk")
+
+	// Uninstall interactively: y to the shim removal, y per PATH block.
+	var out bytes.Buffer
+	sink := newSinkWriters(&out, &out)
+	if err := applyTmuxShim(sink, bufio.NewReader(strings.NewReader("y\ny\ny\n")), home, "", "", true, consent{stdinIsTTY: true}); err != nil {
+		t.Fatalf("uninstall error: %v", err)
+	}
+	got := out.String()
+	if !strings.Contains(got, "will remove the 3-line rk tmux guard PATH block from") {
+		t.Errorf("PATH-block removal summary missing, got: %q", got)
+	}
+	if strings.Contains(got, "# my bashrc") {
+		t.Errorf("user content echoed back on uninstall, got: %q", got)
+	}
+	if strings.Contains(got, "--- current") {
+		t.Errorf("uninstall consent must not render full-body diffs, got: %q", got)
+	}
+}
+
+func TestTmuxShimDryRunFullBodies(t *testing.T) {
+	home := t.TempDir()
+	var out bytes.Buffer
+	sink := newSinkWriters(&out, &out)
+	if err := applyTmuxShim(sink, bufio.NewReader(strings.NewReader("")), home, "", "/opt/homebrew/bin/rk", false, consent{dryRun: true}); err != nil {
+		t.Fatalf("dry-run error: %v", err)
+	}
+	got := out.String()
+	if !strings.Contains(got, "--- current") || !strings.Contains(got, "+++ proposed") {
+		t.Errorf("--dry-run must keep the full-body diffs, got: %q", got)
+	}
+	// The shim script itself is the requested preview data on this path.
+	if !strings.Contains(got, tmuxShimMarker) {
+		t.Errorf("--dry-run shim preview should include the script body, got: %q", got)
 	}
 }

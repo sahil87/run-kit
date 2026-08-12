@@ -202,7 +202,9 @@ per run in the `RunE` and threaded through `runAgentSetup` → `applyAgentConfig
 The `promptSuffix` (`"Write these changes? [y/N] "` / `"Remove … directory? [y/N] "`)
 is emitted **only** on the interactive path — the auto-answered `--yes`/`--dry-run`
 paths never read it, so printing `[y/N] ` there would read as a hang in an agent's
-transcript. `renderArtifactDiff` does not append the suffix for this reason.
+transcript. The consent-context renderers (`renderHooksSummary` /
+`renderArtifactDiff`) never append the suffix for this reason — only
+`authorizeWrite` emits it.
 
 **TTY detection uses `term.IsTerminal`, NOT a bare `os.ModeCharDevice` check**
 (`isTerminal(r io.Reader)`): a char-device test alone classifies `/dev/null`
@@ -218,8 +220,9 @@ marker-owned `PATH` block that puts `rk tmux-guard` in front of every
 PATH-resolved `tmux` invocation, so `tmux kill-server` without an explicit
 `-L`/`-S` socket is refused. Its install/uninstall contract, decision rule, and
 doctor check live in [tmux-guard-shim](/run-kit/tmux-guard-shim.md); the shim
-reuses this installer's `consent`/`authorizeWrite`/`renderArtifactDiff` machinery
-and its `resolveRkPath`/`validateHookPath` path discipline.
+reuses this installer's `consent`/`authorizeWrite` machinery, its
+summary-on-consent / full-diff-on-`--dry-run` rendering split, and its
+`resolveRkPath`/`validateHookPath` path discipline.
 (`260805-blyf-tmux-guard-path-shim`)
 
 The command surface is `rk agent-setup` / `rk agent-setup --uninstall`, and
@@ -310,12 +313,18 @@ at a TTY or agent passing `--yes` — sees it and acts).
 - `--uninstall` runs `unmergeHooks`, removing exactly the rk-owned entries; an
   event array that empties is deleted, and a `hooks` object that empties is
   deleted.
-- **Diff + confirm before write**: `applyAgentHooks` (the hooks step
-  `applyAgentConfig` runs — see § Installer Structure) renders `current` vs
-  `proposed` as sorted indented JSON via the shared `renderArtifactDiff` helper; a
-  no-op (identical) is reported and skipped without prompting; otherwise it routes
-  the write decision through `consent.authorizeWrite` (see the § `rk agent-setup`
-  consent flags above) — `--dry-run` shows the diff and skips the write,
+- **Consent context + confirm before write**: `applyAgentHooks` (the hooks step
+  `applyAgentConfig` runs — see § Installer Structure) renders a **semantic
+  per-entry summary** on the interactive and `--yes` paths (`renderHooksSummary`:
+  one `+ {event} ({matcher}) → {state}` line per registry row — the SessionStart
+  row displays as `chat stamp` — plus a preservation note and a replace/remove
+  count computed by `countRkEntries` over the CURRENT settings, never hardcoded;
+  the uninstall form is a single `- removes N rk-owned hook entries` line). The
+  **full** `current` vs `proposed` sorted-indented-JSON bodies render only under
+  `--dry-run` (the shared `renderArtifactDiff` helper — the explicitly-requested
+  preview data). A no-op (identical) is reported and skipped without prompting;
+  otherwise the write decision routes through `consent.authorizeWrite` (see the
+  § `rk agent-setup` consent flags above) — `--dry-run` skips the write,
   `--yes`/`-y` writes without prompting, an interactive TTY reads a `[y/N]` answer
   (`confirm`, default No) from the injected `io.Reader` (testable without a TTY),
   and a non-TTY invocation with neither flag **refuses** (error naming `--yes`,
@@ -690,6 +699,27 @@ reads as a hang in a transcript.
 still writes when combined with `--yes` (violates the preview promise); a bare
 `os.ModeCharDevice` TTY check (false-classifies `/dev/null`, refusal never fires).
 *Introduced by*: `260717-c424-toolkit-standards-conformance`
+
+### Consent context is a semantic summary; full bodies are `--dry-run`-only
+**Decision**: on the interactive and `--yes` paths every `agent-setup` pending
+write renders a semantic summary — the per-entry hooks list with computed
+replace/remove counts, a one-line tmux-shim summary, the exact 3-line PATH block
+plus placement — and the full current+proposed bodies render only under
+`--dry-run`. Each render site branches locally on `cons.dryRun`; the writer stays
+`cons.diffWriter(sink)`, so channel routing and the `--yes --quiet` silent-success
+net effect are untouched. Counts derive from the actual current settings
+(`countRkEntries`) and the rendered script, never literals.
+**Why**: a fresh run printed ~230 lines before the first `[y/N]` prompt, drowning
+the consent question the output exists to support (and `shll agent-setup`
+aggregates runs per tool, multiplying the noise). The full dump protected
+nothing: rk never overwrites marker-less files, so the diff only ever showed
+rk-owned or fresh content — and for user-authored startup files the honest unit
+of change is the owned block, not the user's file echoed back.
+**Rejected**: a unified-diff rendering (needs new diff machinery contra
+Constitution III for less legibility than the semantic form); a new `--verbose`
+flag (extra surface for what `--dry-run` already provides); hardcoded entry
+counts (drift the moment the registry grows).
+*Introduced by*: `260812-7a58-condense-agent-setup-consent-output`
 
 ### Whole-file skill ownership by frontmatter marker; thin pointer, not embedded recipe
 **Decision**: the legacy `rk-display` skill is a whole file rk owns outright (no

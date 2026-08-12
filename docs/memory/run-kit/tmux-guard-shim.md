@@ -207,16 +207,22 @@ compile-time constant or composed at run time from `$HOME`.
 ### Requirement: `rk agent-setup` install/uninstall contract
 The shim is a **user-global** managed artifact (one shim, one PATH block), applied
 once after the per-agent hook loop rather than per agent. Both pieces follow the
-same contract as the hooks merge: diff + consent before writing (`--dry-run`
-previews, `--yes` writes unprompted, a non-TTY without either refuses), idempotent
-replace-in-place, and exact removal on `--uninstall`.
+same contract as the hooks merge: consent before writing (`--yes` writes
+unprompted, a non-TTY without either flag refuses), idempotent replace-in-place,
+and exact removal on `--uninstall`. The consent context on the interactive and
+`--yes` paths is a **semantic summary** — one line for the shim (install with the
+script's computed line count, or `will update the rk-owned tmux shim`), and for
+each startup file the exact 3-line marker block plus placement (`appended at end`
+/ `replaced in position`; a one-line removal note on uninstall) — the user's file
+content is never echoed back. The full current+proposed body diff renders only
+under `--dry-run` (the requested preview).
 
 - **Shim file** at `~/.local/share/rk/shims/tmux`, mode 0755, carrying the
   `managed-by: rk agent-setup (tmux guard shim)` ownership marker on line 2 and,
   past its probe stage, exec'ing `"<abs-rk>" tmux-guard "$@"` — an absolute path
   resolved by `resolveRkPath` and validated by `validateHookPath`, not the bare
   name `rk`. Rollout of a new script shape is the same idempotent
-  replace-in-place: re-running `rk agent-setup` registers it as a content diff
+  replace-in-place: re-running `rk agent-setup` registers it as a content change
   under the existing consent flow, with no migration and no new file. A pre-existing
   **marker-less** file at that path — including a zero-byte one — is left untouched
   with a skip note; ownership keys on *existence* (`readFileIfExists`), not on

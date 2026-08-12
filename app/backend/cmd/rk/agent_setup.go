@@ -454,8 +454,18 @@ func applyAgentHooks(sink outputSink, reader *bufio.Reader, ac agentConfig, rkPa
 	//     the invocation silent on success.
 	// The consent prompt itself (prompt suffix / dry-run note) always goes to the
 	// data channel via authorizeWrite.
+	//
+	// WHAT renders splits on --dry-run: the full current+proposed JSON bodies
+	// are the explicitly-requested preview data there; everywhere else the
+	// semantic per-entry summary is what consent needs — the merge preserves
+	// every non-rk entry, so dumping both full documents buries the prompt
+	// (~90 lines fresh-run) without adding information.
 	header := fmt.Sprintf("%s: will %s run-kit agent-state hooks in %s", ac.name, action, ac.settingsPath)
-	renderArtifactDiff(cons.diffWriter(sink), header, beforeJSON, afterJSON)
+	if cons.dryRun {
+		renderArtifactDiff(cons.diffWriter(sink), header, beforeJSON, afterJSON)
+	} else {
+		renderHooksSummary(cons.diffWriter(sink), header, ac.hooks, countRkEntries(current), uninstall)
+	}
 
 	dryRunNote := fmt.Sprintf("%s: dry run — no changes written.", ac.name)
 	ok, err := cons.authorizeWrite(sink.data, reader, dryRunNote, "\nWrite these changes? [y/N] ")
@@ -576,6 +586,56 @@ func readFileIfExists(path string) (string, bool, error) {
 		return "", false, err
 	}
 	return string(data), true, nil
+}
+
+// renderHooksSummary prints the semantic consent summary for the hooks merge on
+// the interactive and --yes paths: one line per rk entry being installed
+// (event, optional matcher, state), plus replace/remove accounting derived from
+// the CURRENT settings via countRkEntries — never hardcoded, so the summary
+// stays honest as the registry grows. The uninstall form is a single removal
+// line. Full current+proposed bodies render only under --dry-run (see
+// applyAgentHooks).
+func renderHooksSummary(out io.Writer, header string, hooks []agentHook, existingRk int, uninstall bool) {
+	fmt.Fprintf(out, "%s\n\n", header)
+	entryWord := "entries"
+	if existingRk == 1 {
+		entryWord = "entry"
+	}
+	if uninstall {
+		fmt.Fprintf(out, "  - removes %d rk-owned hook %s; all other settings and non-rk hooks preserved\n", existingRk, entryWord)
+		return
+	}
+	for _, h := range hooks {
+		label := h.state
+		if h.state == agentHookStampToken {
+			label = "chat stamp"
+		}
+		if h.matcher != "" {
+			fmt.Fprintf(out, "  + %s (%s) → %s\n", h.event, h.matcher, label)
+		} else {
+			fmt.Fprintf(out, "  + %s → %s\n", h.event, label)
+		}
+	}
+	if existingRk > 0 {
+		fmt.Fprintf(out, "  (replaces %d existing rk-owned %s in place; all other settings and non-rk hooks preserved)\n", existingRk, entryWord)
+	} else {
+		fmt.Fprintln(out, "  (all other settings and non-rk hooks preserved)")
+	}
+}
+
+// countRkEntries counts the rk-owned hook entries across every event array in
+// settings — the replace/remove accounting renderHooksSummary reports. Both
+// hook-command generations count (isRkEntry matches either marker).
+func countRkEntries(settings map[string]any) int {
+	n := 0
+	for _, v := range asMap(settings["hooks"]) {
+		for _, e := range asSlice(v) {
+			if isRkEntry(asMap(e)) {
+				n++
+			}
+		}
+	}
+	return n
 }
 
 // renderArtifactDiff prints the shared "will <action> … / --- current / +++
@@ -1006,8 +1066,18 @@ func installTmuxShimFile(sink outputSink, reader *bufio.Reader, home, rkPath str
 		return true, nil
 	}
 
-	header := fmt.Sprintf("tmux guard: will install the tmux shim at %s", shimPath)
-	renderArtifactDiff(cons.diffWriter(sink), header, strings.TrimSuffix(current, "\n"), strings.TrimSuffix(desired, "\n"))
+	// The full script body renders only under --dry-run (the requested preview
+	// data). Elsewhere one summary line suffices: marker-less foreign files were
+	// skipped above, so this diff is only ever fresh-install or rk-owned→rk-owned
+	// — the full-body dump (~135 lines) protects nothing and buries the prompt.
+	if cons.dryRun {
+		header := fmt.Sprintf("tmux guard: will install the tmux shim at %s", shimPath)
+		renderArtifactDiff(cons.diffWriter(sink), header, strings.TrimSuffix(current, "\n"), strings.TrimSuffix(desired, "\n"))
+	} else if exists {
+		fmt.Fprintf(cons.diffWriter(sink), "tmux guard: will update the rk-owned tmux shim at %s.\n", shimPath)
+	} else {
+		fmt.Fprintf(cons.diffWriter(sink), "tmux guard: will install the tmux shim at %s (rk-owned guard script, %d lines).\n", shimPath, strings.Count(desired, "\n"))
+	}
 	ok, err := cons.authorizeWrite(sink.data, reader, "tmux guard: dry run — no shim written.", "\nWrite the tmux shim? [y/N] ")
 	if err != nil {
 		return false, err
@@ -1121,12 +1191,32 @@ func applyTmuxGuardPathBlocks(sink outputSink, reader *bufio.Reader, home, zdotd
 			continue
 		}
 
-		action := "add"
-		if uninstall {
-			action = "remove"
+		// The whole-file current+next render survives only under --dry-run —
+		// startup files are USER-authored, and echoing their full content back
+		// for a 3-line owned block is the worst of the three dumps. The honest
+		// unit of change is exactly the marker-owned block (upsertMarkerBlock
+		// replaces in position or appends; removeMarkerBlock strips exactly it),
+		// so the summary shows that block and where it lands.
+		if cons.dryRun {
+			action := "add"
+			if uninstall {
+				action = "remove"
+			}
+			header := fmt.Sprintf("tmux guard: will %s the rk tmux guard PATH block in %s", action, path)
+			renderArtifactDiff(cons.diffWriter(sink), header, current, next)
+		} else if uninstall {
+			fmt.Fprintf(cons.diffWriter(sink), "tmux guard: will remove the %d-line rk tmux guard PATH block from %s.\n", strings.Count(tmuxGuardPathBlock, "\n"), path)
+		} else {
+			placement := "appended at end"
+			if strings.Contains(current, tmuxGuardBlockBegin) {
+				placement = "replaced in position"
+			}
+			out := cons.diffWriter(sink)
+			fmt.Fprintf(out, "tmux guard: will add the rk tmux guard PATH block in %s (%s):\n", path, placement)
+			for _, line := range strings.Split(strings.TrimSuffix(tmuxGuardPathBlock, "\n"), "\n") {
+				fmt.Fprintf(out, "  %s\n", line)
+			}
 		}
-		header := fmt.Sprintf("tmux guard: will %s the rk tmux guard PATH block in %s", action, path)
-		renderArtifactDiff(cons.diffWriter(sink), header, current, next)
 		dryRunNote := fmt.Sprintf("tmux guard: dry run — %s not modified.", path)
 		ok, err := cons.authorizeWrite(sink.data, reader, dryRunNote, "\nWrite these changes? [y/N] ")
 		if err != nil {

@@ -67,14 +67,16 @@ convention plus the per-command rows):
   (`upgrade.go`), `doctor` (`doctor.go`), `agent-setup` (`agent_setup.go`).
   `update`'s progress lines route to stderr on non-quiet runs — a consequence of
   "decide the convention once", aligning with Principle 2 (stdout is data).
-- **A consent-mode diff-routing nuance in `agent-setup`**: the
-  settings diff routes **per consent mode** via `consent.diffWriter` — on the
+- **A consent-mode diff-routing nuance in `agent-setup`**: the consent context
+  (a semantic summary on the interactive and `--yes` paths; the full body diff
+  under `--dry-run` — see [agent-state](/run-kit/agent-state.md) § the hooks
+  merge) routes **per consent mode** via `consent.diffWriter` — on the
   interactive-prompt and `--dry-run` paths it is **data** (never gated: a consent
-  prompt without the diff it asks about is a dark pattern, and a dry-run's diff is
-  the requested output), while on the **`--yes`** path (write already authorized)
-  it is **chatter**, so `--yes --quiet` is fully silent on success while `--yes`
-  non-quiet still shows the diff on stderr. The interactive prompt itself and the
-  non-TTY refusal are never gated (the refusal is an error).
+  prompt without the context it asks about is a dark pattern, and a dry-run's diff
+  is the requested output), while on the **`--yes`** path (write already
+  authorized) it is **chatter**, so `--yes --quiet` is fully silent on success
+  while `--yes` non-quiet still shows the context on stderr. The interactive
+  prompt itself and the non-TTY refusal are never gated (the refusal is an error).
 - **A brew-stderr-in-error nuance in `update`**: under `--quiet`
   the suppressed brew subprocess stderr is **buffered** (not discarded) and, on a
   non-zero exit, wrapped into the returned error, so a failing `rk update --quiet`

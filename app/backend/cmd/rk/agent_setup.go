@@ -1076,7 +1076,7 @@ func installTmuxShimFile(sink outputSink, reader *bufio.Reader, home, rkPath str
 	} else if exists {
 		fmt.Fprintf(cons.diffWriter(sink), "tmux guard: will update the rk-owned tmux shim at %s.\n", shimPath)
 	} else {
-		fmt.Fprintf(cons.diffWriter(sink), "tmux guard: will install the tmux shim at %s (rk-owned guard script, %d lines).\n", shimPath, strings.Count(desired, "\n"))
+		fmt.Fprintf(cons.diffWriter(sink), "tmux guard: will install the tmux shim at %s (rk-owned guard script, %d lines).\n", shimPath, len(strings.Split(strings.TrimSuffix(desired, "\n"), "\n")))
 	}
 	ok, err := cons.authorizeWrite(sink.data, reader, "tmux guard: dry run — no shim written.", "\nWrite the tmux shim? [y/N] ")
 	if err != nil {
@@ -1207,8 +1207,13 @@ func applyTmuxGuardPathBlocks(sink outputSink, reader *bufio.Reader, home, zdotd
 		} else if uninstall {
 			fmt.Fprintf(cons.diffWriter(sink), "tmux guard: will remove the %d-line rk tmux guard PATH block from %s.\n", strings.Count(tmuxGuardPathBlock, "\n"), path)
 		} else {
+			// Placement uses the SAME detection upsertMarkerBlock acts on
+			// (markerBlockBounds' trimmed-line match), so the wording can never
+			// disagree with what the write does; a substring-based check could
+			// (e.g. the marker appearing inside a non-marker line). The error
+			// case is unreachable — a malformed block already hit blockErr above.
 			placement := "appended at end"
-			if strings.Contains(current, tmuxGuardBlockBegin) {
+			if _, _, found, _ := markerBlockBounds(strings.Split(current, "\n"), tmuxGuardBlockBegin, tmuxGuardBlockEnd); found {
 				placement = "replaced in position"
 			}
 			out := cons.diffWriter(sink)

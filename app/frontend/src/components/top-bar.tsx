@@ -15,7 +15,6 @@ import { prefersReducedMotion } from "@/lib/motion";
 import { isShell } from "@/lib/shell";
 import { WaitingBadge } from "@/components/waiting-badge";
 import { Tip, TipGroup } from "@/components/tip";
-import { ViewSwitcher, ViewSwitcherMenuRows } from "@/components/view-switcher";
 import { OpenButton, OpenMenuRows } from "@/components/open-button";
 import { useOpenTargets } from "@/hooks/use-open-targets";
 import { activePaneCwd, buildOpenTargets } from "@/lib/open-in-app";
@@ -50,7 +49,6 @@ import { LayoutChip, LayoutMenuRows } from "@/components/layout-chip";
 import { computeVisibleCount } from "@/lib/top-bar-overflow";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { formatCombo } from "@/lib/keybindings";
-import type { ViewName } from "@/lib/window-view";
 import type { Layout } from "@/lib/surface-layout";
 import type { ProjectSession, WindowInfo } from "@/types";
 import type { BreadcrumbDropdownItem } from "@/contexts/chrome-context";
@@ -175,17 +173,6 @@ type TopBarProps = {
   /** Board-mode autofit setter (738w) — flips the same state the palette's
    *  `Board: Toggle Autofit` action flips. Absent → no toggle rendered. */
   onToggleAutofit?: () => void;
-  /** Terminal-mode window-view lens machinery (spec R4; chat folded in from
-   *  260714-r7rq). The capability set of the current window; the switcher chip
-   *  renders only when it exceeds `{tty}`. Absent/`["tty"]` → no chip. */
-  availableViews?: ViewName[];
-  /** The current window's active lens — drives the L1 ViewSwitcher's active
-   *  segment AND the center heading's page-type prefix (`Terminal:`/`Web:`/
-   *  `Chat:`). Absent → treated as `tty` (the pre-lens default). */
-  activeView?: ViewName;
-  /** Handler that switches the current window's lens (URL param + localStorage);
-   *  wired from AppShell's `switchView`. Absent → no switcher rendered. */
-  onSelectView?: (view: ViewName) => void;
   /** Surface-layout machinery (260812-ab5v R9), registered by AppShell on the
    *  terminal route via the slot context: the RESOLVED layout + the shared
    *  user-mutation path (`applyLayout`). Feed the L1 ▦ Layout chip (preset
@@ -425,9 +412,6 @@ export function TopBar({
   onRequestKill,
   autofit,
   onToggleAutofit,
-  availableViews,
-  activeView,
-  onSelectView,
   layout,
   onApplyLayout,
 }: TopBarProps) {
@@ -520,9 +504,9 @@ export function TopBar({
   // never drift. Order encodes drop priority: L1 first, then L2, then L3, and
   // within a tier leftmost drops first (overflow consumes FROM THE FRONT). Only
   // the trailing chevron is EXEMPT (never overflows) and renders outside this
-  // candidate list. As of 260731-oiho FOUR entries are `menuOnly` (the n2n4
-  // mechanism — never in-bar, rows always in the menu): the ViewSwitcher
-  // (260722-n2n4) plus the demoted fixed-width, terminal-font (Aa), and
+  // candidate list. As of 260731-oiho THREE entries are `menuOnly` (the n2n4
+  // mechanism — never in-bar, rows always in the menu): the demoted
+  // fixed-width, terminal-font (Aa), and
   // close-pane/Kill (sticky per-device preferences + the destructive ✕ that
   // sat one slot from Refresh). The terminal-mode bar end state is
   // Open · Split(▾) · Refresh · chevron (+ UpdateChip when a qualifying update
@@ -535,46 +519,8 @@ export function TopBar({
   // + the `Board: Unpin Focused Pane` palette action. The split is absent when
   // the board is empty (no `focusedPane`); the Kill row is disabled then.
   const rightItems: RegistryEntry[] = [
-    // View-switcher — the window-view lens control. MENU-ONLY as of 260722-n2n4:
-    // the chat lens isn't fully functional yet, so the `[tty|chat]` (and, by the
-    // one-switcher contract, `[tty|web]`) segmented pill must not advertise
-    // itself inline in the navbar. The entry keeps its FIRST registry position —
-    // its per-view `View: …` rows (ViewSwitcherMenuRows, carrying the
-    // lens-indicator role) lead the chevron-menu rows at every width — but
-    // `menuOnly` excludes it from the bar, the measurement probe, and the fit
-    // budget entirely. The pill (`barRender`/ViewSwitcher) stays intact but
-    // unreachable, so reverting when chat ships is deleting the one flag.
-    // `hidden` mirrors the full render gate so a single-view (tty-only) window,
-    // a non-terminal mode, or an unwired callback contributes no menu row.
-    {
-      id: "view-switcher",
-      modes: ["terminal"],
-      menuOnly: true,
-      menuGroup: "view",
-      hidden: !(
-        mode === "terminal" &&
-        currentWindow &&
-        onSelectView &&
-        availableViews &&
-        availableViews.length > 1
-      ),
-      barRender: () => (
-        <ViewSwitcher
-          views={availableViews ?? []}
-          active={activeView ?? "tty"}
-          onSelect={onSelectView ?? (() => {})}
-        />
-      ),
-      menuRender: () => (
-        <ViewSwitcherMenuRows
-          views={availableViews ?? []}
-          active={activeView ?? "tty"}
-          onSelect={onSelectView ?? (() => {})}
-        />
-      ),
-    },
-    // Open-in-App split-button (260722-6d0f) — terminal-only, second candidate
-    // so it yields to overflow right after the ViewSwitcher and BEFORE any L1
+    // Open-in-App split-button (260722-6d0f) — terminal-only, FIRST candidate
+    // so it yields to overflow BEFORE any L1
     // split (keeping the documented L1→L2→L3 pyramid sweep intact). Hidden
     // when the window is absent or zero targets are available (no sshHost +
     // empty host registry — the common default deployment). When overflowed it
@@ -796,7 +742,7 @@ export function TopBar({
   // Candidate (non-exempt) entries for the current mode, minus any `hidden` ones.
   const candidates = rightItems.filter((e) => e.modes.includes(mode) && !e.hidden);
   // Fit candidates — the entries eligible for IN-BAR placement. `menuOnly`
-  // entries (260722-n2n4: the view-switcher; 260731-oiho: fixed-width,
+  // entries (260731-oiho: fixed-width,
   // terminal-font, close-pane) never render in-bar: they are excluded from the
   // visible row, the measurement probe, and the fit budget (zero pixels). The
   // probe's children must stay index-aligned with the widths array the fit
@@ -859,9 +805,7 @@ export function TopBar({
     // renders every fit candidate's bar form) + the trailing chevron/dot block
     // re-fits on any of those. The `updateKey`/`showChip` deps additionally
     // re-run the whole effect when the candidate set or membership changes.
-    // (The former `availableViews`/`activeView` deps are gone with 260722-n2n4:
-    // the menuOnly ViewSwitcher is no longer probed, so its segment/active
-    // changes can't affect the fit.) The trailing block (chevron) is observed
+    // The trailing block (chevron) is observed
     // too so a chevron size change re-fits.
     const ro = new ResizeObserver(measure);
     ro.observe(cell);
@@ -874,10 +818,9 @@ export function TopBar({
   // Keep the LAST `visibleCount` fit candidates in-bar (the L3-end suffix); the
   // rest (L1-end prefix) overflow. Surviving buttons keep their screen positions
   // — dropping L1 leftward never shifts the L2/L3 tail. Menu rows list the
-  // menuOnly entries (260722-n2n4) plus the overflowed controls in pyramid order
+  // menuOnly entries (260731-oiho) plus the overflowed controls in pyramid order
   // (registry order = L1 → L2 → L3): deriving the overflow list by filtering the
-  // FULL candidate list against the visible set keeps registry order for free,
-  // so the view-switcher's `View:` rows stay the first menu rows.
+  // FULL candidate list against the visible set keeps registry order for free.
   const splitAt = fitCandidates.length - visibleCount;
   const visibleItems = fitCandidates.slice(splitAt);
   const visibleIds = new Set(visibleItems.map((e) => e.id));
@@ -1093,7 +1036,7 @@ export function TopBar({
                     cancelled (see WindowHeading's identity-change guard) rather
                     than silently destroyed by a remount. The prefix is now a
                     STATIC `Window:` in every lens (260714-uco1) — the lens is
-                    shown by the L1 ViewSwitcher, not the heading.
+                    shown by the tile content itself, not the heading.
 
                     Hierarchy ▾ (260714-uco1) — the current page's ANCESTOR chain
                     (tmux Server → Host on a window route). Passed as the
@@ -1182,8 +1125,8 @@ export function TopBar({
             the left and surviving buttons keep their positions.
 
             Only the trailing chevron is EXEMPT (never overflows; the
-            connection dot moved to the sidebar footer, 260724-6j1v); the
-            ViewSwitcher (260722-n2n4) plus fixed-width / terminal-font /
+            connection dot moved to the sidebar footer, 260724-6j1v);
+            fixed-width / terminal-font /
             close-pane (260731-oiho) are `menuOnly` — never in-bar, their rows
             always in the menu. The `hidden sm:flex` breakpoint cliff is GONE:
             below `sm`, controls overflow into the menu instead of vanishing. */}
@@ -1473,7 +1416,7 @@ function SweepCells({
 // The terminal-route prefix is a STATIC `Window:` in every lens (change
 // 260714-uco1 — a deliberate reversal of window-views spec R4's "the center
 // page heading follows the lens"). The heading identifies the WINDOW (the
-// substrate); which lens you look through is shown by the L1 `ViewSwitcher`, not
+// substrate); which lens you look through is shown by the tile content, not
 // the heading (per docs/specs/window-views.md "rows are substrates, views are
 // lenses"). This also fixes the anchor jumping on lens switches — the prefix
 // width no longer changes with the lens. The retired lens-following
@@ -2589,8 +2532,7 @@ function BoardAutofitToggle({
 
 // `MENU_ROW_CLASS` (and its decomposed `MENU_ROW_BASE`/`_REST`/`_DISABLED`/
 // `_ACTIVE` variants) are hosted in `top-bar-overflow-menu.tsx` and imported at
-// the top of this file — shared with `view-switcher.tsx`'s `ViewSwitcherMenuRows`
-// so the row styling can never drift between the two files (mirrors
+// the top of this file so the row styling stays shared (mirrors
 // BreadcrumbDropdown's item classes).
 
 /** Split vertical / horizontal menu row — same optimistic split action as the

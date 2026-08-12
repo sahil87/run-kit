@@ -334,6 +334,37 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     });
   });
 
+  test("Ctrl+` toggles the slot-A zoom on a 2-tile layout — even with the terminal focused (260812-0c6o)", async ({
+    page,
+  }) => {
+    test.setTimeout(40_000);
+    const id = await makeWindow(page, `sl-zoom-${Date.now()}`, { url: IFRAME_URL });
+    await gotoWindow(page, id);
+    const webRail = railButton(page, "Web");
+    await expect(webRail).toBeVisible({ timeout: READY_TIMEOUT });
+    await webRail.click();
+    await expect(tile(page, "web")).toBeVisible({ timeout: 10_000 });
+    await expectLayoutParam(page, "split-h:tty,web");
+
+    // Focus the terminal first — the ctrl-tier chord must win over xterm's
+    // focused textarea (the freed chat-toggle chord's interception plumbing).
+    await terminal(page).click();
+    await page.keyboard.press("Control+`");
+    // Zoomed: slot A (tty) goes full-center — the web tile hides (display-level,
+    // still mounted) and the divider leaves.
+    await expect(tile(page, "web")).toBeHidden({ timeout: 10_000 });
+    await expect(tile(page, "web")).toHaveCount(1);
+    await expect(divider(page, 0)).toHaveCount(0);
+    await expect(terminal(page)).toBeVisible();
+    // Zoom is transient (R6): the URL is untouched.
+    await expectLayoutParam(page, "split-h:tty,web");
+
+    // A second Ctrl+` unzooms — both tiles and the divider return.
+    await page.keyboard.press("Control+`");
+    await expect(tile(page, "web")).toBeVisible({ timeout: 10_000 });
+    await expect(divider(page, 0)).toBeVisible();
+  });
+
   test("375px mobile: a 3-tile ?layout= URL renders slot A + sheet tabs for the rest (R13, A-018)", async ({
     page,
   }) => {

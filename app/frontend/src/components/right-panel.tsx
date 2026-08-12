@@ -2,6 +2,7 @@ import { Tip } from "@/components/tip";
 import {
   SURFACE_GLYPH,
   SURFACE_LABEL,
+  SURFACE_RAIL_HIDDEN,
   type SurfaceKind,
 } from "@/lib/surface-layout";
 
@@ -54,12 +55,17 @@ export function RightPanel({ available, open, onToggle }: RightPanelProps) {
   // Max 3 tiles (Constitution IV): at 3, further adds are disallowed — the
   // unlit buttons render disabled instead of no-oping silently.
   const full = open.length >= 3;
+  // Demoted surfaces (SURFACE_RAIL_HIDDEN, 260812-0c6o — currently `chat`)
+  // render NO rail button, lit or unlit: the flag hides the toggle at render,
+  // never availability (the palette's `Layout: Add/Close Chat` and an already-
+  // open chat tile are unaffected — closing happens via the tile's ✕ / palette).
+  const shown = available.filter((surface) => !SURFACE_RAIL_HIDDEN.has(surface));
   return (
     <div
       data-testid="right-panel-rail"
       className="w-[38px] shrink-0 border-l border-border flex flex-col items-center py-1 gap-1"
     >
-      {available.map((surface) => {
+      {shown.map((surface) => {
         const isOpen = open.includes(surface);
         const disabled = !isOpen && full;
         const label = SURFACE_LABEL[surface];

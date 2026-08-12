@@ -6,13 +6,13 @@ import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
 // Own session so this file never collides with other specs (fullyParallel off).
 const TEST_SESSION = `e2e-webview-${Date.now()}`;
 const MOBILE_VIEWPORT = { width: 375, height: 812 };
-// Since 260722-n2n4 the ViewSwitcher registry entry is MENU-ONLY: the segmented
-// pill never renders in-bar at ANY width, and the per-view `View:` menuitemradio
-// rows in the "More controls" chevron menu are the switcher's only rendering.
-// Lens switching in this suite therefore routes through the menu rows (or
-// `?view=` deep links where the lens itself is under test). The generous 1440px
-// desktop width predates the flag (it cleared the pre-n2n4 pill's drop
-// threshold) and remains a valid "everything fits" width.
+// The ViewSwitcher is RETIRED (260812-0c6o): the palette's `View: …` actions
+// are the ONLY lens-switch surface (plus the rail's open-tile toggles for
+// non-hidden surfaces) — the chevron menu carries no `View:` rows and the
+// `view-toggle` testid exists nowhere. Lens switching in this suite therefore
+// routes through the palette (or `?view=` deep links where the lens itself is
+// under test). The generous 1440px desktop width remains a valid
+// "everything fits" width.
 const DESKTOP_VIEWPORT = { width: 1440, height: 800 };
 
 // A URL that the proxy converts to a same-origin `/proxy/<port>/…` path — the
@@ -82,40 +82,30 @@ async function expectLayoutParam(page: Page, expected: string | null): Promise<v
     .toBe(expected);
 }
 
-// The switcher's menu-only surface (260722-n2n4): the chevron menu's per-view
-// `View:` rows. There is no in-bar pill — `inBarSwitcher` must always be empty.
-const menuButton = (page: Page) =>
-  page.getByRole("button", { name: "More controls" });
+// The retired switcher leaves no surface in the top bar — lens switching is
+// palette-only (260812-0c6o). `inBarSwitcher`/`view-toggle` must always be
+// empty; the chevron menu never carries `View:` lens rows.
 const controlsMenu = (page: Page) =>
   page.getByRole("menu", { name: "More controls" });
-const viewRow = (page: Page, label: "Terminal" | "Web") =>
-  controlsMenu(page).getByRole("menuitemradio", { name: `View: ${label}` });
 const inBarSwitcher = (page: Page) =>
   page.getByRole("group", { name: "Window view" });
 
-/** Open the chevron menu, click the `View: {label}` row, and wait for the menu
- *  to close (a `menuitemradio` activation is a single-shot menu action). */
-async function switchLens(page: Page, label: "Terminal" | "Web"): Promise<void> {
-  await menuButton(page).click();
-  const row = viewRow(page, label);
-  await expect(row).toBeVisible({ timeout: 10_000 });
-  await row.click();
-  await expect(controlsMenu(page)).toBeHidden();
+/** Open the command palette, fill the query, and return the input. */
+async function openPalette(page: Page, query: string) {
+  await page.keyboard.press("Meta+k");
+  const paletteInput = page.getByPlaceholder("Type a command");
+  await expect(paletteInput).toBeVisible({ timeout: 5_000 });
+  await paletteInput.fill(query);
+  return paletteInput;
 }
 
-/** Open the chevron menu and assert the `View: {label}` row's checked state —
- *  the menu row is the lens indicator now — then Escape-close the menu. */
-async function expectLensMarked(
-  page: Page,
-  label: "Terminal" | "Web",
-  checked: boolean,
-): Promise<void> {
-  await menuButton(page).click();
-  const row = viewRow(page, label);
-  await expect(row).toBeVisible({ timeout: 10_000 });
-  await expect(row).toHaveAttribute("aria-checked", String(checked));
-  await page.keyboard.press("Escape");
-  await expect(controlsMenu(page)).toBeHidden();
+/** Switch the lens via the palette's `View: {label}` action. */
+async function switchLens(page: Page, label: "Terminal" | "Web"): Promise<void> {
+  await openPalette(page, `View: ${label}`);
+  const option = page.getByRole("option", { name: `View: ${label}` });
+  await expect(option).toBeVisible({ timeout: 10_000 });
+  await option.click();
+  await expect(page.getByRole("dialog", { name: "Command palette" })).toBeHidden();
 }
 
 test.beforeAll(() => {
@@ -135,31 +125,33 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     await page.setViewportSize(DESKTOP_VIEWPORT);
   });
 
-  test("the `View:` menu rows appear only on a web-capable window (no in-bar pill ever)", async ({ page }) => {
+  test("lens switching is palette-only — the palette gates on capability, the menu carries no `View:` rows (260812-0c6o)", async ({ page }) => {
     // A plain window (no @rk_url, NON-repo cwd so code is unavailable too)
-    // offers only tty → the multi-view gate fails, so the chevron menu carries
-    // no `View:` rows.
+    // offers only tty → the palette has no `View: Web` action.
     const plain = await makeWindow(page, `wv-plain-${Date.now()}`, { cwd: "/tmp" });
     await gotoWindow(page, plain);
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
-    await menuButton(page).click();
-    await expect(controlsMenu(page)).toBeVisible();
-    await expect(
-      controlsMenu(page).getByRole("menuitemradio", { name: /^View:/ }),
-    ).toHaveCount(0);
+    await openPalette(page, "View: Web");
+    await expect(page.getByRole("option", { name: "View: Web" })).toHaveCount(0);
     await page.keyboard.press("Escape");
 
-    // A window with @rk_url offers tty + web → the `View: Terminal` and
-    // `View: Web` rows render in the menu — and there is STILL no in-bar pill
-    // (menuOnly: no bar slot, no probe copy, no `view-toggle` testid anywhere).
+    // A window with @rk_url offers tty + web → the palette's `View: Web` action
+    // renders — and there is STILL no in-bar pill and no `view-toggle` testid
+    // anywhere; the chevron menu carries no `View:` lens rows (the retired
+    // switcher's removal).
     const web = await makeWindow(page, `wv-cap-${Date.now()}`, { url: IFRAME_URL });
     await gotoWindow(page, web);
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
     await expect(inBarSwitcher(page)).toHaveCount(0);
     await expect(page.getByTestId("view-toggle")).toHaveCount(0);
-    await menuButton(page).click();
-    await expect(viewRow(page, "Terminal")).toBeVisible({ timeout: 10_000 });
-    await expect(viewRow(page, "Web")).toBeVisible();
+    await openPalette(page, "View: Web");
+    await expect(page.getByRole("option", { name: "View: Web" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "More controls" }).click();
+    await expect(controlsMenu(page)).toBeVisible();
+    await expect(
+      controlsMenu(page).getByRole("menuitemradio", { name: /^View:/ }),
+    ).toHaveCount(0);
     await page.keyboard.press("Escape");
   });
 
@@ -182,8 +174,8 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     await gotoWindow(page, id);
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
 
-    // Flip to web via the menu's `View: Web` row → iframe renders; R12's shim
-    // turns the selection into `single:web` and the URL mirrors `?layout=`.
+    // Flip to web via the palette's `View: Web` action → iframe renders; R12's
+    // shim turns the selection into `single:web` and the URL mirrors `?layout=`.
     await switchLens(page, "Web");
     await expect(iframe(page)).toBeVisible({ timeout: 10_000 });
     await expectLayoutParam(page, "single:web");
@@ -207,15 +199,13 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     const id = await makeWindow(page, `wv-deep-${Date.now()}`, { url: IFRAME_URL });
     await gotoWindow(page, id, "web");
     // Cold load resolves straight to the web lens (the shim maps ?view=web →
-    // single:web and the URL mirror rewrites it); the menu's `View: Web` row
-    // is the lens indicator (marked aria-checked).
+    // single:web and the URL mirror rewrites it).
     await expect(iframe(page)).toBeVisible({ timeout: 10_000 });
     await expectLayoutParam(page, "single:web");
-    await expectLensMarked(page, "Web", true);
     // The center heading is a STATIC `Window:` in every lens (260714-uco1 — the
-    // heading no longer follows the lens; the marked `View:` menu row, asserted
-    // above, is the lens indicator). The hierarchy ▾ splits the prefix between
-    // the word and its colon (`Window ▾:`), so assert the word run ("Window").
+    // heading no longer follows the lens). The hierarchy ▾ splits the prefix
+    // between the word and its colon (`Window ▾:`), so assert the word run
+    // ("Window").
     await expect(page.getByText("Window", { exact: true })).toBeVisible();
   });
 
@@ -229,16 +219,13 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
     await expect(iframe(page)).toHaveCount(0);
     await expectLayoutParam(page, null); // default layout mirrors as a CLEAN URL (param dropped)
-    // Single available view → no `View:` rows in the menu.
-    await menuButton(page).click();
-    await expect(controlsMenu(page)).toBeVisible();
-    await expect(
-      controlsMenu(page).getByRole("menuitemradio", { name: /^View:/ }),
-    ).toHaveCount(0);
+    // Single available view → the palette offers no `View: Web` action.
+    await openPalette(page, "View: Web");
+    await expect(page.getByRole("option", { name: "View: Web" })).toHaveCount(0);
     await page.keyboard.press("Escape");
   });
 
-  test("legacy @rk_type=iframe window defaults to web with the `View: Web` row marked", async ({
+  test("legacy @rk_type=iframe window defaults to web (ladder hint rung)", async ({
     page,
   }) => {
     const id = await makeWindow(page, `wv-legacy-${Date.now()}`, {
@@ -252,11 +239,9 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     await gotoWindow(page, id);
     await expect(iframe(page)).toBeVisible({ timeout: 10_000 });
     await expectLayoutParam(page, null);
-    await menuButton(page).click();
-    await expect(viewRow(page, "Terminal")).toBeVisible({ timeout: 10_000 });
-    const webRow = viewRow(page, "Web");
-    await expect(webRow).toBeVisible();
-    await expect(webRow).toHaveAttribute("aria-checked", "true");
+    // The palette is the way back: `View: Terminal` is offered (web is current).
+    await openPalette(page, "View: Terminal");
+    await expect(page.getByRole("option", { name: "View: Terminal" })).toBeVisible();
     await page.keyboard.press("Escape");
   });
 
@@ -266,7 +251,7 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     const a = await makeWindow(page, `wv-persist-a-${Date.now()}`, { url: IFRAME_URL });
     const b = await makeWindow(page, `wv-persist-b-${Date.now()}`);
 
-    // On A, switch to web via the menu row (writes the rk-layout localStorage
+    // On A, switch to web via the palette (writes the rk-layout localStorage
     // key + mirrors ?layout=single:web — R12's shim: a view selection is a
     // single-tile layout mutation).
     await gotoWindow(page, a);
@@ -297,18 +282,16 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(a)}`);
     await expect(iframe(page)).toBeVisible({ timeout: 10_000 });
     await expectLayoutParam(page, "single:web");
-    await expectLensMarked(page, "Web", true);
   });
 
-  test("375px mobile: the switcher is reachable via the menu rows; menu-only at desktop too", async ({
+  test("375px mobile: the palette is the lens switcher; no switcher chrome at any width", async ({
     page,
   }) => {
-    // 260722-n2n4: the switcher is menu-only at EVERY width — at 375px with a
-    // realistically long window name the `View:` rows in the "More controls"
-    // chevron menu are its rendering (the heading keeps its room), and unlike
-    // the former space-driven contract (260717-6anu) the pill does NOT return to
-    // the bar at desktop width. The lens itself still resolves + renders on
-    // mobile without horizontal overflow.
+    // 260812-0c6o: the ViewSwitcher is retired — at 375px with a realistically
+    // long window name the heading keeps its room, lens switching routes through
+    // the command palette at every width, and the pill never renders anywhere.
+    // The lens itself still resolves + renders on mobile without horizontal
+    // overflow.
     await page.setViewportSize(MOBILE_VIEWPORT);
     const id = await makeWindow(page, `wv-mobile-long-worktree-name-${Date.now()}`, {
       url: IFRAME_URL,
@@ -321,30 +304,22 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(id)}?view=web`);
     await expect(iframe(page)).toBeVisible({ timeout: 10_000 });
 
-    // No in-bar pill (menuOnly — no bar slot, no probe copy).
+    // No in-bar pill, no probe copy — the testid exists nowhere.
     await expect(inBarSwitcher(page)).toHaveCount(0);
     await expect(page.getByTestId("view-toggle")).toHaveCount(0);
-    // The switcher is reachable in the chevron menu as per-view rows; the active
-    // (web) row is marked.
-    await menuButton(page).click();
-    await expect(controlsMenu(page)).toBeVisible();
-    await expect(viewRow(page, "Terminal")).toBeVisible();
-    const webRow = viewRow(page, "Web");
-    await expect(webRow).toBeVisible();
-    await expect(webRow).toHaveAttribute("aria-checked", "true");
-    // Close the menu before the resize assertion.
-    await page.keyboard.press("Escape");
+    // The palette is the switch surface: switch back to tty at phone width.
+    await switchLens(page, "Terminal");
+    await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
+    await expectLayoutParam(page, null); // default layout mirrors as a CLEAN URL (param dropped)
 
     // No horizontal page overflow at 375px.
     const bodyWidth = await page.evaluate(() => document.body.scrollWidth);
     expect(bodyWidth).toBeLessThanOrEqual(MOBILE_VIEWPORT.width);
 
-    // Menu-only, not space-driven: at desktop width the pill does NOT return to
-    // the bar — the `View:` rows remain the switching surface.
+    // Still no switcher chrome at desktop width either.
     await page.setViewportSize(DESKTOP_VIEWPORT);
     await expect(page.getByText("Window", { exact: true })).toBeVisible({ timeout: 10_000 });
     await expect(inBarSwitcher(page)).toHaveCount(0);
     await expect(page.getByTestId("view-toggle")).toHaveCount(0);
-    await expectLensMarked(page, "Web", true);
   });
 });

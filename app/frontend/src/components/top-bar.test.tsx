@@ -1290,7 +1290,7 @@ describe("TopBar", () => {
     });
 
     it("groups menu rows under View / Window / App uppercase section labels (260731-oiho)", () => {
-      renderTopBar({ availableViews: ["tty", "web"], activeView: "tty", onSelectView: vi.fn() });
+      renderTopBar();
       act(() => fireEvent.click(screen.getByLabelText("More controls")));
       const menu = screen.getByRole("menu", { name: "More controls" });
       // The three section labels render (aria-hidden decoration — uppercase via
@@ -1398,69 +1398,26 @@ describe("TopBar", () => {
       }
     });
 
-    it("represents the menu-only ViewSwitcher as per-view `View:` menu rows on a multi-view window (260722-n2n4)", () => {
-      const onSelectView = vi.fn();
-      renderTopBar({ availableViews: ["tty", "web"], activeView: "tty", onSelectView });
-      // The view-switcher entry is `menuOnly` (260722-n2n4): the pill renders
-      // NOWHERE — not in the bar and, unlike the former overflow-candidate state
-      // (260717-6anu), not even in the aria-hidden measurement probe. So there
-      // is no `view-toggle` testid anywhere in the DOM and no group named
-      // "Window view" in or out of the accessibility tree.
+    it("renders no `View:` lens rows and no `view-toggle` anywhere; the VIEW section still carries Fixed width + Terminal font (260812-0c6o)", () => {
+      // The view-switcher registry entry is retired: lens switching is the
+      // palette's job (plus the rail's open-tile toggles). No `view-toggle`
+      // testid exists anywhere in the DOM (bar, menu, or probe).
+      renderTopBar();
       expect(screen.queryByTestId("view-toggle")).not.toBeInTheDocument();
       expect(screen.queryAllByRole("group", { name: "Window view" })).toHaveLength(0);
-      // …and the switcher is represented as one `View: {label}` row per view.
-      act(() => fireEvent.click(screen.getByLabelText("More controls")));
-      const menu = screen.getByRole("menu", { name: "More controls" });
-      const ttyRow = within(menu).getByRole("menuitemradio", { name: "View: Terminal" });
-      const webRow = within(menu).getByRole("menuitemradio", { name: "View: Web" });
-      expect(ttyRow).toBeInTheDocument();
-      expect(webRow).toBeInTheDocument();
-      // The active (tty) row is marked; the inactive (web) row is not.
-      expect(ttyRow).toHaveAttribute("aria-checked", "true");
-      expect(webRow).toHaveAttribute("aria-checked", "false");
-      // Clicking a non-active row switches the lens via the same onSelectView.
-      act(() => fireEvent.click(webRow));
-      expect(onSelectView).toHaveBeenCalledWith("web");
-    });
-
-    it("keeps the menuOnly view-switcher out of the measurement probe and leads the menu with its rows (260722-n2n4)", () => {
-      renderTopBar({ availableViews: ["tty", "web"], activeView: "web", onSelectView: vi.fn() });
-      // Probe exclusion: the probe renders only FIT candidates, index-aligned
-      // with the widths array the fit reads — a menuOnly entry contributes no
-      // probe child. The probe is the aria-hidden off-screen row inside the
-      // right cluster; it must carry the other candidates' copies (e.g. the
-      // splits) but no `view-toggle`.
-      const cluster = screen.getByTestId("top-bar-right");
-      const probe = cluster.querySelector('[aria-hidden="true"][inert]');
-      expect(probe).not.toBeNull();
-      expect(probe!.querySelector('[data-testid="view-toggle"]')).toBeNull();
-      expect(probe!.querySelector('[aria-label="Split horizontally"]')).not.toBeNull();
-      // Registry order: the view-switcher is the FIRST registry entry, so its
-      // `View:` rows lead the menu-row order (before the split rows that jsdom's
-      // zero widths also overflow).
-      act(() => fireEvent.click(screen.getByLabelText("More controls")));
-      const menu = screen.getByRole("menu", { name: "More controls" });
-      // querySelectorAll preserves DOM order across the mixed menuitem/
-      // menuitemradio/menuitemcheckbox row roles (getAllByRole takes one role).
-      const rows = Array.from(menu.querySelectorAll('[role^="menuitem"]'));
-      const texts = rows.map((r) => r.textContent ?? "");
-      const firstView = texts.findIndex((t) => t.startsWith("View:"));
-      const firstSplit = texts.findIndex((t) => t.startsWith("Split"));
-      expect(firstView).toBeGreaterThanOrEqual(0);
-      expect(firstSplit).toBeGreaterThan(firstView);
-      // The active (web) lens row is marked even though no pill exists.
-      expect(within(menu).getByRole("menuitemradio", { name: "View: Web" })).toHaveAttribute(
-        "aria-checked",
-        "true",
-      );
-    });
-
-    it("contributes no `View:` menu row for a single-view (tty-only) window (260717-6anu)", () => {
-      renderTopBar({ availableViews: ["tty"], activeView: "tty", onSelectView: vi.fn() });
-      expect(screen.queryByTestId("view-toggle")).not.toBeInTheDocument();
       act(() => fireEvent.click(screen.getByLabelText("More controls")));
       const menu = screen.getByRole("menu", { name: "More controls" });
       expect(within(menu).queryByRole("menuitemradio", { name: /^View:/ })).not.toBeInTheDocument();
+      // The VIEW section survives via the sticky device-preference rows.
+      const viewLabel = within(menu).getByText("View", { exact: true });
+      const fixedWidthRow = within(menu).getByRole("menuitemcheckbox", { name: /Fixed width/ });
+      const terminalFontRow = within(menu).getByRole("group", { name: /Terminal font/ });
+      expect(
+        Boolean(viewLabel.compareDocumentPosition(fixedWidthRow) & Node.DOCUMENT_POSITION_FOLLOWING),
+      ).toBe(true);
+      expect(
+        Boolean(viewLabel.compareDocumentPosition(terminalFontRow) & Node.DOCUMENT_POSITION_FOLLOWING),
+      ).toBe(true);
     });
   });
 

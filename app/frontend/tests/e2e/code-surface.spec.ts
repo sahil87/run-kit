@@ -143,7 +143,7 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
     await page.setViewportSize(DESKTOP_VIEWPORT);
   });
 
-  test("the code rail button + View: Code menu row appear only on a git-repo window", async ({
+  test("the code rail button appears only on a git-repo window; the palette's `View: Code` action gates the same way", async ({
     page,
   }) => {
     // A repo-cwd window gains the code affordances once the SSE window payload
@@ -153,14 +153,20 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
     await gotoWindow(page, repo);
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
     await expect(railCodeButton(page)).toBeVisible({ timeout: READY_TIMEOUT });
-    // The view switcher is menuOnly (260722-n2n4): the code lens surfaces as a
-    // per-view row in the "More controls" chevron menu.
+    // The ViewSwitcher is retired (260812-0c6o): the palette is the lens-switch
+    // surface, and the chevron menu carries no `View:` rows.
+    await page.keyboard.press("Meta+k");
+    const paletteInput = page.getByPlaceholder("Type a command");
+    await expect(paletteInput).toBeVisible({ timeout: 5_000 });
+    await paletteInput.fill("View: Code");
+    await expect(page.getByRole("option", { name: "View: Code" })).toBeVisible();
+    await page.keyboard.press("Escape");
     await page.getByRole("button", { name: "More controls" }).click();
     await expect(
       page
         .getByRole("menu", { name: "More controls" })
-        .getByRole("menuitemradio", { name: "View: Code" }),
-    ).toBeVisible();
+        .getByRole("menuitemradio", { name: /^View:/ }),
+    ).toHaveCount(0);
     await page.keyboard.press("Escape");
 
     // A NON-repo cwd (/tmp) derives no gitRoot → neither affordance renders.
@@ -170,12 +176,12 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
     await gotoWindow(page, offRepo);
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
     await expect(railCodeButton(page)).toHaveCount(0);
-    await page.getByRole("button", { name: "More controls" }).click();
-    await expect(
-      page
-        .getByRole("menu", { name: "More controls" })
-        .getByRole("menuitemradio", { name: "View: Code" }),
-    ).toHaveCount(0);
+    await page.keyboard.press("Meta+k");
+    const paletteInput2 = page.getByPlaceholder("Type a command");
+    await expect(paletteInput2).toBeVisible({ timeout: 5_000 });
+    await paletteInput2.fill("View: Code");
+    await expect(page.getByRole("option", { name: "View: Code" })).toHaveCount(0);
+    await page.keyboard.press("Escape");
   });
 
   test("?panel=code opens the code tile (shim); the iframe src is the stable /code/?folder=<git root>", async ({

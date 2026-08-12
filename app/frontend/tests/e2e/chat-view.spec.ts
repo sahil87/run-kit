@@ -11,40 +11,40 @@ import { mockStateSocket } from "./_state-socket-mock";
 // Chat read frontend (260714-r7rq — Change 3 of the agent-chat-view plan): a
 // read-only HTML chat view over the same agent pane, reachable via the
 // `?view=chat` deep link (shimmed to `?layout=single:chat` since
-// 260812-ab5v-surface-layout-core) on the existing terminal route. The view
-// toggle is the UNIFIED window-view lens switcher (spec R4, `web-view-lens`) —
-// MENU-ONLY as of 260722-n2n4: the segmented pill never renders in-bar (the
-// registry entry is `menuOnly`), and a chat-capable window with no `@rk_url`
-// offers `View: Terminal` / `View: Chat` menuitemradio rows in the "More
-// controls" chevron menu, which are the switcher's only rendering at every
-// width. The rows and the Ctrl+` chord set `single:<view>` through the shared
-// layout mutation path (surface-layout R12).
+// 260812-ab5v-surface-layout-core) or the command palette's `View: Chat`
+// action on the existing terminal route. The ViewSwitcher is RETIRED
+// (260812-0c6o): the palette is the ONLY lens-switch surface, the right rail
+// shows NO chat button (SURFACE_RAIL_HIDDEN — chat is palette-only), and the
+// `` Ctrl+` `` chat-toggle chord is gone (rebound to layout zoom). Palette
+// selections set `single:<view>` through the shared layout mutation path
+// (surface-layout R12).
 
 const SERVER = "default";
 const MOBILE = { width: 375, height: 812 };
 
-// The menu-only switcher surface (260722-n2n4) — mirrors web-view-lens.spec.ts.
-const menuButton = (page: Page) =>
-  page.getByRole("button", { name: "More controls" });
-const controlsMenu = (page: Page) =>
-  page.getByRole("menu", { name: "More controls" });
-const viewRow = (page: Page, label: "Terminal" | "Chat") =>
-  controlsMenu(page).getByRole("menuitemradio", { name: `View: ${label}` });
+/** Open the command palette, fill the query, and return the input. */
+async function openPalette(page: Page, query: string) {
+  await page.keyboard.press("Meta+k");
+  const paletteInput = page.getByPlaceholder("Type a command");
+  await expect(paletteInput).toBeVisible({ timeout: 5_000 });
+  await paletteInput.fill(query);
+  return paletteInput;
+}
 
-/** Open the chevron menu, click the `View: {label}` row, and wait for the menu
- *  to close (a `menuitemradio` activation is a single-shot menu action). */
+/** Switch the lens via the palette's `View: {label}` action — the only
+ *  lens-switch surface since the ViewSwitcher's retirement (260812-0c6o). */
 async function switchLens(page: Page, label: "Terminal" | "Chat"): Promise<void> {
-  await menuButton(page).click();
-  const row = viewRow(page, label);
-  await expect(row).toBeVisible({ timeout: 10_000 });
-  await row.click();
-  await expect(controlsMenu(page)).toBeHidden();
+  await openPalette(page, `View: ${label}`);
+  const option = page.getByRole("option", { name: `View: ${label}` });
+  await expect(option).toBeVisible({ timeout: 10_000 });
+  await option.click();
+  await expect(page.getByRole("dialog", { name: "Command palette" })).toBeHidden();
 }
 
 /** Assert the mirrored `?layout=` param (decoded — the router may
  *  percent-encode `:`/`,`). The surface-layout shim (260812-ab5v) translates
  *  `?view=chat` → `single:chat` at route entry and REWRITES the URL via
- *  replaceState; the `View:` rows and the Ctrl+` chord set `single:<view>`
+ *  replaceState; the palette `View:` actions set `single:<view>`
  *  through the same mutation path (R12). Retrying: the mirror lands a beat
  *  after the arrival/switch that triggered it. */
 async function expectLayoutParam(page: Page, expected: string | null): Promise<void> {
@@ -54,10 +54,10 @@ async function expectLayoutParam(page: Page, expected: string | null): Promise<v
 }
 
 // Two windows: @1 is a chat-capable claude window; @2 is a plain (no
-// chatProvider) window used to prove the toggle is gated. `winName` overrides
-// @1's window name — the 375px test passes a long worktree-style name to prove
-// the center heading keeps its room (the switcher is menu-only at every width
-// as of 260722-n2n4, so the long name exercises heading space, not a pill drop
+// chatProvider) window used to prove the palette entry is gated. `winName`
+// overrides @1's window name — the 375px test passes a long worktree-style
+// name to prove the center heading keeps its room (the switcher is retired —
+// 260812-0c6o — so the long name exercises heading space, not a pill drop
 // threshold).
 function sessionsPayload(winName = "agent-win"): string {
   return JSON.stringify([
@@ -210,32 +210,35 @@ async function mockChatSend(
 }
 
 test.describe("Chat read frontend — view toggle, heading, rendering", () => {
-  test("the `View: Chat` menu row appears only on a chatProvider window (no in-bar pill ever)", async ({ page }) => {
+  test("the `View: Chat` palette action appears only on a chatProvider window; the rail shows no chat button (260812-0c6o)", async ({ page }) => {
     await mockBackend(page, backfillCleared());
 
-    // @1 is chat-capable → the switcher renders as `View:` rows in the chevron
-    // menu, and ONLY there (260722-n2n4 menuOnly): no in-bar "Window view"
-    // group and no `view-toggle` testid anywhere in the DOM (bar or probe).
+    // @1 is chat-capable → the palette offers `View: Chat` (the ONLY lens-switch
+    // surface since the ViewSwitcher's retirement): no in-bar "Window view"
+    // group and no `view-toggle` testid anywhere in the DOM, and the chevron
+    // menu carries no `View:` rows. The rail (SURFACE_RAIL_HIDDEN) shows the
+    // tty button but NO chat button — chat is palette-only.
     await page.goto(`/${SERVER}/1`);
     await expect(page.getByText("Window", { exact: true })).toBeVisible({ timeout: 10_000 });
     await expect(page.getByRole("group", { name: "Window view" })).toHaveCount(0);
     await expect(page.getByTestId("view-toggle")).toHaveCount(0);
-    await menuButton(page).click();
-    await expect(viewRow(page, "Terminal")).toBeVisible({ timeout: 10_000 });
-    await expect(viewRow(page, "Chat")).toBeVisible();
+    const rail = page.getByTestId("right-panel-rail");
+    await expect(rail.getByRole("button", { name: "Terminal tile" })).toBeVisible();
+    await expect(rail.getByRole("button", { name: "Chat tile" })).toHaveCount(0);
+    await openPalette(page, "View: Chat");
+    await expect(page.getByRole("option", { name: "View: Chat" })).toBeVisible();
     await page.keyboard.press("Escape");
-    await expect(controlsMenu(page)).toBeHidden();
+    await page.getByRole("button", { name: "More controls" }).click();
+    await expect(
+      page.getByRole("menu", { name: "More controls" }).getByRole("menuitemradio", { name: /^View:/ }),
+    ).toHaveCount(0);
+    await page.keyboard.press("Escape");
 
-    // @2 has no chatProvider → single-view → the registry entry is hidden
-    // everywhere: no in-bar group, no probe copy, and no `View:` menu rows.
+    // @2 has no chatProvider → the palette offers no `View: Chat` action.
     await page.goto(`/${SERVER}/2`);
     await expect(page.getByText("plain-win").first()).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByRole("group", { name: "Window view" })).toHaveCount(0);
-    await menuButton(page).click();
-    await expect(controlsMenu(page)).toBeVisible();
-    await expect(
-      controlsMenu(page).getByRole("menuitemradio", { name: /^View:/ }),
-    ).toHaveCount(0);
+    await openPalette(page, "View: Chat");
+    await expect(page.getByRole("option", { name: "View: Chat" })).toHaveCount(0);
     await page.keyboard.press("Escape");
 
     // Chat-less deep-link degradation: `?view=chat` on @2 is inert — the
@@ -253,11 +256,11 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
     await page.goto(`/${SERVER}/1`);
 
     // The heading is a static `Window:` prefix (260714-uco1) — the lens is shown
-    // by the switcher's `View:` menu rows, not the heading.
+    // by the tile content, not the heading.
     await expect(page.getByText("Window", { exact: true })).toBeVisible({ timeout: 10_000 });
 
-    // Switch via the chevron menu's `View: Chat` row — the switcher's only
-    // rendering (menu-only, 260722-n2n4). R12's shim turns the selection into
+    // Switch via the palette's `View: Chat` action — the only lens-switch
+    // surface (260812-0c6o). R12's shim turns the selection into
     // a `single:chat` layout through the shared mutation path.
     await switchLens(page, "Chat");
 
@@ -270,24 +273,20 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
     await expect(page.getByRole("button", { name: `Rename window agent-win` })).toBeVisible();
   });
 
-  test("Ctrl+` toggles tty↔chat (the shipped keyboard binding)", async ({ page }) => {
+  test("Ctrl+` no longer flips to the chat lens (the chat-toggle chord is retired, 260812-0c6o)", async ({ page }) => {
     await mockBackend(page, backfillCleared());
     await page.goto(`/${SERVER}/1`);
-    // Gate on the heading — the always-present readiness surface (the switcher
-    // has no in-bar pill to gate on since 260722-n2n4).
+    // Gate on the heading — the always-present readiness surface.
     await expect(page.getByText("Window", { exact: true })).toBeVisible({ timeout: 10_000 });
 
-    // Ctrl+` (plain Ctrl on both platforms — the VS-Code "toggle terminal"
-    // association) flips into the chat lens: the URL mirrors single:chat and
-    // the chat tile mounts.
+    // Ctrl+` is rebound to the layout zoom toggle — on this single-tile layout
+    // that is a visual no-op (and the handler is gated on arity > 1), so the
+    // chord must NOT reach the chat lens: no single:chat, no chat view.
     await page.keyboard.press("Control+`");
-    await expectLayoutParam(page, "single:chat");
-    await expect(page.getByTestId("chat-view")).toBeVisible();
-
-    // A second Ctrl+` flips back to tty (single:tty). The heading is the
-    // static `Window:` throughout (does not vary with the lens).
-    await page.keyboard.press("Control+`");
-    await expectLayoutParam(page, null); // default layout mirrors as a CLEAN URL (param dropped)
+    // Give any erroneous handler a beat to fire, then assert nothing changed.
+    await page.waitForTimeout(500);
+    await expectLayoutParam(page, null);
+    await expect(page.getByTestId("chat-view")).toHaveCount(0);
     await expect(page.getByText("Window", { exact: true })).toBeVisible();
   });
 
@@ -337,10 +336,10 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
     await expect(page.getByTestId("chat-pending")).toHaveCount(0, { timeout: 5_000 });
   });
 
-  test("375px: the chat toggle lives in the More-controls menu with a long window name (no horizontal overflow)", async ({ page }) => {
-    // 260722-n2n4: the switcher is menu-only at every width, so at phone width
-    // with a realistically long window name the heading keeps its room and the
-    // per-view `View:` rows in the "More controls" menu are the toggle surface.
+  test("375px: the chat lens renders with a long window name and no switcher chrome (no horizontal overflow)", async ({ page }) => {
+    // 260812-0c6o: the ViewSwitcher is retired — at phone width with a
+    // realistically long window name the heading keeps its room and there is
+    // no switcher chrome anywhere; the palette is the switch surface.
     await mockBackend(page, backfillCleared(), undefined, "riff-gallant-jackal-worktree-mobile");
     await page.setViewportSize(MOBILE);
     await page.goto(`/${SERVER}/1?view=chat`);
@@ -348,20 +347,15 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
     // The chat view itself renders (lens resolved), proving the window is loaded.
     await expect(page.getByTestId("chat-view")).toBeVisible({ timeout: 10_000 });
 
-    // No in-bar pill and no probe copy (menuOnly): neither the accessible
+    // No in-bar pill and no probe copy: neither the accessible
     // "Window view" group nor the raw `view-toggle` testid exists anywhere.
     await expect(page.getByRole("group", { name: "Window view" })).toHaveCount(0);
     await expect(page.getByTestId("view-toggle")).toHaveCount(0);
 
-    // The switcher is reachable in the chevron menu as per-view rows, and the
-    // active (chat) row is marked.
-    await menuButton(page).click();
-    const menu = controlsMenu(page);
-    await expect(menu).toBeVisible();
-    await expect(viewRow(page, "Terminal")).toBeVisible();
-    const chatRow = viewRow(page, "Chat");
-    await expect(chatRow).toBeVisible();
-    await expect(chatRow).toHaveAttribute("aria-checked", "true");
+    // The palette offers the way back (`View: Terminal` — chat is current).
+    await openPalette(page, "View: Terminal");
+    await expect(page.getByRole("option", { name: "View: Terminal" })).toBeVisible();
+    await page.keyboard.press("Escape");
 
     // No horizontal page overflow at 375px even with the long name.
     const bodyWidth = await page.evaluate(() => document.body.scrollWidth);

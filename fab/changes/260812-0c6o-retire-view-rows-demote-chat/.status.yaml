@@ -1,0 +1,55 @@
+id: 0c6o
+name: 260812-0c6o-retire-view-rows-demote-chat
+created: 2026-08-12T16:40:51Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 15
+    acceptance_count: 18
+    acceptance_completed: 18
+confidence:
+    certain: 3
+    confident: 3
+    tentative: 0
+    unresolved: 0
+    score: 4.6
+    fuzzy: true
+    dimensions:
+        signal: 74.2
+        reversibility: 85.0
+        competence: 80.8
+        disambiguation: 75.8
+stage_metrics:
+    intake: {started_at: "2026-08-12T16:40:51Z", driver: fab-new, iterations: 1, completed_at: "2026-08-12T16:51:39Z"}
+    apply: {started_at: "2026-08-12T16:51:39Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-12T17:36:27Z"}
+    review: {started_at: "2026-08-12T17:36:27Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-12T17:45:25Z"}
+    hydrate: {started_at: "2026-08-12T17:45:25Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-12T18:06:26Z"}
+    ship: {started_at: "2026-08-12T18:06:26Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-08-12T18:06:26Z"
+    computed_at_stage: hydrate
+summary: 'ui-patterns: ViewSwitcher/View: menu rows retired (palette + view-cycle are the lens-switch surfaces); SURFACE_RAIL_HIDDEN demotes chat to palette-only; chat-toggle deleted, layout-zoom takes Ctrl+Backquote via a dedicated AppShell handler'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-12T18:06:26Z

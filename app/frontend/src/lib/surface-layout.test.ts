@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import {
   ALL_SHAPES,
   SHAPE_ARITY,
+  SURFACE_RAIL_HIDDEN,
   addSurface,
   availableTiles,
   closeSurface,
@@ -95,6 +96,17 @@ describe("availableTiles", () => {
     expect(availableTiles(webWin)).toEqual(["tty", "web"]);
     expect(availableTiles(fullWin)).toEqual(["tty", "web", "chat", "code"]);
     expect(availableTiles(null)).toEqual(["tty"]);
+  });
+
+  it("still lists chat for a chat-capable window — the rail demotion (SURFACE_RAIL_HIDDEN) filters at RENDER, not at availability", () => {
+    // 260812-0c6o: chat is palette-only. `availableTiles` deliberately keeps
+    // chat so the palette's `Layout: Add Chat` / `Layout: Close Chat` entries
+    // keep working as chat's entry points.
+    expect(availableTiles(fullWin)).toContain("chat");
+    expect(SURFACE_RAIL_HIDDEN.has("chat")).toBe(true);
+    expect(SURFACE_RAIL_HIDDEN.has("tty")).toBe(false);
+    expect(SURFACE_RAIL_HIDDEN.has("web")).toBe(false);
+    expect(SURFACE_RAIL_HIDDEN.has("code")).toBe(false);
   });
 });
 

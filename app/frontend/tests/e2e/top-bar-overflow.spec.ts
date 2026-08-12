@@ -430,21 +430,19 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
   });
 });
 
-// The ViewSwitcher lens control is terminal-only and gated on a multi-view
-// window, so it never contributes rows on the tty-only WINDOW_NAME window above.
-// This block uses a web-capable window (a non-empty `@rk_url` ⇒ `[tty|web]`)
-// with a long name to prove the 260722-n2n4 MENU-ONLY contract: the registry
-// entry carries `menuOnly: true`, so the pill NEVER renders in-bar (no bar slot,
-// no measurement-probe copy — the `view-toggle` testid is absent from the DOM at
-// ANY width), the per-view `View:` menuitemradio rows are ALWAYS in the chevron
-// menu, a row activation switches the lens even at a wide width, and the fit
-// pyramid over the remaining candidates is intact with the merged `split`
-// control (primary segment `Split horizontally`) as the new first-to-yield
-// candidate.
+// The ViewSwitcher is RETIRED (260812-0c6o) — lens switching is palette-only
+// (plus the rail's open-tile toggles). This block uses a web-capable window (a
+// non-empty `@rk_url` ⇒ `[tty|web]`) with a long name to prove the removal
+// contract: no `view-toggle` testid and no in-bar "Window view" group at ANY
+// width, the chevron menu carries NO `View:` menuitemradio rows (the Fixed
+// width / Terminal font rows still hold the VIEW section), a palette `View: …`
+// activation switches the lens even at a wide width, and the fit pyramid over
+// the remaining candidates is intact with the merged `split` control (primary
+// segment `Split horizontally`) as the first-to-yield candidate.
 const VIEW_WINDOW_NAME = `overflow-view-long-worktree-${Date.now().toString().slice(-6)}`;
 const VIEW_URL = "http://localhost:8080/";
 
-test.describe("Top-bar overflow: ViewSwitcher is menu-only (260722-n2n4)", () => {
+test.describe("Top-bar overflow: the view-switcher is retired (260812-0c6o)", () => {
   test.beforeAll(() => {
     try {
       newWindow(TEST_SESSION, VIEW_WINDOW_NAME);
@@ -453,17 +451,11 @@ test.describe("Top-bar overflow: ViewSwitcher is menu-only (260722-n2n4)", () =>
     }
   });
 
-  // The in-bar switcher group in the accessibility tree. Under the menuOnly
-  // flag this must NEVER match; the stricter DOM-wide check below is
-  // `getByTestId("view-toggle")`, which as of 260722-n2n4 must also be empty
-  // (the probe no longer carries a pill copy either).
-  const inBarSwitcher = (page: Page) => page.getByRole("group", { name: "Window view" });
-
   async function gotoViewWindow(page: Page): Promise<void> {
     const id = await resolveWindow(page, VIEW_WINDOW_NAME);
     // Stamp `@rk_url` so the window offers the `web` lens (`[tty|web]` → the
-    // multi-view gate passes and the `View:` menu rows render). Set before
-    // navigating so the first snapshot carries it.
+    // multi-view gate passes and the palette's `View: Web` action renders).
+    // Set before navigating so the first snapshot carries it.
     execSync(
       `tmux -L ${TMUX_SERVER} set-option -w -t ${id} @rk_url "${VIEW_URL}"`,
       { stdio: "ignore" },
@@ -471,29 +463,31 @@ test.describe("Top-bar overflow: ViewSwitcher is menu-only (260722-n2n4)", () =>
     await gotoWindow(page, id);
   }
 
-  test("the pill never renders in-bar at any width; the `View:` rows are always in the menu", async ({
+  test("no `view-toggle` anywhere at any width; the menu carries no `View:` rows but keeps Fixed width + Terminal font", async ({
     page,
   }) => {
     await gotoViewWindow(page);
     const heading = page.getByRole("button", { name: `Rename window ${VIEW_WINDOW_NAME}` });
 
-    // Sweep wide → narrow. The menuOnly entry contributes no bar slot AND no
-    // probe copy, so both the accessible in-bar group and the raw `view-toggle`
-    // testid (which would match the aria-hidden probe copy on pre-n2n4 code at
-    // wide widths) must be absent at EVERY width — including 1440px, where the
-    // whole cluster has room (the pre-n2n4 pill rendered in-bar there).
+    // Sweep wide → narrow. The retired switcher contributes no bar slot, no
+    // menu rows, and no probe copy — the `view-toggle` testid is absent from
+    // the DOM at EVERY width.
     for (const width of [1440, ...WIDTHS]) {
       await page.setViewportSize({ width, height: 800 });
       await expect(heading).toBeVisible({ timeout: 10_000 });
-      await expect(inBarSwitcher(page), `no in-bar pill at ${width}px`).toHaveCount(0);
+      await expect(
+        page.getByRole("group", { name: "Window view" }),
+        `no in-bar pill at ${width}px`,
+      ).toHaveCount(0);
       await expect(
         page.getByTestId("view-toggle"),
         `no view-toggle in the DOM (bar or probe) at ${width}px`,
       ).toHaveCount(0);
     }
 
-    // The `View:` rows are present in the chevron menu at BOTH extremes of the
-    // sweep — the menu is the switcher's only rendering, independent of width.
+    // The chevron menu carries NO `View:` lens rows at either extreme of the
+    // sweep — but the VIEW section survives via the sticky device-preference
+    // rows (Fixed width, Terminal font).
     for (const width of [1440, 375]) {
       await page.setViewportSize({ width, height: 800 });
       await expect(heading).toBeVisible({ timeout: 10_000 });
@@ -501,12 +495,16 @@ test.describe("Top-bar overflow: ViewSwitcher is menu-only (260722-n2n4)", () =>
       const menu = page.getByRole("menu", { name: "More controls" });
       await expect(menu).toBeVisible();
       await expect(
-        menu.getByRole("menuitemradio", { name: "View: Terminal" }),
-        `View: Terminal row at ${width}px`,
+        menu.getByRole("menuitemradio", { name: /^View:/ }),
+        `no View: lens rows at ${width}px`,
+      ).toHaveCount(0);
+      await expect(
+        menu.getByRole("menuitemcheckbox", { name: /Fixed width/ }),
+        `Fixed width row at ${width}px`,
       ).toBeVisible();
       await expect(
-        menu.getByRole("menuitemradio", { name: "View: Web" }),
-        `View: Web row at ${width}px`,
+        menu.getByRole("group", { name: "Terminal font size" }),
+        `Terminal font row at ${width}px`,
       ).toBeVisible();
       // Close before the next resize so the fixed-position panel never straddles it.
       await page.keyboard.press("Escape");
@@ -514,19 +512,18 @@ test.describe("Top-bar overflow: ViewSwitcher is menu-only (260722-n2n4)", () =>
     }
   });
 
-  test("the split control is the first fit candidate to yield — the menuOnly pill costs zero fit pixels", async ({
+  test("the split control is the first fit candidate to yield", async ({
     page,
   }) => {
     await gotoViewWindow(page);
     const heading = page.getByRole("button", { name: `Rename window ${VIEW_WINDOW_NAME}` });
 
-    // With the view-switcher out of the fit entirely, the FIRST fit candidate is
+    // With the view-switcher retired, the FIRST fit candidate is
     // the leftmost L1 split (primary segment `Split horizontally` since
     // 260806-2x2h). The invariant across the sweep: whenever `Split
     // horizontally` is still in-bar nothing has dropped yet, so every L1/L2/L3
     // control must also be in-bar (the surviving set is a suffix of the fit
-    // order). This retargets the former first-to-drop coverage (the pre-n2n4
-    // pill) onto the new first candidate.
+    // order).
     const splitControl = () => byRoleName(page, "Split horizontally");
     const allCandidates = [...L1, ...L2, ...L3];
     let sawInBar = false;
@@ -561,38 +558,29 @@ test.describe("Top-bar overflow: ViewSwitcher is menu-only (260722-n2n4)", () =>
     await expect(splitControl()).toHaveCount(0, { timeout: 10_000 });
   });
 
-  test("a `View:` row activation switches the lens and closes the menu — even at a wide width", async ({
+  test("a palette `View:` action switches the lens — even at a wide width", async ({
     page,
   }) => {
     await gotoViewWindow(page);
     const heading = page.getByRole("button", { name: `Rename window ${VIEW_WINDOW_NAME}` });
-    // A wide width is the distinguishing case: the bar has room, yet the
-    // switcher still lives ONLY in the menu (menu-only, not space-driven).
+    // A wide width is the distinguishing case: the bar has room, yet lens
+    // switching is palette-only (260812-0c6o) — the menu holds no `View:` rows.
     await page.setViewportSize({ width: 1440, height: 800 });
     await expect(heading).toBeVisible({ timeout: 10_000 });
 
-    await page.getByRole("button", { name: "More controls" }).click();
-    const menu = page.getByRole("menu", { name: "More controls" });
-    await expect(menu).toBeVisible();
-    const ttyRow = menu.getByRole("menuitemradio", { name: "View: Terminal" });
-    const webRow = menu.getByRole("menuitemradio", { name: "View: Web" });
-    await expect(ttyRow).toBeVisible();
-    await expect(webRow).toBeVisible();
-    // Default lens is tty → the tty row is the active (marked) one.
-    await expect(ttyRow).toHaveAttribute("aria-checked", "true");
-    await expect(webRow).toHaveAttribute("aria-checked", "false");
-
-    // Activating the Web row switches the lens: R12's shim turns the selection
-    // into a `single:web` layout and the URL mirrors `?layout=single:web`
+    // The command palette's `View: Web` action switches the lens: the selection
+    // becomes a `single:web` layout and the URL mirrors `?layout=single:web`
     // (decoded — the router may percent-encode the `:`).
-    await webRow.click();
+    await page.keyboard.press("Meta+k");
+    const paletteInput = page.getByPlaceholder("Type a command");
+    await expect(paletteInput).toBeVisible({ timeout: 5_000 });
+    await paletteInput.fill("View: Web");
+    const webOption = page.getByRole("option", { name: "View: Web" });
+    await expect(webOption).toBeVisible();
+    await webOption.click();
     await expect
       .poll(() => new URL(page.url()).searchParams.get("layout"), { timeout: 10_000 })
       .toBe("single:web");
     await expect(page.getByTitle("Proxied content")).toBeVisible({ timeout: 10_000 });
-    // The `View:` row is a `role="menuitemradio"` activation, so the chevron menu
-    // closes (single-shot menu action). No in-bar pill appears after the switch.
-    await expect(menu).toBeHidden();
-    await expect(inBarSwitcher(page)).toHaveCount(0);
   });
 });

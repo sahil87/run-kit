@@ -16,7 +16,7 @@ describe("buildViewActions (View: palette parity)", () => {
     expect(actions).toHaveLength(1);
     expect(actions[0].id).toBe("view-tty");
     expect(actions[0].label).toBe("View: Terminal");
-    // Leaving web (not chat) → the cycle chord, not the chat toggle.
+    // Leaving web → the cycle chord.
     expect(actions[0].shortcut).toBe("⌘.");
   });
 
@@ -40,29 +40,29 @@ describe("buildViewActions (View: palette parity)", () => {
 
   // Chat lens (folded in from 260714-r7rq).
   describe("chat lens", () => {
-    it("offers View: Chat with the Ctrl+` toggle hint when on tty", () => {
+    it("offers View: Chat with NO shortcut hint (the chat chord is retired, 260812-0c6o)", () => {
       const actions = buildViewActions(["chat", "tty"], "tty", () => {});
       const chat = actions.find((a) => a.id === "view-chat");
       expect(chat).toBeTruthy();
       expect(chat!.label).toBe("View: Chat");
-      expect(chat!.shortcut).toBe("Ctrl+`");
+      expect(chat!.shortcut).toBe("");
     });
 
-    it("offers View: Terminal with the Ctrl+` toggle hint when leaving chat", () => {
+    it("offers View: Terminal with the cycle hint when leaving chat", () => {
       const actions = buildViewActions(["chat", "tty"], "chat", () => {});
       const tty = actions.find((a) => a.id === "view-tty");
       expect(tty).toBeTruthy();
       expect(tty!.label).toBe("View: Terminal");
-      // Leaving chat, tty is reached via the chat toggle, not the cycle.
-      expect(tty!.shortcut).toBe("Ctrl+`");
+      // Leaving chat, tty is reached via the lens cycle.
+      expect(tty!.shortcut).toBe("⌘.");
     });
 
     it("offers Chat AND Web on a stacked window (all three lenses)", () => {
       const actions = buildViewActions(["chat", "web", "tty"], "tty", () => {});
       const ids = actions.map((a) => a.id);
       expect(ids).toEqual(["view-chat", "view-web"]);
-      // Chat rides the toggle; web rides the cycle.
-      expect(actions.find((a) => a.id === "view-chat")!.shortcut).toBe("Ctrl+`");
+      // Chat is unhinted; web rides the cycle.
+      expect(actions.find((a) => a.id === "view-chat")!.shortcut).toBe("");
       expect(actions.find((a) => a.id === "view-web")!.shortcut).toBe("⌘.");
     });
 
@@ -80,16 +80,15 @@ describe("buildViewActions (View: palette parity)", () => {
     it("renders caller-supplied hint strings (registry-effective combos)", () => {
       const actions = buildViewActions(["chat", "web", "tty"], "tty", () => {}, {
         cycle: "Ctrl+.",
-        chat: "Shift+Ctrl+B",
       });
-      expect(actions.find((a) => a.id === "view-chat")!.shortcut).toBe("Shift+Ctrl+B");
+      // Chat stays unhinted even with a caller-supplied cycle combo.
+      expect(actions.find((a) => a.id === "view-chat")!.shortcut).toBe("");
       expect(actions.find((a) => a.id === "view-web")!.shortcut).toBe("Ctrl+.");
     });
 
     it("an empty hint (disabled binding) yields an empty shortcut string", () => {
       const [action] = buildViewActions(["web", "tty"], "tty", () => {}, {
         cycle: "",
-        chat: "",
       });
       expect(action.shortcut).toBe("");
     });

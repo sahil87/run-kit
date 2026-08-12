@@ -33,18 +33,18 @@ toggle desktop-only, 260812-nm4p).
 - Real isolated tmux server (`rk-test-e2e`, port 3020 via `just test-e2e`). A
   dedicated session with an extra named window (`overflow-win-<ts>`) so the
   terminal route renders the right cluster (the merged split control + refresh
-  in-bar; fixed-width / Aa / close-pane are menuOnly rows). The ViewSwitcher
-  block adds a SECOND, **web-capable** long-named window
+  in-bar; fixed-width / Aa / close-pane are menuOnly rows). The retired
+  ViewSwitcher block adds a SECOND, **web-capable** long-named window
   (`overflow-view-long-worktree-<ts>` with a non-empty `@rk_url` ⇒ `[tty|web]`)
-  so the switcher's `View:` menu rows actually render (the entry is
-  terminal-only and gated on a multi-view window; the tty-only window above
-  contributes no view-switcher rows, so the pyramid tests are unaffected).
+  so the palette's `View: Web` action actually renders (the palette gates on a
+  multi-view window; the tty-only window above contributes no lens actions, so
+  the pyramid tests are unaffected).
 - `resolveWindow`/`gotoWindow` (from `_ready.ts`) resolve the window id and
   navigate to `/${server}/${id}`.
 - In-bar control visibility is measured via accessible-name ROLE queries
   (`getByRole`/`getByLabel`), which exclude the always-present off-screen `inert`
   + `aria-hidden` measurement-probe copy — a match means the control is in-bar.
-  The ViewSwitcher is `menuOnly` as of 260722-n2n4, so its absence is checked two
+  The ViewSwitcher is RETIRED (260812-0c6o), so its absence is checked two
   ways: no accessible `role="group"` named `Window view` (no in-bar pill) AND no
   `view-toggle` testid anywhere in the DOM (the probe carries no pill copy either
   — fit candidates only). The 260731-oiho demotions ride the same mechanism, so
@@ -180,40 +180,38 @@ one-shot chrome rows — Keyboard / Theme… — have their own coverage above).
 3. Reopen the menu and assert the `aria-checked` state flipped; click once more
    to restore the default full-width preference for later specs.
 
-## Tests — ViewSwitcher is menu-only (260722-n2n4)
+## Tests — the view-switcher is retired (260812-0c6o)
 
 Uses the web-capable long-named window (see Shared setup) so the `[tty|web]`
 multi-view gate passes. `@rk_url` is stamped via `tmux set-option -w` before
-navigating. The `view-switcher` registry entry carries `menuOnly: true`: the
-segmented pill never renders in-bar (the chat lens isn't ready, so the pill must
-not advertise itself inline), and the per-view `View:` rows in the "More
-controls" chevron menu are the switcher's ONLY rendering at every width.
+navigating. The ViewSwitcher is RETIRED: the palette's `View: …` actions are the
+ONLY lens-switch surface — no pill in-bar, no `View:` rows in the chevron menu,
+no `view-toggle` testid anywhere — and the VIEW menu section survives via the
+sticky device-preference rows (Fixed width, Terminal font).
 
-### `the pill never renders in-bar at any width; the `View:` rows are always in the menu`
+### `no `view-toggle` anywhere at any width; the menu carries no `View:` rows but keeps Fixed width + Terminal font`
 
-**What it proves:** the menu-only contract — the pill has no bar slot and no
-measurement-probe copy at ANY width (including 1440px, where the whole cluster
-has room and the pre-n2n4 pill rendered in-bar), while the `View:` menuitemradio
-rows are present in the chevron menu at both extremes of the sweep.
+**What it proves:** the removal contract — the retired switcher has no bar slot,
+no menu rows, and no measurement-probe copy at ANY width (including 1440px,
+where the whole cluster has room), while the VIEW section still carries the
+Fixed width / Terminal font rows.
 
 **Steps:**
 1. Navigate to the web-capable window.
 2. Sweep 1440 → 1280 → … → 375 (`[1440, ...WIDTHS]`), gating on the renamable
    heading each iteration. At each width assert the accessible `Window view`
-   group has count 0 (no in-bar pill) AND `getByTestId("view-toggle")` has count
-   0 (no pill copy anywhere in the DOM — bar or probe).
-3. At 1440px and 375px open the `More controls` menu and assert the
-   `View: Terminal` and `View: Web` rows are visible; Escape-close between
-   widths.
+   group has count 0 AND `getByTestId("view-toggle")` has count 0.
+3. At 1440px and 375px open the `More controls` menu and assert NO `View:`
+   menuitemradio rows, plus the Fixed width checkbox row and the Terminal font
+   stepper group visible; Escape-close between widths.
 
-### `the split control is the first fit candidate to yield — the menuOnly pill costs zero fit pixels`
+### `the split control is the first fit candidate to yield`
 
-**What it proves:** with the view-switcher excluded from the fit, the leftmost L1
-split (primary segment `Split horizontally` since 260806-2x2h) is the new FIRST
+**What it proves:** with the view-switcher gone, the leftmost L1
+split (primary segment `Split horizontally` since 260806-2x2h) is the FIRST
 fit candidate — whenever `Split horizontally` is still in-bar, nothing has
 dropped yet, so every L1/L2/L3 control is also in-bar (the surviving set is a
-suffix of the fit order). Retargets the former first-to-drop coverage (the
-pre-n2n4 pill) onto the new first candidate.
+suffix of the fit order).
 
 **Steps:**
 1. Navigate to the web-capable window.
@@ -224,22 +222,17 @@ pre-n2n4 pill) onto the new first candidate.
 3. Assert the split control was seen in-bar at some wide width; then at 375px
    assert a RETRYING in-bar count of 0 (definitely dropped at the mobile leaf).
 
-### `a `View:` row activation switches the lens and closes the menu — even at a wide width`
+### `a palette `View:` action switches the lens — even at a wide width`
 
-**What it proves:** the menu rows are a fully functional lens switcher at a WIDE
-width — the distinguishing menu-only case (the bar has room, yet the switcher
-lives only in the menu): the active row is marked, activation switches the lens
-(R12's shim: the selection becomes a `single:web` layout through the shared
-mutation path, mirrored into the URL as `?layout=single:web`), and the menu
-closes.
+**What it proves:** the palette is a fully functional lens switcher at a WIDE
+width — the distinguishing case (the bar has room, yet the menu holds no `View:`
+rows): running the palette's `View: Web` action switches the lens (R12's shim:
+the selection becomes a `single:web` layout through the shared mutation path,
+mirrored into the URL as `?layout=single:web`).
 
 **Steps:**
-1. Navigate to the web-capable window; set 1440×800.
-2. Open the `More controls` chevron menu.
-3. Assert the `View: Terminal` and `View: Web` rows (each a `role="menuitemradio"`)
-   are visible; the default tty lens marks `View: Terminal` `aria-checked="true"`
-   and `View: Web` `aria-checked="false"`.
-4. Click `View: Web`; assert the decoded `layout` param reads `single:web` and
-   the proxied iframe (`title="Proxied content"`) renders.
-5. Assert the chevron menu closed (the `View:` row is a `menuitemradio` activation,
-   a single-shot menu action) and no in-bar pill appeared after the switch.
+1. Navigate to the web-capable window; set 1440×800; gate on the renamable
+   heading.
+2. Press `Meta+k`; fill `View: Web`; click the `View: Web` option.
+3. Assert the decoded `layout` param reads `single:web` and the proxied iframe
+   (`title="Proxied content"`) renders.

@@ -66,7 +66,6 @@ import { useRunOpenTarget } from "@/components/open-button";
 import { nextWaitingTarget, chatSearchForTarget, type WaitingTarget } from "@/lib/palette-agent-nav";
 import { isWaiting } from "@/lib/waiting";
 import { useChatSubscription } from "@/hooks/use-chat-subscription";
-import { useChatViewShortcut } from "@/hooks/use-chat-view-shortcut";
 import {
   windowSwitchDirection,
   viewTransitionSupported,
@@ -527,9 +526,6 @@ function RootTopBar() {
       onRequestKill={slot?.onRequestKill}
       autofit={slot?.autofit}
       onToggleAutofit={slot?.onToggleAutofit}
-      availableViews={slot?.availableViews}
-      activeView={slot?.activeView}
-      onSelectView={slot?.onSelectView}
       railOpen={slot?.railOpen}
       onToggleRail={slot?.onToggleRail}
       layout={slot?.layout}
@@ -691,8 +687,8 @@ function AppShell() {
     [searchLayout, storedLayout, currentWindow],
   );
   const serializedLayout = serializeLayout(layout);
-  // The lens model's consumers (view-cycle chord, palette `View:` actions,
-  // the ViewSwitcher, the top-bar slot) key off slot A — R12's shim: a
+  // The lens model's consumers (view-cycle chord, palette `View:` actions)
+  // key off slot A — R12's shim: a
   // multi-tile layout reflects slot A's surface; selecting a view collapses
   // to `single:<view>` (see `switchView`).
   const resolvedView: ViewName = layout.order[0];
@@ -744,8 +740,8 @@ function AppShell() {
   // replaceState (the mirror's default-drops-param rule applies here too — a
   // mutation BACK to the window's default, e.g. closing the last non-tty
   // tile, leaves a clean URL; localStorage still records the choice). Tile
-  // verbs, rail toggles, the view-cycle chord, and the ViewSwitcher all
-  // funnel through this. Stable across SSE ticks.
+  // verbs, rail toggles, the view-cycle chord, and the palette `View:` actions
+  // all funnel through this. Stable across SSE ticks.
   const applyLayout = useCallback(
     (next: Layout) => {
       if (!windowParam) return;
@@ -1665,17 +1661,6 @@ function AppShell() {
     chatViewActive ? windowParam ?? "" : "",
   );
 
-  // Ctrl+` toggles tty↔chat (Constitution V; the shipped VS-Code-style "toggle
-  // terminal" binding, whose whole point is firing while xterm owns focus).
-  // Enabled only on a chat-capable window; toggles between the chat lens and tty
-  // via the unified `switchView`. Fires even while xterm owns focus (see the
-  // hook).
-  useChatViewShortcut(
-    currentViews.includes("chat"),
-    resolvedView === "chat" ? "chat" : "tty",
-    (next) => switchView(next),
-  );
-
   // Dialog state management. The two option callbacks are useCallback-stable:
   // inline arrows would churn the `dialogs` object every render, which cascades
   // through the palette action memos into a per-render slot re-registration
@@ -2516,14 +2501,17 @@ function AppShell() {
             },
           ]
         : []),
-      // Window-view lens actions (spec R4, Constitution V palette parity for the
-      // L1 ViewSwitcher; chat folded in from 260714-r7rq). Each lens is offered
+      // Window-view lens actions (spec R4, Constitution V palette parity — the
+      // palette is the ONLY lens-switch surface since the ViewSwitcher's
+      // retirement, 260812-0c6o). Each lens is offered
       // only when it is AVAILABLE for the current window AND is not the current
       // view — so the palette shows the destination, never the current lens. The
       // per-entry shortcut hint tracks the binding that reaches it — the
-      // EFFECTIVE `chat-toggle` / `view-cycle` combos from the keybinding
+      // EFFECTIVE `view-cycle` combo from the keybinding
       // registry (260730-g40a), so overrides are reflected; a disabled binding
-      // contributes an empty hint (rendered as none). These REPLACE the retired
+      // contributes an empty hint (rendered as none). `View: Chat` carries no
+      // hint — the `chat-toggle` chord is retired (260812-0c6o). These REPLACE
+      // the retired
       // `toggle-iframe-terminal` action, which mutated `@rk_type`; switching a
       // lens now never touches the window's identity. The gating (available AND
       // not-current) + hint composition live in the pure `buildViewActions`
@@ -2532,10 +2520,6 @@ function AppShell() {
       ...buildViewActions(currentViews, resolvedView, switchView, {
         cycle: (() => {
           const b = bindingByAction.get("view-cycle");
-          return b?.enabled ? formatCombo(b, bindingHost.platform) : "";
-        })(),
-        chat: (() => {
-          const b = bindingByAction.get("chat-toggle");
           return b?.enabled ? formatCombo(b, bindingHost.platform) : "";
         })(),
       }),
@@ -2567,6 +2551,12 @@ function AppShell() {
             toggleTarget: panelSurfaces.find((s) => s !== "tty") ?? null,
             toggleShortcut: (() => {
               const b = bindingByAction.get("panel-toggle");
+              return b?.enabled ? formatCombo(b, bindingHost.platform) : "";
+            })(),
+            // The `layout-zoom` chord's effective combo — stamped on both the
+            // Zoom and Unzoom entries (260812-0c6o).
+            zoomShortcut: (() => {
+              const b = bindingByAction.get("layout-zoom");
               return b?.enabled ? formatCombo(b, bindingHost.platform) : "";
             })(),
           })
@@ -3112,8 +3102,20 @@ function AppShell() {
       // palette body, whose gating (window route + a non-degenerate arity
       // ring) gates the chord for free.
       "layout-cycle": fromPalette("layout-cycle"),
+      // Ctrl+` layout zoom (260812-0c6o) — the freed `chat-toggle` chord,
+      // rebound to the transient slot-A zoom toggle. Deliberately NOT
+      // `fromPalette("layout-zoom")`: the zoom palette entry's id flips with
+      // state (`layout-zoom` ⇄ `layout-unzoom`), so an id lookup dies exactly
+      // when zoomed — the chord would go dead half the time. The ref seam is
+      // what both palette bodies call anyway. Gated like the palette's
+      // `zoomEnabled` (desktop, arity > 1) so a single-tile layout lets the
+      // chord fall through to the pane untouched.
+      "layout-zoom":
+        windowParam && !isMobile && layout.order.length > 1
+          ? () => layoutZoomToggleRef.current?.()
+          : undefined,
     };
-  }, [paletteActions, paletteGlobals, currentSession, windowParam, navigateToWindow, macros, sessionName, executeMacro, toggleComposeStrip, addToast, isMobile, panelSurfaces, togglePanel, bindingByAction, focusedTileKind]);
+  }, [paletteActions, paletteGlobals, currentSession, windowParam, navigateToWindow, macros, sessionName, executeMacro, toggleComposeStrip, addToast, isMobile, panelSurfaces, togglePanel, bindingByAction, focusedTileKind, layout]);
   useKeybindingDispatch(keybindingHandlers);
 
   const displayName = currentWindow?.name ?? windowParam ?? "";
@@ -3259,12 +3261,6 @@ function AppShell() {
       onCreateSession: handleCreateSessionInstant,
       onCreateWindow: handleCreateWindow,
       onSpawnAgent: handleSlotSpawnAgent,
-      // Window-view lens machinery (spec R4; chat folded in from 260714-r7rq):
-      // the L1 switcher chip + the center-heading prefix both read these. The
-      // chip renders only when `availableViews.length > 1`.
-      availableViews: currentViews,
-      activeView: resolvedView,
-      onSelectView: switchView,
       // Rail toggle (260812-nm4p, reinterpreted under 260812-ab5v): `railOpen`
       // carries the raw persisted preference (tiles are content-column state
       // and never force the rail visible). The handler registers on EVERY
@@ -3292,9 +3288,6 @@ function AppShell() {
       handleCreateSessionInstant,
       handleCreateWindow,
       handleSlotSpawnAgent,
-      currentViews,
-      resolvedView,
-      switchView,
       rightAreaVisible,
       windowParam,
       isMobile,
@@ -3457,8 +3450,9 @@ function AppShell() {
               surface-layout.md): the tile grid (SurfaceLayout) renders the
               RESOLVED layout as 1–3 tiles mounting the existing renderers
               unchanged — it SUBSUMES both the legacy exclusive-lens branch
-              (the ViewSwitcher now drives `single:<view>` through applyLayout
-              — R12) and the right-panel surface mount (the panel slot is a
+              (the palette `View:` actions drive `single:<view>` through
+              applyLayout — R12) and the right-panel surface mount (the panel
+              slot is a
               tile now — R6). The rail left this row in 260812-nm4p — it is
               the Shell grid's full-height third column, passed via
               `rightPanelChildren` — and renders open-tile toggles (R10). */}

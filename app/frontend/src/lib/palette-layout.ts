@@ -88,6 +88,11 @@ export type LayoutPaletteOptions = {
    *  absent ⇒ no Focus entries (mobile; focus is the sheet tabs there). */
   focusedKind?: SurfaceKind | null;
   onFocus?: (kind: SurfaceKind) => void;
+  /** The `layout-zoom` chord's effective combo (260812-0c6o) — stamped on BOTH
+   *  zoom entries (`Layout: Zoom` AND `Layout: Unzoom`): the entry id flips
+   *  with zoom state, so the registry-driven `withShortcutHints` decoration
+   *  reaches only the unzoomed form; the zoomed form needs the explicit hint. */
+  zoomShortcut?: string;
 };
 
 export function buildLayoutActions(
@@ -138,12 +143,15 @@ export function buildLayoutActions(
   }
 
   // Zoom / Unzoom — the transient slot-A toggle (R6): no URL/localStorage
-  // change. Exactly one form renders, keyed on the live zoom state.
+  // change. Exactly one form renders, keyed on the live zoom state. Both carry
+  // the `layout-zoom` chord hint (the unzoomed form also gets it from
+  // `withShortcutHints` — same value).
   if (opts.zoomEnabled) {
+    const zoomHint = opts.zoomShortcut ? { shortcut: opts.zoomShortcut } : {};
     actions.push(
       opts.zoomed
-        ? { id: "layout-unzoom", label: "Layout: Unzoom", onSelect: opts.onZoomToggle }
-        : { id: "layout-zoom", label: "Layout: Zoom", onSelect: opts.onZoomToggle },
+        ? { id: "layout-unzoom", label: "Layout: Unzoom", ...zoomHint, onSelect: opts.onZoomToggle }
+        : { id: "layout-zoom", label: "Layout: Zoom", ...zoomHint, onSelect: opts.onZoomToggle },
     );
   }
 

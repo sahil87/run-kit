@@ -163,7 +163,9 @@ describe("DEFAULT_BINDINGS integrity", () => {
     expect(byId(resolved(), "command-palette")).toMatchObject({ code: "KeyK", tier: "cmd" });
     expect(byId(resolved(), "sidebar-toggle")).toMatchObject({ code: "Backslash", tier: "cmd" });
     expect(byId(resolved(), "view-cycle")).toMatchObject({ code: "Period", tier: "cmd", scope: "terminal" });
-    expect(byId(resolved(), "chat-toggle")).toMatchObject({ code: "Backquote", tier: "ctrl", scope: "terminal" });
+    // 260812-0c6o: the freed `chat-toggle` chord now belongs to `layout-zoom`.
+    expect(byId(resolved(), "layout-zoom")).toMatchObject({ code: "Backquote", tier: "ctrl", scope: "terminal" });
+    expect(resolved().find((b) => b.actionId === "chat-toggle")).toBeUndefined();
     expect(byId(resolved(), "board-cycle-next")).toMatchObject({ code: "BracketRight", tier: "cmd", scope: "board" });
     expect(byId(resolved(), "board-cycle-prev")).toMatchObject({ code: "BracketLeft", tier: "cmd", scope: "board" });
   });
@@ -466,7 +468,8 @@ describe("scopesOverlap / findConflicts", () => {
 
   it("flags a cmd-tier binding masking a ctrl-tier one on the same code and scope", () => {
     // A Ctrl chord captured on non-mac reads as `cmd`; on the same code it
-    // matches the same keydown as the `ctrl`-tier chat-toggle default. Both
+    // matches the same keydown as the `ctrl`-tier layout-zoom default (the
+    // freed chat-toggle chord, 260812-0c6o). Both
     // are terminal-scoped, so this is a real conflict, not a shadow.
     const bindings = resolveBindings(
       DEFAULT_BINDINGS,
@@ -475,11 +478,11 @@ describe("scopesOverlap / findConflicts", () => {
     );
     const conflicts = findConflicts(bindings);
     expect(conflicts).toHaveLength(1);
-    expect([conflicts[0].a, conflicts[0].b].sort()).toEqual(["chat-toggle", "view-cycle"]);
+    expect([conflicts[0].a, conflicts[0].b].sort()).toEqual(["layout-zoom", "view-cycle"]);
   });
 
   it("treats a same-combo global↔scoped pair as a shadow, not a conflict (260730-n789)", () => {
-    // sidebar-toggle (global) onto chat-toggle's colliding combo: scopes
+    // sidebar-toggle (global) onto layout-zoom's colliding combo: scopes
     // differ with one global → dispatch precedence resolves it, no conflict.
     const bindings = resolveBindings(
       DEFAULT_BINDINGS,
@@ -563,10 +566,10 @@ describe("applyCapture (steal-with-warning)", () => {
 
   it("steals across the colliding cmd/ctrl tiers on the same code", () => {
     // sidebar-toggle (global) captures cmd+Backquote — the chord a non-mac
-    // Ctrl+` capture produces. It matches the same keydown as chat-toggle's
-    // ctrl-tier default, so chat-toggle must be flagged and unbound instead
-    // of silently masked at dispatch (chat-toggle listens component-locally
-    // and never sees `findMatches` precedence).
+    // Ctrl+` capture produces. It matches the same keydown as layout-zoom's
+    // ctrl-tier default (the freed chat-toggle chord, 260812-0c6o), so
+    // layout-zoom must be flagged and unbound instead
+    // of silently masked at dispatch.
     const { overrides, stolenFrom } = applyCapture(
       resolved(),
       {},
@@ -574,10 +577,10 @@ describe("applyCapture (steal-with-warning)", () => {
       { code: "Backquote", tier: "cmd" },
       SHELL_OTHER,
     );
-    expect(stolenFrom).toBe("chat-toggle");
+    expect(stolenFrom).toBe("layout-zoom");
     expect(overrides).toEqual({
       "sidebar-toggle": { code: "Backquote", tier: "cmd" },
-      "chat-toggle": null,
+      "layout-zoom": null,
     });
   });
 

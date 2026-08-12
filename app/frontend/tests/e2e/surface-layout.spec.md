@@ -149,6 +149,19 @@ Steps:
    and the divider reads exactly the dragged value (ratio persisted per
    window+shape).
 
+### Ctrl+` toggles the slot-A zoom on a 2-tile layout — even with the terminal focused (260812-0c6o)
+What it proves: the `layout-zoom` chord (Ctrl+`, the retired chat-toggle's
+freed binding) reaches the slot-A zoom seam — the same action as the palette's
+`Layout: Zoom`/`Unzoom` — even while xterm's textarea owns focus; zoom stays
+TRANSIENT (no URL/localStorage change, R6).
+Steps:
+1. Create a web-capable window; navigate; open the web tile via the rail;
+   assert the `split-h:tty,web` URL mirror.
+2. Click the terminal (xterm focus), then press `Control+``.
+3. Assert the web tile hides at display level (still mounted — count 1), the
+   divider is gone, the terminal stays visible, and the URL is untouched.
+4. Press `Control+`` again; assert the web tile and the divider return.
+
 ### 375px mobile: a 3-tile ?layout= URL renders slot A + sheet tabs for the rest (R13, A-018)
 What it proves: below `isMobileViewport()` the layout manager renders only
 slot A — no grid, no dividers, no rail — and the remaining resolved surfaces

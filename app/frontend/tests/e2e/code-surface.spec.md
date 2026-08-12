@@ -5,7 +5,8 @@ managed lifecycle + stable route `260811-a2bo`; `docs/specs/right-panel.md` §
 The code lens + § Surface Registry), retargeted to the surface-layout model in
 `260812-ab5v-surface-layout-core` (`docs/specs/surface-layout.md`): the `code`
 lens joins the view registry (`?view=code` → `single:code` via the permanent
-shim + the `View: Code` overflow-menu row) AND the tileable code surface
+shim + the palette's `View: Code` action — the switcher menu rows are retired,
+260812-0c6o) AND the tileable code surface
 (`Code tile` rail toggle, `?panel=code` → `split-h:tty,code` via the shim),
 with availability = gitRoot derived (since a2bo the port resolves by
 convention — `RK_CODE_SERVER_PORT` preset, else `RK_PORT+2` — and no longer
@@ -55,22 +56,24 @@ the parent.
   name — the retired `Code panel` name and the `right-panel` testid are GONE;
   surfaces render as layout tiles now), the `surface-tile-code` tile testid,
   the `Code editor` iframe title, the `code-surface-empty` testid, the
-  `.xterm` terminal surface, and the "More controls" chevron menu (the view
-  switcher's menuOnly rendering).
+  `.xterm` terminal surface, and the command palette (the only lens-switch
+  surface since the ViewSwitcher's retirement, 260812-0c6o).
 
 ## Tests
 
-### the code rail button + View: Code menu row appear only on a git-repo window
+### the code rail button appears only on a git-repo window; the palette's `View: Code` action gates the same way
 What it proves: availability derives from the SSE `gitRoot` field alone
 (Constitution II/X — no client-side declaration; the port is conventional
 since a2bo); a non-repo cwd (`/tmp`) derives no gitRoot, so neither affordance
-renders.
+renders. The `View: Code` lens switch is palette-only (260812-0c6o) — the
+chevron menu carries no `View:` rows.
 Steps:
 1. Create a repo-cwd window; navigate; assert the terminal, then the `Code
    tile` rail toggle (SSE-gated).
-2. Open the "More controls" menu; assert the `View: Code` menuitemradio row.
+2. Open the palette with `View: Code`; assert the option is visible; Escape.
+   Open the "More controls" menu; assert it carries NO `View:` rows; Escape.
 3. Create a `/tmp`-cwd window; navigate; assert NO `Code tile` button and no
-   `View: Code` row.
+   `View: Code` palette option.
 
 ### ?panel=code opens the code tile (shim); the iframe src is the stable /code/?folder=<git root>
 What it proves: the retired `?panel=code` deep link resolves through the

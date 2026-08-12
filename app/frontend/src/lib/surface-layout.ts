@@ -209,6 +209,17 @@ export function availableTiles(win: ViewWindow | null | undefined): SurfaceKind[
 }
 
 /**
+ * Surfaces demoted OUT of the right rail and the mobile surface sheet
+ * (260812-0c6o): the chat lens is a half-built feature, so it is palette-only
+ * (`Layout: Add Chat` / `View: Chat`) — the rail/sheet filter by this flag AT
+ * RENDER, never at availability: `availableTiles` deliberately stays unchanged
+ * so the palette entries keep working, and an already-open chat tile still
+ * renders and closes normally (the flag hides the toggle, never the tile).
+ * Un-hide path when chat ships: delete the entry from the set.
+ */
+export const SURFACE_RAIL_HIDDEN: ReadonlySet<SurfaceKind> = new Set(["chat"]);
+
+/**
  * Degrade a parsed layout against the window's current capabilities (R4):
  * drop unavailable surfaces tile-by-tile and render the rest in the matching
  * smaller-arity shape (order preserved, slot A kept; 3→2 is `split-h`, 2→1

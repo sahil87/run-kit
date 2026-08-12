@@ -47,16 +47,37 @@ describe("RightPanel rail — open-tile toggles (R10)", () => {
 
   it("renders icon glyphs with the surface names as aria-labels (`<Label> tile`)", () => {
     renderRail({ available: ["tty", "web", "chat", "code"] });
-    // Icon glyphs (R10's user-requested fold-in): `>_` tty, `◫` web, `⌸` chat,
-    // `{}` code — the text labels moved to the accessible names + tooltips.
+    // Icon glyphs (R10's user-requested fold-in): `>_` tty, `◫` web, `{}` code
+    // — the text labels moved to the accessible names + tooltips. `chat` (⌸)
+    // is demoted out of the rail by SURFACE_RAIL_HIDDEN (260812-0c6o).
     expect(screen.getByRole("button", { name: "Terminal tile" }).textContent).toContain(">_");
     expect(screen.getByRole("button", { name: "Web tile" }).textContent).toContain("◫");
-    expect(screen.getByRole("button", { name: "Chat tile" }).textContent).toContain("⌸");
+    expect(screen.queryByRole("button", { name: "Chat tile" })).toBeNull();
     expect(screen.getByRole("button", { name: "Code tile" }).textContent).toContain("{}");
     // Availability dot (P4) still rides every button.
     expect(
       screen.getByRole("button", { name: "Web tile" }).querySelector("[aria-hidden='true']"),
     ).not.toBeNull();
+  });
+
+  it("hides the chat toggle on a chat-capable window while web/code remain (SURFACE_RAIL_HIDDEN)", () => {
+    // The demotion is render-time only: chat stays AVAILABLE (the palette's
+    // `Layout: Add Chat` still works) but the rail shows no chat button.
+    renderRail({ available: ["tty", "web", "chat", "code"], open: ["tty"] });
+    expect(screen.queryByRole("button", { name: "Chat tile" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Terminal tile" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Web tile" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Code tile" })).toBeTruthy();
+  });
+
+  it("shows no chat button even when a chat tile is OPEN (the flag never strands the tile)", () => {
+    // An open chat tile (via palette or a persisted layout) still renders in
+    // the layout and closes via its ✕ / `Layout: Close Chat` — the rail simply
+    // has no chat button, lit or unlit.
+    const onToggle = vi.fn();
+    renderRail({ available: ["tty", "chat"], open: ["tty", "chat"], onToggle });
+    expect(screen.queryByRole("button", { name: "Chat tile" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Terminal tile" })).toBeTruthy();
   });
 
   it("lights a button per OPEN tile (aria-pressed), not just one active surface", () => {

@@ -5,7 +5,7 @@
  * (`Shift+CmdOrCtrl+<key>` on Windows/Linux; on macOS several actions demote
  * to the unshifted ⌘ tier — see `macTier`/`defaultComboFor`, 260730-n789),
  * the migrated legacy chords (⌘K palette, ⌘\ sidebar, ⌘. lens
- * cycle, Ctrl+` chat toggle, board ⌘[/⌘] pane cycle — combos unchanged), the
+ * cycle, Ctrl+` layout zoom, board ⌘[/⌘] pane cycle — combos unchanged), the
  * claimed-key map (shell menu accelerators, OS keys, browser-reserved keys —
  * per tier), the per-device override layer
  * (`localStorage["runkit-keybindings"]`, diffs
@@ -32,7 +32,7 @@
  *   decision (B): letter consistency over chord weight).
  * - `cmd` — unshifted `CmdOrCtrl` (legacy punctuation chords: ⌘K ⌘\ ⌘. ⌘[⌘]).
  *   Matches Meta OR Ctrl, preserving each legacy listener's exact predicate.
- * - `ctrl` — plain Ctrl on BOTH platforms (the Ctrl+` chat toggle; Cmd+` is
+ * - `ctrl` — plain Ctrl on BOTH platforms (the Ctrl+` layout-zoom toggle; Cmd+` is
  *   macOS window cycling and must not be bound).
  */
 export type BindingTier = "shifted" | "cmd" | "ctrl";
@@ -147,7 +147,7 @@ export const KEYBINDINGS_STORAGE_KEY = "runkit-keybindings";
  *
  * Legacy migrations (combos unchanged — established, browser-safe
  * punctuation): ⌘K palette (ignoreInputs preserves its fire-everywhere
- * behavior), ⌘\ sidebar, ⌘. lens cycle, Ctrl+` chat toggle, board ⌘[/⌘].
+ * behavior), ⌘\ sidebar, ⌘. lens cycle, Ctrl+` layout zoom, board ⌘[/⌘].
  */
 export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // — run-kit shifted tier (global) —
@@ -214,7 +214,13 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // palette body (`Layout: Cycle Shape`) exists only on window routes, so
   // elsewhere the chord falls through untouched.
   { actionId: "layout-cycle", code: "Semicolon", tier: "cmd", scope: "terminal", kind: "builtin", label: "Cycle layout shape", description: "next same-arity preset, order kept", mapLabel: "layout" },
-  { actionId: "chat-toggle", code: "Backquote", tier: "ctrl", scope: "terminal", kind: "builtin", label: "Toggle chat view", description: "tty ↔ chat" },
+  // Ctrl+` layout zoom (260812-0c6o): the freed `chat-toggle` chord (the chat
+  // lens is palette-only now) rebinding to the high-frequency slot-A zoom
+  // toggle (tmux `prefix+z` / VS Code Ctrl+` muscle memory). Deliberately the
+  // SAME action as the palette's `Layout: Zoom`/`Layout: Unzoom` entries —
+  // AppShell dispatches it straight to `layoutZoomToggleRef` (the palette id
+  // flips with zoom state, so a fromPalette lookup would die half the time).
+  { actionId: "layout-zoom", code: "Backquote", tier: "ctrl", scope: "terminal", kind: "builtin", label: "Zoom tile", description: "toggle layout zoom", mapLabel: "zoom" },
   { actionId: "board-cycle-next", code: "BracketRight", tier: "cmd", scope: "board", kind: "builtin", label: "Cycle pane focus →" },
   { actionId: "board-cycle-prev", code: "BracketLeft", tier: "cmd", scope: "board", kind: "builtin", label: "Cycle pane focus ←" },
 ];
@@ -778,7 +784,7 @@ export function formatCombo(combo: BindingCombo, platform: BindingPlatform): str
  * `shouldSuppressViewChord`): suppress a chord only when a "real" text input
  * has focus. Carve-outs preserved from the legacy listeners: xterm's hidden
  * helper textarea is the terminal's NORMAL focus state, and `.rk-chat-input`
- * is the chat lens's analog (the Ctrl+` toggle must escape it) — chords fire
+ * is the chat lens's analog — chords fire
  * in both. Returns `true` when the chord SHOULD be suppressed. Bindings with
  * `ignoreInputs` (⌘K, the overlay toggle) skip this predicate entirely.
  */

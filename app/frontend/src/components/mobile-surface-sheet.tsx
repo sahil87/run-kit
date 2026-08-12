@@ -3,6 +3,7 @@ import { useFocusTrap } from "@/hooks/use-focus-trap";
 import {
   SURFACE_GLYPH,
   SURFACE_LABEL,
+  SURFACE_RAIL_HIDDEN,
   type SurfaceKind,
 } from "@/lib/surface-layout";
 
@@ -72,7 +73,12 @@ export function MobileSurfaceSheet({
           Surfaces
         </div>
         <div className="flex-1 min-h-0 overflow-y-auto py-1">
-          {surfaces.map((kind) => {
+          {/* Demoted surfaces (SURFACE_RAIL_HIDDEN, 260812-0c6o — currently
+              `chat`) get no tab: the sheet mirrors the rail's render-time
+              filter. An open chat tile still renders in slot A and stays
+              reachable/closable via the palette (`View: Chat` /
+              `Layout: Close Chat`). */}
+          {surfaces.filter((kind) => !SURFACE_RAIL_HIDDEN.has(kind)).map((kind) => {
             const isActive = kind === active;
             const label = SURFACE_LABEL[kind];
             return (

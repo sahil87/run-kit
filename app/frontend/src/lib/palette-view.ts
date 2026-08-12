@@ -6,7 +6,8 @@
  * / lib/palette-update.ts. The action bodies are thin `onSelect` wrappers passed
  * in by the caller (they call `switchView(v)`).
  *
- * Constitution V palette parity for the L1 ViewSwitcher: each lens is offered
+ * Constitution V palette parity (the palette is the ONLY lens-switch surface
+ * since the ViewSwitcher's retirement, 260812-0c6o): each lens is offered
  * only when it is AVAILABLE for the current window AND is not the current view,
  * so the palette shows the destination, never the current lens. These REPLACE
  * the retired `toggle-iframe-terminal` action, which mutated `@rk_type`.
@@ -28,25 +29,25 @@ const VIEW_ACTION_LABEL: Record<ViewName, string> = {
   code: "View: Code",
 };
 
-/** Default hint strings — the registry defaults for `chat-toggle` and
- *  `view-cycle`. Callers wired to the keybinding registry (260730-g40a) pass
- *  the EFFECTIVE formatted combos instead, so hints track overrides; an empty
- *  string means "no working chord" and renders no hint. */
-const CHAT_SHORTCUT = "Ctrl+`";
+/** Default hint string — the registry default for `view-cycle`. Callers wired
+ *  to the keybinding registry (260730-g40a) pass the EFFECTIVE formatted combo
+ *  instead, so hints track overrides; an empty string means "no working chord"
+ *  and renders no hint. */
 const CYCLE_SHORTCUT = "⌘.";
 
-/** The per-entry hints for the two bindings that reach the view switches. */
-export type ViewShortcutHints = { cycle: string; chat: string };
+/** The per-entry hint for the lens cycle — the one chord that reaches a view
+ *  switch (the `chat-toggle` chord is retired, 260812-0c6o, so `View: Chat`
+ *  renders NO hint). */
+export type ViewShortcutHints = { cycle: string };
 
 /**
- * The keyboard hint shown on a view-switch entry — the binding that reaches it.
- * `View: Chat` and (when leaving chat) `View: Terminal` are the two ends of the
- * chat toggle, so they show its combo; every other switch is only reachable
- * via the lens cycle. `current` is the view being switched AWAY from.
+ * The keyboard hint shown on a view-switch entry. Every lens except `chat`
+ * is reachable via the lens cycle; `View: Chat` gets no hint — the dedicated
+ * chat chord is gone (260812-0c6o) and chat is palette-only by design (the
+ * demotion deliberately leaves it unadvertised).
  */
-function shortcutFor(target: ViewName, current: ViewName, hints: ViewShortcutHints): string {
-  if (target === "chat") return hints.chat;
-  if (target === "tty" && current === "chat") return hints.chat;
+function shortcutFor(target: ViewName, hints: ViewShortcutHints): string {
+  if (target === "chat") return "";
   return hints.cycle;
 }
 
@@ -55,21 +56,21 @@ function shortcutFor(target: ViewName, current: ViewName, hints: ViewShortcutHin
  * available AND is not the current (`resolved`) view. A single-view window
  * (only `tty` available) yields an empty array — there is nothing to switch to.
  * Each entry carries the shortcut hint for the binding that reaches it,
- * sourced from `hints` (the caller's effective keybinding combos; defaults
- * match the registry defaults for legacy callers/tests).
+ * sourced from `hints` (the caller's effective keybinding combo; the default
+ * matches the registry default for legacy callers/tests).
  */
 export function buildViewActions(
   available: ViewName[],
   resolved: ViewName,
   onSwitch: (view: ViewName) => void,
-  hints: ViewShortcutHints = { cycle: CYCLE_SHORTCUT, chat: CHAT_SHORTCUT },
+  hints: ViewShortcutHints = { cycle: CYCLE_SHORTCUT },
 ): ViewPaletteAction[] {
   return available
     .filter((v) => v !== resolved)
     .map((v) => ({
       id: `view-${v}`,
       label: VIEW_ACTION_LABEL[v],
-      shortcut: shortcutFor(v, resolved, hints),
+      shortcut: shortcutFor(v, hints),
       onSelect: () => onSwitch(v),
     }));
 }

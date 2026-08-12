@@ -1,6 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ProjectSession, WindowInfo } from "@/types";
-import type { ViewName } from "@/lib/window-view";
 import type { Layout } from "@/lib/surface-layout";
 
 /**
@@ -69,14 +68,6 @@ export type TopBarSlot = {
    *  board mode — the top-bar toggle renders only when both are present. */
   autofit?: boolean;
   onToggleAutofit?: () => void;
-  /** Terminal-mode window-view lens machinery (spec R4; chat folded in from
-   *  260714-r7rq), registered by `AppShell`. The L1 switcher chip + the
-   *  center-heading prefix read these; the chip renders only when
-   *  `availableViews.length > 1`. Absent on non-terminal routes (BoardPage does
-   *  not register them). */
-  availableViews?: ViewName[];
-  activeView?: ViewName;
-  onSelectView?: (view: ViewName) => void;
   /** Terminal-mode right-RAIL toggle (260812-nm4p, reinterpreted by
    *  260812-ab5v): the sidebar toggle's far-right mirror — collapses/restores
    *  the RAIL column only. Layout tiles live in the content column and are

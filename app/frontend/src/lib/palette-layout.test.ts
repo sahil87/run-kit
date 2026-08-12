@@ -71,6 +71,14 @@ describe("buildLayoutActions — adds/closes (R10/R11)", () => {
     expect(actions).toContain("layout-add-web");
     expect(actions).not.toContain("layout-add-code");
   });
+
+  it("still offers `Layout: Add Chat` / `Layout: Close Chat` — chat's palette entries survive the rail demotion (260812-0c6o)", () => {
+    // SURFACE_RAIL_HIDDEN filters the rail/sheet at render; `buildLayoutActions`
+    // keys off AVAILABILITY, so chat stays palette-reachable as its sole entry
+    // point.
+    expect(ids({ shape: "single", order: ["tty"] })).toContain("layout-add-chat");
+    expect(ids({ shape: "split-h", order: ["tty", "chat"] })).toContain("layout-close-chat");
+  });
 });
 
 describe("buildLayoutActions — zoom (R6/R11)", () => {

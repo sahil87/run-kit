@@ -587,10 +587,10 @@ export function armGraceMask(timeoutMs: number = FIRST_WRITE_TIMEOUT_MS): GraceM
  *   the browser's default paste action lands in xterm's focused textarea and
  *   thus the OLD pty, so the paste chord stays swallowed.
  * - The specific Ctrl-bound global chords: Ctrl+K (palette), Ctrl+. (view
- *   cycle), Ctrl+\ (sidebar toggle), Ctrl+` (tty↔chat toggle) — with
+ *   cycle), Ctrl+\ (sidebar toggle), Ctrl+` (layout zoom) — with
  *   `!altKey` required (rework NTH9): AltGr on Windows/Linux layouts reports
  *   `ctrlKey: true`, and AltGr+char is typed INPUT, never a chord (the same
- *   modifier discipline as `use-chat-view-shortcut.ts`).
+ *   modifier discipline the retired `use-chat-view-shortcut.ts` used).
  *
  * Everything else — plain typing, terminal control bytes like Ctrl+C, and the
  * paste chords — stays swallowed: those are exactly the typed-into-the-OLD-

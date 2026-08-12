@@ -40,7 +40,7 @@ const MENU_SECTIONS: { key: MenuGroup; label: string }[] = [
 
 /**
  * Shared overflow-menu row styling (260715-h1ck), hosted here — the file both
- * `top-bar.tsx` (the row components) and `view-switcher.tsx` (`ViewSwitcherMenuRows`)
+ * `top-bar.tsx` (the row components) and `layout-chip.tsx` (`LayoutMenuRows`)
  * already depend on, so there is no import cycle. Decomposed so callers compose
  * exactly the variant they need instead of re-declaring a drifted subset:
  *
@@ -50,7 +50,7 @@ const MENU_SECTIONS: { key: MenuGroup; label: string }[] = [
  *    hover, card hover bg).
  *  - `MENU_ROW_DISABLED` — the disabled-state tokens (dimmed, no hover).
  *  - `MENU_ROW_ACTIVE` — the inverse-video accent-green treatment used to mark a
- *    selected row (e.g. the active view in `ViewSwitcherMenuRows`).
+ *    selected row (e.g. the active shape in `LayoutMenuRows`).
  *  - `MENU_ROW_CLASS` — the default composition (`base + rest + disabled`) used by
  *    every plain menu row.
  */
@@ -78,7 +78,7 @@ export const POPOVER_ROW_CLASS =
 /**
  * Shared top-bar icon-button sizing (260731-oiho), hosted here for the same
  * no-cycle reason as `MENU_ROW_*` (every consumer — `top-bar.tsx`,
- * `open-button.tsx`, `view-switcher.tsx`, this menu — already imports this
+ * `open-button.tsx`, this menu — already imports this
  * file). The size is a FIXED square — 28×28 on fine pointers, 30×30 on coarse —
  * replacing the old copy-pasted `min-w-[24px] min-h-[24px]` floors, which let
  * rendered sizes drift with content (the sidebar toggle rendered visibly
@@ -95,7 +95,7 @@ export const POPOVER_ROW_CLASS =
  *    chips that carry their OWN border (UpdateChip) and must align with the
  *    square buttons without a fixed width.
  *  - `TOP_BAR_SEGMENT_H` — the height for segments INSIDE a bordered chip
- *    wrapper (the split/Open/ViewSwitcher segment groups): the wrapper's
+ *    wrapper (the split/Open segment groups): the wrapper's
  *    border adds 2px, so segments are 2px shorter to keep the chip's TOTAL
  *    box identical to the squares (26+2 = 28 fine, 28+2 = 30 coarse).
  */
@@ -111,8 +111,7 @@ export const TOP_BAR_SEGMENT_H = "h-[26px] coarse:h-[28px]";
  * Menu section identity (260731-oiho): every registry entry names the section
  * its menu rows belong to; the menu renders non-empty sections in the fixed
  * View → Window → App order under thin uppercase labels. The partition
- * preserves registry (pyramid) order within each section, so the view-switcher
- * rows keep leading the menu.
+ * preserves registry (pyramid) order within each section.
  */
 export type MenuGroup = "view" | "window" | "app";
 
@@ -535,8 +534,8 @@ export function TopBarOverflowMenu({ rows, updateOverflowed }: Props) {
       // keyed on the ROLE, not the row wrapper (review S1): the TerminalFont
       // stepper row is a `role="group"` whose `−`/`+` are plain buttons, so
       // stepping the font does NOT match and the menu stays open across repeated
-      // steps. Checkbox toggles (fixed-width, autofit) and view-switcher radio
-      // rows (ViewSwitcherMenuRows) DO close, matching a single-shot menu action.
+      // steps. Checkbox toggles (fixed-width, autofit) and layout-shape radio
+      // rows (LayoutMenuRows) DO close, matching a single-shot menu action.
       onClick={(e) => {
         const t = e.target as HTMLElement;
         if (

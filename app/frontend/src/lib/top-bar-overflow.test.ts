@@ -51,7 +51,7 @@ describe("computeVisibleCount", () => {
   });
 
   it("respects varied (measured, non-uniform) child widths in order", () => {
-    // Items with different real widths (ViewSwitcher-like, chip-like, coarse sizing).
+    // Items with different real widths (chip-like, button-like, coarse sizing).
     // budget = 120. [50, 30, 24, 24] with 4px gaps:
     //  1 = 50
     //  2 = 50 + 4 + 30 = 84

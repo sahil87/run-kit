@@ -213,12 +213,14 @@ export function ShellTitlebarStrip() {
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
     if (dragId === targetId) return;
-    const current = rowsRef.current;
-    const from = current.findIndex((r) => r.id === dragId);
-    const to = current.findIndex((r) => r.id === targetId);
-    if (from === -1 || to === -1) return;
+    // Resolve indexes by id INSIDE the functional updater: React can batch
+    // several dragover updates before a commit refreshes `rowsRef`, so
+    // ref-derived indexes could be stale relative to the `prev` being spliced.
     setServers((prev) => {
       if (!prev) return prev;
+      const from = prev.findIndex((s) => s.id === dragId);
+      const to = prev.findIndex((s) => s.id === targetId);
+      if (from === -1 || to === -1 || from === to) return prev;
       const next = [...prev];
       const [moved] = next.splice(from, 1);
       next.splice(to, 0, moved);

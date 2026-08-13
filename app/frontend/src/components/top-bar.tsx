@@ -541,8 +541,9 @@ export function TopBar({
     // overflow menu keeps BOTH directions as one-action-per-row rows,
     // default (horizontal) first.
     // Terminal mode demotes it to `menuOnly` (260813-w1lf): pane verbs moved
-    // to the tty tile header's pane segment, so the in-bar chip is terminal's
-    // no longer — the menu rows stay as the mobile path + fallback. Board mode
+    // to the tty tile header's pane segment, so the split chip no longer
+    // renders in the bar in terminal mode — the menu rows stay as the mobile
+    // path + fallback. Board mode
     // keeps the in-bar SplitControl untouched (dynamic flag, the n2n4
     // revert-by-flag mechanism).
     {

@@ -204,8 +204,12 @@ func runCodeServerInstall(cmd *cobra.Command, _ []string) error {
 type respawnOutcome int
 
 const (
+	// respawnFailed is the deliberate zero value: it accompanies a non-nil
+	// error and carries no meaning on its own, so a forgotten assignment can
+	// never read as a successful respawn.
+	respawnFailed respawnOutcome = iota
 	// respawnDone: the session was killed and respawned on the managed binary.
-	respawnDone respawnOutcome = iota
+	respawnDone
 	// respawnDaemonDown: the daemon is not running — nothing was touched
 	// (no kill, no tmux probe). The helper prints nothing; the caller owns
 	// the recovery line.
@@ -228,11 +232,11 @@ func respawnCodeServerSession(sink outputSink, version string) (respawnOutcome, 
 	}
 	sink.Notef("Restarting the code-server session on v%s...\n", version)
 	if err := codeServerKillFn(); err != nil {
-		return respawnDone, err
+		return respawnFailed, err
 	}
 	outcome, err := codeServerStartFn()
 	if err != nil {
-		return respawnDone, fmt.Errorf("respawning code-server (the new version IS installed — start it with `rk code-server start`): %w", err)
+		return respawnFailed, fmt.Errorf("respawning code-server (the new version IS installed — start it with `rk code-server start`): %w", err)
 	}
 	if outcome == daemon.EnsureExternallyManaged {
 		// StartCodeServer legitimately declines to respawn when the port is
@@ -272,8 +276,16 @@ func migrateForeignCodeServerSession(sink outputSink, home, version string) erro
 		return nil
 	}
 	managed := codeserver.ManagedBinary(home)
-	if managed == "" || strings.Contains(startCmd, managed) {
-		return nil // ours (or nothing to compare against) — no respawn
+	if managed == "" {
+		// Should not happen right after a successful install (the flip just
+		// activated a verified-executable binary) — but "no anchor" is NOT
+		// "managed", so say why the migration is not running rather than
+		// silently classifying the session as ours.
+		sink.Notef("Managed code-server binary not resolvable after the install — skipping the session migration check.\n")
+		return nil
+	}
+	if strings.Contains(startCmd, managed) {
+		return nil // ours — no respawn
 	}
 	out, err := respawnCodeServerSession(sink, version)
 	if err != nil {

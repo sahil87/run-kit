@@ -365,6 +365,11 @@ var codeServerPaneCommand = func(ctx context.Context, target string) ([]byte, er
 // state). Callers (the `rk code-server install` migration respawn) classify
 // the session by whether this string contains the managed binary path.
 //
+// Callers MUST gate on daemon liveness (daemon.IsRunning) BEFORE calling:
+// this function runs tmux probes (has-session, list-panes), and any tmux
+// command on a dead socket silently births a server — the same hazard the
+// RunJob/StartCodeServer gates exist to prevent.
+//
 // Returns (cmd, exists, err): an absent session is ("", false, nil); a session
 // that exists but cannot be inspected is ("", true, err) — the caller must
 // treat that as uncertain evidence and never kill on it. list-panes, NOT

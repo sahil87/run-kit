@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-13T04:20:17Z"}
+{"args":"fix: reapStaleDaemonSocket kill-server nukes sibling sessions (rk-jobs/rk-code-server/rk-remotes) on daemon restart; scope to exact-match kill-session =rk-daemon","cmd":"fab-new","event":"command","ts":"2026-08-13T04:20:17Z"}
+{"delta":"+4.9","event":"confidence","score":4.9,"trigger":"calc-score","ts":"2026-08-13T04:22:13Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-08-13T04:23:48Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-13T04:26:06Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-13T04:28:10Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-13T04:31:02Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-13T04:35:25Z"}
+{"event":"review","result":"passed","ts":"2026-08-13T04:35:25Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-13T04:37:26Z"}

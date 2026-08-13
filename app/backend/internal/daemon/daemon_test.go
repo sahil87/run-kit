@@ -674,8 +674,8 @@ func TestStart_RefusesWhenPortInUse(t *testing.T) {
 
 // TestReapStaleDaemonSocket_NoOp asserts that reaping when no server is
 // running on the daemon socket does not panic, block, or otherwise misbehave.
-// `kill-server` returns "no server running on …" which the reap suppresses to
-// slog.Debug — the caller observes no signal at all.
+// Each per-session `kill-session` returns "no server running on …" which the
+// reap suppresses to slog.Debug — the caller observes no signal at all.
 func TestReapStaleDaemonSocket_NoOp(t *testing.T) {
 	if !hasTmux() {
 		t.Skip("tmux not in PATH")
@@ -693,6 +693,44 @@ func TestReapStaleDaemonSocket_NoOp(t *testing.T) {
 
 	// Should not panic or block.
 	reapStaleDaemonSocket(ctx)
+}
+
+// TestReapStaleDaemonSocket_SparesSiblings asserts the reap is session-scoped:
+// sibling sessions on the daemon socket (rk-jobs, rk-code-server, rk-remotes —
+// plus anything a prefix-match could hijack, e.g. rk-daemon-x) survive, while
+// stale current-name and legacy-name daemon sessions are killed. The historical
+// `kill-server` here destroyed the siblings on every restart — the rk-jobs
+// update window SIGHUPed itself mid-run and code-server never came back after
+// auto-updates.
+func TestReapStaleDaemonSocket_SparesSiblings(t *testing.T) {
+	if !hasTmux() {
+		t.Skip("tmux not in PATH")
+	}
+	useTestSocket(t)
+	withServerSocket(t, testSocket)
+
+	siblings := []string{"rk-jobs", "rk-code-server", "rk-daemon-x"}
+	stale := []string{SessionName, LegacySessionName}
+	for _, session := range append(append([]string{}, siblings...), stale...) {
+		if err := startOn(testSocket, session); err != nil {
+			t.Fatalf("startOn(%q): %v", session, err)
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
+	defer cancel()
+	reapStaleDaemonSocket(ctx)
+
+	for _, session := range siblings {
+		if !hasSessionOn(testSocket, session) {
+			t.Errorf("sibling session %q was killed by the reap; want it spared", session)
+		}
+	}
+	for _, session := range stale {
+		if hasSessionOn(testSocket, session) {
+			t.Errorf("stale daemon session %q survived the reap; want it killed", session)
+		}
+	}
 }
 
 // TestInnerServePID_NoSession verifies that the helper errors out cleanly when

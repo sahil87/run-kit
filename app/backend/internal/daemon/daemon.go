@@ -202,19 +202,29 @@ func guardPortAvailable() error {
 	)
 }
 
-// reapStaleDaemonSocket attempts a `tmux -L rk-daemon kill-server` to clean up
-// an orphaned socket left behind by a previously-crashed inner serve. Goes
-// through runTmux so it inherits the existing exec.CommandContext + timeout
-// enforcement and stays scoped to serverSocket (never touches the agent-session
-// `runkit` server). Idempotent — `kill-server` against a dead/nonexistent
-// server errors with "no server running on …", which we suppress to slog.Debug
-// because it is the common happy-path case on cold start. Real failures are
-// also logged at Debug and never block startup; if anything is genuinely
-// broken, the subsequent startSession call will surface it.
+// reapStaleDaemonSocket kills any leftover daemon session (current and legacy
+// names, exact-match) on the rk-daemon socket. It is a race-window safety net:
+// Start/StartWithBinary call it only after IsRunning() returned false, so in
+// the common path both kills are no-ops against sessions that are already
+// absent. It MUST target sessions, never the server — the rk-daemon socket is
+// multi-tenant (rk-jobs, rk-code-server, rk-remotes are sibling sessions that
+// deliberately outlive the daemon), and the historical `kill-server` here
+// destroyed all of them on every restart: the rk-jobs update window SIGHUPed
+// itself mid-`shll update` and ensureCodeServer never ran, so code-server was
+// absent after every auto-update (the 260813 bug). Goes through runTmux so it
+// inherits the existing exec.CommandContext + timeout enforcement and stays
+// scoped to serverSocket (never touches the agent-session `runkit` server).
+// Idempotent — `kill-session` against a missing session or dead server errors
+// ("can't find session", "no server running on …"), which we suppress to
+// slog.Debug because it is the common happy-path case. Real failures are also
+// logged at Debug and never block startup; if anything is genuinely broken,
+// the subsequent startSession call will surface it.
 func reapStaleDaemonSocket(ctx context.Context) {
-	slog.Warn("tmux teardown", "audit", "kill", "op", "kill-server", "server", serverSocket, "target", serverSocket, "callers", "daemon.reapStaleDaemonSocket")
-	if err := runTmux(ctx, "kill-server"); err != nil {
-		slog.Debug("daemon socket reap finished with error", "err", err)
+	for _, session := range []string{SessionName, LegacySessionName} {
+		slog.Warn("tmux teardown", "audit", "kill", "op", "kill-session", "server", serverSocket, "target", session, "callers", "daemon.reapStaleDaemonSocket")
+		if err := runTmux(ctx, "kill-session", "-t", "="+session); err != nil {
+			slog.Debug("daemon session reap finished with error", "session", session, "err", err)
+		}
 	}
 }
 

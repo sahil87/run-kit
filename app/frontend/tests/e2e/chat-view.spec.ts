@@ -15,7 +15,8 @@ import { mockStateSocket } from "./_state-socket-mock";
 // action on the existing terminal route. The ViewSwitcher is RETIRED
 // (260812-0c6o): the palette is the ONLY lens-switch surface, the right rail
 // shows NO chat button (SURFACE_RAIL_HIDDEN — chat is palette-only), and the
-// `` Ctrl+` `` chat-toggle chord is gone (rebound to layout zoom). Palette
+// `` Ctrl+` `` chat-toggle chord is gone (unbound since 260813-j3jb — the
+// chord belongs to code-server). Palette
 // selections set `single:<view>` through the shared layout mutation path
 // (surface-layout R12).
 
@@ -273,15 +274,15 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
     await expect(page.getByRole("button", { name: `Rename window agent-win` })).toBeVisible();
   });
 
-  test("Ctrl+` no longer flips to the chat lens (the chat-toggle chord is retired, 260812-0c6o)", async ({ page }) => {
+  test("Ctrl+` no longer flips to the chat lens (the chord is fully unbound, 260813-j3jb)", async ({ page }) => {
     await mockBackend(page, backfillCleared());
     await page.goto(`/${SERVER}/1`);
     // Gate on the heading — the always-present readiness surface.
     await expect(page.getByText("Window", { exact: true })).toBeVisible({ timeout: 10_000 });
 
-    // Ctrl+` is rebound to the layout zoom toggle — on this single-tile layout
-    // that is a visual no-op (and the handler is gated on arity > 1), so the
-    // chord must NOT reach the chat lens: no single:chat, no chat view.
+    // Ctrl+` is fully unbound (the layout-zoom rebind was removed in
+    // 260813-j3jb — the chord belongs to code-server), so it must NOT reach
+    // the chat lens: no single:chat, no chat view.
     await page.keyboard.press("Control+`");
     // Give any erroneous handler a beat to fire, then assert nothing changed.
     await page.waitForTimeout(500);

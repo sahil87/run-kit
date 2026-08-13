@@ -15,7 +15,8 @@ reached through the command palette's `View: Chat` action (or the `?view=chat`
 deep link): the ViewSwitcher is RETIRED (`260812-0c6o`), so the palette is the
 ONLY lens-switch surface, the right rail shows NO chat button
 (`SURFACE_RAIL_HIDDEN` — chat is palette-only), and the former `Ctrl+\``
-chat-toggle chord is gone (rebound to layout zoom).
+chat-toggle chord is gone (fully unbound since `260813-j3jb` — the chord
+belongs to code-server).
 
 ## Shared setup
 
@@ -96,12 +97,12 @@ not jump on the switch. The window rename affordance carries over.
    is visible, the heading still shows the `Window:` prefix, and the `Rename
    window agent-win` heading button is present.
 
-### `Ctrl+\` no longer flips to the chat lens (the chat-toggle chord is retired, 260812-0c6o)`
+### `Ctrl+\` no longer flips to the chat lens (the chord is fully unbound, 260813-j3jb)`
 
-**What it proves:** the `Ctrl+\`` chord no longer reaches the chat lens — it is
-rebound to the layout zoom toggle, which on this single-tile layout is a visual
-no-op (its handler is gated on arity > 1). No `single:chat` layout, no chat
-view, no heading change.
+**What it proves:** the `Ctrl+\`` chord no longer reaches the chat lens — the
+chord is fully unbound (the interim layout-zoom rebind was removed in
+`260813-j3jb`; Ctrl+\` belongs to code-server), so it falls through untouched.
+No `single:chat` layout, no chat view, no heading change.
 
 **Steps:**
 1. Navigate to `/default/1`; gate on the `Window:` prefix (the always-present

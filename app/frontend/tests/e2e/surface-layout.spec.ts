@@ -334,7 +334,7 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     });
   });
 
-  test("Ctrl+` toggles the slot-A zoom on a 2-tile layout — even with the terminal focused (260812-0c6o)", async ({
+  test("Ctrl+` is inert (binding removed, 260813-j3jb); the ⛶ verb toggles the slot-A zoom", async ({
     page,
   }) => {
     test.setTimeout(40_000);
@@ -346,12 +346,19 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     await expect(tile(page, "web")).toBeVisible({ timeout: 10_000 });
     await expectLayoutParam(page, "split-h:tty,web");
 
-    // Focus the terminal first — the ctrl-tier chord must win over xterm's
-    // focused textarea (the freed chat-toggle chord's interception plumbing).
+    // The Ctrl+` layout-zoom binding is REMOVED (it collides with code-server's
+    // own Ctrl+`): the chord must fall through untouched — no zoom, both tiles
+    // stay. Focus the terminal first, the spot the old chord interception won.
     await terminal(page).click();
     await page.keyboard.press("Control+`");
-    // Zoomed: slot A (tty) goes full-center — the web tile hides (display-level,
-    // still mounted) and the divider leaves.
+    await page.waitForTimeout(500);
+    await expect(tile(page, "web")).toBeVisible();
+    await expect(divider(page, 0)).toBeVisible();
+
+    // Zoom still works through the tile's ⛶ verb: slot A (tty) goes
+    // full-center — the web tile hides (display-level, still mounted) and the
+    // divider leaves.
+    await page.getByRole("button", { name: "Zoom Terminal", exact: true }).click();
     await expect(tile(page, "web")).toBeHidden({ timeout: 10_000 });
     await expect(tile(page, "web")).toHaveCount(1);
     await expect(divider(page, 0)).toHaveCount(0);
@@ -359,8 +366,9 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     // Zoom is transient (R6): the URL is untouched.
     await expectLayoutParam(page, "split-h:tty,web");
 
-    // A second Ctrl+` unzooms — both tiles and the divider return.
-    await page.keyboard.press("Control+`");
+    // Unzoom via the same verb (now labeled Unzoom) — both tiles and the
+    // divider return.
+    await page.getByRole("button", { name: "Unzoom Terminal", exact: true }).click();
     await expect(tile(page, "web")).toBeVisible({ timeout: 10_000 });
     await expect(divider(page, 0)).toBeVisible();
   });

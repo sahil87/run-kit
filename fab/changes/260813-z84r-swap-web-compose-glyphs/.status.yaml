@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 5
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-08-13T02:36:33Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-13T02:40:38Z"}
     hydrate: {started_at: "2026-08-13T02:40:38Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-13T02:41:58Z"}
     ship: {started_at: "2026-08-13T02:41:58Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-13T02:43:29Z"}
-    review-pr: {started_at: "2026-08-13T02:43:29Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-08-13T02:43:29Z", driver: git-pr, iterations: 1, completed_at: "2026-08-13T02:49:31Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/575
 change_type_source: explicit
@@ -54,4 +54,4 @@ true_impact:
     computed_at_stage: ship
 summary: Swap the Web surface glyph ◫→⧉ (SURFACE_GLYPH single source) and the bottom-bar Compose chip face >_→a▏, with the ▏ bar blinking while the strip is active (rk-compose-caret, reduced-motion static)
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-13T02:43:29Z
+last_updated: 2026-08-13T02:49:31Z

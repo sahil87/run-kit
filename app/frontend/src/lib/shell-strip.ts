@@ -82,6 +82,12 @@ export interface ShellHostMenuRow {
   active: boolean;
   /** Accelerator hint mirroring the native Hosts menu, or null past the cap. */
   hint: string | null;
+  /** The host's instance accent color (left-edge bar), hex-validated — null
+   *  when absent or not a strict hex value (never interpolated unvalidated). */
+  accentColor: string | null;
+  /** Cached waiting-agent count (amber ● N), or null — background rows only
+   *  (the active host's attention surface is the dock badge). */
+  waiting: number | null;
 }
 
 /** The entry's origin for display: the store persists origins already, so
@@ -94,10 +100,17 @@ function hostOrigin(url: string): string {
   }
 }
 
+/** Strict hex gate before style interpolation — the shell-side
+ *  `fallbackStripCss` precedent: `#RGB` / `#RRGGBB` / `#RRGGBBAA` only. */
+const HOST_ACCENT_HEX = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
+
 /**
  * Menu rows for the host-switcher dropdown, derived from the bridge's
- * `servers:list` projection (`{id, name, url, active}` — no bridge change
- * needed). List order is preserved (it is the native menu's binding order).
+ * `servers:list` projection. List order is preserved (it is the native
+ * menu's binding order). The additive `accentColor` passes through only when
+ * it hex-validates; `waiting` rides along only when positive and the row is
+ * NOT active (background hosts only). Both are null on older shells, whose
+ * projection omits the fields.
  */
 export function shellHostMenuRows(servers: ShellServer[], platform: string): ShellHostMenuRow[] {
   return servers.map((s, i) => ({
@@ -106,6 +119,10 @@ export function shellHostMenuRows(servers: ShellServer[], platform: string): She
     origin: hostOrigin(s.url),
     active: s.active,
     hint: hostAcceleratorHint(platform, i),
+    accentColor: s.accentColor !== undefined && HOST_ACCENT_HEX.test(s.accentColor)
+      ? s.accentColor
+      : null,
+    waiting: !s.active && s.waiting !== undefined && s.waiting > 0 ? s.waiting : null,
   }));
 }
 

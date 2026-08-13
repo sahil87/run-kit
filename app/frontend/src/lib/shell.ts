@@ -24,6 +24,12 @@ export interface ShellServer {
   name: string;
   url: string;
   active: boolean;
+  /** The host's persisted instance accent color (newer shells; absent on
+   *  older shells and for never-visited hosts). */
+  accentColor?: string;
+  /** The host's cached waiting-agent count (newer shells; absent when the
+   *  host has no live view or a zero count). */
+  waiting?: number;
 }
 
 /** The bridge's `servers` group — thin IPC invokers resolving unknown shapes. */
@@ -35,6 +41,11 @@ interface ShellServersBridge {
 /** A `servers` group that also carries the optional `add` invoker (newer shells). */
 interface ShellServersAddBridge extends ShellServersBridge {
   add: () => Promise<unknown>;
+}
+
+/** A `servers` group that also carries the optional `reorder` invoker (newer shells). */
+interface ShellServersReorderBridge extends ShellServersBridge {
+  reorder: (id: string, toIndex: number) => Promise<unknown>;
 }
 
 declare global {
@@ -89,7 +100,12 @@ function isShellServer(value: unknown): value is ShellServer {
     typeof value.id === "string" &&
     typeof value.name === "string" &&
     typeof value.url === "string" &&
-    typeof value.active === "boolean"
+    typeof value.active === "boolean" &&
+    // Optional fields are strict-when-present: the response comes from our
+    // own shell, which omits fields rather than mistyping them — absence is
+    // always valid (older shells), a wrong-typed present field rejects.
+    (!("accentColor" in value) || typeof value.accentColor === "string") &&
+    (!("waiting" in value) || typeof value.waiting === "number")
   );
 }
 
@@ -172,6 +188,44 @@ export async function addShellHost(): Promise<boolean> {
   );
 }
 
+/**
+ * The `reorder` invoker is additive to the `servers` group (shells older
+ * than the host-switcher's drag/⌥↑⌥↓ reorder expose only list/switch/add),
+ * so it is narrowed separately from `isServersBridge` — the group stays
+ * usable without it.
+ */
+function isServersReorderBridge(
+  bridge: ShellServersBridge,
+): bridge is ShellServersReorderBridge {
+  return "reorder" in bridge && typeof Reflect.get(bridge, "reorder") === "function";
+}
+
+/** True when the shell can reorder its host list (`servers.reorder` present). */
+export function canReorderShellHosts(): boolean {
+  const bridge = serversBridge();
+  return bridge !== null && isServersReorderBridge(bridge);
+}
+
+/**
+ * Move a host to `toIndex` in the shell's host list — the switcher menu's
+ * order IS the ⌥⌘1–9/⇧Ctrl+1–9 accelerator map, so the shell rebuilds its
+ * native menu on commit. Resolves `false` in a plain browser, on an older
+ * shell whose `servers` group lacks the `reorder` invoker, or when the shell
+ * rejects/denies the call. Never throws.
+ */
+export async function reorderShellHosts(id: string, toIndex: number): Promise<boolean> {
+  const bridge = serversBridge();
+  if (!bridge || !isServersReorderBridge(bridge)) return false;
+  let result: unknown;
+  try {
+    result = await bridge.reorder(id, toIndex);
+  } catch {
+    return false;
+  }
+  return (
+    typeof result === "object" && result !== null && "ok" in result && result.ok === true
+  );
+}
 /** The bridge's `badge` group — thin IPC invoker resolving unknown shapes. */
 interface ShellBadgeBridge {
   set: (count: number) => Promise<unknown>;

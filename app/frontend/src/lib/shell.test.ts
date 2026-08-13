@@ -2,8 +2,10 @@ import { describe, it, expect, afterEach } from "vitest";
 import {
   addShellHost,
   canAddShellHost,
+  canReorderShellHosts,
   isShell,
   listShellServers,
+  reorderShellHosts,
   setShellBadge,
   shellInfo,
   switchShellServer,
@@ -253,5 +255,103 @@ describe("setShellBadge", () => {
       badge: { set: () => Promise.reject(new Error("ipc gone")) },
     };
     expect(await setShellBadge(1)).toBe(false);
+  });
+});
+
+// accentColor / waiting are ADDITIVE optionals on the servers:list entries
+// (cross-version shells omit them): absence always parses; a wrong-typed
+// present field rejects the list.
+
+describe("listShellServers optional fields", () => {
+  it("parses a newer shell's accentColor/waiting and an older shell's 4-field entries", async () => {
+    bridgeWith({
+      list: () =>
+        Promise.resolve({
+          ok: true,
+          servers: [
+            { ...serverA, accentColor: "#8b7ff0", waiting: 3 },
+            serverB, // older-shell shape: both optionals absent
+          ],
+        }),
+      switch: () => Promise.resolve({ ok: true }),
+    });
+    expect(await listShellServers()).toEqual([
+      { ...serverA, accentColor: "#8b7ff0", waiting: 3 },
+      serverB,
+    ]);
+  });
+
+  it("resolves null when a present optional is wrong-typed", async () => {
+    bridgeWith({
+      list: () =>
+        Promise.resolve({ ok: true, servers: [{ ...serverA, accentColor: 42 }] }),
+      switch: () => Promise.resolve({ ok: true }),
+    });
+    expect(await listShellServers()).toBeNull();
+    bridgeWith({
+      list: () =>
+        Promise.resolve({ ok: true, servers: [{ ...serverA, waiting: "3" }] }),
+      switch: () => Promise.resolve({ ok: true }),
+    });
+    expect(await listShellServers()).toBeNull();
+  });
+});
+
+// The reorder invoker is ADDITIVE to the servers group (older shells expose
+// only list/switch/add): canReorderShellHosts gates the strip's reorder
+// affordances on its presence, and reorderShellHosts degrades exactly like
+// its siblings — false for plain browser, pre-reorder shells, a non-function
+// member, denial, and rejected invokes.
+
+describe("canReorderShellHosts / reorderShellHosts", () => {
+  it("resolves true on an { ok: true } ack when the group carries reorder", async () => {
+    let seen: { id: string; toIndex: number } | null = null;
+    bridgeWith({
+      list: () => Promise.resolve({ ok: true, servers: [] }),
+      switch: () => Promise.resolve({ ok: true }),
+      reorder: (id: string, toIndex: number) => {
+        seen = { id, toIndex };
+        return Promise.resolve({ ok: true });
+      },
+    });
+    expect(canReorderShellHosts()).toBe(true);
+    expect(await reorderShellHosts("b", 0)).toBe(true);
+    expect(seen).toEqual({ id: "b", toIndex: 0 });
+  });
+
+  it("reads as unavailable in a plain browser and on a shell without reorder (older shell)", async () => {
+    expect(canReorderShellHosts()).toBe(false);
+    expect(await reorderShellHosts("a", 0)).toBe(false);
+    bridgeWith({
+      list: () => Promise.resolve({ ok: true, servers: [serverA, serverB] }),
+      switch: () => Promise.resolve({ ok: true }),
+    });
+    expect(canReorderShellHosts()).toBe(false);
+    expect(await reorderShellHosts("a", 0)).toBe(false);
+  });
+
+  it("reads as unavailable when reorder is not a function", async () => {
+    bridgeWith({
+      list: () => Promise.resolve({ ok: true, servers: [] }),
+      switch: () => Promise.resolve({ ok: true }),
+      reorder: "servers:reorder",
+    });
+    expect(canReorderShellHosts()).toBe(false);
+    expect(await reorderShellHosts("a", 0)).toBe(false);
+  });
+
+  it("resolves false on a denied result and on a rejected invoke", async () => {
+    bridgeWith({
+      list: () => Promise.resolve({ ok: true, servers: [] }),
+      switch: () => Promise.resolve({ ok: true }),
+      reorder: () => Promise.resolve({ ok: false, error: "Not allowed" }),
+    });
+    expect(await reorderShellHosts("a", 0)).toBe(false);
+    bridgeWith({
+      list: () => Promise.resolve({ ok: true, servers: [] }),
+      switch: () => Promise.resolve({ ok: true }),
+      reorder: () => Promise.reject(new Error("ipc gone")),
+    });
+    expect(await reorderShellHosts("a", 0)).toBe(false);
   });
 });

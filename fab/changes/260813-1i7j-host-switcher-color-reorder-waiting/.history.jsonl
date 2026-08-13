@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-13T18:24:32Z"}
+{"args":"Desktop-shell host-switcher menu: per-host accent color edge bar, manual reorder (drag grip + Alt-arrow keyboard move), and per-host waiting counts in the titlebar-strip dropdown","cmd":"fab-new","event":"command","ts":"2026-08-13T18:24:32Z"}
+{"delta":"+4.5","event":"confidence","score":4.5,"trigger":"calc-score","ts":"2026-08-13T18:27:00Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-08-13T18:28:12Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-13T18:30:00Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-13T18:30:14Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-13T18:57:23Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-13T19:03:14Z"}
+{"event":"review","result":"passed","ts":"2026-08-13T19:03:14Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-13T19:12:43Z"}

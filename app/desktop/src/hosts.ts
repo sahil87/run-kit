@@ -28,6 +28,13 @@ export interface HostEntry {
    * state when the tunnel is down — acceptable degradation, no v2 bump.
    */
   remote?: string;
+  /**
+   * The host's instance accent color (`#…` hex as reported by the SPA's
+   * `theme-color` meta via `did-change-theme-color`), persisted so the
+   * host-switcher's edge bar survives cold start. Additive optional field
+   * like `lastPath` — the schema stays version 1.
+   */
+  accentColor?: string;
 }
 
 export interface HostList {
@@ -71,9 +78,9 @@ export function normalizeOrigin(input: string): NormalizeResult {
 /**
  * Parse one stored entry. The required fields (id/name/url) must be strings —
  * anything else rejects the entry (and, via parseHostList, the file). The
- * optional `lastPath` and `remote` are tolerant: absent → fine, string →
- * kept, any other type → the field is dropped but the entry (and file) still
- * loads.
+ * optional `lastPath`, `remote`, and `accentColor` are tolerant: absent →
+ * fine, string → kept, any other type → the field is dropped but the entry
+ * (and file) still loads.
  */
 function parseHostEntry(value: unknown): HostEntry | null {
   if (typeof value !== "object" || value === null) return null;
@@ -91,6 +98,9 @@ function parseHostEntry(value: unknown): HostEntry | null {
   }
   if ("remote" in value && typeof value.remote === "string") {
     entry.remote = value.remote;
+  }
+  if ("accentColor" in value && typeof value.accentColor === "string") {
+    entry.accentColor = value.accentColor;
   }
   return entry;
 }
@@ -202,6 +212,45 @@ export function setHostLastPath(dir: string, id: string, lastPath: string): Host
 }
 
 /**
+ * Record the host's instance accent color (captured from the view's
+ * `did-change-theme-color` reports in main.ts). Unknown id or an unchanged
+ * value is a no-op (nothing written) — capture fires on every theme-color
+ * report, so the fast path avoids rewriting an identical file.
+ */
+export function setHostAccentColor(dir: string, id: string, accentColor: string): HostList {
+  const list = loadHosts(dir);
+  const entry = list.hosts.find((h) => h.id === id);
+  if (!entry || entry.accentColor === accentColor) return list;
+  const next: HostList = {
+    ...list,
+    hosts: list.hosts.map((h) => (h.id === id ? { ...h, accentColor } : h)),
+  };
+  saveHosts(dir, next);
+  return next;
+}
+
+/**
+ * Move a host to `toIndex`, clamped to the list bounds. Order is
+ * user-meaningful — it IS the ⌥⌘1–9/⇧Ctrl+1–9 accelerator map — so this is
+ * the reorder seam behind `servers:reorder`. Unknown id or a move landing on
+ * the entry's current index is a no-op (nothing written); `activeId` and
+ * every other field are untouched — only array order changes.
+ */
+export function moveHost(dir: string, id: string, toIndex: number): HostList {
+  const list = loadHosts(dir);
+  const from = list.hosts.findIndex((h) => h.id === id);
+  if (from === -1) return list;
+  const to = Math.min(Math.max(toIndex, 0), list.hosts.length - 1);
+  if (to === from) return list;
+  const hosts = [...list.hosts];
+  const [moved] = hosts.splice(from, 1);
+  hosts.splice(to, 0, moved);
+  const next: HostList = { ...list, hosts };
+  saveHosts(dir, next);
+  return next;
+}
+
+/**
  * Resolve the host to load at startup / after a mutation: the active entry,
  * falling back to the first host when `activeId` dangles, `null` when the
  * list is empty (welcome page).
@@ -226,20 +275,29 @@ export interface HostInfo {
   name: string;
   url: string;
   active: boolean;
+  /** The entry's persisted instance accent color, when known (never
+   *  null/empty — absent entries omit the field). */
+  accentColor?: string;
+  /** Cached waiting-agent count from the view registry — NEVER filled here
+   *  (this module is store-pure); the `servers:list` handler in main.ts
+   *  joins it in. */
+  waiting?: number;
 }
 
 /**
  * Read-only projection of the list for the `servers:list` IPC surface (the
  * channel name is the SPA-facing contract and keeps its server naming): every
  * entry plus an `active` flag derived via `resolveActiveHost`, so a dangling
- * `activeId` marks the same first-host fallback that startup would load.
+ * `activeId` marks the same first-host fallback that startup would load. The
+ * optional `accentColor` rides along when the entry carries one.
  */
 export function hostInfos(list: HostList): HostInfo[] {
   const activeId = resolveActiveHost(list)?.id ?? null;
-  return list.hosts.map(({ id, name, url }) => ({
+  return list.hosts.map(({ id, name, url, accentColor }) => ({
     id,
     name,
     url,
     active: id === activeId,
+    ...(accentColor !== undefined ? { accentColor } : {}),
   }));
 }

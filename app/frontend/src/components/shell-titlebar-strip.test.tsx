@@ -45,9 +45,15 @@ function accentValue(overrides: Partial<InstanceAccent> = {}): InstanceAccent {
 
 /** Install a bridge whose `servers.list` resolves the given list (`null` =
  *  rejected call, i.e. an older shell / denial). `withAdd` includes the
- *  optional `add` invoker (newer shells — drives the `+ Add Host…` footer).
- *  Returns the list/switch/add spies for call-count and payload assertions. */
-function shellBridge(servers: unknown[] | null, platform = "darwin", withAdd = false) {
+ *  optional `add` invoker (newer shells — drives the `+ Add Host…` footer);
+ *  `withReorder` includes the optional `reorder` invoker (drives the drag
+ *  grip + ⌥↑/⌥↓ move). Returns the spies for call-count/payload assertions. */
+function shellBridge(
+  servers: unknown[] | null,
+  platform = "darwin",
+  withAdd = false,
+  withReorder = false,
+) {
   const list = vi.fn(() =>
     servers === null
       ? Promise.reject(new Error("ipc gone"))
@@ -55,12 +61,18 @@ function shellBridge(servers: unknown[] | null, platform = "darwin", withAdd = f
   );
   const switchFn = vi.fn(() => Promise.resolve({ ok: true }));
   const add = vi.fn(() => Promise.resolve({ ok: true }));
+  const reorder = vi.fn(() => Promise.resolve({ ok: true }));
   window.runkitShell = {
     version: "1.2.3",
     platform,
-    servers: withAdd ? { list, switch: switchFn, add } : { list, switch: switchFn },
+    servers: {
+      list,
+      switch: switchFn,
+      ...(withAdd ? { add } : {}),
+      ...(withReorder ? { reorder } : {}),
+    },
   };
-  return { list, switch: switchFn, add };
+  return { list, switch: switchFn, add, reorder };
 }
 
 function renderStrip(accent: InstanceAccent = accentValue()) {
@@ -82,8 +94,13 @@ const hosts = [
 
 /** Render with a populated bridge and wait for the mount fetch to enable the
  *  switcher trigger. */
-async function renderInteractive(list: unknown[] = hosts, platform = "darwin", withAdd = false) {
-  const bridge = shellBridge(list, platform, withAdd);
+async function renderInteractive(
+  list: unknown[] = hosts,
+  platform = "darwin",
+  withAdd = false,
+  withReorder = false,
+) {
+  const bridge = shellBridge(list, platform, withAdd, withReorder);
   renderStrip();
   await waitFor(() => {
     expect(screen.getByRole("button", { name: "Switch host" })).toBeInTheDocument();
@@ -445,5 +462,202 @@ describe("ShellTitlebarStrip host switcher (260731-4bqi)", () => {
     await waitFor(() => {
       expect(screen.getByText("Shell add host failed")).toBeInTheDocument();
     });
+  });
+});
+
+describe("ShellTitlebarStrip host menu — accent bars, waiting counts, reorder (1i7j)", () => {
+  const coloredHosts = [
+    { id: "a", name: "studio-mac", url: "http://a:3000", active: true, accentColor: "#8b7ff0" },
+    { id: "b", name: "lab", url: "http://b:3000", active: false },
+    { id: "c", name: "buildbox", url: "http://c:3000", active: false, accentColor: "#4a4468" },
+  ];
+
+  it("renders the accent edge bar for hosts with a color, none for colorless rows", async () => {
+    await renderInteractive(coloredHosts);
+    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    const rows = screen.getAllByRole("menuitemradio");
+    const barA = rows[0].querySelector("[data-testid='shell-host-accent-bar']");
+    expect(barA).not.toBeNull();
+    expect((barA as HTMLElement).style.backgroundColor).toBe("rgb(139, 127, 240)");
+    expect(rows[1].querySelector("[data-testid='shell-host-accent-bar']")).toBeNull();
+    const barC = rows[2].querySelector("[data-testid='shell-host-accent-bar']");
+    expect((barC as HTMLElement).style.backgroundColor).toBe("rgb(74, 68, 104)");
+    // The bar overlays the left edge — the row content keeps its alignment.
+    expect(rows[1].textContent).toContain("lab");
+    expect(rows[1].textContent).toContain("http://b:3000");
+  });
+
+  it("renders no bar for a non-hex accentColor (never reaches style interpolation)", async () => {
+    await renderInteractive([
+      { id: "a", name: "evil", url: "http://a:3000", active: true, accentColor: "javascript:alert(1)" },
+    ]);
+    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    expect(screen.queryByTestId("shell-host-accent-bar")).not.toBeInTheDocument();
+  });
+
+  it("renders the amber waiting chip on background rows only, before the hint", async () => {
+    await renderInteractive([
+      { id: "a", name: "studio-mac", url: "http://a:3000", active: true, waiting: 2 },
+      { id: "b", name: "lab", url: "http://b:3000", active: false, waiting: 3 },
+      { id: "c", name: "quiet", url: "http://c:3000", active: false },
+    ]);
+    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    const rows = screen.getAllByRole("menuitemradio");
+    // Active row: the count is suppressed (the dock badge is its surface).
+    expect(rows[0].textContent).not.toContain("●");
+    // Background row: amber ● N between the origin and the accelerator hint.
+    expect(rows[1].textContent).toContain("● 3");
+    const chip = screen.getByText("● 3");
+    expect(chip.className).toContain("text-amber-600");
+    expect(rows[1].textContent?.indexOf("● 3")).toBeLessThan(
+      rows[1].textContent?.indexOf("⌥⌘2") ?? Infinity,
+    );
+    // Absent count renders nothing extra.
+    expect(rows[2].textContent).not.toContain("●");
+  });
+
+  it("⌥↑ moves the focused row with one invoke per press, live hint re-numbering, focus follows", async () => {
+    const four = [
+      { id: "a", name: "alpha", url: "http://a:3000", active: true },
+      { id: "b", name: "beta", url: "http://b:3000", active: false },
+      { id: "c", name: "gamma", url: "http://c:3000", active: false },
+      { id: "d", name: "delta", url: "http://d:3000", active: false },
+    ];
+    const bridge = await renderInteractive(four, "darwin", false, true);
+    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    let rows = screen.getAllByRole("menuitemradio");
+    await waitFor(() => {
+      expect(document.activeElement).toBe(rows[0]); // active row seeded
+    });
+    fireEvent.keyDown(document, { key: "ArrowDown" }); // focus beta (index 1)
+    expect(document.activeElement).toBe(rows[1]);
+    fireEvent.keyDown(document, { key: "ArrowUp", altKey: true });
+    expect(bridge.reorder).toHaveBeenCalledTimes(1);
+    expect(bridge.reorder).toHaveBeenCalledWith("b", 0);
+    // Optimistic local reorder: beta first, hints re-numbered.
+    rows = screen.getAllByRole("menuitemradio");
+    expect(rows[0].textContent).toContain("beta");
+    expect(rows[0].textContent).toContain("⌥⌘1");
+    expect(rows[1].textContent).toContain("alpha");
+    expect(rows[1].textContent).toContain("⌥⌘2");
+    // Focus stays on the moved row.
+    expect(document.activeElement).toBe(rows[0]);
+    expect(rows[0]).toHaveAttribute("tabindex", "0");
+  });
+
+  it("⌥↑/⌥↓ at the list edges is a no-op (no invoke, no wrap, key swallowed)", async () => {
+    const bridge = await renderInteractive(hosts, "darwin", false, true);
+    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    const rows = screen.getAllByRole("menuitemradio");
+    await waitFor(() => {
+      expect(document.activeElement).toBe(rows[0]);
+    });
+    // First row, move up: swallowed, no invoke (fireEvent false = preventDefaulted).
+    expect(fireEvent.keyDown(document, { key: "ArrowUp", altKey: true })).toBe(false);
+    expect(bridge.reorder).not.toHaveBeenCalled();
+    expect(screen.getAllByRole("menuitemradio")[0].textContent).toContain("studio-mac");
+    // Last row, move down: same.
+    fireEvent.keyDown(document, { key: "ArrowDown" }); // focus lab (index 1)
+    expect(fireEvent.keyDown(document, { key: "ArrowDown", altKey: true })).toBe(false);
+    expect(bridge.reorder).not.toHaveBeenCalled();
+  });
+
+  it("⌥↑/⌥↓ on the Add-Host footer falls through to the roving cycle (footer not movable)", async () => {
+    const bridge = await renderInteractive(hosts, "darwin", true, true);
+    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    const rows = screen.getAllByRole("menuitemradio");
+    const footer = screen.getByRole("menuitem", { name: "Add Host…" });
+    await waitFor(() => {
+      expect(document.activeElement).toBe(rows[0]);
+    });
+    fireEvent.keyDown(document, { key: "ArrowUp" }); // wrap to footer
+    expect(document.activeElement).toBe(footer);
+    fireEvent.keyDown(document, { key: "ArrowDown", altKey: true }); // roves, never moves
+    expect(bridge.reorder).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(rows[0]);
+  });
+
+  it("without the reorder capability, ⌥↑/⌥↓ fall through to today's roving focus (no grips)", async () => {
+    await renderInteractive(hosts); // no reorder invoker
+    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    const rows = screen.getAllByRole("menuitemradio");
+    await waitFor(() => {
+      expect(document.activeElement).toBe(rows[0]);
+    });
+    expect(screen.queryByText("⋮⋮")).not.toBeInTheDocument();
+    for (const row of rows) expect(row).toHaveAttribute("draggable", "false");
+    fireEvent.keyDown(document, { key: "ArrowDown", altKey: true });
+    expect(document.activeElement).toBe(rows[1]); // plain roving move
+  });
+
+  it("drag-drop commits exactly one reorder invocation with optimistic order", async () => {
+    const four = [
+      { id: "a", name: "alpha", url: "http://a:3000", active: true },
+      { id: "b", name: "beta", url: "http://b:3000", active: false },
+      { id: "c", name: "gamma", url: "http://c:3000", active: false },
+      { id: "d", name: "delta", url: "http://d:3000", active: false },
+    ];
+    const bridge = await renderInteractive(four, "darwin", false, true);
+    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    // Grips render (hover-revealed) and rows are draggable.
+    expect(screen.getAllByText("⋮⋮")).toHaveLength(4);
+    const rows = screen.getAllByRole("menuitemradio");
+    for (const row of rows) expect(row).toHaveAttribute("draggable", "true");
+    const dataTransfer = {
+      setData: vi.fn(),
+      types: ["application/x-shell-host-reorder"],
+      effectAllowed: "",
+      dropEffect: "",
+    };
+    // Drag row 4 (delta) onto row 1 (alpha) — insert-before → index 0.
+    fireEvent.dragStart(rows[3], { dataTransfer });
+    expect(dataTransfer.setData).toHaveBeenCalledWith("application/x-shell-host-reorder", "d");
+    fireEvent.dragOver(rows[0], { dataTransfer });
+    fireEvent.drop(rows[0], { dataTransfer });
+    fireEvent.dragEnd(rows[3], { dataTransfer });
+    expect(bridge.reorder).toHaveBeenCalledTimes(1);
+    expect(bridge.reorder).toHaveBeenCalledWith("d", 0);
+    // Optimistic order renders with re-numbered hints.
+    const reordered = screen.getAllByRole("menuitemradio");
+    expect(reordered[0].textContent).toContain("delta");
+    expect(reordered[0].textContent).toContain("⌥⌘1");
+    expect(reordered[1].textContent).toContain("alpha");
+  });
+
+  it("a denied drag-drop reorder surfaces the error toast and refetches the list", async () => {
+    const bridge = await renderInteractive(hosts, "darwin", false, true);
+    bridge.reorder.mockResolvedValue({ ok: false });
+    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    expect(bridge.list).toHaveBeenCalledTimes(2); // mount + open refetch
+    const rows = screen.getAllByRole("menuitemradio");
+    const dataTransfer = {
+      setData: vi.fn(),
+      types: ["application/x-shell-host-reorder"],
+      effectAllowed: "",
+      dropEffect: "",
+    };
+    fireEvent.dragStart(rows[1], { dataTransfer });
+    fireEvent.dragOver(rows[0], { dataTransfer });
+    fireEvent.drop(rows[0], { dataTransfer });
+    await waitFor(() => {
+      expect(screen.getByText("Shell host reorder failed")).toBeInTheDocument();
+    });
+    expect(bridge.list).toHaveBeenCalledTimes(3); // failure refetch reconciles
+  });
+
+  it("older-shell degradation: a plain 4-field projection renders today's menu with no affordances", async () => {
+    // list/switch only (no add, no reorder), entries without accentColor/waiting.
+    await renderInteractive(hosts);
+    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    const rows = screen.getAllByRole("menuitemradio");
+    expect(rows).toHaveLength(2);
+    expect(rows[0].textContent).toContain("✓");
+    expect(rows[0].textContent).toContain("⌥⌘1");
+    expect(rows[1].textContent).toContain("⌥⌘2");
+    expect(screen.queryByTestId("shell-host-accent-bar")).not.toBeInTheDocument();
+    expect(screen.queryByText("⋮⋮")).not.toBeInTheDocument();
+    expect(screen.queryByText(/●/)).not.toBeInTheDocument();
+    for (const row of rows) expect(row).toHaveAttribute("draggable", "false");
+    expect(screen.queryByRole("menuitem", { name: "Add Host…" })).not.toBeInTheDocument();
   });
 });

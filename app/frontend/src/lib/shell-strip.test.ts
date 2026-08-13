@@ -85,8 +85,8 @@ describe("shellHostMenuRows", () => {
       "darwin",
     );
     expect(rows).toEqual([
-      { id: "a", name: "studio-mac", origin: "http://a:3000", active: true, hint: "⌥⌘1" },
-      { id: "b", name: "gcp-box", origin: "http://b:3000", active: false, hint: "⌥⌘2" },
+      { id: "a", name: "studio-mac", origin: "http://a:3000", active: true, hint: "⌥⌘1", accentColor: null, waiting: null },
+      { id: "b", name: "gcp-box", origin: "http://b:3000", active: false, hint: "⌥⌘2", accentColor: null, waiting: null },
     ]);
   });
 
@@ -124,5 +124,41 @@ describe("stripSwitcherEnabled", () => {
   it("is true for a non-empty list", () => {
     const a: ShellServer = { id: "a", name: "studio-mac", url: "http://a:3000", active: true };
     expect(stripSwitcherEnabled([a])).toBe(true);
+  });
+});
+
+describe("shellHostMenuRows accentColor / waiting", () => {
+  const base = { id: "a", name: "studio-mac", url: "http://a:3000", active: false };
+
+  it("passes a valid hex accentColor through (#RGB / #RRGGBB / #RRGGBBAA)", () => {
+    for (const hex of ["#fff", "#8b7ff0", "#8b7ff0cc", "#ABC"]) {
+      const [row] = shellHostMenuRows([{ ...base, accentColor: hex }], "darwin");
+      expect(row.accentColor).toBe(hex);
+    }
+  });
+
+  it("nulls a non-hex accentColor (never reaches style interpolation)", () => {
+    for (const bad of ["javascript:alert(1)", "red", "#12345", "8b7ff0", "#gggggg"]) {
+      const [row] = shellHostMenuRows([{ ...base, accentColor: bad }], "darwin");
+      expect(row.accentColor).toBeNull();
+    }
+  });
+
+  it("nulls accentColor when the field is absent (older shell)", () => {
+    const [row] = shellHostMenuRows([base], "darwin");
+    expect(row.accentColor).toBeNull();
+    expect(row.waiting).toBeNull();
+  });
+
+  it("carries a positive waiting count on a background row", () => {
+    const [row] = shellHostMenuRows([{ ...base, waiting: 3 }], "darwin");
+    expect(row.waiting).toBe(3);
+  });
+
+  it("suppresses waiting on the active row and on zero/absent counts", () => {
+    const [active] = shellHostMenuRows([{ ...base, active: true, waiting: 2 }], "darwin");
+    expect(active.waiting).toBeNull();
+    const [zero] = shellHostMenuRows([{ ...base, waiting: 0 }], "darwin");
+    expect(zero.waiting).toBeNull();
   });
 });

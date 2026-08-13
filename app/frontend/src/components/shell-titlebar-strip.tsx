@@ -3,7 +3,15 @@ import { useInstanceAccent } from "@/contexts/instance-accent-context";
 import { useTheme } from "@/contexts/theme-context";
 import { Tip } from "@/components/tip";
 import { useToast } from "@/components/toast";
-import { addShellHost, canAddShellHost, listShellServers, shellInfo, switchShellServer } from "@/lib/shell";
+import {
+  addShellHost,
+  canAddShellHost,
+  canReorderShellHosts,
+  listShellServers,
+  reorderShellHosts,
+  shellInfo,
+  switchShellServer,
+} from "@/lib/shell";
 import type { ShellServer } from "@/lib/shell";
 import {
   activeShellHostName,
@@ -14,6 +22,7 @@ import {
   stripLabelColor,
   stripSwitcherEnabled,
 } from "@/lib/shell-strip";
+import type { ShellHostMenuRow } from "@/lib/shell-strip";
 
 /**
  * Desktop-shell titlebar strip (260731-ofws): a 28px full-width draggable
@@ -50,7 +59,23 @@ import {
  * in add mode (`servers:add` → the same main-side path as the native
  * `Hosts → Add Host…` menu item). Older shells without the invoker render
  * the menu without the footer.
+ *
+ * Three additive, independently capability-gated row features (1i7j): a
+ * ~3px left-edge bar in the host's persisted accent color (hex-validated in
+ * the row model), an amber `● N` waiting-agent count on BACKGROUND rows
+ * (the active host's attention surface is the dock badge), and manual
+ * reorder — a hover drag grip (commit-on-drop) plus ⌥↑/⌥↓ while the menu is
+ * open (one move per keypress). Order IS the ⌥⌘1–9/⇧Ctrl+1–9 accelerator
+ * map, so reordering re-numbers the hints live; the shell rebuilds its
+ * native menu on each committed move. All three ride the optional
+ * `reorder` invoker / additive projection fields — an older shell renders
+ * exactly the plain marker/name/origin/hint rows.
  */
+
+/** Custom MIME so a host-reorder drag never collides with the other
+ *  drag-reorder payloads (server/session/board-list). */
+const HOST_REORDER_MIME = "application/x-shell-host-reorder";
+
 export function ShellTitlebarStrip() {
   const { titlebarHex } = useInstanceAccent();
   const { theme } = useTheme();
@@ -108,6 +133,9 @@ export function ShellTitlebarStrip() {
   // The `+ Add Host…` footer rides the optional `servers.add` invoker — older
   // shells expose only list/switch and render the menu without it.
   const canAdd = canAddShellHost();
+  // The reorder affordances (drag grip, ⌥↑/⌥↓) ride the optional
+  // `servers.reorder` invoker — an older shell renders plain rows.
+  const canReorder = canReorderShellHosts();
 
   // Latest COMMITTED host-row count, read live inside the capture-phase
   // keydown handler: that handler stays attached from a commit until the
@@ -120,6 +148,102 @@ export function ShellTitlebarStrip() {
   useLayoutEffect(() => {
     hostCountRef.current = rows.length;
   }, [rows.length]);
+
+  // Live copy of the derived rows for the reorder gestures (the keydown
+  // handler's subscription can lag a reorder commit the same way it lags a
+  // count change — the ref always reads the committed order).
+  const rowsRef = useRef<ShellHostMenuRow[]>([]);
+  useLayoutEffect(() => {
+    rowsRef.current = rows;
+  });
+
+  // One committed shell invocation per gesture; a denial/failure surfaces
+  // the toast precedent and refetches so the list reconciles with the store.
+  const commitReorder = useCallback(
+    (id: string, toIndex: number) => {
+      void reorderShellHosts(id, toIndex).then((ok) => {
+        if (!ok) {
+          addToast("Shell host reorder failed", "error");
+          fetchServers();
+        }
+      });
+    },
+    [addToast, fetchServers],
+  );
+
+  // Shared move commit (⌥↑/⌥↓ per keypress): the local list reorders
+  // OPTIMISTICALLY so the accelerator hints re-number immediately, and the
+  // roving-tabindex seat follows the moved row (DOM focus follows on its
+  // own — the row's keyed element moves with it).
+  const moveHostRow = useCallback(
+    (from: number, to: number) => {
+      const row = rowsRef.current[from];
+      if (!row) return;
+      setServers((prev) => {
+        if (!prev) return prev;
+        const next = [...prev];
+        const [moved] = next.splice(from, 1);
+        next.splice(to, 0, moved);
+        return next;
+      });
+      setFocusedIndex(to);
+      commitReorder(row.id, to);
+    },
+    [commitReorder],
+  );
+
+  // Drag-grip reorder (the board-tile/session-reorder precedent): the local
+  // order reorders optimistically during the drag (presentation state — the
+  // open-time refetch reconciles), and exactly ONE reorder invocation
+  // commits at drop, keyed on the immutable host id.
+  const dragIdRef = useRef<string | null>(null);
+
+  const onRowDragStart = useCallback((e: React.DragEvent, id: string) => {
+    dragIdRef.current = id;
+    e.dataTransfer.setData(HOST_REORDER_MIME, id);
+    e.dataTransfer.effectAllowed = "move";
+  }, []);
+
+  const onRowDragOver = useCallback((e: React.DragEvent, targetId: string) => {
+    const dragId = dragIdRef.current;
+    if (!dragId || !e.dataTransfer.types.includes(HOST_REORDER_MIME)) return;
+    // Accept the drop BEFORE the self-target bail: the final dragover lands
+    // on the dragged row's own element, and only a preventDefaulted dragover
+    // registers the release as a drop.
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    if (dragId === targetId) return;
+    const current = rowsRef.current;
+    const from = current.findIndex((r) => r.id === dragId);
+    const to = current.findIndex((r) => r.id === targetId);
+    if (from === -1 || to === -1) return;
+    setServers((prev) => {
+      if (!prev) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      return next;
+    });
+  }, []);
+
+  const onRowDrop = useCallback(
+    (e: React.DragEvent) => {
+      const dragId = dragIdRef.current;
+      if (!dragId || !e.dataTransfer.types.includes(HOST_REORDER_MIME)) return;
+      e.preventDefault();
+      dragIdRef.current = null;
+      // The optimistic dragover splices already landed the row at its drop
+      // position — commit exactly that index.
+      const to = rowsRef.current.findIndex((r) => r.id === dragId);
+      if (to === -1) return;
+      commitReorder(dragId, to);
+    },
+    [commitReorder],
+  );
+
+  const onRowDragEnd = useCallback(() => {
+    dragIdRef.current = null;
+  }, []);
 
   // An open-time refetch can EMPTY the list: the trigger and menu unmount
   // (interactive flips false) while `open` would otherwise stay true, leaving
@@ -142,8 +266,9 @@ export function ShellTitlebarStrip() {
   }, [open]);
 
   // Escape closes + refocuses the trigger; ArrowDown/ArrowUp move focus with
-  // wraparound (capture-phase, mirroring BreadcrumbDropdown). Enter needs no
-  // handler — the focused row is a native <button>.
+  // wraparound (capture-phase, mirroring BreadcrumbDropdown). With the
+  // reorder capability, ⌥↑/⌥↓ instead MOVES the focused host row. Enter
+  // needs no handler — the focused row is a native <button>.
   useEffect(() => {
     if (!open) return;
     function handleKey(e: KeyboardEvent) {
@@ -167,12 +292,28 @@ export function ShellTitlebarStrip() {
         if (hostCount === 0) return;
         e.preventDefault();
         e.stopPropagation();
+        const delta = e.key === "ArrowDown" ? 1 : -1;
+        // ⌥↑/⌥↓ moves the focused HOST row (all platforms — arrows compose
+        // no characters): one committed move per keypress, hints re-number
+        // live via the optimistic reorder. The Add-Host footer is NOT
+        // movable — Alt-arrows there (and ALL Alt-arrows on an older shell
+        // without the capability) fall through to the roving cycle. No wrap
+        // at the list edges: a move past either end swallows the key
+        // without invoking the shell.
+        if (e.altKey && canReorder) {
+          const from = itemRefs.current.findIndex((el) => el === document.activeElement);
+          if (from >= 0 && from < hostCount) {
+            const to = from + delta;
+            if (to < 0 || to >= hostCount) return;
+            moveHostRow(from, to);
+            return;
+          }
+        }
         // The roving set spans the host rows PLUS the Add-Host footer when
         // the bridge carries it — the footer is the last stop in the arrow
         // cycle. The modulus derives from the same live read, so a
         // shrunk-but-non-empty list also cycles over the live count.
         const count = hostCount + (canAdd ? 1 : 0);
-        const delta = e.key === "ArrowDown" ? 1 : -1;
         setFocusedIndex((prev) => {
           const next = (prev + delta + count) % count;
           itemRefs.current[next]?.focus();
@@ -182,7 +323,7 @@ export function ShellTitlebarStrip() {
     }
     document.addEventListener("keydown", handleKey, { capture: true });
     return () => document.removeEventListener("keydown", handleKey, { capture: true });
-  }, [open, rows.length, canAdd]);
+  }, [open, rows.length, canAdd, canReorder, moveHostRow]);
 
   // Focus lands on the active row on open.
   useEffect(() => {
@@ -303,12 +444,31 @@ export function ShellTitlebarStrip() {
                   aria-checked={row.active}
                   tabIndex={focusedIndex === i ? 0 : -1}
                   onClick={() => selectHost(row.id)}
-                  className={`flex w-full items-baseline gap-2 px-3 py-2 text-left text-sm transition-colors ${
+                  draggable={canReorder}
+                  onDragStart={(e) => onRowDragStart(e, row.id)}
+                  onDragOver={(e) => onRowDragOver(e, row.id)}
+                  onDrop={onRowDrop}
+                  onDragEnd={onRowDragEnd}
+                  className={`group relative flex w-full items-baseline gap-2 py-2 pl-3 text-left text-sm transition-colors ${
+                    canReorder ? "pr-6" : "pr-3"
+                  } ${
                     row.active
                       ? "text-accent"
                       : "text-text-secondary hover:bg-bg-card hover:text-text-primary"
                   }`}
                 >
+                  {/* Accent edge bar — absolutely overlaid on the row's left
+                      edge so a colorless row keeps identical alignment. The
+                      row model hex-validated the value (no interpolation of
+                      unvalidated strings). */}
+                  {row.accentColor !== null && (
+                    <span
+                      aria-hidden="true"
+                      data-testid="shell-host-accent-bar"
+                      className="absolute bottom-1 left-0 top-1 w-[3px] rounded-full"
+                      style={{ backgroundColor: row.accentColor }}
+                    />
+                  )}
                   {/* Active marker column — fixed width so names align. */}
                   <span aria-hidden="true" className="w-3 shrink-0">
                     {row.active ? "✓" : ""}
@@ -317,11 +477,33 @@ export function ShellTitlebarStrip() {
                   {/* Dimmed origin — display names are not unique, the origin
                       disambiguates. */}
                   <span className="min-w-0 truncate text-xs opacity-60">{row.origin}</span>
+                  {/* Amber waiting-agent count — BACKGROUND hosts only (the
+                      row model nulls the active row's count; the dock badge
+                      is the active host's attention surface). Waiting-only
+                      semantics: 0/absent renders nothing. */}
+                  {row.waiting !== null && (
+                    <span className="ml-auto shrink-0 pl-2 text-xs text-amber-600">
+                      ● {row.waiting}
+                    </span>
+                  )}
                   {/* Trailing accelerator hint mirroring the native Hosts
                       menu bindings (⌥⌘1–9 mac / ⇧Ctrl+1–9 win-linux, 9-cap). */}
                   {row.hint && (
-                    <span className="ml-auto shrink-0 pl-2 text-xs text-text-secondary">
+                    <span
+                      className={`${row.waiting === null ? "ml-auto " : ""}shrink-0 pl-2 text-xs text-text-secondary`}
+                    >
                       {row.hint}
+                    </span>
+                  )}
+                  {/* Drag grip — hover-revealed at the row's trailing edge
+                      (the `pr-6` above reserves its width). Visual affordance
+                      only; the row itself is the draggable. */}
+                  {canReorder && (
+                    <span
+                      aria-hidden="true"
+                      className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] leading-none tracking-[-2px] text-text-secondary opacity-0 transition-opacity group-hover:opacity-60"
+                    >
+                      ⋮⋮
                     </span>
                   )}
                 </button>

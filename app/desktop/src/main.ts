@@ -79,10 +79,12 @@ import {
   HostInfo,
   hostInfos,
   loadHosts,
+  moveHost,
   normalizeOrigin,
   removeHost,
   resolveActiveHost,
   setActiveHost,
+  setHostAccentColor,
   setHostLastPath,
 } from "./hosts";
 import {
@@ -394,6 +396,11 @@ function createHostView(hostId: string): WebContentsView {
   // the switch seam re-applies the incoming view's cached color instead).
   contents.on("did-change-theme-color", (_event, color) => {
     views = setViewThemeColor(views, hostId, color);
+    // Persist the accent per host entry so the host-switcher's edge bar
+    // survives cold start. A null report never clears the stored value; the
+    // dev sentinel view (__dev__) matches no entry — the membership guard
+    // silently covers it. Unchanged values short-circuit (no write).
+    if (color !== null) setHostAccentColor(userDataDir(), hostId, color);
     if (views.activeHostId === hostId) {
       applyOverlayColor(color ?? DEFAULT_STRIP_COLOR);
     }
@@ -1117,6 +1124,14 @@ function parseAddPayload(value: unknown): { name: string; url: string } | null {
   return { name, url: value.url };
 }
 
+function parseReorderPayload(value: unknown): { id: string; toIndex: number } | null {
+  if (typeof value !== "object" || value === null) return null;
+  if (!("id" in value) || typeof value.id !== "string") return null;
+  if (!("toIndex" in value) || typeof value.toIndex !== "number") return null;
+  if (!Number.isInteger(value.toIndex) || value.toIndex < 0) return null;
+  return { id: value.id, toIndex: value.toIndex };
+}
+
 function registerIpcHandlers(): void {
   ipcMain.handle(
     "welcome:test-host",
@@ -1179,7 +1194,18 @@ function registerIpcHandlers(): void {
   // entries are hosts shell-side.
   ipcMain.handle("servers:list", (event): ServersListResult => {
     if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
-    return { ok: true, servers: hostInfos(loadHosts(userDataDir())) };
+    // Join the store projection with the view registry's cached badge counts:
+    // a host with a live view whose last `badge:set` report was > 0 carries
+    // `waiting` (the switcher menu's amber ● N); never-visited hosts (no
+    // view) and zero counts omit the field. The menu refetches on every
+    // open, so this open-time snapshot needs no subscription.
+    const servers = hostInfos(loadHosts(userDataDir())).map((info) => {
+      const view = getView(views, info.id);
+      return view !== null && view.badgeCount > 0
+        ? { ...info, waiting: view.badgeCount }
+        : info;
+    });
+    return { ok: true, servers };
   });
 
   ipcMain.handle("servers:switch", (event, id: unknown): IpcResult => {
@@ -1196,6 +1222,21 @@ function registerIpcHandlers(): void {
   ipcMain.handle("servers:add", (event): IpcResult => {
     if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
     return openAddHost();
+  });
+
+  // servers:reorder — move-by-id ({id, toIndex}); a full-array payload would
+  // trust renderer-supplied order, so only the immutable id + target index
+  // cross the bridge. List order IS the native menu's accelerator map, so a
+  // committed move rebuilds the menu to re-derive the ⌥⌘1–9/⇧Ctrl+1–9
+  // bindings. An unknown id is the store's no-op convention (still ok — the
+  // rebuild is harmless), not an error.
+  ipcMain.handle("servers:reorder", (event, payload: unknown): IpcResult => {
+    if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
+    const parsed = parseReorderPayload(payload);
+    if (!parsed) return { ok: false, error: "Invalid request" };
+    moveHost(userDataDir(), parsed.id, parsed.toIndex);
+    rebuildMenu();
+    return { ok: true };
   });
 
   // badge:* — the SPA's waiting-agent count report, gated exactly like

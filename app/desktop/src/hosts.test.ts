@@ -14,11 +14,13 @@ import {
   findHostByOrigin,
   hostInfos,
   loadHosts,
+  moveHost,
   normalizeOrigin,
   removeHost,
   resolveActiveHost,
   saveHosts,
   setActiveHost,
+  setHostAccentColor,
   setHostLastPath,
 } from "./hosts";
 
@@ -361,4 +363,123 @@ test("loadHosts keeps a pre-remote file unchanged (schema still version 1)", () 
   assert.equal(loaded.version, 1);
   assert.equal(loaded.hosts.length, 1);
   assert.equal("remote" in loaded.hosts[0], false);
+});
+
+test("loadHosts keeps a string accentColor and drops a wrong-typed one (schema still version 1)", () => {
+  const dir = tmpDataDir();
+  const stored = {
+    version: 1,
+    activeId: "a",
+    hosts: [
+      { id: "a", name: "bad", url: "http://h:1", accentColor: 42 },
+      { id: "b", name: "good", url: "http://h:2", accentColor: "#8b7ff0" },
+      { id: "c", name: "plain", url: "http://h:3" },
+    ],
+  };
+  writeFileSync(join(dir, "hosts.json"), JSON.stringify(stored), "utf8");
+  const loaded = loadHosts(dir);
+  assert.equal(loaded.version, 1);
+  assert.equal(loaded.hosts.length, 3);
+  assert.equal("accentColor" in loaded.hosts[0], false);
+  assert.equal(loaded.hosts[1].accentColor, "#8b7ff0");
+  assert.equal("accentColor" in loaded.hosts[2], false);
+});
+
+test("setHostAccentColor sets, overwrites, and round-trips through load", () => {
+  const dir = tmpDataDir();
+  const a = addHost(dir, "a", "http://a:1");
+  const b = addHost(dir, "b", "http://b:2");
+  assert.equal(a.ok && b.ok, true);
+  if (!a.ok || !b.ok) return;
+
+  setHostAccentColor(dir, a.host.id, "#8b7ff0");
+  const next = setHostAccentColor(dir, a.host.id, "#4a4468");
+  assert.equal(next.hosts[0].accentColor, "#4a4468");
+  // Only the target entry is patched.
+  assert.equal("accentColor" in next.hosts[1], false);
+  assert.deepEqual(loadHosts(dir), next);
+});
+
+test("setHostAccentColor with an unknown id writes nothing", () => {
+  const dir = tmpDataDir();
+  const a = addHost(dir, "a", "http://a:1");
+  assert.equal(a.ok, true);
+  if (!a.ok) return;
+
+  const before = readFileSync(join(dir, "hosts.json"), "utf8");
+  const result = setHostAccentColor(dir, "nope", "#8b7ff0");
+  assert.deepEqual(result, a.list);
+  assert.equal(readFileSync(join(dir, "hosts.json"), "utf8"), before);
+});
+
+test("setHostAccentColor with an unchanged value writes nothing", () => {
+  const dir = tmpDataDir();
+  const a = addHost(dir, "a", "http://a:1");
+  assert.equal(a.ok, true);
+  if (!a.ok) return;
+
+  const first = setHostAccentColor(dir, a.host.id, "#8b7ff0");
+  const before = readFileSync(join(dir, "hosts.json"), "utf8");
+  const again = setHostAccentColor(dir, a.host.id, "#8b7ff0");
+  assert.deepEqual(again, first);
+  assert.equal(readFileSync(join(dir, "hosts.json"), "utf8"), before);
+});
+
+test("moveHost reorders by id and leaves activeId untouched", () => {
+  const dir = tmpDataDir();
+  const a = addHost(dir, "a", "http://a:1");
+  assert.equal(a.ok, true);
+  if (!a.ok) return;
+  const b = addHost(dir, "b", "http://b:2");
+  const c = addHost(dir, "c", "http://c:3");
+  assert.equal(b.ok && c.ok, true);
+  if (!b.ok || !c.ok) return;
+
+  const next = moveHost(dir, c.host.id, 0);
+  assert.deepEqual(
+    next.hosts.map((h) => h.id),
+    [c.host.id, a.host.id, b.host.id],
+  );
+  assert.equal(next.activeId, c.host.id); // c was active (added last)
+  assert.deepEqual(loadHosts(dir), next);
+});
+
+test("moveHost clamps an out-of-range target index", () => {
+  const dir = tmpDataDir();
+  const a = addHost(dir, "a", "http://a:1");
+  const b = addHost(dir, "b", "http://b:2");
+  const c = addHost(dir, "c", "http://c:3");
+  assert.equal(a.ok && b.ok && c.ok, true);
+  if (!a.ok || !b.ok || !c.ok) return;
+
+  const next = moveHost(dir, a.host.id, 5);
+  assert.deepEqual(
+    next.hosts.map((h) => h.id),
+    [b.host.id, c.host.id, a.host.id],
+  );
+});
+
+test("moveHost with an unknown id or a same-index move writes nothing", () => {
+  const dir = tmpDataDir();
+  const a = addHost(dir, "a", "http://a:1");
+  const b = addHost(dir, "b", "http://b:2");
+  assert.equal(a.ok && b.ok, true);
+  if (!a.ok || !b.ok) return;
+
+  const before = readFileSync(join(dir, "hosts.json"), "utf8");
+  assert.deepEqual(moveHost(dir, "nope", 0).hosts, b.list.hosts);
+  assert.equal(readFileSync(join(dir, "hosts.json"), "utf8"), before);
+  assert.deepEqual(moveHost(dir, a.host.id, 0).hosts, b.list.hosts);
+  assert.equal(readFileSync(join(dir, "hosts.json"), "utf8"), before);
+});
+
+test("hostInfos carries accentColor when the entry has one (and never fills waiting)", () => {
+  const colored = { id: "h1", name: "one", url: "http://one:1", accentColor: "#8b7ff0" };
+  const plain = { id: "h2", name: "two", url: "http://two:2" };
+  const infos = hostInfos({ version: 1, activeId: "h1", hosts: [colored, plain] });
+  assert.deepEqual(infos, [
+    { id: "h1", name: "one", url: "http://one:1", active: true, accentColor: "#8b7ff0" },
+    { id: "h2", name: "two", url: "http://two:2", active: false },
+  ]);
+  for (const info of infos) assert.equal("waiting" in info, false);
 });

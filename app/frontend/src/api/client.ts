@@ -653,6 +653,21 @@ export async function setWindowMarker(
   });
 }
 
+/** Set (or clear) the window's role via the unified /options contract.
+ *  `role` is "operator"; null OR "" clears it (the server treats an empty
+ *  @rk_role as unset). Setting "operator" clears the role from every other
+ *  window on the server (radio semantics, enforced backend-side). Mirrors
+ *  setWindowMarker. */
+export async function setWindowRole(
+  server: string,
+  windowId: string,
+  role: string | null,
+): Promise<{ ok: boolean }> {
+  return setWindowOptions(server, windowId, {
+    "@rk_role": role == null || role === "" ? "" : role,
+  });
+}
+
 export async function setSessionColor(
   server: string,
   session: string,

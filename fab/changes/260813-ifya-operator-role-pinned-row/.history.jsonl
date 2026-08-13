@@ -1,0 +1,8 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-13T03:43:35Z"}
+{"args":"@rk_role=operator window option — server-scoped operator marking with pinned sidebar row under the SESSIONS header, palette mark/unmark commands, and rk role CLI verb","cmd":"fab-new","event":"command","ts":"2026-08-13T03:43:35Z"}
+{"delta":"+4.3","event":"confidence","score":4.3,"trigger":"calc-score","ts":"2026-08-13T03:45:25Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-13T03:50:29Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-13T04:14:31Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-13T04:21:03Z"}
+{"event":"review","result":"passed","ts":"2026-08-13T04:21:03Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-13T04:30:46Z"}

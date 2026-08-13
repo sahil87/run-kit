@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "run-kit's shll-toolkit-standards conformance posture — constitution binding (§ Toolkit Standards), audit-against-HEAD-build rule, per-standard status. help-dump, readme-extraction, skill, ten principles, update, version PASS. Covers skill topic pages, Principle 9 `--quiet`/reaper caps, SIGTERM-with-grace brew mutations, the help-dump + Principle 9 check every new command surface gets (`rk desktop`, `rk remote`, `rk daemon run`), and install-composition Policy B PASS (Policy A unaudited)."
+description: "run-kit's shll-toolkit-standards conformance posture — constitution binding (§ Toolkit Standards), audit-against-HEAD-build rule, per-standard status. help-dump, readme-extraction, skill, ten principles, update, version PASS. Covers skill topic pages, Principle 9 `--quiet`/reaper caps, SIGTERM-with-grace brew mutations, the help-dump + Principle 9 check every new command surface gets (`rk desktop`, `rk remote`, `rk daemon run`, `rk role`), and install-composition Policy B PASS."
 ---
 # Toolkit Standards Conformance
 
@@ -197,6 +197,24 @@ sibling session) is the third surface measured against the same two checks
   window exists — and there is no progress chatter to drop under `--quiet`.
   Errors are operational (down daemon names the fix, `rk serve -d`); a missing
   `--window` or a missing `--` command is a usage error.
+
+The `rk role <operator|clear>` verb (`role.go` — see
+[architecture](/run-kit/architecture.md) § CLI Subcommands, `role` row) is the
+fourth surface measured against the same two checks
+(`260813-ifya-operator-role-pinned-row`):
+
+- **help-dump: platform-stable registration.** `roleCmd` is registered
+  unconditionally on `rootCmd` in `root.go`'s `init()` and carries a `Long:`
+  block, so the cobra tree walk picks it up with no help-dump code change and
+  the dumped contract is identical on every platform — the `$TMUX_PANE` guard
+  is an operational error at run time (a user typed the command outside tmux),
+  not a registration condition.
+- **Principle 9: the confirmation is data; there is no chatter.** Success
+  prints exactly one `Dataf` line on stdout — `@N role=operator` or
+  `@N role cleared` — surviving `--quiet` (silence would misreport the
+  mutation); there is no progress narration to drop. Errors (unknown action,
+  not inside tmux, tmux failure) flow through `RunE` to stderr with a non-zero
+  exit.
 
 #### Scenario: A new subcommand group keeps the help tree platform-stable
 - **GIVEN** the `rk desktop` group on a Linux host

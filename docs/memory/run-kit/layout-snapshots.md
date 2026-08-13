@@ -22,7 +22,7 @@ The JSON schema (`snapshot.go`):
 |-------|--------|
 | `Snapshot` | `server`, `takenAt`, `serverRank` (nullable, `@rk_server_rank`), `sessionOrder` (`@rk_session_order`), `sessions[]`, plus tombstone-only `diedAt` / `auditedKill` |
 | `Session` | `name`, `createdAt` (unix seconds), `color` (raw `@session_color`), `windows[]` |
-| `Window` | `index`, `id`, `name`, `active`, `layout` (`#{window_layout}`), `color`, `rkType`, `rkUrl`, `marker`, `panes[]` |
+| `Window` | `index`, `id`, `name`, `active`, `layout` (`#{window_layout}`), `color`, `rkType`, `rkUrl`, `marker`, `role` (`@rk_role`), `panes[]` |
 | `Pane` | `id`, `index`, `cwd`, `command`, `active` |
 
 `Pane.Command` is informational only — reported by restore, never relaunched. `Pane.Active` is consumed by restore's active-pane re-select.
@@ -116,7 +116,7 @@ Readers: `LoadLatest`, `LoadAt(server, ts)` (history entry, then tombstone), `Re
 - **Refusal** — a server alive with ≥1 user-facing session (`ListSessions`, which maps a dead server to `(nil, nil)`) is refused. There is no `--force`: restore is for dead servers.
 - **Sessions** — recreated oldest-first with original names. The first window rides `CreateSessionForRestore` (which births the server with the standard pins) and is renumbered from the born base-index to its stored index when they differ; later windows are created at their explicit stored index.
 - **Panes** — fresh shells at the recorded cwd, appended as sequential detached splits. `select-layout` restores geometry best-effort; a failure is a report note, never fatal. A stored active pane beyond position 0 is re-selected via `SelectPane` (splits are detached, so position 0 needs no call).
-- **Options** — `@rk_server_rank`, `@rk_session_order`, session color, and per-window `@color` / `@rk_type` / `@rk_url` / `@rk_marker` are reapplied from the snapshot (empty values are omitted, never unset), and each session's stored active window is re-selected. Every failure is a report note.
+- **Options** — `@rk_server_rank`, `@rk_session_order`, session color, and per-window `@color` / `@rk_type` / `@rk_url` / `@rk_marker` / `@rk_role` are reapplied from the snapshot (empty values are omitted, never unset), and each session's stored active window is re-selected. Every failure is a report note.
 - **Missing cwd** — a deleted worktree falls back to the server default dir (no `-c`) with a note; it never fails the restore.
 - **Report** — what was recreated, what was skipped, per-window notes, and each window's former command so the user can decide what to resume (e.g. `claude -c` per agent window), closing with the attach hint.
 

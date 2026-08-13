@@ -592,3 +592,109 @@ describe("CmdK View Actions (AppShell palette)", () => {
     expect(onRefresh).toHaveBeenCalledOnce();
   });
 });
+
+/**
+ * Tests for the operator mark/unmark palette pair (260813-ifya), from
+ * `windowActions` in app.tsx. "Window: Mark as Operator" is listed when a
+ * current window exists and is NOT the operator; "Window: Unmark Operator"
+ * when it IS. Mirrors the action-construction logic in app.tsx so the test
+ * catches drift if either side changes the gating/label rules.
+ */
+
+/** Build the operator mark/unmark actions matching the pattern in app.tsx. */
+function buildOperatorActions(opts: {
+  hasCurrentWindow: boolean;
+  currentRole?: string;
+  onMark: () => void;
+  onUnmark: () => void;
+}): PaletteAction[] {
+  if (!opts.hasCurrentWindow) return [];
+  return opts.currentRole === "operator"
+    ? [{ id: "window-unmark-operator", label: "Window: Unmark Operator", onSelect: opts.onUnmark }]
+    : [{ id: "window-mark-operator", label: "Window: Mark as Operator", onSelect: opts.onMark }];
+}
+
+describe("CmdK Operator Role Actions", () => {
+  afterEach(cleanup);
+
+  it("shows Mark as Operator (not Unmark) when the current window is not the operator", () => {
+    const actions = buildOperatorActions({
+      hasCurrentWindow: true,
+      currentRole: undefined,
+      onMark: vi.fn(),
+      onUnmark: vi.fn(),
+    });
+
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+
+    expect(screen.getByText("Window: Mark as Operator")).toBeInTheDocument();
+    expect(screen.queryByText("Window: Unmark Operator")).not.toBeInTheDocument();
+  });
+
+  it("shows Unmark Operator (not Mark) when the current window IS the operator", () => {
+    const actions = buildOperatorActions({
+      hasCurrentWindow: true,
+      currentRole: "operator",
+      onMark: vi.fn(),
+      onUnmark: vi.fn(),
+    });
+
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+
+    expect(screen.getByText("Window: Unmark Operator")).toBeInTheDocument();
+    expect(screen.queryByText("Window: Mark as Operator")).not.toBeInTheDocument();
+  });
+
+  it("shows neither when there is no current window", () => {
+    const actions = buildOperatorActions({
+      hasCurrentWindow: false,
+      onMark: vi.fn(),
+      onUnmark: vi.fn(),
+    });
+
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+
+    expect(screen.queryByText("Window: Mark as Operator")).not.toBeInTheDocument();
+    expect(screen.queryByText("Window: Unmark Operator")).not.toBeInTheDocument();
+  });
+
+  it("Mark as Operator onSelect fires the mark seam", () => {
+    const onMark = vi.fn();
+    const actions = buildOperatorActions({
+      hasCurrentWindow: true,
+      onMark,
+      onUnmark: vi.fn(),
+    });
+
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+
+    const input = screen.getByPlaceholderText(/^Type a command/);
+    fireEvent.change(input, { target: { value: "Mark as Operator" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(onMark).toHaveBeenCalledOnce();
+  });
+
+  it("Unmark Operator onSelect fires the unmark seam", () => {
+    const onUnmark = vi.fn();
+    const actions = buildOperatorActions({
+      hasCurrentWindow: true,
+      currentRole: "operator",
+      onMark: vi.fn(),
+      onUnmark,
+    });
+
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+
+    const input = screen.getByPlaceholderText(/^Type a command/);
+    fireEvent.change(input, { target: { value: "Unmark Operator" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(onUnmark).toHaveBeenCalledOnce();
+  });
+});

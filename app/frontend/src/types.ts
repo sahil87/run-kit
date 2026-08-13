@@ -82,6 +82,11 @@ export type WindowInfo = {
    *  "thick". An INDEPENDENT
    *  label axis from `color` — see docs/specs/themes.md. */
   marker?: string;
+  /** Window role from the `@rk_role` window option: ""/absent (no role) |
+   *  "operator" (the server's operator window — the sidebar pins its row at
+   *  the top of the server's session area; server-scoped radio, enforced
+   *  backend-side so at most one window per server carries it). */
+  role?: string;
   /** Generic agent-lifecycle state from the `@rk_agent_state` pane option:
    *  `active` (turn in progress) | `waiting` (blocked on a human — permission
    *  prompt / question dialog) | `idle` (at rest). Empty/absent = unknown.

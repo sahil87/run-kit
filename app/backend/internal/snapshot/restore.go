@@ -336,5 +336,6 @@ func windowOptionOps(win Window) []tmux.WindowOptionOp {
 	add("@rk_type", win.RkType)
 	add("@rk_url", win.RkURL)
 	add("@rk_marker", win.Marker)
+	add("@rk_role", win.Role)
 	return ops
 }

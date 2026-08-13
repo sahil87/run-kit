@@ -70,14 +70,24 @@ func TestParseLayoutWindows(t *testing.T) {
 		{
 			name: "windows with options and active flag",
 			lines: []string{
-				"kit\t@1\t1\tserve\t1\td5d2,204x48,0,0,1\t4\tweb\thttp://x\tsolid",
+				"kit\t@1\t1\tserve\t1\td5d2,204x48,0,0,1\t4\tweb\thttp://x\tsolid\toperator",
 				"kit\t@2\t2\tshell\t0\tabcd,204x48,0,0,2\t\t\t\t",
 			},
 			want: []LayoutWindow{
 				{Session: "kit", WindowID: "@1", Index: 1, Name: "serve", Active: true,
-					Layout: "d5d2,204x48,0,0,1", Color: "4", RkType: "web", RkURL: "http://x", Marker: "solid"},
+					Layout: "d5d2,204x48,0,0,1", Color: "4", RkType: "web", RkURL: "http://x", Marker: "solid", Role: "operator"},
 				{Session: "kit", WindowID: "@2", Index: 2, Name: "shell", Active: false,
 					Layout: "abcd,204x48,0,0,2"},
+			},
+		},
+		{
+			name: "10-field line (no role field) leaves Role empty",
+			lines: []string{
+				"kit\t@1\t1\tserve\t1\td5d2,204x48,0,0,1\t4\tweb\thttp://x\tsolid",
+			},
+			want: []LayoutWindow{
+				{Session: "kit", WindowID: "@1", Index: 1, Name: "serve", Active: true,
+					Layout: "d5d2,204x48,0,0,1", Color: "4", RkType: "web", RkURL: "http://x", Marker: "solid"},
 			},
 		},
 		{

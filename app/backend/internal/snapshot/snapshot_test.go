@@ -50,7 +50,7 @@ func TestCaptureServerAssemblesSnapshot(t *testing.T) {
 		[]tmux.LayoutWindow{
 			{Session: "alpha", WindowID: "@2", Index: 2, Name: "shell", Layout: "l2"},
 			{Session: "alpha", WindowID: "@1", Index: 1, Name: "serve", Active: true, Layout: "l1",
-				Color: "1", RkType: "web", RkURL: "http://x", Marker: "solid"},
+				Color: "1", RkType: "web", RkURL: "http://x", Marker: "solid", Role: "operator"},
 			{Session: "beta", WindowID: "@3", Index: 0, Name: "b", Layout: "l3"},
 		}, nil,
 		map[string][]tmux.LayoutPane{
@@ -88,7 +88,7 @@ func TestCaptureServerAssemblesSnapshot(t *testing.T) {
 		t.Fatalf("alpha windows = %+v", alpha.Windows)
 	}
 	w1 := alpha.Windows[0]
-	if !w1.Active || w1.Layout != "l1" || w1.Color != "1" || w1.RkType != "web" || w1.RkURL != "http://x" || w1.Marker != "solid" {
+	if !w1.Active || w1.Layout != "l1" || w1.Color != "1" || w1.RkType != "web" || w1.RkURL != "http://x" || w1.Marker != "solid" || w1.Role != "operator" {
 		t.Errorf("window @1 = %+v", w1)
 	}
 	// Panes sorted by index.

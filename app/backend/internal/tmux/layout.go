@@ -44,6 +44,7 @@ type LayoutWindow struct {
 	RkType string
 	RkURL  string
 	Marker string
+	Role   string
 }
 
 // LayoutPane is one pane in a layout snapshot read.
@@ -79,6 +80,7 @@ var layoutWindowFormat = strings.Join([]string{
 	"#{@rk_type}",
 	"#{@rk_url}",
 	"#{@rk_marker}",
+	"#{@rk_role}",
 }, listDelim)
 
 // layoutPaneFormat lists the owning window id plus everything needed to
@@ -180,7 +182,7 @@ func parseLayoutWindows(lines []string) []LayoutWindow {
 			continue
 		}
 		seen[windowID] = true
-		out = append(out, LayoutWindow{
+		win := LayoutWindow{
 			Session:  session,
 			WindowID: windowID,
 			Index:    index,
@@ -191,7 +193,12 @@ func parseLayoutWindows(lines []string) []LayoutWindow {
 			RkType:   strings.TrimSpace(parts[7]),
 			RkURL:    strings.TrimSpace(parts[8]),
 			Marker:   strings.TrimSpace(parts[9]),
-		})
+		}
+		// Field 11 (@rk_role) is optional — absent on older captures.
+		if len(parts) >= 11 {
+			win.Role = strings.TrimSpace(parts[10])
+		}
+		out = append(out, win)
 	}
 	return out
 }

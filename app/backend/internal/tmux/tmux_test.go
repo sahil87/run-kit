@@ -591,6 +591,93 @@ func TestParseWindowsMarker(t *testing.T) {
 	}
 }
 
+// windowLineRole builds a 12-field tab-delimited tmux line including the
+// trailing @rk_role field (@color/@rk_type/@rk_url/@rk_marker left empty).
+func windowLineRole(windowID string, index int, name, path string, activityTs int64, active int, paneCmd, role string) string {
+	return fmt.Sprintf("%s%s%d%s%s%s%s%s%d%s%d%s%s%s%s%s%s%s%s%s%s%s%s",
+		windowID, listDelim, index, listDelim, name, listDelim, path, listDelim, activityTs, listDelim, active, listDelim, paneCmd, listDelim, "" /*@color*/, listDelim, "" /*@rk_type*/, listDelim, "" /*@rk_url*/, listDelim, "" /*@rk_marker*/, listDelim, role)
+}
+
+func TestParseWindowsRole(t *testing.T) {
+	const fakeNow int64 = 1700000000
+
+	tests := []struct {
+		name     string
+		line     string
+		wantRole string
+	}{
+		{"operator role", windowLineRole("@0", 0, "a", "/p", fakeNow, 1, "zsh", "operator"), "operator"},
+		{"empty role", windowLineRole("@0", 0, "a", "/p", fakeNow, 1, "zsh", ""), ""},
+		{"unknown role dropped to empty", windowLineRole("@0", 0, "a", "/p", fakeNow, 1, "zsh", "manager"), ""},
+		{"11-field line (no role field) has empty role", windowLineMarker("@0", 0, "a", "/p", fakeNow, 1, "zsh", "solid"), ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseWindows([]string{tt.line}, fakeNow)
+			if len(got) != 1 {
+				t.Fatalf("parseWindows() returned %d windows, want 1", len(got))
+			}
+			if got[0].Role != tt.wantRole {
+				t.Errorf("Role = %q, want %q", got[0].Role, tt.wantRole)
+			}
+		})
+	}
+}
+
+func TestRoleCarriersToClear(t *testing.T) {
+	tests := []struct {
+		name string
+		lines []string
+		keep string
+		want []string
+	}{
+		{
+			"clears every carrier except the target",
+			[]string{"@3" + listDelim + "operator", "@7" + listDelim + "", "@9" + listDelim + "operator"},
+			"@9",
+			[]string{"@3"},
+		},
+		{
+			"zero carriers is a no-op",
+			[]string{"@3" + listDelim + "", "@7" + listDelim + ""},
+			"@9",
+			nil,
+		},
+		{
+			"target already carrying the role is idempotent (not cleared)",
+			[]string{"@9" + listDelim + "operator"},
+			"@9",
+			nil,
+		},
+		{
+			"carriers across sessions on the same server all clear",
+			[]string{"@3" + listDelim + "operator", "@5" + listDelim + "operator"},
+			"@9",
+			[]string{"@3", "@5"},
+		},
+		{
+			"malformed lines are skipped",
+			[]string{"", "@3"},
+			"@9",
+			nil,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := roleCarriersToClear(tt.lines, tt.keep)
+			if len(got) != len(tt.want) {
+				t.Fatalf("roleCarriersToClear() = %v, want %v", got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("roleCarriersToClear()[%d] = %q, want %q", i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}
+
 // paneLine builds an 8-field tab-delimited list-panes line with an empty
 // @rk_agent_state and empty @rk_chat (the common case). Use paneLineAgent to
 // carry an agent state, or paneLineChat to also carry a chat value.

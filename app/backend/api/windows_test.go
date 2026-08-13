@@ -233,6 +233,85 @@ func TestWindowOptionsMarkerDashedThick(t *testing.T) {
 	}
 }
 
+// Set @rk_role=operator — one SetWindowOptions call carrying the role op, with
+// the server-scoped radio clear issued first (keeping the target window).
+func TestWindowOptionsSetRoleOperator(t *testing.T) {
+	ops := &mockTmuxOps{}
+	rec := postOptions(t, ops, "@7", `{"options":{"@rk_role":"operator"}}`)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if len(ops.setWindowOptionsOps) != 1 {
+		t.Fatalf("ops = %v, want exactly 1 (@rk_role)", ops.setWindowOptionsOps)
+	}
+	op, ok := findOp(ops.setWindowOptionsOps, "@rk_role")
+	if !ok || op.Value == nil || *op.Value != "operator" {
+		t.Errorf("@rk_role op = %+v, want value \"operator\"", op)
+	}
+	if !ops.clearWindowRoleCalled {
+		t.Error("ClearWindowRoleExceptOnServer was not called for a role set")
+	}
+	if ops.clearWindowRoleKeepID != "@7" {
+		t.Errorf("radio clear keepID = %q, want %q", ops.clearWindowRoleKeepID, "@7")
+	}
+}
+
+// @rk_role empty string unsets (nil Value op), mirroring @rk_marker — and an
+// unset must NOT trigger the radio clear (nothing is being marked).
+func TestWindowOptionsRoleEmptyUnsets(t *testing.T) {
+	ops := &mockTmuxOps{}
+	rec := postOptions(t, ops, "@7", `{"options":{"@rk_role":""}}`)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	op, ok := findOp(ops.setWindowOptionsOps, "@rk_role")
+	if !ok {
+		t.Fatal("expected @rk_role op")
+	}
+	if op.Value != nil {
+		t.Errorf("@rk_role value = %q, want nil (empty string unsets)", *op.Value)
+	}
+	if ops.clearWindowRoleCalled {
+		t.Error("ClearWindowRoleExceptOnServer must NOT be called for a role unset")
+	}
+}
+
+// Explicit null unsets @rk_role (partial-merge contract) without a radio clear.
+func TestWindowOptionsRoleNullUnsets(t *testing.T) {
+	ops := &mockTmuxOps{}
+	rec := postOptions(t, ops, "@7", `{"options":{"@rk_role":null}}`)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	op, ok := findOp(ops.setWindowOptionsOps, "@rk_role")
+	if !ok || op.Value != nil {
+		t.Errorf("@rk_role op = %+v, want nil value (null unsets)", op)
+	}
+	if ops.clearWindowRoleCalled {
+		t.Error("ClearWindowRoleExceptOnServer must NOT be called for a role unset")
+	}
+}
+
+// Invalid @rk_role (outside the closed set) → 400 and zero tmux calls
+// (validate-all-then-execute).
+func TestWindowOptionsRoleInvalid(t *testing.T) {
+	ops := &mockTmuxOps{}
+	rec := postOptions(t, ops, "@7", `{"options":{"@rk_role":"manager"}}`)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+	if ops.setWindowOptionsCalled {
+		t.Error("SetWindowOptions must NOT be called for invalid role")
+	}
+	if ops.clearWindowRoleCalled {
+		t.Error("ClearWindowRoleExceptOnServer must NOT be called for invalid role")
+	}
+}
+
 // @rk_type empty string unsets (nil Value op); non-empty sets verbatim.
 func TestWindowOptionsRkTypeEmptyUnsets(t *testing.T) {
 	ops := &mockTmuxOps{}

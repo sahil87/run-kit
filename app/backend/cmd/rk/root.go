@@ -66,6 +66,7 @@ func init() {
 	rootCmd.AddCommand(remoteCmd)
 	rootCmd.AddCommand(reaperCmd)
 	rootCmd.AddCommand(snapshotCmd)
+	rootCmd.AddCommand(roleCmd)
 	rootCmd.AddCommand(newShellInitCmd())
 	rootCmd.AddCommand(helpDumpCmd)
 

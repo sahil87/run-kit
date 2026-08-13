@@ -75,6 +75,10 @@ type TmuxOps interface {
 	SetWindowOption(ctx context.Context, windowID, server, option, value string) error
 	UnsetWindowOption(ctx context.Context, windowID, server, option string) error
 	SetWindowOptions(ctx context.Context, windowID, server string, ops []tmux.WindowOptionOp) error
+	// ClearWindowRoleExceptOnServer is the server-scoped @rk_role radio clear:
+	// it unsets the role option on every window of the server except
+	// keepWindowID (see tmux.ClearWindowRoleExcept).
+	ClearWindowRoleExceptOnServer(ctx context.Context, server, keepWindowID string) error
 	CreateWindowWithOptions(session, name, cwd, server string, ops []tmux.WindowOptionOp) error
 	GetSessionOrder(ctx context.Context, server string) ([]string, error)
 	SetSessionOrder(ctx context.Context, server string, order []string) error
@@ -342,6 +346,9 @@ func (p *prodTmuxOps) UnsetWindowOption(ctx context.Context, windowID, server, o
 }
 func (p *prodTmuxOps) SetWindowOptions(ctx context.Context, windowID, server string, ops []tmux.WindowOptionOp) error {
 	return tmux.SetWindowOptions(ctx, windowID, server, ops)
+}
+func (p *prodTmuxOps) ClearWindowRoleExceptOnServer(ctx context.Context, server, keepWindowID string) error {
+	return tmux.ClearWindowRoleExceptOnServer(ctx, server, keepWindowID)
 }
 func (p *prodTmuxOps) CreateWindowWithOptions(session, name, cwd, server string, ops []tmux.WindowOptionOp) error {
 	return tmux.CreateWindowWithOptions(session, name, cwd, server, ops)

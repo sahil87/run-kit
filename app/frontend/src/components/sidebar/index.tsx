@@ -2105,6 +2105,25 @@ function ServerGroupInner(props: ServerGroupProps) {
 
   const naturalNames = useMemo(() => orderedSessions.map((s) => s.name), [orderedSessions]);
 
+  // Operator pinned row (260813-ifya): the one window on this server carrying
+  // `role === "operator"` (the `@rk_role` window option) renders ONCE, pinned
+  // at the top of this group's session area — MOVED out of its session group
+  // (excluded from that group's window rows below), never copied. The backend
+  // enforces server-scoped radio (at most one carrier per server); the first
+  // carrier wins defensively here. Ghost rows are never carriers (no real
+  // windowId / no options). No operator ⇒ null ⇒ nothing renders — no
+  // placeholder, no wrapper, the DOM is identical to before.
+  const operatorEntry = useMemo(() => {
+    for (const session of orderedSessions) {
+      for (const win of session.windows) {
+        if (!isGhostWindow(win) && win.role === "operator") {
+          return { sessionName: session.name, win };
+        }
+      }
+    }
+    return null;
+  }, [orderedSessions]);
+
   // Build this group's roving-row identity slice + a cheap visible-set
   // signature. The slice maps each row key → typed identity for direct
   // Enter/Space activation in the parent (no DOM `.click()` synthesis). The
@@ -2118,6 +2137,20 @@ function ServerGroupInner(props: ServerGroupProps) {
     const slice = new Map<string, RowIdentity>();
     const sigParts: string[] = [];
     if (isOpen) {
+      // The pinned operator row renders ABOVE all session groups, so its key
+      // leads the visible-row order regardless of its home session's collapse
+      // state (it is no longer painted inside that group).
+      if (operatorEntry) {
+        const opRowKey = `${server}:${operatorEntry.win.windowId}`;
+        slice.set(opRowKey, {
+          kind: "window",
+          server,
+          session: operatorEntry.sessionName,
+          windowId: operatorEntry.win.windowId,
+          ghost: false,
+        });
+        sigParts.push(opRowKey);
+      }
       for (const session of orderedSessions) {
         const sessionRowKey = `${server}:${session.name}`;
         const firstWindowId = session.windows[0]?.windowId ?? "";
@@ -2127,6 +2160,9 @@ function ServerGroupInner(props: ServerGroupProps) {
         if (!isCollapsed) {
           for (const win of session.windows) {
             const ghost = isGhostWindow(win);
+            // The operator window's row lives at the top of the group (above);
+            // it must not ALSO register inside its session group.
+            if (operatorEntry && !ghost && win.windowId === operatorEntry.win.windowId) continue;
             // Globally-unique roving key: tmux ids (@N) collide across servers,
             // so namespace by server. Mirrors the WindowRow `data-row-key`.
             const winRowKey = `${server}:${ghost ? `ghost-${win.optimisticId}` : win.windowId}`;
@@ -2143,7 +2179,7 @@ function ServerGroupInner(props: ServerGroupProps) {
       }
     }
     return { rowSlice: slice, rowSignature: sigParts.join("|") };
-  }, [isOpen, orderedSessions, collapsed, server]);
+  }, [isOpen, orderedSessions, collapsed, server, operatorEntry]);
 
   // This group's DATA window keys — every real window the SSE snapshot knows for
   // this server, whether or not its session is expanded and whether or not the
@@ -2356,6 +2392,55 @@ function ServerGroupInner(props: ServerGroupProps) {
 
       {isOpen && (
         <div className="pt-1 pb-1">
+          {/* Pinned operator row (260813-ifya): the ordinary WindowRow for this
+              server's `role === "operator"` window, MOVED to the top of the
+              group's session area (and excluded from its session group below).
+              Placement is the ONLY difference — no badge, frame, or divider.
+              Not draggable (it does not participate in window drag-reorder);
+              it still joins the roving-tabindex tree via rowKey/tabIndex. */}
+          {operatorEntry && (
+            <WindowRow
+              win={operatorEntry.win}
+              session={operatorEntry.sessionName}
+              isSelected={
+                currentSessionName === operatorEntry.sessionName &&
+                (currentWindowId != null
+                  ? currentWindowId === operatorEntry.win.windowId
+                  : operatorEntry.win.isActiveWindow)
+              }
+              isDragOver={false}
+              color={operatorEntry.win.color}
+              marker={operatorEntry.win.marker}
+              rowTints={rowTints}
+              rowBorders={rowBorders}
+              editingWindow={editingWindow}
+              editingName={editingName}
+              inputRef={inputRef}
+              server={server}
+              boards={allBoards}
+              boardsLoading={boardsLoading}
+              isPinnedToAny={pinnedSet.has(`${server}:${operatorEntry.win.windowId}`)}
+              isPinnedToActiveBoard={isPinnedToActiveBoardFor(server, operatorEntry.win.windowId)}
+              isPinnedToBoard={pinnedToBoard}
+              pinnedBoard={boardForWindow(server, operatorEntry.win.windowId)}
+              onNavigateToBoard={onNavigateToBoard}
+              tabIndex={rovingKey === `${server}:${operatorEntry.win.windowId}` ? 0 : -1}
+              rowKey={`${server}:${operatorEntry.win.windowId}`}
+              ariaLevel={2}
+              isBulkSelected={selectedWindows.has(`${server}:${operatorEntry.win.windowId}`)}
+              onRowClick={onWindowRowClick}
+              onSelectWindow={onSelectWindow}
+              onStartEditing={onWindowStartEditing}
+              onWindowNameChange={onWindowNameChange}
+              onRenameKeyDown={onWindowRenameKeyDown}
+              onRenameBlur={onWindowRenameBlur}
+              onKillClick={onWindowRowKill}
+              draggable={false}
+              onColorChange={onWindowColorChange}
+              onMarkerChange={onWindowMarkerChange}
+              onForkWindow={onForkWindow}
+            />
+          )}
           {sessions.length === 0 ? (
             <button
               onClick={() => onCreateSession(server)}
@@ -2369,6 +2454,15 @@ function ServerGroupInner(props: ServerGroupProps) {
             orderedSessions.map((session, sessionIdx) => {
               const isCollapsed = collapsed[`${server}:${session.name}`] ?? false;
               const isGhostSession = "optimistic" in session && session.optimistic;
+              // Move-don't-copy (260813-ifya): the operator window's row is
+              // pinned at the top of the group, so it leaves this session's
+              // window rows (the group renders one fewer row). Ghost rows are
+              // never the carrier.
+              const renderedWindows = operatorEntry
+                ? session.windows.filter(
+                    (w) => isGhostWindow(w) || w.windowId !== operatorEntry.win.windowId,
+                  )
+                : session.windows;
               // Stable per-row tree handles + position metadata (W3C APG).
               const sessionRowKey = `${server}:${session.name}`;
               const windowGroupId = `windows-${server}-${session.name}`;
@@ -2420,7 +2514,7 @@ function ServerGroupInner(props: ServerGroupProps) {
 
                   {!isCollapsed && (
                     <div role="group" id={windowGroupId}>
-                      {session.windows.map((win, winIdx) => {
+                      {renderedWindows.map((win, winIdx) => {
                         const ghost = isGhostWindow(win);
                         // Globally-unique roving key — matches the row's
                         // `data-row-key` handle (namespaced by server because
@@ -2483,7 +2577,7 @@ function ServerGroupInner(props: ServerGroupProps) {
                             tabIndex={rovingKey === winRowKey ? 0 : -1}
                             rowKey={winRowKey}
                             ariaLevel={2}
-                            ariaSetSize={session.windows.length}
+                            ariaSetSize={renderedWindows.length}
                             ariaPosInSet={winIdx + 1}
                             // Bulk multi-select (260807-nf9f): membership drives
                             // `aria-selected` + the inset-ring treatment; the

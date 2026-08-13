@@ -2098,3 +2098,172 @@ describe("Sidebar — desktop selected-row autoscroll (nris)", () => {
     expect(rowScrollCalls()).toHaveLength(0); // but no scroll fires
   });
 });
+
+describe("Sidebar — operator pinned row (260813-ifya)", () => {
+  // A window carrying `role: "operator"` (the `@rk_role` option) is pinned at
+  // the top of its server group's session area — MOVED out of its session
+  // group (rendered exactly once), with no badge/chrome, and not draggable.
+  const OPERATOR_SESSIONS: ProjectSession[] = [
+    {
+      name: "main",
+      windows: [
+        { index: 0, windowId: "@0", name: "shell", worktreePath: "~/a", activity: "idle", isActiveWindow: true, activityTimestamp: 0 },
+        { index: 1, windowId: "@1", name: "operator", worktreePath: "~/a", activity: "idle", isActiveWindow: false, activityTimestamp: 0, role: "operator" },
+        { index: 2, windowId: "@2", name: "logs", worktreePath: "~/a", activity: "idle", isActiveWindow: false, activityTimestamp: 0 },
+      ],
+    },
+  ];
+
+  function renderOperatorSidebar(opts: RenderOpts = {}) {
+    return renderSidebar({
+      currentServer: "primary",
+      sessionsByServer: new Map([
+        ["primary", OPERATOR_SESSIONS],
+        ["alpha", []],
+        ["beta", []],
+      ]),
+      ...opts,
+    });
+  }
+
+  function rowByKey(key: string): HTMLElement | null {
+    return document.querySelector(`[role="tree"] [data-row-key="${key}"]`);
+  }
+
+  it("pins the operator window's row above all session groups, rendered exactly once", () => {
+    renderOperatorSidebar();
+
+    // Exactly one row for the operator window in the whole tree (move, not copy).
+    const rows = document.querySelectorAll('[role="tree"] [data-row-key="primary:@1"]');
+    expect(rows).toHaveLength(1);
+
+    // The pinned row paints BEFORE the session group wrapper (directly under
+    // the group content's top, above all session groups).
+    const sessionGroup = document.querySelector('[data-session-group="main"]')!;
+    expect(
+      rows[0].compareDocumentPosition(sessionGroup) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("excludes the operator window from its session group's rows (one fewer row)", () => {
+    renderOperatorSidebar();
+
+    const sessionGroup = document.querySelector('[data-session-group="main"]')!;
+    const inGroup = Array.from(sessionGroup.querySelectorAll("[data-row-key]")).map((el) =>
+      el.getAttribute("data-row-key"),
+    );
+    expect(inGroup).toEqual(["primary:@0", "primary:@2"]);
+  });
+
+  it("renders the pinned row with the window name only (no session prefix)", () => {
+    renderOperatorSidebar();
+    const pinned = rowByKey("primary:@1")!;
+    // The row's name span carries just the window name.
+    const nameSpan = pinned.querySelector("button .truncate")!;
+    expect(nameSpan).toHaveTextContent(/^operator$/);
+  });
+
+  it("renders no pinned row or placeholder when no window carries the role", () => {
+    // Default fixture (PRIMARY_SESSIONS) has no role field.
+    renderSidebar({ currentServer: "primary" });
+
+    // One window row total, and the group content's FIRST child is the session
+    // group wrapper itself — no placeholder/wrapper element above it.
+    expect(document.querySelectorAll('[role="tree"] [data-row-key^="primary:@"]')).toHaveLength(1);
+    const content = document.querySelector('[data-session-group="main"]')!.parentElement!;
+    expect(content.firstElementChild).toBe(
+      document.querySelector('[data-session-group="main"]'),
+    );
+  });
+
+  it("is not draggable, while ordinary session-group rows stay draggable", () => {
+    renderOperatorSidebar();
+
+    expect(rowByKey("primary:@1")).toHaveAttribute("draggable", "false");
+    expect(rowByKey("primary:@0")).toHaveAttribute("draggable", "true");
+  });
+
+  it("participates in roving tabindex as the first row of the group", () => {
+    renderOperatorSidebar();
+
+    // Initial tab stop is the pinned row (it leads the group's visible rows).
+    const tabbable = Array.from(
+      document.querySelectorAll('[role="tree"] [role="treeitem"][tabindex="0"]'),
+    );
+    expect(tabbable).toHaveLength(1);
+    expect(tabbable[0]).toBe(rowByKey("primary:@1"));
+
+    // ArrowDown walks past it into the session row, exactly like any other row.
+    const tree = screen.getByRole("tree");
+    act(() => { fireEvent.keyDown(tree, { key: "ArrowDown" }); });
+    expect(rowByKey("primary:@1")).toHaveAttribute("tabindex", "-1");
+    const sessionRow = document.querySelector('[data-session-row="primary:main"]') ??
+      document.querySelector('[role="treeitem"][tabindex="0"]');
+    expect(sessionRow).not.toBeNull();
+    expect(sessionRow).toHaveAttribute("tabindex", "0");
+  });
+
+  it("hides the pinned row when its server group is collapsed (no floating orphan)", () => {
+    // Collapse the primary group via its persisted key (scope defaults to ALL,
+    // so per-server collapse applies — the current server is not force-open).
+    localStorage.setItem("runkit-panel-sessions-primary", "false");
+    renderOperatorSidebar();
+
+    expect(
+      screen.getByRole("button", { name: /Expand primary sessions/ }),
+    ).toHaveAttribute("aria-expanded", "false");
+    expect(rowByKey("primary:@1")).toBeNull();
+
+    // Expanding the group brings the pinned row back.
+    fireEvent.click(screen.getByRole("button", { name: /Expand primary sessions/ }));
+    expect(rowByKey("primary:@1")).not.toBeNull();
+  });
+
+  it("keeps the pinned row visible when its HOME SESSION is collapsed", () => {
+    // The row no longer lives inside the session group, so per-session
+    // collapse does not hide it (the group renders zero window rows).
+    localStorage.setItem(SESSION_COLLAPSED_STORAGE_KEY, JSON.stringify({ "primary:main": true }));
+    renderOperatorSidebar();
+
+    expect(rowByKey("primary:@1")).not.toBeNull();
+    expect(rowByKey("primary:@0")).toBeNull();
+    expect(rowByKey("primary:@2")).toBeNull();
+  });
+
+  it("pins at the top of a non-current server's group on the multi-server tree", () => {
+    renderSidebar({
+      currentServer: "primary",
+      sessionsByServer: new Map([
+        ["primary", PRIMARY_SESSIONS],
+        [
+          "alpha",
+          [
+            {
+              name: "ops",
+              windows: [
+                { index: 0, windowId: "@0", name: "worker", worktreePath: "~/a", activity: "idle", isActiveWindow: false, activityTimestamp: 0 },
+                { index: 1, windowId: "@1", name: "operator", worktreePath: "~/a", activity: "idle", isActiveWindow: false, activityTimestamp: 0, role: "operator" },
+              ],
+            },
+          ],
+        ],
+        ["beta", []],
+      ]),
+    });
+
+    // Alpha's group starts collapsed on the ALL tree; open it.
+    fireEvent.click(screen.getByRole("button", { name: /Expand alpha sessions/ }));
+
+    const rows = document.querySelectorAll('[role="tree"] [data-row-key="alpha:@1"]');
+    expect(rows).toHaveLength(1);
+    const sessionGroup = document.querySelector('[data-session-group="ops"]')!;
+    expect(
+      rows[0].compareDocumentPosition(sessionGroup) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    // Excluded from its session group there too.
+    const inGroup = Array.from(sessionGroup.querySelectorAll("[data-row-key]")).map((el) =>
+      el.getAttribute("data-row-key"),
+    );
+    expect(inGroup).toEqual(["alpha:@0"]);
+  });
+});

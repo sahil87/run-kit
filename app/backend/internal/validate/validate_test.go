@@ -502,6 +502,25 @@ func TestValidateMarkerValue(t *testing.T) {
 	}
 }
 
+func TestValidateRoleValue(t *testing.T) {
+	// The empty string is valid — it means "unset" (no role). The closed set is
+	// the single "operator" role.
+	valid := []string{"", "operator"}
+	for _, v := range valid {
+		if msg := ValidateRoleValue(v); msg != "" {
+			t.Errorf("ValidateRoleValue(%q) = %q, want valid", v, msg)
+		}
+	}
+	// Anything outside the closed set is rejected (case-sensitive, no whitespace
+	// tolerance — writers only ever send the canonical token).
+	invalid := []string{"Operator", "OPERATOR", " operator ", "op", "manager", "worker", "4", "none", "true"}
+	for _, v := range invalid {
+		if msg := ValidateRoleValue(v); msg == "" {
+			t.Errorf("ValidateRoleValue(%q) = valid, want error", v)
+		}
+	}
+}
+
 func TestNormalizeColorValue(t *testing.T) {
 	cases := map[string]struct {
 		want string

@@ -215,6 +215,27 @@ func ValidateMarkerValue(value string) string {
 	return "Marker must be one of: dotted, dashed, solid, double, thick (or empty to clear)"
 }
 
+// RoleValues is the closed set of accepted @rk_role window-option values.
+// The empty string means "unset" (no role); "operator" marks the window as the
+// server's operator (the orchestrator window, pinned below the SESSIONS header
+// in the sidebar). A closed set bounds the injection/abuse surface
+// (constitution §I) exactly as the marker-value rule does — the value flows
+// into `tmux set-option`.
+var RoleValues = map[string]bool{
+	"": true, "operator": true,
+}
+
+// ValidateRoleValue validates an @rk_role value: one of ""/operator. Returns
+// an empty string if valid, an error message otherwise. An empty value is
+// valid (it means unset). Mirrors ValidateMarkerValue as the single shared
+// role-value rule reused by the window-option handler and the rk role CLI.
+func ValidateRoleValue(value string) string {
+	if RoleValues[value] {
+		return ""
+	}
+	return "Role must be one of: operator (or empty to clear)"
+}
+
 // windowIDPattern matches a tmux window ID: an '@' followed by one or more digits
 // (e.g. "@5"). Window IDs originate from tmux's #{window_id} and are never
 // user-typed, but they flow into subprocess args, so they are validated against

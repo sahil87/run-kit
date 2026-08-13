@@ -58,6 +58,7 @@ func TestCaptureRestoreRoundTripLiveTmux(t *testing.T) {
 	tmuxCmd(t, socket, "new-session", "-d", "-s", "beta", "-n", "b", "-c", home, "-x", "120", "-y", "40")
 	tmuxCmd(t, socket, "set-option", "-t", "=alpha:", "@session_color", "4")
 	tmuxCmd(t, socket, "set-option", "-w", "-t", "=alpha:agent", "@rk_marker", "solid")
+	tmuxCmd(t, socket, "set-option", "-w", "-t", "=alpha:agent", "@rk_role", "operator")
 	tmuxCmd(t, socket, "set-option", "-s", "@rk_server_rank", "7")
 
 	before, err := CaptureServer(context.Background(), socket)
@@ -119,6 +120,9 @@ func TestCaptureRestoreRoundTripLiveTmux(t *testing.T) {
 			}
 			if gw.Marker != win.Marker {
 				t.Errorf("window %s marker = %q, want %q", win.Name, gw.Marker, win.Marker)
+			}
+			if gw.Role != win.Role {
+				t.Errorf("window %s role = %q, want %q", win.Name, gw.Role, win.Role)
 			}
 			if len(gw.Panes) != len(win.Panes) {
 				t.Errorf("window %s panes = %d, want %d", win.Name, len(gw.Panes), len(win.Panes))

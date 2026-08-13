@@ -114,7 +114,7 @@ import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 import { LogoSpinner } from "@/components/logo-spinner";
 import type { ServerInfo } from "@/api/client";
 
-import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, sendChatMessage, refreshStatus, isInfraServer, spawnRiff, getRiffPresets, forkWindow } from "@/api/client";
+import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowRole, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, sendChatMessage, refreshStatus, isInfraServer, spawnRiff, getRiffPresets, forkWindow } from "@/api/client";
 import { useBoards } from "@/hooks/use-boards";
 import { useWindowPins } from "@/hooks/use-window-pins";
 import { usePinActions } from "@/hooks/use-pin-actions";
@@ -2086,6 +2086,35 @@ function AppShell() {
                 );
               },
             },
+            // Operator mark/unmark pair (260813-ifya) — the manual fallback for
+            // the `@rk_role=operator` window option: Mark is listed when the
+            // current window is NOT the operator, Unmark when it IS. Both POST
+            // through the unified /options contract (`setWindowRole`); the
+            // write wakes the SSE hub, so the sidebar's pinned row moves on
+            // the next snapshot (no client refresh/poll needed).
+            ...(currentWindow.role === "operator"
+              ? [
+                  {
+                    id: "window-unmark-operator",
+                    label: "Window: Unmark Operator",
+                    onSelect: () => {
+                      setWindowRole(server, currentWindow.windowId, null).catch((err) =>
+                        addToast(err.message || "Failed to unmark operator"),
+                      );
+                    },
+                  },
+                ]
+              : [
+                  {
+                    id: "window-mark-operator",
+                    label: "Window: Mark as Operator",
+                    onSelect: () => {
+                      setWindowRole(server, currentWindow.windowId, "operator").catch((err) =>
+                        addToast(err.message || "Failed to mark window as operator"),
+                      );
+                    },
+                  },
+                ]),
             // NOTE: the old `toggle-iframe-terminal` action (which mutated
             // `@rk_type`) was REPLACED by the `View: Terminal` / `View: Web`
             // actions in `viewActions` (260714-t97o-web-view-lens) — switching a

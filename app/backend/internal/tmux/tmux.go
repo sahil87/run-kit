@@ -29,6 +29,14 @@ const SessionOrderOption = "@rk_session_order"
 // own rank — no cross-server merge rule is needed. Mirrors SessionOrderOption.
 const ServerRankOption = "@rk_server_rank"
 
+// RoleOption is the tmux window user option that marks a window's orchestration
+// role. The value set is closed: "" (unset) | "operator". "operator" is a
+// server-scoped radio — at most one window per tmux server carries it, enforced
+// by every rk write path (ClearWindowRoleExcept) — and the sidebar pins that
+// window's row directly below the SESSIONS header. Mirrors the @rk_marker
+// option family (validate.MarkerValues / ValidateRoleValue).
+const RoleOption = "@rk_role"
+
 // OriginalTMUX captures the TMUX env var before init() strips it.
 // Package-level var init runs before init(), so this sees the original value.
 // Used by cmd/rk/context.go to restore TMUX in child process environments
@@ -483,7 +491,13 @@ type WindowInfo struct {
 	// "double"/"thick". An independent label axis from Color — see
 	// docs/specs/themes.md. Unknown tokens are dropped to "" by parseWindows.
 	Marker string     `json:"marker,omitempty"`
-	Panes  []PaneInfo `json:"panes,omitempty"`
+	// Role is the window's orchestration role, sourced from the @rk_role window
+	// user option: "" (unset)/"operator". "operator" is a server-scoped radio —
+	// at most one window per server carries it — and the sidebar pins that
+	// window's row below the SESSIONS header. Unknown tokens are dropped to ""
+	// by parseWindows (the Marker idiom).
+	Role  string     `json:"role,omitempty"`
+	Panes []PaneInfo `json:"panes,omitempty"`
 }
 
 // tmuxExecServer runs a tmux command targeting the specified server and returns stdout lines (empty lines filtered).
@@ -782,10 +796,10 @@ func parsePanes(lines []string) map[string][]PaneInfo {
 
 // parseWindows parses tmux list-windows output lines into WindowInfo structs.
 // nowUnix is the current Unix timestamp for activity threshold computation.
-// Lines have 11 tab-delimited fields: window_id, window_index, window_name,
+// Lines have 12 tab-delimited fields: window_id, window_index, window_name,
 // pane_current_path, window_activity, window_active, pane_current_command,
-// @color, @rk_type, @rk_url, @rk_marker. Lines with fewer than 8 fields are
-// skipped; fields 9-11 are optional (empty string if absent).
+// @color, @rk_type, @rk_url, @rk_marker, @rk_role. Lines with fewer than 8
+// fields are skipped; fields 9-12 are optional (empty string if absent).
 // Exported for testing.
 func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 	var windows []WindowInfo
@@ -831,6 +845,15 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 			}
 		}
 
+		// Role is a closed-set token ("operator"); drop any value outside the
+		// set (including "") to the empty unset state. Same idiom as Marker.
+		var role string
+		if len(parts) >= 12 {
+			if r := strings.TrimSpace(parts[11]); validate.RoleValues[r] {
+				role = r
+			}
+		}
+
 		windows = append(windows, WindowInfo{
 			Index:             index,
 			WindowID:          windowID,
@@ -844,6 +867,7 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 			RkType:            rkType,
 			RkUrl:             rkUrl,
 			Marker:            marker,
+			Role:              role,
 		})
 	}
 	return windows
@@ -886,6 +910,7 @@ func ListWindows(ctx context.Context, session string, server string) ([]WindowIn
 		"#{@rk_type}",
 		"#{@rk_url}",
 		"#{@rk_marker}",
+		"#{@rk_role}",
 	}, listDelim)
 
 	lines, err := tmuxExecServer(ctx, server, "list-windows", "-t", ExactSessionTarget(session), "-F", format)
@@ -1590,6 +1615,66 @@ func SetWindowOption(ctx context.Context, windowID string, server, option, value
 func UnsetWindowOption(ctx context.Context, windowID string, server, option string) error {
 	_, err := tmuxExecServer(ctx, server, "set-option", "-wu", "-t", windowID, option)
 	return err
+}
+
+// roleCarriersFormat is the list-windows format for the @rk_role radio clear:
+// window id plus its current @rk_role value.
+var roleCarriersFormat = strings.Join([]string{"#{window_id}", "#{@rk_role}"}, listDelim)
+
+// roleCarriersToClear parses roleCarriersFormat lines into the window IDs whose
+// RoleOption must be unset: every window carrying a non-empty role except
+// keepWindowID. Pure so the radio rule is unit-testable without a live server.
+func roleCarriersToClear(lines []string, keepWindowID string) []string {
+	var out []string
+	for _, line := range lines {
+		parts := strings.Split(line, listDelim)
+		if len(parts) < 2 {
+			continue
+		}
+		id := strings.TrimSpace(parts[0])
+		if id == "" || id == keepWindowID || strings.TrimSpace(parts[1]) == "" {
+			continue
+		}
+		out = append(out, id)
+	}
+	return out
+}
+
+// ClearWindowRoleExcept unsets RoleOption on every window on the target server
+// except keepWindowID — the server-scoped radio half of the @rk_role contract:
+// at most one window per server carries "operator". prefix is the
+// server-targeting argv prefix (serverArgs(server) from the daemon/API, ["-S",
+// socket] from an in-pane CLI) so every rk writer shares this one enforcement
+// point; enforcement lives server-side in rk, never trusted to clients. The
+// carriers are enumerated with one list-windows -a read and cleared with a
+// single ;-chained set-option -wu batch (zero carriers → no tmux write call).
+func ClearWindowRoleExcept(ctx context.Context, prefix []string, keepWindowID string) error {
+	listArgs := append(append([]string{}, prefix...), "list-windows", "-a", "-F", roleCarriersFormat)
+	out, err := RunOutput(ctx, listArgs, RunOpts{})
+	if err != nil {
+		return err
+	}
+	raw := strings.Trim(string(out), "\n\r ")
+	if raw == "" {
+		return nil
+	}
+	var unset []string
+	for _, id := range roleCarriersToClear(strings.Split(raw, "\n"), keepWindowID) {
+		if len(unset) > 0 {
+			unset = append(unset, ";")
+		}
+		unset = append(unset, "set-option", "-wu", "-t", id, RoleOption)
+	}
+	if len(unset) == 0 {
+		return nil
+	}
+	return Run(ctx, append(append([]string{}, prefix...), unset...), RunOpts{})
+}
+
+// ClearWindowRoleExceptOnServer is the server-name flavor of
+// ClearWindowRoleExcept for daemon/API callers (prefix derived via serverArgs).
+func ClearWindowRoleExceptOnServer(ctx context.Context, server, keepWindowID string) error {
+	return ClearWindowRoleExcept(ctx, serverArgs(server), keepWindowID)
 }
 
 // WindowOptionOp is a single set-or-unset operation on a window option, consumed

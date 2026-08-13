@@ -129,6 +129,8 @@ type mockTmuxOps struct {
 	setWindowOptionsCalled   bool
 	setWindowOptionsWindowID string
 	setWindowOptionsOps      []tmux.WindowOptionOp
+	clearWindowRoleCalled    bool
+	clearWindowRoleKeepID    string
 
 	createWindowWithOptionsCalled  bool
 	createWindowWithOptionsSession string
@@ -399,6 +401,11 @@ func (m *mockTmuxOps) SetWindowOptions(ctx context.Context, windowID, server str
 	m.setWindowOptionsCalled = true
 	m.setWindowOptionsWindowID = windowID
 	m.setWindowOptionsOps = ops
+	return m.err
+}
+func (m *mockTmuxOps) ClearWindowRoleExceptOnServer(ctx context.Context, server, keepWindowID string) error {
+	m.clearWindowRoleCalled = true
+	m.clearWindowRoleKeepID = keepWindowID
 	return m.err
 }
 func (m *mockTmuxOps) CreateWindowWithOptions(session, name, cwd, server string, ops []tmux.WindowOptionOp) error {

@@ -25,6 +25,7 @@ import {
   getInstanceName,
   setInstanceName,
   setWindowColor,
+  setWindowRole,
   updateWindowUrl,
   updateWindowType,
   triggerUpdate,
@@ -585,6 +586,22 @@ describe("POST verb migration + /options contract", () => {
     );
     await updateWindowUrl("default", "@2", "https://x");
     expect(capturedBody.options).toEqual({ "@rk_url": "https://x" });
+  });
+
+  it("setWindowRole POSTs /options with @rk_role; null and empty string both clear", async () => {
+    const bodies: Array<{ options?: Record<string, string | null> }> = [];
+    mswServer.use(
+      http.post("/api/windows/:windowId/options", async ({ request }) => {
+        bodies.push((await request.json()) as { options?: Record<string, string | null> });
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    await setWindowRole("default", "@2", "operator");
+    await setWindowRole("default", "@2", null);
+    await setWindowRole("default", "@2", "");
+    expect(bodies[0].options).toEqual({ "@rk_role": "operator" });
+    expect(bodies[1].options).toEqual({ "@rk_role": "" });
+    expect(bodies[2].options).toEqual({ "@rk_role": "" });
   });
 
   it("updateWindowType POSTs /options with @rk_type; empty string maps to null (unset)", async () => {

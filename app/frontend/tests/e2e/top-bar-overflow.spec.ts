@@ -34,16 +34,17 @@ function intersects(
 }
 
 // Right-cluster controls in pyramid order (L1 → L2 → L3), by accessible name.
-// Terminal route as of 260812-d1at + 260812-ab5v: L1 is the merged split
-// control (its primary segment's accessible name) + the ▦ Layout chip
-// (260812-ab5v R9 — joined the registry right after `split`; overflowed, it
-// renders `Layout: …` radio rows in the menu), L2 is empty (fixed-width, Aa,
-// and ✕ are `menuOnly` now — see MENU_ONLY below), L3 is Refresh + the
-// Settings gear (relocated from the sidebar footer, 260812-d1at; the LAST fit
-// candidate, so Refresh drops before it). The update chip is context-gated
-// and omitted from the ordering assertion. Help/Keyboard/Theme are menuOnly
-// App-section rows (never in-bar); the bell and dot stay out of the bar
-// (settings dialog / sidebar footer).
+// Terminal route as of 260812-d1at + 260813-w1lf: L1 is the ▦ Layout chip
+// alone (260812-ab5v R9; overflowed, it renders `Layout: …` radio rows in the
+// menu) — the merged split control left the terminal bar in 260813-w1lf (pane
+// verbs moved to the tty tile header's pane segment; the `split` entry is
+// `menuOnly` in terminal mode now, its rows ALWAYS in the chevron menu — see
+// MENU_ONLY below). L2 is empty (fixed-width, Aa, and ✕ are `menuOnly`), L3 is
+// Refresh + the Settings gear (relocated from the sidebar footer, 260812-d1at;
+// the LAST fit candidate, so Refresh drops before it). The update chip is
+// context-gated and omitted from the ordering assertion. Help/Keyboard/Theme
+// are menuOnly App-section rows (never in-bar); the bell and dot stay out of
+// the bar (settings dialog / sidebar footer).
 // The IN-BAR detection uses accessible-name ROLE queries (getByRole/getByLabel):
 // the always-present measurement probe is `aria-hidden`, so its duplicate
 // controls are OUTSIDE the accessibility tree and never matched — this is what
@@ -51,12 +52,14 @@ function intersects(
 // NOT work: the probe sits off-screen at -9999px but Playwright still considers
 // a sized off-screen element "visible").
 type NameMatcher = string | RegExp;
-const L1: NameMatcher[] = ["Split horizontally", "Layout"];
+const L1: NameMatcher[] = ["Layout"];
 const L2: NameMatcher[] = [];
 const L3: NameMatcher[] = ["Refresh page", "Open settings"];
-// The three demoted controls (260731-oiho, the n2n4 menuOnly mechanism): their
-// bar forms render NOWHERE at ANY width; their rows are ALWAYS in the menu.
+// The demoted controls (260731-oiho + the terminal split in 260813-w1lf, the
+// n2n4 menuOnly mechanism): their bar forms render NOWHERE at ANY width; their
+// rows are ALWAYS in the menu.
 const MENU_ONLY: NameMatcher[] = [
+  "Split horizontally",
   "Toggle fixed terminal width",
   "Terminal font size",
   "Close pane",
@@ -66,10 +69,14 @@ const MENU_ONLY: NameMatcher[] = [
  *  excludes the aria-hidden measurement probe subtree, so a match means the
  *  control is rendered IN-BAR (Help is a link; the rest are buttons). String
  *  names match EXACTLY — a substring "Layout" would also hit sidebar window
- *  rows whose names carry the worktree slug ("…surface-layout-core"). */
+ *  rows whose names carry the worktree slug ("…surface-layout-core"). Scoped
+ *  to the top bar (the banner landmark): the tty tile header's pane segment
+ *  (260813-w1lf) carries a `Close pane` button a page-wide query would
+ *  false-positive on. */
 function byRoleName(page: Page, name: NameMatcher) {
   const opts = typeof name === "string" ? { name, exact: true } : { name };
-  return page.getByRole("button", opts).or(page.getByRole("link", opts));
+  const bar = page.getByRole("banner");
+  return bar.getByRole("button", opts).or(bar.getByRole("link", opts));
 }
 
 /** How many of the given controls are currently rendered IN-BAR (found in the
@@ -138,11 +145,12 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
       await expect(chevron, `chevron visible at ${width}px`).toBeVisible();
       await expect(cluster.locator('[role="status"]'), `no bar dot at ${width}px`).toHaveCount(0);
 
-      // (g) The demoted menuOnly controls (260731-oiho) render in-bar NOWHERE —
-      // not even at the widest width where the cluster has room.
+      // (g) The demoted menuOnly controls (260731-oiho + the terminal split,
+      // 260813-w1lf) render in-bar NOWHERE — not even at the widest width where
+      // the cluster has room.
       expect(
         await inBarCount(page, MENU_ONLY),
-        `no in-bar fixed-width/Aa/✕ at ${width}px`,
+        `no in-bar split/fixed-width/Aa/✕ at ${width}px`,
       ).toBe(0);
 
       // (a) No overlap: the right cell must not intersect the center heading nor
@@ -237,14 +245,14 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
       prevL1 = l1;
       prevL2 = l2;
     }
-    // At the narrowest width the pyramid's FRONT has been fully consumed: both
-    // L1 members (split control + ▦ Layout chip) have overflowed. The L3 tail
+    // At the narrowest width the pyramid's FRONT has been fully consumed: the
+    // L1 ▦ Layout chip has overflowed. The L3 tail
     // (Refresh · Settings gear — the gear last, 260812-d1at) deliberately
     // survives at the mobile leaf — the pyramid ORDER, not an all-gone cliff,
     // is the contract. (Exact-name matching matters here: a substring
     // "Layout" would false-positive on sidebar window rows whose names carry
     // the worktree slug.)
-    expect(await inBarCount(page, L1), "L1 (split + layout chip) overflowed at 375px").toBe(0);
+    expect(await inBarCount(page, L1), "L1 (▦ layout chip) overflowed at 375px").toBe(0);
   });
 
   test("the chevron menu contains the overflowed + menuOnly rows plus the version row, grouped under section labels", async ({
@@ -261,12 +269,11 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
     const menu = page.getByRole("menu", { name: "More controls" });
     await expect(menu).toBeVisible();
 
-    // The dropped controls appear as menu rows (mapped labels; the merged split
-    // entry contributes BOTH one-action-per-row directions, horizontal first —
-    // the 260806-2x2h default), the overflowed ▦ Layout chip (260812-ab5v)
-    // contributes its `Layout: …` radio rows (one per arity-valid shape — this
-    // 1-tile window has just `Layout: Single`), the menuOnly rows
-    // are present (fixed-width / terminal-font stepper / close-pane), and the
+    // The menuOnly split rows (260813-w1lf — horizontal first, the
+    // 260806-2x2h default), the overflowed ▦ Layout chip (260812-ab5v)'s
+    // `Layout: …` radio rows (one per arity-valid shape — this 1-tile window
+    // has just `Layout: Single`), the menuOnly rows
+    // (fixed-width / terminal-font stepper / close-pane), and the
     // version row is present (last). Whichever L3 controls still fit at 375px
     // stay in-bar (the pyramid's suffix rule), so no Refresh/Settings row is
     // asserted here — an in-bar entry contributes no menu row.
@@ -294,23 +301,23 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
     await expect(menu.getByRole("menuitem", { name: /RunKit/ })).toBeVisible();
   });
 
-  test("the menuOnly rows (fixed-width / Aa / close-pane / Help / Keyboard / Theme…) are in the menu even at a WIDE width", async ({
+  test("the menuOnly rows (split / fixed-width / Aa / close-pane / Help / Keyboard / Theme…) are in the menu even at a WIDE width", async ({
     page,
   }) => {
     // The distinguishing 260731-oiho case: the bar has room at 1280px — the
-    // in-bar end state is Open · Split(▾) · ▦Layout · Refresh · Gear ·
-    // chevron — yet the demoted controls still live ONLY in the menu
-    // (menu-only, not space-driven overflow). The 260812-d1at chrome rows
-    // share that placement: Help / Keyboard / Theme… are `menuOnly`
-    // App-section rows.
+    // in-bar end state is Open · ▦Layout · Refresh · Gear · chevron (the split
+    // chip demoted to menuOnly in terminal mode, 260813-w1lf) — yet the
+    // demoted controls still live ONLY in the menu (menu-only, not
+    // space-driven overflow). The 260812-d1at chrome rows share that
+    // placement: Help / Keyboard / Theme… are `menuOnly` App-section rows.
     const id = await resolveWindow(page, WINDOW_NAME);
     await gotoWindow(page, id);
     const heading = page.getByRole("button", { name: `Rename window ${WINDOW_NAME}` });
     await page.setViewportSize({ width: 1280, height: 800 });
     await expect(heading).toBeVisible({ timeout: 10_000 });
-    // The bar carries the split control (in-bar at this width)…
-    await expect(byRoleName(page, "Split horizontally")).toBeVisible({ timeout: 10_000 });
-    // …but never the demoted three nor the chrome rows.
+    // The bar carries the ▦ Layout chip (terminal's surviving L1 candidate)…
+    await expect(byRoleName(page, "Layout")).toBeVisible({ timeout: 10_000 });
+    // …but never the demoted set (split included) nor the chrome rows.
     expect(await inBarCount(page, MENU_ONLY)).toBe(0);
     expect(
       await inBarCount(page, ["Help — run-kit docs", "Keyboard shortcuts", /Theme…/]),
@@ -334,11 +341,11 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
     await expect(menu.getByRole("menuitem", { name: /Help — run-kit docs/ })).toBeVisible();
     await expect(menu.getByRole("menuitem", { name: "Keyboard shortcuts" })).toBeVisible();
     await expect(menu.getByRole("menuitem", { name: /Theme…/ })).toBeVisible();
-    // The in-bar split control's rows also appear in the menu? NO — the split
-    // is in-bar at this width, so its rows are NOT duplicated into the menu
-    // (menu rows = menuOnly entries + genuinely overflowed entries only).
-    await expect(menu.getByRole("menuitem", { name: "Split horizontal" })).toHaveCount(0);
-    // Same for the in-bar gear: no Settings row while the chip is in-bar.
+    // The split rows are menuOnly in terminal mode (260813-w1lf) — ALWAYS in
+    // the menu, wide width included (the mobile path + muscle-memory fallback).
+    await expect(menu.getByRole("menuitem", { name: "Split horizontal" })).toBeVisible();
+    await expect(menu.getByRole("menuitem", { name: "Split vertical" })).toBeVisible();
+    // The in-bar gear contributes no menu row while in-bar.
     await expect(menu.getByRole("menuitem", { name: "Settings" })).toHaveCount(0);
   });
 
@@ -437,8 +444,9 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
 // width, the chevron menu carries NO `View:` menuitemradio rows (the Fixed
 // width / Terminal font rows still hold the VIEW section), a palette `View: …`
 // activation switches the lens even at a wide width, and the fit pyramid over
-// the remaining candidates is intact with the merged `split` control (primary
-// segment `Split horizontally`) as the first-to-yield candidate.
+// the remaining candidates is intact with the ▦ Layout chip as terminal's
+// first-to-yield fit candidate (the split control left the terminal bar in
+// 260813-w1lf — `menuOnly`, never a fit candidate there).
 const VIEW_WINDOW_NAME = `overflow-view-long-worktree-${Date.now().toString().slice(-6)}`;
 const VIEW_URL = "http://localhost:8080/";
 
@@ -512,19 +520,18 @@ test.describe("Top-bar overflow: the view-switcher is retired (260812-0c6o)", ()
     }
   });
 
-  test("the split control is the first fit candidate to yield", async ({
+  test("the ▦ Layout chip is the first fit candidate to yield", async ({
     page,
   }) => {
     await gotoViewWindow(page);
     const heading = page.getByRole("button", { name: `Rename window ${VIEW_WINDOW_NAME}` });
 
-    // With the view-switcher retired, the FIRST fit candidate is
-    // the leftmost L1 split (primary segment `Split horizontally` since
-    // 260806-2x2h). The invariant across the sweep: whenever `Split
-    // horizontally` is still in-bar nothing has dropped yet, so every L1/L2/L3
-    // control must also be in-bar (the surviving set is a suffix of the fit
-    // order).
-    const splitControl = () => byRoleName(page, "Split horizontally");
+    // With the view-switcher retired and the split control menuOnly in
+    // terminal mode (260813-w1lf), the FIRST fit candidate is the L1 ▦ Layout
+    // chip. The invariant across the sweep: whenever `Layout` is still in-bar
+    // nothing has dropped yet, so every L1/L2/L3 control must also be in-bar
+    // (the surviving set is a suffix of the fit order).
+    const layoutChip = () => byRoleName(page, "Layout");
     const allCandidates = [...L1, ...L2, ...L3];
     let sawInBar = false;
     for (const width of [1440, ...WIDTHS]) {
@@ -534,15 +541,15 @@ test.describe("Top-bar overflow: the view-switcher is retired (260812-0c6o)", ()
       // visibility expect so the post-resize re-fit (ResizeObserver → layout
       // effect) has settled before the plain `count()` reads below.
       if (width === 1440) {
-        await expect(splitControl()).toBeVisible({ timeout: 10_000 });
+        await expect(layoutChip()).toBeVisible({ timeout: 10_000 });
       }
-      const inBar = (await splitControl().count()) > 0;
+      const inBar = (await layoutChip().count()) > 0;
       if (inBar) {
         sawInBar = true;
         // RETRYING: right after a resize the ResizeObserver-driven re-fit can
         // still be mid-cascade — a plain read can catch a transient frame where
-        // the split is in-bar but a tail control hasn't re-rendered yet (flaked
-        // at 700px with the 260812-ab5v layout chip in the fit). When the split
+        // the chip is in-bar but a tail control hasn't re-rendered yet (flaked
+        // at 700px with the 260812-ab5v layout chip in the fit). When the chip
         // is SETTLED in-bar, the suffix-fit guarantees every candidate is too.
         await expect
           .poll(() => inBarCount(page, allCandidates), { timeout: 10_000 })
@@ -552,10 +559,10 @@ test.describe("Top-bar overflow: the view-switcher is retired (260812-0c6o)", ()
     // The sweep genuinely exercised both sides of the drop threshold: in-bar at
     // some wide width (gated above), and definitely dropped at the mobile leaf —
     // a RETRYING count so a still-settling re-fit can't flake the dropped side.
-    expect(sawInBar, "the split control was in-bar at some (wide) width").toBe(true);
+    expect(sawInBar, "the ▦ Layout chip was in-bar at some (wide) width").toBe(true);
     await page.setViewportSize({ width: 375, height: 800 });
     await expect(heading).toBeVisible({ timeout: 10_000 });
-    await expect(splitControl()).toHaveCount(0, { timeout: 10_000 });
+    await expect(layoutChip()).toHaveCount(0, { timeout: 10_000 });
   });
 
   test("a palette `View:` action switches the lens — even at a wide width", async ({

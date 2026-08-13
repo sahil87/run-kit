@@ -3531,6 +3531,13 @@ function AppShell() {
                 const next = closeSurface(layout, surface);
                 if (next) applyLayout(next);
               }}
+              // tty pane-segment verbs (260813-w1lf): the tile header's
+              // Split H / Split V / Close Pane buttons ride the same
+              // optimistic actions the palette split/close entries use.
+              onSplitPane={(horizontal) =>
+                executeSplit(server, windowParam, horizontal, currentWindow?.worktreePath)
+              }
+              onClosePane={() => executeClosePane(server, windowParam)}
               // ⏶ Zoom palette seam (T012/R11): the component owns the
               // transient zoom state and registers its slot-A toggle here;
               // flips report back so the `Layout: Zoom`/`Unzoom` palette

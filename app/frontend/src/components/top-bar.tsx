@@ -509,8 +509,9 @@ export function TopBar({
   // fixed-width, terminal-font (Aa), and
   // close-pane/Kill (sticky per-device preferences + the destructive ✕ that
   // sat one slot from Refresh). The terminal-mode bar end state is
-  // Open · Split(▾) · Refresh · chevron (+ UpdateChip when a qualifying update
-  // exists). Each entry gates on `modes` (the current mode must be listed) and
+  // Open · ▦ Layout · Refresh · Gear · chevron (+ UpdateChip when a qualifying
+  // update exists) — the split chip demoted to `menuOnly` in terminal mode in
+  // 260813-w1lf (pane verbs moved to the tty tile header). Each entry gates on `modes` (the current mode must be listed) and
   // an optional `hidden` predicate (renders nowhere); `menuGroup` names its
   // chevron-menu section (View / Window / App).
   // Board-mode split/close target (260715-6jwn, merged into the registry): the
@@ -539,11 +540,17 @@ export function TopBar({
     // affordance opens the direction menu (the OpenButton pattern). The
     // overflow menu keeps BOTH directions as one-action-per-row rows,
     // default (horizontal) first.
+    // Terminal mode demotes it to `menuOnly` (260813-w1lf): pane verbs moved
+    // to the tty tile header's pane segment, so the in-bar chip is terminal's
+    // no longer — the menu rows stay as the mobile path + fallback. Board mode
+    // keeps the in-bar SplitControl untouched (dynamic flag, the n2n4
+    // revert-by-flag mechanism).
     {
       id: "split",
       modes: ["terminal", "board"],
       menuGroup: "window",
       hidden: mode === "board" ? !focusedPane : !currentWindow,
+      menuOnly: mode === "terminal",
       barRender: () =>
         mode === "board" ? (
           focusedPane ? (

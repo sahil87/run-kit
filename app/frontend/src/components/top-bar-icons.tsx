@@ -95,6 +95,20 @@ export function ClosePaneGlyph() {
   );
 }
 
+/** Close pane (boxed) — lucide square-x (rounded rect + inner cross), the
+ *  tty-tile pane segment's Close Pane glyph (260813-w1lf). Deliberately NOT
+ *  the bare-✕ ClosePaneGlyph: the box is the misclick-trap distinction from
+ *  the tile-close ✕. */
+export function ClosePaneBoxedGlyph() {
+  return (
+    <ControlGlyph name="close-pane-boxed">
+      <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
+      <path d="m15 9-6 6" />
+      <path d="m9 9 6 6" />
+    </ControlGlyph>
+  );
+}
+
 /** Refresh — lucide rotate-cw (circular arrow with a top-right arrowhead),
  *  the in-bar RefreshButton glyph. */
 export function RefreshGlyph() {

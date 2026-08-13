@@ -12,7 +12,10 @@ import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
 // Performance note), refresh/window-switch/history semantics (L2–L4), divider
 // ratio persistence (R5), the mobile slot-A + sheet-tabs branch (R13), and —
 // from 260812-wfic — the focused-tile accent border (R2) and the tty-scoped
-// split-chord gate (R8). See surface-layout.spec.md for intent + steps.
+// split-chord gate (R8). 260813-w1lf adds the tty pane segment (Split H ·
+// Split V · Close Pane — any arity, zoom-visible, tty-only) and the terminal
+// bar's split demotion (menuOnly; the chevron menu keeps the three rows). See
+// surface-layout.spec.md for intent + steps.
 
 // Own session so this file never collides with other specs (fullyParallel off).
 const TEST_SESSION = `e2e-surflayout-${Date.now()}`;
@@ -169,6 +172,62 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     await expect(terminal(page)).toBeVisible();
     // The rail toggle reflects the close (web unlit again).
     await expect(webRail).toHaveAttribute("aria-pressed", "false");
+  });
+
+  test("the tty header carries the pane segment at any arity (visible while zoomed); the terminal bar dropped its split chip (260813-w1lf)", async ({
+    page,
+  }) => {
+    test.setTimeout(40_000);
+    const id = await makeWindow(page, `sl-paneverbs-${Date.now()}`, { url: IFRAME_URL });
+    await gotoWindow(page, id);
+    await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
+    const bar = page.getByRole("banner");
+
+    // Arity 1 (single:tty — a header that renders zero LAYOUT verbs): the
+    // bordered pane segment is right there with its three content verbs.
+    const segment = tile(page, "tty").getByTestId("pane-segment");
+    await expect(segment).toBeVisible();
+    await expect(segment.getByRole("button", { name: "Split pane horizontally" })).toBeVisible();
+    await expect(segment.getByRole("button", { name: "Split pane vertically" })).toBeVisible();
+    const closePane = segment.getByRole("button", { name: "Close pane" });
+    await expect(closePane).toBeVisible();
+    // The boxed ⊠ glyph — the misclick-trap distinction from the tile-close ✕.
+    await expect(closePane.locator('[data-icon="close-pane-boxed"]')).toBeVisible();
+    await expect(tile(page, "tty").getByRole("button", { name: "Zoom Terminal" })).toHaveCount(0);
+
+    // The terminal-mode bar carries NO in-bar split chip (menuOnly, 260813-w1lf);
+    // the chevron menu keeps the Split horizontal / Split vertical / Close pane
+    // rows (mobile path + muscle-memory fallback).
+    await expect(bar.getByRole("button", { name: "Split horizontally" })).toHaveCount(0);
+    await bar.getByRole("button", { name: "More controls" }).click();
+    const menu = page.getByRole("menu", { name: "More controls" });
+    await expect(menu.getByRole("menuitem", { name: "Split horizontal" })).toBeVisible();
+    await expect(menu.getByRole("menuitem", { name: "Split vertical" })).toBeVisible();
+    await expect(menu.getByRole("menuitem", { name: "Close pane" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(menu).toBeHidden();
+
+    // Arity 2 (split-h:tty,web — within the ≤2-tile perf budget): the segment
+    // stays tty-only — the web tile's header carries layout verbs, no segment.
+    const webRail = railButton(page, "Web");
+    await expect(webRail).toBeVisible({ timeout: READY_TIMEOUT });
+    await webRail.click();
+    await expect(tile(page, "web")).toBeVisible({ timeout: 10_000 });
+    await expectLayoutParam(page, "split-h:tty,web");
+    await expect(segment).toBeVisible();
+    await expect(tile(page, "web").getByTestId("pane-segment")).toHaveCount(0);
+
+    // Zoomed: the pane segment remains visible (pane ops stay valid on a
+    // zoomed tile) while the ◧/⇄ layout verbs hide (✕/⛶ stay, as today).
+    await page.getByRole("button", { name: "Zoom Terminal", exact: true }).click();
+    await expect(tile(page, "web")).toBeHidden({ timeout: 10_000 });
+    await expect(segment).toBeVisible();
+    await expect(
+      tile(page, "tty").getByRole("button", { name: "Promote Terminal" }),
+    ).toHaveCount(0);
+    await expect(
+      tile(page, "tty").getByRole("button", { name: "Close Terminal" }),
+    ).toBeVisible();
   });
 
   test("a user-built layout restores from localStorage on a bare re-arrival (ladder rung 2)", async ({

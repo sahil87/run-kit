@@ -10,6 +10,10 @@ push), divider-ratio persistence keyed per (window, shape), and the mobile
 slot-A + sheet-tabs branch. From `260812-wfic`: the focused-tile accent border
 (click-to-focus across tiles) and the tty-scoped split-chord gate (the chord
 is inert while the code tile owns focus, splits while the tty tile does).
+From `260813-w1lf`: the tty tile header's pane segment (Split H · Split V ·
+Close Pane — any arity including `single:tty`, zoom-visible, tty-only) and the
+terminal-mode split demotion (no in-bar split chip; the chevron menu keeps
+Split horizontal / Split vertical / Close pane rows).
 
 **Perf budget (binding)**: the plaintext e2e origin is HTTP/1.1 with a 6-slot
 connection pool (spec § Performance note; the board-route postmortem class).
@@ -165,6 +169,30 @@ Steps:
    stays visible, and the URL is untouched.
 4. Click the now-`Unzoom Terminal` verb; assert the web tile and the divider
    return.
+
+### the tty header carries the pane segment at any arity (visible while zoomed); the terminal bar dropped its split chip (260813-w1lf)
+What it proves: the two verb families — the tty tile's bordered pane segment
+(content verbs: Split pane horizontally / Split pane vertically / Close pane,
+the last carrying the boxed ⊠ `close-pane-boxed` glyph) renders at arity 1
+(`single:tty`, where zero LAYOUT verbs render), stays tty-only at arity 2
+(the web tile's header has none), and remains visible while the tile is zoomed
+(◧/⇄ hide; ✕/⛶ stay) — while the terminal-mode top bar carries NO in-bar
+split chip (the `split` registry entry is `menuOnly` now) and the chevron
+menu always carries the Split horizontal / Split vertical / Close pane rows.
+Stays within the ≤2-tile perf budget. Steps:
+1. Create a web-capable window; navigate (default `single:tty`); assert the
+   terminal.
+2. Assert the tty tile's `pane-segment` testid is visible with the three
+   content-verb buttons; assert the Close pane button carries the
+   `close-pane-boxed` glyph and NO `Zoom Terminal` layout verb renders.
+3. Assert the top bar (banner) has NO `Split horizontally` button; open the
+   `More controls` chevron menu and assert the Split horizontal / Split
+   vertical / Close pane rows are visible; Escape-close it.
+4. Open the web tile via the rail; assert `?layout=split-h:tty,web`, the
+   segment still visible on the tty tile, and NO `pane-segment` on the web
+   tile.
+5. Click the tty tile's `Zoom Terminal` verb; assert the segment stays visible
+   while `Promote Terminal` is gone and `Close Terminal` stays.
 
 ### 375px mobile: a 3-tile ?layout= URL renders slot A + sheet tabs for the rest (R13, A-018)
 What it proves: below `isMobileViewport()` the layout manager renders only

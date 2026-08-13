@@ -1008,14 +1008,50 @@ describe("TopBar", () => {
     });
   });
 
-  describe("merged SplitControl (260731-oiho)", () => {
+  describe("merged SplitControl (260731-oiho; terminal menuOnly 260813-w1lf)", () => {
     /** The direction menu by attribute — jsdom keeps the control inside the
      *  aria-hidden probe, which `getByRole` excludes. */
     const splitDirectionMenu = () =>
       document.querySelector<HTMLElement>('[role="menu"][aria-label="Split direction"]');
 
-    it("renders ONE split control when a window is selected: primary = horizontal, ▾ = direction menu", () => {
+    /** The SplitControl's IN-BAR form survives on board mode only — terminal
+     *  demoted the `split` entry to `menuOnly` (260813-w1lf: pane verbs moved
+     *  to the tty tile header's pane segment). The behavior tests below render
+     *  the board surface; the terminal-side contract is the first test. */
+    function renderBoardSplit(overrides: Partial<React.ComponentProps<typeof TopBar>> = {}) {
+      return renderTopBar({
+        mode: "board",
+        sessions: [],
+        currentSession: null,
+        currentWindow: null,
+        sessionName: "",
+        windowName: "",
+        server: "",
+        boardName: "b",
+        paneCount: 1,
+        serverCount: 1,
+        boards: [{ name: "b" }],
+        focusedPane: { server: "runkit", windowId: "@7", cwd: "~/code/x" },
+        ...overrides,
+      });
+    }
+
+    it("terminal mode renders NO in-bar split control (menuOnly); the chevron menu carries both direction rows (260813-w1lf)", () => {
       renderTopBar();
+      // Not in the bar, and not in the hidden measurement probe either — a
+      // menuOnly entry contributes zero width to the fit budget.
+      expect(screen.queryByLabelText("Split horizontally")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("Split… (choose direction)")).not.toBeInTheDocument();
+      expect(document.querySelector('[data-icon="split-horizontal"]')).toBeNull();
+      // The menu rows always render (mobile path + muscle-memory fallback).
+      act(() => fireEvent.click(screen.getByLabelText("More controls")));
+      const menu = screen.getByRole("menu", { name: "More controls" });
+      expect(within(menu).getByRole("menuitem", { name: "Split horizontal" })).toBeInTheDocument();
+      expect(within(menu).getByRole("menuitem", { name: "Split vertical" })).toBeInTheDocument();
+    });
+
+    it("renders ONE split control on board mode: primary = horizontal, ▾ = direction menu", () => {
+      renderBoardSplit();
       // Primary segment + ▾ segment; no second per-direction button.
       expect(screen.getByLabelText("Split horizontally")).toBeInTheDocument();
       expect(screen.getByLabelText("Split… (choose direction)")).toBeInTheDocument();
@@ -1047,28 +1083,28 @@ describe("TopBar", () => {
       expect(screen.queryByLabelText("Split… (choose direction)")).not.toBeInTheDocument();
     });
 
-    it("primary click fires a HORIZONTAL split with the window's coordinates", async () => {
+    it("primary click fires a HORIZONTAL split with the focused tile's coordinates (board)", async () => {
       const { splitWindow } = await import("@/api/client");
-      renderTopBar();
+      renderBoardSplit();
       await act(async () => {
         fireEvent.click(screen.getByLabelText("Split horizontally"));
       });
-      expect(splitWindow).toHaveBeenCalledWith("runkit", "@0", true, "~/code/run-kit");
+      expect(splitWindow).toHaveBeenCalledWith("runkit", "@7", true, "~/code/x");
     });
 
-    it("▾ → Split vertical fires a VERTICAL split and closes the direction menu", async () => {
+    it("▾ → Split vertical fires a VERTICAL split and closes the direction menu (board)", async () => {
       const { splitWindow } = await import("@/api/client");
-      renderTopBar();
+      renderBoardSplit();
       act(() => fireEvent.click(screen.getByLabelText("Split… (choose direction)")));
       await act(async () => {
         fireEvent.click(within(splitDirectionMenu()!).getByText("Split vertical"));
       });
-      expect(splitWindow).toHaveBeenCalledWith("runkit", "@0", false, "~/code/run-kit");
+      expect(splitWindow).toHaveBeenCalledWith("runkit", "@7", false, "~/code/x");
       expect(splitDirectionMenu()).toBeNull();
     });
 
-    it("Escape closes the direction menu and refocuses the ▾", () => {
-      renderTopBar();
+    it("Escape closes the direction menu and refocuses the ▾ (board)", () => {
+      renderBoardSplit();
       const chevron = screen.getByLabelText("Split… (choose direction)");
       act(() => fireEvent.click(chevron));
       expect(splitDirectionMenu()).not.toBeNull();
@@ -1090,10 +1126,10 @@ describe("TopBar", () => {
         localStorage.clear();
       });
 
-      it("the primary segment's tip carries the registry-resolved split-horizontal keycap", () => {
+      it("the primary segment's tip carries the registry-resolved split-horizontal keycap (board)", () => {
         vi.useFakeTimers();
         try {
-          renderTopBar();
+          renderBoardSplit();
           const primary = screen.getByLabelText("Split horizontally");
           act(() => {
             fireEvent.mouseEnter(primary);
@@ -1109,8 +1145,8 @@ describe("TopBar", () => {
         }
       });
 
-      it("direction-menu rows carry right-aligned keycaps with their per-direction chords", () => {
-        renderTopBar();
+      it("direction-menu rows carry right-aligned keycaps with their per-direction chords (board)", () => {
+        renderBoardSplit();
         act(() => fireEvent.click(screen.getByLabelText("Split… (choose direction)")));
         const rows = Array.from(splitDirectionMenu()!.querySelectorAll('[role="menuitem"]'));
         for (const [row, chord] of [[rows[0], "Shift+Ctrl+\\"], [rows[1], "Shift+Ctrl+-"]] as const) {
@@ -1122,9 +1158,9 @@ describe("TopBar", () => {
         }
       });
 
-      it("omits a row's keycap when its binding is disabled — a dead chord would lie", () => {
+      it("omits a row's keycap when its binding is disabled — a dead chord would lie (board)", () => {
         localStorage.setItem("runkit-keybindings", JSON.stringify({ "split-vertical": null }));
-        renderTopBar();
+        renderBoardSplit();
         act(() => fireEvent.click(screen.getByLabelText("Split… (choose direction)")));
         const rows = Array.from(splitDirectionMenu()!.querySelectorAll('[role="menuitem"]'));
         expect(rows[0].querySelector("kbd")).toHaveTextContent("Shift+Ctrl+\\");
@@ -1145,12 +1181,12 @@ describe("TopBar", () => {
       });
     });
 
-    it("shows spinner and disables the primary segment while pending", async () => {
+    it("shows spinner and disables the primary segment while pending (board)", async () => {
       const { splitWindow } = await import("@/api/client");
       let resolveAction!: () => void;
       vi.mocked(splitWindow).mockImplementation(() => new Promise((r) => { resolveAction = () => r({ ok: true, pane_id: "%1" }); }));
 
-      renderTopBar();
+      renderBoardSplit();
       const btn = screen.getByLabelText("Split horizontally");
       await act(async () => {
         fireEvent.click(btn);
@@ -1480,7 +1516,22 @@ describe("TopBar", () => {
     });
 
     it("SplitControl popover rows lead with direction glyphs; the primary segment shares the split-horizontal definition", () => {
-      renderTopBar();
+      // Board mode — the SplitControl's only surviving in-bar surface
+      // (terminal demoted the split entry to menuOnly in 260813-w1lf).
+      renderTopBar({
+        mode: "board",
+        sessions: [],
+        currentSession: null,
+        currentWindow: null,
+        sessionName: "",
+        windowName: "",
+        server: "",
+        boardName: "b",
+        paneCount: 1,
+        serverCount: 1,
+        boards: [{ name: "b" }],
+        focusedPane: { server: "runkit", windowId: "@7", cwd: "~/code/x" },
+      });
       // In-bar primary segment renders the SAME shared glyph (one definition).
       expect(
         screen.getByLabelText("Split horizontally").querySelector('[data-icon="split-horizontal"]'),
@@ -1504,7 +1555,9 @@ describe("TopBar", () => {
       const probe = cluster.querySelector('[aria-hidden="true"][inert]');
       expect(probe).not.toBeNull();
       expect(probe!.querySelector('[data-icon="refresh"]')).not.toBeNull();
-      expect(probe!.querySelector('[data-icon="split-horizontal"]')).not.toBeNull();
+      // menuOnly entries are excluded from the probe (zero fit-budget width) —
+      // terminal mode's split chip joined that set in 260813-w1lf.
+      expect(probe!.querySelector('[data-icon="split-horizontal"]')).toBeNull();
     });
 
     it("Fixed width row keeps a STATIC identity glyph across toggle states — the trailing ✓ is the sole state marker (R5)", () => {

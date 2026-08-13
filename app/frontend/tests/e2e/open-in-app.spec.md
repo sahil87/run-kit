@@ -34,7 +34,7 @@ gate, all covered by Vitest (`lib/open-in-app.test.ts`,
   - `**/api/windows/*/select*` → `{ok:true}` (trailing `*` — the query string).
   - the `/ws/terminals` mux WebSocket is accepted and held open.
 - Each test navigates to the percent-encoded window route `/default/%401` and
-  anchors on the **Split horizontally** primary segment (the `currentWindow` gate; the ✕ left the bar in 260731-oiho; the split default flipped to horizontal in 260806-2x2h) before
+  anchors on the **▦ Layout chip** (the `currentWindow` gate; the ✕ left the bar in 260731-oiho, the split chip followed in 260813-w1lf — the layout chip carries the same `mode === "terminal" && currentWindow && layout` gating) before
   asserting — the Open entry additionally waits on its own async registry
   fetch, so it gets its own visibility wait where needed.
 
@@ -56,7 +56,7 @@ closes the menu; and the primary segment relabels to the last-used target
 **Steps:**
 1. Install the mocked backend with a two-app registry (`code`/VS Code,
    `iterm`/iTerm) and a recording stub on `**/api/open?*`.
-2. Set a 1440px viewport, navigate to `/default/%401`, wait for the split anchor.
+2. Set a 1440px viewport, navigate to `/default/%401`, wait for the ▦ Layout anchor.
 3. Assert the primary and chevron segments are visible in-bar.
 4. Click the chevron; assert the "Open in app" menu shows `VS Code` and
    `iTerm` rows and no "on host" text.
@@ -74,7 +74,7 @@ entry (`Open: VS Code`, `Open: iTerm`), keeping the control keyboard-first.
 
 **Steps:**
 1. Install the mocked backend with the two-app registry; navigate and wait for
-   the split anchor, then for the Open primary segment (the registry fetch landed).
+   the ▦ Layout anchor, then for the Open primary segment (the registry fetch landed).
 2. Open the palette (`Meta+k`), type `Open:`.
 3. Assert both `Open: VS Code` and `Open: iTerm` options are listed.
 
@@ -89,7 +89,7 @@ unaffected by this feature in the default e2e environment.
 
 **Steps:**
 1. Install the mocked backend with an EMPTY registry; navigate and wait for
-   the split anchor.
+   the ▦ Layout anchor.
 2. Assert neither split-button segment exists (role queries — the aria-hidden
    measurement probe is excluded).
 3. Open the "More controls" chevron menu; assert it contains no `Open:` rows;

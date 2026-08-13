@@ -61,6 +61,8 @@ type LayoutOverrides = {
   onPromote?: (surface: SurfaceKind) => void;
   onSwap?: (surface: SurfaceKind) => void;
   onClose?: (surface: SurfaceKind) => void;
+  onSplitPane?: (horizontal: boolean) => void;
+  onClosePane?: () => void;
   onRatioCommit?: () => void;
   zoomToggleRef?: { current: (() => void) | null };
   onZoomChange?: (zoomed: boolean) => void;
@@ -113,6 +115,8 @@ function layoutElement(overrides: LayoutOverrides = {}) {
       onPromote={overrides.onPromote ?? vi.fn()}
       onSwap={overrides.onSwap ?? vi.fn()}
       onClose={overrides.onClose ?? vi.fn()}
+      onSplitPane={overrides.onSplitPane ?? vi.fn()}
+      onClosePane={overrides.onClosePane ?? vi.fn()}
       onRatioCommit={overrides.onRatioCommit}
       zoomToggleRef={overrides.zoomToggleRef}
       onZoomChange={overrides.onZoomChange}
@@ -235,6 +239,78 @@ describe("SurfaceLayout tile verbs", () => {
     const swap = screen.getByRole("button", { name: "Swap Code" });
     expect(swap.className).toContain("hover:text-text-primary");
     expect(swap.className).toContain("hover:bg-bg-inset");
+  });
+});
+
+describe("SurfaceLayout pane segment (260813-w1lf content verbs)", () => {
+  it("tty at arity 1 renders the bordered pane segment and zero layout verbs", () => {
+    renderLayout({ layout: { shape: "single", order: ["tty"] } });
+    const ttyTile = screen.getByTestId("surface-tile-tty");
+    const segment = within(ttyTile).getByTestId("pane-segment");
+    expect(segment.className).toContain("border");
+    expect(segment.className).toContain("rounded");
+    expect(within(segment).getByRole("button", { name: "Split pane horizontally" })).toBeTruthy();
+    expect(within(segment).getByRole("button", { name: "Split pane vertically" })).toBeTruthy();
+    expect(within(segment).getByRole("button", { name: "Close pane" })).toBeTruthy();
+    // The layout-verb family stays arity-gated — none render at arity 1.
+    expect(screen.queryByRole("button", { name: "Zoom Terminal" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Promote Terminal" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Swap Terminal" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Close Terminal" })).toBeNull();
+  });
+
+  it("renders only on tty tiles — code/web/chat headers carry no segment", () => {
+    renderLayout({ layout: { shape: "row", order: ["code", "web", "chat"] } });
+    expect(screen.queryByTestId("pane-segment")).toBeNull();
+    cleanup();
+    renderLayout({ layout: { shape: "split-h", order: ["tty", "code"] } });
+    expect(screen.getAllByTestId("pane-segment")).toHaveLength(1);
+    expect(within(screen.getByTestId("surface-tile-code")).queryByTestId("pane-segment")).toBeNull();
+  });
+
+  it("stays visible while the tty tile is zoomed (◧/⇄ hide; ✕/⛶ stay)", () => {
+    renderLayout({ layout: { shape: "split-h", order: ["tty", "code"] } });
+    fireEvent.click(screen.getByRole("button", { name: "Zoom Terminal" }));
+    const ttyTile = screen.getByTestId("surface-tile-tty");
+    expect(within(ttyTile).getByTestId("pane-segment")).toBeTruthy();
+    expect(within(ttyTile).getByRole("button", { name: "Split pane horizontally" })).toBeTruthy();
+    expect(within(ttyTile).queryByRole("button", { name: "Promote Terminal" })).toBeNull();
+    expect(within(ttyTile).queryByRole("button", { name: "Swap Terminal" })).toBeNull();
+    expect(within(ttyTile).getByRole("button", { name: "Close Terminal" })).toBeTruthy();
+  });
+
+  it("both duplicate tty tiles carry the segment", () => {
+    renderLayout({ layout: { shape: "split-h", order: ["tty", "tty"] } });
+    expect(screen.getAllByTestId("pane-segment")).toHaveLength(2);
+    expect(within(screen.getByTestId("surface-tile-tty")).getByTestId("pane-segment")).toBeTruthy();
+    expect(within(screen.getByTestId("surface-tile-tty-2")).getByTestId("pane-segment")).toBeTruthy();
+  });
+
+  it("clicks fire the parent's pane callbacks", () => {
+    const onSplitPane = vi.fn();
+    const onClosePane = vi.fn();
+    renderLayout({ onSplitPane, onClosePane });
+    fireEvent.click(screen.getByRole("button", { name: "Split pane horizontally" }));
+    expect(onSplitPane).toHaveBeenCalledWith(true);
+    fireEvent.click(screen.getByRole("button", { name: "Split pane vertically" }));
+    expect(onSplitPane).toHaveBeenCalledWith(false);
+    fireEvent.click(screen.getByRole("button", { name: "Close pane" }));
+    expect(onClosePane).toHaveBeenCalledTimes(1);
+  });
+
+  it("Close Pane renders the boxed ⊠ glyph (not the bare ✕) with a red hover; splits use the standard verb hover", () => {
+    renderLayout({ layout: { shape: "split-h", order: ["tty", "code"] } });
+    const close = screen.getByRole("button", { name: "Close pane" });
+    expect(close.querySelector('[data-icon="close-pane-boxed"]')).toBeTruthy();
+    expect(close.querySelector('[data-icon="close-pane"]')).toBeNull();
+    expect(close.className).toContain("hover:text-signal-red");
+    const split = screen.getByRole("button", { name: "Split pane horizontally" });
+    expect(split.querySelector('[data-icon="split-horizontal"]')).toBeTruthy();
+    expect(split.className).toContain("hover:text-text-primary");
+    expect(split.className).not.toContain("accent-green");
+    expect(
+      screen.getByRole("button", { name: "Split pane vertically" }).querySelector('[data-icon="split-vertical"]'),
+    ).toBeTruthy();
   });
 });
 

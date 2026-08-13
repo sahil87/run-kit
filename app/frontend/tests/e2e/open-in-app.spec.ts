@@ -89,9 +89,11 @@ async function mockBackend(page: Page, registry: unknown[]): Promise<void> {
 const openPrimary = (page: Page) => page.getByRole("button", { name: "Open in app" });
 const openChevron = (page: Page) =>
   page.getByRole("button", { name: "Open in… (choose app)" });
-// The currentWindow-gated sync anchor: the ✕ left the bar (menuOnly, 260731-oiho),
-// so the merged split control's primary segment is the anchor now.
-const splitAnchor = (page: Page) => page.getByRole("button", { name: "Split horizontally" });
+// The currentWindow-gated sync anchor: the ✕ left the bar (menuOnly, 260731-oiho)
+// and the split chip followed (menuOnly in terminal mode, 260813-w1lf), so the
+// ▦ Layout chip (`mode === "terminal" && currentWindow && layout` — the same
+// gating semantics) is the anchor now.
+const layoutAnchor = (page: Page) => page.getByRole("button", { name: "Layout", exact: true });
 
 test.describe("Open-in-App split-button (260722-6d0f)", () => {
   test("renders with a stubbed registry; menu lists the host apps; launching POSTs the pane cwd", async ({
@@ -112,10 +114,10 @@ test.describe("Open-in-App split-button (260722-6d0f)", () => {
 
     await page.setViewportSize({ width: 1440, height: 800 });
     await page.goto(WINDOW_URL);
-    // The split control's primary segment is the currentWindow-gated anchor
-    // proving the sessions payload landed (the Open entry is additionally
-    // gated on the async registry fetch, so it lands fractionally later).
-    await expect(splitAnchor(page)).toBeVisible({ timeout: 10_000 });
+    // The ▦ Layout chip is the currentWindow-gated anchor proving the
+    // sessions payload landed (the Open entry is additionally gated on the
+    // async registry fetch, so it lands fractionally later).
+    await expect(layoutAnchor(page)).toBeVisible({ timeout: 10_000 });
 
     // The split-button renders in-bar at a wide viewport: primary + chevron.
     await expect(openPrimary(page)).toBeVisible({ timeout: 10_000 });
@@ -155,7 +157,7 @@ test.describe("Open-in-App split-button (260722-6d0f)", () => {
   }) => {
     await mockBackend(page, REGISTRY);
     await page.goto(WINDOW_URL);
-    await expect(splitAnchor(page)).toBeVisible({ timeout: 10_000 });
+    await expect(layoutAnchor(page)).toBeVisible({ timeout: 10_000 });
     // Wait for the registry-gated control before opening the palette (the
     // palette entries derive from the same async fetch).
     await expect(openPrimary(page)).toBeVisible({ timeout: 10_000 });
@@ -177,7 +179,7 @@ test.describe("Open-in-App split-button (260722-6d0f)", () => {
   }) => {
     await mockBackend(page, []);
     await page.goto(WINDOW_URL);
-    await expect(splitAnchor(page)).toBeVisible({ timeout: 10_000 });
+    await expect(layoutAnchor(page)).toBeVisible({ timeout: 10_000 });
 
     // No split-button in the bar (nor its probe copy — role queries exclude
     // the aria-hidden probe anyway).

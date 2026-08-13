@@ -17,6 +17,11 @@ import {
   type SurfaceKind,
 } from "@/lib/surface-layout";
 import { clampRatio, MIN_PANEL_WIDTH_PX } from "@/lib/right-panel";
+import {
+  ClosePaneBoxedGlyph,
+  SplitHorizontalGlyph,
+  SplitVerticalGlyph,
+} from "@/components/top-bar-icons";
 import type { ViewWindow } from "@/lib/window-view";
 import type { ChatEvent, ChatPending } from "@/lib/chat-stream";
 import type { WindowInfo } from "@/types";
@@ -39,9 +44,14 @@ import type { WindowInfo } from "@/types";
  *   promote, ⇄ swap-with-next, ✕ close (a hairline rule separates ✕ from the
  *   safe verbs; its hover turns `text-signal-red`). While a tile is zoomed
  *   its ⛶ stays `accent-green` and its ◧/⇄ verbs hide (no-ops there).
- *   `single` layouts render NO verbs (promote/swap are meaningless and
+ *   `single` layouts render NO layout verbs (promote/swap are meaningless and
  *   closing the last tile is disallowed). The tty header also mounts the
  *   shared `StatusDot` (agent state) when the parent passes `statusWindow`.
+ *   Tty headers additionally carry a bordered PANE SEGMENT (260813-w1lf
+ *   content verbs — Split H · Split V · Close Pane) at ANY arity, including
+ *   `single:tty`, and visible while zoomed; a hairline separates it from the
+ *   layout-verb cluster when that renders. Its verbs call the parent's
+ *   `onSplitPane`/`onClosePane` callbacks.
  * - **Focused tile (260812-wfic R2)**: transient component state — the slot
  *   that last received pointer/keyboard interaction (pointerdown-capture +
  *   focusin seams on the tile wrapper; the code tile's `CodeSurface` reports
@@ -130,6 +140,12 @@ interface SurfaceLayoutProps {
   onPromote: (surface: SurfaceKind) => void;
   onSwap: (surface: SurfaceKind) => void;
   onClose: (surface: SurfaceKind) => void;
+  /** Pane-segment callbacks (260813-w1lf content verbs — tty tiles only):
+   *  the parent routes these through its `executeSplit`/`executeClosePane`
+   *  optimistic actions (the palette split/close path). Both required for
+   *  the segment to render. */
+  onSplitPane?: (horizontal: boolean) => void;
+  onClosePane?: () => void;
   /** Optional ratio observers — fired during a drag (per move) and on release
    *  (commit). The component owns ratio state + persistence itself; these let
    *  a parent/e2e observe without owning anything. */
@@ -368,6 +384,8 @@ export function SurfaceLayout({
   onPromote,
   onSwap,
   onClose,
+  onSplitPane,
+  onClosePane,
   onRatioChange,
   onRatioCommit,
   zoomToggleRef,
@@ -671,6 +689,53 @@ export function SurfaceLayout({
               </span>
             )}
             <span className="flex-1" />
+            {/* Pane segment (260813-w1lf content verbs): tty tiles carry a
+                bordered group of PANE verbs — Split H · Split V · Close Pane —
+                at ANY arity (including `single:tty`, which renders no layout
+                verbs), visible while zoomed. A hairline separates it from the
+                layout-verb cluster when that renders (arity > 1). */}
+            {!mobile && kind === "tty" && slot >= 0 && onSplitPane && onClosePane && (
+              <>
+                <div
+                  data-testid="pane-segment"
+                  className="inline-flex items-center h-6 rounded border border-border"
+                >
+                  <Tip label="Split pane horizontally">
+                    <button
+                      type="button"
+                      aria-label="Split pane horizontally"
+                      onClick={() => onSplitPane(true)}
+                      className={`${VERB_BUTTON_CLASS} hover:text-text-primary`}
+                    >
+                      <SplitHorizontalGlyph />
+                    </button>
+                  </Tip>
+                  <Tip label="Split pane vertically">
+                    <button
+                      type="button"
+                      aria-label="Split pane vertically"
+                      onClick={() => onSplitPane(false)}
+                      className={`${VERB_BUTTON_CLASS} hover:text-text-primary`}
+                    >
+                      <SplitVerticalGlyph />
+                    </button>
+                  </Tip>
+                  <Tip label="Close pane — kills the tmux pane">
+                    <button
+                      type="button"
+                      aria-label="Close pane"
+                      onClick={() => onClosePane()}
+                      className={`${VERB_BUTTON_CLASS} hover:text-signal-red`}
+                    >
+                      <ClosePaneBoxedGlyph />
+                    </button>
+                  </Tip>
+                </div>
+                {showVerbs && (
+                  <span aria-hidden="true" className="mx-0.5 h-3.5 w-px bg-border" />
+                )}
+              </>
+            )}
             {showVerbs && (
               <>
                 <Tip label={isZoomed ? `Unzoom ${label}` : `Zoom ${label}`}>

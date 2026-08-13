@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"rk/internal/codeserver"
 	"rk/internal/desktop"
 	"rk/internal/testutil"
 )
@@ -25,6 +27,19 @@ func withResolveExe(t *testing.T, path string, err error) {
 	orig := resolveExeFn
 	resolveExeFn = func() (string, error) { return path, err }
 	t.Cleanup(func() { resolveExeFn = orig })
+}
+
+// withNoCodeServerLeg pins the umbrella's code-server leg off (home pointed at
+// an empty temp dir ⇒ no ~/.rk/code-server-bin ⇒ silent skip) for tests that
+// exercise the other legs in isolation — without it, a test run on a machine
+// WITH a managed code-server install would let the leg hit the real GitHub
+// API. Mirrors withNoDesktopLeg.
+func withNoCodeServerLeg(t *testing.T) {
+	t.Helper()
+	home := t.TempDir()
+	orig := codeServerUserHomeFn
+	codeServerUserHomeFn = func() (string, error) { return home, nil }
+	t.Cleanup(func() { codeServerUserHomeFn = orig })
 }
 
 // withBrewRecorder swaps runBrewFn for a recording stub. Each invocation appends
@@ -134,6 +149,7 @@ func TestUpdate_SkipBrewUpdateFlag_Registered(t *testing.T) {
 
 func TestUpdate_SkipBrewUpdate_OmitsUpdateButUpgradesAndRestarts(t *testing.T) {
 	resetSkipFlag(t)
+	withNoCodeServerLeg(t)
 	withNoDesktopLeg(t)
 	withResolveExe(t, "/opt/homebrew/Cellar/run-kit/9.9.9/bin/run-kit", nil)
 
@@ -170,6 +186,7 @@ func TestUpdate_SkipBrewUpdate_OmitsUpdateButUpgradesAndRestarts(t *testing.T) {
 
 func TestUpdate_Default_RunsUpdateAndUpgradeAndRestarts(t *testing.T) {
 	resetSkipFlag(t)
+	withNoCodeServerLeg(t)
 	withNoDesktopLeg(t)
 	withResolveExe(t, "/opt/homebrew/Cellar/run-kit/9.9.9/bin/run-kit", nil)
 
@@ -211,6 +228,7 @@ func setUpdateBuffers(t *testing.T, stdout, stderr *bytes.Buffer) {
 // (chatter). Errors and exit codes are unaffected.
 func TestUpdate_Quiet_OutcomeSurvivesProgressDropped(t *testing.T) {
 	resetSkipFlag(t)
+	withNoCodeServerLeg(t)
 	withNoDesktopLeg(t)
 	withQuiet(t, true)
 	withResolveExe(t, "/opt/homebrew/Cellar/run-kit/9.9.9/bin/run-kit", nil)
@@ -249,6 +267,7 @@ func TestUpdate_Quiet_OutcomeSurvivesProgressDropped(t *testing.T) {
 // former stdout progress onto stderr) while the outcome line stays on stdout.
 func TestUpdate_NonQuiet_ProgressOnStderrOutcomeOnStdout(t *testing.T) {
 	resetSkipFlag(t)
+	withNoCodeServerLeg(t)
 	withNoDesktopLeg(t)
 	withQuiet(t, false)
 	withResolveExe(t, "/opt/homebrew/Cellar/run-kit/9.9.9/bin/run-kit", nil)
@@ -282,6 +301,7 @@ func TestUpdate_NonQuiet_ProgressOnStderrOutcomeOnStdout(t *testing.T) {
 // survives --quiet on stdout.
 func TestUpdate_Quiet_NotBrewGuidanceSurvives(t *testing.T) {
 	resetSkipFlag(t)
+	withNoCodeServerLeg(t)
 	withNoDesktopLeg(t)
 	withQuiet(t, true)
 	// A non-Cellar path → IsBrewInstalled is false → guidance block prints.
@@ -467,6 +487,7 @@ while :; do sleep 0.1; done
 
 func TestUpdate_SkipBrewUpdate_ShortCircuitsWhenUpToDate(t *testing.T) {
 	resetSkipFlag(t)
+	withNoCodeServerLeg(t)
 	withNoDesktopLeg(t)
 	withResolveExe(t, "/opt/homebrew/Cellar/run-kit/dev/bin/run-kit", nil)
 
@@ -504,6 +525,7 @@ func TestUpdate_SkipBrewUpdate_ShortCircuitsWhenUpToDate(t *testing.T) {
 // desktop leg still runs and updates a stale app.
 func TestUpdate_Umbrella_NonBrewContinuesToDesktopLeg(t *testing.T) {
 	resetSkipFlag(t)
+	withNoCodeServerLeg(t)
 	// Non-Cellar path → CLI leg is the guidance skip.
 	withResolveExe(t, "/usr/local/bin/run-kit", nil)
 
@@ -535,6 +557,7 @@ func TestUpdate_Umbrella_NonBrewContinuesToDesktopLeg(t *testing.T) {
 // CLI leg's outcome prints normally.
 func TestUpdate_Umbrella_NoAppSilentSkip(t *testing.T) {
 	resetSkipFlag(t)
+	withNoCodeServerLeg(t)
 	withResolveExe(t, "/opt/homebrew/Cellar/run-kit/dev/bin/run-kit", nil)
 
 	var rec []string
@@ -567,6 +590,7 @@ func TestUpdate_Umbrella_NoAppSilentSkip(t *testing.T) {
 // factory is even called.
 func TestUpdate_Umbrella_NonDarwinNeverConstructsInstaller(t *testing.T) {
 	resetSkipFlag(t)
+	withNoCodeServerLeg(t)
 	withNoDesktopLeg(t)
 	withResolveExe(t, "/usr/local/bin/run-kit", nil) // CLI leg: guidance skip
 
@@ -591,6 +615,7 @@ func TestUpdate_Umbrella_NonDarwinNeverConstructsInstaller(t *testing.T) {
 // completes.
 func TestUpdate_Umbrella_CLIFailureStillRunsDesktopLeg(t *testing.T) {
 	resetSkipFlag(t)
+	withNoCodeServerLeg(t)
 	withResolveExe(t, "/opt/homebrew/Cellar/run-kit/dev/bin/run-kit", nil)
 
 	// brew update fails → the CLI leg errors before info/upgrade.
@@ -629,6 +654,7 @@ func TestUpdate_Umbrella_CLIFailureStillRunsDesktopLeg(t *testing.T) {
 // desktop-leg-labelled in the returned (non-zero) error.
 func TestUpdate_Umbrella_DesktopFailureAfterCLISuccess(t *testing.T) {
 	resetSkipFlag(t)
+	withNoCodeServerLeg(t)
 	withResolveExe(t, "/opt/homebrew/Cellar/run-kit/dev/bin/run-kit", nil)
 
 	var rec []string
@@ -682,6 +708,7 @@ func TestUpdate_Umbrella_DesktopFailureAfterCLISuccess(t *testing.T) {
 // underlying cause — neither failure masks the other.
 func TestUpdate_Umbrella_BothLegsFail(t *testing.T) {
 	resetSkipFlag(t)
+	withNoCodeServerLeg(t)
 	withResolveExe(t, "/opt/homebrew/Cellar/run-kit/dev/bin/run-kit", nil)
 
 	// brew update fails → the CLI leg errors before info/upgrade.
@@ -738,6 +765,7 @@ func TestUpdate_Umbrella_BothLegsFail(t *testing.T) {
 // desktop restart announcement — while all chatter is dropped.
 func TestUpdate_Umbrella_QuietKeepsBothLegsData(t *testing.T) {
 	resetSkipFlag(t)
+	withNoCodeServerLeg(t)
 	withQuiet(t, true)
 	withResolveExe(t, "/usr/local/bin/run-kit", nil) // CLI leg: guidance skip
 
@@ -765,5 +793,131 @@ func TestUpdate_Umbrella_QuietKeepsBothLegsData(t *testing.T) {
 	}
 	if stderr.String() != "" {
 		t.Errorf("stderr = %q, want empty under --quiet", stderr.String())
+	}
+}
+
+// --- Code-server leg (R12) ---
+
+// withManagedCodeServer points the CLI's code-server seams at a managed
+// install under a temp home, wired to the given release server, returning
+// kill/start recorders. Restores via t.Cleanup.
+func withManagedCodeServer(t *testing.T, srv *httptest.Server, installedVersion string) (kills, starts *int, home string) {
+	t.Helper()
+	home = t.TempDir()
+	kills, starts = withCodeServerCLISeams(t, home, srv)
+
+	if installedVersion != "" {
+		bin := filepath.Join(codeserver.VersionDir(home, installedVersion), "bin")
+		if err := os.MkdirAll(bin, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(bin, "code-server"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(installedVersion, codeserver.CurrentPath(home)); err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		// Managed dir present but empty (a crashed first install) — still owned.
+		if err := os.MkdirAll(codeserver.BinDir(home), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return kills, starts, home
+}
+
+// TestUpdate_CodeServerLeg_NotManagedSilentSkip pins the ownership gate: no
+// ~/.rk/code-server-bin ⇒ the leg is a SILENT exit-0 skip (no output, no
+// installer construction, no session touch).
+func TestUpdate_CodeServerLeg_NotManagedSilentSkip(t *testing.T) {
+	withNoCodeServerLeg(t) // empty temp home — no managed dir
+
+	installerBuilt := false
+	origNew := newCodeServerInstallerFn
+	newCodeServerInstallerFn = func() *codeserver.Installer {
+		installerBuilt = true
+		return codeserver.New()
+	}
+	t.Cleanup(func() { newCodeServerInstallerFn = origNew })
+
+	var stdout, stderr bytes.Buffer
+	runUpdateCodeServerLeg(bareCmd(&stdout, &stderr), newSinkWriters(&stdout, &stderr))
+
+	if stdout.Len() != 0 || stderr.Len() != 0 {
+		t.Errorf("leg output = %q / %q, want a silent skip", stdout.String(), stderr.String())
+	}
+	if installerBuilt {
+		t.Error("installer constructed despite the not-managed skip")
+	}
+}
+
+// TestUpdate_CodeServerLeg_UpdatesAndRespawns pins the happy path: a managed
+// install behind latest gets updated and the session respawned.
+func TestUpdate_CodeServerLeg_UpdatesAndRespawns(t *testing.T) {
+	resetSkipFlag(t)
+	withNoDesktopLeg(t)
+	withResolveExe(t, "/usr/local/bin/run-kit", nil) // CLI leg: guidance skip
+
+	srv := csReleaseServer(t, "4.133.0")
+	kills, starts, _ := withManagedCodeServer(t, srv, "4.132.0")
+
+	var stdout, stderr bytes.Buffer
+	setUpdateBuffers(t, &stdout, &stderr)
+
+	if err := updateCmd.RunE(updateCmd, nil); err != nil {
+		t.Fatalf("updateCmd.RunE returned error: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "Updated code-server v4.132.0 -> v4.133.0") {
+		t.Errorf("stdout = %q, want the code-server update line", stdout.String())
+	}
+	if *kills != 1 || *starts != 1 {
+		t.Errorf("kills=%d starts=%d, want 1/1 — the leg owns the respawn", *kills, *starts)
+	}
+}
+
+// TestUpdate_CodeServerLeg_FailureStillExitZero pins the best-effort
+// constraint: a failing code-server leg warns but NEVER contributes to the
+// command's exit code (the CLI leg here succeeds as the guidance skip).
+func TestUpdate_CodeServerLeg_FailureStillExitZero(t *testing.T) {
+	resetSkipFlag(t)
+	withNoDesktopLeg(t)
+	withResolveExe(t, "/usr/local/bin/run-kit", nil)
+
+	// A release server that 500s — the leg's download/resolve fails.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	t.Cleanup(srv.Close)
+	withManagedCodeServer(t, srv, "4.132.0")
+
+	var stdout, stderr bytes.Buffer
+	setUpdateBuffers(t, &stdout, &stderr)
+
+	err := updateCmd.RunE(updateCmd, nil)
+	if err != nil {
+		t.Fatalf("RunE err = %v, want nil — the code-server leg never joins the exit code", err)
+	}
+	if !strings.Contains(stderr.String(), "warning: code-server update failed") {
+		t.Errorf("stderr = %q, want the leg failure warning", stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "was not installed via Homebrew") {
+		t.Errorf("stdout = %q, want the CLI leg's guidance (it still ran)", stdout.String())
+	}
+}
+
+// TestUpdate_CodeServerLeg_AlreadyCurrentSkipsRespawn pins that an up-to-date
+// managed install costs no download and no session touch.
+func TestUpdate_CodeServerLeg_AlreadyCurrentSkipsRespawn(t *testing.T) {
+	srv := csReleaseServer(t, "4.132.0")
+	kills, starts, _ := withManagedCodeServer(t, srv, "4.132.0")
+
+	var stdout, stderr bytes.Buffer
+	runUpdateCodeServerLeg(bareCmd(&stdout, &stderr), newSinkWriters(&stdout, &stderr))
+
+	if !strings.Contains(stdout.String(), "already current") {
+		t.Errorf("stdout = %q, want the already-current line", stdout.String())
+	}
+	if *kills != 0 || *starts != 0 {
+		t.Errorf("kills=%d starts=%d, want 0/0", *kills, *starts)
 	}
 }

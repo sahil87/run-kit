@@ -1,0 +1,12 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-13T07:55:51Z"}
+{"args":"Replace the Homebrew code-server dependency with rk-owned install: standalone tarball from GitHub releases, daemon-owned acquisition via rk-jobs job window, rk code-server install/start/update CLI surface, rk update integration, brew depends_on drop","cmd":"fab-new","event":"command","ts":"2026-08-13T07:55:51Z"}
+{"delta":"+0.0","event":"confidence","score":4.6,"trigger":"calc-score","ts":"2026-08-13T07:57:08Z"}
+{"delta":"+0.0","event":"confidence","score":4.6,"trigger":"calc-score","ts":"2026-08-13T07:57:31Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-08-13T07:58:44Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-13T08:00:09Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-13T08:03:51Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-13T08:44:25Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-13T08:54:29Z"}
+{"event":"review","result":"passed","ts":"2026-08-13T08:54:29Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-13T09:12:35Z"}
+{"cmd":"git-pr","event":"command","ts":"2026-08-13T09:13:44Z"}

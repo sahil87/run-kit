@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"rk/internal/codeserver"
 )
 
 func TestDoctorCommandOutput(t *testing.T) {
@@ -465,10 +467,12 @@ func TestDoctorFailRowWording(t *testing.T) {
 // TestCodeServerCheckAbsentBinaryIsWarnNotFail proves the daemon-managed
 // editor's doctor row never fails the report (260811-a2bo): an absent binary
 // is the WARN case — OK with a remediation note — matching daemon start's
-// warn-and-continue discipline.
+// warn-and-continue discipline. The remediation is rk-managed install
+// guidance, never brew.
 func TestCodeServerCheckAbsentBinaryIsWarnNotFail(t *testing.T) {
 	t.Setenv("RK_CODE_SERVER_PORT", "3939")
 	c := codeServerCheck(
+		t.TempDir(), // no managed install under this home
 		func(string) (string, error) { return "", fmt.Errorf("not found") },
 		func(string) bool { return false },
 	)
@@ -481,6 +485,43 @@ func TestCodeServerCheckAbsentBinaryIsWarnNotFail(t *testing.T) {
 	if !strings.Contains(c.Note, "not installed") || !strings.Contains(c.Note, ":3939") {
 		t.Errorf("note = %q, want remediation + resolved port", c.Note)
 	}
+	if !strings.Contains(c.Note, "rk code-server install") {
+		t.Errorf("note = %q, want the rk-managed install hint", c.Note)
+	}
+	if strings.Contains(c.Note, "brew") {
+		t.Errorf("note = %q, must not suggest brew", c.Note)
+	}
+}
+
+// TestCodeServerCheckManagedVersion proves the rk-managed install is reported
+// with its version (from the current symlink) and wins over a PATH install —
+// the same precedence as the daemon's resolution ladder.
+func TestCodeServerCheckManagedVersion(t *testing.T) {
+	t.Setenv("RK_PORT", "3000")
+	t.Setenv("RK_CODE_SERVER_PORT", "")
+	home := t.TempDir()
+	bin := filepath.Join(codeserver.VersionDir(home, "4.132.0"), "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bin, "code-server"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("4.132.0", codeserver.CurrentPath(home)); err != nil {
+		t.Fatal(err)
+	}
+
+	c := codeServerCheck(
+		home,
+		func(string) (string, error) { return "/usr/bin/code-server", nil }, // PATH also resolves
+		func(string) bool { return true },
+	)
+	if !c.OK || !strings.Contains(c.Note, "managed v4.132.0") {
+		t.Errorf("note = %q, want the managed version (rung 1 wins over PATH)", c.Note)
+	}
+	if !strings.Contains(c.Note, "reachable on 127.0.0.1:3002") {
+		t.Errorf("note = %q, want reachability alongside the version", c.Note)
+	}
 }
 
 // TestCodeServerCheckReachabilityNotes covers the two installed states:
@@ -491,12 +532,12 @@ func TestCodeServerCheckReachabilityNotes(t *testing.T) {
 	t.Setenv("RK_CODE_SERVER_PORT", "")
 	lookPath := func(string) (string, error) { return "/usr/bin/code-server", nil }
 
-	up := codeServerCheck(lookPath, func(string) bool { return true })
+	up := codeServerCheck(t.TempDir(), lookPath, func(string) bool { return true })
 	if !up.OK || !strings.Contains(up.Note, "reachable on 127.0.0.1:3002") {
 		t.Errorf("reachable: %+v, want OK + convention port :3002 note", up)
 	}
 
-	down := codeServerCheck(lookPath, func(string) bool { return false })
+	down := codeServerCheck(t.TempDir(), lookPath, func(string) bool { return false })
 	if !down.OK || !strings.Contains(down.Note, "not currently reachable on 127.0.0.1:3002") {
 		t.Errorf("unreachable: %+v, want OK + not-reachable note with :3002", down)
 	}
@@ -510,6 +551,7 @@ func TestCodeServerCheckUnresolvablePort(t *testing.T) {
 	t.Setenv("RK_CODE_SERVER_PORT", "")
 	dialed := false
 	c := codeServerCheck(
+		t.TempDir(),
 		func(string) (string, error) { return "/usr/bin/code-server", nil },
 		func(string) bool { dialed = true; return false },
 	)

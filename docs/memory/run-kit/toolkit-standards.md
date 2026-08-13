@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "run-kit's shll-toolkit-standards conformance posture — constitution binding (§ Toolkit Standards), audit-against-HEAD-build rule, per-standard status. help-dump, readme-extraction, skill, ten principles, update, version PASS. Covers skill topic pages, Principle 9 `--quiet`/reaper caps, SIGTERM-with-grace brew mutations, the help-dump + Principle 9 check every new command surface gets (`rk desktop`, `rk remote`, `rk daemon run`, `rk role`), and install-composition Policy B PASS."
+description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, audit-against-HEAD-build rule, per-standard status. help-dump, readme-extraction, skill, ten principles, update, version PASS. Covers skill topic pages, Principle 9 `--quiet`/reaper caps, SIGTERM-with-grace brew mutations, the help-dump + Principle 9 new-surface check (`rk desktop`, `rk remote`, `rk daemon run`, `rk role`, `rk code-server`), `rk update`'s best-effort code-server leg, install-composition Policy B PASS."
 ---
 # Toolkit Standards Conformance
 
@@ -216,6 +216,40 @@ fourth surface measured against the same two checks
   not inside tmux, tmux failure) flow through `RunE` to stderr with a non-zero
   exit.
 
+The `rk code-server` group (`install`/`start`/`update` — see
+[architecture](/run-kit/architecture.md) § CLI Subcommands, `code-server` row)
+is the fifth surface measured against the same two checks
+(`260813-oid2-own-code-server-install`):
+
+- **help-dump: platform-stable registration.** The parent and all three
+  children are registered unconditionally on `rootCmd` (`root.go`'s `init()`)
+  and every node carries a `Long:` block, so the cobra tree walk picks the
+  subtree up with no help-dump code change and the dumped contract is
+  identical on every platform — the `start` verb's daemon-running gate and the
+  `update` verb's managed-install gate are operational outcomes at run time,
+  not registration conditions. The help-dump goldens were re-checked on the
+  change.
+- **Principle 9: outcome lines are data, acquisition narration is chatter.**
+  Every verb routes through `newSink(cmd)`, and the `internal/codeserver`
+  installer's `Progress` writer is bound to `sink.chatter`, so
+  resolve/download/extract progress vanishes under `--quiet` while the outcome
+  lines — `install`'s already-current / installed lines, `start`'s
+  already-running / externally-managed / started lines, `update`'s
+  not-managed skip and `Updated code-server vX -> vY` line — are `Dataf` on
+  stdout and survive: silence there would misreport a no-op as success or hide
+  a mutation.
+- **Exit-code convention (P4)**: the children re-wrap their own `Args`
+  validators with `usageArgs` in `code_server.go`'s `init()` — root's central
+  wrap loop covers only `rootCmd`'s **direct** children (the `desktop` /
+  `remote` reason) — so an arg-count violation is a usage error (exit 2),
+  while a down daemon (`start` names `rk serve -d`), a missing binary on
+  `start` (names `rk code-server install`), and download/verify failures are
+  operational (1).
+- **The `rk skill` bundle stays untouched**, for the same reason as
+  `desktop`/`remote`/`daemon run`/`role`: the bundle is a capability briefing,
+  not a command enumeration, and editing it would trip its byte-equality
+  drift guard for no standard-mandated gain.
+
 #### Scenario: A new subcommand group keeps the help tree platform-stable
 - **GIVEN** the `rk desktop` group on a Linux host
 - **WHEN** `rk desktop install` runs
@@ -413,21 +447,46 @@ across repo / roster / formula leaf / binary; `v{semver}` tags; the `rk` →
 cited precedent). See [architecture](/run-kit/architecture.md) § CLI Subcommands
 (`update` row) for the mechanism.
 
-**The two-leg umbrella holds the same conformance** — `rk update` updates the
-CLI *and* the macOS desktop app, and every clause the standard cares about
-holds across both legs (`260731-3byh-umbrella-update-auto-restart`). The brew
+**The umbrella holds the same conformance across all three legs** — `rk
+update` updates the CLI, the macOS desktop app, and the rk-managed code-server
+install, and every clause the standard cares about holds across them
+(`260731-3byh-umbrella-update-auto-restart`; the code-server third leg
+`260813-oid2-own-code-server-install`). The brew
 half is untouched, so the mutation bounds and graceful-cancel discipline below
 carry over verbatim. `--skip-brew-update` is a literal substring of
 `rk update --help`. Exit 0 covers success, already-up-to-date, **and every
-skip** (not brew-installed, non-darwin, no desktop app), with non-zero reserved
-for a genuine leg failure. The non-brew guidance is a clear degradation and a
+skip** (not brew-installed, non-darwin, no desktop app, no managed
+code-server), with non-zero reserved for a genuine leg failure — the
+code-server leg is **best-effort** and never contributes to the exit code at
+all (its failures warn only — see the dedicated paragraph below). The non-brew
+guidance is a clear degradation and a
 *leg* skip: it prints and execution continues to the desktop leg, so a
-Homebrew-less CLI still gets its app updated. The **command tree carries no
-new subcommands and no new flags** (only `Long` prose differs on `update` and
-`desktop install`/`update`), so the help-dump contract is shape-stable — the
-goldens were re-checked on this change.
+Homebrew-less CLI still gets its app updated. The **command tree carries the
+`code-server` group** (registered unconditionally — see §
+Requirement: A new command surface is checked against help-dump and Principle
+9), and the help-dump goldens cover it.
 
-Updating a second artifact is what the standard's own "the tool's own
+**The code-server third leg is best-effort by design**
+(`260813-oid2-own-code-server-install`; mechanism in
+[architecture](/run-kit/architecture.md) § CLI Subcommands, `update` row). It
+runs **only when `~/.rk/code-server-bin` exists** — the ownership gate, the
+mirror of the standard's "self-update only when brew-installed" clause; a
+user-managed PATH install is never touched, and no managed dir is a silent
+skip. It shares `runCodeServerUpdateFlow` with `rk code-server update`
+in-process (no subprocess self-call): install the latest digest-verified
+release, then kill and respawn the `rk-code-server` session on a version
+change so the flipped `current` symlink takes effect (the daemon restart
+deliberately never touches sibling sessions, so this leg owns the respawn).
+**Any failure is a warning on the chatter surface and NEVER joins the
+command's exit code** — deliberately NOT taking the standard's allowance for
+non-zero on a failed post-upgrade step: the rk upgrade itself succeeded, the
+daemon's install job retries acquisition later, and a false red row in
+`shll update`'s summary is worse than a warning. The download is in-process
+HTTP under a generous ~15m context bound — no package-manager subprocess, so
+the SIGTERM-with-grace brew discipline does not apply, and the atomic symlink
+flip makes the swap corruption-proof regardless.
+
+Updating additional artifacts beyond the CLI is what the standard's own "the tool's own
 post-upgrade side effects" clause contemplates — the same clause the daemon
 restart sits under. The **composition consequence is worth stating plainly**:
 `shll update` delegates run-kit's leg to `rk update`, so a composed toolkit

@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"rk/internal/codeserver"
 	"rk/internal/daemon"
 	"rk/internal/selfpath"
 
@@ -174,6 +175,12 @@ independent legs:
                /Applications: update it to the latest release, auto-restarting
                a running app (staged download, graceful quit, atomic swap,
                relaunch). Skipped silently when no app is installed.
+  Code-server  When an rk-managed code-server install exists
+  leg          (~/.rk/code-server-bin): update it to the latest release and
+               respawn the session so the new binary takes effect.
+               Best-effort — a failure warns but never fails the command
+               (the daemon's install job retries later). Skipped silently
+               when nothing is rk-managed; a PATH install is never touched.
 
 Each leg is skipped when its target is not installed; skips exit 0. The exit
 code is non-zero only when a leg genuinely fails, and one leg's failure does
@@ -208,6 +215,9 @@ for custom locations.`,
 		if desktopErr != nil {
 			desktopErr = fmt.Errorf("desktop update: %w", desktopErr)
 		}
+		// Third leg, best-effort: warnings only, NEVER joined into the exit
+		// code (see runUpdateCodeServerLeg).
+		runUpdateCodeServerLeg(cmd, sink)
 		return errors.Join(cliErr, desktopErr)
 	},
 }
@@ -296,6 +306,36 @@ func runUpdateCLILeg(sink outputSink) error {
 		daemon.ServerSocket, daemon.SessionName, daemon.WindowName)
 
 	return nil
+}
+
+// runUpdateCodeServerLeg runs the code-server leg of the umbrella update —
+// the shll update standard's "post-upgrade side effects" clause (the
+// standard's own cited example is a tool restarting its daemon). Semantics
+// are exactly `rk code-server update` (shared via runCodeServerUpdateFlow)
+// under the agreed constraints: it runs ONLY when ~/.rk/code-server-bin
+// exists (a user-managed PATH install is never touched — the standard's
+// self-update-only-when-brew-installed mirror), it is best-effort (any
+// failure is a chatter warning and NEVER joins the command's exit code —
+// deliberately not taking the standard's failed-post-upgrade-step allowance:
+// the rk upgrade itself succeeded, the daemon's install job retries
+// acquisition later, and a false red row in `shll update`'s summary is worse
+// than a warning), the download bound is generous (R5's 15m context —
+// in-process HTTP needs no SIGTERM discipline; the atomic symlink flip makes
+// the swap corruption-proof), and the session respawn is part of the shared
+// flow (the daemon restart deliberately never touches sibling sessions, so
+// this leg owns the code-server one).
+func runUpdateCodeServerLeg(cmd *cobra.Command, sink outputSink) {
+	home, err := codeServerUserHomeFn()
+	if err != nil {
+		sink.Notef("warning: code-server leg skipped (home unresolvable: %v) — run `rk code-server update` manually\n", err)
+		return
+	}
+	if _, err := os.Stat(codeserver.BinDir(home)); err != nil {
+		return // not managed ⇒ silent skip (only touch what rk owns)
+	}
+	if err := runCodeServerUpdateFlow(cmd, sink); err != nil {
+		sink.Notef("warning: code-server update failed (%v) — the daemon's install job retries on the next start, or run `rk code-server update`\n", err)
+	}
 }
 
 // runUpdateDesktopLeg updates the Run Kit desktop app when one is installed

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"rk/internal/codeserver"
 	"rk/internal/config"
 
 	"github.com/spf13/cobra"
@@ -72,8 +73,10 @@ func runDoctorChecks() doctorReport {
 	// code-server (260811-a2bo) — the daemon-managed editor behind /code/.
 	// Always WARN-shaped (OK with a note), never a FAIL: an absent or
 	// not-yet-started editor must not fail doctor — daemon start itself only
-	// warns and continues (internal/daemon ensureCodeServer).
-	report.Checks = append(report.Checks, codeServerCheck(exec.LookPath, dialTCP))
+	// warns and continues (internal/daemon ensureCodeServer). home may be ""
+	// when unresolvable — the managed-install rung is then skipped.
+	home, _ := os.UserHomeDir()
+	report.Checks = append(report.Checks, codeServerCheck(home, exec.LookPath, dialTCP))
 
 	return report
 }
@@ -89,12 +92,14 @@ func dialTCP(addr string) bool {
 	return true
 }
 
-// codeServerCheck reports the daemon-managed code-server's state: binary
-// presence, the resolved port (preset RK_CODE_SERVER_PORT, else RK_PORT+2),
-// and reachability. Pure over an injected (lookPath, dial) pair so tests never
-// depend on the host. Never OK=false — absence is the WARN case (the daemon
-// warns and continues without it), so the row carries a remediation Note.
-func codeServerCheck(lookPath func(string) (string, error), dial func(string) bool) doctorCheck {
+// codeServerCheck reports the daemon-managed code-server's state: install
+// source (rk-managed under ~/.rk/code-server-bin, else a user-managed PATH
+// install), the resolved port (preset RK_CODE_SERVER_PORT, else RK_PORT+2),
+// and reachability. Pure over an injected (home, lookPath, dial) triple so
+// tests never depend on the host. Never OK=false — absence is the WARN case
+// (the daemon warns and continues without it, spawning the install job), so
+// the row carries a remediation Note.
+func codeServerCheck(home string, lookPath func(string) (string, error), dial func(string) bool) doctorCheck {
 	port := config.Load().ResolvedCodeServerPort()
 	check := doctorCheck{Name: "code-server", OK: true}
 	// A degenerate config (RK_PORT whose +2 leaves 1-65535, no valid override)
@@ -104,15 +109,29 @@ func codeServerCheck(lookPath func(string) (string, error), dial func(string) bo
 		check.Note = "port not resolvable — RK_PORT+2 falls outside 1-65535 and no valid RK_CODE_SERVER_PORT is set, so /code/ is off (lower RK_PORT or set RK_CODE_SERVER_PORT)"
 		return check
 	}
+	reachability := func() string {
+		if dial(fmt.Sprintf("127.0.0.1:%d", port)) {
+			return fmt.Sprintf("reachable on 127.0.0.1:%d", port)
+		}
+		return fmt.Sprintf("not currently reachable on 127.0.0.1:%d (the daemon starts it on `rk daemon start`)", port)
+	}
+	// The managed rung mirrors the daemon's resolution ladder: the rk-owned
+	// install wins over a PATH install when both exist.
+	if home != "" {
+		if managed := codeserver.ManagedBinary(home); managed != "" {
+			version, err := codeserver.InstalledVersion(home)
+			if err != nil || version == "" {
+				version = "unknown"
+			}
+			check.Note = fmt.Sprintf("managed v%s; %s", version, reachability())
+			return check
+		}
+	}
 	if _, err := lookPath("code-server"); err != nil {
-		check.Note = fmt.Sprintf("not installed — the daemon-managed editor behind /code/ is unavailable (resolved port :%d; install code-server, e.g. brew install code-server)", port)
+		check.Note = fmt.Sprintf("not installed — the daemon-managed editor behind /code/ is unavailable (resolved port :%d; the daemon installs it automatically on start, or run `rk code-server install`)", port)
 		return check
 	}
-	if dial(fmt.Sprintf("127.0.0.1:%d", port)) {
-		check.Note = fmt.Sprintf("reachable on 127.0.0.1:%d", port)
-	} else {
-		check.Note = fmt.Sprintf("installed; not currently reachable on 127.0.0.1:%d (the daemon starts it on `rk daemon start`)", port)
-	}
+	check.Note = "installed (PATH); " + reachability()
 	return check
 }
 

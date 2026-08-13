@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 15
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-08-13T18:30:14Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-13T18:57:23Z"}
     review: {started_at: "2026-08-13T18:57:23Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-13T19:03:14Z"}
     hydrate: {started_at: "2026-08-13T19:03:14Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-13T19:12:43Z"}
-    ship: {started_at: "2026-08-13T19:12:43Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-08-13T19:12:43Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-13T19:16:51Z"}
+    review-pr: {started_at: "2026-08-13T19:16:51Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/588
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 1332
+    deleted: 38
+    net: 1294
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 852
+        deleted: 27
+        net: 825
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-08-13T19:12:43Z"
-    computed_at_stage: hydrate
+        added: 259
+        deleted: 2
+        net: 257
+    computed_at: "2026-08-13T19:16:51Z"
+    computed_at_stage: ship
 summary: 'Desktop shell: hosts.json accentColor field + moveHost mutator, servers:reorder IPC, servers:list waiting-count join; switcher menu accent edge bar, amber waiting chip, drag/Alt-arrow reorder'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-13T19:12:43Z
+last_updated: 2026-08-13T19:16:51Z

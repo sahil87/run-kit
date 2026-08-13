@@ -20,7 +20,7 @@ rk present http://localhost:8080/x  # same, rewritten to /proxy/8080/x
 rk present https://example.com/app  # external URL — attached verbatim
 ```
 
-The resolved relative URL prints to stdout; diagnostics go to stderr. Exit codes: `0` success, `1` operational failure (not in tmux, file missing, port not listening), `2` usage.
+The resolved URL prints to stdout (relative for `/present` and `/proxy` targets, absolute for external URLs); diagnostics go to stderr. Exit codes: `0` success, `1` operational failure (not in tmux, file missing, port not listening), `2` usage.
 
 **You cannot open the tile for the user.** Layout is per-viewer client state — `rk present` only makes content AVAILABLE (the rail's web button lights up). When the user may be away, nudge them:
 

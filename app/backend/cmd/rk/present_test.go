@@ -139,7 +139,7 @@ func resetPresentFlagState(t *testing.T) {
 	t.Cleanup(reset)
 }
 
-// opValue finds an op by key.
+// opValue finds a set op (non-nil Value) by key.
 func opValue(ops []tmux.WindowOptionOp, key string) (string, bool) {
 	for _, op := range ops {
 		if op.Key == key && op.Value != nil {
@@ -147,6 +147,16 @@ func opValue(ops []tmux.WindowOptionOp, key string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// opUnset reports whether ops carries an unset (nil-Value) op for key.
+func opUnset(ops []tmux.WindowOptionOp, key string) bool {
+	for _, op := range ops {
+		if op.Key == key && op.Value == nil {
+			return true
+		}
+	}
+	return false
 }
 
 func TestPresentUsageErrorsExitTwo(t *testing.T) {
@@ -213,8 +223,9 @@ func TestPresentUnreachablePortExitsOne(t *testing.T) {
 
 // TestPresentAttachComposition pins the default arm's option set per target
 // kind: file/dir get @rk_url + @rk_present_root on the caller's OWN window;
-// port/URL targets set @rk_url only, with no cache-buster. stdout carries
-// exactly the URL.
+// port/URL targets set @rk_url and UNSET @rk_present_root (clearing any stale
+// serve root from a previous file/dir present), with no cache-buster. stdout
+// carries exactly the URL.
 func TestPresentAttachComposition(t *testing.T) {
 	dir := t.TempDir()
 	file := filepath.Join(dir, "mock.html")
@@ -258,8 +269,13 @@ func TestPresentAttachComposition(t *testing.T) {
 				t.Errorf("@rk_url = %q (set=%v), want %q", u, ok, tc.wantURL)
 			}
 			root, hasRoot := opValue(ops, presentRootOption)
-			if tc.wantRoot == "" && hasRoot {
-				t.Errorf("unexpected @rk_present_root = %q", root)
+			if tc.wantRoot == "" {
+				if hasRoot {
+					t.Errorf("unexpected @rk_present_root = %q", root)
+				}
+				if !opUnset(ops, presentRootOption) {
+					t.Error("non-file/dir target did not unset @rk_present_root — a stale serve root would survive")
+				}
 			}
 			if tc.wantRoot != "" && (!hasRoot || root != tc.wantRoot) {
 				t.Errorf("@rk_present_root = %q (set=%v), want %q", root, hasRoot, tc.wantRoot)

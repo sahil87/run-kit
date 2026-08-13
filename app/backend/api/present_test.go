@@ -69,9 +69,10 @@ func stubWindowOption(t *testing.T, root string) (calls *int, servers *[]string)
 		}
 		return root, nil
 	}
-	t.Cleanup(func() { getWindowOptionFn = nil })
-	// NOTE: the production default is restored by reassigning below — see
-	// TestMain-level hygiene: the seam is package-global, so restore it.
+	// The seam is package-global, so restore the production default. This must
+	// be the ONLY cleanup touching the seam — t.Cleanup runs LIFO, so a second
+	// (e.g. nil-ing) cleanup registered before this one would run after it and
+	// leave the package in a broken state for later tests.
 	t.Cleanup(func() { getWindowOptionFn = defaultGetWindowOption })
 	return &n, &seen
 }

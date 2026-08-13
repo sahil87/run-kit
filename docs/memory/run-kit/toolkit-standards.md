@@ -267,7 +267,8 @@ the sixth surface measured against the same checks
   picks it up with no help-dump code change; the `$TMUX_PANE` guard is an
   operational exit 1 at run time, not a registration condition.
 - **Principle 9: the resolved URL is the only stdout line — data.** stdout
-  carries exactly the resolved relative `@rk_url` value and prints it even
+  carries exactly the resolved `@rk_url` value (relative for `/present`/
+  `/proxy` targets, absolute for external URLs) and prints it even
   under `--quiet` (silence would hide the command's one result); diagnostics
   go to stderr. `--notify`'s send failure is the documented fail-silent
   exception (the `rk notify` contract), not a Principle 9 violation.

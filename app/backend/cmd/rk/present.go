@@ -48,7 +48,8 @@ var presentCmd = &cobra.Command{
 		"  http://localhost:N/… same, rewritten to the relative /proxy/N/… form\n" +
 		"  https://…            an external URL — attached verbatim\n\n" +
 		"By default the content attaches to the caller's own tmux window (@rk_url),\n" +
-		"and the resolved relative URL prints to stdout. --window spawns a standalone\n" +
+		"and the resolved URL prints to stdout (relative for /present and /proxy\n" +
+		"targets, absolute for external URLs). --window spawns a standalone\n" +
 		"iframe window instead; --notify sends a Web Push after attaching (fail-silent).\n" +
 		"The tile is never opened for the viewer — availability appears on the rail.",
 	Args: cobra.ExactArgs(1),
@@ -203,6 +204,12 @@ func presentAttach(ctx context.Context, target present.Target) (string, error) {
 	if target.NeedsRoot() {
 		root := target.Root
 		ops = append(ops, tmux.WindowOptionOp{Key: presentRootOption, Value: &root})
+	} else {
+		// Clear any stale serve root left by a previous file/dir present on
+		// this window — otherwise /present/{windowId}/... would keep serving
+		// the old filesystem root after the window moved on to a port/URL
+		// target (nil Value = set-option -u).
+		ops = append(ops, tmux.WindowOptionOp{Key: presentRootOption, Value: nil})
 	}
 	if err := presentSetWindowOptionsFn(ctx, windowID, serverName, ops); err != nil {
 		return "", fmt.Errorf("attach to window %s: %w", windowID, err)

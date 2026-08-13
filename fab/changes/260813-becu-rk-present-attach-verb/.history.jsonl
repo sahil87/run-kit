@@ -1,0 +1,12 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-13T18:36:07Z"}
+{"args":"rk present — a one-verb show-this-to-the-user for agents (tmux-option-derived serving via /present/{windowId}/ route, --window fallback, --notify), plus the rk skill / rk skill display page rewrite that teaches it","cmd":"fab-new","event":"command","ts":"2026-08-13T18:36:07Z"}
+{"delta":"+3.4","event":"confidence","score":3.4,"trigger":"calc-score","ts":"2026-08-13T18:38:44Z"}
+{"cmd":"fab-draft","event":"command","ts":"2026-08-13T18:38:51Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-08-13T18:39:51Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-13T18:41:44Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-13T18:43:25Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-13T19:13:04Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-13T19:23:07Z"}
+{"event":"review","result":"passed","ts":"2026-08-13T19:23:07Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-13T19:34:13Z"}
+{"cmd":"git-pr","event":"command","ts":"2026-08-13T19:35:06Z"}

@@ -31,16 +31,8 @@ One line each, keyed to the subcommand or tmux option that does it:
 
 - `rk notify <message> [--title <t>]` — Web Push a message to every subscribed browser/device. Fail-silent by contract (see Output contracts).
 - `rk url` — print the run-kit **server URL** (config-derived: RK_HOST/RK_PORT, default `http://127.0.0.1:3000`). It is a heuristic, not a liveness probe. Run it at use-time; never hardcode the value.
-- `rk skill display` — the visual-display topic page: panes, iframe windows, the proxy, and the canonical Visual Display Recipe, in depth.
-- **Iframe windows** — a tmux window that renders a web page instead of a terminal:
-
-  ```sh
-  tmux new-window -n <name>
-  tmux set-option -w @rk_type iframe
-  tmux set-option -w @rk_url <url>
-  ```
-
-  Change the page later by re-setting `@rk_url`.
+- `rk present <path|url>` — attach web content beside your own terminal: a file, a directory, a `:port`, a localhost URL, or an external URL. Prints the resolved URL to stdout. Depth: `rk skill display`.
+- `rk skill display` — the visual-display topic page: target forms, attach vs. standalone windows, the proxy, and the canonical Visual Display Recipe, in depth.
 - **Proxy** — reach a local service through the run-kit server:
 
   ```
@@ -48,17 +40,11 @@ One line each, keyed to the subcommand or tmux option that does it:
   ```
 
   The relative form `/proxy/{port}/...` works from the frontend behind any origin or reverse proxy.
-- **Visual Display Recipe** — the canonical 4-step flow to show HTML to the user:
+- **Visual Display Recipe** — the canonical flow to show HTML to the user:
   1. **Generate HTML** to a known location (a temp dir or the project tree).
-  2. **Serve it** on loopback: `python3 -m http.server --bind 127.0.0.1 <port> -d <dir> &`
-  3. **Open an iframe window** with a relative proxy path:
-
-     ```sh
-     tmux new-window -n <name>
-     tmux set-option -w @rk_type iframe
-     tmux set-option -w @rk_url /proxy/<port>/<filename>
-     ```
-  4. **Fail silently** — if any step's prerequisite is unavailable (run-kit missing, port in use, server start fails), skip the rest without surfacing an error.
+  2. **`rk present ./file.html`** — serves it live and attaches it to your window's web tile; re-run the same command to refresh.
+  3. **Optionally `--notify`** — push the user when they may be away.
+  4. **Fail silently** — if any prerequisite is unavailable (run-kit missing, not in tmux), skip the rest without surfacing an error.
 
 ## Where am I
 
@@ -85,6 +71,7 @@ rk url                                           # server URL (config-derived)
 ## Output & exit-code contracts
 
 - **`rk notify` is fail-silent by contract.** Any error — server unreachable, no subscriptions, non-2xx — exits **0** and prints nothing, so it never stalls a calling loop. Do not branch on its output.
+- **`rk present` prints only the resolved URL to stdout** (data — printed even under `--quiet`); diagnostics go to stderr. Its exit codes follow the convention below; its `--notify` send stays fail-silent like `rk notify`.
 - **`rk skill`, `rk url`, and `rk help-dump` print data to stdout** (stdout is data; stderr is diagnostics). `rk skill` emits this bundle byte-identical with empty stderr and exit 0; `rk skill <topic>` (e.g. `display`) prints one topic page under the same contract, and an unknown topic exits non-zero with the valid topics on stderr; `rk url` prints the server URL newline-terminated; `rk help-dump` emits the machine-readable command tree.
 - **Exit codes follow the toolkit convention: `0` success, `1` operational failure, `2` usage error** — usage/flag/arg-count/unknown-command errors exit `2`; operational failures (dead server, failed check) exit `1`; `rk riff` subprocess failures exit `3`. The diagnostic is on stderr. (`rk notify` is the exception above — runtime failures exit `0`.)
 

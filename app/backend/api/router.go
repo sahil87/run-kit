@@ -717,6 +717,11 @@ func (s *Server) buildRouter() chi.Router {
 	r.HandleFunc("/proxy/{port}/*", s.handleProxy)
 	r.HandleFunc("/proxy/{port}", s.handleProxy)
 
+	// Content route for `rk present` file/dir targets — the serve root is the
+	// window's @rk_present_root option, read from tmux at request time.
+	r.HandleFunc("/present/{windowId}/*", s.handlePresent)
+	r.HandleFunc("/present/{windowId}", s.handlePresent)
+
 	// The stable code-server route (260811-a2bo) — same proxy machinery as
 	// /proxy/{port} with a FIXED pathname (workspace-state identity); the port
 	// is resolved server-side and never appears in a URL.

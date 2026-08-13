@@ -68,6 +68,7 @@ func init() {
 	rootCmd.AddCommand(snapshotCmd)
 	rootCmd.AddCommand(roleCmd)
 	rootCmd.AddCommand(codeServerCmd)
+	rootCmd.AddCommand(presentCmd)
 	rootCmd.AddCommand(newShellInitCmd())
 	rootCmd.AddCommand(helpDumpCmd)
 

@@ -1709,6 +1709,35 @@ func TestSetWindowOptions_chainedSetAndUnset(t *testing.T) {
 	}
 }
 
+// TestGetWindowOption_roundTrip verifies the getter reads back what
+// SetWindowOption wrote and reports ("", nil) for an unset option, against a
+// real tmux server.
+func TestGetWindowOption_roundTrip(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	id := windowID(t, server, "boot:0")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if v, err := GetWindowOption(ctx, id, server, "@rk_present_root"); err != nil || v != "" {
+		t.Errorf("unset option = (%q, %v), want (\"\", nil)", v, err)
+	}
+
+	if err := SetWindowOption(ctx, id, server, "@rk_present_root", "/tmp/some dir/root"); err != nil {
+		t.Fatalf("SetWindowOption: %v", err)
+	}
+	if v, err := GetWindowOption(ctx, id, server, "@rk_present_root"); err != nil || v != "/tmp/some dir/root" {
+		t.Errorf("set option = (%q, %v), want (\"/tmp/some dir/root\", nil)", v, err)
+	}
+
+	if err := UnsetWindowOption(ctx, id, server, "@rk_present_root"); err != nil {
+		t.Fatalf("UnsetWindowOption: %v", err)
+	}
+	if v, err := GetWindowOption(ctx, id, server, "@rk_present_root"); err != nil || v != "" {
+		t.Errorf("after unset = (%q, %v), want (\"\", nil)", v, err)
+	}
+}
+
 func TestMoveWindowToSession_movesAndPreservesID(t *testing.T) {
 	server := withSessionOrderTmux(t)
 

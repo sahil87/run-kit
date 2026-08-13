@@ -1617,6 +1617,20 @@ func UnsetWindowOption(ctx context.Context, windowID string, server, option stri
 	return err
 }
 
+// GetWindowOption reads a user-defined window option on the specified server —
+// the read counterpart to SetWindowOption, via `show-options -w -qv`. Returns
+// ("", nil) when the option is unset (tmux prints nothing with -qv). The call
+// is bounded to the 5s short-tmux tier on top of the caller's context.
+func GetWindowOption(ctx context.Context, windowID, server, option string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	raw, err := tmuxExecRawServer(ctx, server, "show-options", "-wqv", "-t", windowID, option)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimRight(raw, "\n"), nil
+}
+
 // roleCarriersFormat is the list-windows format for the @rk_role radio clear:
 // window id plus its current @rk_role value.
 var roleCarriersFormat = strings.Join([]string{"#{window_id}", "#{@rk_role}"}, listDelim)
@@ -1748,6 +1762,30 @@ func CreateWindowWithOptions(session, name, cwd, server string, ops []WindowOpti
 	args = appendOptionOps(args, "", ops)
 	_, err := tmuxExecServer(ctx, server, args...)
 	return err
+}
+
+// CreateWindowWithOptionsID is CreateWindowWithOptions plus the new window's
+// id, reported via `new-window -P -F '#{window_id}'`. Callers that must embed
+// the fresh @N in a follow-up write (rk present --window composing a
+// /present/<windowId>/ URL) create with the creation-time options atomically,
+// then apply the id-dependent options via SetWindowOptions.
+func CreateWindowWithOptionsID(session, name, cwd, server string, ops []WindowOptionOp) (string, error) {
+	ctx, cancel := withTimeout()
+	defer cancel()
+
+	args := []string{"new-window", "-P", "-F", "#{window_id}", "-a", "-t", ExactSessionTarget(session), "-n", name}
+	if cwd != "" {
+		args = append(args, "-c", cwd)
+	}
+	args = appendOptionOps(args, "", ops)
+	lines, err := tmuxExecServer(ctx, server, args...)
+	if err != nil {
+		return "", err
+	}
+	if len(lines) == 0 {
+		return "", fmt.Errorf("new-window -P returned no window id")
+	}
+	return lines[0], nil
 }
 
 // KillWindow kills a window by its window ID on the specified server.

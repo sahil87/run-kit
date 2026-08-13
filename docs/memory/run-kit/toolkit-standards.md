@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, audit-against-HEAD-build rule, per-standard status. help-dump, readme-extraction, skill, ten principles, update, version PASS. Covers skill topic pages, Principle 9 `--quiet`/reaper caps, SIGTERM-with-grace brew mutations, the help-dump + Principle 9 new-surface check (`rk desktop`, `rk remote`, `rk daemon run`, `rk role`, `rk code-server`), `rk update`'s best-effort code-server leg, install-composition Policy B PASS."
+description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, audit-against-HEAD-build rule, per-standard status. help-dump, readme-extraction, skill, ten principles, update, version PASS. Covers skill topic pages, Principle 9 `--quiet`/reaper caps, SIGTERM-with-grace brew mutations, the help-dump + Principle 9 new-surface check (`rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`), `rk update`'s best-effort code-server leg, install-composition Policy B PASS."
 ---
 # Toolkit Standards Conformance
 
@@ -256,6 +256,37 @@ is the fifth surface measured against the same two checks
   `desktop`/`remote`/`daemon run`/`role`: the bundle is a capability briefing,
   not a command enumeration, and editing it would trip its byte-equality
   drift guard for no standard-mandated gain.
+
+The `rk present` verb (`present.go` — see
+[architecture](/run-kit/architecture.md) § CLI Subcommands, `present` row) is
+the sixth surface measured against the same checks
+(`260813-becu-rk-present-attach-verb`):
+
+- **help-dump: platform-stable registration.** `presentCmd` is registered
+  unconditionally on `rootCmd` with a `Long:` block, so the cobra tree walk
+  picks it up with no help-dump code change; the `$TMUX_PANE` guard is an
+  operational exit 1 at run time, not a registration condition.
+- **Principle 9: the resolved URL is the only stdout line — data.** stdout
+  carries exactly the resolved relative `@rk_url` value and prints it even
+  under `--quiet` (silence would hide the command's one result); diagnostics
+  go to stderr. `--notify`'s send failure is the documented fail-silent
+  exception (the `rk notify` contract), not a Principle 9 violation.
+- **Exit-code convention (P4)** — 0 success, 1 operational (no `$TMUX_PANE`
+  without `--window`, missing file, unreachable port, tmux failure), 2 usage
+  (no target, unknown flag).
+- **readme-extraction: the README command table gained the `run-kit present`
+  row**, keeping the published command documentation closed over the tree.
+- **The `skill` standard is the load-bearing one this time** — unlike the
+  earlier surfaces, this change *rewrites* the bundle: the canonical
+  `docs/site/skill.md` and `docs/site/skill/display.md` (synced to the
+  embedded copies by `scripts/sync-skill.sh`) teach `rk present` as the
+  primary Visual Display Recipe, with the manual `@rk_url` attach path kept
+  as a short appendix for older rk versions. Both files stay within the
+  ≤150-line budget and under the byte-equality drift guards
+  (`TestSkillEmbedMatchesCanonical`, `TestSkillDisplayEmbedMatchesCanonical`),
+  so the skill standard keeps passing. No version-skew machinery is needed:
+  the bundle ships inside the binary, so an rk that has `present` is the same
+  rk whose pages teach it.
 
 #### Scenario: A new subcommand group keeps the help tree platform-stable
 - **GIVEN** the `rk desktop` group on a Linux host

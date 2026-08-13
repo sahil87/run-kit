@@ -1,0 +1,55 @@
+id: z84r
+name: 260813-z84r-swap-web-compose-glyphs
+created: 2026-08-13T02:23:41Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 5
+    acceptance_count: 9
+    acceptance_completed: 9
+confidence:
+    certain: 7
+    confident: 2
+    tentative: 0
+    unresolved: 0
+    score: 4.8
+    fuzzy: true
+    dimensions:
+        signal: 77.2
+        reversibility: 90.6
+        competence: 88.3
+        disambiguation: 82.8
+stage_metrics:
+    intake: {started_at: "2026-08-13T02:23:41Z", driver: fab-new, iterations: 1, completed_at: "2026-08-13T02:30:48Z"}
+    apply: {started_at: "2026-08-13T02:30:48Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-13T02:36:33Z"}
+    review: {started_at: "2026-08-13T02:36:33Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-13T02:40:38Z"}
+    hydrate: {started_at: "2026-08-13T02:40:38Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-13T02:41:58Z"}
+    ship: {started_at: "2026-08-13T02:41:58Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-08-13T02:41:58Z"
+    computed_at_stage: hydrate
+summary: Swap the Web surface glyph ◫→⧉ (SURFACE_GLYPH single source) and the bottom-bar Compose chip face >_→a▏, with the ▏ bar blinking while the strip is active (rk-compose-caret, reduced-motion static)
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-13T02:41:58Z

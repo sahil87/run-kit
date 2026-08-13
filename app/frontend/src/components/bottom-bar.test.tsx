@@ -37,7 +37,7 @@ function renderBottomBar(
   // Tests default to NO focused terminal; the existing
   // `wsRef.current?.readyState !== OPEN` guard ensures input handlers no-op.
   // Pass `focus` for surfaces gated on a live compose target.
-  // ChromeProvider supplies `composeStripEnabled` (the `>_` chip's pressed
+  // ChromeProvider supplies `composeStripEnabled` (the `a▏` chip's pressed
   // state) read via `useChromeState`.
   return render(
     <ChromeProvider>
@@ -260,7 +260,7 @@ describe("BottomBar scroll-lock", () => {
 });
 
 describe("BottomBar chip tips (260723-fm08)", () => {
-  // Tier-1 Tip wiring on the symbol-glyph chips (⇥ ^ ⌥ F▴ >_ ⌘K + the
+  // Tier-1 Tip wiring on the symbol-glyph chips (⇥ ^ ⌥ F▴ a▏ ⌘K + the
   // ArrowPad trigger). Deep tooltip behavior is pinned once in tip.test.tsx;
   // here we assert the per-site label wiring, the registry-resolved keycap
   // slots (260801-mqim — jsdom detects platform "other", so chords render in
@@ -355,7 +355,7 @@ describe("BottomBar chip tips (260723-fm08)", () => {
 });
 
 describe("BottomBar chip order + compose hint (260811-0f3d)", () => {
-  // The fine-pointer chip run renders ⌘K (palette) FIRST and >_ (compose)
+  // The fine-pointer chip run renders ⌘K (palette) FIRST and a▏ (compose)
   // LAST — compose is the higher-touch control and takes the end-of-run
   // position. The dead space right of the pair carries a dimmed compose
   // education line, gated on: compose target present, strip OFF, fine
@@ -395,6 +395,22 @@ describe("BottomBar chip order + compose hint (260811-0f3d)", () => {
     localStorage.setItem("runkit-compose-strip", "true");
     renderBottomBar({ onOpenCompose: vi.fn() }, COMPOSE_TARGET);
     expect(screen.queryByText(HINT_TEXT)).not.toBeInTheDocument();
+  });
+
+  it("compose chip bar is static while the strip is off — no blink class", () => {
+    renderBottomBar({ onOpenCompose: vi.fn() });
+    const compose = screen.getByLabelText("Compose text");
+    expect(compose.textContent).toBe("a▏");
+    expect(compose.querySelector(".rk-compose-caret")).toBeNull();
+  });
+
+  it("compose chip bar blinks while the strip is on — rk-compose-caret on the ▏ span", () => {
+    localStorage.setItem("runkit-compose-strip", "true");
+    renderBottomBar({ onOpenCompose: vi.fn() });
+    const compose = screen.getByLabelText("Compose text");
+    const bar = compose.querySelector(".rk-compose-caret");
+    expect(bar).not.toBeNull();
+    expect(bar!.textContent).toBe("▏");
   });
 
   it("hides the hint on coarse pointers — chords are noise on touch", () => {

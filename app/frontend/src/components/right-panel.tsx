@@ -32,7 +32,7 @@ import {
  * button's tooltip still fires (disabled buttons swallow pointer events).
  *
  * Icon glyphs replace the phase-1 text labels (user-requested fold-in, R10):
- * `>_` tty, `◫` web, `⌸` chat, `{}` code — the shared `SURFACE_GLYPH` map; the
+ * `>_` tty, `⧉` web, `⌸` chat, `{}` code — the shared `SURFACE_GLYPH` map; the
  * previous text labels moved into the `Tip` tooltips and the `<Label> tile`
  * aria-labels (e2e hooks). The availability dot (P4) rides every button
  * unchanged — a collapsed tile may hide content, never state that wants a

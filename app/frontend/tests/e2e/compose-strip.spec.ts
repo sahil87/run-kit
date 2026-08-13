@@ -7,7 +7,7 @@ import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
 /**
  * Docked compose strip (260718-dhdj) e2e coverage. The strip replaces the modal
  * ComposeBuffer: it is a single global surface docked above the bottom bar,
- * toggled by the `>_` chip / `View: Text Input` palette action, persisted as a
+ * toggled by the `a▏` chip / `View: Text Input` palette action, persisted as a
  * chrome preference, sending to the LIVE focused pane. Enter matrix
  * (260802-lj98, terminal-faithful): plain Enter = insert line (`text + "\n"`,
  * clears the draft; empty Enter is a full no-op); Cmd/Ctrl+Enter = submit
@@ -96,7 +96,7 @@ test.describe("Docked compose strip", () => {
     killSession(BOARD_SESSION);
   });
 
-  test("toggle via >_ chip and via the command palette; persists across reload", async ({ page }) => {
+  test("toggle via a▏ chip and via the command palette; persists across reload", async ({ page }) => {
     test.setTimeout(60_000);
     const windowId = await resolveWindowId(page, TERM_SESSION);
     await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(windowId)}`, {
@@ -150,7 +150,7 @@ test.describe("Docked compose strip", () => {
       })
       .toBe(true);
 
-    // Enable the strip via the `>_` chip and type a draft.
+    // Enable the strip via the `a▏` chip and type a draft.
     const chip = page.getByRole("button", { name: "Compose text" });
     await chip.click();
     const input = page.getByTestId("compose-strip-input");

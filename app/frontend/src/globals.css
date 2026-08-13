@@ -270,6 +270,15 @@ summary {
   animation: rk-caret-blink 1.06s steps(1) infinite;
 }
 
+/* Compose chip caret — the `▏` bar in the bottom bar's `a▏` compose face
+   blinks (same cadence as the section-heading caret) while the compose strip
+   is active; the class is only applied in that state, so the resting face is
+   static. Unlike .rk-bracket-caret the bar is part of the chip's FACE, not a
+   hover flourish — under reduced motion it stays visible and static (below). */
+.rk-compose-caret {
+  animation: rk-caret-blink 1.06s steps(1) infinite;
+}
+
 /* Waiting halo = attention overlay (change 260706-y1ar; status-pyramid.md
    § The Channel Model / D3). NOT a hover treatment — it renders whenever an
    agent is `waiting` (blocked on a human), the single most notification-worthy
@@ -544,6 +553,9 @@ summary {
   .rk-bracket-group:hover .rk-bracket-close { transition: none; transform: none; }
   .rk-bracket-caret,
   .rk-bracket-group:hover .rk-bracket-caret { animation: none; opacity: 0; }
+  /* Compose chip caret: static but VISIBLE — the bar is the chip's face
+     (a glyph, not a flourish), so only the blink is zeroed. */
+  .rk-compose-caret { animation: none; opacity: 1; }
   /* Waiting overlay → static yellow ring / seam (attention never motion-only). */
   .rk-waiting-halo { animation: none; box-shadow: 0 0 0 2px var(--color-signal-yellow); }
   .rk-waiting-seam { animation: none; border-color: var(--color-signal-yellow); }

@@ -2,7 +2,7 @@
 
 Validates the docked compose strip (260718-dhdj) — the sticky, global text-input
 surface that replaces the modal ComposeBuffer. Covers the toggle affordances
-(`>_` chip + palette parity), the persisted chrome preference, the on-strip ×
+(`a▏` chip + palette parity), the persisted chrome preference, the on-strip ×
 close button (260722-d5q7 — same toggle as the chip, lossless draft), the
 per-target draft model (260801-cyth — drafts keyed by the focused window,
 text persisted to localStorage: they stay with their addressee across
@@ -42,9 +42,9 @@ coverage lives in `chat-view.spec.ts`.
 
 ## Tests
 
-### `toggle via >_ chip and via the command palette; persists across reload`
+### `toggle via a▏ chip and via the command palette; persists across reload`
 
-**What it proves:** The `>_` bottom-bar chip is an `aria-pressed` toggle that
+**What it proves:** The `a▏` bottom-bar chip is an `aria-pressed` toggle that
 shows/hides the strip; the toggle state persists across a page reload; and the
 `View: Text Input` palette action toggles the same preference (Constitution V
 palette parity).
@@ -65,7 +65,7 @@ palette parity).
 ### `the on-strip × closes the strip; the draft survives close→reopen (260722-d5q7)`
 
 **What it proves:** The × close button in the strip's header row fires the same
-`toggleComposeStrip` action as the `>_` chip — clicking it unmounts the strip
+`toggleComposeStrip` action as the `a▏` chip — clicking it unmounts the strip
 and returns the chip to `aria-pressed="false"` — with no confirmation dialog,
 and the unsent draft survives the close (the per-target module store outlives
 the strip's unmount) so reopening on the same target restores it.
@@ -75,7 +75,7 @@ the strip's unmount) so reopening on the same target restores it.
 1. Navigate to the `cat` session's window; wait for `.xterm-screen` and for the
    relay stream to attach (`window.__rkTerminals[windowId]` present) so the
    strip has a live target.
-2. Enable the strip via the `>_` chip; fill the input with a unique draft
+2. Enable the strip via the `a▏` chip; fill the input with a unique draft
    marker.
 3. Click the × (`compose-strip-close`); assert the strip
    (`[data-testid=compose-strip]`) is gone and the chip reads
@@ -95,7 +95,7 @@ single-traveling-draft model.
 **Steps:**
 
 1. Resolve the `cs-alpha` and `cs-bravo` window IDs from the board session.
-2. Navigate to `cs-alpha`'s terminal route; enable the strip via the `>_` chip;
+2. Navigate to `cs-alpha`'s terminal route; enable the strip via the `a▏` chip;
    fill the input with a unique draft-A marker.
 3. Navigate to `cs-bravo`'s terminal route; wait for the strip input to be
    enabled (B is the focused target); assert the input is EMPTY (A's draft did
@@ -122,7 +122,7 @@ closing the strip.
 
 1. Navigate to the `cat` session's window; wait for `.xterm-screen` and for the
    relay stream to attach (`window.__rkTerminals[windowId]` present).
-2. Enable the strip via the `>_` chip; assert the input is visible.
+2. Enable the strip via the `a▏` chip; assert the input is visible.
 3. With the input empty, press Enter; assert the value stays `""` (no local
    newline — the keydown was consumed and nothing was sent).
 4. Fill the input with a unique marker and press Enter; assert the input clears
@@ -151,7 +151,7 @@ Enter transmits the line).
 
 1. Navigate to the `cat` session's window; wait for `.xterm-screen` and the
    relay stream to attach.
-2. Enable the strip via the `>_` chip; assert the input is visible and carries
+2. Enable the strip via the `a▏` chip; assert the input is visible and carries
    `enterkeyhint="send"`.
 3. Fill a unique staged marker and press `Alt+Enter`.
 4. Assert the input clears (same clear-on-delivery as submit).
@@ -176,7 +176,7 @@ to the newly-focused pane's window name — the live-target signal (reverses DD-
 1. Resolve `cs-alpha` and `cs-bravo` window IDs; POST
    `/api/boards/<name>/pin` for both.
 2. Navigate to `/board/<name>`; assert two `.xterm` instances mount.
-3. Enable the strip via the `>_` chip; assert the target label is visible and
+3. Enable the strip via the `a▏` chip; assert the target label is visible and
    the strip textarea took focus (focus-on-open, 260801-sm6g), then press
    Escape to blur it — the pane-cycle chords are suppressed while a real text
    input owns focus.
@@ -200,7 +200,7 @@ is untouched).
    never asserted).
 2. Navigate to `/<server>/<windowId>?layout=split-h:tty,web`; wait for the
    `Connected` dot and both `surface-tile-tty` and `surface-tile-web`.
-3. Enable the strip via the `>_` chip.
+3. Enable the strip via the `a▏` chip.
 4. Measure the tty tile and the strip's outer row; poll until the inner
    wrapper's left/width match the tile's span within 16px (the measured
    container is the TerminalClient root inside the tile's `px-1` padding, and
@@ -219,7 +219,7 @@ pane-alignment doubles as target disambiguation.
 1. Set a 1440×800 viewport; resolve `cs-alpha`/`cs-bravo`; pin both to a fresh
    per-run board (`csa<digits>`).
 2. Navigate to the board; assert two `.xterm` instances mount.
-3. Enable the strip via the `>_` chip; press Escape to blur the textarea
+3. Enable the strip via the `a▏` chip; press Escape to blur the textarea
    (focus-on-open) so the pane-cycle chords are not input-suppressed.
 4. Measure both pane roots (`role=group`, `board pane cs-alpha` / `cs-bravo`);
    poll until the inner wrapper matches cs-alpha's span (a pane narrower than
@@ -255,7 +255,7 @@ viewport.
 
 1. Set a 375×812 viewport; navigate to the `cat` session's window; wait for the
    terminal (no `Connected` dot on mobile — the sidebar is an unmounted drawer).
-2. Enable the strip via the `>_` chip; assert the inner wrapper is visible.
+2. Enable the strip via the `a▏` chip; assert the inner wrapper is visible.
 3. Poll `document.documentElement.scrollWidth` until ≤ 375 (no horizontal page
    overflow).
 4. Assert the inner box's `x ≥ 0` and `x + width ≤ 375`.

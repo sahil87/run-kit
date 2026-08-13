@@ -1,0 +1,11 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-13T02:23:41Z"}
+{"args":"Swap two UI glyphs: right-rail Web surface glyph ◫ → ⧉ (SURFACE_GLYPH map) and bottom-bar Compose chip face \u003e_ → I (plus the compose education hint prefix)","cmd":"fab-new","event":"command","ts":"2026-08-13T02:23:41Z"}
+{"delta":"+4.8","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-08-13T02:24:46Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-08-13T02:25:48Z"}
+{"delta":"+0.0","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-08-13T02:30:05Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-13T02:30:16Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-13T02:30:48Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-13T02:36:33Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-13T02:40:38Z"}
+{"event":"review","result":"passed","ts":"2026-08-13T02:40:38Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-13T02:41:58Z"}

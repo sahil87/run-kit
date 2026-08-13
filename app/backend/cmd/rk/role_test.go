@@ -14,6 +14,11 @@ import (
 // server. Every tmux invocation routes through the roleRunFn/roleRunOutputFn
 // seams, which the tests stub.
 
+// roleTestSocket is the fake $TMUX the seam serves so every test runs the
+// derived-socket path deterministically (the real tmux.OriginalTMUX is fixed at
+// package-init time and varies with whether `go test` itself ran inside tmux).
+const roleTestSocket = "/tmp/rk-test.sock"
+
 // stubRoleSeams installs recording stubs for the tmux seams and the radio-clear
 // seam, returning the recorded calls. clearKeepID (when non-nil) records the
 // keep-window-id the radio clear was invoked with.
@@ -23,6 +28,9 @@ func stubRoleSeams(t *testing.T) (calls *[][]string, clearKeepID *string) {
 	calls = &recorded
 	keep := ""
 	clearKeepID = &keep
+	origTMUX := roleOriginalTMUXFn
+	roleOriginalTMUXFn = func() string { return roleTestSocket + ",1234,0" }
+	t.Cleanup(func() { roleOriginalTMUXFn = origTMUX })
 	origRun, origOut, origClear := roleRunFn, roleRunOutputFn, roleClearExceptFn
 	roleRunFn = func(_ context.Context, args []string) error {
 		recorded = append(recorded, args)
@@ -60,6 +68,45 @@ func TestRoleOutsideTmuxErrors(t *testing.T) {
 	}
 	if len(*calls) != 0 {
 		t.Errorf("tmux calls = %v, want none", *calls)
+	}
+}
+
+// Every tmux call is prefixed with `-S <socket>` derived from the original
+// $TMUX, so the write lands on the PANE's server, never the default one.
+func TestRoleTargetsPaneOwnSocket(t *testing.T) {
+	t.Setenv("TMUX_PANE", "%3")
+	calls, _ := stubRoleSeams(t)
+
+	cmd, _ := roleTestCmd()
+	if err := runRole(cmd, "operator"); err != nil {
+		t.Fatalf("runRole() = %v", err)
+	}
+	for i, call := range *calls {
+		if len(call) < 2 || call[0] != "-S" || call[1] != roleTestSocket {
+			t.Errorf("call[%d] = %v, want the -S %s prefix", i, call, roleTestSocket)
+		}
+	}
+}
+
+// $TMUX_PANE without a usable $TMUX (the `tmux run-shell` shape) must hard-error
+// rather than fall back to a bare invocation — a bare call would resolve the
+// pane and radio-clear @rk_role against whichever server owns the default
+// socket.
+func TestRoleUnderivableSocketErrors(t *testing.T) {
+	t.Setenv("TMUX_PANE", "%3")
+	calls, clearKeepID := stubRoleSeams(t)
+	roleOriginalTMUXFn = func() string { return "" }
+
+	cmd, _ := roleTestCmd()
+	err := runRole(cmd, "operator")
+	if err == nil || !strings.Contains(err.Error(), "cannot derive this pane's tmux server socket") {
+		t.Fatalf("runRole() error = %v, want an underivable-socket error", err)
+	}
+	if len(*calls) != 0 {
+		t.Errorf("tmux calls = %v, want none", *calls)
+	}
+	if *clearKeepID != "" {
+		t.Errorf("radio clear invoked with keepID %q — no server may be touched", *clearKeepID)
 	}
 }
 
@@ -133,6 +180,9 @@ func TestRoleClearUnsets(t *testing.T) {
 // a guessed target.
 func TestRoleWindowResolutionFailure(t *testing.T) {
 	t.Setenv("TMUX_PANE", "%3")
+	origTMUX := roleOriginalTMUXFn
+	roleOriginalTMUXFn = func() string { return roleTestSocket + ",1234,0" }
+	t.Cleanup(func() { roleOriginalTMUXFn = origTMUX })
 	origOut := roleRunOutputFn
 	roleRunOutputFn = func(context.Context, []string) ([]byte, error) {
 		return nil, fmt.Errorf("boom")

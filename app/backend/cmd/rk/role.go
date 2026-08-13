@@ -24,8 +24,10 @@ import (
 // The primary consumer is an agent marking itself (the fab-kit /fab-operator
 // skill's fail-silent `rk role operator` self-mark, fab-kit backlog [swun]) —
 // the fail-silent contract belongs to the CALLER, so this command hard-errors
-// outside tmux: an explicitly typed command that no-ops silently would be
-// confusing (unlike agent-hook, which harness hooks invoke unconditionally).
+// outside tmux — and equally when $TMUX yields no socket to target: an
+// explicitly typed command that no-ops silently, or writes to a guessed server,
+// would be confusing (unlike agent-hook, which harness hooks invoke
+// unconditionally and which may degrade to the default socket).
 //
 // Toolkit Principle 9 posture: the confirmation is data on stdout; errors flow
 // through RunE to stderr with a non-zero exit.
@@ -54,6 +56,10 @@ var roleCmd = &cobra.Command{
 var (
 	roleRunFn       = func(ctx context.Context, args []string) error { return tmux.Run(ctx, args, tmux.RunOpts{}) }
 	roleRunOutputFn = func(ctx context.Context, args []string) ([]byte, error) { return tmux.RunOutput(ctx, args, tmux.RunOpts{}) }
+	// roleOriginalTMUXFn is the $TMUX seam: internal/tmux's init() strips $TMUX
+	// from the process, so the captured OriginalTMUX is fixed at package-init
+	// time and cannot be varied with t.Setenv.
+	roleOriginalTMUXFn = func() string { return tmux.OriginalTMUX }
 	// roleClearExceptFn is the radio-clear seam (the server-scoped
 	// one-operator rule, shared with the window-options POST handler).
 	roleClearExceptFn = func(ctx context.Context, prefix []string, keepWindowID string) error {
@@ -96,7 +102,16 @@ func runRole(cmd *cobra.Command, token string) error {
 	// Target the pane's OWN server via -S <socket> derived from the original
 	// $TMUX (internal/tmux's init() strips $TMUX from the process — see
 	// writeAgentStateImpl for the full rationale), never a bare invocation.
-	prefix := tmuxSocketArgs(tmux.OriginalTMUX)
+	// agent-hook's never-fail contract lets it degrade to the default socket
+	// here; this command must NOT: a bare invocation would resolve $TMUX_PANE
+	// against — and radio-clear @rk_role across — whichever server owns the
+	// default socket (spawning one if it is dead). $TMUX_PANE without $TMUX is
+	// exactly the `tmux run-shell` shape, so the pane guard above does not cover
+	// it; refuse instead of guessing a server.
+	prefix := tmuxSocketArgs(roleOriginalTMUXFn())
+	if len(prefix) == 0 {
+		return fmt.Errorf("cannot derive this pane's tmux server socket from $TMUX (unset or malformed) — refusing to target the default server")
+	}
 
 	out, err := roleRunOutputFn(ctx, append(prefix, "display-message", "-pt", pane, "#{window_id}"))
 	if err != nil {

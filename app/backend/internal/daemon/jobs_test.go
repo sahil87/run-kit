@@ -134,7 +134,7 @@ func TestRunJobFreshSpawnEnsuresSessionAndSpawns(t *testing.T) {
 	if len(runs) != 2 {
 		t.Fatalf("run calls = %v, want [set-option, pipe-pane] — session creation rides the spawn itself", runs)
 	}
-	if got := strings.Join(runs[0], " "); got != "set-option -w -t =rk-jobs:=update remain-on-exit failed" {
+	if got := strings.Join(runs[0], " "); got != "set-option -w -t =rk-jobs:=update remain-on-exit on" {
 		t.Errorf("remain-on-exit argv = %q", got)
 	}
 	pipe := strings.Join(runs[1], " ")
@@ -447,7 +447,7 @@ func TestRunJobIntegration_FailedJobRemainsDeadThenRespawns(t *testing.T) {
 		t.Fatalf("RunJob = (started=%v, err=%v), want a fresh spawn", started, err)
 	}
 
-	// The pane must survive the non-zero exit (remain-on-exit failed) and the
+	// The pane must survive the non-zero exit (remain-on-exit on) and the
 	// probe must report it dead.
 	deadline := time.Now().Add(5 * time.Second)
 	for {
@@ -469,6 +469,59 @@ func TestRunJobIntegration_FailedJobRemainsDeadThenRespawns(t *testing.T) {
 	// Reap-on-rerun: the next run relaunches IN the dead window (respawn-window
 	// — killing the session's only window would kill the session) and the
 	// probe reads it live again.
+	fresh, started, err := RunJob(context.Background(), "update", []string{"sleep", "60"})
+	if err != nil || !started {
+		t.Fatalf("RunJob (respawn) = (started=%v, err=%v), want a respawn over the dead window", started, err)
+	}
+	if fresh.WindowID != target.WindowID {
+		t.Errorf("respawn window id = %q, want the dead window reused in place (%q)", fresh.WindowID, target.WindowID)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
+	defer cancel()
+	if id, dead, exists := jobWindowState(ctx, jobTargetFor("update")); !exists || dead || id != target.WindowID {
+		t.Errorf("post-respawn probe = (id=%q dead=%v exists=%v), want the same window live", id, dead, exists)
+	}
+}
+
+// TestRunJobIntegration_SucceededJobRemainsDeadThenRespawns is the success
+// mirror of the failed-job test above: with remain-on-exit on, a job that
+// exits 0 ALSO remains as a dead pane (its output stays on screen until the
+// next update) and the next run respawns it in place.
+func TestRunJobIntegration_SucceededJobRemainsDeadThenRespawns(t *testing.T) {
+	jobsIntegrationSocket(t)
+
+	// A job that lives long enough for remain-on-exit to land, then succeeds.
+	// (Single-word argv — tmux joins argv with spaces unquoted, so a script
+	// file carries the multi-step body.)
+	script := filepath.Join(t.TempDir(), "succeeding-job.sh")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nsleep 0.3\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("writing succeeding job script: %v", err)
+	}
+
+	target, started, err := RunJob(context.Background(), "update", []string{script})
+	if err != nil || !started {
+		t.Fatalf("RunJob = (started=%v, err=%v), want a fresh spawn", started, err)
+	}
+
+	// The pane must survive the ZERO exit and the probe must report it dead.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
+		id, dead, exists := jobWindowState(ctx, jobTargetFor("update"))
+		cancel()
+		if exists && dead {
+			if id != target.WindowID {
+				t.Errorf("dead window id = %q, want %q", id, target.WindowID)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("probe = (id=%q dead=%v exists=%v), want the succeeded window to remain and read dead", id, dead, exists)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	// The next run relaunches IN the dead window and the probe reads it live.
 	fresh, started, err := RunJob(context.Background(), "update", []string{"sleep", "60"})
 	if err != nil || !started {
 		t.Fatalf("RunJob (respawn) = (started=%v, err=%v), want a respawn over the dead window", started, err)

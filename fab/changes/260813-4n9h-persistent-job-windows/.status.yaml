@@ -1,0 +1,55 @@
+id: 4n9h
+name: 260813-4n9h-persistent-job-windows
+created: 2026-08-13T04:57:38Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 4
+    acceptance_count: 8
+    acceptance_completed: 8
+confidence:
+    certain: 7
+    confident: 2
+    tentative: 0
+    unresolved: 0
+    score: 4.9
+    fuzzy: true
+    dimensions:
+        signal: 82.8
+        reversibility: 90.6
+        competence: 87.8
+        disambiguation: 86.7
+stage_metrics:
+    intake: {started_at: "2026-08-13T04:57:38Z", driver: fab-new, iterations: 1, completed_at: "2026-08-13T05:01:44Z"}
+    apply: {started_at: "2026-08-13T05:01:44Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-13T05:05:48Z"}
+    review: {started_at: "2026-08-13T05:05:48Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-13T05:08:54Z"}
+    hydrate: {started_at: "2026-08-13T05:08:54Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-13T05:09:51Z"}
+    ship: {started_at: "2026-08-13T05:09:51Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-08-13T05:09:51Z"
+    computed_at_stage: hydrate
+summary: 'Job windows now persist after every exit (remain-on-exit on): a completed update/restart stays on screen as a dead pane until the next run respawns it in place'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-13T05:09:51Z

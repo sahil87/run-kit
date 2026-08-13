@@ -1,0 +1,9 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-13T04:57:38Z"}
+{"args":"Flip job-window pane persistence from remain-on-exit failed to remain-on-exit on in daemon.RunJob — job windows (update, restart) survive command exit as dead panes showing final scrollback until the next run respawns in place; user: 'once the update is over, I don't want the window to go away. Until the next update.'","cmd":"fab-new","event":"command","ts":"2026-08-13T04:57:38Z"}
+{"delta":"+4.9","event":"confidence","score":4.9,"trigger":"calc-score","ts":"2026-08-13T05:00:27Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-13T05:01:26Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-13T05:01:44Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-13T05:05:48Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-13T05:08:54Z"}
+{"event":"review","result":"passed","ts":"2026-08-13T05:08:54Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-13T05:09:51Z"}

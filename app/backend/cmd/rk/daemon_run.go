@@ -23,9 +23,9 @@ rk-daemon tmux socket — the mechanism behind one-click update and daemon
 restart, exposed for scripts and debugging.
 
 The window is WATCHABLE: it appears on the dashboard under the rk-daemon
-server while the command runs. On a non-zero exit the pane remains
-(remain-on-exit failed) so the failure output stays visible; the next run of
-the same --window reaps it. Output is also teed to ~/.rk/<name>.log.
+server while the command runs. After the command exits (success or failure)
+the pane remains so the output stays visible; the next run of the same
+--window respawns it in place. Output is also teed to ~/.rk/<name>.log.
 
 The daemon must be running (rk serve -d) — the command refuses rather than
 birthing a tmux server. Re-running while a job window is live is a no-op: the

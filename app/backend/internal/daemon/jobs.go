@@ -109,9 +109,9 @@ func jobTargetFor(window string) string {
 //     skipped (no session ⇒ no in-flight job). A lost duplicate-session race
 //     falls through to the session-exists path below.
 //  3. Window dedup on the exact-match target: a live pane → in-flight, return
-//     started=false; a dead pane (remained after a failed run — remain-on-exit
-//     failed) → respawn-window -k relaunches argv in the dead window
-//     (reap-on-rerun, intake decision 5 — in place, because killing a
+//     started=false; a dead pane (a completed prior run, any exit status —
+//     remain-on-exit on) → respawn-window -k relaunches argv in the dead
+//     window (reap-on-rerun, intake decision 5 — in place, because killing a
 //     session's last window would kill the session); absent → spawn fresh.
 //  4. Spawn (session-exists path): new-window -d … -P -F '#{window_id}'
 //     <argv…>. tmux joins the trailing argv words with spaces into its own
@@ -123,9 +123,10 @@ func jobTargetFor(window string) string {
 //     as typing the tmux command themselves). Multi-word arguments do not
 //     survive the unquoted join.
 //  5. Post-spawn window options, BEST-EFFORT (warn-only, never fail the
-//     spawn): remain-on-exit failed (pane persists only on non-zero exit,
-//     tmux ≥ 3.2) and a pipe-pane tee to ~/.rk/<window>.log for durable log
-//     continuity with the pre-window update.log/restart.log paths.
+//     spawn): remain-on-exit on (the pane persists after ANY exit, so a
+//     completed job's output stays on screen until the next run respawns the
+//     window in place) and a pipe-pane tee to ~/.rk/<window>.log for durable
+//     log continuity with the pre-window update.log/restart.log paths.
 //
 // The window name is validated before it becomes a tmux target or a pipe-pane
 // shell-string component (Constitution I) — the same identifier class as
@@ -183,8 +184,9 @@ func RunJob(ctx context.Context, window string, argv []string) (target JobTarget
 				target.WindowID = id
 				return target, false, nil
 			}
-			// Stale failed window (remained on non-zero exit): relaunch argv IN
-			// the dead window (reap-on-rerun). respawn-window, NOT kill-window +
+			// Dead window from a completed prior run (remain-on-exit on, any
+			// exit status): relaunch argv IN the dead window (reap-on-rerun).
+			// respawn-window, NOT kill-window +
 			// new-window: the job window is usually the session's ONLY window,
 			// and killing a session's last window kills the session out from
 			// under the follow-up spawn (caught by the scratch-socket
@@ -192,7 +194,7 @@ func RunJob(ctx context.Context, window string, argv []string) (target JobTarget
 			respawnArgs := []string{"respawn-window", "-k", "-t", winTarget}
 			respawnArgs = append(respawnArgs, argv...)
 			if err := jobRunTmux(cmdCtx, respawnArgs...); err != nil {
-				return target, false, fmt.Errorf("respawning stale %q job window: %w", window, err)
+				return target, false, fmt.Errorf("respawning dead %q job window: %w", window, err)
 			}
 			target.WindowID = id
 			spawned = true
@@ -211,8 +213,8 @@ func RunJob(ctx context.Context, window string, argv []string) (target JobTarget
 	}
 
 	// 5. Post-spawn window options — best-effort, warn-only.
-	if err := jobRunTmux(cmdCtx, "set-option", "-w", "-t", winTarget, "remain-on-exit", "failed"); err != nil {
-		slog.Warn("job window remain-on-exit failed to set; the window will close on failure too", "window", window, "err", err)
+	if err := jobRunTmux(cmdCtx, "set-option", "-w", "-t", winTarget, "remain-on-exit", "on"); err != nil {
+		slog.Warn("job window remain-on-exit failed to set; the window will close on exit and its output will not persist on screen", "window", window, "err", err)
 	}
 	if home, err := jobUserHomeDir(); err != nil {
 		slog.Warn("job window log pipe skipped: home directory unresolvable", "window", window, "err", err)

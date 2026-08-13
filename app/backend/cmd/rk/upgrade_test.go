@@ -851,6 +851,29 @@ func TestUpdate_CodeServerLeg_NotManagedSilentSkip(t *testing.T) {
 	}
 }
 
+// TestUpdate_CodeServerLeg_StatErrorWarns pins the non-ENOENT half of the
+// ownership gate: a Stat failure that is NOT "does not exist" (here ENOTDIR)
+// is no proof of non-ownership — the leg warns instead of silently skipping,
+// and still never joins the exit code.
+func TestUpdate_CodeServerLeg_StatErrorWarns(t *testing.T) {
+	home := t.TempDir()
+	orig := codeServerUserHomeFn
+	codeServerUserHomeFn = func() (string, error) { return home, nil }
+	t.Cleanup(func() { codeServerUserHomeFn = orig })
+	// A regular file where the .rk directory would be makes Stat on
+	// .rk/code-server-bin fail with ENOTDIR — a real error, not ENOENT.
+	if err := os.WriteFile(filepath.Join(home, ".rk"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	runUpdateCodeServerLeg(bareCmd(&stdout, &stderr), newSinkWriters(&stdout, &stderr))
+
+	if !strings.Contains(stderr.String(), "warning: code-server leg skipped (checking") {
+		t.Errorf("stderr = %q, want the stat-error warning", stderr.String())
+	}
+}
+
 // TestUpdate_CodeServerLeg_UpdatesAndRespawns pins the happy path: a managed
 // install behind latest gets updated and the session respawned.
 func TestUpdate_CodeServerLeg_UpdatesAndRespawns(t *testing.T) {

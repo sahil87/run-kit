@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"strings"
@@ -330,8 +331,13 @@ func runUpdateCodeServerLeg(cmd *cobra.Command, sink outputSink) {
 		sink.Notef("warning: code-server leg skipped (home unresolvable: %v) — run `rk code-server update` manually\n", err)
 		return
 	}
-	if _, err := os.Stat(codeserver.BinDir(home)); err != nil {
+	if _, err := os.Stat(codeserver.BinDir(home)); errors.Is(err, fs.ErrNotExist) {
 		return // not managed ⇒ silent skip (only touch what rk owns)
+	} else if err != nil {
+		// A real Stat failure (permissions, a corrupted path) is NOT proof of
+		// non-ownership — warn instead of silently skipping, still exit-0.
+		sink.Notef("warning: code-server leg skipped (checking %s: %v) — run `rk code-server update` manually\n", codeserver.BinDir(home), err)
+		return
 	}
 	if err := runCodeServerUpdateFlow(cmd, sink); err != nil {
 		sink.Notef("warning: code-server update failed (%v) — the daemon's install job retries on the next start, or run `rk code-server update`\n", err)

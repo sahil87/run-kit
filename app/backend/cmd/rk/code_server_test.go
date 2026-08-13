@@ -308,6 +308,40 @@ func TestCodeServerUpdateChangedVersionRespawns(t *testing.T) {
 	}
 }
 
+// The update flow prints "Restarting..." before the start call, but
+// StartCodeServer can legitimately decline to respawn when the port is
+// already externally served — the flow must then say so.
+func TestCodeServerUpdateExternallyManagedNotesNoRespawn(t *testing.T) {
+	home := t.TempDir()
+	srv := csReleaseServer(t, "4.132.0")
+	withCodeServerCLISeams(t, home, srv)
+	if err := runCodeServerInstall(bareCmd(&bytes.Buffer{}, &bytes.Buffer{}), nil); err != nil {
+		t.Fatal(err)
+	}
+
+	// Upstream moves to 4.133.0, and the start seam reports the port as
+	// externally managed instead of respawning.
+	srv2 := csReleaseServer(t, "4.133.0")
+	origNew := newCodeServerInstallerFn
+	newCodeServerInstallerFn = func() *codeserver.Installer {
+		ins := codeserver.New()
+		ins.APIBase = srv2.URL
+		ins.Client = srv2.Client()
+		ins.GOOS, ins.GOARCH = "linux", "amd64"
+		return ins
+	}
+	t.Cleanup(func() { newCodeServerInstallerFn = origNew })
+	codeServerStartFn = func() (daemon.EnsureOutcome, error) { return daemon.EnsureExternallyManaged, nil }
+
+	var out, errOut bytes.Buffer
+	if err := runCodeServerUpdate(bareCmd(&out, &errOut), nil); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(errOut.String(), "externally managed code-server; the updated binary was not respawned") {
+		t.Errorf("stderr = %q, want the externally-managed note", errOut.String())
+	}
+}
+
 // Guard the managed-dir gate against a stat error surfacing as a skip.
 func TestCodeServerUpdateHomeErrorIsOperational(t *testing.T) {
 	withCodeServerCLISeams(t, t.TempDir(), nil)

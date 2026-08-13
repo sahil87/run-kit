@@ -270,6 +270,77 @@ func TestExtractRefusesEscapingSymlink(t *testing.T) {
 	}
 }
 
+// Guard: lexically tame symlink CHAINS must not redirect writes outside dest.
+// self->. resolves to dest; up->self/.. cleans to "." (passes every lexical
+// check) but RESOLVES to dest's parent — a later file entry under up/ would
+// land outside dest. Only resolution-aware parent verification catches this.
+func TestExtractRefusesSymlinkTraversalChain(t *testing.T) {
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	top := "code-server-1-linux-amd64"
+	if err := tw.WriteHeader(&tar.Header{Name: top + "/self", Typeflag: tar.TypeSymlink, Linkname: "."}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tw.WriteHeader(&tar.Header{Name: top + "/up", Typeflag: tar.TypeSymlink, Linkname: "self/.."}); err != nil {
+		t.Fatal(err)
+	}
+	body := []byte("pwned")
+	if err := tw.WriteHeader(&tar.Header{Name: top + "/up/evil", Typeflag: tar.TypeReg, Mode: 0o644, Size: int64(len(body))}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tw.Write(body); err != nil {
+		t.Fatal(err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	src := filepath.Join(t.TempDir(), "evil.tar.gz")
+	if err := os.WriteFile(src, buf.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	parent := t.TempDir()
+	dest := filepath.Join(parent, "dest")
+	if err := os.Mkdir(dest, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := extractTarball(src, dest); err == nil || !strings.Contains(err.Error(), "escaping the install dir") {
+		t.Errorf("err = %v, want an escape refusal", err)
+	}
+	if _, err := os.Stat(filepath.Join(parent, "evil")); !os.IsNotExist(err) {
+		t.Errorf("evil landed outside dest (stat err = %v)", err)
+	}
+}
+
+// Guard: a symlink target of exactly ".." must be refused — Clean("..") has
+// no "../" prefix, so the prefix check alone would let it through.
+func TestExtractRefusesDotDotSymlink(t *testing.T) {
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	if err := tw.WriteHeader(&tar.Header{Name: "code-server-1-linux-amd64/link", Typeflag: tar.TypeSymlink, Linkname: ".."}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	src := filepath.Join(t.TempDir(), "evil.tar.gz")
+	if err := os.WriteFile(src, buf.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := extractTarball(src, t.TempDir()); err == nil || !strings.Contains(err.Error(), "refusing symlink") {
+		t.Errorf("err = %v, want a symlink escape refusal", err)
+	}
+}
+
 // Guard: the happy-path extraction must never write outside dest even though
 // the test payload is benign — proves the strip-join stays under dest.
 func TestExtractStaysUnderDest(t *testing.T) {

@@ -197,9 +197,13 @@ func (ins *Installer) download(ctx context.Context, rel Release, dest string) (s
 // tarball's single top-level directory (code-server-<ver>-<os>-<arch>/), so
 // the binary lands at dest/bin/code-server. Mode bits are preserved (the
 // bin/code-server entry script and bundled node must stay executable) and
-// symlink entries are recreated. Entries that would escape dest (absolute
-// paths, ".." components, absolute or escaping symlink targets) are refused —
-// the tarball is digest-verified but dest-escape is cheap to guarantee.
+// symlink entries are recreated. Entries that would escape dest are refused —
+// the tarball is digest-verified but dest-escape is cheap to guarantee. Two
+// layers enforce that: lexical checks on the raw entry name and symlink
+// target (absolute paths, ".." components), and — because lexical checks
+// cannot see a symlink a PREVIOUS entry created — every write resolves its
+// parent directory component-by-component (safeMkdirParents), refusing any
+// component whose resolution leaves dest.
 func extractTarball(src, dest string) error {
 	f, err := os.Open(src)
 	if err != nil {
@@ -211,6 +215,13 @@ func extractTarball(src, dest string) error {
 		return err
 	}
 	defer gz.Close()
+
+	// Anchor all containment checks at dest's REAL path, so a dest that
+	// itself lives behind a symlink (macOS /tmp) never false-positives.
+	realDest, err := filepath.EvalSymlinks(dest)
+	if err != nil {
+		return err
+	}
 
 	tr := tar.NewReader(gz)
 	for {
@@ -245,16 +256,34 @@ func extractTarball(src, dest string) error {
 		if filepath.IsAbs(rel) {
 			return fmt.Errorf("refusing tar entry escaping the install dir: %q", hdr.Name)
 		}
-		target := filepath.Join(dest, filepath.FromSlash(rel))
+
+		// Create/resolve the parent chain without ever following a symlink
+		// out of dest, then join the final component onto the RESOLVED parent
+		// so the write lands where the check looked.
+		comps := strings.Split(rel, "/")
+		parentDir, err := safeMkdirParents(realDest, comps[:len(comps)-1], hdr.Name)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(parentDir, comps[len(comps)-1])
 
 		switch hdr.Typeflag {
 		case tar.TypeDir:
+			if fi, err := os.Lstat(target); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+				// A directory entry over an existing symlink is traversal
+				// bait for later entries beneath it — refuse.
+				return fmt.Errorf("refusing tar entry escaping the install dir: %q", hdr.Name)
+			}
 			if err := os.MkdirAll(target, hdr.FileInfo().Mode().Perm()); err != nil {
 				return err
 			}
 		case tar.TypeReg:
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-				return err
+			// OpenFile follows a final-component symlink; replace any such
+			// link (tar replace semantics) so the write cannot be redirected.
+			if fi, err := os.Lstat(target); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+				if err := os.Remove(target); err != nil {
+					return err
+				}
 			}
 			out, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, hdr.FileInfo().Mode().Perm())
 			if err != nil {
@@ -270,18 +299,68 @@ func extractTarball(src, dest string) error {
 			}
 		case tar.TypeSymlink:
 			link := hdr.Linkname
-			if filepath.IsAbs(link) || strings.HasPrefix(filepath.ToSlash(filepath.Clean(link)), "../") {
+			cleanLink := filepath.ToSlash(filepath.Clean(link))
+			if filepath.IsAbs(link) || cleanLink == ".." || strings.HasPrefix(cleanLink, "../") {
 				return fmt.Errorf("refusing symlink escaping the install dir: %q -> %q", hdr.Name, link)
-			}
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-				return err
 			}
 			if err := os.Symlink(link, target); err != nil {
 				return err
+			}
+			// A lexically tame target can still RESOLVE outside dest through
+			// earlier symlinks (e.g. self->. then up->self/..). Verify the
+			// created link when it resolves; a dangling link (target not yet
+			// extracted) is fine — any later write through it re-verifies.
+			if resolved, err := filepath.EvalSymlinks(target); err == nil && !within(realDest, resolved) {
+				return fmt.Errorf("refusing symlink escaping the install dir: %q -> %q", hdr.Name, link)
 			}
 		default:
 			// Hardlinks, devices, fifos: not expected in a code-server release
 			// tarball — skip rather than invent a filesystem node.
 		}
 	}
+}
+
+// safeMkdirParents creates the directory chain comps under realDest one
+// component at a time, resolving as it goes, so no component — pre-existing
+// or created by an earlier tar entry — can be a symlink that redirects the
+// chain outside realDest. It returns the RESOLVED parent directory the entry
+// must be written into. rawName is the tar entry name, used only for errors.
+func safeMkdirParents(realDest string, comps []string, rawName string) (string, error) {
+	cur := realDest
+	for _, comp := range comps {
+		if comp == "" || comp == "." {
+			continue
+		}
+		next := filepath.Join(cur, comp)
+		fi, err := os.Lstat(next)
+		switch {
+		case err == nil && fi.Mode()&os.ModeSymlink != 0:
+			resolved, err := filepath.EvalSymlinks(next)
+			if err != nil {
+				return "", err
+			}
+			if !within(realDest, resolved) {
+				return "", fmt.Errorf("refusing tar entry escaping the install dir: %q", rawName)
+			}
+			cur = resolved
+		case err == nil && fi.IsDir():
+			cur = next
+		case err == nil:
+			return "", fmt.Errorf("tar entry %q: parent %q exists and is not a directory", rawName, next)
+		case os.IsNotExist(err):
+			if err := os.Mkdir(next, 0o755); err != nil {
+				return "", err
+			}
+			cur = next
+		default:
+			return "", err
+		}
+	}
+	return cur, nil
+}
+
+// within reports whether path is realDest itself or beneath it. Both
+// arguments must already be symlink-resolved.
+func within(realDest, path string) bool {
+	return path == realDest || strings.HasPrefix(path, realDest+string(os.PathSeparator))
 }

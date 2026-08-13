@@ -234,8 +234,14 @@ func runCodeServerUpdateFlow(cmd *cobra.Command, sink outputSink) error {
 	if err := codeServerKillFn(); err != nil {
 		return err
 	}
-	if _, err := codeServerStartFn(); err != nil {
+	outcome, err := codeServerStartFn()
+	if err != nil {
 		return fmt.Errorf("respawning code-server after the update (the new version IS installed — start it with `rk code-server start`): %w", err)
+	}
+	if outcome == daemon.EnsureExternallyManaged {
+		// StartCodeServer legitimately declines to respawn when the port is
+		// already serving — say so, or the "Restarting" line above misleads.
+		sink.Notef("Port already serving — respecting the externally managed code-server; the updated binary was not respawned.\n")
 	}
 	if before == "" {
 		sink.Dataf("Installed code-server v%s (%s).\n", res.Version, res.Path)

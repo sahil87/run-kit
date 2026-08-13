@@ -1,3 +1,10 @@
+# `packages` is required by pnpm 9 (CI pins version 9 in ci.yml/release.yml —
+# a settings-only workspace file errors with "packages field missing or
+# empty"); pnpm 10+ would accept the file without it. `.` = this directory is
+# the sole package, which matches the existing non-workspace lockfile exactly.
+packages:
+  - '.'
+
 allowBuilds:
   esbuild: true
   msw: true

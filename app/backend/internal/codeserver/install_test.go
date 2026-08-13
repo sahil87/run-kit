@@ -371,3 +371,56 @@ func TestExtractStaysUnderDest(t *testing.T) {
 	// Silences the io import check if the payload shape changes.
 	var _ io.Reader
 }
+
+// Regression for the production failure on the REAL code-server tarball:
+// node_modules/.bin is full of up-and-back-down relative symlinks
+// (.bin/esvalidate -> ../esprima/bin/esvalidate.js). These resolve INSIDE the
+// tree and must extract — a "../" prefix ban refuses every genuine release.
+func TestExtractAllowsIntraTreeDotDotSymlink(t *testing.T) {
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	top := "code-server-1-linux-amd64"
+	script := "#!/usr/bin/env node\n"
+	for _, hdr := range []*tar.Header{
+		{Name: top + "/node_modules/esprima/bin", Typeflag: tar.TypeDir, Mode: 0o755},
+		{Name: top + "/node_modules/esprima/bin/esvalidate.js", Typeflag: tar.TypeReg, Mode: 0o755, Size: int64(len(script))},
+		{Name: top + "/node_modules/.bin", Typeflag: tar.TypeDir, Mode: 0o755},
+		{Name: top + "/node_modules/.bin/esvalidate", Typeflag: tar.TypeSymlink, Linkname: "../esprima/bin/esvalidate.js"},
+	} {
+		if err := tw.WriteHeader(hdr); err != nil {
+			t.Fatal(err)
+		}
+		if hdr.Typeflag == tar.TypeReg {
+			if _, err := tw.Write([]byte(script)); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	src := filepath.Join(t.TempDir(), "real-shape.tar.gz")
+	if err := os.WriteFile(src, buf.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dest := t.TempDir()
+	if err := extractTarball(src, dest); err != nil {
+		t.Fatalf("intra-tree ../ symlink must extract, got: %v", err)
+	}
+	resolved, err := filepath.EvalSymlinks(filepath.Join(dest, "node_modules", ".bin", "esvalidate"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := filepath.EvalSymlinks(filepath.Join(dest, "node_modules", "esprima", "bin", "esvalidate.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved != want {
+		t.Errorf("link resolves to %q, want %q", resolved, want)
+	}
+}

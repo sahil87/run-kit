@@ -298,9 +298,13 @@ func extractTarball(src, dest string) error {
 				return closeErr
 			}
 		case tar.TypeSymlink:
+			// Relative targets with ".." components are legitimate and
+			// ubiquitous (node_modules/.bin/x -> ../pkg/bin/x.js), so a prefix
+			// ban would refuse every real code-server tarball. The lexical
+			// check is CONTAINMENT: resolve the target against the link's own
+			// (already-resolved) parent dir and require it to stay under dest.
 			link := hdr.Linkname
-			cleanLink := filepath.ToSlash(filepath.Clean(link))
-			if filepath.IsAbs(link) || cleanLink == ".." || strings.HasPrefix(cleanLink, "../") {
+			if filepath.IsAbs(link) || !within(realDest, filepath.Clean(filepath.Join(parentDir, link))) {
 				return fmt.Errorf("refusing symlink escaping the install dir: %q -> %q", hdr.Name, link)
 			}
 			if err := os.Symlink(link, target); err != nil {

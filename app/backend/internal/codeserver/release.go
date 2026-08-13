@@ -15,8 +15,12 @@ const (
 	// defaultAPIBase is the GitHub REST API origin (the Installer's APIBase
 	// overrides it — tests point at httptest).
 	defaultAPIBase = "https://api.github.com"
-	// resolveTimeout bounds the release-listing API call.
-	resolveTimeout = 10 * time.Second
+	// resolveTimeout bounds the release-listing API call. 30s, not 10:
+	// api.github.com routinely takes >10s on slow or flaky links (observed
+	// in production: back-to-back context-deadline failures at 10s that
+	// succeeded on retry), and a longer bound on a read-only GET costs
+	// nothing — it is a bound on failure, not an expected duration.
+	resolveTimeout = 30 * time.Second
 	// downloadTimeout bounds the tarball transfer — network-transfer-sized for
 	// a ~100MB asset on a slow link (an upper bound on failure, not an
 	// expected duration).

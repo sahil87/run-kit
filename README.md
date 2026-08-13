@@ -204,8 +204,9 @@ Pin state lives in tmux (via the `@rk_board` window option) so it follows the wi
 Some browser features (clipboard, secure context) require HTTPS. Accessing run-kit from another machine on your tailnet also requires HTTPS:
 
 1. Enable HTTPS at [DNS > HTTPS Certificates](https://login.tailscale.com/admin/dns).
-2. Run `tailscale serve --bg http://localhost:3000`.
-3. Open `https://<machine>.<tailnet>.ts.net` on your phone or another laptop.
+2. Run `sudo tailscale set --operator=$USER` (one-time — lets `tailscale serve` run without sudo).
+3. Run `tailscale serve --bg http://localhost:3000`.
+4. Open `https://<machine>.<tailnet>.ts.net` on your phone or another laptop.
 
 For a stable custom hostname or public access via Funnel, see the [Tailscale guide](docs/site/install.md).
 

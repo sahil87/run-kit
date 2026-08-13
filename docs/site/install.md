@@ -94,6 +94,12 @@ run-kit binds to `127.0.0.1` by default. Some browser features (e.g., copy to cl
 
 Enable HTTPS on your tailnet in the [Tailscale admin console](https://login.tailscale.com/admin/dns) under **DNS > HTTPS Certificates**.
 
+Then let your user manage Tailscale without sudo (one-time — `tailscale serve` needs root or the designated operator):
+
+```sh
+sudo tailscale set --operator=$USER
+```
+
 ### Quickstart
 
 ```sh
@@ -121,7 +127,7 @@ Services need a tagged node. Do these in order:
 
 1. **Define the `tag:server` tag.** In [Access controls](https://login.tailscale.com/admin/acls), Visual editor → **Tags** → add a tag named `server`. Owners can be left empty.
 
-2. **Re-register the node with the tag** (`--operator` lets you manage Tailscale without sudo afterward):
+2. **Re-register the node with the tag.** Tags can only be requested via `tailscale up` (there is no `tailscale set --advertise-tags`), and `up` errors unless every non-default pref is re-stated — so `--operator` is repeated here, not newly set:
 
    ```sh
    sudo tailscale up --advertise-tags=tag:server --operator=$USER

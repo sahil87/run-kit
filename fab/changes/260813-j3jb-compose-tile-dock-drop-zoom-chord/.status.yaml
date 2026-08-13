@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 10
@@ -33,22 +33,24 @@ stage_metrics:
     apply: {started_at: "2026-08-13T02:23:32Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-13T02:47:41Z"}
     review: {started_at: "2026-08-13T02:47:41Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-13T02:53:56Z"}
     hydrate: {started_at: "2026-08-13T02:53:56Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-13T03:04:55Z"}
-    ship: {started_at: "2026-08-13T03:04:55Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-08-13T03:04:55Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-13T03:07:17Z"}
+    review-pr: {started_at: "2026-08-13T03:07:17Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/576
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 716
+    deleted: 576
+    net: 140
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 376
+        deleted: 541
+        net: -165
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-08-13T03:04:55Z"
-    computed_at_stage: hydrate
+        added: 107
+        deleted: 150
+        net: -43
+    computed_at: "2026-08-13T03:07:17Z"
+    computed_at_stage: ship
 summary: compose strip gains an in-tile dock (SurfaceLayout ttyDockContent) with the footer dock kept for broadcast/board/mobile/no-tty; pane-aligned geometry retired; Ctrl+` layout-zoom binding removed (zoom via palette + ⛶ verb)
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-13T03:04:55Z
+last_updated: 2026-08-13T03:07:17Z

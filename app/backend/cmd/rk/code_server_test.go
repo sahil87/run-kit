@@ -40,10 +40,18 @@ func withCodeServerCLISeams(t *testing.T, home string, srv *httptest.Server) (ki
 
 	origHome, origNew := codeServerUserHomeFn, newCodeServerInstallerFn
 	origStart, origKill := codeServerStartFn, codeServerKillFn
+	origRunning, origSession := codeServerDaemonRunningFn, codeServerSessionCommandFn
 	t.Cleanup(func() {
 		codeServerUserHomeFn, newCodeServerInstallerFn = origHome, origNew
 		codeServerStartFn, codeServerKillFn = origStart, origKill
+		codeServerDaemonRunningFn, codeServerSessionCommandFn = origRunning, origSession
 	})
+
+	// Hermetic defaults for the respawn seams: daemon up, no session — the
+	// migration respawn is a strict no-op unless a test opts in. Never leave
+	// the real probes wired (they would touch a live tmux socket).
+	codeServerDaemonRunningFn = func() bool { return true }
+	codeServerSessionCommandFn = func() (string, bool, error) { return "", false, nil }
 
 	codeServerUserHomeFn = func() (string, error) { return home, nil }
 	if srv != nil {
@@ -338,6 +346,200 @@ func TestCodeServerUpdateExternallyManagedNotesNoRespawn(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !strings.Contains(errOut.String(), "externally managed code-server; the updated binary was not respawned") {
+		t.Errorf("stderr = %q, want the externally-managed note", errOut.String())
+	}
+}
+
+// --- R1/R4: the daemon gate on the respawn ---
+
+// With the daemon down, an update that flipped versions must touch no tmux at
+// all (no kill, no start — even the has-session probe would birth a server on
+// a dead socket) and print the manual recovery chain.
+func TestCodeServerUpdateDaemonDownNoKillNamesManualChain(t *testing.T) {
+	home := t.TempDir()
+	srv := csReleaseServer(t, "4.132.0")
+	kills, starts := withCodeServerCLISeams(t, home, srv)
+	if err := runCodeServerInstall(bareCmd(&bytes.Buffer{}, &bytes.Buffer{}), nil); err != nil {
+		t.Fatal(err)
+	}
+
+	srv2 := csReleaseServer(t, "4.133.0")
+	origNew := newCodeServerInstallerFn
+	newCodeServerInstallerFn = func() *codeserver.Installer {
+		ins := codeserver.New()
+		ins.APIBase = srv2.URL
+		ins.Client = srv2.Client()
+		ins.GOOS, ins.GOARCH = "linux", "amd64"
+		return ins
+	}
+	t.Cleanup(func() { newCodeServerInstallerFn = origNew })
+	codeServerDaemonRunningFn = func() bool { return false }
+
+	var out bytes.Buffer
+	if err := runCodeServerUpdate(bareCmd(&out, &bytes.Buffer{}), nil); err != nil {
+		t.Fatal(err)
+	}
+	if *kills != 0 || *starts != 0 {
+		t.Errorf("kills=%d starts=%d, want 0/0 — the gate fires before any tmux command", *kills, *starts)
+	}
+	if !strings.Contains(out.String(), "tmux -L rk-daemon kill-session -t '=rk-code-server' && rk code-server start") {
+		t.Errorf("stdout = %q, want the manual recovery chain", out.String())
+	}
+	if !strings.Contains(out.String(), "Updated code-server v4.132.0 -> v4.133.0") {
+		t.Errorf("stdout = %q, want the install outcome line — the flip itself succeeded", out.String())
+	}
+}
+
+// --- R2/R3: install's migration respawn ---
+
+// installedAt establishes the managed install at the given version and returns
+// the managed binary path (the classification anchor).
+func installedAt(t *testing.T, home string) string {
+	t.Helper()
+	if err := runCodeServerInstall(bareCmd(&bytes.Buffer{}, &bytes.Buffer{}), nil); err != nil {
+		t.Fatal(err)
+	}
+	managed := codeserver.ManagedBinary(home)
+	if managed == "" {
+		t.Fatal("managed binary not resolvable after install")
+	}
+	return managed
+}
+
+func TestCodeServerInstallMigratesForeignSession(t *testing.T) {
+	home := t.TempDir()
+	srv := csReleaseServer(t, "4.132.0")
+	kills, starts := withCodeServerCLISeams(t, home, srv)
+	installedAt(t, home) // seed the managed install; the migration check runs on the re-run below
+
+	// A brew-era session: its start command names a PATH binary, not the
+	// managed current path.
+	codeServerSessionCommandFn = func() (string, bool, error) {
+		return "env -u VSCODE_IPC_HOOK_CLI code-server --bind-addr 127.0.0.1:3002 --auth none", true, nil
+	}
+
+	var out bytes.Buffer
+	if err := runCodeServerInstall(bareCmd(&out, &bytes.Buffer{}), nil); err != nil {
+		t.Fatal(err)
+	}
+	if *kills != 1 || *starts != 1 {
+		t.Errorf("kills=%d starts=%d, want 1/1 — a foreign session is respawned", *kills, *starts)
+	}
+	if !strings.Contains(out.String(), "Respawned code-server onto the managed v4.132.0") {
+		t.Errorf("stdout = %q, want the migration respawn data line", out.String())
+	}
+}
+
+// The migration fires on the already-current outcome too — a re-run after a
+// daemon-down skip must converge. (The test above IS the already-current case:
+// the install was seeded first. This one pins the managed-session negative.)
+func TestCodeServerInstallManagedSessionNoRespawn(t *testing.T) {
+	home := t.TempDir()
+	srv := csReleaseServer(t, "4.132.0")
+	kills, starts := withCodeServerCLISeams(t, home, srv)
+	managed := installedAt(t, home)
+
+	codeServerSessionCommandFn = func() (string, bool, error) {
+		return "env -u VSCODE_IPC_HOOK_CLI " + managed + " --bind-addr 127.0.0.1:3002 --auth none", true, nil
+	}
+
+	var out bytes.Buffer
+	if err := runCodeServerInstall(bareCmd(&out, &bytes.Buffer{}), nil); err != nil {
+		t.Fatal(err)
+	}
+	if *kills != 0 || *starts != 0 {
+		t.Errorf("kills=%d starts=%d, want 0/0 — a managed-rung session is never respawned by install", *kills, *starts)
+	}
+}
+
+// No session ⇒ install's respawn step is a strict no-op — the rk-jobs
+// `install && start` chain invariant (the job fires only when nothing was
+// spawned, and start owns the spawn).
+func TestCodeServerInstallNoSessionNoOp(t *testing.T) {
+	home := t.TempDir()
+	srv := csReleaseServer(t, "4.132.0")
+	kills, starts := withCodeServerCLISeams(t, home, srv)
+
+	var out bytes.Buffer
+	if err := runCodeServerInstall(bareCmd(&out, &bytes.Buffer{}), nil); err != nil {
+		t.Fatal(err)
+	}
+	if *kills != 0 || *starts != 0 {
+		t.Errorf("kills=%d starts=%d, want 0/0 — no session means nothing to migrate", *kills, *starts)
+	}
+	if strings.Contains(out.String(), "Respawned") {
+		t.Errorf("stdout = %q, want no respawn line", out.String())
+	}
+}
+
+func TestCodeServerInstallDaemonDownSkipsMigrationCheck(t *testing.T) {
+	home := t.TempDir()
+	srv := csReleaseServer(t, "4.132.0")
+	kills, starts := withCodeServerCLISeams(t, home, srv)
+	codeServerDaemonRunningFn = func() bool { return false }
+	sessionQueried := false
+	codeServerSessionCommandFn = func() (string, bool, error) {
+		sessionQueried = true
+		return "", false, nil
+	}
+
+	var out bytes.Buffer
+	if err := runCodeServerInstall(bareCmd(&out, &bytes.Buffer{}), nil); err != nil {
+		t.Fatal(err)
+	}
+	if sessionQueried {
+		t.Error("session inspected with the daemon down — the gate must fire before any tmux command")
+	}
+	if *kills != 0 || *starts != 0 {
+		t.Errorf("kills=%d starts=%d, want 0/0", *kills, *starts)
+	}
+	if !strings.Contains(out.String(), "run `rk code-server install` again once the daemon is up") {
+		t.Errorf("stdout = %q, want the re-run recovery line", out.String())
+	}
+}
+
+// A query error on an existing session is uncertain evidence — note it, never
+// kill on it.
+func TestCodeServerInstallSessionQueryErrorSkips(t *testing.T) {
+	home := t.TempDir()
+	srv := csReleaseServer(t, "4.132.0")
+	kills, _ := withCodeServerCLISeams(t, home, srv)
+	codeServerSessionCommandFn = func() (string, bool, error) {
+		return "", true, fmt.Errorf("tmux query failed")
+	}
+
+	var out, errOut bytes.Buffer
+	if err := runCodeServerInstall(bareCmd(&out, &errOut), nil); err != nil {
+		t.Fatal(err)
+	}
+	if *kills != 0 {
+		t.Errorf("kills=%d, want 0 — never kill on uncertain evidence", *kills)
+	}
+	if !strings.Contains(errOut.String(), "leaving it untouched") {
+		t.Errorf("stderr = %q, want the inspection-failure note", errOut.String())
+	}
+}
+
+// The migration respawn respects the externally-managed outcome: the kill
+// happened, the start declined, and the flow must not claim a respawn.
+func TestCodeServerInstallMigrationExternallyManagedNoClaim(t *testing.T) {
+	home := t.TempDir()
+	srv := csReleaseServer(t, "4.132.0")
+	withCodeServerCLISeams(t, home, srv)
+	installedAt(t, home)
+	codeServerSessionCommandFn = func() (string, bool, error) {
+		return "code-server --bind-addr 127.0.0.1:3002", true, nil
+	}
+	codeServerStartFn = func() (daemon.EnsureOutcome, error) { return daemon.EnsureExternallyManaged, nil }
+
+	var out, errOut bytes.Buffer
+	if err := runCodeServerInstall(bareCmd(&out, &errOut), nil); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), "Respawned code-server onto the managed") {
+		t.Errorf("stdout = %q, want no respawn claim when the start declined", out.String())
+	}
+	if !strings.Contains(errOut.String(), "externally managed") {
 		t.Errorf("stderr = %q, want the externally-managed note", errOut.String())
 	}
 }

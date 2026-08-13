@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"rk/internal/codeserver"
 	"rk/internal/config"
@@ -349,6 +350,40 @@ func StartCodeServer() (EnsureOutcome, error) {
 		return EnsureAlreadyRunning, fmt.Errorf("rk daemon is not running — start it with `rk serve -d`")
 	}
 	return ensureCodeServerCore(true)
+}
+
+// codeServerPaneCommand is the package seam over the pane_start_command query
+// (mirroring codeServerSpawn) so tests drive session classification without a
+// live tmux server.
+var codeServerPaneCommand = func(ctx context.Context, target string) ([]byte, error) {
+	return runTmuxOutput(ctx, "list-panes", "-t", target, "-F", "#{pane_start_command}")
+}
+
+// CodeServerSessionCommand reports the running code-server session's spawn
+// command — the argv string the session was created with, read live from
+// tmux's pane_start_command (Constitution II: derived at call time, no cached
+// state). Callers (the `rk code-server install` migration respawn) classify
+// the session by whether this string contains the managed binary path.
+//
+// Returns (cmd, exists, err): an absent session is ("", false, nil); a session
+// that exists but cannot be inspected is ("", true, err) — the caller must
+// treat that as uncertain evidence and never kill on it. list-panes, NOT
+// display-message: display-message with an unresolvable window target silently
+// falls back to the session's active window and exits 0 (the 260812-anac bug
+// class); list-panes hard-fails on a missing window. The window is single-pane
+// by construction; the first line wins, tolerating a manual split.
+func CodeServerSessionCommand() (string, bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
+	defer cancel()
+	if !codeServerSessionExists(ctx) {
+		return "", false, nil
+	}
+	out, err := codeServerPaneCommand(ctx, "="+CodeServerSessionName+":="+CodeServerWindowName)
+	if err != nil {
+		return "", true, fmt.Errorf("inspecting the %s session's start command: %w", CodeServerSessionName, err)
+	}
+	line, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\n")
+	return line, true, nil
 }
 
 // KillCodeServerSession kills the rk-code-server session (exact-match target —

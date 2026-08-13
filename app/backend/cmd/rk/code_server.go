@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"strings"
 
 	"rk/internal/codeserver"
 	"rk/internal/daemon"
@@ -29,6 +30,15 @@ var newCodeServerInstallerFn = func() *codeserver.Installer { return codeserver.
 // tests drive the update respawn without a live tmux server.
 var codeServerStartFn = daemon.StartCodeServer
 var codeServerKillFn = daemon.KillCodeServerSession
+
+// codeServerDaemonRunningFn / codeServerSessionCommandFn are the package seams
+// over the daemon-liveness probe and the session start-command reader, so
+// tests drive the respawn gate and the foreign-session classification without
+// a live tmux server. The liveness gate fires BEFORE any tmux command — even
+// KillCodeServerSession's has-session probe would birth a server on a dead
+// socket.
+var codeServerDaemonRunningFn = daemon.IsRunning
+var codeServerSessionCommandFn = daemon.CodeServerSessionCommand
 
 var codeServerCmd = &cobra.Command{
 	Use:   "code-server",
@@ -68,6 +78,13 @@ nothing is downloaded and the command prints the already-current outcome. A
 missing or mismatched digest fails closed — no unverified binary is ever
 activated, and a failed run leaves the previous install untouched.
 
+Migration: when the rk-code-server session is running a NON-managed binary (a
+brew- or PATH-installed code-server from before rk owned the install), install
+respawns the session onto the managed binary — an explicit install is the
+signal to move over. Requires the daemon to be running; a managed-binary
+session is never restarted by install (that is update's job, on a version
+change).
+
 There is deliberately no version-pin flag: install means "go to latest".`,
 	Args:         cobra.NoArgs,
 	SilenceUsage: true,
@@ -101,7 +118,8 @@ var codeServerUpdateCmd = &cobra.Command{
 	Long: `Update the rk-managed code-server install to the latest release and make it
 take effect: the rk-code-server session is killed and respawned on the new
 binary (code-server's hot exit preserves unsaved buffers; the /code lens
-reconnects briefly).
+reconnects briefly). The respawn requires the daemon to be running — with it
+down, nothing is killed and the command prints the manual recovery instead.
 
 Ownership posture: with no ~/.rk/code-server-bin, the command is a skip (exit
 0 with a data line) — a code-server you installed yourself on PATH is never
@@ -177,6 +195,93 @@ func runCodeServerInstall(cmd *cobra.Command, _ []string) error {
 	if changed {
 		sink.Dataf("Installed code-server v%s (%s).\n", res.Version, res.Path)
 	}
+	return migrateForeignCodeServerSession(sink, home, res.Version)
+}
+
+// respawnOutcome classifies how respawnCodeServerSession ended so each caller
+// can print its own daemon-down recovery (the truthful guidance differs by
+// verb — see migrateForeignCodeServerSession vs runCodeServerUpdateFlow).
+type respawnOutcome int
+
+const (
+	// respawnDone: the session was killed and respawned on the managed binary.
+	respawnDone respawnOutcome = iota
+	// respawnDaemonDown: the daemon is not running — nothing was touched
+	// (no kill, no tmux probe). The helper prints nothing; the caller owns
+	// the recovery line.
+	respawnDaemonDown
+	// respawnExternallyManaged: the start path declined to respawn because
+	// the port is already serving an externally managed instance.
+	respawnExternallyManaged
+)
+
+// respawnCodeServerSession kills and restarts the rk-code-server session so
+// the managed binary takes effect. The daemon gate fires FIRST, before any
+// tmux command — a kill (or even KillCodeServerSession's has-session probe) on
+// a dead socket would birth a stray tmux server, and with the daemon down the
+// gated start could never bring the session back anyway (the #582 review
+// should-fix). Shared by the update flow's version-changed respawn and
+// install's foreign-session migration.
+func respawnCodeServerSession(sink outputSink, version string) (respawnOutcome, error) {
+	if !codeServerDaemonRunningFn() {
+		return respawnDaemonDown, nil
+	}
+	sink.Notef("Restarting the code-server session on v%s...\n", version)
+	if err := codeServerKillFn(); err != nil {
+		return respawnDone, err
+	}
+	outcome, err := codeServerStartFn()
+	if err != nil {
+		return respawnDone, fmt.Errorf("respawning code-server (the new version IS installed — start it with `rk code-server start`): %w", err)
+	}
+	if outcome == daemon.EnsureExternallyManaged {
+		// StartCodeServer legitimately declines to respawn when the port is
+		// already serving — say so, or the "Restarting" line above misleads.
+		sink.Notef("Port already serving — respecting the externally managed code-server; the updated binary was not respawned.\n")
+		return respawnExternallyManaged, nil
+	}
+	return respawnDone, nil
+}
+
+// migrateForeignCodeServerSession is install's migration respawn: an explicit
+// `rk code-server install` is unambiguous intent to move the running editor
+// onto the managed binary, so a session running anything else (the brew-era
+// world, or any PATH install) is killed and respawned. Detection is state-free
+// — the session's live pane_start_command either contains the managed current
+// binary path or it does not — so a re-run converges, which is exactly the
+// daemon-down recovery. It fires on BOTH install outcomes (version-changed and
+// already-current): the migration case is about who spawned the session, not
+// whether this run downloaded anything. A missing session is a strict no-op,
+// which keeps the rk-jobs `install && start` chain unchanged at the install
+// step.
+func migrateForeignCodeServerSession(sink outputSink, home, version string) error {
+	if !codeServerDaemonRunningFn() {
+		// A foreign session (if any) persists across daemon restarts — the
+		// daemon's ensure path skips on session-exists — so it does NOT
+		// self-heal. The state-free detection makes a re-run converge.
+		sink.Dataf("Daemon not running — skipped checking the running code-server session; run `rk code-server install` again once the daemon is up (`rk serve -d`).\n")
+		return nil
+	}
+	startCmd, exists, err := codeServerSessionCommandFn()
+	if err != nil {
+		// Uncertain evidence — never kill on it.
+		sink.Notef("Could not inspect the running code-server session (%v) — leaving it untouched.\n", err)
+		return nil
+	}
+	if !exists {
+		return nil
+	}
+	managed := codeserver.ManagedBinary(home)
+	if managed == "" || strings.Contains(startCmd, managed) {
+		return nil // ours (or nothing to compare against) — no respawn
+	}
+	out, err := respawnCodeServerSession(sink, version)
+	if err != nil {
+		return err
+	}
+	if out == respawnDone {
+		sink.Dataf("Respawned code-server onto the managed v%s (was running a non-managed binary).\n", version)
+	}
 	return nil
 }
 
@@ -228,20 +333,19 @@ func runCodeServerUpdateFlow(cmd *cobra.Command, sink outputSink) error {
 		return nil // already current — no restart either
 	}
 
-	// Take effect: kill the session (absent ⇒ no-op) and re-run the gated
-	// start path on the flipped symlink.
-	sink.Notef("Restarting the code-server session on v%s...\n", res.Version)
-	if err := codeServerKillFn(); err != nil {
+	// Take effect: kill + respawn via the daemon-gated helper — no tmux is
+	// touched when the daemon is down.
+	out, err := respawnCodeServerSession(sink, res.Version)
+	if err != nil {
 		return err
 	}
-	outcome, err := codeServerStartFn()
-	if err != nil {
-		return fmt.Errorf("respawning code-server after the update (the new version IS installed — start it with `rk code-server start`): %w", err)
-	}
-	if outcome == daemon.EnsureExternallyManaged {
-		// StartCodeServer legitimately declines to respawn when the port is
-		// already serving — say so, or the "Restarting" line above misleads.
-		sink.Notef("Port already serving — respecting the externally managed code-server; the updated binary was not respawned.\n")
+	if out == respawnDaemonDown {
+		// The flip already happened, so afterwards no rk verb can tell a
+		// surviving old-binary session apart from a fresh one (its start
+		// command names the same `current` path) — the manual chain is the
+		// honest recovery, exact-match and socket-scoped like the helper's own
+		// kill.
+		sink.Dataf("Daemon not running — the session was not respawned. v%s is installed; after `rk serve -d`, apply it with: tmux -L rk-daemon kill-session -t '=rk-code-server' && rk code-server start\n", res.Version)
 	}
 	if before == "" {
 		sink.Dataf("Installed code-server v%s (%s).\n", res.Version, res.Path)

@@ -538,3 +538,50 @@ func TestKillCodeServerSessionAbsentIsNoop(t *testing.T) {
 		t.Fatalf("absent session must be a no-op, got %v", err)
 	}
 }
+
+// --- CodeServerSessionCommand (260813-2s4u) ---
+
+func TestCodeServerSessionCommandAbsent(t *testing.T) {
+	withCodeServerSeams(t, false)
+	cmd, exists, err := CodeServerSessionCommand()
+	if cmd != "" || exists || err != nil {
+		t.Fatalf("got (%q, %v, %v), want (\"\", false, nil) for an absent session", cmd, exists, err)
+	}
+}
+
+func TestCodeServerSessionCommandReadsFirstLine(t *testing.T) {
+	withCodeServerSeams(t, true)
+	origPane := codeServerPaneCommand
+	t.Cleanup(func() { codeServerPaneCommand = origPane })
+	var gotTarget string
+	codeServerPaneCommand = func(_ context.Context, target string) ([]byte, error) {
+		gotTarget = target
+		// Two lines: a manual split adds a second pane — the first line wins.
+		return []byte("env -u VSCODE_IPC_HOOK_CLI /x/bin/code-server --auth none\nzsh\n"), nil
+	}
+
+	cmd, exists, err := CodeServerSessionCommand()
+	if err != nil || !exists {
+		t.Fatalf("got (exists=%v, err=%v), want an inspectable session", exists, err)
+	}
+	if want := "=" + CodeServerSessionName + ":=" + CodeServerWindowName; gotTarget != want {
+		t.Errorf("target = %q, want the exact-match %q", gotTarget, want)
+	}
+	if want := "env -u VSCODE_IPC_HOOK_CLI /x/bin/code-server --auth none"; cmd != want {
+		t.Errorf("cmd = %q, want the first line %q", cmd, want)
+	}
+}
+
+func TestCodeServerSessionCommandQueryErrorIsUncertain(t *testing.T) {
+	withCodeServerSeams(t, true)
+	origPane := codeServerPaneCommand
+	t.Cleanup(func() { codeServerPaneCommand = origPane })
+	codeServerPaneCommand = func(context.Context, string) ([]byte, error) {
+		return nil, fmt.Errorf("no such window")
+	}
+
+	_, exists, err := CodeServerSessionCommand()
+	if !exists || err == nil {
+		t.Fatalf("got (exists=%v, err=%v), want (true, non-nil) — existing but uninspectable is uncertain evidence", exists, err)
+	}
+}

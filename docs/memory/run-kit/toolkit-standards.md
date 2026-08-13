@@ -237,7 +237,14 @@ is the fifth surface measured against the same two checks
   already-running / externally-managed / started lines, `update`'s
   not-managed skip and `Updated code-server vX -> vY` line — are `Dataf` on
   stdout and survive: silence there would misreport a no-op as success or hide
-  a mutation.
+  a mutation. The respawn additions (`260813-2s4u-respawn-aware-code-server-install`)
+  follow the same split: `install`'s migration-respawn line (`Respawned
+  code-server onto the managed v… (was running a non-managed binary).`) and
+  both verbs' daemon-down recovery lines are `Dataf` (each reports a mutation
+  or explains why one did not happen), the shared `Restarting the code-server
+  session on v…` progress and the uncertain-evidence / externally-managed
+  notes are `Notef`. No tree change — no new commands or flags, only `Long:`
+  prose on `install`/`update` — so the help-dump contract stays shape-stable.
 - **Exit-code convention (P4)**: the children re-wrap their own `Args`
   validators with `usageArgs` in `code_server.go`'s `init()` — root's central
   wrap loop covers only `rootCmd`'s **direct** children (the `desktop` /

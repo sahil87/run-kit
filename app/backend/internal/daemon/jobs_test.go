@@ -438,7 +438,7 @@ func TestRunJobIntegration_FailedJobRemainsDeadThenRespawns(t *testing.T) {
 	// (A single-word argv — tmux joins argv with spaces unquoted, so multi-word
 	// sh -c scripts do not survive the join; a script file does.)
 	script := filepath.Join(t.TempDir(), "failing-job.sh")
-	if err := os.WriteFile(script, []byte("#!/bin/sh\nsleep 0.3\nexit 1\n"), 0o755); err != nil {
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nsleep 1\nexit 1\n"), 0o755); err != nil {
 		t.Fatalf("writing failing job script: %v", err)
 	}
 
@@ -494,7 +494,7 @@ func TestRunJobIntegration_SucceededJobRemainsDeadThenRespawns(t *testing.T) {
 	// (Single-word argv — tmux joins argv with spaces unquoted, so a script
 	// file carries the multi-step body.)
 	script := filepath.Join(t.TempDir(), "succeeding-job.sh")
-	if err := os.WriteFile(script, []byte("#!/bin/sh\nsleep 0.3\nexit 0\n"), 0o755); err != nil {
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nsleep 1\nexit 0\n"), 0o755); err != nil {
 		t.Fatalf("writing succeeding job script: %v", err)
 	}
 

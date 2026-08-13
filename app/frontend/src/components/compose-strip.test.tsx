@@ -948,6 +948,63 @@ describe("ComposeStrip", () => {
     expect(input().value).toBe("route-draft");
   });
 
+  it("a per-target draft survives the broadcast dock flip (in-tile ⇄ footer, 260813-j3jb)", () => {
+    // The two docks are distinct subtrees (inside the first tty tile vs the
+    // shell footer), so a broadcast on/off flip UNMOUNTS the strip from one
+    // dock and mounts it at the other. The module store carries both drafts:
+    // the broadcast draft keys on the recipient set, so the per-target draft
+    // is untouched and returns when the flip restores single-send.
+    const focus = {
+      wsRef: makeWs().ref,
+      containerRef: { current: null },
+      server: "srv",
+      session: "sess",
+      windowId: "@1",
+    };
+    // In-tile dock (single-send): type a per-target draft.
+    const { unmount: unmountTile } = render(
+      <ChromeProvider>
+        <FocusedTerminalProvider>
+          <FocusSetter focus={focus} />
+          <ComposeStrip />
+        </FocusedTerminalProvider>
+      </ChromeProvider>,
+    );
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+    act(() => fireEvent.change(input(), { target: { value: "in-tile draft" } }));
+    unmountTile();
+
+    // Broadcast ON — the strip remounts at the footer dock in selection mode:
+    // the recipient-set draft is a SEPARATE (empty) draft.
+    const { unmount: unmountFooter } = render(
+      <ChromeProvider>
+        <FocusedTerminalProvider>
+          <FocusSetter focus={focus} />
+          <ComposeStrip
+            selectionTarget={{ keys: SELECTION_KEYS, onSend: vi.fn().mockResolvedValue(2) }}
+          />
+        </FocusedTerminalProvider>
+      </ChromeProvider>,
+    );
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+    expect(screen.getByTestId("compose-strip-target")).toHaveTextContent("2 selected");
+    expect(input().value).toBe("");
+    unmountFooter();
+
+    // Broadcast OFF — back at the in-tile dock, the per-target draft is intact.
+    render(
+      <ChromeProvider>
+        <FocusedTerminalProvider>
+          <FocusSetter focus={focus} />
+          <ComposeStrip />
+        </FocusedTerminalProvider>
+      </ChromeProvider>,
+    );
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+    expect(screen.getByTestId("compose-strip-target")).not.toHaveTextContent("selected");
+    expect(input().value).toBe("in-tile draft");
+  });
+
   it("a guard-blocked send (stream not OPEN) preserves the draft", () => {
     // wsRef is CLOSED → the readyState guard blocks the send. The draft must be
     // preserved (early-return before clearing), not silently discarded.
@@ -1511,132 +1568,5 @@ describe("ComposeStrip", () => {
     // and therefore the preview, does not.
     expect(input().value).toBe("/wt/.uploads/x.png");
     expect(screen.queryByTestId("compose-strip-previews")).not.toBeInTheDocument();
-  });
-});
-
-// ── Pane-aligned geometry (260812-fryz) ─────────────────────────────────────
-// jsdom returns zero rects, so these tests mock getBoundingClientRect: the
-// focused pane's container element gets a real span, and the strip's outer
-// row (data-testid="compose-strip") gets a 1000px row at x=0. Assertions key
-// on the inner visible-chrome wrapper (compose-strip-inner) — the outer keeps
-// the full footer row untouched.
-describe("ComposeStrip pane-aligned geometry (260812-fryz)", () => {
-  // Same reset discipline as the main describe above (separate top-level
-  // block, so its hooks do not apply): store/storage wipes and cleanup.
-  beforeEach(() => {
-    useWindowStore.setState({ entries: new Map(), ghosts: [] });
-    localStorage.clear();
-    hydrateComposeDrafts();
-    hydrateComposeSentHistory();
-    consumeComposeStripFocusOnOpen();
-    uploadFilesMock.mockReset();
-  });
-  afterEach(() => {
-    cleanup();
-    localStorage.clear();
-  });
-
-  function domRect(left: number, width: number): DOMRect {
-    return {
-      left,
-      width,
-      right: left + width,
-      top: 0,
-      bottom: 10,
-      height: 10,
-      x: left,
-      y: 0,
-      toJSON: () => ({}),
-    } as DOMRect;
-  }
-
-  /** Mock rects: `pane` reports paneRect; the strip's outer row reports
-   *  1000px at x=0; everything else reports zero. Returns the spy. */
-  function stubRects(pane: Element, paneRect: { left: number; width: number }) {
-    return vi
-      .spyOn(Element.prototype, "getBoundingClientRect")
-      .mockImplementation(function (this: Element) {
-        if (this === pane) return domRect(paneRect.left, paneRect.width);
-        if ((this as HTMLElement).dataset?.testid === "compose-strip")
-          return domRect(0, 1000);
-        return domRect(0, 0);
-      });
-  }
-
-  const inner = () => screen.getByTestId("compose-strip-inner");
-  const outer = () => screen.getByTestId("compose-strip");
-
-  it("applies margin-left + width matching the focused pane's span in aligned mode", () => {
-    const pane = document.createElement("div");
-    const rectSpy = stubRects(pane, { left: 100, width: 600 });
-    render(
-      <Harness
-        focus={{
-          wsRef: makeWs().ref,
-          containerRef: { current: pane },
-          server: "srv",
-          session: "sess",
-          windowId: "@1",
-        }}
-      />,
-    );
-    act(() => fireEvent.click(screen.getByTestId("set-focus")));
-
-    expect(inner().style.marginLeft).toBe("100px");
-    expect(inner().style.width).toBe("600px");
-    // The outer element keeps the full footer row — no geometry styles.
-    expect(outer().style.marginLeft).toBe("");
-    expect(outer().style.width).toBe("");
-    rectSpy.mockRestore();
-  });
-
-  it("clamps a narrow pane to the 420px minimum, centered on its span", () => {
-    const pane = document.createElement("div");
-    const rectSpy = stubRects(pane, { left: 100, width: 300 });
-    render(
-      <Harness
-        focus={{
-          wsRef: makeWs().ref,
-          containerRef: { current: pane },
-          server: "srv",
-          session: "sess",
-          windowId: "@1",
-        }}
-      />,
-    );
-    act(() => fireEvent.click(screen.getByTestId("set-focus")));
-
-    expect(inner().style.width).toBe("420px");
-    expect(inner().style.marginLeft).toBe("40px"); // 100 + (300-420)/2
-    rectSpy.mockRestore();
-  });
-
-  it("applies NO alignment styles in selection-broadcast mode (full width)", () => {
-    renderSelection(vi.fn().mockResolvedValue(2));
-    expect(inner().style.marginLeft).toBe("");
-    expect(inner().style.width).toBe("");
-  });
-
-  it("applies NO alignment styles in the no-target disabled state (full width)", () => {
-    render(<Harness focus={null} />);
-    expect(inner().style.marginLeft).toBe("");
-    expect(inner().style.width).toBe("");
-  });
-
-  it("degrades to full width when containerRef.current is null (unmounted mid-measure)", () => {
-    render(
-      <Harness
-        focus={{
-          wsRef: makeWs().ref,
-          containerRef: { current: null },
-          server: "srv",
-          session: "sess",
-          windowId: "@1",
-        }}
-      />,
-    );
-    act(() => fireEvent.click(screen.getByTestId("set-focus")));
-    expect(inner().style.marginLeft).toBe("");
-    expect(inner().style.width).toBe("");
   });
 });

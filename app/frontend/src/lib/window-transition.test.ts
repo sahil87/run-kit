@@ -741,11 +741,13 @@ describe("isMaskExemptKey (rework F2 — global chords survive the masked swallo
     expect(isMaskExemptKey(key("V", { metaKey: true }))).toBe(false);
   });
 
-  it("exempts the Ctrl-bound global chords: Ctrl+K, Ctrl+., Ctrl+\\, Ctrl+`", () => {
+  it("exempts the Ctrl-bound global chords: Ctrl+K, Ctrl+., Ctrl+\\", () => {
     expect(isMaskExemptKey(key("k", { ctrlKey: true }))).toBe(true);
     expect(isMaskExemptKey(key(".", { ctrlKey: true }))).toBe(true);
     expect(isMaskExemptKey(key("\\", { ctrlKey: true }))).toBe(true);
-    expect(isMaskExemptKey(key("`", { ctrlKey: true }))).toBe(true);
+    // Ctrl+` is no longer a chord (the layout-zoom binding was removed in
+    // 260813-j3jb) — the mask swallows it like any other non-chord key.
+    expect(isMaskExemptKey(key("`", { ctrlKey: true }))).toBe(false);
   });
 
   it("does NOT exempt AltGr combos — ctrlKey+altKey is typed input, not a chord (rework NTH9)", () => {

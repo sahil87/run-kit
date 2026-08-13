@@ -67,6 +67,7 @@ type LayoutOverrides = {
   onFocusedKindChange?: (kind: SurfaceKind) => void;
   focusTileRef?: { current: ((kind: SurfaceKind) => void) | null };
   statusWindow?: WindowInfo | null;
+  ttyDockContent?: React.ReactNode;
 };
 
 /** The minimal WindowInfo the tty header's StatusDot consumes (260812-wfic
@@ -118,6 +119,7 @@ function layoutElement(overrides: LayoutOverrides = {}) {
       onFocusedKindChange={overrides.onFocusedKindChange}
       focusTileRef={overrides.focusTileRef}
       statusWindow={overrides.statusWindow}
+      ttyDockContent={overrides.ttyDockContent}
     />
   );
 }
@@ -481,6 +483,56 @@ describe("SurfaceLayout duplicate tty tiles", () => {
     expect(duplicate.wsRef).not.toBe(wsRef);
     expect(duplicate.focusRef).toBeUndefined();
     expect(duplicate.registerFocus).toBe(false);
+  });
+});
+
+describe("SurfaceLayout tty dock slot (260813-j3jb)", () => {
+  const dock = <div data-testid="tty-dock">dock</div>;
+
+  it("renders ttyDockContent inside the tty tile, after the terminal body", () => {
+    renderLayout({
+      layout: { shape: "split-h", order: ["tty", "web"] },
+      ttyDockContent: dock,
+    });
+    const tile = screen.getByTestId("surface-tile-tty");
+    const mounted = within(tile).getByTestId("tty-dock");
+    // Inside the tile frame — and the LAST child of the tile's flex column
+    // (below the terminal body, above the tile's bottom edge).
+    expect(mounted.parentElement).toBe(
+      screen.getByTestId("mock-terminal").parentElement!.parentElement,
+    );
+    expect(mounted.parentElement!.lastElementChild).toBe(mounted);
+    // The other tile hosts nothing.
+    expect(
+      within(screen.getByTestId("surface-tile-web")).queryByTestId("tty-dock"),
+    ).toBeNull();
+  });
+
+  it("duplicate tty tiles: only the FIRST hosts the dock", () => {
+    renderLayout({
+      layout: { shape: "split-h", order: ["tty", "tty"] },
+      ttyDockContent: dock,
+    });
+    expect(
+      within(screen.getByTestId("surface-tile-tty")).getByTestId("tty-dock"),
+    ).toBeTruthy();
+    expect(
+      within(screen.getByTestId("surface-tile-tty-2")).queryByTestId("tty-dock"),
+    ).toBeNull();
+  });
+
+  it("renders nothing extra when ttyDockContent is absent", () => {
+    renderLayout({ layout: { shape: "split-h", order: ["tty", "web"] } });
+    expect(screen.queryByTestId("tty-dock")).toBeNull();
+  });
+
+  it("mobile never renders the dock (tile chrome is off there)", () => {
+    renderLayout({
+      layout: { shape: "split-h", order: ["tty", "web"] },
+      isMobile: true,
+      ttyDockContent: dock,
+    });
+    expect(screen.queryByTestId("tty-dock")).toBeNull();
   });
 });
 

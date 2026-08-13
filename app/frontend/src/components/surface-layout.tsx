@@ -154,6 +154,17 @@ interface SurfaceLayoutProps {
    *  The FULL record because `StatusDot` consumes `WindowInfo` — the `window`
    *  prop stays the pure-lib narrow `ViewWindow`. Null/non-tty → no dot. */
   statusWindow?: WindowInfo | null;
+  /** In-tile compose-strip dock (260813-j3jb): an opaque node the parent
+   *  (app.tsx) hands over when the strip belongs INSIDE the tile — the
+   *  desktop terminal route's single-send mode. Rendered as the last child of
+   *  the FIRST tty tile's flex column (below the terminal body, inside the
+   *  frame), so the target is self-evident and zoom/hide/close carries the
+   *  strip for free; the flex column shrinks the terminal body, and the
+   *  existing ResizeObserver fit refits — no new resize plumbing. The parent
+   *  owns the whole dock decision (broadcast/board/mobile/no-tty → the shell
+   *  footer instead); this component stays presentational and knows nothing
+   *  about the strip. */
+  ttyDockContent?: React.ReactNode;
 }
 
 /** Equal-split default ratios (cumulative boundary percentages): arity 2 →
@@ -364,6 +375,7 @@ export function SurfaceLayout({
   onFocusedKindChange,
   focusTileRef,
   statusWindow,
+  ttyDockContent,
 }: SurfaceLayoutProps) {
   const arity = SHAPE_ARITY[layout.shape];
 
@@ -722,6 +734,10 @@ export function SurfaceLayout({
           className={`flex-1 min-h-0 flex flex-col ${draggingIndex !== null ? "pointer-events-none" : ""}`}
         >
           {renderContent(kind, slot, slot === firstTtySlot)}
+          {/* In-tile compose-strip dock (260813-j3jb): desktop only, first
+              tty tile only — the strip sits below the terminal body, inside
+              the tile frame. */}
+          {!mobile && slot === firstTtySlot ? ttyDockContent : null}
         </div>
       </div>
     );

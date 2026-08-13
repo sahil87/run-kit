@@ -587,7 +587,7 @@ export function armGraceMask(timeoutMs: number = FIRST_WRITE_TIMEOUT_MS): GraceM
  *   the browser's default paste action lands in xterm's focused textarea and
  *   thus the OLD pty, so the paste chord stays swallowed.
  * - The specific Ctrl-bound global chords: Ctrl+K (palette), Ctrl+. (view
- *   cycle), Ctrl+\ (sidebar toggle), Ctrl+` (layout zoom) — with
+ *   cycle), Ctrl+\ (sidebar toggle) — with
  *   `!altKey` required (rework NTH9): AltGr on Windows/Linux layouts reports
  *   `ctrlKey: true`, and AltGr+char is typed INPUT, never a chord (the same
  *   modifier discipline the retired `use-chat-view-shortcut.ts` used).
@@ -607,7 +607,7 @@ export function isMaskExemptKey(e: {
   if (e.metaKey) return e.key.toLowerCase() !== "v";
   if (e.ctrlKey && !e.altKey) {
     const key = e.key.toLowerCase();
-    return key === "k" || key === "." || key === "\\" || key === "`";
+    return key === "k" || key === "." || key === "\\";
   }
   return false;
 }

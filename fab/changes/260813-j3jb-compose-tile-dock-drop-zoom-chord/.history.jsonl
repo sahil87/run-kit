@@ -1,0 +1,9 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-13T02:21:57Z"}
+{"args":"Remove the Ctrl+backtick layout-zoom default keybinding + dock the compose strip inside the tty tile on the desktop terminal route (footer dock retained for broadcast/board/mobile)","cmd":"fab-new","event":"command","ts":"2026-08-13T02:21:57Z"}
+{"delta":"+4.6","event":"confidence","score":4.6,"trigger":"calc-score","ts":"2026-08-13T02:22:51Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-13T02:23:32Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-13T02:23:32Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-13T02:47:41Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-13T02:53:56Z"}
+{"event":"review","result":"passed","ts":"2026-08-13T02:53:56Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-13T03:04:55Z"}

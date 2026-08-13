@@ -6,20 +6,22 @@ import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
 
 /**
  * Docked compose strip (260718-dhdj) e2e coverage. The strip replaces the modal
- * ComposeBuffer: it is a single global surface docked above the bottom bar,
- * toggled by the `a▏` chip / `View: Text Input` palette action, persisted as a
- * chrome preference, sending to the LIVE focused pane. Enter matrix
- * (260802-lj98, terminal-faithful): plain Enter = insert line (`text + "\n"`,
+ * ComposeBuffer: a single global surface toggled by the `a▏` chip /
+ * `View: Text Input` palette action, persisted as a chrome preference, sending
+ * to the LIVE focused pane. It renders at exactly one of TWO docks
+ * (260813-j3jb): INSIDE the first tty tile on the desktop terminal route
+ * (single-send — the tile frame makes the target self-evident), or full-width
+ * at the shell footer (selection broadcast, the board route, mobile, no-tty
+ * layouts). The dock split doubles as the mode signal: in-tile = sends to this
+ * terminal, footer = broadcast/fallback. Enter matrix (260802-lj98,
+ * terminal-faithful): plain Enter = insert line (`text + "\n"`,
  * clears the draft; empty Enter is a full no-op); Cmd/Ctrl+Enter = submit
  * (`text + "\r"`; EMPTY textarea sends a bare `\r` — "press Enter in the
  * pane"); Alt+Enter = chord-only byte-exact raw insert; Shift+Enter is the
  * only local newline. Drafts are PER TARGET (260801-cyth): keyed by the
  * focused window and persisted (text only) to localStorage, so they stay with
- * their addressee across navigation and survive reloads. Pane-aligned geometry
- * (260812-fryz): the visible box narrows to the focused pane's span on split
- * layouts and boards (re-aligning on pane cycles) while the outer element
- * keeps the full footer row; selection broadcast and the no-target state stay
- * full width. See the sibling `.spec.md` for the per-test contract.
+ * their addressee across navigation, dock flips, and survive reloads. See the
+ * sibling `.spec.md` for the per-test contract.
  */
 
 const TERM_SESSION = `e2e-compose-${Date.now()}`;
@@ -54,8 +56,8 @@ async function boxOf(
 }
 
 /** Poll until the locator's left/width land within `tol` px of the target's —
- * the retarget slide is a 200ms CSS transition (260812-fryz), so a one-shot
- * assert could catch the box mid-slide. */
+ * used for the footer dock's full-width assertion (the box settles with the
+ * layout, so a one-shot assert could catch it mid-paint). */
 async function expectAlignedTo(
   locator: import("@playwright/test").Locator,
   target: { x: number; width: number },
@@ -367,14 +369,14 @@ test.describe("Docked compose strip", () => {
     await expect(label).toHaveText("cs-alpha");
   });
 
-  test("the strip's visible box aligns under the tty tile on a split layout (260812-fryz)", async ({ page }) => {
+  test("the strip docks INSIDE the tty tile on a desktop terminal route (260813-j3jb)", async ({ page }) => {
     test.setTimeout(60_000);
     await page.setViewportSize({ width: 1440, height: 800 });
     const windowId = await resolveWindowId(page, TERM_SESSION);
     // @rk_url was stamped in beforeAll (the backend payload refreshes on an
     // interval — setting it here raced that propagation). The iframe src is
     // deterministic regardless of whether anything listens there (we assert
-    // geometry, never iframe content).
+    // dock placement, never iframe content).
     await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(windowId)}?layout=split-h:tty,web`, {
       waitUntil: "domcontentloaded",
     });
@@ -385,20 +387,26 @@ test.describe("Docked compose strip", () => {
 
     await page.getByRole("button", { name: "Compose text" }).click();
     const strip = page.getByTestId("compose-strip");
-    const inner = page.getByTestId("compose-strip-inner");
-    await expect(inner).toBeVisible();
+    await expect(strip).toBeVisible();
 
-    // The visible box sits under the focused tty tile — NOT the full footer
-    // row. (The measured container is the TerminalClient root inside the
-    // tile's px-1 padding, hence the loose 16px tolerance.)
-    const tileBox = await boxOf(ttyTile);
-    const rowBox = await boxOf(strip);
-    await expectAlignedTo(inner, tileBox, 16);
-    const innerBox = await boxOf(inner);
-    expect(innerBox.width).toBeLessThan(rowBox.width - 40);
+    // In-tile dock: the strip is a DESCENDANT of the tty tile's frame (below
+    // the terminal body) — and NOT in the shell footer.
+    await expect(ttyTile.getByTestId("compose-strip")).toBeVisible();
+    await expect(page.locator("footer").getByTestId("compose-strip")).toHaveCount(0);
+    // It carries no pane-alignment inline styles (container-aligned by
+    // construction — 260812-fryz's measurement hack is retired).
+    await expect(page.getByTestId("compose-strip-inner")).not.toHaveAttribute(
+      "style",
+      /margin-left|width/,
+    );
+
+    // Zooming the tty tile carries the strip with it (the dock rides the tile).
+    await ttyTile.getByRole("button", { name: "Zoom Terminal" }).click();
+    await expect(ttyTile.getByTestId("compose-strip")).toBeVisible();
+    await expect(page.locator("footer").getByTestId("compose-strip")).toHaveCount(0);
   });
 
-  test("the strip aligns under the focused board pane and re-aligns on pane cycle (260812-fryz)", async ({ page }) => {
+  test("the board route docks the strip at the shell footer, full width (260813-j3jb)", async ({ page }) => {
     test.setTimeout(60_000);
     await page.setViewportSize({ width: 1440, height: 800 });
     const alpha = await resolveWindowId(page, BOARD_SESSION, "cs-alpha");
@@ -414,38 +422,44 @@ test.describe("Docked compose strip", () => {
     await expect(page.locator(".xterm")).toHaveCount(2, { timeout: 15_000 });
 
     await page.getByRole("button", { name: "Compose text" }).click();
+    const strip = page.getByTestId("compose-strip");
     const inner = page.getByTestId("compose-strip-inner");
     await expect(inner).toBeVisible();
-    // Focus-on-open grabbed the textarea; blur it so the pane-cycle chords
-    // below are not input-suppressed.
-    await page.keyboard.press("Escape");
 
-    const paneAlpha = page.getByRole("group", { name: "board pane cs-alpha" });
-    const paneBravo = page.getByRole("group", { name: "board pane cs-bravo" });
-    const alphaBox = await boxOf(paneAlpha);
-    const bravoBox = await boxOf(paneBravo);
-
-    // Initially under the focused pane (index 0 = cs-alpha); a narrow pane
-    // (< 420px) still centers the clamped box on the pane's span, so the
-    // comparison holds either way.
-    await expectAlignedTo(inner, alphaBox);
-    await page.keyboard.press("Meta+]");
-    await expect(page.getByTestId("compose-strip-target")).toHaveText("cs-bravo");
-    await expectAlignedTo(inner, bravoBox);
-    await page.keyboard.press("Meta+[");
-    await expectAlignedTo(inner, alphaBox);
+    // The board has no surface tiles, so the strip docks at the shell footer —
+    // a child of <footer>, never inside a board pane — and spans the FULL row
+    // (no pane alignment on this dock).
+    await expect(page.locator("footer").getByTestId("compose-strip")).toBeVisible();
+    await expect(
+      page.getByRole("group", { name: "board pane cs-alpha" }).getByTestId("compose-strip"),
+    ).toHaveCount(0);
+    const rowBox = await boxOf(strip);
+    await expectAlignedTo(inner, rowBox, 2);
+    await expect(inner).not.toHaveAttribute("style", /margin-left/);
   });
 
-  test("selection broadcast keeps the strip full width (260812-fryz)", async ({ page }) => {
+  test("selection broadcast flips the strip from the tile to the footer dock (260813-j3jb)", async ({ page }) => {
     test.setTimeout(60_000);
     await page.setViewportSize({ width: 1440, height: 800 });
     const alpha = await resolveWindowId(page, BOARD_SESSION, "cs-alpha");
     const bravo = await resolveWindowId(page, BOARD_SESSION, "cs-bravo");
 
-    // Select both windows in the sidebar tree, then open the broadcast strip
-    // via the palette action (no send — geometry only).
-    await page.goto(`/${TMUX_SERVER}`, { waitUntil: "domcontentloaded" });
+    // Start on cs-alpha's TERMINAL route with the strip enabled: single-send
+    // mode docks it inside the tty tile.
+    await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(alpha)}`, {
+      waitUntil: "domcontentloaded",
+    });
     await expect(page.locator("[aria-label='Connected']")).toBeVisible({ timeout: READY_TIMEOUT });
+    const ttyTile = page.getByTestId("surface-tile-tty");
+    await expect(ttyTile).toBeVisible({ timeout: 10_000 });
+    await page.getByRole("button", { name: "Compose text" }).click();
+    await expect(ttyTile.getByTestId("compose-strip")).toBeVisible();
+    // Focus-on-open grabbed the textarea; blur it so nothing below is
+    // input-suppressed.
+    await page.keyboard.press("Escape");
+
+    // Select both windows in the sidebar tree, then open the broadcast strip
+    // via the palette action (no send — dock placement only).
     for (const winId of [alpha, bravo]) {
       const row = page.locator(`[data-row-key="${TMUX_SERVER}:${winId}"] button`).first();
       await expect(row).toBeVisible({ timeout: 10_000 });
@@ -456,9 +470,12 @@ test.describe("Docked compose strip", () => {
     await page.keyboard.press("Enter");
     await expect(page.getByTestId("compose-strip-target")).toHaveText("2 selected");
 
-    // A frozen multi-window target has no single anchor: the visible box spans
-    // the full footer row and carries no inline alignment styles.
-    const rowBox = await boxOf(page.getByTestId("compose-strip"));
+    // The flip: broadcast is a shell-level concern, so the strip leaves the
+    // tile and renders at the shell footer — full width, no alignment styles.
+    await expect(ttyTile.getByTestId("compose-strip")).toHaveCount(0);
+    const footerStrip = page.locator("footer").getByTestId("compose-strip");
+    await expect(footerStrip).toBeVisible();
+    const rowBox = await boxOf(footerStrip);
     await expectAlignedTo(page.getByTestId("compose-strip-inner"), rowBox, 2);
     await expect(page.getByTestId("compose-strip-inner")).not.toHaveAttribute(
       "style",
@@ -466,7 +483,7 @@ test.describe("Docked compose strip", () => {
     );
   });
 
-  test("375px mobile: the aligned strip causes no horizontal overflow (260812-fryz)", async ({ page }) => {
+  test("375px mobile: the strip docks at the shell footer with no horizontal overflow (260813-j3jb)", async ({ page }) => {
     test.setTimeout(60_000);
     await page.setViewportSize({ width: 375, height: 812 });
     const windowId = await resolveWindowId(page, TERM_SESSION);
@@ -481,9 +498,10 @@ test.describe("Docked compose strip", () => {
     const inner = page.getByTestId("compose-strip-inner");
     await expect(inner).toBeVisible();
 
-    // The single visible pane fills the content width, so pane-aligned and
-    // full-width converge: no page-level horizontal overflow, and the visible
-    // box stays fully inside the 375px viewport.
+    // Mobile renders no tile chrome, so the strip docks at the shell footer —
+    // never inside the (chromeless) tile — and causes no page-level
+    // horizontal overflow; the visible box stays fully inside the viewport.
+    await expect(page.locator("footer").getByTestId("compose-strip")).toBeVisible();
     await expect
       .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
       .toBeLessThanOrEqual(375);

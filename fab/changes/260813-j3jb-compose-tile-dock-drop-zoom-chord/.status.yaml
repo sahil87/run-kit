@@ -1,0 +1,54 @@
+id: j3jb
+name: 260813-j3jb-compose-tile-dock-drop-zoom-chord
+created: 2026-08-13T02:21:57Z
+created_by: sahil-noon
+change_type: refactor
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 10
+    acceptance_count: 17
+    acceptance_completed: 17
+confidence:
+    certain: 4
+    confident: 3
+    tentative: 0
+    unresolved: 0
+    score: 4.6
+    fuzzy: true
+    dimensions:
+        signal: 74.3
+        reversibility: 82.9
+        competence: 83.6
+        disambiguation: 79.3
+stage_metrics:
+    intake: {started_at: "2026-08-13T02:21:57Z", driver: fab-new, iterations: 1, completed_at: "2026-08-13T02:23:32Z"}
+    apply: {started_at: "2026-08-13T02:23:32Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-13T02:47:41Z"}
+    review: {started_at: "2026-08-13T02:47:41Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-13T02:53:56Z"}
+    hydrate: {started_at: "2026-08-13T02:53:56Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-13T03:04:55Z"}
+    ship: {started_at: "2026-08-13T03:04:55Z", driver: fab-fff, iterations: 1}
+prs: []
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-08-13T03:04:55Z"
+    computed_at_stage: hydrate
+summary: compose strip gains an in-tile dock (SurfaceLayout ttyDockContent) with the footer dock kept for broadcast/board/mobile/no-tty; pane-aligned geometry retired; Ctrl+` layout-zoom binding removed (zoom via palette + ⛶ verb)
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-13T03:04:55Z

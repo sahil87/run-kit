@@ -16,10 +16,14 @@ raw insert; the Insert button follows Enter), `enterkeyhint="send"`
 `readline-keys.test.ts` / `compose-strip.test.tsx`),
 Escape-blurs focus routing, the target label following board-pane focus
 (closing the per-pane STDIN routing gap noted in `shell-rotation.spec.ts:14`),
-and pane-aligned geometry (260812-fryz — the strip's visible box narrows to
-the focused pane's measured span on split layouts and boards, re-aligns on
-pane-focus cycles, stays full width in selection broadcast, and does not
-overflow a 375px mobile viewport).
+and the two-dock mount model (260813-j3jb — the strip renders INSIDE the first
+tty tile on the desktop terminal route and at the shell footer everywhere
+else; the dock split doubles as the mode signal: in-tile = single-send,
+footer = broadcast/board/mobile/no-tty; a broadcast flip moves the strip
+between docks without losing the per-target draft; the footer dock never
+overflows a 375px mobile viewport). The pane-aligned geometry of 260812-fryz
+is retired — both docks are container-aligned, no measurement, no inline
+margin/width styles.
 The chat send form deliberately does NOT follow the strip's Enter policy (it
 keeps Enter=newline — the chat lens cannot show the pane's input box); its
 coverage lives in `chat-view.spec.ts`.
@@ -184,13 +188,13 @@ to the newly-focused pane's window name — the live-target signal (reverses DD-
 5. Press `Meta+]`; assert the label updates to `cs-bravo`.
 6. Press `Meta+[`; assert the label returns to `cs-alpha`.
 
-### `the strip's visible box aligns under the tty tile on a split layout (260812-fryz)`
+### `the strip docks INSIDE the tty tile on a desktop terminal route (260813-j3jb)`
 
-**What it proves:** On a `split-h:tty,web` terminal layout, the compose strip's
-visible chrome (the `compose-strip-inner` wrapper) narrows to the focused tty
-tile's horizontal span instead of spanning the full footer row — while the
-outer `compose-strip` element keeps occupying the whole row (the refit mechanic
-is untouched).
+**What it proves:** On a `split-h:tty,web` terminal layout, the compose strip
+renders as a DESCENDANT of the tty tile's frame (below the terminal body,
+inside the tile), never in the shell footer, and carries no pane-alignment
+inline styles — the in-tile dock is container-aligned by construction.
+Zooming the tile carries the strip with it (the dock rides the tile).
 
 **Steps:**
 
@@ -201,61 +205,64 @@ is untouched).
 2. Navigate to `/<server>/<windowId>?layout=split-h:tty,web`; wait for the
    `Connected` dot and both `surface-tile-tty` and `surface-tile-web`.
 3. Enable the strip via the `a▏` chip.
-4. Measure the tty tile and the strip's outer row; poll until the inner
-   wrapper's left/width match the tile's span within 16px (the measured
-   container is the TerminalClient root inside the tile's `px-1` padding, and
-   the retarget slide is a 200ms transition — never assert mid-slide).
-5. Assert the inner box is at least 40px narrower than the outer row (it did
-   NOT stay full width).
+4. Assert `compose-strip` is visible INSIDE `surface-tile-tty` and absent from
+   the shell `<footer>`; assert `compose-strip-inner` has no inline
+   `margin-left`/`width` style.
+5. Click the tty tile's `Zoom Terminal` verb; assert the strip is still inside
+   the tile and still absent from the footer.
 
-### `the strip aligns under the focused board pane and re-aligns on pane cycle (260812-fryz)`
+### `the board route docks the strip at the shell footer, full width (260813-j3jb)`
 
-**What it proves:** On a board, the strip's visible box sits under the focused
-pane and slides to the newly focused pane on `Meta+]` / `Meta+[` cycles —
-pane-alignment doubles as target disambiguation.
+**What it proves:** The board route has no surface tiles, so the strip docks at
+the shell footer — a child of `<footer>`, never inside a board pane — and
+spans the full row with no inline alignment styles.
 
 **Steps:**
 
 1. Set a 1440×800 viewport; resolve `cs-alpha`/`cs-bravo`; pin both to a fresh
    per-run board (`csa<digits>`).
 2. Navigate to the board; assert two `.xterm` instances mount.
-3. Enable the strip via the `a▏` chip; press Escape to blur the textarea
-   (focus-on-open) so the pane-cycle chords are not input-suppressed.
-4. Measure both pane roots (`role=group`, `board pane cs-alpha` / `cs-bravo`);
-   poll until the inner wrapper matches cs-alpha's span (a pane narrower than
-   the 420px clamp still centers the box on its span, so the comparison holds).
-5. Press `Meta+]`; assert the target label reads `cs-bravo` and poll until the
-   inner box matches cs-bravo's span.
-6. Press `Meta+[`; poll until the inner box is back under cs-alpha.
+3. Enable the strip via the `a▏` chip; assert the inner wrapper is visible.
+4. Assert the strip is a descendant of `<footer>` and NOT inside
+   `board pane cs-alpha`.
+5. Measure the strip's outer row; poll until the inner wrapper spans it (±2px)
+   and assert no `margin-left` inline style.
 
-### `selection broadcast keeps the strip full width (260812-fryz)`
+### `selection broadcast flips the strip from the tile to the footer dock (260813-j3jb)`
 
-**What it proves:** In selection-broadcast mode (`Selection: Send prompt to N
-agents` — a frozen multi-window target with no single anchor) the strip's
-visible box spans the full footer row and carries no inline alignment styles.
+**What it proves:** On a desktop terminal route the strip starts inside the tty
+tile (single-send); activating selection broadcast (`Selection: Send prompt to
+N agents` — a frozen multi-window target, a shell-level concern) moves the
+strip to the shell footer, where it renders full width with the `2 selected`
+target label. The dock split IS the mode signal.
 
 **Steps:**
 
-1. Set a 1440×800 viewport; resolve `cs-alpha`/`cs-bravo` and navigate to the
-   server route (`/<server>`); wait for the `Connected` dot.
-2. Cmd/Ctrl-click both window rows in the sidebar tree to select them.
-3. Open the palette (`Meta+k`), run `Selection: Send prompt to 2 agents`;
-   assert the strip's target label reads `2 selected` (no send — geometry only).
-4. Measure the strip's outer row; poll until the inner wrapper spans it (±2px)
-   and assert the inner element has no `margin-left` inline style.
+1. Set a 1440×800 viewport; resolve `cs-alpha`/`cs-bravo` and navigate to
+   cs-alpha's terminal route (`/<server>/<windowId>`); wait for the
+   `Connected` dot and the tty tile.
+2. Enable the strip via the `a▏` chip; assert it renders INSIDE
+   `surface-tile-tty`; press Escape to blur the textarea (focus-on-open).
+3. Cmd/Ctrl-click both window rows in the sidebar tree to select them.
+4. Open the palette (`Meta+k`), run `Selection: Send prompt to 2 agents`;
+   assert the strip's target label reads `2 selected`.
+5. Assert the strip is gone from the tty tile and visible inside `<footer>`;
+   measure the outer row and poll until the inner wrapper spans it (±2px);
+   assert no `margin-left` inline style.
 
-### `375px mobile: the aligned strip causes no horizontal overflow (260812-fryz)`
+### `375px mobile: the strip docks at the shell footer with no horizontal overflow (260813-j3jb)`
 
-**What it proves:** At a 375px viewport the single visible pane fills the
-content width, so pane-aligned and full-width converge: the strip causes no
-page-level horizontal overflow and its visible box stays fully inside the
+**What it proves:** At a 375px viewport the tile chrome does not render, so the
+strip docks at the shell footer (never inside the chromeless tile) and causes
+no page-level horizontal overflow — its visible box stays fully inside the
 viewport.
 
 **Steps:**
 
 1. Set a 375×812 viewport; navigate to the `cat` session's window; wait for the
    terminal (no `Connected` dot on mobile — the sidebar is an unmounted drawer).
-2. Enable the strip via the `a▏` chip; assert the inner wrapper is visible.
+2. Enable the strip via the `a▏` chip; assert the inner wrapper is visible and
+   the strip is a descendant of `<footer>`.
 3. Poll `document.documentElement.scrollWidth` until ≤ 375 (no horizontal page
    overflow).
 4. Assert the inner box's `x ≥ 0` and `x + width ≤ 375`.

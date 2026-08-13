@@ -21,8 +21,7 @@ import { createContext, useContext, useMemo, useRef, useState } from "react";
  *     handles the `null` case naturally.
  *   - `ComposeStrip`: reads `focused` live at send time to target the
  *     currently-focused pane's `wsRef` and to derive its `→ {window}`
- *     target label, and measures `containerRef` to pane-align its
- *     visible box (260812-fryz). Compose enablement is a persisted
+ *     target label. Compose enablement is a persisted
  *     `ChromeContext` preference (`composeStripEnabled`), NOT held here
  *     — the strip is a single global surface, not a per-terminal one
  *     (260718-dhdj).
@@ -31,7 +30,7 @@ export type FocusedTerminal = {
   wsRef: React.RefObject<WebSocket | null>;
   /** The focused pane's outer DOM container — the element whose box
    *  visually IS the pane (the tile/pane container, not the inner xterm
-   *  canvas). Measured by the compose strip for pane-aligned docking. */
+   *  canvas). */
   containerRef: React.RefObject<HTMLElement | null>;
   server: string;
   session: string;

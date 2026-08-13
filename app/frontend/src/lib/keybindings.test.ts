@@ -48,6 +48,20 @@ function byId(bindings: EffectiveBinding[], actionId: string): EffectiveBinding 
   return found;
 }
 
+/** A synthetic `ctrl`-tier terminal binding for tests exercising the
+ *  cmd/ctrl tier-collision mechanics (findConflicts / applyCapture). No
+ *  SHIPPED default uses the tier — the one row that did (`layout-zoom`,
+ *  Ctrl+`) was removed in 260813-j3jb — so the tier's behavior is anchored
+ *  here instead of on a registry row. */
+const SYNTHETIC_CTRL: KeyBinding = {
+  actionId: "synthetic-ctrl",
+  code: "Backquote",
+  tier: "ctrl",
+  scope: "terminal",
+  kind: "builtin",
+  label: "Synthetic ctrl",
+};
+
 describe("DEFAULT_BINDINGS integrity", () => {
   it("has unique actionIds", () => {
     const ids = DEFAULT_BINDINGS.map((b) => b.actionId);
@@ -163,8 +177,9 @@ describe("DEFAULT_BINDINGS integrity", () => {
     expect(byId(resolved(), "command-palette")).toMatchObject({ code: "KeyK", tier: "cmd" });
     expect(byId(resolved(), "sidebar-toggle")).toMatchObject({ code: "Backslash", tier: "cmd" });
     expect(byId(resolved(), "view-cycle")).toMatchObject({ code: "Period", tier: "cmd", scope: "terminal" });
-    // 260812-0c6o: the freed `chat-toggle` chord now belongs to `layout-zoom`.
-    expect(byId(resolved(), "layout-zoom")).toMatchObject({ code: "Backquote", tier: "ctrl", scope: "terminal" });
+    // 260813-j3jb: the Ctrl+` `layout-zoom` row is removed (it collided with
+    // code-server's own Ctrl+`); the zoom ACTION survives via palette + ⛶ verb.
+    expect(resolved().find((b) => b.actionId === "layout-zoom")).toBeUndefined();
     expect(resolved().find((b) => b.actionId === "chat-toggle")).toBeUndefined();
     expect(byId(resolved(), "board-cycle-next")).toMatchObject({ code: "BracketRight", tier: "cmd", scope: "board" });
     expect(byId(resolved(), "board-cycle-prev")).toMatchObject({ code: "BracketLeft", tier: "cmd", scope: "board" });
@@ -467,25 +482,26 @@ describe("scopesOverlap / findConflicts", () => {
   });
 
   it("flags a cmd-tier binding masking a ctrl-tier one on the same code and scope", () => {
-    // A Ctrl chord captured on non-mac reads as `cmd`; on the same code it
-    // matches the same keydown as the `ctrl`-tier layout-zoom default (the
-    // freed chat-toggle chord, 260812-0c6o). Both
-    // are terminal-scoped, so this is a real conflict, not a shadow.
+    // No shipped default uses the `ctrl` tier (260813-j3jb removed the
+    // layout-zoom row), so the fixture adds a synthetic ctrl-tier terminal
+    // binding: a Ctrl chord captured on non-mac reads as `cmd` and matches the
+    // same keydown — both are terminal-scoped, a real conflict, not a shadow.
     const bindings = resolveBindings(
-      DEFAULT_BINDINGS,
+      [...DEFAULT_BINDINGS, SYNTHETIC_CTRL],
       { "view-cycle": { code: "Backquote", tier: "cmd" } },
       SHELL_OTHER,
     );
     const conflicts = findConflicts(bindings);
     expect(conflicts).toHaveLength(1);
-    expect([conflicts[0].a, conflicts[0].b].sort()).toEqual(["layout-zoom", "view-cycle"]);
+    expect([conflicts[0].a, conflicts[0].b].sort()).toEqual(["synthetic-ctrl", "view-cycle"]);
   });
 
   it("treats a same-combo global↔scoped pair as a shadow, not a conflict (260730-n789)", () => {
-    // sidebar-toggle (global) onto layout-zoom's colliding combo: scopes
-    // differ with one global → dispatch precedence resolves it, no conflict.
+    // sidebar-toggle (global) onto the synthetic ctrl row's colliding combo:
+    // scopes differ with one global → dispatch precedence resolves it, no
+    // conflict.
     const bindings = resolveBindings(
-      DEFAULT_BINDINGS,
+      [...DEFAULT_BINDINGS, SYNTHETIC_CTRL],
       { "sidebar-toggle": { code: "Backquote", tier: "cmd" } },
       SHELL_OTHER,
     );
@@ -566,21 +582,20 @@ describe("applyCapture (steal-with-warning)", () => {
 
   it("steals across the colliding cmd/ctrl tiers on the same code", () => {
     // sidebar-toggle (global) captures cmd+Backquote — the chord a non-mac
-    // Ctrl+` capture produces. It matches the same keydown as layout-zoom's
-    // ctrl-tier default (the freed chat-toggle chord, 260812-0c6o), so
-    // layout-zoom must be flagged and unbound instead
-    // of silently masked at dispatch.
+    // Ctrl+` capture produces. It matches the same keydown as the synthetic
+    // ctrl-tier terminal binding, so that row must be flagged and unbound
+    // instead of silently masked at dispatch.
     const { overrides, stolenFrom } = applyCapture(
-      resolved(),
+      resolveBindings([...DEFAULT_BINDINGS, SYNTHETIC_CTRL], {}, SHELL_OTHER),
       {},
       "sidebar-toggle",
       { code: "Backquote", tier: "cmd" },
       SHELL_OTHER,
     );
-    expect(stolenFrom).toBe("layout-zoom");
+    expect(stolenFrom).toBe("synthetic-ctrl");
     expect(overrides).toEqual({
       "sidebar-toggle": { code: "Backquote", tier: "cmd" },
-      "layout-zoom": null,
+      "synthetic-ctrl": null,
     });
   });
 

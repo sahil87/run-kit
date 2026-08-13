@@ -5,7 +5,7 @@
  * (`Shift+CmdOrCtrl+<key>` on Windows/Linux; on macOS several actions demote
  * to the unshifted ⌘ tier — see `macTier`/`defaultComboFor`, 260730-n789),
  * the migrated legacy chords (⌘K palette, ⌘\ sidebar, ⌘. lens
- * cycle, Ctrl+` layout zoom, board ⌘[/⌘] pane cycle — combos unchanged), the
+ * cycle, board ⌘[/⌘] pane cycle — combos unchanged), the
  * claimed-key map (shell menu accelerators, OS keys, browser-reserved keys —
  * per tier), the per-device override layer
  * (`localStorage["runkit-keybindings"]`, diffs
@@ -32,8 +32,9 @@
  *   decision (B): letter consistency over chord weight).
  * - `cmd` — unshifted `CmdOrCtrl` (legacy punctuation chords: ⌘K ⌘\ ⌘. ⌘[⌘]).
  *   Matches Meta OR Ctrl, preserving each legacy listener's exact predicate.
- * - `ctrl` — plain Ctrl on BOTH platforms (the Ctrl+` layout-zoom toggle; Cmd+` is
- *   macOS window cycling and must not be bound).
+ * - `ctrl` — plain Ctrl on BOTH platforms (no shipped default uses it — a
+ *   mac chord capture reads plain Ctrl as this tier, keeping it distinct from
+ *   ⌘, which is macOS window/system territory the page must not claim).
  */
 export type BindingTier = "shifted" | "cmd" | "ctrl";
 
@@ -147,7 +148,7 @@ export const KEYBINDINGS_STORAGE_KEY = "runkit-keybindings";
  *
  * Legacy migrations (combos unchanged — established, browser-safe
  * punctuation): ⌘K palette (ignoreInputs preserves its fire-everywhere
- * behavior), ⌘\ sidebar, ⌘. lens cycle, Ctrl+` layout zoom, board ⌘[/⌘].
+ * behavior), ⌘\ sidebar, ⌘. lens cycle, board ⌘[/⌘].
  */
 export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // — run-kit shifted tier (global) —
@@ -214,13 +215,6 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // palette body (`Layout: Cycle Shape`) exists only on window routes, so
   // elsewhere the chord falls through untouched.
   { actionId: "layout-cycle", code: "Semicolon", tier: "cmd", scope: "terminal", kind: "builtin", label: "Cycle layout shape", description: "next same-arity preset, order kept", mapLabel: "layout" },
-  // Ctrl+` layout zoom (260812-0c6o): the freed `chat-toggle` chord (the chat
-  // lens is palette-only now) rebinding to the high-frequency slot-A zoom
-  // toggle (tmux `prefix+z` / VS Code Ctrl+` muscle memory). Deliberately the
-  // SAME action as the palette's `Layout: Zoom`/`Layout: Unzoom` entries —
-  // AppShell dispatches it straight to `layoutZoomToggleRef` (the palette id
-  // flips with zoom state, so a fromPalette lookup would die half the time).
-  { actionId: "layout-zoom", code: "Backquote", tier: "ctrl", scope: "terminal", kind: "builtin", label: "Zoom tile", description: "toggle layout zoom", mapLabel: "zoom" },
   { actionId: "board-cycle-next", code: "BracketRight", tier: "cmd", scope: "board", kind: "builtin", label: "Cycle pane focus →" },
   { actionId: "board-cycle-prev", code: "BracketLeft", tier: "cmd", scope: "board", kind: "builtin", label: "Cycle pane focus ←" },
 ];
@@ -769,8 +763,8 @@ export function comboParts(combo: BindingCombo, platform: BindingPlatform): stri
 
 /**
  * One-string combo for palette hints ("⇧⌘N" / "Shift+Ctrl+N"). Mac symbol
- * tiers join bare; the `ctrl` tier keeps the historical "Ctrl+`" spelling on
- * both platforms (byte-identical to the pre-registry palette hints).
+ * tiers join bare; the `ctrl` tier keeps the "Ctrl+key" spelling on both
+ * platforms (byte-identical to the pre-registry palette hints).
  */
 export function formatCombo(combo: BindingCombo, platform: BindingPlatform): string {
   const parts = comboParts(combo, platform);

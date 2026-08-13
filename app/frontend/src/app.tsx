@@ -896,9 +896,12 @@ function AppShell() {
   }, [switchView]);
 
   // The docked compose strip is a single global surface (260718-dhdj) rendered
-  // in the shell footer above `<BottomBar>`; its enablement is the persisted
-  // `composeStripEnabled` chrome preference, toggled by the `>_` chip and the
-  // `View: Text Input` palette action. No per-terminal compose-open state.
+  // at one of two docks (260813-j3jb — inside the first tty tile on the desktop
+  // terminal route, else the shell footer above `<BottomBar>`; the dock
+  // predicate lives beside the mount sites below); its enablement is the
+  // persisted `composeStripEnabled` chrome preference, toggled by the `>_` chip
+  // and the `View: Text Input` palette action. No per-terminal compose-open
+  // state.
   const [scrollLocked, setScrollLocked] = useState(false);
   // Server create/kill dialogs + the merged palette list (260811-239r): both
   // dialogs mount ONCE in AppLayout (`ServerDialogs`); this route shell only
@@ -2490,6 +2493,45 @@ function AppShell() {
     toggleComposeStrip,
   ]);
 
+  // Compose-strip dock selection (260813-j3jb): exactly ONE dock renders the
+  // strip. The IN-TILE dock (the first tty tile's flex column, via
+  // SurfaceLayout's `ttyDockContent` slot) hosts the desktop terminal route's
+  // single-send mode — the tile frame makes the target self-evident. The
+  // FOOTER dock keeps everything a tile cannot host: selection broadcast (a
+  // shell-level, cross-window concern — the dock split IS the mode signal),
+  // mobile (no tile chrome), the server route, and no-tty layouts (e.g.
+  // single:code). One shared element serves both docks: one component, one
+  // module draft store, so a dock flip (broadcast on/off, layout gaining or
+  // losing its tty tile) loses no draft.
+  const inTileDock =
+    composeStripEnabled &&
+    !isMobile &&
+    !!windowParam &&
+    !selectionBroadcastKeys &&
+    layout.order.includes("tty");
+  const composeStripElement = (
+    <ComposeStrip
+      selectionTarget={
+        selectionBroadcastKeys
+          ? {
+              keys: selectionBroadcastKeys,
+              onSend: async (text) => {
+                const delivered = await executeBulkSend(
+                  selectionBroadcastKeys,
+                  text,
+                );
+                // A total failure keeps the frozen target so the retained
+                // draft stays visible (it is keyed to this recipient set)
+                // and the retry needs neither retyping nor reselecting.
+                if (delivered > 0) setSelectionBroadcastKeys(null);
+                return delivered;
+              },
+            }
+          : null
+      }
+    />
+  );
+
   const viewActions: PaletteAction[] = useMemo(
     () => [
       ...(sessionName
@@ -2551,12 +2593,6 @@ function AppShell() {
             toggleTarget: panelSurfaces.find((s) => s !== "tty") ?? null,
             toggleShortcut: (() => {
               const b = bindingByAction.get("panel-toggle");
-              return b?.enabled ? formatCombo(b, bindingHost.platform) : "";
-            })(),
-            // The `layout-zoom` chord's effective combo — stamped on both the
-            // Zoom and Unzoom entries (260812-0c6o).
-            zoomShortcut: (() => {
-              const b = bindingByAction.get("layout-zoom");
               return b?.enabled ? formatCombo(b, bindingHost.platform) : "";
             })(),
           })
@@ -3102,18 +3138,6 @@ function AppShell() {
       // palette body, whose gating (window route + a non-degenerate arity
       // ring) gates the chord for free.
       "layout-cycle": fromPalette("layout-cycle"),
-      // Ctrl+` layout zoom (260812-0c6o) — the freed `chat-toggle` chord,
-      // rebound to the transient slot-A zoom toggle. Deliberately NOT
-      // `fromPalette("layout-zoom")`: the zoom palette entry's id flips with
-      // state (`layout-zoom` ⇄ `layout-unzoom`), so an id lookup dies exactly
-      // when zoomed — the chord would go dead half the time. The ref seam is
-      // what both palette bodies call anyway. Gated like the palette's
-      // `zoomEnabled` (desktop, arity > 1) so a single-tile layout lets the
-      // chord fall through to the pane untouched.
-      "layout-zoom":
-        windowParam && !isMobile && layout.order.length > 1
-          ? () => layoutZoomToggleRef.current?.()
-          : undefined,
     };
   }, [paletteActions, paletteGlobals, currentSession, windowParam, navigateToWindow, macros, sessionName, executeMacro, toggleComposeStrip, addToast, isMobile, panelSurfaces, togglePanel, bindingByAction, focusedTileKind, layout]);
   useKeybindingDispatch(keybindingHandlers);
@@ -3522,6 +3546,10 @@ function AppShell() {
               // tty header status dot (R6): the SSE window record — consumed
               // by tty tile headers only (no dot when null/non-tty).
               statusWindow={currentWindow ?? null}
+              // In-tile compose-strip dock (260813-j3jb): the shared strip
+              // element mounts inside the FIRST tty tile when the in-tile
+              // predicate holds; otherwise the shell footer below renders it.
+              ttyDockContent={inTileDock ? composeStripElement : undefined}
             />
           ) : (
             <SessionTiles
@@ -3539,32 +3567,13 @@ function AppShell() {
       {/* Bottom bar grid area — shell-level. Reads focused terminal from
           FocusedTerminalContext (TerminalClient registered itself on mount).
           When the compose-strip preference is on, the docked strip renders
-          ABOVE the bottom bar inside this grid area; its presence grows the
-          `auto` footer row and shrinks the `1fr` content row, so the terminal's
-          ResizeObserver refits automatically (260718-dhdj). */}
+          ABOVE the bottom bar inside this grid area UNLESS the in-tile dock
+          hosts it (260813-j3jb — desktop terminal route, tty tile present, no
+          selection broadcast); its presence grows the `auto` footer row and
+          shrinks the `1fr` content row, so the terminal's ResizeObserver
+          refits automatically (260718-dhdj). */}
       <footer style={{ gridArea: "bottombar" }}>
-        {composeStripEnabled && (
-          <ComposeStrip
-            selectionTarget={
-              selectionBroadcastKeys
-                ? {
-                    keys: selectionBroadcastKeys,
-                    onSend: async (text) => {
-                      const delivered = await executeBulkSend(
-                        selectionBroadcastKeys,
-                        text,
-                      );
-                      // A total failure keeps the frozen target so the retained
-                      // draft stays visible (it is keyed to this recipient set)
-                      // and the retry needs neither retyping nor reselecting.
-                      if (delivered > 0) setSelectionBroadcastKeys(null);
-                      return delivered;
-                    },
-                  }
-                : null
-            }
-          />
-        )}
+        {composeStripEnabled && !inTileDock && composeStripElement}
         <div className="border-t-[3px] border-border px-1.5 h-[48px]">
           <BottomBar
             onOpenCompose={toggleComposeStrip}

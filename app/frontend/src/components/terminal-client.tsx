@@ -125,8 +125,7 @@ export function TerminalClient({
 }: TerminalClientProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
   // The component's root wrapper div — registered as the focused terminal's
-  // `containerRef` so the compose strip can measure this pane's box for
-  // pane-aligned docking (260812-fryz).
+  // `containerRef` (the element whose box visually IS the pane).
   const containerRef = useRef<HTMLDivElement | null>(null);
   const xtermRef = useRef<import("@xterm/xterm").Terminal | null>(null);
   const fitAddonRef = useRef<import("@xterm/addon-fit").FitAddon | null>(null);

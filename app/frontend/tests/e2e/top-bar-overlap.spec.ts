@@ -79,16 +79,15 @@ test.describe("Top-bar overlap fixes (260715-q8ey)", () => {
     // Overflow is CLIPPED, not painted: the session crumb's NAME text is
     // truncated (ellipsis) yet its rendered box stays INSIDE the nav's box —
     // the `overflow-hidden` + `min-w-0`/`truncate` chain converted pressure
-    // into clipping. The session crumb is `sm:flex` so it is present at 700px;
-    // its trigger button (BreadcrumbDropdown, aria-label "Switch session")
-    // caps at `max-w-[16ch] truncate`, and the name lives in an inner
-    // `min-w-0 truncate` span — that inner span is the element that actually
-    // ellipsises, so measure `scrollWidth > clientWidth` there (the button
-    // sizes exactly to its capped content, so it is NOT itself overflowing).
-    const sessionTrigger = page.getByRole("button", { name: "Switch session" });
-    await expect(sessionTrigger).toBeVisible();
-    const nameSpan = sessionTrigger.locator("span").first();
-    const truncated = await nameSpan.evaluate(
+    // into clipping. The session crumb is `sm:flex` so it is present at 700px.
+    // 260813-kvk7: the crumb is now a NON-interactive static chip (the session
+    // dropdown is gone) — the chip span itself carries `truncate max-w-[16ch]`
+    // and the session name as its text, so measure `scrollWidth > clientWidth`
+    // directly on the chip (it sizes exactly to its capped content, so clipping
+    // shows up as scroll overflow there).
+    const sessionChip = nav.getByText(TEST_SESSION, { exact: true });
+    await expect(sessionChip).toBeVisible();
+    const truncated = await sessionChip.evaluate(
       (el) => el.scrollWidth > el.clientWidth,
     );
     expect(
@@ -96,7 +95,7 @@ test.describe("Top-bar overlap fixes (260715-q8ey)", () => {
       "the long session crumb name is truncated (ellipsis), not shown at full width",
     ).toBe(true);
     // The full session name is still the text content (ellipsis is visual only).
-    await expect(nameSpan).toHaveText(TEST_SESSION);
+    await expect(sessionChip).toHaveText(TEST_SESSION);
 
     // The clip backstop is active: the nav carries `overflow: hidden`, so any
     // content whose LAYOUT box extends past the nav's floor is visually
@@ -158,7 +157,7 @@ test.describe("Top-bar overlap fixes (260715-q8ey)", () => {
     // The server-link crumb is the left-nav <a href="/${server}"> (title
     // "tmux Server"). Its accessible name is its text (the server name), so
     // target it by href scoped to the breadcrumb nav — that disambiguates it
-    // from the brand link (href "/") and the hierarchy ▾ menuitem.
+    // from the brand link (href "/").
     const nav = page.getByRole("navigation", { name: "Breadcrumb" });
     const serverHref = `/${encodeURIComponent(TMUX_SERVER)}`;
     const serverCrumb = nav.locator(`a[href="${serverHref}"]`);
@@ -189,13 +188,13 @@ test.describe("Top-bar overlap fixes (260715-q8ey)", () => {
 
     // Both crumbs hide below `sm` (session `sm:flex`, server `md:flex`), so the
     // mobile leaf is just brand + centered heading — the layout the mobile
-    // budget already relied on, unchanged by this change.
+    // budget already relied on, unchanged by this change. (260813-kvk7: the
+    // session crumb is now a static chip — a plain span, no `Switch session`
+    // button — but it rides the same `hidden sm:flex` wrapper.)
     const nav = page.getByRole("navigation", { name: "Breadcrumb" });
     const serverHref = `/${encodeURIComponent(TMUX_SERVER)}`;
     await expect(nav.locator(`a[href="${serverHref}"]`)).toBeHidden();
-    await expect(
-      page.getByRole("button", { name: "Switch session" }),
-    ).toBeHidden();
+    await expect(nav.getByText(TEST_SESSION, { exact: true })).toBeHidden();
 
     // No horizontal page overflow, and the header stays a single line (a wrap
     // would roughly double the ~39px chrome height).
@@ -247,91 +246,7 @@ test.describe("Top-bar overlap fixes (260715-q8ey)", () => {
     ).toBeGreaterThan(180);
   });
 
-  // R2a regression guard (rework, review 260715): the nav's `overflow-hidden`
-  // backstop (R2) is a further-out ancestor of the session crumb's dropdown
-  // menu. Before the fix the menu was `position: absolute` inside the clipped
-  // nav, so opening it (a) clipped the menu to the nav's single-line box and
-  // (b) the focus-on-open scrollIntoView dragged the whole nav content
-  // off-screen (open menu landed at y≈-75, hit-test empty). The fix renders the
-  // menu `position: fixed` anchored to the trigger's viewport rect so it
-  // escapes the clip. This is exactly the case the closed-trigger tests above
-  // missed. Run at BOTH the mid-band width and desktop.
-  for (const { label, viewport } of [
-    { label: "700px", viewport: MID_VIEWPORT },
-    { label: "1024px", viewport: DESKTOP_VIEWPORT },
-  ]) {
-    test(`the session-switcher dropdown opens fully visible and hit-testable at ${label} (nav clip does not swallow it)`, async ({
-      page,
-    }) => {
-      const id = await resolveWindow(page, LONG_WINDOW);
-      await page.setViewportSize(viewport);
-      await gotoWindow(page, id);
-
-      // Open the session switcher (the ▾ crumb, accessible name "Switch
-      // session"). It is `sm:flex`, so present at both 700px and 1024px.
-      const sessionTrigger = page.getByRole("button", { name: "Switch session" });
-      await expect(sessionTrigger).toBeVisible();
-      await sessionTrigger.click();
-
-      // The open menu is visible and has an on-screen bounding box (NOT clipped
-      // to the nav's single-line box and NOT scrolled to a negative-y off-screen
-      // position — the two pre-fix failure modes).
-      const menu = page.getByRole("menu", { name: "Switch session" });
-      await expect(menu).toBeVisible();
-      const menuBox = (await menu.boundingBox())!;
-      expect(menuBox, "the open menu has a bounding box").toBeTruthy();
-      expect(menuBox.width, "menu has real width").toBeGreaterThan(0);
-      expect(menuBox.height, "menu has real height").toBeGreaterThan(0);
-      // Fully on-screen: top-left within the viewport and not pushed off the top
-      // (the exact pre-fix symptom was y≈-75). Bottom/right within the viewport
-      // too (the menu caps at max-w-[240px]/max-h-60 and anchors below a top-bar
-      // trigger, so it comfortably fits an 800px-tall viewport).
-      expect(menuBox.y, "menu top is on-screen (not scrolled off the top)").toBeGreaterThanOrEqual(0);
-      expect(menuBox.x, "menu left is on-screen").toBeGreaterThanOrEqual(0);
-      expect(
-        menuBox.y + menuBox.height,
-        "menu bottom is within the viewport",
-      ).toBeLessThanOrEqual(viewport.height);
-      expect(
-        menuBox.x + menuBox.width,
-        "menu right is within the viewport",
-      ).toBeLessThanOrEqual(viewport.width);
-
-      // Hit-testable: `elementFromPoint` at the menu's center resolves to a node
-      // INSIDE the menu (proves nothing clips or covers it — a clipped/displaced
-      // menu would resolve to whatever paints at that point instead).
-      const centerIsInsideMenu = await menu.evaluate((menuEl) => {
-        const r = menuEl.getBoundingClientRect();
-        const hit = document.elementFromPoint(
-          r.left + r.width / 2,
-          r.top + r.height / 2,
-        );
-        return hit != null && menuEl.contains(hit);
-      });
-      expect(
-        centerIsInsideMenu,
-        "elementFromPoint at the menu center resolves inside the menu (not clipped/covered)",
-      ).toBe(true);
-
-      // The `+ New Session` action is actually usable: visible and clickable
-      // (Playwright's click does its own actionability/hit-test, so a click that
-      // resolves is proof the action is reachable, not just painted).
-      const newSession = page.getByRole("menuitem", { name: "+ New Session" });
-      await expect(newSession).toBeVisible();
-      const actionBox = (await newSession.boundingBox())!;
-      const actionHitsItself = await newSession.evaluate((el) => {
-        const r = el.getBoundingClientRect();
-        const hit = document.elementFromPoint(
-          r.left + r.width / 2,
-          r.top + r.height / 2,
-        );
-        return hit != null && el.contains(hit);
-      });
-      expect(actionBox.width, "+ New Session has a real box").toBeGreaterThan(0);
-      expect(
-        actionHitsItself,
-        "the + New Session action is hit-testable (top-most at its center)",
-      ).toBe(true);
-    });
-  }
+  // (The R2a session-switcher dropdown guard that used to live here was removed
+  // with the dropdown itself in 260813-kvk7 — the session crumb is now a static
+  // chip, so the nav's clip context has no open menu left to swallow.)
 });

@@ -1,0 +1,13 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-13T18:56:15Z"}
+{"args":"Five small frontend-only UI polish fixes to the run-kit dashboard chrome from a designer nitpick review: sidebar scroll-boundary fade mask, top-bar heading punctuation, compose strip Insert/Send enablement, breadcrumb session-dropdown removal + chip unification, sidebar header trailing-icon alignment","cmd":"fab-new","event":"command","ts":"2026-08-13T18:56:15Z"}
+{"delta":"+2.5","event":"confidence","score":2.5,"trigger":"calc-score","ts":"2026-08-13T18:59:49Z"}
+{"cmd":"fab-proceed","event":"command","ts":"2026-08-13T19:00:24Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-08-13T19:02:00Z"}
+{"delta":"+0.7","event":"confidence","score":3.2,"trigger":"calc-score","ts":"2026-08-13T19:10:04Z"}
+{"delta":"+0.8","event":"confidence","score":4,"trigger":"calc-score","ts":"2026-08-13T19:13:34Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-13T19:14:12Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-13T20:21:40Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-13T20:48:29Z"}
+{"event":"review","result":"passed","ts":"2026-08-13T20:48:29Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-13T21:05:17Z"}
+{"cmd":"git-pr","event":"command","ts":"2026-08-13T21:06:24Z"}

@@ -562,10 +562,11 @@ describe("ComposeStrip", () => {
       </ChromeProvider>,
     );
     act(() => fireEvent.click(screen.getByTestId("set-focus")));
-    // Empty draft: Insert follows Enter's empty no-op (disabled) — but Send
-    // stays enabled: its chord's empty case is the bare-\r "Enter in the pane".
+    // Empty draft: Insert follows Enter's empty no-op (disabled) — and Send is
+    // disabled too (260813-kvk7): the bare-\r "Enter in the pane" empty case is
+    // chord-only now, so an empty composer offers no button at all.
     expect(insertBtn().disabled).toBe(true);
-    expect(sendBtn().disabled).toBe(false);
+    expect(sendBtn().disabled).toBe(true);
     act(() => fireEvent.change(input(), { target: { value: "via button" } }));
     expect(insertBtn().disabled).toBe(false);
     act(() => fireEvent.click(insertBtn()));
@@ -573,7 +574,7 @@ describe("ComposeStrip", () => {
     expect(input().value).toBe("");
   });
 
-  it("the Send button mirrors its chord's empty case: enabled with a target, an empty click sends bare \\r", () => {
+  it("the Send button is disabled on an empty/whitespace-only composer; with text it sends text + \\r (260813-kvk7)", () => {
     const { ref, sent } = makeWs();
     render(
       <ChromeProvider>
@@ -584,9 +585,22 @@ describe("ComposeStrip", () => {
       </ChromeProvider>,
     );
     act(() => fireEvent.click(screen.getByTestId("set-focus")));
-    expect(sendBtn().disabled).toBe(false); // target exists — enabled on empty
+    // Empty draft: Send is disabled (no primary fill — `disabled:opacity-40`)
+    // even though a target exists; the bare-\r empty case is chord-only now
+    // (pinned by "empty Cmd/Ctrl+Enter sends a bare \r" above).
+    expect(sendBtn().disabled).toBe(true);
+    expect(sendBtn().className).toContain("disabled:opacity-40");
+    // Whitespace-only counts as empty too.
+    act(() => fireEvent.change(input(), { target: { value: "   " } }));
+    expect(sendBtn().disabled).toBe(true);
+    expect(insertBtn().disabled).toBe(true);
+    // With text both buttons enable; Send transmits text + trailing \r.
+    act(() => fireEvent.change(input(), { target: { value: "via send" } }));
+    expect(sendBtn().disabled).toBe(false);
+    expect(insertBtn().disabled).toBe(false);
     act(() => fireEvent.click(sendBtn()));
-    expect(sent).toEqual(["\r"]); // the button and the chord agree on empty
+    expect(sent).toEqual(["via send\r"]);
+    expect(input().value).toBe("");
   });
 
   it("a guard-blocked insert (stream not OPEN) preserves the draft", () => {

@@ -37,7 +37,6 @@ export type TopBarSlot = {
   server: string;
   onNavigate: (windowId: string) => void;
   onToggleSidebar: () => void;
-  onCreateSession: () => void;
   onCreateWindow: (session: string) => void;
   /** Open the spawn-agent dialog for a session (260713-sbk1). Registered by
    *  `AppShell` on terminal/root routes; the window-switcher `+ New Agent` item

@@ -15,9 +15,12 @@ and the Host (solo `Host`) — with the retired in-page PageHeading row's
 bracket idiom now carried by the Host's `<h2>` section headings, and each page
 also carrying an in-page long-form `SectionHeading` (`Host Overview` on `/`,
 `tmux Server Overview` on `/$server` — 260715-zs1y). A separate
-260714-uco1 block asserts the four top-bar heading-nav sub-features: the stable
+260714-uco1 block asserts the top-bar heading-nav sub-features: the stable
 left anchor (the heading's left edge does not drift with name length), the
-static `Window:` prefix, the ancestor hierarchy dropdown, and the browser-history
+static `Window:` prefix — contiguous since 260813-kvk7 removed the ancestor
+hierarchy dropdown (ancestor navigation now lives only in the command palette's
+`Go: tmux Server` / `Go: Host` and the left breadcrumb's server crumb) — and the
+browser-history
 ◀ ▶ arrows — plus (260715-m4xy) that IN-APP window switches now push history
 entries so Back/Forward retrace within-server hops with no dedup. A motion-opted-in block additionally asserts the boot sweep itself
 runs on hover (an inverse-video cursor cell attaches inside the top-bar header,
@@ -58,9 +61,9 @@ breadcrumb now ends at the session).
 2. Assert the `Rename window <name>` button is visible and its text equals the
    window name.
 3. Assert the `Breadcrumb` nav does NOT contain the window name (no duplication).
-4. Assert the static `Window:` page-type prefix (260714-uco1) is visible — its
-   `Window` word run is the stable locator, since the hierarchy ▾ splits the
-   prefix between the word and its colon (`Window ▾:`) — and is NOT contained
+4. Assert the static `Window:` page-type prefix (260714-uco1) is visible — the
+   prefix run is contiguous (`Window:`) since 260813-kvk7 removed the hierarchy
+   ▾ that used to split it (`Window ▾:`) — and is NOT contained
    inside the rename button; it is a sibling span, so clicking it never starts
    an edit (the edit input binds only to the name).
 
@@ -217,7 +220,8 @@ shows scrambled text.
 ## Tests — top-bar heading anchor + nav (260714-uco1)
 
 *(A separate describe block in the same file, sharing the file-level session
-lifecycle. Covers the four heading sub-features added by 260714-uco1. Since
+lifecycle. Covers the heading sub-features added by 260714-uco1 — minus the
+ancestor hierarchy dropdown, removed by 260813-kvk7. Since
 260731-oiho the ◀ ▶ arrows live in the LEFT cluster on `lg+` viewports (hidden
 below `lg` per the cluster's degradation ladder) — behavior unchanged; the
 anchored heading box carries no arrow furniture and the old width-compensation
@@ -236,34 +240,25 @@ band grow rightward and the centered box drifts — an accepted tradeoff (intake
 1. Create two windows in the same session with different (band-fitting) name
    lengths.
 2. Set a desktop viewport (1200px) so the `sm:` min-width anchor is active.
-3. Navigate to the shorter-named window; record the `Window` prefix word run's
+3. Navigate to the shorter-named window; record the `Window:` prefix run's
    left x (the leftmost prefix text — the anchor under test).
-4. Navigate to the longer-named window; record the prefix word run's left x.
+4. Navigate to the longer-named window; record the prefix run's left x.
 5. Assert the two x values differ by ≤2px (the anchor held; no drift).
 
-### the heading prefix is a static `Window:` on the terminal route (all lenses)
+### the heading prefix is a static `Window:` on the terminal route (all lenses), with a single ▾ window switcher
 
 **What it proves:** the terminal-route heading prefix is a static `Window:`, never
-the retired lens-following `Terminal:`/`Web:`/`Chat:`.
+the retired lens-following `Terminal:`/`Web:`/`Chat:` — and (260813-kvk7) the
+hierarchy dropdown that used to split the prefix is gone, leaving the window
+switcher as the heading's single ▾.
 
 **Steps:**
 1. Create a plain window; navigate to it.
-2. Assert the `Window` prefix word run is visible (the hierarchy ▾ splits the
-   prefix between the word and its colon, so the assertion targets the `Window`
-   word) and that no `Terminal:`/`Web:`/`Chat:` text is present.
-
-### `the hierarchy ▾ lists the ancestor chain and navigates up (tmux Server → Host)`
-
-**What it proves:** the prefix hierarchy dropdown lists exactly the current page's
-ancestors (tmux Server then Host on a window route — no window/lateral
-entries) and navigates up when an ancestor is chosen.
-
-**Steps:**
-1. Create a window; navigate to it.
-2. Open the `Switch hierarchy` ▾; assert the `tmux Server: <server>` and
-   `Host` menuitems are visible.
-3. Click the `tmux Server: <server>` item; assert the URL is `/<server>` and the
-   `tmux Server <server>` heading is visible (the up-navigation landed).
+2. Assert the contiguous `Window:` prefix run is visible (the hierarchy ▾ no
+   longer splits it) and that no `Terminal:`/`Web:`/`Chat:` text is present.
+3. Assert no `Switch hierarchy` trigger exists; click the `Switch window` ▾ and
+   assert its menu lists the current window (the session's windows, not the
+   ancestor chain); close with Escape.
 
 ### `the ◀ ▶ arrows drive browser history (back returns to the prior window)`
 

@@ -66,7 +66,6 @@ function renderChip(sessionValue: Partial<SessionContextType>) {
               server="runkit"
               onNavigate={vi.fn()}
               onToggleSidebar={vi.fn()}
-              onCreateSession={vi.fn()}
               onCreateWindow={vi.fn()}
             />
             </StandaloneSessionContextProvider>
@@ -305,7 +304,6 @@ describe("UpdateChip", () => {
                 server="runkit"
                 onNavigate={vi.fn()}
                 onToggleSidebar={vi.fn()}
-                onCreateSession={vi.fn()}
                 onCreateWindow={vi.fn()}
               />
             </StandaloneSessionContextProvider>
@@ -351,7 +349,6 @@ describe("UpdateChip", () => {
                 server="runkit"
                 onNavigate={vi.fn()}
                 onToggleSidebar={vi.fn()}
-                onCreateSession={vi.fn()}
                 onCreateWindow={vi.fn()}
               />
             </StandaloneSessionContextProvider>

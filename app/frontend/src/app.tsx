@@ -519,7 +519,6 @@ function RootTopBar() {
       server={slot?.server ?? serverParam ?? ""}
       onNavigate={slot?.onNavigate ?? (() => {})}
       onToggleSidebar={slot?.onToggleSidebar ?? (() => {})}
-      onCreateSession={slot?.onCreateSession ?? (() => {})}
       onCreateWindow={slot?.onCreateWindow ?? (() => {})}
       onSpawnAgent={slot?.onSpawnAgent}
       paneCount={slot?.paneCount}
@@ -1875,7 +1874,7 @@ function AppShell() {
   // `isSessionCreatePending` all churn on every SSE tick; reading them via
   // render-time-mutated refs (the same pattern as `dialogOpenRef` above) keeps
   // `handleCreateSessionInstant` referentially stable across ticks, so it (and
-  // the Sidebar/TopBar/palette consumers that receive it) don't defeat the
+  // the Sidebar/palette consumers that receive it) don't defeat the
   // memoization downstream. The values read are always the latest committed
   // render's, which is exactly what a click handler wants.
   const sessionsRef = useRef(sessions);
@@ -3354,7 +3353,7 @@ function AppShell() {
 
   // Register AppShell's TopBar props into the persistent root bar's slot
   // (260707-4vq2). The heavy handlers (`navigateToWindow` with its
-  // View-Transitions gate, `handleCreateSessionInstant` with optimistic
+  // View-Transitions gate, `handleCreateWindow` with optimistic
   // ghosts) stay defined here and are published by reference — no logic
   // migrates to root. `mode` (terminal vs root) is derived at root from the
   // route, so it is NOT part of the slot. Memoized so the registration effect
@@ -3389,7 +3388,6 @@ function AppShell() {
       server,
       onNavigate: navigateToWindow,
       onToggleSidebar,
-      onCreateSession: handleCreateSessionInstant,
       onCreateWindow: handleCreateWindow,
       onSpawnAgent: handleSlotSpawnAgent,
       // Rail toggle (260812-nm4p, reinterpreted under 260812-ab5v): `railOpen`
@@ -3416,7 +3414,6 @@ function AppShell() {
       server,
       navigateToWindow,
       onToggleSidebar,
-      handleCreateSessionInstant,
       handleCreateWindow,
       handleSlotSpawnAgent,
       rightAreaVisible,

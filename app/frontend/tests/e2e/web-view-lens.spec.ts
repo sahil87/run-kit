@@ -203,10 +203,10 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     await expect(iframe(page)).toBeVisible({ timeout: 10_000 });
     await expectLayoutParam(page, "single:web");
     // The center heading is a STATIC `Window:` in every lens (260714-uco1 — the
-    // heading no longer follows the lens). The hierarchy ▾ splits the prefix
-    // between the word and its colon (`Window ▾:`), so assert the word run
-    // ("Window").
-    await expect(page.getByText("Window", { exact: true })).toBeVisible();
+    // heading no longer follows the lens). The prefix run is contiguous
+    // (260813-kvk7 removed the hierarchy ▾ that used to split it), so assert
+    // the whole `Window:` run.
+    await expect(page.getByText("Window:", { exact: true })).toBeVisible();
   });
 
   test("?view=web on a window with no @rk_url falls back to the terminal", async ({
@@ -318,7 +318,7 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
 
     // Still no switcher chrome at desktop width either.
     await page.setViewportSize(DESKTOP_VIEWPORT);
-    await expect(page.getByText("Window", { exact: true })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText("Window:", { exact: true })).toBeVisible({ timeout: 10_000 });
     await expect(inBarSwitcher(page)).toHaveCount(0);
     await expect(page.getByTestId("view-toggle")).toHaveCount(0);
   });

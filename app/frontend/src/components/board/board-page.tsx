@@ -872,7 +872,6 @@ function BoardPageContent({ name }: { name: string }) {
         server: "",
         onNavigate: () => {},
         onToggleSidebar,
-        onCreateSession: () => {},
         onCreateWindow: () => {},
         paneCount: entries.length,
         serverCount,

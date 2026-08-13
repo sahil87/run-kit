@@ -1,0 +1,55 @@
+id: kvk7
+name: 260813-kvk7-dashboard-chrome-nitpick-polish
+created: 2026-08-13T18:56:15Z
+created_by: Sahil Ahuja
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 12
+    acceptance_count: 21
+    acceptance_completed: 21
+confidence:
+    certain: 9
+    confident: 4
+    tentative: 1
+    unresolved: 0
+    score: 4.0
+    fuzzy: true
+    dimensions:
+        signal: 92.1
+        reversibility: 82.1
+        competence: 78.2
+        disambiguation: 72.5
+stage_metrics:
+    intake: {started_at: "2026-08-13T18:56:15Z", driver: fab-new, iterations: 1, completed_at: "2026-08-13T19:14:12Z"}
+    apply: {started_at: "2026-08-13T19:14:12Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-13T20:21:40Z"}
+    review: {started_at: "2026-08-13T20:21:40Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-13T20:48:29Z"}
+    hydrate: {started_at: "2026-08-13T20:48:29Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-13T21:05:17Z"}
+    ship: {started_at: "2026-08-13T21:05:17Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-08-13T21:05:17Z"
+    computed_at_stage: hydrate
+summary: 'Top-bar: single-caret PageType: name headings (hierarchy dropdown gone), static session chip; compose Send disabled on empty (chord unchanged); sidebar scroll-edge fade + unified header icon metrics'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-13T21:05:17Z

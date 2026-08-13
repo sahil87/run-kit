@@ -358,6 +358,17 @@ summary {
   to { opacity: 1; }
 }
 
+/* Scroll-edge fade (260813-kvk7): applied conditionally by useScrollEdgeFade
+   to the sidebar scroll viewports (sessions tree, SERVER panel) only while
+   more content exists below. A mask — not an opaque veil — so the per-item
+   color tints on rows/tiles fade to transparent instead of being covered by a
+   mismatched background color. Static treatment, not motion: no
+   prefers-reduced-motion gate. */
+.rk-scroll-fade-bottom {
+  mask-image: linear-gradient(to bottom, black calc(100% - 32px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 32px), transparent 100%);
+}
+
 /* ── Double-marker scanlines (easter egg, 260718-3prk) ──────────────────────
    A window row whose left-gutter marker is `double` gets a static CRT scanline
    overlay across its FULL width, layered over its tint. The marker color rides

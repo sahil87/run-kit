@@ -44,9 +44,10 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
     // The static `Window:` page-type prefix (260714-uco1 — replaced the retired
     // lens-following `Terminal:`/`Web:`/`Chat:` prefix) renders as a static
     // sibling OUTSIDE the rename button (clicking it must not edit). The
-    // hierarchy ▾ splits the prefix between the word and its colon (`Window ▾:`
-    // — intake §3), so the word run ("Window") is the stable prefix locator.
-    const prefix = page.getByText("Window", { exact: true });
+    // hierarchy ▾ that used to split the prefix is GONE (260813-kvk7) — the
+    // colon is contiguous to the word (`Window:`), so the whole prefix run is
+    // the stable locator.
+    const prefix = page.getByText("Window:", { exact: true });
     await expect(prefix).toBeVisible();
     const prefixInButton = await heading.evaluate(
       (btn, pfx) => btn.contains(pfx),
@@ -344,19 +345,22 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
 });
 
 /**
- * Top-bar heading anchor + nav block (260714-uco1). Covers the four sub-features
- * added to the center heading: (1) the stable left anchor (min-width, left
- * content) so the heading's left edge does not drift with name length; (2) the
- * static `Window:` prefix persisting across a lens switch; (3) the ancestor
- * hierarchy dropdown; (4) the browser-history ◀ ▶ arrows — which moved to the
- * LEFT cluster (right of the sidebar toggle, `lg+` viewports — below `lg` they
- * hide with the cluster's degradation ladder) in 260731-oiho; their BEHAVIOR
- * (browser history, `Go back`/`Go forward` accessible names) is unchanged, and
- * the anchor no longer carries any arrow furniture (the old `mr-2.5`/`-mr-1`
- * width-compensation hack is gone). The arrows tests run at the default
- * 1280px viewport (≥ lg). Uses the file-level session lifecycle above.
+ * Top-bar heading anchor + nav block (260714-uco1). Covers the center-heading
+ * sub-features: (1) the stable left anchor (min-width, left content) so the
+ * heading's left edge does not drift with name length; (2) the static `Window:`
+ * prefix persisting across a lens switch — contiguous since 260813-kvk7 removed
+ * the ancestor hierarchy dropdown that used to split it (ancestor navigation
+ * survives only in the command palette's `Go: tmux Server` / `Go: Host` and the
+ * left breadcrumb's server crumb); (3) the browser-history ◀ ▶ arrows — which
+ * moved to the LEFT cluster (right of the sidebar toggle, `lg+` viewports —
+ * below `lg` they hide with the cluster's degradation ladder) in 260731-oiho;
+ * their BEHAVIOR (browser history, `Go back`/`Go forward` accessible names) is
+ * unchanged, and the anchor no longer carries any arrow furniture (the old
+ * `mr-2.5`/`-mr-1` width-compensation hack is gone). The arrows tests run at
+ * the default 1280px viewport (≥ lg). Uses the file-level session lifecycle
+ * above.
  */
-test.describe("Top-bar heading — anchor, hierarchy dropdown, history arrows (260714-uco1)", () => {
+test.describe("Top-bar heading — anchor + history arrows (260714-uco1)", () => {
   test("the heading's left edge does not drift as the window name length changes within the anchor band (sm+)", async ({
     page,
   }) => {
@@ -377,16 +381,16 @@ test.describe("Top-bar heading — anchor, hierarchy dropdown, history arrows (2
     // Desktop viewport so the sm:min-width anchor is active.
     await page.setViewportSize({ width: 1200, height: 800 });
 
-    // The prefix word run ("Window") is the heading's leftmost text; its left
-    // edge is the anchor under test. (The hierarchy ▾ splits the prefix between
-    // the word and its colon, so the word run is the stable prefix locator.)
+    // The prefix run ("Window:" — contiguous since the hierarchy ▾ was removed
+    // in 260813-kvk7) is the heading's leftmost text; its left edge is the
+    // anchor under test.
     await gotoWindow(page, shortId);
-    const shortPrefix = page.getByText("Window", { exact: true });
+    const shortPrefix = page.getByText("Window:", { exact: true });
     await expect(shortPrefix).toBeVisible({ timeout: 10_000 });
     const shortX = (await shortPrefix.boundingBox())!.x;
 
     await gotoWindow(page, midId);
-    const midPrefix = page.getByText("Window", { exact: true });
+    const midPrefix = page.getByText("Window:", { exact: true });
     await expect(midPrefix).toBeVisible({ timeout: 10_000 });
     const midX = (await midPrefix.boundingBox())!.x;
 
@@ -395,7 +399,7 @@ test.describe("Top-bar heading — anchor, hierarchy dropdown, history arrows (2
     expect(Math.abs(midX - shortX)).toBeLessThanOrEqual(2);
   });
 
-  test("the heading prefix is a static `Window:` on the terminal route (all lenses)", async ({
+  test("the heading prefix is a static `Window:` on the terminal route (all lenses), with a single ▾ window switcher", async ({
     page,
   }) => {
     const name = `hx-prefix-${Date.now()}`;
@@ -406,33 +410,20 @@ test.describe("Top-bar heading — anchor, hierarchy dropdown, history arrows (2
     // Static `Window:` — never the retired `Terminal:`/`Web:`/`Chat:` lens
     // prefix. (This plain window offers only the tty lens, so no ViewSwitcher;
     // chat/web lens-switch coverage lives in chat-view/web-view-lens specs,
-    // which now assert `Window:` in every lens.) The hierarchy ▾ splits the
-    // prefix between the word and its colon (`Window ▾:`, intake §3), so assert
-    // the word run ("Window").
-    await expect(page.getByText("Window", { exact: true })).toBeVisible({ timeout: 10_000 });
+    // which now assert `Window:` in every lens.) The hierarchy ▾ that used to
+    // split the prefix is GONE (260813-kvk7): the colon is contiguous to the
+    // word, so assert the whole `Window:` run.
+    await expect(page.getByText("Window:", { exact: true })).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText(/Terminal:|Web:|Chat:/)).toHaveCount(0);
-  });
 
-  test("the hierarchy ▾ lists the ancestor chain and navigates up (tmux Server → Host)", async ({
-    page,
-  }) => {
-    const name = `hx-nav-${Date.now()}`;
-    newWindow(TEST_SESSION, name);
-    const id = await resolveWindow(page, name);
-    await gotoWindow(page, id);
-
-    // Open the prefix ▾ — its accessible name is "Switch hierarchy".
-    await page.getByLabel("Switch hierarchy").click();
-    // Ancestors only: tmux Server (the server) then Host. No window/lateral.
-    await expect(page.getByRole("menuitem", { name: `tmux Server: ${TMUX_SERVER}` })).toBeVisible();
-    const hostItem = page.getByRole("menuitem", { name: "Host" });
-    await expect(hostItem).toBeVisible();
-
-    // Selecting the tmux Server ancestor navigates up to `/{server}`.
-    await page.getByRole("menuitem", { name: `tmux Server: ${TMUX_SERVER}` }).click();
-    await expect(page).toHaveURL(new RegExp(`/${TMUX_SERVER}$`));
-    // The tmux Server heading confirms the up-navigation landed.
-    await expect(page.getByLabel(`tmux Server ${TMUX_SERVER}`)).toBeVisible({ timeout: 10_000 });
+    // The removed hierarchy dropdown is really absent — no `Switch hierarchy`
+    // trigger anywhere in the bar. The single ▾ next to the name is the window
+    // switcher (accessible name "Switch window"); opening it lists the
+    // session's windows (NOT the ancestor chain).
+    await expect(page.getByLabel("Switch hierarchy")).toHaveCount(0);
+    await page.getByLabel("Switch window").click();
+    await expect(page.getByRole("menuitem", { name })).toBeVisible();
+    await page.keyboard.press("Escape");
   });
 
   test("the ◀ ▶ arrows drive browser history (back returns to the prior window)", async ({

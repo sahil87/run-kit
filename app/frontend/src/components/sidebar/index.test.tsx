@@ -1662,6 +1662,31 @@ describe("Sidebar — server-group header action cluster (x4sf)", () => {
     expect(buttons[3]).toHaveAccessibleName("Kill server alpha");
   });
 
+  it("+ and ✕ render the shared SVG icons in the session-row slot metrics (260813-kvk7)", async () => {
+    await renderWithColors({ alpha: "4" });
+
+    const container = headerContainer("alpha");
+    const plus = within(container).getByRole("button", { name: "New session on alpha" });
+    const close = within(container).getByRole("button", { name: "Kill server alpha" });
+    // SVG glyphs (the session-row PlusIcon/CloseIcon) — the old text "+"/"✕"
+    // glyphs are gone.
+    for (const btn of [plus, close]) {
+      expect(btn.querySelector("svg")).not.toBeNull();
+      expect(btn.textContent).toBe("");
+    }
+    // Session-row slot metrics so the +/✕ icon columns align vertically
+    // across every sidebar header tier.
+    for (const btn of [plus, close]) {
+      for (const cls of ["px-0.5", "min-w-[24px]", "coarse:min-w-[32px]", "min-h-[24px]", "coarse:min-h-[36px]"]) {
+        expect(btn.className).toContain(cls);
+      }
+    }
+    // The cluster wrapper adopts the session row's `flex items-center pr-2`.
+    const wrapper = plus.parentElement as HTMLElement;
+    expect(wrapper.className).toContain("flex items-center");
+    expect(wrapper.className).toContain("pr-2");
+  });
+
   it("hover-reveals the palette with the coarse touch fallback; + and ✕ stay always visible", async () => {
     await renderWithColors({ alpha: "4" });
 
@@ -1801,6 +1826,40 @@ describe("Sidebar — server-group header action cluster (x4sf)", () => {
     expect(
       within(container).getByRole("button", { name: /Collapse alpha sessions/ }),
     ).toHaveAttribute("aria-expanded", "true");
+  });
+});
+
+describe("Sidebar — sessions-tree bottom scroll-edge fade (260813-kvk7)", () => {
+  /** Stub the scroll geometry jsdom leaves at 0 (same pattern as
+   *  use-scroll-edge-fade.test.ts). */
+  function stubScrollMetrics(
+    el: HTMLElement,
+    metrics: { scrollHeight: number; clientHeight: number; scrollTop: number },
+  ) {
+    Object.defineProperty(el, "scrollHeight", { value: metrics.scrollHeight, configurable: true });
+    Object.defineProperty(el, "clientHeight", { value: metrics.clientHeight, configurable: true });
+    Object.defineProperty(el, "scrollTop", { value: metrics.scrollTop, writable: true, configurable: true });
+  }
+
+  it("toggles rk-scroll-fade-bottom on the tree viewport: off when it fits, on when more content sits below, off at the end", () => {
+    renderSidebar();
+    const tree = screen.getByRole("tree");
+    // jsdom metrics are all 0 → the list fits → no fade by default.
+    expect(tree.className).not.toContain("rk-scroll-fade-bottom");
+
+    // Scrollable and NOT at the end → the fade appears.
+    stubScrollMetrics(tree, { scrollHeight: 600, clientHeight: 200, scrollTop: 0 });
+    act(() => {
+      tree.dispatchEvent(new Event("scroll"));
+    });
+    expect(tree.className).toContain("rk-scroll-fade-bottom");
+
+    // Scrolled to the end → the fade disappears.
+    act(() => {
+      tree.scrollTop = 400;
+      tree.dispatchEvent(new Event("scroll"));
+    });
+    expect(tree.className).not.toContain("rk-scroll-fade-bottom");
   });
 });
 

@@ -139,7 +139,6 @@ type TopBarProps = {
    *  surfaces); `onToggleRail` absent → no button rendered. */
   railOpen?: boolean;
   onToggleRail?: () => void;
-  onCreateSession: () => void;
   onCreateWindow: (session: string) => void;
   /** Open the spawn-agent dialog for a session (260713-sbk1). When present, the
    *  terminal-mode window-switcher dropdown shows a `+ New Agent` item beside
@@ -241,14 +240,23 @@ function BreadcrumbSeparator() {
 }
 
 /**
- * Link-crumb affordance — the always-visible "this navigates" cue on the two
- * link crumbs (brand, server): a bordered chip, reusing the right-cluster's
- * "bordered = clickable" visual language. Dropdown crumbs signal differently
- * (persistent ▾ caret inside BreadcrumbDropdown); non-interactive leaf crumbs
- * carry neither — the absence of affordance marks the current page.
+ * Crumb box — the bordered-chip styling shared by every breadcrumb crumb
+ * (brand, server, session). The box is crumb STYLING, not a clickability cue:
+ * the interactive link crumbs (brand, server) add hover treatment on top
+ * (LINK_CRUMB_CLASS), while the session crumb (260813-kvk7) is a static chip —
+ * a session has no route of its own, so it carries the box with NO hover
+ * affordance, no pointer cursor, and no ▾.
+ */
+const CRUMB_BOX_CLASS =
+  "rounded border border-border px-1.5 py-0.5 text-text-secondary";
+
+/**
+ * Link-crumb affordance — the box plus the always-visible "this navigates"
+ * hover cue on the two link crumbs (brand, server), reusing the
+ * right-cluster's bordered-button hover language.
  */
 const LINK_CRUMB_CLASS =
-  "rounded border border-border hover:border-text-secondary px-1.5 py-0.5 text-text-secondary hover:text-text-primary transition-colors";
+  `${CRUMB_BOX_CLASS} hover:border-text-secondary hover:text-text-primary transition-colors`;
 
 /**
  * Browser-history Back/Forward arrows (260714-uco1; relocated 260731-oiho).
@@ -315,81 +323,8 @@ function HistoryNav() {
   );
 }
 
-/**
- * Hierarchy dropdown (260714-uco1) — a bare-▾ `BreadcrumbDropdown` bound to the
- * heading prefix, listing exactly the CURRENT PAGE'S ANCESTOR CHAIN (no lateral
- * jumps, to stay predictable). Reuses `BreadcrumbDropdown` (which already owns
- * the menu a11y: `role="menu"`/`menuitem`, Escape, ArrowUp/Down, outside-click)
- * so this is a thin item-builder, not a new dropdown.
- *
- * Ancestor chains by mode:
- *   - `terminal` (`/{server}/{window}`): `tmux Server: {server}` (→ `/{server}`)
- *     then `Host` (→ `/`).
- *   - `board` / `server`: `Host` (→ `/`) — their only ancestor.
- *   - solo `host`: NONE — the caller does not render this component there.
- *
- * It is a SIBLING of the rename button (not inside it), so clicking it never
- * enters inline edit. It is `hidden sm:inline-flex` — below `sm` it rides with
- * the hidden prefix span (the hamburger/sidebar covers mobile navigation). It
- * is passed as the prefix `caret`, so `HeadingPrefix` renders it BETWEEN the
- * prefix word and its trailing colon (reads `Window ▾: name`, intake §3 —
- * "the hierarchy ▾ binds to the prefix, before the colon"). The single
- * boot-sweep cursor pass is preserved: the caret splits only the prefix's DOM
- * at render time, never the swept cell array.
- */
-function HierarchyDropdown({
-  mode,
-  server,
-}: {
-  mode: "terminal" | "board" | "server";
-  server: string;
-}) {
-  const navigate = useNavigate();
-
-  // Ancestor items, nearest-first (tmux Server above Host on a window
-  // route). `current: false` throughout — an ancestor is never the current page.
-  const items: BreadcrumbDropdownItem[] = [];
-  if (mode === "terminal" && server) {
-    items.push({
-      label: `${TMUX_SERVER_PREFIX} ${server}`,
-      href: `/${encodeURIComponent(server)}`,
-      current: false,
-    });
-  }
-  items.push({ label: HOST_SOLO, href: "/", current: false });
-
-  const handleNavigate = useCallback(
-    (href: string) => {
-      // `/` → Host (index route); `/{server}` → tmux Server. Route via the
-      // typed navigator so params are validated (mirrors BoardSwitcher).
-      if (href === "/") {
-        navigate({ to: "/" });
-        return;
-      }
-      const match = href.match(/^\/([^/]+)$/);
-      if (match) {
-        navigate({ to: "/$server", params: { server: decodeURIComponent(match[1]) } });
-      }
-    },
-    [navigate],
-  );
-
-  return (
-    <span className="hidden sm:inline-flex items-center shrink-0 ml-0.5">
-      <BreadcrumbDropdown
-        items={items}
-        label="hierarchy"
-        title="Navigate up"
-        onNavigate={handleNavigate}
-        triggerClassName="text-text-secondary hover:text-text-primary transition-colors shrink-0"
-      />
-    </span>
-  );
-}
-
 export function TopBar({
   mode = "terminal",
-  sessions,
   currentSession,
   currentWindow,
   sessionName,
@@ -400,7 +335,6 @@ export function TopBar({
   onToggleSidebar,
   railOpen,
   onToggleRail,
-  onCreateSession,
   onCreateWindow,
   onSpawnAgent,
   boardName,
@@ -427,14 +361,8 @@ export function TopBar({
   const brandSweep = useBrandLogoSweep();
 
   // Breadcrumb hrefs use the 2-segment route shape /$server/$window — the
-  // window id (@N) is the only identity in the URL. Selecting a session jumps
-  // to its first window; the owning session is derived from the snapshot.
-  const sessionItems: BreadcrumbDropdownItem[] = sessions.map((s) => ({
-    label: s.name,
-    href: `/${encodeURIComponent(server)}/${encodeURIComponent(s.windows[0]?.windowId ?? "")}`,
-    current: s.name === sessionName,
-  }));
-
+  // window id (@N) is the only identity in the URL. Selecting a window jumps
+  // to it directly; the owning session is derived from the snapshot.
   const windowItems: BreadcrumbDropdownItem[] = (currentSession?.windows ?? []).map(
     (w) => ({
       label: w.name,
@@ -957,10 +885,12 @@ export function TopBar({
                     Server). On the server route the server name is the leaf and lives
                     in the center heading, so no left server crumb there. Hidden
                     below `md` (260715-q8ey — demoted from `sm`): it is the
-                    redundant first-to-give crumb since the hierarchy ▾ in the
-                    center heading (`Window ▾:`) already navigates to the tmux
-                    Server → Host, so it gives way before the session crumb in
-                    the cramped `sm`..`md` band. `min-w-0` unblocks the inner
+                    redundant first-to-give crumb, giving way before the session
+                    crumb in the cramped `sm`..`md` band. (260813-kvk7: the
+                    hierarchy ▾ that originally covered this navigation is gone —
+                    below `md` the ancestor paths are the palette's
+                    `Go: tmux Server` / `Go: Host` + browser back; the ladder
+                    itself is unchanged.) `min-w-0` unblocks the inner
                     `truncate max-w-[16ch]`. */}
                 {showServerCrumb && (
                   <span className="hidden md:flex items-center gap-1.5 min-w-0">
@@ -980,17 +910,18 @@ export function TopBar({
                   // The breadcrumb ends at the SESSION crumb — window identity
                   // moved to the centered heading (below), so the window name is
                   // never duplicated. Session crumb hidden below `sm`.
+                  // 260813-kvk7: the session dropdown (switcher + "+ New Session")
+                  // is gone — session switching lives in the sidebar rows and the
+                  // palette's `Window: Switch to …`, creation in the palette's
+                  // `Session: Create` / `Session: Create at Folder` and the
+                  // sidebar server-header `+`. The crumb is now a NON-interactive
+                  // static chip: a session has no route of its own, so it carries
+                  // the siblings' box styling with no hover affordance or caret.
                   <span className="hidden sm:flex items-center gap-1.5 min-w-0">
                     <BreadcrumbSeparator />
-                    <BreadcrumbDropdown
-                      items={sessionItems}
-                      label="session"
-                      icon={sessionName}
-                      title="Session"
-                      onNavigate={handleDropdownNavigate}
-                      action={{ label: "+ New Session", onAction: onCreateSession }}
-                      triggerClassName="max-w-[16ch] truncate text-text-secondary hover:text-text-primary transition-colors text-sm"
-                    />
+                    <span className={`truncate max-w-[16ch] ${CRUMB_BOX_CLASS}`}>
+                      {sessionName}
+                    </span>
                   </span>
                 )}
               </>
@@ -1015,9 +946,8 @@ export function TopBar({
             container (260714-uco1) carries a `sm:`-gated min-width with
             left-aligned content so the heading's LEFT EDGE stops drifting as the
             instance name length changes. Below `sm` the min-width is absent
-            (space is scarce at 375px) so current behavior is unchanged. The
-            hierarchy ▾ lives inside this anchored box (the history arrows
-            moved to the left cluster, 260731-oiho).
+            (space is scarce at 375px) so current behavior is unchanged. (The
+            history arrows moved to the left cluster, 260731-oiho.)
             260715-q8ey: the OUTER cell deliberately has NO `min-w-0` — that let
             the `auto` column compress below the heading's content floor and
             produced center-side overlap. The floor is already bounded (name
@@ -1026,14 +956,14 @@ export function TopBar({
             dropping `min-w-0` protects the center without a magic pixel min. Do
             NOT re-add `min-w-0` here. */}
         <div className="flex items-center justify-center">
-          {/* Center heading cluster's warm-tip group (260722-73al): hierarchy
-              ▾ + rename heading + window switcher sweep as one cluster (the
-              history arrows ride the left cluster's group now, 260731-oiho). */}
+          {/* Center heading cluster's warm-tip group (260722-73al): the rename
+              heading + window switcher sweep as one cluster (the history arrows
+              ride the left cluster's group now, 260731-oiho). */}
           <TipGroup>
           <div className="flex items-center justify-start min-w-0 sm:min-w-[28ch]">
             {/* The history ◀ ▶ arrows moved to the LEFT cluster (260731-oiho) —
                 the anchored box now carries only the heading furniture
-                (prefix + hierarchy ▾ + name + switcher), so the old
+                (prefix + name + switcher), so the old
                 arrow width-compensation hack is gone with them. */}
 
             {mode === "terminal" && currentWindow && (
@@ -1044,21 +974,17 @@ export function TopBar({
                     cancelled (see WindowHeading's identity-change guard) rather
                     than silently destroyed by a remount. The prefix is now a
                     STATIC `Window:` in every lens (260714-uco1) — the lens is
-                    shown by the tile content itself, not the heading.
-
-                    Hierarchy ▾ (260714-uco1) — the current page's ANCESTOR chain
-                    (tmux Server → Host on a window route). Passed as the
-                    prefix `caret` so it renders BEFORE the colon (`Window ▾:
-                    name`, intake §3), bound to the prefix and hidden with it
-                    below `sm`. It is a sibling of the rename button (not inside
-                    it), so clicking it never enters inline edit. */}
+                    shown by the tile content itself, not the heading. The
+                    prefix carries NO caret (260813-kvk7): the heading reads
+                    `Window: <name>` with the single ▾ owned by the window
+                    switcher; ancestor navigation lives in the palette
+                    (`Go: tmux Server` / `Go: Host`, lib/palette-nav.ts). */}
                 <WindowHeading
                   server={server}
                   windowId={currentWindow.windowId}
                   sessionName={sessionName}
                   name={windowName}
                   prefix={WINDOW_PREFIX}
-                  caret={<HierarchyDropdown mode="terminal" server={server} />}
                 />
                 <BreadcrumbDropdown
                   items={windowItems}
@@ -1082,36 +1008,29 @@ export function TopBar({
             {mode === "board" && boardName && (
               <>
                 {/* Board name is display-only (boards have no rename API); the ▾
-                    board switcher moved here from the left breadcrumb. The
-                    hierarchy ▾ lists this board's ancestor (Host) and is
-                    passed as the prefix `caret` so it renders BEFORE the colon
-                    (`Board ▾: name`, matching the window heading's placement). */}
+                    board switcher moved here from the left breadcrumb. No prefix
+                    caret (260813-kvk7) — the heading reads `Board: <name>`. */}
                 <PageHeadingDisplay
                   prefix={BOARD_PREFIX}
                   name={boardName}
                   ariaLabel={`Board ${boardName}`}
-                  caret={<HierarchyDropdown mode="board" server={server} />}
                 />
                 <BoardSwitcher boardName={boardName} boards={boards ?? []} />
               </>
             )}
 
             {mode === "server" && server && (
-              <>
-                {/* Hierarchy ▾ passed as the prefix `caret` so it renders BEFORE
-                    the colon (`tmux Server ▾: name`), matching the window
-                    heading's `Window ▾: name` placement (260714-uco1). */}
-                <PageHeadingDisplay
-                  prefix={TMUX_SERVER_PREFIX}
-                  name={server}
-                  ariaLabel={`tmux Server ${server}`}
-                  caret={<HierarchyDropdown mode="server" server={server} />}
-                />
-              </>
+              // No prefix caret (260813-kvk7) — the heading reads
+              // `tmux Server: <name>`; ancestors are reachable via the palette.
+              <PageHeadingDisplay
+                prefix={TMUX_SERVER_PREFIX}
+                name={server}
+                ariaLabel={`tmux Server ${server}`}
+              />
             )}
 
             {mode === "host" && (
-              // Solo `Host` — the root of the hierarchy, so NO hierarchy ▾
+              // Solo `Host` — the root of the hierarchy, so NO prefix caret
               // (it has no ancestors). The history arrows still render (above).
               <PageHeadingDisplay
                 prefix=""
@@ -1460,51 +1379,19 @@ function splitSweepCells(cells: SweepCell[]): {
 function HeadingPrefix({
   cells,
   scrambling,
-  caret,
 }: {
   cells: SweepCell[];
   scrambling: boolean;
-  // Optional element rendered BEFORE the trailing `:` of the prefix word
-  // (260714-uco1 — the hierarchy ▾ binds to the prefix "before the colon" per
-  // intake §3, rendering `Window ▾: name`). When present, the prefix cells are
-  // split at their final `:` cell so the caret sits between the word run and the
-  // colon run WITHOUT breaking the single boot-sweep cursor pass — the cell
-  // array (and its ordering) is untouched; only the DOM is split at render time.
-  caret?: React.ReactNode;
 }) {
-  // -mr-1 on both return branches: the sweep's `sp` separator cell is a full
+  // -mr-1: the sweep's `sp` separator cell is a full
   // monospace space (1ch ≈ 8px at text-sm) — noticeably wider than a natural
   // `label: value` gap next to the semibold name. Pulling the following name
   // element back 4px tightens the separator to ~half a space while the cursor
   // still visibly crosses the real space cell (N4: the cell, not a flex gap,
   // owns the separation — do not swap it for a margin/gap on the name).
-
-  // No caret: emit the prefix as one swept run (the original single-span path;
-  // keeps `Window:` contiguous for headings with no hierarchy ▾).
-  if (!caret) {
-    return (
-      <span className="hidden sm:inline text-sm text-text-secondary whitespace-pre shrink-0 -mr-1">
-        <SweepCells cells={cells} scrambling={scrambling} />
-      </span>
-    );
-  }
-
-  // Caret present: split the prefix cells at the LAST `:` so the caret renders
-  // between the word (`Window`) and the colon (`:`). The `sp` separating space
-  // cell rides in the tail with the colon so the cursor still visibly crosses
-  // it before the name (splitSweepCells keeps `sp` in the prefix portion).
-  const colonIdx = cells.map((c) => c.ch).lastIndexOf(":");
-  const wordCells = colonIdx >= 0 ? cells.slice(0, colonIdx) : cells;
-  const tailCells = colonIdx >= 0 ? cells.slice(colonIdx) : [];
   return (
-    <span className="hidden sm:inline-flex items-center text-sm text-text-secondary whitespace-pre shrink-0 -mr-1">
-      <span className="whitespace-pre">
-        <SweepCells cells={wordCells} scrambling={scrambling} />
-      </span>
-      {caret}
-      <span className="whitespace-pre">
-        <SweepCells cells={tailCells} scrambling={scrambling} />
-      </span>
+    <span className="hidden sm:inline text-sm text-text-secondary whitespace-pre shrink-0 -mr-1">
+      <SweepCells cells={cells} scrambling={scrambling} />
     </span>
   );
 }
@@ -1548,7 +1435,6 @@ function WindowHeading({
   sessionName,
   name,
   prefix,
-  caret,
 }: {
   server: string;
   windowId: string;
@@ -1558,10 +1444,6 @@ function WindowHeading({
    *  lens; the lens-following `Terminal:`/`Web:`/`Chat:` prefix was retired by
    *  260714-uco1. The boot sweep renders over `prefix + " " + name`. */
   prefix: string;
-  /** Optional element rendered inside the prefix, BEFORE its trailing `:`
-   *  (260714-uco1 — the hierarchy ▾ binds to the prefix "before the colon",
-   *  rendering `Window ▾: name`). Passed through to `HeadingPrefix`. */
-  caret?: React.ReactNode;
 }) {
   // Shared with the sidebar inline rename (change 5ilm) so both surfaces rename
   // identically (optimistic store rename, rollback + toast, clear on settle).
@@ -1689,7 +1571,7 @@ function WindowHeading({
   if (editing) {
     return (
       <>
-        <HeadingPrefix cells={prefixCells} scrambling={false} caret={caret} />
+        <HeadingPrefix cells={prefixCells} scrambling={false} />
         <input
           ref={inputRef}
           type="text"
@@ -1748,7 +1630,7 @@ function WindowHeading({
           it never starts an edit; hidden below `sm` (mobile keeps just the
           name). Its content rides the same sweep so the one cursor crosses it,
           but it is NOT a click target — only the button below enters edit. */}
-      <HeadingPrefix cells={prefixCells} scrambling={sweep.scrambling} caret={caret} />
+      <HeadingPrefix cells={prefixCells} scrambling={sweep.scrambling} />
       <Tip label="Click to rename">
       <button
         type="button"
@@ -1807,18 +1689,11 @@ function PageHeadingDisplay({
   name,
   solo = false,
   ariaLabel,
-  caret,
 }: {
   prefix: string;
   name: string;
   solo?: boolean;
   ariaLabel: string;
-  /** Optional element rendered inside the prefix, BEFORE its trailing `:`
-   *  (260714-uco1 — the hierarchy ▾ binds to the prefix "before the colon",
-   *  rendering `Board ▾: name` / `tmux Server ▾: name`, matching the window
-   *  heading's `Window ▾: name`). Not applicable to the solo shape (no prefix).
-   *  Passed through to `HeadingPrefix`. */
-  caret?: React.ReactNode;
 }) {
   const sweep = useBootSweep(prefix, name, solo);
   // Seeded `null` so the name-effect fires ONCE on mount — the mount /
@@ -1866,7 +1741,7 @@ function PageHeadingDisplay({
       onMouseLeave={sweep.resolve}
       className="inline-flex items-center min-w-0 coarse:min-h-[30px]"
     >
-      <HeadingPrefix cells={prefixCells} scrambling={sweep.scrambling} caret={caret} />
+      <HeadingPrefix cells={prefixCells} scrambling={sweep.scrambling} />
       {/* Name keeps its REST color throughout the sweep (green lives only on
           the per-cell churn/cursor spans) so resolved cells settle to
           `text-text-primary` as the cursor passes (260704-pr0p rework M2). */}

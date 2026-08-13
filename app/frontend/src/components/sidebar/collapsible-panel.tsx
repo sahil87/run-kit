@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useLocalStorageBoolean } from "@/hooks/use-local-storage-boolean";
+import { useScrollEdgeFade } from "@/hooks/use-scroll-edge-fade";
 import type { RowTint } from "@/themes";
 import { TypedLabel } from "@/components/typed-label";
 
@@ -94,6 +95,11 @@ export function CollapsiblePanel({
 }: CollapsiblePanelProps) {
   const [isOpen, setIsOpen] = useLocalStorageBoolean(storageKey, defaultOpen);
   const contentRef = useRef<HTMLDivElement>(null);
+  // Scroll-edge fade (260813-kvk7): in the resizable (clipping) mode, fade the
+  // bottom cut edge while more content exists below so a partially-clipped
+  // tile row reads as "more below" instead of a sliver. Legacy mode keeps
+  // overflow visible (not a clipping surface) — no fade there.
+  const contentHasOverflowBelow = useScrollEdgeFade(contentRef);
 
   // Hide the drag handle + use fixed mobile height on coarse pointer or narrow viewport.
   const isMobile = useIsMobile();
@@ -307,7 +313,7 @@ export function CollapsiblePanel({
       {/* Content area */}
       <div
         ref={contentRef}
-        className={transitionClass}
+        className={`${transitionClass}${!legacyMode && isOpen && !transitioning && contentHasOverflowBelow ? " rk-scroll-fade-bottom" : ""}`}
         style={contentStyle}
       >
         <div className={contentClassName ?? "pl-5 pr-1.5 sm:pr-2 pb-1.5"}>

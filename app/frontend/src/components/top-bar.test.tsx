@@ -11,7 +11,7 @@ import type { ProjectSession, WindowInfo } from "@/types";
 import { stubMatchMedia } from "@/test-utils/match-media";
 
 // TopBar is rendered without a RouterProvider here, so stub the two router
-// hooks it (and its sub-components: BoardSwitcher, HierarchyDropdown, HistoryNav)
+// hooks it (and its sub-components: BoardSwitcher, HistoryNav)
 // consume — `useNavigate` and `useRouter().history.back()/.forward()` (the
 // 260714-uco1 history arrows). Mirrors the sidebar tests' router-mock pattern.
 const mockNavigate = vi.fn();
@@ -101,7 +101,6 @@ function renderTopBar(overrides: Partial<React.ComponentProps<typeof TopBar>> = 
             server="runkit"
             onNavigate={vi.fn()}
             onToggleSidebar={vi.fn()}
-            onCreateSession={vi.fn()}
             onCreateWindow={vi.fn()}
             {...overrides}
           />
@@ -172,20 +171,20 @@ describe("TopBar", () => {
   });
 
   describe("universal center heading (260704-pr0p)", () => {
-    it("renders a static `Window:` prefix sibling OUTSIDE the rename button on terminal routes", () => {
+    it("renders a static contiguous `Window:` prefix sibling OUTSIDE the rename button on terminal routes", () => {
       renderTopBar();
       const heading = screen.getByRole("button", { name: "Rename window main" });
       // The prefix is a static `Window:` in every lens (260714-uco1 — the
       // lens-following `Terminal:`/`Web:`/`Chat:` prefix was retired; the lens
-      // is shown by the switcher's `View:` menu rows, not the heading). The hierarchy ▾ splits
-      // the prefix DOM between the word and its colon (`Window ▾:` — intake §3),
-      // so the word ("Window") and the colon (":") render as separate text runs
-      // rather than a single contiguous `Window:` node; assert the word run.
-      const prefix = screen.getByText("Window", { exact: true });
+      // is shown by the switcher's `View:` menu rows, not the heading).
+      // 260813-kvk7 removed the hierarchy ▾ that used to split the prefix DOM
+      // between the word and its colon (`Window ▾:`), so the prefix is now ONE
+      // contiguous swept run with the colon hugging the word.
+      const prefix = screen.getByText("Window:", { exact: true });
       expect(prefix).toBeInTheDocument();
-      // The hierarchy ▾ sits between the word and the colon, inside the prefix
-      // region (`Window ▾: name`).
-      expect(screen.getByLabelText("Switch hierarchy")).toBeInTheDocument();
+      // No caret element sits between the prefix word and its colon (or
+      // anywhere else in the heading).
+      expect(screen.queryByLabelText("Switch hierarchy")).not.toBeInTheDocument();
       // …but the prefix is NOT inside the rename button (clicking it must not
       // start an edit — the button binds only to the name).
       expect(heading).not.toContainElement(prefix);
@@ -207,12 +206,20 @@ describe("TopBar", () => {
       expect(screen.queryByRole("button", { name: /Rename/ })).not.toBeInTheDocument();
       // The ▾ board switcher relocated to the center beside the name.
       expect(screen.getByLabelText("Switch board")).toBeInTheDocument();
+      // 260813-kvk7: the prefix is one contiguous `Board:` run — the hierarchy
+      // caret that used to split it is gone.
+      expect(screen.getByText("Board:", { exact: true })).toBeInTheDocument();
+      expect(screen.queryByLabelText("Switch hierarchy")).not.toBeInTheDocument();
     });
 
     it("renders `tmux Server: <server>` display heading (no rename) in server mode", () => {
       renderTopBar({ mode: "server", currentWindow: null, windowName: "" });
       expect(screen.getByLabelText("tmux Server runkit")).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: /Rename/ })).not.toBeInTheDocument();
+      // 260813-kvk7: the prefix is one contiguous `tmux Server:` run — the
+      // hierarchy caret that used to split it is gone.
+      expect(screen.getByText("tmux Server:", { exact: true })).toBeInTheDocument();
+      expect(screen.queryByLabelText("Switch hierarchy")).not.toBeInTheDocument();
     });
 
     it("renders the solo `Host` word (no prefix, no name) in host mode", () => {
@@ -259,7 +266,7 @@ describe("TopBar", () => {
       });
       const button = screen.getByRole("button", { name: "Rename window main" });
       const wrapper = button.parentElement!;
-      const prefixWord = screen.getByText("Window", { exact: true });
+      const prefixWord = screen.getByText("Window:", { exact: true });
       // Structure: ONE wrapper span owns both the prefix and the name button —
       // it is the single hover owner for the sweep.
       expect(wrapper).toContainElement(prefixWord);
@@ -311,7 +318,7 @@ describe("TopBar", () => {
     });
   });
 
-  describe("history nav arrows + hierarchy dropdown (260714-uco1)", () => {
+  describe("history nav arrows (260714-uco1)", () => {
     beforeEach(() => {
       mockNavigate.mockReset();
       mockHistoryBack.mockReset();
@@ -326,6 +333,10 @@ describe("TopBar", () => {
       fireEvent.click(forward);
       expect(mockHistoryBack).toHaveBeenCalledTimes(1);
       expect(mockHistoryForward).toHaveBeenCalledTimes(1);
+      // 260813-kvk7: the hierarchy ▾ dropdown (ancestor navigation) is gone —
+      // it survives only in the palette's `Go:` entries (lib/palette-nav.ts).
+      expect(screen.queryByLabelText("Switch hierarchy")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("Navigate up")).not.toBeInTheDocument();
     });
 
     it("renders the history arrows on the host (solo) heading too — history is global", () => {
@@ -340,35 +351,8 @@ describe("TopBar", () => {
       });
       expect(screen.getByRole("button", { name: "Go back" })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Go forward" })).toBeInTheDocument();
-      // …but NO hierarchy ▾ on the root of the hierarchy.
+      // …and NO hierarchy ▾ anywhere (the component was removed by 260813-kvk7).
       expect(screen.queryByLabelText("Switch hierarchy")).not.toBeInTheDocument();
-    });
-
-    it("renders a hierarchy ▾ on the terminal route listing the ancestor chain (tmux Server → Host)", () => {
-      renderTopBar();
-      const trigger = screen.getByLabelText("Switch hierarchy");
-      expect(trigger).toBeInTheDocument();
-      fireEvent.click(trigger);
-      // Ancestors only — nearest-first — no window/lateral entries. The item
-      // label carries the `tmux Server:` type prefix (assumption #6).
-      expect(screen.getByRole("menuitem", { name: "tmux Server: runkit" })).toBeInTheDocument();
-      expect(screen.getByRole("menuitem", { name: "Host" })).toBeInTheDocument();
-    });
-
-    it("hierarchy ▾ navigates up when an ancestor is chosen (never enters rename)", () => {
-      renderTopBar();
-      fireEvent.click(screen.getByLabelText("Switch hierarchy"));
-      fireEvent.click(screen.getByRole("menuitem", { name: "tmux Server: runkit" }));
-      expect(mockNavigate).toHaveBeenCalledWith({ to: "/$server", params: { server: "runkit" } });
-      // The rename edit input never appeared.
-      expect(screen.queryByRole("textbox", { name: "Window name" })).not.toBeInTheDocument();
-    });
-
-    it("board/server hierarchy ▾ lists only Host (no tmux Server ancestor)", () => {
-      renderTopBar({ mode: "server", currentWindow: null, windowName: "" });
-      fireEvent.click(screen.getByLabelText("Switch hierarchy"));
-      expect(screen.getByRole("menuitem", { name: "Host" })).toBeInTheDocument();
-      expect(screen.queryByRole("menuitem", { name: /tmux Server/ })).not.toBeInTheDocument();
     });
   });
 
@@ -385,12 +369,15 @@ describe("TopBar", () => {
     renderTopBar();
     const brand = screen.getByLabelText("RunKit home");
     const serverCrumb = screen.getByText("runkit").closest("a");
-    const sessionSwitch = screen.getByLabelText("Switch session");
     const windowSwitch = screen.getByLabelText("Switch window");
+    // The session crumb is now a NON-interactive static chip (260813-kvk7) — a
+    // session has no navigation of its own, so it carries no Tip and no native
+    // title either.
+    const sessionChip = screen.getByText("run-kit");
     // Native `title=` is removed wherever Tip lands (never both, or the OS
     // bubble doubles the styled tip). Tooltip behavior itself is pinned once
     // in tip.test.tsx; here we assert the migration contract per crumb.
-    for (const el of [brand, serverCrumb, sessionSwitch, windowSwitch]) {
+    for (const el of [brand, serverCrumb, sessionChip, windowSwitch]) {
       expect(el).not.toHaveAttribute("title");
     }
     // Representative behavior check: keyboard focus opens the styled tier-1
@@ -732,22 +719,23 @@ describe("TopBar", () => {
     expect(screen.queryByText("Kill")).not.toBeInTheDocument();
   });
 
-  it("calls onCreateSession when + New Session dropdown action is clicked", () => {
-    const onCreateSession = vi.fn();
-    renderTopBar({ onCreateSession });
+  it("renders the session crumb as a static boxed chip — no caret, no menu (260813-kvk7)", () => {
+    renderTopBar();
 
-    // Open the session breadcrumb dropdown (session name is the trigger)
-    const sessionDropdown = screen.getByLabelText("Switch session");
-    fireEvent.click(sessionDropdown);
-
-    // Click the "+ New Session" action
-    const newSessionBtn = screen.getByText("+ New Session");
-    expect(newSessionBtn).toBeInTheDocument();
-    fireEvent.click(newSessionBtn);
-
-    expect(onCreateSession).toHaveBeenCalledTimes(1);
-    // Menu should close after action
-    expect(screen.queryByText("+ New Session")).not.toBeInTheDocument();
+    // The session BreadcrumbDropdown (switcher + "+ New Session") is gone:
+    // session switching lives in the sidebar rows and the palette, creation in
+    // the palette / sidebar server-header `+`. The crumb is a static chip.
+    const chip = screen.getByText("run-kit");
+    // Boxed chip styling (CRUMB_BOX_CLASS), matching the sibling crumbs' box.
+    expect(chip).toHaveClass("rounded", "border", "border-border");
+    // Non-interactive: a plain span — not a button, not a link, no ▾ caret.
+    expect(chip.tagName).toBe("SPAN");
+    expect(chip.closest("button, a")).toBeNull();
+    expect(chip).not.toHaveTextContent("▾");
+    expect(screen.queryByLabelText("Switch session")).not.toBeInTheDocument();
+    // Clicking it opens nothing.
+    fireEvent.click(chip);
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });
 
   it("calls onCreateWindow when + New Window dropdown action is clicked", () => {
@@ -1699,7 +1687,6 @@ describe("TopBar", () => {
                   server="runkit"
                   onNavigate={vi.fn()}
                   onToggleSidebar={vi.fn()}
-                  onCreateSession={vi.fn()}
                   onCreateWindow={vi.fn()}
                   {...overrides}
                 />

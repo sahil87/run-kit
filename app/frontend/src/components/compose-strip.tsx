@@ -678,15 +678,18 @@ export function ComposeStrip({
   /** Prevent mousedown from stealing focus away from the terminal/textarea. */
   const preventFocusSteal = (e: React.MouseEvent) => e.preventDefault();
 
-  // Per-button enablement (the old shared `canSend` split, 260802-lj98):
-  // Insert follows Enter's empty no-op — disabled with no text; Send mirrors
-  // its Cmd/Ctrl+Enter chord INCLUDING the empty case (an empty click sends a
-  // bare `\r` — "press Enter in the pane"), so it only needs a target. Button
-  // and chord diverging on empty would be a lying affordance.
+  // Per-button enablement (260802-lj98, revised 260813-kvk7): Insert and Send
+  // share ONE rule on a terminal target — no text → both disabled (the lit
+  // primary Send over an empty composer read as a broken affordance). The
+  // Cmd/Ctrl+Enter chord deliberately DIVERGES here: its empty-composer
+  // bare-`\r` send ("press Enter in the pane") stays — button state answers
+  // "is there text to send", the chord is a power-user pane keystroke.
+  // Selection-broadcast targets keep their own rule (text required, Insert
+  // always disabled there).
   const canInsert = !isSelectionTarget && hasTarget && text.trim() !== "";
   const canSubmit = isSelectionTarget
     ? text.trim() !== "" && !selectionSending
-    : hasTarget;
+    : hasTarget && text.trim() !== "";
 
   return (
     <div data-testid="compose-strip">

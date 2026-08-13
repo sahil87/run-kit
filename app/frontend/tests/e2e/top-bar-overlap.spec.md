@@ -7,8 +7,10 @@ painting over the centered `Window: <name>` heading. Specifically, it proves the
 degradation ladder — long crumbs truncate (the `min-w-0` chain unblocks the
 existing `truncate max-w-[16ch]`), the breadcrumb `<nav>` clips residual overflow
 (`overflow-hidden` + an explicit `min-w-[46px] sm:min-w-[150px]` floor), the
-server crumb hides below `md` and reappears at `md+` (the hierarchy ▾ covers its
-navigation), and the center heading is never compressed into overlap (the center
+server crumb hides below `md` and reappears at `md+` (below `md` the ancestor
+navigation paths are the palette's `Go: tmux Server` / `Go: Host` — the
+hierarchy ▾ that used to cover it was removed in 260813-kvk7), and the center
+heading is never compressed into overlap (the center
 grid track's `min-w-0` was removed so the `auto` column holds its content floor,
 with the `sm:min-w-[28ch]` inner anchor kept at `sm:`). The 375px mobile leaf and
 1024px+ desktop layouts are re-verified for no regression.
@@ -51,9 +53,10 @@ at this width.
 2. Assert the `Breadcrumb` nav and the `Rename window <long>` heading are visible.
 3. Compute both bounding boxes and assert they do NOT intersect (the overlap
    regression assertion).
-4. Locate the session crumb trigger (`BreadcrumbDropdown`, accessible name
-   "Switch session") and its inner name span (`min-w-0 truncate`); assert
-   `scrollWidth > clientWidth` on that span (the name is truncated to an
+4. Locate the session crumb — since 260813-kvk7 a NON-interactive static chip
+   (a plain span carrying `truncate max-w-[16ch]` and the session name; the
+   `Switch session` dropdown is gone) — and assert
+   `scrollWidth > clientWidth` on that chip (the name is truncated to an
    ellipsis, not shown at full width) while its text content is still the full
    session name (the ellipsis is visual only).
 5. Assert the nav's computed `overflow-x` is `hidden` — the clip backstop is
@@ -82,15 +85,13 @@ overflow at a benign width → floor too large).
 ### `the server crumb is hidden below `md` and visible at `md+``
 
 **What it proves:** The server-link crumb was demoted from `sm:` to `md:` — it is
-hidden in the 640–768px band (where it is the redundant first-to-give element,
-since the hierarchy ▾ covers tmux Server → Host navigation) and visible again
-at `md+`.
+hidden in the 640–768px band (where it is the redundant first-to-give element)
+and visible again at `md+`.
 
 **Steps:**
 1. Resolve the long-named window's id. Locate the server crumb by its
    `href="/${server}"` scoped to the breadcrumb nav (its accessible name is the
-   server text, so href disambiguates it from the brand link `/` and the
-   hierarchy ▾ menuitem).
+   server text, so href disambiguates it from the brand link `/`).
 2. Set a 700px viewport; navigate; assert the nav is visible and the server
    crumb is hidden (in the DOM but CSS-hidden via `hidden md:flex`).
 3. Set a 1024px viewport; assert the server crumb becomes visible.
@@ -107,7 +108,8 @@ page overflow (the layout the mobile budget already relied on).
    readiness on the heading, since the connection dot is `hidden sm:inline`).
 2. Assert the heading is visible.
 3. Assert the server crumb (`a[href="/${server}"]` in the nav) and the session
-   crumb ("Switch session") are both hidden.
+   crumb (the static chip span carrying the session name — no `Switch session`
+   button exists since 260813-kvk7) are both hidden.
 4. Assert `document.body.scrollWidth ≤ 375` (no horizontal overflow).
 5. Assert the header's rendered height is under 56px (a wrap would roughly
    double the ~39px single-line chrome).
@@ -127,31 +129,6 @@ stays anchored per 260714-uco1).
    assert its rendered width exceeds a conservative slack floor (>180px) —
    proving the `sm:` anchor is present and reserving width (not dropped to `md:`).
 
-### `the session-switcher dropdown opens fully visible and hit-testable at 700px (nav clip does not swallow it)` / `… at 1024px …`
-
-**What it proves:** The R2a regression guard (rework, review 260715). The nav's
-`overflow-hidden` backstop (R2) is a further-out ancestor of the session crumb's
-`BreadcrumbDropdown` menu. Before the fix the menu was `position: absolute`
-inside the clipped nav, so opening it (a) clipped the menu to the nav's
-single-line box and (b) the focus-on-open `scrollIntoView` dragged the whole nav
-content off-screen (the open menu landed at y≈-75, hit-test empty). The fix
-renders the menu `position: fixed` anchored to the trigger's viewport rect so it
-escapes the nav's clip context. This is the exact case the closed-trigger tests
-above missed — those only ever measured the crumb *trigger*, never an *open*
-menu. Run as a two-width loop (700px = mid-band, 1024px = desktop) so the guard
-covers both the pressured band and the roomy layout.
-
-**Steps:**
-1. Resolve the long-named window's id; set the viewport (700×800 or 1024×800);
-   navigate to the terminal route.
-2. Open the session switcher (click the ▾ crumb, accessible name "Switch
-   session" — it is `sm:flex`, so present at both widths).
-3. Assert the open `role="menu"` (name "Switch session") is visible and has a
-   real on-screen bounding box: non-zero width/height, top-left at ≥0 (NOT
-   scrolled off the top — the pre-fix symptom was y≈-75), and bottom/right
-   within the viewport.
-4. Assert hit-testability: `document.elementFromPoint` at the menu's center
-   resolves to a node CONTAINED by the menu (nothing clips or covers it).
-5. Assert the `+ New Session` action (a `menuitem`) is visible, has a real box,
-   and is itself hit-testable at its center (the switcher's primary affordance
-   is actually usable, not merely painted).
+*(The R2a session-switcher dropdown guard that used to close this file was
+removed with the dropdown itself in 260813-kvk7 — the session crumb is now a
+static chip, so the nav's clip context has no open menu left to swallow.)*

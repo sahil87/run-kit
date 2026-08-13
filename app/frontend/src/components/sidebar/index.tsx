@@ -13,7 +13,7 @@ import { useToast } from "@/components/toast";
 import { TypedLabel } from "@/components/typed-label";
 import { Tip, TipGroup } from "@/components/tip";
 import { SwatchPopover } from "@/components/swatch-popover";
-import { PaletteIcon } from "./icons";
+import { PaletteIcon, PlusIcon, CloseIcon } from "./icons";
 import { useTheme } from "@/contexts/theme-context";
 import { displayVersion } from "@/lib/palette-version";
 import { copyToClipboard } from "@/lib/clipboard";
@@ -34,6 +34,7 @@ import { useWindowPins } from "@/hooks/use-window-pins";
 import { useSessionsScope } from "@/hooks/use-sessions-scope";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
+import { useScrollEdgeFade } from "@/hooks/use-scroll-edge-fade";
 import { useChromeState } from "@/contexts/chrome-context";
 import { useActiveBoardName } from "@/hooks/use-active-board";
 import { useMergedSessions } from "@/contexts/optimistic-context";
@@ -912,6 +913,10 @@ export function Sidebar({
   // rest get `-1`. Threading only this single string into the memo'd groups
   // means an arrow press changes `tabIndex` on just the two affected rows.
   const treeRef = useRef<HTMLDivElement>(null);
+  // Scroll-edge fade (260813-kvk7): while the tree is scrollable AND not at
+  // its end, the bottom cut edge fades out (rk-scroll-fade-bottom mask) so
+  // partially-clipped rows read as "more below" instead of sliced glyphs.
+  const treeHasOverflowBelow = useScrollEdgeFade(treeRef);
   const [rovingKey, setRovingKey] = useState<string | null>(null);
 
   // Identity lookup for each roving row key. Built per-server inside each
@@ -1527,7 +1532,7 @@ export function Sidebar({
           aria-multiselectable="true"
           onKeyDownCapture={handleTreeKeyDownCapture}
           onKeyDown={handleTreeKeyDown}
-          className="flex-1 min-h-0 overflow-y-auto"
+          className={`flex-1 min-h-0 overflow-y-auto${treeHasOverflowBelow ? " rk-scroll-fade-bottom" : ""}`}
         >
           {(() => {
             if (servers.length === 0) {
@@ -2327,9 +2332,14 @@ function ServerGroupInner(props: ServerGroupProps) {
             (an inline color on the buttons themselves would beat any class).
             The palette is hover-revealed with the coarse touch fallback (the
             session-row convention — NOT the SERVER-tile mobile hide); + and ✕
-            are always visible, exactly like the session row's + ✕ pair. */}
+            are always visible, exactly like the session row's + ✕ pair.
+            260813-kvk7: the cluster adopts the session-row slot metrics
+            (session-row.tsx) — PlusIcon/CloseIcon SVGs in
+            px-0.5 min-w-[24px] coarse:min-w-[32px] min-h-[24px]
+            coarse:min-h-[36px] slots with the wrapper's pr-2 — so the +/×
+            icon columns align vertically across every sidebar header tier. */}
         <div
-          className={`flex items-stretch ${isCurrent ? "text-text-primary" : ""}`}
+          className={`flex items-center pr-2 ${isCurrent ? "text-text-primary" : ""}`}
           style={!isCurrent && headerAccent ? { color: headerAccent } : undefined}
         >
           {/* Tier-1 tips on the icon action cluster (260723-fm08): short
@@ -2342,7 +2352,7 @@ function ServerGroupInner(props: ServerGroupProps) {
               type="button"
               onClick={() => setShowColorPicker((v) => !v)}
               aria-label={`Set color for server ${server}`}
-              className="opacity-0 group-hover:opacity-100 coarse:opacity-100 focus-visible:opacity-100 transition-opacity px-1 flex items-center justify-center"
+              className="opacity-0 group-hover:opacity-100 coarse:opacity-100 focus-visible:opacity-100 transition-opacity px-0.5 min-w-[24px] coarse:min-w-[32px] min-h-[24px] coarse:min-h-[36px] flex items-center justify-center"
             >
               <PaletteIcon />
             </button>
@@ -2352,9 +2362,9 @@ function ServerGroupInner(props: ServerGroupProps) {
               type="button"
               onClick={() => onCreateSession(server)}
               aria-label={`New session on ${server}`}
-              className="hover:text-text-primary transition-colors text-[13px] px-1 flex items-center justify-center"
+              className="hover:text-text-primary transition-colors px-0.5 min-w-[24px] coarse:min-w-[32px] min-h-[24px] coarse:min-h-[36px] flex items-center justify-center"
             >
-              +
+              <PlusIcon />
             </button>
           </Tip>
           <Tip label="Kill server">
@@ -2362,9 +2372,9 @@ function ServerGroupInner(props: ServerGroupProps) {
               type="button"
               onClick={() => onKillServer(server)}
               aria-label={`Kill server ${server}`}
-              className="hover:text-signal-red transition-colors text-[13px] px-1 pr-1.5 sm:pr-2 flex items-center justify-center"
+              className="hover:text-signal-red transition-colors px-0.5 min-w-[24px] coarse:min-w-[32px] min-h-[24px] coarse:min-h-[36px] flex items-center justify-center"
             >
-              {"✕"}
+              <CloseIcon />
             </button>
           </Tip>
         </div>

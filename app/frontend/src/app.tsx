@@ -12,6 +12,10 @@ import {
   type SurfaceName,
 } from "@/lib/right-panel";
 import {
+  readLatchedCodeFolder,
+  writeLatchedCodeFolder,
+} from "@/lib/code-folder-latch";
+import {
   addSurface,
   closeSurface,
   hintLayout,
@@ -599,6 +603,23 @@ export function resolveServerView(
 }
 
 /**
+ * The window as the CODE surface sees it (260813-if5d): its `gitRoot` replaced
+ * by the window's latched code folder when one exists, the live derivation
+ * otherwise. One substitution point is what makes `hasCode`, `availableTiles`,
+ * `degradeLayout`, the tile render guard, `tileMeta`, and `codeServerSrc` all
+ * follow the latch while the pure lib modules stay DOM-free and unchanged: the
+ * latch is read where the storage identity (server, window id) lives and fed in
+ * as an ordinary window record. Unlatched windows pass through by identity, so
+ * the substitution adds no render churn before the first code open.
+ */
+export function withLatchedCodeFolder<T extends { gitRoot?: string }>(
+  win: T | null,
+  latch: string | undefined,
+): T | null {
+  return win && latch ? { ...win, gitRoot: latch } : win;
+}
+
+/**
  * How long a pending window switch may stay unconfirmed before the failure
  * bounce-back fires (260715-38kg). If neither an explicit `selectWindow` POST
  * rejection nor an SSE confirmation arrives within this window, the pending
@@ -652,6 +673,39 @@ function AppShell() {
   // snapshot (not the URL). Undefined until the snapshot resolves the window.
   const sessionName = currentSession?.name;
 
+  // Code-folder latch (260813-if5d; spec right-panel.md § The code lens): the
+  // code surface's folder is per-window LATCHED state, not the live SSE
+  // derivation — `gitRoot` follows the active pane's cwd, so a pane switch or a
+  // `cd` would otherwise retarget (or unmount) the embedded editor and lose its
+  // in-flight state. localStorage stays the source of truth and is read AT
+  // RENDER, keyed per (server, window id) — the `storedLayout` read below does
+  // the same. Deliberately not mirrored into state via an effect: an effect
+  // lands a frame late, so a window switch would render the PREVIOUS window's
+  // latch once, and the code iframe that mounts in that frame fixes its `src`
+  // for its whole mount generation — the stale folder would stick. The epoch
+  // bump is what re-reads after a write; `latchCodeFolder` is the only writer
+  // (the seed effect below at first open, then the editor's own navigation).
+  const [latchEpoch, setLatchEpoch] = useState(0);
+  const latchedCodeFolder = useMemo(
+    () => (windowParam ? readLatchedCodeFolder(server, windowParam) : undefined),
+    [server, windowParam, latchEpoch],
+  );
+  const latchCodeFolder = useCallback((folder: string) => {
+    if (!windowParam || folder.length === 0) return;
+    writeLatchedCodeFolder(server, windowParam, folder);
+    setLatchEpoch((n) => n + 1);
+  }, [server, windowParam]);
+  // The live backend derivation (active pane's cwd walked to its repo root). Its
+  // ONLY remaining job is seeding the latch — nothing renders from it.
+  const derivedGitRoot = currentWindow?.gitRoot ?? "";
+  // The window every code-availability/render consumer below sees (§
+  // withLatchedCodeFolder): latched folder when latched, live derivation as the
+  // seed otherwise.
+  const effectiveWindow = useMemo(
+    () => withLatchedCodeFolder(currentWindow, latchedCodeFolder),
+    [currentWindow, latchedCodeFolder],
+  );
+
   // Surface-layout state (260812-ab5v-surface-layout-core; spec
   // surface-layout.md L1–L3). The terminal route's center is a LAYOUT of 1–3
   // surface tiles; the retired `?view=`/`?panel=` params feed a permanent
@@ -673,8 +727,8 @@ function AppShell() {
   // signal yet (treated as not-running until the first event lands).
   const codeServer = useCodeServer();
   const currentViews = useMemo(
-    () => availableViews(currentWindow),
-    [currentWindow],
+    () => availableViews(effectiveWindow),
+    [effectiveWindow],
   );
 
   // The URL's EFFECTIVE layout candidate: a carried `?layout=` wins; absent
@@ -683,8 +737,8 @@ function AppShell() {
   const searchLayout = search.layout ?? translateLegacyParams(searchView, searchPanel);
   const storedLayout = windowParam ? readStoredLayout(server, windowParam) : undefined;
   const layout = useMemo(
-    () => resolveLayout(searchLayout, storedLayout, currentWindow),
-    [searchLayout, storedLayout, currentWindow],
+    () => resolveLayout(searchLayout, storedLayout, effectiveWindow),
+    [searchLayout, storedLayout, effectiveWindow],
   );
   const serializedLayout = serializeLayout(layout);
   // The lens model's consumers (view-cycle chord, palette `View:` actions)
@@ -700,6 +754,20 @@ function AppShell() {
   useEffect(() => {
     if (windowParam) seedLayoutFromLegacy(server, windowParam);
   }, [server, windowParam]);
+
+  // Seed rule (if5d R2): the first time the code surface actually renders for a
+  // window, the LIVE derivation latches — and derivation never moves the editor
+  // again (not on a pane switch, not on tile close/reopen, not on reload). Keyed
+  // on the resolved layout's order, the choke point every entry path (view
+  // switcher, rail toggle, `?view=code`/`?layout=` deep link, mobile sheet)
+  // resolves through — never on availability alone: a code lens that is merely
+  // OFFERED seeds nothing. An empty derivation seeds nothing either, so a window
+  // that was never inside a repo behaves exactly as it did before the latch.
+  const codeTileOpen = layout.order.includes("code");
+  useEffect(() => {
+    if (latchedCodeFolder || !codeTileOpen) return;
+    latchCodeFolder(derivedGitRoot);
+  }, [latchedCodeFolder, codeTileOpen, derivedGitRoot, latchCodeFolder]);
 
   // Mirror the APPLIED layout into the URL via replaceState (L2 — never
   // pushState for layout changes), so the address bar is at all times a valid
@@ -719,13 +787,16 @@ function AppShell() {
   // post-seed so a just-migrated legacy window mirrors its SEEDED layout, not
   // the pre-seed fallback. localStorage is deliberately NOT written here —
   // arrival via a carried `?layout=` is not a user mutation (L3).
+  // Resolves against the LATCHED window (if5d) for the same reason the render
+  // does: keying the mirror off the live derivation would degrade a latched code
+  // tile away and rewrite the URL the moment the active pane left the repo.
   useEffect(() => {
-    if (!windowParam || !currentWindow) return;
+    if (!windowParam || !effectiveWindow) return;
     const target = serializeLayout(
-      resolveLayout(searchLayout, readStoredLayout(server, windowParam), currentWindow),
+      resolveLayout(searchLayout, readStoredLayout(server, windowParam), effectiveWindow),
     );
     const desired =
-      target === serializeLayout(hintLayout(currentWindow)) ? undefined : target;
+      target === serializeLayout(hintLayout(effectiveWindow)) ? undefined : target;
     if (search.layout === desired) return;
     navigate({
       to: "/$server/$window",
@@ -733,7 +804,7 @@ function AppShell() {
       search: desired ? { layout: desired } : {},
       replace: true,
     });
-  }, [server, windowParam, currentWindow, search.layout, searchLayout, navigate]);
+  }, [server, windowParam, effectiveWindow, search.layout, searchLayout, navigate]);
 
   // The ONE mutation path (R3 write discipline — user-initiated mutations
   // only): persist per-window in localStorage AND mirror the URL via
@@ -797,8 +868,8 @@ function AppShell() {
   // The surfaces the current window can tile (`tty` first — R8's shared
   // registry), consumed by the rail and the palette gating.
   const panelSurfaces = useMemo(
-    () => availableSurfaces(currentWindow),
-    [currentWindow],
+    () => availableSurfaces(effectiveWindow),
+    [effectiveWindow],
   );
 
   // ⏶ Zoom palette seam (T012/R11): the zoom itself is SurfaceLayout-internal
@@ -1735,7 +1806,14 @@ function AppShell() {
                   readStoredPanel(server, fw.window.windowId),
                 ),
               undefined,
-              fw.window,
+              // Latched (if5d) like the current window's own resolution: a
+              // window whose code folder is latched still resolves code-led
+              // after its active pane leaves the repo, so the classification
+              // matches what the target will actually render.
+              withLatchedCodeFolder(
+                fw.window,
+                readLatchedCodeFolder(server, fw.window.windowId),
+              ),
             ).order[0] !== "tty",
         )
         .map((fw) => fw.window.windowId),
@@ -3526,7 +3604,10 @@ function AppShell() {
               server={server}
               windowId={windowParam}
               sessionName={sessionName ?? ""}
-              window={currentWindow}
+              // The LATCHED window (if5d): the code tile's render guard, its
+              // header basename, and CodeSurface's `src` all read `gitRoot` from
+              // here, so none of them can follow the terminal.
+              window={effectiveWindow}
               isMobile={isMobile}
               // T014: on mobile the sheet tabs pick which slot renders
               // (transient — the layout itself is untouched).
@@ -3550,6 +3631,9 @@ function AppShell() {
                 busy: currentWindow?.agentState === "active",
               }}
               codeReachable={codeServer?.reachable ?? false}
+              // Follow rule (if5d R3): after the seed, the editor's own
+              // navigation is the ONLY writer of the latch.
+              onCodeFolderNavigated={latchCodeFolder}
               shouldReclaimChord={reclaimChord}
               // The web tile's `>_` affordance keeps the legacy "switch to
               // terminal" behavior: collapse to `single:tty`.

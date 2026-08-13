@@ -64,6 +64,7 @@ type LayoutOverrides = {
   onSplitPane?: (horizontal: boolean) => void;
   onClosePane?: () => void;
   onRatioCommit?: () => void;
+  onCodeFolderNavigated?: (folder: string) => void;
   zoomToggleRef?: { current: (() => void) | null };
   onZoomChange?: (zoomed: boolean) => void;
   onFocusedKindChange?: (kind: SurfaceKind) => void;
@@ -118,6 +119,7 @@ function layoutElement(overrides: LayoutOverrides = {}) {
       onSplitPane={overrides.onSplitPane ?? vi.fn()}
       onClosePane={overrides.onClosePane ?? vi.fn()}
       onRatioCommit={overrides.onRatioCommit}
+      onCodeFolderNavigated={overrides.onCodeFolderNavigated}
       zoomToggleRef={overrides.zoomToggleRef}
       onZoomChange={overrides.onZoomChange}
       onFocusedKindChange={overrides.onFocusedKindChange}
@@ -346,6 +348,41 @@ describe("SurfaceLayout zoom", () => {
     expect(zoom.className).not.toContain("text-accent-green");
     expect(screen.getByRole("button", { name: "Promote Code" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Swap Code" })).toBeTruthy();
+  });
+});
+
+describe("SurfaceLayout code tile folder (260813-if5d)", () => {
+  it("renders the tile body and header basename from the window's folder (the latch)", () => {
+    // The parent hands down the LATCHED folder as `gitRoot`; the tile can no
+    // longer see the live derivation, so a pane switch cannot reach these.
+    renderLayout({
+      layout: { shape: "split-h", order: ["tty", "code"] },
+      window: { gitRoot: "/home/user/latched" },
+    });
+    expect(screen.getByTestId("mock-code")).toBeTruthy();
+    expect(codeSpy.mock.calls.at(-1)?.[0]?.gitRoot).toBe("/home/user/latched");
+    expect(screen.getByTestId("surface-tile-code").textContent).toContain("latched");
+  });
+
+  it("renders no code body (and no meta) when the window carries no folder", () => {
+    // Never latched AND nothing derivable — exactly the pre-latch behavior.
+    renderLayout({
+      layout: { shape: "split-h", order: ["tty", "code"] },
+      window: { gitRoot: "" },
+    });
+    expect(screen.queryByTestId("mock-code")).toBeNull();
+  });
+
+  it("passes onCodeFolderNavigated straight through to the code tile", () => {
+    const onCodeFolderNavigated = vi.fn();
+    renderLayout({
+      layout: { shape: "split-h", order: ["tty", "code"] },
+      onCodeFolderNavigated,
+    });
+    const reported = codeSpy.mock.calls.at(-1)?.[0]?.onFolderNavigated;
+    expect(typeof reported).toBe("function");
+    reported("/home/user/other");
+    expect(onCodeFolderNavigated).toHaveBeenCalledWith("/home/user/other");
   });
 });
 

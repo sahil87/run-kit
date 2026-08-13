@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { CommandPalette, type PaletteAction } from "@/components/command-palette";
-import { resolveServerView } from "@/app";
+import { resolveServerView, withLatchedCodeFolder } from "@/app";
+import { availableViews, hasCode } from "@/lib/window-view";
 import type { ServerInfo } from "@/api/client";
 
 // `@/app` transitively imports terminal-client → @xterm/addon-unicode-graphemes,
@@ -541,6 +542,45 @@ describe("resolveServerView — three-way route guard", () => {
   it("does NOT return 'not-found' for an unknown non-pending name before the first fetch resolves", () => {
     expect(resolveServerView("typo", [], null, false)).toBe("view");
     expect(resolveServerView("typo", srv("alpha"), null, false)).toBe("view");
+  });
+});
+
+/**
+ * `withLatchedCodeFolder` is the one substitution point behind the code-folder
+ * latch (260813-if5d): every code-availability and code-render consumer in
+ * AppShell reads `gitRoot` from the window it returns, so the latch — not the
+ * live per-tick derivation — decides what the editor shows and whether the lens
+ * is offered at all.
+ */
+describe("withLatchedCodeFolder — the latch substitution seam", () => {
+  it("substitutes the latched folder for the live derivation", () => {
+    const win = { gitRoot: "/home/user/derived", rkUrl: "http://localhost:8080" };
+    expect(withLatchedCodeFolder(win, "/home/user/latched")).toEqual({
+      gitRoot: "/home/user/latched",
+      rkUrl: "http://localhost:8080",
+    });
+  });
+
+  it("keeps the code lens available when the live derivation went empty (the pane-switch case)", () => {
+    // The intake's screenshot scenario: the active pane leaves the repo, so the
+    // next SSE tick derives "". The latch is what stops the strobe.
+    const win = { gitRoot: "" };
+    expect(hasCode(win)).toBe(false);
+    expect(hasCode(withLatchedCodeFolder(win, "/home/user/latched"))).toBe(true);
+    expect(availableViews(withLatchedCodeFolder(win, "/home/user/latched"))).toEqual([
+      "code",
+      "tty",
+    ]);
+  });
+
+  it("passes an unlatched window through by identity (no render churn pre-latch)", () => {
+    const win = { gitRoot: "/home/user/derived" };
+    expect(withLatchedCodeFolder(win, undefined)).toBe(win);
+  });
+
+  it("tolerates a null window (pre-snapshot frames)", () => {
+    expect(withLatchedCodeFolder(null, "/home/user/latched")).toBeNull();
+    expect(withLatchedCodeFolder(null, undefined)).toBeNull();
   });
 });
 

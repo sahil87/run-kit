@@ -84,7 +84,7 @@ Both needs share one substrate: a collapsed-by-default right panel.
 | Surface | Substrate | Lens | Available when |
 |---------|-----------|------|----------------|
 | `web` | current window | `web` | `@rk_url` set — same capability signal as the view registry row |
-| `code` | current window | `code` (new lens, below) | git root derivable from the active pane's cwd — the ONE stable capability signal (since `260811-a2bo` the code-server endpoint always resolves by convention: preset `RK_CODE_SERVER_PORT`, else `RK_PORT+2`). **Availability is the STABLE capability signal only** — code-server *reachability* never gates the button/segment (it would strobe the rail); reachability selects the surface's CONTENT instead: live iframe when up, the portless "code-server not running — check rk doctor" empty state when down (amended 2026-08-11, change `260811-k3vp`; port dropped by `260811-a2bo`) |
+| `code` | current window | `code` (new lens, below) | the window's code folder is **LATCHED, or** a git root is derivable from the active pane's cwd (since `260811-a2bo` the code-server endpoint always resolves by convention: preset `RK_CODE_SERVER_PORT`, else `RK_PORT+2`). The latch is what makes availability STABLE: derivation seeds it once, at first open, so a window that has ever opened the code surface keeps offering it even after its active pane leaves the repo — the rail button, the switcher segment, and `?view=code`/`?layout=` deep links no longer strobe with the terminal's cwd (see § The `code` lens). **Availability is the STABLE capability signal only** — code-server *reachability* never gates the button/segment (it would strobe the rail); reachability selects the surface's CONTENT instead: live iframe when up, the portless "code-server not running — check rk doctor" empty state when down (amended 2026-08-11, change `260811-k3vp`; port dropped by `260811-a2bo`; latch added 2026-08-13, change `260813-if5d`) |
 | `agents` | companion window | `tty` | a window with `@rk_owner=<this window's id>` exists |
 
 ### The `code` lens (new view-registry row)
@@ -93,12 +93,32 @@ Both needs share one substrate: a collapsed-by-default right panel.
 full lens — so it is also reachable in the **main** slot via `?view=code` and
 the shared switcher; the panel is merely its natural home.
 
-- **Renderer**: iframe of code-server at `?folder=<git root>`, same-origin via
-  the stable relative `/code/` route (`260811-a2bo` — the port is a
-  server-side implementation detail and never appears in a URL).
+- **Renderer**: iframe of code-server at `?folder=<latched folder>`,
+  same-origin via the stable relative `/code/` route (`260811-a2bo` — the port
+  is a server-side implementation detail and never appears in a URL).
 - **Keyed by git root, not window id and not raw cwd** — editor state follows
   the code; agents `cd` constantly; two windows on one worktree deliberately
-  share one editor state.
+  share one editor state. **The folder is LATCHED, not tracked** (`260813-if5d`):
+  derivation runs exactly once, the first time the code surface actually renders
+  for a window, and seeds a per-window latch; from then on the ONLY thing that
+  moves it is the editor's own navigation (File > Open Folder performs a full
+  workbench navigation, which the parent reads off the same-origin frame's
+  `?folder=` on `load` and writes back to the latch). The terminal never moves
+  the editor — not on a pane switch, not on a `cd`, not on tile close/reopen,
+  not on reload. That is precisely because agents `cd` constantly: a live
+  derivation would take the editor's open tabs, dirty buffers, and undo stack
+  with it. An empty derivation seeds nothing (a window never inside a repo
+  behaves exactly as it did before the latch), and a mounted iframe is never
+  re-navigated by the parent — the latch fixes the `src` at MOUNT time only (P3).
+  - **Storage**: per-viewer localStorage, keyed per (server, window id) — the
+    `runkit-window-view` convention. Per-browser divergence is consistent with
+    code-server's own tabs/layout state (Open Question 2); a window id remapped
+    by a snapshot restore orphans its key, which simply re-seeds on the next
+    open. A tmux window option (`@rk_code_folder`) as a cross-viewer store is a
+    deliberately deferred upgrade path.
+  - **A stale latch is accepted**: a latch pointing at a deleted worktree renders
+    code-server's own "folder does not exist" state; the escape is File > Open
+    Folder, which re-latches. No liveness probe, no reset verb, no palette entry.
 - **Persistence is split across four stores** (researched 2026-08-11):
   settings/keybindings and hot-exit unsaved buffers live on the **server**
   (user-data-dir — dirty buffers survive reload and even a browser switch);

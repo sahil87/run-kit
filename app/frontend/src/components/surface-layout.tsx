@@ -132,6 +132,10 @@ interface SurfaceLayoutProps {
   /** Host code-server reachability — selects the code tile's CONTENT (live
    *  iframe vs not-running empty state), never availability. */
   codeReachable: boolean;
+  /** Follow-the-editor passthrough (260813-if5d R3): handed straight to the code
+   *  tile's `CodeSurface`, which reports the folder the EDITOR navigated itself
+   *  to. The parent latches it — this component only carries the prop. */
+  onCodeFolderNavigated?: (folder: string) => void;
   shouldReclaimChord?: (e: KeyboardEvent) => boolean;
   /** The web tile's `>_` affordance — "switch to terminal" (single:tty). */
   onSwitchToTty: () => void;
@@ -348,8 +352,10 @@ function dividerSpecs(shape: LayoutShape, ratios: LayoutRatios): DividerSpec[] {
   }
 }
 
-/** Small header meta (R7): the git root's basename for code, the `@rk_url`
- *  host for web. Anything unparseable degrades to no meta. */
+/** Small header meta (R7): the code folder's basename for code, the `@rk_url`
+ *  host for web. Anything unparseable degrades to no meta. `gitRoot` arrives
+ *  LATCHED (260813-if5d), so the header names the folder the editor is actually
+ *  in — never the pane the terminal happens to sit in. */
 function tileMeta(kind: SurfaceKind, win: ViewWindow | null): string | null {
   if (kind === "code" && win?.gitRoot) {
     const parts = win.gitRoot.split("/").filter(Boolean);
@@ -379,6 +385,7 @@ export function SurfaceLayout({
   onSessionNotFound,
   chat,
   codeReachable,
+  onCodeFolderNavigated,
   shouldReclaimChord,
   onSwitchToTty,
   onPromote,
@@ -605,12 +612,16 @@ export function SurfaceLayout({
           />
         ) : null;
       case "code":
+        // `win.gitRoot` is the window's LATCHED code folder (260813-if5d — the
+        // parent substitutes it), so a pane switch can neither null this tile
+        // nor retarget the editor; the live derivation only ever seeded it.
         return win?.gitRoot ? (
           <CodeSurface
             gitRoot={win.gitRoot}
             reachable={codeReachable}
             shouldReclaimChord={shouldReclaimChord}
             onInteract={slot >= 0 ? () => focusSlot(slot) : undefined}
+            onFolderNavigated={onCodeFolderNavigated}
           />
         ) : null;
       case "chat":

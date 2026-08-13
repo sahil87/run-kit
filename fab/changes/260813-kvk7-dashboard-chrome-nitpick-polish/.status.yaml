@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 12
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-08-13T19:14:12Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-13T20:21:40Z"}
     review: {started_at: "2026-08-13T20:21:40Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-13T20:48:29Z"}
     hydrate: {started_at: "2026-08-13T20:48:29Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-13T21:05:17Z"}
-    ship: {started_at: "2026-08-13T21:05:17Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-08-13T21:05:17Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-13T21:07:49Z"}
+    review-pr: {started_at: "2026-08-13T21:07:49Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/590
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 945
+    deleted: 539
+    net: 406
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 461
+        deleted: 505
+        net: -44
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-08-13T21:05:17Z"
-    computed_at_stage: hydrate
+        added: 147
+        deleted: 161
+        net: -14
+    computed_at: "2026-08-13T21:07:49Z"
+    computed_at_stage: ship
 summary: 'Top-bar: single-caret PageType: name headings (hierarchy dropdown gone), static session chip; compose Send disabled on empty (chord unchanged); sidebar scroll-edge fade + unified header icon metrics'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-13T21:05:17Z
+last_updated: 2026-08-13T21:07:49Z

@@ -127,14 +127,15 @@ attribute.
 
 **What it proves:** A This-host edit round-trips through the live backend:
 committing the Instance name input POSTs `/api/settings/instance-name`, the
-stored setting reflects the value, the HOST panel hostname line prefers the
-override live (no reload), and clearing the field clears the setting.
+stored setting reflects the value, the status bar's host segment prefers the
+override live (no reload — the desktop hostname home since the HOST panel went
+drawer-only, 260814-ldbs), and clearing the field clears the setting.
 
 **Steps:**
 
 1. Navigate to `/rk-test-e2e`; open the dialog via the top-bar gear.
 2. Fill the Instance name input with the unique test name; press Enter.
 3. Poll `GET /api/settings/instance-name` until it returns the test name.
-4. Assert the sidebar (HOST panel hostname line) shows the test name.
+4. Assert the status bar's host segment (`status-bar-host`) shows the test name.
 5. Clear the input; press Enter.
 6. Poll `GET /api/settings/instance-name` until it returns `null`.

@@ -33,13 +33,14 @@ uniform (one distinct width×height across all chips) and every chip meets the
    (failure message lists every chip's label and size).
 4. Assert each chip's width and height is `≥ 36`.
 
-### `all chips share one size at mobile width`
+### `the bar does not render at mobile width`
 
-**What it proves:** The fine-pointer branch of the pointer split (33×35 chips)
-is just as uniform — a chip that hardcodes its own size diverges here even if
-the coarse branch happens to match.
+**What it proves:** The fine-pointer half of the pointer split is now the
+bar's absence (260814-ldbs R3): on a fine pointer the bar is gated out of
+existence at ANY width — mobile width included, since a narrow fine-pointer
+window still has a hardware keyboard. Chip sizing is exercised only in the
+touch describe above, where the bar exists.
 
 **Steps:**
 1. Navigate to `/${TMUX_SERVER}` at 375×812 (no touch emulation).
-2. Collect the size of every button in the `Terminal keys` toolbar.
-3. Assert the set of distinct `width×height` values has exactly one entry.
+2. Assert the `Terminal keys` toolbar has count 0.

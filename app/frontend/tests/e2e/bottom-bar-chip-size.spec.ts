@@ -68,13 +68,15 @@ test.describe("Bottom bar chip size — touch device", () => {
 test.describe("Bottom bar chip size — fine pointer", () => {
   test.use({ viewport: MOBILE_VIEWPORT });
 
-  test("all chips share one size at mobile width", async ({ page }) => {
+  // 260814-ldbs R3: the bar is pointer-gated out of existence on FINE
+  // pointers — at ANY width, mobile included (a narrow fine-pointer window
+  // has a hardware keyboard; the chips are key-simulation affordances).
+  // The former same-size measurement now lives only in the touch describe.
+  test("the bar does not render at mobile width", async ({ page }) => {
     await page.goto(`/${TMUX_SERVER}`);
-    const sizes = await collectChipSizes(page);
-
-    expect(
-      distinctSizes(sizes),
-      `chips diverge: ${JSON.stringify(sizes)}`,
-    ).toHaveLength(1);
+    await page.waitForLoadState("domcontentloaded");
+    await expect(
+      page.getByRole("toolbar", { name: "Terminal keys" }),
+    ).toHaveCount(0);
   });
 });

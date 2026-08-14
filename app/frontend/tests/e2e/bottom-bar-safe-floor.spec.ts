@@ -47,11 +47,16 @@ test.describe("Bottom bar safe floor — touch device", () => {
 test.describe("Bottom bar safe floor — fine pointer", () => {
   test.use({ viewport: MOBILE_VIEWPORT });
 
-  test("floor stays 6px with and without kb-open", async ({ page }) => {
+  // 260814-ldbs R3: the bar is pointer-gated out of existence on FINE
+  // pointers at any width, so there is no floor to measure — the safe-floor
+  // rules are exercised only where the bar exists (the touch describe above).
+  test("the bar does not render, kb-open or not", async ({ page }) => {
     await page.goto(`/${TMUX_SERVER}`);
-    expect(await toolbarPaddingBottom(page)).toBe(BASE_FLOOR);
+    await page.waitForLoadState("domcontentloaded");
+    const toolbar = page.getByRole("toolbar", { name: "Terminal keys" });
+    await expect(toolbar).toHaveCount(0);
 
     await page.evaluate(() => document.documentElement.classList.add("kb-open"));
-    expect(await toolbarPaddingBottom(page)).toBe(BASE_FLOOR);
+    await expect(toolbar).toHaveCount(0);
   });
 });

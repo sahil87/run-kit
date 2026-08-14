@@ -63,10 +63,13 @@ export function RightPanel({ available, open, onToggle }: RightPanelProps) {
   return (
     <div
       data-testid="right-panel-rail"
-      // 52px = 28px button + 12px inset each side: centering the w-7 buttons
-      // makes their right edge co-linear with the top-bar chips above (which
-      // sit 12px from the window edge) — one vertical seam down the right side.
-      className="w-[52px] shrink-0 border-l border-border flex flex-col items-center py-1 gap-1"
+      // The rail is the top-bar cluster's vertical twin, so it maps the bar's
+      // spacing vocabulary axis-for-axis: 52px = 28px button + 12px inset each
+      // side (centering the w-7 buttons puts their right edge co-linear with
+      // the top-bar chips, which sit 12px from the window edge — one vertical
+      // seam down the right side); gap-3 = the bar's 12px inter-chip gap; and
+      // py-2 = the 8px the bar's chips keep from its own top/bottom edges.
+      className="w-[52px] shrink-0 border-l border-border flex flex-col items-center py-2 gap-3"
     >
       {shown.map((surface) => {
         const isOpen = open.includes(surface);

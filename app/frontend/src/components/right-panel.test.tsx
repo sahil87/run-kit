@@ -47,11 +47,11 @@ describe("RightPanel rail — open-tile toggles (R10)", () => {
 
   it("renders icon glyphs with the surface names as aria-labels (`<Label> tile`)", () => {
     renderRail({ available: ["tty", "web", "chat", "code"] });
-    // Icon glyphs (R10's user-requested fold-in): `>_` tty, `⧉` web, `{}` code
+    // Icon glyphs (R10's user-requested fold-in): `>_` tty, `://` web, `{}` code
     // — the text labels moved to the accessible names + tooltips. `chat` (⌸)
     // is demoted out of the rail by SURFACE_RAIL_HIDDEN (260812-0c6o).
     expect(screen.getByRole("button", { name: "Terminal tile" }).textContent).toContain(">_");
-    expect(screen.getByRole("button", { name: "Web tile" }).textContent).toContain("⧉");
+    expect(screen.getByRole("button", { name: "Web tile" }).textContent).toContain("://");
     expect(screen.queryByRole("button", { name: "Chat tile" })).toBeNull();
     expect(screen.getByRole("button", { name: "Code tile" }).textContent).toContain("{}");
     // Availability dot (P4) still rides every button.

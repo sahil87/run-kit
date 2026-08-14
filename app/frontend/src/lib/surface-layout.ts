@@ -132,12 +132,12 @@ export const SHAPE_LABEL: Record<LayoutShape, string> = {
 
 /**
  * Rail/sheet icon glyphs (R10 — icons replace the rail's text labels; the
- * intake's approved set): `>_` tty, `⧉` web, `⌸` chat, `{}` code. Pure data
+ * intake's approved set): `>_` tty, `://` web, `⌸` chat, `{}` code. Pure data
  * shared by the rail and the mobile sheet tabs.
  */
 export const SURFACE_GLYPH: Record<SurfaceKind, string> = {
   tty: ">_",
-  web: "⧉",
+  web: "://",
   chat: "⌸",
   code: "{}",
 };

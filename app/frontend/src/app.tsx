@@ -60,6 +60,7 @@ import { buildServerKillActions } from "@/lib/palette-server-kill";
 import { buildShellServerActions } from "@/lib/palette-shell";
 import { isShell, switchShellServer } from "@/lib/shell";
 import { ShellTitlebarStrip } from "@/components/shell-titlebar-strip";
+import { ShellAccentReporter } from "@/components/shell-accent-reporter";
 import { ShellBadgeReporter } from "@/components/shell-badge-reporter";
 import { useShellServers } from "@/hooks/use-shell-servers";
 import { readLastPinnedBoard } from "@/lib/last-pinned-board";
@@ -314,6 +315,7 @@ function AppLayoutContent() {
           sibling ABOVE it, not a merge. */}
       {isShell() && <ShellTitlebarStrip />}
       {isShell() && <ShellBadgeReporter />}
+      {isShell() && <ShellAccentReporter />}
       {/* Plain `div`, not `header`: `TopBar` already renders its own `<header>`
           (the banner landmark), so wrapping it in a second `<header>` would
           nest two `role="banner"` landmarks. This wrapper only owns the

@@ -13,6 +13,7 @@ import {
   addHost,
   findHostByOrigin,
   hostInfos,
+  isHostAccentHex,
   loadHosts,
   moveHost,
   normalizeOrigin,
@@ -471,6 +472,26 @@ test("moveHost with an unknown id or a same-index move writes nothing", () => {
   assert.equal(readFileSync(join(dir, "hosts.json"), "utf8"), before);
   assert.deepEqual(moveHost(dir, a.host.id, 0).hosts, b.list.hosts);
   assert.equal(readFileSync(join(dir, "hosts.json"), "utf8"), before);
+});
+
+test("isHostAccentHex accepts exactly the strict #RGB/#RRGGBB/#RRGGBBAA shapes", () => {
+  for (const good of ["#fff", "#8b7ff0", "#8B7FF0", "#8b7ff0cc"]) {
+    assert.equal(isHostAccentHex(good), true, good);
+  }
+  for (const bad of [
+    "",
+    "8b7ff0",
+    "#8b7f",
+    "#8b7ff", // 5 digits
+    "#8b7ff0c", // 7 digits
+    "#gggggg",
+    " #8b7ff0",
+    "#8b7ff0 ",
+    "javascript:alert(1)",
+    "rgb(1,2,3)",
+  ]) {
+    assert.equal(isHostAccentHex(bad), false, bad);
+  }
 });
 
 test("hostInfos carries accentColor when the entry has one (and never fills waiting)", () => {

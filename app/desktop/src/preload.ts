@@ -15,6 +15,10 @@
  *   - `badge`: the SPA's waiting-agent-count report (`badge:set`) driving the
  *     dock/taskbar badge. Gated exactly like `servers:*` (registered host
  *     origins + welcome) main-side; payloads are validated in main.
+ *   - `accent`: the SPA's raw instance-accent report (`accent:set`, a strict
+ *     hex string) persisted per host for the switcher's edge bars — the
+ *     full-strength color the theme-color meta's 35% titlebar blend cannot
+ *     carry. Gated and validated exactly like `badge:*` main-side.
  *   - `__welcome`: IPC invokers used by the welcome page only. They are
  *     exposed everywhere but privileged NOWHERE except the welcome page —
  *     every `welcome:*` handler in main.ts verifies `event.senderFrame.url`
@@ -53,6 +57,9 @@ contextBridge.exposeInMainWorld("runkitShell", {
   },
   badge: {
     set: (count: number): Promise<unknown> => ipcRenderer.invoke("badge:set", count),
+  },
+  accent: {
+    set: (hex: string): Promise<unknown> => ipcRenderer.invoke("accent:set", hex),
   },
   __welcome: {
     testHost: (url: string): Promise<unknown> =>

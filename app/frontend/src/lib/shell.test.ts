@@ -6,6 +6,7 @@ import {
   isShell,
   listShellServers,
   reorderShellHosts,
+  setShellAccent,
   setShellBadge,
   shellInfo,
   switchShellServer,
@@ -255,6 +256,54 @@ describe("setShellBadge", () => {
       badge: { set: () => Promise.reject(new Error("ipc gone")) },
     };
     expect(await setShellBadge(1)).toBe(false);
+  });
+});
+
+// The accent group rides the same runtime-injected bridge as badge (its
+// structural twin): setShellAccent must pass the hex through on a well-formed
+// ack and degrade to false everywhere else.
+
+describe("setShellAccent", () => {
+  it("resolves true on an { ok: true } ack and passes the hex through", async () => {
+    let seen: string | null = null;
+    window.runkitShell = {
+      version: "1.2.3",
+      platform: "darwin",
+      accent: {
+        set: (hex: string) => {
+          seen = hex;
+          return Promise.resolve({ ok: true });
+        },
+      },
+    };
+    expect(await setShellAccent("#8b7ff0")).toBe(true);
+    expect(seen).toBe("#8b7ff0");
+  });
+
+  it("resolves false in a plain browser and on a shell without the accent group", async () => {
+    expect(await setShellAccent("#8b7ff0")).toBe(false);
+    window.runkitShell = { version: "1.2.3", platform: "darwin" };
+    expect(await setShellAccent("#8b7ff0")).toBe(false);
+  });
+
+  it("resolves false when the group member is not a function", async () => {
+    window.runkitShell = { version: "1.2.3", platform: "darwin", accent: { set: "nope" } };
+    expect(await setShellAccent("#8b7ff0")).toBe(false);
+  });
+
+  it("resolves false on a denied result and on a rejected invoke", async () => {
+    window.runkitShell = {
+      version: "1.2.3",
+      platform: "darwin",
+      accent: { set: () => Promise.resolve({ ok: false, error: "Not allowed" }) },
+    };
+    expect(await setShellAccent("#8b7ff0")).toBe(false);
+    window.runkitShell = {
+      version: "1.2.3",
+      platform: "darwin",
+      accent: { set: () => Promise.reject(new Error("ipc gone")) },
+    };
+    expect(await setShellAccent("#8b7ff0")).toBe(false);
   });
 });
 

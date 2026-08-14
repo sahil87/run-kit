@@ -78,6 +78,7 @@ import {
   findHostByOrigin,
   HostInfo,
   hostInfos,
+  isHostAccentHex,
   loadHosts,
   moveHost,
   normalizeOrigin,
@@ -145,6 +146,17 @@ let views: ViewsState<WebContentsView> = emptyViews();
  *  the remote-tunnel heal reloads ONLY a failed view — a warm view keeps its
  *  live renderer state. Entries die with their view. */
 const viewLoadFailed = new Map<string, boolean>();
+
+/** Per-host "this SPA speaks accent:set" flags (hostId-keyed, view-scoped —
+ *  the viewLoadFailed pattern): once a view has reported its raw accent, the
+ *  did-change-theme-color seam stops persisting its 35% titlebar blend as
+ *  accentColor — the blend would overwrite the full-strength value on every
+ *  report. Hosts that never report keep the blend persistence (the older-SPA
+ *  fallback). In-memory only: after a restart an early theme-color report may
+ *  transiently re-persist the blend, and the SPA's initial-resolve accent
+ *  report overwrites it — self-healing, no store schema. Entries die with
+ *  their view. */
+const rawAccentReported = new Map<string, boolean>();
 
 /** Sentinel registry id for the RK_DESKTOP_URL dev view — never a store
  *  entry, so nothing about it (activeId, lastPath) is ever persisted. */
@@ -397,10 +409,14 @@ function createHostView(hostId: string): WebContentsView {
   contents.on("did-change-theme-color", (_event, color) => {
     views = setViewThemeColor(views, hostId, color);
     // Persist the accent per host entry so the host-switcher's edge bar
-    // survives cold start. A null report never clears the stored value; the
+    // survives cold start — but ONLY as the older-SPA fallback: once this
+    // host's view has sent a raw accent:set report, the 35% titlebar blend
+    // must not overwrite it. A null report never clears the stored value; the
     // dev sentinel view (__dev__) matches no entry — the membership guard
     // silently covers it. Unchanged values short-circuit (no write).
-    if (color !== null) setHostAccentColor(userDataDir(), hostId, color);
+    if (color !== null && !rawAccentReported.get(hostId)) {
+      setHostAccentColor(userDataDir(), hostId, color);
+    }
     if (views.activeHostId === hostId) {
       applyOverlayColor(color ?? DEFAULT_STRIP_COLOR);
     }
@@ -495,6 +511,7 @@ function destroyHostView(hostId: string): void {
   }
   views = removeView(views, hostId).state;
   viewLoadFailed.delete(hostId);
+  rawAccentReported.delete(hostId);
   if (!entry.handle.webContents.isDestroyed()) entry.handle.webContents.close();
 }
 
@@ -506,6 +523,7 @@ function destroyAllViews(): void {
   }
   views = emptyViews();
   viewLoadFailed.clear();
+  rawAccentReported.clear();
 }
 
 // ─── Menu ───────────────────────────────────────────────────────────────────
@@ -1262,6 +1280,30 @@ function registerIpcHandlers(): void {
     // must not paint a surface it no longer backs.
     if (mainWindow && event.sender.id === mainWindow.webContents.id) {
       applyBadge(count);
+    }
+    return { ok: true };
+  });
+
+  // accent:* — the SPA's raw instance-accent report, gated exactly like
+  // `badge:*` (registered host origins + welcome). The payload is the
+  // full-strength contrast-guarded stripe hex the SPA already derives — the
+  // theme-color meta carries only a 35% background blend, which is why the
+  // switcher's edge bars need this channel. Strictly hex-validated (it feeds
+  // style interpolation SPA-side); persisted per host via the existing
+  // setHostAccentColor (unchanged-value short-circuit). Non-view senders (the
+  // welcome page, a destroyed view's late report) persist nothing — unlike
+  // badge:set there is no direct-paint branch, because nothing paints here.
+  // A successful view-resolved persist marks rawAccentReported, demoting the
+  // did-change-theme-color seam to older-SPA fallback for that host.
+  ipcMain.handle("accent:set", (event, hex: unknown): IpcResult => {
+    if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
+    if (typeof hex !== "string" || !isHostAccentHex(hex)) {
+      return { ok: false, error: "Invalid request" };
+    }
+    const entry = findViewByWebContentsId(views, event.sender.id);
+    if (entry) {
+      setHostAccentColor(userDataDir(), entry.hostId, hex);
+      rawAccentReported.set(entry.hostId, true);
     }
     return { ok: true };
   });

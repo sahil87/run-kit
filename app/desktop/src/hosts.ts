@@ -212,10 +212,24 @@ export function setHostLastPath(dir: string, id: string, lastPath: string): Host
 }
 
 /**
- * Record the host's instance accent color (captured from the view's
- * `did-change-theme-color` reports in main.ts). Unknown id or an unchanged
- * value is a no-op (nothing written) — capture fires on every theme-color
- * report, so the fast path avoids rewriting an identical file.
+ * Strict hex gate for a reported accent color — byte-for-byte the SPA
+ * consumer's `HOST_ACCENT_HEX` (app/frontend/src/lib/shell-strip.ts), so
+ * nothing the shell persists can fail the SPA's row-paint validation. The
+ * packages share no code; the mirror is deliberate.
+ */
+const HOST_ACCENT_HEX = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
+
+/** True when `value` is a strict `#RGB`/`#RRGGBB`/`#RRGGBBAA` hex color. */
+export function isHostAccentHex(value: string): boolean {
+  return HOST_ACCENT_HEX.test(value);
+}
+
+/**
+ * Record the host's instance accent color (the SPA's raw `accent:set` report,
+ * or a `did-change-theme-color` blend for older SPAs — main.ts owns that
+ * precedence). Unknown id or an unchanged value is a no-op (nothing written) —
+ * capture fires on every report, so the fast path avoids rewriting an
+ * identical file.
  */
 export function setHostAccentColor(dir: string, id: string, accentColor: string): HostList {
   const list = loadHosts(dir);

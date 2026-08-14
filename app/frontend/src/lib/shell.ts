@@ -263,3 +263,43 @@ export async function setShellBadge(count: number): Promise<boolean> {
     typeof result === "object" && result !== null && "ok" in result && result.ok === true
   );
 }
+
+/** The bridge's `accent` group — thin IPC invoker resolving unknown shapes. */
+interface ShellAccentBridge {
+  set: (hex: string) => Promise<unknown>;
+}
+
+function isAccentBridge(value: unknown): value is ShellAccentBridge {
+  if (typeof value !== "object" || value === null) return false;
+  if (!("set" in value)) return false;
+  return typeof value.set === "function";
+}
+
+/** The `accent` group when the bridge carries one — absent on older shells. */
+function accentBridge(): ShellAccentBridge | null {
+  const candidate = typeof window === "undefined" ? undefined : window.runkitShell;
+  if (typeof candidate !== "object" || candidate === null) return null;
+  if (!("accent" in candidate)) return null;
+  return isAccentBridge(candidate.accent) ? candidate.accent : null;
+}
+
+/**
+ * Report the instance's raw accent (the full-strength contrast-guarded
+ * stripe hex) for the shell to persist per host — the host-switcher's edge
+ * bars read it; the theme-color meta carries only a 35% titlebar blend.
+ * Resolves `false` in a plain browser, on an older shell without the
+ * `accent` group, or when the shell rejects/denies the call. Never throws.
+ */
+export async function setShellAccent(hex: string): Promise<boolean> {
+  const bridge = accentBridge();
+  if (!bridge) return false;
+  let result: unknown;
+  try {
+    result = await bridge.set(hex);
+  } catch {
+    return false;
+  }
+  return (
+    typeof result === "object" && result !== null && "ok" in result && result.ok === true
+  );
+}

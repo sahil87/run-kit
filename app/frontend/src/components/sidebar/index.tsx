@@ -2401,13 +2401,18 @@ function ServerGroupInner(props: ServerGroupProps) {
       </div>
 
       {isOpen && (
-        <div className="pt-1 pb-1">
+        <>
           {/* Pinned operator row (260813-ifya): the ordinary WindowRow for this
               server's `role === "operator"` window, MOVED to the top of the
               group's session area (and excluded from its session group below).
               Placement is the ONLY difference — no badge, frame, or divider.
               Not draggable (it does not participate in window drag-reorder);
-              it still joins the roving-tabindex tree via rowKey/tabIndex. */}
+              it still joins the roving-tabindex tree via rowKey/tabIndex.
+              It sits OUTSIDE the pt-1 session-list container: its full-width
+              tinted slab (scanlines) must share an edge with the tinted group
+              header above — the 4px padding reads as a bare-background slice
+              between two colored bands there, while below the slab it reads as
+              intentional breathing room before the first session group. */}
           {operatorEntry && (
             <WindowRow
               win={operatorEntry.win}
@@ -2451,6 +2456,7 @@ function ServerGroupInner(props: ServerGroupProps) {
               onForkWindow={onForkWindow}
             />
           )}
+          <div className="pt-1 pb-1">
           {sessions.length === 0 ? (
             <button
               onClick={() => onCreateSession(server)}
@@ -2639,7 +2645,8 @@ function ServerGroupInner(props: ServerGroupProps) {
               );
             })
           )}
-        </div>
+          </div>
+        </>
       )}
     </section>
   );

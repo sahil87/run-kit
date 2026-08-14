@@ -675,9 +675,15 @@ export function SurfaceLayout({
       <div
         key={`${kind}${suffix}`}
         data-testid={testId}
+        // Mobile tiles MUST carry flex-1: the single visible slot fills the
+        // column. Without it the tile is content-sized — xterm's own canvas
+        // becomes the measure, a stable fixed point (canvas sizes tile sizes
+        // fit sizes canvas) that pins the terminal at its 80×24 default and
+        // makes it deaf to every viewport change (iOS keyboard collapse).
+        // Desktop tiles are sized by the grid via slotStyle instead.
         className={`group min-w-0 min-h-0 flex-col overflow-hidden ${hidden ? "hidden" : "flex"}${
           mobile
-            ? ""
+            ? " flex-1"
             : ` border rounded ${isFocused ? "border-accent-green" : "border-border"}`
         }`}
         style={hidden || mobile ? undefined : slotStyle(layout.shape, slot, zoomed)}

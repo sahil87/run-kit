@@ -942,6 +942,52 @@ describe("SurfaceLayout intersection zone (260814-011r R3)", () => {
     fireEvent.pointerUp(zone, { pointerId: 1 });
   });
 
+  /** The 20px zone: jsdom needs it measured for the release-point hit test. */
+  function mockZoneRect(zone: HTMLElement, left: number, top: number) {
+    vi.spyOn(zone, "getBoundingClientRect").mockReturnValue({
+      left,
+      top,
+      width: 20,
+      height: 20,
+      right: left + 20,
+      bottom: top + 20,
+      x: left,
+      y: top,
+      toJSON: () => ({}),
+    } as DOMRect);
+  }
+
+  it("a drag released OFF the junction unlights both sashes (capture eats pointerleave)", () => {
+    renderLayout({ layout: { shape: "main-left", order: ["tty", "code", "web"] } });
+    mockGridRect();
+    const zone = screen.getByTestId("surface-divider-intersection");
+    mockZoneRect(zone, 390, 790);
+    fireEvent.pointerOver(zone);
+    fireEvent.pointerDown(zone, { pointerId: 1, clientX: 400, clientY: 800 });
+    // Drag past both clamps: the junction stops following, so the release
+    // lands far from the zone with no leave event to clear the hot state.
+    fireEvent.pointerMove(zone, { pointerId: 1, clientX: 0, clientY: 1200 });
+    fireEvent.pointerUp(zone, { pointerId: 1, clientX: 0, clientY: 1200 });
+    for (const id of ["surface-divider-0", "surface-divider-1"]) {
+      expect(screen.getByTestId(id).className).not.toContain("rk-sash-hot");
+      expect(screen.getByTestId(id).className).not.toContain("rk-sash-lit");
+    }
+  });
+
+  it("a drag released ON the junction keeps both sashes hot", () => {
+    renderLayout({ layout: { shape: "main-left", order: ["tty", "code", "web"] } });
+    mockGridRect();
+    const zone = screen.getByTestId("surface-divider-intersection");
+    mockZoneRect(zone, 390, 790);
+    fireEvent.pointerOver(zone);
+    fireEvent.pointerDown(zone, { pointerId: 1, clientX: 400, clientY: 800 });
+    fireEvent.pointerUp(zone, { pointerId: 1, clientX: 400, clientY: 800 });
+    for (const id of ["surface-divider-0", "surface-divider-1"]) {
+      expect(screen.getByTestId(id).className).toContain("rk-sash-hot");
+      expect(screen.getByTestId(id).className).not.toContain("rk-sash-lit");
+    }
+  });
+
   it("a mid-drag pointercancel releases cleanly without stranding drag state", () => {
     renderLayout({ layout: { shape: "main-left", order: ["tty", "code", "web"] } });
     mockGridRect();

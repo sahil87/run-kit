@@ -615,12 +615,12 @@ summary {
   width: 2.5px;
   height: 2.5px;
   border-radius: 9999px;
-  background: var(--color-border);
+  background-color: var(--color-border);
   transition: background-color 100ms ease-out 0ms;
 }
 .rk-divider:hover .rk-grips i,
-.rk-divider.rk-sash-hot .rk-grips i { background: var(--color-bg-inset); transition-delay: 150ms; }
-.rk-divider.rk-sash-lit .rk-grips i { background: var(--color-bg-inset); transition-delay: 0ms; }
+.rk-divider.rk-sash-hot .rk-grips i { background-color: var(--color-bg-inset); transition-delay: 150ms; }
+.rk-divider.rk-sash-lit .rk-grips i { background-color: var(--color-bg-inset); transition-delay: 0ms; }
 
 @media (prefers-reduced-motion: reduce) {
   .rk-glint::after,

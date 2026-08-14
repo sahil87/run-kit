@@ -681,6 +681,20 @@ export function SurfaceLayout({
     if (e.currentTarget.hasPointerCapture(e.pointerId)) {
       e.currentTarget.releasePointerCapture(e.pointerId);
     }
+    // Capture suppresses the zone's enter/leave for the whole drag, so
+    // `intersectionHot` cannot be trusted at release: a drag that clamped
+    // (junction stops following the pointer) ends with the pointer off the
+    // junction and would strand BOTH sashes hot. Recompute from the release
+    // point — an unmeasured rect (jsdom) has no geometry to test.
+    const zone = e.currentTarget.getBoundingClientRect();
+    if (zone.width > 0 && zone.height > 0) {
+      setIntersectionHot(
+        e.clientX >= zone.left &&
+          e.clientX <= zone.right &&
+          e.clientY >= zone.top &&
+          e.clientY <= zone.bottom,
+      );
+    }
     setDraggingIntersection(false);
     writeStoredRatios(server, windowId, layout.shape, ratiosRef.current);
     onRatioCommit?.();

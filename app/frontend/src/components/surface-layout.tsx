@@ -690,8 +690,11 @@ export function SurfaceLayout({
         onPointerDownCapture={slot >= 0 ? () => focusSlot(slot) : undefined}
         onFocus={slot >= 0 ? () => focusSlot(slot) : undefined}
       >
+        {/* Header pr-3 (not px-1.5's 6px on both sides): the trailing verb
+            cluster keeps the same 12px air against the rail divider that the
+            rail's chips keep on their side — 12 · divider · 12 (PR #595). */}
         {!mobile && (
-          <div className="flex items-center gap-1.5 px-1.5 h-[30px] shrink-0 border-b border-border bg-bg-card font-mono text-[11px] text-text-secondary select-none">
+          <div className="flex items-center gap-1.5 pl-1.5 pr-3 h-[30px] shrink-0 border-b border-border bg-bg-card font-mono text-[11px] text-text-secondary select-none">
             {kind === "tty" && statusWindow && <StatusDot win={statusWindow} />}
             <span
               aria-hidden="true"

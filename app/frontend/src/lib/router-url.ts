@@ -40,7 +40,8 @@ export function urlSegmentToWindowId(segment: string): string {
 // right-panel.md P1) carries the per-viewer RIGHT-PANEL surface — handled
 // exactly like `?view=`: `web` and `code` are the valid values (closed is the
 // absence of the param), unknown values are dropped here and availability-gated
-// by `resolvePanel` downstream. `view` and `panel` are independent slots and
+// downstream by the layout ladder's degradation (`resolveLayout`, after the
+// legacy shim translates the param). `view` and `panel` are independent slots and
 // may both be present (`?view=web&panel=code`).
 //
 // The `?layout=` search param (260812-ab5v-surface-layout-core, spec

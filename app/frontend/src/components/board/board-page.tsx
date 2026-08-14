@@ -849,10 +849,10 @@ function BoardPageContent({ name }: { name: string }) {
   // from the route; the board extras (counts, waiting badge, board switcher, the
   // focused-tile split/kill target) travel through the slot.
   // Session/window props stay tolerant-empty (board mode has no session context,
-  // the terminal-only L1 chrome — ViewSwitcher/FixedWidthToggle — stays hidden
-  // via `currentWindow: null`; the board SplitButtons key on `focusedPane`
-  // instead). Memoized so the registration effect re-runs only when a board prop
-  // changes.
+  // the terminal-only L1 chrome — the Open button, the ▦ layout chip, the
+  // fixed-width menu row — stays hidden via `currentWindow: null`; the board
+  // SplitButtons key on `focusedPane` instead). Memoized so the registration
+  // effect re-runs only when a board prop changes.
   const boardTopBarBoards = useMemo(
     () => boards.map((b) => ({ name: b.name })),
     [boards],
@@ -1019,8 +1019,8 @@ function BoardPageContent({ name }: { name: string }) {
             not close-pane) are published into the slot context via the
             `useRegisterTopBarSlot` effect above. The confirmed kill's self-heal
             refetch rides `executeKillWindow`'s own `onSettled`, not a top-bar
-            callback. The terminal-only L1 chrome (ViewSwitcher /
-            FixedWidthToggle) stays hidden via `currentWindow: null`. */}
+            callback. The terminal-only L1 chrome (Open button / ▦ layout
+            chip / fixed-width row) stays hidden via `currentWindow: null`. */}
 
         {/* Content grid area — horizontal-scroll body. Viewport begins
             flush with sidebar.right (no left gutter). */}

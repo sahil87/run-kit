@@ -525,28 +525,29 @@ export function TopBar({
         ) : null,
     },
     // Fixed-width toggle — MENU-ONLY as of 260731-oiho: a sticky per-device
-    // preference doesn't earn a permanent bar slot. The n2n4 demotion
-    // mechanism — reverting = deleting the flag. Palette parity: `View:
-    // Fixed Width (900px)` / `View: Full Width`.
+    // preference doesn't earn a permanent bar slot. The in-bar toggle form was
+    // deleted (260814-6b0j); the menu row is the only rendering. Palette
+    // parity: `View: Fixed Width (900px)` / `View: Full Width`.
     {
       id: "fixed-width",
       modes: ["terminal"],
       menuOnly: true,
       menuGroup: "view",
       hidden: !currentWindow,
-      barRender: () => <FixedWidthToggle />,
+      barRender: () => null,
       menuRender: () => <FixedWidthMenuRow />,
     },
-    // Terminal-font (Aa) — MENU-ONLY as of 260731-oiho (sticky per-device
+    // Terminal-font — MENU-ONLY as of 260731-oiho (sticky per-device
     // preference; also lives in the settings dialog and the palette's
-    // `Increase/Decrease/Reset terminal font`). The in-bar Aa popover
-    // (TerminalFontControl) stays intact but unreachable, n2n4-style.
+    // `Increase/Decrease/Reset terminal font`). The in-bar Aa popover form —
+    // the reset stepper's last chrome home — was deleted (260814-6b0j); reset
+    // stays reachable via the palette and the settings dialog.
     {
       id: "terminal-font",
       modes: ["terminal", "board"],
       menuOnly: true,
       menuGroup: "view",
-      barRender: () => <TerminalFontControl />,
+      barRender: () => null,
       menuRender: () => <TerminalFontMenuRow />,
     },
     // Board-only autofit — stays IN-BAR (the one board L2 survivor; it is a
@@ -576,18 +577,7 @@ export function TopBar({
       menuOnly: true,
       menuGroup: "window",
       hidden: mode === "terminal" && !currentWindow,
-      barRender: () =>
-        mode === "board" ? (
-          <ClosePaneButton
-            server={focusedPane?.server ?? ""}
-            windowId={focusedPane?.windowId ?? ""}
-            disabled={!focusedPane}
-            onRequestKill={onRequestKill}
-            label="Kill"
-          />
-        ) : currentWindow ? (
-          <ClosePaneButton server={server} windowId={currentWindow.windowId} />
-        ) : null,
+      barRender: () => null,
       menuRender: () =>
         mode === "board" ? (
           <ClosePaneMenuRow
@@ -2022,63 +2012,6 @@ function SplitControl({
 }
 
 /**
- * The L2 ✕ chip. Terminal mode: a real close-pane — `closePane(server,
- * windowId)` kills the current window's active pane via the optimistic path
- * (spinner while pending, toast on error). Board mode (co9z): a consequence-gated
- * KILL — when `onRequestKill` is present the click opens BoardPage's confirm
- * dialog (with an `Unpin instead` escape) instead of firing `closePane`, and the
- * ✕ reads "Kill". The confirmed board kill's self-heal refetch is owned by
- * BoardPage (`executeKillWindow`'s `onSettled`), so this component carries no
- * self-heal callback of its own.
- */
-function ClosePaneButton({
-  server,
-  windowId,
-  disabled,
-  onRequestKill,
-  label = "Close pane",
-}: {
-  server?: string;
-  windowId?: string;
-  disabled?: boolean;
-  /** Board mode (co9z): when present, the click opens BoardPage's confirm dialog
-   *  instead of firing closePane directly — a board Kill is consequence-gated. */
-  onRequestKill?: () => void;
-  label?: string;
-}) {
-  const { addToast } = useToast();
-
-  const { execute, isPending } = useOptimisticAction<[]>({
-    action: () => closePane(server ?? "", windowId ?? ""),
-    onError: (err) => {
-      addToast(err.message || "Failed to close pane");
-    },
-  });
-
-  const isDisabled = disabled || isPending;
-  // Keep the accessible label coupled to the actual click behavior: a "Kill"
-  // label only holds when `onRequestKill` routes the click to the confirm
-  // dialog. If the handler is absent the click falls through to `closePane`, so
-  // the label must reflect that (co9z) — never advertise "Kill" for a plain
-  // close-pane.
-  const effectiveLabel = onRequestKill ? label : "Close pane";
-
-  return (
-    <Tip label={effectiveLabel}>
-    <button
-      type="button"
-      onClick={() => (onRequestKill ? onRequestKill() : execute())}
-      disabled={isDisabled}
-      aria-label={effectiveLabel}
-      className={`${TOP_BAR_BUTTON} disabled:opacity-50 disabled:cursor-not-allowed`}
-    >
-      {isPending ? <LogoSpinner size={14} /> : <ClosePaneGlyph />}
-    </button>
-    </Tip>
-  );
-}
-
-/**
  * Best-effort hard reload, Chrome Shift+reload style: a `cache: "reload"`
  * fetch of the current document forces a network round-trip that overwrites
  * the HTTP cache entry, so the follow-up `location.reload()` serves the fresh
@@ -2106,7 +2039,7 @@ export function forceReload() {
 
 /**
  * Full-page refresh button — a plain `window.location.reload()` recovery
- * affordance in the top-bar cluster, next to ClosePaneButton. Shift+click
+ * affordance in the top-bar cluster. Shift+click
  * force-reloads (bypasses the HTTP cache via `forceReload`), mirroring
  * Chrome's Shift+reload. Unlike Split / Close there is NO async action to
  * await (the page unloads synchronously), so it deliberately carries no
@@ -2138,149 +2071,9 @@ function RefreshButton() {
 }
 
 /**
- * Terminal font-size combo: `[−] {size} [+]` plus a reset button. Reads the
- * effective `terminalFontSize` from ChromeContext and dispatches the global
- * increase/decrease/reset mutators (the setting applies to every live
- * terminal). The ± buttons disable at the TERMINAL_FONT_BOUNDS edges. Reset
- * "forgets" the preference, reverting to the device default.
- *
- * Cmd +/- is deliberately NOT intercepted — these controls (plus the matching
- * command-palette actions) are the only font levers; browser-native zoom stays
- * available for whole-page scaling.
- */
-/**
- * Terminal font size control: a single "Aa" trigger button in the top bar that
- * opens a popover with the −/value/+ stepper and a reset. Collapsing the
- * stepper into a popover keeps the top-bar chrome minimal (one slot instead of
- * four loose buttons) while preserving a visible current value once opened.
- *
- * Dismiss semantics mirror `BreadcrumbDropdown`: outside `mousedown` closes,
- * Escape closes and returns focus to the trigger, and the trigger carries
- * `aria-haspopup`/`aria-expanded`. The three actions are also reachable from
- * the command palette (Constitution V — keyboard-first), so the popover is a
- * convenience surface, not the only path.
- */
-function TerminalFontControl() {
-  const { terminalFontSize } = useChromeState();
-  const { increaseTerminalFont, decreaseTerminalFont, resetTerminalFont } = useChromeDispatch();
-  const [open, setOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-
-  const atMin = terminalFontSize <= TERMINAL_FONT_BOUNDS.min;
-  const atMax = terminalFontSize >= TERMINAL_FONT_BOUNDS.max;
-
-  useEffect(() => {
-    if (!open) return;
-    function handleClick(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    }
-    function handleKey(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        setOpen(false);
-        triggerRef.current?.focus();
-      }
-    }
-    document.addEventListener("mousedown", handleClick);
-    document.addEventListener("keydown", handleKey, { capture: true });
-    return () => {
-      document.removeEventListener("mousedown", handleClick);
-      document.removeEventListener("keydown", handleKey, { capture: true });
-    };
-  }, [open]);
-
-  const stepButtonClass =
-    "min-w-[28px] min-h-[28px] coarse:min-w-[36px] coarse:min-h-[36px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-border";
-
-  return (
-    <div ref={containerRef} className="relative inline-flex items-center">
-      {/* Tip suppressed while the popover is open so it never paints over the
-          stepper (the BreadcrumbDropdown trigger convention). */}
-      <Tip label={open ? undefined : "Terminal font size"}>
-      <button
-        ref={triggerRef}
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-haspopup="true"
-        aria-expanded={open}
-        aria-label="Terminal font size"
-        className={`rk-glint ${TOP_BAR_BUTTON_BASE} text-xs font-semibold leading-none ${
-          open ? "border-accent text-accent bg-accent/10" : TOP_BAR_BUTTON_REST
-        }`}
-      >
-        {/* "Aa" reads as "text size" without a separate label */}
-        <TerminalFontGlyph />
-      </button>
-      </Tip>
-      {open && (
-        <div
-          role="group"
-          aria-label="Terminal font size"
-          className="absolute top-full right-0 mt-1 bg-bg-primary border border-border rounded-lg shadow-2xl p-2 z-50 flex flex-col gap-2"
-        >
-          <div className="flex items-center gap-1">
-            <Tip label="Decrease terminal font">
-              <button
-                type="button"
-                onClick={decreaseTerminalFont}
-                disabled={atMin}
-                aria-label="Decrease terminal font"
-                className={stepButtonClass}
-              >
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
-                  <line x1="3" y1="7" x2="11" y2="7" />
-                </svg>
-              </button>
-            </Tip>
-            <span
-              className="min-w-[4ch] text-center text-xs text-text-primary tabular-nums select-none"
-              aria-label={`Terminal font size ${terminalFontSize} pixels`}
-            >
-              {terminalFontSize}px
-            </span>
-            <Tip label="Increase terminal font">
-              <button
-                type="button"
-                onClick={increaseTerminalFont}
-                disabled={atMax}
-                aria-label="Increase terminal font"
-                className={stepButtonClass}
-              >
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
-                  <line x1="3" y1="7" x2="11" y2="7" />
-                  <line x1="7" y1="3" x2="7" y2="11" />
-                </svg>
-              </button>
-            </Tip>
-          </div>
-          <Tip label="Reset terminal font (device default)">
-            <button
-              type="button"
-              onClick={resetTerminalFont}
-              aria-label="Reset terminal font"
-              className="w-full text-xs text-text-secondary hover:text-text-primary transition-colors py-1 rounded hover:bg-bg-card flex items-center justify-center gap-1.5"
-            >
-              <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                {/* circular-arrow reset glyph */}
-                <path d="M11.5 7a4.5 4.5 0 1 1-1.32-3.18" />
-                <polyline points="11.5,1.5 11.5,4 9,4" />
-              </svg>
-              Reset
-            </button>
-          </Tip>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/**
  * Top-bar update chip (L3 right cluster). Self-contained — reads the
  * update-notification state from SessionContext via `useUpdateNotification`
- * (no props threaded through TopBar), mirroring TerminalFontControl. In-app
+ * (no props threaded through TopBar). In-app
  * only: NO Web Push (update notices must not buzz phones).
  *
  * Rest: `⬆ v{latest}` with accent styling + CRT-glint hover (`rk-glint`, the
@@ -2351,30 +2144,10 @@ function UpdateChip() {
   );
 }
 
-function FixedWidthToggle() {
-  const { fixedWidth } = useChromeState();
-  const { toggleFixedWidth } = useChromeDispatch();
-
-  return (
-    <Tip label={fixedWidth ? "Full width" : "Fixed width (900px)"}>
-    <button
-      onClick={toggleFixedWidth}
-      aria-label="Toggle fixed terminal width"
-      aria-pressed={fixedWidth}
-      className={`rk-glint ${TOP_BAR_BUTTON_BASE} ${
-        fixedWidth ? "border-accent text-accent bg-accent/10" : TOP_BAR_BUTTON_REST
-      }`}
-    >
-      <FixedWidthGlyph expanded={fixedWidth} />
-    </button>
-    </Tip>
-  );
-}
-
 /**
- * Board-mode autofit toggle (738w). Mirrors `FixedWidthToggle`'s vocabulary
+ * Board-mode autofit toggle (738w). The shared top-bar toggle vocabulary
  * (rk-glint, `coarse:` touch sizing, `aria-pressed`, pressed-state accent
- * styling) but drives the per-board board-autofit preference (owned by
+ * styling) driving the per-board board-autofit preference (owned by
  * `BoardPage` via `useBoardAutofit`, plumbed through the top-bar slot context).
  * When on, board panes stretch to fill the row (≤4 panes) or floor at ~25% and
  * scroll (>4); when off, hand-tuned per-pane widths apply. The same flip is
@@ -2459,8 +2232,9 @@ function SplitMenuRow({
   );
 }
 
-/** Fixed-width checkbox row — reflects/toggles the same ChromeContext state as
- *  the in-bar FixedWidthToggle (`role="menuitemcheckbox"`). */
+/** Fixed-width checkbox row — reflects/toggles the ChromeContext `fixedWidth`
+ *  state (`role="menuitemcheckbox"`); the control's only rendering since the
+ *  in-bar toggle form was deleted (260814-6b0j). */
 function FixedWidthMenuRow() {
   const { fixedWidth } = useChromeState();
   const { toggleFixedWidth } = useChromeDispatch();
@@ -2482,10 +2256,12 @@ function FixedWidthMenuRow() {
   );
 }
 
-/** Terminal-font stepper row — inline `−` / value / `+` operating on the same
- *  ChromeContext terminalFontSize as the Aa popover (same TERMINAL_FONT_BOUNDS),
- *  WITHOUT opening the popover (assumption #11). The `−` button is the row's
- *  first focusable element, so keyboard nav lands there. */
+/** Terminal-font stepper row — inline `−` / value / `+` operating on the
+ *  ChromeContext terminalFontSize (TERMINAL_FONT_BOUNDS-clamped); the
+ *  control's only chrome rendering since the in-bar Aa popover form was
+ *  deleted (260814-6b0j — reset lives in the palette + settings dialog). The
+ *  `−` button is the row's first focusable element, so keyboard nav lands
+ *  there. */
 function TerminalFontMenuRow() {
   const { terminalFontSize } = useChromeState();
   const { increaseTerminalFont, decreaseTerminalFont } = useChromeDispatch();
@@ -2528,10 +2304,11 @@ function AutofitMenuRow({ autofit, onToggle }: { autofit: boolean; onToggle: () 
   );
 }
 
-/** Close-pane row — the menu mirror of the in-bar ClosePaneButton. Terminal
- *  mode: a real close-pane on the current window's active pane. Board mode
- *  (co9z): `onRequestKill` opens BoardPage's consequence-gated kill dialog
- *  instead, and the row reads "Kill"; `disabled` when the board is empty. */
+/** Close-pane row — the control's only rendering since the in-bar ✕ form was
+ *  deleted (260814-6b0j). Terminal mode: a real close-pane on the current
+ *  window's active pane. Board mode (co9z): `onRequestKill` opens BoardPage's
+ *  consequence-gated kill dialog instead, and the row reads "Kill";
+ *  `disabled` when the board is empty. */
 function ClosePaneMenuRow({
   server,
   windowId,

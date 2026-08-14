@@ -383,8 +383,9 @@ export function ratiosStorageKey(
 /**
  * Read the persisted ratios for a (window, shape). Returns `undefined` when
  * absent, unparseable, or not an array of finite positive numbers — garbage
- * never reaches the layout (the `readStoredPanelWidth` discipline). Not
- * clamped here (clamping needs the live container size).
+ * never reaches the layout (untrusted-localStorage discipline: validate on
+ * read, fall back to the default). Not clamped here (clamping needs the live
+ * container size).
  */
 export function readStoredRatios(
   server: string,

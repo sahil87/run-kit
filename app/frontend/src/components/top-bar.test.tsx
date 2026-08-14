@@ -599,11 +599,10 @@ describe("TopBar", () => {
   });
 
   describe("terminal-font — MENU-ONLY stepper row (260731-oiho)", () => {
-    // The in-bar Aa popover (TerminalFontControl) is demoted via `menuOnly`
-    // (the n2n4 mechanism — the component stays intact but unreachable; the
-    // reset + full stepper also live in the settings dialog and the palette's
-    // Increase/Decrease/Reset actions). The chevron menu's stepper row
-    // (TerminalFontMenuRow) is the top-bar surface now.
+    // The terminal-font control is `menuOnly` (260731-oiho) and its in-bar Aa
+    // popover form was deleted outright (260814-6b0j — reset lives in the
+    // settings dialog and the palette's Increase/Decrease/Reset actions). The
+    // chevron menu's stepper row (TerminalFontMenuRow) is the top-bar surface.
     const FONT_KEY = "runkit-terminal-font-size";
 
     afterEach(() => {
@@ -1195,11 +1194,12 @@ describe("TopBar", () => {
     });
   });
 
-  // (The old "ClosePaneButton spinner while pending" test retired with the ✕'s
-  // menuOnly demotion: the menu row unmounts on the role-keyed close, so its
-  // per-instance pending state is not observable across a reopen. The pending
-  // discipline is covered by the SplitControl pending test above — the same
-  // useOptimisticAction pattern.)
+  // (The old "in-bar close-pane spinner while pending" test retired with the
+  // ✕'s menuOnly demotion — the in-bar form is deleted now (260814-6b0j): the
+  // menu row unmounts on the role-keyed close, so its per-instance pending
+  // state is not observable across a reopen. The pending discipline is covered
+  // by the SplitControl pending test above — the same useOptimisticAction
+  // pattern.)
 
   describe("Open-in-App entry (260722-6d0f)", () => {
     afterEach(() => {

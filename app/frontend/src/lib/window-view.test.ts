@@ -4,11 +4,9 @@ import {
   hasChat,
   availableViews,
   defaultView,
-  resolveView,
   nextView,
   windowViewStorageKey,
   readStoredView,
-  writeStoredView,
   type ViewWindow,
 } from "./window-view";
 
@@ -148,67 +146,6 @@ describe("defaultView", () => {
   });
 });
 
-describe("resolveView precedence: URL -> localStorage -> default, unavailable -> tty", () => {
-  it("uses the URL param when that view is available", () => {
-    expect(resolveView("web", undefined, iframeWithUrl)).toBe("web");
-    expect(resolveView("tty", "web", iframeWithUrl)).toBe("tty");
-  });
-
-  it("falls through an UNAVAILABLE URL param (web on a no-url window) to tty", () => {
-    expect(resolveView("web", undefined, iframeNoUrl)).toBe("tty");
-    expect(resolveView("web", undefined, plain)).toBe("tty");
-  });
-
-  it("uses localStorage when there is no URL param and the stored view is available", () => {
-    expect(resolveView(undefined, "web", iframeWithUrl)).toBe("web");
-    expect(resolveView(undefined, "tty", iframeWithUrl)).toBe("tty");
-  });
-
-  it("ignores an UNAVAILABLE stored value and falls to the default", () => {
-    // stored "web" but no url -> web unavailable -> default (tty).
-    expect(resolveView(undefined, "web", iframeNoUrl)).toBe("tty");
-  });
-
-  it("falls to the window default when neither URL nor localStorage decide", () => {
-    expect(resolveView(undefined, undefined, iframeWithUrl)).toBe("web");
-    expect(resolveView(undefined, undefined, plain)).toBe("tty");
-    expect(resolveView(undefined, undefined, plainWithUrl)).toBe("tty");
-  });
-
-  it("treats unknown/garbage strings as absent (never throws, never renders them)", () => {
-    expect(resolveView("bogus", "nonsense", iframeWithUrl)).toBe("web"); // both invalid -> default
-    expect(resolveView("bogus", "web", iframeWithUrl)).toBe("web"); // URL invalid, stored valid
-  });
-
-  it("resolves chat from the URL param on a chat-capable window", () => {
-    expect(resolveView("chat", undefined, chatWin)).toBe("chat");
-  });
-
-  it("resolves chat from localStorage when no URL param (chat has no default hint)", () => {
-    // A chat-capable window defaults to tty, so a stored `chat` is the only way
-    // (short of the URL param) it renders the chat lens without an explicit URL.
-    expect(resolveView(undefined, "chat", chatWin)).toBe("chat");
-    expect(resolveView(undefined, undefined, chatWin)).toBe("tty");
-  });
-
-  it("falls a chat URL param through to tty on a chat-LESS window (no empty chat)", () => {
-    expect(resolveView("chat", undefined, plain)).toBe("tty");
-    expect(resolveView("chat", undefined, chatEmptyProvider)).toBe("tty");
-  });
-
-  it("resolves code from the URL param on a code-capable window, else falls through to tty", () => {
-    const codeWin: ViewWindow = { gitRoot: "/repo" };
-    expect(resolveView("code", undefined, codeWin)).toBe("code");
-    // No default hint: without URL/localStorage, code-capable still means tty.
-    expect(resolveView(undefined, undefined, codeWin)).toBe("tty");
-    // Unavailable (no gitRoot) → falls through to tty, never a broken iframe
-    // (spec R2's terminal bottom-out).
-    expect(resolveView("code", undefined, plain)).toBe("tty");
-    // Stored code survives when still available.
-    expect(resolveView(undefined, "code", codeWin)).toBe("code");
-  });
-});
-
 describe("nextView (Cmd/Ctrl+. cycle)", () => {
   // availableViews returns HINT_ORDER (["web","tty"]); the observable cycle is
   // tty→web→tty for the two-view case.
@@ -241,16 +178,16 @@ describe("localStorage helpers (value-bearing key, try/catch-noop)", () => {
     expect(windowViewStorageKey("srv", "@3")).toBe("runkit-window-view:srv:@3");
   });
 
-  it("round-trips a stored view", () => {
+  it("reads a stored view under the window's key (absent = undefined)", () => {
     expect(readStoredView("srv", "@3")).toBeUndefined();
-    writeStoredView("srv", "@3", "web");
+    localStorage.setItem(windowViewStorageKey("srv", "@3"), "web");
     expect(readStoredView("srv", "@3")).toBe("web");
-    writeStoredView("srv", "@3", "tty");
+    localStorage.setItem(windowViewStorageKey("srv", "@3"), "tty");
     expect(readStoredView("srv", "@3")).toBe("tty");
   });
 
   it("scopes keys per (server, windowId)", () => {
-    writeStoredView("srv", "@3", "web");
+    localStorage.setItem(windowViewStorageKey("srv", "@3"), "web");
     expect(readStoredView("srv", "@4")).toBeUndefined();
     expect(readStoredView("other", "@3")).toBeUndefined();
   });
@@ -260,12 +197,5 @@ describe("localStorage helpers (value-bearing key, try/catch-noop)", () => {
       throw new Error("SecurityError");
     });
     expect(readStoredView("srv", "@3")).toBeUndefined();
-  });
-
-  it("swallows a localStorage write failure (no throw)", () => {
-    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
-      throw new Error("QuotaExceededError");
-    });
-    expect(() => writeStoredView("srv", "@3", "web")).not.toThrow();
   });
 });

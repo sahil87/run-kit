@@ -117,7 +117,7 @@ test.describe("Connection budget — 2 muxed WS (state + terminals), zero SSE", 
     // in the app; it moved onto the state socket as a `kind:"chat"` subscription,
     // so requesting `?view=chat` adds NO third WS and NO SSE. This test does NOT
     // exercise the chat subscription path directly: the plain e2e test window
-    // carries no `@rk_chat`, so `resolveView` falls back to tty and the terminals
+    // carries no `@rk_chat`, so the lens resolution falls back to tty and the terminals
     // socket stays. What it DOES guard is the budget invariant — appending
     // `?view=chat` introduces neither a `text/event-stream` response nor a
     // WebSocket beyond the fixed budget — which holds whether the window is

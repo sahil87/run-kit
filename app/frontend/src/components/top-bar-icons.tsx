@@ -37,8 +37,8 @@ function ControlGlyph({
   name: string;
   viewBox?: string;
   strokeWidth?: number;
-  /** strokeLinejoin="round" — off for glyphs whose in-bar original carries
-   *  round caps only (FixedWidthToggle). */
+  /** strokeLinejoin="round" — off for glyphs drawn with round caps only
+   *  (FixedWidthGlyph's arrows). */
   join?: boolean;
   children: ReactNode;
 }) {
@@ -85,7 +85,7 @@ export function SplitHorizontalGlyph() {
   );
 }
 
-/** Close pane — the ✕ (two crossed lines), the in-bar ClosePaneButton glyph. */
+/** Close pane — the ✕ (two crossed lines), the close-pane menu row's glyph. */
 export function ClosePaneGlyph() {
   return (
     <ControlGlyph name="close-pane">
@@ -120,30 +120,17 @@ export function RefreshGlyph() {
   );
 }
 
-/** Fixed width — the FixedWidthToggle arrows. `expanded` renders the outward
- *  (expand) variant the in-bar toggle shows while fixed-width is ON; the
- *  default is the inward/contract arrows — the static identity form the menu
- *  row uses (state stays on the trailing ✓). */
-export function FixedWidthGlyph({ expanded = false }: { expanded?: boolean }) {
+/** Fixed width — the inward/contract fixed-width arrows: the static identity
+ *  form the menu row uses (state stays on the trailing ✓). The state-driven
+ *  `expanded` outward variant went with the in-bar toggle (260814-6b0j). */
+export function FixedWidthGlyph() {
   return (
     <ControlGlyph name="fixed-width" viewBox="0 0 14 14" strokeWidth={1.5} join={false}>
-      {expanded ? (
-        <>
-          {/* Arrows pointing outward — expand */}
-          <line x1="1" y1="7" x2="5" y2="7" />
-          <polyline points="1,5 1,7 1,9" />
-          <line x1="9" y1="7" x2="13" y2="7" />
-          <polyline points="13,5 13,7 13,9" />
-        </>
-      ) : (
-        <>
-          {/* Arrows pointing inward — contract */}
-          <line x1="1" y1="7" x2="5" y2="7" />
-          <polyline points="5,5 5,7 5,9" />
-          <line x1="9" y1="7" x2="13" y2="7" />
-          <polyline points="9,5 9,7 9,9" />
-        </>
-      )}
+      {/* Arrows pointing inward — contract */}
+      <line x1="1" y1="7" x2="5" y2="7" />
+      <polyline points="5,5 5,7 5,9" />
+      <line x1="9" y1="7" x2="13" y2="7" />
+      <polyline points="9,5 9,7 9,9" />
     </ControlGlyph>
   );
 }
@@ -171,10 +158,10 @@ export function AutofitGlyph({ filled = false }: { filled?: boolean }) {
   );
 }
 
-/** Terminal font — the "Aa" TEXT glyph matching the in-bar TerminalFontControl
- *  trigger ("Aa" reads as "text size"): an aria-hidden span in a fixed ~14px
- *  shrink-0 box, not an SVG. Font size inherits from the host (text-xs on both
- *  the trigger button and the menu rows) so the glyph matches its surface. */
+/** Terminal font — the "Aa" TEXT glyph ("Aa" reads as "text size"): an
+ *  aria-hidden span in a fixed ~14px shrink-0 box, not an SVG. Font size
+ *  inherits from the host (text-xs on the menu rows) so the glyph matches its
+ *  surface. */
 export function TerminalFontGlyph() {
   return (
     <span

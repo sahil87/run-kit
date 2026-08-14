@@ -77,8 +77,8 @@ import type { WindowInfo } from "@/types";
  *   surface kind and resets per window — `app.tsx` keys this component by
  *   `${server}:${windowId}` (the RightPanel precedent).
  * - **Dividers (R5; gap-seam sash 260814-011r)**: drag mutates RATIOS only
- *   (never shape/order), clamped via the `clampPanelWidth` approach
- *   generalized in `clampRatio` (280px floor both sides), persisted per
+ *   (never shape/order), clamped via `clampRatio` (280px floor both
+ *   sides), persisted per
  *   (window, shape) ON RELEASE ONLY. Tiles stay live mid-drag — no
  *   suspension/unmount (the board pane-resize bug class); tile content gets
  *   `pointer-events: none` so iframes cannot swallow pointermove (the
@@ -220,7 +220,7 @@ const VERB_BUTTON_CLASS =
 /** The ratios a (window, shape) render starts from: the persisted value when
  *  it is well-formed for the shape's arity (right length, finite, strictly
  *  increasing, inside (0, 100)), else equal splits. Garbage never reaches the
- *  grid (the `readStoredPanelWidth` discipline). */
+ *  grid (untrusted-localStorage discipline: validate on read). */
 function initialRatios(
   server: string,
   windowId: string,

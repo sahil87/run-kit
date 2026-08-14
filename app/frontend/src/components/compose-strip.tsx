@@ -678,18 +678,21 @@ export function ComposeStrip({
   /** Prevent mousedown from stealing focus away from the terminal/textarea. */
   const preventFocusSteal = (e: React.MouseEvent) => e.preventDefault();
 
-  // Per-button enablement (260802-lj98, revised 260813-kvk7): Insert and Send
-  // share ONE rule on a terminal target — no text → both disabled (the lit
-  // primary Send over an empty composer read as a broken affordance). The
-  // Cmd/Ctrl+Enter chord deliberately DIVERGES here: its empty-composer
-  // bare-`\r` send ("press Enter in the pane") stays — button state answers
-  // "is there text to send", the chord is a power-user pane keystroke.
+  // Per-button enablement (260802-lj98, revised 260813-kvk7, re-revised
+  // 260814): Insert follows Enter's empty no-op — disabled with no text. Send
+  // mirrors its Cmd/Ctrl+Enter chord INCLUDING the empty bare-`\r` case
+  // ("press Enter in the pane") — on touch devices the chord doesn't exist,
+  // so the button is the ONLY way to send a bare Enter there. kvk7's
+  // complaint (a lit primary Send over an empty composer read as broken) is
+  // answered by STYLE, not state: an empty composer renders Send in the
+  // neutral secondary face; the accent fill returns with text.
   // Selection-broadcast targets keep their own rule (text required, Insert
   // always disabled there).
-  const canInsert = !isSelectionTarget && hasTarget && text.trim() !== "";
+  const composerEmpty = text.trim() === "";
+  const canInsert = !isSelectionTarget && hasTarget && !composerEmpty;
   const canSubmit = isSelectionTarget
-    ? text.trim() !== "" && !selectionSending
-    : hasTarget && text.trim() !== "";
+    ? !composerEmpty && !selectionSending
+    : hasTarget;
 
   return (
     <div data-testid="compose-strip">
@@ -854,7 +857,9 @@ export function ComposeStrip({
               </button>
             </Tip>
             {/* Send mirrors its chord including the empty bare-`\r` case, so
-                it is enabled whenever a target exists. */}
+                it is enabled whenever a target exists — in the neutral
+                secondary face while the composer is empty (see the enablement
+                comment above). */}
             <Tip label="Send" kbd={composeSubmitKeycap()} placement="top">
               <button
                 type="button"
@@ -863,7 +868,11 @@ export function ComposeStrip({
                 onMouseDown={preventFocusSteal}
                 onClick={() => send("submit")}
                 data-testid="compose-strip-send"
-                className="rk-glint shrink-0 rounded border border-accent bg-accent/20 px-3 py-1.5 text-xs text-accent transition-colors hover:bg-accent/30 disabled:opacity-40 disabled:cursor-not-allowed coarse:min-h-[36px]"
+                className={`rk-glint shrink-0 rounded border px-3 py-1.5 text-xs transition-colors disabled:opacity-40 disabled:cursor-not-allowed coarse:min-h-[36px] ${
+                  composerEmpty && !isSelectionTarget
+                    ? "border-border text-text-secondary hover:border-text-secondary"
+                    : "border-accent bg-accent/20 text-accent hover:bg-accent/30"
+                }`}
               >
                 {selectionSending ? "Sending…" : "Send"}
               </button>

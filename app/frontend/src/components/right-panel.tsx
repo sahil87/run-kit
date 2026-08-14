@@ -11,7 +11,7 @@ import {
  * docs/specs/surface-layout.md § Verbs — "Rail semantics change"). The panel
  * slot (surface mount + width drag, 260811-2r1w) is SUBSUMED by layout tiles —
  * the divider logic lives in `surface-layout.tsx` now; what remains of this
- * component is the fixed 46px vertical rail on the terminal route's right
+ * component is the fixed 40px vertical rail on the terminal route's right
  * edge. It renders inside the Shell STAGE (260814-ldbs — the Shell grid's
  * nested single-row stage on the `bg-bg-inset` ground) as a floating CARD:
  * `rounded-md` + the shared dimmed `rk-card-border` + `bg-bg-primary`,
@@ -68,18 +68,21 @@ export function RightPanel({ available, open, onToggle }: RightPanelProps) {
     <div
       data-testid="right-panel-rail"
       // The rail is the top-bar cluster's vertical twin, mapping the bar's
-      // spacing vocabulary: right-aligned chips at pr-3 keep their right edge
-      // 12px from the rail card's edge — co-linear with the top-bar chips (the
-      // MAJOR seam); gap-3 = the bar's 12px inter-chip gap; py-2 = the 8px the
-      // bar's chips keep from its own top/bottom edges. The left side hugs the
-      // tile divider at ~6px — dividers are MINOR seams (6px air on both
-      // sides, matching the tile-header verbs' inset on the other side), which
-      // is what keeps the column at 46px instead of a symmetric-12 52px band.
+      // spacing vocabulary: right-aligned chips keep their right edge 12px
+      // from the WINDOW edge — co-linear with the top-bar chips at px-3 (the
+      // MAJOR seam). Since the Composed Frame (260814-ldbs) the card no longer
+      // touches that edge: the stage's 6px inset + the 1px card border already
+      // spend 7 of the 12, so pr is 5px (6 + 1 + 5 = 12). gap-3 = the bar's
+      // 12px inter-chip gap; py-2 = the 8px the bar's chips keep from its own
+      // top/bottom edges. The left side hugs the tile divider at ~5px —
+      // dividers are MINOR seams, matching the tile-header verbs' inset on the
+      // other side — which is what sets the column at 40px (2 borders + 5 left
+      // + 28 chip + 5 right) instead of a symmetric-12 band.
       // Card chrome (260814-ldbs): the rail is a FLOATING card on the stage
       // ground — `rounded-md` + the shared 55% dimmed `rk-card-border` +
       // `bg-bg-primary` (the tile vocabulary), replacing the old attached
-      // `border-l` weld. Chrome only; behavior is unchanged.
-      className="w-[46px] shrink-0 rounded-md border rk-card-border bg-bg-primary flex flex-col items-end pr-3 py-2 gap-3"
+      // `border-l` weld.
+      className="w-[40px] shrink-0 rounded-md border rk-card-border bg-bg-primary flex flex-col items-end pr-[5px] py-2 gap-3"
     >
       {shown.map((surface) => {
         const isOpen = open.includes(surface);

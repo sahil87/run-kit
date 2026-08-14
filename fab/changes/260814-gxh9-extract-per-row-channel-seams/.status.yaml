@@ -1,0 +1,57 @@
+id: gxh9
+name: 260814-gxh9-extract-per-row-channel-seams
+created: 2026-08-14T18:17:52Z
+created_by: Sahil Ahuja
+change_type: refactor
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 5
+    acceptance_count: 11
+    acceptance_completed: 11
+confidence:
+    certain: 3
+    confident: 4
+    tentative: 0
+    unresolved: 0
+    score: 4.8
+    fuzzy: true
+    dimensions:
+        signal: 75.0
+        reversibility: 82.1
+        competence: 87.1
+        disambiguation: 81.4
+stage_metrics:
+    intake: {started_at: "2026-08-14T18:17:52Z", driver: fab-new, iterations: 1, completed_at: "2026-08-14T18:22:38Z"}
+    apply: {started_at: "2026-08-14T18:22:38Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-14T18:31:01Z"}
+    review: {started_at: "2026-08-14T18:31:01Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-14T18:42:11Z"}
+    hydrate: {started_at: "2026-08-14T18:42:11Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-14T18:44:11Z"}
+    ship: {started_at: "2026-08-14T18:44:11Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-14T18:46:26Z"}
+    review-pr: {started_at: "2026-08-14T18:46:26Z", driver: git-pr, iterations: 1, completed_at: "2026-08-14T19:03:43Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/608
+change_type_source: explicit
+true_impact:
+    added: 570
+    deleted: 187
+    net: 383
+    excluding:
+        added: 266
+        deleted: 185
+        net: 81
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-08-14T18:46:26Z"
+    computed_at_stage: ship
+summary: Extracted the four per-row channel seams (shared session string-option handler, settings nested-section registry, generic tmux session-option pair, derived closed-set validators) — pure refactor, zero behavior change
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-14T19:03:43Z

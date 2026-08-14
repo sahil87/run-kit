@@ -3,10 +3,10 @@ import { render, cleanup, fireEvent, screen } from "@testing-library/react";
 import { IframeWindow } from "./iframe-window";
 import { StandaloneSessionContextProvider } from "@/contexts/session-context";
 
-// Mock the API client. `IframeWindow` now only calls `updateWindowUrl` (the URL
-// bar's Enter-commit — global substrate state). It NO LONGER imports
-// `updateWindowType`: the `>_` button switches views via the `onSwitchToTty`
-// callback (per-viewer view state), never a `@rk_type` mutation.
+// Mock the API client. `IframeWindow` only calls `updateWindowUrl` (the URL
+// bar's Enter-commit — global substrate state). The `>_` button switches views
+// via the `onSwitchToTty` callback (per-viewer view state), never a `@rk_type`
+// mutation.
 vi.mock("@/api/client", () => ({
   updateWindowUrl: vi.fn().mockResolvedValue({ ok: true }),
   listServers: vi.fn().mockResolvedValue([]),

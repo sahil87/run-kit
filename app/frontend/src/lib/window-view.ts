@@ -7,11 +7,13 @@
  * II/X); which lens YOU look through is per-viewer client state carried in the
  * URL + localStorage — never a server-side `@rk_type` mutation.
  *
- * Everything here is pure and DOM-free (the localStorage read/write are thin
- * try/catch wrappers) — the same pure-helper + colocated-unit-test pattern as
- * `window-transition.ts` / `navigation.ts`. The render branch in `app.tsx` AND
- * the window-switch transition classification both call `resolveView`, so this
- * logic MUST live in one place (no drift) and MUST not depend on React/DOM.
+ * Everything here is pure and DOM-free (the localStorage read is a thin
+ * try/catch wrapper) — the same pure-helper + colocated-unit-test pattern as
+ * `window-transition.ts` / `navigation.ts`. Lens RESOLUTION lives in
+ * `surface-layout.ts`'s `resolveLayout` ladder; this module owns the
+ * capability predicates, the default-view hint, and the legacy stored-view
+ * seed it reads, so the rail, the layout, and the palette share one
+ * capability source (no drift) with no React/DOM dependency.
  */
 
 /**
@@ -135,32 +137,6 @@ export function defaultView(win: ViewWindow | null | undefined): ViewName {
 }
 
 /**
- * Resolve the effective view (spec R2) with precedence:
- *   URL `?view=` (when that view is available) → localStorage (when available)
- *   → `defaultView(win)`.
- * Any value that is not currently available falls through; the terminal chain
- * always bottoms out at `tty` (always available), so an unavailable `?view=web`
- * deep link (e.g. a window with no `rkUrl`) renders the terminal, never a
- * broken iframe.
- *
- * `searchView`/`stored` are untrusted strings (URL param, localStorage) — they
- * are validated against the capability set here, so callers may pass raw values.
- */
-export function resolveView(
-  searchView: string | undefined,
-  stored: string | undefined,
-  win: ViewWindow | null | undefined,
-): ViewName {
-  const available = availableViews(win);
-  const isAvailable = (v: string | undefined): v is ViewName =>
-    v === "tty" || v === "web" || v === "chat" || v === "code" ? available.includes(v) : false;
-
-  if (isAvailable(searchView)) return searchView;
-  if (isAvailable(stored)) return stored;
-  return defaultView(win);
-}
-
-/**
  * The next view in the cycle (spec R8 — `Cmd/Ctrl+.` cycles lenses). Advances to
  * the element after `current` in `available`, wrapping around (tty→web→tty for
  * the two-view case). Returns `null` when there is nothing to cycle: fewer than
@@ -193,7 +169,8 @@ export function windowViewStorageKey(server: string, windowId: string): string {
  * when localStorage is unavailable (SSR/jsdom/quota) — the try/catch-noop
  * pattern from `chrome-context.tsx`. The value is NOT validated against the
  * window's current capabilities here (a stored `web` for a window that lost its
- * URL is filtered by `resolveView`'s availability check).
+ * URL is filtered by the consumer — `surface-layout.ts`'s legacy seed feeds
+ * the `resolveLayout` ladder, whose availability degradation drops it).
  */
 export function readStoredView(
   server: string,
@@ -203,21 +180,5 @@ export function readStoredView(
     return localStorage.getItem(windowViewStorageKey(server, windowId)) ?? undefined;
   } catch {
     return undefined;
-  }
-}
-
-/**
- * Persist a window's chosen view. Best-effort — a localStorage failure (private
- * mode / quota / SSR) is swallowed (try/catch-noop, `chrome-context.tsx`).
- */
-export function writeStoredView(
-  server: string,
-  windowId: string,
-  view: ViewName,
-): void {
-  try {
-    localStorage.setItem(windowViewStorageKey(server, windowId), view);
-  } catch {
-    /* noop — best-effort persistence */
   }
 }

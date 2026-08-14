@@ -57,7 +57,7 @@ export function OpenButton({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const { runTarget } = useRunOpenTarget(server, path);
 
-  // Outside-click + Escape close (the TerminalFontControl popover pattern).
+  // Outside-click + Escape close (the BreadcrumbDropdown popover pattern).
   useEffect(() => {
     if (!open) return;
     function handleClick(e: MouseEvent) {

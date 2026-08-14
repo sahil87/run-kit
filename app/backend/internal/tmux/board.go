@@ -89,9 +89,19 @@ func showSessionOption(ctx context.Context, server, session, option string) (str
 	return strings.TrimSpace(out), nil
 }
 
-// setSessionOption sets a session-scoped user option on a session.
+// setSessionOption sets a session-scoped user option on a session. The value
+// is validated by the caller and passed as a discrete arg (no shell string,
+// constitution §I). The generic setter behind the per-channel session-option
+// wrappers (SetSessionColor/SetSessionFlair) and the board pin-session vars.
 func setSessionOption(ctx context.Context, server, session, option, value string) error {
 	_, err := tmuxExecRawServer(ctx, server, "set-option", "-t", ExactSessionTarget(session), option, value)
+	return err
+}
+
+// unsetSessionOption removes a session-scoped user option from a session.
+// Mirrors setSessionOption.
+func unsetSessionOption(ctx context.Context, server, session, option string) error {
+	_, err := tmuxExecRawServer(ctx, server, "set-option", "-u", "-t", ExactSessionTarget(session), option)
 	return err
 }
 

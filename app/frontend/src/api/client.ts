@@ -373,16 +373,6 @@ export async function updateWindowUrl(
   return setWindowOptions(server, windowId, { "@rk_url": url });
 }
 
-export async function updateWindowType(
-  server: string,
-  windowId: string,
-  rkType: string,
-): Promise<{ ok: boolean }> {
-  // An empty string means "switch back to terminal" — the server unsets
-  // @rk_type for "" or null. Pass the string through verbatim; "" maps to unset.
-  return setWindowOptions(server, windowId, { "@rk_type": rkType === "" ? null : rkType });
-}
-
 export async function selectWindow(
   server: string,
   windowId: string,

@@ -1,0 +1,57 @@
+id: gyt1
+name: 260814-gyt1-dead-code-cleanup-sweep
+created: 2026-08-14T18:25:35Z
+created_by: Sahil Ahuja
+change_type: refactor
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 5
+    acceptance_count: 12
+    acceptance_completed: 12
+confidence:
+    certain: 4
+    confident: 2
+    tentative: 0
+    unresolved: 0
+    score: 5.0
+    fuzzy: true
+    dimensions:
+        signal: 82.5
+        reversibility: 86.7
+        competence: 90.0
+        disambiguation: 83.3
+stage_metrics:
+    intake: {started_at: "2026-08-14T18:25:35Z", driver: fab-new, iterations: 1, completed_at: "2026-08-14T18:30:15Z"}
+    apply: {started_at: "2026-08-14T18:30:15Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-14T18:37:43Z"}
+    review: {started_at: "2026-08-14T18:37:43Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-14T18:44:21Z"}
+    hydrate: {started_at: "2026-08-14T18:44:21Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-14T18:48:02Z"}
+    ship: {started_at: "2026-08-14T18:48:02Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-14T18:50:35Z"}
+    review-pr: {started_at: "2026-08-14T18:50:35Z", driver: git-pr, iterations: 1, completed_at: "2026-08-14T19:01:25Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/610
+change_type_source: explicit
+true_impact:
+    added: 374
+    deleted: 494
+    net: -120
+    excluding:
+        added: 55
+        deleted: 471
+        net: -416
+    tests:
+        added: 8
+        deleted: 218
+        net: -210
+    computed_at: "2026-08-14T18:50:35Z"
+    computed_at_stage: ship
+summary: 'Dead-code sweep: BreadcrumbDropdown icon branch, session-color config helpers, updateWindowType, prDotState/PrDotState deleted; readSPAAsset rerouted through embeddedSPASub'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-14T19:01:25Z

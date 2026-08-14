@@ -79,7 +79,7 @@ total, and no SSE.
 `/ws/state` + at most one `/ws/terminals`). This is the budget invariant that
 holds regardless of whether the window is chat-capable — it does **not** claim to
 exercise the chat subscription path itself. The plain e2e test window carries no
-`@rk_chat`, so `resolveView` falls back to tty and the terminals socket stays;
+`@rk_chat`, so the lens resolution falls back to tty and the terminals socket stays;
 had the window been chat-capable, chat would ride the already-held state socket
 rather than adding a stream. Either way the guarded fact — no SSE, at most 2 WS —
 holds.

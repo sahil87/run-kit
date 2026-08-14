@@ -21,7 +21,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"rk/build"
 	"rk/internal/icontint"
 	"rk/internal/settings"
 )
@@ -39,7 +38,7 @@ var spaPublicFallbackDirs = []string{"app/frontend/public", "../frontend/public"
 // filesystem (dist, then the public source dir) in dev.
 func readSPAAsset(relPath string) ([]byte, error) {
 	if useEmbeddedSPA {
-		sub, err := fs.Sub(build.Frontend, "frontend")
+		sub, err := embeddedSPASub()
 		if err != nil {
 			return nil, err
 		}

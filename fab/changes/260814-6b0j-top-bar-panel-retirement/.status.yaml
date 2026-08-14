@@ -1,0 +1,57 @@
+id: 6b0j
+name: 260814-6b0j-top-bar-panel-retirement
+created: 2026-08-14T18:30:53Z
+created_by: sahil-noon
+change_type: chore
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 5
+    acceptance_count: 12
+    acceptance_completed: 12
+confidence:
+    certain: 4
+    confident: 2
+    tentative: 0
+    unresolved: 0
+    score: 5.0
+    fuzzy: true
+    dimensions:
+        signal: 82.5
+        reversibility: 85.0
+        competence: 89.2
+        disambiguation: 83.3
+stage_metrics:
+    intake: {started_at: "2026-08-14T18:30:53Z", driver: fab-new, iterations: 1, completed_at: "2026-08-14T18:37:16Z"}
+    apply: {started_at: "2026-08-14T18:37:16Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-14T18:47:38Z"}
+    review: {started_at: "2026-08-14T18:47:38Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-14T18:52:07Z"}
+    hydrate: {started_at: "2026-08-14T18:52:07Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-14T18:56:35Z"}
+    ship: {started_at: "2026-08-14T18:56:35Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-14T18:58:43Z"}
+    review-pr: {started_at: "2026-08-14T18:58:43Z", driver: git-pr, iterations: 1, completed_at: "2026-08-14T19:09:24Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/611
+change_type_source: explicit
+true_impact:
+    added: 409
+    deleted: 683
+    net: -274
+    excluding:
+        added: 116
+        deleted: 658
+        net: -542
+    tests:
+        added: 10
+        deleted: 179
+        net: -169
+    computed_at: "2026-08-14T18:58:43Z"
+    computed_at_stage: ship
+summary: Retired the dead view/panel helpers (resolveView, writeStoredView, resolvePanel, panel writers, runkit-panel-width machinery) and the unreachable in-bar top-bar forms (close-pane ✕, fixed-width toggle, terminal-font Aa popover) — menu rows are the only rendering; terminal-font reset dropped from chrome
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-14T19:09:24Z

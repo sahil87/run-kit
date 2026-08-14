@@ -1,0 +1,11 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-14T18:17:52Z"}
+{"args":"gxh9: Per-row channel abstraction — extract generic seams where \u003e=2 channels mirror each other (session string-option endpoint, settings.go nested sections, tmux session-option helpers, closed-set token idiom)","cmd":"fab-new","event":"command","ts":"2026-08-14T18:17:52Z"}
+{"delta":"+4.8","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-08-14T18:19:16Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-14T18:22:22Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-14T18:22:38Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-14T18:31:01Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-14T18:42:11Z"}
+{"event":"review","result":"passed","ts":"2026-08-14T18:42:11Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-14T18:44:11Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-08-14T18:46:26Z"}
+{"event":"review","result":"passed","ts":"2026-08-14T19:03:43Z"}

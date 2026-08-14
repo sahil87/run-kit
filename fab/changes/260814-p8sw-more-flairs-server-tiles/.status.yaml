@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 12
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-08-14T13:29:33Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-14T13:46:00Z"}
     review: {started_at: "2026-08-14T13:46:00Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-14T13:52:15Z"}
     hydrate: {started_at: "2026-08-14T13:52:15Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-14T13:58:02Z"}
-    ship: {started_at: "2026-08-14T13:58:02Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-08-14T13:58:02Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-14T13:58:47Z"}
+    review-pr: {started_at: "2026-08-14T13:58:47Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/606
 change_type_source: explicit
 true_impact:
-    added: 1961
-    deleted: 44
-    net: 1917
+    added: 3287
+    deleted: 46
+    net: 3241
     excluding:
-        added: 1487
-        deleted: 26
-        net: 1461
+        added: 2466
+        deleted: 28
+        net: 2438
     tests:
-        added: 513
+        added: 601
         deleted: 4
-        net: 509
-    computed_at: "2026-08-14T13:58:02Z"
-    computed_at_stage: hydrate
+        net: 597
+    computed_at: "2026-08-14T13:58:48Z"
+    computed_at_stage: ship
 summary: flair catalogue grows to 12 (universal + tile-only classes); server-tile flair overlay with drag-source hide; picker flair grid with caller-dependent cell sets; two-vocabulary backend validation
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-14T13:58:02Z
+last_updated: 2026-08-14T13:58:48Z

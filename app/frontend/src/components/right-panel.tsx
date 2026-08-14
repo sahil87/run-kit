@@ -63,13 +63,15 @@ export function RightPanel({ available, open, onToggle }: RightPanelProps) {
   return (
     <div
       data-testid="right-panel-rail"
-      // The rail is the top-bar cluster's vertical twin, so it maps the bar's
-      // spacing vocabulary axis-for-axis: 52px = 28px button + 12px inset each
-      // side (centering the w-7 buttons puts their right edge co-linear with
-      // the top-bar chips, which sit 12px from the window edge — one vertical
-      // seam down the right side); gap-3 = the bar's 12px inter-chip gap; and
-      // py-2 = the 8px the bar's chips keep from its own top/bottom edges.
-      className="w-[52px] shrink-0 border-l border-border flex flex-col items-center py-2 gap-3"
+      // The rail is the top-bar cluster's vertical twin, mapping the bar's
+      // spacing vocabulary: right-aligned chips at pr-3 keep their right edge
+      // 12px from the window edge — co-linear with the top-bar chips (the
+      // MAJOR seam); gap-3 = the bar's 12px inter-chip gap; py-2 = the 8px the
+      // bar's chips keep from its own top/bottom edges. The left side hugs the
+      // tile divider at ~6px — dividers are MINOR seams (6px air on both
+      // sides, matching the tile-header verbs' inset on the other side), which
+      // is what keeps the column at 46px instead of a symmetric-12 52px band.
+      className="w-[46px] shrink-0 border-l border-border flex flex-col items-end pr-3 py-2 gap-3"
     >
       {shown.map((surface) => {
         const isOpen = open.includes(surface);

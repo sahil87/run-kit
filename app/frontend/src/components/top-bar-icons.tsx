@@ -3,7 +3,7 @@ import type { LayoutShape } from "@/lib/surface-layout";
 
 /**
  * Shared top-bar control glyphs (260801-3q1z) — one definition per mirrored
- * in-bar control, consumed by BOTH the in-bar button forms and their
+ * control, consumed by the surviving in-bar button forms AND their
  * chevron-menu / SplitControl-popover rows, so bar↔menu visual parity is
  * structural (the `OpenTargetIcon` precedent, `open-app-icons.tsx`).
  *
@@ -15,16 +15,17 @@ import type { LayoutShape } from "@/lib/surface-layout";
  *
  * Unlike `open-app-icons.tsx`'s fixed 24-viewBox/1.8-stroke `Glyph`, the
  * wrapper here is parameterized by viewBox/strokeWidth/join so each glyph
- * byte-preserves its in-bar original's SVG attributes — the refactor is
+ * byte-preserves its original's SVG attributes — the refactor is
  * zero-visual-change to the bar (split/close/refresh: 24-viewBox strokeWidth 2;
  * fixed-width: 14-viewBox strokeWidth 1.5 round caps only; autofit: 14-viewBox
  * strokeWidth 1.5 round caps+joins).
  *
- * Stateful toggles (fixed-width, autofit) expose a variant prop so one
- * definition serves both forms: the in-bar button passes live state
- * (`expanded={fixedWidth}` / `filled={autofit}`), while the menu row renders
- * the DEFAULT — a static identity variant (leading icon = identity; the row's
- * trailing ✓ is the sole state marker, the macOS menu pattern).
+ * The one stateful toggle with an in-bar form (autofit) exposes a variant prop
+ * so one definition serves both forms: the in-bar button passes live state
+ * (`filled={autofit}`), while the menu row renders the DEFAULT — a static
+ * identity variant (leading icon = identity; the row's trailing ✓ is the sole
+ * state marker, the macOS menu pattern). Menu-only controls (fixed-width,
+ * close-pane, terminal-font) ship the static identity form alone.
  */
 
 function ControlGlyph({

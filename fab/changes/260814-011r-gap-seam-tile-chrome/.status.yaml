@@ -54,4 +54,4 @@ true_impact:
     computed_at_stage: ship
 summary: 'gap-seam tile chrome: 6px gutter + ground inset, rounded-md tiles with 55% dimmed rk-card-border, grip-dot + delayed accent-green sash dividers, main-* two-axis intersection drag; board idle panes share the dimmed border'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-14T07:01:13Z
+last_updated: 2026-08-14T07:02:00Z

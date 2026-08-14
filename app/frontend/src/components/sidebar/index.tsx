@@ -2522,7 +2522,7 @@ function ServerGroupInner(props: ServerGroupProps) {
                   // sync-latency scopes window-row counts to one session) —
                   // don't couple selectors to the spacing utility classes.
                   data-session-group={session.name}
-                  className={`mb-1${isGhostSession ? " opacity-50 animate-pulse" : ""}`}
+                  className={isGhostSession ? "opacity-50 animate-pulse" : undefined}
                 >
                   <SessionRow
                     server={server}

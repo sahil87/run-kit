@@ -41,11 +41,13 @@ func TestURLCommandRegistered(t *testing.T) {
 	}
 }
 
-// TestURLDefault asserts the config default (no env) prints the loopback URL
-// newline-terminated with empty stderr.
+// TestURLDefault asserts the config default (no env, no covering @rk_origin)
+// prints the loopback URL newline-terminated with empty stderr.
 func TestURLDefault(t *testing.T) {
 	t.Setenv("RK_HOST", "")
 	t.Setenv("RK_PORT", "")
+	// Outside any pane and no stamp: falls through to the default.
+	stubOriginSeams(t, "", "", nil)
 
 	stdout, stderr := runURL(t)
 
@@ -57,11 +59,14 @@ func TestURLDefault(t *testing.T) {
 	}
 }
 
-// TestURLFromEnv asserts RK_HOST/RK_PORT drive the derivation, byte-equal to the
-// retired context.go serverURL() (http://<host>:<port>).
+// TestURLFromEnv asserts RK_HOST/RK_PORT drive the derivation (env wins over
+// the tmux option rung), byte-equal to the retired context.go serverURL()
+// (http://<host>:<port>).
 func TestURLFromEnv(t *testing.T) {
 	t.Setenv("RK_HOST", "10.0.0.1")
 	t.Setenv("RK_PORT", "8080")
+	// A pane WITH a stamped option must still lose to explicit env.
+	stubOriginSeams(t, originTestSocket+",1234,0", "http://127.0.0.1:3001\n", nil)
 
 	stdout, stderr := runURL(t)
 
@@ -73,11 +78,29 @@ func TestURLFromEnv(t *testing.T) {
 	}
 }
 
-// TestURLHelpStatesHeuristic pins the R6 contract: the Long text names the value
-// a config-derived heuristic, not a liveness probe.
+// TestURLFromTmuxOption asserts a pane in a covered server (no explicit env)
+// prints the daemon-stamped @rk_origin instead of the 3000 default.
+func TestURLFromTmuxOption(t *testing.T) {
+	t.Setenv("RK_HOST", "")
+	t.Setenv("RK_PORT", "")
+	stubOriginSeams(t, originTestSocket+",1234,0", "http://127.0.0.1:3001\n", nil)
+
+	stdout, stderr := runURL(t)
+
+	if want := "http://127.0.0.1:3001\n"; stdout != want {
+		t.Errorf("stdout = %q, want %q", stdout, want)
+	}
+	if stderr != "" {
+		t.Errorf("url wrote to stderr: %q", stderr)
+	}
+}
+
+// TestURLHelpStatesHeuristic pins the help contract: the Long text names the
+// value a config-derived heuristic (not a liveness probe) and documents the
+// env → @rk_origin → default precedence rung.
 func TestURLHelpStatesHeuristic(t *testing.T) {
 	long := urlCmd.Long
-	for _, want := range []string{"config-derived", "not proof"} {
+	for _, want := range []string{"config-derived", "not proof", "@rk_origin"} {
 		if !bytes.Contains([]byte(long), []byte(want)) {
 			t.Errorf("url Long text missing %q; got:\n%s", want, long)
 		}

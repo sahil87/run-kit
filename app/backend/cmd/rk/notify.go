@@ -4,11 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"time"
-
-	"rk/internal/config"
 
 	"github.com/spf13/cobra"
 )
@@ -41,9 +38,11 @@ func init() {
 	notifyCmd.Flags().StringVar(&notifyTitle, "title", "", "Optional notification title")
 }
 
-// sendNotify POSTs {title, body} to the local server's /api/notify. It is
-// fail-silent by design: any error (unreachable server, non-2xx, timeout) is
-// swallowed and produces no output.
+// sendNotify POSTs {title, body} to the local server's /api/notify, targeting
+// the origin resolveOrigin() derives for the caller (explicit RK_HOST/RK_PORT
+// env → the covering tmux server's @rk_origin → the 127.0.0.1:3000 default).
+// It is fail-silent by design: any error (unreachable server, non-2xx,
+// timeout) is swallowed and produces no output.
 func sendNotify(parent context.Context, title, body string) {
 	if parent == nil {
 		parent = context.Background()
@@ -51,8 +50,7 @@ func sendNotify(parent context.Context, title, body string) {
 	ctx, cancel := context.WithTimeout(parent, notifyTimeout)
 	defer cancel()
 
-	cfg := config.Load()
-	url := fmt.Sprintf("http://%s:%d/api/notify", cfg.Host, cfg.Port)
+	url := resolveOrigin() + "/api/notify"
 
 	payload, err := json.Marshal(map[string]string{"title": title, "body": body})
 	if err != nil {

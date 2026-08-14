@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
 	"os/exec"
 	"slices"
 	"strings"
@@ -485,5 +486,65 @@ func TestAnchorCommand(t *testing.T) {
 	wantDefault := []string{"tmux", "new-session", "-d", "-s", tmux.ControlAnchorSessionName}
 	if !slices.Equal(cmdDefault.Args, wantDefault) {
 		t.Errorf("default-socket cmd.Args = %v, want %v", cmdDefault.Args, wantDefault)
+	}
+}
+
+// TestStampServerOrigin_gate covers the productionDial origin-stamp gate
+// pty-free: no write when no origin was injected, no write on a non-admitted
+// socket (RK_SERVER_ALLOWLIST), write with the injected origin on an admitted
+// socket, and non-fatal behavior when the write fails.
+func TestStampServerOrigin_gate(t *testing.T) {
+	type write struct {
+		socket, origin string
+	}
+	var writes []write
+	origFn := setServerOriginFn
+	var failWith error
+	setServerOriginFn = func(_ context.Context, socket, origin string) error {
+		writes = append(writes, write{socket, origin})
+		return failWith
+	}
+	t.Cleanup(func() { setServerOriginFn = origFn; stampOrigin = "" })
+
+	ctx := context.Background()
+
+	// (a) No origin injected (tmuxctl used outside `rk serve`): zero writes.
+	stampOrigin = ""
+	stampServerOrigin(ctx, "default")
+	if len(writes) != 0 {
+		t.Fatalf("no injected origin: writes = %v, want none", writes)
+	}
+
+	// (b) Non-admitted socket: the e2e deployment must never stamp a host
+	// server it happens to dial.
+	stampOrigin = "http://127.0.0.1:3020"
+	t.Setenv(tmux.ServerAllowlistEnv, "rk-test-e2e")
+	stampServerOrigin(ctx, "default")
+	if len(writes) != 0 {
+		t.Fatalf("non-admitted socket: writes = %v, want none", writes)
+	}
+
+	// Admitted socket on the same deployment: stamped with the origin.
+	stampServerOrigin(ctx, "rk-test-e2e")
+	if len(writes) != 1 || writes[0] != (write{"rk-test-e2e", "http://127.0.0.1:3020"}) {
+		t.Fatalf("admitted socket: writes = %v, want one {rk-test-e2e, http://127.0.0.1:3020}", writes)
+	}
+
+	// (c) Admitted-everything deployment (allowlist unset).
+	os.Unsetenv(tmux.ServerAllowlistEnv)
+	writes = nil
+	stampOrigin = "http://127.0.0.1:3001"
+	stampServerOrigin(ctx, "default")
+	if len(writes) != 1 || writes[0] != (write{"default", "http://127.0.0.1:3001"}) {
+		t.Fatalf("unset allowlist: writes = %v, want one {default, http://127.0.0.1:3001}", writes)
+	}
+
+	// A failing write is swallowed (the dial proceeds) — the helper returns
+	// nothing and must not panic.
+	failWith = errors.New("server momentarily unreachable")
+	writes = nil
+	stampServerOrigin(ctx, "default")
+	if len(writes) != 1 {
+		t.Fatalf("failing write: writes = %v, want the attempt recorded", writes)
 	}
 }

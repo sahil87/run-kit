@@ -163,6 +163,13 @@ To run run-kit as a background daemon, see 'run-kit daemon start' (and the rest 
 		// inside the Supervisor and never block startup.
 		supervisor := tmuxctl.NewSupervisor(api.NewHubSinkFactory())
 
+		// Inject this deployment's origin (derived from the same config the
+		// server binds with) so every supervisor dial stamps @rk_origin on the
+		// covered tmux server — pane-side `rk url`/`rk notify` resolve it from
+		// there. The startup enumeration covers pre-existing servers (healing
+		// the value across restarts on a new port); fsnotify dials cover births.
+		tmuxctl.SetStampOrigin(fmt.Sprintf("http://%s:%d", cfg.Host, cfg.Port))
+
 		// Layout snapshotter: periodically persists per-covered-server layout
 		// snapshots (disaster-recovery backups, write-only per Constitution II)
 		// and tombstones a server's last snapshot when its socket is removed.

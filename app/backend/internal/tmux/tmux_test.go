@@ -2123,6 +2123,111 @@ func TestGetServerRank_malformedValueReturnsError(t *testing.T) {
 	}
 }
 
+func TestGetServerOrigin_unsetReturnsEmpty(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	got, err := GetServerOrigin(ctx, server)
+	if err != nil {
+		t.Fatalf("GetServerOrigin unset: %v", err)
+	}
+	if got != "" {
+		t.Errorf("got %q, want \"\" (unset)", got)
+	}
+}
+
+func TestGetServerOrigin_noServerReturnsEmpty(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available — skipping integration test")
+	}
+	// A socket name with no running server: the read must degrade to "", not
+	// bubble a "no server running" / "failed to connect" error.
+	server := testSocketName("unit")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	got, err := GetServerOrigin(ctx, server)
+	if err != nil {
+		t.Fatalf("GetServerOrigin on dead server: %v", err)
+	}
+	if got != "" {
+		t.Errorf("got %q, want \"\" (no server)", got)
+	}
+}
+
+func TestSetServerOrigin_roundTrip(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	const origin = "http://127.0.0.1:3001"
+	if err := SetServerOrigin(ctx, server, origin); err != nil {
+		t.Fatalf("SetServerOrigin: %v", err)
+	}
+
+	// Round-trip through the raw tmux CLI, byte-equal — this is what a pane-side
+	// `show-option -sv @rk_origin` (the resolver's read) sees.
+	args := append(serverArgs(server), "show-option", "-sv", OriginOption)
+	out, err := exec.CommandContext(ctx, "tmux", args...).CombinedOutput()
+	if err != nil {
+		t.Fatalf("raw show-option: %v\n%s", err, string(out))
+	}
+	if got := strings.TrimSpace(string(out)); got != origin {
+		t.Errorf("raw show-option = %q, want %q", got, origin)
+	}
+
+	got, err := GetServerOrigin(ctx, server)
+	if err != nil {
+		t.Fatalf("GetServerOrigin: %v", err)
+	}
+	if got != origin {
+		t.Fatalf("got %q, want %q", got, origin)
+	}
+
+	// Overwrite replaces (a daemon restarted on a new port re-stamps).
+	const restarted = "http://127.0.0.1:3005"
+	if err := SetServerOrigin(ctx, server, restarted); err != nil {
+		t.Fatalf("SetServerOrigin overwrite: %v", err)
+	}
+	got, err = GetServerOrigin(ctx, server)
+	if err != nil {
+		t.Fatalf("GetServerOrigin after overwrite: %v", err)
+	}
+	if got != restarted {
+		t.Fatalf("got %q, want %q after overwrite", got, restarted)
+	}
+}
+
+func TestServerAllowed(t *testing.T) {
+	cases := []struct {
+		name      string
+		allowlist string // "" = unset
+		set       bool
+		server    string
+		want      bool
+	}{
+		{name: "unset admits all", set: false, server: "default", want: true},
+		{name: "blank admits all", set: true, allowlist: "  ", server: "default", want: true},
+		{name: "exact match admitted", set: true, allowlist: "rk-test-e2e", server: "rk-test-e2e", want: true},
+		{name: "prefix match admitted", set: true, allowlist: "rk-test-e2e", server: "rk-test-e2e-secondary", want: true},
+		{name: "no match rejected", set: true, allowlist: "rk-test-e2e", server: "default", want: false},
+		{name: "comma tokens", set: true, allowlist: "alpha, beta", server: "beta-1", want: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.set {
+				t.Setenv(ServerAllowlistEnv, tc.allowlist)
+			} else {
+				os.Unsetenv(ServerAllowlistEnv)
+			}
+			if got := ServerAllowed(tc.server); got != tc.want {
+				t.Errorf("ServerAllowed(%q) = %v, want %v (allowlist %q)", tc.server, got, tc.want, tc.allowlist)
+			}
+		})
+	}
+}
+
 // withRealSessionTmux starts an isolated tmux server with a "real" session
 // containing two windows. Skips the test if tmux is unavailable. Returns
 // (server, realSession).

@@ -1,0 +1,9 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-14T18:36:26Z"}
+{"args":"Give rk-born tmux servers their deployment real server URL without re-leaking RK_* env — design-heavy: pick and justify mechanism (server-birth env injection vs @rk_url-style tmux option vs other)","cmd":"fab-new","event":"command","ts":"2026-08-14T18:36:26Z"}
+{"delta":"+3.9","event":"confidence","score":3.9,"trigger":"calc-score","ts":"2026-08-14T18:39:04Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-14T18:43:01Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-14T18:43:17Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-14T18:59:47Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-14T19:07:20Z"}
+{"event":"review","result":"passed","ts":"2026-08-14T19:07:20Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-14T19:15:21Z"}

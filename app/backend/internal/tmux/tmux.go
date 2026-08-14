@@ -29,6 +29,18 @@ const SessionOrderOption = "@rk_session_order"
 // own rank — no cross-server merge rule is needed. Mirrors SessionOrderOption.
 const ServerRankOption = "@rk_server_rank"
 
+// OriginOption is the tmux server-scoped user option that stores the full
+// origin string (e.g. "http://127.0.0.1:3001") of the run-kit deployment
+// covering this tmux server. The covering daemon stamps it on every supervisor
+// dial (see tmuxctl.productionDial), and pane-side CLI commands (`rk url`,
+// `rk notify`) read it at request time to resolve their server's origin when
+// no explicit RK_HOST/RK_PORT env is set. It is NOT an environment variable:
+// nothing sprays into child process environments, and a daemon restarted on a
+// new port re-stamps on its next dial. Named "origin" (not @rk_url, which is
+// the window-scoped present/iframe URL) after internal/remote's "origin via
+// `rk url`" language.
+const OriginOption = "@rk_origin"
+
 // RoleOption is the tmux window user option that marks a window's orchestration
 // role. The value set is closed: "" (unset) | "operator". "operator" is a
 // server-scoped radio — at most one window per tmux server carries it, enforced
@@ -2177,6 +2189,17 @@ func matchesServerAllowlist(name, allowlist string) bool {
 	return false
 }
 
+// ServerAllowed reports whether a tmux server name is admitted by this
+// deployment's RK_SERVER_ALLOWLIST (ServerAllowlistEnv), with semantics
+// identical to the ListServers filter: unset/blank env admits everything,
+// otherwise matchesServerAllowlist decides. It is the shared "does this
+// deployment cover this server?" predicate — consumers beyond enumeration
+// (e.g. the tmuxctl origin stamp, which must not write a non-admitted host
+// server's @rk_origin) gate on it.
+func ServerAllowed(name string) bool {
+	return matchesServerAllowlist(name, os.Getenv(ServerAllowlistEnv))
+}
+
 // ListServers discovers available tmux servers by scanning the tmux socket directory
 // at /tmp/tmux-{uid}/. Probes each socket to confirm the server is alive.
 // Returns sorted server names.
@@ -2222,13 +2245,13 @@ func ListServers(ctx context.Context) ([]string, error) {
 	}
 	wg.Wait()
 
-	// Env-gated test-isolation filter. Applied AFTER the liveness probe so only
-	// matching LIVE servers survive. Unset/empty env => admits everything, so
-	// production behavior is unchanged.
+	// Env-gated test-isolation filter (via the shared ServerAllowed predicate).
+	// Applied AFTER the liveness probe so only matching LIVE servers survive.
+	// Unset/empty env => admits everything, so production behavior is unchanged.
 	if allowlist := os.Getenv(ServerAllowlistEnv); strings.TrimSpace(allowlist) != "" {
 		filtered := servers[:0]
 		for _, name := range servers {
-			if matchesServerAllowlist(name, allowlist) {
+			if ServerAllowed(name) {
 				filtered = append(filtered, name)
 			}
 		}
@@ -2444,5 +2467,44 @@ func SetServerRank(ctx context.Context, server string, rank int) error {
 	defer cancel()
 
 	_, err := tmuxExecRawServer(ctx, server, "set-option", "-s", ServerRankOption, strconv.Itoa(rank))
+	return err
+}
+
+// GetServerOrigin reads this server's covering-deployment origin from the
+// server-scoped user option @rk_origin.
+//
+// Returns ("", nil) when the option is unset. "Unset" is detected by tmux's
+// stderr ("invalid option"/"unknown option") OR by the dead/absent socket
+// cases (IsServerGone) — all normal first-use states (fresh server, no
+// covering daemon ever stamped it) that must NOT bubble as errors, exactly
+// mirroring GetServerRank's taxonomy.
+//
+// Other subprocess failures propagate as wrapped errors. The stored value is
+// returned verbatim (no validation) — validation for use as a request target
+// is the consumer's job (see cmd/rk/origin.go).
+func GetServerOrigin(ctx context.Context, server string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
+	defer cancel()
+
+	out, err := tmuxExecRawServer(ctx, server, "show-option", "-sv", OriginOption)
+	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "invalid option") ||
+			strings.Contains(errMsg, "unknown option") ||
+			IsServerGone(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf("read %s: %w", OriginOption, err)
+	}
+	return strings.TrimSpace(out), nil
+}
+
+// SetServerOrigin writes this server's covering-deployment origin to the
+// server-scoped user option @rk_origin. Mirrors SetServerRank.
+func SetServerOrigin(ctx context.Context, server, origin string) error {
+	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
+	defer cancel()
+
+	_, err := tmuxExecRawServer(ctx, server, "set-option", "-s", OriginOption, origin)
 	return err
 }

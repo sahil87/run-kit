@@ -50,6 +50,45 @@ type dialFn func(ctx context.Context, socket string) (*exec.Cmd, io.ReadWriteClo
 // in tests). Replaced in tests with a fake clock.
 type sleepFn func(ctx context.Context, d time.Duration) <-chan struct{}
 
+// stampOrigin is the deployment origin (e.g. "http://127.0.0.1:3001") the serve
+// process injects once at startup (cmd/rk/serve.go) so every dial can stamp it
+// onto the covered tmux server's @rk_origin option. Empty (the zero value,
+// e.g. when tmuxctl is used outside `rk serve`) means "no stamping".
+//
+// Written once before Supervisor.Start and read from dial goroutines — no
+// mutation after startup, so no lock is needed.
+var stampOrigin string
+
+// SetStampOrigin injects the origin stampServerOrigin stamps on every dial.
+// Call once from serve startup, before Supervisor.Start.
+func SetStampOrigin(origin string) {
+	stampOrigin = origin
+}
+
+// setServerOriginFn is the seam behind the origin stamp so the gate logic is
+// unit-testable without a live tmux server. Production delegates to
+// tmux.SetServerOrigin.
+var setServerOriginFn = tmux.SetServerOrigin
+
+// stampServerOrigin writes the injected deployment origin to the dialed
+// server's @rk_origin user option. Runs on every dial AND every reconnect
+// (from productionDial), which is what heals the value across daemon restarts
+// and stamps servers born after startup. Skipped when no origin was injected
+// (non-serve consumers) or the socket is not admitted by this deployment's
+// RK_SERVER_ALLOWLIST (tmux.ServerAllowed) — an allowlisted deployment (e.g.
+// the e2e backend) must never overwrite a host server's origin. Non-fatal on
+// error: a momentarily unreachable server must not abort the dial (same
+// contract as the SetExitEmptyOff backstop it rides beside). Unconditional
+// write — dials are rare, so a read-compare would only double the tmux calls.
+func stampServerOrigin(ctx context.Context, socket string) {
+	if stampOrigin == "" || !tmux.ServerAllowed(socket) {
+		return
+	}
+	if err := setServerOriginFn(ctx, socket, stampOrigin); err != nil {
+		slog.Debug("tmuxctl: stamp @rk_origin failed (non-fatal)", "socket", socket, "origin", stampOrigin, "err", err)
+	}
+}
+
 // realSleep is the production sleepFn. The returned channel fires once after
 // d, OR closes early if ctx is cancelled.
 func realSleep(ctx context.Context, d time.Duration) <-chan struct{} {
@@ -366,6 +405,14 @@ func productionDial(ctx context.Context, socket string) (*exec.Cmd, io.ReadWrite
 	if err := tmux.SetExitEmptyOff(ctx, socket); err != nil {
 		slog.Debug("tmuxctl: set exit-empty off failed (non-fatal)", "socket", socket, "err", err)
 	}
+
+	// Origin stamp, on the same every-dial/every-reconnect contract as the
+	// backstop above: stamps @rk_origin with the injected deployment origin so
+	// pane-side `rk url`/`rk notify` resolve the covering deployment. Skipped
+	// when no origin was injected or the socket fails the deployment's
+	// allowlist; non-fatal on write error.
+	// Change: 260814-qb8z-server-url-tmux-option.
+	stampServerOrigin(ctx, socket)
 
 	bootstrap, err := resolveBootstrap(ctx, socket)
 	if err != nil {

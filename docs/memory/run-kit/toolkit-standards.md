@@ -791,7 +791,10 @@ minimal surface). The standard's own static/dynamic split, plus Constitution §X
 every Environment value is derivable by the agent directly (`$TMUX_PANE`, `tmux
 display-message`, env-backed config), so the command was pure duplication once the
 topic page existed. The one derivation that earns a stable command seam is the
-server URL → **`rk url`** (a `config.Load()` heuristic; ecosystem precedent
+server URL → **`rk url`** (a resolver over explicit `RK_HOST`/`RK_PORT` env →
+the pane server's `@rk_origin` tmux option → the `127.0.0.1:3000` default, so
+it stays accurate on non-default deployments where panes carry no `RK_*` env;
+ecosystem precedent
 `gh browse --no-browser` / `docker port` / `minikube service --url`), which also
 keeps a natural home for smarter port-owner discovery later without freezing a
 heuristic into prose. Net CLI surface: −1 `context`, +1 `url`, +topic arg on

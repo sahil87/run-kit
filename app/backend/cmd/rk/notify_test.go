@@ -98,3 +98,50 @@ func TestNotifyCmd_RunEReturnsNil(t *testing.T) {
 		t.Errorf("RunE returned %v, want nil (fail-silent)", err)
 	}
 }
+
+// TestNotify_usesTmuxOptionOrigin asserts that with no explicit RK_HOST/RK_PORT
+// env, a pane in a covered server POSTs to the daemon-stamped @rk_origin.
+func TestNotify_usesTmuxOptionOrigin(t *testing.T) {
+	var gotPath string
+	hit := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hit = true
+		gotPath = r.URL.Path
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	t.Setenv("RK_HOST", "")
+	t.Setenv("RK_PORT", "")
+	stubOriginSeams(t, originTestSocket+",1234,0", srv.URL+"\n", nil)
+
+	sendNotify(context.Background(), "", "msg")
+
+	if !hit {
+		t.Fatal("expected the POST to target the @rk_origin origin; no request received")
+	}
+	if gotPath != "/api/notify" {
+		t.Errorf("path = %q, want /api/notify", gotPath)
+	}
+}
+
+// TestNotify_envWinsOverTmuxOption asserts explicit RK_HOST/RK_PORT beat a
+// stamped @rk_origin (deliberate operator override).
+func TestNotify_envWinsOverTmuxOption(t *testing.T) {
+	hit := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hit = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	pointConfigAt(t, srv.URL)
+	// A stamped option pointing elsewhere must be ignored in favor of env.
+	stubOriginSeams(t, originTestSocket+",1234,0", "http://127.0.0.1:1\n", nil)
+
+	sendNotify(context.Background(), "", "msg")
+
+	if !hit {
+		t.Error("expected the POST to target the env-derived origin; no request received")
+	}
+}

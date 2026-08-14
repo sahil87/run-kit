@@ -21,97 +21,65 @@ type SwatchPopoverProps = {
    *  undefined when uncolored. Legacy values are normalized to their family
    *  (normal shade) so the correct swatch highlights. */
   selectedColor?: string;
-  /** Called with the value to STORE. The popover maps a picked NORMAL-shade
-   *  family name to its legacy numeric/blend descriptor (familyToLegacy)
-   *  before invoking this, so pre-existing stored color values stay in the
-   *  legacy vocabulary (zero migration). DARK-shade picks ("orange-dark") have
-   *  no legacy form and pass through verbatim — the backend validators accept
-   *  the family-name vocabulary alongside the numeric forms. `null` clears the
-   *  color. This is the single write seam every color-picking surface
-   *  (window/session/server rows + the palette "Set Color" actions) funnels
-   *  through. */
+  /** Called with the value to STORE — the single write seam every
+   *  color-picking surface (window/session/server rows + the palette "Set
+   *  Color" actions) funnels through. A picked NORMAL-shade family name is
+   *  mapped to its legacy numeric/blend descriptor (familyToLegacy) first, so
+   *  pre-existing stored values stay in the legacy vocabulary (zero
+   *  migration); DARK-shade picks ("orange-dark") have no legacy form and
+   *  pass through verbatim — the backend validators accept both
+   *  vocabularies. `null` clears the color. */
   onSelect: (color: string | null) => void;
-  /** Dismissal model (260723): selection NEVER dismisses — the picker stays
-   *  open so color + marker combos can be toggled and previewed live against
-   *  the row. It closes only via the explicit ✕ cell (row 0, col 4), a click
-   *  outside, or Escape. Callers therefore must NOT close in their
-   *  onSelect/onSelectMarker handlers — closing is this component's contract,
-   *  funneled through onClose. */
+  /** Dismissal model: selection NEVER dismisses — the picker stays open so
+   *  color + marker combos can be previewed live against the row. It closes
+   *  only via the explicit ✕ cell, a click outside, or Escape; callers must
+   *  NOT close in their onSelect/onSelectMarker handlers. */
   onClose: () => void;
-  /** ── Combined-label extension ── When `onSelectMarker` is supplied, the
-   *  popover renders the side-by-side Label picker: a marker column (∅ /
-   *  dotted / dashed / solid / double / thick) LEFT of a vertical hairline,
-   *  beside the color grid. Each non-∅ marker cell is a LIVE ROW PREVIEW — a
-   *  miniature window row rendered for the currently selected color:
-   *  background = that value's `tint.base` (gray sentinel when uncolored),
-   *  stripe in the guarded border color with a 2px left inset (so the marker
-   *  does not kiss the cell edge and the cell reads as a mini row), plus the
-   *  paired row texture: hazard weave on thick (mask dropped via
-   *  rk-hazard-preview — the 18px cell reads as the row's full-strength left
-   *  corner), scanline wash on double, data rain on dashed. Picking a
-   *  different swatch repaints the marker column immediately. PREVIEWS MIRROR
-   *  THE ROW'S RESTING LOOK: the dashed rain animates (it is always-on on real
-   *  rows), but the double cell never gets the scanline crawl — that is
-   *  selected-state motion, absent even when double is selected.
-   *  Selection calls `onSelectMarker` DIRECTLY (no cycling — any state is one
-   *  click) with `""` clearing the marker. Keyboard nav crosses the hairline
-   *  (ArrowLeft/Right). When `onSelectMarker` is ABSENT the component renders
-   *  the pure color grid (session/server rows + the palette color actions) —
-   *  same square style, no marker column, no hairline. */
+  /** When `onSelectMarker` is supplied, the popover renders the side-by-side
+   *  Label picker: a marker column (∅ / dotted / dashed / solid / double /
+   *  thick) LEFT of a vertical hairline. Non-∅ cells are LIVE ROW PREVIEWS of
+   *  the currently selected color, mirroring the row's RESTING look (details
+   *  at the marker-column JSX). Selection calls `onSelectMarker` DIRECTLY —
+   *  any state is one click, `""` clears. Keyboard nav crosses the hairline
+   *  (ArrowLeft/Right). When ABSENT, the pure color grid renders — same
+   *  square style, no marker column, no hairline. */
   selectedMarker?: string;
   onSelectMarker?: (marker: string) => void;
-  /** ── Flair extension ── When `onSelectFlair` is supplied, the popover
-   *  renders a flair section: ONE row of four cells (∅ / nyan / naruto /
-   *  onepiece, from FLAIR_STATES) below the color grid, separated by a
-   *  horizontal hairline. Each non-∅ cell is a miniature live row preview
-   *  carrying its always-on animated flair overlay (rk-flair-*), mirroring
-   *  the marker column's live-preview pattern (tint.base background like the
-   *  marker previews; the overlay animates exactly as it does on real rows).
-   *  Selection calls `onSelectFlair` DIRECTLY with the exact state — `""`
-   *  clears, no cycling. Keyboard nav reaches the cells as an extra grid row
-   *  (FLAIR_ROW) under the color grid: ArrowDown from the bottom color row
-   *  enters it, ArrowLeft/Right walk it. Available on every flair-capable
-   *  caller — window rows (beside the marker column) and session rows; NOT
-   *  server group headers, which mirror the SERVER-pane tiles. When
-   *  `onSelectFlair` is ABSENT no flair row renders. */
+  /** When `onSelectFlair` is supplied, a flair row (∅ / nyan / naruto /
+   *  onepiece) renders below the color grid behind a horizontal hairline —
+   *  live row previews like the marker column, each carrying its always-on
+   *  rk-flair-* overlay. Selection calls `onSelectFlair` DIRECTLY — `""`
+   *  clears, no cycling. ArrowDown from the bottom color row enters it as an
+   *  extra grid row (FLAIR_ROW). Offered on window and session rows; NOT
+   *  server group headers. */
   selectedFlair?: string;
   onSelectFlair?: (flair: string) => void;
 };
 
-/** Colors per row in the color grid. The layout is a conceptual 5-column grid:
- *  marker column (col 0, when shown) + 4 color columns (cols 1–4), 6 rows
- *  (removal row + 5 color rows). The 4-wide layout renders each family's two
- *  shades ADJACENT (row 1: red, red-dark, orange, orange-dark; …) because
- *  PICKER_COLOR_VALUES is in paired order. */
+/** Colors per row. The layout is a conceptual 5-column grid: marker column
+ *  (col 0, when shown) + 4 color columns (cols 1–4), 6 rows (removal row + 5
+ *  color rows). The 4-wide layout renders each family's two shades ADJACENT
+ *  because PICKER_COLOR_VALUES is in paired order. */
 const COLOR_COLS = 4;
 
-/** The marker-cell order shown in the picker column: none / dotted / dashed /
- *  solid / double / thick. Mirrors MARKER_STATES, with `∅` in row 0 (the
- *  removal row) and the five non-empty states beside the five color rows.
- *
- *  DELIBERATE 1:1 PAIRING (supersedes the former "load-bearing coincidence"):
- *  the marker column and the color grid are sized to pair row-for-row —
- *  6 marker cells ↔ 6 grid rows (Clear + 20 colors laid out 4-wide). The
- *  invariant GRID_ROWS === MARKER_CELLS.length is part of the design (and
- *  asserted in swatch-popover.test.tsx): extend MARKER_STATES and
+/** DELIBERATE 1:1 PAIRING: the marker column and the color grid pair
+ *  row-for-row — the invariant GRID_ROWS === MARKER_CELLS.length is part of
+ *  the design (asserted in swatch-popover.test.tsx). Extend MARKER_STATES and
  *  PICKER_COLOR_VALUES together so it holds. */
 const MARKER_CELLS = MARKER_STATES;
 
 /** Number of grid rows: the removal row + 20 / 4 = 5 color rows. */
 const GRID_ROWS = 1 + Math.ceil(PICKER_COLOR_VALUES.length / COLOR_COLS); // 6
 
-/** The flair row index (flair-enabled callers only): ONE row directly below
- *  the color grid, its four cells (∅ / nyan / naruto / onepiece) occupying
- *  cols 1–4 of the conceptual grid. The marker column does NOT extend into
- *  it — ArrowLeft from the flair row's first cell is a no-op. */
+/** The flair row index: one row below the color grid, cells at cols 1–4. The
+ *  marker column does NOT extend into it — ArrowLeft from its first cell is a
+ *  no-op. */
 const FLAIR_ROW = GRID_ROWS;
 
-/** Keyboard focus position on the conceptual 5-column grid.
- *  - `row`: 0 = removal row (∅ | Clear | ✕), 1–5 = color rows, FLAIR_ROW (6)
- *    = the flair row (only valid when the flair section is shown).
- *  - `col`: 0 = marker column (only valid when markers shown); 1–4 = color
- *    columns. On row 0 the `Clear` button spans cols 1–3 as a SINGLE focus
- *    target canonicalized to col 1, and the ✕ close cell sits at col 4. */
+/** Keyboard focus position on the conceptual grid. row 0 = removal row
+ *  (∅ | Clear | ✕), 1–5 = color rows, FLAIR_ROW = flair row; col 0 = marker
+ *  column, 1–4 = color columns. On row 0 the Clear button spans cols 1–3 as a
+ *  SINGLE focus target canonicalized to col 1; the ✕ cell sits at col 4. */
 type GridPos = { row: number; col: number };
 
 /** Color-array index for a grid position (rows 1–5, cols 1–4). */
@@ -119,9 +87,9 @@ function colorIndexAt(row: number, col: number): number {
   return (row - 1) * COLOR_COLS + (col - 1);
 }
 
-/** Last valid color column in a color row. With 20 colors filling 5×4 exactly
- *  there are no dead cells any more — every color row's last column is 4 — but
- *  the clamp is kept generic so a future vocabulary change degrades safely. */
+/** Last valid color column in a color row. 20 colors fill the 5×4 grid
+ *  exactly, but the clamp is kept generic so a future vocabulary change
+ *  degrades safely. */
 function maxColorCol(row: number): number {
   const rowStart = (row - 1) * COLOR_COLS;
   const inRow = Math.min(PICKER_COLOR_VALUES.length - rowStart, COLOR_COLS);
@@ -144,28 +112,20 @@ export function SwatchPopover({
     [theme.palette, theme.category],
   );
 
-  // The marker section is rendered only when a marker write callback is
-  // present. Color-only callers omit it and get the pure color grid (same
-  // square style, no marker column).
   const showMarkers = !!onSelectMarker;
-
-  // The flair section (a row below the color grid) renders only when a flair
-  // write callback is present. Color-only callers omit it.
   const showFlair = !!onSelectFlair;
 
-  // Normalize the incoming selection to its canonical display value
-  // ("orange" / "orange-dark") so a legacy-stored value ("1+3") highlights the
-  // same swatch as its family, and a dark-stored value highlights the DARK
-  // swatch (not its normal sibling). Undefined when uncolored or unrecognized.
+  // Normalize the selection to its canonical display value so a legacy-stored
+  // value ("1+3") highlights its family swatch and a dark-stored value
+  // highlights the DARK swatch (not its normal sibling).
   const parsedSelected = parseColorValue(selectedColor);
   const selectedValue = parsedSelected ? formatColorValue(parsedSelected) : undefined;
 
-  // Live preview color for the marker row previews. Derived from the selection
-  // prop, but a swatch pick ALSO updates this local override so the marker
-  // column repaints immediately regardless of whether (or how fast) the caller
-  // echoes the selection back through props — the popover stays open on pick,
-  // and the preview must not lag the click. `undefined` = no override;
-  // `null` = cleared (gray sentinel).
+  // Preview color for the marker/flair cells. A swatch pick updates this
+  // local override so the previews repaint immediately regardless of whether
+  // (or how fast) the caller echoes the selection back through props — the
+  // popover stays open on pick, and the preview must not lag the click.
+  // `undefined` = no override; `null` = cleared (gray sentinel).
   const [previewOverride, setPreviewOverride] = useState<string | null | undefined>(undefined);
   const previewValue = previewOverride === undefined ? selectedValue : previewOverride ?? undefined;
   const previewTint =
@@ -176,11 +136,8 @@ export function SwatchPopover({
     rowBorders.get(UNCOLORED_SELECTED_KEY) ??
     theme.palette.foreground;
 
-  // The single write seam: map a picked NORMAL-shade family name ("orange") to
-  // its legacy descriptor ("1+3") before handing it to the caller's onSelect,
-  // so pre-existing stored color values stay in the legacy vocabulary. Dark
-  // picks ("orange-dark") and `null` (Clear) pass through untouched. Also
-  // repaints the marker row previews (local override above).
+  // The write seam: legacy mapping per the onSelect prop doc, plus the
+  // immediate preview repaint (local override above).
   const emit = useCallback(
     (value: string | null) => {
       setPreviewOverride(value);
@@ -189,44 +146,32 @@ export function SwatchPopover({
     [onSelect],
   );
 
-  // Normalize the current marker to one of the known cells ("" when unset).
   const currentMarker = selectedMarker ?? "";
-
-  // Normalize the current flair the same way ("" when unset).
   const currentFlair = selectedFlair ?? "";
 
-  // Initial focus FOLLOWS SELECTION: the selected color swatch, or the Clear
-  // color cell (row 0 — already aria-selected in that state) when uncolored.
-  // Never an arbitrary swatch — a focus ring on an unselected color reads as a
-  // phantom selection. The marker column is reached via ArrowLeft.
+  // Initial focus FOLLOWS SELECTION: the selected swatch, or the Clear cell
+  // when uncolored — never an arbitrary swatch, whose focus ring would read
+  // as a phantom selection.
   const [focus, setFocus] = useState<GridPos>(() => {
     const idx = selectedValue != null ? PICKER_COLOR_VALUES.indexOf(selectedValue) : -1;
     if (idx < 0) return { row: 0, col: 1 };
     return { row: Math.floor(idx / COLOR_COLS) + 1, col: (idx % COLOR_COLS) + 1 };
   });
-  // Focus-visible semantics: the focus ring renders only after the keyboard
-  // has actually been used (first arrow key). The listbox autofocuses on
-  // mount, so an always-on ring would show mouse users a phantom highlight
-  // they never asked for.
+  // The focus ring renders only after the first arrow key: the listbox
+  // autofocuses on mount, so an always-on ring would show mouse users a
+  // phantom highlight.
   const [keyboardActive, setKeyboardActive] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Activate the cell at a grid position (Enter/Space). The marker column maps
-  // to onSelectMarker; row 0's color side is Clear (cols 1–3) and the ✕ close
-  // cell (col 4); color cells map to onSelect.
+  // Activate the cell at a grid position (Enter/Space).
   const activate = useCallback(
     (pos: GridPos) => {
       if (pos.row === FLAIR_ROW) {
-        // Flair row: FLAIR_STATES[col - 1] — ∅ at col 1 (clears), then nyan /
-        // naruto / onepiece at cols 2–4. Direct pick, no cycling. The explicit
-        // undefined check mirrors the marker column's pairing guard.
         const flair = FLAIR_STATES[pos.col - 1];
         if (onSelectFlair && flair !== undefined) onSelectFlair(flair);
       } else if (pos.col === 0) {
-        // Marker column: MARKER_CELLS[row] — ∅ in row 0, the five non-empty
-        // states beside the five color rows (the deliberate 1:1 pairing
-        // above). The explicit undefined check guards against that pairing
-        // drifting (GRID_ROWS outgrowing MARKER_CELLS) — never emit undefined.
+        // The undefined check guards against the 1:1 pairing drifting
+        // (GRID_ROWS outgrowing MARKER_CELLS) — never emit undefined.
         const marker = MARKER_CELLS[pos.row];
         if (onSelectMarker && marker !== undefined) onSelectMarker(marker);
       } else if (pos.row === 0) {
@@ -253,10 +198,9 @@ export function SwatchPopover({
     return () => document.removeEventListener("keydown", handleKeyDown, true);
   }, [onClose]);
 
-  // Autofocus the listbox on mount so keyboard nav works immediately — the
-  // `Window: Label` palette action is the only keyboard path to the marker
-  // section, and arrow keys are dead until the listbox has focus. Mirrors
-  // pin-popover.tsx's mount-focus of its input.
+  // Autofocus the listbox on mount — the `Window: Label` palette action is
+  // the only keyboard path to the marker section, and arrow keys are dead
+  // until the listbox has focus.
   useEffect(() => {
     containerRef.current?.focus();
   }, []);
@@ -278,11 +222,9 @@ export function SwatchPopover({
     };
   }, [onClose]);
 
-  // Arrow-key movement on the conceptual grid. ArrowLeft/ArrowRight cross the
-  // vertical hairline (marker column ↔ color columns); ArrowUp/ArrowDown move
-  // within a column. Moves off a grid edge clamp to the nearest valid cell
-  // (no-op at hard edges) — 20 colors fill the 5×4 grid exactly, so there are
-  // no dead cells, but the clamp stays for safety.
+  // Arrow-key movement: ArrowLeft/Right cross the hairline (marker ↔ color),
+  // ArrowUp/Down move within a column; edge moves clamp to the nearest valid
+  // cell.
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key.startsWith("Arrow")) setKeyboardActive(true);
@@ -339,8 +281,8 @@ export function SwatchPopover({
   const focusOnClose = keyboardActive && focus.row === 0 && focus.col === COLOR_COLS;
 
   return (
-    // TipGroup: the marker cells are a warm-tip cluster (260722-73al) —
-    // sweeping down the tiny 18px cells names each marker instantly.
+    // TipGroup: the marker cells are a warm-tip cluster — sweeping down the
+    // tiny 18px cells names each marker instantly.
     <TipGroup>
     <div
       ref={containerRef}
@@ -352,16 +294,11 @@ export function SwatchPopover({
       style={{ boxShadow: "3px 3px 0 rgba(0,0,0,.35)" }}
     >
       <div className="flex">
-        {/* Marker column (col 0) + vertical hairline — Label-picker callers only.
-            Each 18px cell + 3px gap row-aligns 1:1 with the color grid beside it:
-            ∅ beside Clear color (the removal row), dotted/dashed/solid/double/
-            thick beside the five color rows. Non-∅ cells are LIVE ROW PREVIEWS
-            of the currently selected color: tint.base background (gray sentinel
-            when uncolored), guarded-color stripe with a 2px left inset, and the
-            paired row texture (scanline wash on double, hazard weave on thick,
-            data rain on dashed). Previews mirror the row's RESTING look — the
-            always-on rain animates, but never rk-scanlines-crawl (selected-
-            state motion) here. */}
+        {/* Marker column (col 0) + vertical hairline. Each 18px cell + 3px gap
+            row-aligns 1:1 with the color grid beside it. Non-∅ cells are LIVE
+            ROW PREVIEWS of the currently selected color: tint.base background
+            (gray sentinel when uncolored), guarded-color stripe, and the
+            paired row texture. */}
         {showMarkers && (
           <>
             <div className="flex flex-col gap-[3px]">
@@ -393,11 +330,11 @@ export function SwatchPopover({
                     }
                   >
                     {/* Paired row texture — the row's RESTING look: the dashed
-                        rain animates (always-on on real rows), but no crawl
-                        class ever, even when double is selected. The thick
-                        cell drops the hazard's left-wedge mask (preview
-                        modifier) — masked at 18px the weave fades out under
-                        the 6px stripe and is invisible. */}
+                        rain animates (always-on on real rows) but never the
+                        crawl (selected-state motion), even when double is
+                        selected. The thick cell drops the hazard's left-wedge
+                        mask — masked at 18px the weave is invisible under the
+                        6px stripe. */}
                     {state === "double" && (
                       <span aria-hidden="true" className="rk-scanlines absolute inset-0 pointer-events-none" />
                     )}
@@ -407,8 +344,7 @@ export function SwatchPopover({
                     {state === "thick" && (
                       <span aria-hidden="true" className="rk-hazard rk-hazard-preview absolute inset-0 pointer-events-none" />
                     )}
-                    {/* Mini-row stripe: guarded color, 2px inset off the cell's
-                        left edge so the marker doesn't kiss the boundary. */}
+                    {/* Stripe inset 2px so the marker doesn't kiss the edge. */}
                     {stripe && (
                       <span className="absolute inset-y-0 right-0" style={{ left: 2, ...stripe }} />
                     )}
@@ -425,10 +361,8 @@ export function SwatchPopover({
             <div className="w-px bg-border mx-1.5 self-stretch" aria-hidden="true" />
           </>
         )}
-        {/* Color section (cols 1–4): the removal row — Clear (cols 1–3) + the
-            ✕ close cell (col 4, the explicit dismiss; selection never closes) —
-            then the 20 family/shade swatches laid out 4-wide in PAIRED order —
-            each family's normal|dark shades adjacent (5 full rows). */}
+        {/* Color section (cols 1–4): the removal row (Clear + ✕), then the 20
+            family/shade swatches 4-wide in PAIRED order. */}
         <div className="grid grid-cols-4 gap-[3px]">
           <button
             role="option"
@@ -441,9 +375,7 @@ export function SwatchPopover({
             Clear
           </button>
           {/* ✕ — the explicit dismiss. role=option (never aria-selected) so
-              the listbox holds only ARIA-valid children — an option-as-command,
-              the same pattern Clear already uses. Escape and outside-click
-              remain the other two close paths. */}
+              the listbox holds only ARIA-valid children. */}
           <button
             role="option"
             aria-selected={false}
@@ -458,10 +390,9 @@ export function SwatchPopover({
           {PICKER_COLOR_VALUES.map((value, i) => {
             const tint = rowTints.get(value);
             const fallback = colorValueToHex(value, theme.palette) ?? theme.palette.foreground;
-            // Uniform SOLID square: one fill — the value's selected-tint blend
-            // (no more split base/selected halves). The bright selection ring +
-            // ✓ glyph keep the picked swatch unambiguous between adjacent
-            // same-family shades.
+            // One solid fill (the value's selected-tint blend); the ring + ✓
+            // keep the picked swatch unambiguous between adjacent same-family
+            // shades.
             const fill = tint?.selected ?? fallback;
             const isSelected = selectedValue === value;
             const isFocused =
@@ -488,14 +419,8 @@ export function SwatchPopover({
               </button>
             );
           })}
-          {/* Flair section (flair-enabled callers only): one row below the
-              color grid, behind a horizontal hairline — ∅ (clear) at col 1,
-              then nyan / naruto / onepiece at cols 2–4. Each non-∅ cell is a
-              miniature LIVE ROW PREVIEW following the marker column's pattern:
-              the selected color's tint.base background (gray sentinel when
-              uncolored) carrying its always-on animated rk-flair-* overlay,
-              exactly the row's resting look. Selection calls onSelectFlair
-              DIRECTLY — "" clears, no cycling. */}
+          {/* Flair row: live row previews of the selected color, each carrying
+              its always-on rk-flair-* overlay. */}
           {showFlair && (
             <>
               <div className="col-span-4 h-px bg-border self-center" aria-hidden="true" />
@@ -522,8 +447,6 @@ export function SwatchPopover({
                         : undefined
                     }
                   >
-                    {/* The flair overlay itself, running live (always-on on
-                        real rows, so the preview carries it too). */}
                     {isPreview && (
                       <span aria-hidden="true" className={`rk-flair-${state} absolute inset-0 pointer-events-none`} />
                     )}

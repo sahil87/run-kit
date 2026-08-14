@@ -1,0 +1,9 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-14T19:13:43Z"}
+{"args":"Reduce code comment density: comments should state constraints the code can't show — not narrate the next line, mirror sibling code, or cite change IDs. Two parts: (1) add the rule to fab/project/code-quality.md anti-patterns; (2) one-time distillation sweep of the heaviest files","cmd":"fab-new","event":"command","ts":"2026-08-14T19:13:43Z"}
+{"delta":"+4.7","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-08-14T19:15:22Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-14T19:18:19Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-14T19:18:32Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-14T19:27:43Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-14T19:32:41Z"}
+{"event":"review","result":"passed","ts":"2026-08-14T19:32:41Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-14T19:33:02Z"}

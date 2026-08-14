@@ -28,7 +28,6 @@ func (s *Server) handleSessionCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Tightened new-name rule (no spaces) — this names a to-be-created session.
 	if errMsg := validate.ValidateNewName(body.Name, "Session name"); errMsg != "" {
 		writeError(w, http.StatusBadRequest, errMsg)
 		return
@@ -71,10 +70,9 @@ func (s *Server) handleSessionRename(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Tightened new-name rule (no spaces) — this is the renamed-TO name. The
-	// URL-param `session` above stays on the permissive ValidateName so a
-	// pre-existing spacey session (created outside run-kit) can still be the
-	// rename SOURCE.
+	// Only the renamed-TO name gets the tightened new-name rule: the URL-param
+	// source above stays on permissive ValidateName so a pre-existing spacey
+	// session (created outside run-kit) can still be renamed.
 	if errMsg := validate.ValidateNewName(body.Name, "Session name"); errMsg != "" {
 		writeError(w, http.StatusBadRequest, errMsg)
 		return
@@ -89,30 +87,25 @@ func (s *Server) handleSessionRename(w http.ResponseWriter, r *http.Request) {
 }
 
 // sessionStringOption describes one session-scoped string-option channel for
-// handleSessionStringOption: how to decode the value from the JSON body, the
-// shared validation rule, and the tmux set/unset pair. Adding a channel is a
-// new descriptor plus a route registration — not a new handler.
+// handleSessionStringOption. Adding a channel is a new descriptor plus a
+// route registration — not a new handler.
 type sessionStringOption struct {
-	// decode extracts the channel's value pointer from the request body via a
-	// per-channel struct decode, so encoding/json's field-matching semantics
-	// (unknown keys ignored, case-insensitive key fold) are preserved exactly
-	// as the old dedicated handlers had them. A json error means 400.
+	// decode extracts the channel's value pointer via a per-channel struct
+	// decode, deliberately preserving encoding/json's field-matching semantics
+	// (unknown keys ignored, case-insensitive key fold).
 	decode func(r *http.Request) (*string, error)
-	// validate is the channel's shared value rule (empty return = valid). It
-	// also decides whether an explicit "" is settable at all: a channel whose
-	// closed set admits "" (flair) falls through to the unset arm below, while
-	// a channel that rejects it (color) 400s here — so null is color's only
-	// clear form.
+	// validate is the channel's value rule (empty return = valid). It also
+	// decides whether an explicit "" is settable: a closed set admitting ""
+	// (flair) falls through to the unset arm, while one rejecting it (color)
+	// 400s — so null is color's only clear form.
 	validate func(value string) string
-	// set / unset are the channel's tmux session-option pair.
-	set   func(session, value, server string) error
-	unset func(session, server string) error
+	set      func(session, value, server string) error
+	unset    func(session, server string) error
 }
 
 // handleSessionStringOption is the shared handler behind the session-scoped
-// string-option endpoints (color, flair): validate the session name, decode
-// {"<field>": <string|null>} (an absent field reads as null), validate the
-// value, then set (non-empty value) or unset (null or empty).
+// string-option endpoints (color, flair): decode {"<field>": <string|null>}
+// (an absent field reads as null), then set (non-empty) or unset (null/empty).
 func (s *Server) handleSessionStringOption(w http.ResponseWriter, r *http.Request, opt sessionStringOption) {
 	session := chi.URLParam(r, "session")
 	if errMsg := validate.ValidateName(session, "Session name"); errMsg != "" {
@@ -145,12 +138,9 @@ func (s *Server) handleSessionStringOption(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Wake the SSE hub so the option change surfaces on the next poll pass
-	// instead of the 12s safety tick — set-option is invisible to the tmuxctl
-	// control-mode parser, so no subscriber notification fires. Mirrors
-	// handleSessionOrderPost's initSSEHub-then-hub-call pattern; initSSEHub is
-	// idempotent. Only reached on a successful tmux write (validation/tmux
-	// errors returned early above).
+	// Wake the SSE hub: set-option is invisible to the tmuxctl control-mode
+	// parser, so without this the change waits for the 12s safety tick.
+	// initSSEHub is idempotent.
 	s.initSSEHub()
 	s.sseHub.wake(server)
 
@@ -158,8 +148,7 @@ func (s *Server) handleSessionStringOption(w http.ResponseWriter, r *http.Reques
 }
 
 // handleSessionColor sets or clears the @session_color session option.
-// POST /api/sessions/{session}/color ← {"color": "1+3"} sets; null clears
-// ("" is rejected by the color-value rule).
+// POST /api/sessions/{session}/color ← {"color": "1+3"} sets; null clears.
 func (s *Server) handleSessionColor(w http.ResponseWriter, r *http.Request) {
 	s.handleSessionStringOption(w, r, sessionStringOption{
 		decode: func(r *http.Request) (*string, error) {
@@ -177,8 +166,7 @@ func (s *Server) handleSessionColor(w http.ResponseWriter, r *http.Request) {
 
 // handleSessionFlair sets or clears the @rk_session_flair session option
 // (scope-split from the window @rk_flair — see tmux.SetSessionFlair).
-// POST /api/sessions/{session}/flair ← {"flair": "onepiece"} sets; null or ""
-// clears (the flair closed set admits "", mirroring @rk_marker).
+// POST /api/sessions/{session}/flair ← {"flair": "onepiece"} sets; null/"" clears.
 func (s *Server) handleSessionFlair(w http.ResponseWriter, r *http.Request) {
 	s.handleSessionStringOption(w, r, sessionStringOption{
 		decode: func(r *http.Request) (*string, error) {
@@ -238,8 +226,7 @@ func (s *Server) handleSessionOrderPost(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Broadcast to any connected SSE clients on this server. initSSEHub is
-	// idempotent — a hub created here will pick up future SSE clients normally.
+	// initSSEHub is idempotent — a hub created here picks up future clients.
 	s.initSSEHub()
 	s.sseHub.broadcastSessionOrder(server, body.Order)
 

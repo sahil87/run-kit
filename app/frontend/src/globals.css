@@ -540,63 +540,41 @@ summary {
 }
 
 /* ── Flair overlays (decoration-only channel) ────────────────────────────────
-   A row carrying a flair value (`nyan` / `naruto` / `onepiece`) gets an
-   always-on, ambient, CSS-only animated overlay — pure decoration: no wiring
-   to @rk_agent_state or the status pyramid, and it animates in EVERY row
-   state (rest, hover, selected). Mounted on window rows and session rows (NOT
-   server group headers, which mirror the flair-free SERVER-pane tiles) as a
-   dedicated absolutely-positioned inner element
-   (inset-0, overflow-hidden, pointer-events-none, z-5) — the SAME overlay
-   discipline as .rk-scanlines: clipping lives on the overlay, NEVER the row
-   root (whose top-full popovers must stay unclipped).
+   Always-on CSS-only overlays for rows carrying a flair value (`nyan` /
+   `naruto` / `onepiece`) — pure decoration: no wiring to @rk_agent_state or
+   the status pyramid, and it animates in EVERY row state. Mounted on window
+   and session rows (NOT server group headers) as an absolutely-positioned
+   inner element (inset-0, overflow-hidden, pointer-events-none, z-5) — the
+   .rk-scanlines overlay discipline: clipping lives on the overlay, NEVER the
+   row root (whose top-full popovers must stay unclipped).
 
-   Sprites are ORIGINAL stylized pixel art embedded as inline SVG data URIs —
-   no external requests, no copyrighted assets. Traversal is
-   background-position only, NEVER transform (the drag-ghost rule — see
-   .rk-scanlines-crawl) and never `left` (no layout thrash).
-
-   FRAME ANIMATION (the sprite-sheet mechanism): each sprite is a VERTICAL
-   sheet of 22px-tall frames (frame n at y = -22n). The two
-   background-position LONGHANDS animate independently and compose without
-   clobbering (the same longhand-split the onepiece bob pioneered):
-   background-position-x carries the slow linear traversal, while
-   background-position-y steps through the sheet with `step-end` keyframes —
-   a run cycle, sail billow, flag flutter, and bob at classic low-fps sprite
-   cadence, all compositor-only. The pseudos are fixed 22px strips (static
-   top/margin centering, no animated layout), so the px frame offsets hold at
-   every row height (24px rows, 36px coarse rows, 18px picker preview cells).
-
-   Each sprite layer is no-repeat and slides from a fully-off-left negative
-   offset to a fully-off-right `calc(100% + Npx)` (the scanline-band trick: a
-   no-repeat background outside its area paints nothing), so any row width
-   traverses edge-to-edge. A trail layer rides the SAME keyframes as its
-   sprite on the same pseudo; the from/to constants are balanced per layer
-   (start offset − image width + end offset equal across layers) so both
-   layers displace by identical px and the trail stays glued to the sprite.
-   Ambient parallax layers (nyan's starfield, naruto's speed streaks, the
-   onepiece waves) live on ::before as repeat-x tiles drifting the OPPOSITE
-   way, displaced by exact tile multiples per loop (seamless). Trails and
-   ambience carry low alphas; the sprites themselves are near-opaque but
-   small, and row text paints above the z-5 overlay, so rows stay readable.
-
-   WebGL was CONSIDERED AND REJECTED for these: browsers cap live WebGL
-   contexts per page (~8–16), and every flaired row would need one — dozens
-   of rows would silently evict each other's contexts. Stepped sprite sheets
-   are the frame-true look at compositor cost.
+   Sprites are ORIGINAL pixel art as inline SVG data URIs — no external
+   requests, no copyrighted assets. Constraints the rules below rely on:
+   - Traversal is background-position only, NEVER transform (the drag-ghost
+     rule — see .rk-scanlines-crawl) and never `left` (layout thrash).
+   - Each sprite is a VERTICAL sheet of 22px frames (frame n at y = -22n).
+     The two background-position LONGHANDS animate independently without
+     clobbering: -x carries the linear traversal, -y steps frames (step-end).
+   - The pseudos are fixed 22px strips (static centering, no animated
+     layout), so px frame offsets hold at every row height (24px rows, 36px
+     coarse rows, 18px picker preview cells).
+   - Sprite layers are no-repeat, sliding off-left negative → off-right
+     calc(100% + Npx) so any row width traverses edge-to-edge; a trail layer
+     rides the SAME keyframes, its from/to constants balanced per layer
+     (start − image width + end equal) so the trail stays glued to the sprite.
+   - ::before ambience tiles drift the OPPOSITE way, displaced by exact tile
+     multiples per loop (seamless).
+   WebGL was rejected: browsers cap live contexts per page (~8–16) and every
+   flaired row would need one.
 
    ORDER MATTERS (same discipline as .rk-dash-rain): these base rules PRECEDE
    the prefers-reduced-motion block so its equal-specificity hidden overrides
-   win by source order — the flairs are motion-only decoration and hide
-   entirely there. */
+   win by source order — the flairs are motion-only and hide entirely there. */
 
-/* nyan: the pop-tart cat. ::after is a 22px strip with TWO layers — the cat
-   sheet (36×88: 4 frames — leg shuffle A/B, tail wag up/down, 1px body bob)
-   and a 140px rainbow comet-trail (6 full-saturation stripes, left edge
-   faded out through an SVG mask) glued to the cat's left edge. The frames
-   animation steps the sheet on layer 1 and jiggles the trail ±1px on layer 2
-   at the same ~6.7fps cadence (the original's stripe wave). ::before is a
-   parallax starfield: an 80px twinkling-star tile (2-frame sheet) drifting
-   the OPPOSITE way, exactly one tile per loop. ~9s traversal. */
+/* nyan: ::after layers the cat sheet (36×88, 4 frames) and a 140px rainbow
+   trail glued to its left edge, stepped together at ~6.7fps (the trail
+   jiggles ±1px); ::before is an 80px star tile (2-frame sheet) drifting the
+   opposite way, one tile per loop. ~9s traversal. */
 @keyframes rk-flair-nyan-x {
   from { background-position-x: -36px, -176px; }
   to { background-position-x: calc(100% + 40px), calc(100% + 4px); }
@@ -655,12 +633,9 @@ summary {
     rk-flair-nyan-y 0.6s step-end infinite;
 }
 
-/* naruto: an orange-clad runner in the arms-back naruto-run lean. ::after is
-   a 22px strip with the runner sheet (32×88: 4 frames — stride / tuck / mid
-   stride leg cycle, fluttering headband ribbon, 1px bob) plus a 120px trail
-   sheet (120×44, 2 frames: drifting leaves, dust puffs, speed lines) glued
-   behind, stepping at ~8fps. ::before is a faint full-width speed-streak
-   tile racing the OPPOSITE way. ~6s traversal (the dash). */
+/* naruto: ::after layers the runner sheet (32×88, 4 frames) and a 120×44
+   2-frame trail glued behind, stepping at ~8fps; ::before is a faint
+   speed-streak tile racing the opposite way. ~6s traversal. */
 @keyframes rk-flair-naruto-x {
   from { background-position-x: -32px, -152px; }
   to { background-position-x: calc(100% + 40px), calc(100% + 8px); }
@@ -712,13 +687,10 @@ summary {
     rk-flair-naruto-y 0.5s step-end infinite;
 }
 
-/* onepiece: a pirate ship under sail. ::after is a bottom-anchored 22px
-   strip with the ship sheet (34×88: 4 frames — sail billow A/B, fluttering
-   black flag with the straw-hat-over-skull emblem, ±1.4° hull roll, 1px
-   bob, wake dashes off the stern) stepping at a gentle ~2.5fps. ::before is
-   TWO scallop-wave tiles (16px and 24px periods) drifting the OPPOSITE way
-   at different speeds — parallax swell, displaced by exact tile multiples
-   per loop. ~14s traversal. */
+/* onepiece: ::after is a bottom-anchored strip with the ship sheet (34×88,
+   4 frames) stepping at ~2.5fps; ::before is TWO scallop-wave tiles (16px +
+   24px periods) drifting the opposite way at different speeds. ~14s
+   traversal. */
 @keyframes rk-flair-onepiece-x {
   from { background-position-x: -34px; }
   to { background-position-x: calc(100% + 34px); }

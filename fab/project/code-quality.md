@@ -21,6 +21,7 @@
 - Polling from the client — use the SSE stream, not `setInterval` + fetch
 - Database/ORM/migration imports — this project has no database by constitution
 - Adding routes without explicit spec justification
+- Comment narration — comments must state constraints the code can't show (invariants, cross-file contracts, non-obvious "why"); never narrate the next line, mirror sibling code, address the reviewer ("this preserves X"), or cite change IDs / PR numbers (git history owns provenance)
 
 ## Verification
 

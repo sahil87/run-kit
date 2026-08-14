@@ -32,7 +32,6 @@ func (s *Server) handleSetTheme(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Invalid JSON body")
 		return
 	}
-	// Normalize: treat whitespace-only values as absent
 	if body.Theme != nil {
 		v := strings.TrimSpace(*body.Theme)
 		if v == "" {
@@ -155,7 +154,6 @@ func (s *Server) handleSetSSHHost(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Invalid JSON body")
 		return
 	}
-	// Trim; treat a trimmed-to-empty value as a clear (same as null).
 	if body.SSHHost != nil {
 		v := strings.TrimSpace(*body.SSHHost)
 		if v == "" {

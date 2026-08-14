@@ -24,7 +24,8 @@ type ProjectSession struct {
 	// Color value descriptor ("4" / "1+3"), sourced from the @session_color tmux option.
 	SessionColor *string `json:"sessionColor,omitempty"`
 	// Flair is the session's per-row flair decoration ("nyan" / "naruto" /
-	// "onepiece"; "" = unset), sourced from the @rk_flair tmux session option.
+	// "onepiece"; "" = unset), sourced from the @rk_session_flair tmux session
+	// option (scope-split from the window @rk_flair — see tmux.SetSessionFlair).
 	Flair   string            `json:"flair,omitempty"`
 	Windows []tmux.WindowInfo `json:"windows"`
 }

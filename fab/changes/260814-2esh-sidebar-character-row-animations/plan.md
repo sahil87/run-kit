@@ -95,6 +95,18 @@ Under `prefers-reduced-motion`, all three flair overlays MUST be hidden entirely
 
 ### Design Decisions
 
+#### Scope-split option names (@rk_flair window / @rk_session_flair session)
+**Decision**: The window flair option is `@rk_flair`; the session flair option is `@rk_session_flair` — never the same name at both scopes.
+**Why**: tmux user-option lookup is hierarchical and format expansion leaks a shared name in BOTH directions — a flairless window inherits its session's value, and `list-sessions` resolves the session's current window's window option ahead of the session's own. Verified live: with one name, every window in a flaired session animated, and the session row's flair jumped with the current window. Same reason window color is `@color` while session color is `@session_color`.
+**Rejected**: One shared `@rk_flair` name (the original plan) — behaved as an unintended cascade.
+*Introduced by*: 260814-2esh-sidebar-character-row-animations
+
+#### Sprite-sheet CSS animation over WebGL
+**Decision**: Frame animation via vertical SVG sprite sheets stepped with `background-position-y` `step-end` keyframes, composed with the `background-position-x` traversal (independent longhands).
+**Why**: Frame-true, classic-cadence animation at compositor-only cost, zero JS, honors the background-position-only row-animation discipline, and works at every row height via fixed 22px strip pseudos.
+**Rejected**: A WebGL renderer — browsers cap live WebGL contexts per page (~8–16); every flaired row would need one, and dozens of rows would silently evict each other's contexts.
+*Introduced by*: 260814-2esh-sidebar-character-row-animations
+
 #### Flair as an independent channel
 **Decision**: A new per-row flair channel (`@rk_flair` window/session options; settings-store map for servers), orthogonal to color and marker.
 **Why**: Markers are a semantic border-style vocabulary with a picker-grid invariant and exist on window rows only; flair must reach session/server rows and compose with existing decoration. User confirmed in clarification.
@@ -138,6 +150,12 @@ Under `prefers-reduced-motion`, all three flair overlays MUST be hidden entirely
 - [x] T013 Go tests: flair option accept/reject in `windows_test.go`, session flair endpoint in `sessions_test.go`, server flair store + handlers in `settings_test.go` <!-- R1 -->
 - [x] T014 Vitest: flair section render/selection/keyboard in `swatch-popover.test.tsx` (incl. the untouched `GRID_ROWS === MARKER_CELLS.length` invariant), overlay gating in `window-row.test.tsx` + `session-row.test.tsx`, client function shapes in `client.test.ts` <!-- R8 -->
 - [x] T015 Verification gates: `cd app/backend && go test ./...`, `cd app/frontend && npx tsc --noEmit`, then the frontend unit suite via `just test-frontend` <!-- R1 -->
+
+### Phase 4: Post-review amendments (user-directed, 2026-08-14)
+
+- [x] T016 Scope-split the session flair option to `@rk_session_flair` (setter/unsetter + session list format in `internal/tmux/tmux.go`, comments in `internal/sessions`/`api/sessions.go`) — fixes the live-tmux cross-scope leak: shared-name user options resolve hierarchically in format expansion, so a flairless window inherited its session's flair and list-sessions showed the current window's flair. Mirrors the `@color`/`@session_color` precedent. Amends R3. <!-- R3 -->
+- [x] T017 Rewrite the three CSS treatments as frame-animated vertical sprite sheets (`globals.css`): background-position-y `step-end` frame cycling composed with the background-position-x traversal (independent longhands); nyan = 4-frame pop-tart cat run cycle + masked-fade rainbow comet trail + parallax twinkling starfield; naruto = 4-frame run cycle + fluttering headband ribbon + leaf/dust/speed-line 2-frame trail + counter-drifting speed streaks; onepiece = 4-frame ship (sail billow, fluttering straw-hat Jolly Roger flag, ±1.4° roll, bob, wake) + two-speed parallax scallop waves. WebGL evaluated and rejected (per-page context caps make per-row canvases infeasible). Amends R9; reduced-motion gate extended to all six pseudos. <!-- R9 -->
+- [x] T018 Thread `Flair` through the layout-snapshot pipeline (`internal/snapshot/snapshot.go` window struct + capture copy, `restore.go` option re-apply, fixture coverage in both tests) — resolves the review's should-fix: a restore no longer drops flairs while preserving marker/role. <!-- R2 -->
 
 ## Execution Order
 

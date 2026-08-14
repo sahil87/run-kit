@@ -136,7 +136,8 @@ func (s *Server) handleSessionColor(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-// handleSessionFlair sets or clears the @rk_flair session option.
+// handleSessionFlair sets or clears the @rk_session_flair session option
+// (scope-split from the window @rk_flair — see tmux.SetSessionFlair).
 // POST /api/sessions/{session}/flair ← {"flair": "onepiece"} sets; null or ""
 // clears. Mirrors handleSessionColor — the flair allowlist is validated before
 // any tmux call (invalid → 400, zero tmux calls).
@@ -177,7 +178,7 @@ func (s *Server) handleSessionFlair(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Wake the SSE hub so the @rk_flair change surfaces on the next poll pass
+	// Wake the SSE hub so the @rk_session_flair change surfaces on the next poll pass
 	// instead of the 12s safety tick — same set-option invisibility and the
 	// same initSSEHub-then-hub-call pattern as handleSessionColor.
 	s.initSSEHub()

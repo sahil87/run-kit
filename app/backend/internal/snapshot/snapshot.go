@@ -60,6 +60,7 @@ type Window struct {
 	RkType string `json:"rkType,omitempty"`
 	RkURL  string `json:"rkUrl,omitempty"`
 	Marker string `json:"marker,omitempty"`
+	Flair  string `json:"flair,omitempty"`
 	Role   string `json:"role,omitempty"`
 	Panes  []Pane `json:"panes"`
 }
@@ -151,6 +152,7 @@ func CaptureServer(ctx context.Context, server string) (*Snapshot, error) {
 			RkType: w.RkType,
 			RkURL:  w.RkURL,
 			Marker: w.Marker,
+			Flair:  w.Flair,
 			Role:   w.Role,
 		}
 		for _, p := range panes[w.WindowID] {

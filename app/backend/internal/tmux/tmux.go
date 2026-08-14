@@ -550,7 +550,8 @@ type SessionInfo struct {
 	Name  string  `json:"name"`
 	Color *string `json:"color,omitempty"`
 	// Flair is the session's per-row flair decoration, sourced from the
-	// @rk_flair session user option: "" (unset)/"nyan"/"naruto"/"onepiece".
+	// @rk_session_flair session user option (scope-split from the window's
+	// @rk_flair — see SetSessionFlair): "" (unset)/"nyan"/"naruto"/"onepiece".
 	// Unknown tokens are dropped to "" by parseSessions (the window-Marker
 	// closed-set idiom).
 	Flair string `json:"flair,omitempty"`
@@ -561,7 +562,7 @@ type SessionInfo struct {
 
 // parseSessions parses tmux list-sessions output lines into SessionInfo structs,
 // filtering out session-group copies.
-// Format: name, grouped, group, group_size, @color, windows, @rk_flair
+// Format: name, grouped, group, group_size, @color, windows, @rk_session_flair
 // (7 fields).
 // Exported for testing.
 func parseSessions(lines []string) []SessionInfo {
@@ -697,7 +698,7 @@ func ListSessions(ctx context.Context, server string) ([]SessionInfo, error) {
 	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
 	defer cancel()
 
-	format := fmt.Sprintf("#{session_name}%s#{session_grouped}%s#{session_group}%s#{session_group_size}%s#{@session_color}%s#{session_windows}%s#{@rk_flair}", listDelim, listDelim, listDelim, listDelim, listDelim, listDelim)
+	format := fmt.Sprintf("#{session_name}%s#{session_grouped}%s#{session_group}%s#{session_group_size}%s#{@session_color}%s#{session_windows}%s#{@rk_session_flair}", listDelim, listDelim, listDelim, listDelim, listDelim, listDelim)
 
 	lines, err := tmuxExecServer(ctx, server, "list-sessions", "-F", format)
 	if err != nil {
@@ -1923,25 +1924,33 @@ func UnsetSessionColor(session string, server string) error {
 	return err
 }
 
-// SetSessionFlair sets the @rk_flair user option on a session. The value is a
-// closed-set flair token ("nyan" / "naruto" / "onepiece"), validated by the
-// caller before it reaches this function. Passed as a discrete arg (no shell
-// string) per constitution §I. Mirrors SetSessionColor.
+// SetSessionFlair sets the @rk_session_flair user option on a session. The
+// value is a closed-set flair token ("nyan" / "naruto" / "onepiece"),
+// validated by the caller before it reaches this function. Passed as a
+// discrete arg (no shell string) per constitution §I. Mirrors SetSessionColor.
+//
+// SCOPE-SPLIT NAMING (@rk_session_flair, NOT @rk_flair): tmux user-option
+// lookup is hierarchical and format expansion leaks a shared name across
+// scopes in BOTH directions — a flairless window inherits its session's
+// value, and list-sessions resolves the session's CURRENT window's window
+// option ahead of the session option. Distinct per-scope names sever both
+// fallbacks — the exact same reason window color is @color while session
+// color is @session_color.
 func SetSessionFlair(session string, flair string, server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
-	_, err := tmuxExecServer(ctx, server, "set-option", "-t", ExactSessionTarget(session), "@rk_flair", flair)
+	_, err := tmuxExecServer(ctx, server, "set-option", "-t", ExactSessionTarget(session), "@rk_session_flair", flair)
 	return err
 }
 
-// UnsetSessionFlair removes the @rk_flair user option from a session.
+// UnsetSessionFlair removes the @rk_session_flair user option from a session.
 // Mirrors UnsetSessionColor.
 func UnsetSessionFlair(session string, server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
-	_, err := tmuxExecServer(ctx, server, "set-option", "-u", "-t", ExactSessionTarget(session), "@rk_flair")
+	_, err := tmuxExecServer(ctx, server, "set-option", "-u", "-t", ExactSessionTarget(session), "@rk_session_flair")
 	return err
 }
 

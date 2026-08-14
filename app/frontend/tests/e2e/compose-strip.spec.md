@@ -24,6 +24,10 @@ between docks without losing the per-target draft; the footer dock never
 overflows a 375px mobile viewport). The pane-aligned geometry of 260812-fryz
 is retired — both docks are container-aligned, no measurement, no inline
 margin/width styles.
+It also covers the coarse-pointer presentation collapse (260814-ink6) via a
+nested touch-emulated describe: the header row folds into the placeholder,
+the two-row stack collapses to one row with the ⏎ local-newline chip, and
+the bottom bar hides while the textarea owns focus.
 The chat send form deliberately does NOT follow the strip's Enter policy (it
 keeps Enter=newline — the chat lens cannot show the pane's input box); its
 coverage lives in `chat-view.spec.ts`.
@@ -266,3 +270,30 @@ viewport.
 3. Poll `document.documentElement.scrollWidth` until ≤ 375 (no horizontal page
    overflow).
 4. Assert the inner box's `x ≥ 0` and `x + width ≤ 375`.
+
+### `compose focus hides the bottom bar; the strip renders one row with a ⏎ newline chip` (coarse pointer collapse, 260814-ink6)
+
+**What it proves:** On a coarse pointer (`hasTouch: true` flips Chromium's
+`(pointer: coarse)` media query) at 375px: focusing the compose textarea hides
+the bottom-bar key row and blurring (Escape) restores it; the `→ {target}`
+header row folds away and the target name moves into the textarea placeholder;
+the strip renders as a single row (`rows=1`, no Insert button) carrying the
+coarse-only `⏎` chip, which inserts a local newline at the caret without
+sending or dropping focus.
+
+**Steps:**
+
+1. Set a 375×812 touch viewport; navigate to the `cat` session's window; wait
+   for `.xterm` and for the relay stream to attach
+   (`window.__rkTerminals[windowId]` present).
+2. Assert the bottom bar (`role=toolbar` "Terminal keys") is visible.
+3. Enable the strip via the `a▏` chip; assert the input is visible and focused
+   (focus-on-open), and the bottom bar is now absent.
+4. Assert `compose-strip-target` is absent (header folded) and the input's
+   placeholder matches `→ ……`.
+5. Assert the input has `rows="1"`, the Insert button is absent, and the
+   `compose-strip-newline` chip is visible.
+6. Click the ⏎ chip; assert the input value is `"\n"` and the input is still
+   focused.
+7. Press Escape; assert the input is blurred and the bottom bar is visible
+   again.

@@ -17,7 +17,7 @@ import {
   composeSubmitKeycap,
   type ComposeEnterAction,
 } from "@/lib/compose-keys";
-import { handleReadlineKey } from "@/lib/readline-keys";
+import { handleReadlineKey, insertTextAtCaret } from "@/lib/readline-keys";
 import { useWindowStore, entryKey } from "@/store/window-store";
 import { Tip, TipGroup } from "@/components/tip";
 import {
@@ -25,6 +25,7 @@ import {
   consumeComposeStripFocusOnOpen,
   drainComposeStripAttachments,
   registerComposeStripFocuser,
+  setComposeStripFocused,
 } from "@/lib/compose-strip-events";
 import {
   getComposeDraft,
@@ -262,23 +263,7 @@ export function ComposeStrip({
   // selection mode, where recipients may span unrelated worktrees/servers.
   const hasTarget = isSelectionTarget || focused !== null;
   const canUpload = !isSelectionTarget && focused !== null;
-  // Placeholder education (260811-ke2s): the strip's dead space teaches the
-  // Enter policy — and is the sole surfacing of ↑ sent-history recall anywhere
-  // in the UI. Fine pointers only: chord hints never render on touch, so
-  // coarse keeps the pre-existing short strings. The submit keycap comes from
-  // the shared `composeSubmitKeycap()` seam (⌘/Ctrl split); the Enter-policy
-  // chords are classifier-owned (not registry bindings), so a computed static
-  // keycap is the correct form.
   const coarsePointer = useCoarsePointer();
-  const placeholder = isSelectionTarget
-    ? coarsePointer
-      ? "Compose prompt…"
-      : `Compose prompt — ${composeSubmitKeycap()} sends to all selected`
-    : hasTarget
-      ? coarsePointer
-        ? "Compose text…"
-        : `Compose text — Enter inserts · ${composeSubmitKeycap()} sends · ↑ history`
-      : "No focused terminal — click a pane to target it";
   const { uploadFiles, uploading } = useFileUpload(
     focused?.session ?? "",
     focused?.windowId ?? "",
@@ -303,6 +288,35 @@ export function ComposeStrip({
   const targetName = isSelectionTarget
     ? `${selectionTarget.keys.length} selected`
     : focusedTargetName;
+
+  // Placeholder education (260811-ke2s): the strip's dead space teaches the
+  // Enter policy — and is the sole surfacing of ↑ sent-history recall anywhere
+  // in the UI. Fine pointers only: chord hints never render on touch. On
+  // coarse pointers the terminal-target placeholder instead folds in the
+  // target name (`→ {name}…`) — the header row it used to live in is folded
+  // away on touch (260814-ink6). The submit keycap comes from the shared
+  // `composeSubmitKeycap()` seam (⌘/Ctrl split); the Enter-policy chords are
+  // classifier-owned (not registry bindings), so a computed static keycap is
+  // the correct form.
+  const placeholder = isSelectionTarget
+    ? coarsePointer
+      ? "Compose prompt…"
+      : `Compose prompt — ${composeSubmitKeycap()} sends to all selected`
+    : hasTarget
+      ? coarsePointer
+        ? `→ ${focusedTargetName ?? ""}…`
+        : `Compose text — Enter inserts · ${composeSubmitKeycap()} sends · ↑ history`
+      : "No focused terminal — click a pane to target it";
+
+  // Header fold (260814-ink6): on coarse pointers in normal terminal-target
+  // mode the header row carries no unique signal (one visible pane — the
+  // target name moved into the placeholder) and its × close is droppable
+  // (closing stays lossless via the module draft store; the a▏ chip, the
+  // `View: Text Input` palette action, and ⇧⌘E remain). The header MUST
+  // return whenever it carries real signal — selection-broadcast mode and
+  // the disabled no-target state — and renders unconditionally on fine
+  // pointers.
+  const showHeader = !coarsePointer || isSelectionTarget || !hasTarget;
 
   // Auto-grow to content, bounded to MAX_TEXTAREA_ROWS (then internal scroll).
   const resize = useCallback(() => {
@@ -647,6 +661,22 @@ export function ComposeStrip({
     el.focus();
   }, []);
 
+  // Publish the textarea's focus state to the module store (260814-ink6) so
+  // the bottom bar can hide while composing on coarse pointers. onFocus/
+  // onBlur on the textarea keep the flag live; this effect SYNCS it from the
+  // real DOM focus at mount and clears it on unmount (a strip toggled off
+  // while focused can never stick the bar hidden). The mount-time sync —
+  // declared AFTER focus-on-open so it observes that focus — is what keeps
+  // StrictMode's effect replay (e2e/dev run under <StrictMode>) from
+  // stranding the flag false: the replay's cleanup clears the flag but no
+  // new focus event fires for the still-focused textarea, so the re-run
+  // must re-derive it from document.activeElement.
+  useEffect(() => {
+    const el = textareaRef.current;
+    setComposeStripFocused(el !== null && document.activeElement === el);
+    return () => setComposeStripFocused(false);
+  }, []);
+
   const removeFile = useCallback(
     (index: number) => {
       // Read the target from the live store snapshot rather than reaching into
@@ -678,6 +708,20 @@ export function ComposeStrip({
   /** Prevent mousedown from stealing focus away from the terminal/textarea. */
   const preventFocusSteal = (e: React.MouseEvent) => e.preventDefault();
 
+  /**
+   * The coarse-only ⏎ chip (260814-ink6) — the Shift+Enter local-newline path
+   * mobile keyboards cannot produce. A local edit, never a send: the
+   * insertion rides the shared undo-safe helper; its (native or bubbled)
+   * `input` event reaches the textarea's onChange, which ends any recall
+   * walk and writes the store, so the draft persists and auto-grows exactly
+   * as if typed. `classifyComposeEnter` and `enterKeyHint` are untouched.
+   */
+  const insertLocalNewline = () => {
+    const el = textareaRef.current;
+    if (!el || el.disabled) return;
+    insertTextAtCaret(el, "\n");
+  };
+
   // Per-button enablement (260802-lj98, revised 260813-kvk7, re-revised
   // 260814): Insert follows Enter's empty no-op — disabled with no text. Send
   // mirrors its Cmd/Ctrl+Enter chord INCLUDING the empty bare-`\r` case
@@ -694,6 +738,140 @@ export function ComposeStrip({
     ? !composerEmpty && !selectionSending
     : hasTarget;
 
+  // Shared element descriptors for the two pointer layouts below — exactly
+  // one branch renders, so a single descriptor keeps each control's props in
+  // one place (260814-ink6).
+  const textareaEl = (
+    <textarea
+      ref={textareaRef}
+      // The auto-grow floor follows the rows attribute by construction (the
+      // `height = "auto"` measurement resolves to it): coarse opens at one
+      // line and settles back to it when emptied, fine keeps the 2-row floor
+      // (260724-2bmy). MAX_TEXTAREA_ROWS bounds both.
+      rows={coarsePointer ? 1 : 2}
+      value={text}
+      // A user edit ends any recall walk — the visible text is now
+      // composition, not a recalled entry, so ↑ returns to meaning cursor
+      // movement. Recall itself writes through `setComposeText` (never
+      // this handler), so a recalled entry does not end its own walk.
+      onChange={(e) => {
+        endRecall();
+        setText(e.target.value);
+      }}
+      onKeyDown={onKeyDown}
+      // Publish focus for the bottom bar's coarse-pointer hide (the
+      // module-store seam, 260814-ink6); unmount clears the flag.
+      onFocus={() => setComposeStripFocused(true)}
+      onBlur={() => setComposeStripFocused(false)}
+      disabled={!hasTarget}
+      autoComplete="off"
+      autoCorrect="off"
+      autoCapitalize="off"
+      spellCheck={false}
+      // Truthful hint, per target mode: on a terminal target Enter
+      // transmits the text to the pane (insert-line) and clears the draft,
+      // so the mobile action key says "send"; in selection broadcast Enter
+      // is a local newline (submit is the Cmd/Ctrl+Enter chord), so it says
+      // "enter" rather than promising a send the key does not perform.
+      enterKeyHint={isSelectionTarget ? "enter" : "send"}
+      aria-label={
+        isSelectionTarget
+          ? "Compose prompt to send to selection"
+          : "Compose text to send to terminal"
+      }
+      placeholder={placeholder}
+      data-testid="compose-strip-input"
+      className={`${coarsePointer ? "flex-1 min-w-0" : "w-full"} min-h-0 resize-none rounded border border-border bg-bg-card px-2 py-1.5 font-mono text-xs text-text-primary placeholder:text-text-secondary outline-none focus:border-accent disabled:opacity-50`}
+    />
+  );
+  const fileInput = (
+    <input
+      ref={uploadInputRef}
+      type="file"
+      multiple
+      className="hidden"
+      onChange={(e) => {
+        if (e.target.files && e.target.files.length > 0) {
+          void handleUpload(e.target.files);
+          e.target.value = "";
+        }
+      }}
+    />
+  );
+  const attachChip = (
+    <button
+      type="button"
+      aria-label="Upload file"
+      disabled={!canUpload}
+      onMouseDown={preventFocusSteal}
+      onClick={() => uploadInputRef.current?.click()}
+      className="rk-glint shrink-0 rounded border border-border px-2 py-1.5 text-xs text-text-secondary transition-colors hover:border-text-secondary disabled:opacity-50 coarse:min-h-[36px]"
+    >
+      <span aria-hidden="true">{"📎"}</span>
+    </button>
+  );
+  // The coarse-only ⏎ chip — the Shift+Enter local-newline path mobile
+  // keyboards cannot produce. Hidden (not disabled) in selection broadcast:
+  // the chat Enter policy already makes plain Enter a local newline there,
+  // so the chip would duplicate the return key. No Tip — tips never render
+  // on the coarse pointers this chip targets.
+  const newlineChip = (
+    <button
+      type="button"
+      aria-label="Insert newline"
+      disabled={!hasTarget}
+      onMouseDown={preventFocusSteal}
+      onClick={insertLocalNewline}
+      data-testid="compose-strip-newline"
+      className="rk-glint shrink-0 rounded border border-border px-2 py-1.5 text-xs leading-none text-text-secondary transition-colors hover:border-text-secondary disabled:opacity-50 coarse:min-h-[36px] coarse:min-w-[36px]"
+    >
+      <span aria-hidden="true">{"⏎"}</span>
+    </button>
+  );
+  // Insert follows Enter (insert line — text + "\n", clears the draft); the
+  // byte-exact raw insert is chord-only now, kept discoverable in the tip
+  // label (Alt+Enter). Fine pointers only — dropped on coarse, where the
+  // mobile return key already performs insert-line (enterKeyHint="send").
+  const insertChip = (
+    <Tip label="Insert line (Alt+Enter: raw insert)" kbd="Enter" placement="top">
+      <button
+        type="button"
+        aria-label="Insert line"
+        disabled={!canInsert}
+        onMouseDown={preventFocusSteal}
+        onClick={() => send("insert-line")}
+        data-testid="compose-strip-insert"
+        className="rk-glint shrink-0 rounded border border-border px-2 py-1.5 text-xs text-text-secondary transition-colors hover:border-text-secondary disabled:opacity-40 disabled:cursor-not-allowed coarse:min-h-[36px]"
+      >
+        Insert
+      </button>
+    </Tip>
+  );
+  // Send mirrors its chord including the empty bare-`\r` case, so it is
+  // enabled whenever a target exists — in the neutral secondary face while
+  // the composer is empty (see the enablement comment above). The coarse
+  // "Ctrl/⌘+Enter" title branch is gone: tips never render on coarse
+  // pointers, so only the fine-pointer shortcut is ever shown.
+  const sendChip = (
+    <Tip label="Send" kbd={composeSubmitKeycap()} placement="top">
+      <button
+        type="button"
+        aria-label="Send text"
+        disabled={!canSubmit}
+        onMouseDown={preventFocusSteal}
+        onClick={() => send("submit")}
+        data-testid="compose-strip-send"
+        className={`rk-glint shrink-0 rounded border px-3 py-1.5 text-xs transition-colors disabled:opacity-40 disabled:cursor-not-allowed coarse:min-h-[36px] ${
+          composerEmpty && !isSelectionTarget
+            ? "border-border text-text-secondary hover:border-text-secondary"
+            : "border-accent bg-accent/20 text-accent hover:bg-accent/30"
+        }`}
+      >
+        {selectionSending ? "Sending…" : "Send"}
+      </button>
+    </Tip>
+  );
+
   return (
     <div data-testid="compose-strip">
       {/* Inner wrapper carries ALL the visible chrome (border, background,
@@ -706,6 +884,7 @@ export function ComposeStrip({
         className="border-t border-border bg-bg-primary px-1.5 py-1.5 flex flex-col gap-1"
         data-testid="compose-strip-inner"
       >
+      {showHeader && (
       <div className="flex items-center gap-2 text-xs text-text-secondary">
         <span aria-hidden="true">{"→"}</span>
         <span data-testid="compose-strip-target" className={hasTarget ? "text-text-primary" : "italic"}>
@@ -734,6 +913,7 @@ export function ComposeStrip({
           </button>
         </div>
       </div>
+      )}
 
       {files.length > 0 && (
         <div className="flex gap-1.5 overflow-x-auto" data-testid="compose-strip-previews">
@@ -771,115 +951,49 @@ export function ComposeStrip({
 
       {/* One warm-tip cluster for the strip's buttons (260722-73al);
           placement `top` — the strip sits at the bottom of the screen. */}
-      {/* Two-row stack (260724-2bmy): the textarea gets the full row width —
-          typing space is the strip's whole purpose — and the buttons drop to
-          their own row (📎 left; Insert + Send right). rows={2} is the default
-          on desktop too (explicit user direction); the bounded auto-grow's
-          `height = "auto"` measurement falls back to the rows attribute, so
-          the 2-row floor holds after typing + deleting. */}
+      {/* The layout forks on pointer type (260814-ink6). Fine pointers keep
+          the two-row stack (260724-2bmy): the textarea alone at `w-full`,
+          then a button row (📎 left; `ml-auto` Insert + Send). Coarse
+          pointers collapse to ONE bottom-aligned row — 📎 · textarea
+          (flex-1) · ⏎ · Send — so a grown textarea rises above the flanking
+          chips; Insert is dropped there (the mobile return key already
+          performs insert-line). */}
       <TipGroup>
-      <div className="flex flex-col gap-1.5">
-        <textarea
-          ref={textareaRef}
-          rows={2}
-          value={text}
-          // A user edit ends any recall walk — the visible text is now
-          // composition, not a recalled entry, so ↑ returns to meaning cursor
-          // movement. Recall itself writes through `setComposeText` (never
-          // this handler), so a recalled entry does not end its own walk.
-          onChange={(e) => {
-            endRecall();
-            setText(e.target.value);
-          }}
-          onKeyDown={onKeyDown}
-          disabled={!hasTarget}
-          autoComplete="off"
-          autoCorrect="off"
-          autoCapitalize="off"
-          spellCheck={false}
-          // Truthful hint, per target mode: on a terminal target Enter
-          // transmits the text to the pane (insert-line) and clears the draft,
-          // so the mobile action key says "send"; in selection broadcast Enter
-          // is a local newline (submit is the Cmd/Ctrl+Enter chord), so it says
-          // "enter" rather than promising a send the key does not perform.
-          enterKeyHint={isSelectionTarget ? "enter" : "send"}
-          aria-label={
-            isSelectionTarget
-              ? "Compose prompt to send to selection"
-              : "Compose text to send to terminal"
-          }
-          placeholder={placeholder}
-          data-testid="compose-strip-input"
-          className="w-full min-h-0 resize-none rounded border border-border bg-bg-card px-2 py-1.5 font-mono text-xs text-text-primary placeholder:text-text-secondary outline-none focus:border-accent disabled:opacity-50"
-        />
-        <div className="flex items-center gap-1.5">
-          <input
-            ref={uploadInputRef}
-            type="file"
-            multiple
-            className="hidden"
-            onChange={(e) => {
-              if (e.target.files && e.target.files.length > 0) {
-                void handleUpload(e.target.files);
-                e.target.value = "";
-              }
-            }}
-          />
-          <button
-            type="button"
-            aria-label="Upload file"
-            disabled={!canUpload}
-            onMouseDown={preventFocusSteal}
-            onClick={() => uploadInputRef.current?.click()}
-            className="rk-glint shrink-0 rounded border border-border px-2 py-1.5 text-xs text-text-secondary transition-colors hover:border-text-secondary disabled:opacity-50 coarse:min-h-[36px]"
-          >
-            <span aria-hidden="true">{"📎"}</span>
-          </button>
-          {/* Old parenthesized-shortcut titles become label + keycap chips
-              (tier-1 kbd slot). The coarse "Ctrl/⌘+Enter" title branch is gone:
-              tips never render on coarse pointers, so only the fine-pointer
-              shortcut is ever shown. */}
-          <div className="ml-auto flex items-center gap-1.5">
-            {/* Insert follows Enter (insert line — text + "\n", clears the
-                draft); the byte-exact raw insert is chord-only now, kept
-                discoverable in the tip label (Alt+Enter). */}
-            <Tip label="Insert line (Alt+Enter: raw insert)" kbd="Enter" placement="top">
-              <button
-                type="button"
-                aria-label="Insert line"
-                disabled={!canInsert}
-                onMouseDown={preventFocusSteal}
-                onClick={() => send("insert-line")}
-                data-testid="compose-strip-insert"
-                className="rk-glint shrink-0 rounded border border-border px-2 py-1.5 text-xs text-text-secondary transition-colors hover:border-text-secondary disabled:opacity-40 disabled:cursor-not-allowed coarse:min-h-[36px]"
-              >
-                Insert
-              </button>
-            </Tip>
-            {/* Send mirrors its chord including the empty bare-`\r` case, so
-                it is enabled whenever a target exists — in the neutral
-                secondary face while the composer is empty (see the enablement
-                comment above). */}
-            <Tip label="Send" kbd={composeSubmitKeycap()} placement="top">
-              <button
-                type="button"
-                aria-label="Send text"
-                disabled={!canSubmit}
-                onMouseDown={preventFocusSteal}
-                onClick={() => send("submit")}
-                data-testid="compose-strip-send"
-                className={`rk-glint shrink-0 rounded border px-3 py-1.5 text-xs transition-colors disabled:opacity-40 disabled:cursor-not-allowed coarse:min-h-[36px] ${
-                  composerEmpty && !isSelectionTarget
-                    ? "border-border text-text-secondary hover:border-text-secondary"
-                    : "border-accent bg-accent/20 text-accent hover:bg-accent/30"
-                }`}
-              >
-                {selectionSending ? "Sending…" : "Send"}
-              </button>
-            </Tip>
+      {coarsePointer ? (
+        <div className="flex items-end gap-1.5">
+          {fileInput}
+          {attachChip}
+          {textareaEl}
+          {/* The header row is folded on coarse, so its uploading status is
+              relocated into this row — immediately left of Send, mirroring
+              the header's uploading-left-of-× grouping. */}
+          {uploading && (
+            <span
+              role="status"
+              className="shrink-0 self-center text-xs text-accent"
+              data-testid="compose-strip-uploading"
+            >
+              Uploading…
+            </span>
+          )}
+          {!isSelectionTarget && newlineChip}
+          {sendChip}
+        </div>
+      ) : (
+        <div className="flex flex-col gap-1.5">
+          {textareaEl}
+          <div className="flex items-center gap-1.5">
+            {fileInput}
+            {attachChip}
+            {/* The right group is an ml-auto container rather than a spacer
+                element, leaving the Tip-wrapped Insert/Send untouched. */}
+            <div className="ml-auto flex items-center gap-1.5">
+              {insertChip}
+              {sendChip}
+            </div>
           </div>
         </div>
-      </div>
+      )}
       </TipGroup>
       </div>
     </div>

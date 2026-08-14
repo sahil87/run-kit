@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import {
   classifyReadlineKey,
   handleReadlineKey,
+  insertTextAtCaret,
   lineStart,
   readlineDeleteRange,
   readlineMotionTarget,
@@ -198,5 +199,78 @@ describe("handleReadlineKey (textarea application)", () => {
     // delete-word-back from selectionStart (8) → removes "two " [4,8)
     expect(el.value).toBe("one three");
     expect(el.selectionStart).toBe(4);
+  });
+});
+
+// jsdom has no document.execCommand, so the fallback path (native value
+// setter + bubbled `input` event) is the default here; the execCommand path
+// is exercised by stubbing it.
+describe("insertTextAtCaret (260814-ink6)", () => {
+  it("inserts at the caret through the fallback and lands the caret after the text", () => {
+    const el = textarea("abc", 2);
+    const seen: string[] = [];
+    el.addEventListener("input", () => seen.push(el.value));
+    insertTextAtCaret(el, "\n");
+    expect(el.value).toBe("ab\nc");
+    expect(el.selectionStart).toBe(3);
+    expect(el.selectionEnd).toBe(3);
+    // The bubbled input event is React's controlled-sync signal.
+    expect(seen).toEqual(["ab\nc"]);
+  });
+
+  it("replaces a non-collapsed selection", () => {
+    const el = textarea("abc", 0, 2);
+    insertTextAtCaret(el, "\n");
+    expect(el.value).toBe("\nc");
+    expect(el.selectionStart).toBe(1);
+  });
+
+  it("prefers execCommand('insertText') when it reports success — the native undo path", () => {
+    const el = textarea("abc", 2);
+    const exec = vi.fn().mockReturnValue(true);
+    const original = document.execCommand;
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      writable: true,
+      value: exec,
+    });
+    try {
+      const seen = vi.fn();
+      el.addEventListener("input", seen);
+      insertTextAtCaret(el, "\n");
+      expect(exec).toHaveBeenCalledWith("insertText", false, "\n");
+      // The browser applies the edit itself — the stub applies nothing, so no
+      // manual splice and no synthetic input event must have run.
+      expect(el.value).toBe("abc");
+      expect(seen).not.toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(document, "execCommand", {
+        configurable: true,
+        writable: true,
+        value: original,
+      });
+    }
+  });
+
+  it("falls back when execCommand reports failure", () => {
+    const el = textarea("abc", 2);
+    const exec = vi.fn().mockReturnValue(false);
+    const original = document.execCommand;
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      writable: true,
+      value: exec,
+    });
+    try {
+      insertTextAtCaret(el, "\n");
+      expect(el.value).toBe("ab\nc");
+      expect(el.selectionStart).toBe(3);
+    } finally {
+      Object.defineProperty(document, "execCommand", {
+        configurable: true,
+        writable: true,
+        value: original,
+      });
+    }
   });
 });

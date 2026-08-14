@@ -1,0 +1,9 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-14T02:20:00Z"}
+{"args":"Mobile compose strip — coarse-pointer space saving (hide bottom bar on compose focus, fold header row, single-row collapse, rows=1 floor) + local-newline ⏎ chip; desktop layout byte-untouched","cmd":"fab-new","event":"command","ts":"2026-08-14T02:20:00Z"}
+{"delta":"+4.7","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-08-14T02:22:06Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-08-14T02:23:47Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-14T02:25:17Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-14T04:06:26Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-14T04:12:54Z"}
+{"event":"review","result":"passed","ts":"2026-08-14T04:12:54Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-14T04:25:28Z"}

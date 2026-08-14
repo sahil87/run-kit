@@ -1,11 +1,15 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useSyncExternalStore } from "react";
 import { useModifierState, type ModifierSnapshot } from "@/hooks/use-modifier-state";
 import { useFocusedTerminal } from "@/contexts/focused-terminal-context";
 import { useChromeState } from "@/contexts/chrome-context";
 import { ArrowPad } from "@/components/arrow-pad";
 import { KBD_CLASS } from "@/components/kbd-chip";
 import { Tip, TipGroup } from "@/components/tip";
-import { focusComposeStrip } from "@/lib/compose-strip-events";
+import {
+  focusComposeStrip,
+  isComposeStripFocused,
+  subscribeComposeStripFocus,
+} from "@/lib/compose-strip-events";
 import { formatCombo } from "@/lib/keybindings";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
@@ -114,6 +118,13 @@ export function BottomBar({ onOpenCompose, onFocusTerminal, onScrollLockChange, 
   // Pointer gate for the compose hint (260811-0f3d): chords are noise on
   // touch — the § Education micro-copy coarse-pointer rule.
   const coarse = useCoarsePointer();
+  // Compose-focus signal (260814-ink6): the strip publishes its textarea's
+  // focus state to a module store so this sibling can self-gate — both
+  // footer mounts (app.tsx / board-page.tsx) inherit the hide with no wiring.
+  const composeFocused = useSyncExternalStore(
+    subscribeComposeStripFocus,
+    isComposeStripFocused,
+  );
 
   useEffect(() => {
     if (!fnOpen) return;
@@ -314,6 +325,16 @@ export function BottomBar({ onOpenCompose, onFocusTerminal, onScrollLockChange, 
     },
     [mods, send],
   );
+
+  // Hide while the compose strip's textarea owns focus on a coarse pointer
+  // (260814-ink6): the bar's keys send to the terminal and are dead weight
+  // mid-compose — the strip has its own input. Early-return (unmount), not a
+  // `hidden` class: unmount also tears down the armed-modifier capture-phase
+  // keydown listener, which must not intercept keystrokes typed into the
+  // compose textarea; the bar holds no state worth preserving across a
+  // compose session (armed modifiers auto-clear by design). Blur — or the
+  // strip unmounting — restores the bar.
+  if (coarse && composeFocused) return null;
 
   return (
     // TipGroup: the chip row is one warm-tip cluster (260723-fm08). Living

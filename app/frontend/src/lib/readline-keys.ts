@@ -156,35 +156,72 @@ export interface ReadlineKeyEvent extends ReadlineKeyInput {
 }
 
 /**
- * Undo-preserving range deletion: select the range, then `execCommand`
- * ("delete") — the browser records it on the textarea's native undo stack and
- * fires the `input` event React's controlled-value onChange listens for. The
- * fallback (execCommand missing or returning false) splices the value through
- * the PROTOTYPE value setter — bypassing React's instance value tracker so the
- * bubbled `input` event registers as a genuine change — and re-dispatches
- * `input` manually.
+ * Try an undo-preserving `execCommand` edit: the browser records it on the
+ * textarea's native undo stack and fires the `input` event React's
+ * controlled-value onChange listens for. Returns false when execCommand is
+ * missing or reports failure (jsdom, future removals) — the caller then falls
+ * back to `commitValueFallback`.
  */
-function deleteRange(el: HTMLTextAreaElement, from: number, to: number): void {
-  el.setSelectionRange(from, to);
-  let done = false;
+function tryExecCommand(command: "delete" | "insertText", value?: string): boolean {
   try {
-    done =
+    return (
       typeof document !== "undefined" &&
       typeof document.execCommand === "function" &&
-      document.execCommand("delete");
+      document.execCommand(command, false, value)
+    );
   } catch {
-    done = false;
+    return false;
   }
-  if (done) return;
-  const next = el.value.slice(0, from) + el.value.slice(to);
+}
+
+/**
+ * Controlled-component-safe fallback shared by the undo-preserving edits:
+ * apply `next` through the PROTOTYPE value setter — bypassing React's
+ * instance value tracker so the bubbled `input` event registers as a genuine
+ * change — place the caret, and re-dispatch `input` manually. React state
+ * stays in sync at the cost of undo for that edit.
+ */
+function commitValueFallback(el: HTMLTextAreaElement, next: string, caret: number): void {
   const setter = Object.getOwnPropertyDescriptor(
     HTMLTextAreaElement.prototype,
     "value",
   )?.set;
   if (setter) setter.call(el, next);
   else el.value = next;
-  el.setSelectionRange(from, from);
+  el.setSelectionRange(caret, caret);
   el.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+/**
+ * Undo-preserving range deletion: select the range, then `execCommand`
+ * ("delete"). The fallback splices the value through the shared
+ * prototype-setter path.
+ */
+function deleteRange(el: HTMLTextAreaElement, from: number, to: number): void {
+  el.setSelectionRange(from, to);
+  if (tryExecCommand("delete")) return;
+  commitValueFallback(el, el.value.slice(0, from) + el.value.slice(to), from);
+}
+
+/**
+ * Undo-preserving insertion at the caret (the compose strip's coarse-only ⏎
+ * chip, 260814-ink6 — the local-newline path mobile keyboards cannot reach):
+ * `execCommand("insertText")` replaces the current selection with `text`,
+ * keeps the edit on the native undo stack, and lands the caret after the
+ * inserted text. The fallback splices at the selection through the shared
+ * prototype-setter path and leaves the caret after the inserted text. Either
+ * way the store-controlled textarea sees the mutation through its onChange,
+ * so the draft persists and auto-grows exactly as if typed.
+ */
+export function insertTextAtCaret(el: HTMLTextAreaElement, text: string): void {
+  if (tryExecCommand("insertText", text)) return;
+  const start = el.selectionStart ?? 0;
+  const end = el.selectionEnd ?? start;
+  commitValueFallback(
+    el,
+    el.value.slice(0, start) + text + el.value.slice(end),
+    start + text.length,
+  );
 }
 
 /**

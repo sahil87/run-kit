@@ -509,4 +509,64 @@ test.describe("Docked compose strip", () => {
     expect(innerBox.x).toBeGreaterThanOrEqual(0);
     expect(innerBox.x + innerBox.width).toBeLessThanOrEqual(375);
   });
+
+  // Coarse-pointer presentation collapse (260814-ink6). hasTouch flips
+  // Chromium's `(pointer: coarse)` media query (the same seam
+  // bottom-bar-chip-size.spec.ts uses), activating the coarse layout arm:
+  // the header row folds into the placeholder, the two-row stack collapses
+  // to one row (📎 · textarea · ⏎ · Send, no Insert, rows=1), and the bottom
+  // bar hides while the textarea owns focus.
+  test.describe("coarse pointer collapse (260814-ink6)", () => {
+    test.use({ hasTouch: true, viewport: { width: 375, height: 812 } });
+
+    test("compose focus hides the bottom bar; the strip renders one row with a ⏎ newline chip", async ({ page }) => {
+      test.setTimeout(60_000);
+      const windowId = await resolveWindowId(page, TERM_SESSION);
+      await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(windowId)}`, {
+        waitUntil: "domcontentloaded",
+      });
+      await expect(page.locator(".xterm").first()).toBeVisible({ timeout: 15_000 });
+      // Wait for the relay stream to attach so the strip has a live target.
+      await expect
+        .poll(() => page.evaluate((w) => Boolean(window.__rkTerminals?.[w]), windowId), {
+          timeout: 15_000,
+        })
+        .toBe(true);
+
+      const toolbar = page.getByRole("toolbar", { name: "Terminal keys" });
+      await expect(toolbar).toBeVisible();
+
+      // Enable the strip — focus-on-open grabs the textarea (on mobile that
+      // summons the IME), which must hide the bottom bar.
+      await page.getByRole("button", { name: "Compose text" }).click();
+      const input = page.getByTestId("compose-strip-input");
+      await expect(input).toBeVisible();
+      await expect(input).toBeFocused();
+      await expect(toolbar).toHaveCount(0);
+
+      // Header folded: no target label / × close; the target moved into the
+      // placeholder.
+      await expect(page.getByTestId("compose-strip-target")).toHaveCount(0);
+      await expect(input).toHaveAttribute("placeholder", /^→ .+…$/);
+
+      // Single coarse row: rows=1, no Insert, and the ⏎ chip renders.
+      await expect(input).toHaveAttribute("rows", "1");
+      await expect(page.getByTestId("compose-strip-insert")).toHaveCount(0);
+      const newline = page.getByTestId("compose-strip-newline");
+      await expect(newline).toBeVisible();
+
+      // The ⏎ chip is the mobile Shift+Enter: a local newline at the caret —
+      // nothing is sent, and the textarea keeps focus (the keyboard must not
+      // dismiss).
+      await newline.click();
+      await expect(input).toHaveValue("\n");
+      await expect(input).toBeFocused();
+      await expect(page.getByTestId("compose-strip")).toBeVisible();
+
+      // Escape blurs the textarea → the bottom bar returns.
+      await page.keyboard.press("Escape");
+      await expect(input).not.toBeFocused();
+      await expect(toolbar).toBeVisible();
+    });
+  });
 });

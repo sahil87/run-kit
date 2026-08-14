@@ -10,6 +10,7 @@ import {
 } from "@/contexts/focused-terminal-context";
 import { ChromeProvider } from "@/contexts/chrome-context";
 import { stubMatchMedia } from "@/test-utils/match-media";
+import { setComposeStripFocused } from "@/lib/compose-strip-events";
 
 /** A compose target, as TerminalClient/BoardPane would register one. */
 const COMPOSE_TARGET: FocusedTerminal = {
@@ -431,6 +432,40 @@ describe("BottomBar chip order + compose hint (260811-0f3d)", () => {
     renderBottomBar({ onOpenCompose: vi.fn() }, COMPOSE_TARGET);
     const hint = screen.getByText(HINT_TEXT);
     expect(hint.parentElement!.querySelector("kbd")).toBeNull();
+  });
+});
+
+/**
+ * Compose-focus hide (260814-ink6): on a coarse pointer the whole bar
+ * unmounts while the compose strip's textarea owns focus (its keys send to
+ * the terminal — dead weight mid-compose), and returns on blur. The signal
+ * is the module store in `compose-strip-events.ts`, driven here directly.
+ */
+describe("BottomBar compose-focus hide (260814-ink6)", () => {
+  afterEach(() => {
+    cleanup();
+    // Module-global flag — never leak a stuck `true` into another suite.
+    setComposeStripFocused(false);
+    vi.unstubAllGlobals();
+  });
+
+  it("hides while the compose textarea is focused on a coarse pointer, and returns on blur", () => {
+    stubMatchMedia((query) => query === "(pointer: coarse)");
+    renderBottomBar({ onOpenCompose: vi.fn() });
+    expect(screen.getByRole("toolbar")).toBeInTheDocument();
+
+    act(() => setComposeStripFocused(true));
+    expect(screen.queryByRole("toolbar")).toBeNull();
+
+    act(() => setComposeStripFocused(false));
+    expect(screen.getByRole("toolbar")).toBeInTheDocument();
+  });
+
+  it("never hides on a fine pointer, even while the compose textarea is focused", () => {
+    stubMatchMedia(() => false);
+    renderBottomBar({ onOpenCompose: vi.fn() });
+    act(() => setComposeStripFocused(true));
+    expect(screen.getByRole("toolbar")).toBeInTheDocument();
   });
 });
 

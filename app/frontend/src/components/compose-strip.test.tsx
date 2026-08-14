@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, StrictMode } from "react";
 import { render, screen, cleanup, fireEvent, act } from "@testing-library/react";
 import { ComposeStrip } from "./compose-strip";
 import {
@@ -17,7 +17,13 @@ import {
   hydrateComposeSentHistory,
   pushComposeSentHistory,
 } from "@/lib/compose-draft-store";
-import { consumeComposeStripFocusOnOpen, focusComposeStrip } from "@/lib/compose-strip-events";
+import {
+  consumeComposeStripFocusOnOpen,
+  focusComposeStrip,
+  isComposeStripFocused,
+  setComposeStripFocused,
+} from "@/lib/compose-strip-events";
+import { BottomBar } from "./bottom-bar";
 
 // Mock useFileUpload so tests never hit the network. The mock records calls and
 // returns deterministic paths so attachment path lines can be asserted.
@@ -122,6 +128,9 @@ describe("ComposeStrip", () => {
     // Drain the module-level focus-on-open flag so a prior test's toggle can
     // never leak focus behavior into the next one.
     consumeComposeStripFocusOnOpen();
+    // Same for the module-level compose-focus flag (260814-ink6) — a stuck
+    // `true` would hide the bottom bar in a later test.
+    setComposeStripFocused(false);
     uploadFilesMock.mockReset();
     vi.stubGlobal(
       "matchMedia",
@@ -316,11 +325,12 @@ describe("ComposeStrip", () => {
     );
   });
 
-  it("keeps the short placeholder strings on a coarse pointer (no chord hints on touch)", () => {
+  it("folds the target into the placeholder on a coarse pointer (260814-ink6 — the header row is folded away)", () => {
     stubPointer(true);
     render(<Harness focus={{ wsRef: makeWs().ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />);
     act(() => fireEvent.click(screen.getByTestId("set-focus")));
-    expect(input().placeholder).toBe("Compose text…");
+    // No store seed → the label layering falls back to the raw windowId.
+    expect(input().placeholder).toBe("→ @1…");
   });
 
   it("names the recovery action in the no-target placeholder", () => {
@@ -1587,5 +1597,219 @@ describe("ComposeStrip", () => {
     // and therefore the preview, does not.
     expect(input().value).toBe("/wt/.uploads/x.png");
     expect(screen.queryByTestId("compose-strip-previews")).not.toBeInTheDocument();
+  });
+
+  // ── Coarse-pointer collapse + ⏎ newline chip (260814-ink6) ───────────────
+
+  const newlineBtn = () => screen.getByTestId("compose-strip-newline") as HTMLButtonElement;
+
+  it("coarse normal mode folds the header row away and moves the target into the placeholder", () => {
+    stubPointer(true);
+    seedWindow("srv", "@1", "grainy-magpie");
+    render(<Harness focus={{ wsRef: makeWs().ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />);
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+    expect(screen.queryByTestId("compose-strip-target")).toBeNull();
+    expect(screen.queryByTestId("compose-strip-close")).toBeNull();
+    expect(input().placeholder).toBe("→ grainy-magpie…");
+  });
+
+  it("fine pointers keep the header row unconditionally", () => {
+    stubPointer(false);
+    render(<Harness focus={{ wsRef: makeWs().ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />);
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+    expect(screen.getByTestId("compose-strip-target")).toBeInTheDocument();
+    expect(screen.getByTestId("compose-strip-close")).toBeInTheDocument();
+  });
+
+  it("the header returns on coarse in selection-broadcast mode — and the ⏎ chip hides there", () => {
+    stubPointer(true);
+    renderSelection(vi.fn().mockResolvedValue(2));
+    // `→ N selected` is real signal, so the header row renders as on fine…
+    expect(screen.getByTestId("compose-strip-target")).toHaveTextContent("2 selected");
+    // …but broadcast's plain Enter is already a local newline, so the chip
+    // would duplicate the return key.
+    expect(screen.queryByTestId("compose-strip-newline")).toBeNull();
+  });
+
+  it("the header returns on coarse in the disabled no-target state; the ⏎ chip is disabled with the textarea", () => {
+    stubPointer(true);
+    render(<Harness focus={null} />);
+    expect(screen.getByTestId("compose-strip-target")).toHaveTextContent("no target");
+    expect(input()).toBeDisabled();
+    expect(newlineBtn()).toBeDisabled();
+  });
+
+  it("coarse collapses to a single row — 📎, textarea, ⏎, Send — with no Insert and rows={1}", () => {
+    stubPointer(true);
+    render(<Harness focus={{ wsRef: makeWs().ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />);
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+    expect(input()).toHaveAttribute("rows", "1");
+    // The mobile return key already performs insert-line, so Insert is dropped.
+    expect(screen.queryByTestId("compose-strip-insert")).toBeNull();
+    // All four controls share the ONE row.
+    const row = input().parentElement;
+    expect(screen.getByRole("button", { name: "Upload file" }).parentElement).toBe(row);
+    expect(newlineBtn().parentElement).toBe(row);
+    expect(sendBtn().parentElement).toBe(row);
+  });
+
+  it("fine pointers keep the two-row stack: rows={2}, Insert present, no ⏎ chip", () => {
+    stubPointer(false);
+    render(<Harness focus={{ wsRef: makeWs().ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />);
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+    expect(input()).toHaveAttribute("rows", "2");
+    expect(insertBtn()).toBeInTheDocument();
+    expect(screen.queryByTestId("compose-strip-newline")).toBeNull();
+    expect(sendBtn().parentElement).not.toBe(input().parentElement);
+  });
+
+  it("⏎ inserts a newline at the caret, keeps focus, and persists through the draft store", () => {
+    stubPointer(true);
+    renderFocused();
+    type("abc");
+    const el = input();
+    act(() => {
+      el.focus();
+      el.setSelectionRange(2, 2); // caret after "b"
+    });
+    // mousedown is default-prevented — the on-screen keyboard must not dismiss.
+    let notPrevented = true;
+    act(() => {
+      notPrevented = fireEvent.mouseDown(newlineBtn());
+    });
+    expect(notPrevented).toBe(false);
+    act(() => fireEvent.click(newlineBtn()));
+    expect(input().value).toBe("ab\nc");
+    expect(input().selectionStart).toBe(3); // caret after the inserted newline
+    expect(document.activeElement).toBe(input());
+  });
+
+  it("⏎ with an empty composer inserts a bare newline (a local edit — nothing is sent)", () => {
+    stubPointer(true);
+    const { sent } = renderFocused();
+    act(() => fireEvent.click(newlineBtn()));
+    expect(input().value).toBe("\n");
+    expect(sent).toEqual([]);
+  });
+
+  it("⏎ ends an in-progress recall walk (a text mutation like typing)", () => {
+    stubPointer(true);
+    pushComposeSentHistory(KEY, "older");
+    pushComposeSentHistory(KEY, "newest");
+    renderFocused();
+    arrow("ArrowUp");
+    expect(input().value).toBe("newest");
+
+    act(() => fireEvent.click(newlineBtn()));
+    expect(input().value).toBe("newest\n");
+
+    // The walk ended: ↑ on the now non-empty composition is native cursor
+    // movement — a still-armed walk would overwrite the text with "older".
+    expect(arrow("ArrowUp")).toBe(true);
+    expect(input().value).toBe("newest\n");
+  });
+
+  it("⏎ prefers the undo-safe execCommand path when the browser offers it", () => {
+    stubPointer(true);
+    const exec = vi.fn().mockReturnValue(true);
+    const original = document.execCommand;
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      writable: true,
+      value: exec,
+    });
+    try {
+      renderFocused();
+      type("abc");
+      act(() => input().setSelectionRange(2, 2));
+      act(() => fireEvent.click(newlineBtn()));
+      expect(exec).toHaveBeenCalledWith("insertText", false, "\n");
+    } finally {
+      Object.defineProperty(document, "execCommand", {
+        configurable: true,
+        writable: true,
+        value: original,
+      });
+    }
+  });
+
+  it("publishes textarea focus to the module store and clears it on blur and unmount", () => {
+    const { view } = renderFocused();
+    expect(isComposeStripFocused()).toBe(false);
+    act(() => {
+      input().focus();
+    });
+    expect(isComposeStripFocused()).toBe(true);
+    act(() => {
+      input().blur();
+    });
+    expect(isComposeStripFocused()).toBe(false);
+    // A strip toggled off while focused must not stick the bar hidden.
+    act(() => {
+      input().focus();
+    });
+    act(() => view.unmount());
+    expect(isComposeStripFocused()).toBe(false);
+  });
+
+  it("the bottom bar hides while the textarea is focused on a coarse pointer, and returns on blur", () => {
+    stubPointer(true);
+    // Strip + BottomBar as siblings — the same mount topology as the two
+    // shell footers (app.tsx / board-page.tsx), wired only through the
+    // module-store focus signal.
+    render(
+      <ChromeProvider>
+        <FocusedTerminalProvider>
+          <FocusSetter focus={{ wsRef: makeWs().ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />
+          <ComposeStrip />
+          <BottomBar onOpenCompose={vi.fn()} />
+        </FocusedTerminalProvider>
+      </ChromeProvider>,
+    );
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+    expect(screen.getByRole("toolbar")).toBeInTheDocument();
+    act(() => {
+      input().focus();
+    });
+    expect(screen.queryByRole("toolbar")).toBeNull();
+    // Blur (Escape's contract) restores the bar.
+    act(() => {
+      input().blur();
+    });
+    expect(screen.getByRole("toolbar")).toBeInTheDocument();
+  });
+
+  it("StrictMode's effect replay cannot strand the focus flag while the textarea holds focus", () => {
+    // e2e/dev run under <StrictMode>: the replay runs the mount cleanup after
+    // focus-on-open already focused the textarea, and no new focus event fires
+    // for the still-focused element — the mount-time sync from
+    // document.activeElement is what re-publishes the flag.
+    render(
+      <StrictMode>
+        <ToggleHarness focus={{ wsRef: makeWs().ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />
+      </StrictMode>,
+    );
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+    act(() => fireEvent.click(screen.getByTestId("toggle-strip")));
+    expect(document.activeElement).toBe(input());
+    expect(isComposeStripFocused()).toBe(true);
+  });
+
+  it("the bottom bar never hides on a fine pointer, even while composing", () => {
+    stubPointer(false);
+    render(
+      <ChromeProvider>
+        <FocusedTerminalProvider>
+          <FocusSetter focus={{ wsRef: makeWs().ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />
+          <ComposeStrip />
+          <BottomBar onOpenCompose={vi.fn()} />
+        </FocusedTerminalProvider>
+      </ChromeProvider>,
+    );
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+    act(() => {
+      input().focus();
+    });
+    expect(screen.getByRole("toolbar")).toBeInTheDocument();
   });
 });

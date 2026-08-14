@@ -107,3 +107,40 @@ export function consumeComposeStripFocusOnOpen(): boolean {
   focusOnOpen = false;
   return wasSet;
 }
+
+/**
+ * Module-level compose-focus signal (260814-ink6).
+ *
+ * While the strip's textarea has focus on a coarse pointer, the bottom-bar
+ * key row hides — its keys send keystrokes to the terminal and are dead
+ * weight mid-compose (the strip has its own input). The signal crosses two
+ * sibling components mounted at two shell footers (`app.tsx` and
+ * `board-page.tsx`), so it rides the same module-slot shape as the slots
+ * above: the strip publishes from the textarea's `onFocus`/`onBlur` (and
+ * clears on unmount, so a strip toggled off while focused can never stick
+ * the bar hidden); `bottom-bar.tsx` subscribes via `useSyncExternalStore`
+ * and self-gates. Both footer mounts inherit the behavior with zero wiring.
+ */
+let composeStripFocused = false;
+const composeFocusListeners = new Set<() => void>();
+
+/** Publish the strip textarea's focus state. Idempotent — a no-change set
+ * notifies nobody. */
+export function setComposeStripFocused(focused: boolean): void {
+  if (composeStripFocused === focused) return;
+  composeStripFocused = focused;
+  for (const listener of composeFocusListeners) listener();
+}
+
+/** Snapshot for `useSyncExternalStore`: whether the strip textarea is focused. */
+export function isComposeStripFocused(): boolean {
+  return composeStripFocused;
+}
+
+/** Subscribe to compose-focus changes; returns the unsubscribe function. */
+export function subscribeComposeStripFocus(listener: () => void): () => void {
+  composeFocusListeners.add(listener);
+  return () => {
+    composeFocusListeners.delete(listener);
+  };
+}

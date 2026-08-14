@@ -279,7 +279,10 @@ the bottom-bar key row and blurring (Escape) restores it; the `→ {target}`
 header row folds away and the target name moves into the textarea placeholder;
 the strip renders as a single row (`rows=1`, no Insert button) carrying the
 coarse-only `⏎` chip, which inserts a local newline at the caret without
-sending or dropping focus.
+sending or dropping focus. Two on-device regressions are pinned (260814):
+hiding the bar leaves NO dead space in the footer (the bar owns its 48px
+frame, so its early-return removes the reserved height), and the single-line
+textarea is exactly 36px — flush with its flanking chips.
 
 **Steps:**
 
@@ -289,11 +292,15 @@ sending or dropping focus.
 2. Assert the bottom bar (`role=toolbar` "Terminal keys") is visible.
 3. Enable the strip via the `a▏` chip; assert the input is visible and focused
    (focus-on-open), and the bottom bar is now absent.
-4. Assert `compose-strip-target` is absent (header folded) and the input's
+4. Assert zero dead space: the footer's bottom edge equals the strip's bottom
+   edge while the bar is hidden (gap regression), and the single row is flush —
+   textarea height is 36px with the ⏎ and Send chips sharing its top and
+   bottom (alignment regression).
+5. Assert `compose-strip-target` is absent (header folded) and the input's
    placeholder matches `→ ……`.
-5. Assert the input has `rows="1"`, the Insert button is absent, and the
+6. Assert the input has `rows="1"`, the Insert button is absent, and the
    `compose-strip-newline` chip is visible.
-6. Click the ⏎ chip; assert the input value is `"\n"` and the input is still
+7. Click the ⏎ chip; assert the input value is `"\n"` and the input is still
    focused.
-7. Press Escape; assert the input is blurred and the bottom bar is visible
+8. Press Escape; assert the input is blurred and the bottom bar is visible
    again.

@@ -1052,13 +1052,13 @@ function BoardPageContent({ name }: { name: string }) {
             scroll-lock affordance is inert. */}
         <footer style={{ gridArea: "bottombar" }}>
           {composeStripEnabled && <ComposeStrip />}
-          <div className="border-t-[3px] border-border px-1.5 h-[48px]">
-            <BottomBar
-              onOpenCompose={toggleComposeStrip}
-              onFocusTerminal={() => focusFocusedPaneRef.current?.()}
-              onScrollLockChange={setScrollLocked}
-            />
-          </div>
+          {/* The bar renders its own 3px-seam + 48px frame (260814) so its
+              coarse compose-focus early-return removes the reserved height. */}
+          <BottomBar
+            onOpenCompose={toggleComposeStrip}
+            onFocusTerminal={() => focusFocusedPaneRef.current?.()}
+            onScrollLockChange={setScrollLocked}
+          />
         </footer>
       </Shell>
 

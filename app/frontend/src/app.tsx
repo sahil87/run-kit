@@ -3693,27 +3693,28 @@ function AppShell() {
           refits automatically (260718-dhdj). */}
       <footer style={{ gridArea: "bottombar" }}>
         {composeStripEnabled && !inTileDock && composeStripElement}
-        <div className="border-t-[3px] border-border px-1.5 h-[48px]">
-          <BottomBar
-            onOpenCompose={toggleComposeStrip}
-            onFocusTerminal={() => focusTerminalRef.current?.()}
-            onScrollLockChange={setScrollLocked}
-            // Mobile surface tabs (T014/R13): only on the mobile terminal
-            // route with a multi-tile layout — the ▦ chip's sheet swaps the
-            // mobile slot-A surface via transient state (never a layout
-            // mutation). Tabs are deduped (a duplicate-tty layout gets one
-            // Terminal tab).
-            surfaceSheet={
-              isMobile && windowParam && layout.order.length > 1
-                ? {
-                    surfaces: [...new Set(layout.order)],
-                    active: mobileActiveTile,
-                    onSelect: (surface) => setMobileSlotA(surface),
-                  }
-                : undefined
-            }
-          />
-        </div>
+        {/* The bar renders its own 3px-seam + 48px frame (260814) so its
+            coarse compose-focus early-return removes the reserved height —
+            a wrapper here would keep a 48px hole while the bar is hidden. */}
+        <BottomBar
+          onOpenCompose={toggleComposeStrip}
+          onFocusTerminal={() => focusTerminalRef.current?.()}
+          onScrollLockChange={setScrollLocked}
+          // Mobile surface tabs (T014/R13): only on the mobile terminal
+          // route with a multi-tile layout — the ▦ chip's sheet swaps the
+          // mobile slot-A surface via transient state (never a layout
+          // mutation). Tabs are deduped (a duplicate-tty layout gets one
+          // Terminal tab).
+          surfaceSheet={
+            isMobile && windowParam && layout.order.length > 1
+              ? {
+                  surfaces: [...new Set(layout.order)],
+                  active: mobileActiveTile,
+                  onSelect: (surface) => setMobileSlotA(surface),
+                }
+              : undefined
+          }
+        />
       </footer>
 
       {/* Dialogs */}

@@ -781,7 +781,12 @@ export function ComposeStrip({
       }
       placeholder={placeholder}
       data-testid="compose-strip-input"
-      className={`${coarsePointer ? "flex-1 min-w-0" : "w-full"} min-h-0 resize-none rounded border border-border bg-bg-card px-2 py-1.5 font-mono text-xs text-text-primary placeholder:text-text-secondary outline-none focus:border-accent disabled:opacity-50`}
+      // Coarse sizing: py-[9px] + the 16px text-xs line + 2px borders = 36px,
+      // matching the chips' coarse:min-h-[36px] exactly, and min-h-[36px]
+      // floors the JS auto-grow's smaller single-line measurement so the
+      // one-line box sits flush with its flanking chips (260814 alignment
+      // fix). Fine pointers keep min-h-0 (the flex-shrink release) + py-1.5.
+      className={`${coarsePointer ? "flex-1 min-w-0 min-h-[36px] py-[9px]" : "w-full min-h-0 py-1.5"} resize-none rounded border border-border bg-bg-card px-2 font-mono text-xs text-text-primary placeholder:text-text-secondary outline-none focus:border-accent disabled:opacity-50`}
     />
   );
   const fileInput = (

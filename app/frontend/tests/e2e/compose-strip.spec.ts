@@ -544,6 +544,33 @@ test.describe("Docked compose strip", () => {
       await expect(input).toBeFocused();
       await expect(toolbar).toHaveCount(0);
 
+      // No dead space where the bar was: the bar owns its 48px frame, so
+      // hiding it must collapse the footer to the strip alone — the strip's
+      // bottom edge IS the footer's bottom edge (260814 gap regression).
+      const deadSpace = await page.evaluate(() => {
+        const footer = document.querySelector('footer[style*="bottombar"]');
+        const strip = document.querySelector('[data-testid="compose-strip"]');
+        if (!footer || !strip) return -1;
+        return footer.getBoundingClientRect().bottom - strip.getBoundingClientRect().bottom;
+      });
+      expect(deadSpace).toBe(0);
+
+      // Single-line alignment: the textarea and its flanking chips share one
+      // 36px height, so tops and bottoms are flush (260814 alignment fix).
+      const rowGeo = await page.evaluate(() => {
+        const r = (tid: string) =>
+          document.querySelector(`[data-testid="${tid}"]`)?.getBoundingClientRect() ?? null;
+        return {
+          ta: r("compose-strip-input"),
+          nl: r("compose-strip-newline"),
+          send: r("compose-strip-send"),
+        };
+      });
+      expect(rowGeo.ta?.height).toBe(36);
+      expect(rowGeo.nl?.top).toBe(rowGeo.ta?.top);
+      expect(rowGeo.send?.top).toBe(rowGeo.ta?.top);
+      expect(rowGeo.send?.bottom).toBe(rowGeo.ta?.bottom);
+
       // Header folded: no target label / × close; the target moved into the
       // placeholder.
       await expect(page.getByTestId("compose-strip-target")).toHaveCount(0);

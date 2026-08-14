@@ -73,7 +73,7 @@ Clients viewing `/board/$name` SHALL NOT navigate — the board route does not s
 
 Clients viewing different `?server=` values are independent — each server's SSE stream drives its own clients. Cross-server tabs never yank each other.
 
-**Stale-URL tab yanks other tabs on mount**: when a new tab opens at `/$server/@7` while existing tabs are on `/$server/@2` (tmux active is window `@2`), the new tab's mount-time alignment fires `selectWindow(server, "@7")`. The resulting SSE snapshot then yanks every existing tab on that server to window `@7` via the writeback effect. This is intentional ("yanking is OK" per the change intake) — the new tab represents user intent to view that window, and existing tabs collectively reflect "what tmux is now doing." A URL whose `@N` no longer exists on the server simply fails to resolve a current window (no nearest-index arithmetic) — see § Kill-redirect.
+**Stale-URL tab yanks other tabs on mount**: when a new tab opens at `/$server/@7` while existing tabs are on `/$server/@2` (tmux active is window `@2`), the new tab's mount-time alignment fires `selectWindow(server, "@7")`. The resulting SSE snapshot then yanks every existing tab on that server to window `@7` via the writeback effect. This is intentional — the new tab represents user intent to view that window, and existing tabs collectively reflect "what tmux is now doing." A URL whose `@N` no longer exists on the server simply fails to resolve a current window (no nearest-index arithmetic) — see § Kill-redirect.
 
 ## Session Tiles
 
@@ -102,7 +102,7 @@ The component is `app/frontend/src/components/session-tiles/session-tiles.tsx` (
 
 ## Shell Grid Layout
 
-The `<Shell>` wrapper (`app/frontend/src/components/shell/shell.tsx`) is the shared layout for `AppShell` and `BoardPage` (the Host page `/` uses a plain `flex-col h-full` instead — no Shell). **The Shell grid carries NO `topbar` row** — the TopBar mounts once in the persistent root layout, full-width above the Shell (see § Chrome (Top Bar) → persistent root mount). The visual stack (full-width bar over sidebar+content) is preserved. (`260707-4vq2`)
+The `<Shell>` wrapper (`app/frontend/src/components/shell/shell.tsx`) is the shared layout for `AppShell` and `BoardPage` (the Host page `/` uses a plain `flex-col h-full` instead — no Shell). **The Shell grid carries NO `topbar` row** — the TopBar mounts once in the persistent root layout, full-width above the Shell (see § Chrome (Top Bar) → persistent root mount). The visual stack is a full-width bar over sidebar+content. (`260707-4vq2`)
 
 The **desktop** (`≥ 640px`) grid is sidebar+content over bottombar:
 
@@ -127,7 +127,7 @@ Every naming entry point converts a user-typed name to its safe/canonical form *
 | `toSafeServerName(raw)` | anything outside `[a-zA-Z0-9_-]` → `_`; collapse; strip leading `_`; cap 64 (`MaxServerNameLength`). Matches backend `ValidateServerName`. |
 | `toSafeWorktreeName(raw)` | the window rule plus `/`→`_` and a leading `-` dropped (matching `ValidateWorktreeName`). |
 | `finalizeSafeName(name)` | commit-time finisher — strips leading **and trailing** `_` runs. |
-| `deriveNameFromPath(p)` | path-derived session-name suggestion — extracts the last path segment, composes the session transform + `finalizeSafeName` (both ends trimmed, matching the old `toTmuxSafeName`). |
+| `deriveNameFromPath(p)` | path-derived session-name suggestion — extracts the last path segment, composes the session transform + `finalizeSafeName` (both ends trimmed). |
 
 Case is preserved ("My problem" → "My_problem", never lowercased). Chars outside a kind's unsafe set (e.g. `@`, `%`, `+` for session/window names) pass through unchanged — this is conversion, not stripping.
 
@@ -149,7 +149,7 @@ Case is preserved ("My problem" → "My_problem", never lowercased). Chars outsi
 
 The create dialog's **window mode has no name input** (windows are created unnamed and tmux auto-names them — § Unnamed `+ New Window`), so there is nothing to wire there.
 
-The backend enforcement side of this contract (the tightened `ValidateNewName` for created/renamed-to names, permissive lookups for existing names) lives in [tmux-sessions](/run-kit/tmux-sessions.md) § Name-Validation Charset Contract and [architecture](/run-kit/architecture.md) § API Layer.
+The backend enforcement side of this contract (the strict `ValidateNewName` for created/renamed-to names, permissive lookups for existing names) lives in [tmux-sessions](/run-kit/tmux-sessions.md) § Name-Validation Charset Contract and [architecture](/run-kit/architecture.md) § API Layer.
 
 ## Session Creation Pattern
 
@@ -184,10 +184,6 @@ Two secondary entry points open `CreateSessionDialog` for users who want to spec
 - `mode?: "session" | "window"` — controls dialog behavior (default `"session"`)
 - `session?: string` — required in window mode to pass to `createWindow`
 
-### Deprecated: Dialog-First Flow
-
-There is no `showCreateDialog` / `openCreateDialog` / `closeCreateDialog` API in `use-dialog-state.ts`; `CreateSessionDialog` is not opened by the sidebar `+` button or the primary "Session: Create" palette action. Use "Session: Create at Folder" in Cmd+K for folder-prompted session creation.
-
 ### Unnamed `+ New Window` — Folder Auto-Naming
 
 The `+ New Window` action does **not** pin the window name to `"zsh"` — it calls `createWindow` with **no name**, so tmux auto-names the window to its folder basename and live-updates it (the tmux-layer convention lives in [tmux-sessions](/run-kit/tmux-sessions.md) § Managed Window Creation). A hardcoded name would leave a sidebar full of windows as indistinguishable "zsh" rows. (`260707-j66b`)
@@ -210,7 +206,7 @@ An optional per-instance display-name override lets a user label a run-kit insta
 
 The provider fetches `getHealth()` once on mount (StrictMode-guarded via a `didFetchRef`; `deduplicatedFetch` coalesces it with other same-tick `/api/health` consumers), owns the `{hostname, instanceName}` pair plus the optimistic `setInstanceName` write seam, and exposes `{ hostname, instanceName, displayName, setInstanceName }` where `displayName = instanceName ?? hostname`. `setInstanceName(name | null)` updates state optimistically then POSTs via `setInstanceName` client, toasting on write failure — so the settings-dialog edit repaints every consumer live and clearing the field reverts them to the hostname. This mirrors `InstanceAccentProvider` (fetch once, optimistic set, toast on failure).
 
-**Three display surfaces prefer the display name** over the health-reported hostname: the browser tab title (`use-browser-title.ts` — `AppShell`'s local hostname fetch was replaced by `useInstanceName().displayName`), the HOST panel hostname line (`sidebar/host-panel.tsx` — `instanceName ?? metrics.hostname`), and the host-overview HOST HEALTH hostname line (`host-overview-page.tsx` — `instanceName ?? hostMetrics.hostname`).
+**Three display surfaces prefer the display name** over the health-reported hostname: the browser tab title (`use-browser-title.ts` — `AppShell` consumes `useInstanceName().displayName` rather than fetching the hostname itself), the HOST panel hostname line (`sidebar/host-panel.tsx` — `instanceName ?? metrics.hostname`), and the host-overview HOST HEALTH hostname line (`host-overview-page.tsx` — `instanceName ?? hostMetrics.hostname`).
 
 **Two surfaces deliberately keep the REAL hostname**, NOT the display name, and are NOT consumers of this provider: the instance-accent hash fallback (`instance-accent.ts` — renaming the instance must not silently change its color) and the SSH deeplink derivation (`open-in-app.ts` `resolveDeeplinkHost` — deeplinks need the reachable hostname, not a vanity label).
 
@@ -235,3 +231,8 @@ Windows are `"active"` (last tmux activity within 10 seconds) or `"idle"`. No "e
 **Why**: with pre-existing servers the length proxy is already truthy while the list is stale, so the guard fired not-found immediately for a just-created server before the post-create refresh landed. The explicit flag distinguishes "list has loaded" from "list is non-empty".
 **Rejected**: `servers.length > 0` as a loaded-proxy — the root-cause bug of the create-server not-found race.
 *Introduced by*: 260602-3i5d-fix-create-server-not-found-race
+
+### Session creation is instant, never dialog-first
+**Decision**: The sidebar `+` button and the primary "Session: Create" palette action create a session immediately via `executeCreateSessionInstant`. `use-dialog-state.ts` exposes no `showCreateDialog` / `openCreateDialog` / `closeCreateDialog` API, and `CreateSessionDialog` is not wired to either entry point — it is reachable only from the secondary "Session: Create at Folder" / "Window: Create at Folder" palette actions.
+**Why**: The active window's `worktreePath` supplies both the derived name and the cwd, so a dialog on the primary path collects nothing the app cannot derive itself (§ Instant Creation), and the optimistic ghost row already gives immediate feedback. The one case that does need input — an explicit starting directory — has its own palette entries. Keeping the open/close dialog API absent is what stops the primary entry points from regrowing a prompt.
+**Rejected**: A dialog on every primary create path — it prompts for a name and a folder that the active window already implies.

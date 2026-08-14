@@ -13,7 +13,7 @@ run-kit is one of the shll toolkit CLIs, and its constitution
 set enumerated at runtime by `shll standards`, each readable with
 `shll standards <name>`. (`260717-zn03-constitution-toolkit-standards`, PR #379.)
 This file records the **conformance posture**: which standards exist, how run-kit
-is measured against each, what was fixed, and what was deferred. It is the
+is measured against each, and where conformance is deferred. It is the
 baseline a future re-audit diffs against.
 
 The per-standard conformance report is **not** a committed doc under `docs/`: it
@@ -93,7 +93,7 @@ convention plus the per-command rows):
   **display-only**: header counts stay exact (computed from the full result),
   `--yes`/`--force` still reap every match regardless of what was listed, and the
   dangerous-prefix guard, `_rk-ctl`/`rk-daemon` unconditional skips, and
-  dry-run-by-default behavior are all unchanged.
+  dry-run-by-default behavior are independent of the cap.
 
 #### Scenario: `--quiet` preserves data and errors, drops chatter
 - **GIVEN** `run-kit doctor --quiet` with all dependencies present
@@ -277,8 +277,7 @@ the sixth surface measured against the same checks
   (no target, unknown flag).
 - **readme-extraction: the README command table gained the `run-kit present`
   row**, keeping the published command documentation closed over the tree.
-- **The `skill` standard is the load-bearing one this time** — unlike the
-  earlier surfaces, this change *rewrites* the bundle: the canonical
+- **The `skill` standard is load-bearing on this surface** — the canonical
   `docs/site/skill.md` and `docs/site/skill/display.md` (synced to the
   embedded copies by `scripts/sync-skill.sh`) teach `rk present` as the
   primary Visual Display Recipe, with the manual `@rk_url` attach path kept
@@ -324,11 +323,10 @@ meaningful against a named version. `shll standards` enumerated four:
 | `readme-extraction` | repo | README + `docs/site/` structure |
 | `skill` | binary+repo | the `<tool> skill` agent-bundle contract |
 
-**Version-drift note**: shll has since moved `v0.0.23` → `v0.1.0`. The four cited
-standards are **unchanged** across that bump, so every conformance claim stays
-pinned at the audited **`shll v0.0.23`**.
+**Version pin**: the four cited standards are **unchanged** at shll `v0.1.0`, so
+every conformance claim stays valid at the audited **`shll v0.0.23`**.
 
-### help-dump — PASS (1 violation fixed)
+### help-dump — PASS
 The envelope is exactly `{tool, version, schema_version, root}` (see
 [architecture](/run-kit/architecture.md) § CLI Subcommands, `help-dump` row). It
 carries **no** `captured_at` — the standard forbids it as a rule "with teeth" (the
@@ -342,7 +340,7 @@ empty, no `completion`/`help`/hidden nodes, `version` from the built binary
 standard's example shows bare semver but its text mandates only "from the built
 binary", and `shll version` itself renders `v`-prefixed rows — left as-is.
 
-### readme-extraction — PASS (2 closure violations fixed)
+### readme-extraction — PASS
 Closure holds: every relative link stays inside the published set (the README
 slice + `docs/site/**`), so none 404s on the rendered shll.ai page. The two links
 that would have escaped are absolute:
@@ -366,10 +364,10 @@ run-kit's `README.md` line 3 is that blockquote **byte-exact** (mandated head
 order H1 → blockquote → badges), and the constitution § Toolkit Standards clause
 reads "part of the shll toolkit". Identifiers stay by design: `sahil87/tap`
 formula names, `github.com/sahil87/…` / `raw.githubusercontent.com/sahil87/…`
-URLs, and the constitution's `sahil87/shll` canonical-source reference are all
-untouched. (`260718-oa9b-shll-toolkit-rename`.)
+URLs, and the constitution's `sahil87/shll` canonical-source reference.
+(`260718-oa9b-shll-toolkit-rename`.)
 
-### skill — PASS (fully conformant; topic pages adopted)
+### skill — PASS
 `rk skill` + `docs/site/skill.md` exist at HEAD (PR #381), so the standard's
 "deferred, not yet adopted" contingency does NOT apply — it passes in full:
 byte-identical stdout to canonical, ≤150 lines, static-only, in-genre briefing.
@@ -386,12 +384,12 @@ via the **per-topic** embed + drift-guard extension of the existing mechanism (a
 per topic file). The standard's fail-fast rule holds: an **unknown topic** exits
 usage-class (2) via the `usageError` helper with the valid topics named on stderr
 and **empty stdout** — never a silent empty document; bare `rk skill` **never
-inlines** a topic page. No new standard is introduced (the four @ `shll v0.0.23`
-are unchanged) — this is a revised clause of the already-passing `skill` standard.
+inlines** a topic page. Topic pages are a clause of the already-passing `skill` standard, not a new
+standard — the four @ `shll v0.0.23` are unchanged.
 See § Design Decisions → "Static derivation recipes replace `rk context`
 (a recipe is static content)". (`260718-icxz-skill-display-topic-url-retire-context`.)
 
-### principles — PASS (all gaps closed)
+### principles — PASS
 Each of the ten principles is assessed against `bin/rk` behavior + source, and all
 PASS — no principle gaps remain open. The conformance mechanisms:
 
@@ -432,7 +430,7 @@ plumbing rather than a parallel mechanism):
     changes. (Note the case-sensitivity: cobra's help-topic error `Unknown help topic`
     has a capital U and does NOT match, so `rk help bogus` stays exit 0.) See
     § Design Decisions → "Unknown-command classification at the `execute()` seam".
-  - **riff exit-class renumbering** — `internal/riff` constants conform:
+  - **riff exit classes** — `internal/riff` constants conform:
     `ExitValidation` 2 (usage), `ExitPrecondition` 1 (operational), `ExitSubprocess`
     3. The `POST /api/riff` HTTP mapping keys on the constant **identity**
     (`ExitValidation` → 400), so no api-layer change. riff's manual `Flags().Parse`
@@ -468,22 +466,21 @@ bundle discoverable).
 
 The `update` and `version` standards (`shll standards update` / `shll standards
 version`) are separate binary standards from the four above. run-kit conforms to
-both; the sole gap was a MUST violation in the brew-mutation seam, now fixed.
-The audit was run against the **current** update-standard text, which carries a
-**brew-handling safety clause** (incident "Observed 2026-07-19": a `SIGKILL`
-landing mid keg-swap) added after the prior conformance pass shipped.
+both. The audit measures against the **current** update-standard text, which
+carries a **brew-handling safety clause** (incident "Observed 2026-07-19": a
+`SIGKILL` landing mid keg-swap).
 (`260719-er5k-update-version-standards-conformance`.)
 
-### update — PASS (1 MUST violation fixed)
+### update — PASS
 The subcommand contract passes throughout: `update` (alias `upgrade`) runs
 in-place with post-upgrade side effects (daemon restart), works standalone,
 advertises + honors `--skip-brew-update`, exits 0 on success (incl.
 already-up-to-date) and non-zero only on genuine failure, self-updates via brew
 only when brew-installed (the `/Cellar/` gate with a clear non-brew degrade
 message), and satisfies the naming/release clauses (`run-kit` is one string
-across repo / roster / formula leaf / binary; `v{semver}` tags; the `rk` →
-`run-kit` rename shipped `formula_renames.json` tap-side — the standard's own
-cited precedent). See [architecture](/run-kit/architecture.md) § CLI Subcommands
+across repo / roster / formula leaf / binary; `v{semver}` tags; the tap carries a
+`formula_renames.json` entry mapping the `rk` leaf to `run-kit` — the standard's
+own cited precedent). See [architecture](/run-kit/architecture.md) § CLI Subcommands
 (`update` row) for the mechanism.
 
 **The umbrella holds the same conformance across all three legs** — `rk
@@ -491,8 +488,7 @@ update` updates the CLI, the macOS desktop app, and the rk-managed code-server
 install, and every clause the standard cares about holds across them
 (`260731-3byh-umbrella-update-auto-restart`; the code-server third leg
 `260813-oid2-own-code-server-install`). The brew
-half is untouched, so the mutation bounds and graceful-cancel discipline below
-carry over verbatim. `--skip-brew-update` is a literal substring of
+leg is governed by the mutation bounds and graceful-cancel discipline below. `--skip-brew-update` is a literal substring of
 `rk update --help`. Exit 0 covers success, already-up-to-date, **and every
 skip** (not brew-installed, non-darwin, no desktop app, no managed
 code-server), with non-zero reserved for a genuine leg failure — the
@@ -536,17 +532,10 @@ assumed. A custom-`--path` desktop install stays outside the umbrella's reach
 (Constitution II bars an install-path state store), documented in `update`'s
 help rather than papered over by path scanning.
 
-The violation was the **brew-mutation timeout**: `brew upgrade` ran under a
-`120s` hard timeout via `exec.CommandContext`, whose default cancel sends
-**`SIGKILL`** on context expiry — the exact pattern the safety clause prohibits
-("MUST NOT send `SIGKILL` to a package-manager subprocess mid-transaction" /
-"MUST NOT impose a short hard timeout on `brew upgrade`"). Homebrew 6 makes an
-un-timed `api.github.com` call inside every tap-formula upgrade; a stall past
-120s got the wrapper's `SIGKILL` between `brew unlink` and `brew link`, leaving a
-corrupted keg and a dead binary. Both update entry points shared the hazard —
-the web one-click upgrade (`POST /api/update` → `rk update` in the managed
-`update` job window, via `daemon.RunJob`) routes through the same `updateCmd`,
-so fixing the CLI seam fixed both.
+Both update entry points share the brew seam: the web one-click upgrade
+(`POST /api/update` → `rk update` in the managed `update` job window, via
+`daemon.RunJob`) routes through the same `updateCmd`, so the brew discipline
+below governs both.
 
 ### Brew invocation discipline — the read-only vs mutating split
 run-kit splits brew calls by whether they mutate the install, and treats the two
@@ -569,7 +558,7 @@ classes differently (the mechanism lives in `newBrewCmd` — see
   correct. `newBrewCmd` keys the graceful-cancel config on `args[0]`, so an
   unmatched brew subcommand inherits the safe read-only default.
 
-`exec.CommandContext` with a timeout is **retained** on every brew call
+`exec.CommandContext` with a timeout bounds **every** brew call
 (Constitution § Process Execution) — the bounds are simply generous with
 graceful cancel for mutations, satisfying both the constitution and the
 standard's "if any bound exists, it SHOULD be generous and terminate gracefully".
@@ -592,7 +581,7 @@ only says a bounded caller "should also consider" it, and the generous bound +
 (`run-kit version vX.Y.Z`, cobra's default template — the RECOMMENDED canonical
 shape, satisfying `versionPrefixRE`), responds within 2s with no network I/O
 (pure local ldflags string), and the on-PATH binary name equals the tool name.
-The release-shape path is now unit-pinned: `TestDisplayVersion` in `root_test.go`
+The release-shape path is unit-pinned: `TestDisplayVersion` in `root_test.go`
 covers `displayVersion`'s three input shapes — `"1.2.3" → "v1.2.3"` (the release
 shape shll actually parses), `"v1.2.3"` passthrough, and the `"dev"` sentinel
 passthrough (no `"vdev"`) — so the release-shape path (the one shll parses in
@@ -613,7 +602,7 @@ they point at the curl bootstrap `curl -fsSL https://shll.ai/install | sh` and
 `shll install <tool>` for subsets). Policy A binds all seven tap formulas + every
 sibling-invoking binary; Policy B binds the six roster-tool repos + the tap
 README. Individual formula installs remain *supported* — only *documenting* them
-per-repo is prohibited, so no install behavior changes.
+per-repo is prohibited.
 (`260720-ec6i-install-docs-policy-b`.)
 
 ### Requirement: Install documentation carries no per-formula brew instructions (Policy B)
@@ -634,41 +623,36 @@ a zero-hit assertion — it also matches the README's
 clear a keg stranded under the old formula name. That is migration
 troubleshooting, not install guidance, and it is deliberately kept; every hit the
 grep produces must be classified, and today the rename note is the only one. The
-centralization landed as five edits, matching the wording already shipped in the
-conformant sibling READMEs (wt/hop/idea/tu):
+install guidance matches the wording in the conformant sibling READMEs
+(wt/hop/idea/tu):
 
-- **`README.md`** — the Install section's per-formula escape-hatch sentence
-  ("Prefer plain Homebrew? `brew install sahil87/tap/run-kit` …") removed (both
-  curl bootstrap blocks kept); the Quick-start `wt`-prereq fragment switched to
-  `shll install wt`; the Troubleshooting *"wt not found"* entry re-pointed to
-  `shll install wt` + a https://shll.ai link (the entry itself stays — it is
-  doc-carried install guidance, not the Policy-A binary hint).
-- **`docs/site/install.md`** — the "run-kit ships as a Homebrew formula" lead-in +
-  `brew install sahil87/tap/run-kit` block replaced by the shll.ai bootstrap
-  lead-in + curl block (PATH sentence spliced in, heading structure preserved so
-  shll.ai extraction anchors are unaffected); the Prerequisites `wt` bullet
-  switched to the full-toolkit shll.ai link + `shll install wt`.
-- **Retired `all` meta-formula** — both `sahil87/tap/all` references (README
-  Troubleshooting + install.md Prerequisites) removed; the standard's Precedent
-  states it "is retired in favor of `shll install`".
+- **`README.md`** — the Install section carries both curl bootstrap blocks and no
+  per-formula escape hatch; the Quick-start `wt`-prereq fragment and the
+  Troubleshooting *"wt not found"* entry both point at `shll install wt` + a
+  https://shll.ai link. The Troubleshooting entry earns its place: it is
+  doc-carried install guidance, not the Policy-A binary hint.
+- **`docs/site/install.md`** — the Install lead-in names the shll.ai bootstrap and
+  carries the curl block plus the PATH sentence; the Prerequisites `wt` bullet
+  points at the full-toolkit shll.ai link + `shll install wt`. The heading
+  structure is load-bearing — shll.ai extraction anchors key on it.
+- **No `sahil87/tap/all` reference** in `README.md` or `docs/site/` — the
+  standard's Precedent states the meta-formula "is retired in favor of
+  `shll install`".
 
 **Explicitly out of scope (KEPT).** The curl bootstrap blocks are the
 centralized pointer, not per-formula instructions — kept inline. Upgrade/update
 prose (`run-kit update` Homebrew behavior), the README toolkit banner +
 command-reference links, `docs/site/skill.md`'s gating instruction, and
 historical references in `fab/changes/` / `docs/memory/` / changelogs are
-behavior/pointer/history, not install instructions — untouched. Docs-only
-change: no source, tests, or API surface touched.
+behavior/pointer/history, not install instructions — outside Policy B's reach.
 
-### Requirement: Policy A's binary half was NOT audited in this docs-only change
+### Requirement: Policy A's binary half is unaudited
 Policy A (probe siblings at runtime + emit an actionable per-formula install
-hint) is a **binary-surface** requirement — distinct from Policy B's docs half —
-and was **out of scope** here. The change did not audit sibling-probe coverage or
-the binary error hints. The illustrative case: `app/backend/cmd/rk/upgrade.go`
+hint) is a **binary-surface** requirement, distinct from Policy B's docs half. No
+audit covers run-kit's sibling-probe coverage or its binary error hints. The illustrative case: `app/backend/cmd/rk/upgrade.go`
 prints `brew install sahil87/tap/run-kit` on a non-brew install — a hint Policy A
 *mandates* in binary output and Policy B does *not* prohibit (Policy B binds
-docs, not binary output). It was left untouched, and its conformance is unclaimed
-here — a future Policy-A audit is the baseline this entry defers.
+docs, not binary output). Its Policy-A conformance is **unclaimed**.
 (`260720-ec6i-install-docs-policy-b`.)
 
 #### Scenario: An audit grep over the install docs finds no per-formula brew instruction
@@ -678,15 +662,31 @@ here — a future Policy-A audit is the baseline this entry defers.
   (migration guidance, deliberately kept) — no per-formula install instruction and
   no `sahil87/tap/all` reference; install guidance points to the shll.ai bootstrap
   + `shll install <tool>`
-- **AND** the desktop-app install section added by
-  `260730-pl4v-rk-desktop-install` introduces no new hit — it leads with
+- **AND** the desktop-app install section introduces no new hit — it leads with
   `run-kit desktop install` and its manual fallback is a GitHub Releases download,
-  never a brew formula
+  never a brew formula (`260730-pl4v-rk-desktop-install`)
 - **AND** the Policy-A binary hint in `app/backend/cmd/rk/upgrade.go` still prints
-  `brew install sahil87/tap/run-kit` on a non-brew install — untouched and
-  unaudited, since Policy B binds docs, not binary output
+  `brew install sahil87/tap/run-kit` on a non-brew install — unaudited, since
+  Policy B binds docs, not binary output
 
 ## Design Decisions
+
+### Brew mutations run under generous bounds, never a short hard timeout
+**Decision**: `brew upgrade` and `brew update` run under network-sized bounds
+(`brewUpgradeTimeout` 30m, `brewUpdateTimeout` 10m) with `SIGTERM` plus a 30s
+`WaitDelay` grace — never a short hard timeout under `exec.CommandContext`'s
+default `SIGKILL` cancel.
+**Why**: Homebrew 6 makes an un-timed `api.github.com` call inside every
+tap-formula upgrade, so a short bound stalls and then `SIGKILL`s brew between
+`brew unlink` and `brew link`, leaving a corrupted keg and a dead binary. That is
+precisely what the update standard's safety clause prohibits ("MUST NOT send
+`SIGKILL` to a package-manager subprocess mid-transaction" / "MUST NOT impose a
+short hard timeout on `brew upgrade`"). Both update entry points — the CLI and
+the web one-click upgrade via `daemon.RunJob` — route through the same
+`updateCmd`, so the discipline has exactly one place to hold.
+**Rejected**: a short hard timeout (e.g. `120s`) on the brew mutation seam — it
+produces the corrupted-keg, dead-binary failure above.
+*Introduced by*: `260719-er5k-update-version-standards-conformance`
 
 ### Graceful brew-mutation cancel lives in an extracted `newBrewCmd` helper
 **Decision**: extract `exec.Cmd` construction into `newBrewCmd(ctx, args...)

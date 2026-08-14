@@ -37,7 +37,7 @@ var (
 //
 // The option is pane-writable same-user state, so rung 2's validation is what
 // keeps a garbage/hostile value from becoming a request target (A-018).
-func resolveOrigin() string {
+func resolveOrigin(ctx context.Context) string {
 	cfg := config.Load()
 	fallback := fmt.Sprintf("http://%s:%d", cfg.Host, cfg.Port)
 
@@ -52,7 +52,7 @@ func resolveOrigin() string {
 	// captured $TMUX; empty means "not in a pane" (or malformed), which falls
 	// through with zero subprocess calls.
 	if prefix := tmuxSocketArgs(originOriginalTMUXFn()); len(prefix) > 0 {
-		ctx, cancel := context.WithTimeout(context.Background(), tmux.TmuxTimeout)
+		ctx, cancel := context.WithTimeout(ctx, tmux.TmuxTimeout)
 		defer cancel()
 		out, err := originRunOutputFn(ctx, append(prefix, "show-option", "-sv", tmux.OriginOption))
 		if err == nil {
@@ -65,8 +65,11 @@ func resolveOrigin() string {
 	return fallback
 }
 
-// validOrigin returns raw when it is a usable server origin — parseable URL,
-// http/https scheme, non-empty host — and "" otherwise (fall through).
+// validOrigin returns the normalized origin (scheme://host[:port]) when raw is
+// a usable server origin — parseable URL, http/https scheme, non-empty host,
+// and no path/query/fragment (callers concatenate paths onto the result, so a
+// value carrying its own path is not an origin) — and "" otherwise (fall
+// through).
 func validOrigin(raw string) string {
 	if raw == "" {
 		return ""
@@ -81,5 +84,8 @@ func validOrigin(raw string) string {
 	if u.Host == "" {
 		return ""
 	}
-	return raw
+	if u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
+		return ""
+	}
+	return u.Scheme + "://" + u.Host
 }

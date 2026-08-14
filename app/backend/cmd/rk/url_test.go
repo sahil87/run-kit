@@ -96,11 +96,11 @@ func TestURLFromTmuxOption(t *testing.T) {
 }
 
 // TestURLHelpStatesHeuristic pins the help contract: the Long text names the
-// value a config-derived heuristic (not a liveness probe) and documents the
+// value a heuristic (not a liveness probe) and documents the
 // env → @rk_origin → default precedence rung.
 func TestURLHelpStatesHeuristic(t *testing.T) {
 	long := urlCmd.Long
-	for _, want := range []string{"config-derived", "not proof", "@rk_origin"} {
+	for _, want := range []string{"heuristic", "not proof", "@rk_origin"} {
 		if !bytes.Contains([]byte(long), []byte(want)) {
 			t.Errorf("url Long text missing %q; got:\n%s", want, long)
 		}

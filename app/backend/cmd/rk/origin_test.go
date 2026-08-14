@@ -117,6 +117,13 @@ func TestResolveOrigin(t *testing.T) {
 			wantPrefix:  []string{"-S", originTestSocket, "show-option", "-sv", "@rk_origin"},
 		},
 		{
+			name:        "path/query/fragment rejected (not an origin)",
+			tmuxEnv:     originTestSocket + ",1234,0",
+			optionValue: "http://127.0.0.1:3001/\n",
+			want:        "http://127.0.0.1:3000",
+			wantPrefix:  []string{"-S", originTestSocket, "show-option", "-sv", "@rk_origin"},
+		},
+		{
 			name:       "no $TMUX falls through with zero subprocess calls",
 			tmuxEnv:    "",
 			want:       "http://127.0.0.1:3000",
@@ -130,7 +137,7 @@ func TestResolveOrigin(t *testing.T) {
 			t.Setenv("RK_PORT", tc.rkPort)
 			calls := stubOriginSeams(t, tc.tmuxEnv, tc.optionValue, tc.optionErr)
 
-			got := resolveOrigin()
+			got := resolveOrigin(context.Background())
 			if got != tc.want {
 				t.Errorf("resolveOrigin() = %q, want %q", got, tc.want)
 			}

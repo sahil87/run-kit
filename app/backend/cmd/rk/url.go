@@ -27,13 +27,13 @@ var urlCmd = &cobra.Command{
 		"explicit RK_HOST/RK_PORT env vars win; when run inside a tmux pane, the " +
 		"covering tmux server's @rk_origin option (stamped by the run-kit daemon " +
 		"covering that server) is used next; otherwise the config default " +
-		"(127.0.0.1:3000) applies. This is a config-derived heuristic: it reports " +
+		"(127.0.0.1:3000) applies. This is a heuristic: it reports " +
 		"what the server WOULD bind, not proof that a server is running. It " +
 		"performs no liveness or port-owner probe.",
 	Args:         cobra.NoArgs,
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		_, err := fmt.Fprintln(cmd.OutOrStdout(), resolveOrigin())
+		_, err := fmt.Fprintln(cmd.OutOrStdout(), resolveOrigin(cmd.Context()))
 		return err
 	},
 }

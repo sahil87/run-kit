@@ -50,7 +50,7 @@ func sendNotify(parent context.Context, title, body string) {
 	ctx, cancel := context.WithTimeout(parent, notifyTimeout)
 	defer cancel()
 
-	url := resolveOrigin() + "/api/notify"
+	url := resolveOrigin(ctx) + "/api/notify"
 
 	payload, err := json.Marshal(map[string]string{"title": title, "body": body})
 	if err != nil {

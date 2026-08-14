@@ -214,9 +214,16 @@ function deleteRange(el: HTMLTextAreaElement, from: number, to: number): void {
  * so the draft persists and auto-grows exactly as if typed.
  */
 export function insertTextAtCaret(el: HTMLTextAreaElement, text: string): void {
-  if (tryExecCommand("insertText", text)) return;
+  // execCommand operates on the DOCUMENT's focused element, not on `el` — a
+  // caller whose click moved focus (or a programmatic path) would otherwise
+  // edit the wrong element or fail. Capture the range first, then make `el`
+  // the active edit target and re-assert that range so both the execCommand
+  // path and the fallback act on the same selection.
   const start = el.selectionStart ?? 0;
   const end = el.selectionEnd ?? start;
+  if (document.activeElement !== el) el.focus();
+  el.setSelectionRange(start, end);
+  if (tryExecCommand("insertText", text)) return;
   commitValueFallback(
     el,
     el.value.slice(0, start) + text + el.value.slice(end),

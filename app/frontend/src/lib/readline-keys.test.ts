@@ -252,6 +252,43 @@ describe("insertTextAtCaret (260814-ink6)", () => {
     }
   });
 
+  it("focuses the textarea and re-asserts its selection before execCommand — the command edits the ACTIVE element", () => {
+    // execCommand operates on the document's focused element, not on the
+    // passed textarea; if focus wandered (or was never on `el`) the insert
+    // would land elsewhere. insertTextAtCaret must make `el` active and pin
+    // its range before invoking the command.
+    const el = textarea("abc", 1, 2);
+    const other = document.createElement("input");
+    document.body.appendChild(other);
+    other.focus();
+    expect(document.activeElement).toBe(other);
+    let activeAtCall: Element | null = null;
+    let rangeAtCall: [number | null, number | null] | null = null;
+    const exec = vi.fn().mockImplementation(() => {
+      activeAtCall = document.activeElement;
+      rangeAtCall = [el.selectionStart, el.selectionEnd];
+      return true;
+    });
+    const original = document.execCommand;
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      writable: true,
+      value: exec,
+    });
+    try {
+      insertTextAtCaret(el, "\n");
+      expect(activeAtCall).toBe(el);
+      expect(rangeAtCall).toEqual([1, 2]);
+    } finally {
+      Object.defineProperty(document, "execCommand", {
+        configurable: true,
+        writable: true,
+        value: original,
+      });
+      other.remove();
+    }
+  });
+
   it("falls back when execCommand reports failure", () => {
     const el = textarea("abc", 2);
     const exec = vi.fn().mockReturnValue(false);

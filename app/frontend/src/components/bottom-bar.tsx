@@ -147,6 +147,13 @@ export function BottomBar({ onOpenCompose, onFocusTerminal, onScrollLockChange, 
   }, [fnOpen]);
 
   useEffect(() => {
+    // Detach while the compose textarea owns focus on a coarse pointer
+    // (260814-ink6): the render-time `return null` below hides the bar's UI
+    // but does NOT unmount this component or tear down its effects, so this
+    // capture-phase interceptor must self-gate on the same predicate — an
+    // armed modifier must never eat keystrokes typed into the compose
+    // textarea.
+    if (coarse && composeFocused) return;
     function handleKeyDown(e: KeyboardEvent) {
       if (!mods.isArmed()) return;
       if (["Control", "Alt", "Meta", "Shift", "CapsLock"].includes(e.key)) return;
@@ -181,7 +188,7 @@ export function BottomBar({ onOpenCompose, onFocusTerminal, onScrollLockChange, 
 
     document.addEventListener("keydown", handleKeyDown, { capture: true });
     return () => document.removeEventListener("keydown", handleKeyDown, { capture: true });
-  }, [mods, wsRef]);
+  }, [mods, wsRef, coarse, composeFocused]);
 
   const [termFocused, setTermFocused] = useState(false);
 
@@ -328,12 +335,11 @@ export function BottomBar({ onOpenCompose, onFocusTerminal, onScrollLockChange, 
 
   // Hide while the compose strip's textarea owns focus on a coarse pointer
   // (260814-ink6): the bar's keys send to the terminal and are dead weight
-  // mid-compose — the strip has its own input. Early-return (unmount), not a
-  // `hidden` class: unmount also tears down the armed-modifier capture-phase
-  // keydown listener, which must not intercept keystrokes typed into the
-  // compose textarea; the bar holds no state worth preserving across a
-  // compose session (armed modifiers auto-clear by design). Blur — or the
-  // strip unmounting — restores the bar.
+  // mid-compose — the strip has its own input. Returning null hides the UI
+  // (unmounting the chip subtree) but NOT this component's own effects — the
+  // armed-modifier capture-phase keydown effect above therefore self-gates
+  // on the same predicate so it cannot intercept keystrokes typed into the
+  // compose textarea. Blur — or the strip unmounting — restores the bar.
   if (coarse && composeFocused) return null;
 
   return (

@@ -467,6 +467,27 @@ describe("BottomBar compose-focus hide (260814-ink6)", () => {
     act(() => setComposeStripFocused(true));
     expect(screen.getByRole("toolbar")).toBeInTheDocument();
   });
+
+  it("detaches the armed-modifier keydown interceptor while hidden — rendering null does not unmount the effects", () => {
+    // Rendering null keeps the component (and its document-level capture
+    // listener) mounted, so the effect self-gates on coarse && composeFocused.
+    // A modifier armed BEFORE focus moves to the compose textarea must not
+    // intercept compose keystrokes; it re-arms the interception on blur.
+    stubMatchMedia((query) => query === "(pointer: coarse)");
+    const send = vi.fn();
+    const ws = { readyState: WebSocket.OPEN, send } as unknown as WebSocket;
+    renderBottomBar({ onOpenCompose: vi.fn() }, { ...COMPOSE_TARGET, wsRef: { current: ws } });
+
+    fireEvent.click(screen.getByLabelText("Control")); // arm Ctrl
+    act(() => setComposeStripFocused(true));
+    fireEvent.keyDown(document, { key: "c" });
+    expect(send).not.toHaveBeenCalled();
+
+    // On blur the bar returns, the still-armed modifier intercepts again.
+    act(() => setComposeStripFocused(false));
+    fireEvent.keyDown(document, { key: "c" });
+    expect(send).toHaveBeenCalledWith("\x03");
+  });
 });
 
 /**

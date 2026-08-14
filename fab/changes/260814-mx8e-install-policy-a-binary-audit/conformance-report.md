@@ -79,6 +79,39 @@ Remaining degrade messages, by code reading: #3's `run-kit riff: wt create faile
 1. **Probe mechanism at internal sites.** Six exec sites (#2–#7) carry no `exec.LookPath`, relying instead on the handled `exec.CommandContext` error. In Go the handled exec error is an equivalent-or-stronger mechanism (LookPath is TOCTOU-racy; the exec error is authoritative), and none of these sites *assume* presence — the standard's substance ("presence is never a package guarantee", №8's skip-don't-crash) holds at every one. User-facing entry seams (CLI riff, both shll consumers) carry literal probes.
 2. **No sibling checks in `rk doctor`.** Doctor checks tmux, the guard shim, and code-server — not wt/fab/shll. Nothing in Policy A requires doctor coverage; noted as the natural home if the web surfaces' silent wt-absent skip ever needs discoverability.
 
-## 5. Deferral
+## 5. Appendix — standard text as enumerated at audit time
+
+Verbatim from `shll standards install-composition` @ shll v0.1.18 (the Policy A clauses the audit measures against; Policy B's docs-half prose omitted — out of this audit's scope):
+
+> ## No inter-tool formula dependencies (Policy A)
+>
+> - **Toolkit formulas MUST NOT declare `depends_on` on sibling toolkit formulas.**
+> - `shll install` is the composition point: it installs the full roster and accepts a subset. A formula edge duplicates that roster knowledge in the tap, forces lockstep installs (installing one tool drags in others the user didn't ask for), and complicates uninstalls (brew refuses to remove a dependency of an installed formula).
+>
+> **Precedent.** `fab-kit` and `hop` previously declared `depends_on` on `wt`/`idea`; those edges are removed, and the `all` meta-formula is retired in favor of `shll install`.
+>
+> ## Probe siblings at runtime, degrade gracefully (Policy A, binary half)
+>
+> A tool MAY invoke a sibling tool at runtime — composition is the toolkit's idiom (№7) — but with no formula edge, presence is never a package guarantee:
+>
+> - **MUST probe before invoking**: `command -v <tool>` in shell and skill code, `exec.LookPath` in Go. Never assume a sibling is installed.
+> - **MUST degrade gracefully when the sibling is missing**: skip the sibling-dependent behavior and emit an actionable install hint — never crash. Example message, verbatim:
+>
+> ```
+> wt is not installed. Install it: brew install sahil87/tap/wt
+> ```
+>
+> **Failure mode.** An unprobed sibling call turns one tool's absence into another tool's crash — the whole toolkit becomes only as reliable as its least-installed member (№8's exact failure mode, at the inter-tool seam).
+>
+> ## Verifying conformance
+>
+> Before shipping a change that touches your tap formula, a sibling invocation, or a README install section:
+>
+> - The tool's tap formula declares no `depends_on` on a sibling toolkit formula.
+> - Every runtime sibling invocation sits behind a probe (`command -v` in shell/skill code, `exec.LookPath` in Go).
+> - Every missing-sibling path skips with an actionable install hint (`<tool> is not installed. Install it: brew install sahil87/tap/<tool>`), never a crash.
+> - The README's install section (and, for the tap, the tap README) links to https://shll.ai instead of carrying per-formula `brew install` lines.
+
+## 6. Deferral
 
 - **`[gq7f]`** (new, fab/backlog.md): align the two weak hint strings to the standard's actionable shape — `cmd/rk/riff.go:290` (`wt is not installed. Install it: brew install sahil87/tap/wt`) and `internal/updatecheck/updatecheck.go:498` (name the install command in the shll-absent message). Should-fix; no crash risk; conformance otherwise holds.

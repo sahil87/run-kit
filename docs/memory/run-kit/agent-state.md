@@ -427,7 +427,7 @@ The `agentState` three-state value is a first-class UI input across every surfac
   window of ANY tier gets an **additive signal-yellow pulsing halo** (core hue +
   shape untouched — never a hue-flip). `agentState === "idle"` is a ring;
   `active`/`waiting` are solid (mid-turn). See
-  [ui-patterns](/run-kit/ui-patterns.md) § Status Dot.
+  [ui/status-signals](/run-kit/ui/status-signals.md) § Status Dot.
 - **Row Minimalism**: the sidebar window row carries no trailing stage-word +
   duration cluster — its status signals are the `StatusDot` plus an owned-PR
   rest glyph (§ Window rows).
@@ -440,7 +440,7 @@ The `agentState` three-state value is a first-class UI input across every surfac
   `260708-4li7-sidebar-server-tile-waiting-badge` — the sidebar SERVER-panel
   server tile, the fourth badge surface), a pulsing board-pane seam, and the
   `Agent: Next waiting` command-palette navigation (§ Attention Surfacing). See
-  [ui-patterns](/run-kit/ui-patterns.md) § Attention Surfacing for the surface
+  [ui/status-signals](/run-kit/ui/status-signals.md) § Attention Surfacing for the surface
   list and the sidebar tile's inline-flex placement (distinct from the Host-page
   tile's absolute top-right, to avoid the sidebar tile's hover-action cluster).
 - **Web Push on sustained waiting**: the SSE hub fires one push per sustained

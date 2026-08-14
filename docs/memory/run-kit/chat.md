@@ -37,7 +37,7 @@ agent pane, addressed by a `?view=chat` search param on the existing
 streamed transcript with nothing cached beyond React state that dies with the
 view. Its view-state plumbing (the `?view=` param, ViewSwitcher chip, value-bearing
 localStorage, palette/`Ctrl+`` parity, chat-health connection dot) is the shared
-lens machinery in [ui-patterns](/run-kit/ui-patterns.md) § Window Views (Lens
+lens machinery in [ui/lenses-and-layout](/run-kit/ui/lenses-and-layout.md) § Window Views (Lens
 Model) / § Chat View; the top-bar center heading reads a static `Window: <window>`
 in every lens (lens indication belongs to the L1 ViewSwitcher). The § Chat View
 Frontend requirements below own only the DATA-layer consumer half (schema types,
@@ -373,7 +373,7 @@ primitives; the read endpoints, stream, and schema are untouched.
 **Two frontend consumers, one unchanged per-window contract.** The chat lens's
 own send form (§ Send-form input box) is the single-window one. The second is the
 sidebar selection's **bulk prompt broadcast** (`Selection: Send prompt to N agents`
-→ `executeBulkSend` — [ui-patterns](/run-kit/ui-patterns.md) § Window-Row
+→ `executeBulkSend` — [ui/sidebar](/run-kit/ui/sidebar.md) § Window-Row
 Multi-Select): one `sendChatMessage(server, windowId, text)` per selected window,
 **N-sequentially** and continue-on-error, each request carrying its own
 `?server=` (a selection may span tmux servers) and the default `submit:true`. It
@@ -626,7 +626,7 @@ subscription lifecycle in `app/frontend/src/hooks/use-chat-subscription.ts`
 renderer in `app/frontend/src/components/chat-view.tsx`. The view-state
 plumbing (the `?view=` param, ViewSwitcher chip, heading, value-bearing
 persistence, palette, `Ctrl+`` shortcut, connection dot) is the UNIFIED lens
-machinery documented in [ui-patterns](/run-kit/ui-patterns.md) § Window Views
+machinery documented in [ui/lenses-and-layout](/run-kit/ui/lenses-and-layout.md) § Window Views
 (Lens Model) / § Chat View — this section owns the DATA-layer consumer half only.
 
 ### Requirement: Frontend mirrors the rk-owned schema as TS types
@@ -720,7 +720,7 @@ subscription acked)`, keeping the established 3s disconnect debounce.
 `ChatView` SHALL be a **pure renderer over passed stream state** (`{events,
 pending, connected, error}`) — `AppShell` owns the single owner-hook call
 (`useChatSubscription`) so ONE chat subscription feeds both the renderer and the
-connection dot (§ Web Push / ui-patterns § Chat View). It renders in the house
+connection dot (§ Web Push / ui/lenses-and-layout.md § Chat View). It renders in the house
 aesthetic (monospace,
 three-mode theme tokens, animation behind `prefers-reduced-motion`):
 - **Message bubbles** grouped by `turn` (`groupEventsByTurn`), user vs assistant
@@ -761,13 +761,13 @@ structured error, including the 409 probe message, surfaces as the thrown Error'
 message) plus a `busy` boolean derived from `currentWindow.agentState === "active"`.
 `ChatView` calls the client directly for nothing — it delegates to `onSend`. The
 lens/switcher machinery (`window-view.ts`, `ViewSwitcher`, search-param validation —
-[ui-patterns](/run-kit/ui-patterns.md) § Window Views) is NOT touched. The input UX:
+[ui/lenses-and-layout](/run-kit/ui/lenses-and-layout.md) § Window Views) is NOT touched. The input UX:
 - An auto-growing monospace `<textarea>` (`.rk-chat-input`, placeholder
   `Message the agent — Enter for newline · {submitKeycap} sends` on fine pointers
   and the short `Message the agent…` on coarse — `{submitKeycap}` is
   `composeSubmitKeycap()`; chat's plain Enter is a local newline, diverging from
   the strip, and the placeholder is where the divergence stops surprising —
-  [ui-patterns](/run-kit/ui-patterns.md) § Education micro-copy), bounded
+  [ui/keyboard-and-palette](/run-kit/ui/keyboard-and-palette.md) § Education micro-copy), bounded
   max-height then internal scroll, plus house-chip
   (`rk-glint`) **Insert** and **Send** buttons for touch/mouse (Insert left of Send,
   `data-testid="chat-send-insert"`, same enable/disable as Send, `title` documenting
@@ -797,7 +797,7 @@ lens/switcher machinery (`window-view.ts`, `ViewSwitcher`, search-param validati
   `keydown` **stops propagation** so a
   `Ctrl+`` toggle or other global chord never hijacks a keystroke while typing — and
   the textarea is explicitly EXEMPTED from the `Ctrl+`` view-toggle suppression via its
-  `.rk-chat-input` class (see [ui-patterns](/run-kit/ui-patterns.md) § Window Views;
+  `.rk-chat-input` class (see [ui/lenses-and-layout](/run-kit/ui/lenses-and-layout.md) § Window Views;
   the toggle must still fire from inside the chat input or the user is trapped).
 - **Readline editing chords, shared with the compose strip**: the same keydown routes
   through `handleReadlineKey` (`lib/readline-keys.ts`) **before** Enter classification —
@@ -805,7 +805,7 @@ lens/switcher machinery (`window-view.ts`, `ViewSwitcher`, search-param validati
   Alt+D (delete word forward), matched on `KeyboardEvent.code` with exact modifiers so
   the natively-bound macOS chords pass through untouched. Full contract (undo-preserving
   deletions, the empty-range guard, the Ctrl+W win/linux-browser caveat) in
-  [ui-patterns](/run-kit/ui-patterns.md) § Docked Compose Strip → Readline editing chords.
+  [ui/compose-and-bottom-bar](/run-kit/ui/compose-and-bottom-bar.md) § Docked Compose Strip → Readline editing chords.
 - **Truthful `enterKeyHint`**: `enterKeyHint="enter"` unconditionally — in chat Enter
   always inserts a newline, so the hint says so on every pointer type. (The strip's hint
   reads `"send"` for the same truthfulness rule under its own Enter policy — the hint
@@ -916,7 +916,7 @@ when the chat view is actually active for a chat-capable window) and passes
 `{events, pending, connected, error}` into `ChatView` as props; `ChatView` opens
 no stream itself.
 **Why**: ONE owner-hook feeds BOTH the renderer AND the connection-dot health
-(ui-patterns § Chat View → the dot reports chat health in chat mode) — a
+(ui/lenses-and-layout.md § Chat View → the dot reports chat health in chat mode) — a
 second hook would desync the two health readings.
 **Rejected**: `ChatView` owning its own hook (two subscriptions, desynced dot).
 *Introduced by*: `260714-r7rq-chat-read-frontend`
@@ -1186,7 +1186,7 @@ state its choice rather than silently inherit one — the two handlers had alrea
 once, before the classifier existed. Pointer-independence still holds because the
 divergence axis is surface visibility, not input hardware. Chat's empty-Enter abstention
 follows the same visibility rule, and this path is probe-gated server-side besides. The
-strip's half of the rationale is [ui-patterns](/run-kit/ui-patterns.md) § Design
+strip's half of the rationale is [ui/compose-and-bottom-bar](/run-kit/ui/compose-and-bottom-bar.md) § Design
 Decisions → Enter transmits a line in the strip, composes in chat.
 **Rejected**: per-surface inline branching at the call sites (the same drift the
 classifier exists to prevent, one layer down); a default value for `surface` (silent

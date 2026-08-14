@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, audit-against-HEAD-build rule, per-standard status. help-dump, readme-extraction, skill, ten principles, update, version PASS. Covers skill topic pages, Principle 9 `--quiet`/reaper caps, SIGTERM-with-grace brew mutations, the help-dump + Principle 9 new-surface check (`rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`), `rk update`'s best-effort code-server leg, install-composition Policy B PASS."
+description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, audit-against-HEAD-build rule, per-standard status. help-dump, readme-extraction, skill, ten principles, update, version PASS. Covers skill topic pages, Principle 9 `--quiet`/reaper caps, SIGTERM-with-grace brew mutations, the help-dump + Principle 9 new-surface check (`rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`), `rk update`'s best-effort code-server leg, install-composition Policy A+B PASS."
 ---
 # Toolkit Standards Conformance
 
@@ -593,17 +593,18 @@ production) is pinned, not just the `dev` sentinel. See
 The `install-composition` standard (`shll standards install-composition`,
 authoritative at `sahil87/shll` `docs/site/standards/install-composition.md`,
 rendered on https://shll.ai) is a separate **binary+repo** standard from the six
-above, audited @ **`shll v0.1.12`**. It has two halves: **Policy A** (no
+above. It has two halves, each audited and passing: **Policy A** (no
 inter-tool Homebrew dependencies; a sibling invoked at runtime is *probed*, never
-assumed, and degrades with an actionable install hint) and **Policy B** (install
-*documentation* is centralized on shll.ai — per-tool READMEs and doc pages MUST
-NOT carry per-formula `brew install sahil87/tap/<tool>` install *instructions*;
-they point at the curl bootstrap `curl -fsSL https://shll.ai/install | sh` and
-`shll install <tool>` for subsets). Policy A binds all seven tap formulas + every
-sibling-invoking binary; Policy B binds the six roster-tool repos + the tap
-README. Individual formula installs remain *supported* — only *documenting* them
-per-repo is prohibited.
-(`260720-ec6i-install-docs-policy-b`.)
+assumed, and degrades with an actionable install hint) audited @ **`shll
+v0.1.18`** (`260814-mx8e-install-policy-a-binary-audit`), and **Policy B**
+(install *documentation* is centralized on shll.ai — per-tool READMEs and doc
+pages MUST NOT carry per-formula `brew install sahil87/tap/<tool>` install
+*instructions*; they point at the curl bootstrap
+`curl -fsSL https://shll.ai/install | sh` and `shll install <tool>` for subsets)
+audited @ **`shll v0.1.12`** (`260720-ec6i-install-docs-policy-b`). Policy A
+binds all seven tap formulas + every sibling-invoking binary; Policy B binds the
+six roster-tool repos + the tap README. Individual formula installs remain
+*supported* — only *documenting* them per-repo is prohibited.
 
 ### Requirement: Install documentation carries no per-formula brew instructions (Policy B)
 run-kit's install *documentation* — `README.md` and `docs/site/`, the pages the
@@ -646,15 +647,6 @@ command-reference links, `docs/site/skill.md`'s gating instruction, and
 historical references in `fab/changes/` / `docs/memory/` / changelogs are
 behavior/pointer/history, not install instructions — outside Policy B's reach.
 
-### Requirement: Policy A's binary half is unaudited
-Policy A (probe siblings at runtime + emit an actionable per-formula install
-hint) is a **binary-surface** requirement, distinct from Policy B's docs half. No
-audit covers run-kit's sibling-probe coverage or its binary error hints. The illustrative case: `app/backend/cmd/rk/upgrade.go`
-prints `brew install sahil87/tap/run-kit` on a non-brew install — a hint Policy A
-*mandates* in binary output and Policy B does *not* prohibit (Policy B binds
-docs, not binary output). Its Policy-A conformance is **unclaimed**.
-(`260720-ec6i-install-docs-policy-b`.)
-
 #### Scenario: An audit grep over the install docs finds no per-formula brew instruction
 - **GIVEN** `README.md` + `docs/site/`
 - **WHEN** `grep -rn -iE 'brew install|sahil87/tap' README.md docs/site/` runs
@@ -666,10 +658,68 @@ docs, not binary output). Its Policy-A conformance is **unclaimed**.
   `run-kit desktop install` and its manual fallback is a GitHub Releases download,
   never a brew formula (`260730-pl4v-rk-desktop-install`)
 - **AND** the Policy-A binary hint in `app/backend/cmd/rk/upgrade.go` still prints
-  `brew install sahil87/tap/run-kit` on a non-brew install — unaudited, since
-  Policy B binds docs, not binary output
+  `brew install sahil87/tap/run-kit` on a non-brew install — conformant binary
+  output (Policy A mandates the hint there; Policy B binds docs only)
+
+### install-composition — Policy A (binary half) PASS
+Audited @ **`shll v0.1.18`** against a HEAD `bin/rk`
+(`260814-mx8e-install-policy-a-binary-audit`; full evidence in that change
+folder's `conformance-report.md`, lifted into the PR body per the
+report-lives-in-PR-body convention). All three checklist items of the standard's
+"Verifying conformance" section hold:
+
+- **Formula**: `sahil87/tap/run-kit` declares zero `depends_on` of any class
+  (`brew info --json=v2` + tap source). The formula's only `depends_on` text is
+  a comment explaining two deliberate non-declarations — code-server (rk manages
+  its own digest-verified install; brew's formula is deprecated/pinned) and tmux
+  (host-provided) — neither a toolkit sibling.
+- **Probe coverage**: the siblings run-kit's binary invokes are exactly `wt`,
+  `fab`, and `shll` (`idea`/`hop`/`tu` never; `scripts/*.sh` and the shipped
+  skill pages invoke no sibling — the skill pages carry only the `command -v rk`
+  consumer self-gate). Literal `exec.LookPath` probes sit at the user-facing
+  entry seams: `cmd/rk/riff.go` `checkPreconditions` (wt),
+  `internal/updatecheck` `defaultCheck` (shll), and `api/update.go` `lookShllFn`
+  (shll — absent routes fail-silent to the run-kit-self update path). The six
+  internal exec sites (`internal/riff` fab launcher + wt create/delete,
+  `internal/wt` list/open, `internal/sessions` fab pane map) degrade gracefully
+  by handled exec error — silent feature skips (default launcher, `[]` app
+  registry, enrichment-less sessions) or surfaced HTTP errors. **No
+  crash-capable sibling path exists**; the standard's failure mode (one tool's
+  absence crashing another) occurs nowhere.
+- **Hints**: the non-brew self-install hint (`cmd/rk/upgrade.go`,
+  `brew install sahil87/tap/run-kit`; HTTP twin in `api/update.go`'s 409 body)
+  is live-verified conformant. Two hint strings fall short of the standard's
+  actionable shape (`<tool> is not installed. Install it: brew install
+  sahil87/tap/<tool>`) and are deferred as backlog `[gq7f]`: riff's wt-absent
+  message (repo URL, no install command) and updatecheck's bare
+  `shll not found on PATH`. Wording only — never-crash conformance holds.
+
+#### Scenario: A missing sibling degrades gracefully with a hint, never a crash
+- **GIVEN** a host without `wt` on PATH (scratch-PATH simulation)
+- **WHEN** `bin/rk riff echo hi` runs inside tmux
+- **THEN** it fast-fails pre-spawn with operational exit 1 and the message
+  `run-kit riff: wt not found on PATH (required companion tool — see
+  https://github.com/sahil87/wt)` (hint-shape alignment deferred to `[gq7f]`)
+- **AND GIVEN** a non-Homebrew `bin/rk`, `rk update` prints the manual-update
+  guidance ending `brew install sahil87/tap/run-kit` and exits 0 (a leg skip,
+  not a failure)
 
 ## Design Decisions
+
+### Handled exec errors satisfy Policy A's probe clause at internal Go seams
+**Decision**: internal sibling exec sites (wt/fab in `internal/riff`,
+`internal/wt`, `internal/sessions`) rely on handled `exec.CommandContext` errors
+rather than a preceding `exec.LookPath`; literal probes live at the user-facing
+entry seams (CLI riff precondition, both shll consumers).
+**Why**: a handled exec error is authoritative and TOCTOU-free — it never
+*assumes* presence, which is the clause's substance (principle №8's
+skip-don't-crash); a LookPath at each internal seam would duplicate the check
+without changing any observable behavior.
+**Rejected**: sprinkling `exec.LookPath` before every internal exec (redundant,
+and it races the exec it guards); grading the missing literal probes as
+nonconformance (the standard's failure mode — crash on sibling absence — is
+structurally absent at every site).
+*Introduced by*: `260814-mx8e-install-policy-a-binary-audit`
 
 ### Brew mutations run under generous bounds, never a short hard timeout
 **Decision**: `brew upgrade` and `brew update` run under network-sized bounds

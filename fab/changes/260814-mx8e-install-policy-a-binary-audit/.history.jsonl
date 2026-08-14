@@ -1,0 +1,11 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-14T18:30:20Z"}
+{"args":"Audit install-composition Policy A (binary half): sibling-probe coverage at runtime + actionable per-formula install hints in binary output; docs half (Policy B) already PASSes","cmd":"fab-new","event":"command","ts":"2026-08-14T18:30:20Z"}
+{"delta":"+4.6","event":"confidence","score":4.6,"trigger":"calc-score","ts":"2026-08-14T18:31:58Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-14T18:33:58Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-14T18:34:11Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-14T18:41:19Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-14T18:45:06Z"}
+{"event":"review","result":"passed","ts":"2026-08-14T18:45:06Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-14T18:47:06Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-08-14T18:49:12Z"}
+{"event":"review","result":"passed","ts":"2026-08-14T18:55:24Z"}

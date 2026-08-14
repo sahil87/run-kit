@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useTheme } from "@/contexts/theme-context";
 import { Tip, TipGroup } from "@/components/tip";
+import { FlairOverlay } from "@/components/flair-overlay";
 import {
   PICKER_COLOR_VALUES,
   MARKER_STATES,
@@ -61,21 +62,30 @@ type SwatchPopoverProps = {
   selectedMarker?: string;
   onSelectMarker?: (marker: string) => void;
   /** ── Flair extension ── When `onSelectFlair` is supplied, the popover
-   *  renders a flair section: ONE row of four cells (∅ / nyan / naruto /
-   *  onepiece, from FLAIR_STATES) below the color grid, separated by a
-   *  horizontal hairline. Each non-∅ cell is a miniature live row preview
-   *  carrying its always-on animated flair overlay (rk-flair-*), mirroring
-   *  the marker column's live-preview pattern (tint.base background like the
-   *  marker previews; the overlay animates exactly as it does on real rows).
-   *  Selection calls `onSelectFlair` DIRECTLY with the exact state — `""`
-   *  clears, no cycling. Keyboard nav reaches the cells as an extra grid row
-   *  (FLAIR_ROW) under the color grid: ArrowDown from the bottom color row
-   *  enters it, ArrowLeft/Right walk it. Available on every flair-capable
-   *  caller — window rows (beside the marker column), session rows, and
-   *  server group headers. When `onSelectFlair` is ABSENT no flair row
-   *  renders. */
+   *  renders a flair section: a compact GRID of cells (4 per row, from
+   *  `flairStates`) below the color grid, separated by a horizontal hairline —
+   *  2 rows for the default universal vocabulary, 4 for the server set. Each
+   *  non-∅ cell is a miniature live row preview carrying its always-on
+   *  animated flair overlay (rk-flair-*, via the shared FlairOverlay so the
+   *  tile-only child-span markup — dvd logo, cube faces, warp planes — is
+   *  identical to what real rows/tiles mount), mirroring the marker column's
+   *  live-preview pattern (tint.base background like the marker previews; the
+   *  overlay animates exactly as it does on real rows). Selection calls
+   *  `onSelectFlair` DIRECTLY with the exact state — `""` clears, no cycling.
+   *  Keyboard nav reaches the cells as extra grid rows (FLAIR_ROW …) under
+   *  the color grid: ArrowDown from the bottom color row enters the first
+   *  flair row, ArrowLeft/Right walk each row (clamping at a partial last
+   *  row). Available on every flair-capable caller — window rows (beside the
+   *  marker column), session rows, and server group headers. When
+   *  `onSelectFlair` is ABSENT no flair rows render. */
   selectedFlair?: string;
   onSelectFlair?: (flair: string) => void;
+  /** The flair cell vocabulary, in display order with `""` (∅) first.
+   *  Defaults to FLAIR_STATES (the universal row/tile set) — window and
+   *  session callers keep the default; the server group-header caller passes
+   *  SERVER_FLAIR_STATES (∅ + universal + tile-only). Only consulted when
+   *  `onSelectFlair` is present. */
+  flairStates?: readonly string[];
 };
 
 /** Colors per row in the color grid. The layout is a conceptual 5-column grid:
@@ -100,15 +110,30 @@ const MARKER_CELLS = MARKER_STATES;
 /** Number of grid rows: the removal row + 20 / 4 = 5 color rows. */
 const GRID_ROWS = 1 + Math.ceil(PICKER_COLOR_VALUES.length / COLOR_COLS); // 6
 
-/** The flair row index (flair-enabled callers only): ONE row directly below
- *  the color grid, its four cells (∅ / nyan / naruto / onepiece) occupying
- *  cols 1–4 of the conceptual grid. The marker column does NOT extend into
- *  it — ArrowLeft from the flair row's first cell is a no-op. */
+/** The FIRST flair row index (flair-enabled callers only): directly below the
+ *  color grid. The flair section spans `flairRows` conceptual rows — FLAIR_ROW
+ *  … FLAIR_ROW + flairRows - 1 — its cells occupying cols 1–4 in
+ *  `flairStates` order (∅ at the top-left). The marker column does NOT extend
+ *  into it — ArrowLeft from a flair row's first cell is a no-op. */
 const FLAIR_ROW = GRID_ROWS;
 
+/** Number of flair rows for a given vocabulary: 4 cells per row (8 universal
+ *  states → 2 rows; 13 server states → 4 rows, the last partial). */
+function flairRowCount(flairStates: readonly string[]): number {
+  return Math.ceil(flairStates.length / COLOR_COLS);
+}
+
+/** Last valid flair column in a flair row: 4 for a full row, fewer for a
+ *  partial last row (13 server states → last row holds a single cell). */
+function maxFlairCol(flairStates: readonly string[], row: number): number {
+  const rowStart = (row - FLAIR_ROW) * COLOR_COLS;
+  return Math.min(flairStates.length - rowStart, COLOR_COLS);
+}
+
 /** Keyboard focus position on the conceptual 5-column grid.
- *  - `row`: 0 = removal row (∅ | Clear | ✕), 1–5 = color rows, FLAIR_ROW (6)
- *    = the flair row (only valid when the flair section is shown).
+ *  - `row`: 0 = removal row (∅ | Clear | ✕), 1–5 = color rows, FLAIR_ROW …
+ *    FLAIR_ROW + flairRows - 1 = the flair rows (only valid when the flair
+ *    section is shown).
  *  - `col`: 0 = marker column (only valid when markers shown); 1–4 = color
  *    columns. On row 0 the `Clear` button spans cols 1–3 as a SINGLE focus
  *    target canonicalized to col 1, and the ✕ close cell sits at col 4. */
@@ -136,6 +161,7 @@ export function SwatchPopover({
   onSelectMarker,
   selectedFlair,
   onSelectFlair,
+  flairStates = FLAIR_STATES,
 }: SwatchPopoverProps) {
   const { theme } = useTheme();
   const rowTints = useMemo(() => computeRowTints(theme.palette), [theme.palette]);
@@ -149,9 +175,11 @@ export function SwatchPopover({
   // square style, no marker column).
   const showMarkers = !!onSelectMarker;
 
-  // The flair section (a row below the color grid) renders only when a flair
-  // write callback is present. Color-only callers omit it.
+  // The flair section (a grid of extra rows below the color grid) renders only
+  // when a flair write callback is present. Color-only callers omit it.
   const showFlair = !!onSelectFlair;
+  // 8 universal states → 2 rows; the 13-member server set → 4 (last partial).
+  const flairRows = flairRowCount(flairStates);
 
   // Normalize the incoming selection to its canonical display value
   // ("orange" / "orange-dark") so a legacy-stored value ("1+3") highlights the
@@ -216,11 +244,12 @@ export function SwatchPopover({
   // cell (col 4); color cells map to onSelect.
   const activate = useCallback(
     (pos: GridPos) => {
-      if (pos.row === FLAIR_ROW) {
-        // Flair row: FLAIR_STATES[col - 1] — ∅ at col 1 (clears), then nyan /
-        // naruto / onepiece at cols 2–4. Direct pick, no cycling. The explicit
-        // undefined check mirrors the marker column's pairing guard.
-        const flair = FLAIR_STATES[pos.col - 1];
+      if (pos.row >= FLAIR_ROW) {
+        // Flair rows: flairStates[(row - FLAIR_ROW) * 4 + (col - 1)] — ∅ at
+        // (FLAIR_ROW, 1) (clears), the rest in vocabulary order. Direct pick,
+        // no cycling. The explicit undefined check mirrors the marker
+        // column's pairing guard — never emit undefined.
+        const flair = flairStates[(pos.row - FLAIR_ROW) * COLOR_COLS + (pos.col - 1)];
         if (onSelectFlair && flair !== undefined) onSelectFlair(flair);
       } else if (pos.col === 0) {
         // Marker column: MARKER_CELLS[row] — ∅ in row 0, the five non-empty
@@ -237,7 +266,7 @@ export function SwatchPopover({
         if (idx >= 0 && idx < PICKER_COLOR_VALUES.length) emit(PICKER_COLOR_VALUES[idx]);
       }
     },
-    [emit, showMarkers, onSelectMarker, onSelectFlair, onClose],
+    [emit, showMarkers, onSelectMarker, onSelectFlair, flairStates, onClose],
   );
 
   // Close on Escape
@@ -291,7 +320,7 @@ export function SwatchPopover({
         setFocus((f) => {
           if (f.col === 0) return { row: f.row, col: 1 }; // cross the hairline
           if (f.row === 0) return { row: 0, col: COLOR_COLS }; // Clear → ✕ (Clear spans cols 1–3)
-          if (f.row === FLAIR_ROW) return { row: f.row, col: Math.min(f.col + 1, FLAIR_STATES.length) };
+          if (f.row >= FLAIR_ROW) return { row: f.row, col: Math.min(f.col + 1, maxFlairCol(flairStates, f.row)) };
           return { row: f.row, col: Math.min(f.col + 1, maxColorCol(f.row)) };
         });
       } else if (e.key === "ArrowLeft") {
@@ -300,19 +329,22 @@ export function SwatchPopover({
           if (f.col === 0) return f; // already at the left edge
           if (f.row === 0 && f.col === COLOR_COLS) return { row: 0, col: 1 }; // ✕ → Clear
           // Cross the hairline — but the marker column does not extend into
-          // the flair row, so ArrowLeft from the flair row's first cell clamps.
+          // the flair rows, so ArrowLeft from a flair row's first cell clamps.
           if (f.col === 1) return showMarkers && f.row < GRID_ROWS ? { row: f.row, col: 0 } : f;
           return { row: f.row, col: f.col - 1 };
         });
       } else if (e.key === "ArrowDown") {
         e.preventDefault();
         setFocus((f) => {
-          const lastRow = showFlair ? FLAIR_ROW : GRID_ROWS - 1;
+          const lastRow = showFlair ? FLAIR_ROW + flairRows - 1 : GRID_ROWS - 1;
           if (f.row >= lastRow) return f; // bottom row
           const row = f.row + 1;
-          // Into the flair row: the marker column has no cell there, so col 0
-          // lands on the row's first cell (∅, col 1).
-          if (row === FLAIR_ROW) return { row, col: f.col === 0 ? 1 : f.col };
+          // Into a flair row: the marker column has no cell there, so col 0
+          // lands on the row's first cell (∅, col 1). A partial last flair row
+          // clamps its cols (13 server states → last row holds one cell).
+          if (row >= FLAIR_ROW) {
+            return { row, col: f.col === 0 ? 1 : Math.min(f.col, maxFlairCol(flairStates, row)) };
+          }
           if (f.col === 0) return { row, col: 0 }; // within the marker column
           return { row, col: Math.min(f.col, maxColorCol(row)) };
         });
@@ -325,6 +357,8 @@ export function SwatchPopover({
           // Into the removal row: cols 1–3 land on Clear (single spanning
           // target, canonical col 1); col 4 lands on the ✕ close cell.
           if (row === 0) return { row: 0, col: f.col === COLOR_COLS ? COLOR_COLS : 1 };
+          // Between flair rows: a partial last row's cols clamp going up too.
+          if (row >= FLAIR_ROW) return { row, col: Math.min(f.col, maxFlairCol(flairStates, row)) };
           return { row, col: f.col };
         });
       } else if (e.key === "Enter" || e.key === " ") {
@@ -332,7 +366,7 @@ export function SwatchPopover({
         activate(focus);
       }
     },
-    [focus, activate, showMarkers, showFlair],
+    [focus, activate, showMarkers, showFlair, flairStates, flairRows],
   );
 
   const focusOnClear = keyboardActive && focus.row === 0 && focus.col >= 1 && focus.col < COLOR_COLS;
@@ -488,20 +522,27 @@ export function SwatchPopover({
               </button>
             );
           })}
-          {/* Flair section (flair-enabled callers only): one row below the
-              color grid, behind a horizontal hairline — ∅ (clear) at col 1,
-              then nyan / naruto / onepiece at cols 2–4. Each non-∅ cell is a
-              miniature LIVE ROW PREVIEW following the marker column's pattern:
-              the selected color's tint.base background (gray sentinel when
-              uncolored) carrying its always-on animated rk-flair-* overlay,
-              exactly the row's resting look. Selection calls onSelectFlair
-              DIRECTLY — "" clears, no cycling. */}
+          {/* Flair section (flair-enabled callers only): a compact GRID below
+              the color grid, behind a horizontal hairline — ∅ (clear) at the
+              top-left, the rest of `flairStates` laid out 4-wide (universal
+              set → 2 rows; server set → 4 rows, the last partial). Each non-∅
+              cell is a miniature LIVE ROW PREVIEW following the marker
+              column's pattern: the selected color's tint.base background (gray
+              sentinel when uncolored) carrying its always-on animated
+              rk-flair-* overlay, exactly the row's resting look. The overlay
+              is the SHARED FlairOverlay so tile-only states (dvd logo, cube
+              faces, warp planes) preview with the exact child-span markup a
+              real tile mounts. Selection calls onSelectFlair DIRECTLY — ""
+              clears, no cycling. */}
           {showFlair && (
             <>
               <div className="col-span-4 h-px bg-border self-center" aria-hidden="true" />
-              {FLAIR_STATES.map((state, i) => {
+              {flairStates.map((state, i) => {
                 const isSelected = currentFlair === state;
-                const isFocused = keyboardActive && focus.row === FLAIR_ROW && focus.col === i + 1;
+                const isFocused =
+                  keyboardActive &&
+                  focus.row === FLAIR_ROW + Math.floor(i / COLOR_COLS) &&
+                  focus.col === (i % COLOR_COLS) + 1;
                 const isPreview = state !== "";
                 return (
                   <Tip key={state || "none"} label={state || "none"}>
@@ -523,10 +564,8 @@ export function SwatchPopover({
                     }
                   >
                     {/* The flair overlay itself, running live (always-on on
-                        real rows, so the preview carries it too). */}
-                    {isPreview && (
-                      <span aria-hidden="true" className={`rk-flair-${state} absolute inset-0 pointer-events-none`} />
-                    )}
+                        real rows/tiles, so the preview carries it too). */}
+                    {isPreview && <FlairOverlay flair={state} />}
                     {state === "" && (
                       <span className="absolute inset-0 flex items-center justify-center text-text-secondary" style={{ fontSize: 10, lineHeight: 1 }}>
                         &#x2205;

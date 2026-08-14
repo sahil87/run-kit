@@ -461,17 +461,40 @@ export const MARKER_STATES = ["", "dotted", "dashed", "solid", "double", "thick"
 
 // ── Row flair (decoration-only channel) ──────────────────────────────────────
 
-/** The row flair states. `""` (no flair) is the rest state. A flair is an
- *  always-on, ambient, CSS-only animated row overlay (globals.css
+/** The UNIVERSAL row flair states. `""` (no flair) is the rest state. A flair
+ *  is an always-on, ambient, CSS-only animated row overlay (globals.css
  *  `.rk-flair-*`) available on window rows, session rows, and server group
- *  header rows. Flair is DECORATION ONLY — unlike the marker's label
- *  conventions, it carries no semantic at all: no wiring to `@rk_agent_state`
- *  or the status pyramid. Mirrors the backend closed set minus the empty
- *  string, with `""` at the front. */
-export const FLAIR_STATES = ["", "nyan", "naruto", "onepiece"] as const;
+ *  header rows — and, sized by their 22px strip centering, on server tiles
+ *  too. Flair is DECORATION ONLY — unlike the marker's label conventions, it
+ *  carries no semantic at all: no wiring to `@rk_agent_state` or the status
+ *  pyramid. Mirrors the backend closed set (validate.FlairValues) minus the
+ *  empty string, with `""` at the front. */
+export const FLAIR_STATES = ["", "nyan", "naruto", "onepiece", "train", "pacman", "matrix", "aquarium"] as const;
 
 /** A flair state — one of FLAIR_STATES. */
 export type FlairState = (typeof FLAIR_STATES)[number];
+
+/** The TILE-ONLY flair states: treatments that need a 2D box (the server
+ *  tile's ~76×56px canvas) and are meaningless on a 22px row strip, so a row
+ *  NEVER mounts them — the backend rejects them at row-scope write seams
+ *  (validate.ValidateFlairValue) and row components gate them out defensively.
+ *  `dvd`/`tetris`/`invaders` are tile-fill sheet treatments; `cube`/`warp`
+ *  are CSS-3D (perspective + preserve-3d on overlay child spans). */
+export const TILE_FLAIR_STATES = ["dvd", "tetris", "invaders", "cube", "warp"] as const;
+
+/** A tile-only flair state — one of TILE_FLAIR_STATES. */
+export type TileFlairState = (typeof TILE_FLAIR_STATES)[number];
+
+/** The SERVER flair vocabulary: `""` + every universal + every tile-only
+ *  state (mirrors validate.ServerFlairValues). The server picker offers this
+ *  full set (a server flair renders on BOTH its SESSIONS group-header row —
+ *  universal values only, tile-only gated out — and its SERVER panel tile,
+ *  which mounts all of them). */
+export const SERVER_FLAIR_STATES = [
+  "",
+  ...FLAIR_STATES.slice(1),
+  ...TILE_FLAIR_STATES,
+] as const;
 
 /** Inline style rendering a marker state as a left-edge stripe in the given
  *  color: dotted 3px, dashed 3px, solid 3px, double 6px, thick 6px. The empty

@@ -390,9 +390,10 @@ func validateWindowOption(key string, value *string) string {
 			return errMsg
 		}
 	case optKeyFlair:
-		// Per-row flair decoration: one of nyan/naruto/onepiece (or empty to
-		// clear). An empty string is valid and treated as unset below
-		// (mirroring @rk_marker).
+		// Per-row flair decoration: one of the universal flairs nyan/naruto/
+		// onepiece/train/pacman/matrix/aquarium (or empty to clear — tile-only
+		// flairs are rejected at row scope). An empty string is valid and
+		// treated as unset below (mirroring @rk_marker).
 		if errMsg := validate.ValidateFlairValue(*value); errMsg != "" {
 			return errMsg
 		}

@@ -1,0 +1,55 @@
+id: p8sw
+name: 260814-p8sw-more-flairs-server-tiles
+created: 2026-08-14T13:26:45Z
+created_by: vivek-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 12
+    acceptance_count: 15
+    acceptance_completed: 15
+confidence:
+    certain: 4
+    confident: 4
+    tentative: 0
+    unresolved: 0
+    score: 4.5
+    fuzzy: true
+    dimensions:
+        signal: 73.1
+        reversibility: 80.6
+        competence: 84.4
+        disambiguation: 76.9
+stage_metrics:
+    intake: {started_at: "2026-08-14T13:26:45Z", driver: fab-new, iterations: 1, completed_at: "2026-08-14T13:29:33Z"}
+    apply: {started_at: "2026-08-14T13:29:33Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-14T13:46:00Z"}
+    review: {started_at: "2026-08-14T13:46:00Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-14T13:52:15Z"}
+    hydrate: {started_at: "2026-08-14T13:52:15Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-14T13:58:02Z"}
+    ship: {started_at: "2026-08-14T13:58:02Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 1961
+    deleted: 44
+    net: 1917
+    excluding:
+        added: 1487
+        deleted: 26
+        net: 1461
+    tests:
+        added: 513
+        deleted: 4
+        net: 509
+    computed_at: "2026-08-14T13:58:02Z"
+    computed_at_stage: hydrate
+summary: flair catalogue grows to 12 (universal + tile-only classes); server-tile flair overlay with drag-source hide; picker flair grid with caller-dependent cell sets; two-vocabulary backend validation
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-14T13:58:02Z

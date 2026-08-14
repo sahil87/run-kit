@@ -14,6 +14,7 @@ function renderPanel(overrides: {
   server?: string;
   servers?: ServerInfo[];
   serverColors?: Record<string, string>;
+  serverFlairs?: Record<string, string>;
   waitingCounts?: Map<string, number>;
   onSwitchServer?: (name: string) => void;
   onCreateServer?: () => void;
@@ -27,6 +28,7 @@ function renderPanel(overrides: {
       { name: "e2e", sessionCount: 1, windowCount: 1 },
     ],
     serverColors: overrides.serverColors ?? {},
+    serverFlairs: overrides.serverFlairs,
     waitingCounts: overrides.waitingCounts,
     onSwitchServer: overrides.onSwitchServer ?? vi.fn(),
     onCreateServer: overrides.onCreateServer ?? vi.fn(),
@@ -304,5 +306,59 @@ describe("ServerPanel", () => {
 
     // WaitingBadge returns null at count <= 0, so no badge is present for either.
     expect(screen.queryByTestId("waiting-badge")).not.toBeInTheDocument();
+  });
+
+  // ── Tile flair overlay (decoration-only channel): the tile mounts EVERY
+  //    SERVER_FLAIR_STATES member — universal and tile-only alike — via the
+  //    shared FlairOverlay, EXCEPT while the tile is the active HTML5 drag
+  //    source (animating transforms corrupt the native drag snapshot). ──
+  describe("tile flair overlay", () => {
+    it("a tile-only flair renders its overlay INSIDE the tile, with the real child-span markup", () => {
+      renderPanel({ serverFlairs: { work: "invaders", default: "cube" } });
+
+      const workTile = screen.getByRole("option", { name: /work/ });
+      expect(workTile.querySelector(".rk-flair-invaders")).not.toBeNull();
+
+      // Multi-span treatment: the cube tile mounts the 6-face markup.
+      const defaultTile = screen.getByRole("option", { name: /default/ });
+      expect(defaultTile.querySelector(".rk-flair-cube")).not.toBeNull();
+      expect(defaultTile.querySelectorAll(".rk-cube-face")).toHaveLength(6);
+    });
+
+    it("universal flairs render on tiles too (no filtering in the tile)", () => {
+      renderPanel({ serverFlairs: { work: "nyan" } });
+      const workTile = screen.getByRole("option", { name: /work/ });
+      expect(workTile.querySelector(".rk-flair-nyan")).not.toBeNull();
+    });
+
+    it("a server without flair renders no overlay", () => {
+      renderPanel({ serverFlairs: { work: "nyan" } });
+      const e2eTile = screen.getByRole("option", { name: /e2e/ });
+      expect(e2eTile.querySelector("[class*='rk-flair-']")).toBeNull();
+      // …and with no serverFlairs prop at all, nothing renders either.
+      cleanup();
+      renderPanel();
+      expect(document.querySelector("[class*='rk-flair-']")).toBeNull();
+    });
+
+    it("DRAG GUARD: the overlay unmounts while its tile is the drag source, remounts on drag end", () => {
+      renderPanel({ serverFlairs: { work: "warp", e2e: "nyan" } });
+      const workTile = screen.getByRole("option", { name: /work/ });
+      expect(workTile.querySelector(".rk-flair-warp")).not.toBeNull();
+
+      // dragstart on the tile's draggable wrapper marks it the drag source —
+      // the warp treatment (CSS-3D transforms) must leave the drag snapshot.
+      const dragHandle = workTile.parentElement!;
+      fireEvent.dragStart(dragHandle, {
+        dataTransfer: { setData: vi.fn(), effectAllowed: "move", types: [] },
+      });
+      expect(workTile.querySelector(".rk-flair-warp")).toBeNull();
+      // …but only the SOURCE tile sheds its overlay — other tiles keep theirs.
+      const e2eTile = screen.getByRole("option", { name: /e2e/ });
+      expect(e2eTile.querySelector(".rk-flair-nyan")).not.toBeNull();
+
+      fireEvent.dragEnd(dragHandle);
+      expect(workTile.querySelector(".rk-flair-warp")).not.toBeNull();
+    });
   });
 });

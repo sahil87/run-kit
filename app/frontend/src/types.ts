@@ -57,8 +57,10 @@ export type ProjectSession = {
   name: string;
   /** Color value descriptor: "4" for a single ANSI index, "1+3" for a blend. */
   sessionColor?: string;
-  /** Row flair state: ""/absent (no flair) | "nyan" | "naruto" | "onepiece".
-   *  Decoration only (FLAIR_STATES in themes.ts) — an ambient CSS-only overlay
+  /** Row flair state: ""/absent (no flair) | "nyan" | "naruto" | "onepiece" |
+   *  "train" | "pacman" | "matrix" | "aquarium" (universal set only — the
+   *  tile-only states are rejected at row-scope write seams). Decoration only
+   *  (FLAIR_STATES in themes.ts) — an ambient CSS-only overlay
    *  with no status semantics. */
   flair?: string;
   windows: WindowInfo[];
@@ -87,8 +89,10 @@ export type WindowInfo = {
    *  label axis from `color` — see docs/specs/themes.md. */
   marker?: string;
   /** Row flair state, from the `@rk_flair` window option: ""/absent (no
-   *  flair) | "nyan" | "naruto" | "onepiece". Decoration only (FLAIR_STATES in
-   *  themes.ts) — an ambient CSS-only overlay with no status semantics. */
+   *  flair) | "nyan" | "naruto" | "onepiece" | "train" | "pacman" | "matrix" |
+   *  "aquarium" (universal set only — tile-only states are rejected at this
+   *  seam). Decoration only (FLAIR_STATES in themes.ts) — an ambient CSS-only
+   *  overlay with no status semantics. */
   flair?: string;
   /** Window role from the `@rk_role` window option: ""/absent (no role) |
    *  "operator" (the server's operator window — the sidebar pins its row at

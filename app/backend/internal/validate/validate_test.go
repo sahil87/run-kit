@@ -523,19 +523,44 @@ func TestValidateRoleValue(t *testing.T) {
 
 func TestValidateFlairValue(t *testing.T) {
 	// The empty string is valid — it means "unset" (no flair). The closed set
-	// is the 3 named states (nyan/naruto/onepiece).
-	valid := []string{"", "nyan", "naruto", "onepiece"}
+	// is the 7 universal flairs (nyan/naruto/onepiece/train/pacman/matrix/
+	// aquarium).
+	valid := []string{"", "nyan", "naruto", "onepiece", "train", "pacman", "matrix", "aquarium"}
 	for _, v := range valid {
 		if msg := ValidateFlairValue(v); msg != "" {
 			t.Errorf("ValidateFlairValue(%q) = %q, want valid", v, msg)
 		}
 	}
 	// Anything outside the closed set is rejected (case-sensitive, no whitespace
-	// tolerance — the frontend only ever writes the canonical tokens).
-	invalid := []string{"Nyan", "NYAN", "Naruto", "ONEPIECE", " nyan ", " onepiece ", "pikachu", "one-piece", "4", "1+3", "none", "true"}
+	// tolerance — the frontend only ever writes the canonical tokens). The five
+	// tile-only flairs (dvd/tetris/invaders/cube/warp) are rejected at row
+	// scope — they are only valid on server tiles.
+	invalid := []string{"Nyan", "NYAN", "Naruto", "ONEPIECE", " nyan ", " onepiece ", "pikachu", "one-piece", "4", "1+3", "none", "true",
+		"dvd", "tetris", "invaders", "cube", "warp", "bogus"}
 	for _, v := range invalid {
 		if msg := ValidateFlairValue(v); msg == "" {
 			t.Errorf("ValidateFlairValue(%q) = valid, want error", v)
+		}
+	}
+}
+
+func TestValidateServerFlairValue(t *testing.T) {
+	// The empty string is valid — it means "unset" (no flair). The closed set
+	// is the 7 universal flairs PLUS the 5 tile-only flairs (dvd/tetris/
+	// invaders/cube/warp) — 12 named states accepted on server tiles.
+	valid := []string{"", "nyan", "naruto", "onepiece", "train", "pacman", "matrix", "aquarium",
+		"dvd", "tetris", "invaders", "cube", "warp"}
+	for _, v := range valid {
+		if msg := ValidateServerFlairValue(v); msg != "" {
+			t.Errorf("ValidateServerFlairValue(%q) = %q, want valid", v, msg)
+		}
+	}
+	// Anything outside the closed set is rejected (case-sensitive, no whitespace
+	// tolerance — the frontend only ever writes the canonical tokens).
+	invalid := []string{"Nyan", "NYAN", "DVD", " nyan ", " dvd ", "pikachu", "one-piece", "4", "1+3", "none", "true", "bogus"}
+	for _, v := range invalid {
+		if msg := ValidateServerFlairValue(v); msg == "" {
+			t.Errorf("ValidateServerFlairValue(%q) = valid, want error", v)
 		}
 	}
 }

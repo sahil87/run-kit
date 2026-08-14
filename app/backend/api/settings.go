@@ -240,8 +240,9 @@ func (s *Server) handleGetServerFlair(w http.ResponseWriter, r *http.Request) {
 // handleSetServerFlair sets or clears the flair for a server.
 // POST /api/settings/server-flair ← {"server": "...", "flair": "nyan"} or
 // {"server": "...", "flair": null} (or "flair": "" — both clear).
-// Mirrors handleSetServerColor — the flair allowlist is validated before any
-// settings mutation (invalid → 400).
+// Mirrors handleSetServerColor — the server-flair allowlist (the universal
+// set plus the tile-only flairs) is validated before any settings mutation
+// (invalid → 400).
 func (s *Server) handleSetServerFlair(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Server string  `json:"server"`
@@ -256,7 +257,8 @@ func (s *Server) handleSetServerFlair(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if body.Flair != nil {
-		if errMsg := validate.ValidateFlairValue(*body.Flair); errMsg != "" {
+		// The wider server-flair rule: universal flairs plus the tile-only set.
+		if errMsg := validate.ValidateServerFlairValue(*body.Flair); errMsg != "" {
 			writeError(w, http.StatusBadRequest, errMsg)
 			return
 		}

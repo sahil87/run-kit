@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { CollapsiblePanel } from "./collapsible-panel";
 import { LogoSpinner } from "@/components/logo-spinner";
 import { UNCOLORED_SELECTED_KEY, type RowTint } from "@/themes";
+import { FlairOverlay } from "@/components/flair-overlay";
 import { isInfraServer, type ServerInfo } from "@/api/client";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useServerReorder, type ServerTileDragProps } from "@/hooks/use-server-reorder";
@@ -13,6 +14,11 @@ type ServerPanelProps = {
   servers: ServerInfo[];
   /** server name → color value descriptor ("4" / "1+3"). */
   serverColors: Record<string, string>;
+  /** server name → flair value (any SERVER_FLAIR_STATES member — universal AND
+   *  tile-only states are both valid on a tile; the tile mounts them all with
+   *  no filtering). Optional so pre-existing call sites compile unchanged;
+   *  absent means no tile flair overlays. */
+  serverFlairs?: Record<string, string>;
   /** server name → count of waiting windows (from countWaitingInSessions).
    *  Attached-server-only by construction: an unattached server has no windows
    *  streamed, so its count is 0 and the tile's badge is simply absent. */
@@ -40,6 +46,7 @@ export function ServerPanel({
   server,
   servers,
   serverColors,
+  serverFlairs,
   waitingCounts,
   rowTints,
   rowBorders,
@@ -156,6 +163,7 @@ export function ServerPanel({
                 tint={tint}
                 uncoloredSelectedTint={uncoloredSelectedTint}
                 stripeBg={stripeBg}
+                flair={serverFlairs?.[name]}
                 isActive={isActive}
                 isMobile={isMobile}
                 dragProps={getTileProps(name)}
@@ -181,6 +189,12 @@ type ServerTileProps = {
   tint: RowTint | null;
   uncoloredSelectedTint: RowTint | null;
   stripeBg: string;
+  /** The server's flair value (any SERVER_FLAIR_STATES member — tiles mount
+   *  universal AND tile-only treatments alike). Mounted only while the tile is
+   *  NOT the active drag source: the cube/warp/dvd treatments animate
+   *  transforms, which corrupt the browser's native HTML5 drag snapshot, so
+   *  the overlay unmounts for the drag's duration (see ServerTile). */
+  flair?: string;
   isActive: boolean;
   isMobile: boolean;
   /** HTML5 drag-reorder props (from useServerReorder). Infra tiles receive
@@ -201,6 +215,7 @@ function ServerTile({
   tint,
   uncoloredSelectedTint,
   stripeBg,
+  flair,
   isActive,
   isMobile,
   dragProps,
@@ -241,6 +256,20 @@ function ServerTile({
         className={`relative block w-full text-left border border-border overflow-hidden transition-colors hover:border-text-secondary ${uncoloredHoverClass}`}
         style={bodyBg ? { backgroundColor: bodyBg } : undefined}
       >
+        {/* Flair overlay (decoration-only channel): an always-on ambient
+            CSS-only animation mounted whenever the server carries a flair
+            value — the tile mounts EVERY SERVER_FLAIR_STATES member, universal
+            and tile-only alike (no filtering here). Same overlay discipline as
+            the row treatments (dedicated clipped inner element, DOM-ordered
+            before the content like the rows, pointer-events-none, z-5);
+            composes with the tint. Hidden entirely under prefers-reduced-
+            motion (globals.css § Flair overlays).
+            DRAG GUARD: the overlay unmounts while this tile is the active
+            HTML5 drag source — the cube/warp/dvd treatments animate
+            transforms, and an animating transform inside a drag source
+            corrupts the browser's native drag snapshot (ghost image). The
+            overlay remounts on drag end. */}
+        {flair && !isDragSource && <FlairOverlay flair={flair} />}
         {/* Top color stripe — the server signature/active marker (top border =
             server, left border = window rows). */}
         <div className="h-0.5" style={{ backgroundColor: stripeBg }} />

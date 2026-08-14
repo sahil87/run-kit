@@ -244,8 +244,24 @@ func TestSetServerFlair_persists(t *testing.T) {
 	}
 }
 
+// Tile-only flairs (dvd/tetris/invaders/cube/warp) are valid on server tiles —
+// the server-flair endpoint validates against the wider ServerFlairValues set.
+func TestSetServerFlair_acceptsTileOnly(t *testing.T) {
+	for _, v := range []string{"dvd", "tetris", "invaders", "cube", "warp"} {
+		isolateSettings(t)
+		router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+		rec := postJSON(t, router, "/api/settings/server-flair", `{"server":"dev","flair":"`+v+`"}`)
+		if rec.Code != http.StatusOK {
+			t.Errorf("flair %q: status = %d, want %d; body=%s", v, rec.Code, http.StatusOK, rec.Body.String())
+		}
+		if got := settings.GetServerFlair("dev"); got == nil || *got != v {
+			t.Errorf("flair %q: persisted flair = %v, want %q", v, got, v)
+		}
+	}
+}
+
 func TestSetServerFlair_rejectsInvalid(t *testing.T) {
-	for _, bad := range []string{`{"server":"dev","flair":"pikachu"}`, `{"server":"dev","flair":"Nyan"}`, `{"server":"dev","flair":"one-piece"}`, `{"server":"dev","flair":" nyan "}`} {
+	for _, bad := range []string{`{"server":"dev","flair":"pikachu"}`, `{"server":"dev","flair":"Nyan"}`, `{"server":"dev","flair":"one-piece"}`, `{"server":"dev","flair":" nyan "}`, `{"server":"dev","flair":"bogus"}`} {
 		isolateSettings(t)
 		router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
 		req := httptest.NewRequest(http.MethodPost, "/api/settings/server-flair", strings.NewReader(bad))

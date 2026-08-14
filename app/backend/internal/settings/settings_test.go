@@ -517,17 +517,22 @@ func TestServerFlairRoundTrip(t *testing.T) {
 }
 
 // TestParseServerFlairs verifies the closed-set tolerant read: values outside
-// the flair allowlist (and empty values) are dropped on load.
+// the server-flair allowlist (and empty values) are dropped on load. The
+// tile-only flairs (dvd …) are part of the allowlist here — the wider
+// ServerFlairValues set applies to the server_flairs map.
 func TestParseServerFlairs(t *testing.T) {
-	s := parse("theme: system\nserver_flairs:\n  default: \"nyan\"\n  dev: \"naruto\"\n  bad: \"pikachu\"\n  empty: \"\"\n")
-	if len(s.ServerFlairs) != 2 {
-		t.Fatalf("expected 2 valid server flairs (out-of-set dropped), got %d: %v", len(s.ServerFlairs), s.ServerFlairs)
+	s := parse("theme: system\nserver_flairs:\n  default: \"nyan\"\n  dev: \"naruto\"\n  tile: \"dvd\"\n  bad: \"pikachu\"\n  empty: \"\"\n")
+	if len(s.ServerFlairs) != 3 {
+		t.Fatalf("expected 3 valid server flairs (out-of-set dropped), got %d: %v", len(s.ServerFlairs), s.ServerFlairs)
 	}
 	if s.ServerFlairs["default"] != "nyan" {
 		t.Errorf("ServerFlairs[default] = %q, want \"nyan\"", s.ServerFlairs["default"])
 	}
 	if s.ServerFlairs["dev"] != "naruto" {
 		t.Errorf("ServerFlairs[dev] = %q, want \"naruto\"", s.ServerFlairs["dev"])
+	}
+	if s.ServerFlairs["tile"] != "dvd" {
+		t.Errorf("ServerFlairs[tile] = %q, want \"dvd\" (tile-only flairs are valid on server tiles)", s.ServerFlairs["tile"])
 	}
 	if _, ok := s.ServerFlairs["bad"]; ok {
 		t.Errorf("out-of-set value pikachu should have been dropped, got %q", s.ServerFlairs["bad"])

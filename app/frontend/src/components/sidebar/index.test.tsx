@@ -13,7 +13,7 @@ import { SettingsDialogProvider } from "@/contexts/settings-dialog-context";
 import { ToastProvider } from "@/components/toast";
 import { useWindowStore } from "@/store/window-store";
 import { useSelectionStore } from "@/store/selection-store";
-import { getAllServerColors, setServerColor } from "@/api/client";
+import { getAllServerColors, setServerColor, getAllServerFlairs } from "@/api/client";
 import { stubMatchMedia } from "@/test-utils/match-media";
 import {
   computeRowTints,
@@ -58,6 +58,7 @@ vi.mock("@/api/client", async (importOriginal) => {
     ...actual,
     getAllServerColors: vi.fn().mockResolvedValue({}),
     setServerColor: vi.fn().mockResolvedValue({ ok: true }),
+    getAllServerFlairs: vi.fn().mockResolvedValue({}),
   };
 });
 
@@ -1609,6 +1610,57 @@ describe("Sidebar — tinted server-group header fill (t1ca)", () => {
     expect(
       within(headerContainer("alpha")).getByRole("button", { name: "New session on alpha" }),
     ).toBeInTheDocument();
+  });
+});
+
+describe("Sidebar — server-group header flair (universal-only gate)", () => {
+  // A server's flair is stored in ONE settings.yaml value and surfaces in TWO
+  // places: the SERVER-panel tile (mounts every SERVER_FLAIR_STATES member)
+  // and this SESSIONS group-header ROW — which mounts UNIVERSAL values only.
+  // Tile-only values (dvd / tetris / invaders / cube / warp) need the tile's
+  // 2D box and are meaningless on a 22px row strip, so the header gates them
+  // out defensively (FLAIR_STATES membership) and renders NOTHING.
+  function headerContainer(server: string): HTMLElement {
+    const el = document.querySelector<HTMLElement>(`[data-server='${server}']`);
+    expect(el, `header container for ${server}`).toBeTruthy();
+    return el!;
+  }
+
+  /** Render and flush the getAllServerFlairs effect promise. */
+  async function renderWithFlairs(flairs: Record<string, string>) {
+    vi.mocked(getAllServerFlairs).mockResolvedValue(flairs);
+    renderSidebar({ currentServer: "primary" });
+    await act(async () => {});
+  }
+
+  afterEach(() => {
+    // Restore the file-default empty flair map so this block never leaks.
+    vi.mocked(getAllServerFlairs).mockResolvedValue({});
+  });
+
+  it("a universal server flair mounts its rk-flair-* overlay on the group header", async () => {
+    await renderWithFlairs({ alpha: "nyan" });
+    expect(headerContainer("alpha").querySelector(".rk-flair-nyan")).not.toBeNull();
+    // Untouched servers render no overlay.
+    expect(headerContainer("beta").querySelector("[class*='rk-flair-']")).toBeNull();
+  });
+
+  it.each(["dvd", "tetris", "invaders", "cube", "warp"])(
+    "a TILE-ONLY server flair (%s) mounts NOTHING on the group header",
+    async (flair) => {
+      await renderWithFlairs({ alpha: flair });
+      expect(headerContainer("alpha").querySelector("[class*='rk-flair-']")).toBeNull();
+    },
+  );
+
+  it("the tile-only value still renders on the SERVER panel tile (the header gate is row-scoped)", async () => {
+    await renderWithFlairs({ alpha: "warp" });
+    // The header row shows nothing…
+    expect(headerContainer("alpha").querySelector("[class*='rk-flair-']")).toBeNull();
+    // …but the alpha tile in the SERVER panel mounts the full 3-plane markup.
+    const alphaTile = screen.getByRole("option", { name: /alpha/ });
+    expect(alphaTile.querySelector(".rk-flair-warp")).not.toBeNull();
+    expect(alphaTile.querySelectorAll(".rk-warp-plane")).toHaveLength(3);
   });
 });
 

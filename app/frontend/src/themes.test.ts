@@ -13,6 +13,8 @@ import {
   PICKER_COLOR_VALUES,
   MARKER_STATES,
   FLAIR_STATES,
+  TILE_FLAIR_STATES,
+  SERVER_FLAIR_STATES,
   markerStripeStyle,
   UNCOLORED_SELECTED_KEY,
   parseColorValue,
@@ -437,8 +439,30 @@ describe("markerStripeStyle", () => {
     expect(MARKER_STATES).toEqual(["", "dotted", "dashed", "solid", "double", "thick"]);
   });
 
-  it("FLAIR_STATES is the closed set in display order (empty first)", () => {
-    expect(FLAIR_STATES).toEqual(["", "nyan", "naruto", "onepiece"]);
+  it("FLAIR_STATES is the closed universal set in display order (empty first)", () => {
+    expect(FLAIR_STATES).toEqual(["", "nyan", "naruto", "onepiece", "train", "pacman", "matrix", "aquarium"]);
+  });
+
+  it("TILE_FLAIR_STATES is the closed tile-only set", () => {
+    expect(TILE_FLAIR_STATES).toEqual(["dvd", "tetris", "invaders", "cube", "warp"]);
+  });
+
+  it("SERVER_FLAIR_STATES is the universal + tile-only union (empty first)", () => {
+    expect(SERVER_FLAIR_STATES).toEqual([
+      "",
+      "nyan",
+      "naruto",
+      "onepiece",
+      "train",
+      "pacman",
+      "matrix",
+      "aquarium",
+      "dvd",
+      "tetris",
+      "invaders",
+      "cube",
+      "warp",
+    ]);
   });
 });
 

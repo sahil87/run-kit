@@ -34,9 +34,9 @@ type Settings struct {
 	// "1+3" for a two-hue blend). Stored as a string so a blend can round-trip;
 	// reads tolerate a legacy bare integer (normalized on load).
 	ServerColors map[string]string
-	// ServerFlairs is server name → flair token ("nyan" / "naruto" /
-	// "onepiece") — the per-row flair decoration for the server-group header.
-	// A closed set (validate.FlairValues); reads drop anything outside it.
+	// ServerFlairs is server name → flair token — the flair decoration for the
+	// server tile. A closed set (validate.ServerFlairValues: the universal
+	// flairs plus the tile-only set); reads drop anything outside it.
 	ServerFlairs map[string]string
 	// BoardOrder is the user-defined display order of board names; rank = slice
 	// index. Boards absent from the list sort after ranked boards, alphabetically
@@ -156,9 +156,11 @@ func parse(data string) Settings {
 			// Strip optional surrounding double quotes (the serializer quotes
 			// values so a token always round-trips unambiguously).
 			flairStr := strings.Trim(strings.TrimSpace(value), "\"")
-			// Closed-set read: drop anything outside the flair allowlist
-			// (including "") — the window-Marker idiom.
-			if serverName != "" && flairStr != "" && validate.FlairValues[flairStr] {
+			// Closed-set read: drop anything outside the server-flair allowlist
+			// (including "") — the window-Marker idiom. The wider
+			// ServerFlairValues set applies here: tile-only flairs are valid
+			// on server tiles even though row-scope writes reject them.
+			if serverName != "" && flairStr != "" && validate.ServerFlairValues[flairStr] {
 				if s.ServerFlairs == nil {
 					s.ServerFlairs = make(map[string]string)
 				}

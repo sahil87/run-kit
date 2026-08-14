@@ -236,26 +236,52 @@ func ValidateRoleValue(value string) string {
 	return "Role must be one of: operator (or empty to clear)"
 }
 
-// FlairValues is the closed set of accepted @rk_flair values (window and
-// session user options, plus the server_flairs settings map). The empty string
-// means "unset" (no flair); the three named states select the per-row flair
-// animation in the UI. A closed set bounds the injection/abuse surface
-// (constitution §I) exactly as the marker-value rule does — the value flows
-// into `tmux set-option` and the settings file.
+// FlairValues is the closed set of UNIVERSAL flair values — the flairs accepted
+// at row scope (@rk_flair window and @rk_session_flair session user options).
+// The empty string means "unset" (no flair); the seven named states select the
+// per-row flair animation in the UI. A closed set bounds the injection/abuse
+// surface (constitution §I) exactly as the marker-value rule does — the value
+// flows into `tmux set-option`.
 var FlairValues = map[string]bool{
 	"": true, "nyan": true, "naruto": true, "onepiece": true,
+	"train": true, "pacman": true, "matrix": true, "aquarium": true,
+}
+
+// ServerFlairValues is the closed set of accepted server_flairs settings-map
+// values: the universal set PLUS the five tile-only flairs (dvd/tetris/
+// invaders/cube/warp). The split exists because the two classes render
+// differently: universal flairs animate on both the 22px row strips and the
+// server tiles, while tile-only flairs need a 2D box to render and are only
+// meaningful on server tiles — row-scope writes therefore reject them.
+var ServerFlairValues = map[string]bool{
+	"": true, "nyan": true, "naruto": true, "onepiece": true,
+	"train": true, "pacman": true, "matrix": true, "aquarium": true,
+	"dvd": true, "tetris": true, "invaders": true, "cube": true, "warp": true,
 }
 
 // ValidateFlairValue validates an @rk_flair value: one of ""/nyan/naruto/
-// onepiece. Returns an empty string if valid, an error message otherwise. An
-// empty value is valid (it means unset). Mirrors ValidateMarkerValue as the
-// single shared flair-value rule reused by the window-option, session-flair,
-// and server-flair handlers.
+// onepiece/train/pacman/matrix/aquarium. Returns an empty string if valid, an
+// error message otherwise. An empty value is valid (it means unset). Mirrors
+// ValidateMarkerValue as the UNIVERSAL (row-scope) flair-value rule reused by
+// the window-option and session-flair handlers; the server-flair handler uses
+// the wider ValidateServerFlairValue instead.
 func ValidateFlairValue(value string) string {
 	if FlairValues[value] {
 		return ""
 	}
-	return "Flair must be one of: nyan, naruto, onepiece (or empty to clear)"
+	return "Flair must be one of: nyan, naruto, onepiece, train, pacman, matrix, aquarium (or empty to clear)"
+}
+
+// ValidateServerFlairValue validates a server_flairs settings-map value: one of
+// the universal flairs plus the tile-only dvd/tetris/invaders/cube/warp. Returns
+// an empty string if valid, an error message otherwise. An empty value is valid
+// (it means unset). Mirrors ValidateFlairValue exactly — the wider,
+// server-tile-scope rule used by the server-flair handler.
+func ValidateServerFlairValue(value string) string {
+	if ServerFlairValues[value] {
+		return ""
+	}
+	return "Flair must be one of: nyan, naruto, onepiece, train, pacman, matrix, aquarium, dvd, tetris, invaders, cube, warp (or empty to clear)"
 }
 
 // windowIDPattern matches a tmux window ID: an '@' followed by one or more digits

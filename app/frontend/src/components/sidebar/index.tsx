@@ -19,7 +19,7 @@ import { displayVersion } from "@/lib/palette-version";
 import { copyToClipboard } from "@/lib/clipboard";
 import { formatCombo } from "@/lib/keybindings";
 import { useKeybindings } from "@/hooks/use-keybindings";
-import { computeRowTints, computeRowBorders, UNCOLORED_SELECTED_KEY } from "@/themes";
+import { computeRowTints, computeRowBorders, UNCOLORED_SELECTED_KEY, FLAIR_STATES, SERVER_FLAIR_STATES } from "@/themes";
 import type { ProjectSession } from "@/types";
 import { isGhostWindow } from "@/contexts/optimistic-context";
 import type { MergedSession } from "@/contexts/optimistic-context";
@@ -1520,6 +1520,7 @@ export function Sidebar({
         server={currentServer ?? ""}
         servers={servers}
         serverColors={serverColors}
+        serverFlairs={serverFlairs}
         waitingCounts={waitingCounts}
         rowTints={rowTints}
         rowBorders={rowBorders}
@@ -2368,8 +2369,16 @@ function ServerGroupInner(props: ServerGroupProps) {
             `relative` only anchors it, clipping stays on the overlay —
             pointer-events-none, z-5); composes with the header tint. Hidden
             entirely under prefers-reduced-motion (globals.css § Flair
-            overlays). */}
-        {serverFlair && (
+            overlays).
+            DEFENSIVE GATE — universal values only: the server vocabulary
+            (SERVER_FLAIR_STATES) includes TILE-ONLY states (dvd / tetris /
+            invaders / cube / warp) that need the tile's 2D box and are
+            meaningless on a 22px row strip. The backend already rejects them
+            at row-scope write seams, but a tile-scoped server flair still
+            reaches this row through the same settings.yaml value — so this row
+            mounts NOTHING unless the value is a universal FLAIR_STATES member.
+            The tile (ServerTile) mounts the full set. */}
+        {serverFlair && (FLAIR_STATES as readonly string[]).includes(serverFlair) && (
           <span
             aria-hidden="true"
             className={`absolute inset-0 z-[5] overflow-hidden pointer-events-none rk-flair-${serverFlair}`}
@@ -2463,6 +2472,11 @@ function ServerGroupInner(props: ServerGroupProps) {
               selectedColor={serverColor}
               // Selection does NOT close (the picker's dismissal contract).
               onSelect={(c) => onServerColorChange(server, c)}
+              // The server picker offers the FULL server flair vocabulary (∅ +
+              // universal + tile-only) — a server flair renders on both this
+              // group header (universal only, gated above) and its SERVER
+              // panel tile (all of them).
+              flairStates={SERVER_FLAIR_STATES}
               selectedFlair={serverFlair}
               onSelectFlair={(f) => onServerFlairChange(server, f === "" ? null : f)}
               onClose={() => setShowColorPicker(false)}

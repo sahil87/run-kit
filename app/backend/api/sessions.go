@@ -156,8 +156,10 @@ func (s *Server) handleSessionFlair(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Flair is a closed-set token ("nyan" / "naruto" / "onepiece"); an empty
-	// string is valid and treated as unset below (mirroring @rk_marker).
+	// Flair is a universal closed-set token ("nyan" / "naruto" / "onepiece" /
+	// "train" / "pacman" / "matrix" / "aquarium" — tile-only flairs are
+	// rejected at row scope); an empty string is valid and treated as unset
+	// below (mirroring @rk_marker).
 	if body.Flair != nil {
 		if errMsg := validate.ValidateFlairValue(*body.Flair); errMsg != "" {
 			writeError(w, http.StatusBadRequest, errMsg)

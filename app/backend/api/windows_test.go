@@ -267,7 +267,7 @@ func TestWindowOptionsFlairEmptyUnsets(t *testing.T) {
 	}
 }
 
-// Invalid @rk_flair (outside the 3-state closed set) → 400 and zero tmux
+// Invalid @rk_flair (outside the universal closed set) → 400 and zero tmux
 // calls (validate-all-then-execute).
 func TestWindowOptionsFlairInvalid(t *testing.T) {
 	ops := &mockTmuxOps{}
@@ -278,6 +278,23 @@ func TestWindowOptionsFlairInvalid(t *testing.T) {
 	}
 	if ops.setWindowOptionsCalled {
 		t.Error("SetWindowOptions must NOT be called for invalid flair")
+	}
+}
+
+// Tile-only flairs (dvd/tetris/invaders/cube/warp) are server-tile-only — a
+// row-scope @rk_flair write rejects them with 400 and zero tmux calls
+// (validation happens before any subprocess).
+func TestWindowOptionsFlairTileOnlyRejected(t *testing.T) {
+	for _, v := range []string{"dvd", "tetris", "invaders", "cube", "warp"} {
+		ops := &mockTmuxOps{}
+		rec := postOptions(t, ops, "@0", `{"options":{"@rk_flair":"`+v+`"}}`)
+
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("flair %q: status = %d, want %d", v, rec.Code, http.StatusBadRequest)
+		}
+		if ops.setWindowOptionsCalled {
+			t.Errorf("flair %q: SetWindowOptions must NOT be called for a tile-only flair", v)
+		}
 	}
 }
 

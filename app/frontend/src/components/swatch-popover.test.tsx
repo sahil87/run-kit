@@ -5,6 +5,7 @@ import {
   PICKER_COLOR_VALUES,
   MARKER_STATES,
   FLAIR_STATES,
+  SERVER_FLAIR_STATES,
   HUE_FAMILIES,
   DEFAULT_DARK_THEME,
   UNCOLORED_SELECTED_KEY,
@@ -688,10 +689,14 @@ describe("SwatchPopover", () => {
     });
   });
 
-  // ── Flair section: one row (∅ / nyan / naruto / onepiece) below the color
-  //    grid, gated on onSelectFlair alone. Non-∅ cells are LIVE previews
-  //    carrying their always-on rk-flair-* overlay; selection is a direct pick
-  //    ("" clears — no cycling). Keyboard nav reaches the row as FLAIR_ROW. ──
+  // ── Flair section: a compact GRID (4 cells/row) below the color grid,
+  //    gated on onSelectFlair alone, the vocabulary caller-dependent via
+  //    flairStates (default FLAIR_STATES; the server caller passes
+  //    SERVER_FLAIR_STATES). Non-∅ cells are LIVE previews carrying their
+  //    always-on rk-flair-* overlay (the shared FlairOverlay, so tile-only
+  //    states preview with their real child-span markup); selection is a
+  //    direct pick ("" clears — no cycling). Keyboard nav reaches the rows as
+  //    FLAIR_ROW … FLAIR_ROW + flairRows - 1. ──
   describe("flair section", () => {
     function renderFlairPicker(extra: Partial<React.ComponentProps<typeof SwatchPopover>> = {}) {
       const onSelect = vi.fn();
@@ -708,7 +713,7 @@ describe("SwatchPopover", () => {
       return { onSelect, onSelectFlair, onClose, ...utils };
     }
 
-    it("renders NO flair row when onSelectFlair is absent", () => {
+    it("renders NO flair rows when onSelectFlair is absent", () => {
       const onSelect = vi.fn();
       const onClose = vi.fn();
       renderWithTheme(<SwatchPopover onSelect={onSelect} onClose={onClose} />);
@@ -717,17 +722,49 @@ describe("SwatchPopover", () => {
       expect(screen.queryByRole("option", { name: /^Flair / })).toBeNull();
     });
 
-    it("renders the four flair cells (∅ + nyan/naruto/onepiece) in FLAIR_STATES order", () => {
+    it("by default renders the eight universal flair cells (∅ + 7) in FLAIR_STATES order", () => {
       renderFlairPicker();
-      // 20 swatches + Clear + ✕ + 4 flair cells = 26 options.
-      expect(screen.getAllByRole("option")).toHaveLength(26);
-      for (const state of ["none", "nyan", "naruto", "onepiece"]) {
-        expect(screen.getByRole("option", { name: `Flair ${state}` })).toBeTruthy();
+      // 20 swatches + Clear + ✕ + 8 flair cells = 30 options.
+      expect(screen.getAllByRole("option")).toHaveLength(30);
+      for (const state of FLAIR_STATES) {
+        expect(screen.getByRole("option", { name: `Flair ${state || "none"}` })).toBeTruthy();
       }
       const cells = Array.from(
         screen.getByRole("listbox").querySelectorAll("[data-flair-value]"),
       );
       expect(cells.map((c) => c.getAttribute("data-flair-value"))).toEqual([...FLAIR_STATES]);
+      // The tile-only states are NOT in the default set.
+      for (const state of ["dvd", "tetris", "invaders", "cube", "warp"]) {
+        expect(screen.queryByRole("option", { name: `Flair ${state}` })).toBeNull();
+      }
+    });
+
+    it("with flairStates={SERVER_FLAIR_STATES} renders 13 cells (∅ + 7 universal + 5 tile-only) in order", () => {
+      renderFlairPicker({ flairStates: SERVER_FLAIR_STATES });
+      // 20 swatches + Clear + ✕ + 13 flair cells = 35 options.
+      expect(screen.getAllByRole("option")).toHaveLength(35);
+      const cells = Array.from(
+        screen.getByRole("listbox").querySelectorAll("[data-flair-value]"),
+      );
+      expect(cells.map((c) => c.getAttribute("data-flair-value"))).toEqual([...SERVER_FLAIR_STATES]);
+      expect(SERVER_FLAIR_STATES).toHaveLength(13);
+      // The ∅ cell is first (top-left of the flair grid).
+      expect(cells[0].getAttribute("data-flair-value")).toBe("");
+    });
+
+    it("tile-only preview cells carry the REAL child-span markup via the shared FlairOverlay", () => {
+      renderFlairPicker({ flairStates: SERVER_FLAIR_STATES });
+      const cube = screen.getByRole("option", { name: "Flair cube" });
+      expect(cube.querySelector(".rk-flair-cube .rk-cube")).not.toBeNull();
+      expect(cube.querySelectorAll(".rk-cube-face")).toHaveLength(6);
+      const warp = screen.getByRole("option", { name: "Flair warp" });
+      expect(warp.querySelectorAll(".rk-warp-plane")).toHaveLength(3);
+      const dvd = screen.getByRole("option", { name: "Flair dvd" });
+      expect(dvd.querySelector(".rk-dvd .rk-dvd-logo")).not.toBeNull();
+      // Sheet tile-only treatments preview as the bare span, like universal cells.
+      const tetris = screen.getByRole("option", { name: "Flair tetris" });
+      expect(tetris.querySelector(".rk-flair-tetris")).not.toBeNull();
+      expect(tetris.querySelector(".rk-flair-tetris")!.children).toHaveLength(0);
     });
 
     it("clicking a flair cell calls onSelectFlair with the EXACT state (no cycling); ∅ clears", () => {
@@ -745,7 +782,7 @@ describe("SwatchPopover", () => {
 
     it("non-∅ flair cells are live previews carrying their always-on rk-flair-* overlay", () => {
       renderFlairPicker();
-      for (const state of ["nyan", "naruto", "onepiece"]) {
+      for (const state of FLAIR_STATES.slice(1)) {
         const cell = screen.getByRole("option", { name: `Flair ${state}` });
         expect(cell.querySelector(`.rk-flair-${state}`)).not.toBeNull();
       }
@@ -778,6 +815,60 @@ describe("SwatchPopover", () => {
       fireEvent.keyDown(listbox, { key: "ArrowDown" });
       fireEvent.keyDown(listbox, { key: "Enter" });
       expect(onSelectFlair).toHaveBeenLastCalledWith("onepiece");
+    });
+
+    it("keyboard nav walks MULTIPLE flair rows: ArrowDown moves between them, Enter picks", () => {
+      const { onSelectFlair } = renderFlairPicker();
+      const listbox = screen.getByRole("listbox");
+      // Uncolored → initial focus is Clear (0,1). Six ArrowDowns land on the
+      // first flair row's ∅ (FLAIR_ROW, col 1); the seventh drops into the
+      // SECOND flair row (train — FLAIR_STATES[4] — at col 1).
+      for (let i = 0; i < 7; i++) fireEvent.keyDown(listbox, { key: "ArrowDown" });
+      fireEvent.keyDown(listbox, { key: "Enter" });
+      expect(onSelectFlair).toHaveBeenLastCalledWith("train");
+      // The default 8-cell grid bottoms out on the second flair row — further
+      // ArrowDown clamps, and ArrowRight walks the row (pacman / matrix /
+      // aquarium), clamping at col 4.
+      fireEvent.keyDown(listbox, { key: "ArrowDown" });
+      fireEvent.keyDown(listbox, { key: "Enter" });
+      expect(onSelectFlair).toHaveBeenLastCalledWith("train");
+      for (const state of ["pacman", "matrix", "aquarium", "aquarium"]) {
+        fireEvent.keyDown(listbox, { key: "ArrowRight" });
+        fireEvent.keyDown(listbox, { key: "Enter" });
+        expect(onSelectFlair).toHaveBeenLastCalledWith(state);
+      }
+      // ArrowLeft from col 1 of a flair row clamps (the marker column does
+      // not extend into the flair rows): walk back to col 1, one more
+      // ArrowLeft is a no-op, and Enter still picks the col-1 cell (train).
+      for (let i = 0; i < 4; i++) fireEvent.keyDown(listbox, { key: "ArrowLeft" });
+      fireEvent.keyDown(listbox, { key: "Enter" });
+      expect(onSelectFlair).toHaveBeenLastCalledWith("train");
+    });
+
+    it("server vocabulary: 4 flair rows, the PARTIAL last row clamps its cols", () => {
+      const { onSelectFlair } = renderFlairPicker({ flairStates: SERVER_FLAIR_STATES });
+      const listbox = screen.getByRole("listbox");
+      // Clear (0,1) → descend to the third flair row (row 8: dvd / tetris /
+      // invaders / cube), walk right to col 4 (cube), then ArrowDown into the
+      // partial last row — its single cell is warp at col 1, so the col
+      // clamps 4 → 1.
+      for (let i = 0; i < 8; i++) fireEvent.keyDown(listbox, { key: "ArrowDown" });
+      for (let i = 0; i < 3; i++) fireEvent.keyDown(listbox, { key: "ArrowRight" });
+      fireEvent.keyDown(listbox, { key: "Enter" });
+      expect(onSelectFlair).toHaveBeenLastCalledWith("cube");
+      fireEvent.keyDown(listbox, { key: "ArrowDown" });
+      fireEvent.keyDown(listbox, { key: "Enter" });
+      expect(onSelectFlair).toHaveBeenLastCalledWith("warp");
+      // ArrowRight clamps on the single-cell row; ArrowLeft is a no-op at col 1.
+      fireEvent.keyDown(listbox, { key: "ArrowRight" });
+      fireEvent.keyDown(listbox, { key: "ArrowLeft" });
+      fireEvent.keyDown(listbox, { key: "Enter" });
+      expect(onSelectFlair).toHaveBeenLastCalledWith("warp");
+      // ArrowUp from the partial row returns to a FULL flair row at the
+      // clamped col (col 1 → dvd).
+      fireEvent.keyDown(listbox, { key: "ArrowUp" });
+      fireEvent.keyDown(listbox, { key: "Enter" });
+      expect(onSelectFlair).toHaveBeenLastCalledWith("dvd");
     });
   });
 });

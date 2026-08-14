@@ -1081,7 +1081,8 @@ func TestSessionFlairClearEmpty(t *testing.T) {
 
 // Outside the closed set → 400 and zero tmux calls (validate-before-tmux).
 func TestSessionFlairRejectsInvalid(t *testing.T) {
-	for _, bad := range []string{`{"flair":"pikachu"}`, `{"flair":"Nyan"}`, `{"flair":"one-piece"}`, `{"flair":" nyan "}`} {
+	// Tile-only flairs ("dvd" …) are server-tile-only — rejected at row scope.
+	for _, bad := range []string{`{"flair":"pikachu"}`, `{"flair":"Nyan"}`, `{"flair":"one-piece"}`, `{"flair":" nyan "}`, `{"flair":"bogus"}`, `{"flair":"dvd"}`, `{"flair":"tetris"}`, `{"flair":"invaders"}`, `{"flair":"cube"}`, `{"flair":"warp"}`} {
 		ops := &mockTmuxOps{}
 		router := newTestRouter(&mockSessionFetcher{}, ops)
 		req := httptest.NewRequest(http.MethodPost, "/api/sessions/myproject/flair", strings.NewReader(bad))

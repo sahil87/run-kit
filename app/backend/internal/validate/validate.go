@@ -193,68 +193,83 @@ func ValidateInstanceName(value string) string {
 	return ""
 }
 
-// MarkerValues is the closed set of accepted @rk_marker window-option values.
-// The empty string means "unset" (no marker); the five named states drive the
-// left-gutter marker's stripe style in the UI (dotted/dashed/solid 3px,
-// double/thick 6px). A closed set bounds the injection/abuse surface
-// (constitution §I) exactly as the color-value rule does — the value flows
-// into `tmux set-option`.
-var MarkerValues = map[string]bool{
-	"": true, "dotted": true, "dashed": true, "solid": true, "double": true, "thick": true,
+// markerTokens, roleTokens, and flairTokens are the ordered closed sets of
+// accepted named values for their channels (the empty string — "unset" — is
+// implied and always a member). Slice order is the presentation order in the
+// derived validator error message. Each channel's exported membership map and
+// its error message are both derived from this single slice, so adding a token
+// cannot drift the map and the message out of sync.
+var (
+	markerTokens = []string{"dotted", "dashed", "solid", "double", "thick"}
+	roleTokens   = []string{"operator"}
+	flairTokens  = []string{"nyan", "naruto", "onepiece"}
+)
+
+// closedSet builds the membership map for an ordered token slice, including
+// the implied empty string ("unset"). A closed set bounds the injection/abuse
+// surface (constitution §I) exactly as the color-value rule does — every one
+// of these values flows into `tmux set-option`.
+func closedSet(tokens []string) map[string]bool {
+	m := make(map[string]bool, len(tokens)+1)
+	m[""] = true
+	for _, t := range tokens {
+		m[t] = true
+	}
+	return m
 }
+
+// validateClosedSet validates value against a channel's closed set, deriving
+// the error message from the ordered token slice ("{label} must be one of:
+// a, b, c (or empty to clear)"). An empty value is always valid (it means
+// unset). Returns an empty string if valid, the error message otherwise. The
+// single shared closed-set rule behind ValidateMarkerValue / ValidateRoleValue
+// / ValidateFlairValue.
+func validateClosedSet(value, label string, set map[string]bool, tokens []string) string {
+	if set[value] {
+		return ""
+	}
+	return label + " must be one of: " + strings.Join(tokens, ", ") + " (or empty to clear)"
+}
+
+// MarkerValues is the closed set of accepted @rk_marker window-option values,
+// derived from markerTokens. The empty string means "unset" (no marker); the
+// five named states drive the left-gutter marker's stripe style in the UI
+// (dotted/dashed/solid 3px, double/thick 6px).
+var MarkerValues = closedSet(markerTokens)
 
 // ValidateMarkerValue validates an @rk_marker value: one of ""/dotted/dashed/
 // solid/double/thick. Returns an empty string if valid, an error message
-// otherwise. An empty value is valid (it means unset). Mirrors
-// ValidateColorValue as the single shared marker-value rule reused by the
-// window-option handler.
+// otherwise. The single shared marker-value rule reused by the window-option
+// handler.
 func ValidateMarkerValue(value string) string {
-	if MarkerValues[value] {
-		return ""
-	}
-	return "Marker must be one of: dotted, dashed, solid, double, thick (or empty to clear)"
+	return validateClosedSet(value, "Marker", MarkerValues, markerTokens)
 }
 
-// RoleValues is the closed set of accepted @rk_role window-option values.
-// The empty string means "unset" (no role); "operator" marks the window as the
-// server's operator (the orchestrator window, pinned below the SESSIONS header
-// in the sidebar). A closed set bounds the injection/abuse surface
-// (constitution §I) exactly as the marker-value rule does — the value flows
-// into `tmux set-option`.
-var RoleValues = map[string]bool{
-	"": true, "operator": true,
-}
+// RoleValues is the closed set of accepted @rk_role window-option values,
+// derived from roleTokens. The empty string means "unset" (no role);
+// "operator" marks the window as the server's operator (the orchestrator
+// window, pinned below the SESSIONS header in the sidebar).
+var RoleValues = closedSet(roleTokens)
 
 // ValidateRoleValue validates an @rk_role value: one of ""/operator. Returns
-// an empty string if valid, an error message otherwise. An empty value is
-// valid (it means unset). Mirrors ValidateMarkerValue as the single shared
+// an empty string if valid, an error message otherwise. The single shared
 // role-value rule reused by the window-option handler and the rk role CLI.
 func ValidateRoleValue(value string) string {
-	if RoleValues[value] {
-		return ""
-	}
-	return "Role must be one of: operator (or empty to clear)"
+	return validateClosedSet(value, "Role", RoleValues, roleTokens)
 }
 
 // FlairValues is the closed set of accepted @rk_flair values (window and
-// session user options). The empty string means "unset" (no flair); the three
-// named states select the per-row flair animation in the UI. A closed set
-// bounds the injection/abuse surface (constitution §I) exactly as the
-// marker-value rule does — the value flows into `tmux set-option`.
-var FlairValues = map[string]bool{
-	"": true, "nyan": true, "naruto": true, "onepiece": true,
-}
+// session user options), derived from flairTokens. The empty string means
+// "unset" (no flair); the three named states select the per-row flair
+// animation in the UI.
+var FlairValues = closedSet(flairTokens)
 
 // ValidateFlairValue validates an @rk_flair value: one of ""/nyan/naruto/
-// onepiece. Returns an empty string if valid, an error message otherwise. An
-// empty value is valid (it means unset). Mirrors ValidateMarkerValue as the
+// onepiece. Returns an empty string if valid, an error message otherwise. The
 // single shared flair-value rule reused by the window-option and session-flair
 // handlers.
 func ValidateFlairValue(value string) string {
-	if FlairValues[value] {
-		return ""
-	}
-	return "Flair must be one of: nyan, naruto, onepiece (or empty to clear)"
+	return validateClosedSet(value, "Flair", FlairValues, flairTokens)
 }
 
 // windowIDPattern matches a tmux window ID: an '@' followed by one or more digits

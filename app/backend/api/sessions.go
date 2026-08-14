@@ -88,24 +88,46 @@ func (s *Server) handleSessionRename(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-func (s *Server) handleSessionColor(w http.ResponseWriter, r *http.Request) {
+// sessionStringOption describes one session-scoped string-option channel for
+// handleSessionStringOption: how to decode the value from the JSON body, the
+// shared validation rule, and the tmux set/unset pair. Adding a channel is a
+// new descriptor plus a route registration — not a new handler.
+type sessionStringOption struct {
+	// decode extracts the channel's value pointer from the request body via a
+	// per-channel struct decode, so encoding/json's field-matching semantics
+	// (unknown keys ignored, case-insensitive key fold) are preserved exactly
+	// as the old dedicated handlers had them. A json error means 400.
+	decode func(r *http.Request) (*string, error)
+	// validate is the channel's shared value rule (empty return = valid). It
+	// also decides whether an explicit "" is settable at all: a channel whose
+	// closed set admits "" (flair) falls through to the unset arm below, while
+	// a channel that rejects it (color) 400s here — so null is color's only
+	// clear form.
+	validate func(value string) string
+	// set / unset are the channel's tmux session-option pair.
+	set   func(session, value, server string) error
+	unset func(session, server string) error
+}
+
+// handleSessionStringOption is the shared handler behind the session-scoped
+// string-option endpoints (color, flair): validate the session name, decode
+// {"<field>": <string|null>} (an absent field reads as null), validate the
+// value, then set (non-empty value) or unset (null or empty).
+func (s *Server) handleSessionStringOption(w http.ResponseWriter, r *http.Request, opt sessionStringOption) {
 	session := chi.URLParam(r, "session")
 	if errMsg := validate.ValidateName(session, "Session name"); errMsg != "" {
 		writeError(w, http.StatusBadRequest, errMsg)
 		return
 	}
 
-	var body struct {
-		Color *string `json:"color"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	value, err := opt.decode(r)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid JSON body")
 		return
 	}
 
-	// Color value descriptor: a single index ("4", 0–15) or a blend ("1+3").
-	if body.Color != nil {
-		if errMsg := validate.ValidateColorValue(*body.Color); errMsg != "" {
+	if value != nil {
+		if errMsg := opt.validate(*value); errMsg != "" {
 			writeError(w, http.StatusBadRequest, errMsg)
 			return
 		}
@@ -113,78 +135,63 @@ func (s *Server) handleSessionColor(w http.ResponseWriter, r *http.Request) {
 
 	server := serverFromRequest(r)
 
-	var err error
-	if body.Color != nil {
-		err = s.tmux.SetSessionColor(session, *body.Color, server)
+	if value != nil && *value != "" {
+		err = opt.set(session, *value, server)
 	} else {
-		err = s.tmux.UnsetSessionColor(session, server)
+		err = opt.unset(session, server)
 	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	// Wake the SSE hub so the @session_color change surfaces on the next poll
-	// pass instead of the 12s safety tick — set-option is invisible to the
-	// tmuxctl control-mode parser, so no subscriber notification fires. Mirrors
+	// Wake the SSE hub so the option change surfaces on the next poll pass
+	// instead of the 12s safety tick — set-option is invisible to the tmuxctl
+	// control-mode parser, so no subscriber notification fires. Mirrors
 	// handleSessionOrderPost's initSSEHub-then-hub-call pattern; initSSEHub is
-	// idempotent. Only reached on a successful tmux write (validation/tmux errors
-	// returned early above).
+	// idempotent. Only reached on a successful tmux write (validation/tmux
+	// errors returned early above).
 	s.initSSEHub()
 	s.sseHub.wake(server)
 
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
+// handleSessionColor sets or clears the @session_color session option.
+// POST /api/sessions/{session}/color ← {"color": "1+3"} sets; null clears
+// ("" is rejected by the color-value rule).
+func (s *Server) handleSessionColor(w http.ResponseWriter, r *http.Request) {
+	s.handleSessionStringOption(w, r, sessionStringOption{
+		decode: func(r *http.Request) (*string, error) {
+			var body struct {
+				Color *string `json:"color"`
+			}
+			err := json.NewDecoder(r.Body).Decode(&body)
+			return body.Color, err
+		},
+		validate: validate.ValidateColorValue,
+		set:      s.tmux.SetSessionColor,
+		unset:    s.tmux.UnsetSessionColor,
+	})
+}
+
 // handleSessionFlair sets or clears the @rk_session_flair session option
 // (scope-split from the window @rk_flair — see tmux.SetSessionFlair).
 // POST /api/sessions/{session}/flair ← {"flair": "onepiece"} sets; null or ""
-// clears. Mirrors handleSessionColor — the flair allowlist is validated before
-// any tmux call (invalid → 400, zero tmux calls).
+// clears (the flair closed set admits "", mirroring @rk_marker).
 func (s *Server) handleSessionFlair(w http.ResponseWriter, r *http.Request) {
-	session := chi.URLParam(r, "session")
-	if errMsg := validate.ValidateName(session, "Session name"); errMsg != "" {
-		writeError(w, http.StatusBadRequest, errMsg)
-		return
-	}
-
-	var body struct {
-		Flair *string `json:"flair"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "Invalid JSON body")
-		return
-	}
-
-	// Flair is a closed-set token ("nyan" / "naruto" / "onepiece"); an empty
-	// string is valid and treated as unset below (mirroring @rk_marker).
-	if body.Flair != nil {
-		if errMsg := validate.ValidateFlairValue(*body.Flair); errMsg != "" {
-			writeError(w, http.StatusBadRequest, errMsg)
-			return
-		}
-	}
-
-	server := serverFromRequest(r)
-
-	var err error
-	if body.Flair != nil && *body.Flair != "" {
-		err = s.tmux.SetSessionFlair(session, *body.Flair, server)
-	} else {
-		err = s.tmux.UnsetSessionFlair(session, server)
-	}
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	// Wake the SSE hub so the @rk_session_flair change surfaces on the next poll pass
-	// instead of the 12s safety tick — same set-option invisibility and the
-	// same initSSEHub-then-hub-call pattern as handleSessionColor.
-	s.initSSEHub()
-	s.sseHub.wake(server)
-
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	s.handleSessionStringOption(w, r, sessionStringOption{
+		decode: func(r *http.Request) (*string, error) {
+			var body struct {
+				Flair *string `json:"flair"`
+			}
+			err := json.NewDecoder(r.Body).Decode(&body)
+			return body.Flair, err
+		},
+		validate: validate.ValidateFlairValue,
+		set:      s.tmux.SetSessionFlair,
+		unset:    s.tmux.UnsetSessionFlair,
+	})
 }
 
 // handleSessionOrderGet returns the persisted session order for the active server.

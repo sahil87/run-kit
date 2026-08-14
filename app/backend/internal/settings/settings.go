@@ -86,13 +86,116 @@ func Save(s Settings) error {
 	return os.WriteFile(p, []byte(content), 0644)
 }
 
+// nestedSection describes one nested settings.yaml section for parse/serialize.
+// Two shapes exist, built by mapSection (string map: `  name: "value"` entries)
+// and listSection (string list: `  - "value"` entries). Adding a section is a
+// registry entry plus its Settings field — not new scanner branches.
+type nestedSection struct {
+	// key is the section heading ("server_colors").
+	key string
+	// parseEntry consumes one indented, non-empty, non-comment line (trimmed)
+	// while this section is active, silently skipping malformed entries.
+	parseEntry func(s *Settings, trimmed string)
+	// serialize emits the whole section (heading + entries), or "" when the
+	// section is empty — sections are omitted when empty so a settings file
+	// without them serializes byte-identically to one that never had them.
+	serialize func(s *Settings) string
+}
+
+// mapSection builds a nested string-map section. Values are quote-stripped on
+// read (the serializer quotes; legacy bare values are unquoted) and passed
+// through normalize — a tolerant read that canonicalizes and drops anything
+// malformed. Serialization sorts keys for deterministic output and always
+// quotes values so they round-trip unambiguously.
+func mapSection(key string, target func(s *Settings) *map[string]string, normalize func(string) (string, bool)) nestedSection {
+	return nestedSection{
+		key: key,
+		parseEntry: func(s *Settings, trimmed string) {
+			k, v, ok := strings.Cut(trimmed, ":")
+			if !ok {
+				return
+			}
+			name := strings.TrimSpace(k)
+			value := strings.Trim(strings.TrimSpace(v), "\"")
+			if name == "" {
+				return
+			}
+			normalized, ok := normalize(value)
+			if !ok {
+				return
+			}
+			m := target(s)
+			if *m == nil {
+				*m = make(map[string]string)
+			}
+			(*m)[name] = normalized
+		},
+		serialize: func(s *Settings) string {
+			m := *target(s)
+			if len(m) == 0 {
+				return ""
+			}
+			out := key + ":\n"
+			names := make([]string, 0, len(m))
+			for name := range m {
+				names = append(names, name)
+			}
+			sort.Strings(names)
+			for _, name := range names {
+				out += "  " + name + ": \"" + m[name] + "\"\n"
+			}
+			return out
+		},
+	}
+}
+
+// listSection builds a nested string-list section (a YAML sequence). Entries
+// are quote-stripped on read; serialization quotes each name so it
+// round-trips unambiguously.
+func listSection(key string, target func(s *Settings) *[]string) nestedSection {
+	return nestedSection{
+		key: key,
+		parseEntry: func(s *Settings, trimmed string) {
+			// A YAML sequence item: "  - name". Strip the leading "- " marker.
+			if !strings.HasPrefix(trimmed, "-") {
+				return
+			}
+			name := strings.TrimSpace(strings.TrimPrefix(trimmed, "-"))
+			name = strings.Trim(name, "\"")
+			if name != "" {
+				l := target(s)
+				*l = append(*l, name)
+			}
+		},
+		serialize: func(s *Settings) string {
+			l := *target(s)
+			if len(l) == 0 {
+				return ""
+			}
+			out := key + ":\n"
+			for _, name := range l {
+				out += "  - \"" + name + "\"\n"
+			}
+			return out
+		},
+	}
+}
+
+// nestedSections is the registry of nested settings.yaml sections, in
+// serialization order (all nested sections follow the scalar keys).
+var nestedSections = []nestedSection{
+	// Tolerant color read: accept a legacy bare integer OR the string
+	// descriptor ("1+3"); normalize and drop anything malformed.
+	mapSection("server_colors", func(s *Settings) *map[string]string { return &s.ServerColors }, validate.NormalizeColorValue),
+	listSection("board_order", func(s *Settings) *[]string { return &s.BoardOrder }),
+}
+
 // parse extracts settings from simple "key: value" lines.
-// Supports one level of nesting: indented lines under "server_colors:" are
-// parsed as "server_name: color_index" entries.
+// Supports one level of nesting: indented lines under a registered section
+// heading (see nestedSections) are parsed as that section's entries.
 func parse(data string) Settings {
 	s := Default()
-	inServerColors := false
-	inBoardOrder := false
+	var active *nestedSection
 	for _, line := range strings.Split(data, "\n") {
 		raw := line
 		trimmed := strings.TrimSpace(raw)
@@ -104,46 +207,13 @@ func parse(data string) Settings {
 		// nested entry under the current section heading.
 		indented := len(raw) > 0 && (raw[0] == ' ' || raw[0] == '\t')
 
-		if indented && inBoardOrder {
-			// A YAML sequence item: "  - name". Strip the leading "- " marker.
-			if !strings.HasPrefix(trimmed, "-") {
-				continue
-			}
-			name := strings.TrimSpace(strings.TrimPrefix(trimmed, "-"))
-			// Strip optional surrounding double quotes (the serializer quotes
-			// values so a name is always round-trippable).
-			name = strings.Trim(name, "\"")
-			if name != "" {
-				s.BoardOrder = append(s.BoardOrder, name)
-			}
-			continue
-		}
-
-		if indented && inServerColors {
-			key, value, ok := strings.Cut(trimmed, ":")
-			if !ok {
-				continue
-			}
-			serverName := strings.TrimSpace(key)
-			// Strip optional surrounding double quotes (the serializer quotes
-			// values; legacy bare-integer values are unquoted).
-			colorStr := strings.Trim(strings.TrimSpace(value), "\"")
-			// Tolerant read: accept a legacy bare integer OR the string
-			// descriptor ("1+3"); normalize and drop anything malformed.
-			if serverName != "" {
-				if normalized, ok := validate.NormalizeColorValue(colorStr); ok {
-					if s.ServerColors == nil {
-						s.ServerColors = make(map[string]string)
-					}
-					s.ServerColors[serverName] = normalized
-				}
-			}
+		if indented && active != nil {
+			active.parseEntry(&s, trimmed)
 			continue
 		}
 
 		// Non-indented line — end any active section.
-		inServerColors = false
-		inBoardOrder = false
+		active = nil
 
 		key, value, ok := strings.Cut(trimmed, ":")
 		if !ok {
@@ -178,10 +248,13 @@ func parse(data string) Settings {
 			s.SSHHost = strings.TrimSpace(strings.Trim(value, "\""))
 		case "instance_name":
 			s.InstanceName = strings.TrimSpace(strings.Trim(value, "\""))
-		case "server_colors":
-			inServerColors = true
-		case "board_order":
-			inBoardOrder = true
+		default:
+			for i := range nestedSections {
+				if key == nestedSections[i].key {
+					active = &nestedSections[i]
+					break
+				}
+			}
 		}
 	}
 	return s
@@ -210,29 +283,9 @@ func serialize(s Settings) string {
 		out += "instance_name: \"" + s.InstanceName + "\"\n"
 	}
 
-	if len(s.ServerColors) > 0 {
-		out += "server_colors:\n"
-		// Sort keys for deterministic output.
-		names := make([]string, 0, len(s.ServerColors))
-		for name := range s.ServerColors {
-			names = append(names, name)
-		}
-		sort.Strings(names)
-		for _, name := range names {
-			// Always written as a string descriptor (quoted so a bare "1+3"
-			// or numeric value parses back unambiguously and round-trips).
-			out += "  " + name + ": \"" + s.ServerColors[name] + "\"\n"
-		}
-	}
-
-	// Board order — emitted only when non-empty so a theme-only settings file
-	// serializes byte-identically to the pre-change output. A YAML sequence,
-	// each name quoted so it round-trips unambiguously.
-	if len(s.BoardOrder) > 0 {
-		out += "board_order:\n"
-		for _, name := range s.BoardOrder {
-			out += "  - \"" + name + "\"\n"
-		}
+	// Nested sections, in registry order (each omitted when empty).
+	for i := range nestedSections {
+		out += nestedSections[i].serialize(&s)
 	}
 	return out
 }

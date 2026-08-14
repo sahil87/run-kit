@@ -1904,15 +1904,15 @@ func SendEnterToPaneCtx(ctx context.Context, paneID string, server string) error
 
 // SetSessionColor sets the @session_color user option on a session. The value
 // is a color-value descriptor ("4" / "1+3"), validated by the caller before it
-// reaches this function. Passed as a discrete arg (no shell string) so a '+' in
-// a blend value is safe (constitution §I).
+// reaches the shared setSessionOption (board.go), which passes it as a
+// discrete arg (no shell string) so a '+' in a blend value is safe
+// (constitution §I).
 // Uses a distinct name from window @color to avoid tmux option inheritance.
 func SetSessionColor(session string, colorValue string, server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
-	_, err := tmuxExecServer(ctx, server, "set-option", "-t", ExactSessionTarget(session), "@session_color", colorValue)
-	return err
+	return setSessionOption(ctx, server, session, "@session_color", colorValue)
 }
 
 // UnsetSessionColor removes the @session_color user option from a session.
@@ -1920,14 +1920,12 @@ func UnsetSessionColor(session string, server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
-	_, err := tmuxExecServer(ctx, server, "set-option", "-u", "-t", ExactSessionTarget(session), "@session_color")
-	return err
+	return unsetSessionOption(ctx, server, session, "@session_color")
 }
 
 // SetSessionFlair sets the @rk_session_flair user option on a session. The
 // value is a closed-set flair token ("nyan" / "naruto" / "onepiece"),
-// validated by the caller before it reaches this function. Passed as a
-// discrete arg (no shell string) per constitution §I. Mirrors SetSessionColor.
+// validated by the caller. Mirrors SetSessionColor.
 //
 // SCOPE-SPLIT NAMING (@rk_session_flair, NOT @rk_flair): tmux user-option
 // lookup is hierarchical and format expansion leaks a shared name across
@@ -1940,8 +1938,7 @@ func SetSessionFlair(session string, flair string, server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
-	_, err := tmuxExecServer(ctx, server, "set-option", "-t", ExactSessionTarget(session), "@rk_session_flair", flair)
-	return err
+	return setSessionOption(ctx, server, session, "@rk_session_flair", flair)
 }
 
 // UnsetSessionFlair removes the @rk_session_flair user option from a session.
@@ -1950,8 +1947,7 @@ func UnsetSessionFlair(session string, server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
-	_, err := tmuxExecServer(ctx, server, "set-option", "-u", "-t", ExactSessionTarget(session), "@rk_session_flair")
-	return err
+	return unsetSessionOption(ctx, server, session, "@rk_session_flair")
 }
 
 // SetWindowColor sets the @color user option on a window by its window ID. The

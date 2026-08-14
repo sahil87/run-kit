@@ -579,24 +579,39 @@ export function SurfaceLayout({
   const ratiosRef = useRef(effRatios);
   ratiosRef.current = effRatios;
 
-  // Divider drag (R5) — the RightPanel drag-handle pattern: pointer capture
-  // on the handle, pointermove tracked there, release/cancel both end the
-  // drag, tile content gets `pointer-events: none` mid-drag so iframes don't
-  // swallow pointermove. Tiles stay MOUNTED AND LIVE the whole time (the
-  // board pane-resize bug class — no suspension).
+  // Divider drag (R5) — the RightPanel drag-handle pattern, hardened: pointer
+  // capture on the handle starts the drag, but mid-drag move/release/cancel
+  // are handled by WINDOW-level listeners (the effects below), not the
+  // handle's own events — engines can drop element pointer capture while the
+  // pointer crosses iframe content (observed on macOS Safari: the seam stops
+  // following an up-drag over the web tile), and a window listener still
+  // hears every event the parent document gets. Tile content gets
+  // `pointer-events: none` mid-drag so iframes can't become the target and
+  // steal events into their own document. Tiles stay MOUNTED AND LIVE the
+  // whole time (the board pane-resize bug class — no suspension).
   const gridRef = useRef<HTMLDivElement>(null);
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
-  const dragRef = useRef<{ index: number; axis: "x" | "y" } | null>(null);
+  const dragRef = useRef<{
+    index: number;
+    axis: "x" | "y";
+    el: HTMLElement;
+    pointerId: number;
+  } | null>(null);
 
   const onDividerPointerDown =
     (spec: DividerSpec) => (e: React.PointerEvent<HTMLDivElement>) => {
       e.preventDefault();
       e.currentTarget.setPointerCapture(e.pointerId);
-      dragRef.current = { index: spec.index, axis: spec.axis };
+      dragRef.current = {
+        index: spec.index,
+        axis: spec.axis,
+        el: e.currentTarget,
+        pointerId: e.pointerId,
+      };
       setDraggingIndex(spec.index);
     };
 
-  const onDividerPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+  const onDividerPointerMove = (e: { clientX: number; clientY: number }) => {
     const drag = dragRef.current;
     const grid = gridRef.current;
     if (!drag || !grid) return;
@@ -615,18 +630,42 @@ export function SurfaceLayout({
     onRatioChange?.(drag.index, pct);
   };
 
-  const endDividerDrag = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!dragRef.current) return;
+  const endDividerDrag = () => {
+    const drag = dragRef.current;
+    if (!drag) return;
     dragRef.current = null;
     // `pointercancel` has already released the capture implicitly — releasing
     // again throws NotFoundError (the RightPanel endDrag lesson).
-    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-      e.currentTarget.releasePointerCapture(e.pointerId);
+    if (drag.el.hasPointerCapture(drag.pointerId)) {
+      drag.el.releasePointerCapture(drag.pointerId);
     }
     setDraggingIndex(null);
     writeStoredRatios(server, windowId, layout.shape, ratiosRef.current);
     onRatioCommit?.();
   };
+
+  // Latest-closure refs for the window listeners: the effects key on the
+  // dragging FLAG only, so without these they would hold the closures from
+  // the render the drag started in (stale ratios are already avoided via
+  // ratiosRef, but writeStoredRatios reads server/windowId/shape props).
+  const dividerMoveRef = useRef(onDividerPointerMove);
+  dividerMoveRef.current = onDividerPointerMove;
+  const dividerEndRef = useRef(endDividerDrag);
+  dividerEndRef.current = endDividerDrag;
+
+  useEffect(() => {
+    if (draggingIndex === null) return;
+    const move = (e: PointerEvent) => dividerMoveRef.current(e);
+    const end = () => dividerEndRef.current();
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+    };
+  }, [draggingIndex]);
 
   // Intersection zone (260814-011r R3) — the main-* T-junction's two-axis
   // handle: a ~20px zone centered where the two dividers cross, z-ordered
@@ -635,21 +674,31 @@ export function SurfaceLayout({
   // ratios at once (pointer x/y → the shape's two ratio indices, each
   // clamped independently by the shared per-boundary clamp), persisted on
   // release via the same writeStoredRatios path. Own pointer handlers — the
-  // single-axis machinery above stays untouched.
+  // single-axis machinery above stays untouched — but the same window-level
+  // mid-drag routing (and for the same reason).
   const [intersectionHot, setIntersectionHot] = useState(false);
   const [draggingIntersection, setDraggingIntersection] = useState(false);
-  const intersectionDragRef = useRef<{ xIndex: number; yIndex: number } | null>(null);
+  const intersectionDragRef = useRef<{
+    xIndex: number;
+    yIndex: number;
+    el: HTMLElement;
+    pointerId: number;
+  } | null>(null);
 
   const onIntersectionPointerDown =
     (axes: { xIndex: number; yIndex: number }) =>
     (e: React.PointerEvent<HTMLDivElement>) => {
       e.preventDefault();
       e.currentTarget.setPointerCapture(e.pointerId);
-      intersectionDragRef.current = axes;
+      intersectionDragRef.current = {
+        ...axes,
+        el: e.currentTarget,
+        pointerId: e.pointerId,
+      };
       setDraggingIntersection(true);
     };
 
-  const onIntersectionPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+  const onIntersectionPointerMove = (e: { clientX: number; clientY: number }) => {
     const axes = intersectionDragRef.current;
     const grid = gridRef.current;
     if (!axes || !grid) return;
@@ -674,19 +723,20 @@ export function SurfaceLayout({
     onRatioChange?.(axes.yIndex, nextRatios[axes.yIndex]);
   };
 
-  const endIntersectionDrag = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!intersectionDragRef.current) return;
+  const endIntersectionDrag = (e: { clientX: number; clientY: number }) => {
+    const drag = intersectionDragRef.current;
+    if (!drag) return;
     intersectionDragRef.current = null;
     // Same pointercancel double-release guard as endDividerDrag.
-    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-      e.currentTarget.releasePointerCapture(e.pointerId);
+    if (drag.el.hasPointerCapture(drag.pointerId)) {
+      drag.el.releasePointerCapture(drag.pointerId);
     }
     // Capture suppresses the zone's enter/leave for the whole drag, so
     // `intersectionHot` cannot be trusted at release: a drag that clamped
     // (junction stops following the pointer) ends with the pointer off the
     // junction and would strand BOTH sashes hot. Recompute from the release
     // point — an unmeasured rect (jsdom) has no geometry to test.
-    const zone = e.currentTarget.getBoundingClientRect();
+    const zone = drag.el.getBoundingClientRect();
     if (zone.width > 0 && zone.height > 0) {
       setIntersectionHot(
         e.clientX >= zone.left &&
@@ -699,6 +749,26 @@ export function SurfaceLayout({
     writeStoredRatios(server, windowId, layout.shape, ratiosRef.current);
     onRatioCommit?.();
   };
+
+  // Same latest-closure refs + window routing as the single-axis drag.
+  const intersectionMoveRef = useRef(onIntersectionPointerMove);
+  intersectionMoveRef.current = onIntersectionPointerMove;
+  const intersectionEndRef = useRef(endIntersectionDrag);
+  intersectionEndRef.current = endIntersectionDrag;
+
+  useEffect(() => {
+    if (!draggingIntersection) return;
+    const move = (e: PointerEvent) => intersectionMoveRef.current(e);
+    const end = (e: PointerEvent) => intersectionEndRef.current(e);
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+    };
+  }, [draggingIntersection]);
 
   /** A tile's renderer, unchanged from the legacy lens/panel mounts. The code
    *  tile also wires the focus seam (260812-wfic R2): `CodeSurface`'s
@@ -1026,10 +1096,9 @@ export function SurfaceLayout({
             aria-label="Resize tiles"
             aria-valuenow={Math.round(effRatios[spec.index])}
             data-testid={`surface-divider-${spec.index}`}
+            // Move/up/cancel are window-level while dragging (see the drag
+            // effect) — only the drag START binds here.
             onPointerDown={onDividerPointerDown(spec)}
-            onPointerMove={onDividerPointerMove}
-            onPointerUp={endDividerDrag}
-            onPointerCancel={endDividerDrag}
             // rk-divider + the gap-seam children (rk-sash pill, rk-grips dots)
             // carry the rest/hover/drag treatment — see globals.css.
             // `rk-sash-lit` = the zero-delay JS-lit state (this divider
@@ -1073,9 +1142,6 @@ export function SurfaceLayout({
           data-testid="surface-divider-intersection"
           aria-label="Resize tiles (both directions)"
           onPointerDown={onIntersectionPointerDown(axes)}
-          onPointerMove={onIntersectionPointerMove}
-          onPointerUp={endIntersectionDrag}
-          onPointerCancel={endIntersectionDrag}
           onPointerEnter={() => setIntersectionHot(true)}
           onPointerLeave={() => setIntersectionHot(false)}
           className="absolute z-20 w-5 h-5 -translate-x-1/2 -translate-y-1/2 cursor-move"

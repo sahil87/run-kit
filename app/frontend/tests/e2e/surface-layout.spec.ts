@@ -14,7 +14,11 @@ import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
 // from 260812-wfic — the focused-tile accent border (R2) and the tty-scoped
 // split-chord gate (R8). 260813-w1lf adds the tty pane segment (Split H ·
 // Split V · Close Pane — any arity, zoom-visible, tty-only) and the terminal
-// bar's split demotion (menuOnly; the chevron menu keeps the three rows). See
+// bar's split demotion (menuOnly; the chevron menu keeps the three rows).
+// 260814-011r adds the gap-seam chrome: rest grip dots + the hover/drag sash
+// pill (asserted in the divider-drag test, ≤2 tiles) and the main-*
+// intersection zone (hover lights both sashes, drag moves both ratios —
+// folded into the ONE 3-tile verbs test to respect the pool budget). See
 // surface-layout.spec.md for intent + steps.
 
 // Own session so this file never collides with other specs (fullyParallel off).
@@ -150,6 +154,62 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     await expectLayoutParam(page, "main-left:tty,web,code");
     await expect(tile(page, "code")).toBeVisible({ timeout: 10_000 });
     await expect(codeRail).toHaveAttribute("aria-pressed", "true");
+
+    // — Gap-seam intersection (260814-011r R3), folded into THIS 3-tile mount
+    // (the h1 6-slot pool budget allows only one): main-left renders the
+    // two-axis T-junction zone above both dividers; a mid-seam hover lights
+    // only that seam, the junction hover lights BOTH sashes, and a diagonal
+    // drag moves BOTH ratios, persisted on release.
+    const junction = page.getByTestId("surface-divider-intersection");
+    await expect(junction).toBeVisible();
+    const sash0 = divider(page, 0).locator(".rk-sash");
+    const sash1 = divider(page, 1).locator(".rk-sash");
+    // Mid-seam hover (y=100 is far above the junction) lights only that seam —
+    // after the ~150ms anti-flicker delay.
+    await divider(page, 0).hover({ position: { x: 7, y: 100 } });
+    await expect(sash0).toHaveCSS("opacity", "1", { timeout: 2_000 });
+    await expect(sash1).toHaveCSS("opacity", "0");
+    // The junction hover lights BOTH sashes (the zone sits above the dividers
+    // and wins the hit-test at the crossing).
+    await junction.hover();
+    await expect(sash0).toHaveCSS("opacity", "1", { timeout: 2_000 });
+    await expect(sash1).toHaveCSS("opacity", "1", { timeout: 2_000 });
+    // Diagonal drag from the junction: x → ratio 0, y → ratio 1, each clamped
+    // independently. Exact values are viewport-dependent — assert BOTH moved
+    // off the equal-split defaults and BOTH persisted on release.
+    const ratio0Before = await divider(page, 0).getAttribute("aria-valuenow");
+    const ratio1Before = await divider(page, 1).getAttribute("aria-valuenow");
+    const xtermBefore = await terminal(page).elementHandle();
+    const jBox = await junction.boundingBox();
+    expect(jBox).not.toBeNull();
+    const jcx = jBox!.x + jBox!.width / 2;
+    const jcy = jBox!.y + jBox!.height / 2;
+    await page.mouse.move(jcx, jcy);
+    await page.mouse.down();
+    await page.mouse.move(jcx + 40, jcy - 30, { steps: 3 });
+    await page.mouse.move(jcx + 80, jcy - 60, { steps: 3 });
+    await page.mouse.up();
+    await expect
+      .poll(async () => divider(page, 0).getAttribute("aria-valuenow"))
+      .not.toBe(ratio0Before);
+    await expect
+      .poll(async () => divider(page, 1).getAttribute("aria-valuenow"))
+      .not.toBe(ratio1Before);
+    // The terminal stayed MOUNTED (same xterm element) through the drag.
+    const xtermAfter = await terminal(page).elementHandle();
+    expect(await page.evaluate(([x, y]) => x === y, [xtermBefore, xtermAfter])).toBe(true);
+    // Both ratios persisted per (window, shape) on release — neither is the
+    // equal-split default anymore.
+    const stored = await page.evaluate(
+      (key) => localStorage.getItem(key),
+      `rk-layout-ratios:${TMUX_SERVER}:${id}:main-left`,
+    );
+    const persisted = JSON.parse(stored ?? "null") as number[];
+    expect(persisted).toHaveLength(2);
+    expect(persisted[0]).not.toBeCloseTo(100 / 3, 1);
+    expect(persisted[1]).not.toBeCloseTo(200 / 3, 1);
+    // The URL layout string is untouched by the drag.
+    await expectLayoutParam(page, "main-left:tty,web,code");
 
     // ◧ Promote on the code tile: slot A becomes code, the rest permute
     // unchanged (shape untouched) — hover first (the verbs are visible at
@@ -357,14 +417,25 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     const box = await div.boundingBox();
     expect(box).not.toBeNull();
 
+    // Gap-seam sash states (260814-011r R2): at rest the seam shows 3 grip
+    // dots and NO sash fill; hover lights the rounded pill after the ~150ms
+    // anti-flicker delay.
+    await expect(div.locator(".rk-grips i")).toHaveCount(3);
+    const sash = div.locator(".rk-sash");
+    await expect(sash).toHaveCSS("opacity", "0");
+    await div.hover();
+    await expect(sash).toHaveCSS("opacity", "1", { timeout: 2_000 });
+
     // Drag 150px RIGHT — ratio 0 (the slot-A share) grows. Tiles stay live
-    // mid-drag (no suspension/unmount — the board pane-resize bug class).
+    // mid-drag (no suspension/unmount — the board pane-resize bug class). The
+    // sash stays lit for the whole drag (immediate, zero delay).
     const startX = box!.x + box!.width / 2;
     const startY = box!.y + box!.height / 2;
     const xtermBefore = await terminal(page).elementHandle();
     await page.mouse.move(startX, startY);
     await page.mouse.down();
     await page.mouse.move(startX + 75, startY, { steps: 3 });
+    await expect(sash).toHaveCSS("opacity", "1");
     await page.mouse.move(startX + 150, startY, { steps: 3 });
     await page.mouse.up();
 
@@ -449,6 +520,8 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     await expect(tile(page, "code")).toBeHidden();
     await expect(tile(page, "web")).toBeHidden();
     await expect(divider(page, 0)).toHaveCount(0);
+    // Gap-seam chrome is desktop-only (260814-011r R5): no intersection zone.
+    await expect(page.getByTestId("surface-divider-intersection")).toHaveCount(0);
     // No rail on mobile (desktop-only), but the ▦ Surfaces chip appears because
     // MORE THAN ONE surface is open.
     await expect(rail(page)).toHaveCount(0);
@@ -489,9 +562,10 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     await expect(tile(page, "web")).toBeVisible({ timeout: 10_000 });
 
     // Default focus = slot A (tty): its framed border reads accent-green, the
-    // web tile's stays the default border color.
+    // web tile's stays the dimmed gap-seam card border (rk-card-border,
+    // 260814-011r R1).
     await expect(tile(page, "tty")).toHaveClass(/border-accent-green/);
-    await expect(tile(page, "web")).toHaveClass(/border-border/);
+    await expect(tile(page, "web")).toHaveClass(/rk-card-border/);
 
     // Click the web tile (its header — the focus seam is pointerdown-capture
     // anywhere in the tile) → the accent border moves.

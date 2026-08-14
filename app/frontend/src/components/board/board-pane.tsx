@@ -183,7 +183,10 @@ export const BoardPane = forwardRef<BoardPaneHandle, BoardPaneProps>(function Bo
               // both present lets `.opacity-90` win and the drag dim disappears
               // for an unfocused source — the common case (cycle-2 should-fix
               // #1). `dimmed` (opacity-50) then stands alone.
-              `border border-border${dimmed ? "" : " opacity-90"}`
+              // The idle border is the dimmed 55% `rk-card-border` (the shared
+              // gap-seam card treatment, 260814-011r R4) — `waiting`/focused
+              // borders above stay full-strength (status signals, not chrome).
+              `border rk-card-border${dimmed ? "" : " opacity-90"}`
       }`}
       // Autofit wins: an equal-share flex item with a gap-adjusted 25% floor
       // (resolves against the flex container's content box = the scrollport).

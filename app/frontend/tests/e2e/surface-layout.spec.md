@@ -14,6 +14,11 @@ From `260813-w1lf`: the tty tile header's pane segment (Split H · Split V ·
 Close Pane — any arity including `single:tty`, zoom-visible, tty-only) and the
 terminal-mode split demotion (no in-bar split chip; the chevron menu keeps
 Split horizontal / Split vertical / Close pane rows).
+From `260814-011r`: the gap-seam chrome — rest grip dots + the hover/drag
+sash pill on dividers (asserted in the divider-drag test, ≤2 tiles), the
+dimmed `rk-card-border` rest tile border (in the focused-border test), and
+the `main-*` intersection zone (hover lights both sashes, a diagonal drag
+moves both ratios and persists both — folded into the ONE 3-tile verbs test).
 
 **Perf budget (binding)**: the plaintext e2e origin is HTTP/1.1 with a 6-slot
 connection pool (spec § Performance note; the board-route postmortem class).
@@ -51,7 +56,11 @@ tiles.
 - **Locators**: the `right-panel-rail` testid with its `<Surface> tile` toggle
   buttons (`aria-pressed` lit per open tile); tiles `surface-tile-<kind>`;
   dividers `surface-divider-<i>` (`role="separator"`, `aria-valuenow` = rounded
-  pct); the `.xterm` terminal surface; the `Proxied content` web iframe; the
+  pct) with the gap-seam children `.rk-sash` (the hover/drag pill) and
+  `.rk-grips i` (the 3 rest dots, `pointer-events-none` — hover the divider or
+  zone, never the dots); the `surface-divider-intersection` two-axis zone
+  (main-* shapes only, z-ordered above the dividers); the `.xterm` terminal
+  surface; the `Proxied content` web iframe; the
   mobile `mobile-surfaces-chip` / `mobile-surface-sheet` / `mobile-surface-tab-<kind>`
   testids. Tile verb buttons (`Zoom/Promote/Swap/Close <Surface>`) are boxed
   and visible at rest since 260812-wfic (R4) — tests still `.hover()` the tile
@@ -78,18 +87,31 @@ Steps:
 What it proves: R7 + R10 — the rail's open-tile toggles grow the layout
 (1→2 `split-h`, 2→3 `main-left`) and every tile verb mutates (shape, order)
 exactly as specified, each outcome persisted + mirrored into the URL (R3 write
-discipline). This is the file's ONE bounded 3-tile test.
+discipline). Folded in (260814-011r R3): the main-left intersection zone —
+a mid-seam hover lights only that sash, the junction hover lights BOTH, and a
+diagonal drag moves BOTH ratios (persisted on release, URL untouched, terminal
+still the same mounted element). This is the file's ONE bounded 3-tile test.
 Steps:
 1. Create a web-capable window; navigate; assert the terminal.
 2. Click the `Web tile` rail button; assert `?layout=split-h:tty,web`, the web
    tile visible, and the button lit (`aria-pressed`).
 3. Click the `Code tile` rail button; assert `?layout=main-left:tty,web,code`
    and the code tile visible.
-4. Hover the code tile, click `Promote Code`; assert
+4. Intersection: assert the `surface-divider-intersection` zone is visible;
+   hover divider 0 mid-seam (`y: 100`, far from the junction) and assert only
+   its `.rk-sash` lights (opacity 1, after the ~150ms delay) while divider 1's
+   stays 0; hover the junction and assert BOTH sashes light.
+5. Intersection drag: capture both dividers' `aria-valuenow` and the xterm
+   element; mouse down on the junction, move diagonally (+80/−60px), up; assert
+   BOTH `aria-valuenow`s changed, the terminal is the SAME element, the
+   localStorage `rk-layout-ratios:…:main-left` entry holds both new ratios
+   (neither the equal-split default), and the URL still reads
+   `?layout=main-left:tty,web,code`.
+6. Hover the code tile, click `Promote Code`; assert
    `?layout=main-left:code,tty,web` (slot A permuted, shape unchanged).
-5. Hover the tty tile, click `Swap Terminal`; assert
+7. Hover the tty tile, click `Swap Terminal`; assert
    `?layout=main-left:code,web,tty` (swapped with the next neighbor).
-6. Hover the web tile, click `Close Web`; assert `?layout=split-h:code,tty`,
+8. Hover the web tile, click `Close Web`; assert `?layout=split-h:code,tty`,
    the web tile hidden, the code tile and terminal still visible, and the web
    rail button unlit.
 
@@ -142,14 +164,21 @@ Steps:
 What it proves: divider drags mutate RATIOS only — clamped, persisted per
 (window, shape) on release, and never encoded in the URL; tiles stay mounted
 and live mid-drag (the board pane-resize bug class: no suspension/unmount).
+Also the gap-seam sash states (260814-011r R2): rest shows 3 grip dots and no
+fill, hover lights the sash pill after the ~150ms delay, and the sash stays
+lit through the drag.
 Steps:
 1. Create a web-capable window; navigate; open the web tile via the rail.
 2. Assert the `surface-divider-0` separator reads `aria-valuenow=50` (equal
    split) and capture the xterm element handle.
-3. Drag the divider 150px right (mouse down/move/up in steps).
-4. Assert `aria-valuenow` grew past 50, the terminal is the SAME element
+3. Sash states: assert the divider carries 3 `.rk-grips i` dots and its
+   `.rk-sash` is at opacity 0; hover the divider and assert the sash reaches
+   opacity 1 (retrying — the ~150ms anti-flicker delay plus fade).
+4. Drag the divider 150px right (mouse down/move/up in steps), asserting the
+   sash is still lit mid-drag.
+5. Assert `aria-valuenow` grew past 50, the terminal is the SAME element
    (still mounted, still visible), and the URL layout string is unchanged.
-5. Re-arrive via a full load of the bare route; assert the web tile renders
+6. Re-arrive via a full load of the bare route; assert the web tile renders
    and the divider reads exactly the dragged value (ratio persisted per
    window+shape).
 
@@ -204,8 +233,9 @@ Steps:
 2. Navigate to `?layout=main-left:tty,code,web`, gating on the terminal (not
    the `Connected` dot — the sidebar is an unmounted drawer at 375px).
 3. Assert the tty tile is visible, the code/web tiles are mounted-hidden, no
-   divider exists, no rail renders, and the `mobile-surfaces-chip` appears
-   (>1 open surface).
+   divider exists (and no `surface-divider-intersection` — the gap-seam chrome
+   is desktop-only, 260814-011r R5), no rail renders, and the
+   `mobile-surfaces-chip` appears (>1 open surface).
 4. Click the chip; assert the `mobile-surface-sheet` dialog opens with
    Terminal/Code/Web tabs, Terminal marked `aria-pressed`.
 5. Click the Code tab; assert the sheet closes, the code tile becomes visible
@@ -215,10 +245,11 @@ Steps:
 What it proves: the focused-tile state — the framed tile border turns
 `border-accent-green` on the tile that last received pointer interaction
 (the tmux active-pane metaphor), defaults to slot A, and moves with each
-click. Steps:
+click. Unfocused tiles carry the dimmed gap-seam `rk-card-border`
+(260814-011r R1). Steps:
 1. Create a web-capable window; navigate; open the web tile via the rail.
 2. Assert the tty tile (slot A) carries `border-accent-green` and the web
-   tile the default `border-border`.
+   tile the dimmed `rk-card-border`.
 3. Click the web tile's header (`{x: 6, y: 15}`); assert the accent border
    moved to the web tile and left the tty tile.
 4. Click the tty tile's header; assert the border returned.

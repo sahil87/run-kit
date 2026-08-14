@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-14T06:08:05Z"}
+{"args":"Gap-seam tile chrome — VS Code-style borders for the surface-layout tiles: 6px gutter + ground inset, 6px radius, 55% dimmed tile borders, rest-state grip dots, accent-green hover/drag sash pill, T-junction intersection two-axis drag in main-* shapes; mobile exempt; Tier 2 shell card-ification deferred","cmd":"fab-new","event":"command","ts":"2026-08-14T06:08:05Z"}
+{"delta":"+4.4","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-08-14T06:10:34Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-08-14T06:11:47Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-14T06:13:38Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-14T06:13:50Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-14T06:38:16Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-14T06:45:11Z"}
+{"event":"review","result":"passed","ts":"2026-08-14T06:45:11Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-14T06:51:22Z"}

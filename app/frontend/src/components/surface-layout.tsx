@@ -35,9 +35,12 @@ import type { WindowInfo } from "@/types";
  * `TerminalClient` (tty), `IframeWindow` (web), `ChatView` (chat),
  * `CodeSurface` (code).
  *
- * - **Tile chrome (R7, redesigned in 260812-wfic)**: the desktop grid is a
- *   `gap-[3px]` grid on `bg-bg-inset`, each tile a framed card (`border
- *   border-border rounded`). Each tile carries a 30px `bg-bg-card` header —
+ * - **Tile chrome (R7, redesigned in 260812-wfic; gap-seam 260814-011r)**: the
+ *   desktop grid floats tiles on the `bg-bg-inset` ground — 6px gutters plus a
+ *   6px ground inset (`gap-[6px] p-[6px]`) — each tile a 6px-radius card
+ *   (`rounded-md`) whose REST border is the dimmed `rk-card-border` (a 55%
+ *   color-mix: the gap does the separating, the border only defines the card
+ *   edge). Each tile carries a 30px `bg-bg-card` header —
  *   kind glyph (`SURFACE_GLYPH`) + surface name + the small meta as an inset
  *   chip (git-root basename for code, `@rk_url` host for web) — with
  *   rest-visible boxed verb buttons (22×22, 26×26 coarse): ⛶ zoom, ◧
@@ -70,12 +73,19 @@ import type { WindowInfo } from "@/types";
  *   terminal / chat state survives. The "ever opened" bookkeeping is keyed by
  *   surface kind and resets per window — `app.tsx` keys this component by
  *   `${server}:${windowId}` (the RightPanel precedent).
- * - **Dividers (R5)**: drag mutates RATIOS only (never shape/order), clamped
- *   via the `clampPanelWidth` approach generalized in `clampRatio` (280px
- *   floor both sides), persisted per (window, shape) ON RELEASE ONLY. Tiles
- *   stay live mid-drag — no suspension/unmount (the board pane-resize bug
- *   class); tile content gets `pointer-events: none` so iframes cannot
- *   swallow pointermove (the RightPanel drag-handle pattern).
+ * - **Dividers (R5; gap-seam sash 260814-011r)**: drag mutates RATIOS only
+ *   (never shape/order), clamped via the `clampPanelWidth` approach
+ *   generalized in `clampRatio` (280px floor both sides), persisted per
+ *   (window, shape) ON RELEASE ONLY. Tiles stay live mid-drag — no
+ *   suspension/unmount (the board pane-resize bug class); tile content gets
+ *   `pointer-events: none` so iframes cannot swallow pointermove (the
+ *   RightPanel drag-handle pattern). The chrome is the gap-seam three-state
+ *   treatment (`rk-divider`/`rk-sash`/`rk-grips` in globals.css): 3 rest grip
+ *   dots, a rounded accent-green sash pill on hover (~150ms anti-flicker
+ *   delay) and drag (immediate), on a 14px hit zone. In `main-*` shapes a
+ *   `surface-divider-intersection` zone at the T-junction lights BOTH sashes
+ *   on hover and drags BOTH ratios at once (pointer x/y → the shape's two
+ *   ratio indices, each clamped independently).
  * - **Duplicate tty**: the muxed relay supports N clients per pane, so two
  *   tty tiles are legal. Only the FIRST tty tile receives the shared
  *   `wsRef`/`focusRef` (and registers as the shell's focused terminal);
@@ -352,6 +362,58 @@ function dividerSpecs(shape: LayoutShape, ratios: LayoutRatios): DividerSpec[] {
   }
 }
 
+/** Clamp one boundary's raw drag percentage: the 280px floor both sides
+ *  (`clampRatio`) AND the neighboring boundaries — a divider adjusts only its
+ *  own boundary and may never cross (or strand) its siblings. Shared by the
+ *  single-axis divider drag and the intersection's two-axis drag (each axis
+ *  clamps independently against the PRE-move ratios). */
+function clampBoundary(
+  cur: LayoutRatios,
+  index: number,
+  rawPct: number,
+  sizePx: number,
+): number {
+  const floorPct = (MIN_PANEL_WIDTH_PX / sizePx) * 100;
+  const prev = index === 0 ? 0 : cur[index - 1];
+  const next = index === cur.length - 1 ? 100 : cur[index + 1];
+  return Math.min(
+    Math.max(clampRatio(rawPct, sizePx), prev + floorPct),
+    Math.max(next - floorPct, prev + floorPct),
+  );
+}
+
+/** The T-junction point of a `main-*` shape, derived from the divider
+ *  geometry (single-sourced — the junction is where the two boundaries
+ *  cross): the x-divider's boundary × the y-divider's boundary. Shapes with
+ *  fewer than two dividers (single/split-*) or two PARALLEL dividers
+ *  (row/col) have no junction. */
+function junctionPoint(specs: DividerSpec[]): { left: string; top: string } | null {
+  if (specs.length !== 2) return null;
+  const xSpec = specs.find((s) => s.axis === "x");
+  const ySpec = specs.find((s) => s.axis === "y");
+  if (!xSpec || !ySpec) return null;
+  const left = xSpec.style.left;
+  const top = ySpec.style.top;
+  if (typeof left !== "string" || typeof top !== "string") return null;
+  return { left, top };
+}
+
+/** The intersection zone's two-axis mapping (`main-*` shapes only): which
+ *  pointer axis drives which ratio index. main-left/right: x → ratio 0 (the
+ *  A|(B,C) column boundary), y → ratio 1 (the B/C row boundary); main-top:
+ *  y → ratio 0 (the A|(B,C) row boundary), x → ratio 1. */
+function intersectionAxes(shape: LayoutShape): { xIndex: number; yIndex: number } | null {
+  switch (shape) {
+    case "main-left":
+    case "main-right":
+      return { xIndex: 0, yIndex: 1 };
+    case "main-top":
+      return { xIndex: 1, yIndex: 0 };
+    default:
+      return null;
+  }
+}
+
 /** Small header meta (R7): the code folder's basename for code, the `@rk_url`
  *  host for web. Anything unparseable degrades to no meta. `gitRoot` arrives
  *  LATCHED (260813-if5d), so the header names the folder the editor is actually
@@ -545,17 +607,8 @@ export function SurfaceLayout({
       (((drag.axis === "x" ? e.clientX - rect.left : e.clientY - rect.top) /
         sizePx) *
         100);
-    // Clamp within the 280px floor both sides (`clampRatio`) AND within the
-    // neighboring boundaries — a divider adjusts only its own boundary and
-    // may never cross (or strand) its siblings.
     const cur = ratiosRef.current;
-    const floorPct = (MIN_PANEL_WIDTH_PX / sizePx) * 100;
-    const prev = drag.index === 0 ? 0 : cur[drag.index - 1];
-    const next = drag.index === cur.length - 1 ? 100 : cur[drag.index + 1];
-    const pct = Math.min(
-      Math.max(clampRatio(rawPct, sizePx), prev + floorPct),
-      Math.max(next - floorPct, prev + floorPct),
-    );
+    const pct = clampBoundary(cur, drag.index, rawPct, sizePx);
     const nextRatios = [...cur];
     nextRatios[drag.index] = pct;
     setRatios(nextRatios);
@@ -571,6 +624,64 @@ export function SurfaceLayout({
       e.currentTarget.releasePointerCapture(e.pointerId);
     }
     setDraggingIndex(null);
+    writeStoredRatios(server, windowId, layout.shape, ratiosRef.current);
+    onRatioCommit?.();
+  };
+
+  // Intersection zone (260814-011r R3) — the main-* T-junction's two-axis
+  // handle: a ~20px zone centered where the two dividers cross, z-ordered
+  // above them so it wins the junction hit-test. Hover lights BOTH sashes
+  // (`intersectionHot` → `rk-sash-lit` on both dividers); drag moves BOTH
+  // ratios at once (pointer x/y → the shape's two ratio indices, each
+  // clamped independently by the shared per-boundary clamp), persisted on
+  // release via the same writeStoredRatios path. Own pointer handlers — the
+  // single-axis machinery above stays untouched.
+  const [intersectionHot, setIntersectionHot] = useState(false);
+  const [draggingIntersection, setDraggingIntersection] = useState(false);
+  const intersectionDragRef = useRef<{ xIndex: number; yIndex: number } | null>(null);
+
+  const onIntersectionPointerDown =
+    (axes: { xIndex: number; yIndex: number }) =>
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      e.currentTarget.setPointerCapture(e.pointerId);
+      intersectionDragRef.current = axes;
+      setDraggingIntersection(true);
+    };
+
+  const onIntersectionPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const axes = intersectionDragRef.current;
+    const grid = gridRef.current;
+    if (!axes || !grid) return;
+    const rect = grid.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return; // unmeasured (jsdom)
+    const cur = ratiosRef.current;
+    const nextRatios = [...cur];
+    nextRatios[axes.xIndex] = clampBoundary(
+      cur,
+      axes.xIndex,
+      ((e.clientX - rect.left) / rect.width) * 100,
+      rect.width,
+    );
+    nextRatios[axes.yIndex] = clampBoundary(
+      cur,
+      axes.yIndex,
+      ((e.clientY - rect.top) / rect.height) * 100,
+      rect.height,
+    );
+    setRatios(nextRatios);
+    onRatioChange?.(axes.xIndex, nextRatios[axes.xIndex]);
+    onRatioChange?.(axes.yIndex, nextRatios[axes.yIndex]);
+  };
+
+  const endIntersectionDrag = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!intersectionDragRef.current) return;
+    intersectionDragRef.current = null;
+    // Same pointercancel double-release guard as endDividerDrag.
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
+    setDraggingIntersection(false);
     writeStoredRatios(server, windowId, layout.shape, ratiosRef.current);
     onRatioCommit?.();
   };
@@ -684,7 +795,11 @@ export function SurfaceLayout({
         className={`group min-w-0 min-h-0 flex-col overflow-hidden ${hidden ? "hidden" : "flex"}${
           mobile
             ? " flex-1"
-            : ` border rounded ${isFocused ? "border-accent-green" : "border-border"}`
+            : // Gap-seam card (260814-011r R1): 6px radius; the REST border is
+              // the dimmed 55% `rk-card-border` (the gap separates, the border
+              // defines the card edge) — the focused tile keeps the full
+              // accent-green frame (260812-wfic R2, suppressed at arity 1).
+              ` border rounded-md ${isFocused ? "border-accent-green" : "rk-card-border"}`
         }`}
         style={hidden || mobile ? undefined : slotStyle(layout.shape, slot, zoomed)}
         onPointerDownCapture={slot >= 0 ? () => focusSlot(slot) : undefined}
@@ -815,8 +930,9 @@ export function SurfaceLayout({
         )}
         <div
           // Mid-drag the iframe/xterm content must not swallow pointermove
-          // (the drag would stall at the iframe boundary).
-          className={`flex-1 min-h-0 flex flex-col ${draggingIndex !== null ? "pointer-events-none" : ""}`}
+          // (the drag would stall at the iframe boundary). Applies to both
+          // drag kinds — single-axis divider and the two-axis intersection.
+          className={`flex-1 min-h-0 flex flex-col ${draggingIndex !== null || draggingIntersection ? "pointer-events-none" : ""}`}
         >
           {renderContent(kind, slot, slot === firstTtySlot)}
           {/* In-tile compose-strip dock (260813-j3jb): desktop only, first
@@ -867,21 +983,28 @@ export function SurfaceLayout({
     })),
     ...hiddenTiles.map((tile) => ({ tile, hidden: true })),
   ];
+  const specs = dividerSpecs(layout.shape, effRatios);
+  // The main-* T-junction: geometry single-sourced from the divider specs,
+  // the axis mapping from the shape. Null everywhere else (single/split-*/
+  // row/col), so the zone renders exactly when a junction exists.
+  const junction = junctionPoint(specs);
+  const axes = intersectionAxes(layout.shape);
   return (
     <div
       ref={gridRef}
       data-testid="surface-layout"
-      // Framed grid (260812-wfic R1): the 3px gutter IS the separation — the
-      // inset-colored container shows between the bordered tiles. The
-      // absolutely-positioned dividers keep their ratio-boundary placement;
-      // their 6px hit zones cover the 3px gutter, so drag mechanics are
-      // unchanged.
-      className="relative flex-1 min-h-0 min-w-0 grid gap-[3px] bg-bg-inset"
+      // Gap-seam grid (260814-011r R1, was the 260812-wfic 3px framed grid):
+      // the 6px gutter + 6px ground inset float the tiles as separate cards on
+      // the inset ground — the GAP is the separation, so the tile borders dim
+      // (rk-card-border). The absolutely-positioned dividers keep their
+      // ratio-boundary placement; their 14px hit zones cover the 6px gutter
+      // plus slop, so drag mechanics are unchanged.
+      className="relative flex-1 min-h-0 min-w-0 grid gap-[6px] p-[6px] bg-bg-inset"
       style={gridStyle(layout.shape, effRatios, zoomed)}
     >
       {allTiles.map(({ tile, hidden }) => renderTile(tile, hidden, false))}
       {!zoomed &&
-        dividerSpecs(layout.shape, effRatios).map((spec) => (
+        specs.map((spec) => (
           <div
             key={spec.index}
             role="separator"
@@ -893,14 +1016,58 @@ export function SurfaceLayout({
             onPointerMove={onDividerPointerMove}
             onPointerUp={endDividerDrag}
             onPointerCancel={endDividerDrag}
-            className={`absolute z-10 ${
+            // rk-divider + the gap-seam children (rk-sash pill, rk-grips dots)
+            // carry the rest/hover/drag treatment — see globals.css.
+            // `rk-sash-lit` = the zero-delay JS-lit state (this divider
+            // mid-drag, or EITHER divider while the intersection zone is
+            // dragged); `rk-sash-hot` = the intersection-HOVER state — both
+            // sashes light together with the same 150ms anti-flicker delay as
+            // a direct seam hover.
+            className={`rk-divider absolute z-10 ${
               spec.axis === "x"
-                ? "w-1.5 -translate-x-1/2 cursor-col-resize"
-                : "h-1.5 -translate-y-1/2 cursor-row-resize"
-            } hover:bg-accent-green ${draggingIndex === spec.index ? "bg-accent-green" : ""}`}
+                ? "w-3.5 -translate-x-1/2 cursor-col-resize"
+                : "h-3.5 -translate-y-1/2 cursor-row-resize"
+            } ${
+              draggingIndex === spec.index || draggingIntersection
+                ? "rk-sash-lit"
+                : intersectionHot
+                  ? "rk-sash-hot"
+                  : ""
+            }`}
             style={{ ...spec.style, touchAction: "none" }}
-          />
+          >
+            <span
+              aria-hidden="true"
+              className={`rk-sash pointer-events-none ${spec.axis === "x" ? "rk-sash-v" : "rk-sash-h"}`}
+            />
+            <span
+              aria-hidden="true"
+              className={`rk-grips pointer-events-none ${spec.axis === "x" ? "rk-grips-v" : "rk-grips-h"}`}
+            >
+              <i />
+              <i />
+              <i />
+            </span>
+          </div>
         ))}
+      {/* Intersection zone (260814-011r R3): the ~20px two-axis handle at the
+          main-* T-junction, z-20 so it wins the hit-test over both dividers.
+          Desktop-only by branch, never zoomed, main-* only (junction/axes are
+          null elsewhere). */}
+      {!zoomed && junction && axes && (
+        <div
+          data-testid="surface-divider-intersection"
+          aria-label="Resize tiles (both directions)"
+          onPointerDown={onIntersectionPointerDown(axes)}
+          onPointerMove={onIntersectionPointerMove}
+          onPointerUp={endIntersectionDrag}
+          onPointerCancel={endIntersectionDrag}
+          onPointerEnter={() => setIntersectionHot(true)}
+          onPointerLeave={() => setIntersectionHot(false)}
+          className="absolute z-20 w-5 h-5 -translate-x-1/2 -translate-y-1/2 cursor-move"
+          style={{ left: junction.left, top: junction.top, touchAction: "none" }}
+        />
+      )}
     </div>
   );
 }

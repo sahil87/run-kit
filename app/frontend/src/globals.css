@@ -553,6 +553,75 @@ summary {
 }
 .rk-flyout-in { animation: rk-flyout-in 140ms ease-out; }
 
+/* ── Gap-seam tile chrome (260814-011r) ─────────────────────────────────────
+   VS Code-style gap-seam vocabulary for the surface-layout tile grid: the GAP
+   does the separating (rest borders dim, the inset ground shows through), 3
+   grip dots advertise draggability at rest, and a rounded accent-green pill
+   (the SASH) lights on hover — after a ~150ms anti-flicker transition-delay,
+   so brushing across a seam en route to a tile never strobes — and immediately
+   on drag. Green, NOT VS Code blue: green already means interactive/live-pane
+   in the hover vocabulary (CRT glint, focused tile), and the focus border (1px
+   frame) vs sash (5px pill) differ by geometry, so sharing the hue is
+   unambiguous. Consumed by surface-layout.tsx (tile border, dividers, the
+   main-* intersection zone) and board-pane.tsx (the idle-pane border share).
+   Reduced-motion: the delay/transitions are zeroed below; the states
+   themselves (dots, pill, inversion) remain. */
+
+/* The dimmed card border — ONE shared 55% mix for surface tiles and the
+   board's idle panes (the gap separates; the border only defines the card
+   edge). Focused/waiting borders stay full-strength — status signals, not
+   card chrome. */
+.rk-card-border {
+  border-color: color-mix(in srgb, var(--color-border) 55%, transparent);
+}
+
+/* Divider sash + grip dots. The divider element (`.rk-divider`, a 14px hit
+   zone centered on the seam) carries both as children — the component renders
+   them `pointer-events-none` so the divider stays the sole hit target.
+   DELAY PLACEMENT MATTERS: the 150ms
+   sits on the LIT rules' transition-delay, so it applies only to the
+   appearance; disappearance is instant (the base rule's 0ms), and the
+   JS-driven `.rk-sash-lit` (drag in progress, or the intersection zone hot)
+   skips the delay entirely (equal specificity to :hover, later in source). */
+.rk-sash {
+  position: absolute;
+  background: var(--color-accent-green);
+  border-radius: 3px;
+  opacity: 0;
+  transition: opacity 100ms ease-out 0ms;
+}
+/* The 5px pill fills the seam's gap, inset 10px from both ends so it never
+   touches the tile corner radii. `-v` = vertical pill (x-axis divider),
+   `-h` = horizontal pill (y-axis divider). */
+.rk-sash-v { top: 10px; bottom: 10px; left: 50%; width: 5px; transform: translateX(-50%); }
+.rk-sash-h { left: 10px; right: 10px; top: 50%; height: 5px; transform: translateY(-50%); }
+.rk-divider:hover .rk-sash,
+.rk-divider.rk-sash-hot .rk-sash { opacity: 1; transition-delay: 150ms; }
+.rk-divider.rk-sash-lit .rk-sash { opacity: 1; transition-delay: 0ms; }
+
+/* Rest-state drag affordance: 3 centered ~2.5px grip dots stacked along the
+   seam axis. While the sash is lit they invert to the ground color so they
+   read as punched out of the pill (same delay semantics as the sash). */
+.rk-grips {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: flex;
+  gap: 3px;
+  transform: translate(-50%, -50%);
+}
+.rk-grips-v { flex-direction: column; }
+.rk-grips i {
+  width: 2.5px;
+  height: 2.5px;
+  border-radius: 9999px;
+  background: var(--color-border);
+  transition: background-color 100ms ease-out 0ms;
+}
+.rk-divider:hover .rk-grips i,
+.rk-divider.rk-sash-hot .rk-grips i { background: var(--color-bg-inset); transition-delay: 150ms; }
+.rk-divider.rk-sash-lit .rk-grips i { background: var(--color-bg-inset); transition-delay: 0ms; }
+
 @media (prefers-reduced-motion: reduce) {
   .rk-glint::after,
   .rk-glint:hover::after { animation: none; opacity: 0; }
@@ -585,6 +654,18 @@ summary {
   .rk-dash-rain::before { animation: none; display: none; }
   /* Flyout-card entrance: pure flourish — the card simply appears. */
   .rk-flyout-in { animation: none; }
+  /* Gap-seam sash: the hover anti-flicker delay and fades are zeroed (the pill
+     and dot inversion appear instantly); the states themselves remain —
+     draggability is never motion-only. The dimmed `.rk-card-border` is static
+     and needs no gate. */
+  .rk-divider .rk-sash,
+  .rk-divider:hover .rk-sash,
+  .rk-divider.rk-sash-hot .rk-sash,
+  .rk-divider.rk-sash-lit .rk-sash { transition: none; transition-delay: 0ms; }
+  .rk-divider .rk-grips i,
+  .rk-divider:hover .rk-grips i,
+  .rk-divider.rk-sash-hot .rk-grips i,
+  .rk-divider.rk-sash-lit .rk-grips i { transition: none; transition-delay: 0ms; }
 }
 
 /* Prevent iOS Safari page scroll/bounce — fullbleed always on in single-view. */

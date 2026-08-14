@@ -394,7 +394,7 @@ describe("SurfaceLayout focused tile (260812-wfic R2)", () => {
       onFocusedKindChange,
     });
     expect(screen.getByTestId("surface-tile-tty").className).toContain("border-accent-green");
-    expect(screen.getByTestId("surface-tile-code").className).toContain("border-border");
+    expect(screen.getByTestId("surface-tile-code").className).toContain("rk-card-border");
     expect(screen.getByTestId("surface-tile-code").className).not.toContain(
       "border-accent-green",
     );
@@ -741,6 +741,235 @@ describe("SurfaceLayout dividers (R5)", () => {
     expect(
       screen.getByTestId("surface-divider-0").getAttribute("aria-valuenow"),
     ).toBe("70");
+  });
+});
+
+describe("SurfaceLayout gap-seam tile chrome (260814-011r R1/R5)", () => {
+  it("the desktop grid floats tiles on the inset ground: 6px gutter + 6px ground inset", () => {
+    renderLayout({ layout: { shape: "split-h", order: ["tty", "code"] } });
+    const grid = screen.getByTestId("surface-layout");
+    expect(grid.className).toContain("gap-[6px]");
+    expect(grid.className).toContain("p-[6px]");
+    expect(grid.className).toContain("bg-bg-inset");
+    expect(grid.className).not.toContain("gap-[3px]");
+  });
+
+  it("the ground inset applies at EVERY arity, including single", () => {
+    renderLayout({ layout: { shape: "single", order: ["tty"] } });
+    const grid = screen.getByTestId("surface-layout");
+    expect(grid.className).toContain("gap-[6px]");
+    expect(grid.className).toContain("p-[6px]");
+  });
+
+  it("desktop tiles are 6px-radius cards with the dimmed rest border; the focused tile keeps full accent-green", () => {
+    renderLayout({ layout: { shape: "split-h", order: ["tty", "code"] } });
+    const ttyTile = screen.getByTestId("surface-tile-tty"); // focused (slot A default)
+    const codeTile = screen.getByTestId("surface-tile-code");
+    for (const tile of [ttyTile, codeTile]) {
+      expect(tile.className).toContain("rounded-md");
+    }
+    expect(ttyTile.className).toContain("border-accent-green");
+    expect(ttyTile.className).not.toContain("rk-card-border");
+    expect(codeTile.className).toContain("rk-card-border");
+    expect(codeTile.className).not.toContain("border-accent-green");
+  });
+
+  it("the mobile branch stays chrome-free (R5): flex-1 only, no gutter/inset/radius/border", () => {
+    renderLayout({
+      layout: { shape: "split-h", order: ["tty", "code"] },
+      isMobile: true,
+    });
+    const grid = screen.getByTestId("surface-layout");
+    expect(grid.className).not.toContain("gap-[6px]");
+    expect(grid.className).not.toContain("p-[6px]");
+    const ttyTile = screen.getByTestId("surface-tile-tty");
+    expect(ttyTile.className).toContain("flex-1");
+    expect(ttyTile.className).not.toContain("rounded-md");
+    expect(ttyTile.className).not.toContain("rk-card-border");
+  });
+});
+
+describe("SurfaceLayout divider sash + grips (260814-011r R2)", () => {
+  it("each divider carries the axis-aware sash pill and 3 pointer-events-none grip dots on a 14px hit zone", () => {
+    renderLayout({ layout: { shape: "split-h", order: ["tty", "code"] } });
+    const divider = screen.getByTestId("surface-divider-0");
+    expect(divider.className).toContain("rk-divider");
+    expect(divider.className).toContain("w-3.5"); // 14px hit zone (was w-1.5)
+    expect(divider.className).toContain("cursor-col-resize");
+    const sash = divider.querySelector(".rk-sash")!;
+    expect(sash.className).toContain("rk-sash-v"); // x-axis divider → vertical pill
+    expect(sash.className).toContain("pointer-events-none");
+    const grips = divider.querySelector(".rk-grips")!;
+    expect(grips.className).toContain("rk-grips-v");
+    expect(grips.className).toContain("pointer-events-none");
+    expect(grips.querySelectorAll("i")).toHaveLength(3);
+    // Nothing is lit at rest — dots only, no sash.
+    expect(divider.className).not.toContain("rk-sash-lit");
+  });
+
+  it("a y-axis divider orients the pill and dots horizontally", () => {
+    renderLayout({ layout: { shape: "split-v", order: ["tty", "web"] } });
+    const divider = screen.getByTestId("surface-divider-0");
+    expect(divider.className).toContain("h-3.5");
+    expect(divider.className).toContain("cursor-row-resize");
+    expect(divider.querySelector(".rk-sash")!.className).toContain("rk-sash-h");
+    expect(divider.querySelector(".rk-grips")!.className).toContain("rk-grips-h");
+  });
+
+  it("dragging lights the sash immediately (rk-sash-lit, zero delay); release unlights", () => {
+    renderLayout({ layout: { shape: "split-h", order: ["tty", "code"] } });
+    const divider = screen.getByTestId("surface-divider-0");
+    fireEvent.pointerDown(divider, { pointerId: 1, clientX: 500 });
+    expect(divider.className).toContain("rk-sash-lit");
+    fireEvent.pointerUp(divider, { pointerId: 1 });
+    expect(divider.className).not.toContain("rk-sash-lit");
+  });
+});
+
+describe("SurfaceLayout intersection zone (260814-011r R3)", () => {
+  /** jsdom's rects are all zeros — mock the grid's box so the two-axis drag
+   *  math has a measured container. 1200×1200 keeps the 280px floor at
+   *  23.33…%, clear of the default boundaries. */
+  function mockGridRect() {
+    const grid = screen.getByTestId("surface-layout");
+    vi.spyOn(grid, "getBoundingClientRect").mockReturnValue({
+      left: 0,
+      top: 0,
+      width: 1200,
+      height: 1200,
+      right: 1200,
+      bottom: 1200,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    } as DOMRect);
+  }
+
+  it("renders only in the main-* shapes (never single/split-*/row/col)", () => {
+    for (const shape of ["main-left", "main-right", "main-top"] as const) {
+      cleanup();
+      renderLayout({ layout: { shape, order: ["tty", "code", "web"] } });
+      expect(screen.getByTestId("surface-divider-intersection")).toBeTruthy();
+    }
+    const noJunction: [Layout["shape"], SurfaceKind[]][] = [
+      ["single", ["tty"]],
+      ["split-h", ["tty", "code"]],
+      ["split-v", ["tty", "code"]],
+      ["row", ["tty", "code", "web"]],
+      ["col", ["tty", "code", "web"]],
+    ];
+    for (const [shape, order] of noJunction) {
+      cleanup();
+      renderLayout({ layout: { shape, order } });
+      expect(screen.queryByTestId("surface-divider-intersection")).toBeNull();
+    }
+  });
+
+  it("never renders while zoomed or on mobile", () => {
+    renderLayout({ layout: { shape: "main-left", order: ["tty", "code", "web"] } });
+    fireEvent.click(screen.getByRole("button", { name: "Zoom Terminal" }));
+    expect(screen.queryByTestId("surface-divider-intersection")).toBeNull();
+    cleanup();
+    renderLayout({
+      layout: { shape: "main-left", order: ["tty", "code", "web"] },
+      isMobile: true,
+    });
+    expect(screen.queryByTestId("surface-divider-intersection")).toBeNull();
+  });
+
+  it("sits centered on the junction of the two dividers, z-ordered above them, with cursor: move", () => {
+    renderLayout({ layout: { shape: "main-left", order: ["tty", "code", "web"] } });
+    const zone = screen.getByTestId("surface-divider-intersection");
+    // main-left defaults [100/3, 200/3]: the junction is (r0%, r1%).
+    expect(zone.style.left).toBe(`${100 / 3}%`);
+    expect(zone.style.top).toBe(`${200 / 3}%`);
+    expect(zone.className).toContain("z-20"); // above the z-10 dividers
+    expect(zone.className).toContain("-translate-x-1/2");
+    expect(zone.className).toContain("-translate-y-1/2");
+    expect(zone.className).toContain("w-5"); // the ~20px hit zone
+    expect(zone.className).toContain("h-5");
+    expect(zone.className).toContain("cursor-move");
+    expect(zone.style.touchAction).toBe("none");
+  });
+
+  it("hovering the zone lights BOTH sashes (150ms-delayed hot state); leaving unlights them", () => {
+    renderLayout({ layout: { shape: "main-left", order: ["tty", "code", "web"] } });
+    const zone = screen.getByTestId("surface-divider-intersection");
+    // React synthesizes pointerenter/leave from native pointerover/out.
+    fireEvent.pointerOver(zone);
+    expect(screen.getByTestId("surface-divider-0").className).toContain("rk-sash-hot");
+    expect(screen.getByTestId("surface-divider-1").className).toContain("rk-sash-hot");
+    expect(screen.getByTestId("surface-divider-0").className).not.toContain("rk-sash-lit");
+    fireEvent.pointerOut(zone, { relatedTarget: document.body });
+    expect(screen.getByTestId("surface-divider-0").className).not.toContain("rk-sash-hot");
+    expect(screen.getByTestId("surface-divider-1").className).not.toContain("rk-sash-hot");
+  });
+
+  it("a diagonal drag moves BOTH ratios and persists both on RELEASE only (main-left: x→r0, y→r1)", () => {
+    const onRatioCommit = vi.fn();
+    renderLayout({
+      layout: { shape: "main-left", order: ["tty", "code", "web"] },
+      onRatioCommit,
+    });
+    mockGridRect();
+    const zone = screen.getByTestId("surface-divider-intersection");
+    const key = ratiosStorageKey("srv", "@1", "main-left");
+    fireEvent.pointerDown(zone, { pointerId: 1, clientX: 400, clientY: 800 });
+    // Both sashes light the moment the drag starts (zero delay).
+    expect(screen.getByTestId("surface-divider-0").className).toContain("rk-sash-lit");
+    expect(screen.getByTestId("surface-divider-1").className).toContain("rk-sash-lit");
+    // (480, 720) on a 1200² grid → r0 = 40, r1 = 60 (both inside their clamps).
+    fireEvent.pointerMove(zone, { pointerId: 1, clientX: 480, clientY: 720 });
+    expect(screen.getByTestId("surface-divider-0").getAttribute("aria-valuenow")).toBe("40");
+    expect(screen.getByTestId("surface-divider-1").getAttribute("aria-valuenow")).toBe("60");
+    // Mid-drag: nothing persisted, no commit callback.
+    expect(localStorage.getItem(key)).toBeNull();
+    expect(onRatioCommit).not.toHaveBeenCalled();
+    fireEvent.pointerUp(zone, { pointerId: 1 });
+    expect(onRatioCommit).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(localStorage.getItem(key) ?? "null")).toEqual([40, 60]);
+  });
+
+  it("clamps each axis independently at the 280px floor", () => {
+    renderLayout({ layout: { shape: "main-left", order: ["tty", "code", "web"] } });
+    mockGridRect();
+    const zone = screen.getByTestId("surface-divider-intersection");
+    fireEvent.pointerDown(zone, { pointerId: 1, clientX: 400, clientY: 800 });
+    // Drag to the extremes: x → the 23.33% floor, y → the 76.67% ceiling.
+    fireEvent.pointerMove(zone, { pointerId: 1, clientX: 0, clientY: 1200 });
+    expect(screen.getByTestId("surface-divider-0").getAttribute("aria-valuenow")).toBe("23");
+    expect(screen.getByTestId("surface-divider-1").getAttribute("aria-valuenow")).toBe("77");
+    fireEvent.pointerUp(zone, { pointerId: 1 });
+  });
+
+  it("a mid-drag pointercancel releases cleanly without stranding drag state", () => {
+    renderLayout({ layout: { shape: "main-left", order: ["tty", "code", "web"] } });
+    mockGridRect();
+    const zone = screen.getByTestId("surface-divider-intersection");
+    fireEvent.pointerDown(zone, { pointerId: 1, clientX: 400, clientY: 800 });
+    fireEvent.pointerCancel(zone, { pointerId: 1 });
+    // The cancel ran the end path: sashes unlit, and a stray move is a no-op.
+    expect(screen.getByTestId("surface-divider-0").className).not.toContain("rk-sash-lit");
+    fireEvent.pointerMove(zone, { pointerId: 1, clientX: 480, clientY: 720 });
+    expect(screen.getByTestId("surface-divider-0").getAttribute("aria-valuenow")).toBe("33");
+  });
+
+  it("main-top maps y → ratio 0 and x → ratio 1", () => {
+    renderLayout({ layout: { shape: "main-top", order: ["tty", "code", "web"] } });
+    mockGridRect();
+    const zone = screen.getByTestId("surface-divider-intersection");
+    // main-top junction: (r1%, r0%).
+    expect(zone.style.left).toBe(`${200 / 3}%`);
+    expect(zone.style.top).toBe(`${100 / 3}%`);
+    fireEvent.pointerDown(zone, { pointerId: 1, clientX: 800, clientY: 400 });
+    fireEvent.pointerMove(zone, { pointerId: 1, clientX: 720, clientY: 480 });
+    // y → r0 = 40 (within [23.33, 43.33]); x → r1 = 60 (within [56.67, 76.67]).
+    expect(screen.getByTestId("surface-divider-0").getAttribute("aria-valuenow")).toBe("40");
+    expect(screen.getByTestId("surface-divider-1").getAttribute("aria-valuenow")).toBe("60");
+    fireEvent.pointerUp(zone, { pointerId: 1 });
+    expect(
+      JSON.parse(localStorage.getItem(ratiosStorageKey("srv", "@1", "main-top")) ?? "null"),
+    ).toEqual([40, 60]);
   });
 });
 

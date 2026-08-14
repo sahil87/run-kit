@@ -29,7 +29,7 @@ Empty / non-existent board (`name` exists in URL but `getBoard` returns `[]`): s
 - **Default width 480px**, drag-resizable between 280px (min) and viewport-minus-sidebar (max). Resize handle hidden on coarse-pointer devices
 - **Persisted per-board** in `localStorage["runkit:board-widths:<name>"]` as `Record<windowId, number>`. `usePaneWidths(boardName)` encapsulates read/write/clamp; missing entries fall back to 480px; malformed JSON is ignored silently. Pane widths are intentionally browser-local view state — they do NOT cross devices (pin state in tmux does)
 - **Click-to-focus** transfers focus to the pane's xterm via a `useImperativeHandle`-exposed `focus()` method on `BoardPaneHandle`. **Hover-to-focus is OFF in v1** (no hover handler attached)
-- **Visual focus indicator** — focused pane has a distinct border/glow; unfocused panes are de-emphasized
+- **Visual focus indicator** — the focused pane has a distinct accent border/glow; unfocused panes are de-emphasized, and the idle pane border is the dimmed 55% `rk-card-border` (the shared gap-seam card treatment — § lenses-and-layout.md → Surface Layout). The `waiting` seam and focused accent stay full-strength — status signals, not card chrome. (`260814-011r`)
 - **Keyboard pane cycling** — `Cmd+]` / `Ctrl+]` next (wraps), `Cmd+[` / `Ctrl+[` previous (wraps). Bound via a `useEffect` keydown listener on the BoardPage component
 - **Autofit override** — when the per-board autofit toggle is ON, desktop panes ignore the stored pixel width and become equal-share flex items, and the resize handle is hidden. See § Board Autofit Toggle. Autofit never mutates `runkit:board-widths:<name>`, so toggling off restores the exact hand-tuned widths above.
 

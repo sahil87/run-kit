@@ -53,6 +53,25 @@ describe("SessionRow", () => {
     expect(screen.getByLabelText("Kill session agent-work")).toBeInTheDocument();
   });
 
+  // Flair overlay (decoration-only channel): an always-on ambient CSS-only
+  // animation mounted whenever the session carries a flair value — gated on
+  // `session.flair` alone, in every row state.
+  describe("flair overlay", () => {
+    it("mounts the rk-flair overlay span when the session carries a flair", () => {
+      const session = makeSession({ name: "agent-work", flair: "onepiece" });
+      const { container } = render(<SessionRow {...rowProps(session)} />);
+      const overlay = container.querySelector(".rk-flair-onepiece");
+      expect(overlay).not.toBeNull();
+      expect(overlay!.getAttribute("aria-hidden")).toBe("true");
+    });
+
+    it("mounts NO flair overlay when the session has no flair", () => {
+      const session = makeSession({ name: "agent-work" });
+      const { container } = render(<SessionRow {...rowProps(session)} />);
+      expect(container.querySelector("[class*='rk-flair-']")).toBeNull();
+    });
+  });
+
   // One icon system (260724-2bmy): + and ✕ are stroke SVGs (PlusIcon/CloseIcon)
   // matching PaletteIcon/BotIcon, so the row's icon cluster reads at one ink
   // weight — the former text glyphs made even center gaps look uneven.

@@ -176,6 +176,25 @@ describe("WindowRow", () => {
     expect(screen.queryByTestId("pr-status-line")).toBeNull();
   });
 
+  // Flair overlay (decoration-only channel): an always-on ambient CSS-only
+  // animation mounted whenever the window carries a flair value — gated on
+  // `win.flair` alone, in every row state.
+  describe("flair overlay", () => {
+    it("mounts the rk-flair overlay span when the window carries a flair", () => {
+      const win = makeWindow({ windowId: "@0", index: 0, flair: "onepiece" });
+      const { container } = renderRow(win);
+      const overlay = container.querySelector(".rk-flair-onepiece");
+      expect(overlay).not.toBeNull();
+      expect(overlay!.getAttribute("aria-hidden")).toBe("true");
+    });
+
+    it("mounts NO flair overlay when the window has no flair", () => {
+      const win = makeWindow({ windowId: "@0", index: 0 });
+      const { container } = renderRow(win);
+      expect(container.querySelector("[class*='rk-flair-']")).toBeNull();
+    });
+  });
+
   // Row Minimalism (260706-y1ar; status-pyramid.md § Row Minimalism): the
   // trailing status cluster is REMOVED — the row renders NO stage word and NO
   // duration text. The leading StatusDot is the row's only externally visible

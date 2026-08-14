@@ -22,8 +22,11 @@ import (
 type ProjectSession struct {
 	Name string `json:"name"`
 	// Color value descriptor ("4" / "1+3"), sourced from the @session_color tmux option.
-	SessionColor *string           `json:"sessionColor,omitempty"`
-	Windows      []tmux.WindowInfo `json:"windows"`
+	SessionColor *string `json:"sessionColor,omitempty"`
+	// Flair is the session's per-row flair decoration ("nyan" / "naruto" /
+	// "onepiece"; "" = unset), sourced from the @rk_flair tmux session option.
+	Flair   string            `json:"flair,omitempty"`
+	Windows []tmux.WindowInfo `json:"windows"`
 }
 
 // ActiveWindowProvider supplies the event-tracked active window (`@wid`) for a
@@ -810,7 +813,7 @@ func FetchSessions(ctx context.Context, server string, provider ActiveWindowProv
 			}
 		}
 
-		result[i] = ProjectSession{Name: sd.info.Name, SessionColor: sd.info.Color, Windows: sd.windows}
+		result[i] = ProjectSession{Name: sd.info.Name, SessionColor: sd.info.Color, Flair: sd.info.Flair, Windows: sd.windows}
 	}
 
 	return result, nil

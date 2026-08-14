@@ -1,5 +1,5 @@
 ---
-description: "Visual design system: color tokens, border widths, theme system + switching, no-flicker init, PWA meta, hover-animation vocabulary, logo ring + brand sweep, section/page headings, color tinting + instance accent, row textures, sparkline/gauge renderers, mobile breakpoints/touch targets/safe-area."
+description: "Visual design system: color tokens, border widths, theme system + switching, no-flicker init, PWA meta, hover-animation vocabulary, logo ring + brand sweep, section/page headings, color tinting + instance accent, row textures + character flair overlays, sparkline/gauge renderers, mobile breakpoints/touch targets/safe-area."
 type: memory
 ---
 # run-kit UI — Visual Design
@@ -264,6 +264,22 @@ A window row whose marker is `thick` gets a static "hazard wedge" background —
 
 **Overlay-owns-clip, mirroring scanlines exactly**: the wedge is a **dedicated absolutely-positioned inner element** (`absolute inset-0 z-[5] overflow-hidden pointer-events-none`), NEVER `overflow-hidden` on the row root (which would clip the row's `top-full` pin/color popovers — the same must-fix the scanlines documented). It sits above the tint/button background (`z-5`), below the `z-10` icon cluster and `z-20` gutter. `window-row.tsx` sets `--rk-marker-color` inline for `thick` rows the same way it already does for `double`. No `prefers-reduced-motion` gate is needed (it is static), but it stays listed in the reduced-motion audit block beside the adjacent scanlines block.
 
+### Character Flair Overlays (`globals.css` `.rk-flair-nyan` / `.rk-flair-naruto` / `.rk-flair-onepiece`)
+
+A row carrying a **flair** (the per-row opt-in decorative channel — `""`/`nyan`/`naruto`/`onepiece`, `FLAIR_STATES` in `themes.ts`; see [sidebar](/run-kit/ui/sidebar.md) § Row Flair) gets an always-on ambient character animation across its full width, on window rows, session rows, and server group headers alike. Flair is decoration only — no wiring to `@rk_agent_state` or the status pyramid. (`260814-2esh`)
+
+**The three treatments** (all sprites are original stylized art embedded as inline SVG data URIs — no external requests, no copyrighted assets):
+
+- **`.rk-flair-nyan`** — a small pixel cat sprite (32×18) flying left→right at vertical center, trailing 6 thin rainbow bands (a repeating linear-gradient stripe block at ~20% alpha parked 52px behind the sprite). ~10s traversal (`rk-flair-nyan-fly`).
+- **`.rk-flair-naruto`** — a ninja-runner silhouette (24×16, leaning forward, arms swept back) dashing left→right with a brief speed-line trail behind it. ~7s traversal (`rk-flair-naruto-dash`).
+- **`.rk-flair-onepiece`** — a tiny pirate ship (hull + sail + straw-hat pennant, 26×20) sailing left→right along a subtle 1px scalloped wave baseline near the row bottom. Two pseudos: `::before` carries the static wave tile (`repeat-x` along the bottom edge); `::after` carries the ship with two INDEPENDENT longhand animations — `background-position-x` for the ~12s sail (`rk-flair-onepiece-sail`), `background-position-y` for a gentle ~1.6s bob (`rk-flair-onepiece-bob`, `ease-in-out infinite alternate`) — the two longhands compose without clobbering each other.
+
+**CSS discipline — the `.rk-dash-rain` rules applied**: each treatment animates `background-position` only (never layout-affecting properties) on an `::before`/`::after` pseudo of the dedicated overlay element (overlay-owns-clip, `pointer-events-none` — never `overflow-hidden` on the row root, the `.rk-scanlines` rule). Sprite and trail live as two `no-repeat` background layers on ONE pseudo with identical pixel displacement in the keyframes, so they never separate; traversal runs from a negative offset to `calc(100% + sprite width)`, so the loop boundary happens fully off-screen and is invisible. Alphas stay low enough that row text remains readable. All three animate ambiently in every row state (rest/hover/selected) — flair is per-row opt-in, so ambient motion is a deliberate user choice (§ Design Decisions → Flair animation is always-on ambient).
+
+**Picker flair section**: the Label/color picker's flair cells (∅ / nyan / naruto / onepiece) are LIVE previews — each non-∅ cell is a miniature row carrying its always-on animated `.rk-flair-*` overlay (the dashed marker cell's live-rain precedent), unlike the marker preview cells, which never animate.
+
+**Reduced motion**: flair is motion-only decoration carrying no semantic meaning, so under `prefers-reduced-motion` all three overlays are hidden ENTIRELY (`animation: none; display: none` on every flair pseudo in the existing gate block) — no static fallback, unlike the marker stripes which remain. Source-order rule: the base rules PRECEDE the reduced-motion block so its equal-specificity overrides win by source order (the `.rk-dash-rain` discipline).
+
 ### Braille Sparkline Renderer
 
 `app/frontend/src/lib/sparkline.ts` — converts an array of float values (0-100 range) into a Unicode braille sparkline string. Uses 8 vertical levels from the U+2800-U+28FF braille range filling bottom-to-top: `⣀⣄⣤⣦⣶⣷⣾⣿` (level 0 = `⣀`, level 7 = `⣿`). Values linearly interpolated across 8 levels. Zero-filled buffer renders as repeated `⣀`. Exported as `sparkline(samples: number[]): string`.
@@ -328,11 +344,11 @@ The viewport meta tag in `app/frontend/index.html` includes `maximum-scale=1.0` 
 **Rejected**: Prop-only derivation — repaint would depend on the caller keeping the popover open and re-rendering.
 *Introduced by*: 260723-wwoi-label-picker-markers-shades
 
-### Marker preview cells and the hazard wedge are never animated; the dashed data rain is the lone rest-state motion
-**Decision**: The `thick` hazard wedge is static in every state (rest, hover, selected), and the Label picker's marker preview cells never animate — no scanline crawl even when the double cell is selected, no data rain on the dashed preview. On real rows, exactly one treatment moves at rest: the dashed data rain (§ Dashed data rain), always-on. The dashed gutter STRIPE itself stays static in every state — the motion is the row rain, in its thinned two-lane form, which is quiet enough to run always-on.
-**Why**: Motion belongs to real rows only, and rest-state motion is rationed to the one marker whose semantic ("working") is inherently live. The other animated variants tried during the design session (scrolling the dashed stripe, progress seam, barber-pole thick, animated hazard weave, phosphor bleed) stayed rejected as distracting or reading like a loading state. Double's scanline crawl + CRT band remains selection-gated.
-**Rejected**: Scrolling the dashed stripe itself; animating the hazard weave; the progress seam; a phosphor bleed paired with solid; animating preview cells to mirror real rows.
-*Introduced by*: 260723-wwoi-label-picker-markers-shades (wedge/previews); data rain added in the picker-dismissal follow-up (260723), always-on since 260724
+### Marker preview cells and the hazard wedge are never animated; rest-state motion is rationed to the data rain and opt-in flair
+**Decision**: The `thick` hazard wedge is static in every state (rest, hover, selected), and the Label picker's MARKER preview cells never animate — no scanline crawl even when the double cell is selected, no data rain on the dashed preview. On real rows, rest-state motion is the dashed data rain (§ Dashed data rain, always-on) plus any per-row opt-in flair overlay (§ Character Flair Overlays — ambient in every state; flair PICKER cells are live previews and DO animate, the dashed cell's live-rain precedent). The dashed gutter STRIPE itself stays static in every state — the motion is the row rain, in its thinned two-lane form, which is quiet enough to run always-on.
+**Why**: Motion on real rows is rationed to treatments that are either inherently live ("working" rain) or explicitly opted into per row (flair); marker preview cells stay still so the picker reads as a menu, not a wall of motion. The other animated variants tried during the design session (scrolling the dashed stripe, progress seam, barber-pole thick, animated hazard weave, phosphor bleed) stayed rejected as distracting or reading like a loading state. Double's scanline crawl + CRT band remains selection-gated.
+**Rejected**: Scrolling the dashed stripe itself; animating the hazard weave; the progress seam; a phosphor bleed paired with solid; animating MARKER preview cells to mirror real rows.
+*Introduced by*: 260723-wwoi-label-picker-markers-shades (wedge/previews); data rain added in the picker-dismissal follow-up (260723), always-on since 260724; flair motion scope 260814-2esh
 
 ### Hazard wedge is a left-edge mask, not full-row wallpaper
 **Decision**: `.rk-hazard`'s 45° weave is confined by `mask-image: linear-gradient(to right, #000 22%, transparent 55%)` (with its `-webkit-` twin) — full strength for the first ~22% of the row, faded out by ~55%.
@@ -405,3 +421,9 @@ The viewport meta tag in `app/frontend/index.html` includes `maximum-scale=1.0` 
 **Why**: The fixed `-400` utilities measured 1.3:1–2.8:1 on the light backgrounds — below the ≥3:1 bar for UI graphics — so the highest-priority signals (waiting halos, pending checks, failing PRs, error text) were effectively dark-theme-only. The three-block token pattern was already proven by `--color-accent-green`, and one token per hue keeps the vocabulary centralized.
 **Rejected**: `yellow-700` `#a16207` for the light yellow — passes 4.5:1 but reads brown, killing the yellow chroma that carries the attention semantic; the accepted single-token trade-off leaves text surfaces reusing the gold (waiting badge, chat warning body) below the 4.5:1 AA text threshold. A two-tone yellow split (brighter gold for glyphs, darker shade for text-only surfaces) — set aside for single-token simplicity. Moving the red washes to `signal-red` derivatives — deferred as an aesthetic call.
 *Introduced by*: 260811-m3f3-light-theme-signal-color-tokens
+
+### Flair animation is always-on ambient
+**Decision**: Every flair overlay animates continuously in every row state (rest, hover, selected) — never gated on hover or selection.
+**Why**: Matches the dashed data-rain precedent, which proved quiet enough to run ambiently; flair is per-row opt-in, so ambient motion is a deliberate user choice. User-confirmed in the change's clarification session.
+**Rejected**: Hover-gating (invisible on touch, defeats the ambient-identity purpose); selection-gating (only one row animates at a time).
+*Introduced by*: 260814-2esh-sidebar-character-row-animations

@@ -1,0 +1,11 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-14T07:56:17Z"}
+{"args":"Add nyan cat, naruto, and one piece animations alongside the existing left-panel row animations for window rows, session rows, and server rows","cmd":"fab-new","event":"command","ts":"2026-08-14T07:56:17Z"}
+{"delta":"+2.4","event":"confidence","score":2.4,"trigger":"calc-score","ts":"2026-08-14T07:57:59Z"}
+{"cmd":"fab-clarify","event":"command","ts":"2026-08-14T08:01:15Z"}
+{"delta":"+1.0","event":"confidence","score":3.4,"trigger":"calc-score","ts":"2026-08-14T08:04:27Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-14T08:06:50Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-14T08:07:05Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-14T08:35:59Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-14T08:40:30Z"}
+{"event":"review","result":"passed","ts":"2026-08-14T08:40:30Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-14T08:48:08Z"}

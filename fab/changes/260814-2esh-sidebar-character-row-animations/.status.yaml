@@ -1,0 +1,55 @@
+id: 2esh
+name: 260814-2esh-sidebar-character-row-animations
+created: 2026-08-14T07:56:17Z
+created_by: vivek-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 15
+    acceptance_count: 19
+    acceptance_completed: 19
+confidence:
+    certain: 2
+    confident: 6
+    tentative: 0
+    unresolved: 0
+    score: 3.4
+    fuzzy: true
+    dimensions:
+        signal: 75.6
+        reversibility: 71.3
+        competence: 72.5
+        disambiguation: 63.1
+stage_metrics:
+    intake: {started_at: "2026-08-14T07:56:17Z", driver: fab-new, iterations: 1, completed_at: "2026-08-14T08:07:05Z"}
+    apply: {started_at: "2026-08-14T08:07:05Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-14T08:35:59Z"}
+    review: {started_at: "2026-08-14T08:35:59Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-14T08:40:30Z"}
+    hydrate: {started_at: "2026-08-14T08:40:30Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-14T08:48:08Z"}
+    ship: {started_at: "2026-08-14T08:48:08Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-08-14T08:48:08Z"
+    computed_at_stage: hydrate
+summary: 'Sidebar row flair channel: @rk_flair window/session tmux options + settings-store ServerFlairs, three CSS-only character overlays (.rk-flair-nyan/-naruto/-onepiece) on all sidebar row types, picker flair section, session-flair + server-flair endpoints'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-14T08:48:08Z

@@ -539,6 +539,115 @@ summary {
   animation: rk-dash-rain 2.8s linear infinite;
 }
 
+/* ── Flair overlays (decoration-only channel) ────────────────────────────────
+   A row carrying a flair value (`nyan` / `naruto` / `onepiece`) gets an
+   always-on, ambient, CSS-only animated overlay — pure decoration: no wiring
+   to @rk_agent_state or the status pyramid, and it animates in EVERY row
+   state (rest, hover, selected). Mounted on window rows, session rows, and
+   server group header rows as a dedicated absolutely-positioned inner element
+   (inset-0, overflow-hidden, pointer-events-none, z-5) — the SAME overlay
+   discipline as .rk-scanlines: clipping lives on the overlay, NEVER the row
+   root (whose top-full popovers must stay unclipped).
+
+   Sprites are ORIGINAL stylized art embedded as inline SVG data URIs — no
+   external requests, no copyrighted assets. Traversal is background-position
+   only, NEVER transform (the drag-ghost rule — see .rk-scanlines-crawl) and
+   never `left` (no layout thrash). Each sprite layer is no-repeat and slides
+   from a fully-off-left negative offset to a fully-off-right
+   `calc(100% + Npx)` (the scanline-band trick: a no-repeat background outside
+   its area paints nothing), so any row width traverses edge-to-edge. Trail
+   layers ride the same keyframes as their sprite with a constant px offset
+   (identical pixel displacement, so sprite and trail never separate), and
+   every alpha is low enough that row text stays readable.
+
+   ORDER MATTERS (same discipline as .rk-dash-rain): these base rules PRECEDE
+   the prefers-reduced-motion block so its equal-specificity hidden overrides
+   win by source order — the flairs are motion-only decoration and hide
+   entirely there. */
+
+/* nyan: a small pixel cat (stylized rainbow-trailing cat) flying left→right,
+   trailing 6 thin rainbow bands (repeating linear-gradient stripes at ~20%
+   alpha). ~10s traversal. Two background layers on one pseudo: the cat sprite
+   (32×18) and a 56×12 rainbow segment parked 52px behind it. */
+@keyframes rk-flair-nyan-fly {
+  from { background-position: -36px 50%, -88px 50%; }
+  to { background-position: calc(100% + 36px) 50%, calc(100% + 8px) 50%; }
+}
+.rk-flair-nyan::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='18' viewBox='0 0 32 18'%3E%3Cg fill='%239aa4b2'%3E%3Crect x='1' y='5' width='4' height='2'/%3E%3Crect x='3' y='3' width='2' height='2'/%3E%3Crect x='5' y='7' width='14' height='7'/%3E%3Crect x='6' y='14' width='3' height='3'/%3E%3Crect x='15' y='14' width='3' height='3'/%3E%3C/g%3E%3Cg fill='%23f3b8cc'%3E%3Crect x='19' y='4' width='10' height='9'/%3E%3Crect x='20' y='2' width='3' height='2'/%3E%3Crect x='26' y='2' width='3' height='2'/%3E%3C/g%3E%3Crect x='25' y='7' width='2' height='2' fill='%232b2f36'/%3E%3Crect x='28' y='9' width='1' height='1' fill='%23e26a8d'/%3E%3C/svg%3E"),
+    linear-gradient(to bottom, rgba(255,89,94,.2) 0 2px, rgba(255,159,67,.2) 2px 4px, rgba(255,214,64,.2) 4px 6px, rgba(138,201,38,.2) 6px 8px, rgba(77,150,255,.2) 8px 10px, rgba(155,93,229,.2) 10px 12px);
+  background-size: 32px 18px, 56px 12px;
+  background-repeat: no-repeat, no-repeat;
+  background-position: -36px 50%, -88px 50%;
+  animation: rk-flair-nyan-fly 10s linear infinite;
+}
+
+/* naruto: a small ninja-runner silhouette (leaning forward, arms swept back —
+   the "naruto run" pose, original silhouette) dashing left→right with a brief
+   speed-line trail behind it. ~7s traversal. Same two-layer discipline as
+   nyan: the silhouette (24×16) and a 22×14 speed-line segment 20px behind. */
+@keyframes rk-flair-naruto-dash {
+  from { background-position: -28px 50%, -48px 50%; }
+  to { background-position: calc(100% + 28px) 50%, calc(100% + 6px) 50%; }
+}
+.rk-flair-naruto::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='16' viewBox='0 0 24 16'%3E%3Cg fill='%236b7482' fill-opacity='0.5'%3E%3Ccircle cx='16.5' cy='2.8' r='2.2'/%3E%3Cpath d='M2 3.2 L9.5 4.2 L9.5 5.4 L2.2 4.6 Z'/%3E%3Cpath d='M14.8 4.4 L18.6 4.6 L17 10.2 L13.4 9.6 Z'/%3E%3Cpath d='M13.4 9.6 L17 10.2 L20 14.6 L18 15.4 L14.6 11.4 Z'/%3E%3Cpath d='M13.4 9.6 L14.8 11.2 L8.6 15.2 L7 13.8 L11.8 9.8 Z'/%3E%3Cpath d='M15.6 5.4 L8.6 7.2 L9 8.6 L16 6.8 Z'/%3E%3C/g%3E%3C/svg%3E"),
+    linear-gradient(to bottom, transparent 0 4px, rgba(107,116,130,.25) 4px 5px, transparent 5px 9px, rgba(107,116,130,.18) 9px 10px, transparent 10px 14px);
+  background-size: 24px 16px, 22px 14px;
+  background-repeat: no-repeat, no-repeat;
+  background-position: -28px 50%, -48px 50%;
+  animation: rk-flair-naruto-dash 7s linear infinite;
+}
+
+/* onepiece: a tiny pirate ship (hull + sail + straw-hat pennant, original
+   art) sailing left→right along a subtle 1px wave baseline near the row
+   bottom. ~12s traversal. TWO pseudos: ::before carries the STATIC wave tile
+   (a 16×3 scallop repeated along the bottom edge); ::after carries the ship
+   with two INDEPENDENT longhand animations — background-position-x for the
+   12s traversal, background-position-y for a gentle ~1.6s bob (the two
+   longhands animate independently, so they compose without clobbering). */
+.rk-flair-onepiece::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='3' viewBox='0 0 16 3'%3E%3Cpath d='M0 1.5 Q4 0 8 1.5 T16 1.5' fill='none' stroke='%235b8fd9' stroke-opacity='0.35' stroke-width='1'/%3E%3C/svg%3E");
+  background-size: 16px 3px;
+  background-repeat: repeat-x;
+  background-position: 0 calc(100% - 1px);
+}
+@keyframes rk-flair-onepiece-sail {
+  from { background-position-x: -30px; }
+  to { background-position-x: calc(100% + 30px); }
+}
+@keyframes rk-flair-onepiece-bob {
+  from { background-position-y: calc(100% - 2px); }
+  to { background-position-y: calc(100% - 5px); }
+}
+.rk-flair-onepiece::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='26' height='20' viewBox='0 0 26 20'%3E%3Cpath d='M12 1 L18 2.8 L12 4.4 Z' fill='%23c0392b' fill-opacity='0.8'/%3E%3Ccircle cx='14' cy='2.6' r='0.9' fill='%23f2d16b'/%3E%3Crect x='11.4' y='4' width='1.2' height='9' fill='%236b4226' fill-opacity='0.7'/%3E%3Cpath d='M12.8 4.6 Q18 6.4 17.4 10.4 L12.8 10.4 Z' fill='%23e8e0cf' fill-opacity='0.65'/%3E%3Cpath d='M10.9 6.5 Q6.5 8 7.2 10.4 L10.9 10.4 Z' fill='%23e8e0cf' fill-opacity='0.5'/%3E%3Cpath d='M3 12.5 L23 12.5 L20 17.5 L7 17.5 Z' fill='%238a5a34' fill-opacity='0.7'/%3E%3Crect x='4' y='11' width='18' height='1.5' fill='%236b4226' fill-opacity='0.55'/%3E%3C/svg%3E");
+  background-size: 26px 20px;
+  background-repeat: no-repeat;
+  background-position: -30px calc(100% - 2px);
+  animation:
+    rk-flair-onepiece-sail 12s linear infinite,
+    rk-flair-onepiece-bob 1.6s ease-in-out infinite alternate;
+}
+
 /* Reduced-motion gate — disable EVERY treatment above (Parts A and B). The
    decode scramble is skipped in JS (top-bar.tsx reads the same media query). */
 /* ── Row-flyout card entrance (window-row register flyout, E1) ─────────────
@@ -652,6 +761,14 @@ summary {
   /* Dashed-marker data rain: motion-only overlay — hidden entirely (the
      static label cue is the dashed stripe itself, which always remains). */
   .rk-dash-rain::before { animation: none; display: none; }
+  /* Flair overlays (nyan / naruto / onepiece): motion-only ambient decoration
+     with NO static label cue of their own — hidden entirely, including the
+     onepiece wave baseline (a bare wave line without its ship would read as
+     residue). */
+  .rk-flair-nyan::before,
+  .rk-flair-naruto::before,
+  .rk-flair-onepiece::before,
+  .rk-flair-onepiece::after { animation: none; display: none; }
   /* Flyout-card entrance: pure flourish — the card simply appears. */
   .rk-flyout-in { animation: none; }
   /* Gap-seam sash: the hover anti-flicker delay and fades are zeroed (the pill

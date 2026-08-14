@@ -4,6 +4,7 @@ import { SwatchPopover } from "./swatch-popover";
 import {
   PICKER_COLOR_VALUES,
   MARKER_STATES,
+  FLAIR_STATES,
   HUE_FAMILIES,
   DEFAULT_DARK_THEME,
   UNCOLORED_SELECTED_KEY,
@@ -684,6 +685,99 @@ describe("SwatchPopover", () => {
       // Clear spans cols 1–3 of the removal row, beside the ✕ close cell.
       expect(screen.getByText("Clear").className).toContain("col-span-3");
       expect(screen.getByLabelText("Close picker")).toBeTruthy();
+    });
+  });
+
+  // ── Flair section: one row (∅ / nyan / naruto / onepiece) below the color
+  //    grid, gated on onSelectFlair alone. Non-∅ cells are LIVE previews
+  //    carrying their always-on rk-flair-* overlay; selection is a direct pick
+  //    ("" clears — no cycling). Keyboard nav reaches the row as FLAIR_ROW. ──
+  describe("flair section", () => {
+    function renderFlairPicker(extra: Partial<React.ComponentProps<typeof SwatchPopover>> = {}) {
+      const onSelect = vi.fn();
+      const onSelectFlair = vi.fn();
+      const onClose = vi.fn();
+      const utils = renderWithTheme(
+        <SwatchPopover
+          onSelect={onSelect}
+          onSelectFlair={onSelectFlair}
+          onClose={onClose}
+          {...extra}
+        />,
+      );
+      return { onSelect, onSelectFlair, onClose, ...utils };
+    }
+
+    it("renders NO flair row when onSelectFlair is absent", () => {
+      const onSelect = vi.fn();
+      const onClose = vi.fn();
+      renderWithTheme(<SwatchPopover onSelect={onSelect} onClose={onClose} />);
+      // Color-only: 20 swatches + Clear + ✕ = 22 options, no flair cells.
+      expect(screen.getAllByRole("option")).toHaveLength(22);
+      expect(screen.queryByRole("option", { name: /^Flair / })).toBeNull();
+    });
+
+    it("renders the four flair cells (∅ + nyan/naruto/onepiece) in FLAIR_STATES order", () => {
+      renderFlairPicker();
+      // 20 swatches + Clear + ✕ + 4 flair cells = 26 options.
+      expect(screen.getAllByRole("option")).toHaveLength(26);
+      for (const state of ["none", "nyan", "naruto", "onepiece"]) {
+        expect(screen.getByRole("option", { name: `Flair ${state}` })).toBeTruthy();
+      }
+      const cells = Array.from(
+        screen.getByRole("listbox").querySelectorAll("[data-flair-value]"),
+      );
+      expect(cells.map((c) => c.getAttribute("data-flair-value"))).toEqual([...FLAIR_STATES]);
+    });
+
+    it("clicking a flair cell calls onSelectFlair with the EXACT state (no cycling); ∅ clears", () => {
+      const { onSelectFlair } = renderFlairPicker({ selectedFlair: "naruto" });
+      fireEvent.click(screen.getByRole("option", { name: "Flair nyan" }));
+      expect(onSelectFlair).toHaveBeenCalledWith("nyan");
+      // The current flair ("naruto") carries the selection ring + aria-selected.
+      const current = screen.getByRole("option", { name: "Flair naruto" });
+      expect(current.getAttribute("aria-selected")).toBe("true");
+      expect(current.className).toContain("ring-text-primary");
+      // The ∅ cell clears with the empty string.
+      fireEvent.click(screen.getByRole("option", { name: "Flair none" }));
+      expect(onSelectFlair).toHaveBeenCalledWith("");
+    });
+
+    it("non-∅ flair cells are live previews carrying their always-on rk-flair-* overlay", () => {
+      renderFlairPicker();
+      for (const state of ["nyan", "naruto", "onepiece"]) {
+        const cell = screen.getByRole("option", { name: `Flair ${state}` });
+        expect(cell.querySelector(`.rk-flair-${state}`)).not.toBeNull();
+      }
+      // The ∅ cell carries no overlay (it is the inset glyph cell, like the
+      // marker column's none cell).
+      const none = screen.getByRole("option", { name: "Flair none" });
+      expect(none.querySelector("[class*='rk-flair-']")).toBeNull();
+      expect(none.className).toContain("bg-bg-inset");
+    });
+
+    it("keyboard nav reaches the flair cells: ArrowDown past the last color row, Enter picks", () => {
+      const { onSelect, onSelectFlair } = renderFlairPicker();
+      const listbox = screen.getByRole("listbox");
+      // Uncolored → initial focus is Clear (0,1). Descend six rows: five color
+      // rows, then the flair row — landing on ∅ (col 1).
+      for (let i = 0; i < 6; i++) fireEvent.keyDown(listbox, { key: "ArrowDown" });
+      fireEvent.keyDown(listbox, { key: "Enter" });
+      expect(onSelectFlair).toHaveBeenLastCalledWith("");
+      expect(onSelect).not.toHaveBeenCalled();
+      // ArrowRight walks the row (nyan, naruto, onepiece) and clamps at its
+      // right edge.
+      for (const state of ["nyan", "naruto", "onepiece", "onepiece"]) {
+        fireEvent.keyDown(listbox, { key: "ArrowRight" });
+        fireEvent.keyDown(listbox, { key: "Enter" });
+        expect(onSelectFlair).toHaveBeenLastCalledWith(state);
+      }
+      // ArrowUp returns to the bottom color row; ArrowDown re-enters the flair
+      // row in the same column (onepiece, col 4).
+      fireEvent.keyDown(listbox, { key: "ArrowUp" });
+      fireEvent.keyDown(listbox, { key: "ArrowDown" });
+      fireEvent.keyDown(listbox, { key: "Enter" });
+      expect(onSelectFlair).toHaveBeenLastCalledWith("onepiece");
     });
   });
 });

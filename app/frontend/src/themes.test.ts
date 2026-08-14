@@ -12,6 +12,7 @@ import {
   HUE_FAMILIES,
   PICKER_COLOR_VALUES,
   MARKER_STATES,
+  FLAIR_STATES,
   markerStripeStyle,
   UNCOLORED_SELECTED_KEY,
   parseColorValue,
@@ -434,6 +435,10 @@ describe("markerStripeStyle", () => {
 
   it("MARKER_STATES is the closed set in display order (empty first)", () => {
     expect(MARKER_STATES).toEqual(["", "dotted", "dashed", "solid", "double", "thick"]);
+  });
+
+  it("FLAIR_STATES is the closed set in display order (empty first)", () => {
+    expect(FLAIR_STATES).toEqual(["", "nyan", "naruto", "onepiece"]);
   });
 });
 

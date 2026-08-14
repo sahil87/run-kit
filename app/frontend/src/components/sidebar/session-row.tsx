@@ -45,6 +45,10 @@ type SessionRowProps = {
   onDragLeave: (e: React.DragEvent, server: string, name: string) => void;
   onDrop: (e: React.DragEvent, server: string, name: string) => void;
   onColorChange?: (server: string, name: string, color: string | null) => void;
+  /** Persist a flair state for this session. The picker's flair section passes
+   *  the EXACT picked state here ("" mapped to null clears). Optional (mirrors
+   *  `onColorChange`): omitted ⇒ the picker renders no flair section. */
+  onFlairChange?: (server: string, name: string, flair: string | null) => void;
   /** Optional waiting-badge click (260714-r7rq): navigate to the next waiting
    *  window in this session (chat-aware — appends `?view=chat` when that window
    *  has a chat). Absent ⇒ the badge stays display-only. */
@@ -99,6 +103,7 @@ function SessionRowInner({
   onDragLeave,
   onDrop,
   onColorChange,
+  onFlairChange,
   onWaitingBadgeClick,
   onSpawnAgent,
   tabIndex = -1,
@@ -159,6 +164,19 @@ function SessionRowInner({
       onMouseEnter={tint ? (e) => { (e.currentTarget as HTMLElement).style.backgroundColor = tint.hover; } : undefined}
       onMouseLeave={tint ? (e) => { (e.currentTarget as HTMLElement).style.backgroundColor = tint.base; } : undefined}
     >
+      {/* Flair overlay (decoration-only channel): an always-on ambient
+          CSS-only animation mounted whenever the session carries a flair
+          value — in every row state. Same overlay discipline as the window
+          row's marker textures (dedicated clipped inner element, never the
+          root, pointer-events-none, z-5); composes with the color tint.
+          Hidden entirely under prefers-reduced-motion (globals.css § Flair
+          overlays). */}
+      {session.flair && (
+        <span
+          aria-hidden="true"
+          className={`absolute inset-0 z-[5] overflow-hidden pointer-events-none rk-flair-${session.flair}`}
+        />
+      )}
       <div className="flex items-center gap-1.5 min-w-0 flex-1">
         <button
           onClick={() => onToggleCollapse(server, name)}
@@ -273,6 +291,12 @@ function SessionRowInner({
             selectedColor={sessionColor}
             // Selection does NOT close (the picker's dismissal contract).
             onSelect={(c) => onColorChange(server, name, c)}
+            selectedFlair={session.flair}
+            onSelectFlair={
+              onFlairChange
+                ? (f) => onFlairChange(server, name, f === "" ? null : f)
+                : undefined
+            }
             onClose={() => setShowColorPicker(false)}
           />
         </div>

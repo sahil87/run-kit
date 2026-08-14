@@ -459,6 +459,20 @@ export const UNCOLORED_SELECTED_KEY = `${UNCOLORED_SELECTED_ANSI}`;
  *  always-on dashed data rain and the double selection crawl. */
 export const MARKER_STATES = ["", "dotted", "dashed", "solid", "double", "thick"] as const;
 
+// ── Row flair (decoration-only channel) ──────────────────────────────────────
+
+/** The row flair states. `""` (no flair) is the rest state. A flair is an
+ *  always-on, ambient, CSS-only animated row overlay (globals.css
+ *  `.rk-flair-*`) available on window rows, session rows, and server group
+ *  header rows. Flair is DECORATION ONLY — unlike the marker's label
+ *  conventions, it carries no semantic at all: no wiring to `@rk_agent_state`
+ *  or the status pyramid. Mirrors the backend closed set minus the empty
+ *  string, with `""` at the front. */
+export const FLAIR_STATES = ["", "nyan", "naruto", "onepiece"] as const;
+
+/** A flair state — one of FLAIR_STATES. */
+export type FlairState = (typeof FLAIR_STATES)[number];
+
 /** Inline style rendering a marker state as a left-edge stripe in the given
  *  color: dotted 3px, dashed 3px, solid 3px, double 6px, thick 6px. The empty
  *  state renders no stripe. Shared by the window-row display-only stripe and

@@ -136,6 +136,56 @@ func (s *Server) handleSessionColor(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
+// handleSessionFlair sets or clears the @rk_flair session option.
+// POST /api/sessions/{session}/flair ← {"flair": "onepiece"} sets; null or ""
+// clears. Mirrors handleSessionColor — the flair allowlist is validated before
+// any tmux call (invalid → 400, zero tmux calls).
+func (s *Server) handleSessionFlair(w http.ResponseWriter, r *http.Request) {
+	session := chi.URLParam(r, "session")
+	if errMsg := validate.ValidateName(session, "Session name"); errMsg != "" {
+		writeError(w, http.StatusBadRequest, errMsg)
+		return
+	}
+
+	var body struct {
+		Flair *string `json:"flair"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body")
+		return
+	}
+
+	// Flair is a closed-set token ("nyan" / "naruto" / "onepiece"); an empty
+	// string is valid and treated as unset below (mirroring @rk_marker).
+	if body.Flair != nil {
+		if errMsg := validate.ValidateFlairValue(*body.Flair); errMsg != "" {
+			writeError(w, http.StatusBadRequest, errMsg)
+			return
+		}
+	}
+
+	server := serverFromRequest(r)
+
+	var err error
+	if body.Flair != nil && *body.Flair != "" {
+		err = s.tmux.SetSessionFlair(session, *body.Flair, server)
+	} else {
+		err = s.tmux.UnsetSessionFlair(session, server)
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Wake the SSE hub so the @rk_flair change surfaces on the next poll pass
+	// instead of the 12s safety tick — same set-option invisibility and the
+	// same initSSEHub-then-hub-call pattern as handleSessionColor.
+	s.initSSEHub()
+	s.sseHub.wake(server)
+
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
 // handleSessionOrderGet returns the persisted session order for the active server.
 // GET /api/sessions/order?server=<name> → 200 {"order": [...]}
 // Unset option returns 200 {"order": []} — never a 404.

@@ -1,5 +1,5 @@
 ---
-description: "Sidebar: row anatomy, icon system and label zone, render-performance constraints, keyboard nav + tree ARIA, multi-select + broadcast, collapsible panels, host-page zones (health/boards/services), kill controls, scroll-edge fade, operator pinned row, footer."
+description: "Sidebar: row anatomy, icon system and label zone, row flair overlays, render-performance constraints, keyboard nav + tree ARIA, multi-select + broadcast, collapsible panels, host-page zones (health/boards/services), kill controls, scroll-edge fade, operator pinned row, footer."
 type: memory
 ---
 # run-kit UI — Sidebar
@@ -442,6 +442,16 @@ The whole 26px to the left of the status dot on each window row is ONE interacti
 
 **Marker/color plumbing**: `WindowInfo.marker?: string` (`src/types.ts`) carries the state from the `@rk_marker` window option (architecture.md § `@rk_marker`). `setWindowMarker(server, windowId, marker | null)` in `client.ts` delegates to `setWindowOptions({"@rk_marker": ...})` (empty/`null` clears). `sidebar/index.tsx` owns `onColorChange` + `onMarkerChange` handlers, prop-drilled through `ServerGroup` to `WindowRow`; the Label picker passes the **exact** picked color and marker state straight to these (no cycling — any state is one click). The `Window: Label` palette action opens this same picker via an imperative `label-popover:open` CustomEvent that the matching `WindowRow` listens for (`{ detail: { server, windowId } }`, mirroring the `pin-popover:open` pattern); the row registers both listeners in one `useEffect`. **Scope: window rows only** — session rows and server tiles get the owned-palette color affordance but no marker and no left-edge label zone.
 
+### Row Flair — Character Animations (all three row types)
+
+A row can carry at most one **flair** — `""` (unset) / `nyan` / `naruto` / `onepiece` — an opt-in, purely decorative character-animation overlay channel, orthogonal to color tint and (window-only) markers: a row can have all three at once. Flair carries no semantic meaning and has no wiring to `@rk_agent_state` or the status pyramid. `themes.ts` owns the single vocabulary `FLAIR_STATES = ["", "nyan", "naruto", "onepiece"]` + the `FlairState` type, shared by the picker and all gating. (`260814-2esh`)
+
+**Overlay mount — same slot on every row type**: a flaired row mounts a dedicated `<span aria-hidden="true" class="absolute inset-0 z-[5] overflow-hidden pointer-events-none rk-flair-{value}">` — clipping on the overlay, never the row root (the `.rk-scanlines` discipline). Window rows (`window-row.tsx`, sibling of the scanlines/hazard/dash-rain overlay slot, gated on `win.flair`), session rows (`session-row.tsx`, on the already-`relative` row root), and server group header rows (`ServerGroup` in `sidebar/index.tsx`). Flair is a stable string on the existing row data objects, so the `ServerGroup`/`SessionRow`/`WindowRow` memoization is untouched; the animation itself is CSS-only — no JS timers, no per-render props. The treatments themselves (`.rk-flair-nyan`/`-naruto`/`-onepiece`, always-on ambient, hidden entirely under `prefers-reduced-motion`) are documented in [visual-design](/run-kit/ui/visual-design.md) § Character Flair Overlays.
+
+**Flair plumbing**: window flair rides the `@rk_flair` window option onto `WindowInfo.flair?: string`; session flair rides the `@rk_flair` session option onto the session payload's `flair`; server flair comes from the settings store (`getAllServerFlairs()`), not tmux — see [tmux-sessions](/run-kit/tmux-sessions.md) § Server-Scoped User Options and architecture.md § Data Model. `sidebar/index.tsx` owns `handleWindowFlairChange` / `handleSessionFlairChange` / `handleServerFlairChange` (beside `handleWindowMarkerChange`), calling `setWindowFlair` / `setSessionFlair` / `setServerFlair` with toast-on-error; `""` clears, mirroring the marker contract.
+
+**Picker entry points — one flair section, three surfaces**: `SwatchPopover` renders a **flair section** whenever an `onSelectFlair` callback is supplied (with `selectedFlair`): four cells — ∅ / nyan / naruto / onepiece in `FLAIR_STATES` order (`data-flair-value` per cell) — following the marker column's pattern, except the non-∅ cells ARE live previews carrying their always-on animated `.rk-flair-*` overlay (marker preview cells never animate; flair previews do). Selection calls `onSelectFlair` directly with the exact state (no cycling; `""` clears), the current cell carries `aria-selected` + selection ring, and keyboard nav reaches the flair cells. The section is wired at all three row entry points: the window-row **Label picker** (color + marker + flair), and the session-row and server-group **color pickers**, which gain flair but still NO marker column — markers stay window-only.
+
 ### Sidebar Kill Controls
 
 - **Session row ✕**: Always-visible ✕ button on session rows with red hover. Normal click opens confirmation dialog: "Kill session **{name}** and all {N} windows?" **Ctrl+Click / Cmd+Click** bypasses the confirmation dialog and kills immediately (best-effort `.catch(() => {})`).
@@ -636,3 +646,9 @@ The create-server and kill-server confirm dialogs render **exactly once**, mount
 **Decision**: `.rk-dash-rain` mounts on `isDashed` alone — a dashed-marked window row streams its two dash tracks in every state, not only while selected. The gutter stripe itself stays static in every state.
 **Why**: "working" is inherently live, and the thinned two-lane rain is quiet enough to run ambiently (a deliberate user call).
 **Rejected**: Gating the rain on row selection.
+
+### Flair is an independent per-row channel, orthogonal to color and marker
+**Decision**: Row character animations live on a dedicated flair channel (`@rk_flair` window/session options; a settings-store map for servers) with at most one value per row — never as new marker states.
+**Why**: Markers are a semantic border-style vocabulary with a picker-grid invariant (`GRID_ROWS === MARKER_CELLS.length`) and exist on window rows only; flair must reach session and server rows and compose freely with color + marker. User-confirmed in the change's clarification session.
+**Rejected**: New marker states — would break the 6-cell picker-grid invariant and force markers onto row types that don't have them.
+*Introduced by*: 260814-2esh-sidebar-character-row-animations

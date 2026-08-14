@@ -81,6 +81,10 @@ type WindowRowProps = {
    *  EXACT picked state here (no cycling — any state is one click). Omitted on
    *  ghost rows (the label zone is disabled). */
   onMarkerChange?: (server: string, session: string, windowId: string, marker: string | null) => void;
+  /** Persist a flair state for this window. The Label picker's flair section
+   *  passes the EXACT picked state here ("" mapped to null clears). Omitted on
+   *  ghost rows (the label zone is disabled). */
+  onFlairChange?: (server: string, session: string, windowId: string, flair: string | null) => void;
   /** Fork this window's agent conversation into a new window in the same session
    *  and directory (260806-s4av). Identity-arg like its siblings. Optional
    *  (mirrors `onColorChange`): when omitted — the board-route sidebar, ghost
@@ -168,6 +172,7 @@ function WindowRowInner({
   onDragEnd,
   onColorChange,
   onMarkerChange,
+  onFlairChange,
   onForkWindow,
   server,
   isPinnedToAny = false,
@@ -441,6 +446,19 @@ function WindowRowInner({
           className="absolute inset-0 z-[5] overflow-hidden pointer-events-none rk-dash-rain"
         />
       )}
+      {/* Flair overlay (decoration-only channel): an always-on ambient
+          CSS-only animation mounted whenever the window carries a flair value
+          — in EVERY row state (rest, hover, selected). Same overlay discipline
+          as the marker textures above (dedicated clipped inner element, never
+          the root, pointer-events-none, z-5) and composes with the color tint
+          and any marker overlay. Hidden entirely under prefers-reduced-motion
+          (globals.css § Flair overlays). */}
+      {win.flair && (
+        <span
+          aria-hidden="true"
+          className={`absolute inset-0 z-[5] overflow-hidden pointer-events-none rk-flair-${win.flair}`}
+        />
+      )}
       {labelZoneEnabled && (
         <LabelZone
           marker={marker}
@@ -648,6 +666,12 @@ function WindowRowInner({
             onSelect={(c) => onColorChange(srv, session, win.windowId, c)}
             selectedMarker={marker}
             onSelectMarker={(m) => onMarkerChange(srv, session, win.windowId, m === "" ? null : m)}
+            selectedFlair={win.flair}
+            onSelectFlair={
+              onFlairChange
+                ? (f) => onFlairChange(srv, session, win.windowId, f === "" ? null : f)
+                : undefined
+            }
             onClose={() => setShowLabelPicker(false)}
           />
         </div>

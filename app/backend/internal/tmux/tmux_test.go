@@ -625,6 +625,74 @@ func TestParseWindowsRole(t *testing.T) {
 	}
 }
 
+// windowLineFlair builds a 13-field tab-delimited tmux line including the
+// trailing @rk_flair field (@color/@rk_type/@rk_url/@rk_marker/@rk_role left
+// empty).
+func windowLineFlair(windowID string, index int, name, path string, activityTs int64, active int, paneCmd, flair string) string {
+	return fmt.Sprintf("%s%s%d%s%s%s%s%s%d%s%d%s%s%s%s%s%s%s%s%s%s%s%s%s%s",
+		windowID, listDelim, index, listDelim, name, listDelim, path, listDelim, activityTs, listDelim, active, listDelim, paneCmd, listDelim, "" /*@color*/, listDelim, "" /*@rk_type*/, listDelim, "" /*@rk_url*/, listDelim, "" /*@rk_marker*/, listDelim, "" /*@rk_role*/, listDelim, flair)
+}
+
+func TestParseWindowsFlair(t *testing.T) {
+	const fakeNow int64 = 1700000000
+
+	tests := []struct {
+		name      string
+		line      string
+		wantFlair string
+	}{
+		{"nyan flair", windowLineFlair("@0", 0, "a", "/p", fakeNow, 1, "zsh", "nyan"), "nyan"},
+		{"naruto flair", windowLineFlair("@0", 0, "a", "/p", fakeNow, 1, "zsh", "naruto"), "naruto"},
+		{"onepiece flair", windowLineFlair("@0", 0, "a", "/p", fakeNow, 1, "zsh", "onepiece"), "onepiece"},
+		{"empty flair", windowLineFlair("@0", 0, "a", "/p", fakeNow, 1, "zsh", ""), ""},
+		{"unknown flair dropped to empty", windowLineFlair("@0", 0, "a", "/p", fakeNow, 1, "zsh", "pikachu"), ""},
+		{"12-field line (no flair field) has empty flair", windowLineRole("@0", 0, "a", "/p", fakeNow, 1, "zsh", "operator"), ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseWindows([]string{tt.line}, fakeNow)
+			if len(got) != 1 {
+				t.Fatalf("parseWindows() returned %d windows, want 1", len(got))
+			}
+			if got[0].Flair != tt.wantFlair {
+				t.Errorf("Flair = %q, want %q", got[0].Flair, tt.wantFlair)
+			}
+		})
+	}
+}
+
+// sessionLineFlair builds a 7-field tab-delimited tmux line including the
+// trailing @rk_flair field (@session_color left empty, windows count 1).
+func sessionLineFlair(name, grouped, group, flair string) string {
+	return strings.Join([]string{name, grouped, group, "0", "", "1", flair}, listDelim)
+}
+
+func TestParseSessionsFlair(t *testing.T) {
+	tests := []struct {
+		name      string
+		line      string
+		wantFlair string
+	}{
+		{"nyan flair", sessionLineFlair("alpha", "0", "alpha", "nyan"), "nyan"},
+		{"empty flair", sessionLineFlair("alpha", "0", "alpha", ""), ""},
+		{"unknown flair dropped to empty", sessionLineFlair("alpha", "0", "alpha", "pikachu"), ""},
+		{"6-field line (no flair field) has empty flair", sessionLineWindows("alpha", "0", "alpha", 0, 1), ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseSessions([]string{tt.line})
+			if len(got) != 1 {
+				t.Fatalf("parseSessions() returned %d sessions, want 1", len(got))
+			}
+			if got[0].Flair != tt.wantFlair {
+				t.Errorf("Flair = %q, want %q", got[0].Flair, tt.wantFlair)
+			}
+		})
+	}
+}
+
 func TestRoleCarriersToClear(t *testing.T) {
 	tests := []struct {
 		name string

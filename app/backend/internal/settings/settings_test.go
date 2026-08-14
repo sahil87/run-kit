@@ -474,6 +474,69 @@ func TestServerColorRoundTrip(t *testing.T) {
 	}
 }
 
+// TestServerFlairRoundTrip mirrors TestServerColorRoundTrip for the
+// server_flairs map: set → read back, unset-server nil, clear.
+func TestServerFlairRoundTrip(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	flair := "nyan"
+	if err := SetServerFlair("default", &flair); err != nil {
+		t.Fatalf("SetServerFlair: %v", err)
+	}
+
+	got := GetServerFlair("default")
+	if got == nil || *got != "nyan" {
+		t.Errorf("GetServerFlair(default) = %v, want \"nyan\"", got)
+	}
+
+	// A second flair coexists and both survive the write→read round-trip.
+	other := "onepiece"
+	if err := SetServerFlair("dev", &other); err != nil {
+		t.Fatalf("SetServerFlair dev: %v", err)
+	}
+	loaded := Load()
+	if loaded.ServerFlairs["default"] != "nyan" || loaded.ServerFlairs["dev"] != "onepiece" {
+		t.Errorf("ServerFlairs = %v, want {default: nyan, dev: onepiece}", loaded.ServerFlairs)
+	}
+
+	// Unset server should return nil
+	got = GetServerFlair("nonexistent")
+	if got != nil {
+		t.Errorf("GetServerFlair(nonexistent) = %v, want nil", got)
+	}
+
+	// Clear
+	if err := SetServerFlair("default", nil); err != nil {
+		t.Fatalf("SetServerFlair nil: %v", err)
+	}
+	got = GetServerFlair("default")
+	if got != nil {
+		t.Errorf("GetServerFlair after clear = %v, want nil", got)
+	}
+}
+
+// TestParseServerFlairs verifies the closed-set tolerant read: values outside
+// the flair allowlist (and empty values) are dropped on load.
+func TestParseServerFlairs(t *testing.T) {
+	s := parse("theme: system\nserver_flairs:\n  default: \"nyan\"\n  dev: \"naruto\"\n  bad: \"pikachu\"\n  empty: \"\"\n")
+	if len(s.ServerFlairs) != 2 {
+		t.Fatalf("expected 2 valid server flairs (out-of-set dropped), got %d: %v", len(s.ServerFlairs), s.ServerFlairs)
+	}
+	if s.ServerFlairs["default"] != "nyan" {
+		t.Errorf("ServerFlairs[default] = %q, want \"nyan\"", s.ServerFlairs["default"])
+	}
+	if s.ServerFlairs["dev"] != "naruto" {
+		t.Errorf("ServerFlairs[dev] = %q, want \"naruto\"", s.ServerFlairs["dev"])
+	}
+	if _, ok := s.ServerFlairs["bad"]; ok {
+		t.Errorf("out-of-set value pikachu should have been dropped, got %q", s.ServerFlairs["bad"])
+	}
+	if _, ok := s.ServerFlairs["empty"]; ok {
+		t.Errorf("empty value should have been dropped, got %q", s.ServerFlairs["empty"])
+	}
+}
+
 // --- ssh_host + instance_name (260723-o7q8) ---
 
 func TestParseSSHHostAndInstanceName(t *testing.T) {

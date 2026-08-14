@@ -668,6 +668,20 @@ export async function setWindowRole(
   });
 }
 
+/** Set (or clear) the window's flair overlay via the unified /options
+ *  contract. `flair` is one of "nyan"/"naruto"/"onepiece"; null OR "" clears
+ *  it (the server treats an empty @rk_flair as unset). Mirrors
+ *  setWindowMarker. */
+export async function setWindowFlair(
+  server: string,
+  windowId: string,
+  flair: string | null,
+): Promise<{ ok: boolean }> {
+  return setWindowOptions(server, windowId, {
+    "@rk_flair": flair == null || flair === "" ? "" : flair,
+  });
+}
+
 export async function setSessionColor(
   server: string,
   session: string,
@@ -679,6 +693,25 @@ export async function setSessionColor(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ color }),
+    },
+  );
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
+/** Set (or clear) the session's flair overlay. `flair` is one of
+ *  "nyan"/"naruto"/"onepiece"; null/empty clears it. Mirrors setSessionColor. */
+export async function setSessionFlair(
+  server: string,
+  session: string,
+  flair: string | null,
+): Promise<{ ok: boolean }> {
+  const res = await fetch(
+    withServer(`/api/sessions/${encodeURIComponent(session)}/flair`, server),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ flair }),
     },
   );
   if (!res.ok) await throwOnError(res);
@@ -860,6 +893,24 @@ export async function setServerColor(server: string, color: string | null): Prom
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ server, color }),
+  });
+  if (!res.ok) await throwOnError(res);
+}
+
+// --- Server flair settings (global, not per-server) ---
+
+export async function getAllServerFlairs(): Promise<Record<string, string>> {
+  const res = await deduplicatedFetch("/api/settings/server-flair");
+  if (!res.ok) await throwOnError(res);
+  const data: { flairs: Record<string, string> } = await res.json();
+  return data.flairs;
+}
+
+export async function setServerFlair(server: string, flair: string | null): Promise<void> {
+  const res = await fetch("/api/settings/server-flair", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ server, flair }),
   });
   if (!res.ok) await throwOnError(res);
 }

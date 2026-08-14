@@ -497,6 +497,11 @@ type WindowInfo struct {
 	// window's row below the SESSIONS header. Unknown tokens are dropped to ""
 	// by parseWindows (the Marker idiom).
 	Role  string     `json:"role,omitempty"`
+	// Flair is the window's per-row flair decoration, sourced from the
+	// @rk_flair window user option: "" (unset)/"nyan"/"naruto"/"onepiece".
+	// Pure decoration — an independent axis from Color and Marker. Unknown
+	// tokens are dropped to "" by parseWindows (the Marker idiom).
+	Flair string     `json:"flair,omitempty"`
 	Panes []PaneInfo `json:"panes,omitempty"`
 }
 
@@ -544,6 +549,11 @@ func withTimeout() (context.Context, context.CancelFunc) {
 type SessionInfo struct {
 	Name  string  `json:"name"`
 	Color *string `json:"color,omitempty"`
+	// Flair is the session's per-row flair decoration, sourced from the
+	// @rk_flair session user option: "" (unset)/"nyan"/"naruto"/"onepiece".
+	// Unknown tokens are dropped to "" by parseSessions (the window-Marker
+	// closed-set idiom).
+	Flair string `json:"flair,omitempty"`
 	// Windows is the session's window count (#{session_windows}), used for
 	// the per-server rollup on GET /api/servers. Additive JSON key.
 	Windows int `json:"windows"`
@@ -551,7 +561,8 @@ type SessionInfo struct {
 
 // parseSessions parses tmux list-sessions output lines into SessionInfo structs,
 // filtering out session-group copies.
-// Format: name, grouped, group, group_size, @color, windows (6 fields).
+// Format: name, grouped, group, group_size, @color, windows, @rk_flair
+// (7 fields).
 // Exported for testing.
 func parseSessions(lines []string) []SessionInfo {
 	type rawEntry struct {
@@ -561,6 +572,7 @@ func parseSessions(lines []string) []SessionInfo {
 		groupSize int
 		colorStr  string
 		windows   int
+		flair     string
 	}
 
 	// Pass 1: parse all valid lines.
@@ -603,6 +615,13 @@ func parseSessions(lines []string) []SessionInfo {
 		if len(parts) >= 6 {
 			e.windows, _ = strconv.Atoi(parts[5])
 		}
+		if len(parts) >= 7 {
+			// Flair is a closed-set token; drop any value outside the set
+			// (including "") to the empty unset state — the window-Marker idiom.
+			if f := strings.TrimSpace(parts[6]); validate.FlairValues[f] {
+				e.flair = f
+			}
+		}
 		entries = append(entries, e)
 	}
 
@@ -634,7 +653,7 @@ func parseSessions(lines []string) []SessionInfo {
 			keep = true
 		}
 		if keep {
-			si := SessionInfo{Name: e.name, Windows: e.windows}
+			si := SessionInfo{Name: e.name, Windows: e.windows, Flair: e.flair}
 			// Color is a value descriptor ("4" / "1+3"); normalize the raw
 			// option token, dropping anything malformed.
 			if normalized, ok := validate.NormalizeColorValue(e.colorStr); ok {
@@ -678,7 +697,7 @@ func ListSessions(ctx context.Context, server string) ([]SessionInfo, error) {
 	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
 	defer cancel()
 
-	format := fmt.Sprintf("#{session_name}%s#{session_grouped}%s#{session_group}%s#{session_group_size}%s#{@session_color}%s#{session_windows}", listDelim, listDelim, listDelim, listDelim, listDelim)
+	format := fmt.Sprintf("#{session_name}%s#{session_grouped}%s#{session_group}%s#{session_group_size}%s#{@session_color}%s#{session_windows}%s#{@rk_flair}", listDelim, listDelim, listDelim, listDelim, listDelim, listDelim)
 
 	lines, err := tmuxExecServer(ctx, server, "list-sessions", "-F", format)
 	if err != nil {
@@ -796,10 +815,10 @@ func parsePanes(lines []string) map[string][]PaneInfo {
 
 // parseWindows parses tmux list-windows output lines into WindowInfo structs.
 // nowUnix is the current Unix timestamp for activity threshold computation.
-// Lines have 12 tab-delimited fields: window_id, window_index, window_name,
+// Lines have 13 tab-delimited fields: window_id, window_index, window_name,
 // pane_current_path, window_activity, window_active, pane_current_command,
-// @color, @rk_type, @rk_url, @rk_marker, @rk_role. Lines with fewer than 8
-// fields are skipped; fields 9-12 are optional (empty string if absent).
+// @color, @rk_type, @rk_url, @rk_marker, @rk_role, @rk_flair. Lines with fewer
+// than 8 fields are skipped; fields 9-13 are optional (empty string if absent).
 // Exported for testing.
 func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 	var windows []WindowInfo
@@ -854,6 +873,16 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 			}
 		}
 
+		// Flair is a closed-set token ("nyan"/"naruto"/"onepiece"); drop any
+		// value outside the set (including "") to the empty unset state. Same
+		// idiom as Marker.
+		var flair string
+		if len(parts) >= 13 {
+			if f := strings.TrimSpace(parts[12]); validate.FlairValues[f] {
+				flair = f
+			}
+		}
+
 		windows = append(windows, WindowInfo{
 			Index:             index,
 			WindowID:          windowID,
@@ -868,6 +897,7 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 			RkUrl:             rkUrl,
 			Marker:            marker,
 			Role:              role,
+			Flair:             flair,
 		})
 	}
 	return windows
@@ -911,6 +941,7 @@ func ListWindows(ctx context.Context, session string, server string) ([]WindowIn
 		"#{@rk_url}",
 		"#{@rk_marker}",
 		"#{@rk_role}",
+		"#{@rk_flair}",
 	}, listDelim)
 
 	lines, err := tmuxExecServer(ctx, server, "list-windows", "-t", ExactSessionTarget(session), "-F", format)
@@ -1889,6 +1920,28 @@ func UnsetSessionColor(session string, server string) error {
 	defer cancel()
 
 	_, err := tmuxExecServer(ctx, server, "set-option", "-u", "-t", ExactSessionTarget(session), "@session_color")
+	return err
+}
+
+// SetSessionFlair sets the @rk_flair user option on a session. The value is a
+// closed-set flair token ("nyan" / "naruto" / "onepiece"), validated by the
+// caller before it reaches this function. Passed as a discrete arg (no shell
+// string) per constitution §I. Mirrors SetSessionColor.
+func SetSessionFlair(session string, flair string, server string) error {
+	ctx, cancel := withTimeout()
+	defer cancel()
+
+	_, err := tmuxExecServer(ctx, server, "set-option", "-t", ExactSessionTarget(session), "@rk_flair", flair)
+	return err
+}
+
+// UnsetSessionFlair removes the @rk_flair user option from a session.
+// Mirrors UnsetSessionColor.
+func UnsetSessionFlair(session string, server string) error {
+	ctx, cancel := withTimeout()
+	defer cancel()
+
+	_, err := tmuxExecServer(ctx, server, "set-option", "-u", "-t", ExactSessionTarget(session), "@rk_flair")
 	return err
 }
 

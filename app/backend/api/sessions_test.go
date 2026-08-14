@@ -109,6 +109,14 @@ type mockTmuxOps struct {
 	unsetSessionColorSession string
 	unsetSessionColorErr     error
 
+	setSessionFlairCalled  bool
+	setSessionFlairSession string
+	setSessionFlairFlair   string
+	setSessionFlairErr     error
+	unsetSessionFlairCalled  bool
+	unsetSessionFlairSession string
+	unsetSessionFlairErr     error
+
 	setWindowColorCalled   bool
 	setWindowColorWindowID string
 	setWindowColorColor    string
@@ -349,6 +357,23 @@ func (m *mockTmuxOps) UnsetSessionColor(session string, server string) error {
 	m.unsetSessionColorSession = session
 	if m.unsetSessionColorErr != nil {
 		return m.unsetSessionColorErr
+	}
+	return m.err
+}
+func (m *mockTmuxOps) SetSessionFlair(session string, flair string, server string) error {
+	m.setSessionFlairCalled = true
+	m.setSessionFlairSession = session
+	m.setSessionFlairFlair = flair
+	if m.setSessionFlairErr != nil {
+		return m.setSessionFlairErr
+	}
+	return m.err
+}
+func (m *mockTmuxOps) UnsetSessionFlair(session string, server string) error {
+	m.unsetSessionFlairCalled = true
+	m.unsetSessionFlairSession = session
+	if m.unsetSessionFlairErr != nil {
+		return m.unsetSessionFlairErr
 	}
 	return m.err
 }
@@ -975,6 +1000,109 @@ func TestSessionColorTmuxError(t *testing.T) {
 
 	body := `{"color":"4"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/sessions/myproject/color", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
+	}
+}
+
+// --- Session Flair endpoint tests ---
+
+func TestSessionFlairSet(t *testing.T) {
+	ops := &mockTmuxOps{}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	body := `{"flair":"onepiece"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/myproject/flair", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d; body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if !ops.setSessionFlairCalled {
+		t.Error("SetSessionFlair was not called")
+	}
+	if ops.setSessionFlairSession != "myproject" {
+		t.Errorf("session = %q, want %q", ops.setSessionFlairSession, "myproject")
+	}
+	if ops.setSessionFlairFlair != "onepiece" {
+		t.Errorf("flair = %q, want %q", ops.setSessionFlairFlair, "onepiece")
+	}
+}
+
+func TestSessionFlairClearNull(t *testing.T) {
+	ops := &mockTmuxOps{}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	body := `{"flair":null}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/myproject/flair", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d; body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if !ops.unsetSessionFlairCalled {
+		t.Error("UnsetSessionFlair was not called")
+	}
+	if ops.unsetSessionFlairSession != "myproject" {
+		t.Errorf("session = %q, want %q", ops.unsetSessionFlairSession, "myproject")
+	}
+}
+
+// An empty string clears (same as null) — the "empty = unset" contract shared
+// with the window @rk_flair option.
+func TestSessionFlairClearEmpty(t *testing.T) {
+	ops := &mockTmuxOps{}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	body := `{"flair":""}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/myproject/flair", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d; body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if !ops.unsetSessionFlairCalled {
+		t.Error("UnsetSessionFlair was not called")
+	}
+	if ops.setSessionFlairCalled {
+		t.Error("SetSessionFlair must NOT be called for an empty flair")
+	}
+}
+
+// Outside the closed set → 400 and zero tmux calls (validate-before-tmux).
+func TestSessionFlairRejectsInvalid(t *testing.T) {
+	for _, bad := range []string{`{"flair":"pikachu"}`, `{"flair":"Nyan"}`, `{"flair":"one-piece"}`, `{"flair":" nyan "}`} {
+		ops := &mockTmuxOps{}
+		router := newTestRouter(&mockSessionFetcher{}, ops)
+		req := httptest.NewRequest(http.MethodPost, "/api/sessions/myproject/flair", strings.NewReader(bad))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("body %s: status = %d, want %d", bad, rec.Code, http.StatusBadRequest)
+		}
+		if ops.setSessionFlairCalled || ops.unsetSessionFlairCalled {
+			t.Errorf("body %s: no tmux flair call should be made on invalid input", bad)
+		}
+	}
+}
+
+func TestSessionFlairTmuxError(t *testing.T) {
+	ops := &mockTmuxOps{setSessionFlairErr: fmt.Errorf("tmux error")}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	body := `{"flair":"nyan"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/myproject/flair", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)

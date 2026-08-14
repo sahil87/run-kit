@@ -66,6 +66,8 @@ type TmuxOps interface {
 	KillActivePane(windowID, server string) error
 	SetSessionColor(session string, colorValue string, server string) error
 	UnsetSessionColor(session string, server string) error
+	SetSessionFlair(session string, flair string, server string) error
+	UnsetSessionFlair(session string, server string) error
 	SetWindowColor(windowID string, colorValue string, server string) error
 	UnsetWindowColor(windowID, server string) error
 	ListServers(ctx context.Context) ([]string, error)
@@ -319,6 +321,12 @@ func (p *prodTmuxOps) SetSessionColor(session string, colorValue string, server 
 }
 func (p *prodTmuxOps) UnsetSessionColor(session string, server string) error {
 	return tmux.UnsetSessionColor(session, server)
+}
+func (p *prodTmuxOps) SetSessionFlair(session string, flair string, server string) error {
+	return tmux.SetSessionFlair(session, flair, server)
+}
+func (p *prodTmuxOps) UnsetSessionFlair(session string, server string) error {
+	return tmux.UnsetSessionFlair(session, server)
 }
 func (p *prodTmuxOps) SetWindowColor(windowID string, colorValue string, server string) error {
 	return tmux.SetWindowColor(windowID, colorValue, server)
@@ -651,6 +659,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/boards/{name}/unpin", s.handleBoardUnpin)
 	r.Post("/api/boards/{name}/reorder", s.handleBoardReorder)
 	r.Post("/api/sessions/{session}/color", s.handleSessionColor)
+	r.Post("/api/sessions/{session}/flair", s.handleSessionFlair)
 	r.Post("/api/sessions/{session}/kill", s.handleSessionKill)
 	r.Post("/api/sessions/{session}/rename", s.handleSessionRename)
 	r.Post("/api/sessions/{session}/windows", s.handleWindowCreate)
@@ -701,6 +710,8 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/settings/theme", s.handleSetTheme)
 	r.Get("/api/settings/server-color", s.handleGetServerColor)
 	r.Post("/api/settings/server-color", s.handleSetServerColor)
+	r.Get("/api/settings/server-flair", s.handleGetServerFlair)
+	r.Post("/api/settings/server-flair", s.handleSetServerFlair)
 	r.Get("/api/settings/instance-color", s.handleGetInstanceColor)
 	r.Post("/api/settings/instance-color", s.handleSetInstanceColor)
 	r.Get("/api/settings/ssh-host", s.handleGetSSHHost)

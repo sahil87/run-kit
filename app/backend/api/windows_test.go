@@ -233,6 +233,54 @@ func TestWindowOptionsMarkerDashedThick(t *testing.T) {
 	}
 }
 
+// Set @rk_flair only — one SetWindowOptions call with just @rk_flair.
+func TestWindowOptionsSetFlairOnly(t *testing.T) {
+	ops := &mockTmuxOps{}
+	rec := postOptions(t, ops, "@2", `{"options":{"@rk_flair":"nyan"}}`)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if len(ops.setWindowOptionsOps) != 1 {
+		t.Fatalf("ops = %v, want exactly 1 (@rk_flair)", ops.setWindowOptionsOps)
+	}
+	op, ok := findOp(ops.setWindowOptionsOps, "@rk_flair")
+	if !ok || op.Value == nil || *op.Value != "nyan" {
+		t.Errorf("@rk_flair op = %+v, want value \"nyan\"", op)
+	}
+}
+
+// @rk_flair empty string unsets (nil Value op), mirroring @rk_marker — "" clears.
+func TestWindowOptionsFlairEmptyUnsets(t *testing.T) {
+	ops := &mockTmuxOps{}
+	rec := postOptions(t, ops, "@2", `{"options":{"@rk_flair":""}}`)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	op, ok := findOp(ops.setWindowOptionsOps, "@rk_flair")
+	if !ok {
+		t.Fatal("expected @rk_flair op")
+	}
+	if op.Value != nil {
+		t.Errorf("@rk_flair value = %q, want nil (empty string unsets)", *op.Value)
+	}
+}
+
+// Invalid @rk_flair (outside the 3-state closed set) → 400 and zero tmux
+// calls (validate-all-then-execute).
+func TestWindowOptionsFlairInvalid(t *testing.T) {
+	ops := &mockTmuxOps{}
+	rec := postOptions(t, ops, "@0", `{"options":{"@rk_flair":"pikachu"}}`)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+	if ops.setWindowOptionsCalled {
+		t.Error("SetWindowOptions must NOT be called for invalid flair")
+	}
+}
+
 // Set @rk_role=operator — one SetWindowOptions call carrying the role op, with
 // the server-scoped radio clear issued first (keeping the target window).
 func TestWindowOptionsSetRoleOperator(t *testing.T) {

@@ -352,6 +352,7 @@ const (
 	optKeyRkType = "@rk_type"
 	optKeyMarker = "@rk_marker"
 	optKeyRole   = "@rk_role"
+	optKeyFlair  = "@rk_flair"
 )
 
 // validateWindowOption enforces the per-key rules preserved from the old
@@ -386,6 +387,13 @@ func validateWindowOption(key string, value *string) string {
 		// Orchestration role: "operator" (or empty to clear). An empty string
 		// is valid and treated as unset below (mirroring @rk_marker).
 		if errMsg := validate.ValidateRoleValue(*value); errMsg != "" {
+			return errMsg
+		}
+	case optKeyFlair:
+		// Per-row flair decoration: one of nyan/naruto/onepiece (or empty to
+		// clear). An empty string is valid and treated as unset below
+		// (mirroring @rk_marker).
+		if errMsg := validate.ValidateFlairValue(*value); errMsg != "" {
 			return errMsg
 		}
 	}
@@ -423,7 +431,7 @@ func (s *Server) handleWindowOptions(w http.ResponseWriter, r *http.Request) {
 	roleSet := false
 	for key, value := range body.Options {
 		switch key {
-		case optKeyColor, optKeyRkURL, optKeyRkType, optKeyMarker, optKeyRole:
+		case optKeyColor, optKeyRkURL, optKeyRkType, optKeyMarker, optKeyRole, optKeyFlair:
 		default:
 			writeError(w, http.StatusBadRequest, "Unknown option key: "+key)
 			return
@@ -435,9 +443,9 @@ func (s *Server) handleWindowOptions(w http.ResponseWriter, r *http.Request) {
 		op := tmux.WindowOptionOp{Key: key, Value: value}
 		// An empty string means unset for @rk_type (revert to terminal mode) and
 		// @rk_marker (clear the marker) — matching the old handleWindowTypeUpdate
-		// behavior and the marker's "empty = no marker" contract. @rk_role
-		// follows the same mapping ("" clears the role).
-		if (key == optKeyRkType || key == optKeyMarker || key == optKeyRole) && value != nil && *value == "" {
+		// behavior and the marker's "empty = no marker" contract. @rk_role and
+		// @rk_flair follow the same mapping ("" clears the role / the flair).
+		if (key == optKeyRkType || key == optKeyMarker || key == optKeyRole || key == optKeyFlair) && value != nil && *value == "" {
 			op.Value = nil
 		}
 		if key == optKeyRole && op.Value != nil {

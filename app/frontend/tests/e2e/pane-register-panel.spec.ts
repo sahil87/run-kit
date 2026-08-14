@@ -85,12 +85,29 @@ async function mockBackend(page: Page) {
 }
 
 test.describe("PANE panel four-register view", () => {
+  // The PANE/HOST panels are DRAWER-ONLY (260814-ldbs R6): the desktop sidebar
+  // no longer renders them, so these tests run at the mobile viewport and open
+  // the drawer (the panels' only remaining home) before asserting. `hasTouch`
+  // flips `(pointer: coarse)` so `useIsMobile()` reports mobile.
+  test.use({ hasTouch: true, viewport: { width: 375, height: 812 } });
+
   test.beforeEach(async ({ page }) => {
     await mockBackend(page);
   });
 
+  /** Navigate to a window, then open the drawer (the panel's home). Gates on
+   *  the Toggle navigation button — the sidebar-footed `Connected` dot is
+   *  unmounted while the drawer is closed. */
+  async function gotoWindowWithDrawer(page: Page, windowId: string) {
+    await page.goto(`/${SERVER}/${windowId}`);
+    const toggle = page.getByRole("button", { name: "Toggle navigation" });
+    await expect(toggle).toBeVisible({ timeout: 10_000 });
+    await toggle.click();
+    await expect(page.getByRole("dialog")).toBeVisible({ timeout: 10_000 });
+  }
+
   test("a full window shows all four registers (out/agt/fab/PR)", async ({ page }) => {
-    await page.goto(`/${SERVER}/1`);
+    await gotoWindowWithDrawer(page, "1");
     // L0 out register (always present) — fixed-width 3-char key.
     const output = page.getByTestId("register-output");
     await expect(output).toBeVisible();
@@ -112,7 +129,7 @@ test.describe("PANE panel four-register view", () => {
   });
 
   test("a plain shell shows only the output register (absent layers absent)", async ({ page }) => {
-    await page.goto(`/${SERVER}/2`);
+    await gotoWindowWithDrawer(page, "2");
     await expect(page.getByTestId("register-output")).toBeVisible();
     // No agent, fab, or PR registers for a bare shell.
     await expect(page.getByTestId("register-agent")).toHaveCount(0);
@@ -120,7 +137,7 @@ test.describe("PANE panel four-register view", () => {
   });
 
   test("the PR register (L3) shows for a plain pane with a PR (universal derivation)", async ({ page }) => {
-    await page.goto(`/${SERVER}/3`);
+    await gotoWindowWithDrawer(page, "3");
     // No fab change on this window, yet the PR register still surfaces the PR.
     await expect(page.getByTestId("pr-line")).toContainText("#999");
     // No fab register (no change bound).

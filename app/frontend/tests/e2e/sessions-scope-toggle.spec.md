@@ -36,7 +36,7 @@ itself reads the active scope at rest (`ALL` ⇄ `CUR`).
 
 **Steps:**
 1. Set desktop viewport and navigate to `/${TMUX_SERVER_A}`.
-2. Wait for `Connected`.
+2. Wait for `Connected` (nav-scoped since 260814-ldbs — the status bar carries its own `Connected` dot).
 3. Assert both `[data-server='A']` and `[data-server='B']` group headers
    are visible (default `all` baseline).
 4. Locate the chip (`button`, accessible name `Toggle sessions scope`);

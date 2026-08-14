@@ -380,7 +380,7 @@ test.describe("Docked compose strip", () => {
     await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(windowId)}?layout=split-h:tty,web`, {
       waitUntil: "domcontentloaded",
     });
-    await expect(page.locator("[aria-label='Connected']")).toBeVisible({ timeout: READY_TIMEOUT });
+    await expect(page.locator("nav [aria-label='Connected']")).toBeVisible({ timeout: READY_TIMEOUT });
     const ttyTile = page.getByTestId("surface-tile-tty");
     await expect(ttyTile).toBeVisible({ timeout: 10_000 });
     await expect(page.getByTestId("surface-tile-web")).toBeVisible({ timeout: 15_000 });
@@ -449,7 +449,7 @@ test.describe("Docked compose strip", () => {
     await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(alpha)}`, {
       waitUntil: "domcontentloaded",
     });
-    await expect(page.locator("[aria-label='Connected']")).toBeVisible({ timeout: READY_TIMEOUT });
+    await expect(page.locator("nav [aria-label='Connected']")).toBeVisible({ timeout: READY_TIMEOUT });
     const ttyTile = page.getByTestId("surface-tile-tty");
     await expect(ttyTile).toBeVisible({ timeout: 10_000 });
     await page.getByRole("button", { name: "Compose text" }).click();
@@ -494,7 +494,12 @@ test.describe("Docked compose strip", () => {
     // on the terminal itself.
     await expect(page.locator(".xterm").first()).toBeVisible({ timeout: 15_000 });
 
-    await page.getByRole("button", { name: "Compose text" }).click();
+    // 260814-ldbs: at 375px with a FINE pointer (viewport-only emulation)
+    // neither bar renders — the bottom bar is pointer-gated to coarse and the
+    // status bar is width-gated to desktop — so the keyboard-first palette
+    // path (Constitution V) is the opener here.
+    await page.keyboard.press("Meta+k");
+    await page.getByRole("option", { name: "View: Text Input" }).click();
     const inner = page.getByTestId("compose-strip-inner");
     await expect(inner).toBeVisible();
 

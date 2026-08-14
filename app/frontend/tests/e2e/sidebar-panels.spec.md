@@ -1,7 +1,11 @@
 # sidebar-panels.spec.ts
 
-Behavioural contract for the `CollapsiblePanel`-based Host and Pane panels
-pinned to the bottom of the sidebar. Validates that SSE-driven host metrics
+Behavioural contract for the `CollapsiblePanel`-based Host and Pane panels.
+Since `260814-ldbs` (R6) the panels are **drawer-only**: the desktop sidebar
+no longer renders them (their registers graduated to the full-width status
+bar), so the panel tests run on a **mobile viewport with the drawer open**
+(`hasTouch: true` + 375×812 — the drawer is the panels' mobile home, unchanged).
+A desktop test pins the fork itself. Validates that SSE-driven host metrics
 render, window context updates when a window is selected, and the
 collapse/expand state persists via `localStorage`.
 
@@ -25,17 +29,38 @@ only reaches the header. These tests deliberately use `locator("../..")`.
 
 - `beforeAll` creates `e2e-panels-<timestamp>` so the Pane panel has a real
   window to display once selected; `afterAll` kills it.
+- The `mobile drawer` describe runs `test.use({ hasTouch: true, viewport:
+  375×812 })` — `hasTouch` flips Chromium's `(pointer: coarse)` media query
+  (the `bottom-bar-chip-size.spec.ts` seam), so `useIsMobile()` reports
+  mobile and the sidebar renders as the drawer.
+- `gotoDrawer(page, path)` navigates, then opens the drawer via the
+  `Toggle navigation` button and returns the `role="dialog"` drawer. It
+  gates on the toggle, NOT the sidebar-footed `Connected` dot — a closed
+  drawer leaves it unmounted.
+- `ensureDrawerOpen(page)` re-opens the drawer when a destination tap
+  auto-closed it (or a reload landed on the persisted sidebar preference).
 
 ## Tests
 
-### `Host panel shows real system metrics via SSE`
+### `desktop sidebar renders NO PANE/HOST panels — the status bar carries the registers`
+
+**What it proves:** The R6 fork — on a desktop (fine pointer, wide) the
+sidebar renders no Pane/Host panels at all; the registers' new home (the
+status bar) is present instead.
+
+**Steps:**
+1. `gotoServerReady(TMUX_SERVER)` (desktop default).
+2. Assert zero buttons named `/^Pane/` or `/^Host/`.
+3. Assert the `status-bar` testid is visible.
+
+### `Host panel shows real system metrics via SSE` (mobile drawer)
 
 **What it proves:** The Host collapsible panel is open by default and
 populated with real metrics (CPU, memory, load, disk, uptime) received via
 SSE within one tick.
 
 **Steps:**
-1. Navigate to `/${TMUX_SERVER}` and wait for `Connected`.
+1. `gotoDrawer(/${TMUX_SERVER})`.
 2. Locate the header button with `name: /^Host/`; assert visible and
    `aria-expanded="true"`.
 3. Walk up to the outer panel (`locator("../..")`).
@@ -46,54 +71,56 @@ SSE within one tick.
 5. Assert memory is not rendered as `0/0` (sentinel for missing data).
 6. Assert disk renders as `\d+/\d+G`.
 
-### `Window panel shows selected window info`
+### `Window panel shows selected window info` (mobile drawer)
 
 **What it proves:** The Pane panel shows a "No window selected" fallback
 when on the dashboard, then swaps to tmux metadata (`tmx`, `cwd`, …) when
 a window is selected.
 
 **Steps:**
-1. Navigate to `/${TMUX_SERVER}` and wait for `Connected`.
+1. `gotoDrawer(/${TMUX_SERVER})`.
 2. Locate the header button with `name: /^Pane/`; assert visible and
    expanded.
 3. Walk up to the outer panel.
 4. Assert `text=No window selected` is visible.
 5. Click the sidebar's `Navigate to ${TEST_SESSION}` button (selects the
-   first window in that session).
+   first window in that session) — the drawer auto-closes on the
+   destination tap, so re-open it via `ensureDrawerOpen`.
 6. Within 3s, assert lines `^tmx ` and `^cwd ` appear inside the Pane panel.
 
-### `Collapsible panel toggle and persistence`
+### `Collapsible panel toggle and persistence` (mobile drawer)
 
 **What it proves:** Clicking the Host header collapses/expands the panel,
 the state is mirrored into `localStorage`, and it survives a full page
 reload.
 
 **Steps:**
-1. Navigate and wait for `Connected` + the `cpu` line (metrics rendered).
+1. `gotoDrawer` and wait for the `cpu` line (metrics rendered).
 2. Click the Host header to collapse; assert `aria-expanded="false"`.
 3. Read `localStorage.getItem('runkit-panel-host')` and assert it equals
    the string `"false"`.
-4. `page.reload()`; re-wait for `Connected`.
+4. `page.reload()`; re-open the drawer via `ensureDrawerOpen` (the reload
+   lands on the persisted sidebar preference, open or closed).
 5. Re-locate the Host header; assert it is still collapsed
    (`aria-expanded="false"`).
 6. Click to expand; assert `aria-expanded="true"` and the `cpu` line
    reappears within 8s.
 7. Clean up the `runkit-panel-host` localStorage key for the next test.
 
-### `board route populates PANE (focused tile) and HOST (host-metrics fallback)`
+### `board route populates PANE (focused tile) and HOST (host-metrics fallback)` (mobile drawer)
 
 **What it proves:** On `/board/$name` — where the route provides no server
 param and both bottom panels used to render empty by construction — the PANE
 panel follows the board's focused tile (resolving the pinned window's
 enriched home-session copy by `windowId` from the sessions stream) and the
 HOST panel falls back to the host-global metrics broadcast (260720-zx4i).
-The HOST header carries no connection dot — the top-bar dot owns that
-signal (260721-1etw).
+The HOST header carries no connection dot — the sidebar footer dot owns that
+signal.
 
 **Steps:**
 1. Resolve the test session's window id via `tmux list-windows` and pin it
    to a fresh board (`panels<suffix>`) via `POST /api/boards/{name}/pin`.
-2. Navigate to `/board/${boardName}` (`domcontentloaded`).
+2. `gotoDrawer(/board/${boardName})`.
 3. Locate the Pane header button, walk up to the outer panel, and assert
    `^tmx ` and `^cwd ` rows appear (within 10s) while
    `No window selected` is absent — the focused-tile fallback filled the
@@ -104,13 +131,13 @@ signal (260721-1etw).
 5. `finally`: unpin the window via the API so the shared server carries no
    leftover board.
 
-### `Host panel metrics update over multiple SSE ticks`
+### `Host panel metrics update over multiple SSE ticks` (mobile drawer)
 
 **What it proves:** Metrics don't stop rendering after the first tick —
 they remain populated across at least two full SSE cycles (~5s).
 
 **Steps:**
-1. Navigate and wait for `Connected`.
+1. `gotoDrawer` and wait for `Connected`-equivalent panel content.
 2. Locate the Host outer panel via `../..` from the header button.
 3. Assert `cpu` appears within 8s.
 4. `waitForTimeout(5500)` — covers ≥2 SSE ticks (2.5s apart).

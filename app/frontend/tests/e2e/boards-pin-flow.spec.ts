@@ -43,13 +43,15 @@ test.describe("Boards: Pin flow", () => {
 
     // Regression: the board Shell must fill the viewport. Shell sizes to
     // `height: 100%`, so a missing `h-full` on the board page's wrapper
-    // collapses the grid to content height and the bottom bar floats
-    // mid-page instead of sitting at the viewport bottom.
+    // collapses the grid to content height and the bottom chrome floats
+    // mid-page instead of sitting at the viewport bottom. (260814-ldbs: the
+    // fine-pointer bottom bar is gone — the shell's bottom edge is the
+    // full-width STATUS BAR now.)
     const viewport = page.viewportSize();
     expect(viewport).toBeTruthy();
-    const bottomBar = await page.locator("footer").boundingBox();
-    expect(bottomBar).toBeTruthy();
-    expect(bottomBar!.y + bottomBar!.height).toBeGreaterThanOrEqual(
+    const statusBar = await page.getByTestId("status-bar").boundingBox();
+    expect(statusBar).toBeTruthy();
+    expect(statusBar!.y + statusBar!.height).toBeGreaterThanOrEqual(
       viewport!.height - 2,
     );
 

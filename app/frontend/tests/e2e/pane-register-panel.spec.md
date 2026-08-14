@@ -22,6 +22,11 @@ Absent layers render as absent; the L3 PR register shows for ANY pane with a
     - `@3` "pr-only" — a plain pane (no `fabChange`) WITH a derived PR `#999`.
   - The terminals mux WebSocket (`/ws/terminals`) is stubbed.
 - `beforeEach` installs the routes before navigation.
+- **Drawer-only panels (260814-ldbs R6)**: the desktop sidebar no longer
+  renders the PANE/HOST panels (their registers graduated to the status bar),
+  so the suite runs `test.use({ hasTouch: true, viewport: 375×812 })` and
+  opens the drawer (`Toggle navigation` button → `role="dialog"`) before
+  asserting — the drawer keeps the panels byte-identical.
 
 ## Tests
 
@@ -33,7 +38,7 @@ change · stage), and PR (L3) — and the L0/L1 keys use the fixed-width 3-char
 vocabulary (`out`/`agt`).
 
 **Steps:**
-1. Navigate to `/default/1`.
+1. Navigate to `/default/1`, then open the drawer.
 2. Assert the `register-output` (L0) test id is visible and contains the key
    text "out" as a whole token (`/\bout\b/`, not a bare substring — a regressed
    `output` key would still contain "out").
@@ -50,7 +55,7 @@ the L0 output register — the agent/fab/PR registers are absent, not placeholde
 rows.
 
 **Steps:**
-1. Navigate to `/default/2`.
+1. Navigate to `/default/2`, then open the drawer.
 2. Assert `register-output` is visible.
 3. Assert `register-agent` has count 0 and the PR `pr-line` has count 0.
 
@@ -61,6 +66,6 @@ pane on a branch with a PR still surfaces its PR in the panel (even though the
 dot stays on the gray floor via D1).
 
 **Steps:**
-1. Navigate to `/default/3`.
+1. Navigate to `/default/3`, then open the drawer.
 2. Assert the PR `pr-line` contains "#999".
 3. Assert the agent register has count 0 (no change bound, no agent).

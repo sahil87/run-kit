@@ -78,6 +78,16 @@ Both needs share one substrate: a collapsed-by-default right panel.
    hides the column at width/display level — NEVER unmounting it (P3) — so
    the web/code iframes keep their in-memory state. Board/host routes pass no
    right-panel slot and render the two-column grid unchanged.
+   (amended 2026-08-14, change `260814-ldbs-shell-stage-status-bar`: the
+   right column is no longer a full-height Shell column — the non-sidebar
+   region is a nested single-row **stage** grid (`bg-bg-inset p-[6px]
+   gap-[6px]`, `1fr auto`) and the rail is a floating CARD in stage row 1 /
+   column 2 (6px below the top bar to 6px above the status bar); collapse
+   flips the stage template to `1fr`, dropping the `auto` track, while the
+   aside stays mounted-hidden — P3 unchanged. The bottom bar is
+   pointer-gated: no bar at all on fine pointers, today's content-column
+   bar verbatim on coarse; a new full-width **status-bar** row spans ALL
+   columns at the shell bottom)
 
 ### Surface Registry (initial)
 

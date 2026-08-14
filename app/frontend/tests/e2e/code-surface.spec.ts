@@ -82,7 +82,7 @@ async function gotoWindow(
   search = "",
 ): Promise<void> {
   await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(windowId)}${search}`);
-  await expect(page.locator("[aria-label='Connected']")).toBeVisible({
+  await expect(page.locator("nav [aria-label='Connected']")).toBeVisible({
     timeout: READY_TIMEOUT,
   });
 }
@@ -117,7 +117,7 @@ test.beforeAll(async ({ browser }) => {
   const page = await browser.newPage();
   const first = await resolveWindowRaw(page, TMUX_SERVER, TEST_SESSION);
   await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(first.windowId)}`);
-  await expect(page.locator("[aria-label='Connected']")).toBeVisible({
+  await expect(page.locator("nav [aria-label='Connected']")).toBeVisible({
     timeout: 60_000,
   });
   await expect(page.locator(".xterm").first()).toBeVisible({ timeout: 60_000 });
@@ -146,6 +146,10 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
   test("the code rail button appears only on a git-repo window; the palette's `View: Code` action gates the same way", async ({
     page,
   }) => {
+    // Two window creations + two full page loads + palette interactions —
+    // carries the 30s budget (the sidebar-panels precedent); at the 10s
+    // default this lands marginal under suite load.
+    test.setTimeout(30_000);
     // A repo-cwd window gains the code affordances once the SSE window payload
     // carries gitRoot (availability = gitRoot derived — since 260811-a2bo the
     // port resolves by convention and no longer gates; never reachability).

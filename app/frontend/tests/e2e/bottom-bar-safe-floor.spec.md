@@ -39,13 +39,14 @@ padding is wasted above the keyboard — in both directions.
 3. Add `kb-open` to `<html>` via `page.evaluate`; assert it becomes `6px`.
 4. Remove `kb-open`; assert it returns to `16px`.
 
-### `floor stays 6px with and without kb-open`
+### `the bar does not render, kb-open or not`
 
-**What it proves:** Fine-pointer (desktop) behavior is byte-identical to the
-pre-change 6px floor — the raised floor is `(pointer: coarse)`-scoped and the
-`kb-open` signal has no effect outside it.
+**What it proves:** On a fine pointer the bar is gated out of existence at any
+width (260814-ldbs R3), so there is no floor to measure — and the `kb-open`
+signal cannot resurrect it. The safe-floor rules are exercised only in the
+touch describe above, where the bar exists.
 
 **Steps:**
 1. Navigate to `/${TMUX_SERVER}` at 375×812 (no touch emulation).
-2. Assert the toolbar's computed `padding-bottom` is `6px`.
-3. Add `kb-open` to `<html>`; assert it is still `6px`.
+2. Assert the `Terminal keys` toolbar has count 0.
+3. Add `kb-open` to `<html>`; assert the toolbar still has count 0.

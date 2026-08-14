@@ -6,13 +6,15 @@ model in `260812-ab5v-surface-layout-core`; `docs/specs/surface-layout.md` §
 Verbs — "Rail semantics change"): the panel SLOT (surface mount + width drag)
 is gone — subsumed by layout tiles — so this spec now covers what remains: a
 desktop rail rendered on every terminal route (collapsible from the top bar
-since `260812-nm4p`; it lives in the Shell grid's full-height third column)
-whose icon buttons are availability-gated **open-tile toggles** (lit per open
-tile; an unlit click appends a tile, a lit click closes it), the `web` tile
-rendered by the shared `IframeWindow`, the retired `?panel=` deep links
-resolving through the permanent translation shim, value-bearing per-window
-persistence, hide-never-unmount across tile close/reopen, the ⇧⌘. chord
-toggling the first non-tty tile, and the desktop-only gate. The second
+since `260812-nm4p`; since `260814-ldbs` it is a floating CARD inside the
+Shell stage — `rounded-md` + `rk-card-border` on the shared inset ground,
+ending 6px above the full-width status bar, no longer a full-height third
+column) whose icon buttons are availability-gated **open-tile toggles** (lit
+per open tile; an unlit click appends a tile, a lit click closes it), the
+`web` tile rendered by the shared `IframeWindow`, the retired `?panel=` deep
+links resolving through the permanent translation shim, value-bearing
+per-window persistence, hide-never-unmount across tile close/reopen, the ⇧⌘.
+chord toggling the first non-tty tile, and the desktop-only gate. The second
 describe covers the `260812-nm4p` top-bar rail toggle under the layout model:
 collapse hides the RAIL ONLY — tiles are content-column state and survive it.
 Divider-ratio drag coverage lives in `surface-layout.spec.ts` (the divider
@@ -164,15 +166,20 @@ Steps:
 What it proves: the desktop-only gate (P5 → surface-layout R13) — below
 `isMobileViewport()` the rail does not render and a multi-tile `?layout=`
 deep link shows ONLY slot A full-width, with the remaining surface
-mounted-hidden and reachable via the ▦ Surfaces chip.
+mounted-hidden and reachable via the ▦ Surfaces chip. The nested describe
+runs `test.use({ hasTouch: true })` so `(pointer: coarse)` matches — a real
+phone is coarse AND narrow, and since 260814-ldbs the bottom bar (the chip's
+home) is pointer-gated: a fine-pointer narrow window gets no chip bar by
+design.
 Steps:
-1. Set a 375×812 viewport; create a web-capable window.
+1. Set a 375×812 viewport (context already has `hasTouch`); create a
+   web-capable window.
 2. Navigate with `?layout=split-h:tty,web` (gating on the terminal, not the
    sidebar-footed `Connected` dot — the mobile drawer leaves it unmounted).
 3. Assert the terminal is visible, the rail is absent from the DOM, the web
    tile is hidden (mounted), and the `mobile-surfaces-chip` renders.
 
-## Tests — Top-bar rail toggle & full-height column (260812-nm4p, under the layout model)
+## Tests — Top-bar rail toggle & stage layout (260812-nm4p + 260814-ldbs, under the layout model)
 
 ### the toggle renders on a PLAIN window too (zero available surfaces)
 What it proves: the rail toggle's gate is `windowParam && !isMobile` ONLY —
@@ -221,19 +228,20 @@ Steps:
    the URL mirrors `?layout=split-h:tty,web` while the rail STAYS hidden.
 4. Assert `runkit-rail-open` is still `"false"`.
 
-### full-height layout: the rail column reaches the shell bottom; the bottom bar spans only the content column
-What it proves: the rail is a full-height Shell grid column beside the
-content column (not inside it): the rail's bounding box reaches the
-`.app-shell` bottom edge (below the bottom bar's top), and the bottom bar's
-width equals the content column's width, not the full viewport. (The panel
-left this column in 260812-ab5v — surface content is a content-column tile.)
+### stage layout: the rail card ends above the status bar; no bottom bar exists on a fine-pointer desktop
+What it proves: the `260814-ldbs` composed frame — the rail is a floating
+CARD inside the Shell stage (not a full-height shell column): the full-width
+status bar sits at the `.app-shell` bottom edge and the rail's bottom edge is
+the stage's 6px padding above it; and the desktop bottom bar is deleted on
+fine pointers (R3) — no `Terminal keys` toolbar exists in the DOM. (The rail
+stops being a full-height column here — the earlier full-height assertion
+from `260812-nm4p` is inverted by design.)
 Steps:
 1. Create a web-capable window; navigate; open the web tile.
-2. Measure the `.app-shell`, rail, `footer`, and `main` bounding boxes.
-3. Assert the rail's bottom edge equals the shell's bottom edge and extends
-   below the footer's top edge.
-4. Assert the footer's width equals `main`'s width and is less than the
-   viewport width.
+2. Measure the `.app-shell`, rail, and `status-bar` bounding boxes.
+3. Assert the status bar's bottom edge equals the shell's bottom edge and the
+   rail's bottom edge sits 6px above the status bar's top edge.
+4. Assert no `Terminal keys` toolbar exists in the DOM.
 
 ### a legacy ?panel= deep link on a collapsed rail still renders its tile (never a dead link); the rail stays hidden
 What it proves: deep links are never dead behind a rail collapse — the tile

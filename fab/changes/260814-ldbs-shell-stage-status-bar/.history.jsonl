@@ -1,0 +1,15 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-14T07:32:03Z"}
+{"args":"Detached rail + bottom bar — continuous gap-seam stage: extend 011r gap-seam vocabulary to desktop terminal shell chrome (rail + bottom bar as detached rounded cards on one bg-bg-inset stage)","cmd":"fab-new","event":"command","ts":"2026-08-14T07:32:03Z"}
+{"delta":"+3.7","event":"confidence","score":3.7,"trigger":"calc-score","ts":"2026-08-14T07:34:35Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-14T07:35:29Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-14T07:35:40Z"}
+{"args":"--folder 260814-ldbs-detached-rail-bottom-bar-stage --slug shell-stage-status-bar","cmd":"changeman-rename","event":"command","ts":"2026-08-14T08:36:03Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-14T11:24:34Z"}
+{"event":"review","result":"failed","ts":"2026-08-14T11:38:33Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-14T11:38:33Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-14T11:56:49Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-14T12:07:02Z"}
+{"event":"review","result":"passed","ts":"2026-08-14T12:07:02Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-14T12:22:23Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-08-14T12:24:48Z"}
+{"event":"review","result":"passed","ts":"2026-08-14T12:42:27Z"}

@@ -1,0 +1,57 @@
+id: ldbs
+name: 260814-ldbs-shell-stage-status-bar
+created: 2026-08-14T07:32:03Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 11
+    acceptance_count: 17
+    acceptance_completed: 17
+confidence:
+    certain: 10
+    confident: 5
+    tentative: 0
+    unresolved: 0
+    score: 4.3
+    fuzzy: true
+    dimensions:
+        signal: 75.7
+        reversibility: 81.7
+        competence: 83.3
+        disambiguation: 80.7
+stage_metrics:
+    intake: {started_at: "2026-08-14T07:32:03Z", driver: fab-new, iterations: 1, completed_at: "2026-08-14T07:35:40Z"}
+    apply: {started_at: "2026-08-14T11:38:33Z", driver: fab-fff, iterations: 2, completed_at: "2026-08-14T11:56:49Z"}
+    review: {started_at: "2026-08-14T11:56:49Z", driver: fab-fff, iterations: 2, completed_at: "2026-08-14T12:07:02Z"}
+    hydrate: {started_at: "2026-08-14T12:07:02Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-14T12:22:23Z"}
+    ship: {started_at: "2026-08-14T12:22:23Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-14T12:24:48Z"}
+    review-pr: {started_at: "2026-08-14T12:24:48Z", driver: git-pr, iterations: 1, completed_at: "2026-08-14T12:42:27Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/604
+change_type_source: explicit
+true_impact:
+    added: 2787
+    deleted: 686
+    net: 2101
+    excluding:
+        added: 2305
+        deleted: 650
+        net: 1655
+    tests:
+        added: 572
+        deleted: 256
+        net: 316
+    computed_at: "2026-08-14T12:24:48Z"
+    computed_at_stage: ship
+summary: 'composed desktop frame: nested Shell stage (tile grid + rail card on one inset ground), pointer-gated bottom bar (coarse-only), full-width status bar absorbing the sidebar''s desktop PANE/HOST panels'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-14T12:42:27Z

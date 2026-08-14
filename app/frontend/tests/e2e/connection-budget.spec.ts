@@ -128,7 +128,7 @@ test.describe("Connection budget — 2 muxed WS (state + terminals), zero SSE", 
     expect(windowId, "first window id").toBeTruthy();
 
     await page.goto(`/${TMUX_SERVER}/${windowId}?view=chat`, { waitUntil: "domcontentloaded" });
-    await expect(page.locator("[aria-label='Connected']")).toBeVisible({ timeout: READY_TIMEOUT });
+    await expect(page.locator("nav [aria-label='Connected']")).toBeVisible({ timeout: READY_TIMEOUT });
     // Exactly one state socket; at most one terminals socket (this window falls
     // back to tty, so the terminals mux stays); ZERO SSE — `?view=chat` never
     // contributes a text/event-stream (the whole point of this change).
@@ -147,7 +147,7 @@ test.describe("Connection budget — 2 muxed WS (state + terminals), zero SSE", 
     try {
       const c = installCounters(page);
       await page.goto(`/board/${board}`, { waitUntil: "domcontentloaded" });
-      await expect(page.locator("[aria-label='Connected']").first()).toBeVisible({ timeout: READY_TIMEOUT });
+      await expect(page.locator("nav [aria-label='Connected']").first()).toBeVisible({ timeout: READY_TIMEOUT });
       // The board attaches every contributing server's STATE over the SINGLE
       // state socket AND every live pane's terminal I/O over the SINGLE
       // terminals mux (this is the exact pool-starvation case the effort fixes)

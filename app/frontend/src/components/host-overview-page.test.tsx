@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
-import type { Service, ProjectSession } from "@/types";
+import type { Service, ProjectSession, MetricsSnapshot } from "@/types";
 import type { ServerInfo } from "@/api/client";
 import { ThemeProvider } from "@/contexts/theme-context";
 import { ChromeProvider } from "@/contexts/chrome-context";
@@ -42,18 +42,24 @@ vi.mock("@/components/toast", () => ({
 let mockServices: Service[] = [];
 let mockServers: ServerInfo[] = [];
 let mockSessionsByServer: Map<string, ProjectSession[]> = new Map();
-let mockHostMetrics: { hostname: string } | null = null;
+// Full snapshot shape (the status bar's compact metrics segment reads
+// cpu/memory/load, not just the hostname).
+let mockHostMetrics: MetricsSnapshot | null = null;
 const refreshServersMock = vi.fn();
 const markServerPendingMock = vi.fn();
 vi.mock("@/contexts/session-context", () => ({
   useHostMetrics: () => mockHostMetrics,
   useHostServices: () => mockServices,
+  // The status bar (260814-ldbs) leaf-subscribes to these at the page bottom.
+  useMetrics: () => null,
+  useUpdateNotification: () => ({ daemonVersion: null }),
   useSessionContext: () => ({
     servers: mockServers,
     serversLoaded: true,
     refreshServers: refreshServersMock,
     markServerPending: markServerPendingMock,
     sessionsByServer: mockSessionsByServer,
+    isConnectedByServer: new Map(mockServers.map((s) => [s.name, false])),
   }),
 }));
 
@@ -419,17 +425,58 @@ describe("HostOverviewPage — BOARDS zone", () => {
   });
 });
 
+describe("status bar gate (260814-ldbs; rework cycle 1)", () => {
+  // The page's own beforeEach stubs matchMedia as "everything matches except
+  // (pointer: coarse)" — i.e. NARROW (mobile). These tests re-stub per case.
+
+  it("renders the status bar on a desktop (fine pointer, wide) host page", () => {
+    stubMatchMedia(() => false);
+    renderPage();
+    expect(screen.getByTestId("status-bar")).toBeInTheDocument();
+  });
+
+  it("renders NO status bar for a coarse pointer at desktop width — coarse is the mobile experience everywhere", () => {
+    // The revised device rule: useIsMobile() is width-OR-coarse, so a coarse
+    // desktop-width device (iPad) gets the mobile grid, the chip bar, and the
+    // drawer panels — and NO status bar. The gate is `!isMobile`, identical
+    // to Shell's, so every route agrees.
+    stubMatchMedia((query) => query === "(pointer: coarse)");
+    renderPage();
+    expect(screen.queryByTestId("status-bar")).not.toBeInTheDocument();
+  });
+
+  it("renders no status bar on a narrow viewport either", () => {
+    stubMatchMedia((query) => query.includes("max-width"));
+    renderPage();
+    expect(screen.queryByTestId("status-bar")).not.toBeInTheDocument();
+  });
+});
+
 describe("HOST HEALTH hostname line — instance display name (260723-o7q8)", () => {
+  // Full MetricsSnapshot — the status bar (260814-ldbs) reads cpu/mem/ld too.
+  function hostSnapshot(hostname: string): MetricsSnapshot {
+    return {
+      hostname,
+      cpu: { samples: [10], current: 10, cores: 4 },
+      memory: { used: 1024 ** 3, total: 8 * 1024 ** 3 },
+      load: { avg1: 0.1, avg5: 0.1, avg15: 0.1, cpus: 4 },
+      disk: { used: 10 * 1024 ** 3, total: 100 * 1024 ** 3 },
+      uptime: 60,
+    };
+  }
+
   it("prefers the instance-name override over the metrics hostname", () => {
-    mockHostMetrics = { hostname: "mac-mini" };
+    mockHostMetrics = hostSnapshot("mac-mini");
     renderPage(nameValue({ hostname: "mac-mini", instanceName: "my-box", displayName: "my-box" }));
-    expect(screen.getByText("my-box")).toBeInTheDocument();
+    // Both the HOST HEALTH zone line and the status bar's host segment show
+    // the override (the status bar follows the HOST panel's display rule).
+    expect(screen.getAllByText("my-box").length).toBeGreaterThan(0);
     expect(screen.queryByText("mac-mini")).not.toBeInTheDocument();
   });
 
   it("falls back to the metrics hostname when no override is set", () => {
-    mockHostMetrics = { hostname: "mac-mini" };
+    mockHostMetrics = hostSnapshot("mac-mini");
     renderPage();
-    expect(screen.getByText("mac-mini")).toBeInTheDocument();
+    expect(screen.getAllByText("mac-mini").length).toBeGreaterThan(0);
   });
 });

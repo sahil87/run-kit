@@ -5,8 +5,10 @@ replaces native `title=` attributes on interactive chrome controls. The first
 three tests prove the approved behaviors native titles could not deliver —
 keyboard visibility (Constitution V), the styled quiet-card presentation with
 no OS double-bubble, and full suppression on touch devices. The second
-describe (260723-fm08) covers the two surfaces the 73al migration left bare:
-sidebar PANE register labels and bottom-bar key chips.
+describe (260723-fm08, retargeted 260814-ldbs) covers the surfaces the
+register labels and ⌘K/compose hints live on now: the full-width **status
+bar** (the sidebar PANE panel went drawer-only and the fine-pointer bottom
+bar was deleted in 260814-ldbs).
 
 ## Shared setup
 
@@ -18,11 +20,11 @@ sidebar PANE register labels and bottom-bar key chips.
   `window.matchMedia("(pointer: coarse)")` as matching (the
   `mobile-touch-scroll.spec.ts` precedent) — desktop Chromium cannot flip the
   real pointer media feature.
-- `Register-label and chip tips (260723-fm08)` describe — fully mocked (the
-  `pane-register-panel.spec.ts` idiom): the state socket is mocked with one
-  session/window so the terminal route (`/default/1`) renders the PANE
-  registers and the bottom bar; `/ws/terminals` is stubbed and
-  `/api/servers` + window-select are fulfilled inline.
+- `Status-bar label and hint tips (260723-fm08, retargeted 260814-ldbs)`
+  describe — fully mocked (the `pane-register-panel.spec.ts` idiom): the
+  state socket is mocked with one session/window so the terminal route
+  (`/default/1`) renders the status bar's window cluster; `/ws/terminals` is
+  stubbed and `/api/servers` + window-select are fulfilled inline.
 
 ## Tests
 
@@ -72,34 +74,35 @@ tooltip on touch).
    elements.
 4. Assert the button has no `aria-describedby` attribute.
 
-### `hovering a PANE register label opens its plain-words tip`
+### `hovering a status-bar register label opens its plain-words tip`
 
-**What it proves:** The sidebar PANE register labels (terse 3-char keys like
-`out`) carry tier-1 tips naming the register in plain words (260723-fm08).
-The label is a non-focusable span, so the tip is hover-only — no new tab
-stops were added for a non-actionable element (the 73al connection-dot
-precedent).
-
-**Steps:**
-1. Navigate to `/default/1` (mocked backend) and wait for the
-   `register-output` row to be visible.
-2. Hover the exact-text `out` label span inside the row.
-3. Assert a `role="tooltip"` element becomes visible reading
-   "Output activity".
-
-### `hovering the ⌘K chip shows its tip with the keycap slot`
-
-**What it proves:** The bottom-bar key chips (bare symbol glyphs) carry
-tier-1 tips (260723-fm08); the ⌘K chip pairs its "Command palette" label
-with the **registry-resolved** shortcut rendered as a real `<kbd>` keycap
-chip (260801-mqim — platform-aware via `useKeybindings` + `formatCombo`;
-the pinned `devices["Desktop Chrome"]` UA is Windows, so `detectPlatform()`
-resolves `other` and the tip reads `Ctrl+K` on any host OS, while the
-chip's button face keeps the ⌘K brand glyph), and the migration contract
-holds (no native `title` on the chip).
+**What it proves:** The status bar's window-cluster register labels (terse
+3-char keys like `out`) carry tier-1 tips naming the register in plain words
+(260723-fm08 — the labels moved here from the desktop-retired sidebar PANE
+panel in 260814-ldbs). The label is a non-focusable span, so the tip is
+hover-only — no new tab stops were added for a non-actionable element (the
+73al connection-dot precedent).
 
 **Steps:**
 1. Navigate to `/default/1` (mocked backend) and wait for the
+   `status-bar-window` cluster to be visible.
+2. Hover the exact-text `out` label span inside the cluster.
+3. Assert a `role="tooltip"` element becomes visible reading "Last output".
+
+### `hovering the status bar's ⌘K hint shows its tip with the keycap slot`
+
+**What it proves:** The status bar's hint chips (bare symbol glyphs — the
+relocated bottom-bar pair, 260814-ldbs) carry tier-1 tips (260723-fm08); the
+⌘K hint pairs its "Command palette" label with the **registry-resolved**
+shortcut rendered as a real `<kbd>` keycap chip (260801-mqim —
+platform-aware via `useKeybindings` + `formatCombo`; the pinned
+`devices["Desktop Chrome"]` UA is Windows, so `detectPlatform()` resolves
+`other` and the tip reads `Ctrl+K` on any host OS, while the chip's button
+face keeps the ⌘K brand glyph), and the migration contract holds (no native
+`title` on the chip).
+
+**Steps:**
+1. Navigate to `/default/1` (mocked backend) and wait for the status bar's
    `Open command palette` chip to be visible.
 2. Assert the chip has NO `title` attribute.
 3. Hover the chip; assert the `role="tooltip"` element becomes visible,

@@ -265,8 +265,11 @@ viewport.
 
 1. Set a 375×812 viewport; navigate to the `cat` session's window; wait for the
    terminal (no `Connected` dot on mobile — the sidebar is an unmounted drawer).
-2. Enable the strip via the `a▏` chip; assert the inner wrapper is visible and
-   the strip is a descendant of `<footer>`.
+2. Enable the strip via the palette (`⌘K` → `View: Text Input`) — at 375px
+   with a fine pointer (viewport-only emulation) neither bar renders
+   (260814-ldbs: the bottom bar is pointer-gated to coarse, the status bar
+   width-gated to desktop), so the keyboard-first path is the opener; assert
+   the inner wrapper is visible and the strip is a descendant of `<footer>`.
 3. Poll `document.documentElement.scrollWidth` until ≤ 375 (no horizontal page
    overflow).
 4. Assert the inner box's `x ≥ 0` and `x + width ≤ 375`.

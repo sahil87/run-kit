@@ -17,7 +17,7 @@ Every action reachable via keyboard. Mouse is supported but secondary. The comma
 
 ### 3. Fixed Chrome, Fluid Content
 
-The top bar and bottom bar are **architecturally immovable**. They never shift, resize, or reflow. Content fills the space between them — the terminal on `/:session/:window`, the Dashboard on `/`. This creates spatial stability — your eyes always know where navigation, status, and modifier keys live.
+The top bar and bottom bar are **architecturally immovable**. They never shift, resize, or reflow. Content fills the space between them — the terminal on `/:session/:window`, the Dashboard on `/`. This creates spatial stability — your eyes always know where navigation, status, and modifier keys live. (amended 2026-08-14, change `260814-ldbs-shell-stage-status-bar`: the bottom bar is pointer-gated — it exists on coarse pointers only; on fine-pointer desktops the immovable pair is the top bar and the full-width 24px status bar at the shell bottom)
 
 ### 4. Two Views, One Shell
 
@@ -26,7 +26,7 @@ Two routes share the same app shell (top bar + sidebar + content area):
 - **Dashboard** (`/`): Session/window overview with expandable cards. Content area scrolls independently.
 - **Terminal** (`/:session/:window`): xterm.js canvas. Wheel/touch events scroll tmux scrollback, not the page.
 
-The **sidebar** shows the full session → window tree on both views, with its own independent scroll. The **top bar** is always fixed. The **bottom bar** renders only on the terminal view.
+The **sidebar** shows the full session → window tree on both views, with its own independent scroll. The **top bar** is always fixed. The **bottom bar** renders only on the terminal view. (amended 2026-08-14, change `260814-ldbs-shell-stage-status-bar`: the bar renders at both Shell sites — terminal and board — on **coarse pointers only**; fine-pointer desktops render no bottom bar and get the full-width status bar instead)
 
 **Desktop (≥768px)**: Sidebar always visible (collapsible), content fills the rest.
 
@@ -82,7 +82,7 @@ run-kit must be fully usable on a phone. This is a primary use case, not an afte
 
 Sidebar is drag-resizable (default 220px, min 160px, max 400px, persisted to localStorage). Collapsible via hamburger button or keyboard shortcut. When collapsed, only the terminal + chrome remain.
 
-The bottom bar is scoped to the terminal column — it does not extend under the sidebar. The sidebar fills the full height of the main area.
+The bottom bar is scoped to the terminal column — it does not extend under the sidebar. The sidebar fills the full height of the main area. (amended 2026-08-14, change `260814-ldbs-shell-stage-status-bar`: where the coarse-pointer bar renders it stays content-column-scoped, but the sidebar no longer fills the full height — the full-width status bar spans ALL columns at the shell bottom and the sidebar ends flush above it)
 
 ### Mobile Layout
 

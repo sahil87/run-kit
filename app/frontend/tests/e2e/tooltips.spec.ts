@@ -107,11 +107,12 @@ test.describe("Tier-1 tooltips (Tip)", () => {
 });
 
 /**
- * Register-label + bottom-bar chip tips (260723-fm08): the two chrome
- * surfaces the 73al migration left bare. Fully mocked (no tmux/gh) — the
- * terminal route needs a selected window for the PANE registers and the
- * bottom bar, so the state socket is mocked with one session/window (the
- * pane-register-panel.spec.ts idiom).
+ * Status-bar label + hint tips (260723-fm08, retargeted 260814-ldbs): the
+ * register labels and the ⌘K/compose hints moved from the (desktop-retired)
+ * PANE panel and (fine-pointer-deleted) bottom bar into the full-width status
+ * bar. Fully mocked (no tmux/gh) — the terminal route needs a selected window
+ * for the window cluster, so the state socket is mocked with one
+ * session/window (the pane-register-panel.spec.ts idiom).
  */
 
 const MOCK_SERVER = "default";
@@ -149,27 +150,29 @@ async function mockBackend(page: Page) {
   await mockStateSocket(page, { sessions: mockSessions });
 }
 
-test.describe("Register-label and chip tips (260723-fm08)", () => {
+test.describe("Status-bar label and hint tips (260723-fm08, retargeted 260814-ldbs)", () => {
   test.beforeEach(async ({ page }) => {
     await mockBackend(page);
   });
 
-  test("hovering a PANE register label opens its plain-words tip", async ({ page }) => {
+  test("hovering a status-bar register label opens its plain-words tip", async ({ page }) => {
     await page.goto(`/${MOCK_SERVER}/1`);
-    const output = page.getByTestId("register-output");
-    await expect(output).toBeVisible({ timeout: 10_000 });
+    const cluster = page.getByTestId("status-bar-window");
+    await expect(cluster).toBeVisible({ timeout: 10_000 });
 
     // The register KEY is a non-focusable span — hover-only (no new tab
     // stops, the 73al connection-dot precedent). Hover past the open delay.
-    await output.getByText("out", { exact: true }).hover();
+    await cluster.getByText("out", { exact: true }).hover();
     const tooltip = page.getByRole("tooltip");
     await expect(tooltip).toBeVisible();
-    await expect(tooltip).toHaveText(/Output activity/);
+    await expect(tooltip).toHaveText(/Last output/);
   });
 
-  test("hovering the ⌘K chip shows its tip with the keycap slot", async ({ page }) => {
+  test("hovering the status bar's ⌘K hint shows its tip with the keycap slot", async ({ page }) => {
     await page.goto(`/${MOCK_SERVER}/1`);
-    const chip = page.getByRole("button", { name: "Open command palette" });
+    const chip = page
+      .getByTestId("status-bar")
+      .getByRole("button", { name: "Open command palette" });
     await expect(chip).toBeVisible({ timeout: 10_000 });
 
     // Migration rule holds on the chips too: styled tip, no native title.

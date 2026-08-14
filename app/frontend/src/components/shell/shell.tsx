@@ -59,46 +59,77 @@ function useSidebarKeyboardToggle(toggle: () => void) {
  * the sidebar, dropping the row here and painting the bar above Shell in the
  * root layout is a geometric no-op — the visual stack is preserved.
  *
- * Topology (desktop, viewport ≥ 640px):
- *   ┌──────────┬───────────────┬─────────────┐
- *   │ sidebar  │   content     │             │
- *   │          ├───────────────┤  rightpanel │
- *   │          │   bottombar   │             │
- *   └──────────┴───────────────┴─────────────┘
+ * Topology (desktop, viewport ≥ 640px), no right panel (board/server routes):
+ *   ┌──────────┬───────────────┐
+ *   │ sidebar  │   content     │
+ *   │          ├───────────────┤
+ *   │          │   bottombar   │
+ *   ├──────────┴───────────────┤
+ *   │         statusbar        │
+ *   └──────────────────────────┘
  *
- * - `grid-template-areas`: `"sidebar content" / "sidebar bottombar"` — or, when
- *   the optional `rightPanelChildren` slot is filled (desktop only),
- *   `"sidebar content rightpanel" / "sidebar bottombar rightpanel"` with
- *   columns `${sidebarWidth}px 1fr auto` (260812-nm4p): the right column spans
- *   BOTH rows full-height, exactly like the sidebar, and the bottombar stays
- *   scoped to the content column with no consumer change.
- * - `grid-template-rows`: `1fr auto`
- * - `grid-template-columns`: `${sidebarWidth}px 1fr` when `sidebarOpen` is `true`,
- *   else `0 1fr` (plus the `auto` right column when the slot is filled).
- *   CSS transition (~150ms ease-out) animates collapse.
- * - Without `rightPanelChildren` (board/host consumers, mobile) the grid is
- *   byte-identical to the two-column layout.
+ * With the `rightPanelChildren` slot filled (desktop terminal route,
+ * 260812-nm4p), the non-sidebar region becomes a nested STAGE grid
+ * (260814-ldbs — the composed-frame change): the outer grid's content column
+ * holds ONE `stage` area, and the stage wraps the consumer's `content` child
+ * and the rail aside in its own single-row grid — `bg-bg-inset p-[6px]
+ * gap-[6px]`, columns `1fr auto`, areas `"content rightpanel"` — so the tile
+ * grid and the rail card float on one continuous inset ground. The stage is
+ * NESTED rather than a bare grid-template-areas flip because grid `gap`
+ * applies to ALL tracks: on the outer grid it would open a 6px seam against
+ * the sidebar, which stays ATTACHED frame chrome (its `border-r` / drag-handle
+ * seam; the two-family rule — attached frame vs floating cards — is the
+ * change's organizing principle). Consumers' `gridArea: "content"` styles
+ * rebind to the nested template untouched (areas bind to direct children).
  *
- * The `rightpanel` area mirrors `sidebarChildren` with ONE deliberate
- * divergence (right-panel spec P3): the right aside NEVER unmounts — collapse
- * (`rightPanelVisible === false`) hides it at display level (`hidden`, so the
- * `auto` column collapses to zero width) while the subtree stays mounted and
- * the web/code iframes keep their in-memory state.
+ *   ┌──────────┬──────────────────────────┐
+ *   │          │  ┌─────────────┬───────┐  │
+ *   │ sidebar  │  │  content    │ rail  │  │   ← stage (inset ground, 6px)
+ *   │          │  └─────────────┴───────┘  │
+ *   │          ├──────────────────────────┤
+ *   │          │   bottombar (coarse only)│
+ *   ├──────────┴──────────────────────────┤
+ *   │         statusbar (full width)      │
+ *   └─────────────────────────────────────┘
+ *
+ * - Outer `grid-template-areas`: `"sidebar content" / "sidebar bottombar" /
+ *   "statusbar statusbar"` — or, with the right-panel slot filled,
+ *   `"sidebar stage" / "sidebar bottombar" / "statusbar statusbar"`.
+ * - `grid-template-rows`: `1fr auto auto` (the statusbar row is `auto` — with
+ *   no `statusBarChildren` it collapses to zero height).
+ * - `grid-template-columns`: `${sidebarWidth}px 1fr` when `sidebarOpen` is
+ *   `true`, else `0 1fr`. CSS transition (~150ms ease-out) animates collapse.
+ * - The **statusbar** row spans ALL columns (sidebar included): the sidebar
+ *   ends flush above it in a square T-junction — the status bar is attached
+ *   frame chrome like the top bar, never a card.
+ *
+ * The `rightpanel` aside lives INSIDE the stage (stage row 1, column 2) — the
+ * rail card runs from 6px below the top bar to 6px above the bottombar/status
+ * bar, no longer a full-height shell column. It still NEVER unmounts
+ * (right-panel spec P3): `rightPanelVisible === false` flips the stage
+ * template to `1fr` / `"content"` (dropping the `auto` track so no stray 6px
+ * column-gap remains — an explicit `auto` track keeps its gap even with a
+ * hidden item) and hides the aside at display level (`hidden`), so the
+ * subtree stays mounted and the web/code iframes keep their in-memory state.
  *
  * Topology (mobile, viewport < 640px):
  *   - Single-column grid (`content / bottombar`); the `sidebar` slot
- *     is removed from the grid.
+ *     is removed from the grid. The statusbar row never exists here.
  *   - When `sidebarOpen === true`, the sidebar children render outside the
  *     grid as an absolute overlay with a backdrop. The overlay carries
  *     `role="dialog" aria-modal="true"` for assistive tech.
  *
- * The `sidebar` grid area is Shell-owned: on desktop Shell renders the
- * `<aside gridArea:"sidebar">` itself from `sidebarChildren` (gated
- * `!isMobile && sidebarOpen && !!sidebarChildren`), with an optional
- * `sidebarResizeHandle` node placed at its right edge (AppShell's drag-resize
- * handle; drag state/handlers stay in AppShell). Consumers therefore place
- * ONLY the `content` and `bottombar` grid areas via
- * `style={{ gridArea: "content" | "bottombar" }}` — never `sidebar`.
+ * The `sidebar`, `bottombar`, and `statusbar` placements are Shell-owned: on
+ * desktop Shell renders the `<aside gridArea:"sidebar">` itself from
+ * `sidebarChildren` (gated `!isMobile && sidebarOpen && !!sidebarChildren`),
+ * with an optional `sidebarResizeHandle` node placed at its right edge
+ * (AppShell's drag-resize handle; drag state/handlers stay in AppShell). The
+ * bottom bar / compose strip arrive via `bottomBarChildren` (Shell renders the
+ * `<footer gridArea:"bottombar">` wrapper — keeping the footer OUT of the
+ * nested stage so the stage stays a clean single row and the coarse-pointer
+ * bar stays flush-attached), and the status bar via `statusBarChildren`
+ * (desktop only). Consumers therefore place ONLY the `content` grid area via
+ * `style={{ gridArea: "content" }}` — never `sidebar`/`bottombar`/`statusbar`.
  *
  * Height is `100%` — Shell fills the root layout's `flex-1` content region.
  * The `--app-height` var (iOS keyboard handling) is now maintained by
@@ -111,6 +142,8 @@ export function Shell({
   sidebarResizeHandle,
   rightPanelChildren,
   rightPanelVisible = true,
+  bottomBarChildren,
+  statusBarChildren,
 }: {
   children: ReactNode;
   sidebarChildren?: ReactNode;
@@ -123,15 +156,33 @@ export function Shell({
    */
   sidebarResizeHandle?: ReactNode;
   /**
-   * Optional full-height right column (260812-nm4p) — the terminal route's
-   * rail + panel subtree, mirroring the `sidebarChildren` slot. When present
-   * on desktop the grid gains a third `auto` column spanning both rows. Unlike
-   * the sidebar aside, this column NEVER unmounts (right-panel spec P3):
-   * `rightPanelVisible === false` hides it at display level only.
+   * Optional right rail (260812-nm4p) — the terminal route's rail subtree,
+   * mirroring the `sidebarChildren` slot. When present on desktop the
+   * non-sidebar region becomes the nested stage grid (see the component doc):
+   * the rail aside occupies stage row 1 / column 2 as a floating card
+   * (260814-ldbs), no longer a full-height shell column. The aside NEVER
+   * unmounts (right-panel spec P3): `rightPanelVisible === false` drops the
+   * stage's `auto` track and hides the aside at display level only.
    */
   rightPanelChildren?: ReactNode;
   /** Visibility gate for the right column — display-level hide, never unmount. */
   rightPanelVisible?: boolean;
+  /**
+   * Bottom-bar row content (260814-ldbs — the `sidebarChildren` pattern
+   * extended): the compose strip + the BottomBar. Shell renders the
+   * `<footer gridArea:"bottombar">` wrapper itself so the footer stays OUT of
+   * the nested stage. BottomBar self-gates on pointer type (fine pointers
+   * render nothing), so an empty footer collapses the `auto` row to zero —
+   * no reserved height survives (the 260814-ink6/PR #598 property).
+   */
+  bottomBarChildren?: ReactNode;
+  /**
+   * Status-bar row content (260814-ldbs) — the full-width attached frame
+   * strip at the shell bottom. Desktop only: rendered as the `statusbar` area
+   * spanning ALL columns (sidebar included); never rendered on mobile (the
+   * mobile template has no such row).
+   */
+  statusBarChildren?: ReactNode;
 }) {
   const { sidebarOpen, sidebarWidth } = useChromeState();
   const { setSidebarOpen } = useChromeDispatch();
@@ -152,8 +203,9 @@ export function Shell({
 
   // Grid-template-columns on desktop: animate width on collapse via CSS transition.
   // On mobile we use a single column ('1fr') so collapsed/open is purely a function
-  // of whether the overlay renders. The right column (260812-nm4p) is desktop-only:
-  // the slot is ignored on mobile so that grid stays byte-identical.
+  // of whether the overlay renders. The stage + statusbar (260814-ldbs) are
+  // desktop-only: the right-panel slot is ignored on mobile and the mobile
+  // template never carries a statusbar row, so that grid stays byte-identical.
   const hasRightPanel = !isMobile && !!rightPanelChildren;
   const gridStyle: React.CSSProperties = isMobile
     ? {
@@ -167,14 +219,29 @@ export function Shell({
     : {
         height: "100%",
         display: "grid",
-        gridTemplateColumns:
-          (sidebarOpen ? `${sidebarWidth}px 1fr` : "0 1fr") + (hasRightPanel ? " auto" : ""),
-        gridTemplateRows: "1fr auto",
+        gridTemplateColumns: sidebarOpen ? `${sidebarWidth}px 1fr` : "0 1fr",
+        gridTemplateRows: "1fr auto auto",
         gridTemplateAreas: hasRightPanel
-          ? '"sidebar content rightpanel" "sidebar bottombar rightpanel"'
-          : '"sidebar content" "sidebar bottombar"',
+          ? '"sidebar stage" "sidebar bottombar" "statusbar statusbar"'
+          : '"sidebar content" "sidebar bottombar" "statusbar statusbar"',
         transition: "grid-template-columns 150ms ease-out",
       };
+
+  // The nested stage grid (260814-ldbs, hasRightPanel branch only): a single
+  // row of tile grid + rail card on the shared inset ground. Collapse drops
+  // the `auto` track entirely (template flip to `1fr`) so no stray column-gap
+  // survives a hidden rail — the aside below stays MOUNTED, display-hidden.
+  const stageStyle: React.CSSProperties = {
+    gridArea: "stage",
+    display: "grid",
+    gridTemplateColumns: rightPanelVisible ? "1fr auto" : "1fr",
+    gridTemplateRows: "1fr",
+    gridTemplateAreas: rightPanelVisible ? '"content rightpanel"' : '"content"',
+    gap: "6px",
+    padding: "6px",
+    minWidth: 0,
+    minHeight: 0,
+  };
 
   return (
     <ShellGridRefContext.Provider value={gridRef}>
@@ -201,22 +268,51 @@ export function Shell({
         </aside>
       )}
 
-      {children}
+      {/* Content + right rail. With the slot filled (desktop terminal route)
+          both live inside the nested STAGE grid (260814-ldbs): the consumer's
+          `gridArea: "content"` child and the `rightpanel` aside rebind to the
+          stage's single-row template, floating as cards on the stage's
+          `bg-bg-inset` ground. Without the slot the children render directly
+          in the outer grid's `content` area (byte-identical to before).
+          The right aside NEVER unmounts (right-panel spec P3): collapse
+          (`rightPanelVisible === false`) flips the stage template to `1fr`
+          and hides the aside at display level only (`hidden`), so the
+          web/code iframes inside keep their in-memory state across a collapse
+          (a deliberate divergence from the sidebar aside's unmount gating
+          above). Dialogs passed as children are `position: fixed` (out of
+          flow), so they never participate in grid placement. */}
+      {hasRightPanel ? (
+        <div style={stageStyle} className="bg-bg-inset">
+          {children}
+          <aside
+            style={{ gridArea: "rightpanel" }}
+            aria-label="Right panel"
+            className={rightPanelVisible ? "flex flex-row overflow-hidden" : "hidden"}
+          >
+            {rightPanelChildren}
+          </aside>
+        </div>
+      ) : (
+        children
+      )}
 
-      {/* Desktop right column (260812-nm4p — the `sidebarChildren` mirror).
-          Rendered whenever the slot is filled, gated by `rightPanelVisible` at
-          DISPLAY level only (`hidden` collapses the `auto` grid column to zero
-          width) — NEVER unmounted, so the web/code iframes inside keep their
-          in-memory state across a collapse (right-panel spec P3; a deliberate
-          divergence from the sidebar aside's unmount gating above). */}
-      {hasRightPanel && (
-        <aside
-          style={{ gridArea: "rightpanel" }}
-          aria-label="Right panel"
-          className={rightPanelVisible ? "flex flex-row overflow-hidden" : "hidden"}
-        >
-          {rightPanelChildren}
-        </aside>
+      {/* Bottom-bar row (Shell-owned placement, 260814-ldbs): the footer
+          wrapper lives OUTSIDE the stage so the coarse-pointer key-chip bar
+          stays flush-attached frame chrome and the stage keeps its clean
+          single row. Empty content (fine pointers — BottomBar self-gates to
+          null, compose strip off) collapses the `auto` row to zero height. */}
+      {bottomBarChildren != null && (
+        <footer style={{ gridArea: "bottombar" }}>{bottomBarChildren}</footer>
+      )}
+
+      {/* Status-bar row (260814-ldbs): full-width attached frame chrome,
+          spanning the sidebar column too (a flush square T-junction — the
+          frame family is never rounded). Desktop only; the mobile template
+          has no statusbar area, so the slot is ignored there. */}
+      {!isMobile && statusBarChildren != null && (
+        <div style={{ gridArea: "statusbar" }} className="min-w-0">
+          {statusBarChildren}
+        </div>
       )}
 
       {/* Mobile overlay: renders below the topbar so the hamburger stays

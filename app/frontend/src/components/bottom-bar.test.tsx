@@ -34,12 +34,17 @@ function FocusSeeder({ focus }: { focus: FocusedTerminal }) {
 function renderBottomBar(
   overrides: Partial<React.ComponentProps<typeof BottomBar>> = {},
   focus: FocusedTerminal = null,
+  pointer: "coarse" | "fine" = "coarse",
 ) {
   // Tests default to NO focused terminal; the existing
   // `wsRef.current?.readyState !== OPEN` guard ensures input handlers no-op.
   // Pass `focus` for surfaces gated on a live compose target.
   // ChromeProvider supplies `composeStripEnabled` (the `a▏` chip's pressed
   // state) read via `useChromeState`.
+  // Pointer gate (260814-ldbs): the bar renders ONLY on coarse pointers now —
+  // the default stub installs `(pointer: coarse)` so the existing suites
+  // exercise the bar at all; pass `pointer: "fine"` for the gate tests.
+  stubMatchMedia((q) => pointer === "coarse" && q === "(pointer: coarse)");
   return render(
     <ChromeProvider>
       <FocusedTerminalProvider>
@@ -260,14 +265,13 @@ describe("BottomBar scroll-lock", () => {
   });
 });
 
-describe("BottomBar chip tips (260723-fm08)", () => {
-  // Tier-1 Tip wiring on the symbol-glyph chips (⇥ ^ ⌥ F▴ a▏ ⌘K + the
-  // ArrowPad trigger). Deep tooltip behavior is pinned once in tip.test.tsx;
-  // here we assert the per-site label wiring, the registry-resolved keycap
-  // slots (260801-mqim — jsdom detects platform "other", so chords render in
-  // the Ctrl spelling), the migration contract (no native title), and that
-  // the latch behavior survives the clone-child wrap. jsdom has no
-  // matchMedia → fine pointer.
+describe("BottomBar chips on the coarse-only bar (260723-fm08; gate 260814-ldbs)", () => {
+  // The bar renders ONLY on coarse pointers now (260814-ldbs R3), and tier-1
+  // Tips self-suppress under `pointer: coarse` — so the chips' accessible
+  // names ride their aria-labels (hover tooltips never fire on the bar's
+  // pointer class). Deep tooltip behavior is pinned in tip.test.tsx; here we
+  // assert the label contract, the migration contract (no native title), and
+  // that the latch behavior is intact. (The helper stubs a coarse pointer.)
   beforeEach(() => {
     vi.useFakeTimers();
   });
@@ -276,69 +280,31 @@ describe("BottomBar chip tips (260723-fm08)", () => {
     cleanup();
     vi.useRealTimers();
     localStorage.clear();
+    vi.unstubAllGlobals();
   });
 
-  it("hovering the ⌘K chip shows 'Command palette' with the platform-effective keycap chip", () => {
+  it("chips keep their aria-labels and faces; hover shows no tooltip on coarse (Tip suppression)", () => {
     renderBottomBar({ onOpenCompose: vi.fn() });
     const chip = screen.getByLabelText("Open command palette");
-    act(() => {
-      fireEvent.mouseEnter(chip);
-      vi.advanceTimersByTime(TIP_OPEN_DELAY_MS);
-    });
-    const tooltip = screen.getByRole("tooltip");
-    expect(tooltip).toHaveTextContent("Command palette");
-    // The kbd slot renders the REGISTRY-resolved chord as a real <kbd> keycap
-    // chip — "Ctrl+K" on jsdom's non-mac platform, no longer a static ⌘K
-    // (260801-mqim). The button FACE keeps the ⌘K brand glyph.
-    const kbd = tooltip.querySelector("kbd");
-    expect(kbd).not.toBeNull();
-    expect(kbd).toHaveTextContent("Ctrl+K");
+    // The button FACE keeps the ⌘K brand glyph on every platform.
     expect(chip.querySelector("kbd")).toHaveTextContent("⌘K");
-  });
-
-  it("hovering the compose chip shows its registry-resolved chord chip (260801-mqim)", () => {
-    renderBottomBar({ onOpenCompose: vi.fn() });
-    const chip = screen.getByLabelText("Compose text");
     act(() => {
       fireEvent.mouseEnter(chip);
       vi.advanceTimersByTime(TIP_OPEN_DELAY_MS);
     });
-    const tooltip = screen.getByRole("tooltip");
-    expect(tooltip).toHaveTextContent("Compose text");
-    expect(tooltip.querySelector("kbd")).toHaveTextContent("Shift+Ctrl+E");
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
   });
 
-  it("omits the keycap chip when the binding is disabled — a dead chord would lie (260801-mqim)", () => {
-    localStorage.setItem("runkit-keybindings", JSON.stringify({ "compose-toggle": null }));
-    renderBottomBar({ onOpenCompose: vi.fn() });
-    const chip = screen.getByLabelText("Compose text");
-    act(() => {
-      fireEvent.mouseEnter(chip);
-      vi.advanceTimersByTime(TIP_OPEN_DELAY_MS);
-    });
-    const tooltip = screen.getByRole("tooltip");
-    expect(tooltip).toHaveTextContent("Compose text");
-    expect(tooltip.querySelector("kbd")).toBeNull();
-  });
-
-  it("modifier chips carry plain key-name tips and still toggle aria-pressed", () => {
+  it("modifier chips toggle aria-pressed", () => {
     renderBottomBar({ onOpenCompose: vi.fn() });
     const ctrl = screen.getByLabelText("Control");
-    act(() => {
-      fireEvent.mouseEnter(ctrl);
-      vi.advanceTimersByTime(TIP_OPEN_DELAY_MS);
-    });
-    // Terminal vocabulary ("Ctrl"), not the mac aria-name ("Control") — and no
-    // latch prose: the pressed state teaches the one-shot behavior.
-    expect(screen.getByRole("tooltip")).toHaveTextContent(/^Ctrl$/);
-
-    // The one-shot latch behavior survives the Tip wrap: clicking arms it.
+    // The one-shot latch behavior: clicking arms it.
     expect(ctrl).toHaveAttribute("aria-pressed", "false");
     fireEvent.click(ctrl);
     expect(ctrl).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("tipped chips carry no native title and keep their aria-labels", () => {
+  it("chips carry no native title and keep their aria-labels", () => {
     renderBottomBar({ onOpenCompose: vi.fn() });
     for (const name of [
       "Tab",
@@ -355,16 +321,64 @@ describe("BottomBar chip tips (260723-fm08)", () => {
   });
 });
 
-describe("BottomBar chip order + compose hint (260811-0f3d)", () => {
-  // The fine-pointer chip run renders ⌘K (palette) FIRST and a▏ (compose)
-  // LAST — compose is the higher-touch control and takes the end-of-run
-  // position. The dead space right of the pair carries a dimmed compose
-  // education line, gated on: compose target present, strip OFF, fine
-  // pointer, ≥lg viewport (the lg gate is the CSS `hidden lg:flex` pair —
-  // jsdom asserts the classes; the 375px budget is untouched). jsdom
-  // platform is "other", so the chord renders in the Ctrl spelling.
-  const HINT_TEXT = /compose — type here, send to the pane/;
+describe("BottomBar pointer gate (260814-ldbs R3)", () => {
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
 
+  it("renders nothing on a fine pointer — no toolbar, and no reserved frame (the PR #598 property)", () => {
+    const { container } = renderBottomBar({ onOpenCompose: vi.fn() }, null, "fine");
+    expect(screen.queryByRole("toolbar")).not.toBeInTheDocument();
+    // The 3px-seam + 48px frame lives INSIDE the component, so the gate
+    // removes the reserved height too — nothing is left behind.
+    expect(container.querySelector(".border-t-\\[3px\\]")).toBeNull();
+    expect(container.textContent).toBe("");
+  });
+
+  it("attaches no document listeners on a fine pointer — the gate covers the effects, not just the render", () => {
+    // The render-time `return null` leaves the component (and every effect)
+    // mounted, so each always-on effect carries the coarse gate too. The
+    // focusin/focusout pair feeds `termFocused`, which drives only the
+    // coarse-gated ⌨/🔒 chip — on a desktop it would re-render this component
+    // on every terminal focus change to feed a chip that never renders.
+    const addSpy = vi.spyOn(document, "addEventListener");
+    renderBottomBar({ onOpenCompose: vi.fn() }, null, "fine");
+    const events = addSpy.mock.calls.map(([type]) => type);
+    expect(events).not.toContain("focusin");
+    expect(events).not.toContain("focusout");
+    expect(events).not.toContain("keydown");
+    addSpy.mockRestore();
+  });
+
+  it("attaches the focus-tracking listeners on a coarse pointer", () => {
+    const addSpy = vi.spyOn(document, "addEventListener");
+    renderBottomBar({ onOpenCompose: vi.fn() }, null, "coarse");
+    const events = addSpy.mock.calls.map(([type]) => type);
+    expect(events).toContain("focusin");
+    expect(events).toContain("focusout");
+    addSpy.mockRestore();
+  });
+
+  it("renders today's bar verbatim on a coarse pointer", () => {
+    renderBottomBar({ onOpenCompose: vi.fn() }, null, "coarse");
+    const toolbar = screen.getByRole("toolbar", { name: "Terminal keys" });
+    expect(toolbar).toBeInTheDocument();
+    // Attached frame chrome: the 3px structural seam + 48px row (TipGroup
+    // renders no DOM wrapper, so the toolbar's parent IS the frame).
+    const frame = toolbar.parentElement!;
+    expect(frame.className).toContain("border-t-[3px]");
+    expect(frame.className).toContain("h-[48px]");
+  });
+});
+
+describe("BottomBar chip order + compose chip (260811-0f3d)", () => {
+  // The chip run renders ⌘K (palette) FIRST and a▏ (compose) LAST — compose is
+  // the higher-touch control and takes the end-of-run position. (The
+  // fine-pointer education hint this describe used to cover was removed in
+  // 260814-ldbs: it was `!coarse`-gated, and the bar itself is coarse-only
+  // now, so it could never render — the status bar's `a` segment carries the
+  // compose education role.)
   afterEach(() => {
     cleanup();
     localStorage.clear();
@@ -378,24 +392,6 @@ describe("BottomBar chip order + compose hint (260811-0f3d)", () => {
     expect(
       palette.compareDocumentPosition(compose) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
-  });
-
-  it("shows the compose hint with the registry-resolved chord keycap while the strip is off", () => {
-    renderBottomBar({ onOpenCompose: vi.fn() }, COMPOSE_TARGET);
-    const hint = screen.getByText(HINT_TEXT);
-    const line = hint.parentElement!;
-    // Non-interactive education copy: aria-hidden (the adjacent chip carries
-    // the accessible name), CSS-gated to wide viewports.
-    expect(line).toHaveAttribute("aria-hidden", "true");
-    expect(line.className).toContain("hidden");
-    expect(line.className).toContain("lg:flex");
-    expect(line.querySelector("kbd")).toHaveTextContent("Shift+Ctrl+E");
-  });
-
-  it("hides the hint once the compose strip is on — the feature has been found", () => {
-    localStorage.setItem("runkit-compose-strip", "true");
-    renderBottomBar({ onOpenCompose: vi.fn() }, COMPOSE_TARGET);
-    expect(screen.queryByText(HINT_TEXT)).not.toBeInTheDocument();
   });
 
   it("compose chip bar is static while the strip is off — no blink class", () => {
@@ -412,26 +408,6 @@ describe("BottomBar chip order + compose hint (260811-0f3d)", () => {
     const bar = compose.querySelector(".rk-compose-caret");
     expect(bar).not.toBeNull();
     expect(bar!.textContent).toBe("▏");
-  });
-
-  it("hides the hint on coarse pointers — chords are noise on touch", () => {
-    stubMatchMedia((query) => query === "(pointer: coarse)");
-    renderBottomBar({ onOpenCompose: vi.fn() }, COMPOSE_TARGET);
-    expect(screen.queryByText(HINT_TEXT)).not.toBeInTheDocument();
-  });
-
-  it("omits the hint when there is no compose target", () => {
-    // `onOpenCompose` is wired unconditionally in app.tsx, so the absence of a
-    // focused terminal — not the prop — is what must suppress the hint.
-    renderBottomBar({ onOpenCompose: vi.fn() });
-    expect(screen.queryByText(HINT_TEXT)).not.toBeInTheDocument();
-  });
-
-  it("keeps the hint text but drops the keycap when compose-toggle is disabled", () => {
-    localStorage.setItem("runkit-keybindings", JSON.stringify({ "compose-toggle": null }));
-    renderBottomBar({ onOpenCompose: vi.fn() }, COMPOSE_TARGET);
-    const hint = screen.getByText(HINT_TEXT);
-    expect(hint.parentElement!.querySelector("kbd")).toBeNull();
   });
 });
 
@@ -461,11 +437,15 @@ describe("BottomBar compose-focus hide (260814-ink6)", () => {
     expect(screen.getByRole("toolbar")).toBeInTheDocument();
   });
 
-  it("never hides on a fine pointer, even while the compose textarea is focused", () => {
-    stubMatchMedia(() => false);
-    renderBottomBar({ onOpenCompose: vi.fn() });
+  it("never renders on a fine pointer at all — the compose-focus hide is moot there (260814-ldbs)", () => {
+    // The pointer gate supersedes ink6's "fine pointers never hide" rule:
+    // fine-pointer desktops have no bar to hide. The compose-focus flag must
+    // not matter either way.
+    renderBottomBar({ onOpenCompose: vi.fn() }, null, "fine");
     act(() => setComposeStripFocused(true));
-    expect(screen.getByRole("toolbar")).toBeInTheDocument();
+    expect(screen.queryByRole("toolbar")).toBeNull();
+    act(() => setComposeStripFocused(false));
+    expect(screen.queryByRole("toolbar")).toBeNull();
   });
 
   it("detaches the armed-modifier keydown interceptor while hidden — rendering null does not unmount the effects", () => {

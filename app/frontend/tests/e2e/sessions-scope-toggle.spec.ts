@@ -62,7 +62,7 @@ test.describe("Sidebar — sessions-pane scope toggle", () => {
     await expect(page.locator(`[data-server='${TMUX_SERVER_B}']`)).toHaveCount(0);
 
     await page.reload({ waitUntil: "domcontentloaded" });
-    await expect(page.locator("[aria-label='Connected']")).toBeVisible({
+    await expect(page.locator("nav [aria-label='Connected']")).toBeVisible({
       timeout: READY_TIMEOUT,
     });
 

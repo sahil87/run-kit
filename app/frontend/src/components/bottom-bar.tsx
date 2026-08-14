@@ -147,13 +147,15 @@ export function BottomBar({ onOpenCompose, onFocusTerminal, onScrollLockChange, 
   }, [fnOpen]);
 
   useEffect(() => {
-    // Detach while the compose textarea owns focus on a coarse pointer
-    // (260814-ink6): the render-time `return null` below hides the bar's UI
-    // but does NOT unmount this component or tear down its effects, so this
-    // capture-phase interceptor must self-gate on the same predicate — an
-    // armed modifier must never eat keystrokes typed into the compose
-    // textarea.
-    if (coarse && composeFocused) return;
+    // Detach on fine pointers (260814-ldbs — the bar never renders there, so
+    // its capture-phase interceptor must not either) and while the compose
+    // textarea owns focus on a coarse pointer (260814-ink6): the render-time
+    // `return null` below hides the bar's UI but does NOT unmount this
+    // component or tear down its effects, so this interceptor self-gates on
+    // the same predicate — an armed modifier must never eat keystrokes typed
+    // into the compose textarea (or intercepted on a desktop that shows no
+    // modifier chips at all).
+    if (!coarse || composeFocused) return;
     function handleKeyDown(e: KeyboardEvent) {
       if (!mods.isArmed()) return;
       if (["Control", "Alt", "Meta", "Shift", "CapsLock"].includes(e.key)) return;
@@ -193,6 +195,13 @@ export function BottomBar({ onOpenCompose, onFocusTerminal, onScrollLockChange, 
   const [termFocused, setTermFocused] = useState(false);
 
   useEffect(() => {
+    // Coarse-only, for the same reason the capture-phase interceptor above is
+    // (260814-ldbs): `termFocused` drives only the coarse-gated ⌨/🔒 chip, so
+    // on a fine pointer these document listeners would attach — and re-render
+    // this component on every terminal focus change — to feed a chip that
+    // never renders. The render-time `return null` below does NOT unmount the
+    // component or its effects, so the gate has to live here.
+    if (!coarse) return;
     function onFocusIn(e: FocusEvent) {
       if (e.target instanceof HTMLElement && e.target.closest(".xterm")) {
         setTermFocused(true);
@@ -209,7 +218,7 @@ export function BottomBar({ onOpenCompose, onFocusTerminal, onScrollLockChange, 
       document.removeEventListener("focusin", onFocusIn);
       document.removeEventListener("focusout", onFocusOut);
     };
-  }, []);
+  }, [coarse]);
 
   // Long-press detection state for keyboard toggle button
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -333,6 +342,16 @@ export function BottomBar({ onOpenCompose, onFocusTerminal, onScrollLockChange, 
     [mods, send],
   );
 
+  // Pointer gate (260814-ldbs): on FINE pointers the bar does not exist — its
+  // key chips (Tab/Ctrl/Alt/F▴/arrows) are key-SIMULATION affordances for
+  // keyboardless devices, and a desktop has a hardware keyboard. The gate is
+  // the shared coarse-pointer seam (`useCoarsePointer` — pointer TYPE,
+  // deliberately not viewport width: an iPad at desktop width keeps its bar,
+  // the iPad seam). Coarse = the mobile experience everywhere (`useIsMobile`
+  // is width-OR-coarse): a coarse desktop-width device gets the mobile grid,
+  // this bar, and NO status bar — the status bar exists only where the
+  // desktop grids exist (`!isMobile`).
+  //
   // Hide while the compose strip's textarea owns focus on a coarse pointer
   // (260814-ink6): the bar's keys send to the terminal and are dead weight
   // mid-compose — the strip has its own input. Returning null hides the UI
@@ -340,7 +359,7 @@ export function BottomBar({ onOpenCompose, onFocusTerminal, onScrollLockChange, 
   // armed-modifier capture-phase keydown effect above therefore self-gates
   // on the same predicate so it cannot intercept keystrokes typed into the
   // compose textarea. Blur — or the strip unmounting — restores the bar.
-  if (coarse && composeFocused) return null;
+  if (!coarse || composeFocused) return null;
 
   return (
     // The bar's fixed-height frame (3px seam + 48px row) lives HERE, not at
@@ -480,31 +499,10 @@ export function BottomBar({ onOpenCompose, onFocusTerminal, onScrollLockChange, 
           </button>
         </Tip>
       )}
-      {/* Compose education hint (260811-0f3d) — fills the dead space right of
-          the chip pair. Educate-toward, not a label: it renders only while the
-          strip is OFF (once open, the feature has been found), never on coarse
-          pointers (chords are noise on touch), and never below lg (the 375px
-          single-row budget is hard). Non-interactive; aria-hidden — the
-          adjacent chip carries the accessible name.
-          Gated on a live `focused` target too: the copy promises delivery to a
-          pane, and `onOpenCompose` is wired unconditionally, so without this
-          the hint would advertise a send with nowhere to send it (the strip
-          itself degrades to "No focused terminal — click a pane to target it").
-          A selection-broadcast target cannot be missed here — starting one
-          always turns the strip on, and the hint is strip-off only. */}
-      {onOpenCompose && focused !== null && !composeStripEnabled && !coarse && (
-        <span
-          aria-hidden="true"
-          className="hidden lg:flex items-center gap-1.5 ml-2 text-[11px] text-text-secondary opacity-60 select-none whitespace-nowrap"
-        >
-          <span>a▏ compose — type here, send to the pane</span>
-          {composeChord && (
-            <kbd className="text-xs text-text-secondary bg-bg-card px-1.5 py-0.5 rounded border border-border">
-              {composeChord}
-            </kbd>
-          )}
-        </span>
-      )}
+      {/* The compose education hint (260811-0f3d) was FINE-pointer-only — with
+          the bar itself now pointer-gated to coarse (260814-ldbs) it could
+          never render, so it was removed; the hint's educate-toward role moved
+          to the status bar's `a` compose segment. */}
 
       <div className="ml-auto flex items-center gap-1.5 coarse:gap-1">
         {/* ▦ Surfaces chip (260812-ab5v T014/R13) — mobile multi-tile only:

@@ -57,7 +57,7 @@ test.describe("Create server → waiting → view (no 'Server not found' flash)"
     // appears on the happy path and times out after the winner resolves) can't
     // surface as an unhandled rejection.
     const connected = page
-      .locator("[aria-label='Connected']")
+      .locator("nav [aria-label='Connected']")
       .waitFor({ state: "visible", timeout: 15_000 })
       .then(() => "connected" as const)
       .catch(() => "timeout" as const);

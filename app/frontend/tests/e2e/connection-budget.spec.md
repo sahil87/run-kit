@@ -56,7 +56,7 @@ it opens no `/ws/terminals` socket and no SSE.
 
 **Steps:**
 1. Install the counters, `goto('/${TMUX_SERVER}')`.
-2. Wait for the **Connected** dot (the server subscription acked).
+2. Wait for the **Connected** dot (the server subscription acked) — nav-scoped since 260814-ldbs — the status bar carries its own `Connected` dot).
 3. Poll state-socket count `=== 1`; assert terminals-socket count `=== 0` and no
    `text/event-stream` responses.
 

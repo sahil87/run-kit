@@ -246,9 +246,11 @@ test.describe("Settings dialog", () => {
       )
       .toBe(TEST_INSTANCE_NAME);
 
-    // The HOST panel hostname line prefers the override, live (no reload).
+    // The status bar's host segment prefers the override, live (no reload) —
+    // the desktop home for the hostname since the HOST panel went drawer-only
+    // (260814-ldbs; the drawer panel keeps the same live behavior on mobile).
     await expect(
-      page.locator("nav[aria-label='Sessions']").getByText(TEST_INSTANCE_NAME),
+      page.getByTestId("status-bar-host").getByText(TEST_INSTANCE_NAME),
     ).toBeVisible({ timeout: 5_000 });
 
     // Clearing the field clears the setting.

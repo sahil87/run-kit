@@ -340,7 +340,7 @@ Functions that take `server` (read + mutation):
 | Read | `getSessions`, `getKeybindings` |
 | Session mutation | `createSession`, `renameSession`, `killSession`, `setSessionOrder` |
 | Window mutation | `createWindow` (session-scoped), `renameWindow`, `killWindow`, `moveWindow`, `moveWindowToSession`, `selectWindow`, `splitWindow`, `closePane` (all but `createWindow` take `windowId: string` as the 2nd positional arg and hit `/api/windows/{windowId}/...` — `260529-chgz-window-id-routing`) |
-| Window options | `updateWindowUrl`, `updateWindowType` (both `(server, windowId, …)`) |
+| Window options | `updateWindowUrl(server, windowId, url)` |
 | Color | `setWindowColor`, `setSessionColor` |
 | Server-scoped | `reloadTmuxConfig` |
 | Session-scoped | `uploadFile` |

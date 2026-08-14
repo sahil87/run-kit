@@ -11,7 +11,6 @@ const MENU_GAP_PX = 4;
 type Props = {
   items: BreadcrumbDropdownItem[];
   label?: string;
-  icon?: string;
   onNavigate?: (href: string) => void;
   action?: DropdownAction;
   /** Optional SECOND leading action, rendered below `action` (e.g. the
@@ -28,7 +27,7 @@ type Props = {
   title?: string;
 };
 
-export function BreadcrumbDropdown({ items, label, icon, onNavigate, action, secondaryAction, triggerClassName, title }: Props) {
+export function BreadcrumbDropdown({ items, label, onNavigate, action, secondaryAction, triggerClassName, title }: Props) {
   const [open, setOpen] = useState(false);
   const [focusedIndex, setFocusedIndex] = useState(-1);
   // Viewport-relative position for the fixed-positioned menu. `position: fixed`
@@ -168,21 +167,9 @@ export function BreadcrumbDropdown({ items, label, icon, onNavigate, action, sec
           // `position: fixed` (anchored to this trigger's viewport rect, below),
           // so it lives OUTSIDE both this trigger's box and the breadcrumb nav's
           // `overflow-hidden` clip — no ancestor overflow can clip or displace it.
-          className={`min-w-[24px] min-h-[24px] flex items-center gap-1 transition-colors ${triggerClassName ?? "text-text-secondary hover:text-text-primary"}`}
+          className={`min-w-[24px] min-h-[24px] flex items-center transition-colors ${triggerClassName ?? "text-text-secondary hover:text-text-primary"}`}
         >
-          <span className="min-w-0 truncate">{icon ?? "\u25BE"}</span>
-          {/* Persistent caret: the always-visible "opens a menu" affordance,
-              distinguishing dropdown crumbs from link crumbs (which navigate).
-              Only rendered alongside a label \u2014 a label-less trigger already IS
-              a bare caret. */}
-          {icon != null && (
-            <span
-              aria-hidden="true"
-              className="shrink-0 text-base leading-none"
-            >
-              {"\u25BE"}
-            </span>
-          )}
+          <span className="min-w-0 truncate">{"\u25BE"}</span>
         </button>
       </Tip>
       {open && menuPos && (

@@ -29,7 +29,6 @@ import {
   setWindowFlair,
   setSessionFlair,
   updateWindowUrl,
-  updateWindowType,
   triggerUpdate,
   triggerForceUpdate,
   triggerRestart,
@@ -639,20 +638,6 @@ describe("POST verb migration + /options contract", () => {
     expect(capturedMethod).toBe("POST");
     expect(capturedUrl).toMatch(/\/api\/sessions\/alpha\/flair\?server=default$/);
     expect(bodies).toEqual([{ flair: "naruto" }, { flair: null }]);
-  });
-
-  it("updateWindowType POSTs /options with @rk_type; empty string maps to null (unset)", async () => {
-    const bodies: Array<{ options?: Record<string, string | null> }> = [];
-    mswServer.use(
-      http.post("/api/windows/:windowId/options", async ({ request }) => {
-        bodies.push((await request.json()) as { options?: Record<string, string | null> });
-        return HttpResponse.json({ ok: true });
-      }),
-    );
-    await updateWindowType("default", "@2", "iframe");
-    await updateWindowType("default", "@2", "");
-    expect(bodies[0].options).toEqual({ "@rk_type": "iframe" });
-    expect(bodies[1].options).toEqual({ "@rk_type": null });
   });
 
   it("setThemePreference issues POST (not PUT)", async () => {

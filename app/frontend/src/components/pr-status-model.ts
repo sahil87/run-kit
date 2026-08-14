@@ -48,39 +48,6 @@ export const PR_REVIEW_COLORS: Record<string, string> = {
 };
 
 /**
- * The five "traffic-light" states for the PR signal, generalizing the old
- * single red triage dot. GREEN MEANS HEALTH, NOT MERGE-READINESS — a draft with
- * passing checks is `healthy` (green), just not flipped to ready. Consumed by
- * the glyph color chain (`prGlyphColor`) and the PR text surfaces — never by
- * the status DOT, which carries no PR state.
- */
-export type PrDotState = "merged" | "fail" | "pending" | "healthy" | "neutral";
-
-/**
- * Derive the PR state from the live PR fields on a window. First match wins
- * — the precedence order IS the design:
- *   1. `merged` first — a landed PR; historical checks/review are noise (mirrors
- *      status-panel suppressing checks/review once `!open`). `closed` is NOT
- *      here, so it falls through to `neutral`. Transient by design (Constitution
- *      II): an aged-out merge resets to `neutral`, never persisted.
- *   2. `fail` BEFORE `healthy` — an approved PR with a freshly-pushed failing
- *      commit MUST read red, never green. This branch IS `isFailish` (the
- *      single source of truth for the fail-ish check).
- *   3. `pending` — checks still running.
- *   4. `healthy` — checks pass (draft included; green = health, so no draft
- *      contradiction and deliberately NO `&& approved` requirement).
- *   5. `neutral` — open with no decisive signal yet, closed-unmerged, or an
- *      aged-out merge.
- */
-export function prDotState(win: WindowInfo): PrDotState {
-  if (win.prState === "merged") return "merged";
-  if (isFailish(win)) return "fail";
-  if (win.prChecks === "pending") return "pending";
-  if (win.prChecks === "pass") return "healthy";
-  return "neutral";
-}
-
-/**
  * Lifecycle status-dot model (compositional vocabulary — status-pyramid.md) —
  * TWO orthogonal axes plus an additive attention overlay:
  *   - `phase` → CORE HUE (which journey + position in it)
@@ -212,30 +179,30 @@ export function prOwnsGlyph(win: WindowInfo): boolean {
  *      muted (the established inert/no-journey token, shared with draft;
  *      the ✕ closed icon is what separates closed from draft). Closed sits
  *      ABOVE fail on purpose: a closed PR's check/review state is historical
- *      noise, the same first-match rationale that puts `merged` above `fail`
- *      in `prDotState`. (The GitHub-exact red variant was considered and
- *      rejected by the user: dead PRs should not draw rest-state attention.)
- *   2. `text-signal-red` for a fail-ish PR (`prDotState` → `fail`, i.e.
- *      `isFailish`). FAIL STAYS ON TOP of everything open — a draft whose
- *      checks fail (or that has changes requested) is a problem first and a
- *      draft second, the same `isFailish`-dominates rule `prDotState`
- *      encodes by ordering `fail` ahead of `healthy`.
- *   3. `text-text-secondary` for an OPEN DRAFT (e30p) — GitHub renders drafts
+ *      noise. (The GitHub-exact red variant was considered and rejected by
+ *      the user: dead PRs should not draw rest-state attention.)
+ *   2. `text-signal-purple` for MERGED — the same landed-PR rationale:
+ *      historical checks/review are noise (mirrors status-panel suppressing
+ *      checks/review once `!open`), so merged sits above fail too.
+ *   3. `text-signal-red` for a fail-ish PR (`isFailish` — the single source
+ *      of truth for the fail-ish check). FAIL STAYS ON TOP of everything
+ *      open — a draft whose checks fail (or that has changes requested) is a
+ *      problem first and a draft second.
+ *   4. `text-text-secondary` for an OPEN DRAFT (e30p) — GitHub renders drafts
  *      gray, and this is already the "inert / no journey" token in this model
  *      (`PHASE_HUE.none`). Draft sits ABOVE pending on purpose: drafts stay
  *      muted even while their checks run (pending would un-mute them). The
- *      branch is GATED ON `prState === "open"` so the merged→purple and
- *      closed paths are untouched BY CONSTRUCTION (a closed draft reads
- *      closed, GitHub semantics).
- *   4. `text-signal-yellow` for open with `prChecks === "pending"` — CHECKS
+ *      branch is GATED ON `prState === "open"` so the closed path is
+ *      untouched BY CONSTRUCTION (a closed draft reads closed, GitHub
+ *      semantics).
+ *   5. `text-signal-yellow` for open with `prChecks === "pending"` — CHECKS
  *      RUNNING (aqo6): the row-level signal that replaced the dot's retired
  *      purple pending ring; same token choice as `PR_CHECKS_COLORS.pending`.
- *   5. `text-accent-green` for open otherwise (checks pass or no decisive
+ *   6. `text-accent-green` for open otherwise (checks pass or no decisive
  *      signal).
- *   6. `text-signal-purple` for merged.
  * Unknown/absent states never reach here (the `prOwnsGlyph` allowlist admits
- * only `open`/`merged`/`closed`), so the merged fall-through in branch 5/6
- * is safe by construction. No new color
+ * only `open`/`merged`/`closed`), so the purple fall-through on the last
+ * line is safe by construction. No new color
  * system — all are established tokens (PR_STATE_COLORS /
  * `--color-text-secondary`).
  *
@@ -245,7 +212,8 @@ export function prOwnsGlyph(win: WindowInfo): boolean {
  */
 export function prGlyphColor(win: WindowInfo): string {
   if (win.prState === "closed") return "text-text-secondary"; // dead PR: muted; stale checks are noise
-  if (prDotState(win) === "fail") return "text-signal-red";
+  if (win.prState === "merged") return "text-signal-purple"; // landed: stale checks are noise too
+  if (isFailish(win)) return "text-signal-red";
   if (win.prState === "open" && win.prIsDraft) return "text-text-secondary";
   if (win.prState === "open" && win.prChecks === "pending") return "text-signal-yellow";
   return win.prState === "open" ? "text-accent-green" : "text-signal-purple";

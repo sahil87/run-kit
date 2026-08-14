@@ -183,8 +183,8 @@ export function batchToast(
  * The composite selection keys of every merged-PR window on `server`.
  *
  * Merged state comes from the PR knowledge the frontend already has: a window's
- * `prState === "merged"` (the same field `prDotState` reads for its tier-1
- * `merged` state). Reading the field directly keeps this module dependency-free.
+ * `prState === "merged"` (the same field `prGlyphColor` reads for its merged
+ * branch). Reading the field directly keeps this module dependency-free.
  */
 export function mergedWindowKeys(
   server: string,

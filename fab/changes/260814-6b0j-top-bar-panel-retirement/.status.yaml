@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 5
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-08-14T18:47:38Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-14T18:52:07Z"}
     hydrate: {started_at: "2026-08-14T18:52:07Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-14T18:56:35Z"}
     ship: {started_at: "2026-08-14T18:56:35Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-14T18:58:43Z"}
-    review-pr: {started_at: "2026-08-14T18:58:43Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-08-14T18:58:43Z", driver: git-pr, iterations: 1, completed_at: "2026-08-14T19:09:24Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/611
 change_type_source: explicit
@@ -54,4 +54,4 @@ true_impact:
     computed_at_stage: ship
 summary: Retired the dead view/panel helpers (resolveView, writeStoredView, resolvePanel, panel writers, runkit-panel-width machinery) and the unreachable in-bar top-bar forms (close-pane ✕, fixed-width toggle, terminal-font Aa popover) — menu rows are the only rendering; terminal-font reset dropped from chrome
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-14T18:58:43Z
+last_updated: 2026-08-14T19:09:24Z

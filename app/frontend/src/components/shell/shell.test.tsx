@@ -24,12 +24,16 @@ function renderShell(opts: { open?: boolean; mobile?: boolean; sidebarChildren?:
   );
   return render(
     <ChromeProvider>
-      <Shell sidebarChildren={sidebarChildren}>
+      <Shell
+        sidebarChildren={sidebarChildren}
+        bottomBarChildren={<div data-testid="bottombar">BOTTOM</div>}
+        statusBarChildren={<div data-testid="statusbar">STATUS</div>}
+      >
         {/* The topbar is no longer part of the Shell grid (260707-4vq2) — it
             mounts in the persistent root layout. The `content` child doubles as
-            the `parentElement` handle to reach the grid root. */}
+            the `parentElement` handle to reach the grid root (on the
+            no-right-panel branch; the stage branch nests one level deeper). */}
         <main style={{ gridArea: "content" }} data-testid="content">CONTENT</main>
-        <footer style={{ gridArea: "bottombar" }} data-testid="bottombar">BOTTOM</footer>
       </Shell>
     </ChromeProvider>,
   );
@@ -55,19 +59,34 @@ describe("Shell", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders desktop grid with sidebar beside content+bottombar; no topbar row (260707-4vq2)", () => {
+  it("renders desktop grid with sidebar beside content+bottombar and a full-width statusbar row (260814-ldbs)", () => {
     renderShell({ open: true, mobile: false });
     const root = screen.getByTestId("content").parentElement!;
     // The TopBar mount moved to the persistent root layout (260707-4vq2), so
-    // Shell's grid no longer carries a `topbar` row. Two rows now: content
-    // (1fr) over bottombar (auto), sidebar spanning both.
+    // Shell's grid no longer carries a `topbar` row. Three rows now: content
+    // (1fr) over bottombar (auto) over the full-width statusbar (auto).
     expect(root.style.display).toBe("grid");
-    expect(root.style.gridTemplateRows).toBe("1fr auto");
+    expect(root.style.gridTemplateRows).toBe("1fr auto auto");
     // grid-template-areas comes back with each row quoted; assert each row appears
     expect(root.style.gridTemplateAreas).toContain('"sidebar content"');
     expect(root.style.gridTemplateAreas).toContain('"sidebar bottombar"');
+    // The statusbar row spans ALL columns (sidebar included).
+    expect(root.style.gridTemplateAreas).toContain('"statusbar statusbar"');
     // The topbar area is gone from the Shell grid entirely.
     expect(root.style.gridTemplateAreas).not.toContain("topbar");
+    // The Shell-owned placements: bottom bar in its footer, status bar in the
+    // spanned row — desktop only.
+    const footer = screen.getByTestId("bottombar").parentElement!;
+    expect(footer.tagName).toBe("FOOTER");
+    expect(footer.style.gridArea).toBe("bottombar");
+    expect(screen.getByTestId("statusbar").parentElement!.style.gridArea).toBe("statusbar");
+  });
+
+  it("never renders the statusbar row content on mobile", () => {
+    renderShell({ open: true, mobile: true });
+    expect(screen.queryByTestId("statusbar")).not.toBeInTheDocument();
+    const root = screen.getByTestId("content").parentElement!;
+    expect(root.style.gridTemplateAreas).not.toContain("statusbar");
   });
 
   it("collapses to '0 1fr' columns when sidebarOpen is false", () => {
@@ -171,7 +190,7 @@ describe("Shell", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  describe("right panel column (260812-nm4p)", () => {
+  describe("right panel stage (260812-nm4p; nested stage 260814-ldbs)", () => {
     function renderWithRightPanel(opts: { visible?: boolean } = {}) {
       const { visible = true } = opts;
       localStorage.setItem("runkit-sidebar-open", "true");
@@ -182,32 +201,57 @@ describe("Shell", () => {
             sidebarChildren={<div data-testid="sidebar">SIDEBAR</div>}
             rightPanelChildren={<div data-testid="rail">RAIL</div>}
             rightPanelVisible={visible}
+            bottomBarChildren={<div data-testid="bottombar">BOTTOM</div>}
+            statusBarChildren={<div data-testid="statusbar">STATUS</div>}
           >
             <main style={{ gridArea: "content" }} data-testid="content">CONTENT</main>
-            <footer style={{ gridArea: "bottombar" }} data-testid="bottombar">BOTTOM</footer>
           </Shell>
         </ChromeProvider>,
       );
     }
 
-    it("adds a third 'auto' grid column spanning both rows when the slot is filled", () => {
+    /** The nested stage grid = the content child's parent; the outer grid is
+     *  one level above it. */
+    function stage() {
+      return screen.getByTestId("content").parentElement!;
+    }
+    function outerGrid() {
+      return stage().parentElement!;
+    }
+
+    it("nests content + rail in a single-row stage on the inset ground when the slot is filled", () => {
       renderWithRightPanel();
-      const root = screen.getByTestId("content").parentElement!;
-      expect(root.style.gridTemplateColumns).toBe("220px 1fr auto");
-      expect(root.style.gridTemplateAreas).toContain('"sidebar content rightpanel"');
-      expect(root.style.gridTemplateAreas).toContain('"sidebar bottombar rightpanel"');
+      // The outer grid is sidebar | stage, with the bottombar + the
+      // full-width statusbar rows below — no third column anymore.
+      expect(outerGrid().style.gridTemplateColumns).toBe("220px 1fr");
+      expect(outerGrid().style.gridTemplateAreas).toContain('"sidebar stage"');
+      expect(outerGrid().style.gridTemplateAreas).toContain('"sidebar bottombar"');
+      expect(outerGrid().style.gridTemplateAreas).toContain('"statusbar statusbar"');
+      // The stage: single row, `1fr auto`, 6px gap + 6px padding, inset ground.
+      expect(stage().style.gridArea).toBe("stage");
+      expect(stage().style.gridTemplateAreas).toBe('"content rightpanel"');
+      expect(stage().style.gridTemplateColumns).toBe("1fr auto");
+      expect(stage().style.gridTemplateRows).toBe("1fr");
+      expect(stage().style.gap).toBe("6px");
+      expect(stage().style.padding).toBe("6px");
+      expect(stage().className).toContain("bg-bg-inset");
+      // The rail aside lives INSIDE the stage at the rightpanel area.
       const aside = screen.getByRole("complementary", { name: "Right panel" });
-      expect(aside).toContainElement(screen.getByTestId("rail"));
+      expect(aside.parentElement).toBe(stage());
       expect(aside.style.gridArea).toBe("rightpanel");
+      expect(aside).toContainElement(screen.getByTestId("rail"));
     });
 
-    it("hides at display level (never unmounts) when rightPanelVisible is false", () => {
+    it("hides the rail at display level and drops the auto track when rightPanelVisible is false", () => {
       renderWithRightPanel({ visible: false });
       // The aside element stays in the DOM — children (iframes) keep state —
-      // it is only display-hidden (which collapses the `auto` column).
+      // it is only display-hidden, AND the stage template flips to `1fr` so no
+      // stray 6px column-gap survives the hidden rail (260814-ldbs R1).
       const rail = screen.getByTestId("rail");
       expect(rail).toBeInTheDocument();
       expect(rail.parentElement!.className).toContain("hidden");
+      expect(stage().style.gridTemplateColumns).toBe("1fr");
+      expect(stage().style.gridTemplateAreas).toBe('"content"');
     });
 
     it("keeps the two-column grid byte-identical when the slot is absent", () => {
@@ -215,6 +259,7 @@ describe("Shell", () => {
       const root = screen.getByTestId("content").parentElement!;
       expect(root.style.gridTemplateColumns).toBe("220px 1fr");
       expect(root.style.gridTemplateAreas).not.toContain("rightpanel");
+      expect(root.style.gridTemplateAreas).not.toContain("stage");
       expect(screen.queryByRole("complementary", { name: "Right panel" })).not.toBeInTheDocument();
     });
 
@@ -228,7 +273,6 @@ describe("Shell", () => {
             rightPanelVisible={true}
           >
             <main style={{ gridArea: "content" }} data-testid="content">CONTENT</main>
-            <footer style={{ gridArea: "bottombar" }} data-testid="bottombar">BOTTOM</footer>
           </Shell>
         </ChromeProvider>,
       );

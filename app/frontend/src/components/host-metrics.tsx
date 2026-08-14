@@ -117,6 +117,13 @@ function MemoryLine({ used, total }: { used: number; total: number }) {
   );
 }
 
+/** Normalize one load average to a percentage of the CPU count (the HOST
+ *  panel's LoadLine rule) — shared with the status bar's compact `ld`
+ *  segment (260814-ldbs) so the two surfaces can never drift. */
+export function normalizeLoadPercent(avg: number, cpus: number): number {
+  return cpus > 0 ? Math.round((avg / cpus) * 100) : 0;
+}
+
 function LoadLine({
   avg1,
   avg5,
@@ -128,7 +135,7 @@ function LoadLine({
   avg15: number;
   cpus: number;
 }) {
-  const normalize = (v: number) => (cpus > 0 ? Math.round((v / cpus) * 100) : 0);
+  const normalize = (v: number) => normalizeLoadPercent(v, cpus);
   const p1 = normalize(avg1);
   const p5 = normalize(avg5);
   const p15 = normalize(avg15);

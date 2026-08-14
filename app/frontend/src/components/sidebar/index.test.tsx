@@ -1371,6 +1371,76 @@ describe("BottomPanels — board-route focused-pane fallback + HOST dot (zx4i)",
     return screen.getByRole("button", { name: /^Pane/ });
   }
 
+  // Panels are DRAWER-ONLY (260814-ldbs R6): the desktop sidebar renders no
+  // PANE/HOST panels anymore (their registers graduated to the status bar), so
+  // every test in this block forces the mobile viewport — the drawer render is
+  // the panels' only remaining home. The file-default non-mobile stub is
+  // restored afterwards so the override never leaks into later suites.
+  function stubMobilePanels() {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn().mockImplementation((query: string) => ({
+        matches:
+          query.includes("prefers-color-scheme: dark") ||
+          query.includes("max-width") ||
+          query.includes("pointer: coarse"),
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        onchange: null,
+      })),
+    );
+  }
+  beforeEach(() => {
+    stubMobilePanels();
+  });
+  afterEach(() => {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn().mockImplementation((query: string) => ({
+        matches: query.includes("prefers-color-scheme: dark"),
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        onchange: null,
+      })),
+    );
+  });
+
+  it("renders NO PANE/HOST panels on the desktop sidebar (drawer-only fork, 260814-ldbs R6)", () => {
+    // Desktop (the file-default non-mobile stub): the panels are gone and the
+    // session region owns the height.
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn().mockImplementation((query: string) => ({
+        matches: query.includes("prefers-color-scheme: dark"),
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        onchange: null,
+      })),
+    );
+    renderSidebar({
+      currentServer: null,
+      servers: boardServers,
+      sessionsByServer: boardSessionsMap,
+      focusedPane: null,
+      hostMetrics: null,
+    });
+    expect(screen.queryByRole("button", { name: /^Pane/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Host/ })).not.toBeInTheDocument();
+    expect(screen.queryByText("No window selected")).not.toBeInTheDocument();
+  });
+
   it("renders the ENRICHED home-session copy when the focused pane resolves by windowId", () => {
     renderSidebar({
       currentServer: null,

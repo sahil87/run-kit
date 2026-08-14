@@ -43,9 +43,10 @@ copy.
 4. Navigate directly to `/board/<name>` (waitUntil `domcontentloaded` to
    skip waiting for every WebSocket child to settle).
 5. Assert `win-a` is visible (pane-header content).
-6. Assert the bottom bar (`footer`) sits at the viewport bottom — the
-   Shell fills the full height (Shell is `height: 100%`, so the board
-   wrapper must carry `h-full`).
+6. Assert the status bar (`status-bar` testid) sits at the viewport bottom —
+   the Shell fills the full height (Shell is `height: 100%`, so the board
+   wrapper must carry `h-full`). (260814-ldbs: the fine-pointer bottom bar
+   is deleted; the status bar is the shell's bottom edge now.)
 7. Click the pane-header `Unpin…` button.
 8. Poll `GET /api/boards` until the board disappears from the listing
    (empty boards are removed per spec — `Empty board cannot exist`).

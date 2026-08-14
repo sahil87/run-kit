@@ -63,7 +63,7 @@ async function gotoWindow(
 ): Promise<void> {
   const q = view ? `?view=${view}` : "";
   await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(windowId)}${q}`);
-  await expect(page.locator("[aria-label='Connected']")).toBeVisible({
+  await expect(page.locator("nav [aria-label='Connected']")).toBeVisible({
     timeout: READY_TIMEOUT,
   });
 }

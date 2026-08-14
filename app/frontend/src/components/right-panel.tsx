@@ -11,12 +11,16 @@ import {
  * docs/specs/surface-layout.md § Verbs — "Rail semantics change"). The panel
  * slot (surface mount + width drag, 260811-2r1w) is SUBSUMED by layout tiles —
  * the divider logic lives in `surface-layout.tsx` now; what remains of this
- * component is the fixed 52px vertical rail on the terminal route's right
- * edge — rendered inside the Shell grid's full-height third column
- * (260812-nm4p), which the top-bar rail toggle collapses; layout tiles live in
- * the content column and survive a rail collapse. The file name and the
- * `right-panel-rail` testid are kept (e2e depends on it); the width/ratio
- * clamps stay in `lib/right-panel.ts`.
+ * component is the fixed 46px vertical rail on the terminal route's right
+ * edge. It renders inside the Shell STAGE (260814-ldbs — the Shell grid's
+ * nested single-row stage on the `bg-bg-inset` ground) as a floating CARD:
+ * `rounded-md` + the shared dimmed `rk-card-border` + `bg-bg-primary`,
+ * running from 6px below the top bar to 6px above the status bar — chrome
+ * only; width, toggles, dots, and collapse behavior are unchanged. The
+ * top-bar rail toggle collapses it (Shell drops the stage's `auto` track and
+ * display-hides the aside); layout tiles live in the content area and survive
+ * a rail collapse. The file name and the `right-panel-rail` testid are kept
+ * (e2e depends on it); the width/ratio clamps stay in `lib/right-panel.ts`.
  *
  * Rail buttons are OPEN-TILE TOGGLES (R10): one focusable button per AVAILABLE
  * surface (`tty` first — R8's shared registry), LIT (`aria-pressed`) for every
@@ -65,13 +69,17 @@ export function RightPanel({ available, open, onToggle }: RightPanelProps) {
       data-testid="right-panel-rail"
       // The rail is the top-bar cluster's vertical twin, mapping the bar's
       // spacing vocabulary: right-aligned chips at pr-3 keep their right edge
-      // 12px from the window edge — co-linear with the top-bar chips (the
+      // 12px from the rail card's edge — co-linear with the top-bar chips (the
       // MAJOR seam); gap-3 = the bar's 12px inter-chip gap; py-2 = the 8px the
       // bar's chips keep from its own top/bottom edges. The left side hugs the
       // tile divider at ~6px — dividers are MINOR seams (6px air on both
       // sides, matching the tile-header verbs' inset on the other side), which
       // is what keeps the column at 46px instead of a symmetric-12 52px band.
-      className="w-[46px] shrink-0 border-l border-border flex flex-col items-end pr-3 py-2 gap-3"
+      // Card chrome (260814-ldbs): the rail is a FLOATING card on the stage
+      // ground — `rounded-md` + the shared 55% dimmed `rk-card-border` +
+      // `bg-bg-primary` (the tile vocabulary), replacing the old attached
+      // `border-l` weld. Chrome only; behavior is unchanged.
+      className="w-[46px] shrink-0 rounded-md border rk-card-border bg-bg-primary flex flex-col items-end pr-3 py-2 gap-3"
     >
       {shown.map((surface) => {
         const isOpen = open.includes(surface);

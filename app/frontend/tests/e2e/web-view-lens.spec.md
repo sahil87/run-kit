@@ -32,7 +32,7 @@ testid exists nowhere.
   iframe is needed (assertions are on chrome/heading/render, never on iframe
   content). Returns the stable `@N` id.
 - **`gotoWindow(id, view?)`**: navigate to `/<server>/<@N>[?view=…]` and wait for
-  the `Connected` SSE indicator.
+  the `Connected` SSE indicator (nav-scoped since 260814-ldbs — the status bar carries its own `Connected` dot).
 - **`expectLayoutParam(page, expected)`**: retrying read of the DECODED
   `?layout=` search param (`URL.searchParams` — the router may percent-encode
   `:`/`,`); the `replaceState` mirror lands a beat after the arrival/switch.

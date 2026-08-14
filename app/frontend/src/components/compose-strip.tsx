@@ -815,6 +815,25 @@ export function ComposeStrip({
       <span aria-hidden="true">{"📎"}</span>
     </button>
   );
+  // The `a|` close affordance (260814-ldbs R7): with the desktop bottom bar
+  // gone on fine pointers, the status bar's `a` hint is the strip's OPENER —
+  // so the strip itself gains a same-family closer next to the attach button,
+  // and open/close live in one visual family. Fires the exact same
+  // `toggleComposeStrip` path as the header × and the chord.
+  const closeChip = (
+    <Tip label="Close compose strip" placement="top">
+      <button
+        type="button"
+        aria-label="Close compose strip (a|)"
+        onMouseDown={preventFocusSteal}
+        onClick={toggleComposeStrip}
+        data-testid="compose-strip-a-close"
+        className="rk-glint shrink-0 rounded border border-border px-2 py-1.5 text-xs text-text-secondary transition-colors hover:border-text-secondary coarse:min-h-[36px]"
+      >
+        <span aria-hidden="true">{"a|"}</span>
+      </button>
+    </Tip>
+  );
   // The coarse-only ⏎ chip — the Shift+Enter local-newline path mobile
   // keyboards cannot produce. Hidden (not disabled) in selection broadcast:
   // the chat Enter policy already makes plain Enter a local newline there,
@@ -968,6 +987,7 @@ export function ComposeStrip({
         <div className="flex items-end gap-1.5">
           {fileInput}
           {attachChip}
+          {closeChip}
           {textareaEl}
           {/* The header row is folded on coarse, so its uploading status is
               relocated into this row — immediately left of Send, mirroring
@@ -990,6 +1010,9 @@ export function ComposeStrip({
           <div className="flex items-center gap-1.5">
             {fileInput}
             {attachChip}
+            {/* The `a|` closer (260814-ldbs) sits immediately right of attach —
+                the opener/closer family. */}
+            {closeChip}
             {/* The right group is an ml-auto container rather than a spacer
                 element, leaving the Tip-wrapped Insert/Send untouched. */}
             <div className="ml-auto flex items-center gap-1.5">

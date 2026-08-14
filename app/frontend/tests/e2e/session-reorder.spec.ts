@@ -93,7 +93,7 @@ test.describe("Sidebar session reorder persistence", () => {
     // SSE-held SPA under Vite and times out. Left in place to document intent;
     // the test is skipped until a reload-free verification is written.
     await page.reload();
-    await expect(page.locator("[aria-label='Connected']")).toBeVisible({
+    await expect(page.locator("nav [aria-label='Connected']")).toBeVisible({
       timeout: READY_TIMEOUT,
     });
     for (const name of SESSIONS) {

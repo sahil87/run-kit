@@ -14,9 +14,11 @@ import { useBoards } from "@/hooks/use-boards";
 import { useBoardListReorder } from "@/hooks/use-board-list-reorder";
 import { useServerReorder } from "@/hooks/use-server-reorder";
 import { useKeybindings } from "@/hooks/use-keybindings";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import { formatCombo } from "@/lib/keybindings";
 import { SectionHeading } from "@/components/section-heading";
+import { StatusBar } from "@/components/status-bar";
 import { Tip } from "@/components/tip";
 import { displayVersion } from "@/lib/palette-version";
 
@@ -41,7 +43,13 @@ export function HostOverviewPage() {
     markServerPending,
     sessionsByServer,
     daemonVersion,
+    isConnectedByServer,
   } = useSessionContext();
+  // The status bar's connection dot on `/` (260814-ldbs): the host-global
+  // read — connected while EVERY known server stream is up (the board route's
+  // boardConnected rule). No servers → disconnected.
+  const hostConnected =
+    servers.length > 0 && servers.every((s) => isConnectedByServer.get(s.name));
   // Local optimistic pulsing tiles for a create in flight. Self-contained and
   // unrelated to the guard (the OptimisticContext server-level ghosts are
   // rendered nowhere), so this stays local.
@@ -57,6 +65,10 @@ export function HostOverviewPage() {
   // pointer is coarse (the app's chord-hints-off-touch rule — touch users get
   // the pin-icon path only).
   const coarsePointer = useCoarsePointer();
+  // The status-bar gate (260814-ldbs rework): `!isMobile`, the same predicate
+  // Shell applies — width-OR-coarse, so a coarse desktop-width device gets the
+  // mobile experience everywhere (no status bar).
+  const isMobile = useIsMobile();
   const { byAction: keybindingsByAction, host: keybindingHost } = useKeybindings();
   const paletteBinding = keybindingsByAction.get("command-palette");
   const paletteChord =
@@ -475,6 +487,18 @@ export function HostOverviewPage() {
           </div>
         )}
       </div>
+
+      {/* Status bar (260814-ldbs R4): the full-width attached strip renders on
+          EVERY desktop route — here with the host cluster only (no current
+          window on `/`, no compose target). Gated on `!isMobile` — the SAME
+          gate Shell applies — so ALL routes agree (rework cycle 1: a
+          width-only gate would leak the bar onto a coarse desktop-width
+          device, but `useIsMobile()` is width-OR-coarse, so an iPad renders
+          the MOBILE experience app-wide — chip bar, drawer panels, NO status
+          bar). */}
+      {!isMobile && (
+        <StatusBar window={null} server={null} isConnected={hostConnected} />
+      )}
 
       {showCreateDialog && (
         <Dialog

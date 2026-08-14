@@ -66,7 +66,9 @@ What it proves: availability derives from the SSE `gitRoot` field alone
 (Constitution II/X — no client-side declaration; the port is conventional
 since a2bo); a non-repo cwd (`/tmp`) derives no gitRoot, so neither affordance
 renders. The `View: Code` lens switch is palette-only (260812-0c6o) — the
-chevron menu carries no `View:` rows.
+chevron menu carries no `View:` rows. The test carries a 30s budget
+(`test.setTimeout`, the sidebar-panels precedent): two window creations plus
+two full page loads land marginal at the 10s default under suite load.
 Steps:
 1. Create a repo-cwd window; navigate; assert the terminal, then the `Code
    tile` rail toggle (SSE-gated).

@@ -744,21 +744,24 @@ describe("SurfaceLayout dividers (R5)", () => {
   });
 });
 
-describe("SurfaceLayout gap-seam tile chrome (260814-011r R1/R5)", () => {
-  it("the desktop grid floats tiles on the inset ground: 6px gutter + 6px ground inset", () => {
+describe("SurfaceLayout gap-seam tile chrome (260814-011r R1/R5; inset cede 260814-ldbs R8)", () => {
+  it("the desktop grid keeps the 6px gutter but cedes the ground inset + ground to the Shell stage", () => {
     renderLayout({ layout: { shape: "split-h", order: ["tty", "code"] } });
     const grid = screen.getByTestId("surface-layout");
     expect(grid.className).toContain("gap-[6px]");
-    expect(grid.className).toContain("p-[6px]");
-    expect(grid.className).toContain("bg-bg-inset");
+    // 260814-ldbs: the stage owns the 6px ground inset + the bg-bg-inset
+    // ground now — the tile grid carries NEITHER (no double inset). Token
+    // match: `gap-[6px]` would false-positive a naive `p-[6px]` substring.
+    expect(grid.className.split(" ")).not.toContain("p-[6px]");
+    expect(grid.className).not.toContain("bg-bg-inset");
     expect(grid.className).not.toContain("gap-[3px]");
   });
 
-  it("the ground inset applies at EVERY arity, including single", () => {
+  it("the gutter applies at EVERY arity, including single (the stage supplies the inset)", () => {
     renderLayout({ layout: { shape: "single", order: ["tty"] } });
     const grid = screen.getByTestId("surface-layout");
     expect(grid.className).toContain("gap-[6px]");
-    expect(grid.className).toContain("p-[6px]");
+    expect(grid.className.split(" ")).not.toContain("p-[6px]");
   });
 
   it("desktop tiles are 6px-radius cards with the dimmed rest border; the focused tile keeps full accent-green", () => {

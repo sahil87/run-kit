@@ -21,6 +21,8 @@ close/reopen, reload).
 
 ## Shared setup
 
+- **Readiness gate**: the `Connected` dot locator is `nav`-scoped since 260814-ldbs (the status bar carries its own `Connected` dot).
+
 - **tmux server**: the isolated `rk-test-e2e` socket (`E2E_TMUX_SERVER`),
   started by `scripts/test-e2e.sh` on port 3020. Never run Playwright directly —
   `just test-e2e code-folder-latch` / `just pw test code-folder-latch`.

@@ -14,6 +14,7 @@ import { useServerDialogs } from "@/contexts/server-dialogs-context";
 import { usePaletteGlobals, useRegisterPaletteActions } from "@/contexts/palette-actions-context";
 import { useToast } from "@/components/toast";
 import { BottomBar } from "@/components/bottom-bar";
+import { StatusBar } from "@/components/status-bar";
 import { ComposeStrip } from "@/components/compose-strip";
 import { Shell } from "@/components/shell/shell";
 import { Sidebar } from "@/components/sidebar";
@@ -970,7 +971,38 @@ function BoardPageContent({ name }: { name: string }) {
   // board collapses to content height.
   return (
     <div className="h-full bg-bg-primary text-text-primary">
-      <Shell sidebarChildren={sidebarElement}>
+      <Shell
+        sidebarChildren={sidebarElement}
+        // Status bar (260814-ldbs): host cluster only on the board route (no
+        // current window); the compose hint keeps the board's working
+        // `toggleComposeStrip` wiring so the strip stays reachable on
+        // fine-pointer desktops now that the bottom bar is pointer-gated away.
+        statusBarChildren={
+          <StatusBar
+            window={null}
+            server={null}
+            isConnected={boardConnected}
+            onOpenCompose={toggleComposeStrip}
+          />
+        }
+        bottomBarChildren={
+          <>
+            {composeStripEnabled && <ComposeStrip />}
+            {/* The bar renders its own 3px-seam + 48px frame (260814) and
+                self-gates to null on fine pointers (260814-ldbs), so an empty
+                row collapses with no reserved height. Callbacks mirror
+                AppShell so the bar is byte-identical across routes (spec
+                § Behavioral Correctness, A-022) — without these the `>_`
+                compose button is gated out and the long-press scroll-lock
+                affordance is inert. */}
+            <BottomBar
+              onOpenCompose={toggleComposeStrip}
+              onFocusTerminal={() => focusFocusedPaneRef.current?.()}
+              onScrollLockChange={setScrollLocked}
+            />
+          </>
+        }
+      >
         {/* The desktop sidebar aside is now Shell-owned (260719-rwqf): BoardPage
             passes only `sidebarChildren` and Shell renders the
             `<aside gridArea:"sidebar" aria-label="Sidebar">` (gated
@@ -1042,24 +1074,10 @@ function BoardPageContent({ name }: { name: string }) {
           )}
         </main>
 
-        {/* Bottom bar grid area — shell-level. Reads focused terminal from
-            FocusedTerminalContext (BoardPane registers when its `isFocused`
-            prop becomes true). New on the board route in 17m3 — pre-change
-            board route had no BottomBar.
-            Callbacks mirror AppShell so the bar is byte-identical across
-            routes (spec § Behavioral Correctness, A-022) — without these
-            the `>_` compose button is gated out and the long-press
-            scroll-lock affordance is inert. */}
-        <footer style={{ gridArea: "bottombar" }}>
-          {composeStripEnabled && <ComposeStrip />}
-          {/* The bar renders its own 3px-seam + 48px frame (260814) so its
-              coarse compose-focus early-return removes the reserved height. */}
-          <BottomBar
-            onOpenCompose={toggleComposeStrip}
-            onFocusTerminal={() => focusFocusedPaneRef.current?.()}
-            onScrollLockChange={setScrollLocked}
-          />
-        </footer>
+        {/* Bottom bar + compose strip moved OUT of the children into Shell's
+            `bottomBarChildren` slot (260814-ldbs) — Shell owns the footer's
+            grid placement on every route now. New on the board route in 17m3
+            — pre-change board route had no BottomBar. */}
       </Shell>
 
       {/* Command palette, shortcuts overlay, and the server create/kill

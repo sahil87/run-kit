@@ -227,9 +227,13 @@ Stays within the ≤2-tile perf budget. Steps:
 What it proves: below `isMobileViewport()` the layout manager renders only
 slot A — no grid, no dividers, no rail — and the remaining resolved surfaces
 are reachable as sheet tabs whose selection is TRANSIENT (the URL/desktop
-arrangement never changes).
+arrangement never changes). The nested describe runs `test.use({ hasTouch:
+true })` so `(pointer: coarse)` matches — a real phone is coarse AND narrow,
+and since 260814-ldbs the bottom bar (the ▦ chip's home) is pointer-gated, so
+a fine-pointer narrow window would get no chip bar by design.
 Steps:
-1. Set the 375×812 viewport; create a web-capable window.
+1. Set the 375×812 viewport (context already has `hasTouch`); create a
+   web-capable window.
 2. Navigate to `?layout=main-left:tty,code,web`, gating on the terminal (not
    the `Connected` dot — the sidebar is an unmounted drawer at 375px).
 3. Assert the tty tile is visible, the code/web tiles are mounted-hidden, no

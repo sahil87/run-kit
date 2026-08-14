@@ -29,7 +29,7 @@ This exercises the full production path — the same one the drag UI uses.
 1. Build the desired custom order: `[charlie, alpha, bravo]`.
 2. Send `POST /api/sessions/order?server={TMUX_SERVER}` with body
    `{"order": [charlie, alpha, bravo]}`. Assert the response is OK.
-3. Navigate to `/{TMUX_SERVER}` and wait for "Connected".
+3. Navigate to `/{TMUX_SERVER}` and wait for "Connected" (nav-scoped since 260814-ldbs — the status bar carries its own `Connected` dot).
 4. Wait for all three test sessions to render in the sidebar.
 5. Use `expect.poll` to read the rendered order (collected from each session
    row's `aria-label='Navigate to {name}'` button, in DOM order, filtered

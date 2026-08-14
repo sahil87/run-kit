@@ -1,5 +1,6 @@
 # Archived Changes
 
+- **260814-011r-gap-seam-tile-chrome** — Gap-Seam Tile Chrome
 - **260812-z1ya-update-daemon-tmux-window** — Update Runs in a Daemon-Managed tmux Window
 - **260812-nm4p-top-bar-rail-toggle** — Top-Bar Right-Rail Toggle
 - **260812-d1at-relocate-footer-actions-top-bar** — Relocate Footer Actions to Top Bar

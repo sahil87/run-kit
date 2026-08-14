@@ -1652,9 +1652,16 @@ export function Sidebar({
         />
       </div>
 
-      {/* Status panels — pinned at bottom. Show metrics + selected window
-          status only when there's a current server. */}
-      <BottomPanels currentServer={currentServer} currentSessionName={currentSession} currentWindowId={currentWindowId} />
+      {/* Status panels — pinned at bottom, DRAWER-ONLY (260814-ldbs R6): the
+          desktop sidebar no longer renders the PANE/HOST panels — their
+          registers graduated to the full-width status bar and the session
+          list absorbs the freed height (the desktop sidebar is pure
+          navigation). The mobile drawer keeps both panels byte-identical —
+          the established persistent-chrome→tap-away degradation: mobile has
+          no status bar, so the drawer stays the panels' home. */}
+      {isMobile && (
+        <BottomPanels currentServer={currentServer} currentSessionName={currentSession} currentWindowId={currentWindowId} />
+      )}
 
       {/* Footer — a passive status row (260812-d1at): LEFT = readouts
           (connection dot + version), RIGHT = a quiet status/hints slot

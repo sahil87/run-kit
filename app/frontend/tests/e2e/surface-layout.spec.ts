@@ -63,7 +63,7 @@ function paneCount(windowId: string): number {
  *  in the sidebar footer — the mobile test gates on the terminal instead). */
 async function gotoWindow(page: Page, windowId: string, search = ""): Promise<void> {
   await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(windowId)}${search}`);
-  await expect(page.locator("[aria-label='Connected']")).toBeVisible({
+  await expect(page.locator("nav [aria-label='Connected']")).toBeVisible({
     timeout: READY_TIMEOUT,
   });
 }
@@ -95,7 +95,7 @@ test.beforeAll(async ({ browser }) => {
   const page = await browser.newPage();
   const first = await resolveWindowRaw(page, TMUX_SERVER, TEST_SESSION);
   await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(first.windowId)}`);
-  await expect(page.locator("[aria-label='Connected']")).toBeVisible({ timeout: 60_000 });
+  await expect(page.locator("nav [aria-label='Connected']")).toBeVisible({ timeout: 60_000 });
   await expect(page.locator(".xterm").first()).toBeVisible({ timeout: 60_000 });
   await page.close();
 });
@@ -308,7 +308,7 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     // Re-arrive via a FULL load of the BARE route (no ?layout= carried) — the
     // URL rung is empty, so the localStorage rung must supply the layout.
     await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(id)}`);
-    await expect(page.locator("[aria-label='Connected']")).toBeVisible({
+    await expect(page.locator("nav [aria-label='Connected']")).toBeVisible({
       timeout: READY_TIMEOUT,
     });
     await expect(tile(page, "web")).toBeVisible({ timeout: 10_000 });
@@ -361,7 +361,7 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     // History: [E0 server route] → [E1 window A] → (rail toggle: replaceState,
     // E1 updated in place) → [E2 window B via sidebar push].
     await page.goto(`/${TMUX_SERVER}`);
-    await expect(page.locator("[aria-label='Connected']")).toBeVisible({
+    await expect(page.locator("nav [aria-label='Connected']")).toBeVisible({
       timeout: READY_TIMEOUT,
     });
     await gotoWindow(page, a);
@@ -455,7 +455,7 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     // The ratio persists per (window, shape): a bare reload resolves the same
     // layout AND the dragged divider position.
     await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(id)}`);
-    await expect(page.locator("[aria-label='Connected']")).toBeVisible({
+    await expect(page.locator("nav [aria-label='Connected']")).toBeVisible({
       timeout: READY_TIMEOUT,
     });
     await expect(tile(page, "web")).toBeVisible({ timeout: 10_000 });
@@ -503,51 +503,59 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     await expect(divider(page, 0)).toBeVisible();
   });
 
-  test("375px mobile: a 3-tile ?layout= URL renders slot A + sheet tabs for the rest (R13, A-018)", async ({
-    page,
-  }) => {
-    test.setTimeout(30_000);
-    await page.setViewportSize(MOBILE_VIEWPORT);
-    const id = await makeWindow(page, `sl-mobile-${Date.now()}`, { url: IFRAME_URL });
-    // Do NOT gate on the `Connected` dot: it lives in the sidebar footer, and
-    // at 375px the sidebar is an unmounted drawer. Gate on the terminal.
-    await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(id)}?layout=main-left:tty,code,web`);
-    await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
+  // The ▦ Surfaces chip lives in the bottom bar, which 260814-ldbs
+  // pointer-gated to COARSE pointers — a real phone is coarse AND narrow, so
+  // this mobile test runs with `hasTouch` (a viewport-only emulation would get
+  // no chip bar by design).
+  test.describe("mobile (375px, coarse pointer)", () => {
+    test.use({ hasTouch: true });
 
-    // Slot A (tty) renders full-width; the other resolved surfaces stay
-    // mounted-hidden (no multi-tile grid, no dividers below the threshold).
-    await expect(tile(page, "tty")).toBeVisible();
-    await expect(tile(page, "code")).toBeHidden();
-    await expect(tile(page, "web")).toBeHidden();
-    await expect(divider(page, 0)).toHaveCount(0);
-    // Gap-seam chrome is desktop-only (260814-011r R5): no intersection zone.
-    await expect(page.getByTestId("surface-divider-intersection")).toHaveCount(0);
-    // No rail on mobile (desktop-only), but the ▦ Surfaces chip appears because
-    // MORE THAN ONE surface is open.
-    await expect(rail(page)).toHaveCount(0);
-    const chip = page.getByTestId("mobile-surfaces-chip");
-    // READY_TIMEOUT: on a cold deep link the multi-surface layout (and so the
-    // chip) resolves only once the window payload lands with rkUrl/gitRoot.
-    await expect(chip).toBeVisible({ timeout: READY_TIMEOUT });
+    test("375px mobile: a 3-tile ?layout= URL renders slot A + sheet tabs for the rest (R13, A-018)", async ({
+      page,
+    }) => {
+      test.setTimeout(30_000);
+      await page.setViewportSize(MOBILE_VIEWPORT);
+      const id = await makeWindow(page, `sl-mobile-${Date.now()}`, { url: IFRAME_URL });
+      // Do NOT gate on the `Connected` dot: it lives in the sidebar footer, and
+      // at 375px the sidebar is an unmounted drawer. Gate on the terminal.
+      await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(id)}?layout=main-left:tty,code,web`);
+      await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
 
-    // The sheet exposes every open surface as a tab, slot A marked pressed.
-    await chip.click();
-    const sheet = page.getByTestId("mobile-surface-sheet");
-    await expect(sheet).toBeVisible();
-    await expect(page.getByTestId("mobile-surface-tab-tty")).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
-    await expect(page.getByTestId("mobile-surface-tab-code")).toBeVisible();
-    await expect(page.getByTestId("mobile-surface-tab-web")).toBeVisible();
+      // Slot A (tty) renders full-width; the other resolved surfaces stay
+      // mounted-hidden (no multi-tile grid, no dividers below the threshold).
+      await expect(tile(page, "tty")).toBeVisible();
+      await expect(tile(page, "code")).toBeHidden();
+      await expect(tile(page, "web")).toBeHidden();
+      await expect(divider(page, 0)).toHaveCount(0);
+      // Gap-seam chrome is desktop-only (260814-011r R5): no intersection zone.
+      await expect(page.getByTestId("surface-divider-intersection")).toHaveCount(0);
+      // No rail on mobile (desktop-only), but the ▦ Surfaces chip appears because
+      // MORE THAN ONE surface is open.
+      await expect(rail(page)).toHaveCount(0);
+      const chip = page.getByTestId("mobile-surfaces-chip");
+      // READY_TIMEOUT: on a cold deep link the multi-surface layout (and so the
+      // chip) resolves only once the window payload lands with rkUrl/gitRoot.
+      await expect(chip).toBeVisible({ timeout: READY_TIMEOUT });
 
-    // Selecting the Code tab swaps the mobile slot-A surface — TRANSIENT: the
-    // URL (and the desktop arrangement it encodes) is untouched.
-    await page.getByTestId("mobile-surface-tab-code").click();
-    await expect(sheet).toBeHidden();
-    await expect(tile(page, "code")).toBeVisible({ timeout: 10_000 });
-    await expect(tile(page, "tty")).toBeHidden();
-    await expectLayoutParam(page, "main-left:tty,code,web");
+      // The sheet exposes every open surface as a tab, slot A marked pressed.
+      await chip.click();
+      const sheet = page.getByTestId("mobile-surface-sheet");
+      await expect(sheet).toBeVisible();
+      await expect(page.getByTestId("mobile-surface-tab-tty")).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+      await expect(page.getByTestId("mobile-surface-tab-code")).toBeVisible();
+      await expect(page.getByTestId("mobile-surface-tab-web")).toBeVisible();
+
+      // Selecting the Code tab swaps the mobile slot-A surface — TRANSIENT: the
+      // URL (and the desktop arrangement it encodes) is untouched.
+      await page.getByTestId("mobile-surface-tab-code").click();
+      await expect(sheet).toBeHidden();
+      await expect(tile(page, "code")).toBeVisible({ timeout: 10_000 });
+      await expect(tile(page, "tty")).toBeHidden();
+      await expectLayoutParam(page, "main-left:tty,code,web");
+    });
   });
 
   test("the focused-tile accent border follows clicks across tiles (260812-wfic R2, A-013)", async ({

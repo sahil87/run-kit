@@ -36,11 +36,14 @@ import type { WindowInfo } from "@/types";
  * `CodeSurface` (code).
  *
  * - **Tile chrome (R7, redesigned in 260812-wfic; gap-seam 260814-011r)**: the
- *   desktop grid floats tiles on the `bg-bg-inset` ground — 6px gutters plus a
- *   6px ground inset (`gap-[6px] p-[6px]`) — each tile a 6px-radius card
- *   (`rounded-md`) whose REST border is the dimmed `rk-card-border` (a 55%
- *   color-mix: the gap does the separating, the border only defines the card
- *   edge). Each tile carries a 30px `bg-bg-card` header —
+ *   desktop grid floats tiles as cards — 6px gutters (`gap-[6px]`), each tile
+ *   a 6px-radius card (`rounded-md`) whose REST border is the dimmed
+ *   `rk-card-border` (a 55% color-mix: the gap does the separating, the border
+ *   only defines the card edge). The outer 6px ground inset and the
+ *   `bg-bg-inset` ground itself are provided by the Shell STAGE
+ *   (260814-ldbs) — this grid ceded its own `p-[6px]`/`bg-bg-inset` so the
+ *   tiles and the rail card share ONE continuous ground. Each tile carries a
+ *   30px `bg-bg-card` header —
  *   kind glyph (`SURFACE_GLYPH`) + surface name + the small meta as an inset
  *   chip (git-root basename for code, `@rk_url` host for web) — with
  *   rest-visible boxed verb buttons (22×22, 26×26 coarse): ⛶ zoom, ◧
@@ -1093,12 +1096,15 @@ export function SurfaceLayout({
       ref={gridRef}
       data-testid="surface-layout"
       // Gap-seam grid (260814-011r R1, was the 260812-wfic 3px framed grid):
-      // the 6px gutter + 6px ground inset float the tiles as separate cards on
-      // the inset ground — the GAP is the separation, so the tile borders dim
-      // (rk-card-border). The absolutely-positioned dividers keep their
-      // ratio-boundary placement; their 14px hit zones cover the 6px gutter
-      // plus slop, so drag mechanics are unchanged.
-      className="relative flex-1 min-h-0 min-w-0 grid gap-[6px] p-[6px] bg-bg-inset"
+      // the 6px gutter floats the tiles as separate cards — the GAP is the
+      // separation, so the tile borders dim (rk-card-border). The outer inset
+      // + ground moved OUT to the Shell stage in 260814-ldbs (this container
+      // dropped its own `p-[6px]`/`bg-bg-inset`): the stage provides the 6px
+      // ground inset at every edge, so net tile geometry is unchanged. The
+      // absolutely-positioned dividers keep their ratio-boundary placement;
+      // their 14px hit zones cover the 6px gutter plus slop, so drag
+      // mechanics are unchanged.
+      className="relative flex-1 min-h-0 min-w-0 grid gap-[6px]"
       style={gridStyle(layout.shape, effRatios, zoomed)}
     >
       {allTiles.map(({ tile, hidden }) => renderTile(tile, hidden, false))}

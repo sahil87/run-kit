@@ -110,6 +110,7 @@ import { Sidebar } from "@/components/sidebar";
 import { RightPanel } from "@/components/right-panel";
 import { SurfaceLayout } from "@/components/surface-layout";
 import { BottomBar } from "@/components/bottom-bar";
+import { StatusBar } from "@/components/status-bar";
 import { ComposeStrip } from "@/components/compose-strip";
 import { focusComposeStrip } from "@/lib/compose-strip-events";
 import type { PaletteAction } from "@/components/command-palette";
@@ -3472,6 +3473,49 @@ function AppShell() {
     <Shell
       sidebarChildren={sidebarElement}
       rightPanelVisible={rightAreaVisible}
+      // Status bar (260814-ldbs): the full-width attached strip at the shell
+      // bottom — Shell renders it as the `statusbar` row on desktop (never
+      // mobile). The window cluster mirrors the CURRENT window's registers
+      // (terminal route only — `currentWindow` is null without a window
+      // param); the host cluster renders on every route this shell mounts.
+      statusBarChildren={
+        <StatusBar
+          window={currentWindow ?? null}
+          server={server}
+          isConnected={dotConnected}
+          onOpenCompose={toggleComposeStrip}
+        />
+      }
+      // Bottom-bar row (260814-ldbs): Shell owns the `<footer
+      // gridArea:"bottombar">` placement now, keeping the footer OUT of the
+      // nested stage. BottomBar self-gates on pointer type — fine pointers
+      // render nothing (the key chips are touch affordances; ⌘K + compose
+      // relocated to the status bar), so the `auto` row collapses to zero
+      // height there (the 260814-ink6 no-reserved-height property).
+      bottomBarChildren={
+        <>
+          {composeStripEnabled && !inTileDock && composeStripElement}
+          <BottomBar
+            onOpenCompose={toggleComposeStrip}
+            onFocusTerminal={() => focusTerminalRef.current?.()}
+            onScrollLockChange={setScrollLocked}
+            // Mobile surface tabs (T014/R13): only on the mobile terminal
+            // route with a multi-tile layout — the ▦ chip's sheet swaps the
+            // mobile slot-A surface via transient state (never a layout
+            // mutation). Tabs are deduped (a duplicate-tty layout gets one
+            // Terminal tab).
+            surfaceSheet={
+              isMobile && windowParam && layout.order.length > 1
+                ? {
+                    surfaces: [...new Set(layout.order)],
+                    active: mobileActiveTile,
+                    onSelect: (surface) => setMobileSlotA(surface),
+                  }
+                : undefined
+            }
+          />
+        </>
+      }
       rightPanelChildren={
         windowParam && !isMobile ? (
           // Rail (260811-2r1w; rail-only since 260812-ab5v T011 — layout
@@ -3522,7 +3566,12 @@ function AppShell() {
           (see the `useRegisterTopBarSlot` effect above). The `terminal` vs
           `root` mode distinction is derived at root from the route params. */}
 
-      {/* Content grid area */}
+      {/* Content grid area. In `fixedWidth` mode the main carries
+          `bg-bg-inset` behind the centered 900px `bg-bg-primary` column — on
+          the terminal route this is now the SAME color as the surrounding
+          stage ground (260814-ldbs), so the split reconciles to a single
+          ground with no doubling; the class stays because the server route
+          (SessionTiles, no stage) still needs it. */}
       <main
         style={{ gridArea: "content" }}
         className={`min-w-0 flex flex-col overflow-hidden ${fixedWidth ? "bg-bg-inset" : ""}`}
@@ -3683,39 +3732,15 @@ function AppShell() {
         </div>
       </main>
 
-      {/* Bottom bar grid area — shell-level. Reads focused terminal from
-          FocusedTerminalContext (TerminalClient registered itself on mount).
-          When the compose-strip preference is on, the docked strip renders
-          ABOVE the bottom bar inside this grid area UNLESS the in-tile dock
-          hosts it (260813-j3jb — desktop terminal route, tty tile present, no
-          selection broadcast); its presence grows the `auto` footer row and
-          shrinks the `1fr` content row, so the terminal's ResizeObserver
-          refits automatically (260718-dhdj). */}
-      <footer style={{ gridArea: "bottombar" }}>
-        {composeStripEnabled && !inTileDock && composeStripElement}
-        {/* The bar renders its own 3px-seam + 48px frame (260814) so its
-            coarse compose-focus early-return removes the reserved height —
-            a wrapper here would keep a 48px hole while the bar is hidden. */}
-        <BottomBar
-          onOpenCompose={toggleComposeStrip}
-          onFocusTerminal={() => focusTerminalRef.current?.()}
-          onScrollLockChange={setScrollLocked}
-          // Mobile surface tabs (T014/R13): only on the mobile terminal
-          // route with a multi-tile layout — the ▦ chip's sheet swaps the
-          // mobile slot-A surface via transient state (never a layout
-          // mutation). Tabs are deduped (a duplicate-tty layout gets one
-          // Terminal tab).
-          surfaceSheet={
-            isMobile && windowParam && layout.order.length > 1
-              ? {
-                  surfaces: [...new Set(layout.order)],
-                  active: mobileActiveTile,
-                  onSelect: (surface) => setMobileSlotA(surface),
-                }
-              : undefined
-          }
-        />
-      </footer>
+      {/* Bottom bar + shell-docked compose strip moved OUT of the children
+          into Shell's `bottomBarChildren` slot (260814-ldbs): on the terminal
+          route the stage grid wraps these children, and the footer must stay
+          outside it. The compose strip's dock predicate is unchanged — the
+          strip renders ABOVE the bottom bar inside the bottombar row UNLESS
+          the in-tile dock hosts it (260813-j3jb — desktop terminal route,
+          tty tile present, no selection broadcast); its presence grows the
+          `auto` footer row and shrinks the `1fr` content row, so the
+          terminal's ResizeObserver refits automatically (260718-dhdj). */}
 
       {/* Dialogs */}
       {showCreateSessionAtFolderDialog && (

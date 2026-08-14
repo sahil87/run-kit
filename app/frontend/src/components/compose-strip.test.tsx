@@ -1166,6 +1166,26 @@ describe("ComposeStrip", () => {
     expect(input().value).toBe("before-close");
   });
 
+  it("the `a|` chip beside attach closes the strip via the same toggle path (260814-ldbs R7)", () => {
+    // The opener/closer family: with the fine-pointer bottom bar gone, the
+    // status bar's `a` hint opens the strip and this in-strip `a|` closes it.
+    localStorage.setItem("runkit-compose-strip", "true");
+    render(<GatedHarness focus={{ wsRef: makeWs().ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />);
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+
+    const aClose = screen.getByTestId("compose-strip-a-close");
+    expect(aClose).toHaveTextContent("a|");
+    // It sits immediately after the attach chip (same visual family).
+    const attach = screen.getByRole("button", { name: "Upload file" });
+    expect(
+      attach.compareDocumentPosition(aClose) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    act(() => fireEvent.click(aClose));
+    expect(screen.queryByTestId("compose-strip")).toBeNull();
+    expect(localStorage.getItem("runkit-compose-strip")).toBe("false");
+  });
+
   it("the × does not steal focus (mousedown is default-prevented)", () => {
     render(<Harness focus={{ wsRef: makeWs().ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />);
     act(() => fireEvent.click(screen.getByTestId("set-focus")));
@@ -1795,7 +1815,10 @@ describe("ComposeStrip", () => {
     expect(isComposeStripFocused()).toBe(true);
   });
 
-  it("the bottom bar never hides on a fine pointer, even while composing", () => {
+  it("the bottom bar never renders on a fine pointer (260814-ldbs) — composing is unaffected either way", () => {
+    // The fine-pointer bar is GONE now (the pointer gate), superseding ink6's
+    // "never hides on fine" rule: the strip owns the fine-pointer desktop's
+    // compose UX alone. The strip itself must stay put while focused.
     stubPointer(false);
     render(
       <ChromeProvider>
@@ -1810,6 +1833,7 @@ describe("ComposeStrip", () => {
     act(() => {
       input().focus();
     });
-    expect(screen.getByRole("toolbar")).toBeInTheDocument();
+    expect(screen.queryByRole("toolbar")).not.toBeInTheDocument();
+    expect(input()).toBeInTheDocument();
   });
 });

@@ -47,7 +47,7 @@ async function makeWindow(page: Page, name: string, opts: { url?: string } = {})
  *  wait for the SSE connection. */
 async function gotoWindow(page: Page, windowId: string, search = ""): Promise<void> {
   await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(windowId)}${search}`);
-  await expect(page.locator("[aria-label='Connected']")).toBeVisible({
+  await expect(page.locator("nav [aria-label='Connected']")).toBeVisible({
     timeout: READY_TIMEOUT,
   });
 }
@@ -221,7 +221,7 @@ test.describe("Right rail — open-tile toggles over the surface layout", () => 
     await railWebButton(page).click();
     await expect(webIframe(page)).toBeVisible({ timeout: 10_000 });
     await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(id)}`);
-    await expect(page.locator("[aria-label='Connected']")).toBeVisible({ timeout: READY_TIMEOUT });
+    await expect(page.locator("nav [aria-label='Connected']")).toBeVisible({ timeout: READY_TIMEOUT });
     await expect(webIframe(page)).toBeVisible({ timeout: 10_000 });
     await expectLayoutParam(page, "split-h:tty,web");
   });
@@ -238,7 +238,7 @@ test.describe("Right rail — open-tile toggles over the surface layout", () => 
     await railWebButton(page).click();
     await expect(webTile(page)).toBeHidden();
     await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(id)}`);
-    await expect(page.locator("[aria-label='Connected']")).toBeVisible({ timeout: READY_TIMEOUT });
+    await expect(page.locator("nav [aria-label='Connected']")).toBeVisible({ timeout: READY_TIMEOUT });
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
     await expect(webTile(page)).toHaveCount(0);
     await expectLayoutParam(page, null); // default layout mirrors as a CLEAN URL (param dropped)
@@ -280,29 +280,38 @@ test.describe("Right rail — open-tile toggles over the surface layout", () => 
     await expectLayoutParam(page, null); // default layout mirrors as a CLEAN URL (param dropped)
   });
 
-  test("375px mobile: no rail; a 2-tile deep link renders slot A with the surfaces chip", async ({ page }) => {
-    test.setTimeout(30_000);
-    await page.setViewportSize(MOBILE_VIEWPORT);
-    const id = await makeWindow(page, `rp-mobile-${Date.now()}`, { url: IFRAME_URL });
-    // Do NOT gate on the `Connected` dot here: it lives in the sidebar footer,
-    // and at 375px the sidebar is an unmounted drawer (the web-view-lens mobile
-    // test's documented reason). Gate on the terminal instead.
-    await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(id)}?layout=split-h:tty,web`);
-    await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
-    // The rail does not render on mobile (desktop-only, P5 → R13). The center
-    // renders ONLY slot A (tty) full-width; the web tile stays mounted-hidden
-    // and reachable via the ▦ Surfaces chip's sheet.
-    await expect(rail(page)).toHaveCount(0);
-    await expect(webTile(page)).toBeHidden();
-    // READY_TIMEOUT: on a cold deep link the second surface (and so the chip)
-    // resolves only once the window payload lands with rkUrl.
-    await expect(page.getByTestId("mobile-surfaces-chip")).toBeVisible({
-      timeout: READY_TIMEOUT,
+  test.describe("mobile (375px, coarse pointer)", () => {
+    // hasTouch flips Chromium's `(pointer: coarse)` media query — a real phone
+    // is coarse AND narrow (the bottom-bar-chip-size seam). 260814-ldbs made
+    // the bottom bar pointer-gated, and the ▦ Surfaces chip lives in that
+    // bar, so a viewport-only "mobile" emulation (fine pointer, narrow width)
+    // would get NO chip bar by design — the iPad/phone seam is pointer-decided.
+    test.use({ hasTouch: true });
+
+    test("375px mobile: no rail; a 2-tile deep link renders slot A with the surfaces chip", async ({ page }) => {
+      test.setTimeout(30_000);
+      await page.setViewportSize(MOBILE_VIEWPORT);
+      const id = await makeWindow(page, `rp-mobile-${Date.now()}`, { url: IFRAME_URL });
+      // Do NOT gate on the `Connected` dot here: it lives in the sidebar footer,
+      // and at 375px the sidebar is an unmounted drawer (the web-view-lens mobile
+      // test's documented reason). Gate on the terminal instead.
+      await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(id)}?layout=split-h:tty,web`);
+      await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
+      // The rail does not render on mobile (desktop-only, P5 → R13). The center
+      // renders ONLY slot A (tty) full-width; the web tile stays mounted-hidden
+      // and reachable via the ▦ Surfaces chip's sheet.
+      await expect(rail(page)).toHaveCount(0);
+      await expect(webTile(page)).toBeHidden();
+      // READY_TIMEOUT: on a cold deep link the second surface (and so the chip)
+      // resolves only once the window payload lands with rkUrl.
+      await expect(page.getByTestId("mobile-surfaces-chip")).toBeVisible({
+        timeout: READY_TIMEOUT,
+      });
     });
   });
 });
 
-test.describe("Top-bar rail toggle & full-height column (260812-nm4p)", () => {
+test.describe("Top-bar rail toggle & stage layout (260812-nm4p + 260814-ldbs)", () => {
   test.beforeEach(async ({ page }) => {
     await page.setViewportSize(DESKTOP_VIEWPORT);
     // Reset the persisted rail preference per test — it leaks across tests
@@ -408,7 +417,7 @@ test.describe("Top-bar rail toggle & full-height column (260812-nm4p)", () => {
       .toBe("false");
   });
 
-  test("full-height layout: the rail column reaches the shell bottom; the bottom bar spans only the content column", async ({ page }) => {
+  test("stage layout (260814-ldbs): the rail is a card ending above the status bar; no bottom bar exists on a fine-pointer desktop", async ({ page }) => {
     const id = await makeWindow(page, `rp-fullheight-${Date.now()}`, { url: IFRAME_URL });
     await gotoWindow(page, id);
     await railWebButton(page).click();
@@ -416,24 +425,20 @@ test.describe("Top-bar rail toggle & full-height column (260812-nm4p)", () => {
 
     const shellBox = await page.locator(".app-shell").boundingBox();
     const railBox = await rail(page).boundingBox();
-    const footerBox = await page.locator("footer").boundingBox();
-    const mainBox = await page.locator("main").boundingBox();
+    const statusBarBox = await page.getByTestId("status-bar").boundingBox();
     expect(shellBox).not.toBeNull();
     expect(railBox).not.toBeNull();
-    expect(footerBox).not.toBeNull();
-    expect(mainBox).not.toBeNull();
+    expect(statusBarBox).not.toBeNull();
 
-    // The right column is full-height: the rail reaches the shell's bottom
-    // edge (below the bottom bar's top edge). The panel left this column in
-    // 260812-ab5v — surface content is a content-column TILE now.
+    // The rail is a floating CARD in the stage now — it ends 6px above the
+    // status bar (the stage's bottom padding), no longer full-height.
     const shellBottom = shellBox!.y + shellBox!.height;
-    expect(railBox!.y + railBox!.height).toBeCloseTo(shellBottom, 0);
-    expect(railBox!.y + railBox!.height).toBeGreaterThan(footerBox!.y);
+    expect(statusBarBox!.y + statusBarBox!.height).toBeCloseTo(shellBottom, 0);
+    expect(statusBarBox!.y - (railBox!.y + railBox!.height)).toBeCloseTo(6, 0);
 
-    // The bottom bar is scoped to the content column: its width equals the
-    // content column's — NOT the full viewport (the rail column is outside).
-    expect(footerBox!.width).toBeCloseTo(mainBox!.width, 0);
-    expect(footerBox!.width).toBeLessThan(DESKTOP_VIEWPORT.width);
+    // The desktop bottom bar is DELETED on fine pointers (260814-ldbs R3) —
+    // no toolbar anywhere in the shell.
+    await expect(page.getByRole("toolbar", { name: "Terminal keys" })).toHaveCount(0);
   });
 
   test("a legacy ?panel= deep link on a collapsed rail still renders its tile (never a dead link); the rail stays hidden", async ({ page }) => {

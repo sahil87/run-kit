@@ -157,6 +157,20 @@ test.describe("Status bar (260814-ldbs)", () => {
     await expect(menu).toBeVisible();
     await expect(menu.getByText(/^cwd /)).toBeVisible();
     await expect(menu.getByText(/^tmx /)).toBeVisible();
+    // Keyboard: focus enters the panel on open, ArrowUp/ArrowDown rove between
+    // the VISIBLE rows only. The rows a breakpoint currently hides stay in the
+    // DOM (cpu/version at this width) and must be skipped — a display:none row
+    // cannot take focus, so including it would strand nav on a dead index.
+    // This is the browser-only half of the contract; jsdom computes no layout.
+    await expect(menu.getByText(/^cwd /)).toBeFocused();
+    await page.keyboard.press("ArrowDown");
+    await expect(menu.getByText(/^tmx /)).toBeFocused();
+    await page.keyboard.press("ArrowUp");
+    await expect(menu.getByText(/^cwd /)).toBeFocused();
+    // Wrapping backwards off the first row lands on the LAST visible row — the
+    // compose action, not the hidden version row that follows the metrics rows.
+    await page.keyboard.press("ArrowUp");
+    await expect(menu.getByRole("menuitem", { name: /Compose text/ })).toBeFocused();
     // Escape closes and refocuses the trigger.
     await page.keyboard.press("Escape");
     await expect(menu).toBeHidden();

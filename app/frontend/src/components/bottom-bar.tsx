@@ -195,6 +195,13 @@ export function BottomBar({ onOpenCompose, onFocusTerminal, onScrollLockChange, 
   const [termFocused, setTermFocused] = useState(false);
 
   useEffect(() => {
+    // Coarse-only, for the same reason the capture-phase interceptor above is
+    // (260814-ldbs): `termFocused` drives only the coarse-gated ⌨/🔒 chip, so
+    // on a fine pointer these document listeners would attach — and re-render
+    // this component on every terminal focus change — to feed a chip that
+    // never renders. The render-time `return null` below does NOT unmount the
+    // component or its effects, so the gate has to live here.
+    if (!coarse) return;
     function onFocusIn(e: FocusEvent) {
       if (e.target instanceof HTMLElement && e.target.closest(".xterm")) {
         setTermFocused(true);
@@ -211,7 +218,7 @@ export function BottomBar({ onOpenCompose, onFocusTerminal, onScrollLockChange, 
       document.removeEventListener("focusin", onFocusIn);
       document.removeEventListener("focusout", onFocusOut);
     };
-  }, []);
+  }, [coarse]);
 
   // Long-press detection state for keyboard toggle button
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);

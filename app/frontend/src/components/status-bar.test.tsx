@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { StatusBar } from "./status-bar";
 import { ChromeProvider } from "@/contexts/chrome-context";
 import {
@@ -275,6 +275,33 @@ describe("StatusBar (260814-ldbs)", () => {
       fireEvent.keyDown(document, { key: "Escape" });
       expect(screen.queryByRole("menu", { name: "Overflow status segments" })).not.toBeInTheDocument();
       expect(document.activeElement).toBe(chevron);
+    });
+
+    it("roves focus through the menu rows with ArrowDown/ArrowUp — informational rows included", async () => {
+      // Most rows are informational spans (`role="menuitem" tabIndex={-1}`), so
+      // arrow-nav is what makes them reachable at all: without it a keyboard
+      // user could open the menu and never read a segment (Constitution V).
+      // Mirrors `top-bar-overflow-menu.tsx`'s contract.
+      mockHostMetrics = makeMetrics();
+      mockDaemonVersion = "0.9.3";
+      renderBar({ window: makeWindowWithPanes(), server: "alpha", onOpenCompose: vi.fn() });
+      fireEvent.click(screen.getByTestId("status-bar-overflow"));
+      const menu = screen.getByRole("menu", { name: "Overflow status segments" });
+      const rows = Array.from(menu.querySelectorAll<HTMLElement>("[role='menuitem']"));
+      expect(rows.length).toBeGreaterThan(1);
+
+      // Opening moves focus into the panel (rAF-deferred, like the top bar).
+      await waitFor(() => expect(document.activeElement).toBe(rows[0]));
+
+      fireEvent.keyDown(document, { key: "ArrowDown" });
+      expect(document.activeElement).toBe(rows[1]);
+
+      fireEvent.keyDown(document, { key: "ArrowUp" });
+      expect(document.activeElement).toBe(rows[0]);
+
+      // Wraps backwards from the first row to the last.
+      fireEvent.keyDown(document, { key: "ArrowUp" });
+      expect(document.activeElement).toBe(rows[rows.length - 1]);
     });
   });
 });

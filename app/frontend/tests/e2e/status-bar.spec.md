@@ -59,7 +59,8 @@ bottom bar is absent there too.
 deterministic CSS breakpoint classes hide cwd (≥xl), tmx (≥lg) and out
 (≥900px) while git/agt/fab/PR survive; the bar never scrolls; the `…`
 chevron (hidden at full width) appears and its menu lists the dropped
-segments; Escape closes it.
+segments; the menu's rows are keyboard-reachable by arrow-nav, which skips the
+rows a breakpoint currently hides; Escape closes it.
 
 **Steps:**
 1. Navigate to `/default/1`; wait for the window cluster.
@@ -67,7 +68,13 @@ segments; Escape closes it.
 3. Resize to 800×600; assert cwd/tmx hidden, git/agt still visible, and
    `scrollWidth ≤ clientWidth` on the bar.
 4. Click the chevron; assert the menu lists `cwd`/`tmx` rows.
-5. Press Escape; assert the menu closes.
+5. Assert focus entered the panel on the first visible row (`cwd`), that
+   ArrowDown/ArrowUp move to `tmx` and back, and that ArrowUp off the first row
+   wraps to the last VISIBLE row (the compose action) rather than the
+   breakpoint-hidden version row — a `display: none` row cannot take focus, so
+   arrow-nav must skip it. This is the browser-only half of the contract; the
+   unit suite covers the rove itself, where jsdom computes no layout.
+6. Press Escape; assert the menu closes.
 
 ### `the compose hint opens the compose strip (the relocated bottom-bar affordance)`
 

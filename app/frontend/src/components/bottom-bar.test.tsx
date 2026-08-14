@@ -336,6 +336,30 @@ describe("BottomBar pointer gate (260814-ldbs R3)", () => {
     expect(container.textContent).toBe("");
   });
 
+  it("attaches no document listeners on a fine pointer — the gate covers the effects, not just the render", () => {
+    // The render-time `return null` leaves the component (and every effect)
+    // mounted, so each always-on effect carries the coarse gate too. The
+    // focusin/focusout pair feeds `termFocused`, which drives only the
+    // coarse-gated ⌨/🔒 chip — on a desktop it would re-render this component
+    // on every terminal focus change to feed a chip that never renders.
+    const addSpy = vi.spyOn(document, "addEventListener");
+    renderBottomBar({ onOpenCompose: vi.fn() }, null, "fine");
+    const events = addSpy.mock.calls.map(([type]) => type);
+    expect(events).not.toContain("focusin");
+    expect(events).not.toContain("focusout");
+    expect(events).not.toContain("keydown");
+    addSpy.mockRestore();
+  });
+
+  it("attaches the focus-tracking listeners on a coarse pointer", () => {
+    const addSpy = vi.spyOn(document, "addEventListener");
+    renderBottomBar({ onOpenCompose: vi.fn() }, null, "coarse");
+    const events = addSpy.mock.calls.map(([type]) => type);
+    expect(events).toContain("focusin");
+    expect(events).toContain("focusout");
+    addSpy.mockRestore();
+  });
+
   it("renders today's bar verbatim on a coarse pointer", () => {
     renderBottomBar({ onOpenCompose: vi.fn() }, null, "coarse");
     const toolbar = screen.getByRole("toolbar", { name: "Terminal keys" });

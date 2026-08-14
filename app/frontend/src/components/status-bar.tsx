@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   useFloating,
   offset,
@@ -275,7 +275,14 @@ function WindowCluster({ win }: { win: WindowInfo }) {
  *  a fixed-position `role="menu"` panel anchored to the chevron's viewport
  *  rect (so no ancestor `overflow-hidden` clips it), Escape / outside
  *  mousedown closes. Rows carry the INVERSE breakpoint class of their strip
- *  segment, so a row renders exactly while its segment is dropped. */
+ *  segment, so a row renders exactly while its segment is dropped.
+ *
+ *  Keyboard (`top-bar-overflow-menu.tsx`'s contract): focus enters the panel on
+ *  open, ArrowUp/ArrowDown rove between rows, Escape closes and returns focus
+ *  to the chevron. Most rows here are INFORMATIONAL spans rather than actions,
+ *  so roving focus is what makes them readable at all — a `role="menuitem"`
+ *  that never receives focus is unreachable for keyboard and screen-reader
+ *  users (Constitution V). */
 function OverflowMenu({
   win,
   metrics,
@@ -292,12 +299,58 @@ function OverflowMenu({
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
+  // The menu's rows in DOM (= visual) order, dropping the ones a breakpoint
+  // class currently hides — a `display: none` row cannot take focus, so
+  // including it would strand arrow-nav on a dead index. `checkVisibility` is
+  // absent under jsdom, where no breakpoint CSS is loaded and every row is
+  // genuinely rendered, so treating it as visible there is correct.
+  const rows_ = useCallback((): HTMLElement[] => {
+    const menu = menuRef.current;
+    if (!menu) return [];
+    return Array.from(menu.querySelectorAll<HTMLElement>('[role="menuitem"]')).filter((el) =>
+      typeof el.checkVisibility === "function" ? el.checkVisibility() : true,
+    );
+  }, []);
+
+  // Move focus by `delta` (+1 down, -1 up), wrapping at both ends. Anchors off
+  // the focused row's position so navigation stays stable as rows appear and
+  // disappear across breakpoints.
+  const moveFocus = useCallback(
+    (delta: number) => {
+      const items = rows_();
+      if (items.length === 0) return;
+      const active = document.activeElement as HTMLElement | null;
+      const curr = active ? items.indexOf(active) : -1;
+      const base = curr === -1 ? (delta > 0 ? -1 : 0) : curr;
+      items[(base + delta + items.length) % items.length]?.focus();
+    },
+    [rows_],
+  );
+
+  // On open, move focus into the panel (the canonical menu pattern — rows keep
+  // `tabIndex={-1}` and are reached programmatically from here and arrow-nav).
+  useEffect(() => {
+    if (!open) return;
+    requestAnimationFrame(() => rows_()[0]?.focus());
+  }, [open, rows_]);
+
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
         setOpen(false);
         buttonRef.current?.focus();
+        return;
+      }
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        e.stopPropagation();
+        moveFocus(1);
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        e.stopPropagation();
+        moveFocus(-1);
       }
     }
     function onMouseDown(e: MouseEvent) {
@@ -314,7 +367,7 @@ function OverflowMenu({
       document.removeEventListener("keydown", onKey);
       document.removeEventListener("mousedown", onMouseDown);
     };
-  }, [open]);
+  }, [open, moveFocus]);
 
   const activePane = win?.panes?.find((p) => p.isActive);
   const cwdFull = activePane?.cwd ?? win?.worktreePath ?? "";
@@ -322,7 +375,12 @@ function OverflowMenu({
   const gitBranch = activePane?.gitBranch ?? "";
 
   const textRow = (key: string, text: string, showClass: string) => (
-    <span key={key} role="menuitem" tabIndex={-1} className={`${MENU_ROW_CLASS} ${showClass}`}>
+    <span
+      key={key}
+      role="menuitem"
+      tabIndex={-1}
+      className={`${MENU_ROW_CLASS} focus-visible:outline-2 focus-visible:outline-accent ${showClass}`}
+    >
       {text}
     </span>
   );
@@ -360,6 +418,7 @@ function OverflowMenu({
       key={key}
       type="button"
       role="menuitem"
+      tabIndex={-1}
       className={`${MENU_ROW_CLASS} xl:hidden`}
       onClick={() => {
         setOpen(false);

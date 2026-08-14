@@ -9,11 +9,11 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
-    task_count: 15
+    task_count: 18
     acceptance_count: 19
     acceptance_completed: 19
 confidence:
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-08-14T08:07:05Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-14T08:35:59Z"}
     review: {started_at: "2026-08-14T08:35:59Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-14T08:40:30Z"}
     hydrate: {started_at: "2026-08-14T08:40:30Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-14T08:48:08Z"}
-    ship: {started_at: "2026-08-14T08:48:08Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-08-14T08:48:08Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-14T13:20:19Z"}
+    review-pr: {started_at: "2026-08-14T13:20:19Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/605
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 1958
+    deleted: 44
+    net: 1914
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 1487
+        deleted: 26
+        net: 1461
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-08-14T08:48:08Z"
-    computed_at_stage: hydrate
+        added: 513
+        deleted: 4
+        net: 509
+    computed_at: "2026-08-14T13:20:19Z"
+    computed_at_stage: ship
 summary: 'Sidebar row flair channel: @rk_flair window/session tmux options + settings-store ServerFlairs, three CSS-only character overlays (.rk-flair-nyan/-naruto/-onepiece) on all sidebar row types, picker flair section, session-flair + server-flair endpoints'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-14T08:48:08Z
+last_updated: 2026-08-14T13:20:19Z

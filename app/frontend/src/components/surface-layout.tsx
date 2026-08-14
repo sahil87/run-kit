@@ -655,8 +655,16 @@ export function SurfaceLayout({
 
   useEffect(() => {
     if (draggingIndex === null) return;
-    const move = (e: PointerEvent) => dividerMoveRef.current(e);
-    const end = () => dividerEndRef.current();
+    // Window listeners hear EVERY pointer — gate on the captured pointerId so
+    // a second touch/pen pointer can't move the seam or end the drag.
+    const move = (e: PointerEvent) => {
+      if (e.pointerId !== dragRef.current?.pointerId) return;
+      dividerMoveRef.current(e);
+    };
+    const end = (e: PointerEvent) => {
+      if (e.pointerId !== dragRef.current?.pointerId) return;
+      dividerEndRef.current();
+    };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", end);
     window.addEventListener("pointercancel", end);
@@ -758,8 +766,15 @@ export function SurfaceLayout({
 
   useEffect(() => {
     if (!draggingIntersection) return;
-    const move = (e: PointerEvent) => intersectionMoveRef.current(e);
-    const end = (e: PointerEvent) => intersectionEndRef.current(e);
+    // Same captured-pointerId gate as the single-axis drag effect.
+    const move = (e: PointerEvent) => {
+      if (e.pointerId !== intersectionDragRef.current?.pointerId) return;
+      intersectionMoveRef.current(e);
+    };
+    const end = (e: PointerEvent) => {
+      if (e.pointerId !== intersectionDragRef.current?.pointerId) return;
+      intersectionEndRef.current(e);
+    };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", end);
     window.addEventListener("pointercancel", end);

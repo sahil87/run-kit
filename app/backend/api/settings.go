@@ -218,63 +218,6 @@ func (s *Server) handleSetInstanceName(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-// handleGetServerFlair returns server flair(s).
-// GET /api/settings/server-flair?server=xxx → {"flair": "nyan"} or {"flair": null}
-// GET /api/settings/server-flair             → {"flairs": {"default": "nyan", "dev": "naruto"}}
-// Mirrors handleGetServerColor.
-func (s *Server) handleGetServerFlair(w http.ResponseWriter, r *http.Request) {
-	server := r.URL.Query().Get("server")
-	if server == "" {
-		current := settings.Load()
-		flairs := current.ServerFlairs
-		if flairs == nil {
-			flairs = map[string]string{}
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"flairs": flairs})
-		return
-	}
-	flair := settings.GetServerFlair(server)
-	writeJSON(w, http.StatusOK, map[string]any{"flair": flair})
-}
-
-// handleSetServerFlair sets or clears the flair for a server.
-// POST /api/settings/server-flair ← {"server": "...", "flair": "nyan"} or
-// {"server": "...", "flair": null} (or "flair": "" — both clear).
-// Mirrors handleSetServerColor — the flair allowlist is validated before any
-// settings mutation (invalid → 400).
-func (s *Server) handleSetServerFlair(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Server string  `json:"server"`
-		Flair  *string `json:"flair"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "Invalid JSON body")
-		return
-	}
-	if body.Server == "" {
-		writeError(w, http.StatusBadRequest, "server is required")
-		return
-	}
-	if body.Flair != nil {
-		if errMsg := validate.ValidateFlairValue(*body.Flair); errMsg != "" {
-			writeError(w, http.StatusBadRequest, errMsg)
-			return
-		}
-		// An empty string clears (same as null) — the window/session "empty =
-		// unset" contract.
-		if *body.Flair == "" {
-			body.Flair = nil
-		}
-	}
-
-	if err := settings.SetServerFlair(body.Server, body.Flair); err != nil {
-		s.logger.Error("failed to save server flair", "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to save setting")
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
-}
-
 // handleSetServerColor sets or clears the color for a server.
 // POST /api/settings/server-color ← {"server": "...", "color": 4} or {"server": "...", "color": null}
 func (s *Server) handleSetServerColor(w http.ResponseWriter, r *http.Request) {

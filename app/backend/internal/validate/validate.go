@@ -237,11 +237,10 @@ func ValidateRoleValue(value string) string {
 }
 
 // FlairValues is the closed set of accepted @rk_flair values (window and
-// session user options, plus the server_flairs settings map). The empty string
-// means "unset" (no flair); the three named states select the per-row flair
-// animation in the UI. A closed set bounds the injection/abuse surface
-// (constitution §I) exactly as the marker-value rule does — the value flows
-// into `tmux set-option` and the settings file.
+// session user options). The empty string means "unset" (no flair); the three
+// named states select the per-row flair animation in the UI. A closed set
+// bounds the injection/abuse surface (constitution §I) exactly as the
+// marker-value rule does — the value flows into `tmux set-option`.
 var FlairValues = map[string]bool{
 	"": true, "nyan": true, "naruto": true, "onepiece": true,
 }
@@ -249,8 +248,8 @@ var FlairValues = map[string]bool{
 // ValidateFlairValue validates an @rk_flair value: one of ""/nyan/naruto/
 // onepiece. Returns an empty string if valid, an error message otherwise. An
 // empty value is valid (it means unset). Mirrors ValidateMarkerValue as the
-// single shared flair-value rule reused by the window-option, session-flair,
-// and server-flair handlers.
+// single shared flair-value rule reused by the window-option and session-flair
+// handlers.
 func ValidateFlairValue(value string) string {
 	if FlairValues[value] {
 		return ""

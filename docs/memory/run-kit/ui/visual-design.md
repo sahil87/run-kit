@@ -266,7 +266,7 @@ A window row whose marker is `thick` gets a static "hazard wedge" background —
 
 ### Character Flair Overlays (`globals.css` `.rk-flair-nyan` / `.rk-flair-naruto` / `.rk-flair-onepiece`)
 
-A row carrying a **flair** (the per-row opt-in decorative channel — `""`/`nyan`/`naruto`/`onepiece`, `FLAIR_STATES` in `themes.ts`; see [sidebar](/run-kit/ui/sidebar.md) § Row Flair) gets an always-on ambient character animation across its full width, on window rows, session rows, and server group headers alike. Flair is decoration only — no wiring to `@rk_agent_state` or the status pyramid. (`260814-2esh`)
+A row carrying a **flair** (the per-row opt-in decorative channel — `""`/`nyan`/`naruto`/`onepiece`, `FLAIR_STATES` in `themes.ts`; see [sidebar](/run-kit/ui/sidebar.md) § Row Flair) gets an always-on ambient character animation across its full width, on window rows and session rows (server group headers carry none — they mirror the flair-free SERVER-pane tiles). Flair is decoration only — no wiring to `@rk_agent_state` or the status pyramid. (`260814-2esh`)
 
 **The three treatments** (all sprites are original stylized art embedded as inline SVG data URIs — no external requests, no copyrighted assets):
 

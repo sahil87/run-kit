@@ -710,8 +710,6 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/settings/theme", s.handleSetTheme)
 	r.Get("/api/settings/server-color", s.handleGetServerColor)
 	r.Post("/api/settings/server-color", s.handleSetServerColor)
-	r.Get("/api/settings/server-flair", s.handleGetServerFlair)
-	r.Post("/api/settings/server-flair", s.handleSetServerFlair)
 	r.Get("/api/settings/instance-color", s.handleGetInstanceColor)
 	r.Post("/api/settings/instance-color", s.handleSetInstanceColor)
 	r.Get("/api/settings/ssh-host", s.handleGetSSHHost)

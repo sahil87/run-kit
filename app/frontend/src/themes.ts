@@ -463,8 +463,9 @@ export const MARKER_STATES = ["", "dotted", "dashed", "solid", "double", "thick"
 
 /** The row flair states. `""` (no flair) is the rest state. A flair is an
  *  always-on, ambient, CSS-only animated row overlay (globals.css
- *  `.rk-flair-*`) available on window rows, session rows, and server group
- *  header rows. Flair is DECORATION ONLY — unlike the marker's label
+ *  `.rk-flair-*`) available on window rows and session rows (NOT server group
+ *  headers — those mirror the SERVER-pane tiles, whose visual identity must
+ *  stay flair-free). Flair is DECORATION ONLY — unlike the marker's label
  *  conventions, it carries no semantic at all: no wiring to `@rk_agent_state`
  *  or the status pyramid. Mirrors the backend closed set minus the empty
  *  string, with `""` at the front. */

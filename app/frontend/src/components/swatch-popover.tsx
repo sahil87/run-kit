@@ -71,9 +71,9 @@ type SwatchPopoverProps = {
    *  clears, no cycling. Keyboard nav reaches the cells as an extra grid row
    *  (FLAIR_ROW) under the color grid: ArrowDown from the bottom color row
    *  enters it, ArrowLeft/Right walk it. Available on every flair-capable
-   *  caller — window rows (beside the marker column), session rows, and
-   *  server group headers. When `onSelectFlair` is ABSENT no flair row
-   *  renders. */
+   *  caller — window rows (beside the marker column) and session rows; NOT
+   *  server group headers, which mirror the SERVER-pane tiles. When
+   *  `onSelectFlair` is ABSENT no flair row renders. */
   selectedFlair?: string;
   onSelectFlair?: (flair: string) => void;
 };

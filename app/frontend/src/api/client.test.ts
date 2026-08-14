@@ -28,8 +28,6 @@ import {
   setWindowRole,
   setWindowFlair,
   setSessionFlair,
-  setServerFlair,
-  getAllServerFlairs,
   updateWindowUrl,
   updateWindowType,
   triggerUpdate,
@@ -641,33 +639,6 @@ describe("POST verb migration + /options contract", () => {
     expect(capturedMethod).toBe("POST");
     expect(capturedUrl).toMatch(/\/api\/sessions\/alpha\/flair\?server=default$/);
     expect(bodies).toEqual([{ flair: "naruto" }, { flair: null }]);
-  });
-
-  it("setServerFlair POSTs /api/settings/server-flair with {server, flair}", async () => {
-    let capturedMethod = "";
-    let capturedBody: { server?: string; flair?: string | null } = {};
-    mswServer.use(
-      http.post("/api/settings/server-flair", async ({ request }) => {
-        capturedMethod = request.method;
-        capturedBody = (await request.json()) as typeof capturedBody;
-        return HttpResponse.json({ status: "ok" });
-      }),
-    );
-    await setServerFlair("default", "onepiece");
-    expect(capturedMethod).toBe("POST");
-    expect(capturedBody).toEqual({ server: "default", flair: "onepiece" });
-  });
-
-  it("getAllServerFlairs GETs /api/settings/server-flair and returns the flairs map", async () => {
-    let capturedMethod = "";
-    mswServer.use(
-      http.get("/api/settings/server-flair", ({ request }) => {
-        capturedMethod = request.method;
-        return HttpResponse.json({ flairs: { default: "nyan" } });
-      }),
-    );
-    await expect(getAllServerFlairs()).resolves.toEqual({ default: "nyan" });
-    expect(capturedMethod).toBe("GET");
   });
 
   it("updateWindowType POSTs /options with @rk_type; empty string maps to null (unset)", async () => {

@@ -34,10 +34,6 @@ type Settings struct {
 	// "1+3" for a two-hue blend). Stored as a string so a blend can round-trip;
 	// reads tolerate a legacy bare integer (normalized on load).
 	ServerColors map[string]string
-	// ServerFlairs is server name → flair token ("nyan" / "naruto" /
-	// "onepiece") — the per-row flair decoration for the server-group header.
-	// A closed set (validate.FlairValues); reads drop anything outside it.
-	ServerFlairs map[string]string
 	// BoardOrder is the user-defined display order of board names; rank = slice
 	// index. Boards absent from the list sort after ranked boards, alphabetically
 	// (the sort itself lives at the API layer — this package only persists the
@@ -92,12 +88,10 @@ func Save(s Settings) error {
 
 // parse extracts settings from simple "key: value" lines.
 // Supports one level of nesting: indented lines under "server_colors:" are
-// parsed as "server_name: color_index" entries; indented lines under
-// "server_flairs:" as "server_name: flair_token" entries.
+// parsed as "server_name: color_index" entries.
 func parse(data string) Settings {
 	s := Default()
 	inServerColors := false
-	inServerFlairs := false
 	inBoardOrder := false
 	for _, line := range strings.Split(data, "\n") {
 		raw := line
@@ -147,29 +141,8 @@ func parse(data string) Settings {
 			continue
 		}
 
-		if indented && inServerFlairs {
-			key, value, ok := strings.Cut(trimmed, ":")
-			if !ok {
-				continue
-			}
-			serverName := strings.TrimSpace(key)
-			// Strip optional surrounding double quotes (the serializer quotes
-			// values so a token always round-trips unambiguously).
-			flairStr := strings.Trim(strings.TrimSpace(value), "\"")
-			// Closed-set read: drop anything outside the flair allowlist
-			// (including "") — the window-Marker idiom.
-			if serverName != "" && flairStr != "" && validate.FlairValues[flairStr] {
-				if s.ServerFlairs == nil {
-					s.ServerFlairs = make(map[string]string)
-				}
-				s.ServerFlairs[serverName] = flairStr
-			}
-			continue
-		}
-
 		// Non-indented line — end any active section.
 		inServerColors = false
-		inServerFlairs = false
 		inBoardOrder = false
 
 		key, value, ok := strings.Cut(trimmed, ":")
@@ -207,8 +180,6 @@ func parse(data string) Settings {
 			s.InstanceName = strings.TrimSpace(strings.Trim(value, "\""))
 		case "server_colors":
 			inServerColors = true
-		case "server_flairs":
-			inServerFlairs = true
 		case "board_order":
 			inBoardOrder = true
 		}
@@ -254,21 +225,6 @@ func serialize(s Settings) string {
 		}
 	}
 
-	// Server flairs — emitted only when non-empty so a settings file without
-	// them serializes byte-identically to the pre-change output. Mirrors the
-	// server_colors block (sorted keys, quoted values).
-	if len(s.ServerFlairs) > 0 {
-		out += "server_flairs:\n"
-		names := make([]string, 0, len(s.ServerFlairs))
-		for name := range s.ServerFlairs {
-			names = append(names, name)
-		}
-		sort.Strings(names)
-		for _, name := range names {
-			out += "  " + name + ": \"" + s.ServerFlairs[name] + "\"\n"
-		}
-	}
-
 	// Board order — emitted only when non-empty so a theme-only settings file
 	// serializes byte-identically to the pre-change output. A YAML sequence,
 	// each name quoted so it round-trips unambiguously.
@@ -300,31 +256,6 @@ func SetServerColor(server string, color *string) error {
 			s.ServerColors = make(map[string]string)
 		}
 		s.ServerColors[server] = *color
-	}
-	return Save(s)
-}
-
-// GetServerFlair returns the flair token for the named server, or nil.
-// Mirrors GetServerColor.
-func GetServerFlair(server string) *string {
-	s := Load()
-	if v, ok := s.ServerFlairs[server]; ok {
-		return &v
-	}
-	return nil
-}
-
-// SetServerFlair sets or clears the flair token for the named server.
-// Mirrors SetServerColor (load-then-save).
-func SetServerFlair(server string, flair *string) error {
-	s := Load()
-	if flair == nil {
-		delete(s.ServerFlairs, server)
-	} else {
-		if s.ServerFlairs == nil {
-			s.ServerFlairs = make(map[string]string)
-		}
-		s.ServerFlairs[server] = *flair
 	}
 	return Save(s)
 }

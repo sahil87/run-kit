@@ -543,8 +543,9 @@ summary {
    A row carrying a flair value (`nyan` / `naruto` / `onepiece`) gets an
    always-on, ambient, CSS-only animated overlay — pure decoration: no wiring
    to @rk_agent_state or the status pyramid, and it animates in EVERY row
-   state (rest, hover, selected). Mounted on window rows, session rows, and
-   server group header rows as a dedicated absolutely-positioned inner element
+   state (rest, hover, selected). Mounted on window rows and session rows (NOT
+   server group headers, which mirror the flair-free SERVER-pane tiles) as a
+   dedicated absolutely-positioned inner element
    (inset-0, overflow-hidden, pointer-events-none, z-5) — the SAME overlay
    discipline as .rk-scanlines: clipping lives on the overlay, NEVER the row
    root (whose top-full popovers must stay unclipped).

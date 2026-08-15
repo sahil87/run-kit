@@ -2440,11 +2440,11 @@ function ServerGroupInner(props: ServerGroupProps) {
               Placement is the ONLY difference — no badge, frame, or divider.
               Not draggable (it does not participate in window drag-reorder);
               it still joins the roving-tabindex tree via rowKey/tabIndex.
-              It sits OUTSIDE the pt-1 session-list container: its full-width
-              tinted slab (scanlines) must share an edge with the tinted group
-              header above — the 4px padding reads as a bare-background slice
-              between two colored bands there, while below the slab it reads as
-              intentional breathing room before the first session group. */}
+              It sits OUTSIDE the session-list container so its full-width
+              tinted slab (scanlines) shares an edge with the tinted group
+              header above and with the first session row below — rows sit
+              flush with no gaps (the container keeps only pb-1, separating
+              this group from the next server's header). */}
           {operatorEntry && (
             <WindowRow
               win={operatorEntry.win}
@@ -2489,7 +2489,7 @@ function ServerGroupInner(props: ServerGroupProps) {
               onForkWindow={onForkWindow}
             />
           )}
-          <div className="pt-1 pb-1">
+          <div className="pb-1">
           {sessions.length === 0 ? (
             <button
               onClick={() => onCreateSession(server)}

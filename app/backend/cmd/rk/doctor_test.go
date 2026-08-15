@@ -388,10 +388,15 @@ func TestTmuxGuardShimCheckDanglingRkPath(t *testing.T) {
 // `…" tmux-guard "$@"`) for the given rk path. Installed shims carry the
 // literal frozen at install time, so doctor must keep verifying this form
 // forever.
-func oldGenerationDoctorShim(rkPath string) string {
-	return strings.Replace(tmuxShimScript(rkPath),
+func oldGenerationDoctorShim(t *testing.T, rkPath string) string {
+	t.Helper()
+	old := strings.Replace(tmuxShimScript(rkPath),
 		`exec "`+rkPath+`" mux guard "$@"`,
 		`exec "`+rkPath+`" tmux-guard "$@"`, 1)
+	if !strings.Contains(old, `" tmux-guard "$@"`) {
+		t.Fatal("old-generation fixture is malformed — tmuxShimScript no longer matches the replaced exec line")
+	}
+	return old
 }
 
 // TestTmuxGuardShimCheckBothGenerations pins generation parity: tmuxShimExecTarget's
@@ -402,23 +407,25 @@ func TestTmuxGuardShimCheckBothGenerations(t *testing.T) {
 	liveRk := writeStub(t, t.TempDir(), "rk", "#!/bin/sh\nexit 0\n", 0o755)
 	danglingRk := filepath.Join(t.TempDir(), "rk") // never created
 
-	generations := map[string]func(rkPath string) string{
+	generations := map[string]func(t *testing.T, rkPath string) string{
 		"old form (tmux-guard exec)": oldGenerationDoctorShim,
-		"new form (mux guard exec)":  tmuxShimScript,
+		"new form (mux guard exec)": func(_ *testing.T, rkPath string) string {
+			return tmuxShimScript(rkPath)
+		},
 	}
 
 	for gen, render := range generations {
 		t.Run(gen, func(t *testing.T) {
 			// The exec target parse reads the embedded rk path out of BOTH
 			// forms — every shim state builds on it.
-			if got := tmuxShimExecTarget(render(liveRk)); got != liveRk {
+			if got := tmuxShimExecTarget(render(t, liveRk)); got != liveRk {
 				t.Errorf("tmuxShimExecTarget = %q, want %q", got, liveRk)
 			}
 
 			t.Run("healthy install", func(t *testing.T) {
 				home := t.TempDir()
 				shim := tmuxShimPath(home)
-				writeStub(t, filepath.Dir(shim), "tmux", render(liveRk), 0o755)
+				writeStub(t, filepath.Dir(shim), "tmux", render(t, liveRk), 0o755)
 				realDir := t.TempDir()
 				writeStub(t, realDir, "tmux", stubTmuxContent, 0o755)
 				pathEnv := filepath.Dir(shim) + string(os.PathListSeparator) + realDir
@@ -434,7 +441,7 @@ func TestTmuxGuardShimCheckBothGenerations(t *testing.T) {
 			t.Run("dangling embedded target", func(t *testing.T) {
 				home := t.TempDir()
 				shim := tmuxShimPath(home)
-				writeStub(t, filepath.Dir(shim), "tmux", render(danglingRk), 0o755)
+				writeStub(t, filepath.Dir(shim), "tmux", render(t, danglingRk), 0o755)
 				c := tmuxGuardShimCheck(home, "", func(string) (string, error) { return shim, nil })
 				if c.OK {
 					t.Errorf("a dangling embedded rk path must FAIL, got %+v", c)

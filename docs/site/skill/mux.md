@@ -32,7 +32,7 @@ rk mux send %5 --key Enter                            # raw tmux key names (no p
 
 `--force` skips the gate (existence still checked). Refusals name the state on stderr, exit 1.
 
-**Delivery** is probe-verified: the text is pasted via a named buffer (bracketed paste — multi-line lands as one block), then Enter is sent ONLY after the paste provably echoed into the live input buffer. If the probe fails (e.g. a permission dialog swallowed the paste), no Enter is sent, the text stays staged in the compositor, and the command exits 1 — **check the terminal before retrying; a resend would duplicate the staged text**. `--no-enter` stages without submitting (report: `staged %N`).
+**Delivery** is probe-verified: the text is pasted via a named buffer (bracketed paste — multi-line lands as one block), then Enter is sent ONLY after the paste provably echoed into the live input buffer. If the probe fails (e.g. a permission dialog swallowed the paste), no Enter is sent, the text stays staged in the composer, and the command exits 1 — **check the terminal before retrying; a resend would duplicate the staged text**. `--no-enter` stages without submitting (report: `staged %N`).
 
 **stdout is one report line**: `delivered %N` (probe-confirmed submit), `staged %N` (--no-enter), `sent %N` (--key), or the await report word under `--await`. Diagnostics go to stderr. Exit codes: 0 success, 1 operational failure (refusal, probe failure, missing target), 2 usage.
 

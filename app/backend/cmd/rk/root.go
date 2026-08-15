@@ -55,7 +55,6 @@ func init() {
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(daemonCmd)
 	rootCmd.AddCommand(desktopCmd)
-	rootCmd.AddCommand(initConfCmd)
 	rootCmd.AddCommand(urlCmd)
 	rootCmd.AddCommand(skillCmd)
 	rootCmd.AddCommand(notifyCmd)
@@ -68,12 +67,16 @@ func init() {
 	rootCmd.AddCommand(tmuxGuardCmd)
 	rootCmd.AddCommand(riffCmd)
 	rootCmd.AddCommand(remoteCmd)
-	rootCmd.AddCommand(reaperCmd)
-	rootCmd.AddCommand(snapshotCmd)
 	rootCmd.AddCommand(roleCmd)
 	rootCmd.AddCommand(codeServerCmd)
 	rootCmd.AddCommand(presentCmd)
 	rootCmd.AddCommand(muxCmd)
+	// Hidden root aliases for the mux family (see mux.go): all three are
+	// deprecation-grade — they warn on stderr and still run, pointing at the
+	// `rk mux` form, and are removable in a future release.
+	rootCmd.AddCommand(reapAliasCmd)
+	rootCmd.AddCommand(snapshotAliasCmd)
+	rootCmd.AddCommand(initConfAliasCmd)
 	rootCmd.AddCommand(newShellInitCmd())
 	rootCmd.AddCommand(helpDumpCmd)
 
@@ -92,8 +95,8 @@ func init() {
 	// Arg-count validator errors (NoArgs / ExactArgs / MaximumNArgs on the
 	// subcommands) are usage-class (exit 2). Wrap each subcommand's non-nil Args
 	// validator centrally so a violation carries the usage sentinel. This loop
-	// covers DIRECT children only — family members (mux send/await, agent setup)
-	// wrap their own Args at declaration. Commands with ArbitraryArgs (the
+	// covers DIRECT children only — family members (mux send/await and
+	// snapshot's children, agent setup) wrap their own Args at declaration. Commands with ArbitraryArgs (the
 	// agent-hook alias, riff) never produce a validator error, so the wrap is
 	// inert for them. This is deliberately a one-place root-cause fix rather than
 	// editing each declaration site.

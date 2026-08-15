@@ -4,7 +4,7 @@ package tmux
 // recreate-able layout (sessions → windows → panes, plus the rk-owned user
 // options that shape the UI), and the restore-side mutators that recreate a
 // layout on a fresh server. Consumed by internal/snapshot (the daemon's
-// periodic layout snapshotter and the `rk snapshot restore` engine).
+// periodic layout snapshotter and the `rk mux snapshot restore` engine).
 //
 // Read helpers deliberately do NOT map dead-server errors to empty results
 // (unlike ListSessions): a capture racing server death must surface as an

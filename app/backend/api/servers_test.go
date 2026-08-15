@@ -195,7 +195,7 @@ func TestHandleServersList_WindowCountSummation(t *testing.T) {
 
 // The test-socket hide filter was DELETED: /api/servers now surfaces EVERY
 // tmux server, including leaked rk-test-* orphans (and the unified
-// rk-test-e2e-* Playwright servers). `rk reaper` is the sole mechanism that
+// rk-test-e2e-* Playwright servers). `rk mux reap` is the sole mechanism that
 // keeps this list clean. The former hide-assertion is inverted here — all
 // servers must be returned, sorted alphabetically.
 func TestHandleServersList_ReturnsAllServersIncludingTestSockets(t *testing.T) {

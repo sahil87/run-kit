@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "The `rk mux` family — the agent-to-agent tmux verbs. `rk mux send`: strict target grammar (%N/@N/=session:window → agent pane), payload XOR (message / `-` stdin / `--key`), the @rk_agent_state gate matrix (--answer/--force), delivery via the shared internal/inject engine (per-invocation rk-send-<pid> buffer), the --await ask-and-wait composition. `rk mux await`: --until/--file/--after-active/--timeout/--notify, one-word reports (state/file/running/gone), toolkit exit codes 0/1/2."
+description: "The `rk mux` family — tmux-substrate verbs with no daemon dependency. `send`/`await` agent messaging: strict %N/@N/=session:window grammar, payload XOR, the @rk_agent_state gate matrix, shared internal/inject delivery, ask-and-wait composition, one-word reports, exit codes 0/1/2. Plus the operator members `reap`/`snapshot`/`init-conf` (old root forms survive as hidden deprecated aliases; an explicit inherited `-L` is rejected on non-messaging members)."
 ---
 # Agent-to-Agent Messaging (`rk mux`)
 
@@ -10,23 +10,28 @@ description: "The `rk mux` family — the agent-to-agent tmux verbs. `rk mux sen
 
 `rk mux` is the tmux-substrate CLI family (per `docs/specs/cli-layering.md`):
 operations that talk to tmux directly from the caller's context with **no daemon
-dependency** (the `rk present` pattern), so agent-to-agent messaging works while
-`rk serve` is down. Its two members are the conversation loop's halves:
-`rk mux send` delivers a message into another agent's pane — the agent→agent
-counterpart of `rk present`'s agent→user attach — and `rk mux await` blocks until
-a peer's state (or a file signal) fires. Both verbs are first-party readers of
-the `@rk_agent_state` convention ([agent-state](/run-kit/agent-state.md)) and
-share the pane-level primitives in `internal/tmux/pane_target.go`. Delivery
-reuses the hardened injection engine the chat-send HTTP route also drives —
-the shared `internal/inject` package ([chat](/run-kit/chat.md) § Send Path) —
-so the daemon route and the CLI verb run ONE implementation.
+dependency** (the `rk present` pattern), so they work while `rk serve` is down.
+The family has five members in two tiers. The messaging tier is the conversation
+loop's halves: `rk mux send` delivers a message into another agent's pane — the
+agent→agent counterpart of `rk present`'s agent→user attach — and `rk mux await`
+blocks until a peer's state (or a file signal) fires. The operator tier groups
+the janitor/recovery/scaffold verbs: `rk mux reap` (test-socket cleanup),
+`rk mux snapshot list|show|restore` (layout recovery,
+[layout-snapshots](/run-kit/layout-snapshots.md)), and `rk mux init-conf` (tmux
+config scaffold). The messaging verbs are first-party readers of the
+`@rk_agent_state` convention ([agent-state](/run-kit/agent-state.md)) and share
+the pane-level primitives in `internal/tmux/pane_target.go`. Delivery reuses the
+hardened injection engine the chat-send HTTP route also drives — the shared
+`internal/inject` package ([chat](/run-kit/chat.md) § Send Path) — so the daemon
+route and the CLI verb run ONE implementation.
 
 The family parent (`muxCmd`, `cmd/rk/mux.go`) carries the shared persistent
 `-L/--server` flag (the `fab pane` pattern). Server resolution: `-L` wins, else
 the caller's own server derived from the original `$TMUX` socket basename, else
-`default`. Moving the existing root-level tmux commands (`reaper`, `snapshot`,
-`tmux-guard`, `init-conf`) under `mux` is future work owned by
-`docs/specs/cli-layering.md`.
+`default`. Only the messaging verbs consume it — the operator members reject an
+explicitly-set `-L` (see Requirements). The old root forms (`rk reaper`,
+`rk snapshot …`, `rk init-conf`) survive as hidden deprecation aliases that run
+byte-identically while printing cobra's deprecation pointer.
 
 ## Requirements
 
@@ -188,6 +193,26 @@ agent-to-agent messaging works while `rk serve` is down. Every subprocess is an
 Constitution §I); the verbs hold no state beyond the invocation (Constitution
 §II).
 
+### Requirement: Operator members reject an explicit inherited `-L`; old root forms are deprecation aliases
+The operator members (`reap`, `snapshot list|show|restore`, `init-conf`) do not
+consume the mux parent's persistent `-L/--server` flag; each SHALL return a usage
+error (exit 2) naming `--server` when the inherited flag was explicitly set
+(e.g. `rk mux -L foo reap`), rather than silently ignoring it. The old root forms
+`rk reaper`, `rk snapshot …`, and `rk init-conf` SHALL remain functional as
+hidden deprecation aliases — each carries `Hidden: true` plus a cobra
+`Deprecated` pointer (on the alias's executed command, including the snapshot
+alias's children), prints the pointer to stderr, and runs with identical flags,
+output, and exit codes. Unlike `agent-hook`/`tmux-guard`, these aliases are NOT
+permanent: they are human-typed verbs, so they are removable in a future release
+(cli-layering.md delegation rule 3 does not apply).
+
+#### Scenario: An explicit `-L` on a non-messaging member is refused
+- **GIVEN** `rk mux -L foo reap`
+- **WHEN** the command runs
+- **THEN** it exits 2 with a usage error naming `--server`, and nothing is
+  reaped; **AND GIVEN** `rk reaper --yes`, **THEN** it reaps exactly as before
+  with a deprecation pointer on stderr
+
 ## Design Decisions
 
 ### Engine package named `internal/inject`
@@ -251,3 +276,25 @@ paste race that remains is inherent to tmux and rare.
 **Rejected**: sharing `rk-chat-send` from the CLI (the single-writer assumption
 breaks across processes).
 *Introduced by*: `260815-a5vf-rk-send-await-agent-messaging`
+
+### Two-instance constructor per moved command
+**Decision**: Each command moved under `mux` is built by a
+`newXxxCmd(use string, deprecated bool)`-style constructor producing both the
+family member and the hidden root alias, with flag vars closure-bound per
+instance.
+**Why**: cobra commands have exactly one parent; the pattern is proven in this
+package by `newAgentSetupCmd`; package-level flag vars would silently share
+state across instances.
+**Rejected**: cobra `Aliases` field (same-parent only); a delegating stub RunE
+(duplicates flag definitions anyway, loses help parity).
+*Introduced by*: `260815-lsgf-mux-consolidation-low-risk`
+
+### Reject explicitly-set `-L` on non-messaging members
+**Decision**: reap/snapshot/init-conf under `mux` error (usage, exit 2) when the
+inherited `--server` flag was explicitly set.
+**Why**: toolkit Principle 1/9 posture — `rk mux -L foo reap` silently ignoring
+`-L` is a success-looking misinterpretation (user believes the reap is
+server-scoped).
+**Rejected**: silently ignoring the flag (footgun); plumbing `-L` semantics into
+the moved commands (new behavior, out of scope of the consolidation).
+*Introduced by*: `260815-lsgf-mux-consolidation-low-risk`

@@ -149,6 +149,25 @@ func TestShellInitUnsupportedShell(t *testing.T) {
 	}
 }
 
+func TestShellInitHiddenButRegistered(t *testing.T) {
+	// shell-init is sourced from shell rc (machine-invoked, never typed after
+	// installation), so it is hidden from `rk -h` and the help-dump — while
+	// staying fully functional (the runShellInitCaptured tests above prove the
+	// execution paths).
+	var found bool
+	for _, sub := range rootCmd.Commands() {
+		if sub.Name() == "shell-init" {
+			found = true
+			if !sub.Hidden {
+				t.Error("shell-init must be Hidden (excluded from -h and the help-dump)")
+			}
+		}
+	}
+	if !found {
+		t.Fatal("expected `shell-init` subcommand registered on rootCmd")
+	}
+}
+
 func TestShellInitRegisteredOnRoot(t *testing.T) {
 	// Ensure rootCmd.AddCommand wired shell-init alongside the auto-generated
 	// `completion` subcommand. Both must coexist.

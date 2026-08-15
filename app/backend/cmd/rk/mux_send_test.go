@@ -124,6 +124,13 @@ func resetMuxFlags() {
 	awaitNotifyFlag = ""
 	resetFlagChanged(muxSendCmd, "key", "answer", "force", "no-enter", "await", "timeout")
 	resetFlagChanged(muxAwaitCmd, "until", "file", "after-active", "timeout", "notify")
+	// The parent's persistent -L is shared by every mux invocation, so an
+	// explicit `-L x` from one test would otherwise leak into the next.
+	if f := muxCmd.PersistentFlags().Lookup("server"); f != nil {
+		_ = f.Value.Set(f.DefValue)
+		f.Changed = false
+	}
+	muxServerFlag = ""
 	if f := rootCmd.PersistentFlags().Lookup("quiet"); f != nil {
 		_ = rootCmd.PersistentFlags().Set("quiet", "false")
 		f.Changed = false

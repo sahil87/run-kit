@@ -1,0 +1,55 @@
+id: lsgf
+name: 260815-lsgf-mux-consolidation-low-risk
+created: 2026-08-15T11:21:02Z
+created_by: sahil-noon
+change_type: refactor
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 12
+    acceptance_count: 14
+    acceptance_completed: 14
+confidence:
+    certain: 6
+    confident: 3
+    tentative: 0
+    unresolved: 0
+    score: 4.8
+    fuzzy: true
+    dimensions:
+        signal: 76.7
+        reversibility: 89.4
+        competence: 86.7
+        disambiguation: 80.6
+stage_metrics:
+    intake: {started_at: "2026-08-15T11:21:02Z", driver: fab-new, iterations: 1, completed_at: "2026-08-15T11:25:30Z"}
+    apply: {started_at: "2026-08-15T11:25:30Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-15T11:43:46Z"}
+    review: {started_at: "2026-08-15T11:43:46Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-15T11:49:35Z"}
+    hydrate: {started_at: "2026-08-15T11:49:35Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-15T12:03:28Z"}
+    ship: {started_at: "2026-08-15T12:03:28Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-08-15T12:03:28Z"
+    computed_at_stage: hydrate
+summary: consolidated reaper/snapshot/init-conf under rk mux (hidden deprecation aliases at the old root forms), hid shell-init from help, non-messaging mux members reject an explicit -L
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-15T12:03:28Z

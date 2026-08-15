@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "Per-server tmux layout snapshots (`internal/snapshot`): the sessions/windows/panes + rk-options capture set, the `$XDG_STATE_HOME/rk/snapshots` store (atomic latest, 10-entry history, content-dedup, zero-session guard, `.died-{ts}` tombstones marked on audited kills), the Snapshotter's tick debounce + 60s safety pass + removal-race guard, `internal/tmux` layout read/restore primitives, the `rk snapshot list|show|restore` CLI (fresh shells, no relaunch), and the write-only Constitution II line."
+description: "Per-server tmux layout snapshots (`internal/snapshot`): the sessions/windows/panes + rk-options capture set, the `$XDG_STATE_HOME/rk/snapshots` store (atomic latest, 10-entry history, content-dedup, zero-session guard, `.died-{ts}` tombstones on audited kills), the Snapshotter's tick debounce + 60s safety pass + removal-race guard, `internal/tmux` layout read/restore primitives, the `rk mux snapshot list|show|restore` CLI (fresh shells, no relaunch), and the write-only Constitution II line."
 ---
 # Layout Snapshots & Restore
 
@@ -8,7 +8,7 @@ description: "Per-server tmux layout snapshots (`internal/snapshot`): the sessio
 
 ## Overview
 
-The run-kit daemon persists a layout snapshot per covered tmux server so a server death (agent misfire, crash, reboot) is recoverable instead of a forensic reconstruction. `internal/snapshot` owns the schema, the file store, the periodic writer, and the restore engine; `rk snapshot list|show|restore` is the only reader. Snapshots are **write-only disaster-recovery backups** — no request-time path reads them, and restore never relaunches a process.
+The run-kit daemon persists a layout snapshot per covered tmux server so a server death (agent misfire, crash, reboot) is recoverable instead of a forensic reconstruction. `internal/snapshot` owns the schema, the file store, the periodic writer, and the restore engine; `rk mux snapshot list|show|restore` is the only reader. Snapshots are **write-only disaster-recovery backups** — no request-time path reads them, and restore never relaunches a process.
 
 ## Requirements
 
@@ -100,9 +100,9 @@ Readers: `LoadLatest`, `LoadAt(server, ts)` (history entry, then tombstone), `Re
 - **WHEN** `OnServerRemoved` bumps that server's `removedEpoch` and takes `writeMu` to tombstone
 - **THEN** a write already inside `writeMu` completes and is legitimately part of the tombstone, while any write acquiring `writeMu` afterwards observes the bumped epoch and drops — no "live" latest ever reappears after the tombstone
 
-### Requirement: `rk snapshot` CLI
+### Requirement: `rk mux snapshot` CLI
 
-`cmd/rk/snapshot.go` is a cobra parent with three children, all validating `<server>` via `validate.ValidateServerName` and `--at` as a non-negative unix timestamp **before** any filesystem or tmux use. All output goes to `cmd.OutOrStdout()` — it is data, unaffected by `--quiet` (the `reaper` posture).
+`cmd/rk/snapshot.go` builds a cobra parent with three children as a member of the `rk mux` family ([agent-messaging](/run-kit/agent-messaging.md)); the old root form `rk snapshot …` survives as a hidden deprecation alias (pointer printed on the executed command, identical flags/output/exit codes, removable in a future release). All children validate `<server>` via `validate.ValidateServerName` and `--at` as a non-negative unix timestamp **before** any filesystem or tmux use. All output goes to `cmd.OutOrStdout()` — it is data, unaffected by `--quiet` (the `reaper` posture). The family members reject an explicitly-set inherited `-L/--server` with a usage error (exit 2).
 
 - `list [<server>]` — one row per entry: server, state (`live` / `died <age> ago` / `died <age> ago (audited)`), snapshot age, session/window counts, history depth. Capped at 10 rendered rows with a stated truncation notice and `--all` to lift it (Toolkit Principle 9, mirroring `reaper`); the header count stays exact.
 - `show <server> [--at <ts>]` — prints the stored layout tree (sessions → windows → panes with cwds and former commands) plus rank/session-order/death metadata, touching no tmux.
@@ -124,7 +124,7 @@ Split-order fidelity has a stated limit: `select-layout` maps panes to layout ce
 
 #### Scenario: No process is ever relaunched
 - **GIVEN** a tombstoned snapshot whose panes recorded long-running commands
-- **WHEN** `rk snapshot restore <server>` runs
+- **WHEN** `rk mux snapshot restore <server>` runs
 - **THEN** every recreated pane is a fresh shell and the stored commands appear only in the report output
 
 ### Requirement: Write-only boundary (Constitution II / VI)
@@ -166,7 +166,7 @@ The one api-side touchpoint is the write-path annotation: `api.Server.SetServerK
 
 ### Storage under `$XDG_STATE_HOME`, uniform across platforms
 **Decision**: `DefaultDir()` honors `$XDG_STATE_HOME`, defaulting to `~/.local/state/rk/snapshots` on every platform including macOS.
-**Why**: Recovery artifacts must not live in a cache dir, which is droppable by contract; Go offers no `UserStateDir`, and a uniform path keeps the `rk snapshot` docs single-shaped.
+**Why**: Recovery artifacts must not live in a cache dir, which is droppable by contract; Go offers no `UserStateDir`, and a uniform path keeps the `rk mux snapshot` docs single-shaped.
 **Rejected**: A per-platform path (`~/Library/Application Support` on darwin) — two shapes to document for an artifact users mostly reach through the CLI.
 *Introduced by*: 260805-htmy-daemon-layout-snapshots-restore
 

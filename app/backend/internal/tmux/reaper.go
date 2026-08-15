@@ -106,7 +106,7 @@ type ReapResult struct {
 // nothing live needs the matched sockets — see the command's Long help for the
 // operating contract (do not run while tests are in progress).
 //
-// Bare `rk reaper` passes prefix="rk-test". The _rk-ctl anchor and the live
+// Bare `rk mux reap` passes prefix="rk-test". The _rk-ctl anchor and the live
 // rk-daemon production server are hard-skipped unconditionally.
 //
 // Two independent gates control behavior:

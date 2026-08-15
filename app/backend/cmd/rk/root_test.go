@@ -46,10 +46,11 @@ func TestRootCmdHasSubcommands(t *testing.T) {
 		}
 	}
 
-	// The old root forms survive as HIDDEN aliases (see agent.go): agent-setup is
-	// deprecated but still runs; agent-hook is a permanent machine-invoked
-	// contract. Registered, hidden, never listed.
-	for _, name := range []string{"agent-setup", "agent-hook"} {
+	// The old root forms survive as HIDDEN aliases (see agent.go / mux.go):
+	// agent-setup, reaper, snapshot, and init-conf are deprecated but still run;
+	// agent-hook is a permanent machine-invoked contract. Registered, hidden,
+	// never listed.
+	for _, name := range []string{"agent-setup", "agent-hook", "reaper", "snapshot", "init-conf"} {
 		cmd, _, err := rootCmd.Find([]string{name})
 		if err != nil || cmd == nil || cmd.Name() != name {
 			t.Errorf("hidden root alias %q not found (err=%v)", name, err)
@@ -68,6 +69,23 @@ func TestRootCmdHasSubcommands(t *testing.T) {
 	hook, _, err := rootCmd.Find([]string{"agent", "hook"})
 	if err != nil || hook == nil || hook.Name() != "hook" {
 		t.Errorf("agent family member %q not found (err=%v)", "hook", err)
+	}
+
+	// The mux family groups the messaging verbs plus the moved substrate verbs.
+	for _, path := range [][]string{
+		{"mux", "send"},
+		{"mux", "await"},
+		{"mux", "reap"},
+		{"mux", "init-conf"},
+		{"mux", "snapshot", "list"},
+		{"mux", "snapshot", "show"},
+		{"mux", "snapshot", "restore"},
+	} {
+		cmd, _, err := rootCmd.Find(path)
+		want := path[len(path)-1]
+		if err != nil || cmd == nil || cmd.Name() != want {
+			t.Errorf("mux family member %v not found (err=%v)", path, err)
+		}
 	}
 }
 
@@ -207,6 +225,12 @@ func resetRootFlagState(t *testing.T) {
 		_ = rootCmd.Flags().Set("version", "false")
 		f.Changed = false
 	}
+	// The mux parent's persistent -L is shared by every Execute() run too.
+	if f := muxCmd.PersistentFlags().Lookup("server"); f != nil {
+		_ = f.Value.Set(f.DefValue)
+		f.Changed = false
+	}
+	muxServerFlag = ""
 	rootCmd.SetOut(io.Discard)
 	rootCmd.SetErr(io.Discard)
 }
@@ -230,6 +254,12 @@ func TestUsageErrorsExitTwo(t *testing.T) {
 		{"ExactArgs(1) too many (notify)", []string{"notify", "a", "b"}},
 		{"MaximumNArgs(1) exceeded (shell-init)", []string{"shell-init", "a", "b"}},
 		{"MaximumNArgs(1) exceeded (help-dump)", []string{"help-dump", "a", "b"}},
+		{"MaximumNArgs(1) exceeded (mux snapshot list)", []string{"mux", "snapshot", "list", "a", "b"}},
+		{"ExactArgs(1) too few (mux snapshot show)", []string{"mux", "snapshot", "show"}},
+		{"ExactArgs(1) too few (snapshot alias child)", []string{"snapshot", "show"}},
+		// Reaching RunE is safe here: the -L guard fires before any engine or
+		// filesystem work (reap's dry-run scan never starts).
+		{"explicit -L rejected (mux reap)", []string{"mux", "-L", "zzz-nope", "reap"}},
 		{"unknown flag (doctor)", []string{"doctor", "--nope"}},
 		{"unknown flag (status)", []string{"status", "--nope"}},
 		// NOTE: `riff --nope` is NOT in this in-process table — riff sets

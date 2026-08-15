@@ -548,7 +548,7 @@ func TestFetchPaneMapIntegration(t *testing.T) {
 
 	// Boot an isolated tmux server with one known session so the subprocess
 	// path has a live socket to list. The rk-test- prefix opts the socket into
-	// the unified reaper sweep (`rk reaper`) if t.Cleanup never fires (SIGKILL
+	// the unified reaper sweep (`rk mux reap`) if t.Cleanup never fires (SIGKILL
 	// / panic). The embedded pid + nanosecond suffix keep it unique per run.
 	server := fmt.Sprintf("rk-test-sessions-%d-%d", os.Getpid(), time.Now().UnixNano())
 	const bootSession = "panemap-boot"

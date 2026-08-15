@@ -89,6 +89,10 @@ func newShellInitCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "shell-init <shell>",
 		Short: "emit shell integration (completion) for zsh or bash",
+		// Hidden: sourced from shell rc at eval time (machine-invoked), never
+		// typed by a human after installation — it stays fully functional but
+		// drops out of `rk -h` and the help-dump.
+		Hidden: true,
 		Long: `Emit a shell-eval-safe completion script for the given shell.
 
 The output is intended to be sourced via:

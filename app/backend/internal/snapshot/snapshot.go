@@ -3,8 +3,8 @@
 //
 // Snapshots are WRITE-ONLY at runtime (Constitution II): nothing at request
 // time reads a snapshot to answer API queries — live state stays derived from
-// tmux and the filesystem. The only reader is the user-initiated `rk snapshot`
-// CLI, and the daemon never restores automatically (Constitution VI). This is
+// tmux and the filesystem. The only reader is the user-initiated `rk mux
+// snapshot` CLI, and the daemon never restores automatically (Constitution VI). This is
 // the same category as the daemon's log file: an artifact about the past, not
 // a database about the present.
 package snapshot

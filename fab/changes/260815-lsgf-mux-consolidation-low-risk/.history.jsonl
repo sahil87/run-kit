@@ -1,0 +1,9 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-15T11:21:02Z"}
+{"args":"Part 3 of docs/specs/cli-layering.md: low-risk mux consolidation — mux reap/snapshot/init-conf moves with deprecation aliases; hide shell-init","cmd":"fab-new","event":"command","ts":"2026-08-15T11:21:02Z"}
+{"delta":"+4.8","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-08-15T11:22:38Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-15T11:25:19Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-15T11:25:30Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-15T11:43:46Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-15T11:49:35Z"}
+{"event":"review","result":"passed","ts":"2026-08-15T11:49:35Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-15T12:03:28Z"}

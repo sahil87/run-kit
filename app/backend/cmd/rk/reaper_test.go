@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"rk/internal/tmux"
+
+	"github.com/spf13/cobra"
 )
 
 // makePlan builds n dry-run candidate entries, alternating kill/remove actions.
@@ -160,17 +162,108 @@ func TestRenderReapSummary_EmptyIsNothingToReap(t *testing.T) {
 	}
 }
 
-// TestReaperAllFlagRegistered pins the --all flag surface (help-dump
-// re-verification depends on it).
-func TestReaperAllFlagRegistered(t *testing.T) {
-	f := reaperCmd.Flags().Lookup("all")
-	if f == nil {
-		t.Fatal("reaper command is missing the --all flag")
+// TestReapAllFlagRegistered pins the --all flag surface on both instances —
+// the family member and the hidden root alias (help-dump re-verification
+// depends on it).
+func TestReapAllFlagRegistered(t *testing.T) {
+	for name, cmd := range map[string]*cobra.Command{
+		"family member (mux reap)": reapFamilyCmd,
+		"root alias (reaper)":      reapAliasCmd,
+	} {
+		f := cmd.Flags().Lookup("all")
+		if f == nil {
+			t.Errorf("%s is missing the --all flag", name)
+			continue
+		}
+		if f.Value.Type() != "bool" {
+			t.Errorf("%s --all type = %q, want bool", name, f.Value.Type())
+		}
+		if f.DefValue != "false" {
+			t.Errorf("%s --all default = %q, want false", name, f.DefValue)
+		}
 	}
-	if f.Value.Type() != "bool" {
-		t.Errorf("--all type = %q, want bool", f.Value.Type())
+}
+
+// runRootArgs drives args through the real production Execute() seam with
+// captured stdout/stderr, resetting every piece of shared command state the
+// run touches (the runMuxCmd pattern, generalized to non-mux args).
+func runRootArgs(t *testing.T, args ...string) (string, string, error) {
+	t.Helper()
+	resetRootFlagState(t)
+	resetMuxFlags()
+	var outBuf, errBuf bytes.Buffer
+	rootCmd.SetOut(&outBuf)
+	rootCmd.SetErr(&errBuf)
+	rootCmd.SetArgs(args)
+	t.Cleanup(func() {
+		rootCmd.SetOut(nil)
+		rootCmd.SetErr(nil)
+		rootCmd.SetArgs(nil)
+		resetMuxFlags()
+		resetFlagChanged(reapFamilyCmd, "prefix", "yes", "force", "dry-run", "all")
+		resetFlagChanged(reapAliasCmd, "prefix", "yes", "force", "dry-run", "all")
+		resetFlagChanged(initConfFamilyCmd, "force")
+		resetFlagChanged(initConfAliasCmd, "force")
+		for _, parent := range []*cobra.Command{snapshotFamilyCmd, snapshotAliasCmd} {
+			for _, sub := range parent.Commands() {
+				resetFlagChanged(sub, "all", "at")
+			}
+		}
+	})
+	err := rootCmd.Execute()
+	return outBuf.String(), errBuf.String(), err
+}
+
+// TestReapAliasRunsWithDeprecationPointer pins the deprecation-alias contract:
+// the old root form `rk reaper` still runs (dry-run default, identical output
+// and exit code) AND prints the cobra deprecation pointer naming `rk mux reap`.
+// The non-matching prefix keeps the dry-run scan read-only and empty.
+func TestReapAliasRunsWithDeprecationPointer(t *testing.T) {
+	stdout, stderr, err := runRootArgs(t, "reaper", "--prefix", "rk-test-reap-alias-nomatch")
+	if err != nil {
+		t.Fatalf("rk reaper alias run error: %v", err)
 	}
-	if f.DefValue != "false" {
-		t.Errorf("--all default = %q, want false", f.DefValue)
+	if !strings.Contains(stdout, "Dry run: nothing to reap.") {
+		t.Errorf("alias must run the dry run identically, got stdout: %q", stdout)
+	}
+	if got := stdout + stderr; !strings.Contains(got, `Command "reaper" is deprecated, use `+"`rk mux reap`") {
+		t.Errorf("alias must print the deprecation pointer naming `rk mux reap`, got stdout: %q stderr: %q", stdout, stderr)
+	}
+	if !reapAliasCmd.Hidden {
+		t.Error("the reaper alias must be hidden from help and the help-dump")
+	}
+}
+
+// TestMuxReapNoDeprecation pins the other half of the contract: the canonical
+// family form `rk mux reap` runs warning-free.
+func TestMuxReapNoDeprecation(t *testing.T) {
+	stdout, stderr, err := runRootArgs(t, "mux", "reap", "--prefix", "rk-test-reap-alias-nomatch")
+	if err != nil {
+		t.Fatalf("rk mux reap run error: %v", err)
+	}
+	if !strings.Contains(stdout, "Dry run: nothing to reap.") {
+		t.Errorf("family member must run the dry run identically, got stdout: %q", stdout)
+	}
+	if got := stdout + stderr; strings.Contains(got, "deprecated") {
+		t.Errorf("the family form must not print a deprecation warning, got stdout: %q stderr: %q", stdout, stderr)
+	}
+}
+
+// TestMuxReapRejectsExplicitServerFlag pins the -L guard: an explicitly-set
+// inherited --server on a non-messaging member is a usage error (exit 2) and
+// the engine never runs (empty stdout — nothing scanned, nothing reaped).
+func TestMuxReapRejectsExplicitServerFlag(t *testing.T) {
+	stdout, _, err := runRootArgs(t, "mux", "-L", "zzz-nope", "reap")
+	if err == nil {
+		t.Fatal("rk mux -L zzz-nope reap: expected a usage error, got nil")
+	}
+	if got := exitCode(err); got != exitUsage {
+		t.Errorf("exit code = %d, want %d (usage)", got, exitUsage)
+	}
+	if !strings.Contains(err.Error(), "--server") {
+		t.Errorf("error must name --server, got: %v", err)
+	}
+	if stdout != "" {
+		t.Errorf("the reaper engine must not run past the guard, got stdout: %q", stdout)
 	}
 }

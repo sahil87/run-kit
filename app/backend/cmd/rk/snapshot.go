@@ -17,12 +17,6 @@ import (
 // exists in the store; --all restores the full list.
 const snapshotListCap = 10
 
-var (
-	snapshotListAll   bool
-	snapshotShowAt    int64
-	snapshotRestoreAt int64
-)
-
 // snapshotNow is the clock used for age rendering — a seam so unit tests can
 // pin it.
 var snapshotNow = time.Now
@@ -41,10 +35,26 @@ var newSnapshotStore = func() (*snapshot.Store, error) {
 // so the command layer is testable without a live tmux server.
 var snapshotRestoreFn = snapshot.Restore
 
-var snapshotCmd = &cobra.Command{
-	Use:   "snapshot",
-	Short: "Inspect and restore tmux server layout snapshots",
-	Long: `The run-kit daemon periodically snapshots the layout of every tmux server it
+// newSnapshotCmd builds one instance of the snapshot parent and its three
+// subcommands. A cobra command object cannot have two parents, so the family
+// member (`rk mux snapshot`) and the hidden root alias (`rk snapshot`) are two
+// full subtrees; the flag variables bind per-instance so the two never share
+// state. Args validators are pre-wrapped with usageArgs because root's init
+// loop (root.go) wraps only DIRECT children's validators — an unwrapped
+// violation at this depth would exit 1 instead of usage-class 2.
+//
+// When deprecated, the children carry the same Deprecated pointer as the
+// parent: cobra fires it only on the EXECUTED command, so a parent-only notice
+// would never print for `rk snapshot <sub>`. Hidden on the parent alone
+// suffices — it drops the whole subtree from help and the help-dump.
+func newSnapshotCmd(deprecated bool) *cobra.Command {
+	var listAll bool
+	var showAt, restoreAt int64
+
+	parent := &cobra.Command{
+		Use:   "snapshot",
+		Short: "Inspect and restore tmux server layout snapshots",
+		Long: `The run-kit daemon periodically snapshots the layout of every tmux server it
 covers — sessions, windows, pane working directories, and run-kit presentation
 options — into ` + "`~/.local/state/rk/snapshots/`" + ` (write-only recovery backups;
 live state is still derived from tmux). When a server dies, its last snapshot
@@ -55,51 +65,57 @@ Subcommands:
   show     print a stored layout without touching tmux
   restore  recreate a dead server's layout (fresh shells at the recorded
            working directories — former commands are reported, never relaunched)`,
-}
+	}
 
-var snapshotListCmd = &cobra.Command{
-	Use:   "list [<server>]",
-	Short: "List available layout snapshots (live + died)",
-	Args:  cobra.MaximumNArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		filter := ""
-		if len(args) == 1 {
-			if msg := validate.ValidateServerName(args[0]); msg != "" {
-				return usageError(fmt.Errorf("invalid server name: %s", msg))
+	list := &cobra.Command{
+		Use:   "list [<server>]",
+		Short: "List available layout snapshots (live + died)",
+		Args:  usageArgs(cobra.MaximumNArgs(1)),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := muxRejectInheritedServerFlag(cmd); err != nil {
+				return err
 			}
-			filter = args[0]
-		}
-		store, err := newSnapshotStore()
-		if err != nil {
-			return err
-		}
-		rows, err := store.List(filter)
-		if err != nil {
-			return err
-		}
-		renderSnapshotList(cmd.OutOrStdout(), rows, snapshotListAll)
-		return nil
-	},
-}
+			filter := ""
+			if len(args) == 1 {
+				if msg := validate.ValidateServerName(args[0]); msg != "" {
+					return usageError(fmt.Errorf("invalid server name: %s", msg))
+				}
+				filter = args[0]
+			}
+			store, err := newSnapshotStore()
+			if err != nil {
+				return err
+			}
+			rows, err := store.List(filter)
+			if err != nil {
+				return err
+			}
+			renderSnapshotList(cmd.OutOrStdout(), rows, listAll)
+			return nil
+		},
+	}
 
-var snapshotShowCmd = &cobra.Command{
-	Use:   "show <server>",
-	Short: "Print a stored layout (sessions → windows → pane cwds) without acting",
-	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		snap, err := resolveSnapshotArg(args[0], snapshotShowAt)
-		if err != nil {
-			return err
-		}
-		renderSnapshotShow(cmd.OutOrStdout(), snap)
-		return nil
-	},
-}
+	show := &cobra.Command{
+		Use:   "show <server>",
+		Short: "Print a stored layout (sessions → windows → pane cwds) without acting",
+		Args:  usageArgs(cobra.ExactArgs(1)),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := muxRejectInheritedServerFlag(cmd); err != nil {
+				return err
+			}
+			snap, err := resolveSnapshotArg(args[0], showAt)
+			if err != nil {
+				return err
+			}
+			renderSnapshotShow(cmd.OutOrStdout(), snap)
+			return nil
+		},
+	}
 
-var snapshotRestoreCmd = &cobra.Command{
-	Use:   "restore <server>",
-	Short: "Recreate a dead server's layout from its snapshot",
-	Long: `Recreate a dead tmux server from its stored snapshot: sessions and windows
+	restore := &cobra.Command{
+		Use:   "restore <server>",
+		Short: "Recreate a dead server's layout from its snapshot",
+		Long: `Recreate a dead tmux server from its stored snapshot: sessions and windows
 with their original names and indexes, panes as FRESH SHELLS at the recorded
 working directories, split layouts where possible, and run-kit options
 (server rank, session order, colors, markers).
@@ -107,37 +123,55 @@ working directories, split layouts where possible, and run-kit options
 No process is ever relaunched — each window's former command is printed in the
 restore report so you can decide what to resume (e.g. ` + "`claude -c`" + ` per agent
 window). Refuses to run when the target server is alive with sessions.`,
-	Args: cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		snap, err := resolveSnapshotArg(args[0], snapshotRestoreAt)
-		if err != nil {
-			return err
+		Args: usageArgs(cobra.ExactArgs(1)),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := muxRejectInheritedServerFlag(cmd); err != nil {
+				return err
+			}
+			snap, err := resolveSnapshotArg(args[0], restoreAt)
+			if err != nil {
+				return err
+			}
+			// The validated CLI argument — not the JSON-embedded server field — is
+			// the operative restore target; the engine rejects a snapshot whose
+			// own Server field disagrees.
+			report, err := snapshotRestoreFn(cmd.Context(), args[0], snap)
+			if err != nil {
+				return err
+			}
+			// The report is the record of a destructive mutation — data channel,
+			// unaffected by --quiet (mirrors the reaper's stance).
+			renderRestoreReport(cmd.OutOrStdout(), snap, report)
+			return nil
+		},
+	}
+
+	list.Flags().BoolVar(&listAll, "all", false,
+		"print the full list instead of the default 10-row cap (display-only)")
+	show.Flags().Int64Var(&showAt, "at", 0,
+		"select a history/tombstone entry by its unix timestamp (default: latest)")
+	restore.Flags().Int64Var(&restoreAt, "at", 0,
+		"restore a history/tombstone entry by its unix timestamp (default: latest)")
+	parent.AddCommand(list)
+	parent.AddCommand(show)
+	parent.AddCommand(restore)
+	if deprecated {
+		parent.Hidden = true
+		parent.Deprecated = "use `rk mux snapshot` instead"
+		for _, sub := range parent.Commands() {
+			sub.Deprecated = parent.Deprecated
 		}
-		// The validated CLI argument — not the JSON-embedded server field — is
-		// the operative restore target; the engine rejects a snapshot whose
-		// own Server field disagrees.
-		report, err := snapshotRestoreFn(cmd.Context(), args[0], snap)
-		if err != nil {
-			return err
-		}
-		// The report is the record of a destructive mutation — data channel,
-		// unaffected by --quiet (mirrors the reaper's stance).
-		renderRestoreReport(cmd.OutOrStdout(), snap, report)
-		return nil
-	},
+	}
+	return parent
 }
 
-func init() {
-	snapshotListCmd.Flags().BoolVar(&snapshotListAll, "all", false,
-		"print the full list instead of the default 10-row cap (display-only)")
-	snapshotShowCmd.Flags().Int64Var(&snapshotShowAt, "at", 0,
-		"select a history/tombstone entry by its unix timestamp (default: latest)")
-	snapshotRestoreCmd.Flags().Int64Var(&snapshotRestoreAt, "at", 0,
-		"restore a history/tombstone entry by its unix timestamp (default: latest)")
-	snapshotCmd.AddCommand(snapshotListCmd)
-	snapshotCmd.AddCommand(snapshotShowCmd)
-	snapshotCmd.AddCommand(snapshotRestoreCmd)
-}
+var (
+	// snapshotFamilyCmd is the `rk mux snapshot` family member.
+	snapshotFamilyCmd = newSnapshotCmd(false)
+	// snapshotAliasCmd is the hidden deprecation alias kept at the root so the
+	// old human-typed form keeps working while pointing at the new one.
+	snapshotAliasCmd = newSnapshotCmd(true)
+)
 
 // resolveSnapshotArg validates the server argument and the --at value, then
 // resolves the snapshot to act on. Validation runs BEFORE any filesystem use —

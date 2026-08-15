@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, audit-against-HEAD-build rule, per-standard status. help-dump, readme-extraction, skill, ten principles, update, version PASS. Covers skill topic pages, Principle 9 `--quiet`/reaper caps, SIGTERM-with-grace brew mutations, the help-dump + Principle 9 new-surface check (`rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`/`mux`/`agent`), `rk update`'s code-server leg, install-composition Policy A+B PASS."
+description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, audit-against-HEAD-build rule, per-standard PASS status (help-dump, readme-extraction, skill, ten principles, update, version, install-composition). Covers Principle 9 `--quiet`/reaper caps, brew-mutation grace, and the help-dump + Principle 9 new-surface check over `rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`/`mux`/`agent` + the grown five-member `mux` family."
 ---
 # Toolkit Standards Conformance
 
@@ -81,8 +81,8 @@ convention plus the per-command rows):
   the suppressed brew subprocess stderr is **buffered** (not discarded) and, on a
   non-zero exit, wrapped into the returned error, so a failing `rk update --quiet`
   keeps its diagnostic detail rather than surfacing a bare `exit status 1`.
-- **`reaper` gets a display cap, not a quiet conversion** (`reaper.go`): everything
-  reaper prints is data (a dry-run's candidate list is the requested result; an act
+- **`mux reap` gets a display cap, not a quiet conversion** (`reaper.go`): everything
+  the reaper prints is data (a dry-run's candidate list is the requested result; an act
   summary is the record of a destructive mutation), so `--quiet` legitimately
   changes nothing. Instead each rendered list caps at **10 entries per list**
   (mirroring `shll changelog`'s 10-release cap) with a **stated truncation notice**
@@ -135,7 +135,7 @@ first worked example of what conformance costs on a new surface:
   `Progress` writer bound to `sink.chatter` so download and verification
   progress vanishes under `--quiet`. **`rk desktop status` is entirely data**
   (a read-only report is the requested result), so `--quiet` legitimately
-  changes nothing — the same posture `rk status` and `reaper` take, rather than a
+  changes nothing — the same posture `rk status` and `mux reap` take, rather than a
   sink conversion.
 - **Exit-code convention (P4)** — usage errors 2, operational failures 1:
   flag-parse errors inherit root's `FlagErrorFunc`; the children re-wrap their
@@ -167,7 +167,7 @@ measured against the same two checks:
   them, so gating them would break a consumer), `connect`'s final origin line
   (the whole point of running it), the `list` tabwriter table and `status`'s
   labeled report (read-only reports are the requested result, the `rk status` /
-  `reaper` posture), and `disconnect`/`remove`'s outcome lines — silence there
+  `mux reap` posture), and `disconnect`/`remove`'s outcome lines — silence there
   would misreport a mutation. `Notef` on stderr, dropped by `--quiet`: connect's
   progress chain, `add`'s `Already registered.` and `Next: rk remote connect …`
   hints, and the installed/updated notes.
@@ -350,6 +350,42 @@ measured against the same checks (`260815-r2wp-agent-family`):
   `agent-setup`/`agent-hook` references in `docs/site/skill.md` or
   `docs/site/skill/*.md`; no new `agent` topic page (the family is
   instrumentation plumbing, not an agent-facing capability briefing).
+
+The grown `rk mux` family (`reap`/`snapshot list|show|restore`/`init-conf`
+joining `send`/`await` — see
+[architecture](/run-kit/architecture.md) § CLI Subcommands, `mux` row; full
+contract in [agent-messaging](/run-kit/agent-messaging.md)) is the ninth
+surface measured against the same checks
+(`260815-lsgf-mux-consolidation-low-risk`):
+
+- **help-dump: the grown family dumps; the moved/hidden names don't.**
+  `muxCmd` carries exactly {`send`, `await`, `reap`, `snapshot` (with its
+  `list`/`show`/`restore` children at depth), `init-conf`}, every node with a
+  `Long:` block, so the cobra tree walk picks up the grown subtree with no
+  help-dump code change. The three root aliases (`reaper`, `snapshot`,
+  `init-conf`) and `shell-init` are `Hidden: true` — hidden nodes drop from
+  the dump at every level — so none of the moved names appears at root and
+  the visible root count drops by four. The help-dump test asserts the
+  subtree and the exclusions dynamically, mirroring the `agent` assertions.
+- **Principle 2/9: the deprecation pointer is chatter; the moved verbs'
+  output posture is unchanged.** Each alias's cobra `Deprecated` pointer
+  prints to stderr (a diagnostic, not data) and the command still runs with
+  identical flags, output, and exit codes — the pointer rides the executed
+  command, so `rk snapshot list` warns via the alias children's own
+  `Deprecated`. Reap/snapshot output stays all-data (the display caps +
+  `--all` unchanged, `--quiet` legitimately a no-op).
+- **Exit-code convention (P4)** — usage stays 2 on both the family and alias
+  forms, including the new explicit-`-L` rejection on the non-messaging
+  members (a usage error naming `--server`); the family members pre-wrap
+  their own `Args` validators with `usageArgs` (root's wrap loop covers only
+  direct children — the `desktop`/`remote`/`agent` reason), so an arg-count
+  violation on `rk mux snapshot show` exits 2, not 1.
+- **The `skill` standard is a no-op here** — reap/snapshot/init-conf are
+  operator janitor/recovery/scaffold verbs, not agent capabilities
+  (advertising the reaper to agents would be an attractive nuisance), so the
+  topic pages carry no new content; the audit found no old-form references in
+  `docs/site/skill.md` or `docs/site/skill/mux.md`, and the byte-equality
+  drift guards stay green.
 
 #### Scenario: A new subcommand group keeps the help tree platform-stable
 - **GIVEN** the `rk desktop` group on a Linux host

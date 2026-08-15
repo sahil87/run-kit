@@ -123,7 +123,7 @@ func EnsureConfig() error {
 
 // ForceWriteConfig writes the embedded default tmux.conf to DefaultConfigPath,
 // overwriting any existing file. Also creates the tmux.d/ drop-in directory.
-// Equivalent to `rk init-conf --force`.
+// Equivalent to `rk mux init-conf --force`.
 func ForceWriteConfig() error {
 	if DefaultConfigPath == "" {
 		return fmt.Errorf("could not determine home directory")
@@ -154,7 +154,7 @@ func ensureDropInDir() error {
 // Returns an error if no config path is set or the source-file command fails.
 func ReloadConfig(server string) error {
 	if configPath == "" {
-		return fmt.Errorf("no tmux config path (run 'rk init-conf' or set RK_TMUX_CONF)")
+		return fmt.Errorf("no tmux config path (run 'rk mux init-conf' or set RK_TMUX_CONF)")
 	}
 	ctx, cancel := withTimeout()
 	defer cancel()
@@ -2107,7 +2107,7 @@ func CapturePaneCtx(ctx context.Context, paneID string, lines int, server string
 // It is intentionally NOT applied in ListServers nor in the /api/servers
 // handler — internal consumers (board.go in particular) iterate every real
 // tmux server, and /api/servers surfaces every server so the operator sees
-// exactly what `rk reaper` will reap.
+// exactly what `rk mux reap` will reap.
 func IsTestServerName(name string) bool {
 	return strings.HasPrefix(name, "rk-test-")
 }

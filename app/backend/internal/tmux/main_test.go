@@ -16,7 +16,7 @@ import (
 // TestMain post-sweeps dead-PID test sockets AFTER all tests run, self-healing
 // residue this run leaked when a test was SIGKILLed / panicked / OOMed before
 // its t.Cleanup(kill-server) could fire. The pre-sweep was dropped: the manual
-// `rk reaper` is the only by-hand cleanup for cross-run SIGKILL residue.
+// `rk mux reap` is the only by-hand cleanup for cross-run SIGKILL residue.
 //
 // The sweep is PID-scoped: a socket is reaped only when its embedded PID parses
 // AND is dead, so a concurrently running `go test ./...` package (a separate
@@ -102,7 +102,7 @@ func testPIDAlive(pid int) bool {
 //
 // Edge: once we exit, our pid may be recycled by a later concurrent run. That
 // run's own post-sweep reaps its own residue the same way, so any of ours it
-// did not catch is reaped by the manual `rk reaper` (the documented
+// did not catch is reaped by the manual `rk mux reap` (the documented
 // last-resort for un-catchable residue).
 func sweepDeadTestSockets() {
 	self := os.Getpid()

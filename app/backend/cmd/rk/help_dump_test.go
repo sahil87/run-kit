@@ -190,19 +190,39 @@ func TestCaptureNodeRealTreeSelfExcludesAndDepth(t *testing.T) {
 		t.Error("daemon should have its 'status' subcommand captured")
 	}
 
-	// The mux family is captured to full depth with exactly its two members.
+	// The mux family is captured to full depth with exactly its five members;
+	// snapshot carries its three children at depth.
 	mux, ok := childByName(n, "mux")
 	if !ok {
 		t.Fatal("mux should be present in the real tree")
 	}
-	if _, ok := childByName(mux, "send"); !ok {
-		t.Error("mux should have its 'send' subcommand captured")
+	for _, name := range []string{"send", "await", "reap", "snapshot", "init-conf"} {
+		if _, ok := childByName(mux, name); !ok {
+			t.Errorf("mux should have its %q subcommand captured", name)
+		}
 	}
-	if _, ok := childByName(mux, "await"); !ok {
-		t.Error("mux should have its 'await' subcommand captured")
+	if len(mux.Commands) != 5 {
+		t.Errorf("mux has %d captured subcommands, want exactly 5 (send, await, reap, snapshot, init-conf)", len(mux.Commands))
 	}
-	if len(mux.Commands) != 2 {
-		t.Errorf("mux has %d captured subcommands, want exactly 2 (send, await)", len(mux.Commands))
+	muxSnap, ok := childByName(mux, "snapshot")
+	if !ok {
+		t.Fatal("mux snapshot should be present")
+	}
+	for _, name := range []string{"list", "show", "restore"} {
+		if _, ok := childByName(muxSnap, name); !ok {
+			t.Errorf("mux snapshot should have its %q subcommand captured", name)
+		}
+	}
+	if len(muxSnap.Commands) != 3 {
+		t.Errorf("mux snapshot has %d captured subcommands, want exactly 3 (list, show, restore)", len(muxSnap.Commands))
+	}
+
+	// The moved/hidden root forms are excluded from the dump: the three mux
+	// deprecation aliases (hidden) and shell-init (hidden, machine-invoked).
+	for _, name := range []string{"reaper", "snapshot", "init-conf", "shell-init"} {
+		if _, ok := childByName(n, name); ok {
+			t.Errorf("the hidden %q root form should be excluded from the dump", name)
+		}
 	}
 
 	// The agent family is captured to full depth with exactly its two members;

@@ -28,10 +28,10 @@ type serverInfo struct {
 
 func (s *Server) handleServersList(w http.ResponseWriter, r *http.Request) {
 	// Surface EVERY tmux server discovered, including leaked rk-test-*
-	// orphans. The test-socket hide filter was deleted: `rk reaper` is now the
-	// sole mechanism that keeps this list clean, so the dev UI shows the
+	// orphans. The test-socket hide filter was deleted: `rk mux reap` is now
+	// the sole mechanism that keeps this list clean, so the dev UI shows the
 	// operator exactly what the reaper will reap. Accepted cost: a per-orphan
-	// state-socket subscription until the operator runs `rk reaper`.
+	// state-socket subscription until the operator runs `rk mux reap`.
 	names, err := s.tmux.ListServers(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())

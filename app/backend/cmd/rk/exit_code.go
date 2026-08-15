@@ -27,6 +27,14 @@ const (
 // 0) has a capital U and does NOT match, so `run-kit help bogus` stays 0.
 const unknownCommandPrefix = "unknown command "
 
+// flagGroupPrefix is the stable leading text of cobra's ValidateFlagGroups
+// error (MarkFlagsMutuallyExclusive / MarkFlagsOneRequired violations). Those
+// errors bypass FlagErrorFunc (cobra returns them directly from execute()), so
+// they arrive here as plain errors; a flag-group violation is flag misuse —
+// usage-class (2) — and is classified by the same fail-safe prefix-match
+// posture as unknownCommandPrefix.
+const flagGroupPrefix = "if any flags in the group "
+
 // exitCodeError is a CLI-local error carrying a specific os.Exit code. It is the
 // single mechanism for distinct exit codes: the shared main.execute() classifies
 // every error rootCmd.Execute() returns via exitCode() and exits with the carried
@@ -76,6 +84,9 @@ func exitCode(err error) int {
 	// so they arrive here as plain errors. Classify them usage-class (2) by the
 	// stable message prefix; anything else defaults to operational (1).
 	if strings.HasPrefix(err.Error(), unknownCommandPrefix) {
+		return exitUsage
+	}
+	if strings.HasPrefix(err.Error(), flagGroupPrefix) {
 		return exitUsage
 	}
 	return 1

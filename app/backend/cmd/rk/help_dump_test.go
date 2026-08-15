@@ -189,6 +189,21 @@ func TestCaptureNodeRealTreeSelfExcludesAndDepth(t *testing.T) {
 	if _, ok := childByName(daemon, "status"); !ok {
 		t.Error("daemon should have its 'status' subcommand captured")
 	}
+
+	// The mux family is captured to full depth with exactly its two members.
+	mux, ok := childByName(n, "mux")
+	if !ok {
+		t.Fatal("mux should be present in the real tree")
+	}
+	if _, ok := childByName(mux, "send"); !ok {
+		t.Error("mux should have its 'send' subcommand captured")
+	}
+	if _, ok := childByName(mux, "await"); !ok {
+		t.Error("mux should have its 'await' subcommand captured")
+	}
+	if len(mux.Commands) != 2 {
+		t.Errorf("mux has %d captured subcommands, want exactly 2 (send, await)", len(mux.Commands))
+	}
 }
 
 func TestNodeFieldsCapturedFromCobra(t *testing.T) {

@@ -193,3 +193,40 @@ func TestSkillDisplayWithinLineBudget(t *testing.T) {
 		t.Errorf("display topic is %d lines, over the %d-line budget", lines, skillLineBudget)
 	}
 }
+
+// TestSkillMuxPrintsTopicByteIdentical drives `rk skill mux` and asserts stdout
+// equals the embedded topic bundle byte-for-byte, empty stderr, nil error.
+func TestSkillMuxPrintsTopicByteIdentical(t *testing.T) {
+	stdout, stderr, err := runSkill(t, "mux")
+	if err != nil {
+		t.Fatalf("skill mux RunE err = %v, want nil (exit 0)", err)
+	}
+	if !bytes.Equal([]byte(stdout), skillMuxTopic) {
+		t.Errorf("stdout is not byte-identical to the embedded mux topic (got %d bytes, want %d)",
+			len(stdout), len(skillMuxTopic))
+	}
+	if stderr != "" {
+		t.Errorf("skill mux wrote to stderr: %q", stderr)
+	}
+}
+
+// TestSkillMuxEmbedMatchesCanonical is the mux topic drift guard: the embedded
+// bytes MUST equal the canonical docs/site/skill/mux.md.
+func TestSkillMuxEmbedMatchesCanonical(t *testing.T) {
+	canonicalPath := filepath.Join("..", "..", "..", "..", "docs", "site", "skill", "mux.md")
+	canonical, err := os.ReadFile(canonicalPath)
+	if err != nil {
+		t.Fatalf("read canonical %s: %v", canonicalPath, err)
+	}
+	if !bytes.Equal(skillMuxTopic, canonical) {
+		t.Errorf("embedded mux topic has drifted from canonical %s — run scripts/sync-skill.sh and commit the refreshed copy", canonicalPath)
+	}
+}
+
+// TestSkillMuxWithinLineBudget pins the mux topic page's independent ≤150-line
+// budget.
+func TestSkillMuxWithinLineBudget(t *testing.T) {
+	if lines := countLines(skillMuxTopic); lines > skillLineBudget {
+		t.Errorf("mux topic is %d lines, over the %d-line budget", lines, skillLineBudget)
+	}
+}

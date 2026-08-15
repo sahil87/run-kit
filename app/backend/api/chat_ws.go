@@ -56,7 +56,7 @@ const (
 
 // chatSubKey is the per-connection chat producer registry key. Window IDs are
 // only unique per server, so the key joins both (NUL-separated — the same idiom
-// as chatSendLocks' per-(server,paneID) key). It is NOT a poll-set key.
+// as the inject engine's per-(server,paneID) lock key). It is NOT a poll-set key.
 func chatSubKey(server, windowID string) string {
 	return server + "\x00" + windowID
 }

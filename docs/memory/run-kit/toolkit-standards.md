@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, audit-against-HEAD-build rule, per-standard status. help-dump, readme-extraction, skill, ten principles, update, version PASS. Covers skill topic pages, Principle 9 `--quiet`/reaper caps, SIGTERM-with-grace brew mutations, the help-dump + Principle 9 new-surface check (`rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`), `rk update`'s best-effort code-server leg, install-composition Policy A+B PASS."
+description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, audit-against-HEAD-build rule, per-standard status. help-dump, readme-extraction, skill, ten principles, update, version PASS. Covers skill topic pages, Principle 9 `--quiet`/reaper caps, SIGTERM-with-grace brew mutations, the help-dump + Principle 9 new-surface check (`rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`/`mux`), `rk update`'s best-effort code-server leg, install-composition Policy A+B PASS."
 ---
 # Toolkit Standards Conformance
 
@@ -287,6 +287,39 @@ the sixth surface measured against the same checks
   so the skill standard keeps passing. No version-skew machinery is needed:
   the bundle ships inside the binary, so an rk that has `present` is the same
   rk whose pages teach it.
+
+The `rk mux` family (`send`/`await` — see
+[architecture](/run-kit/architecture.md) § CLI Subcommands, `mux` row; full
+contract in [agent-messaging](/run-kit/agent-messaging.md)) is the seventh
+surface measured against the same checks
+(`260815-a5vf-rk-send-await-agent-messaging`):
+
+- **help-dump: the family tree is platform-stable.** `muxCmd` and both children
+  are registered unconditionally with `Long:` blocks, so the cobra tree walk
+  picks up the whole `mux` subtree with no help-dump code change; the
+  help-dump test asserts the subtree dynamically (exactly `send` + `await`,
+  nothing hidden, nothing platform-gated).
+- **Principle 9: the report line is the only stdout line — data.** `send`
+  prints exactly one of `delivered`/`staged`/`sent %N` (or the await report
+  word under `--await`); `await` prints the one-word report (a reached
+  `--until` state / `file` / `running` / `gone`). Both route through the shared
+  `outputSink`: the report is `Dataf` (survives `--quiet`), the gate's
+  unknown-state warning and other diagnostics are chatter on stderr.
+  `--notify`'s send failure is the documented fail-silent exception (the
+  `rk notify` contract), not a Principle 9 violation.
+- **Exit-code convention (P4)** — 0 success (including `running` on timeout —
+  the bound belongs to the observer, never the pane), 1 operational (gate
+  refusal, probe failure, missing target, tmux failure, `gone`), 2 usage (bad
+  target form, payload XOR violations, `--await --no-enter`, and cobra
+  flag-group violations such as `--answer --force` — classified via
+  `exit_code.go`'s `flagGroupPrefix`, since cobra's ValidateFlagGroups errors
+  bypass root's `FlagErrorFunc`).
+- **The `skill` standard gained a `mux` topic page** — `mux` is registered in
+  `skillTopics` (canonical `docs/site/skill/mux.md`, synced into the embed copy
+  by `scripts/sync-skill.sh`, drift-guarded by
+  `TestSkillMuxEmbedMatchesCanonical` like `display`), and the core bundle
+  carries the topic-index line plus the two one-line capability rows teaching
+  both verbs' report contracts.
 
 #### Scenario: A new subcommand group keeps the help tree platform-stable
 - **GIVEN** the `rk desktop` group on a Linux host

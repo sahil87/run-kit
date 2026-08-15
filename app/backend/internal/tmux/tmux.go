@@ -317,6 +317,19 @@ var agentProcessAlive = func(pid int) bool {
 	return err == nil || err == syscall.EPERM
 }
 
+// agentStateStale is the single dead/no-agent reconcile decision shared by
+// parsePanes (the sessions rollup) and PaneAgentState (the mux verbs'
+// single-pane read): a pid-carrying value is trusted iff the agent process is
+// alive (kill-0 liveness — precise, wrapper-launch-proof); a legacy
+// two-segment value (pid 0) falls back to the shell-command heuristic (a
+// plain-shell pane has no agent — the guppi auto-clear lesson).
+func agentStateStale(pid int, command string) bool {
+	if pid > 0 {
+		return !agentProcessAlive(pid)
+	}
+	return isShellCommand(command)
+}
+
 // parseAgentState parses a raw @rk_agent_state value of the form
 // "<state>:<epoch_seconds>[:<pid>]" into a validated (state, epoch, pid)
 // triple. The pid segment is optional (written by rk agent-setup's hooks as
@@ -797,13 +810,7 @@ func parsePanes(lines []string) map[string][]PaneInfo {
 		// agent-state liveness (written by the same binary on the same fires) —
 		// a dead agent zeros BOTH the agent-state and chat fields, and a
 		// plain-shell pane never surfaces chat.
-		stale := false
-		if agentPID > 0 {
-			stale = !agentProcessAlive(agentPID)
-		} else {
-			stale = isShellCommand(command)
-		}
-		if stale {
+		if agentStateStale(agentPID, command) {
 			agentState, agentEpoch = "", 0
 			chatProvider, chatRef = "", ""
 		}
@@ -1874,34 +1881,47 @@ func SendKeys(windowID string, keys string, server string) error {
 // the paste (-d) deletes it afterwards so the buffer set stays clean.
 const ChatSendBuffer = "rk-chat-send"
 
-// SetChatSendBufferCtx loads text into the named chat-send buffer
-// (ChatSendBuffer) on the specified server, bounded by the CALLER's context. The
-// chat-send handler threads ONE shared deadline through the whole injection
-// sequence (set → paste → probe → Enter) so the route stays well under the 5s
-// route-blocking budget (code-review.md) rather than granting each subprocess an
-// independent 10s timeout. The text is a DISCRETE argv element (no shell string,
-// no stdin) so any content — including newlines, tmux key names, or special
-// characters — is stored verbatim (Constitution §I). tmuxExecServer has no stdin
-// plumbing, so `set-buffer <text>` is used rather than `load-buffer -`.
+// SetBufferCtx loads text into a NAMED tmux buffer on the specified server,
+// bounded by the CALLER's context. The chat-send handler threads ONE shared
+// deadline through the whole injection sequence (set → paste → probe → Enter)
+// so the route stays well under the 5s route-blocking budget (code-review.md)
+// rather than granting each subprocess an independent 10s timeout. The text is
+// a DISCRETE argv element (no shell string, no stdin) so any content —
+// including newlines, tmux key names, or special characters — is stored
+// verbatim (Constitution §I). tmuxExecServer has no stdin plumbing, so
+// `set-buffer <text>` is used rather than `load-buffer -`.
 //
 // The `--` option terminator precedes the text so a message that itself starts
 // with a dash (e.g. "--force is broken") is treated as the positional buffer
 // data, not parsed as set-buffer flags (which would hard-fail). Verified on tmux
 // 3.6a: with `--`, leading-dash text stores verbatim.
-func SetChatSendBufferCtx(ctx context.Context, text string, server string) error {
-	_, err := tmuxExecServer(ctx, server, "set-buffer", "-b", ChatSendBuffer, "--", text)
+func SetBufferCtx(ctx context.Context, name, text string, server string) error {
+	_, err := tmuxExecServer(ctx, server, "set-buffer", "-b", name, "--", text)
 	return err
 }
 
-// PasteChatSendBufferCtx pastes the named chat-send buffer into the target PANE
-// (not a window) on the specified server, bounded by the CALLER's context. `-p`
-// requests bracketed paste (the Claude Code TUI enables bracketed paste, so a
+// SetChatSendBufferCtx is the chat-send handler's fixed-buffer form of
+// SetBufferCtx (the daemon's single shared buffer — the CLI uses its own
+// per-invocation buffer names via SetBufferCtx).
+func SetChatSendBufferCtx(ctx context.Context, text string, server string) error {
+	return SetBufferCtx(ctx, ChatSendBuffer, text, server)
+}
+
+// PasteBufferCtx pastes a NAMED buffer into the target PANE (not a window) on
+// the specified server, bounded by the CALLER's context. `-p` requests
+// bracketed paste (the Claude Code TUI enables bracketed paste, so a
 // multiline / special-character message lands as one literal block with no
 // per-line submission); `-d` deletes the buffer after pasting so the buffer set
 // stays clean.
-func PasteChatSendBufferCtx(ctx context.Context, paneID string, server string) error {
-	_, err := tmuxExecServer(ctx, server, "paste-buffer", "-d", "-p", "-b", ChatSendBuffer, "-t", paneID)
+func PasteBufferCtx(ctx context.Context, name, paneID string, server string) error {
+	_, err := tmuxExecServer(ctx, server, "paste-buffer", "-d", "-p", "-b", name, "-t", paneID)
 	return err
+}
+
+// PasteChatSendBufferCtx is the chat-send handler's fixed-buffer form of
+// PasteBufferCtx.
+func PasteChatSendBufferCtx(ctx context.Context, paneID string, server string) error {
+	return PasteBufferCtx(ctx, ChatSendBuffer, paneID, server)
 }
 
 // SendEnterToPaneCtx sends a single literal Enter key to the target PANE on the

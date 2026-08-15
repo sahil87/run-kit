@@ -33,12 +33,21 @@ var skillBundle []byte
 //go:embed skill/display.md
 var skillDisplayTopic []byte
 
+// skillMuxTopic holds the `mux` topic page, canonical at
+// docs/site/skill/mux.md and synced into skill/mux.md alongside the core
+// bundle. Same embed + drift-guard mechanism as the display topic, same
+// static-only rules, independently bounded at ≤150 lines.
+//
+//go:embed skill/mux.md
+var skillMuxTopic []byte
+
 // skillTopics maps a topic name to its embedded bundle. Bare `rk skill` prints
 // the core bundle (skillBundle); `rk skill <topic>` prints the matching entry
 // here; an unknown topic fails fast (usage error naming the valid topics). Add a
 // row per topic page shipped.
 var skillTopics = map[string][]byte{
 	"display": skillDisplayTopic,
+	"mux":     skillMuxTopic,
 }
 
 // skillTopicNames returns the sorted list of valid topic names, for the

@@ -18,7 +18,8 @@ request/stream time with **nothing cached beyond the connection** (Constitution
 II): all read routes are GET, the send path holds no SDK/session/queue state. The
 schema is rk-owned and provider-neutral so Codex/Gemini adapters are backend-only
 additions; the **Claude** adapter is the one registered provider (protocol-based
-send such as Codex JSON-RPC branches behind the `injectChatMessage` seam later).
+send such as Codex JSON-RPC branches behind the `injectChatMessage` adapter
+seam — a thin wrapper over the shared `internal/inject` engine — later).
 
 The read surface is a window-keyed `GET /api/windows/{windowId}/chat` backfill and
 a live incremental stream carried as a `kind:"chat"` subscription on `/ws/state`
@@ -414,9 +415,9 @@ endpoint SHALL be left untouched (different contract, possible external callers)
   the final Enter is withheld.
 
 ### Requirement: Send-text sanitization at the handler boundary
-`handleChatSend` SHALL sanitize `body.Text` via the pure package helper
-`sanitizeChatText` (`api/chat.go`) immediately after the JSON decode and BEFORE the
-whitespace-only emptiness check. `sanitizeChatText` normalizes `\r\n` and lone `\r`
+`handleChatSend` SHALL sanitize `body.Text` via the exported pure helper
+`inject.Sanitize` (`internal/inject`) immediately after the JSON decode and BEFORE the
+whitespace-only emptiness check. `inject.Sanitize` normalizes `\r\n` and lone `\r`
 to `\n`, then drops every control rune per `unicode.IsControl` — C0 (U+0000–U+001F),
 DEL (U+007F), and the C1 range (U+0080–U+009F, including the single-byte CSI
 U+009B) — EXCEPT `\n` and `\t`, which are legitimate message content (multiline
@@ -424,8 +425,9 @@ messages and indented code). Ordinary text, non-ASCII runes (accents, emoji), `\
 and `\t` pass through unchanged. Because the sanitize runs before the emptiness
 check, a message that is entirely control bytes collapses to the empty string and
 takes the existing `400` path without touching tmux. Because it runs before pane
-resolution and injection, every downstream consumer (`chatProbeNeedle`, the
-`multiline` detection via `strings.Contains(text, "\n")`, `setAndPaste`, the echo
+resolution and injection, every downstream consumer (`inject.Needle`, the
+collapsible-paste detection via `strings.Contains(text, "\n")`, the engine's
+set→paste critical section, the echo
 probe) operates on the already-sanitized text. The sanitize is caller-side policy
 only — the `internal/tmux` wrappers stay byte-faithful (Constitution I), and the
 read/backfill endpoints are untouched.
@@ -461,8 +463,11 @@ reconciled chat maps to `404` — mirroring the read endpoints.
   chat → `404`.
 
 ### Requirement: Pane-targeted injection sequence via argv slices
-On a resolved pane the handler SHALL inject the message through a discrete
-provider-agnostic seam (`injectChatMessage`) running this exact ordered sequence,
+On a resolved pane the handler SHALL inject the message through the shared
+`internal/inject` engine — reached via the thin provider-agnostic adapter seam
+(`injectChatMessage`, `api/chat.go`, delegating to the package-level
+`chatSendEngine = inject.NewEngine(tmux.ChatSendBuffer)`) — running this exact
+ordered sequence,
 every subprocess an argv slice (Constitution I) targeting the `paneID`:
 1. **Baseline capture** — `CapturePane` the pane tail BEFORE mutating anything (the
    probe floor, § Novelty echo probe).
@@ -481,12 +486,14 @@ every subprocess an argv slice (Constitution I) targeting the `paneID`:
 5. `send-keys -t <paneID> Enter` — the literal `Enter` key, sent ONLY after a
    successful probe **AND** when `submit` is true.
 
-`injectChatMessage(ctx, server, paneID, text, submit bool)` carries the resolved
-boolean. **`submit:false` (insert-without-submit) skips ONLY step 5** — the baseline
+`injectChatMessage(ctx, server, paneID, text, submit bool)` is the thin adapter
+that forwards the resolved boolean to `inject.Engine.Send`. **`submit:false`
+(insert-without-submit) skips ONLY step 5** — the baseline
 capture, handler-boundary sanitize, named-buffer set/paste, novelty echo probe (a
 probe failure still returns the structured `409`, Enter irrelevant but the text left
-recoverable in the composer), per-`(server,paneID)` whole-sequence lock,
-`chatSetPasteMu`, and the single `chatSendTotalBudget` deadline are all unchanged.
+recoverable in the composer), the engine's per-`(server,paneID)` whole-sequence lock
+and set→paste critical-section mutex, and the handler's single `chatSendTotalBudget`
+deadline are all unchanged.
 The insert-only path still requires a passing probe (the paste must have echoed); it
 just leaves the text staged in the pane's input box without pressing Enter, so a
 human — or a later submit — completes it.
@@ -517,19 +524,19 @@ pre-paste **baseline** capture, then requires that count to strictly INCREASE in
 post-paste capture. The needle is derived from the LAST non-empty line of the text,
 whitespace-stripped (both needle and capture stripped of ANSI + all whitespace so
 an ~80-col TUI wrap cannot split the fragment) and capped to the last
-`chatSendNeedleMaxLen = 40` runes. A paste is **collapsible** when it is multiline
-OR a single line of at least `chatSendCollapseMinRunes = 200` runes — the Claude
+`inject.NeedleMaxLen = 40` runes. A paste is **collapsible** when it is multiline
+OR a single line of at least `inject.CollapseMinRunes = 200` runes — the Claude
 Code TUI collapses such a paste into a chip, so the chip is a valid fresh-echo
 signal. `pasteCollapseRe` matches BOTH chip forms whitespace-stripped:
 `[Pasted text #N +M lines]` (multiline collapse) and the suffix-less
 `[Pasted text #N]` (long-single-line collapse), with the `+M lines` suffix optional.
 The chip counts as a successful echo ONLY when the paste is collapsible and ONLY as
 a *fresh* occurrence vs baseline; a short single-line send keeps exact-needle-only
-matching. A short settle (`chatSendProbeSettle = 80ms`)
-precedes the first capture, then up to `chatSendProbeAttempts = 3` captures with a
-`chatSendProbeGap = 80ms` gap (settle/gap are package **vars** solely so tests can
+matching. A short settle (`inject.ProbeSettle = 80ms`)
+precedes the first capture, then up to `inject.ProbeAttempts = 3` captures with an
+`inject.ProbeGap = 80ms` gap (settle/gap are package **vars** solely so tests can
 shrink them). The probe **fails closed**: an empty needle, a pane that scrolls
-between baseline and probe, or a count that never rises → `chatProbeFailure` → no
+between baseline and probe, or a count that never rises → `inject.ProbeFailure` → no
 Enter, `409`. This is the guard against a blind Enter into e.g. a permission
 dialog. A `CapturePane` subprocess error is distinct (→ `500`, not a clean miss).
 
@@ -563,7 +570,7 @@ text.
 
 ### Requirement: Per-(server,paneID) whole-sequence lock + shared-buffer mutex
 Concurrent sends SHALL be serialized so no two cross texts or double-submit. The
-handler holds a **per-(server,paneID) mutex** (a guarded, never-evicted
+`internal/inject` engine holds a **per-(server,paneID) mutex** (a guarded, never-evicted
 `map[string]*sync.Mutex`, keyed `server\x00paneID`) across the WHOLE sequence
 (baseline → set → paste → probe → Enter/409) so a second send to the SAME pane only
 begins after the first fully finishes — closing the same-pane double-paste window
@@ -571,7 +578,7 @@ begins after the first fully finishes — closing the same-pane double-paste win
 submission). DISTINCT panes stay fully concurrent (each takes its own lock). Because
 the named tmux buffer (`rk-chat-send`) is a single server-wide resource with rk as
 its sole writer, the set → paste critical section is ADDITIONALLY guarded by a small
-package-level mutex (`chatSetPasteMu`) **nested inside** the per-pane lock — held
+per-engine mutex (the engine's `setPasteMu`) **nested inside** the per-pane lock — held
 only for those two fast subprocesses — so cross-pane sends cannot interleave as
 A-set / B-set / A-paste (pane A would receive B's text; B's own `-d` paste would
 500 on the already-deleted buffer).
@@ -1012,7 +1019,8 @@ calling a provider send API.
 **Why**: The pane stays the agent's parent process (Constitution VI); rk sends
 keystrokes exactly as a human typist would — no SDK hosting, no session ownership,
 no queue state (Constitution II). Mechanically provider-agnostic (it types into any
-TUI), so the injection sits behind a small `injectChatMessage` seam that a later
+TUI), so the injection lives in the shared `internal/inject` engine behind the
+handler's small `injectChatMessage` adapter seam that a later
 protocol-based send (Codex JSON-RPC) can branch on without reshaping the handler;
 v1 makes NO provider branch. `set-buffer` (text as a discrete argv element) beats
 `load-buffer -` because `tmuxExecServer` has no stdin plumbing; the `--` terminator
@@ -1027,7 +1035,8 @@ Enter — the stale-prompt trap); `load-buffer -` (no stdin).
 
 ### Control-byte sanitize at the handler boundary, sanitize-not-reject
 **Decision**: Strip terminal control bytes from `body.Text` in `handleChatSend` via
-a pure `sanitizeChatText` helper (normalize CR/CRLF to `\n`, then drop every
+the exported pure `inject.Sanitize` helper (`internal/inject` — normalize CR/CRLF to
+`\n`, then drop every
 `unicode.IsControl` rune — C0 + DEL + C1 — except `\n`/`\t`), applied right after the
 JSON decode and before the emptiness check — sanitize, never reject-with-400 for the
 mere presence of control bytes.
@@ -1074,7 +1083,7 @@ probe already guards the unsafe cases).
 
 ### Collapse-chip gate at 200 runes, a conservative lower bound
 **Decision**: Count the paste-collapse chip whenever the paste is *collapsible* —
-multiline OR a single line of at least `chatSendCollapseMinRunes = 200` runes — and
+multiline OR a single line of at least `inject.CollapseMinRunes = 200` runes — and
 make the `+M lines` suffix optional in `pasteCollapseRe` so both the multiline chip
 (`[Pasted text #N +M lines]`) and the suffix-less long-single-line chip
 (`[Pasted text #N]`) match.

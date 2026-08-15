@@ -76,7 +76,21 @@ in `parsePanes` (which requires `< 7` fields to skip a line):
   **both** `AgentState` and `AgentStateEpoch` are zeroed regardless of a leftover
   option value. This auto-clears a stranded `active` left by an Esc-interrupted or
   killed agent (the guppi lesson) — a real agent command like `claude` keeps its
-  state.
+  state. The reconcile decision itself lives in the shared
+  **`agentStateStale(pid, command)`** helper: a pid-carrying value is trusted iff
+  the agent process is alive (kill-0 liveness), and a legacy two-segment value
+  falls back to the shell-command heuristic.
+
+**Single-pane read for the `rk mux` verbs** — `PaneAgentState(ctx, paneID,
+server)` (`internal/tmux/pane_target.go`) reads ONE pane's
+`#{pane_current_command}` + `#{@rk_agent_state}` via `display-message -pt`,
+parses via `parseAgentState`, and reconciles through the SAME `agentStateStale`
+helper `parsePanes` applies — one reconcile decision, never a divergent copy. An
+absent, unparseable, or reconciled-away value reads as `""` (unknown, never
+partial trust); a tmux failure (e.g. a dead pane) is the error return. It backs
+the two first-party CLI readers of the convention: the **`rk mux send`
+agent-state gate** and the **`rk mux await` observer** (both in
+[agent-messaging](/run-kit/agent-messaging.md)).
 
 ## Window Rollup + Duration (`internal/sessions`)
 

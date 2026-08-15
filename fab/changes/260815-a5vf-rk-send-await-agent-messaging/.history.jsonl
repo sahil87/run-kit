@@ -2,3 +2,12 @@
 {"args":"rk send + rk await — crystallize agent-to-agent messaging into rk: gated probe-verified send verb (chat-send injection engine + @rk_agent_state idle gate + key-name arm) and a state-await verb, superseding fab pane send/await for operator use","cmd":"fab-new","event":"command","ts":"2026-08-15T03:00:32Z"}
 {"delta":"+3.8","event":"confidence","score":3.8,"trigger":"calc-score","ts":"2026-08-15T03:05:02Z"}
 {"delta":"+0.0","event":"confidence","score":3.8,"trigger":"calc-score","ts":"2026-08-15T07:27:03Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-15T07:47:03Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-15T07:48:02Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-15T08:26:02Z"}
+{"event":"review","result":"failed","ts":"2026-08-15T08:42:02Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-15T08:42:02Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-15T09:18:07Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-15T09:21:37Z"}
+{"event":"review","result":"passed","ts":"2026-08-15T09:21:37Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-15T09:34:54Z"}

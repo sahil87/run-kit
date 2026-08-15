@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"rk/internal/inject"
 	"rk/internal/sessions"
 	"rk/internal/tmux"
 )
@@ -19,10 +20,10 @@ import (
 // under test, restoring the production values after.
 func fastChatSendProbe(t *testing.T) {
 	t.Helper()
-	ps, pg := chatSendProbeSettle, chatSendProbeGap
-	chatSendProbeSettle = time.Millisecond
-	chatSendProbeGap = time.Millisecond
-	t.Cleanup(func() { chatSendProbeSettle, chatSendProbeGap = ps, pg })
+	ps, pg := inject.ProbeSettle, inject.ProbeGap
+	inject.ProbeSettle = time.Millisecond
+	inject.ProbeGap = time.Millisecond
+	t.Cleanup(func() { inject.ProbeSettle, inject.ProbeGap = ps, pg })
 }
 
 // sendReq builds a POST /chat/send request for window @1 with the given body.
@@ -157,7 +158,7 @@ func TestChatSendProbeFailureWithholdsEnter(t *testing.T) {
 		t.Error("Enter was sent despite a failed probe (must be withheld)")
 	}
 	// One pre-paste baseline capture + the full bounded probe retry.
-	if want := 1 + chatSendProbeAttempts; ops.capturePaneCalls != want {
+	if want := 1 + inject.ProbeAttempts; ops.capturePaneCalls != want {
 		t.Errorf("capture attempts = %d, want %d (baseline + full bounded retry)", ops.capturePaneCalls, want)
 	}
 	if !strings.Contains(rec.Body.String(), "Enter withheld") {
@@ -395,7 +396,7 @@ func TestChatSendStaleEchoNoBlindEnter(t *testing.T) {
 	}{
 		{
 			// Short/common single-line needle ("ok") already on screen from prior
-			// output. chatProbeNeedle has no distinctiveness floor, so presence
+			// output. inject.Needle has no distinctiveness floor, so presence
 			// matching would false-positive; the baseline floor makes it fail closed.
 			name:    "short needle already present",
 			body:    `{"text":"ok"}`,
@@ -605,11 +606,11 @@ func TestChatSendConcurrentSamePaneWholeSequence(t *testing.T) {
 	texts := append([]string(nil), ops.setChatBufferTexts...)
 	ops.chatMu.Unlock()
 
-	// One 409 send's block: baseline capture, set, paste, then chatSendProbeAttempts
+	// One 409 send's block: baseline capture, set, paste, then inject.ProbeAttempts
 	// probe captures (no send-keys — Enter withheld). Whole-sequence serialization
 	// ⇒ the full stream is exactly block ++ block (no interleave).
 	oneBlock := []string{"capture-pane", "set-buffer", "paste-buffer"}
-	for i := 0; i < chatSendProbeAttempts; i++ {
+	for i := 0; i < inject.ProbeAttempts; i++ {
 		oneBlock = append(oneBlock, "capture-pane")
 	}
 	want := append(append([]string(nil), oneBlock...), oneBlock...)
@@ -625,7 +626,8 @@ func TestChatSendConcurrentSamePaneWholeSequence(t *testing.T) {
 
 // TestChatSendConcurrentCrossPaneBufferAtomic: two concurrent sends to DIFFERENT
 // panes (%1, %2) run concurrently — only the shared server-wide named buffer's
-// set → paste subsequence is globally serialized (chatSetPasteMu). In the recorded
+// set → paste subsequence is globally serialized (the inject engine's setPasteMu).
+// In the recorded
 // stream, every set-buffer is immediately followed by its OWN paste-buffer (the
 // set/paste subsequence is well-nested, never set,set,…), proving no
 // A-set / B-set / A-paste buffer-crossing race across panes. Run under
@@ -637,7 +639,7 @@ func TestChatSendConcurrentCrossPaneBufferAtomic(t *testing.T) {
 	// well-nested set/paste stream, not the probe verdict.
 	ops := &mockTmuxOps{capturePaneResult: "❯ stale unrelated line"}
 	// The hook sleeps inside the set → paste critical section (held under the
-	// global chatSetPasteMu); if that mutex were absent the other pane's send would
+	// engine's setPasteMu); if that mutex were absent the other pane's send would
 	// slip its set-buffer in during the sleep, producing set,set,…,paste,paste.
 	ops.setChatBufferHook = func(string) { time.Sleep(5 * time.Millisecond) }
 
@@ -726,13 +728,13 @@ func TestChatProbeNeedle(t *testing.T) {
 	}{
 		{"single line", "hello world", "helloworld"},
 		{"last non-empty line wins", "first\nsecond line\n\n", "secondline"},
-		{"length-capped from the end", strings.Repeat("a", 100), strings.Repeat("a", chatSendNeedleMaxLen)},
+		{"length-capped from the end", strings.Repeat("a", 100), strings.Repeat("a", inject.NeedleMaxLen)},
 		{"whitespace stripped", "  spaced   out  ", "spacedout"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := chatProbeNeedle(tt.text); got != tt.want {
-				t.Errorf("chatProbeNeedle(%q) = %q, want %q", tt.text, got, tt.want)
+			if got := inject.Needle(tt.text); got != tt.want {
+				t.Errorf("inject.Needle(%q) = %q, want %q", tt.text, got, tt.want)
 			}
 		})
 	}
@@ -744,7 +746,7 @@ func TestChatProbeNeedle(t *testing.T) {
 // collapsible-gated placeholder — BOTH chip forms, ANSI/whitespace normalization)
 // the comparison rests on.
 func TestCountProbeOccurrences(t *testing.T) {
-	needle := chatProbeNeedle("please run the tests")
+	needle := inject.Needle("please run the tests")
 	tests := []struct {
 		name        string
 		capture     string
@@ -780,8 +782,8 @@ func TestCountProbeOccurrences(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := countProbeOccurrences(tt.capture, needle, tt.collapsible); got != tt.want {
-				t.Errorf("countProbeOccurrences(%q, %q, collapsible=%v) = %d, want %d", tt.capture, needle, tt.collapsible, got, tt.want)
+			if got := inject.CountOccurrences(tt.capture, needle, tt.collapsible); got != tt.want {
+				t.Errorf("inject.CountOccurrences(%q, %q, collapsible=%v) = %d, want %d", tt.capture, needle, tt.collapsible, got, tt.want)
 			}
 		})
 	}
@@ -797,13 +799,13 @@ func TestCountProbeOccurrences_ShortNeedleFailsClosed(t *testing.T) {
 	for _, needle := range []string{"y", "ok"} {
 		// Stale content already contains the short needle several times.
 		stale := "history: y\nok done\nanother y here\nok"
-		baseCount := countProbeOccurrences(stale, needle, false)
+		baseCount := inject.CountOccurrences(stale, needle, false)
 		if baseCount == 0 {
 			t.Fatalf("needle %q: expected the short needle to appear in stale content", needle)
 		}
 		// A paste that does not echo leaves the same content → same count → not a
 		// strict increase → the handler's probe fails closed (no blind Enter).
-		postCount := countProbeOccurrences(stale, needle, false)
+		postCount := inject.CountOccurrences(stale, needle, false)
 		if postCount > baseCount {
 			t.Errorf("needle %q: post %d > baseline %d — a non-echoing paste would spuriously pass", needle, postCount, baseCount)
 		}
@@ -845,8 +847,8 @@ func TestSanitizeChatText(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := sanitizeChatText(tt.in); got != tt.want {
-				t.Errorf("sanitizeChatText(%q) = %q, want %q", tt.in, got, tt.want)
+			if got := inject.Sanitize(tt.in); got != tt.want {
+				t.Errorf("inject.Sanitize(%q) = %q, want %q", tt.in, got, tt.want)
 			}
 		})
 	}

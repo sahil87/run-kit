@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 10
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-08-15T08:08:49Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-15T09:19:38Z"}
     review: {started_at: "2026-08-15T09:19:38Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-15T09:28:00Z"}
     hydrate: {started_at: "2026-08-15T09:28:00Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-15T09:35:18Z"}
-    ship: {started_at: "2026-08-15T09:35:18Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-08-15T09:35:18Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-15T09:38:54Z"}
+    review-pr: {started_at: "2026-08-15T09:38:54Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/618
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 1742
+    deleted: 114
+    net: 1628
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 1052
+        deleted: 103
+        net: 949
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-08-15T09:35:18Z"
-    computed_at_stage: hydrate
+        added: 233
+        deleted: 12
+        net: 221
+    computed_at: "2026-08-15T09:38:54Z"
+    computed_at_stage: ship
 summary: 'Identity title bars on sidebar row hover popups: shared PopupTitleBar chrome on the window flyout (Window @N · pane %N · N panes, icons ride the bar, dotLabel demoted, notch inset-fill seam), new session/server identity tips, and 9-field session enumeration (sessionId/sessionPath)'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-15T09:35:18Z
+last_updated: 2026-08-15T09:38:54Z

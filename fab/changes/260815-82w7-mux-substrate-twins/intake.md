@@ -43,7 +43,7 @@ rk mux capture %5 --json          # JSON with metadata
 
 - Flags: `-l/--lines <N>` (default **50**; `< 1` is a usage error), `--json`, `--raw` — `--json` and `--raw` mutually exclusive via `MarkFlagsMutuallyExclusive`.
 - Capture is the last N lines of scrollback (`capture-pane -p -S -N`), **plain text — no `-e` ANSI color escapes** (fab parity; agent-friendly output). rk's existing `tmux.CapturePaneCtx` hardcodes `-e` for the chat echo probe — add a plain variant (or parameterize) in `internal/tmux` rather than stripping escapes downstream. Content is never trimmed (`--raw` stays byte-identical to tmux's output).
-- **Enrichment is substrate-only** (layer ownership, delegation rule 1 of cli-layering.md): the header/JSON carry the pane's cwd (`#{pane_current_path}`) and the **reconciled** agent state + idle duration — NOT fab's change/stage fields (those are choreography facts owned by fab; rk must not reimplement the `.fab-status.yaml` read).
+- **Enrichment is substrate-only** (layer ownership, delegation rule 1 of cli-layering.md): the header/JSON carry the pane's cwd (`#{pane_current_path}`) and the **reconciled** agent state + duration — NOT fab's change/stage fields (those are choreography facts owned by fab; rk must not reimplement the `.fab-status.yaml` read).
 - Default (human) output, fab-shaped:
   ```
   --- pane %5 ---
@@ -52,8 +52,8 @@ rk mux capture %5 --json          # JSON with metadata
   <content>
   ```
   The context line prints only the parts that resolved (cwd empty → omitted; uninstrumented pane → no `agent:` part; a context line with no parts is omitted entirely).
-- `--json` shape: `{"pane": "%5", "lines": 50, "content": "...", "cwd": "...", "agent_state": "idle"|null, "agent_idle_duration": "5m"|null}` (two-space indent, `json.Encoder`).
-- Agent state is the **reconciled** read (parse + pid-liveness, the `tmux.PaneAgentState` semantics) — never raw-option trust. Idle duration is derived from the state's epoch (floor `Ns`/`Nm`/`Nh`, fab's `FormatIdleDuration` rules); only `idle` carries a duration. This needs a state+epoch variant of the single-pane read in `internal/tmux` (today's `PaneAgentState` returns state only).
+- `--json` shape: `{"pane": "%5", "lines": 50, "content": "...", "cwd": "...", "agent_state": "idle"|null, "agent_state_duration": "5m"|null}` (two-space indent, `json.Encoder`).
+- Agent state is the **reconciled** read (parse + pid-liveness, the `tmux.PaneAgentState` semantics) — never raw-option trust. The duration is derived from the state's epoch (floor `Ns`/`Nm`/`Nh`, fab's `FormatIdleDuration` rules); `idle` and `waiting` carry a duration, `active` does not. This needs a state+epoch variant of the single-pane read in `internal/tmux` (today's `PaneAgentState` returns state only).
 - Missing pane / tmux failure = operational error (exit 1) carrying tmux's stderr diagnostic.
 
 ### `rk mux kill <target>` (ported from `fab pane kill`, gains the agent-state gate)

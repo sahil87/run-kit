@@ -53,6 +53,49 @@ func TestParsePaneTarget(t *testing.T) {
 	}
 }
 
+// TestParsePaneFacts: empty first/last fields must not shift the remaining
+// fields — only the trailing newline is trimmed, never the delimiting tabs.
+func TestParsePaneFacts(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want PaneFacts
+	}{
+		{
+			"all fields",
+			"/home/u/proj\tnvim\twaiting:123\n",
+			PaneFacts{CWD: "/home/u/proj", AgentState: "waiting", AgentStateEpoch: 123},
+		},
+		{
+			"empty agent state keeps cwd and command",
+			"/home/u/proj\tzsh\t\n",
+			PaneFacts{CWD: "/home/u/proj"},
+		},
+		{
+			"empty cwd does not shift command into cwd",
+			"\tnvim\twaiting:123\n",
+			PaneFacts{CWD: "", AgentState: "waiting", AgentStateEpoch: 123},
+		},
+		{
+			"empty cwd and agent state",
+			"\tzsh\t\n",
+			PaneFacts{},
+		},
+		{
+			"shell command reconciles away two-segment state",
+			"/home/u/proj\tzsh\twaiting:123\n",
+			PaneFacts{CWD: "/home/u/proj"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := parsePaneFacts(tt.raw); got != tt.want {
+				t.Errorf("parsePaneFacts(%q) = %+v, want %+v", tt.raw, got, tt.want)
+			}
+		})
+	}
+}
+
 // TestParsePaneTargetErrorNamesForms: the rejection message must name the three
 // accepted forms (an agent reading the error can correct itself).
 func TestParsePaneTargetErrorNamesForms(t *testing.T) {

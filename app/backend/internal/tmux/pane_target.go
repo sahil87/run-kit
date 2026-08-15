@@ -113,8 +113,16 @@ func PaneFactsCtx(ctx context.Context, paneID, server string) (PaneFacts, error)
 	if err != nil {
 		return PaneFacts{}, err
 	}
+	return parsePaneFacts(raw), nil
+}
+
+// parsePaneFacts parses the cwd\tcommand\t@rk_agent_state triple read by
+// PaneFactsCtx. Only the trailing newline is trimmed before the split —
+// TrimSpace would eat the tabs delimiting an empty first or last field and
+// shift the remaining fields into the wrong slots.
+func parsePaneFacts(raw string) PaneFacts {
 	var facts PaneFacts
-	parts := strings.SplitN(strings.TrimSpace(raw), "\t", 3)
+	parts := strings.SplitN(strings.TrimRight(raw, "\r\n"), "\t", 3)
 	facts.CWD = parts[0]
 	command, stateRaw := "", ""
 	if len(parts) >= 2 {
@@ -125,15 +133,15 @@ func PaneFactsCtx(ctx context.Context, paneID, server string) (PaneFacts, error)
 	}
 	state, epoch, pid := parseAgentState(stateRaw)
 	if state == "" {
-		return facts, nil
+		return facts
 	}
 	// The same reconcile the sessions path applies (parsePanes) — one shared
 	// decision, never a divergent copy.
 	if agentStateStale(pid, command) {
-		return facts, nil
+		return facts
 	}
 	facts.AgentState, facts.AgentStateEpoch, facts.AgentPID = state, epoch, pid
-	return facts, nil
+	return facts
 }
 
 // PanePIDCtx reads the pane's shell PID (#{pane_pid}) on the given server,

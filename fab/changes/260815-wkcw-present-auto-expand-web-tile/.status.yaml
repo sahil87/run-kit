@@ -1,0 +1,55 @@
+id: wkcw
+name: 260815-wkcw-present-auto-expand-web-tile
+created: 2026-08-15T08:38:46Z
+created_by: Sahil Ahuja
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 6
+    acceptance_count: 18
+    acceptance_completed: 18
+confidence:
+    certain: 9
+    confident: 4
+    tentative: 2
+    unresolved: 0
+    score: 3.2
+    fuzzy: true
+    dimensions:
+        signal: 74.3
+        reversibility: 80.3
+        competence: 80.0
+        disambiguation: 76.3
+stage_metrics:
+    intake: {started_at: "2026-08-15T08:38:46Z", driver: fab-new, iterations: 1, completed_at: "2026-08-15T08:43:55Z"}
+    apply: {started_at: "2026-08-15T15:48:23Z", driver: fab-fff, iterations: 3, completed_at: "2026-08-15T15:56:00Z"}
+    review: {started_at: "2026-08-15T15:56:00Z", driver: fab-fff, iterations: 3, completed_at: "2026-08-15T16:03:22Z"}
+    hydrate: {started_at: "2026-08-15T16:03:22Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-15T16:07:53Z"}
+    ship: {started_at: "2026-08-15T16:07:53Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-08-15T16:07:53Z"
+    computed_at_stage: hydrate
+summary: 'rk present auto-expand: transition-observed transient web-tile auto-open via render-time renderLayout override (no persistence), value-exact in-memory dismissal latch, mobile sheet-tab reachability; lenses-and-layout + architecture memory updated'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-15T16:07:53Z

@@ -125,6 +125,17 @@ toggles, shape chip, divider drags) — never on merely arriving via a URL that
 carries `?layout=`. Following someone's deep link shows their arrangement;
 touching anything makes it yours.
 
+**Transient auto-open carve-out (present).** A fresh `rk present` on a window
+is an implicit request for attention: a viewer *mounted on that window's
+route* who observes the `rkUrl` transition on the state stream MAY transiently
+auto-open the `web` tile (render-time override composed through the ordinary
+growth shapes; closing it latches that exact value against re-opening). This
+keeps R7's substrate-vs-view split intact — the auto-open is a per-viewer,
+client-side reaction of the same class as zoom, and L3 is untouched because
+nothing is written (no localStorage, no `?layout=` mirror). Cold route entry
+never auto-opens; viewers on other routes get no layout theft (the rail's
+availability signal and `rk present --notify` remain their nudge).
+
 ### L4 — History gets "what you saw"
 
 Layout changes use `replaceState` (no history entry per tweak); window

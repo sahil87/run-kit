@@ -30,6 +30,13 @@ import {
   type Layout,
   type SurfaceKind,
 } from "@/lib/surface-layout";
+import {
+  deactivateAutoExpand,
+  dismissAutoExpand,
+  observeRkUrl,
+  withAutoWeb,
+  type AutoExpandState,
+} from "@/lib/present-auto-expand";
 import { matchesCombo, hasReclaimableMatch, shouldSuppressChord, withShortcutHints, formatCombo } from "@/lib/keybindings";
 import { isMacroActionId, type MacroAction } from "@/lib/macros";
 import { useKeybindings } from "@/hooks/use-keybindings";
@@ -764,6 +771,68 @@ function AppShell() {
   // to `single:<view>` (see `switchView`).
   const resolvedView: ViewName = layout.order[0];
 
+  // Present auto-expand (260815-wkcw; spec surface-layout.md R7/L3
+  // carve-out): a viewer MOUNTED on a window's route that observes the
+  // window's `rkUrl` transition (empty→set or value→new value) transiently
+  // auto-opens the `web` tile. The observation state is per-window IN-MEMORY
+  // bookkeeping in a ref Map keyed `${server}:${windowId}` (the
+  // zoom/`mobileActiveTile` transient state class — no localStorage, no
+  // `?layout=` mirror, resets on reload); `autoWebOpen` mirrors the current
+  // window's `active` flag into state so `renderLayout` recomputes — the
+  // mirror carries its key and `renderLayout` gates on the CURRENT route key,
+  // so a window switch away from an active auto-open can never flash a
+  // phantom web tile on the destination route while its observation effect is
+  // still pending. A window switch silently catches `lastUrl` up (a change
+  // that happened while the viewer was away is NOT an observed transition —
+  // R1) and clears `active` (leaving+returning resolves via the normal
+  // ladder), while the dismissal latch survives the switch. Skipped while the
+  // window record is unknown — a brief `currentWindow === null` snapshot-race
+  // frame must not fake a transition.
+  const autoExpandRef = useRef(new Map<string, AutoExpandState>());
+  const autoExpandKeyRef = useRef<string | null>(null);
+  const [autoWebOpen, setAutoWebOpen] = useState<{ key: string; active: boolean }>({
+    key: "",
+    active: false,
+  });
+  useEffect(() => {
+    if (!windowParam || !effectiveWindow) return;
+    const key = `${server}:${windowParam}`;
+    const prev = autoExpandRef.current.get(key);
+    const remount = autoExpandKeyRef.current !== key;
+    autoExpandKeyRef.current = key;
+    const next = observeRkUrl(
+      remount && prev
+        ? { ...prev, lastUrl: (effectiveWindow.rkUrl ?? "").trim(), active: false }
+        : prev,
+      effectiveWindow.rkUrl ?? "",
+    );
+    autoExpandRef.current.set(key, next);
+    setAutoWebOpen({ key, active: next.active });
+    // `effectiveWindow !== null` is a dep: `rkUrl` is undefined BOTH while the
+    // window record is unresolved and once it resolves URL-less, so keying on
+    // the value alone would never initialize on the resolving frame — the
+    // first observation would then be the stamped value itself, misread as a
+    // cold entry.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the rkUrl VALUE, not the window record's identity
+  }, [server, windowParam, effectiveWindow?.rkUrl, effectiveWindow !== null]);
+
+  // The render-time transient override (R2): when the auto-open is active and
+  // the resolved layout lacks `web`, render as if `web` were appended through
+  // the existing growth conventions (`addSurface` — 1→2 `split-h`, 2→3
+  // `main-left`; arity 3 without `web` is a no-op). SurfaceLayout and every
+  // verb callback act on THIS rendered layout, so "touching it makes it
+  // yours" (L3) falls out of the ordinary mutation path; `layout` keeps
+  // feeding the URL-mirror effect, localStorage, and the window-switch
+  // classification — the override writes nothing.
+  const renderLayout = useMemo(
+    () =>
+      withAutoWeb(
+        layout,
+        autoWebOpen.active && autoWebOpen.key === `${server}:${windowParam}`,
+      ),
+    [layout, autoWebOpen, server, windowParam],
+  );
+
   // One-time migration seeding (R2): when no `rk-layout:` key exists for the
   // window, translate the legacy `runkit-window-view`/`runkit-window-panel`
   // keys into the equivalent layout value. Declared BEFORE the mirror effect
@@ -833,6 +902,21 @@ function AppShell() {
   const applyLayout = useCallback(
     (next: Layout) => {
       if (!windowParam) return;
+      // Present auto-expand (260815-wkcw): any user mutation while the
+      // transient override is active takes ownership of the rendered layout
+      // (L3) — one whose result lacks `web` records the dismissal latch for
+      // the current rkUrl value; one that keeps `web` merely deactivates.
+      const autoKey = `${server}:${windowParam}`;
+      const autoState = autoExpandRef.current.get(autoKey);
+      if (autoState?.active) {
+        autoExpandRef.current.set(
+          autoKey,
+          next.order.includes("web")
+            ? deactivateAutoExpand(autoState)
+            : dismissAutoExpand(autoState),
+        );
+        setAutoWebOpen({ key: autoKey, active: false });
+      }
       writeStoredLayout(server, windowParam, next);
       const serialized = serializeLayout(next);
       const isDefault = serialized === serializeLayout(hintLayout(currentWindow));
@@ -860,15 +944,17 @@ function AppShell() {
   // collapses), a closed one appends a tile (addSurface — 1→2 `split-h`,
   // 2→3 `main-left`). A disallowed mutation (closing the last tile, adding a
   // fourth) is a null no-op. Stable across SSE ticks. Shared by the top-bar
-  // surface-toggle group, the tile verbs, and the palette.
+  // surface-toggle group, the tile verbs, and the palette. Acts on the
+  // RENDERED layout (260815-wkcw) so a transiently auto-opened web tile
+  // toggles closed here exactly like a manually opened one.
   const togglePanel = useCallback(
     (surface: SurfaceName) => {
-      const next = layout.order.includes(surface)
-        ? closeSurface(layout, surface)
-        : addSurface(layout, surface);
+      const next = renderLayout.order.includes(surface)
+        ? closeSurface(renderLayout, surface)
+        : addSurface(renderLayout, surface);
       if (next) applyLayout(next);
     },
-    [layout, applyLayout],
+    [renderLayout, applyLayout],
   );
 
   // The surfaces the current window can tile (`tty` first — R8's shared
@@ -894,13 +980,15 @@ function AppShell() {
   // that is. This is TRANSIENT local state — the shared layout is never
   // mutated (it stays desktop's arrangement; no URL/localStorage write, the
   // same discipline as zoom). Resets on a window switch; a surface that left
-  // the layout falls back to slot A.
+  // the layout falls back to slot A. Reads the RENDERED layout (260815-wkcw)
+  // so a transiently auto-opened web surface is reachable as a sheet tab —
+  // the fallback stays slot A (the visible tile is never auto-swapped, R4).
   const [mobileSlotA, setMobileSlotA] = useState<SurfaceName | null>(null);
   useEffect(() => setMobileSlotA(null), [server, windowParam]);
   const mobileActiveTile: SurfaceName =
-    mobileSlotA && layout.order.includes(mobileSlotA)
+    mobileSlotA && renderLayout.order.includes(mobileSlotA)
       ? mobileSlotA
-      : layout.order[0];
+      : renderLayout.order[0];
 
   // Focused tile (260812-wfic R2/R8): SurfaceLayout owns the focused SLOT as
   // transient state (the zoom precedent — the per-window reset comes free
@@ -2781,11 +2869,14 @@ function AppShell() {
       // the layout model subsumes the panel; the ⇧⌘. `panel-toggle` chord
       // (first non-tty tile) is documented via the target surface's Add/Close
       // entry hint. The gating + labels live in the pure `buildLayoutActions`
-      // (lib/palette-layout.ts), the `buildViewActions` precedent.
+      // (lib/palette-layout.ts), the `buildViewActions` precedent. The entries
+      // act on the RENDERED layout (260815-wkcw) — a transiently auto-opened
+      // web tile offers `Layout: Close Web`, and closing it records the
+      // dismissal latch through `applyLayout`.
       ...(windowParam
-        ? buildLayoutActions(layout, panelSurfaces, {
+        ? buildLayoutActions(renderLayout, panelSurfaces, {
             zoomed: layoutZoomed,
-            zoomEnabled: !isMobile && layout.order.length > 1,
+            zoomEnabled: !isMobile && renderLayout.order.length > 1,
             onApply: applyLayout,
             onZoomToggle: () => layoutZoomToggleRef.current?.(),
             // `Layout: Focus <Surface>` (260812-wfic R10) — keyboard parity
@@ -2808,7 +2899,7 @@ function AppShell() {
         onSelect: toggleFixedWidth,
       },
     ],
-    [sessionName, fixedWidth, toggleFixedWidth, toggleComposeStrip, currentViews, resolvedView, switchView, bindingByAction, bindingHost, windowParam, isMobile, layout, panelSurfaces, applyLayout, layoutZoomed, focusedTileKind],
+    [sessionName, fixedWidth, toggleFixedWidth, toggleComposeStrip, currentViews, resolvedView, switchView, bindingByAction, bindingHost, windowParam, isMobile, renderLayout, panelSurfaces, applyLayout, layoutZoomed, focusedTileKind],
   );
 
   // Navigation actions (`Go: Back` / `Go: Forward` / ancestor entries,
@@ -3483,14 +3574,18 @@ function AppShell() {
       // Top-bar surface-toggle group: the tile surfaces the current window
       // offers, the open tiles, and the shared toggle mutation. Registered on
       // every desktop terminal route; absent on board/host/mobile → no group.
+      // Reads the RENDERED layout (260815-wkcw) so a transiently auto-opened
+      // web tile reads lit and its toggle closes it.
       surfaceToggles:
         windowParam && !isMobile
-          ? { available: panelSurfaces, open: layout.order, onToggle: togglePanel }
+          ? { available: panelSurfaces, open: renderLayout.order, onToggle: togglePanel }
           : undefined,
-      // ▦ Layout chip machinery (260812-ab5v R9): the resolved layout + the
+      // ▦ Layout chip machinery (260812-ab5v R9): the on-screen layout + the
       // single mutation path. The top bar's chip/rows jump presets through
-      // `applyLayout` like every other mutation.
-      layout,
+      // `applyLayout` like every other mutation — from the RENDERED layout
+      // (260815-wkcw), so a preset jump during a transient auto-open persists
+      // what the user sees (the same take-ownership rule as the tile verbs).
+      layout: renderLayout,
       onApplyLayout: applyLayout,
     }),
     [
@@ -3509,7 +3604,7 @@ function AppShell() {
       isMobile,
       panelSurfaces,
       togglePanel,
-      layout,
+      renderLayout,
       applyLayout,
     ],
   );
@@ -3588,11 +3683,12 @@ function AppShell() {
             // route with a multi-tile layout — the ▦ chip's sheet swaps the
             // mobile slot-A surface via transient state (never a layout
             // mutation). Tabs are deduped (a duplicate-tty layout gets one
-            // Terminal tab).
+            // Terminal tab). Reads the RENDERED layout (260815-wkcw) so a
+            // transiently auto-opened web surface appears as a tab.
             surfaceSheet={
-              isMobile && windowParam && layout.order.length > 1
+              isMobile && windowParam && renderLayout.order.length > 1
                 ? {
-                    surfaces: [...new Set(layout.order)],
+                    surfaces: [...new Set(renderLayout.order)],
                     active: mobileActiveTile,
                     onSelect: (surface) => setMobileSlotA(surface),
                   }
@@ -3716,7 +3812,12 @@ function AppShell() {
               // its hide-never-unmount set, zoom, and ratio-drag state are
               // per-window (the RightPanel keying precedent).
               key={`${server}:${windowParam}`}
-              layout={layout}
+              // The RENDERED layout (260815-wkcw): the ladder-resolved
+              // `layout` plus the transient present auto-expand override —
+              // a mounted viewer observing an rkUrl transition sees the web
+              // tile appended through the ordinary growth shapes, with no
+              // URL/localStorage write.
+              layout={renderLayout}
               server={server}
               windowId={windowParam}
               sessionName={sessionName ?? ""}
@@ -3727,7 +3828,7 @@ function AppShell() {
               isMobile={isMobile}
               // T014: on mobile the sheet tabs pick which slot renders
               // (transient — the layout itself is untouched).
-              mobileActiveSlot={layout.order.indexOf(mobileActiveTile)}
+              mobileActiveSlot={renderLayout.order.indexOf(mobileActiveTile)}
               wsRef={wsRef}
               focusRef={focusTerminalRef}
               scrollLocked={scrollLocked}
@@ -3753,11 +3854,15 @@ function AppShell() {
               shouldReclaimChord={reclaimChord}
               // The web tile's `>_` affordance keeps the legacy "switch to
               // terminal" behavior: collapse to `single:tty`.
+              // Tile verbs act on the RENDERED layout (260815-wkcw) — a
+              // mutation during an active auto-open persists from what the
+              // viewer sees, and closing the transient web tile records the
+              // dismissal latch through `applyLayout`.
               onSwitchToTty={() => applyLayout({ shape: "single", order: ["tty"] })}
-              onPromote={(surface) => applyLayout(promote(layout, surface))}
-              onSwap={(surface) => applyLayout(swapWithNext(layout, surface))}
+              onPromote={(surface) => applyLayout(promote(renderLayout, surface))}
+              onSwap={(surface) => applyLayout(swapWithNext(renderLayout, surface))}
               onClose={(surface) => {
-                const next = closeSurface(layout, surface);
+                const next = closeSurface(renderLayout, surface);
                 if (next) applyLayout(next);
               }}
               // tty pane-segment verbs (260813-w1lf): the tile header's

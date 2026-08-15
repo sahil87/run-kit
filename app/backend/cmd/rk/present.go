@@ -18,9 +18,12 @@ import (
 // rk present <target> — the one-verb "show this to the user": resolve a
 // file/dir/port/URL target, derive its @rk_url value, and attach it to the
 // caller's own tmux window (or, with --window, a fresh standalone iframe
-// window). It NEVER opens the viewer's tile — layout is per-viewer client
-// state (docs/specs/surface-layout.md R7/L3); availability surfaces on the
-// rail via the SSE option poll, and --notify is the out-of-band nudge.
+// window). It never WRITES the viewer's layout — layout persistence is
+// per-viewer client state (docs/specs/surface-layout.md R7/L3) — but a viewer
+// mounted on this window's route who observes the @rk_url transition MAY see
+// the web tile auto-open transiently (render-time only, nothing persisted);
+// other viewers get the rail availability signal, and --notify is the
+// out-of-band nudge.
 //
 // Exit codes follow the toolkit convention (Principle 4): 0 success, 1
 // operational failure (not in tmux, missing file, unreachable port, tmux
@@ -51,7 +54,9 @@ var presentCmd = &cobra.Command{
 		"and the resolved URL prints to stdout (relative for /present and /proxy\n" +
 		"targets, absolute for external URLs). --window spawns a standalone\n" +
 		"iframe window instead; --notify sends a Web Push after attaching (fail-silent).\n" +
-		"The tile is never opened for the viewer — availability appears on the rail.",
+		"A viewer currently on this window's route may see the web tile auto-open\n" +
+		"transiently (render-time only, nothing persisted); layout persistence stays\n" +
+		"per-viewer.",
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runPresent(cmd, args[0])

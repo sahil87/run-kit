@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 10
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-08-15T10:10:39Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-15T10:35:10Z"}
     review: {started_at: "2026-08-15T10:35:10Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-15T10:43:28Z"}
     hydrate: {started_at: "2026-08-15T10:43:28Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-15T11:00:05Z"}
-    ship: {started_at: "2026-08-15T11:00:05Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-08-15T11:00:05Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-15T11:02:08Z"}
+    review-pr: {started_at: "2026-08-15T11:02:08Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/620
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 1071
+    deleted: 333
+    net: 738
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 493
+        deleted: 232
+        net: 261
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-08-15T11:00:05Z"
-    computed_at_stage: hydrate
+        added: 239
+        deleted: 73
+        net: 166
+    computed_at: "2026-08-15T11:02:08Z"
+    computed_at_stage: ship
 summary: 'rk agent family: agent setup/agent hook canonical; agent-setup hidden deprecation alias, agent-hook permanent hidden alias; installer emits gen-3 wrapper, isRkEntry recognizes all three generations'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-15T11:00:05Z
+last_updated: 2026-08-15T11:02:08Z

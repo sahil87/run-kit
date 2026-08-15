@@ -49,10 +49,13 @@ export function IframeWindow({
   // (activeElement lands on the iframe when focus enters it, but no focusin
   // fires in the parent). blur only fires when focus LEAVES the parent —
   // later in-frame clicks report nothing, which is fine: the tile is already
-  // focused by then.
+  // focused by then. Listeners attach regardless of whether `onInteract` is
+  // currently set: the prop can arrive after mount (a hidden tile handed
+  // slot -1 becoming visible), and gating the attach on it would strand the
+  // seam — `report` reads the ref, so it simply no-ops until then.
   useEffect(() => {
     const iframe = iframeRef.current;
-    if (!iframe || !interactRef.current) return;
+    if (!iframe) return;
     let attachedDoc: Document | null = null;
     const report = () => interactRef.current?.();
     const attach = () => {

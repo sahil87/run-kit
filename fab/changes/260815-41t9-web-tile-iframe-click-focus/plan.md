@@ -20,7 +20,7 @@
 
 - **GIVEN** no `onInteract` prop is passed
 - **WHEN** the component mounts and the user interacts with the iframe
-- **THEN** no listeners are attached and no errors occur — existing behavior unchanged
+- **THEN** nothing is reported and no errors occur — observable behavior unchanged (listeners attach but no-op via the ref, so a handler supplied after mount — a hidden tile's slot -1 → visible transition — starts reporting without a re-attach)
 
 #### R2: Cross-origin blur fallback
 When `onInteract` is provided, `IframeWindow` SHALL also attach a parent-`window` `blur` listener (mounted once, removed on unmount) that calls `onInteract` when `document.activeElement` is the component's iframe element at blur time — the standard "focus entered an iframe" detection, covering cross-origin URLs where `contentDocument` is inaccessible.

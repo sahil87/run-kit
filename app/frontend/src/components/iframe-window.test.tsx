@@ -14,7 +14,7 @@ vi.mock("@/api/client", () => ({
 
 import { updateWindowUrl } from "@/api/client";
 
-function renderIframe(
+function iframeElement(
   props: Omit<React.ComponentProps<typeof IframeWindow>, "onSwitchToTty"> & {
     onSwitchToTty?: () => void;
   },
@@ -23,7 +23,7 @@ function renderIframe(
   const { onSwitchToTty = () => {}, ...rest } = props;
   // Bypass SSE by using StandaloneSessionContextProvider; only `currentServer`
   // matters — IframeWindow reads it directly from useSessionContext.
-  return render(
+  return (
     <StandaloneSessionContextProvider
       value={{
         sessionsByServer: new Map([[server, []]]),
@@ -36,8 +36,15 @@ function renderIframe(
       }}
     >
       <IframeWindow {...rest} onSwitchToTty={onSwitchToTty} />
-    </StandaloneSessionContextProvider>,
+    </StandaloneSessionContextProvider>
   );
+}
+
+function renderIframe(
+  props: Parameters<typeof iframeElement>[0],
+  server = "runkit",
+) {
+  return render(iframeElement(props, server));
 }
 
 afterEach(cleanup);
@@ -182,7 +189,7 @@ describe("IframeWindow", () => {
       }
     });
 
-    it("attaches nothing and errors nothing when the prop is omitted", () => {
+    it("reports nothing and errors nothing when the prop is omitted", () => {
       renderIframe({ windowId: "@2", rkUrl: "http://localhost:8080/docs" });
       const iframe = getIframe();
       expect(() => {
@@ -190,6 +197,22 @@ describe("IframeWindow", () => {
         fireEvent.load(iframe);
         fireEvent.blur(window);
       }).not.toThrow();
+    });
+
+    it("a handler supplied after mount reports (hidden tile with slot -1 becoming visible)", () => {
+      const onInteract = vi.fn();
+      const { rerender } = renderIframe({
+        windowId: "@2",
+        rkUrl: "http://localhost:8080/docs",
+      });
+      rerender(
+        iframeElement(
+          { windowId: "@2", rkUrl: "http://localhost:8080/docs", onInteract },
+          "runkit",
+        ),
+      );
+      getIframe().contentDocument!.dispatchEvent(new Event("pointerdown"));
+      expect(onInteract).toHaveBeenCalledTimes(1);
     });
 
     it("unmount removes the frame-document listeners", () => {

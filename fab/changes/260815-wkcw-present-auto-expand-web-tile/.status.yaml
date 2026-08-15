@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 6
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-08-15T15:48:23Z", driver: fab-fff, iterations: 3, completed_at: "2026-08-15T15:56:00Z"}
     review: {started_at: "2026-08-15T15:56:00Z", driver: fab-fff, iterations: 3, completed_at: "2026-08-15T16:03:22Z"}
     hydrate: {started_at: "2026-08-15T16:03:22Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-15T16:07:53Z"}
-    ship: {started_at: "2026-08-15T16:07:53Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-08-15T16:07:53Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-15T16:10:51Z"}
+    review-pr: {started_at: "2026-08-15T16:10:51Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/627
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 996
+    deleted: 35
+    net: 961
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 602
+        deleted: 29
+        net: 573
     tests:
-        added: 0
+        added: 297
         deleted: 0
-        net: 0
-    computed_at: "2026-08-15T16:07:53Z"
-    computed_at_stage: hydrate
+        net: 297
+    computed_at: "2026-08-15T16:10:51Z"
+    computed_at_stage: ship
 summary: 'rk present auto-expand: transition-observed transient web-tile auto-open via render-time renderLayout override (no persistence), value-exact in-memory dismissal latch, mobile sheet-tab reachability; lenses-and-layout + architecture memory updated'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-15T16:07:53Z
+last_updated: 2026-08-15T16:10:51Z

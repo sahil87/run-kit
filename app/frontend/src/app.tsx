@@ -974,7 +974,8 @@ function AppShell() {
   // window's steal guard and installs capture-phase parent-document
   // listeners that DISARM on the first genuine interaction (and abandon a
   // pending retry — the user has already chosen a target). CodeSurface's
-  // iframe-element `focus` events consult the armed guard via the
+  // in-frame `focusin` listener (on the iframe's contentDocument — a script
+  // grab fires no parent-side iframe event) consults the armed guard via the
   // `onProgrammaticFocus` callback below.
   useEffect(() => {
     if (!windowParam || isMobile) return;

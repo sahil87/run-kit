@@ -43,9 +43,10 @@ const memory = new Map<string, FocusKind>();
 const armedGuards = new Set<string>();
 
 /** Record the user's focus choice for a window. Only the three genuine-focus
- *  seams call this (tty via `focusSlot`, compose via the textarea's `onFocus`,
- *  code via `onInteract`) — navigation clicks and programmatic grabs never
- *  write memory. */
+ *  seams call this (tty via the tty tile's pointerdown/palette-focus seams —
+ *  deliberately NOT `focusSlot` itself, see surface-layout's `recordTtySlot`;
+ *  compose via the textarea's `onFocus`, code via `onInteract`) — navigation
+ *  clicks and programmatic grabs never write memory. */
 export function recordFocus(key: string, kind: FocusKind): void {
   memory.set(key, kind);
 }

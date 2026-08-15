@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 14
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-08-15T16:35:37Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-15T17:07:54Z"}
     review: {started_at: "2026-08-15T17:07:54Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-15T17:16:56Z"}
     hydrate: {started_at: "2026-08-15T17:16:56Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-15T17:26:25Z"}
-    ship: {started_at: "2026-08-15T17:26:25Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-08-15T17:26:25Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-15T17:28:24Z"}
+    review-pr: {started_at: "2026-08-15T17:28:24Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/629
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 2399
+    deleted: 96
+    net: 2303
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 1745
+        deleted: 60
+        net: 1685
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-08-15T17:26:25Z"
-    computed_at_stage: hydrate
+        added: 817
+        deleted: 10
+        net: 807
+    computed_at: "2026-08-15T17:28:24Z"
+    computed_at_stage: ship
 summary: 'rk mux family grows 6 → 9: capture/kill/process substrate twins (plain capture with substrate-only enrichment, agent-state-gated kill, process tree with agent-state pid cross-check); -L scopes the five pane-scoped verbs'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-15T17:26:25Z
+last_updated: 2026-08-15T17:28:24Z

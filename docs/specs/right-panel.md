@@ -145,6 +145,23 @@ the shared switcher; the panel is merely its natural home.
   managed instance), and `rk daemon stop` deliberately leaves it running.
 - **Diff is not a separate surface** — code-server's own git decorations, SCM
   view, and diff editors carry it.
+- **The workbench's load-time focus grab is guarded.** On every window switch
+  the tile grid remounts, the code iframe reloads, and the workbench calls
+  `focus()` once at editor-restore time — a programmatic steal no VS Code /
+  code-server setting suppresses (the upstream anti-steal guard is scoped to
+  the iframe's own document, so it always passes when embedded). run-kit
+  answers with per-window **focus memory** plus a **steal guard**
+  (`src/lib/focus-memory.ts`, wired in `app.tsx`): each window remembers which
+  of `tty`/`compose`/`code` the user last focused, and a desktop-only restore
+  effect re-focuses it on return (first visit defaults to `tty` —
+  keyboard-first). The guard is armed on every switch and disarmed on the
+  first genuine interaction (in-frame keydown/pointerdown, or a capture-phase
+  parent-document pointer/key event); while armed, an iframe-element focus
+  that contradicts the remembered kind is reverted to it. The load-bearing
+  asymmetry: `code` is recorded ONLY from genuine in-frame interaction
+  (`CodeSurface`'s `onInteract`), never from iframe focusin — so the grab can
+  never record itself as the user's choice, and when the remembered kind IS
+  `code` the grab passes through: it IS the restore.
 
 ---
 

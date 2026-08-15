@@ -27,6 +27,7 @@ import {
   registerComposeStripFocuser,
   setComposeStripFocused,
 } from "@/lib/compose-strip-events";
+import { focusMemoryKey, recordFocus } from "@/lib/focus-memory";
 import {
   getComposeDraft,
   getComposeSentHistory,
@@ -182,8 +183,19 @@ function selectionDraftKey(keys: readonly string[]): string {
 
 export function ComposeStrip({
   selectionTarget = null,
+  focusMemoryWindow,
 }: {
   selectionTarget?: ComposeSelectionTarget | null;
+  /** The terminal route's window identity, for the focus-memory write gate
+   *  (spec right-panel.md § The code lens). The strip targets the LIVE focused
+   *  terminal, which lags a window switch by a commit: when the restore
+   *  router focuses the textarea during that gap, `focused` still names the
+   *  PREVIOUS window, and recording against it would cross-write that
+   *  window's memory key. The textarea's `onFocus` therefore records
+   *  `compose` only when the focused target IS this window. Absent (the
+   *  board route's mount — focus memory is a terminal-route concern) ⇒ no
+   *  recording. */
+  focusMemoryWindow?: { server: string; windowId: string };
 }) {
   const { focused } = useFocusedTerminal();
   // The header-row × fires the exact same toggle as the bottom-bar `>_` chip
@@ -760,8 +772,25 @@ export function ComposeStrip({
       }}
       onKeyDown={onKeyDown}
       // Publish focus for the bottom bar's coarse-pointer hide (the
-      // module-store seam, 260814-ink6); unmount clears the flag.
-      onFocus={() => setComposeStripFocused(true)}
+      // module-store seam, 260814-ink6); unmount clears the flag. Also the
+      // focus-memory write seam (spec right-panel.md § The code lens):
+      // focusing the textarea records `compose` for the window it targets —
+      // TERMINAL-TARGET mode only (a selection broadcast has no window
+      // identity; its draft key is `selection:…`, not a window), and only
+      // when the live target matches the route window (`focusMemoryWindow`)
+      // so a restore-driven focus during the window-switch commit can't
+      // cross-write the previous window's key.
+      onFocus={() => {
+        setComposeStripFocused(true);
+        if (
+          !isSelectionTarget &&
+          focused &&
+          focused.server === focusMemoryWindow?.server &&
+          focused.windowId === focusMemoryWindow?.windowId
+        ) {
+          recordFocus(focusMemoryKey(focused.server, focused.windowId), "compose");
+        }
+      }}
       onBlur={() => setComposeStripFocused(false)}
       disabled={!hasTarget}
       autoComplete="off"
@@ -897,7 +926,11 @@ export function ComposeStrip({
   );
 
   return (
-    <div data-testid="compose-strip">
+    // `data-compose-strip` is a PRODUCTION marker (unlike the test id): the
+    // tty tile's pointerdown focus-memory write reads it to tell a press on
+    // the docked strip (strip interaction — its textarea records `compose`)
+    // apart from a press on the terminal (records `tty`).
+    <div data-testid="compose-strip" data-compose-strip>
       {/* Inner wrapper carries ALL the visible chrome (border, background,
           input, buttons); the outer element stays an unstyled box so the
           row-growth/refit mechanic (260718-dhdj — at the footer dock the

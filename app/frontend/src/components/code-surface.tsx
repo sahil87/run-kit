@@ -72,6 +72,15 @@ interface CodeSurfaceProps {
    *  fires no focusin in the parent), so this seam is the tile wrapper's
    *  only signal. Absent ⇒ no reporting. */
   onInteract?: () => void;
+  /** Steal-guard seam (spec right-panel.md § The code lens): fired when focus
+   *  lands anywhere inside the frame's document (a capture-phase `focusin` on
+   *  the contentDocument) — the only signal the workbench's script `focus()`
+   *  grab produces, since it fires NO parent-side event on the iframe element.
+   *  The handler decides: return `true` when it reverted the grab (guard armed
+   *  + remembered kind ≠ `code`), `false` when the focus stands (guard
+   *  disarmed, or the remembered kind IS `code` — then the grab IS the
+   *  restore). Absent ⇒ no reporting. */
+  onProgrammaticFocus?: () => boolean;
   /** Follow-the-editor seam (260813-if5d R3): fired with the folder the EDITOR
    *  navigated itself to (File > Open Folder), read from the same-origin frame's
    *  `?folder=` on each `load`. Only fired for a present, non-empty folder that
@@ -86,6 +95,7 @@ export function CodeSurface({
   shouldReclaimChord,
   onInteract,
   onFolderNavigated,
+  onProgrammaticFocus,
 }: CodeSurfaceProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const reclaimRef = useRef(shouldReclaimChord);
@@ -94,6 +104,8 @@ export function CodeSurface({
   interactRef.current = onInteract;
   const folderNavigatedRef = useRef(onFolderNavigated);
   folderNavigatedRef.current = onFolderNavigated;
+  const programmaticFocusRef = useRef(onProgrammaticFocus);
+  programmaticFocusRef.current = onProgrammaticFocus;
   // The comparison baseline for the load-event report below, read through a ref
   // because the listener outlives the render that installed it. It tracks the
   // latch, which after seeding tracks the editor — so it is exactly "the folder
@@ -126,12 +138,18 @@ export function CodeSurface({
   // reachability flip re-runs this effect against the fresh iframe. Cleanup
   // removes the listener from the document it was attached to. The
   // capture-phase keydown/pointerdown pair ALSO feeds `onInteract`
-  // (260812-wfic): any in-editor interaction reports tile focus.
+  // (260812-wfic): any in-editor interaction reports tile focus. The
+  // capture-phase `focusin` feeds `onProgrammaticFocus` (the steal guard) —
+  // it is attached to the frame's document because a script `focus()` grab
+  // fires no parent-side event on the iframe element.
   useEffect(() => {
     const iframe = iframeRef.current;
     if (
       !iframe ||
-      (!reclaimRef.current && !interactRef.current && !folderNavigatedRef.current)
+      (!reclaimRef.current &&
+        !interactRef.current &&
+        !folderNavigatedRef.current &&
+        !programmaticFocusRef.current)
     ) {
       return;
     }
@@ -155,6 +173,18 @@ export function CodeSurface({
       );
     };
     const onPointer = () => interactRef.current?.();
+    // Steal guard: the workbench's load-time grab is an in-frame script
+    // `focus()` — in Chromium it re-points the focus chain (the parent's
+    // `document.activeElement` becomes the iframe) but fires NO parent-side
+    // event on the iframe element, so the ONLY observable is a `focusin` on
+    // the frame's own document. The prop decides whether to revert (`true`) —
+    // this component only reports; it knows nothing about the focus-memory
+    // module. A genuine click-in produces `pointerdown` (→ `onInteract`, which
+    // disarms the guard) BEFORE this focusin, so real editor focus reports
+    // against an already-disarmed guard and is never reverted.
+    const onFrameFocus = () => {
+      programmaticFocusRef.current?.();
+    };
     const attach = () => {
       try {
         // Cross-origin frames throw on contentDocument access — the /proxy/
@@ -165,6 +195,7 @@ export function CodeSurface({
         if (doc && doc !== attachedDoc) {
           doc.addEventListener("keydown", onKey, true);
           doc.addEventListener("pointerdown", onPointer, true);
+          doc.addEventListener("focusin", onFrameFocus, true);
           attachedDoc = doc;
         }
       } catch {
@@ -200,6 +231,7 @@ export function CodeSurface({
       try {
         attachedDoc?.removeEventListener("keydown", onKey, true);
         attachedDoc?.removeEventListener("pointerdown", onPointer, true);
+        attachedDoc?.removeEventListener("focusin", onFrameFocus, true);
       } catch {
         /* noop */
       }

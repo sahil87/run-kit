@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-15T07:34:40Z"}
+{"args":"Restore per-window DOM focus on terminal-route window switches (tty/compose/code memory, tty default) and guard against the code-server workbench load-time focus steal","cmd":"fab-new","event":"command","ts":"2026-08-15T07:34:40Z"}
+{"delta":"+4.5","event":"confidence","score":4.5,"trigger":"calc-score","ts":"2026-08-15T07:36:25Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-08-15T07:37:33Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-15T07:38:34Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-15T07:39:18Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-15T10:09:08Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-15T10:57:35Z"}
+{"event":"review","result":"passed","ts":"2026-08-15T10:57:35Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-15T11:05:01Z"}

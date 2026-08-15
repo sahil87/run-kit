@@ -113,6 +113,13 @@ import { BottomBar } from "@/components/bottom-bar";
 import { StatusBar } from "@/components/status-bar";
 import { ComposeStrip } from "@/components/compose-strip";
 import { focusComposeStrip } from "@/lib/compose-strip-events";
+import {
+  armGuard,
+  disarmGuard,
+  focusMemoryKey,
+  isGuardArmed,
+  recallFocus,
+} from "@/lib/focus-memory";
 import type { PaletteAction } from "@/components/command-palette";
 import { Dialog } from "@/components/dialog";
 import { SessionTiles } from "@/components/session-tiles/session-tiles";
@@ -632,6 +639,16 @@ export function withLatchedCodeFolder<T extends { gitRoot?: string }>(
  */
 const CONFIRMATION_WINDOW_MS = 5000;
 
+/**
+ * How long the focus-restore rAF retry waits for `focusTerminalRef` to
+ * register (the ref lands late in TerminalClient init, after the restore
+ * effect has already run). Named tunable: 2s proved too tight under a loaded
+ * box (e2e CI-class contention stalls TerminalClient init past it), so 5s.
+ * Beyond it the terminal is presumed unfocusable this visit and the retry
+ * stops; any user interaction abandons it earlier.
+ */
+const FOCUS_RESTORE_RETRY_MS = 5000;
+
 function AppShell() {
   const ctx = useSessionContext();
   const matches = useMatches();
@@ -915,6 +932,83 @@ function AppShell() {
     ? mobileActiveTile
     : (reportedFocusedKind ?? layout.order[0]);
   const layoutFocusTileRef = useRef<((kind: SurfaceKind) => void) | null>(null);
+
+  // Focus restore + steal guard (spec right-panel.md § The code lens): the
+  // tile grid REMOUNTS on every window switch (the `${server}:${windowId}`
+  // key below) and nothing would otherwise reclaim DOM focus — worse, the
+  // code tile's iframe reloads and the workbench's one-shot load-time grab
+  // would win by default. `restoreFocus` routes to the window's RECORDED
+  // focus kind (`undefined` ⇒ `tty`, the keyboard-first default): tty via
+  // `focusTerminalRef` with a rAF retry (the ref registers late in
+  // TerminalClient init), compose via the registered strip focuser with a tty
+  // fallback when it declines (disabled/unmounted), code as a no-op (the
+  // workbench's own grab restores it). Reads only refs + module state, so a
+  // stable identity is safe. Returns a cancel that abandons any pending
+  // retry.
+  const restoreFocus = useCallback((key: string): (() => void) => {
+    let cancelled = false;
+    let rafId = 0;
+    const cancel = () => {
+      cancelled = true;
+      cancelAnimationFrame(rafId);
+    };
+    const deadline = Date.now() + FOCUS_RESTORE_RETRY_MS;
+    const focusTty = () => {
+      if (cancelled) return;
+      const focus = focusTerminalRef.current;
+      if (focus) {
+        focus();
+        return;
+      }
+      if (Date.now() < deadline) rafId = requestAnimationFrame(focusTty);
+    };
+    const kind = recallFocus(key) ?? "tty";
+    if (kind === "code") return cancel; // the workbench's own grab restores it
+    if (kind === "compose" && focusComposeStrip()) return cancel;
+    rafId = requestAnimationFrame(focusTty);
+    return cancel;
+  }, []);
+
+  // The restore effect, keyed per window and DESKTOP-ONLY — auto-focus pops
+  // the mobile keyboard (the chat-view autofocus precedent). It arms the
+  // window's steal guard and installs capture-phase parent-document
+  // listeners that DISARM on the first genuine interaction (and abandon a
+  // pending retry — the user has already chosen a target). CodeSurface's
+  // iframe-element `focus` events consult the armed guard via the
+  // `onProgrammaticFocus` callback below.
+  useEffect(() => {
+    if (!windowParam || isMobile) return;
+    const key = focusMemoryKey(server, windowParam);
+    armGuard(key);
+    const cancelRestore = restoreFocus(key);
+    const disarm = () => {
+      disarmGuard(key);
+      cancelRestore();
+    };
+    document.addEventListener("pointerdown", disarm, true);
+    document.addEventListener("keydown", disarm, true);
+    return () => {
+      cancelRestore();
+      document.removeEventListener("pointerdown", disarm, true);
+      document.removeEventListener("keydown", disarm, true);
+    };
+  }, [server, windowParam, isMobile, restoreFocus]);
+
+  // Steal-guard revert, threaded SurfaceLayout → CodeSurface: fires when
+  // focus lands inside the frame's document (a script `focus()` grab fires
+  // no parent-side iframe event — the in-frame `focusin` is the only
+  // signal). While the guard is armed and the remembered kind is not `code`,
+  // the grab contradicts the user's recorded choice — restore it and report
+  // the revert (`true`). A remembered `code` lets the grab through: it IS
+  // the restore.
+  const revertProgrammaticFocus = useCallback((): boolean => {
+    if (!windowParam) return false;
+    const key = focusMemoryKey(server, windowParam);
+    if (!isGuardArmed(key)) return false;
+    if ((recallFocus(key) ?? "tty") === "code") return false;
+    restoreFocus(key);
+    return true;
+  }, [server, windowParam, restoreFocus]);
 
   // The effective keybinding map (260730-g40a): drives the migrated `⌘.` lens
   // cycle below, the shifted-tier dispatch mount (see the `useKeybindingDispatch`
@@ -2620,6 +2714,14 @@ function AppShell() {
     layout.order.includes("tty");
   const composeStripElement = (
     <ComposeStrip
+      // Focus-memory write gate: the terminal route's window identity. The
+      // strip records `compose` only when its live target IS this window —
+      // the focused-terminal context lags a window switch by a commit, and a
+      // restore-driven focus in that gap would otherwise cross-write the
+      // previous window's key.
+      focusMemoryWindow={
+        windowParam ? { server, windowId: windowParam } : undefined
+      }
       selectionTarget={
         selectionBroadcastKeys
           ? {
@@ -3711,6 +3813,10 @@ function AppShell() {
               // drive focus through the ref seam.
               onFocusedKindChange={setReportedFocusedKind}
               focusTileRef={layoutFocusTileRef}
+              // Steal guard (spec right-panel.md § The code lens): the code
+              // tile's iframe-element focus events route here — armed guard +
+              // remembered kind ≠ `code` reverts the workbench's grab.
+              onProgrammaticFocus={revertProgrammaticFocus}
               // tty header status dot (R6): the SSE window record — consumed
               // by tty tile headers only (no dot when null/non-tty).
               statusWindow={currentWindow ?? null}

@@ -18,6 +18,13 @@ import {
 } from "@/lib/surface-layout";
 import { clampRatio, MIN_PANEL_WIDTH_PX } from "@/lib/right-panel";
 import {
+  disarmGuard,
+  focusMemoryKey,
+  isGuardArmed,
+  recallFocus,
+  recordFocus,
+} from "@/lib/focus-memory";
+import {
   ClosePaneBoxedGlyph,
   SplitHorizontalGlyph,
   SplitVerticalGlyph,
@@ -152,6 +159,13 @@ interface SurfaceLayoutProps {
    *  to. The parent latches it — this component only carries the prop. */
   onCodeFolderNavigated?: (folder: string) => void;
   shouldReclaimChord?: (e: KeyboardEvent) => boolean;
+  /** Steal-guard revert seam (spec right-panel.md § The code lens): handed
+   *  straight to the code tile's `CodeSurface`, which invokes it when focus
+   *  lands inside the frame's document (the in-frame `focusin` — a script
+   *  `focus()` grab fires no parent-side iframe event). The parent's callback
+   *  decides — armed guard + remembered kind ≠ `code` ⇒ revert and return
+   *  `true`; anything else ⇒ `false` (the focus stands). Absent ⇒ no guard. */
+  onProgrammaticFocus?: () => boolean;
   /** The web tile's `>_` affordance — "switch to terminal" (single:tty). */
   onSwitchToTty: () => void;
   /** Verb callbacks — the parent applies the pure mutation + persistence +
@@ -454,6 +468,7 @@ export function SurfaceLayout({
   codeReachable,
   onCodeFolderNavigated,
   shouldReclaimChord,
+  onProgrammaticFocus,
   onSwitchToTty,
   onPromote,
   onSwap,
@@ -470,6 +485,12 @@ export function SurfaceLayout({
   ttyDockContent,
 }: SurfaceLayoutProps) {
   const arity = SHAPE_ARITY[layout.shape];
+  // The focus-memory key for this window (spec right-panel.md § The code
+  // lens): the recording seams below write the user's focus choice under it,
+  // and the steal guard consults it. The parent's `${server}:${windowId}`
+  // keying remounts this component per window, but memory outlives the
+  // remount — that is the point of it.
+  const focusKey = focusMemoryKey(server, windowId);
 
   // Dummy ws bucket for DUPLICATE tty tiles — TerminalClient types `wsRef` as
   // required, but only the first tty tile owns the shared refs (the shell's
@@ -551,6 +572,34 @@ export function SurfaceLayout({
     const kind = layout.order[slot];
     if (kind) reportFocusedKind(kind);
   };
+  // Focus-memory write seam for `tty` (spec right-panel.md § The code lens).
+  // It lives on the POINTERDOWN seam, not in `focusSlot` and not on the
+  // wrapper's `onFocus`: the in-tile compose strip docks INSIDE the tty tile,
+  // and a focusin bubbles target-first — the textarea's own `onFocus` (which
+  // records `compose`) runs BEFORE the wrapper's, so a tty write there would
+  // clobber the compose write. Pointerdown capture fires before any focus
+  // event, so a compose click lands its write after this one. `code` is
+  // deliberately never recorded here either: a programmatic grab produces no
+  // pointerdown (the anti-steal asymmetry — `code` records only via
+  // `onInteract`).
+  const recordTtySlot = (slot: number) => {
+    focusSlot(slot);
+    if (layout.order[slot] === "tty") recordFocus(focusKey, "tty");
+  };
+  // The pointerdown variant, event-aware: a press landing INSIDE the docked
+  // compose strip is strip interaction, not terminal focus. The record is
+  // skipped for it (the textarea's `onFocus` owns the `compose` write) — a
+  // re-click on an already-focused textarea fires no focus event, so without
+  // this carve-out the tty write would clobber `compose` with no correction.
+  // The focused-SLOT highlight still follows the press (the strip is part of
+  // the tty tile's frame).
+  const focusSlotFromPointer = (slot: number, target: EventTarget | null) => {
+    focusSlot(slot);
+    if (target instanceof HTMLElement && target.closest("[data-compose-strip]")) {
+      return;
+    }
+    if (layout.order[slot] === "tty") recordFocus(focusKey, "tty");
+  };
   useEffect(() => {
     if (focusedKind) reportFocusedKind(focusedKind);
   }, [focusedKind, reportFocusedKind]);
@@ -562,7 +611,8 @@ export function SurfaceLayout({
     if (!focusTileRef) return;
     focusTileRef.current = (kind: SurfaceKind) => {
       const slot = layout.order.indexOf(kind);
-      if (slot >= 0) focusSlot(slot);
+      // An explicit palette choice is a genuine user choice — record it too.
+      if (slot >= 0) recordTtySlot(slot);
     };
     return () => {
       focusTileRef.current = null;
@@ -837,7 +887,20 @@ export function SurfaceLayout({
             gitRoot={win.gitRoot}
             reachable={codeReachable}
             shouldReclaimChord={shouldReclaimChord}
-            onInteract={slot >= 0 ? () => focusSlot(slot) : undefined}
+            onInteract={
+              slot >= 0
+                ? () => {
+                    focusSlot(slot);
+                    // An in-frame keydown/pointerdown is GENUINE interaction
+                    // — the only seam allowed to record `code` (a
+                    // programmatic grab never produces one) — and it ends
+                    // the protected post-switch window.
+                    recordFocus(focusKey, "code");
+                    disarmGuard(focusKey);
+                  }
+                : undefined
+            }
+            onProgrammaticFocus={onProgrammaticFocus}
             onFolderNavigated={onCodeFolderNavigated}
           />
         ) : null;
@@ -909,8 +972,32 @@ export function SurfaceLayout({
               ` border rounded-md ${isFocused ? "border-accent-green" : "rk-card-border"}`
         }`}
         style={hidden || mobile ? undefined : slotStyle(layout.shape, slot, zoomed)}
-        onPointerDownCapture={slot >= 0 ? () => focusSlot(slot) : undefined}
-        onFocus={slot >= 0 ? () => focusSlot(slot) : undefined}
+        onPointerDownCapture={
+          slot >= 0 ? (e) => focusSlotFromPointer(slot, e.target) : undefined
+        }
+        onFocus={
+          slot >= 0
+            ? () => {
+                // Steal guard (no-flip half): Chromium fires NO parent-side
+                // iframe event for a script `focus()` grab, but engines that
+                // do would flip the focused slot to `code` here — while the
+                // guard is armed and the remembered kind is not `code`, an
+                // iframe focusin is the grab, not a user choice, so skip the
+                // flip (the `onProgrammaticFocus` revert restores the
+                // remembered focus). A genuine click-in arrives via
+                // onPointerDownCapture first and the in-frame `onInteract`
+                // disarms the guard, so real editor focus is never blocked.
+                if (
+                  kind === "code" &&
+                  isGuardArmed(focusKey) &&
+                  recallFocus(focusKey) !== "code"
+                ) {
+                  return;
+                }
+                focusSlot(slot);
+              }
+            : undefined
+        }
       >
         {/* Header px-1.5: the rail divider is a MINOR seam with ~6px air on
             both sides (the rail's chips hug it at the same distance on their

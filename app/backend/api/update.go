@@ -181,8 +181,15 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 // qualify-409 gate). After spawning it schedules a ~2min post-remediation
 // re-check (R17) so a consumed match clears promptly on the siblings-only path
 // (no daemon restart).
+//
+// `--yes` is mandatory on both paths: the job window has a TTY but no operator,
+// so shll's terminal agent-setup refresh would otherwise park the job forever
+// at its interactive `Write these changes? [y/N]` consent prompt (rk's own
+// non-TTY refusal never fires inside a pane). The append is unconditional — a
+// shll predating the flag (shll backlog [3ovi]) hard-errors visibly in the job
+// window, which is the accepted trade over the silent hang.
 func (s *Server) handleShllUpdate(w http.ResponseWriter, r *http.Request, shllPath string, force bool) {
-	args := []string{shllPath, "update"}
+	args := []string{shllPath, "update", "--yes"}
 	if !force {
 		var matched []string
 		if s.updateChecker != nil {
@@ -205,7 +212,7 @@ func (s *Server) handleShllUpdate(w http.ResponseWriter, r *http.Request, shllPa
 		}
 		args = append(args, matched...)
 	}
-	// force keeps args == [shll update] — a full-roster sweep with no tool args.
+	// force keeps args == [shll update --yes] — a full-roster sweep with no tool args.
 
 	if !s.runJobAndRespond(w, r, "updating", "update", args) {
 		return

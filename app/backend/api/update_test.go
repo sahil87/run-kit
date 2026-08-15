@@ -174,9 +174,10 @@ func TestHandleUpdateShllScopedSpawnsMatched(t *testing.T) {
 	if rec.window != "update" {
 		t.Errorf("job window = %q, want update", rec.window)
 	}
-	// argv = [<shll path> update <matched roster order>]. Matched is roster
-	// order (fab-kit before run-kit, sorted names).
-	want := []string{"/opt/homebrew/bin/shll", "update", "fab-kit", "run-kit"}
+	// argv = [<shll path> update --yes <matched roster order>]. Matched is
+	// roster order (fab-kit before run-kit, sorted names); --yes is the
+	// handler's unattended-consent flag, present on every spawn.
+	want := []string{"/opt/homebrew/bin/shll", "update", "--yes", "fab-kit", "run-kit"}
 	if strings.Join(rec.argv, " ") != strings.Join(want, " ") {
 		t.Errorf("job argv = %v, want %v", rec.argv, want)
 	}
@@ -212,7 +213,8 @@ func TestHandleUpdateShllDropsFlagLikeToolName(t *testing.T) {
 		t.Fatalf("status = %d, want 202 (body=%s)", res.Code, res.Body.String())
 	}
 	// argv must carry the legit sibling only — the flag-like name is dropped.
-	want := []string{"/opt/homebrew/bin/shll", "update", "fab-kit"}
+	// The handler-added --yes is present by construction, never via the manifest.
+	want := []string{"/opt/homebrew/bin/shll", "update", "--yes", "fab-kit"}
 	if strings.Join(rec.argv, " ") != strings.Join(want, " ") {
 		t.Errorf("job argv = %v, want %v (flag-like tool name must be dropped)", rec.argv, want)
 	}
@@ -258,7 +260,7 @@ func TestHandleUpdateShllForceFullRoster(t *testing.T) {
 	if !rec.called {
 		t.Fatalf("force must run shll update")
 	}
-	want := []string{"/opt/homebrew/bin/shll", "update"}
+	want := []string{"/opt/homebrew/bin/shll", "update", "--yes"}
 	if strings.Join(rec.argv, " ") != strings.Join(want, " ") {
 		t.Errorf("force job argv = %v, want %v (full-roster sweep)", rec.argv, want)
 	}
@@ -287,7 +289,7 @@ func TestHandleUpdateShllPresentIgnoresBrew409(t *testing.T) {
 	if res.Code != http.StatusAccepted {
 		t.Fatalf("status = %d, want 202 (no brew-409 on the shll path) (body=%s)", res.Code, res.Body.String())
 	}
-	want := []string{"/opt/homebrew/bin/shll", "update", "fab-kit"}
+	want := []string{"/opt/homebrew/bin/shll", "update", "--yes", "fab-kit"}
 	if strings.Join(rec.argv, " ") != strings.Join(want, " ") {
 		t.Errorf("job argv = %v, want %v", rec.argv, want)
 	}

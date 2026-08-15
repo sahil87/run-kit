@@ -1,0 +1,54 @@
+id: wdr4
+name: 260815-wdr4-shll-update-yes-flag
+created: 2026-08-15T16:58:32Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 3
+    acceptance_count: 8
+    acceptance_completed: 8
+confidence:
+    certain: 6
+    confident: 0
+    tentative: 0
+    unresolved: 0
+    score: 5.0
+    fuzzy: true
+    dimensions:
+        signal: 85.8
+        reversibility: 90.8
+        competence: 92.5
+        disambiguation: 88.3
+stage_metrics:
+    intake: {started_at: "2026-08-15T16:58:32Z", driver: fab-new, iterations: 1, completed_at: "2026-08-15T17:03:00Z"}
+    apply: {started_at: "2026-08-15T17:03:00Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-15T17:05:23Z"}
+    review: {started_at: "2026-08-15T17:05:23Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-15T17:09:16Z"}
+    hydrate: {started_at: "2026-08-15T17:09:16Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-15T17:11:58Z"}
+    ship: {started_at: "2026-08-15T17:11:58Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-08-15T17:11:58Z"
+    computed_at_stage: hydrate
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-15T17:11:58Z

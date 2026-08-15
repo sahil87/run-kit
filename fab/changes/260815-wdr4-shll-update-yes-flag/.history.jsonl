@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-15T16:58:32Z"}
+{"args":"Append --yes to the shll update argv spawned by the dashboard update button (handleShllUpdate, both scoped and force paths) so unattended rk-jobs updates never hang on the interactive agent-setup consent prompt","cmd":"fab-new","event":"command","ts":"2026-08-15T16:58:32Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-08-15T16:59:39Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-08-15T17:00:50Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-15T17:02:29Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-15T17:03:00Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-15T17:05:23Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-15T17:09:16Z"}
+{"event":"review","result":"passed","ts":"2026-08-15T17:09:16Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-15T17:11:58Z"}

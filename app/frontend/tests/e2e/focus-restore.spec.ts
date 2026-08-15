@@ -70,7 +70,7 @@ async function makeWindow(
 /** Navigate to a window's terminal route and wait for the SSE connection. */
 async function gotoWindow(page: Page, windowId: string, search = ""): Promise<void> {
   await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(windowId)}${search}`);
-  await expect(page.locator("nav [aria-label='Connected']")).toBeVisible({
+  await expect(page.locator("[aria-label='Connected']")).toBeVisible({
     timeout: READY_TIMEOUT,
   });
 }
@@ -170,7 +170,7 @@ test.beforeAll(async ({ browser }, testInfo) => {
   const page = await browser.newPage();
   const first = await resolveWindowRaw(page, TMUX_SERVER, TEST_SESSION);
   await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(first.windowId)}`);
-  await expect(page.locator("nav [aria-label='Connected']")).toBeVisible({ timeout: 60_000 });
+  await expect(page.locator("[aria-label='Connected']")).toBeVisible({ timeout: 60_000 });
   await expect(page.locator(".xterm").first()).toBeVisible({ timeout: 60_000 });
   await page.close();
 });

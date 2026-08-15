@@ -84,12 +84,17 @@ describe("Shell", () => {
     expect(stage().style.gridTemplateAreas).toContain('"sidebar content"');
     expect(stage().style.gridTemplateAreas).toContain('"sidebar bottombar"');
     expect(stage().style.padding).toBe("6px");
-    expect(stage().style.rowGap).toBe("6px");
+    // No row-gap: grid gaps charge between tracks even at zero track height,
+    // so a stage row-gap would sink the content column below the row-spanning
+    // sidebar whenever the bottombar row is empty. The footer owns the seam,
+    // content-gated (`:has(>*)`), asserted on its class below.
+    expect(stage().style.rowGap).toBe("");
     expect(stage().className).toContain("bg-bg-inset");
     // The Shell-owned placements: bottom bar in its footer (inside the stage),
     // status bar in the outer row — desktop only.
     const footer = screen.getByTestId("bottombar").parentElement!;
     expect(footer.tagName).toBe("FOOTER");
+    expect(footer.className).toContain("has-[>*]:mt-[6px]");
     expect(footer.style.gridArea).toBe("bottombar");
     expect(footer.parentElement).toBe(stage());
     const statusbar = screen.getByTestId("statusbar").parentElement!;

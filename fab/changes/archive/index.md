@@ -1,5 +1,6 @@
 # Archived Changes
 
+- **260815-19me-composed-frame-unification** — Composed-Frame Unification
 - **260814-z4x1-reduce-code-comment-density** — Reduce Code Comment Density
 - **260814-qb8z-server-url-tmux-option** — Server URL via tmux Option
 - **260814-mx8e-install-policy-a-binary-audit** — Install-Composition Policy A Binary-Half Audit

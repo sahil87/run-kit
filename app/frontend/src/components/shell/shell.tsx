@@ -71,8 +71,9 @@ function useSidebarKeyboardToggle(toggle: () => void) {
  * - The stage is a NESTED grid rather than padding/gap on the outer grid:
  *   grid padding/gap apply to every track, so an outer-grid inset would push
  *   the status bar off the viewport edges and open seams around it — breaking
- *   the attached-frame contract. Nesting scopes the `bg-bg-inset p-[6px]
- *   gap-[6px]` ground to exactly the region that floats cards. Stage areas:
+ *   the attached-frame contract. Nesting scopes the `bg-bg-inset p-[6px]`
+ *   ground (+ 6px column-gap; the bottom seam is footer-owned, see the
+ *   bottombar note) to exactly the region that floats cards. Stage areas:
  *   `"sidebar content" / "sidebar bottombar"`; rows `1fr auto`; columns
  *   `${sidebarWidth}px 1fr` when `sidebarOpen`, else `0 1fr`, with a ~150ms
  *   ease-out transition on both `grid-template-columns` and `column-gap` (the
@@ -128,7 +129,8 @@ export function Shell({
   /**
    * Bottom-bar row content: the compose strip + the BottomBar. Shell renders
    * the `<footer gridArea:"bottombar">` wrapper itself, inside the stage on
-   * desktop (content column, second row — the stage gap is its seam) and in
+   * desktop (content column, second row — the footer carries its own
+   * content-gated 6px top seam, `has-[>*]:mt-[6px]`) and in
    * the outer grid on mobile. BottomBar self-gates on pointer type (fine
    * pointers render nothing), so an empty footer collapses the `auto` row to
    * zero — no reserved height survives (the 260814-ink6/PR #598 property).
@@ -185,6 +187,11 @@ export function Shell({
   // sidebar card, the consumer's content, and the bottombar footer. The
   // column-gap animates alongside the width so the collapsed sidebar leaves
   // no stray 6px seam (an explicit track keeps its gap even at zero width).
+  // No row-gap: grid gaps charge between tracks even when a track is zero
+  // height, so a stage row-gap would sink the content column 6px below the
+  // row-spanning sidebar whenever the bottombar row is empty (the resting
+  // desktop state). The bottombar footer owns its own content-gated top seam
+  // instead.
   const stageStyle: React.CSSProperties = {
     gridArea: "stage",
     display: "grid",
@@ -192,7 +199,6 @@ export function Shell({
     gridTemplateRows: "1fr auto",
     gridTemplateAreas: '"sidebar content" "sidebar bottombar"',
     columnGap: sidebarOpen ? "6px" : "0",
-    rowGap: "6px",
     padding: "6px",
     minWidth: 0,
     minHeight: 0,
@@ -242,12 +248,16 @@ export function Shell({
           {children}
 
           {/* Bottom-bar row (Shell-owned placement): inside the stage's
-              content column so the strip stays scoped to that column with the
-              stage gap as its seam. Empty content (fine pointers — BottomBar
-              self-gates to null, compose strip off) collapses the `auto` row
-              to zero height. */}
+              content column so the strip stays scoped to that column. The 6px
+              seam above it is content-gated on the footer itself (`:has(>*)`)
+              rather than a stage row-gap: an empty footer (fine pointers —
+              BottomBar self-gates to null, compose strip off) contributes
+              zero height AND zero seam, keeping the content column's bottom
+              edge flush with the row-spanning sidebar card's. */}
           {bottomBarChildren != null && (
-            <footer style={{ gridArea: "bottombar" }}>{bottomBarChildren}</footer>
+            <footer style={{ gridArea: "bottombar" }} className="has-[>*]:mt-[6px]">
+              {bottomBarChildren}
+            </footer>
           )}
         </div>
       )}

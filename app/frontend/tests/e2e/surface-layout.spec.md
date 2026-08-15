@@ -257,6 +257,23 @@ Steps:
 5. Click the Code tab; assert the sheet closes, the code tile becomes visible
    (tty hidden), and the URL still reads `?layout=main-left:tty,code,web`.
 
+### stage bottom-edge parity: sidebar card and content column both end 6px above the status bar
+What it proves: in the resting desktop state (fine pointer, compose strip
+closed — the bottombar row is empty) the sidebar card and the content column
+share one bottom edge, exactly 6px (the stage padding) above the status bar.
+Guards the row-gap regression: grid gaps charge between tracks even at zero
+track height, so a stage row-gap sinks the content column 6px below the
+row-spanning sidebar (the `260815-g08a` bug); the seam is footer-owned and
+content-gated (`:has(>*)`) instead.
+
+Steps:
+1. Create a fresh window; navigate to its terminal route; wait for the
+   Connected gate and the terminal tile.
+2. Measure bounding boxes of the sidebar `<aside>`, the `status-bar` testid,
+   and the tty tile.
+3. Assert sidebar bottom == tile bottom (±1px) and status-bar top − sidebar
+   bottom == 6px (±1px).
+
 ### the focused-tile accent border follows clicks across tiles (260812-wfic R2, A-013)
 What it proves: the focused-tile state — the framed tile border turns
 `border-accent-green` on the tile that last received pointer interaction

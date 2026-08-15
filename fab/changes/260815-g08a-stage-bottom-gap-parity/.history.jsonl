@@ -1,0 +1,11 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-15T13:36:23Z"}
+{"args":"Stage bottom-gap parity: sidebar card and content column must keep the same 6px gap above the status bar. Root cause: unconditional rowGap 6px on the Shell stage grid makes the content column pay 12px (row-gap + empty bottombar row + padding) while the row-spanning sidebar pays 6px. Fix: remove rowGap from stageStyle; footer gains conditional top margin via :has(\u003e*) gated on rendered children. Add e2e bottom-edge parity assertion.","cmd":"fab-new","event":"command","ts":"2026-08-15T13:36:23Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-08-15T13:37:35Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-08-15T13:37:54Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-08-15T13:38:50Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-15T13:39:29Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-15T13:39:40Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-15T13:45:18Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-15T13:50:37Z"}
+{"event":"review","result":"passed","ts":"2026-08-15T13:50:37Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-15T13:51:09Z"}

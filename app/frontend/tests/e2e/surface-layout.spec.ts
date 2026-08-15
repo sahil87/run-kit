@@ -569,6 +569,34 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     });
   });
 
+  test("stage bottom-edge parity: sidebar card and content column both end 6px above the status bar", async ({
+    page,
+  }) => {
+    test.setTimeout(30_000);
+    // Resting desktop state (fine pointer, compose strip closed): the
+    // bottombar row is empty, so the content column's bottom edge must land
+    // flush with the row-spanning sidebar card's — both exactly 6px (the
+    // stage padding) above the status bar. A stage row-gap would charge the
+    // content column an extra 6px even at zero row height (grid gaps apply
+    // between tracks regardless of track size), which is the regression this
+    // guards against.
+    const id = await makeWindow(page, `sl-parity-${Date.now()}`);
+    await gotoWindow(page, id);
+    await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
+
+    const sidebar = await page.locator("aside[aria-label='Sidebar']").boundingBox();
+    const statusBar = await page.getByTestId("status-bar").boundingBox();
+    const ttyTile = await tile(page, "tty").boundingBox();
+    expect(sidebar).not.toBeNull();
+    expect(statusBar).not.toBeNull();
+    expect(ttyTile).not.toBeNull();
+
+    const sidebarBottom = sidebar!.y + sidebar!.height;
+    const tileBottom = ttyTile!.y + ttyTile!.height;
+    expect(Math.abs(sidebarBottom - tileBottom)).toBeLessThanOrEqual(1);
+    expect(Math.abs(statusBar!.y - sidebarBottom - 6)).toBeLessThanOrEqual(1);
+  });
+
   test("the focused-tile accent border follows clicks across tiles (260812-wfic R2, A-013)", async ({
     page,
   }) => {

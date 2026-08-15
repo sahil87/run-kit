@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 12
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-08-15T11:25:30Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-15T11:43:46Z"}
     review: {started_at: "2026-08-15T11:43:46Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-15T11:49:35Z"}
     hydrate: {started_at: "2026-08-15T11:49:35Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-15T12:03:28Z"}
-    ship: {started_at: "2026-08-15T12:03:28Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-08-15T12:03:28Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-15T12:05:57Z"}
+    review-pr: {started_at: "2026-08-15T12:05:57Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/623
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 1257
+    deleted: 295
+    net: 962
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 767
+        deleted: 242
+        net: 525
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-08-15T12:03:28Z"
-    computed_at_stage: hydrate
+        added: 470
+        deleted: 51
+        net: 419
+    computed_at: "2026-08-15T12:05:57Z"
+    computed_at_stage: ship
 summary: consolidated reaper/snapshot/init-conf under rk mux (hidden deprecation aliases at the old root forms), hid shell-init from help, non-messaging mux members reject an explicit -L
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-15T12:03:28Z
+last_updated: 2026-08-15T12:05:57Z

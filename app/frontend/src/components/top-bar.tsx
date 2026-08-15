@@ -330,8 +330,8 @@ type SurfaceToggles = NonNullable<TopBarProps["surfaceToggles"]>;
  * terminal route only. The button grammar is the rail's, unchanged: one
  * Tip-wrapped button per available surface not in `SURFACE_RAIL_HIDDEN` (chat
  * renders no toggle), `tty` first, glyphs from `SURFACE_GLYPH`; LIT
- * (`aria-pressed`, accent-green text on a 10% wash — the group wrapper carries
- * the border now) = an open tile; every button carries the corner availability
+ * (`aria-pressed`, accent-green border/text on a 10% wash) = an open tile;
+ * every button carries the corner availability
  * dot; at 3 open tiles the unlit buttons render DISABLED with a "Close a tile
  * first" tooltip (Tip wraps a span so the disabled button still tips — disabled
  * controls swallow pointer events). Clicking routes through the caller's shared
@@ -339,8 +339,10 @@ type SurfaceToggles = NonNullable<TopBarProps["surfaceToggles"]>;
  * 2→3 `main-left`, lit → `closeSurface`, closing the last tile is a null
  * no-op there).
  *
- * Buttons are borderless SEGMENTS inside the group's border (the split-chip
- * precedent): per-button borders would double up between neighbors.
+ * Buttons are SEGMENTS inside the group's border (the split-chip precedent):
+ * only the LIT one draws a border, so unlit neighbors never double up on the
+ * group's. The unlit `border-transparent` keeps the box geometry identical
+ * across states — without it the glyph would shift 1px on every toggle.
  */
 function SurfaceToggleGroup({ toggles }: { toggles: SurfaceToggles }) {
   // Max 3 tiles (Constitution IV): at 3, further adds are disallowed — the
@@ -367,10 +369,10 @@ function SurfaceToggleGroup({ toggles }: { toggles: SurfaceToggles }) {
                   disabled={disabled}
                   aria-pressed={isOpen}
                   aria-label={`${label} tile`}
-                  className={`rk-glint relative w-[26px] ${TOP_BAR_SEGMENT_H} flex items-center justify-center rounded text-[11px] font-mono transition-colors focus-visible:outline-2 focus-visible:outline-accent-green disabled:opacity-40 disabled:cursor-not-allowed ${
+                  className={`rk-glint relative w-[26px] ${TOP_BAR_SEGMENT_H} flex items-center justify-center rounded border text-[11px] font-mono transition-colors focus-visible:outline-2 focus-visible:outline-accent-green disabled:opacity-40 disabled:cursor-not-allowed ${
                     isOpen
-                      ? "bg-accent-green/10 text-accent-green"
-                      : "text-text-secondary hover:text-text-primary"
+                      ? "border-accent-green bg-accent-green/10 text-accent-green"
+                      : "border-transparent text-text-secondary hover:text-text-primary"
                   }`}
                 >
                   <span aria-hidden="true">{SURFACE_GLYPH[surface]}</span>

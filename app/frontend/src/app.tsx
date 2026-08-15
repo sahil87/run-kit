@@ -1130,11 +1130,16 @@ function AppShell() {
   // (in-memory only, ~60-100x/s on pointermove) and commit the final value
   // to localStorage exactly once via `persistSidebarWidth` in the drag-end
   // handler — preserving the pre-change behavior of one write per gesture.
-  const isDraggingRef = useRef(false);
+  // Drag-lit is STATE, not a ref: the handle's `rk-sash-lit` class is read at
+  // render time, and the pointermove width writes cannot be relied on to flush
+  // it (a drag that ends without moving never renders, and a drag-end whose
+  // clamped width equals the current one lets React bail out — the sash would
+  // stay lit after pointerup).
+  const [isDragging, setIsDragging] = useState(false);
   const dragLastWidthRef = useRef<number>(sidebarWidth);
 
   const handleDragStart = useCallback((startX: number) => {
-    isDraggingRef.current = true;
+    setIsDragging(true);
     // Force the drag cursor at the document level so it persists when the pointer
     // leaves the 3px handle mid-drag (implicit pointer-capture workaround). Cleared
     // in handleEnd below. The corner affordance in CollapsiblePanel may overwrite
@@ -1155,7 +1160,7 @@ function AppShell() {
     };
 
     const handleEnd = () => {
-      isDraggingRef.current = false;
+      setIsDragging(false);
       document.body.style.cursor = "";
       // Persist the final width once per drag gesture. The in-memory state is
       // already at this value via the last `setSidebarWidth` call, but
@@ -3603,7 +3608,7 @@ function AppShell() {
         // accent sash pill on hover/drag — is the tile-divider vocabulary).
         // All drag state/handlers stay here in AppShell.
         <div
-          className={`rk-divider absolute top-0 bottom-0 left-[3px] w-3.5 -translate-x-1/2 cursor-col-resize ${isDraggingRef.current ? "rk-sash-lit" : ""}`}
+          className={`rk-divider absolute top-0 bottom-0 left-[3px] w-3.5 -translate-x-1/2 cursor-col-resize ${isDragging ? "rk-sash-lit" : ""}`}
           onPointerDown={handleDragHandlePointerDown}
           style={{ touchAction: "none" }}
           role="separator"

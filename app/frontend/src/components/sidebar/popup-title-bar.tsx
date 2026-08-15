@@ -47,10 +47,13 @@ export function PopupTitleBar({
   return (
     <div
       data-testid="popup-title-bar"
-      className="-mx-2 -mt-1.5 mb-0.5 flex items-center gap-3 whitespace-nowrap rounded-t-[5px] border-b border-border bg-bg-inset px-2 py-1"
+      className="-mx-2 -mt-1.5 mb-0.5 flex items-center gap-3 rounded-t-[5px] border-b border-border bg-bg-inset px-2 py-1"
     >
-      <span className="text-text-primary">{children}</span>
-      {right && <span className="ml-auto flex items-center gap-1.5">{right}</span>}
+      {/* min-w-0 + break-words: identity is never truncated, so a long name
+          wraps inside the card instead of painting past its edge; the right
+          cluster stays rigid (shrink-0) and aligned. */}
+      <span className="min-w-0 break-words text-text-primary">{children}</span>
+      {right && <span className="ml-auto flex shrink-0 items-center gap-1.5 whitespace-nowrap">{right}</span>}
     </div>
   );
 }

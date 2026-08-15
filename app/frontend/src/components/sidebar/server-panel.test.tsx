@@ -219,7 +219,7 @@ describe("ServerPanel", () => {
         servers: [{ name: "work", sessionCount: 2, windowCount: 5 }],
         server: "work",
       });
-      const tile = hoverTile(/work/);
+      hoverTile(/work/);
       expect(screen.getByTestId("server-tip")).toBeInTheDocument();
       act(() => {
         fireEvent.keyDown(document, { key: "Escape" });
@@ -234,10 +234,13 @@ describe("ServerPanel", () => {
         servers: [{ name: "work", sessionCount: 2, windowCount: 5 }],
         server: "work",
       });
+      // Re-query after the re-render — `tile` belongs to the cleaned-up tree,
+      // so firing at it would no-op and the assertion would pass vacuously.
+      const coarseTile = screen.getByRole("option", { name: /work/ }).parentElement!;
       act(() => {
-        fireEvent.pointerEnter(tile, { pointerType: "touch" });
-        fireEvent.mouseEnter(tile);
-        fireEvent.focus(tile);
+        fireEvent.pointerEnter(coarseTile, { pointerType: "touch" });
+        fireEvent.mouseEnter(coarseTile);
+        fireEvent.focus(coarseTile);
         vi.advanceTimersByTime(IDENTITY_TIP_OPEN_DELAY_MS + 100);
       });
       expect(screen.queryByTestId("server-tip")).toBeNull();

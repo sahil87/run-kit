@@ -149,7 +149,9 @@ export function IdentityTipCard({
           data-testid={`${testid}-arrow`}
         />
         <PopupTitleBar>{title}</PopupTitleBar>
-        <span className="text-text-secondary whitespace-nowrap">{children}</span>
+        {/* break-words (not nowrap): a deep repo path must wrap inside
+            max-w-xs rather than paint outside the card. */}
+        <span className="text-text-secondary break-words">{children}</span>
       </div>
     </FloatingPortal>
   );

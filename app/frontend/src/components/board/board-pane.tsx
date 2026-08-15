@@ -24,11 +24,11 @@ interface BoardPaneProps {
   /**
    * Desktop autofit mode (738w). When `true`, the pane root becomes an
    * equal-share flex item (`flex: 1 1 0` + a `min-width` floor of
-   * `max(BOARD_PANE_MIN_WIDTH, calc(25% - 3px))`) instead of using the pixel
+   * `max(BOARD_PANE_MIN_WIDTH, calc(25% - 4.5px))`) instead of using the pixel
    * `width` prop or the carousel's `w-full`. The `width` prop is ignored while
    * autofit is on, so the stored per-pane widths are never consulted (and the
-   * caller keeps them untouched — non-destructive toggle). The `25% - 3px` floor
-   * is gap-adjusted for the row's `gap-1` (4px × 3 gaps ÷ 4 panes) so exactly 4
+   * caller keeps them untouched — non-destructive toggle). The `25% - 4.5px` floor
+   * is gap-adjusted for the row's 6px stage gap (6px × 3 gaps ÷ 4 panes) so exactly 4
    * panes fit flush without a horizontal scrollbar; a 5th pane pushes the row
    * into horizontal scroll at the 25% floor. Desktop only — the mobile carousel
    * never passes it.
@@ -168,6 +168,12 @@ export const BoardPane = forwardRef<BoardPaneHandle, BoardPaneProps>(function Bo
       // via the accent shadow ring layered on top, so a focused-AND-waiting pane
       // reads both. A non-waiting pane keeps the prior focus/idle border.
       className={`relative flex flex-col h-full bg-bg-primary ${
+        // Card-family rounding is DESKTOP-only (the stage ground's card
+        // vocabulary): autofit and fixed-width are both desktop layouts; the
+        // mobile carousel (no width, no autofit) keeps its square full-bleed
+        // pane untouched.
+        autofit || width !== undefined ? "rounded-md" : ""
+      } ${
         // Autofit: equal-share flex item (no `shrink-0`, no `w-full`, no pixel
         // width) — the flex + min-width in `style` below drives sizing. Non-
         // autofit desktop: fixed pixel width (`shrink-0`). Carousel: `w-full`
@@ -193,7 +199,7 @@ export const BoardPane = forwardRef<BoardPaneHandle, BoardPaneProps>(function Bo
       // Otherwise the desktop pixel width, or nothing (carousel `w-full`).
       style={
         autofit
-          ? { flex: "1 1 0", minWidth: `max(${BOARD_PANE_MIN_WIDTH}px, calc(25% - 3px))` }
+          ? { flex: "1 1 0", minWidth: `max(${BOARD_PANE_MIN_WIDTH}px, calc(25% - 4.5px))` }
           : width !== undefined
             ? { width }
             : undefined

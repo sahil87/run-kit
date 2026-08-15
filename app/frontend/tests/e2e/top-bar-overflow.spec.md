@@ -10,9 +10,11 @@ assertions here fail on that code and pass on the fixed code.
 Covers the intake §8 width sweep (1280 → 1024 → 800 → 700 → 640 → 500 → 375):
 (a) no top-bar bounding-box overlap; (b) L1 drops before L2 before L3; (c) the
 chevron menu contains the dropped + menuOnly rows + the version row, grouped
-under View / Window / App section labels (260731-oiho); (d) the version row
+under Tiles / View / Window / App section labels (260731-oiho; Tiles added in
+260815-19me — first section, desktop-only); (d) the version row
 copies to the clipboard; (e) the exempt chevron is always visible (the
-connection dot left the bar in 260724-6j1v — it lives in the sidebar footer);
+connection dot left the bar in 260724-6j1v — it lives in the desktop status
+bar / mobile drawer footer);
 (f) a menu action (fixed-width toggle) works from the menu; (g) the demoted
 controls (fixed-width, Aa, close-pane — `menuOnly` since 260731-oiho — the
 merged split control, `menuOnly` in terminal mode since 260813-w1lf — plus
@@ -21,22 +23,29 @@ the relocated Help / Keyboard / Theme… chrome rows, `menuOnly` since
 the menu; (h) the Settings gear (260812-d1at, relocated from the sidebar
 footer) is a real fit candidate — the LAST one (Refresh drops before it) —
 rendering in-bar between Refresh and the chevron at desktop widths.
-Since 260813-w1lf the terminal fit tiers are: L1 = the ▦ Layout chip alone
+Since 260815-19me (composed-frame unification) the terminal fit tiers are: L1
+= the surface-toggle group (the REMOVED right rail's open-tile toggles
+relocated into the bar as ONE bordered sub-group, `data-testid="surface-toggles"`
+— the L1 HEAD, leftmost, first to drop as one unit) + the ▦ Layout chip
 (260812-ab5v R9; overflowed, it renders one `Layout: …` radio row per
 arity-valid shape) — the merged split control moved to the tty tile header's
 pane segment and its registry entry is `menuOnly` in terminal mode (board mode
 keeps the in-bar SplitControl unchanged) — L2 = empty, L3 = Refresh + Settings
-gear — the in-bar end state is Open · ▦Layout · Refresh · Gear · chevron ·
-rail-toggle (rail toggle desktop-only, 260812-nm4p).
+gear — the in-bar end state is [toggles] · ▦Layout · Refresh · Gear · chevron.
+The rail-toggle chip (aria-label "Toggle panel", 260812-nm4p) is REMOVED with
+the rail: the chevron is the SOLE element of the trailing exempt block.
 
 ## Shared setup
 
 - Real isolated tmux server (`rk-test-e2e`, port 3020 via `just test-e2e`). A
   dedicated session with an extra named window (`overflow-win-<ts>`) so the
-  terminal route renders the right cluster (the ▦ Layout chip + refresh in-bar;
+  terminal route renders the right cluster (the surface-toggle group + the
+  ▦ Layout chip + refresh in-bar;
   split / fixed-width / Aa / close-pane are menuOnly rows). The retired
   ViewSwitcher block adds a SECOND, **web-capable** long-named window
-  (`overflow-view-long-worktree-<ts>` with a non-empty `@rk_url` ⇒ `[tty|web]`)
+  (`overflow-view-long-worktree-<ts>` with a non-empty `@rk_url` ⇒ `[tty|web]`;
+  the repo-cwd pane also derives a `gitRoot` ⇒ `code`, so its toggle group
+  shows Terminal/Web/Code)
   so the palette's `View: Web` action actually renders (the palette gates on a
   multi-view window; the tty-only window above contributes no lens actions, so
   the pyramid tests are unaffected).
@@ -45,6 +54,9 @@ rail-toggle (rail toggle desktop-only, 260812-nm4p).
 - In-bar control visibility is measured via accessible-name ROLE queries
   (`getByRole`/`getByLabel`), which exclude the always-present off-screen `inert`
   + `aria-hidden` measurement-probe copy — a match means the control is in-bar.
+  The surface-toggle group is detected via its `Terminal tile` button (tty is
+  always an available surface; `getByTestId("surface-toggles")` is AMBIGUOUS —
+  the probe carries a second copy when the group is in-bar).
   The queries are SCOPED to the top bar's banner landmark: the tty tile header's
   pane segment (260813-w1lf) carries a `Close pane` button a page-wide query
   would false-positive on. The ViewSwitcher is RETIRED (260812-0c6o), so its
@@ -62,7 +74,8 @@ rail-toggle (rail toggle desktop-only, 260812-nm4p).
 
 **What it proves:** the exempt chevron renders at every width while the bar
 carries NO `role="status"` connection dot (260724-6j1v — the dot moved to the
-sidebar footer) (e), the right cluster never overlaps the center heading or
+sidebar footer; 260815-19me moved the desktop dot to the full-width status
+bar) (e), the right cluster never overlaps the center heading or
 the breadcrumb nav with no horizontal page overflow (a), and the three demoted
 menuOnly controls render in-bar NOWHERE at any width (g, 260731-oiho).
 
@@ -77,16 +90,18 @@ menuOnly controls render in-bar NOWHERE at any width (g, 260731-oiho).
 ### `controls overflow in pyramid order (L1 before L2 before L3) as width shrinks`
 
 **What it proves:** the M1 fix (in-bar controls exist at wide widths) AND the
-pyramid drop order — overflow consumes from the front, so L1 (the ▦ Layout
-chip alone since 260813-w1lf demoted the split to `menuOnly`) empties before
+pyramid drop order — overflow consumes from the front, so L1 (the
+surface-toggle group + the ▦ Layout chip since 260815-19me; the group is the
+L1 head and drops first, as one unit) empties before
 L3 (Refresh ·
 Settings gear) starts dropping (L2 is empty since the 260731-oiho demotions);
 each tier's in-bar count is monotonic non-increasing as width shrinks WITHIN
-each viewport regime — the desktop-only rail toggle (260812-nm4p) unmounts
-below 640px, shrinking the trailing exempt block, so the monotonic baseline
-resets once at the desktop→mobile crossing while the per-width pyramid-order
-assertions run unconditionally; at 375px the pyramid's front (the L1 layout
-chip) has overflowed while the L3 tail survives — the ORDER (not an all-gone
+each viewport regime — the desktop-only surface-toggle group (260815-19me)
+unmounts below 640px, dropping an L1 fit candidate and freeing width, so the
+monotonic baseline resets once at the desktop→mobile crossing while the
+per-width pyramid-order assertions run unconditionally; at 375px the pyramid's
+front (group unmounted at mobile + layout chip overflowed) is gone while the
+L3 tail survives — the ORDER (not an all-gone
 cliff) is the contract.
 
 **Steps:**
@@ -100,10 +115,11 @@ cliff) is the contract.
    ResizeObserver-driven overflow recompute can re-render between them, so
    invariants are asserted on a settled layout, not a transient frame. Assert L1
    and L2 counts are non-increasing (re-baselining once when the sweep crosses
-   the 640px mobile boundary, where the desktop-only rail toggle unmounts and
-   frees trailing width); assert L2 is full while any L1 is in-bar and
+   the 640px mobile boundary, where the desktop-only surface-toggle group
+   unmounts and frees width); assert L2 is full while any L1 is in-bar and
    L3 is full while any L2 is in-bar.
-3. At 375px assert the L1 in-bar count is 0 (the layout chip overflowed;
+3. At 375px assert the L1 in-bar count is 0 (the group is unmounted at mobile
+   and the layout chip overflowed;
    Refresh survives — the ORDER, not an all-gone cliff, is the contract).
 
 ### `the chevron menu contains the overflowed + menuOnly rows plus the version row, grouped under section labels`
@@ -115,7 +131,10 @@ overflowed ▦ Layout chip's
 1-tile window has just the one), the menuOnly trio's rows, and the relocated
 App-section chrome rows (260812-d1at: Help — run-kit docs, Keyboard shortcuts,
 Theme…), plus the always-present version row — grouped under the View /
-Window / App uppercase section labels (c, 260731-oiho). Whichever L3 controls
+Window / App uppercase section labels (c, 260731-oiho). The TILES section is
+ABSENT at this mobile width: the surface-toggle group is desktop-only
+(260815-19me — its registry entry is HIDDEN below 640px, not overflowed, so it
+contributes no menu rows). Whichever L3 controls
 still fit at 375px stay in-bar (the suffix rule), so no Refresh / Settings row
 is asserted either way.
 
@@ -124,7 +143,9 @@ is asserted either way.
 2. Assert the Split horizontal / Split vertical (the merged entry emits
    horizontal first — the 260806-2x2h default) / `Layout: Single` (radio) /
    Fixed width (checkbox) / Terminal font (stepper group) / Close pane rows
-   are present, plus a `RunKit` version row; assert the View / Window / App
+   are present, plus a `RunKit` version row; assert NO `Tiles` section label
+   and NO `Terminal tile` checkbox row (the group is hidden at mobile width);
+   assert the View / Window / App
    section labels render; assert the Help / Keyboard shortcuts / Theme… rows
    are PRESENT (260812-d1at) and the notification row is ABSENT (260724-6j1v —
    the bell lives in the settings dialog).
@@ -133,14 +154,18 @@ is asserted either way.
 
 **What it proves:** the 260731-oiho demotion (extended to the terminal split in
 260813-w1lf) is menu-ONLY, not space-driven —
-at 1280px the bar has room (the ▦ Layout chip is in-bar) yet the demoted set
+at 1280px the bar has room (the surface-toggle group AND the ▦ Layout chip are
+in-bar, group leftmost — the 260815-19me in-bar order [toggles] · ▦Layout ·
+Refresh · Gear · chevron) yet the demoted set
 AND the menuOnly chrome rows render only as menu rows; the Settings gear is a
 real fit candidate, rendering in-bar between Refresh and the chevron; and an
 in-bar entry's rows are NOT duplicated into the menu.
 
 **Steps:**
 1. Navigate to the terminal window; set 1280×800; gate on the in-bar
-   ▦ `Layout` chip.
+   `Terminal tile` toggle button AND the ▦ `Layout` chip; assert the toggle
+   button's box is LEFT of the Layout chip's (registry order — the group is
+   the L1 head).
 2. Assert the in-bar count of the `MENU_ONLY` set (split included) and of the Help / Keyboard
    shortcuts / Theme… rows is 0; assert the `Open settings` gear is visible
    in-bar with a bounding box between Refresh's and the chevron's.
@@ -213,22 +238,49 @@ Fixed width / Terminal font rows.
    menuitemradio rows, plus the Fixed width checkbox row and the Terminal font
    stepper group visible; Escape-close between widths.
 
-### `the ▦ Layout chip is the first fit candidate to yield`
+### `the surface-toggle group is the first fit candidate to yield (the ▦ Layout chip next)`
 
-**What it proves:** with the view-switcher gone and the split control menuOnly
-in terminal mode (260813-w1lf), the L1 ▦ Layout chip is terminal's FIRST
-fit candidate — whenever `Layout` is still in-bar, nothing has
+**What it proves:** with the right rail removed (260815-19me — its open-tile
+toggles relocated into the top bar as ONE bordered group) and the split
+control menuOnly in terminal mode (260813-w1lf), the surface-toggle group is
+terminal's FIRST fit candidate (the L1 head) — whenever its `Terminal tile`
+button is still in-bar, nothing has
 dropped yet, so every L1/L2/L3 control is also in-bar (the surviving set is a
 suffix of the fit order).
 
 **Steps:**
 1. Navigate to the web-capable window.
 2. Sweep `[1440, ...WIDTHS]`, gating on the renamable heading each iteration; at
-   1440px gate on a RETRYING `Layout` chip visibility expect (post-resize
-   re-fit settle). At each width, if the chip is in-bar assert the
+   1440px gate on a RETRYING `Terminal tile` visibility expect (post-resize
+   re-fit settle). At each width, if the group is in-bar assert the
    full L1+L2+L3 in-bar count.
-3. Assert the chip was seen in-bar at some wide width; then at 375px
-   assert a RETRYING in-bar count of 0 (definitely dropped at the mobile leaf).
+3. Assert the group was seen in-bar at some wide width; then at 375px
+   assert a RETRYING in-bar count of 0 (gone at the mobile leaf — the group is
+   desktop-only, unregistered below 640px, so it unmounts there quite apart
+   from overflow).
+
+### `the overflowed surface-toggle group renders a Tiles menu section FIRST (before View)`
+
+**What it proves:** when the group overflows at a DESKTOP width (below 640px
+its registry entry is hidden, not overflowed — the mobile-leaf menu carries no
+Tiles rows, proven in the main block), the chevron menu gains a Tiles section
+as its FIRST section (its label sits above View's), holding one
+`menuitemcheckbox` row per shown surface named `<Label> tile` with
+`aria-checked` = tile open (chat excluded — SURFACE_RAIL_HIDDEN).
+
+**Steps:**
+1. Navigate to the web-capable window (offers `[tty|web|code]` — `@rk_url` ⇒
+   web; the repo-cwd pane derives a `gitRoot` ⇒ code; chat never gets a row).
+2. Step the viewport down from 800px in 10px increments (staying above the
+   640px mobile boundary), gating on the renamable heading each step, until a
+   bounded RETRYING expect confirms the in-bar `Terminal tile` button is gone
+   (the group is the L1 head — first to drop — so a narrow-enough desktop
+   width always reaches this). Assert such a width was found.
+3. Open the `More controls` menu; assert the `Tiles` and `View` section labels
+   are both visible and the Tiles label's box sits ABOVE View's.
+4. Assert the `Terminal tile` checkbox row is visible with
+   `aria-checked="true"` (the tty tile is open) and the `Web tile` / `Code
+   tile` rows are visible with `aria-checked="false"`.
 
 ### `a palette `View:` action switches the lens — even at a wide width`
 

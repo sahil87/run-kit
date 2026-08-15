@@ -15,19 +15,16 @@ import { expect, type Page } from "@playwright/test";
 export const READY_TIMEOUT = process.env.CI ? 20_000 : 10_000;
 
 /**
- * Navigate to a server route and wait until the sidebar is connected AND
- * populated. Returns the Sessions nav locator. Pass `expectSession` to also
- * gate on a specific session row being rendered (the strongest signal that the
- * SSE payload has actually landed).
+ * Navigate to a server route and wait until the status bar is connected AND
+ * the sidebar populated. Returns the Sessions nav locator. Pass `expectSession`
+ * to also gate on a specific session row being rendered (the strongest signal
+ * that the SSE payload has actually landed).
  *
- * PRECONDITION (260724-6j1v; scoped 260814-ldbs): the dot lives in the sidebar
- * FOOTER (`nav [aria-label='Connected']` — the status bar carries its own
- * `Connected` dot now, so the query is nav-scoped to stay strict-mode unique),
- * and Shell unmounts the sidebar when it is collapsed or at a mobile viewport
- * (closed drawer). Specs using this gate — or gating on the dot directly —
- * must run at a desktop viewport with the sidebar open (Playwright's 1280px
- * `Desktop Chrome` default qualifies). For mobile-viewport tests, gate on an
- * always-mounted element (heading, chevron, iframe) instead.
+ * PRECONDITION: the gate is the full-width status bar's `Connected` dot
+ * (desktop-only chrome — the dot's old sidebar-footer home is mobile-only now,
+ * so specs using this gate must run at a desktop viewport). For
+ * mobile-viewport tests, gate on an always-mounted element (heading, chevron,
+ * iframe) instead.
  */
 export async function gotoServerReady(
   page: Page,
@@ -35,7 +32,9 @@ export async function gotoServerReady(
   expectSession?: string,
 ): Promise<ReturnType<Page["locator"]>> {
   await page.goto(`/${server}`);
-  await expect(page.locator("nav [aria-label='Connected']")).toBeVisible({ timeout: READY_TIMEOUT });
+  await expect(
+    page.getByTestId("status-bar").locator("[aria-label='Connected']"),
+  ).toBeVisible({ timeout: READY_TIMEOUT });
   const sidebar = page.locator("nav[aria-label='Sessions']");
   if (expectSession) {
     await expect(
@@ -100,15 +99,17 @@ export async function resolveWindow(
 }
 
 /** Navigate to a specific window's terminal route and wait for connection.
- *  Same sidebar-mount precondition as `gotoServerReady` (the dot is in the
- *  sidebar footer — desktop viewport, sidebar open). */
+ *  Same desktop-viewport precondition as `gotoServerReady` (the gate is the
+ *  status bar's `Connected` dot — desktop-only chrome). */
 export async function gotoWindow(
   page: Page,
   server: string,
   windowId: string,
 ): Promise<void> {
   await page.goto(`/${server}/${encodeURIComponent(windowId)}`);
-  await expect(page.locator("nav [aria-label='Connected']")).toBeVisible({
+  await expect(
+    page.getByTestId("status-bar").locator("[aria-label='Connected']"),
+  ).toBeVisible({
     timeout: READY_TIMEOUT,
   });
 }

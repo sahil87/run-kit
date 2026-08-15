@@ -13,7 +13,8 @@ surfaces a 409 probe failure inline while keeping the text, and shows a
 non-blocking busy hint while the window agent is active. The chat lens is
 reached through the command palette's `View: Chat` action (or the `?view=chat`
 deep link): the ViewSwitcher is RETIRED (`260812-0c6o`), so the palette is the
-ONLY lens-switch surface, the right rail shows NO chat button
+ONLY lens-switch surface, the top-bar `surface-toggles` group (the right rail
+is REMOVED — composed-frame unification) shows NO chat toggle
 (`SURFACE_RAIL_HIDDEN` — chat is palette-only), and the former `Ctrl+\``
 chat-toggle chord is gone (fully unbound since `260813-j3jb` — the chord
 belongs to code-server).
@@ -53,28 +54,35 @@ belongs to code-server).
 
 ## Tests
 
-### `the `View: Chat` palette action appears only on a chatProvider window; the rail shows no chat button (260812-0c6o)`
+### `the `View: Chat` palette action appears only on a chatProvider window; the top-bar toggle group has no chat toggle (260812-0c6o)`
 
 **What it proves:** the palette's `View: Chat` action is gated on the current
 window carrying a non-empty `chatProvider` — present on `@1` (claude), absent
 on `@2` (plain, which offers only `tty`) — and the retirement contract
 (`260812-0c6o`): even on the capable window there is no in-bar pill, no
 `view-toggle` testid anywhere in the DOM, no `View:` rows in the chevron menu,
-and NO chat button in the right rail (`SURFACE_RAIL_HIDDEN` — chat is
-palette-only) while the tty rail button remains. A `?view=chat` deep link on a
+and NO chat toggle in the top-bar `surface-toggles` group
+(`SURFACE_RAIL_HIDDEN` — chat is palette-only) while the tty toggle remains —
+INCLUDING while a chat tile is already open (the tile renders normally and the
+palette switches back to the terminal, closing it). A `?view=chat` deep link on a
 chat-less window degrades gracefully to the terminal (the shim's `single:chat`
 translation degrades tile-by-tile to `single:tty` — chat is unavailable there).
 
 **Steps:**
 1. Mock the backend; navigate to `/default/1`; gate on the `Window:` heading.
    Assert the `Window view` group has count 0 AND `view-toggle` has count 0.
-   Assert the rail shows the `Terminal tile` button but NO `Chat tile` button.
-   Open the palette with `View: Chat` and assert the option is visible;
-   Escape. Open the "More controls" menu and assert it carries NO `View:` rows;
-   Escape-close.
-2. Navigate to `/default/2`; assert "plain-win" is visible; open the palette
+   Assert the banner (top bar) shows the `Terminal tile` toggle but NO `Chat
+   tile` toggle. Open the palette with `View: Chat` and assert the option is
+   visible; Escape. Open the "More controls" menu and assert it carries NO
+   `View:` rows; Escape-close.
+2. `switchLens("Chat")`; assert the `chat-view` renders, the group STILL has
+   no `Chat tile` toggle, and the `Terminal tile` toggle remains. Then
+   `switchLens("Terminal")`; assert the `chat-view` is hidden (P3
+   hide-never-unmount: the tile stays mounted, display-hidden) and the `layout`
+   param is dropped (the default `single:tty` mirrors as a clean URL).
+3. Navigate to `/default/2`; assert "plain-win" is visible; open the palette
    and assert it offers NO `View: Chat` option; Escape-close.
-3. Navigate to `/default/2?view=chat`; assert no `chat-view` renders, no
+4. Navigate to `/default/2?view=chat`; assert no `chat-view` renders, no
    `Window view` group renders, and the static `Window:` heading prefix shows (the
    terminal branch mounted despite the param; 260714-uco1 — the heading is
    `Window:` in every lens).

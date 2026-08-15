@@ -1684,8 +1684,12 @@ export function Sidebar({
       {/* Footer — a passive status row (260812-d1at): LEFT = readouts
           (connection dot + version), RIGHT = a quiet status/hints slot
           (update-available hint only). The action chips relocated to the top
-          bar (gear chip + chevron-menu App rows). */}
-      <SidebarFooter isConnected={isConnected} />
+          bar (gear chip + chevron-menu App rows). MOBILE-ONLY (mirroring the
+          BottomPanels gate above): on desktop the full-width status bar owns
+          the dot + version and the UpdateChip owns the update surface, so the
+          footer would be a third copy; the mobile drawer has no status bar, so
+          it keeps the footer byte-identical. */}
+      {isMobile && <SidebarFooter isConnected={isConnected} />}
 
       {/* Kill confirmation */}
       {killTarget && (
@@ -1764,7 +1768,10 @@ function SelectionIndicator({
 }
 
 /**
- * Sidebar footer — a passive status row (260812-d1at). `justify-between`:
+ * Sidebar footer — a passive status row (260812-d1at), rendered ONLY in the
+ * mobile drawer: desktop's full-width status bar already owns the dot +
+ * version (and the UpdateChip + overflow version row own the update path), so
+ * the desktop sidebar renders no footer. `justify-between`:
  *
  *  - LEFT — passive readouts (a status segment): the connection dot (same
  *    per-page `isConnected` semantics, markup, and aria as ever) and the

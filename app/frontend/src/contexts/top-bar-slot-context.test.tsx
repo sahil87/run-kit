@@ -101,9 +101,9 @@ describe("TopBarSlotContext", () => {
     expect(screen.getByTestId("slot").textContent).toBe("beta::false");
   });
 
-  it("carries the rail-toggle fields (railOpen + onToggleRail) through the slot", () => {
-    const onToggleRail = vi.fn();
-    const RailRegistrant = () => {
+  it("carries the surface-toggle group fields (available + open + onToggle) through the slot", () => {
+    const onToggle = vi.fn();
+    const TogglesRegistrant = () => {
       const slot = useMemo<NonNullable<TopBarSlot>>(
         () => ({
           sessions: [],
@@ -116,29 +116,30 @@ describe("TopBarSlotContext", () => {
           onNavigate: () => {},
           onToggleSidebar: () => {},
           onCreateWindow: () => {},
-          railOpen: true,
-          onToggleRail,
+          surfaceToggles: { available: ["tty", "web"], open: ["tty"], onToggle },
         }),
         [],
       );
       useRegisterTopBarSlot(slot);
       return null;
     };
-    const RailView = () => {
+    const TogglesView = () => {
       const slot = useTopBarSlot();
       return (
-        <span data-testid="rail-slot">
-          {slot ? `${String(slot.railOpen)}:${typeof slot.onToggleRail}` : "null"}
+        <span data-testid="toggles-slot">
+          {slot?.surfaceToggles
+            ? `${slot.surfaceToggles.available.join(",")}|${slot.surfaceToggles.open.join(",")}|${typeof slot.surfaceToggles.onToggle}`
+            : "null"}
         </span>
       );
     };
     render(
       <TopBarSlotProvider>
-        <RailRegistrant />
-        <RailView />
+        <TogglesRegistrant />
+        <TogglesView />
       </TopBarSlotProvider>,
     );
-    expect(screen.getByTestId("rail-slot").textContent).toBe("true:function");
+    expect(screen.getByTestId("toggles-slot").textContent).toBe("tty,web|tty|function");
   });
 
   it("useTopBarSlot throws outside the provider", () => {

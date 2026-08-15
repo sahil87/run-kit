@@ -12,7 +12,7 @@ Do not add content here — write to the topic file instead.
 |---|---|
 | URL Structure, Session Tiles, Shell Grid Layout, Live Safe-Name Conversion, Session Creation Pattern, Instance Display Name, Session-to-Project Mapping, Activity Status | [ui/routes-and-shell](/run-kit/ui/routes-and-shell.md) |
 | PR Status, Status Dot, Row-hover register flyout, Tooltips, Attention Surfacing | [ui/status-signals](/run-kit/ui/status-signals.md) |
-| Window Views (Lens Model), Surface Layout, Right Rail, Iframe Window, Code Surface, Chat View | [ui/lenses-and-layout](/run-kit/ui/lenses-and-layout.md) |
+| Window Views (Lens Model), Surface Layout, Surface Toggles, Iframe Window, Code Surface, Chat View | [ui/lenses-and-layout](/run-kit/ui/lenses-and-layout.md) |
 | Boards View (pinning, board page, palette actions, hooks) | [ui/boards](/run-kit/ui/boards.md) |
 | Notifications (Web Push), Update Notification | [ui/updates-and-notifications](/run-kit/ui/updates-and-notifications.md) |
 | Chrome (Top Bar), Open split-button, Breadcrumb Dropdowns, Window Heading, Desktop-Shell Titlebar Strip + Waiting Badge Reporter | [ui/top-bar](/run-kit/ui/top-bar.md) |

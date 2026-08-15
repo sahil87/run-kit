@@ -1,0 +1,13 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-15T08:51:40Z"}
+{"args":"Composed-frame unification: sidebar becomes a floating card, the stage bg-bg-inset ground goes universal across all four desktop routes, the right rail retires into a top-bar surface-toggle group, and the desktop sidebar footer is removed (mobile drawer byte-identical). User-approved via HTML mock (sidebar-card-mock.html) in a design discussion session.","cmd":"fab-new","event":"command","ts":"2026-08-15T08:51:40Z"}
+{"delta":"+4.5","event":"confidence","score":4.5,"trigger":"calc-score","ts":"2026-08-15T08:53:02Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-08-15T08:54:14Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-15T08:55:58Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-15T08:57:57Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-15T09:45:35Z"}
+{"event":"review","result":"failed","ts":"2026-08-15T10:59:30Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-15T10:59:30Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-15T11:01:37Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-15T11:04:13Z"}
+{"event":"review","result":"passed","ts":"2026-08-15T11:04:13Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-15T11:25:14Z"}

@@ -173,7 +173,7 @@ test.describe("Boards: desktop autofit toggle (738w)", () => {
     );
     const target = clientWidth * 0.25;
     for (const w of paneWidths) {
-      // Within ~8px of 25% (gap-adjustment is calc(25% - 3px)).
+      // Within ~8px of 25% (gap-adjustment is calc(25% - 4.5px)).
       expect(Math.abs(w - target)).toBeLessThanOrEqual(10);
     }
 

@@ -49,7 +49,8 @@ import { LayoutChip, LayoutMenuRows } from "@/components/layout-chip";
 import { computeVisibleCount } from "@/lib/top-bar-overflow";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { formatCombo } from "@/lib/keybindings";
-import type { Layout } from "@/lib/surface-layout";
+import type { Layout, SurfaceKind } from "@/lib/surface-layout";
+import { SURFACE_GLYPH, SURFACE_LABEL, SURFACE_RAIL_HIDDEN } from "@/lib/surface-layout";
 import type { ProjectSession, WindowInfo } from "@/types";
 import type { BreadcrumbDropdownItem } from "@/contexts/chrome-context";
 
@@ -88,7 +89,7 @@ type RegistryEntry = {
    *  the measurement probe, not in the fit computation) — its menuRender()
    *  rows ALWAYS render in the overflow menu (subject to `hidden`). */
   menuOnly?: boolean;
-  /** Chevron-menu section (260731-oiho) — View / Window / App. */
+  /** Chevron-menu section (260731-oiho) — Tiles / View / Window / App. */
   menuGroup: MenuGroup;
   barRender: () => ReactNode;
   menuRender: () => ReactNode;
@@ -131,14 +132,15 @@ type TopBarProps = {
   server: string;
   onNavigate: (windowId: string) => void;
   onToggleSidebar: () => void;
-  /** Right-RAIL toggle (260812-nm4p): the sidebar toggle's far-right mirror —
-   *  collapses/restores the whole right column (rail AND any open panel),
-   *  never a panel surface. `railOpen` is the DERIVED right-area visibility
-   *  (`railOpen pref || panel open`) that drives the icon fill. Registered by
-   *  AppShell on every desktop terminal route (even with zero available
-   *  surfaces); `onToggleRail` absent → no button rendered. */
-  railOpen?: boolean;
-  onToggleRail?: () => void;
+  /** Terminal-mode surface-toggle group: the tile surfaces the current window
+   *  offers (`tty` first), the OPEN tiles, and the shared toggle mutation —
+   *  rendered as a bordered sub-group at the right cluster's L1 head (the
+   *  retired right rail's toggles, relocated). Absent → no group rendered. */
+  surfaceToggles?: {
+    available: SurfaceKind[];
+    open: SurfaceKind[];
+    onToggle: (surface: SurfaceKind) => void;
+  };
   onCreateWindow: (session: string) => void;
   /** Open the spawn-agent dialog for a session (260713-sbk1). When present, the
    *  terminal-mode window-switcher dropdown shows a `+ New Agent` item beside
@@ -181,16 +183,13 @@ type TopBarProps = {
   onApplyLayout?: (next: Layout) => void;
 };
 
-function HamburgerIcon({ isOpen, side = "left" }: { isOpen: boolean; side?: "left" | "right" }) {
+function HamburgerIcon({ isOpen }: { isOpen: boolean }) {
   // Notion-style sidebar pictogram: rounded-rect with an internal vertical
   // divider ~30% from the left. The left column fills when the sidebar is
   // open and empties when collapsed — same shape both states, only the fill
   // flips, so the icon's identity ("this is a sidebar toggle") never changes.
-  // `side="right"` (260812-nm4p) mirrors the geometry — divider ~30% from the
-  // RIGHT, right column fills — for the rail toggle: one icon language, both
-  // edges.
-  const fillX = side === "left" ? 2.5 : 11.5;
-  const dividerX = side === "left" ? 6.5 : 11.5;
+  const fillX = 2.5;
+  const dividerX = 6.5;
   return (
     <svg
       width="16"
@@ -205,7 +204,7 @@ function HamburgerIcon({ isOpen, side = "left" }: { isOpen: boolean; side?: "lef
     >
       {/* Outer panel — rounded rectangle */}
       <rect x="2.5" y="3.5" width="13" height="11" rx="2" />
-      {/* Panel slot fill — the edge column (left or right per `side`), filled
+      {/* Panel slot fill — the left edge column, filled
           when that area is visible. Uses fillOpacity to tone the fill down to
           a subtle wash rather than matching the stroke at full intensity. */}
       <rect
@@ -323,6 +322,113 @@ function HistoryNav() {
   );
 }
 
+type SurfaceToggles = NonNullable<TopBarProps["surfaceToggles"]>;
+
+/**
+ * Surface-toggle group — the retired right rail's open-tile toggles relocated
+ * into the right cluster as ONE bordered sub-group (with a trailing divider),
+ * terminal route only. The button grammar is the rail's, unchanged: one
+ * Tip-wrapped button per available surface not in `SURFACE_RAIL_HIDDEN` (chat
+ * renders no toggle), `tty` first, glyphs from `SURFACE_GLYPH`; LIT
+ * (`aria-pressed`, accent-green text on a 10% wash — the group wrapper carries
+ * the border now) = an open tile; every button carries the corner availability
+ * dot; at 3 open tiles the unlit buttons render DISABLED with a "Close a tile
+ * first" tooltip (Tip wraps a span so the disabled button still tips — disabled
+ * controls swallow pointer events). Clicking routes through the caller's shared
+ * `togglePanel` mutation semantics (unlit → `addSurface` 1→2 `split-h` /
+ * 2→3 `main-left`, lit → `closeSurface`, closing the last tile is a null
+ * no-op there).
+ *
+ * Buttons are borderless SEGMENTS inside the group's border (the split-chip
+ * precedent): per-button borders would double up between neighbors.
+ */
+function SurfaceToggleGroup({ toggles }: { toggles: SurfaceToggles }) {
+  // Max 3 tiles (Constitution IV): at 3, further adds are disallowed — the
+  // unlit buttons render disabled instead of no-oping silently.
+  const full = toggles.open.length >= 3;
+  const shown = toggles.available.filter((surface) => !SURFACE_RAIL_HIDDEN.has(surface));
+  return (
+    <span data-testid="surface-toggles" className="flex items-center gap-1.5">
+      <span
+        className={`flex items-center rounded border border-border ${TOP_BAR_BUTTON_H}`}
+      >
+        {shown.map((surface) => {
+          const isOpen = toggles.open.includes(surface);
+          const disabled = !isOpen && full;
+          const label = SURFACE_LABEL[surface];
+          return (
+            <Tip key={surface} label={disabled ? "Close a tile first" : label}>
+              {/* The span wrapper keeps the tooltip alive on the DISABLED button
+                  (disabled controls swallow the pointer events Tip listens for). */}
+              <span className="inline-flex">
+                <button
+                  type="button"
+                  onClick={() => toggles.onToggle(surface)}
+                  disabled={disabled}
+                  aria-pressed={isOpen}
+                  aria-label={`${label} tile`}
+                  className={`rk-glint relative w-[26px] ${TOP_BAR_SEGMENT_H} flex items-center justify-center rounded text-[11px] font-mono transition-colors focus-visible:outline-2 focus-visible:outline-accent-green disabled:opacity-40 disabled:cursor-not-allowed ${
+                    isOpen
+                      ? "bg-accent-green/10 text-accent-green"
+                      : "text-text-secondary hover:text-text-primary"
+                  }`}
+                >
+                  <span aria-hidden="true">{SURFACE_GLYPH[surface]}</span>
+                  {/* Availability dot — every button renders it in its
+                      availability state; a collapsed tile may hide content,
+                      never state that wants a human. */}
+                  <span
+                    aria-hidden="true"
+                    className="absolute top-0.5 right-0.5 w-1 h-1 rounded-full bg-accent-green"
+                  />
+                </button>
+              </span>
+            </Tip>
+          );
+        })}
+      </span>
+      <span aria-hidden="true" className="w-px h-4 bg-border" />
+    </span>
+  );
+}
+
+/**
+ * The group's overflow-menu form (Tiles section): one `menuitemcheckbox` row
+ * per shown surface — checked = tile open, leading `SURFACE_GLYPH` glyph (the
+ * leading-glyph parity rule), disabled-at-3 like the bar buttons. Clicking a
+ * row runs the same shared toggle mutation as the bar group.
+ */
+function SurfaceToggleMenuRows({ toggles }: { toggles: SurfaceToggles }) {
+  const full = toggles.open.length >= 3;
+  const shown = toggles.available.filter((surface) => !SURFACE_RAIL_HIDDEN.has(surface));
+  return (
+    <>
+      {shown.map((surface) => {
+        const isOpen = toggles.open.includes(surface);
+        const disabled = !isOpen && full;
+        return (
+          <button
+            key={surface}
+            type="button"
+            role="menuitemcheckbox"
+            tabIndex={-1}
+            aria-checked={isOpen}
+            disabled={disabled}
+            aria-label={`${SURFACE_LABEL[surface]} tile`}
+            onClick={() => toggles.onToggle(surface)}
+            className={MENU_ROW_CLASS}
+          >
+            <span aria-hidden="true" className="font-mono text-[11px]">
+              {SURFACE_GLYPH[surface]}
+            </span>
+            <span className="flex-1">{`${SURFACE_LABEL[surface]} tile`}</span>
+          </button>
+        );
+      })}
+    </>
+  );
+}
+
 export function TopBar({
   mode = "terminal",
   currentSession,
@@ -333,8 +439,7 @@ export function TopBar({
   server,
   onNavigate,
   onToggleSidebar,
-  railOpen,
-  onToggleRail,
+  surfaceToggles,
   onCreateWindow,
   onSpawnAgent,
   boardName,
@@ -437,20 +542,37 @@ export function TopBar({
   // fixed-width, terminal-font (Aa), and
   // close-pane/Kill (sticky per-device preferences + the destructive ✕ that
   // sat one slot from Refresh). The terminal-mode bar end state is
-  // Open · ▦ Layout · Refresh · Gear · chevron (+ UpdateChip when a qualifying
+  // surface toggles · Open · ▦ Layout · Refresh · Gear · chevron (+ UpdateChip when a qualifying
   // update exists) — the split chip demoted to `menuOnly` in terminal mode in
   // 260813-w1lf (pane verbs moved to the tty tile header). Each entry gates on `modes` (the current mode must be listed) and
   // an optional `hidden` predicate (renders nowhere); `menuGroup` names its
-  // chevron-menu section (View / Window / App).
+  // chevron-menu section (Tiles / View / Window / App).
   // Board-mode split/close target (260715-6jwn, merged into the registry): the
   // merged SplitControl AND the Kill row act on the focused tile's window
   // (`focusedPane`, wired from board-page.tsx). Unpin lives on the tile header
   // + the `Board: Unpin Focused Pane` palette action. The split is absent when
   // the board is empty (no `focusedPane`); the Kill row is disabled then.
   const rightItems: RegistryEntry[] = [
-    // Open-in-App split-button (260722-6d0f) — terminal-only, FIRST candidate
-    // so it yields to overflow BEFORE any L1
-    // split (keeping the documented L1→L2→L3 pyramid sweep intact). Hidden
+    // Surface-toggle group — terminal-only, at the registry's L1 HEAD (first
+    // fit candidate to drop, leftmost in the bar): the retired right rail's
+    // open-tile toggles relocated as ONE bordered sub-group. One entry (not
+    // three) so the probe measures the whole group once and the bar/menu
+    // renderings share one slot-data source. Overflowed, it renders one
+    // checkbox row per shown surface under the Tiles menu section. Hidden
+    // until AppShell registers the slot (or off the window route).
+    {
+      id: "surface-toggles",
+      modes: ["terminal"],
+      menuGroup: "tiles",
+      hidden: !(mode === "terminal" && currentWindow && surfaceToggles),
+      barRender: () =>
+        surfaceToggles ? <SurfaceToggleGroup toggles={surfaceToggles} /> : null,
+      menuRender: () =>
+        surfaceToggles ? <SurfaceToggleMenuRows toggles={surfaceToggles} /> : null,
+    },
+    // Open-in-App split-button (260722-6d0f) — terminal-only, immediately
+    // after the surface-toggles head so it yields to overflow BEFORE any other
+    // L1 (keeping the documented L1→L2→L3 pyramid sweep intact). Hidden
     // when the window is absent or zero targets are available (no sshHost +
     // empty host registry — the common default deployment). When overflowed it
     // renders per-target `Open: …` rows (OpenMenuRows).
@@ -623,9 +745,7 @@ export function TopBar({
     // right cluster on ALL modes (app-global chrome, not a terminal control).
     // The LAST fit candidate (L3 tail): it survives longest in-bar and, when
     // the cluster can't fit it, degrades to the Settings menu row — never
-    // shrinks or clips. Order in the bar: … · Refresh · Gear · chevron ▾ ·
-    // rail-toggle (the 260812-nm4p rail toggle keeps the outermost corner,
-    // inside the exempt trailing block).
+    // shrinks or clips. Order in the bar: … · Refresh · Gear · chevron ▾.
     {
       id: "settings",
       modes: ["terminal", "board", "server", "host"],
@@ -1115,25 +1235,6 @@ export function TopBar({
               before fitting. */}
           <div ref={trailingRef} className="flex items-center gap-3 shrink-0">
             <TopBarOverflowMenu rows={overflowRows} updateOverflowed={updateOverflowed} />
-            {/* Right-rail toggle (260812-nm4p) — the OUTERMOST right element,
-                mirroring the sidebar toggle at the far-left edge: same
-                fixed-size token, same primary text weight, the sidebar
-                pictogram mirrored (the right column fills while the right area
-                is visible — `railOpen` here is the DERIVED visibility, so the
-                fill also tracks an open panel while the rail is collapsed).
-                Rendered only when AppShell registered a toggler (every desktop
-                terminal route, even with zero available surfaces). Lives
-                inside the trailing exempt block so its width is measured and
-                reserved by the fit — like the chevron, it never overflows. */}
-            {onToggleRail && (
-              <button
-                onClick={onToggleRail}
-                aria-label="Toggle panel"
-                className={`rk-glint ${TOP_BAR_BUTTON_BASE} border-border hover:border-text-secondary text-text-primary`}
-              >
-                <HamburgerIcon isOpen={railOpen ?? false} side="right" />
-              </button>
-            )}
           </div>
         </div>
         </TipGroup>

@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ProjectSession, WindowInfo } from "@/types";
-import type { Layout } from "@/lib/surface-layout";
+import type { Layout, SurfaceKind } from "@/lib/surface-layout";
 
 /**
  * TopBar slot context — the prop-delivery channel for the single persistent
@@ -67,15 +67,16 @@ export type TopBarSlot = {
    *  board mode — the top-bar toggle renders only when both are present. */
   autofit?: boolean;
   onToggleAutofit?: () => void;
-  /** Terminal-mode right-RAIL toggle (260812-nm4p, reinterpreted by
-   *  260812-ab5v): the sidebar toggle's far-right mirror — collapses/restores
-   *  the RAIL column only. Layout tiles live in the content column and are
-   *  never closed by a rail collapse (they carry their own ✕ verbs; palette
-   *  and chords stay live while the rail is hidden). Registered by `AppShell`
-   *  on every desktop terminal route (`windowParam && !isMobile`, even with
-   *  zero available surfaces); `onToggleRail` absent → no rail toggle. */
-  railOpen?: boolean;
-  onToggleRail?: () => void;
+  /** Terminal-mode surface-toggle group data: the tile surfaces the current
+   *  window offers (`tty` first), the OPEN tiles (the resolved layout's
+   *  `order`), and the shared toggle mutation (unlit → `addSurface`, lit →
+   *  `closeSurface`). Registered by `AppShell` on every desktop terminal route;
+   *  absent on board/host/mobile → no group in the top bar. */
+  surfaceToggles?: {
+    available: SurfaceKind[];
+    open: SurfaceKind[];
+    onToggle: (surface: SurfaceKind) => void;
+  };
   /** Surface-layout machinery (260812-ab5v R9), registered by `AppShell` on the
    *  terminal route: the RESOLVED layout + the single user-mutation path
    *  (`applyLayout`). Feed the top bar's ▦ Layout chip. Absent on non-terminal

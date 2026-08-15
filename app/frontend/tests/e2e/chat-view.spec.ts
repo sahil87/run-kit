@@ -13,8 +13,10 @@ import { mockStateSocket } from "./_state-socket-mock";
 // `?view=chat` deep link (shimmed to `?layout=single:chat` since
 // 260812-ab5v-surface-layout-core) or the command palette's `View: Chat`
 // action on the existing terminal route. The ViewSwitcher is RETIRED
-// (260812-0c6o): the palette is the ONLY lens-switch surface, the right rail
-// shows NO chat button (SURFACE_RAIL_HIDDEN — chat is palette-only), and the
+// (260812-0c6o): the palette is the ONLY lens-switch surface, the top-bar
+// `surface-toggles` group (the right rail is REMOVED — composed-frame
+// unification) shows NO chat toggle (SURFACE_RAIL_HIDDEN — chat is
+// palette-only), and the
 // `` Ctrl+` `` chat-toggle chord is gone (unbound since 260813-j3jb — the
 // chord belongs to code-server). Palette
 // selections set `single:<view>` through the shared layout mutation path
@@ -211,21 +213,24 @@ async function mockChatSend(
 }
 
 test.describe("Chat read frontend — view toggle, heading, rendering", () => {
-  test("the `View: Chat` palette action appears only on a chatProvider window; the rail shows no chat button (260812-0c6o)", async ({ page }) => {
+  test("the `View: Chat` palette action appears only on a chatProvider window; the top-bar toggle group has no chat toggle (260812-0c6o)", async ({ page }) => {
     await mockBackend(page, backfillCleared());
 
     // @1 is chat-capable → the palette offers `View: Chat` (the ONLY lens-switch
     // surface since the ViewSwitcher's retirement): no in-bar "Window view"
     // group and no `view-toggle` testid anywhere in the DOM, and the chevron
-    // menu carries no `View:` rows. The rail (SURFACE_RAIL_HIDDEN) shows the
-    // tty button but NO chat button — chat is palette-only.
+    // menu carries no `View:` rows. The top-bar surface-toggles group
+    // (SURFACE_RAIL_HIDDEN) shows the tty toggle but NO chat toggle — chat is
+    // palette-only. Banner-scoped accessible-name queries: the top bar's
+    // aria-hidden measurement probe duplicates every in-bar control, so
+    // testid / `:visible` queries are ambiguous — getByRole excludes it.
     await page.goto(`/${SERVER}/1`);
     await expect(page.getByText("Window:", { exact: true })).toBeVisible({ timeout: 10_000 });
     await expect(page.getByRole("group", { name: "Window view" })).toHaveCount(0);
     await expect(page.getByTestId("view-toggle")).toHaveCount(0);
-    const rail = page.getByTestId("right-panel-rail");
-    await expect(rail.getByRole("button", { name: "Terminal tile" })).toBeVisible();
-    await expect(rail.getByRole("button", { name: "Chat tile" })).toHaveCount(0);
+    const bar = page.getByRole("banner");
+    await expect(bar.getByRole("button", { name: "Terminal tile" })).toBeVisible();
+    await expect(bar.getByRole("button", { name: "Chat tile" })).toHaveCount(0);
     await openPalette(page, "View: Chat");
     await expect(page.getByRole("option", { name: "View: Chat" })).toBeVisible();
     await page.keyboard.press("Escape");
@@ -234,6 +239,19 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
       page.getByRole("menu", { name: "More controls" }).getByRole("menuitemradio", { name: /^View:/ }),
     ).toHaveCount(0);
     await page.keyboard.press("Escape");
+
+    // An already-OPEN chat tile changes nothing: the group still carries no
+    // chat toggle (chat never gets one, even while its tile is open), the
+    // tile renders normally, and switching back via the palette closes it.
+    await switchLens(page, "Chat");
+    await expect(page.getByTestId("chat-view")).toBeVisible();
+    await expect(bar.getByRole("button", { name: "Chat tile" })).toHaveCount(0);
+    await expect(bar.getByRole("button", { name: "Terminal tile" })).toBeVisible();
+    await switchLens(page, "Terminal");
+    // Hide-never-unmount (P3): the chat tile stays mounted at display level
+    // after closing within this window visit — hidden, not gone.
+    await expect(page.getByTestId("chat-view")).toBeHidden();
+    await expectLayoutParam(page, null); // default layout mirrors as a CLEAN URL (param dropped)
 
     // @2 has no chatProvider → the palette offers no `View: Chat` action.
     await page.goto(`/${SERVER}/2`);

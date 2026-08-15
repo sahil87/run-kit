@@ -32,7 +32,7 @@ testid exists nowhere.
   iframe is needed (assertions are on chrome/heading/render, never on iframe
   content). Returns the stable `@N` id.
 - **`gotoWindow(id, view?)`**: navigate to `/<server>/<@N>[?view=…]` and wait for
-  the `Connected` SSE indicator (nav-scoped since 260814-ldbs — the status bar carries its own `Connected` dot).
+  the `Connected` SSE indicator (the status bar's `Connected` dot — the desktop sidebar footer is gone).
 - **`expectLayoutParam(page, expected)`**: retrying read of the DECODED
   `?layout=` search param (`URL.searchParams` — the router may percent-encode
   `:`/`,`); the `replaceState` mirror lands a beat after the arrival/switch.
@@ -143,8 +143,9 @@ Steps:
 1. Set the 375×812 viewport; create a window with `@rk_url` and a long
    worktree-style name.
 2. Navigate to `…?view=web` and gate on the **iframe** (not the `Connected`
-   dot — it lives in the sidebar footer (260724-6j1v), and at 375px the
-   sidebar is an unmounted drawer, so the dot never becomes visible;
+   dot — it lives in the desktop status bar now (the sidebar footer is
+   mobile-only), and at 375px the status bar never renders, so the dot never
+   becomes visible;
    window-heading.spec.ts's mobile test gates on the heading for the same
    reason). Assert the iframe renders.
 3. Assert no in-bar switcher group ("Window view") AND no `view-toggle` testid

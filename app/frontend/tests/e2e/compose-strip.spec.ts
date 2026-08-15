@@ -380,7 +380,7 @@ test.describe("Docked compose strip", () => {
     await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(windowId)}?layout=split-h:tty,web`, {
       waitUntil: "domcontentloaded",
     });
-    await expect(page.locator("nav [aria-label='Connected']")).toBeVisible({ timeout: READY_TIMEOUT });
+    await expect(page.getByTestId("status-bar").locator("[aria-label='Connected']")).toBeVisible({ timeout: READY_TIMEOUT });
     const ttyTile = page.getByTestId("surface-tile-tty");
     await expect(ttyTile).toBeVisible({ timeout: 10_000 });
     await expect(page.getByTestId("surface-tile-web")).toBeVisible({ timeout: 15_000 });
@@ -449,7 +449,7 @@ test.describe("Docked compose strip", () => {
     await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(alpha)}`, {
       waitUntil: "domcontentloaded",
     });
-    await expect(page.locator("nav [aria-label='Connected']")).toBeVisible({ timeout: READY_TIMEOUT });
+    await expect(page.getByTestId("status-bar").locator("[aria-label='Connected']")).toBeVisible({ timeout: READY_TIMEOUT });
     const ttyTile = page.getByTestId("surface-tile-tty");
     await expect(ttyTile).toBeVisible({ timeout: 10_000 });
     await page.getByRole("button", { name: "Compose text" }).click();

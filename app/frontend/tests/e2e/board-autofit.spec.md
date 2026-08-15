@@ -80,7 +80,7 @@ not the scrolled content width) and the row overflows horizontally — the
 1. Pin `win-0..win-4` to board A; `goto /board/A`; assert 5 panes.
 2. Click the autofit button; assert `aria-pressed="true"`.
 3. Read the row's `clientWidth`; read each pane width; assert each is within
-   ~10px of `clientWidth × 0.25` (gap-adjusted `calc(25% - 3px)`).
+   ~10px of `clientWidth × 0.25` (gap-adjusted `calc(25% - 4.5px)`).
 4. Assert the row's `scrollWidth > clientWidth` (horizontal scroll present).
 5. Toggle off; unpin `win-0..win-4`.
 

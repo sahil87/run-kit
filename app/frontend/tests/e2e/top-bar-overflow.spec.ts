@@ -34,25 +34,32 @@ function intersects(
 }
 
 // Right-cluster controls in pyramid order (L1 → L2 → L3), by accessible name.
-// Terminal route as of 260812-d1at + 260813-w1lf: L1 is the ▦ Layout chip
-// alone (260812-ab5v R9; overflowed, it renders `Layout: …` radio rows in the
-// menu) — the merged split control left the terminal bar in 260813-w1lf (pane
-// verbs moved to the tty tile header's pane segment; the `split` entry is
-// `menuOnly` in terminal mode now, its rows ALWAYS in the chevron menu — see
-// MENU_ONLY below). L2 is empty (fixed-width, Aa, and ✕ are `menuOnly`), L3 is
-// Refresh + the Settings gear (relocated from the sidebar footer, 260812-d1at;
-// the LAST fit candidate, so Refresh drops before it). The update chip is
-// context-gated and omitted from the ordering assertion. Help/Keyboard/Theme
-// are menuOnly App-section rows (never in-bar); the bell and dot stay out of
-// the bar (settings dialog / sidebar footer).
+// Terminal route as of 260815-19me (composed-frame unification): L1's HEAD is
+// the surface-toggle group (`data-testid="surface-toggles"` — the REMOVED
+// right rail's open-tile toggles relocated into the bar as ONE bordered
+// sub-group, leftmost; detected via its "Terminal tile" button — tty is
+// always an available surface). The group drops FIRST and as ONE unit; the ▦
+// Layout chip (260812-ab5v R9; overflowed, it renders `Layout: …` radio rows
+// in the menu) drops next — the merged split control left the terminal bar in
+// 260813-w1lf (pane verbs moved to the tty tile header's pane segment; the
+// `split` entry is `menuOnly` in terminal mode now, its rows ALWAYS in the
+// chevron menu — see MENU_ONLY below). L2 is empty (fixed-width, Aa, and ✕ are
+// `menuOnly`), L3 is Refresh + the Settings gear (relocated from the sidebar
+// footer, 260812-d1at; the LAST fit candidate, so Refresh drops before it).
+// The update chip is context-gated and omitted from the ordering assertion.
+// Help/Keyboard/Theme are menuOnly App-section rows (never in-bar); the bell
+// and dot stay out of the bar (settings dialog / desktop status bar). The
+// rail-toggle chip (aria-label "Toggle panel", 260812-nm4p) is REMOVED with
+// the rail — the trailing exempt block is the chevron ALONE.
 // The IN-BAR detection uses accessible-name ROLE queries (getByRole/getByLabel):
 // the always-present measurement probe is `aria-hidden`, so its duplicate
 // controls are OUTSIDE the accessibility tree and never matched — this is what
 // distinguishes "in-bar" from "overflowed/probe" (a `:visible` CSS filter does
 // NOT work: the probe sits off-screen at -9999px but Playwright still considers
-// a sized off-screen element "visible").
+// a sized off-screen element "visible"; `getByTestId("surface-toggles")` is
+// likewise AMBIGUOUS — two copies when the group is in-bar).
 type NameMatcher = string | RegExp;
-const L1: NameMatcher[] = ["Layout"];
+const L1: NameMatcher[] = ["Terminal tile", "Layout"];
 const L2: NameMatcher[] = [];
 const L3: NameMatcher[] = ["Refresh page", "Open settings"];
 // The demoted controls (260731-oiho + the terminal split in 260813-w1lf, the
@@ -141,7 +148,7 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
 
       // (e) The exempt chevron is always visible at every width; the
       // connection dot is GONE from the bar (260724-6j1v — it lives in the
-      // sidebar footer now).
+      // desktop status bar / mobile drawer footer now).
       await expect(chevron, `chevron visible at ${width}px`).toBeVisible();
       await expect(cluster.locator('[role="status"]'), `no bar dot at ${width}px`).toHaveCount(0);
 
@@ -175,10 +182,10 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
       const bodyWidth = await page.evaluate(() => document.body.scrollWidth);
       expect(bodyWidth, `page overflow at ${width}px`).toBeLessThanOrEqual(width);
 
-      // (e) The exempt chevron + dot must be genuinely HIT-TESTABLE (not merely
-      // painted) at every width — at tight widths with a long center heading the
-      // narrow `1fr` track could otherwise clip them. `elementFromPoint` at the
-      // chevron center must resolve inside the chevron.
+      // (e) The exempt chevron must be genuinely HIT-TESTABLE (not merely
+      // painted) at every width — at tight widths with a long center heading
+      // the narrow `1fr` track could otherwise clip it. `elementFromPoint` at
+      // the chevron center must resolve inside the chevron.
       const chevronHittable = await chevron.evaluate((el) => {
         const r = el.getBoundingClientRect();
         const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
@@ -215,12 +222,13 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
       await expect(heading).toBeVisible({ timeout: 10_000 });
       const [l1, l2, l3] = await settledTierCounts(page);
 
-      // The trailing exempt block shrinks at the mobile boundary: the
-      // desktop-only rail toggle (260812-nm4p) unmounts below 640px
-      // (MOBILE_BREAKPOINT_PX), freeing reserved width that can legitimately
-      // re-admit an already-dropped candidate. Monotonicity therefore holds
-      // WITHIN each viewport regime (desktop ≥640 / mobile <640) — re-baseline
-      // once at the crossing. The per-width pyramid-order assertions below are
+      // The candidate set changes at the mobile boundary: the desktop-only
+      // surface-toggle group (260815-19me — AppShell registers the slot only
+      // when NOT mobile) unmounts below 640px (MOBILE_BREAKPOINT_PX), dropping
+      // an L1 fit candidate and freeing width that can legitimately re-admit
+      // an already-dropped candidate. Monotonicity therefore holds WITHIN each
+      // viewport regime (desktop ≥640 / mobile <640) — re-baseline once at the
+      // crossing. The per-width pyramid-order assertions below are
       // regime-independent and still run at every width.
       const isDesktopWidth = width >= 640;
       if (prevWasDesktop && !isDesktopWidth) {
@@ -246,13 +254,14 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
       prevL2 = l2;
     }
     // At the narrowest width the pyramid's FRONT has been fully consumed: the
-    // L1 ▦ Layout chip has overflowed. The L3 tail
+    // L1 surface-toggle group is unmounted (mobile) and the ▦ Layout chip has
+    // overflowed. The L3 tail
     // (Refresh · Settings gear — the gear last, 260812-d1at) deliberately
     // survives at the mobile leaf — the pyramid ORDER, not an all-gone cliff,
     // is the contract. (Exact-name matching matters here: a substring
     // "Layout" would false-positive on sidebar window rows whose names carry
     // the worktree slug.)
-    expect(await inBarCount(page, L1), "L1 (▦ layout chip) overflowed at 375px").toBe(0);
+    expect(await inBarCount(page, L1), "L1 (toggle group + ▦ layout chip) gone at 375px").toBe(0);
   });
 
   test("the chevron menu contains the overflowed + menuOnly rows plus the version row, grouped under section labels", async ({
@@ -286,7 +295,14 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
     await expect(menu.getByRole("group", { name: "Terminal font size" })).toBeVisible();
     await expect(menu.getByRole("menuitem", { name: "Close pane" })).toBeVisible();
     // Density + grouping (260731-oiho): thin uppercase section labels group the
-    // rows in the fixed View → Window → App order.
+    // rows in the fixed Tiles → View → Window → App order. TILES IS ABSENT
+    // here: the surface-toggle group is desktop-only (260815-19me — AppShell
+    // registers its slot only when NOT mobile), so at this mobile width the
+    // registry entry is HIDDEN (not overflowed) and contributes no section.
+    await expect(menu.getByText("Tiles", { exact: true })).toHaveCount(0);
+    await expect(
+      menu.getByRole("menuitemcheckbox", { name: "Terminal tile" }),
+    ).toHaveCount(0);
     await expect(menu.getByText("View", { exact: true })).toBeVisible();
     await expect(menu.getByText("Window", { exact: true })).toBeVisible();
     await expect(menu.getByText("App", { exact: true })).toBeVisible();
@@ -305,8 +321,9 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
     page,
   }) => {
     // The distinguishing 260731-oiho case: the bar has room at 1280px — the
-    // in-bar end state is Open · ▦Layout · Refresh · Gear · chevron (the split
-    // chip demoted to menuOnly in terminal mode, 260813-w1lf) — yet the
+    // in-bar end state is [surface-toggles group] · ▦Layout · Refresh · Gear ·
+    // chevron (the split chip demoted to menuOnly in terminal mode,
+    // 260813-w1lf; the rail-toggle chip REMOVED, 260815-19me) — yet the
     // demoted controls still live ONLY in the menu (menu-only, not
     // space-driven overflow). The 260812-d1at chrome rows share that
     // placement: Help / Keyboard / Theme… are `menuOnly` App-section rows.
@@ -315,8 +332,15 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
     const heading = page.getByRole("button", { name: `Rename window ${WINDOW_NAME}` });
     await page.setViewportSize({ width: 1280, height: 800 });
     await expect(heading).toBeVisible({ timeout: 10_000 });
-    // The bar carries the ▦ Layout chip (terminal's surviving L1 candidate)…
+    // The bar carries the surface-toggle group (the L1 head — its "Terminal
+    // tile" button; tty is always an available surface) AND the ▦ Layout
+    // chip, group LEFTMOST (registry order)…
+    const tileToggle = byRoleName(page, "Terminal tile");
+    await expect(tileToggle).toBeVisible({ timeout: 10_000 });
     await expect(byRoleName(page, "Layout")).toBeVisible({ timeout: 10_000 });
+    const tileBox = (await tileToggle.boundingBox())!;
+    const layoutBox = (await byRoleName(page, "Layout").boundingBox())!;
+    expect(tileBox.x, "toggle group left of the ▦ Layout chip").toBeLessThan(layoutBox.x);
     // …but never the demoted set (split included) nor the chrome rows.
     expect(await inBarCount(page, MENU_ONLY)).toBe(0);
     expect(
@@ -438,15 +462,18 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
 });
 
 // The ViewSwitcher is RETIRED (260812-0c6o) — lens switching is palette-only
-// (plus the rail's open-tile toggles). This block uses a web-capable window (a
-// non-empty `@rk_url` ⇒ `[tty|web]`) with a long name to prove the removal
+// (plus the top bar's surface-toggle group, 260815-19me — the rail that used
+// to carry the open-tile toggles is REMOVED). This block uses a web-capable
+// window (a non-empty `@rk_url` ⇒ `[tty|web]`; the repo-cwd pane also derives
+// a gitRoot ⇒ `code`) with a long name to prove the removal
 // contract: no `view-toggle` testid and no in-bar "Window view" group at ANY
 // width, the chevron menu carries NO `View:` menuitemradio rows (the Fixed
 // width / Terminal font rows still hold the VIEW section), a palette `View: …`
 // activation switches the lens even at a wide width, and the fit pyramid over
-// the remaining candidates is intact with the ▦ Layout chip as terminal's
-// first-to-yield fit candidate (the split control left the terminal bar in
-// 260813-w1lf — `menuOnly`, never a fit candidate there).
+// the remaining candidates is intact with the surface-toggle group as
+// terminal's first-to-yield fit candidate (the ▦ Layout chip next; the split
+// control left the terminal bar in 260813-w1lf — `menuOnly`, never a fit
+// candidate there).
 const VIEW_WINDOW_NAME = `overflow-view-long-worktree-${Date.now().toString().slice(-6)}`;
 const VIEW_URL = "http://localhost:8080/";
 
@@ -520,18 +547,20 @@ test.describe("Top-bar overflow: the view-switcher is retired (260812-0c6o)", ()
     }
   });
 
-  test("the ▦ Layout chip is the first fit candidate to yield", async ({
+  test("the surface-toggle group is the first fit candidate to yield (the ▦ Layout chip next)", async ({
     page,
   }) => {
     await gotoViewWindow(page);
     const heading = page.getByRole("button", { name: `Rename window ${VIEW_WINDOW_NAME}` });
 
-    // With the view-switcher retired and the split control menuOnly in
-    // terminal mode (260813-w1lf), the FIRST fit candidate is the L1 ▦ Layout
-    // chip. The invariant across the sweep: whenever `Layout` is still in-bar
-    // nothing has dropped yet, so every L1/L2/L3 control must also be in-bar
-    // (the surviving set is a suffix of the fit order).
-    const layoutChip = () => byRoleName(page, "Layout");
+    // With the rail removed (260815-19me) and the split control menuOnly in
+    // terminal mode (260813-w1lf), the FIRST fit candidate is the L1-head
+    // surface-toggle group — located via its "Terminal tile" button (tty is
+    // always available; the aria-hidden probe copy is excluded by the role
+    // query). The invariant across the sweep: whenever the group is still
+    // in-bar nothing has dropped yet, so every L1/L2/L3 control must also be
+    // in-bar (the surviving set is a suffix of the fit order).
+    const groupToggle = () => byRoleName(page, "Terminal tile");
     const allCandidates = [...L1, ...L2, ...L3];
     let sawInBar = false;
     for (const width of [1440, ...WIDTHS]) {
@@ -541,28 +570,88 @@ test.describe("Top-bar overflow: the view-switcher is retired (260812-0c6o)", ()
       // visibility expect so the post-resize re-fit (ResizeObserver → layout
       // effect) has settled before the plain `count()` reads below.
       if (width === 1440) {
-        await expect(layoutChip()).toBeVisible({ timeout: 10_000 });
+        await expect(groupToggle()).toBeVisible({ timeout: 10_000 });
       }
-      const inBar = (await layoutChip().count()) > 0;
+      const inBar = (await groupToggle().count()) > 0;
       if (inBar) {
         sawInBar = true;
         // RETRYING: right after a resize the ResizeObserver-driven re-fit can
         // still be mid-cascade — a plain read can catch a transient frame where
-        // the chip is in-bar but a tail control hasn't re-rendered yet (flaked
-        // at 700px with the 260812-ab5v layout chip in the fit). When the chip
+        // the group is in-bar but a tail control hasn't re-rendered yet (flaked
+        // at 700px with the 260812-ab5v layout chip in the fit). When the group
         // is SETTLED in-bar, the suffix-fit guarantees every candidate is too.
         await expect
           .poll(() => inBarCount(page, allCandidates), { timeout: 10_000 })
           .toBe(allCandidates.length);
       }
     }
-    // The sweep genuinely exercised both sides of the drop threshold: in-bar at
-    // some wide width (gated above), and definitely dropped at the mobile leaf —
-    // a RETRYING count so a still-settling re-fit can't flake the dropped side.
-    expect(sawInBar, "the ▦ Layout chip was in-bar at some (wide) width").toBe(true);
+    // The sweep genuinely exercised both sides: in-bar at some wide width
+    // (gated above), and definitely gone at the mobile leaf — the group is
+    // desktop-only (unregistered below 640px), so it is unmounted there quite
+    // apart from overflow. A RETRYING count so a still-settling re-fit can't
+    // flake the gone side.
+    expect(sawInBar, "the surface-toggle group was in-bar at some (wide) width").toBe(true);
     await page.setViewportSize({ width: 375, height: 800 });
     await expect(heading).toBeVisible({ timeout: 10_000 });
-    await expect(layoutChip()).toHaveCount(0, { timeout: 10_000 });
+    await expect(groupToggle()).toHaveCount(0, { timeout: 10_000 });
+  });
+
+  test("the overflowed surface-toggle group renders a Tiles menu section FIRST (before View)", async ({
+    page,
+  }) => {
+    await gotoViewWindow(page);
+    const heading = page.getByRole("button", { name: `Rename window ${VIEW_WINDOW_NAME}` });
+
+    // The group is desktop-only (its registry entry is HIDDEN below 640px, not
+    // overflowed — the main block's 375px menu test proves that absence), so
+    // its menu form appears only at a DESKTOP width narrow enough to overflow
+    // it. Step down from 800px until the in-bar `Terminal tile` button is
+    // gone — the group is the L1 HEAD (first to drop), so a narrow-enough
+    // desktop width always reaches this. Each probe is a bounded RETRYING
+    // expect so a mid-cascade re-fit frame can't fake the drop.
+    let menuWidth = 0;
+    for (let w = 800; w > 640; w -= 10) {
+      await page.setViewportSize({ width: w, height: 800 });
+      await expect(heading).toBeVisible({ timeout: 10_000 });
+      try {
+        await expect(byRoleName(page, "Terminal tile")).toHaveCount(0, { timeout: 2_000 });
+        menuWidth = w;
+        break;
+      } catch {
+        // Still in-bar at this width — keep shrinking.
+      }
+    }
+    expect(
+      menuWidth,
+      "the surface-toggle group overflows at some desktop width (641–800px)",
+    ).toBeGreaterThan(0);
+
+    await page.getByRole("button", { name: "More controls" }).click();
+    const menu = page.getByRole("menu", { name: "More controls" });
+    await expect(menu).toBeVisible();
+
+    // Tiles is the menu's FIRST section — its label sits above View's.
+    const tilesLabel = menu.getByText("Tiles", { exact: true });
+    const viewLabel = menu.getByText("View", { exact: true });
+    await expect(tilesLabel).toBeVisible();
+    await expect(viewLabel).toBeVisible();
+    const tilesBox = (await tilesLabel.boundingBox())!;
+    const viewBox = (await viewLabel.boundingBox())!;
+    expect(tilesBox.y, "Tiles section precedes View").toBeLessThan(viewBox.y);
+
+    // One `menuitemcheckbox` row per shown surface (chat excluded —
+    // SURFACE_RAIL_HIDDEN), aria-checked = tile open. This window offers
+    // [tty|web|code] (`@rk_url` ⇒ web; the repo-cwd pane derives a gitRoot ⇒
+    // code) and only the tty tile is open.
+    const ttyRow = menu.getByRole("menuitemcheckbox", { name: "Terminal tile" });
+    await expect(ttyRow).toBeVisible();
+    await expect(ttyRow).toHaveAttribute("aria-checked", "true");
+    const webRow = menu.getByRole("menuitemcheckbox", { name: "Web tile" });
+    await expect(webRow).toBeVisible();
+    await expect(webRow).toHaveAttribute("aria-checked", "false");
+    const codeRow = menu.getByRole("menuitemcheckbox", { name: "Code tile" });
+    await expect(codeRow).toBeVisible();
+    await expect(codeRow).toHaveAttribute("aria-checked", "false");
   });
 
   test("a palette `View:` action switches the lens — even at a wide width", async ({

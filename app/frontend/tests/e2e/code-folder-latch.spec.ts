@@ -107,7 +107,7 @@ test.beforeAll(async ({ browser }) => {
   const page = await browser.newPage();
   const first = await resolveWindowRaw(page, TMUX_SERVER, TEST_SESSION);
   await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(first.windowId)}`);
-  await expect(page.locator("nav [aria-label='Connected']")).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByTestId("status-bar").locator("[aria-label='Connected']")).toBeVisible({ timeout: 60_000 });
   await expect(page.locator(".xterm").first()).toBeVisible({ timeout: 60_000 });
   await page.close();
 });
@@ -131,7 +131,7 @@ test.describe("Code-folder latch (260813-if5d)", () => {
     await page.goto(
       `/${TMUX_SERVER}/${encodeURIComponent(id)}?layout=split-h:tty,code`,
     );
-    await expect(page.locator("nav [aria-label='Connected']")).toBeVisible({
+    await expect(page.getByTestId("status-bar").locator("[aria-label='Connected']")).toBeVisible({
       timeout: READY_TIMEOUT,
     });
 

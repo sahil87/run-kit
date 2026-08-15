@@ -30,13 +30,22 @@ function renderShell(opts: { open?: boolean; mobile?: boolean; sidebarChildren?:
         statusBarChildren={<div data-testid="statusbar">STATUS</div>}
       >
         {/* The topbar is no longer part of the Shell grid (260707-4vq2) — it
-            mounts in the persistent root layout. The `content` child doubles as
-            the `parentElement` handle to reach the grid root (on the
-            no-right-panel branch; the stage branch nests one level deeper). */}
+            mounts in the persistent root layout. On desktop the `content` child
+            renders inside the nested STAGE grid (one level below the outer
+            grid); on mobile it is a direct outer-grid child. */}
         <main style={{ gridArea: "content" }} data-testid="content">CONTENT</main>
       </Shell>
     </ChromeProvider>,
   );
+}
+
+/** The nested stage grid = the content child's parent (desktop only); the
+ *  outer grid is one level above it. */
+function stage() {
+  return screen.getByTestId("content").parentElement!;
+}
+function outerGrid() {
+  return stage().parentElement!;
 }
 
 /** Sidebar children with ≥2 focusable buttons so the Tab wrap is observable. */
@@ -59,27 +68,33 @@ describe("Shell", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders desktop grid with sidebar beside content+bottombar and a full-width statusbar row (260814-ldbs)", () => {
+  it("renders the universal desktop stage (sidebar + content + bottombar on the inset ground) with the statusbar as a full-width outer row", () => {
     renderShell({ open: true, mobile: false });
-    const root = screen.getByTestId("content").parentElement!;
-    // The TopBar mount moved to the persistent root layout (260707-4vq2), so
-    // Shell's grid no longer carries a `topbar` row. Three rows now: content
-    // (1fr) over bottombar (auto) over the full-width statusbar (auto).
-    expect(root.style.display).toBe("grid");
-    expect(root.style.gridTemplateRows).toBe("1fr auto auto");
-    // grid-template-areas comes back with each row quoted; assert each row appears
-    expect(root.style.gridTemplateAreas).toContain('"sidebar content"');
-    expect(root.style.gridTemplateAreas).toContain('"sidebar bottombar"');
-    // The statusbar row spans ALL columns (sidebar included).
-    expect(root.style.gridTemplateAreas).toContain('"statusbar statusbar"');
-    // The topbar area is gone from the Shell grid entirely.
-    expect(root.style.gridTemplateAreas).not.toContain("topbar");
-    // The Shell-owned placements: bottom bar in its footer, status bar in the
-    // spanned row — desktop only.
+    // The outer grid is one column of two rows: stage (1fr) over the
+    // full-width statusbar (auto) — the status bar stays OUTSIDE the stage so
+    // the stage's padding/gap never insets the attached frame chrome.
+    expect(outerGrid().style.display).toBe("grid");
+    expect(outerGrid().style.gridTemplateRows).toBe("1fr auto");
+    expect(outerGrid().style.gridTemplateAreas).toContain('"stage"');
+    expect(outerGrid().style.gridTemplateAreas).toContain('"statusbar"');
+    expect(outerGrid().style.gridTemplateAreas).not.toContain("topbar");
+    // The stage: inset ground, 6px padding/gap, sidebar + content columns with
+    // the bottombar scoped to the content column.
+    expect(stage().style.gridArea).toBe("stage");
+    expect(stage().style.gridTemplateAreas).toContain('"sidebar content"');
+    expect(stage().style.gridTemplateAreas).toContain('"sidebar bottombar"');
+    expect(stage().style.padding).toBe("6px");
+    expect(stage().style.rowGap).toBe("6px");
+    expect(stage().className).toContain("bg-bg-inset");
+    // The Shell-owned placements: bottom bar in its footer (inside the stage),
+    // status bar in the outer row — desktop only.
     const footer = screen.getByTestId("bottombar").parentElement!;
     expect(footer.tagName).toBe("FOOTER");
     expect(footer.style.gridArea).toBe("bottombar");
-    expect(screen.getByTestId("statusbar").parentElement!.style.gridArea).toBe("statusbar");
+    expect(footer.parentElement).toBe(stage());
+    const statusbar = screen.getByTestId("statusbar").parentElement!;
+    expect(statusbar.style.gridArea).toBe("statusbar");
+    expect(statusbar.parentElement).toBe(outerGrid());
   });
 
   it("never renders the statusbar row content on mobile", () => {
@@ -89,28 +104,35 @@ describe("Shell", () => {
     expect(root.style.gridTemplateAreas).not.toContain("statusbar");
   });
 
-  it("collapses to '0 1fr' columns when sidebarOpen is false", () => {
+  it("collapses the stage to '0 1fr' columns with no column gap when sidebarOpen is false", () => {
     renderShell({ open: false, mobile: false });
-    const root = screen.getByTestId("content").parentElement!;
-    expect(root.style.gridTemplateColumns).toBe("0 1fr");
+    expect(stage().style.gridTemplateColumns).toBe("0 1fr");
+    // A zero-width track would otherwise keep its 6px column-gap as a stray seam.
+    expect(stage().style.columnGap).toBe("0px");
   });
 
-  it("uses '${sidebarWidth}px 1fr' columns when sidebarOpen is true", () => {
+  it("uses '${sidebarWidth}px 1fr' stage columns with the 6px gap when sidebarOpen is true", () => {
     renderShell({ open: true, mobile: false });
-    const root = screen.getByTestId("content").parentElement!;
     // Default sidebar width is 220px (from chrome-context).
-    expect(root.style.gridTemplateColumns).toBe("220px 1fr");
+    expect(stage().style.gridTemplateColumns).toBe("220px 1fr");
+    expect(stage().style.columnGap).toBe("6px");
   });
 
   describe("desktop sidebar aside (Shell-owned, 260719-rwqf)", () => {
-    it("renders an <aside aria-label='Sidebar'> containing sidebarChildren when desktop + open", () => {
+    it("renders an <aside aria-label='Sidebar'> card containing sidebarChildren when desktop + open", () => {
       renderShell({ open: true, mobile: false });
       const aside = screen.getByRole("complementary", { name: "Sidebar" });
       expect(aside).toBeInTheDocument();
       // The sidebar content lives inside the aside.
       expect(aside).toContainElement(screen.getByTestId("sidebar"));
-      // It is placed in the `sidebar` grid area.
+      // It is placed in the stage's `sidebar` grid area.
       expect(aside.style.gridArea).toBe("sidebar");
+      // Card family: rounded, dimmed card border, primary ground — no attached
+      // border-r seam.
+      expect(aside.className).toContain("rounded-md");
+      expect(aside.className).toContain("rk-card-border");
+      expect(aside.className).toContain("bg-bg-primary");
+      expect(aside.className).not.toContain("border-r");
     });
 
     it("does not render the desktop aside when sidebarOpen is false", () => {
@@ -120,7 +142,9 @@ describe("Shell", () => {
       expect(screen.queryByTestId("sidebar")).not.toBeInTheDocument();
     });
 
-    it("renders a passed sidebarResizeHandle inside the aside and drops border-r", () => {
+    it("renders a passed sidebarResizeHandle beside the aside, straddling the stage gap", () => {
+      localStorage.setItem("runkit-sidebar-open", "true");
+      stubMatchMedia(() => false); // desktop
       render(
         <ChromeProvider>
           <Shell
@@ -133,17 +157,14 @@ describe("Shell", () => {
         </ChromeProvider>,
       );
       const aside = screen.getByRole("complementary", { name: "Sidebar" });
-      // The handle renders inside the aside (right edge).
-      expect(aside).toContainElement(screen.getByTestId("resize-handle"));
-      // With a handle, the handle bar is the visual seam — no border-r.
-      expect(aside.className).not.toContain("border-r");
-    });
-
-    it("applies border-r border-border on the aside when no resize handle is passed", () => {
-      renderShell({ open: true, mobile: false });
-      const aside = screen.getByRole("complementary", { name: "Sidebar" });
-      expect(aside.className).toContain("border-r");
-      expect(aside.className).toContain("border-border");
+      // The handle is NOT inside the aside (the card clips at its rounded
+      // border); it lives in a zero-width stage item pinned to the sidebar
+      // track's right edge so it can straddle the 6px gap.
+      expect(aside).not.toContainElement(screen.getByTestId("resize-handle"));
+      const handleSlot = screen.getByTestId("resize-handle").parentElement!;
+      expect(handleSlot.style.gridArea).toBe("sidebar");
+      expect(handleSlot.style.justifySelf).toBe("end");
+      expect(handleSlot.parentElement).toBe(stage());
     });
 
     it("does not render sidebarResizeHandle in the mobile overlay", () => {
@@ -175,8 +196,10 @@ describe("Shell", () => {
     const root = screen.getByTestId("content").parentElement!;
     expect(root.style.gridTemplateColumns).toBe("1fr");
     // Single-column, two-row mobile grid (content over bottombar); no topbar
-    // row (the TopBar is in the persistent root layout, 260707-4vq2).
+    // row (the TopBar is in the persistent root layout, 260707-4vq2) and no
+    // stage/statusbar rows — the mobile template is unchanged.
     expect(root.style.gridTemplateAreas).not.toContain("topbar");
+    expect(root.style.gridTemplateAreas).not.toContain("stage");
     expect(root.style.gridTemplateAreas).toContain('"content"');
     expect(root.style.gridTemplateAreas).toContain('"bottombar"');
     // The sidebar renders as a fixed overlay with role="dialog"
@@ -188,98 +211,6 @@ describe("Shell", () => {
   it("does not render the mobile overlay when sidebarOpen is false", () => {
     renderShell({ open: false, mobile: true });
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-  });
-
-  describe("right panel stage (260812-nm4p; nested stage 260814-ldbs)", () => {
-    function renderWithRightPanel(opts: { visible?: boolean } = {}) {
-      const { visible = true } = opts;
-      localStorage.setItem("runkit-sidebar-open", "true");
-      stubMatchMedia(() => false); // desktop
-      return render(
-        <ChromeProvider>
-          <Shell
-            sidebarChildren={<div data-testid="sidebar">SIDEBAR</div>}
-            rightPanelChildren={<div data-testid="rail">RAIL</div>}
-            rightPanelVisible={visible}
-            bottomBarChildren={<div data-testid="bottombar">BOTTOM</div>}
-            statusBarChildren={<div data-testid="statusbar">STATUS</div>}
-          >
-            <main style={{ gridArea: "content" }} data-testid="content">CONTENT</main>
-          </Shell>
-        </ChromeProvider>,
-      );
-    }
-
-    /** The nested stage grid = the content child's parent; the outer grid is
-     *  one level above it. */
-    function stage() {
-      return screen.getByTestId("content").parentElement!;
-    }
-    function outerGrid() {
-      return stage().parentElement!;
-    }
-
-    it("nests content + rail in a single-row stage on the inset ground when the slot is filled", () => {
-      renderWithRightPanel();
-      // The outer grid is sidebar | stage, with the bottombar + the
-      // full-width statusbar rows below — no third column anymore.
-      expect(outerGrid().style.gridTemplateColumns).toBe("220px 1fr");
-      expect(outerGrid().style.gridTemplateAreas).toContain('"sidebar stage"');
-      expect(outerGrid().style.gridTemplateAreas).toContain('"sidebar bottombar"');
-      expect(outerGrid().style.gridTemplateAreas).toContain('"statusbar statusbar"');
-      // The stage: single row, `1fr auto`, 6px gap + 6px padding, inset ground.
-      expect(stage().style.gridArea).toBe("stage");
-      expect(stage().style.gridTemplateAreas).toBe('"content rightpanel"');
-      expect(stage().style.gridTemplateColumns).toBe("1fr auto");
-      expect(stage().style.gridTemplateRows).toBe("1fr");
-      expect(stage().style.gap).toBe("6px");
-      expect(stage().style.padding).toBe("6px");
-      expect(stage().className).toContain("bg-bg-inset");
-      // The rail aside lives INSIDE the stage at the rightpanel area.
-      const aside = screen.getByRole("complementary", { name: "Right panel" });
-      expect(aside.parentElement).toBe(stage());
-      expect(aside.style.gridArea).toBe("rightpanel");
-      expect(aside).toContainElement(screen.getByTestId("rail"));
-    });
-
-    it("hides the rail at display level and drops the auto track when rightPanelVisible is false", () => {
-      renderWithRightPanel({ visible: false });
-      // The aside element stays in the DOM — children (iframes) keep state —
-      // it is only display-hidden, AND the stage template flips to `1fr` so no
-      // stray 6px column-gap survives the hidden rail (260814-ldbs R1).
-      const rail = screen.getByTestId("rail");
-      expect(rail).toBeInTheDocument();
-      expect(rail.parentElement!.className).toContain("hidden");
-      expect(stage().style.gridTemplateColumns).toBe("1fr");
-      expect(stage().style.gridTemplateAreas).toBe('"content"');
-    });
-
-    it("keeps the two-column grid byte-identical when the slot is absent", () => {
-      renderShell({ open: true, mobile: false });
-      const root = screen.getByTestId("content").parentElement!;
-      expect(root.style.gridTemplateColumns).toBe("220px 1fr");
-      expect(root.style.gridTemplateAreas).not.toContain("rightpanel");
-      expect(root.style.gridTemplateAreas).not.toContain("stage");
-      expect(screen.queryByRole("complementary", { name: "Right panel" })).not.toBeInTheDocument();
-    });
-
-    it("ignores the slot on mobile — single-column grid, no right aside", () => {
-      localStorage.setItem("runkit-sidebar-open", "false");
-      stubMatchMedia((q) => q.includes("max-width"));
-      render(
-        <ChromeProvider>
-          <Shell
-            rightPanelChildren={<div data-testid="rail">RAIL</div>}
-            rightPanelVisible={true}
-          >
-            <main style={{ gridArea: "content" }} data-testid="content">CONTENT</main>
-          </Shell>
-        </ChromeProvider>,
-      );
-      const root = screen.getByTestId("content").parentElement!;
-      expect(root.style.gridTemplateColumns).toBe("1fr");
-      expect(screen.queryByTestId("rail")).not.toBeInTheDocument();
-    });
   });
 
   describe("mobile drawer focus trap", () => {

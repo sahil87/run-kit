@@ -30,7 +30,7 @@ guard suppress the false negative that the old binary guard produced.
 
 **Steps:**
 1. Navigate to the existing e2e server (`/${TMUX_SERVER_A}`) and wait for the
-   `Connected` indicator (list is now loaded and non-empty) — nav-scoped since 260814-ldbs — the status bar carries its own `Connected` dot).
+   `Connected` indicator in the status bar (list is now loaded and non-empty — the desktop sidebar footer is gone, so the status-bar dot is the gate).
 2. Open the command palette (`Meta+k`), type `Server: Create`, press Enter.
 3. In the "Create tmux server" dialog, fill the `Server name` field with the
    freshly-generated server name and click the `Create` button.

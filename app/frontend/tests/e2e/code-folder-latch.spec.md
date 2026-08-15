@@ -21,7 +21,7 @@ close/reopen, reload).
 
 ## Shared setup
 
-- **Readiness gate**: the `Connected` dot locator is `nav`-scoped since 260814-ldbs (the status bar carries its own `Connected` dot).
+- **Readiness gate**: the status bar's `Connected` dot (`getByTestId("status-bar")`) — the desktop sidebar footer is gone, so the old nav-scoped gate no longer resolves on desktop.
 
 - **tmux server**: the isolated `rk-test-e2e` socket (`E2E_TMUX_SERVER`),
   started by `scripts/test-e2e.sh` on port 3020. Never run Playwright directly —

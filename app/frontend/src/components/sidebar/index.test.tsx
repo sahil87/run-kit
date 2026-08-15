@@ -1934,6 +1934,24 @@ describe("Sidebar — sessions-tree bottom scroll-edge fade (260813-kvk7)", () =
 });
 
 describe("sidebar footer status row (260812-d1at — readouts + quiet status slot)", () => {
+  // The footer is MOBILE-ONLY now (the desktop status bar owns the dot +
+  // version), so these content assertions run in a mobile-context render:
+  // re-stub matchMedia to report the narrow-width query, then restore the
+  // file-default desktop stub afterwards.
+  beforeEach(() => {
+    stubMatchMedia((q) => q.includes("max-width") || q.includes("prefers-color-scheme: dark"));
+  });
+  afterEach(() => {
+    stubMatchMedia((q) => q.includes("prefers-color-scheme: dark"));
+  });
+
+  it("renders NO footer on desktop — the status bar owns the dot + version there", () => {
+    stubMatchMedia((q) => q.includes("prefers-color-scheme: dark")); // desktop
+    renderSidebar({ isConnected: true, daemonVersion: "0.9.3" });
+    expect(screen.queryByLabelText("Connected")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /copy/i })).not.toBeInTheDocument();
+  });
+
   it("renders NO action buttons — Help/Keyboard/Theme/Gear relocated to the top bar (260812-d1at)", () => {
     renderSidebar();
     expect(screen.queryByLabelText("Help — run-kit docs")).not.toBeInTheDocument();

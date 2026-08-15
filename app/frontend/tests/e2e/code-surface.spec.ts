@@ -75,22 +75,30 @@ async function makeWindow(
 }
 
 /** Navigate to a window's terminal route (optionally with a search string) and
- *  wait for the SSE connection. */
+ *  wait for the SSE connection. The `Connected` dot lives in the full-width
+ *  bottom status bar since the composed-frame unification (the desktop sidebar
+ *  renders no footer), so the query is unscoped — it is the only `Connected`
+ *  element on a desktop route. */
 async function gotoWindow(
   page: Page,
   windowId: string,
   search = "",
 ): Promise<void> {
   await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(windowId)}${search}`);
-  await expect(page.locator("nav [aria-label='Connected']")).toBeVisible({
+  await expect(page.locator("[aria-label='Connected']")).toBeVisible({
     timeout: READY_TIMEOUT,
   });
 }
 
-const railCodeButton = (page: Page) =>
-  page.getByRole("button", { name: "Code tile" });
-const railWebButton = (page: Page) =>
-  page.getByRole("button", { name: "Web tile" });
+// The surface toggles live in the top bar's `surface-toggles` group (the right
+// rail is REMOVED — composed-frame unification). Banner-scoped accessible-name
+// queries: the top bar always renders an aria-hidden off-screen measurement
+// probe duplicating every in-bar control, so testid / `:visible` queries are
+// ambiguous — getByRole excludes the probe.
+const codeToggle = (page: Page) =>
+  page.getByRole("banner").getByRole("button", { name: "Code tile" });
+const webToggle = (page: Page) =>
+  page.getByRole("banner").getByRole("button", { name: "Web tile" });
 // The panel slot is gone (260812-ab5v) — surfaces render as layout TILES.
 const codeTile = (page: Page) => page.getByTestId("surface-tile-code");
 const codeIframe = (page: Page) => page.getByTitle("Code editor");
@@ -117,7 +125,7 @@ test.beforeAll(async ({ browser }) => {
   const page = await browser.newPage();
   const first = await resolveWindowRaw(page, TMUX_SERVER, TEST_SESSION);
   await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(first.windowId)}`);
-  await expect(page.locator("nav [aria-label='Connected']")).toBeVisible({
+  await expect(page.locator("[aria-label='Connected']")).toBeVisible({
     timeout: 60_000,
   });
   await expect(page.locator(".xterm").first()).toBeVisible({ timeout: 60_000 });
@@ -143,7 +151,7 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
     await page.setViewportSize(DESKTOP_VIEWPORT);
   });
 
-  test("the code rail button appears only on a git-repo window; the palette's `View: Code` action gates the same way", async ({
+  test("the Code tile top-bar toggle appears only on a git-repo window; the palette's `View: Code` action gates the same way", async ({
     page,
   }) => {
     // Two window creations + two full page loads + palette interactions —
@@ -156,7 +164,7 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
     const repo = await makeWindow(page, `cs-repo-${Date.now()}`);
     await gotoWindow(page, repo);
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
-    await expect(railCodeButton(page)).toBeVisible({ timeout: READY_TIMEOUT });
+    await expect(codeToggle(page)).toBeVisible({ timeout: READY_TIMEOUT });
     // The ViewSwitcher is retired (260812-0c6o): the palette is the lens-switch
     // surface, and the chevron menu carries no `View:` rows.
     await page.keyboard.press("Meta+k");
@@ -179,7 +187,7 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
     });
     await gotoWindow(page, offRepo);
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
-    await expect(railCodeButton(page)).toHaveCount(0);
+    await expect(codeToggle(page)).toHaveCount(0);
     await page.keyboard.press("Meta+k");
     const paletteInput2 = page.getByPlaceholder("Type a command");
     await expect(paletteInput2).toBeVisible({ timeout: 5_000 });
@@ -235,8 +243,11 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
     await expect(codeIframe(page)).toBeVisible({ timeout: READY_TIMEOUT });
     // The shim maps ?view=code → single:code and the URL mirror rewrites it.
     await expectLayoutParam(page, "single:code");
-    // The rail is still there (tiles are additive — the rail never leaves).
-    await expect(page.getByTestId("right-panel-rail")).toBeVisible();
+    // The top-bar toggle group is still there (tiles are additive — it never
+    // leaves): the Terminal toggle renders (unlit) beside the lit Code toggle.
+    await expect(
+      page.getByRole("banner").getByRole("button", { name: "Terminal tile" }),
+    ).toBeVisible();
   });
 
   test("unavailable params fall through: ?view=code&panel=code resolves to plain tty on a /tmp window", async ({
@@ -271,25 +282,25 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
       "http://localhost:8080/",
     ]);
     await gotoWindow(page, id);
-    await expect(railWebButton(page)).toBeVisible({ timeout: READY_TIMEOUT });
-    await expect(railCodeButton(page)).toBeVisible();
+    await expect(webToggle(page)).toBeVisible({ timeout: READY_TIMEOUT });
+    await expect(codeToggle(page)).toBeVisible();
 
     // Open web, then code — tiles are ADDITIVE now (R10 growth): both
     // iframes render simultaneously (main-left:tty,web,code).
-    await railWebButton(page).click();
+    await webToggle(page).click();
     const webIframe = page.getByTitle("Proxied content");
     await expect(webIframe).toBeVisible({ timeout: 10_000 });
-    await railCodeButton(page).click();
+    await codeToggle(page).click();
     await expect(codeIframe(page)).toBeVisible({ timeout: READY_TIMEOUT });
     await expect(webIframe).toBeVisible();
 
     // Close web via its lit toggle: hidden but STILL MOUNTED — the same
     // element returns when the tile reopens.
-    await railWebButton(page).click();
+    await webToggle(page).click();
     await expect(webIframe).toBeHidden();
     await expect(webIframe).toHaveCount(1);
     const handleBefore = await webIframe.elementHandle();
-    await railWebButton(page).click();
+    await webToggle(page).click();
     await expect(webIframe).toBeVisible({ timeout: 10_000 });
     const handleAfter = await webIframe.elementHandle();
     expect(
@@ -334,9 +345,9 @@ test.describe("Code lens & CODE surface (phase 2) — stub down", () => {
     await gotoWindow(page, id, "?panel=code");
 
     // Availability still holds (gitRoot derived — the port is conventional) —
-    // the rail button renders; only the CONTENT is the empty state. Generous
+    // the top-bar toggle renders; only the CONTENT is the empty state. Generous
     // timeout: the backend's ~5s probe TTL must expire before the flip lands.
-    await expect(railCodeButton(page)).toBeVisible({ timeout: READY_TIMEOUT });
+    await expect(codeToggle(page)).toBeVisible({ timeout: READY_TIMEOUT });
     await expect(notRunning(page)).toHaveText(
       "code-server not running — check rk doctor",
       {

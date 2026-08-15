@@ -4,10 +4,12 @@ Proves the terminal route's center is a **layout of surfaces** (change
 `260812-ab5v-surface-layout-core`, `docs/specs/surface-layout.md` L1–L4, R5,
 R7, R10, R13): the permanent `?view=`/`?panel=` translation shim, the
 URL > localStorage > hint > `single:tty` resolution ladder with `replaceState`
-mirroring, rail open-tile toggles + tile verbs as the only mouse path to a
-3-tile layout, history semantics (layout tweaks replace, window switches
-push), divider-ratio persistence keyed per (window, shape), and the mobile
-slot-A + sheet-tabs branch. From `260812-wfic`: the focused-tile accent border
+mirroring, top-bar surface-toggle open-tile toggles + tile verbs as the only
+mouse path to a 3-tile layout (the right rail is REMOVED — the composed-frame
+unification moved its toggles into the top bar's `surface-toggles` group),
+history semantics (layout tweaks replace, window switches push), divider-ratio
+persistence keyed per (window, shape), and the mobile slot-A + sheet-tabs
+branch. From `260812-wfic`: the focused-tile accent border
 (click-to-focus across tiles) and the tty-scoped split-chord gate (the chord
 is inert while the code tile owns focus, splits while the tty tile does).
 From `260813-w1lf`: the tty tile header's pane segment (Split H · Split V ·
@@ -48,19 +50,25 @@ tiles.
   the split-chord gate's ground truth (a real backend split, not a DOM read).
 - **`gotoWindow(id, search?)`**: navigate to `/<server>/<@N>[?<search>]` and
   wait for the `Connected` SSE indicator (desktop-only — the dot lives in the
-  sidebar footer; the mobile test gates on the terminal instead).
+  full-width bottom status bar since the composed-frame unification; the
+  desktop sidebar renders no footer; the mobile test gates on the terminal
+  instead).
 - **`expectLayoutParam(page, expected)`**: retrying read of the DECODED
   `?layout=` search param (`URL.searchParams` — the router may percent-encode
   `:`/`,`); the `replaceState` mirror lands a beat after the mutation/arrival
   that triggered it.
-- **Locators**: the `right-panel-rail` testid with its `<Surface> tile` toggle
-  buttons (`aria-pressed` lit per open tile); tiles `surface-tile-<kind>`;
-  dividers `surface-divider-<i>` (`role="separator"`, `aria-valuenow` = rounded
-  pct) with the gap-seam children `.rk-sash` (the hover/drag pill) and
-  `.rk-grips i` (the 3 rest dots, `pointer-events-none` — hover the divider or
-  zone, never the dots); the `surface-divider-intersection` two-axis zone
-  (main-* shapes only, z-ordered above the dividers); the `.xterm` terminal
-  surface; the `Proxied content` web iframe; the
+- **Locators**: the top-bar `surface-toggles` group's `<Surface> tile` toggle
+  buttons (`aria-pressed` lit per open tile) — located by ACCESSIBLE NAME
+  scoped to the `banner` role, because the top bar's aria-hidden off-screen
+  measurement probe duplicates every in-bar control and `getByRole` excludes
+  it (testid / `:visible` queries would be ambiguous); tiles
+  `surface-tile-<kind>`; dividers `surface-divider-<i>` (`role="separator"`,
+  `aria-valuenow` = rounded pct) with the gap-seam children `.rk-sash` (the
+  hover/drag pill) and `.rk-grips i` (the 3 rest dots, `pointer-events-none`
+  — hover the divider or zone, never the dots); the
+  `surface-divider-intersection` two-axis zone (main-* shapes only, z-ordered
+  above the dividers); the `.xterm` terminal surface; the `Proxied content`
+  web iframe; the
   mobile `mobile-surfaces-chip` / `mobile-surface-sheet` / `mobile-surface-tab-<kind>`
   testids. Tile verb buttons (`Zoom/Promote/Swap/Close <Surface>`) are boxed
   and visible at rest since 260812-wfic (R4) — tests still `.hover()` the tile
@@ -83,8 +91,9 @@ Steps:
 4. Assert the `surface-tile-code` and `surface-tile-web` tiles are visible and
    the `Proxied content` iframe renders.
 
-### build a 3-tile layout via rail toggles; promote/swap/close verbs mutate (shape, order) in the URL (A-017)
-What it proves: R7 + R10 — the rail's open-tile toggles grow the layout
+### build a 3-tile layout via the top-bar surface toggles; promote/swap/close verbs mutate (shape, order) in the URL (A-017)
+What it proves: R7 + R10 — the top-bar `surface-toggles` group's open-tile
+toggles grow the layout
 (1→2 `split-h`, 2→3 `main-left`) and every tile verb mutates (shape, order)
 exactly as specified, each outcome persisted + mirrored into the URL (R3 write
 discipline). Folded in (260814-011r R3): the main-left intersection zone —
@@ -93,9 +102,9 @@ diagonal drag moves BOTH ratios (persisted on release, URL untouched, terminal
 still the same mounted element). This is the file's ONE bounded 3-tile test.
 Steps:
 1. Create a web-capable window; navigate; assert the terminal.
-2. Click the `Web tile` rail button; assert `?layout=split-h:tty,web`, the web
+2. Click the `Web tile` top-bar toggle; assert `?layout=split-h:tty,web`, the web
    tile visible, and the button lit (`aria-pressed`).
-3. Click the `Code tile` rail button; assert `?layout=main-left:tty,web,code`
+3. Click the `Code tile` top-bar toggle; assert `?layout=main-left:tty,web,code`
    and the code tile visible.
 4. Intersection: assert the `surface-divider-intersection` zone is visible;
    hover divider 0 mid-seam (`y: 100`, far from the junction) and assert only
@@ -113,15 +122,15 @@ Steps:
    `?layout=main-left:code,web,tty` (swapped with the next neighbor).
 8. Hover the web tile, click `Close Web`; assert `?layout=split-h:code,tty`,
    the web tile hidden, the code tile and terminal still visible, and the web
-   rail button unlit.
+   top-bar toggle unlit.
 
 ### a user-built layout restores from localStorage on a bare re-arrival (ladder rung 2)
-What it proves: R3 — a rail toggle writes the value-bearing
+What it proves: R3 — a top-bar toggle writes the value-bearing
 `rk-layout:{server}:{@N}` key, and a FULL load of the bare route (no carried
 `?layout=`, so the URL rung is empty) resolves the stored layout and mirrors
 it back into the URL.
 Steps:
-1. Create a web-capable window; navigate; open the web tile via the rail.
+1. Create a web-capable window; navigate; open the web tile via the top-bar toggle.
 2. Assert `?layout=split-h:tty,web` and the web tile visible.
 3. `page.goto` the BARE window route (a real reload, no search string).
 4. Assert the web tile and terminal render again and the URL mirrors
@@ -135,7 +144,7 @@ restores its stored `split-h:tty,web` (mirrored into the URL). The A→B hop is 
 not a `page.goto`.
 Steps:
 1. Create window A (web-capable) and window B (plain).
-2. On A, open the web tile via the rail; assert `?layout=split-h:tty,web`.
+2. On A, open the web tile via the top-bar toggle; assert `?layout=split-h:tty,web`.
 3. Click B's row in the `Sessions` sidebar; assert selection settles on B
    (`aria-current="page"`), no web tile exists, and the URL is clean (the
    default drops the param).
@@ -151,7 +160,7 @@ pre-mutation entry in between.
 Steps:
 1. Create windows A (web-capable) and B (plain).
 2. Navigate to the server route (history entry E0), then to A (E1).
-3. Open the web tile on A via the rail (replaceState — E1 updated in place);
+3. Open the web tile on A via the top-bar toggle (replaceState — E1 updated in place);
    assert `?layout=split-h:tty,web`.
 4. Sidebar-click B (push E2); assert B resolves `single:tty` (bare URL — the default drops the param).
 5. `goBack` → A renders `split-h:tty,web` again (the layout E1 carried).
@@ -168,7 +177,7 @@ Also the gap-seam sash states (260814-011r R2): rest shows 3 grip dots and no
 fill, hover lights the sash pill after the ~150ms delay, and the sash stays
 lit through the drag.
 Steps:
-1. Create a web-capable window; navigate; open the web tile via the rail.
+1. Create a web-capable window; navigate; open the web tile via the top-bar toggle.
 2. Assert the `surface-divider-0` separator reads `aria-valuenow=50` (equal
    split) and capture the xterm element handle.
 3. Sash states: assert the divider carries 3 `.rk-grips i` dots and its
@@ -189,7 +198,7 @@ untouched even with xterm focused; the zoom action itself survives via the
 tile's ⛶ verb (the same seam as the palette's `Layout: Zoom`/`Unzoom`) and
 stays TRANSIENT (no URL/localStorage change, R6).
 Steps:
-1. Create a web-capable window; navigate; open the web tile via the rail;
+1. Create a web-capable window; navigate; open the web tile via the top-bar toggle;
    assert the `split-h:tty,web` URL mirror.
 2. Click the terminal (xterm focus), then press `Control+``; after a 500ms
    grace beat assert BOTH tiles and the divider are still visible (no zoom).
@@ -217,7 +226,7 @@ Stays within the ≤2-tile perf budget. Steps:
 3. Assert the top bar (banner) has NO `Split horizontally` button; open the
    `More controls` chevron menu and assert the Split horizontal / Split
    vertical / Close pane rows are visible; Escape-close it.
-4. Open the web tile via the rail; assert `?layout=split-h:tty,web`, the
+4. Open the web tile via the top-bar toggle; assert `?layout=split-h:tty,web`, the
    segment still visible on the tty tile, and NO `pane-segment` on the web
    tile.
 5. Click the tty tile's `Zoom Terminal` verb; assert the segment stays visible
@@ -225,7 +234,7 @@ Stays within the ≤2-tile perf budget. Steps:
 
 ### 375px mobile: a 3-tile ?layout= URL renders slot A + sheet tabs for the rest (R13, A-018)
 What it proves: below `isMobileViewport()` the layout manager renders only
-slot A — no grid, no dividers, no rail — and the remaining resolved surfaces
+slot A — no grid, no dividers, no top-bar toggle group — and the remaining resolved surfaces
 are reachable as sheet tabs whose selection is TRANSIENT (the URL/desktop
 arrangement never changes). The nested describe runs `test.use({ hasTouch:
 true })` so `(pointer: coarse)` matches — a real phone is coarse AND narrow,
@@ -235,10 +244,13 @@ Steps:
 1. Set the 375×812 viewport (context already has `hasTouch`); create a
    web-capable window.
 2. Navigate to `?layout=main-left:tty,code,web`, gating on the terminal (not
-   the `Connected` dot — the sidebar is an unmounted drawer at 375px).
+   the `Connected` dot — it lives in the desktop-only status bar now; the
+   sidebar is an unmounted drawer at 375px anyway).
 3. Assert the tty tile is visible, the code/web tiles are mounted-hidden, no
    divider exists (and no `surface-divider-intersection` — the gap-seam chrome
-   is desktop-only, 260814-011r R5), no rail renders, and the
+   is desktop-only, 260814-011r R5), no `Terminal tile` toggle button renders
+   in the banner (the top-bar `surface-toggles` group is desktop
+   terminal-route only), and the
    `mobile-surfaces-chip` appears (>1 open surface).
 4. Click the chip; assert the `mobile-surface-sheet` dialog opens with
    Terminal/Code/Web tabs, Terminal marked `aria-pressed`.
@@ -251,7 +263,7 @@ What it proves: the focused-tile state — the framed tile border turns
 (the tmux active-pane metaphor), defaults to slot A, and moves with each
 click. Unfocused tiles carry the dimmed gap-seam `rk-card-border`
 (260814-011r R1). Steps:
-1. Create a web-capable window; navigate; open the web tile via the rail.
+1. Create a web-capable window; navigate; open the web tile via the top-bar toggle.
 2. Assert the tty tile (slot A) carries `border-accent-green` and the web
    tile the dimmed `rk-card-border`.
 3. Click the web tile's header (`{x: 6, y: 15}`); assert the accent border
@@ -266,7 +278,7 @@ the code tile is focused, and splits exactly as before while the tty tile is
 focused (the tty-focused path is byte-equivalent to the pre-gate behavior,
 A-012). Ground truth is the live tmux pane count, not the DOM. Steps:
 1. Create a plain (code-capable) window; navigate; assert the terminal.
-2. Open the code tile via the rail; assert the tile renders. Pane count = 1.
+2. Open the code tile via the top-bar toggle; assert the tile renders. Pane count = 1.
 3. Click the code tile's header; assert its `border-accent-green` (the gate's
    input is visibly engaged).
 4. Press `Shift+Control+Backslash`; wait a beat; assert the pane count is

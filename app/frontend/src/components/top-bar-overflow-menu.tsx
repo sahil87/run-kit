@@ -33,6 +33,7 @@ const MENU_GAP_PX = 4;
 
 /** Fixed section order + labels for the grouped menu (260731-oiho). */
 const MENU_SECTIONS: { key: MenuGroup; label: string }[] = [
+  { key: "tiles", label: "Tiles" },
   { key: "view", label: "View" },
   { key: "window", label: "Window" },
   { key: "app", label: "App" },
@@ -110,10 +111,10 @@ export const TOP_BAR_SEGMENT_H = "h-[26px] coarse:h-[28px]";
 /**
  * Menu section identity (260731-oiho): every registry entry names the section
  * its menu rows belong to; the menu renders non-empty sections in the fixed
- * View → Window → App order under thin uppercase labels. The partition
+ * Tiles → View → Window → App order under thin uppercase labels. The partition
  * preserves registry (pyramid) order within each section.
  */
-export type MenuGroup = "view" | "window" | "app";
+export type MenuGroup = "tiles" | "view" | "window" | "app";
 
 /**
  * A single overflowed control, rendered as a menu row. `id` is the registry id
@@ -431,7 +432,7 @@ export function TopBarOverflowMenu({ rows, updateOverflowed }: Props) {
       : `Update: ${toolSummary}`;
 
   // Section partition (260731-oiho): non-empty sections render in the fixed
-  // View → Window → App order under thin uppercase labels (the OpenButton
+  // Tiles → View → Window → App order under thin uppercase labels (the OpenButton
   // "on host" header treatment). The always-present version row rides at the
   // App section's tail, so the App section always renders. When the menu holds
   // ONLY the version row (nothing overflowed, no menuOnly rows — server/host

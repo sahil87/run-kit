@@ -503,8 +503,7 @@ describe("TopBar", () => {
     // (relocated from the sidebar footer) — Help/Keyboard/Theme moved with it
     // but as menuOnly App-section menu rows, and the bell stays folded into the
     // settings dialog. The always-present overflow chevron terminates the
-    // cluster (the trailing exempt block; the rail toggle — absent here —
-    // would follow it). Order is asserted via document position (robust to
+    // cluster (the trailing exempt block). Order is asserted via document position (robust to
     // whether each control is currently in-bar or in the hidden measurement
     // probe).
     renderTopBar();
@@ -1424,7 +1423,7 @@ describe("TopBar", () => {
 
     it("renders no `View:` lens rows and no `view-toggle` anywhere; the VIEW section still carries Fixed width + Terminal font (260812-0c6o)", () => {
       // The view-switcher registry entry is retired: lens switching is the
-      // palette's job (plus the rail's open-tile toggles). No `view-toggle`
+      // palette's job (plus the top-bar surface-toggle group). No `view-toggle`
       // testid exists anywhere in the DOM (bar, menu, or probe).
       renderTopBar();
       expect(screen.queryByTestId("view-toggle")).not.toBeInTheDocument();
@@ -1621,42 +1620,105 @@ describe("TopBar", () => {
     });
   });
 
-  describe("right-rail toggle (260812-nm4p)", () => {
-    it("renders no rail toggle when onToggleRail is absent (board/host/unregistered)", () => {
+  describe("surface-toggle group (the retired right rail's toggles, relocated)", () => {
+    const toggles = (overrides: Partial<{
+      available: ("tty" | "web" | "chat" | "code")[];
+      open: ("tty" | "web" | "chat" | "code")[];
+      onToggle: (surface: "tty" | "web" | "chat" | "code") => void;
+    }> = {}) => ({
+      available: overrides.available ?? ["tty", "web", "code"],
+      open: overrides.open ?? ["tty"],
+      onToggle: overrides.onToggle ?? vi.fn(),
+    });
+
+    it("renders no toggle group anywhere when surfaceToggles is absent (board/host/unregistered)", () => {
       renderTopBar();
-      expect(screen.queryByLabelText("Toggle panel")).toBeNull();
+      expect(screen.queryByTestId("surface-toggles")).toBeNull();
+      act(() => fireEvent.click(screen.getByLabelText("More controls")));
+      const menu = screen.getByRole("menu", { name: "More controls" });
+      expect(within(menu).queryByRole("menuitemcheckbox", { name: /tile/ })).toBeNull();
     });
 
-    it("renders the toggle as the outermost right element (after the overflow chevron) and clicking calls it", () => {
-      const onToggleRail = vi.fn();
-      renderTopBar({ onToggleRail, railOpen: true });
-      const toggle = screen.getByLabelText("Toggle panel");
-      // The toggle lives in the trailing exempt block, AFTER the chevron menu.
-      const cluster = screen.getByTestId("top-bar-right");
-      const buttons = Array.from(cluster.querySelectorAll(":scope > div:last-child > *"));
-      expect(buttons[buttons.length - 1]).toBe(toggle);
-      fireEvent.click(toggle);
-      expect(onToggleRail).toHaveBeenCalledTimes(1);
+    it("renders the group only on the terminal mode with a current window", () => {
+      // Server mode (no window): no group.
+      renderTopBar({ mode: "server", currentWindow: null, windowName: "", surfaceToggles: toggles() });
+      expect(screen.queryByTestId("surface-toggles")).toBeNull();
+      cleanup();
+      // Board mode: no group even with slot data present.
+      renderTopBar({ mode: "board", currentWindow: null, boardName: "b", paneCount: 1, serverCount: 1, boards: [{ name: "b" }], surfaceToggles: toggles() });
+      expect(screen.queryByTestId("surface-toggles")).toBeNull();
+      cleanup();
+      // Terminal mode WITHOUT a current window: no group.
+      renderTopBar({ currentWindow: null, surfaceToggles: toggles() });
+      expect(screen.queryByTestId("surface-toggles")).toBeNull();
     });
 
-    it("mirrors the sidebar pictogram: right-column fill tracks the derived visibility flag", () => {
-      const { unmount } = renderTopBar({ onToggleRail: vi.fn(), railOpen: true });
-      const openFill = screen
-        .getByLabelText("Toggle panel")
-        .querySelector('rect[fill="currentColor"]');
-      expect(openFill).not.toBeNull();
-      // Mirrored geometry: the fill column + divider sit at the RIGHT edge
-      // (x=11.5), not the sidebar toggle's left column (x=2.5 / 6.5).
-      expect(openFill!.getAttribute("x")).toBe("11.5");
-      expect(openFill!.getAttribute("fill-opacity")).toBe("0.5");
-      const divider = screen.getByLabelText("Toggle panel").querySelector("line");
-      expect(divider!.getAttribute("x1")).toBe("11.5");
-      unmount();
-      renderTopBar({ onToggleRail: vi.fn(), railOpen: false });
-      const closedFill = screen
-        .getByLabelText("Toggle panel")
-        .querySelector('rect[fill="currentColor"]');
-      expect(closedFill!.getAttribute("fill-opacity")).toBe("0");
+    it("overflows into a Tiles menu section with one checkbox row per shown surface (checked = open tile, leading glyph)", () => {
+      // Everything overflows in jsdom, so the group's menuRender rows are the
+      // observable surface here; e2e covers the in-bar form.
+      renderTopBar({ surfaceToggles: toggles({ open: ["tty", "code"] }) });
+      act(() => fireEvent.click(screen.getByLabelText("More controls")));
+      const menu = screen.getByRole("menu", { name: "More controls" });
+      // The Tiles section leads the menu (first section label).
+      expect(within(menu).getByText("Tiles", { exact: true })).toBeInTheDocument();
+      const tty = within(menu).getByRole("menuitemcheckbox", { name: "Terminal tile" });
+      const web = within(menu).getByRole("menuitemcheckbox", { name: "Web tile" });
+      const code = within(menu).getByRole("menuitemcheckbox", { name: "Code tile" });
+      expect(tty.getAttribute("aria-checked")).toBe("true");
+      expect(code.getAttribute("aria-checked")).toBe("true");
+      expect(web.getAttribute("aria-checked")).toBe("false");
+      // Leading glyphs from the shared SURFACE_GLYPH map.
+      expect(tty.textContent).toContain(">_");
+      expect(web.textContent).toContain("://");
+      expect(code.textContent).toContain("{}");
+      // The section sits ahead of the View section.
+      const viewLabel = within(menu).getByText("View", { exact: true });
+      expect(
+        Boolean(within(menu).getByText("Tiles", { exact: true }).compareDocumentPosition(viewLabel) & Node.DOCUMENT_POSITION_FOLLOWING),
+      ).toBe(true);
+    });
+
+    it("hides the chat toggle on a chat-capable window while web/code remain (SURFACE_RAIL_HIDDEN)", () => {
+      // The demotion is render-time only: chat stays AVAILABLE (the palette's
+      // `Layout: Add Chat` still works) but the group shows no chat toggle.
+      renderTopBar({ surfaceToggles: toggles({ available: ["tty", "web", "chat", "code"] }) });
+      act(() => fireEvent.click(screen.getByLabelText("More controls")));
+      const menu = screen.getByRole("menu", { name: "More controls" });
+      expect(within(menu).queryByRole("menuitemcheckbox", { name: "Chat tile" })).toBeNull();
+      expect(within(menu).getByRole("menuitemcheckbox", { name: "Terminal tile" })).toBeInTheDocument();
+      expect(within(menu).getByRole("menuitemcheckbox", { name: "Web tile" })).toBeInTheDocument();
+      expect(within(menu).getByRole("menuitemcheckbox", { name: "Code tile" })).toBeInTheDocument();
+    });
+
+    it("shows no chat row even when a chat tile is OPEN (the flag never strands the tile)", () => {
+      renderTopBar({ surfaceToggles: toggles({ available: ["tty", "chat"], open: ["tty", "chat"] }) });
+      act(() => fireEvent.click(screen.getByLabelText("More controls")));
+      const menu = screen.getByRole("menu", { name: "More controls" });
+      expect(within(menu).queryByRole("menuitemcheckbox", { name: "Chat tile" })).toBeNull();
+      expect(within(menu).getByRole("menuitemcheckbox", { name: "Terminal tile" })).toBeInTheDocument();
+    });
+
+    it("clicking a row routes the surface through the shared toggle callback (add or close)", () => {
+      const onToggle = vi.fn();
+      renderTopBar({ surfaceToggles: toggles({ available: ["tty", "web"], open: ["tty"], onToggle }) });
+      act(() => fireEvent.click(screen.getByLabelText("More controls")));
+      const menu = screen.getByRole("menu", { name: "More controls" });
+      fireEvent.click(within(menu).getByRole("menuitemcheckbox", { name: "Web tile" }));
+      expect(onToggle).toHaveBeenCalledWith("web");
+    });
+
+    it("at 3 open tiles the remaining unlit rows render DISABLED; a lit row stays enabled", () => {
+      const onToggle = vi.fn();
+      renderTopBar({ surfaceToggles: toggles({ available: ["tty", "web", "chat", "code"], open: ["tty", "web", "chat"], onToggle }) });
+      act(() => fireEvent.click(screen.getByLabelText("More controls")));
+      const menu = screen.getByRole("menu", { name: "More controls" });
+      const code = within(menu).getByRole("menuitemcheckbox", { name: "Code tile" });
+      expect(code).toHaveProperty("disabled", true);
+      // A lit row stays enabled at 3 tiles (closing is always allowed).
+      expect(within(menu).getByRole("menuitemcheckbox", { name: "Web tile" })).toHaveProperty("disabled", false);
+      // A disabled row never fires the toggle.
+      fireEvent.click(code);
+      expect(onToggle).not.toHaveBeenCalled();
     });
   });
 

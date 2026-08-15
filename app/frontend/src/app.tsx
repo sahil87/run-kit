@@ -107,7 +107,6 @@ import { TopBar, type TopBarMode } from "@/components/top-bar";
 import { useVisualViewport } from "@/hooks/use-visual-viewport";
 import { Shell } from "@/components/shell/shell";
 import { Sidebar } from "@/components/sidebar";
-import { RightPanel } from "@/components/right-panel";
 import { SurfaceLayout } from "@/components/surface-layout";
 import { BottomBar } from "@/components/bottom-bar";
 import { StatusBar } from "@/components/status-bar";
@@ -539,8 +538,7 @@ function RootTopBar() {
       onRequestKill={slot?.onRequestKill}
       autofit={slot?.autofit}
       onToggleAutofit={slot?.onToggleAutofit}
-      railOpen={slot?.railOpen}
-      onToggleRail={slot?.onToggleRail}
+      surfaceToggles={slot?.surfaceToggles}
       layout={slot?.layout}
       onApplyLayout={slot?.onApplyLayout}
     />
@@ -664,8 +662,8 @@ function AppShell() {
   const serversLoaded = ctx.serversLoaded;
   const pendingServer = ctx.pendingServer;
   const sessions = useMergedSessions(rawSessions, server);
-  const { sidebarOpen, sidebarWidth, railOpen, fixedWidth, composeStripEnabled } = useChromeState();
-  const { setCurrentSession, setCurrentWindow, setSidebarOpen, setSidebarWidth, setRailOpen, persistSidebarWidth, toggleFixedWidth, toggleComposeStrip } = useChromeDispatch();
+  const { sidebarOpen, sidebarWidth, fixedWidth, composeStripEnabled } = useChromeState();
+  const { setCurrentSession, setCurrentWindow, setSidebarOpen, setSidebarWidth, persistSidebarWidth, toggleFixedWidth, toggleComposeStrip } = useChromeDispatch();
   const navigate = useNavigate();
   const isMobile = useIsMobile();
   const wsRef = useRef<WebSocket | null>(null);
@@ -778,7 +776,7 @@ function AppShell() {
   // window, the LIVE derivation latches — and derivation never moves the editor
   // again (not on a pane switch, not on tile close/reopen, not on reload). Keyed
   // on the resolved layout's order, the choke point every entry path (view
-  // switcher, rail toggle, `?view=code`/`?layout=` deep link, mobile sheet)
+  // switcher, surface toggle, `?view=code`/`?layout=` deep link, mobile sheet)
   // resolves through — never on availability alone: a code lens that is merely
   // OFFERED seeds nothing. An empty derivation seeds nothing either, so a window
   // that was never inside a repo behaves exactly as it did before the latch.
@@ -830,7 +828,7 @@ function AppShell() {
   // replaceState (the mirror's default-drops-param rule applies here too — a
   // mutation BACK to the window's default, e.g. closing the last non-tty
   // tile, leaves a clean URL; localStorage still records the choice). Tile
-  // verbs, rail toggles, the view-cycle chord, and the palette `View:` actions
+  // verbs, surface toggles, the view-cycle chord, and the palette `View:` actions
   // all funnel through this. Stable across SSE ticks.
   const applyLayout = useCallback(
     (next: Layout) => {
@@ -848,18 +846,6 @@ function AppShell() {
     [server, windowParam, currentWindow, navigate],
   );
 
-  // Rail visibility (260812-nm4p, reinterpreted under 260812-ab5v): the
-  // top-bar rail toggle — the sidebar toggle's far-right mirror — collapses
-  // the RAIL COLUMN ONLY. Layout tiles live in the content column and are
-  // deliberately unaffected: each tile carries its own ✕ verb, and the
-  // palette/chords stay live while the rail is hidden, so nothing is ever
-  // dead. The pre-layout "collapse closes the open panel" rule is retired
-  // with the panel slot itself; visibility is the raw persisted preference.
-  const rightAreaVisible = railOpen;
-  const onToggleRail = useCallback(() => {
-    setRailOpen(!railOpen);
-  }, [railOpen, setRailOpen]);
-
   // Switch the current window's lens (window-view spec R2/R7) — R12's shim:
   // selecting a view sets the layout to `single:<view>` through the shared
   // mutation path (a user mutation — persisted + mirrored). Never mutates
@@ -869,11 +855,12 @@ function AppShell() {
     [applyLayout],
   );
 
-  // Rail/palette surface toggle (right-panel P1/P6, retargeted to tiles in
-  // 260812-ab5v): an OPEN surface closes its tile (closeSurface — arity
+  // Surface toggle (right-panel P1/P6, retargeted to tiles in 260812-ab5v):
+  // an OPEN surface closes its tile (closeSurface — arity
   // collapses), a closed one appends a tile (addSurface — 1→2 `split-h`,
   // 2→3 `main-left`). A disallowed mutation (closing the last tile, adding a
-  // fourth) is a null no-op. Stable across SSE ticks.
+  // fourth) is a null no-op. Stable across SSE ticks. Shared by the top-bar
+  // surface-toggle group, the tile verbs, and the palette.
   const togglePanel = useCallback(
     (surface: SurfaceName) => {
       const next = layout.order.includes(surface)
@@ -885,7 +872,8 @@ function AppShell() {
   );
 
   // The surfaces the current window can tile (`tty` first — R8's shared
-  // registry), consumed by the rail and the palette gating.
+  // registry), consumed by the top-bar surface-toggle group and the palette
+  // gating.
   const panelSurfaces = useMemo(
     () => availableSurfaces(effectiveWindow),
     [effectiveWindow],
@@ -2778,8 +2766,8 @@ function AppShell() {
         })(),
       }),
       // Layout entries (260812-ab5v R11, T012) — Constitution V palette parity
-      // for the rail toggles, tile verbs, and ▦ chip: `Layout: Add/Close
-      // <Surface>` (the rail's toggles), `Layout: Zoom`/`Unzoom` (the
+      // for the surface toggles, tile verbs, and ▦ chip: `Layout: Add/Close
+      // <Surface>` (the top-bar toggle group's actions), `Layout: Zoom`/`Unzoom` (the
       // transient slot-A zoom), `Layout: Promote/Swap <Surface>` (the tile
       // verbs), per-shape jumps for the current arity, and `Layout: Cycle
       // Shape` (the `layout-cycle` chord's body — its id IS the registry
@@ -2809,22 +2797,13 @@ function AppShell() {
             })(),
           })
         : []),
-      // Rail toggle (260812-nm4p) — Constitution V keyboard path for the
-      // top-bar's far-right rail chip: collapses/restores the whole right
-      // column (rail AND any open panel), never a panel surface. Offered on
-      // EVERY desktop terminal route (even with zero available surfaces — the
-      // rail renders regardless), mirroring the button's own gate. No
-      // registry binding, so no shortcut hint.
-      ...(windowParam && !isMobile
-        ? [{ id: "panel-rail-toggle", label: "Panel: Toggle rail", onSelect: onToggleRail }]
-        : []),
       {
         id: "toggle-fixed-width",
         label: fixedWidth ? "View: Full Width" : "View: Fixed Width (900px)",
         onSelect: toggleFixedWidth,
       },
     ],
-    [sessionName, fixedWidth, toggleFixedWidth, toggleComposeStrip, currentViews, resolvedView, switchView, bindingByAction, bindingHost, windowParam, isMobile, layout, panelSurfaces, applyLayout, layoutZoomed, focusedTileKind, onToggleRail],
+    [sessionName, fixedWidth, toggleFixedWidth, toggleComposeStrip, currentViews, resolvedView, switchView, bindingByAction, bindingHost, windowParam, isMobile, layout, panelSurfaces, applyLayout, layoutZoomed, focusedTileKind],
   );
 
   // Navigation actions (`Go: Back` / `Go: Forward` / ancestor entries,
@@ -3496,14 +3475,13 @@ function AppShell() {
       onToggleSidebar,
       onCreateWindow: handleCreateWindow,
       onSpawnAgent: handleSlotSpawnAgent,
-      // Rail toggle (260812-nm4p, reinterpreted under 260812-ab5v): `railOpen`
-      // carries the raw persisted preference (tiles are content-column state
-      // and never force the rail visible). The handler registers on EVERY
-      // desktop terminal route — even with zero available surfaces, the rail
-      // still renders (landing-pad behavior). Absent on board/host/mobile →
-      // no toggle.
-      railOpen: rightAreaVisible,
-      onToggleRail: windowParam && !isMobile ? onToggleRail : undefined,
+      // Top-bar surface-toggle group: the tile surfaces the current window
+      // offers, the open tiles, and the shared toggle mutation. Registered on
+      // every desktop terminal route; absent on board/host/mobile → no group.
+      surfaceToggles:
+        windowParam && !isMobile
+          ? { available: panelSurfaces, open: layout.order, onToggle: togglePanel }
+          : undefined,
       // ▦ Layout chip machinery (260812-ab5v R9): the resolved layout + the
       // single mutation path. The top bar's chip/rows jump presets through
       // `applyLayout` like every other mutation.
@@ -3522,10 +3500,10 @@ function AppShell() {
       onToggleSidebar,
       handleCreateWindow,
       handleSlotSpawnAgent,
-      rightAreaVisible,
       windowParam,
       isMobile,
-      onToggleRail,
+      panelSurfaces,
+      togglePanel,
       layout,
       applyLayout,
     ],
@@ -3575,7 +3553,6 @@ function AppShell() {
   return (
     <Shell
       sidebarChildren={sidebarElement}
-      rightPanelVisible={rightAreaVisible}
       // Status bar (260814-ldbs): the full-width attached strip at the shell
       // bottom — Shell renders it as the `statusbar` row on desktop (never
       // mobile). The window cluster mirrors the CURRENT window's registers
@@ -3589,9 +3566,9 @@ function AppShell() {
           onOpenCompose={toggleComposeStrip}
         />
       }
-      // Bottom-bar row (260814-ldbs): Shell owns the `<footer
-      // gridArea:"bottombar">` placement now, keeping the footer OUT of the
-      // nested stage. BottomBar self-gates on pointer type — fine pointers
+      // Bottom-bar row: Shell owns the `<footer
+      // gridArea:"bottombar">` placement — inside the stage's content column
+      // on desktop, in the outer grid on mobile. BottomBar self-gates on pointer type — fine pointers
       // render nothing (the key chips are touch affordances; ⌘K + compose
       // relocated to the status bar), so the `auto` row collapses to zero
       // height there (the 260814-ink6 no-reserved-height property).
@@ -3619,36 +3596,14 @@ function AppShell() {
           />
         </>
       }
-      rightPanelChildren={
-        windowParam && !isMobile ? (
-          // Rail (260811-2r1w; rail-only since 260812-ab5v T011 — layout
-          // tiles subsume the panel slot, so the Shell's third column
-          // (260812-nm4p) now holds JUST the rail; surface content lives in
-          // the content column's tile grid). Buttons are open-tile TOGGLES
-          // (R10): lit per open tile (`layout.order`), click adds/closes via
-          // `togglePanel` → applyLayout; disabled+tooltip at 3 tiles. Keyed
-          // by server:window like the panel was. Collapse via
-          // `rightAreaVisible` is display-level (Shell's hidden aside) and
-          // never touches the tiles.
-          <RightPanel
-            key={`${server}:${windowParam}`}
-            available={panelSurfaces}
-            open={layout.order}
-            onToggle={togglePanel}
-          />
-        ) : undefined
-      }
       sidebarResizeHandle={
-        // Drag handle — Shell places it at the sidebar aside's right edge and
-        // renders it only when the desktop aside is up (never on the mobile
-        // overlay). All drag state/handlers stay here in AppShell.
-        // Visual bar is 3px (the seam width), but the grabbable area is
-        // extended ~8px into the sidebar via the invisible `before:`
-        // pseudo-element (pointer events on a pseudo hit its element, so the
-        // drag/hover handlers fire unchanged). It cannot extend RIGHT over the
-        // terminal: the aside's `overflow-hidden` clips anything past its edge.
+        // Drag handle — Shell places it in a zero-width grid item pinned to
+        // the sidebar card's right edge, so the 14px hit zone straddles the
+        // 6px stage gap (the `rk-divider` gap-seam chrome — rest grip dots,
+        // accent sash pill on hover/drag — is the tile-divider vocabulary).
+        // All drag state/handlers stay here in AppShell.
         <div
-          className="relative w-[3px] shrink-0 cursor-col-resize bg-border hover:bg-text-secondary transition-colors before:content-[''] before:absolute before:inset-y-0 before:-left-2 before:right-0"
+          className={`rk-divider absolute top-0 bottom-0 left-[3px] w-3.5 -translate-x-1/2 cursor-col-resize ${isDraggingRef.current ? "rk-sash-lit" : ""}`}
           onPointerDown={handleDragHandlePointerDown}
           style={{ touchAction: "none" }}
           role="separator"
@@ -3657,7 +3612,14 @@ function AppShell() {
           aria-valuenow={sidebarWidth}
           aria-valuemin={SIDEBAR_MIN_WIDTH}
           aria-valuemax={SIDEBAR_MAX_WIDTH}
-        />
+        >
+          <span aria-hidden="true" className="rk-sash rk-sash-v pointer-events-none" />
+          <span aria-hidden="true" className="rk-grips rk-grips-v pointer-events-none">
+            <i />
+            <i />
+            <i />
+          </span>
+        </div>
       }
     >
       {/* The desktop sidebar aside is now Shell-owned (260719-rwqf): AppShell
@@ -3669,15 +3631,14 @@ function AppShell() {
           (see the `useRegisterTopBarSlot` effect above). The `terminal` vs
           `root` mode distinction is derived at root from the route params. */}
 
-      {/* Content grid area. In `fixedWidth` mode the main carries
-          `bg-bg-inset` behind the centered 900px `bg-bg-primary` column — on
-          the terminal route this is now the SAME color as the surrounding
-          stage ground (260814-ldbs), so the split reconciles to a single
-          ground with no doubling; the class stays because the server route
-          (SessionTiles, no stage) still needs it. */}
+      {/* Content grid area. The stage ground (`bg-bg-inset`) is universal now,
+          so the main carries no ground color of its own. In `fixedWidth` mode
+          the centered 900px column is a card on that ground (`rounded-md` +
+          the dimmed `rk-card-border` + `bg-bg-primary`) — this is also what
+          frames the server route's SessionTiles column. */}
       <main
         style={{ gridArea: "content" }}
-        className={`min-w-0 flex flex-col overflow-hidden ${fixedWidth ? "bg-bg-inset" : ""}`}
+        className="min-w-0 flex flex-col overflow-hidden"
       >
         {/* The terminal content surface. `viewTransitionName` scopes the
             window-switch slide (260703-l4nf) to this region only — sidebar,
@@ -3686,7 +3647,7 @@ function AppShell() {
             mean no layout change, so the terminal's ResizeObserver/fitAndSync
             never fires and tmux sees no resize churn. */}
         <div
-          className={`relative flex-1 min-h-0 flex flex-col ${fixedWidth ? "bg-bg-primary" : ""}`}
+          className={`relative flex-1 min-h-0 flex flex-col ${fixedWidth ? "rounded-md border rk-card-border bg-bg-primary overflow-hidden" : ""}`}
           style={{
             viewTransitionName: "terminal-surface",
             ...(fixedWidth ? { maxWidth: 900, width: "100%", marginInline: "auto" } : {}),
@@ -3735,9 +3696,8 @@ function AppShell() {
               (the palette `View:` actions drive `single:<view>` through
               applyLayout — R12) and the right-panel surface mount (the panel
               slot is a
-              tile now — R6). The rail left this row in 260812-nm4p — it is
-              the Shell grid's full-height third column, passed via
-              `rightPanelChildren` — and renders open-tile toggles (R10). */}
+              tile now — R6). Open-tile toggles (R10) live in the top bar's
+              surface-toggle group. */}
           <div className="flex-1 min-w-0 min-h-0 flex flex-col">
           {/* Render gate keys on `windowParam` (the URL's @N) ALONE, not the
               SSE-derived `sessionName`. The session name is only needed for the
@@ -3840,9 +3800,8 @@ function AppShell() {
       </main>
 
       {/* Bottom bar + shell-docked compose strip moved OUT of the children
-          into Shell's `bottomBarChildren` slot (260814-ldbs): on the terminal
-          route the stage grid wraps these children, and the footer must stay
-          outside it. The compose strip's dock predicate is unchanged — the
+          into Shell's `bottomBarChildren` slot (260814-ldbs): Shell renders
+          the footer inside the stage's content column. The compose strip's dock predicate is unchanged — the
           strip renders ABOVE the bottom bar inside the bottombar row UNLESS
           the in-tile dock hosts it (260813-j3jb — desktop terminal route,
           tty tile present, no selection broadcast); its presence grows the

@@ -1283,7 +1283,7 @@ function DesktopRow({
   );
 
   return (
-    <div ref={rowRef} className="h-full w-full overflow-x-auto flex gap-1 p-1">
+    <div ref={rowRef} className="h-full w-full overflow-x-auto flex gap-[6px]">
       {orderedEntries.map((entry) => {
         const key = `${entry.server}:${entry.windowId}`;
         // Authoritative index (fallback to a display-stable value if a pane

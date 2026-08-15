@@ -7,7 +7,9 @@ The code lens + § Surface Registry), retargeted to the surface-layout model in
 lens joins the view registry (`?view=code` → `single:code` via the permanent
 shim + the palette's `View: Code` action — the switcher menu rows are retired,
 260812-0c6o) AND the tileable code surface
-(`Code tile` rail toggle, `?panel=code` → `split-h:tty,code` via the shim),
+(`Code tile` top-bar toggle — the right rail is REMOVED, its toggles moved
+into the top bar's `surface-toggles` group; `?panel=code` → `split-h:tty,code`
+via the shim),
 with availability = gitRoot derived (since a2bo the port resolves by
 convention — `RK_CODE_SERVER_PORT` preset, else `RK_PORT+2` — and no longer
 gates), and code-server reachability governing only the surface CONTENT (live
@@ -41,8 +43,8 @@ the parent.
   xterm chunk).
 - **`afterAll`**: kill the session (best-effort); the stub-listening describe
   also closes the stub.
-- **`beforeEach`**: set a wide desktop viewport (1440×800) — the rail is
-  desktop-only.
+- **`beforeEach`**: set a wide desktop viewport (1440×800) — the top-bar
+  surface-toggle group is desktop terminal-route only.
 - **`makeWindow(name, {cwd?})`**: create a window via `tmux new-window`
   (optionally with `-c /tmp` for a NON-repo cwd — the availability-negative
   case). Returns the stable `@N` id.
@@ -52,16 +54,19 @@ the parent.
 - **`expectLayoutParam(page, expected)`**: retrying read of the DECODED
   `?layout=` search param (`URL.searchParams` — the router may percent-encode
   `:`/`,`); the `replaceState` mirror lands a beat after the arrival/mutation.
-- **Locators**: the `Code tile` / `Web tile` rail toggles (role + accessible
-  name — the retired `Code panel` name and the `right-panel` testid are GONE;
-  surfaces render as layout tiles now), the `surface-tile-code` tile testid,
+- **Locators**: the `Code tile` / `Web tile` top-bar toggles (role + accessible
+  name SCOPED to the `banner` — the retired `Code panel` name, the
+  `right-panel` testid, and the whole right rail are GONE; surfaces render as
+  layout tiles now, and the top bar's aria-hidden measurement probe duplicates
+  every in-bar control, so accessible-name queries are the only unambiguous
+  ones), the `surface-tile-code` tile testid,
   the `Code editor` iframe title, the `code-surface-empty` testid, the
   `.xterm` terminal surface, and the command palette (the only lens-switch
   surface since the ViewSwitcher's retirement, 260812-0c6o).
 
 ## Tests
 
-### the code rail button appears only on a git-repo window; the palette's `View: Code` action gates the same way
+### the Code tile top-bar toggle appears only on a git-repo window; the palette's `View: Code` action gates the same way
 What it proves: availability derives from the SSE `gitRoot` field alone
 (Constitution II/X — no client-side declaration; the port is conventional
 since a2bo); a non-repo cwd (`/tmp`) derives no gitRoot, so neither affordance
@@ -71,7 +76,7 @@ chevron menu carries no `View:` rows. The test carries a 30s budget
 two full page loads land marginal at the 10s default under suite load.
 Steps:
 1. Create a repo-cwd window; navigate; assert the terminal, then the `Code
-   tile` rail toggle (SSE-gated).
+   tile` top-bar toggle (SSE-gated).
 2. Open the palette with `View: Code`; assert the option is visible; Escape.
    Open the "More controls" menu; assert it carries NO `View:` rows; Escape.
 3. Create a `/tmp`-cwd window; navigate; assert NO `Code tile` button and no
@@ -103,11 +108,12 @@ Steps:
 ### ?view=code renders the code lens as the single slot-A tile
 What it proves: `code` is a full view-registry lens (window-views R4) — the
 shim maps `?view=code` to `single:code`, the code tile fills the center, and
-the rail stays put (tiles are additive).
+the top-bar toggle group stays put (tiles are additive).
 Steps:
 1. Create a repo-cwd window; navigate with `?view=code`.
 2. Assert the `Code editor` iframe is visible, the mirrored URL reads
-   `single:code`, and the rail still renders.
+   `single:code`, and the group still renders (the `Terminal tile` toggle is
+   visible in the banner).
 
 ### unavailable params fall through: ?view=code&panel=code resolves to plain tty on a /tmp window
 What it proves: the resolve/degrade fall-throughs — `?view=code&panel=code`
@@ -127,9 +133,9 @@ growth), and closing the web tile keeps its iframe subtree mounted
 (in-memory state preserved).
 Steps:
 1. Create a repo-cwd window and stamp `@rk_url` (both surfaces available);
-   navigate; assert both rail toggles.
+   navigate; assert both top-bar toggles.
 2. Open web; assert the `Proxied content` iframe is visible. Click the code
-   rail toggle; assert the code iframe is visible AND the web iframe still is.
+   top-bar toggle; assert the code iframe is visible AND the web iframe still is.
 3. Close web via its lit toggle; assert the web iframe is hidden but still in
    the DOM (count 1). Capture its element handle, reopen web, and assert the
    visible iframe is the same element.
@@ -148,13 +154,13 @@ Steps:
 
 ### the surface renders the not-running empty state when the port is unreachable
 What it proves: reachability governs CONTENT, not availability — with the stub
-down, the rail toggle still renders (capability signals are stable) but the
+down, the top-bar toggle still renders (capability signals are stable) but the
 code tile shows the terse portless `code-server not running — check rk doctor`
 empty state (a2bo) instead of a dead iframe.
 Steps:
 1. (Stub is closed — this describe never binds the port.)
 2. Create a repo-cwd window; navigate with `?panel=code`; assert the `Code
-   tile` rail toggle is visible.
+   tile` top-bar toggle is visible.
 3. Assert the `code-surface-empty` state reads `code-server not running —
    check rk doctor` (30s budget — the backend's ~5s probe TTL must expire
    first) and no `Code editor` iframe exists.

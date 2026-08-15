@@ -6,10 +6,11 @@ import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
 // Surface-layout core e2e (260812-ab5v-surface-layout-core; spec
 // docs/specs/surface-layout.md, plan tasks T016). Covers the resolution ladder
 // (URL `?layout=` > localStorage `rk-layout:` > hint > `single:tty`), the
-// permanent `?view=`/`?panel=` translation shim, tile verbs + rail toggles
-// (the ONLY 3-tile test in the file — the plaintext origin's h1 connection
-// pool is 6 slots, so every other flow stays at ≤2 tiles, per the spec's
-// Performance note), refresh/window-switch/history semantics (L2–L4), divider
+// permanent `?view=`/`?panel=` translation shim, tile verbs + the top-bar
+// surface-toggle group (the right rail is REMOVED — composed-frame
+// unification; the ONLY 3-tile test in the file — the plaintext origin's h1
+// connection pool is 6 slots, so every other flow stays at ≤2 tiles, per the
+// spec's Performance note), refresh/window-switch/history semantics (L2–L4), divider
 // ratio persistence (R5), the mobile slot-A + sheet-tabs branch (R13), and —
 // from 260812-wfic — the focused-tile accent border (R2) and the tty-scoped
 // split-chord gate (R8). 260813-w1lf adds the tty pane segment (Split H ·
@@ -59,11 +60,14 @@ function paneCount(windowId: string): number {
 }
 
 /** Navigate to a window's terminal route (optionally with a search string) and
- *  wait for the SSE connection. Desktop-only gate (the `Connected` dot lives
- *  in the sidebar footer — the mobile test gates on the terminal instead). */
+ *  wait for the SSE connection. Desktop-only gate (the `Connected` dot lives in
+ *  the full-width bottom STATUS BAR since the composed-frame unification — the
+ *  desktop sidebar renders no footer; the mobile test gates on the terminal
+ *  instead). Unscoped query: the status-bar dot is now the ONLY `Connected`
+ *  element on a desktop route. */
 async function gotoWindow(page: Page, windowId: string, search = ""): Promise<void> {
   await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(windowId)}${search}`);
-  await expect(page.locator("nav [aria-label='Connected']")).toBeVisible({
+  await expect(page.locator("[aria-label='Connected']")).toBeVisible({
     timeout: READY_TIMEOUT,
   });
 }
@@ -77,9 +81,13 @@ async function expectLayoutParam(page: Page, expected: string | null): Promise<v
     .toBe(expected);
 }
 
-const rail = (page: Page) => page.getByTestId("right-panel-rail");
-const railButton = (page: Page, label: "Terminal" | "Web" | "Code") =>
-  rail(page).getByRole("button", { name: `${label} tile` });
+// The surface toggles live in the top bar's `surface-toggles` group (the right
+// rail is REMOVED — composed-frame unification). Locate by ACCESSIBLE NAME
+// scoped to the banner: the top bar always renders an aria-hidden off-screen
+// measurement probe duplicating every in-bar control, so testid / `:visible`
+// queries are ambiguous (two copies) — getByRole excludes the probe.
+const surfaceToggle = (page: Page, label: "Terminal" | "Web" | "Code") =>
+  page.getByRole("banner").getByRole("button", { name: `${label} tile` });
 const tile = (page: Page, kind: "tty" | "web" | "code", occ = 1) =>
   page.getByTestId(`surface-tile-${kind}${occ > 1 ? `-${occ}` : ""}`);
 const divider = (page: Page, index = 0) => page.getByTestId(`surface-divider-${index}`);
@@ -95,7 +103,7 @@ test.beforeAll(async ({ browser }) => {
   const page = await browser.newPage();
   const first = await resolveWindowRaw(page, TMUX_SERVER, TEST_SESSION);
   await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(first.windowId)}`);
-  await expect(page.locator("nav [aria-label='Connected']")).toBeVisible({ timeout: 60_000 });
+  await expect(page.locator("[aria-label='Connected']")).toBeVisible({ timeout: 60_000 });
   await expect(page.locator(".xterm").first()).toBeVisible({ timeout: 60_000 });
   await page.close();
 });
@@ -130,7 +138,7 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     await expect(webIframe(page)).toBeVisible({ timeout: READY_TIMEOUT });
   });
 
-  test("build a 3-tile layout via rail toggles; promote/swap/close verbs mutate (shape, order) in the URL (A-017)", async ({
+  test("build a 3-tile layout via the top-bar surface toggles; promote/swap/close verbs mutate (shape, order) in the URL (A-017)", async ({
     page,
   }) => {
     test.setTimeout(60_000);
@@ -139,21 +147,21 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     await gotoWindow(page, id);
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
 
-    // Rail toggles grow the layout: 1→2 split-h, 2→3 main-left (R10).
-    const webRail = railButton(page, "Web");
-    const codeRail = railButton(page, "Code");
-    await expect(webRail).toBeVisible({ timeout: READY_TIMEOUT });
-    await expect(codeRail).toBeVisible({ timeout: READY_TIMEOUT });
+    // The top-bar surface toggles grow the layout: 1→2 split-h, 2→3 main-left (R10).
+    const webToggle = surfaceToggle(page, "Web");
+    const codeToggle = surfaceToggle(page, "Code");
+    await expect(webToggle).toBeVisible({ timeout: READY_TIMEOUT });
+    await expect(codeToggle).toBeVisible({ timeout: READY_TIMEOUT });
 
-    await webRail.click();
+    await webToggle.click();
     await expectLayoutParam(page, "split-h:tty,web");
     await expect(tile(page, "web")).toBeVisible({ timeout: 10_000 });
-    await expect(webRail).toHaveAttribute("aria-pressed", "true");
+    await expect(webToggle).toHaveAttribute("aria-pressed", "true");
 
-    await codeRail.click();
+    await codeToggle.click();
     await expectLayoutParam(page, "main-left:tty,web,code");
     await expect(tile(page, "code")).toBeVisible({ timeout: 10_000 });
-    await expect(codeRail).toHaveAttribute("aria-pressed", "true");
+    await expect(codeToggle).toHaveAttribute("aria-pressed", "true");
 
     // — Gap-seam intersection (260814-011r R3), folded into THIS 3-tile mount
     // (the h1 6-slot pool budget allows only one): main-left renders the
@@ -230,8 +238,8 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     await expect(tile(page, "web")).toBeHidden();
     await expect(tile(page, "code")).toBeVisible();
     await expect(terminal(page)).toBeVisible();
-    // The rail toggle reflects the close (web unlit again).
-    await expect(webRail).toHaveAttribute("aria-pressed", "false");
+    // The top-bar toggle reflects the close (web unlit again).
+    await expect(webToggle).toHaveAttribute("aria-pressed", "false");
   });
 
   test("the tty header carries the pane segment at any arity (visible while zoomed); the terminal bar dropped its split chip (260813-w1lf)", async ({
@@ -269,9 +277,9 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
 
     // Arity 2 (split-h:tty,web — within the ≤2-tile perf budget): the segment
     // stays tty-only — the web tile's header carries layout verbs, no segment.
-    const webRail = railButton(page, "Web");
-    await expect(webRail).toBeVisible({ timeout: READY_TIMEOUT });
-    await webRail.click();
+    const webToggle = surfaceToggle(page, "Web");
+    await expect(webToggle).toBeVisible({ timeout: READY_TIMEOUT });
+    await webToggle.click();
     await expect(tile(page, "web")).toBeVisible({ timeout: 10_000 });
     await expectLayoutParam(page, "split-h:tty,web");
     await expect(segment).toBeVisible();
@@ -297,18 +305,18 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     const id = await makeWindow(page, `sl-persist-${Date.now()}`, { url: IFRAME_URL });
     await gotoWindow(page, id);
 
-    // A user mutation (rail toggle) writes rk-layout:{server}:{@N} AND mirrors
+    // A user mutation (top-bar toggle) writes rk-layout:{server}:{@N} AND mirrors
     // the URL.
-    const webRail = railButton(page, "Web");
-    await expect(webRail).toBeVisible({ timeout: READY_TIMEOUT });
-    await webRail.click();
+    const webToggle = surfaceToggle(page, "Web");
+    await expect(webToggle).toBeVisible({ timeout: READY_TIMEOUT });
+    await webToggle.click();
     await expectLayoutParam(page, "split-h:tty,web");
     await expect(tile(page, "web")).toBeVisible({ timeout: 10_000 });
 
     // Re-arrive via a FULL load of the BARE route (no ?layout= carried) — the
     // URL rung is empty, so the localStorage rung must supply the layout.
     await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(id)}`);
-    await expect(page.locator("nav [aria-label='Connected']")).toBeVisible({
+    await expect(page.locator("[aria-label='Connected']")).toBeVisible({
       timeout: READY_TIMEOUT,
     });
     await expect(tile(page, "web")).toBeVisible({ timeout: 10_000 });
@@ -324,9 +332,9 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
 
     // On A, build split-h:tty,web (a user mutation → localStorage write).
     await gotoWindow(page, a);
-    const webRail = railButton(page, "Web");
-    await expect(webRail).toBeVisible({ timeout: READY_TIMEOUT });
-    await webRail.click();
+    const webToggle = surfaceToggle(page, "Web");
+    await expect(webToggle).toBeVisible({ timeout: READY_TIMEOUT });
+    await webToggle.click();
     await expectLayoutParam(page, "split-h:tty,web");
     await expect(tile(page, "web")).toBeVisible({ timeout: 10_000 });
 
@@ -358,16 +366,16 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     const a = await makeWindow(page, `sl-hist-a-${Date.now()}`, { url: IFRAME_URL });
     const b = await makeWindow(page, `sl-hist-b-${Date.now()}`);
 
-    // History: [E0 server route] → [E1 window A] → (rail toggle: replaceState,
+    // History: [E0 server route] → [E1 window A] → (top-bar toggle: replaceState,
     // E1 updated in place) → [E2 window B via sidebar push].
     await page.goto(`/${TMUX_SERVER}`);
-    await expect(page.locator("nav [aria-label='Connected']")).toBeVisible({
+    await expect(page.locator("[aria-label='Connected']")).toBeVisible({
       timeout: READY_TIMEOUT,
     });
     await gotoWindow(page, a);
-    const webRail = railButton(page, "Web");
-    await expect(webRail).toBeVisible({ timeout: READY_TIMEOUT });
-    await webRail.click();
+    const webToggle = surfaceToggle(page, "Web");
+    await expect(webToggle).toBeVisible({ timeout: READY_TIMEOUT });
+    await webToggle.click();
     await expectLayoutParam(page, "split-h:tty,web");
 
     const sidebar = page.locator("nav[aria-label='Sessions']");
@@ -388,7 +396,7 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     await page.goForward();
     await expectLayoutParam(page, null); // default layout mirrors as a CLEAN URL (param dropped)
 
-    // Back twice more: past A, straight to the E0 server route. If the rail
+    // Back twice more: past A, straight to the E0 server route. If the top-bar
     // toggle had PUSHED an entry, the second back would land on a stale
     // pre-mutation A URL instead — the replaceState discipline (L4) is what
     // makes the window route disappear from history here.
@@ -406,9 +414,9 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     test.setTimeout(40_000);
     const id = await makeWindow(page, `sl-ratio-${Date.now()}`, { url: IFRAME_URL });
     await gotoWindow(page, id);
-    const webRail = railButton(page, "Web");
-    await expect(webRail).toBeVisible({ timeout: READY_TIMEOUT });
-    await webRail.click();
+    const webToggle = surfaceToggle(page, "Web");
+    await expect(webToggle).toBeVisible({ timeout: READY_TIMEOUT });
+    await webToggle.click();
     await expect(tile(page, "web")).toBeVisible({ timeout: 10_000 });
 
     // The split-h divider starts at the equal split (50).
@@ -455,7 +463,7 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     // The ratio persists per (window, shape): a bare reload resolves the same
     // layout AND the dragged divider position.
     await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(id)}`);
-    await expect(page.locator("nav [aria-label='Connected']")).toBeVisible({
+    await expect(page.locator("[aria-label='Connected']")).toBeVisible({
       timeout: READY_TIMEOUT,
     });
     await expect(tile(page, "web")).toBeVisible({ timeout: 10_000 });
@@ -470,9 +478,9 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     test.setTimeout(40_000);
     const id = await makeWindow(page, `sl-zoom-${Date.now()}`, { url: IFRAME_URL });
     await gotoWindow(page, id);
-    const webRail = railButton(page, "Web");
-    await expect(webRail).toBeVisible({ timeout: READY_TIMEOUT });
-    await webRail.click();
+    const webToggle = surfaceToggle(page, "Web");
+    await expect(webToggle).toBeVisible({ timeout: READY_TIMEOUT });
+    await webToggle.click();
     await expect(tile(page, "web")).toBeVisible({ timeout: 10_000 });
     await expectLayoutParam(page, "split-h:tty,web");
 
@@ -516,8 +524,9 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
       test.setTimeout(30_000);
       await page.setViewportSize(MOBILE_VIEWPORT);
       const id = await makeWindow(page, `sl-mobile-${Date.now()}`, { url: IFRAME_URL });
-      // Do NOT gate on the `Connected` dot: it lives in the sidebar footer, and
-      // at 375px the sidebar is an unmounted drawer. Gate on the terminal.
+      // Do NOT gate on the `Connected` dot: it lives in the desktop-only status
+      // bar now (the sidebar footer is gone; at 375px the sidebar is an
+      // unmounted drawer anyway). Gate on the terminal.
       await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(id)}?layout=main-left:tty,code,web`);
       await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
 
@@ -529,9 +538,11 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
       await expect(divider(page, 0)).toHaveCount(0);
       // Gap-seam chrome is desktop-only (260814-011r R5): no intersection zone.
       await expect(page.getByTestId("surface-divider-intersection")).toHaveCount(0);
-      // No rail on mobile (desktop-only), but the ▦ Surfaces chip appears because
-      // MORE THAN ONE surface is open.
-      await expect(rail(page)).toHaveCount(0);
+      // No surface toggles on mobile (the top-bar group is desktop-only), but
+      // the ▦ Surfaces chip appears because MORE THAN ONE surface is open.
+      await expect(
+        page.getByRole("banner").getByRole("button", { name: "Terminal tile" }),
+      ).toHaveCount(0);
       const chip = page.getByTestId("mobile-surfaces-chip");
       // READY_TIMEOUT: on a cold deep link the multi-surface layout (and so the
       // chip) resolves only once the window payload lands with rkUrl/gitRoot.
@@ -564,9 +575,9 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     test.setTimeout(30_000);
     const id = await makeWindow(page, `sl-focus-${Date.now()}`, { url: IFRAME_URL });
     await gotoWindow(page, id);
-    const webRail = railButton(page, "Web");
-    await expect(webRail).toBeVisible({ timeout: READY_TIMEOUT });
-    await webRail.click();
+    const webToggle = surfaceToggle(page, "Web");
+    await expect(webToggle).toBeVisible({ timeout: READY_TIMEOUT });
+    await webToggle.click();
     await expect(tile(page, "web")).toBeVisible({ timeout: 10_000 });
 
     // Default focus = slot A (tty): its framed border reads accent-green, the
@@ -596,9 +607,9 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
 
     // Open the code tile (every window here is code-capable — repo-root cwd).
-    const codeRail = railButton(page, "Code");
-    await expect(codeRail).toBeVisible({ timeout: READY_TIMEOUT });
-    await codeRail.click();
+    const codeToggle = surfaceToggle(page, "Code");
+    await expect(codeToggle).toBeVisible({ timeout: READY_TIMEOUT });
+    await codeToggle.click();
     await expect(tile(page, "code")).toBeVisible({ timeout: 10_000 });
 
     const before = paneCount(id);

@@ -1,0 +1,4 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-15T03:00:32Z"}
+{"args":"rk send + rk await — crystallize agent-to-agent messaging into rk: gated probe-verified send verb (chat-send injection engine + @rk_agent_state idle gate + key-name arm) and a state-await verb, superseding fab pane send/await for operator use","cmd":"fab-new","event":"command","ts":"2026-08-15T03:00:32Z"}
+{"delta":"+3.8","event":"confidence","score":3.8,"trigger":"calc-score","ts":"2026-08-15T03:05:02Z"}
+{"delta":"+0.0","event":"confidence","score":3.8,"trigger":"calc-score","ts":"2026-08-15T07:27:03Z"}

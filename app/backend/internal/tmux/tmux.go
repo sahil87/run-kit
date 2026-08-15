@@ -332,9 +332,11 @@ func agentStateStale(pid int, command string) bool {
 
 // parseAgentState parses a raw @rk_agent_state value of the form
 // "<state>:<epoch_seconds>[:<pid>]" into a validated (state, epoch, pid)
-// triple. The pid segment is optional (written by rk agent setup's hooks as
-// $PPID — the agent process itself, since the hook runs as its `sh -c` child);
-// pid is 0 when the segment is absent (legacy two-segment writers). A value
+// triple. The pid segment is optional: `rk agent hook` resolves the agent pid
+// by walking up from getppid() until an ancestor's comm matches the agent
+// literal (the hook's immediate parent is an ephemeral wrapper shell), and
+// omits the segment when that walk finds no match. pid is 0 when the segment is
+// absent (resolution failure, or legacy two-segment writers). A value
 // that is empty, has the wrong segment count, carries an unknown state token,
 // a non-integer epoch, or a malformed/non-positive pid yields ("", 0, 0) —
 // unknown (malformed values are never partially trusted).

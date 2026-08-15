@@ -12,3 +12,4 @@
 {"event":"review","result":"passed","ts":"2026-08-15T09:21:37Z"}
 {"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-15T09:34:54Z"}
 {"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-08-15T09:37:19Z"}
+{"event":"review","result":"passed","ts":"2026-08-15T09:50:38Z"}

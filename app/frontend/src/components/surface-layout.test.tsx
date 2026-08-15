@@ -16,6 +16,7 @@ stubMatchMedia(() => false);
 // same for the code tile's focus-seam prop (`onInteract`, 260812-wfic R2).
 const terminalSpy = vi.hoisted(() => vi.fn());
 const codeSpy = vi.hoisted(() => vi.fn());
+const iframeSpy = vi.hoisted(() => vi.fn());
 vi.mock("@/components/terminal-client", () => ({
   TerminalClient: (props: Record<string, unknown>) => {
     terminalSpy(props);
@@ -29,7 +30,10 @@ vi.mock("@/components/code-surface", () => ({
   },
 }));
 vi.mock("@/components/iframe-window", () => ({
-  IframeWindow: () => <div data-testid="mock-iframe" />,
+  IframeWindow: (props: Record<string, unknown>) => {
+    iframeSpy(props);
+    return <div data-testid="mock-iframe" />;
+  },
 }));
 vi.mock("@/components/chat-view", () => ({
   ChatView: () => <div data-testid="mock-chat" />,
@@ -427,6 +431,19 @@ describe("SurfaceLayout focused tile (260812-wfic R2)", () => {
     expect(typeof onInteract).toBe("function");
     act(() => onInteract());
     expect(screen.getByTestId("surface-tile-code").className).toContain("border-accent-green");
+  });
+
+  it("the web tile's onInteract seam (in-iframe click/keydown) moves the focus", () => {
+    const onFocusedKindChange = vi.fn();
+    renderLayout({
+      layout: { shape: "split-h", order: ["tty", "web"] },
+      onFocusedKindChange,
+    });
+    const onInteract = iframeSpy.mock.calls.at(-1)?.[0]?.onInteract;
+    expect(typeof onInteract).toBe("function");
+    act(() => onInteract());
+    expect(screen.getByTestId("surface-tile-web").className).toContain("border-accent-green");
+    expect(onFocusedKindChange).toHaveBeenLastCalledWith("web");
   });
 
   it("closing the focused tile falls back to slot A (no stale highlight)", () => {

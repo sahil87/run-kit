@@ -104,6 +104,109 @@ describe("IframeWindow", () => {
     expect(iframe.src).toContain("https://example.com/docs");
   });
 
+  // Interaction seam: parent-document listeners never hear in-frame clicks
+  // (events stay in the frame's document; focus entering it fires no focusin
+  // in the parent), so the component reports them via onInteract —
+  // contentDocument listeners same-origin, window-blur fallback cross-origin.
+  describe("onInteract seam", () => {
+    const getIframe = () =>
+      screen.getByTitle("Proxied content") as HTMLIFrameElement;
+
+    it("fires on pointerdown and keydown inside the frame document", () => {
+      const onInteract = vi.fn();
+      renderIframe({
+        windowId: "@2",
+        rkUrl: "http://localhost:8080/docs",
+        onInteract,
+      });
+      const doc = getIframe().contentDocument!;
+      doc.dispatchEvent(new Event("pointerdown"));
+      expect(onInteract).toHaveBeenCalledTimes(1);
+      doc.dispatchEvent(new Event("keydown"));
+      expect(onInteract).toHaveBeenCalledTimes(2);
+    });
+
+    it("a same-document load does not double-attach; a replaced document is re-attached", () => {
+      const onInteract = vi.fn();
+      renderIframe({
+        windowId: "@2",
+        rkUrl: "http://localhost:8080/docs",
+        onInteract,
+      });
+      const iframe = getIframe();
+      const doc = iframe.contentDocument!;
+
+      // Same document across a load: still exactly one listener pair.
+      fireEvent.load(iframe);
+      doc.dispatchEvent(new Event("pointerdown"));
+      expect(onInteract).toHaveBeenCalledTimes(1);
+
+      // A navigation replaces the document — simulate by shadowing the
+      // instance getter with a fresh document, then firing load.
+      const freshDoc = document.implementation.createHTMLDocument();
+      Object.defineProperty(iframe, "contentDocument", {
+        value: freshDoc,
+        configurable: true,
+      });
+      fireEvent.load(iframe);
+      freshDoc.dispatchEvent(new Event("keydown"));
+      expect(onInteract).toHaveBeenCalledTimes(2);
+    });
+
+    it("blur fallback fires only when the iframe is the active element, and dies on unmount", () => {
+      const onInteract = vi.fn();
+      const { unmount } = renderIframe({
+        windowId: "@2",
+        rkUrl: "http://localhost:8080/docs",
+        onInteract,
+      });
+      const iframe = getIframe();
+
+      // Focus elsewhere at blur: no report.
+      fireEvent.blur(window);
+      expect(onInteract).not.toHaveBeenCalled();
+
+      Object.defineProperty(document, "activeElement", {
+        value: iframe,
+        configurable: true,
+      });
+      try {
+        fireEvent.blur(window);
+        expect(onInteract).toHaveBeenCalledTimes(1);
+
+        unmount();
+        fireEvent.blur(window);
+        expect(onInteract).toHaveBeenCalledTimes(1);
+      } finally {
+        delete (document as { activeElement?: Element | null }).activeElement;
+      }
+    });
+
+    it("attaches nothing and errors nothing when the prop is omitted", () => {
+      renderIframe({ windowId: "@2", rkUrl: "http://localhost:8080/docs" });
+      const iframe = getIframe();
+      expect(() => {
+        iframe.contentDocument!.dispatchEvent(new Event("pointerdown"));
+        fireEvent.load(iframe);
+        fireEvent.blur(window);
+      }).not.toThrow();
+    });
+
+    it("unmount removes the frame-document listeners", () => {
+      const onInteract = vi.fn();
+      const { unmount } = renderIframe({
+        windowId: "@2",
+        rkUrl: "http://localhost:8080/docs",
+        onInteract,
+      });
+      const doc = getIframe().contentDocument!;
+      unmount();
+      doc.dispatchEvent(new Event("pointerdown"));
+      doc.dispatchEvent(new Event("keydown"));
+      expect(onInteract).not.toHaveBeenCalled();
+    });
+  });
+
   it("the >_ button invokes onSwitchToTty (view switch), not a @rk_type mutation", () => {
     const onSwitchToTty = vi.fn();
     renderIframe({

@@ -1,0 +1,55 @@
+id: 41t9
+name: 260815-41t9-web-tile-iframe-click-focus
+created: 2026-08-15T08:03:48Z
+created_by: Sahil Ahuja
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 5
+    acceptance_count: 10
+    acceptance_completed: 10
+confidence:
+    certain: 6
+    confident: 1
+    tentative: 0
+    unresolved: 0
+    score: 4.9
+    fuzzy: true
+    dimensions:
+        signal: 87.1
+        reversibility: 86.4
+        competence: 91.4
+        disambiguation: 87.1
+stage_metrics:
+    intake: {started_at: "2026-08-15T08:03:48Z", driver: fab-new, iterations: 1, completed_at: "2026-08-15T08:08:17Z"}
+    apply: {started_at: "2026-08-15T08:08:17Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-15T08:13:42Z"}
+    review: {started_at: "2026-08-15T08:13:42Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-15T08:19:02Z"}
+    hydrate: {started_at: "2026-08-15T08:19:02Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-15T08:19:49Z"}
+    ship: {started_at: "2026-08-15T08:19:49Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-08-15T08:19:50Z"
+    computed_at_stage: hydrate
+summary: 'Web-tile iframe clicks now focus the tile: IframeWindow gained an optional onInteract seam (same-origin contentDocument listeners re-attached per load + cross-origin window-blur/activeElement fallback), wired to focusSlot in surface-layout''s web case; stale focusin comments corrected'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-15T08:19:50Z

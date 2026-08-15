@@ -15,10 +15,22 @@ interface IframeWindowProps {
    *  the panel the tty is already beside the iframe, so switching the MAIN
    *  slot is meaningless. The URL bar and refresh render in both contexts. */
   onSwitchToTty?: () => void;
+  /** Tile-focus seam: fired when a pointerdown/keydown arrives inside the
+   *  same-origin contentDocument, or — the cross-origin fallback — when the
+   *  parent window blurs with this iframe as the active element. Clicks
+   *  inside an iframe stay in the frame's document and moving focus into it
+   *  fires NO focusin in the parent, so without this seam in-frame
+   *  interaction is invisible to the tile wrapper. Absent ⇒ no reporting. */
+  onInteract?: () => void;
 }
 
 /** Renders an iframe with a URL bar for proxy windows. */
-export function IframeWindow({ windowId, rkUrl, onSwitchToTty }: IframeWindowProps) {
+export function IframeWindow({
+  windowId,
+  rkUrl,
+  onSwitchToTty,
+  onInteract,
+}: IframeWindowProps) {
   // IframeWindow renders only from AppShell terminal routes where currentServer
   // is set. Fall back to empty string when null (action no-ops with bad server).
   const { currentServer } = useSessionContext();
@@ -26,6 +38,52 @@ export function IframeWindow({ windowId, rkUrl, onSwitchToTty }: IframeWindowPro
   const [inputUrl, setInputUrl] = useState(rkUrl);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const currentSrcRef = useRef(rkUrl);
+  const interactRef = useRef(onInteract);
+  interactRef.current = onInteract;
+
+  // Interaction seam: attach capture-phase pointerdown/keydown listeners to
+  // the same-origin contentDocument after every load — each navigation
+  // replaces the document, so the listener on the discarded one dies with it
+  // and the fresh document gets a new pair. Cross-origin frames throw on
+  // contentDocument access; there the window-blur check is the fallback
+  // (activeElement lands on the iframe when focus enters it, but no focusin
+  // fires in the parent). blur only fires when focus LEAVES the parent —
+  // later in-frame clicks report nothing, which is fine: the tile is already
+  // focused by then.
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe || !interactRef.current) return;
+    let attachedDoc: Document | null = null;
+    const report = () => interactRef.current?.();
+    const attach = () => {
+      try {
+        const doc = iframe.contentDocument;
+        if (doc && doc !== attachedDoc) {
+          doc.addEventListener("pointerdown", report, true);
+          doc.addEventListener("keydown", report, true);
+          attachedDoc = doc;
+        }
+      } catch {
+        /* noop — cross-origin frame; the blur fallback covers it */
+      }
+    };
+    const onWindowBlur = () => {
+      if (document.activeElement === iframe) report();
+    };
+    attach();
+    iframe.addEventListener("load", attach);
+    window.addEventListener("blur", onWindowBlur);
+    return () => {
+      iframe.removeEventListener("load", attach);
+      window.removeEventListener("blur", onWindowBlur);
+      try {
+        attachedDoc?.removeEventListener("pointerdown", report, true);
+        attachedDoc?.removeEventListener("keydown", report, true);
+      } catch {
+        /* noop */
+      }
+    };
+  }, []);
 
   // Sync URL bar text and iframe src when rkUrl changes externally (SSE push).
   // Only update iframe src when the URL has actually changed to avoid unnecessary reloads.

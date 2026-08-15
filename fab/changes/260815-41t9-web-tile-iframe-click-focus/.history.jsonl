@@ -1,0 +1,11 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-15T08:03:48Z"}
+{"args":"fix: clicking inside the web tile's iframe never moves tile focus on the surface layout — add onInteract seam to IframeWindow mirroring CodeSurface, wire in surface-layout, cross-origin blur fallback, fix stale focusin comment","cmd":"fab-new","event":"command","ts":"2026-08-15T08:03:48Z"}
+{"delta":"+4.9","event":"confidence","score":4.9,"trigger":"calc-score","ts":"2026-08-15T08:04:48Z"}
+{"delta":"+0.0","event":"confidence","score":4.9,"trigger":"calc-score","ts":"2026-08-15T08:05:11Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-08-15T08:06:11Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-15T08:08:00Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-15T08:08:17Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-15T08:13:42Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-15T08:19:02Z"}
+{"event":"review","result":"passed","ts":"2026-08-15T08:19:02Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-15T08:19:49Z"}

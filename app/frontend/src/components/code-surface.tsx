@@ -67,9 +67,10 @@ interface CodeSurfaceProps {
   shouldReclaimChord?: (e: KeyboardEvent) => boolean;
   /** Tile-focus seam (260812-wfic R2): fired when a keydown/pointerdown
    *  arrives inside the same-origin contentDocument — editor interaction
-   *  counts as tile focus (the iframe element's own focusin covers the
-   *  click-to-focus case; keydowns never reach the parent document). Absent
-   *  ⇒ no reporting. */
+   *  counts as tile focus. No parent-document event fires for in-frame
+   *  interaction (clicks stay in the frame's document; focus entering it
+   *  fires no focusin in the parent), so this seam is the tile wrapper's
+   *  only signal. Absent ⇒ no reporting. */
   onInteract?: () => void;
   /** Follow-the-editor seam (260813-if5d R3): fired with the folder the EDITOR
    *  navigated itself to (File > Open Folder), read from the same-origin frame's

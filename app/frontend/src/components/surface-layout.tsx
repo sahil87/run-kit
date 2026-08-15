@@ -60,8 +60,10 @@ import type { WindowInfo } from "@/types";
  *   `onSplitPane`/`onClosePane` callbacks.
  * - **Focused tile (260812-wfic R2)**: transient component state — the slot
  *   that last received pointer/keyboard interaction (pointerdown-capture +
- *   focusin seams on the tile wrapper; the code tile's `CodeSurface` reports
- *   contentDocument interaction via `onInteract`). The focused tile's border
+ *   focusin seams on the tile wrapper for parent-DOM interaction; the iframe
+ *   tiles — `CodeSurface`, `IframeWindow` — report in-frame interaction via
+ *   `onInteract`, since no parent-document event fires when focus enters
+ *   iframe content). The focused tile's border
  *   and kind glyph turn `accent-green` (the tmux active-pane metaphor);
  *   suppressed at arity 1. Default = slot A; falls back to slot A when the
  *   focused slot leaves the layout. The focused KIND is reported upward via
@@ -788,12 +790,13 @@ export function SurfaceLayout({
     };
   }, [draggingIntersection]);
 
-  /** A tile's renderer, unchanged from the legacy lens/panel mounts. The code
-   *  tile also wires the focus seam (260812-wfic R2): `CodeSurface`'s
-   *  contentDocument listeners report editor interaction via `onInteract`, so
-   *  typing/clicking INSIDE the iframe counts as tile focus (the iframe
-   *  element's own focusin covers the click-to-focus case; keydowns never
-   *  reach the parent without this). */
+  /** A tile's renderer, unchanged from the legacy lens/panel mounts. The
+   *  iframe tiles (code, web) also wire the focus seam (260812-wfic R2):
+   *  in-frame pointerdowns/keydowns stay in the frame's document and moving
+   *  focus into a frame fires NO focusin in the parent, so each iframe
+   *  surface reports its own interaction via `onInteract` (contentDocument
+   *  listeners same-origin; `IframeWindow` adds a window-blur fallback for
+   *  cross-origin content). */
   const renderContent = (kind: SurfaceKind, slot: number, primaryTty: boolean) => {
     switch (kind) {
       case "tty":
@@ -822,6 +825,7 @@ export function SurfaceLayout({
             windowId={windowId}
             rkUrl={win.rkUrl}
             onSwitchToTty={onSwitchToTty}
+            onInteract={slot >= 0 ? () => focusSlot(slot) : undefined}
           />
         ) : null;
       case "code":
@@ -879,10 +883,11 @@ export function SurfaceLayout({
     const showVerbs = !mobile && arity > 1 && slot >= 0;
     // Focused-tile highlight (260812-wfic R2): accent-green border + kind
     // glyph, suppressed at arity 1 (no verbs, no highlight — the tmux
-    // active-pane metaphor). Focus assignment: pointerdown (capture) anywhere
-    // in the tile + focusin on the tile (clicking into the code iframe
-    // focuses the iframe element in the parent document); the code tile's
-    // in-document interaction arrives via CodeSurface's `onInteract`.
+    // active-pane metaphor). Focus assignment: the wrapper's pointerdown
+    // (capture) + focusin seams hear parent-DOM interaction ONLY — no
+    // parent-document event fires when the user clicks or types inside an
+    // iframe — so the iframe tiles (code, web) report in-frame interaction
+    // via their `onInteract` callbacks.
     const isFocused = !mobile && arity > 1 && slot >= 0 && slot === focusedSlot;
     return (
       <div

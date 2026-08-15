@@ -31,8 +31,7 @@ import {
   type SurfaceKind,
 } from "@/lib/surface-layout";
 import {
-  deactivateAutoExpand,
-  dismissAutoExpand,
+  foldLayoutMutation,
   observeRkUrl,
   withAutoWeb,
   type AutoExpandState,
@@ -904,17 +903,13 @@ function AppShell() {
       if (!windowParam) return;
       // Present auto-expand (260815-wkcw): any user mutation while the
       // transient override is active takes ownership of the rendered layout
-      // (L3) — one whose result lacks `web` records the dismissal latch for
-      // the current rkUrl value; one that keeps `web` merely deactivates.
+      // (L3) — one that closes a web tile the viewer ACTUALLY SAW records the
+      // dismissal latch for the current rkUrl value; otherwise (web kept, or
+      // the override was an arity-3 visual no-op) it merely deactivates.
       const autoKey = `${server}:${windowParam}`;
       const autoState = autoExpandRef.current.get(autoKey);
       if (autoState?.active) {
-        autoExpandRef.current.set(
-          autoKey,
-          next.order.includes("web")
-            ? deactivateAutoExpand(autoState)
-            : dismissAutoExpand(autoState),
-        );
+        autoExpandRef.current.set(autoKey, foldLayoutMutation(autoState, layout, next));
         setAutoWebOpen({ key: autoKey, active: false });
       }
       writeStoredLayout(server, windowParam, next);
@@ -927,7 +922,7 @@ function AppShell() {
         replace: true,
       });
     },
-    [server, windowParam, currentWindow, navigate],
+    [server, windowParam, currentWindow, navigate, layout],
   );
 
   // Switch the current window's lens (window-view spec R2/R7) — R12's shim:

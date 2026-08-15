@@ -3,6 +3,7 @@ import {
   observeRkUrl,
   dismissAutoExpand,
   deactivateAutoExpand,
+  foldLayoutMutation,
   withAutoWeb,
   type AutoExpandState,
 } from "./present-auto-expand";
@@ -93,6 +94,45 @@ describe("deactivateAutoExpand", () => {
       active: false,
       dismissedUrl: null,
     });
+  });
+});
+
+describe("foldLayoutMutation", () => {
+  const single: Layout = { shape: "single", order: ["tty"] };
+  const threeNoWeb: Layout = { shape: "main-left", order: ["tty", "code", "chat"] };
+  const webOpen: Layout = { shape: "split-h", order: ["tty", "web"] };
+
+  it("latches when the auto-opened web tile was rendered and the mutation closes it", () => {
+    const active = observeAll("", URL_A);
+    // Rendered layout is withAutoWeb(single) = tty+web; mutation collapses to tty.
+    const folded = foldLayoutMutation(active, single, single);
+    expect(folded).toEqual({ lastUrl: URL_A, active: false, dismissedUrl: URL_A });
+  });
+
+  it("deactivates without latching when the mutation keeps web", () => {
+    const active = observeAll("", URL_A);
+    const folded = foldLayoutMutation(active, single, webOpen);
+    expect(folded).toEqual({ lastUrl: URL_A, active: false, dismissedUrl: null });
+  });
+
+  it("deactivates without latching when the override was a visual no-op (arity 3, no web)", () => {
+    const active = observeAll("", URL_A);
+    // The viewer never saw an auto-opened web tile — no latch, even though
+    // the mutation's result lacks web.
+    const shrunk: Layout = { shape: "split-h", order: ["tty", "code"] };
+    const folded = foldLayoutMutation(active, threeNoWeb, shrunk);
+    expect(folded).toEqual({ lastUrl: URL_A, active: false, dismissedUrl: null });
+  });
+
+  it("latches when web was already open (viewer saw it) and the mutation closes it", () => {
+    const active = observeAll("", URL_A);
+    const folded = foldLayoutMutation(active, webOpen, single);
+    expect(folded).toEqual({ lastUrl: URL_A, active: false, dismissedUrl: URL_A });
+  });
+
+  it("is identity when the override is inactive", () => {
+    const inactive = observeRkUrl(undefined, URL_A);
+    expect(foldLayoutMutation(inactive, single, single)).toBe(inactive);
   });
 });
 

@@ -72,6 +72,28 @@ export function deactivateAutoExpand(state: AutoExpandState): AutoExpandState {
 }
 
 /**
+ * Fold a user layout mutation into the state (L3 — touching the layout makes
+ * it theirs). `layout` is the resolved (pre-override) layout the mutation
+ * acted on; `next` is its result. The dismissal latch is recorded ONLY when
+ * the viewer actually saw a web tile — the RENDERED layout (`withAutoWeb`
+ * over `layout`) contained `web` — and `next` closes it. When the override
+ * was a visual no-op (arity-3 layout without `web`, so nothing auto-opened),
+ * or the mutation keeps `web`, the override merely deactivates without
+ * latching.
+ */
+export function foldLayoutMutation(
+  state: AutoExpandState,
+  layout: Layout,
+  next: Layout,
+): AutoExpandState {
+  if (!state.active) return state;
+  const sawWeb = withAutoWeb(layout, true).order.includes("web");
+  return sawWeb && !next.order.includes("web")
+    ? dismissAutoExpand(state)
+    : deactivateAutoExpand(state);
+}
+
+/**
  * The render-time transient composition: when the override is active and the
  * resolved layout lacks `web`, render as if `web` were appended through the
  * existing growth conventions (`addSurface` — 1→2 `split-h`, 2→3

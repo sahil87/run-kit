@@ -14,7 +14,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// rk tmux-guard — a PATH-shim guard that fronts the real tmux binary. Agents
+// rk mux guard — a PATH-shim guard that fronts the real tmux binary. Agents
 // running inside run-kit-managed tmux panes have killed the host tmux server
 // four documented times; the fatal command shape is `tmux kill-server` without
 // an explicit socket. tmux socket resolution is -L/-S > $TMUX > TMUX_TMPDIR,
@@ -22,8 +22,14 @@ import (
 // server ($TMUX wins). Prose guidance (CLAUDE.md, agent memory) has failed to
 // prevent this; the guard is the deterministic, harness-agnostic veto.
 //
+// The guard is a machine-invoked contract (cli-layering.md delegation rule 3):
+// installed PATH shims exec the command literally, so the move under `mux` is
+// a factory-built pair — the visible `rk mux guard` family member and the
+// PERMANENT hidden root alias `rk tmux-guard` (never warns, never removed;
+// tmuxGuardAliasCmd below).
+//
 // `rk agent setup` installs a shim at ~/.local/share/rk/shims/tmux that execs
-// `rk tmux-guard "$@"` (see agent_setup.go), and prepends that directory to
+// `rk mux guard "$@"` (see agent_setup.go), and prepends that directory to
 // PATH via a marker-owned block in the user's shell startup files. Every
 // PATH-resolved `tmux …` then flows through here:
 //
@@ -80,7 +86,7 @@ const (
 
 // tmuxGuardBlockedMessage is the exact refusal printed on a blocked
 // invocation. It states the resolution-precedence trap and both remedies.
-const tmuxGuardBlockedMessage = "rk tmux-guard: BLOCKED: `tmux kill-server` without an explicit -L/-S socket.\n" +
+const tmuxGuardBlockedMessage = "rk mux guard: BLOCKED: `tmux kill-server` without an explicit -L/-S socket.\n" +
 	"Socket resolution is -L/-S > $TMUX > TMUX_TMPDIR — inside a tmux pane this\n" +
 	"command targets the HOST server ($TMUX), even under TMUX_TMPDIR.\n" +
 	"Re-run with an explicit socket:  tmux -L <scratch-name> kill-server\n" +
@@ -147,7 +153,7 @@ _rk_normpath() {
 //	%[3]d tmuxShimProbeAttempts %[4]s tmuxShimProbeInterval
 //	%[5]s rkShimsRelDir         %[6]s tmuxShimNormPathFunc
 //
-// Three stages, in order: probe the embedded rk path, exec `rk tmux-guard`
+// Three stages, in order: probe the embedded rk path, exec `rk mux guard`
 // (the steady state — byte-identical behavior to the original one-line shim),
 // or fail OPEN to the real tmux behind a crude backstop. See tmuxShimScript
 // for why failing open is the right trade and which lines are load-bearing.
@@ -158,7 +164,7 @@ _rk_normpath() {
 const tmuxShimTemplate = `#!/bin/sh
 # %[1]s
 #
-# Hands every PATH-resolved tmux invocation to rk tmux-guard, which refuses a
+# Hands every PATH-resolved tmux invocation to rk mux guard, which refuses a
 # bare kill-server (no -L/-S). rk sits behind a package-manager symlink that
 # dangles for a few seconds during an upgrade, and this shim fronts EVERY tmux
 # caller on the machine — so a hard failure here is a machine-wide tmux outage.
@@ -189,7 +195,7 @@ done
 # LITERALLY — rk doctor reads the path back out of it (tmuxShimExecTarget).
 if [ -x "$_rk_path" ]; then
 	_rk_scrub
-	exec "%[2]s" tmux-guard "$@"
+	exec "%[2]s" mux guard "$@"
 fi
 
 # rk is still unreachable. Best-effort backstop for the one shape the guard
@@ -207,7 +213,7 @@ if [ "$RK_TMUX_GUARD" != off ]; then
 		esac
 	done
 	if [ "$_rk_ks" = 1 ] && [ "$_rk_sock" = 0 ]; then
-		echo "rk tmux-guard: BLOCKED: tmux kill-server without an explicit -L/-S socket (fallback guard — rk is unreachable at $_rk_path)." >&2
+		echo "rk mux guard: BLOCKED: tmux kill-server without an explicit -L/-S socket (fallback guard — rk is unreachable at $_rk_path)." >&2
 		echo "Re-run with an explicit socket:  tmux -L <scratch-name> kill-server" >&2
 		exit 1
 	fi
@@ -263,8 +269,8 @@ if [ -n "$_rk_real" ]; then
 	set -- "$_rk_real" "$@"
 	# The notice sits here, not before the walk: the no-real-tmux path below
 	# must not first claim the invocation is running unguarded.
-	echo "rk tmux-guard: $_rk_path is not executable (rk may be mid-upgrade) — running tmux unguarded for this invocation." >&2
-	# RK_TMUX_GUARD goes too, for the same reason rk tmux-guard strips it
+	echo "rk mux guard: $_rk_path is not executable (rk may be mid-upgrade) — running tmux unguarded for this invocation." >&2
+	# RK_TMUX_GUARD goes too, for the same reason rk mux guard strips it
 	# (tmuxGuardExecEnv): forwarding it through "tmux new-session -d" would bake
 	# the per-invocation hatch into the new server's global environment, making
 	# it permanent for every future pane.
@@ -273,7 +279,7 @@ if [ -n "$_rk_real" ]; then
 	exec "$@"
 fi
 
-echo "rk tmux-guard: no real tmux found on PATH (the rk shim itself is excluded); install tmux or fix PATH ordering." >&2
+echo "rk mux guard: no real tmux found on PATH (the rk shim itself is excluded); install tmux or fix PATH ordering." >&2
 exit 1
 `
 
@@ -462,7 +468,7 @@ func isKillServerWord(word string) bool {
 }
 
 // tmuxGuardBlocks is the guard's decision function, pure over the tmux argv
-// (everything after `rk tmux-guard`): blocked ⇔ some command word in the chain
+// (everything after `rk mux guard`): blocked ⇔ some command word in the chain
 // names kill-server AND no explicit -L/-S socket flag is present.
 func tmuxGuardBlocks(args []string) bool {
 	explicitSocket, commandStart := parseTmuxGlobalFlags(args)
@@ -490,7 +496,7 @@ const tmuxShimSniffLimit = 512
 //   - directory entries equal to shimDir are skipped (the installed layout);
 //   - any candidate whose head sniffs as the rk shim is skipped regardless of
 //     location (defense against a relocated shim copy — resolving it would
-//     exec-loop shim → rk tmux-guard → shim forever);
+//     exec-loop shim → rk mux guard → shim forever);
 //   - empty PATH entries (POSIX cwd) are skipped — the real tmux is never
 //     resolved from the current directory.
 //
@@ -514,12 +520,13 @@ func findRealTmux(pathEnv, shimDir string) (string, error) {
 		}
 		return candidate, nil
 	}
-	return "", fmt.Errorf("rk tmux-guard: no real tmux found on PATH (the rk shim itself is excluded); install tmux or fix PATH ordering")
+	return "", fmt.Errorf("rk mux guard: no real tmux found on PATH (the rk shim itself is excluded); install tmux or fix PATH ordering")
 }
 
 // sniffsAsTmuxShim reports whether the head of a candidate file identifies it
-// as the rk tmux shim (by ownership marker or by its `rk tmux-guard`
-// invocation). Read errors report false — the exec attempt will surface them.
+// as the rk tmux shim (by ownership marker, or by the retained `tmux-guard`
+// literal that old-generation shims exec — kept to catch installed pre-move
+// copies). Read errors report false — the exec attempt will surface them.
 func sniffsAsTmuxShim(path string) bool {
 	f, err := os.Open(path)
 	if err != nil {
@@ -600,41 +607,63 @@ func runTmuxGuard(args []string) error {
 	}
 	argv := append([]string{realTmux}, args...)
 	if err := tmuxGuardExec(realTmux, argv, tmuxGuardExecEnv()); err != nil {
-		return &exitCodeError{code: 1, msg: fmt.Sprintf("rk tmux-guard: exec %s: %v", realTmux, err)}
+		return &exitCodeError{code: 1, msg: fmt.Sprintf("rk mux guard: exec %s: %v", realTmux, err)}
 	}
 	return nil
 }
 
-var tmuxGuardCmd = &cobra.Command{
-	Use:   "tmux-guard [tmux args...]",
-	Short: "Front the real tmux binary, blocking bare kill-server",
-	Long: "Guard wrapper installed in front of the real tmux binary (via the PATH shim " +
-		"written by `rk agent setup`). A `kill-server` invocation without an explicit " +
-		"-L/-S socket is refused with an explanation of the socket-resolution trap " +
-		"(-L/-S > $TMUX > TMUX_TMPDIR); every other invocation execs the real tmux " +
-		"verbatim, preserving argv, stdio, and exit code. Set RK_TMUX_GUARD=off to " +
-		"bypass the guard for one invocation.",
-	// tmux flags (-L, -S, -2, …) must reach the guard verbatim, never be parsed
-	// as cobra flags — DisableFlagParsing hands the raw argv to RunE.
-	Args:               cobra.ArbitraryArgs,
-	DisableFlagParsing: true,
-	SilenceUsage:       true,
-	SilenceErrors:      true,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		err := runTmuxGuard(args)
-		if err == nil {
-			return nil
-		}
-		// Every runTmuxGuard failure is an *exitCodeError; print its message
-		// verbatim (the BLOCKED refusal is multi-line and must not gain cobra's
-		// "Error:" prefix) and exit with the carried code — the shell-init
-		// pattern. Errors are actionable detail and always survive --quiet.
-		var ece *exitCodeError
-		if errors.As(err, &ece) {
-			fmt.Fprintln(cmd.ErrOrStderr(), ece.msg)
-			os.Exit(ece.code)
-			return nil
-		}
-		return err
-	},
+// newTmuxGuardCmd builds one guard command instance (the newAgentHookCmd /
+// newReapCmd precedent — a cobra command object cannot have two parents, so the
+// family member and the permanent root alias are two instances sharing the
+// untouched runTmuxGuard core).
+func newTmuxGuardCmd(use string) *cobra.Command {
+	return &cobra.Command{
+		Use:   use,
+		Short: "Front the real tmux binary, blocking bare kill-server",
+		Long: "Guard wrapper installed in front of the real tmux binary (via the PATH shim " +
+			"written by `rk agent setup`). A `kill-server` invocation without an explicit " +
+			"-L/-S socket is refused with an explanation of the socket-resolution trap " +
+			"(-L/-S > $TMUX > TMUX_TMPDIR); every other invocation execs the real tmux " +
+			"verbatim, preserving argv, stdio, and exit code. Set RK_TMUX_GUARD=off to " +
+			"bypass the guard for one invocation.",
+		// tmux flags (-L, -S, -2, …) must reach the guard verbatim, never be parsed
+		// as cobra flags — DisableFlagParsing hands the raw argv to RunE.
+		Args:               cobra.ArbitraryArgs,
+		DisableFlagParsing: true,
+		SilenceUsage:       true,
+		SilenceErrors:      true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			err := runTmuxGuard(args)
+			if err == nil {
+				return nil
+			}
+			// Every runTmuxGuard failure is an *exitCodeError; print its message
+			// verbatim (the BLOCKED refusal is multi-line and must not gain cobra's
+			// "Error:" prefix) and exit with the carried code — the shell-init
+			// pattern. Errors are actionable detail and always survive --quiet.
+			var ece *exitCodeError
+			if errors.As(err, &ece) {
+				fmt.Fprintln(cmd.ErrOrStderr(), ece.msg)
+				os.Exit(ece.code)
+				return nil
+			}
+			return err
+		},
+	}
 }
+
+var (
+	// muxGuardFamilyCmd is the `rk mux guard` family member.
+	muxGuardFamilyCmd = newTmuxGuardCmd("guard [tmux args...]")
+	// tmuxGuardAliasCmd is the PERMANENT hidden root alias: installed PATH shims
+	// carry the literal `tmux-guard` invocation frozen at install time, fronting
+	// every PATH-resolved tmux call on the machine, so this form must resolve —
+	// silently — FOREVER (cli-layering.md delegation rule 3: machine-invoked
+	// entry points are contracts). It is NOT deprecated and MUST NOT warn, and
+	// no cleanup sweep may remove it.
+	tmuxGuardAliasCmd = func() *cobra.Command {
+		c := newTmuxGuardCmd("tmux-guard [tmux args...]")
+		c.Hidden = true
+		return c
+	}()
+)

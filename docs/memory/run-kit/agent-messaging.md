@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "The `rk mux` family — tmux-substrate verbs with no daemon dependency. `send`/`await` agent messaging: strict %N/@N/=session:window grammar, payload XOR, the @rk_agent_state gate matrix, shared internal/inject delivery, ask-and-wait composition, one-word reports, exit codes 0/1/2. Plus the operator members `reap`/`snapshot`/`init-conf` (old root forms survive as hidden deprecated aliases; an explicit inherited `-L` is rejected on non-messaging members)."
+description: "The `rk mux` family — tmux-substrate verbs with no daemon dependency. `send`/`await` agent messaging: strict %N/@N/=session:window grammar, payload XOR, the @rk_agent_state gate matrix, shared internal/inject delivery, ask-and-wait composition, one-word reports, exit codes 0/1/2. Plus the operator members `reap`/`snapshot`/`init-conf`/`guard` (old root forms survive as hidden aliases; inherited `-L` rejected on non-messaging members — `guard` excepted: its flags flow into the tmux argv)."
 ---
 # Agent-to-Agent Messaging (`rk mux`)
 
@@ -11,14 +11,17 @@ description: "The `rk mux` family — tmux-substrate verbs with no daemon depend
 `rk mux` is the tmux-substrate CLI family (per `docs/specs/cli-layering.md`):
 operations that talk to tmux directly from the caller's context with **no daemon
 dependency** (the `rk present` pattern), so they work while `rk serve` is down.
-The family has five members in two tiers. The messaging tier is the conversation
+The family has six members in two tiers. The messaging tier is the conversation
 loop's halves: `rk mux send` delivers a message into another agent's pane — the
 agent→agent counterpart of `rk present`'s agent→user attach — and `rk mux await`
 blocks until a peer's state (or a file signal) fires. The operator tier groups
-the janitor/recovery/scaffold verbs: `rk mux reap` (test-socket cleanup),
-`rk mux snapshot list|show|restore` (layout recovery,
-[layout-snapshots](/run-kit/layout-snapshots.md)), and `rk mux init-conf` (tmux
-config scaffold). The messaging verbs are first-party readers of the
+the janitor/recovery/scaffold verbs plus the guard: `rk mux reap` (test-socket
+cleanup), `rk mux snapshot list|show|restore` (layout recovery,
+[layout-snapshots](/run-kit/layout-snapshots.md)), `rk mux init-conf` (tmux
+config scaffold), and `rk mux guard` (fronts the real tmux binary, refusing a
+bare `kill-server` — the verb the installed PATH shim execs; full contract in
+[tmux-guard-shim](/run-kit/tmux-guard-shim.md)). The messaging verbs are
+first-party readers of the
 `@rk_agent_state` convention ([agent-state](/run-kit/agent-state.md)) and share
 the pane-level primitives in `internal/tmux/pane_target.go`. Delivery reuses the
 hardened injection engine the chat-send HTTP route also drives — the shared
@@ -29,9 +32,13 @@ The family parent (`muxCmd`, `cmd/rk/mux.go`) carries the shared persistent
 `-L/--server` flag (the `fab pane` pattern). Server resolution: `-L` wins, else
 the caller's own server derived from the original `$TMUX` socket basename, else
 `default`. Only the messaging verbs consume it — the operator members reject an
-explicitly-set `-L` (see Requirements). The old root forms (`rk reaper`,
-`rk snapshot …`, `rk init-conf`) survive as hidden deprecation aliases that run
-byte-identically while printing cobra's deprecation pointer.
+explicitly-set `-L` (see Requirements), **except `guard`**: its
+`DisableFlagParsing` means nothing is parsed and `-L`/`-S` flow verbatim into
+the tmux argv, where they are genuinely tmux's socket flags. The old root forms
+(`rk reaper`, `rk snapshot …`, `rk init-conf`) survive as hidden deprecation
+aliases that run byte-identically while printing cobra's deprecation pointer;
+`rk tmux-guard` survives as a PERMANENT hidden root alias (never warns, never
+removed — installed shims exec the literal name).
 
 ## Requirements
 
@@ -197,7 +204,11 @@ Constitution §I); the verbs hold no state beyond the invocation (Constitution
 The operator members (`reap`, `snapshot list|show|restore`, `init-conf`) do not
 consume the mux parent's persistent `-L/--server` flag; each SHALL return a usage
 error (exit 2) naming `--server` when the inherited flag was explicitly set
-(e.g. `rk mux -L foo reap`), rather than silently ignoring it. The old root forms
+(e.g. `rk mux -L foo reap`), rather than silently ignoring it. **`guard` is
+exempt**: `DisableFlagParsing` means no flag is ever parsed on it, so `-L` flows
+verbatim into the tmux argv (it is genuinely tmux's socket flag there) and
+`muxRejectInheritedServerFlag` is never called — the pinned invariant is no
+silent retarget. The old root forms
 `rk reaper`, `rk snapshot …`, and `rk init-conf` SHALL remain functional as
 hidden deprecation aliases — each carries `Hidden: true` plus a cobra
 `Deprecated` pointer (on the alias's executed command, including the snapshot
@@ -291,7 +302,10 @@ state across instances.
 
 ### Reject explicitly-set `-L` on non-messaging members
 **Decision**: reap/snapshot/init-conf under `mux` error (usage, exit 2) when the
-inherited `--server` flag was explicitly set.
+inherited `--server` flag was explicitly set. The `guard` member is exempt —
+`DisableFlagParsing` means `-L` is never parsed and flows verbatim into the tmux
+argv, so there is nothing to reject (see
+[tmux-guard-shim](/run-kit/tmux-guard-shim.md) § Design Decisions).
 **Why**: toolkit Principle 1/9 posture — `rk mux -L foo reap` silently ignoring
 `-L` is a success-looking misinterpretation (user believes the reap is
 server-scoped).

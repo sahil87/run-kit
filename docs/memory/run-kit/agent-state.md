@@ -243,9 +243,13 @@ non-interactive path unless they set `stdinIsTTY` explicitly. Pinned by
 
 **It installs TWO artifact families**: the **per-agent settings-hooks merge**
 (described here) and the **user-global tmux guard shim** — a shim script plus a
-marker-owned `PATH` block that puts `rk tmux-guard` in front of every
+marker-owned `PATH` block that puts `rk mux guard` in front of every
 PATH-resolved `tmux` invocation, so `tmux kill-server` without an explicit
-`-L`/`-S` socket is refused. Its install/uninstall contract, decision rule, and
+`-L`/`-S` socket is refused. The shim script is in its **second generation** —
+`rk agent setup` writes `exec "<abs-rk>" mux guard "$@"`; first-generation
+installs exec'ing the literal `tmux-guard` keep working
+through the permanent hidden root alias and roll over only on the next re-run
+(`260815-mi5s-mux-guard-move`). Its install/uninstall contract, decision rule, and
 doctor check live in [tmux-guard-shim](/run-kit/tmux-guard-shim.md); the shim
 reuses this installer's `consent`/`authorizeWrite` machinery, its
 summary-on-consent / full-diff-on-`--dry-run` rendering split, and its

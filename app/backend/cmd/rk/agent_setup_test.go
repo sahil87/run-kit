@@ -1151,14 +1151,14 @@ func TestTmuxShimFreshInstall(t *testing.T) {
 	home := t.TempDir()
 	installShim(t, home, "/opt/homebrew/bin/rk")
 
-	// Shim file: present, executable, marker-owned, exec'ing tmux-guard via the
-	// absolute rk path.
+	// Shim file: present, executable, marker-owned, exec'ing `mux guard` via the
+	// absolute rk path (second-generation form).
 	shim := readFileOrEmpty(t, tmuxShimPath(home))
 	if !strings.Contains(shim, tmuxShimMarker) {
 		t.Errorf("shim missing ownership marker: %q", shim)
 	}
-	if !strings.Contains(shim, `exec "/opt/homebrew/bin/rk" tmux-guard "$@"`) {
-		t.Errorf("shim missing tmux-guard exec line: %q", shim)
+	if !strings.Contains(shim, `exec "/opt/homebrew/bin/rk" mux guard "$@"`) {
+		t.Errorf("shim missing the mux guard exec line: %q", shim)
 	}
 	info, err := os.Stat(tmuxShimPath(home))
 	if err != nil {
@@ -1955,6 +1955,47 @@ func TestTmuxShimUpdateSummaryLine(t *testing.T) {
 	}
 	if strings.Contains(out.String(), "+++ proposed") {
 		t.Errorf("update consent must not dump the script diff, got: %q", out.String())
+	}
+}
+
+// TestTmuxShimOldGenerationRollsOver pins the generation rollover: a
+// marker-owned shim still exec'ing the pre-move `tmux-guard` form is a content
+// change under the existing consent flow — replace-in-place, marker intact,
+// mode 0755, no migration and no new file. The permanent `tmux-guard` root
+// alias keeps untouched installs working; only a re-run rewrites them.
+func TestTmuxShimOldGenerationRollsOver(t *testing.T) {
+	home := t.TempDir()
+	const rkPath = "/opt/homebrew/bin/rk"
+	oldForm := strings.Replace(tmuxShimScript(rkPath),
+		`exec "`+rkPath+`" mux guard "$@"`,
+		`exec "`+rkPath+`" tmux-guard "$@"`, 1)
+	if !strings.Contains(oldForm, tmuxShimMarker) || !strings.Contains(oldForm, `" tmux-guard "$@"`) {
+		t.Fatal("old-generation fixture is malformed")
+	}
+	writeStub(t, rkShimsDir(home), "tmux", oldForm, 0o755)
+
+	var out bytes.Buffer
+	sink := newSinkWriters(&out, &out)
+	if err := applyTmuxShim(sink, bufio.NewReader(strings.NewReader("y\n")), home, "", rkPath, false, consent{stdinIsTTY: true}); err != nil {
+		t.Fatalf("re-install error: %v", err)
+	}
+	if !strings.Contains(out.String(), "will update the rk-owned tmux shim at "+tmuxShimPath(home)) {
+		t.Errorf("an old-generation shim must register as a content change, got: %q", out.String())
+	}
+
+	shim := readFileOrEmpty(t, tmuxShimPath(home))
+	if !strings.Contains(shim, `exec "`+rkPath+`" mux guard "$@"`) {
+		t.Errorf("shim was not rolled to the new form: %q", shim)
+	}
+	if !strings.Contains(shim, tmuxShimMarker) {
+		t.Errorf("the ownership marker must survive the rollover: %q", shim)
+	}
+	info, err := os.Stat(tmuxShimPath(home))
+	if err != nil {
+		t.Fatalf("stat shim: %v", err)
+	}
+	if info.Mode().Perm() != 0o755 {
+		t.Errorf("shim mode = %v, want 0755", info.Mode().Perm())
 	}
 }
 

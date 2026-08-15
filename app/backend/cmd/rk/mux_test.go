@@ -37,7 +37,7 @@ func TestMuxServerResolution(t *testing.T) {
 }
 
 // TestMuxFamilyRegistered: the root gains exactly one mux row, and the family
-// lists its five members with the shared -L flag inherited; snapshot nests its
+// lists its six members with the shared -L flag inherited; snapshot nests its
 // three children.
 func TestMuxFamilyRegistered(t *testing.T) {
 	found := false
@@ -51,6 +51,7 @@ func TestMuxFamilyRegistered(t *testing.T) {
 				case "await":
 				case "reap":
 				case "init-conf":
+				case "guard":
 				case "snapshot":
 					for _, grand := range sub.Commands() {
 						switch grand.Name() {
@@ -69,8 +70,8 @@ func TestMuxFamilyRegistered(t *testing.T) {
 					t.Errorf("mux %s does not inherit the -L/--server flag", sub.Name())
 				}
 			}
-			if len(c.Commands()) != 5 {
-				t.Errorf("mux has %d subcommands, want exactly 5 (send, await, reap, snapshot, init-conf)", len(c.Commands()))
+			if len(c.Commands()) != 6 {
+				t.Errorf("mux has %d subcommands, want exactly 6 (send, await, reap, snapshot, init-conf, guard)", len(c.Commands()))
 			}
 			found = true
 		}

@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, audit-against-HEAD-build rule, per-standard PASS status (help-dump, readme-extraction, skill, ten principles, update, version, install-composition). Covers Principle 9 `--quiet`/reaper caps, brew-mutation grace, and the help-dump + Principle 9 new-surface check over `rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`/`mux`/`agent` + the grown five-member `mux` family."
+description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, audit-against-HEAD-build rule, per-standard PASS status (help-dump, readme-extraction, skill, ten principles, update, version, install-composition). Covers Principle 9 `--quiet`/reaper caps, brew-mutation grace, and the help-dump + Principle 9 new-surface check over `rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`/`mux`/`agent` + the grown six-member `mux` family."
 ---
 # Toolkit Standards Conformance
 
@@ -351,16 +351,18 @@ measured against the same checks (`260815-r2wp-agent-family`):
   `docs/site/skill/*.md`; no new `agent` topic page (the family is
   instrumentation plumbing, not an agent-facing capability briefing).
 
-The grown `rk mux` family (`reap`/`snapshot list|show|restore`/`init-conf`
-joining `send`/`await` — see
+The grown `rk mux` family (`reap`/`snapshot list|show|restore`/`init-conf`,
+then `guard`, joining `send`/`await` — see
 [architecture](/run-kit/architecture.md) § CLI Subcommands, `mux` row; full
 contract in [agent-messaging](/run-kit/agent-messaging.md)) is the ninth
 surface measured against the same checks
-(`260815-lsgf-mux-consolidation-low-risk`):
+(`260815-lsgf-mux-consolidation-low-risk`; `guard` added by
+`260815-mi5s-mux-guard-move` — see the tenth surface below):
 
 - **help-dump: the grown family dumps; the moved/hidden names don't.**
   `muxCmd` carries exactly {`send`, `await`, `reap`, `snapshot` (with its
-  `list`/`show`/`restore` children at depth), `init-conf`}, every node with a
+  `list`/`show`/`restore` children at depth), `init-conf`, `guard`}, every node
+  with a
   `Long:` block, so the cobra tree walk picks up the grown subtree with no
   help-dump code change. The three root aliases (`reaper`, `snapshot`,
   `init-conf`) and `shell-init` are `Hidden: true` — hidden nodes drop from
@@ -386,6 +388,32 @@ surface measured against the same checks
   topic pages carry no new content; the audit found no old-form references in
   `docs/site/skill.md` or `docs/site/skill/mux.md`, and the byte-equality
   drift guards stay green.
+
+The guard surface (`rk mux guard` as the family's sixth member; `tmux-guard`
+as a PERMANENT hidden root alias — full contract in
+[tmux-guard-shim](/run-kit/tmux-guard-shim.md)) is the tenth surface measured
+against the same checks (`260815-mi5s-mux-guard-move`):
+
+- **help-dump: six members dump; the permanent alias doesn't.** `muxCmd`
+  carries exactly six members (the ninth-surface set plus `guard`), and
+  `tmux-guard` joins the excluded-hidden-root-forms assertion list — Hidden
+  drops it from the dump like the other aliases. The help-dump test asserts
+  both dynamically.
+- **Principle 2/9: the permanent alias is byte-silent.** Unlike the
+  deprecation aliases, `tmux-guard` carries no cobra `Deprecated` and prints
+  nothing ever — installed shims front every PATH-resolved tmux call on the
+  machine, so any warning would leak onto stderr machine-wide. A test pins
+  `Deprecated == ""` so a future sweep converting it to a warning alias
+  fails. The guard's own message prefixes name the canonical command
+  (`rk mux guard:`).
+- **Exit-code convention (P4)** — unchanged: a guard block exits 1
+  (operational), and the pass path is an exec passthrough preserving the real
+  tmux's own exit code.
+- **The `skill` standard gained a guard Gotcha bullet** — the `mux` topic
+  page teaches that a bare `tmux kill-server` is refused machine-wide by the
+  shim and names the `-L` remedy; canonical `docs/site/skill/mux.md` and the
+  embedded copy stay byte-identical under
+  `TestSkillMuxEmbedMatchesCanonical`.
 
 #### Scenario: A new subcommand group keeps the help tree platform-stable
 - **GIVEN** the `rk desktop` group on a Linux host

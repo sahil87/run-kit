@@ -222,7 +222,7 @@ func TestTmuxShimScriptShape(t *testing.T) {
 	if lines[1] != "# "+tmuxShimMarker {
 		t.Errorf("line 2 = %q, want the ownership marker comment", lines[1])
 	}
-	if want := `exec "` + rkPath + `" tmux-guard "$@"`; !strings.Contains(script, want) {
+	if want := `exec "` + rkPath + `" mux guard "$@"`; !strings.Contains(script, want) {
 		t.Errorf("script missing the literal rk exec line %q", want)
 	}
 	if got := tmuxShimExecTarget(script); got != rkPath {
@@ -419,7 +419,7 @@ func TestTmuxShimExecsRkWhenAvailable(t *testing.T) {
 		args: []string{"list-panes", "-a"},
 	})
 
-	if res.code != 0 || res.stdout != "RK tmux-guard list-panes -a\n" {
+	if res.code != 0 || res.stdout != "RK mux guard list-panes -a\n" {
 		t.Fatalf("stdout=%q code=%d, want the rk stub to receive the verbatim argv", res.stdout, res.code)
 	}
 	if res.stderr != "" {
@@ -451,7 +451,7 @@ func TestTmuxShimSteadyStateForwardsNoShimState(t *testing.T) {
 		args: []string{"list-panes"},
 	})
 
-	if res.code != 0 || !strings.HasPrefix(res.stdout, "RK tmux-guard list-panes\n") {
+	if res.code != 0 || !strings.HasPrefix(res.stdout, "RK mux guard list-panes\n") {
 		t.Fatalf("stdout=%q stderr=%q code=%d, want the rk stub to receive the invocation",
 			res.stdout, res.stderr, res.code)
 	}
@@ -490,7 +490,7 @@ func TestTmuxShimRecoversWhenRkReappears(t *testing.T) {
 		t.Fatalf("restoring the rk stub: %v", err)
 	}
 
-	if res.code != 0 || res.stdout != "RK tmux-guard list-panes\n" {
+	if res.code != 0 || res.stdout != "RK mux guard list-panes\n" {
 		t.Fatalf("stdout=%q stderr=%q code=%d, want the restored rk to receive the invocation",
 			res.stdout, res.stderr, res.code)
 	}
@@ -920,6 +920,49 @@ func TestRunTmuxGuardExecEnvStripsGuardVar(t *testing.T) {
 	})
 }
 
+// TestTmuxGuardServerFlagFlowsToTmux pins the guard's -L posture (mux family
+// exception): DisableFlagParsing means every token after `guard` flows verbatim
+// into the tmux argv, where -L is genuinely tmux's socket flag — so the guard
+// never calls muxRejectInheritedServerFlag, and no invocation is silently
+// retargeted. Both spellings (flag before or after the subcommand) resolve to
+// the guard with the explicit socket still in the argv it passes to tmux, and
+// the permanent root alias behaves byte-identically.
+func TestTmuxGuardServerFlagFlowsToTmux(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		argv []string
+	}{
+		{"flag after the subcommand", []string{"mux", "guard", "-L", "x", "kill-server"}},
+		{"flag before the subcommand", []string{"mux", "-L", "x", "guard", "kill-server"}},
+		{"permanent root alias", []string{"tmux-guard", "-L", "x", "kill-server"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := guardExecCapture(t)
+			stub := guardEnv(t)
+
+			cmd, args, err := rootCmd.Find(tc.argv)
+			if err != nil {
+				t.Fatalf("Find(%q) error: %v", tc.argv, err)
+			}
+			if err := cmd.RunE(cmd, args); err != nil {
+				t.Fatalf("guard RunE error: %v", err)
+			}
+			if !rec.called {
+				t.Fatal("an explicit socket must pass the guard and exec the real tmux")
+			}
+			wantArgv := []string{stub, "-L", "x", "kill-server"}
+			if len(rec.argv) != len(wantArgv) {
+				t.Fatalf("exec argv = %q, want %q", rec.argv, wantArgv)
+			}
+			for i := range wantArgv {
+				if rec.argv[i] != wantArgv[i] {
+					t.Fatalf("exec argv = %q, want %q (the explicit socket must ride into tmux — no silent retarget)", rec.argv, wantArgv)
+				}
+			}
+		})
+	}
+}
+
 func TestRunTmuxGuardNoRealTmux(t *testing.T) {
 	rec := guardExecCapture(t)
 	t.Setenv("HOME", t.TempDir())
@@ -939,16 +982,40 @@ func TestRunTmuxGuardNoRealTmux(t *testing.T) {
 	}
 }
 
-// TestTmuxGuardCommandRegistered pins the CLI surface: the subcommand exists
-// on the root with flag parsing disabled (tmux flags pass through verbatim).
+// TestTmuxGuardCommandRegistered pins the CLI surface for BOTH instances of
+// the factory-built guard: the visible `rk mux guard` family member and the
+// PERMANENT hidden root alias `rk tmux-guard` (installed shims exec the
+// literal name frozen at install time — cli-layering.md delegation rule 3).
+// The Deprecated == "" pin makes a future sweep converting the alias into a
+// warning alias fail a test: warning text would leak onto stderr of every
+// guarded tmux call on old installs.
 func TestTmuxGuardCommandRegistered(t *testing.T) {
-	for _, c := range rootCmd.Commands() {
-		if c.Name() == "tmux-guard" {
-			if !c.DisableFlagParsing {
-				t.Error("tmux-guard must disable cobra flag parsing")
-			}
-			return
+	t.Run("family member at mux guard", func(t *testing.T) {
+		cmd, _, err := rootCmd.Find([]string{"mux", "guard"})
+		if err != nil || cmd.Name() != "guard" {
+			t.Fatalf("`mux guard` not resolvable (cmd=%v, err=%v)", cmd, err)
 		}
-	}
-	t.Error("tmux-guard is not registered on the root command")
+		if cmd.Hidden {
+			t.Error("the mux family member must be visible")
+		}
+		if !cmd.DisableFlagParsing {
+			t.Error("guard must disable cobra flag parsing (tmux flags pass through verbatim)")
+		}
+	})
+
+	t.Run("permanent hidden root alias tmux-guard", func(t *testing.T) {
+		cmd, _, err := rootCmd.Find([]string{"tmux-guard"})
+		if err != nil || cmd.Name() != "tmux-guard" {
+			t.Fatalf("`tmux-guard` not resolvable at root (cmd=%v, err=%v)", cmd, err)
+		}
+		if !cmd.Hidden {
+			t.Error("the root alias must be hidden")
+		}
+		if cmd.Deprecated != "" {
+			t.Errorf("the alias is PERMANENT and must never warn (Deprecated = %q)", cmd.Deprecated)
+		}
+		if !cmd.DisableFlagParsing {
+			t.Error("guard must disable cobra flag parsing (tmux flags pass through verbatim)")
+		}
+	})
 }

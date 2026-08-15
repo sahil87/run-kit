@@ -384,6 +384,83 @@ func TestTmuxGuardShimCheckDanglingRkPath(t *testing.T) {
 	})
 }
 
+// oldGenerationDoctorShim renders the PRE-move shim content (steady-state exec
+// `…" tmux-guard "$@"`) for the given rk path. Installed shims carry the
+// literal frozen at install time, so doctor must keep verifying this form
+// forever.
+func oldGenerationDoctorShim(rkPath string) string {
+	return strings.Replace(tmuxShimScript(rkPath),
+		`exec "`+rkPath+`" mux guard "$@"`,
+		`exec "`+rkPath+`" tmux-guard "$@"`, 1)
+}
+
+// TestTmuxGuardShimCheckBothGenerations pins generation parity: tmuxShimExecTarget's
+// first-quoted-value parse is generation-agnostic, so old- and new-form shims
+// report identically across the healthy, dangling-target, and
+// unparseable-exec-target states.
+func TestTmuxGuardShimCheckBothGenerations(t *testing.T) {
+	liveRk := writeStub(t, t.TempDir(), "rk", "#!/bin/sh\nexit 0\n", 0o755)
+	danglingRk := filepath.Join(t.TempDir(), "rk") // never created
+
+	generations := map[string]func(rkPath string) string{
+		"old form (tmux-guard exec)": oldGenerationDoctorShim,
+		"new form (mux guard exec)":  tmuxShimScript,
+	}
+
+	for gen, render := range generations {
+		t.Run(gen, func(t *testing.T) {
+			// The exec target parse reads the embedded rk path out of BOTH
+			// forms — every shim state builds on it.
+			if got := tmuxShimExecTarget(render(liveRk)); got != liveRk {
+				t.Errorf("tmuxShimExecTarget = %q, want %q", got, liveRk)
+			}
+
+			t.Run("healthy install", func(t *testing.T) {
+				home := t.TempDir()
+				shim := tmuxShimPath(home)
+				writeStub(t, filepath.Dir(shim), "tmux", render(liveRk), 0o755)
+				realDir := t.TempDir()
+				writeStub(t, realDir, "tmux", stubTmuxContent, 0o755)
+				pathEnv := filepath.Dir(shim) + string(os.PathListSeparator) + realDir
+				c := tmuxGuardShimCheck(home, pathEnv, func(string) (string, error) { return shim, nil })
+				if !c.OK {
+					t.Errorf("healthy %s shim must be OK, got %+v", gen, c)
+				}
+				if !strings.Contains(c.Note, "resolves tmux to the shim") {
+					t.Errorf("expected the resolves-to-shim note, got %+v", c)
+				}
+			})
+
+			t.Run("dangling embedded target", func(t *testing.T) {
+				home := t.TempDir()
+				shim := tmuxShimPath(home)
+				writeStub(t, filepath.Dir(shim), "tmux", render(danglingRk), 0o755)
+				c := tmuxGuardShimCheck(home, "", func(string) (string, error) { return shim, nil })
+				if c.OK {
+					t.Errorf("a dangling embedded rk path must FAIL, got %+v", c)
+				}
+				if !strings.Contains(c.Hint, danglingRk) || !strings.Contains(c.Hint, "rk agent setup") {
+					t.Errorf("hint should name the dangling path and the re-install remedy, got %+v", c)
+				}
+			})
+
+			t.Run("unparseable exec target", func(t *testing.T) {
+				home := t.TempDir()
+				shim := tmuxShimPath(home)
+				content := "#!/bin/sh\n# " + tmuxShimMarker + "\n"
+				writeStub(t, filepath.Dir(shim), "tmux", content, 0o755)
+				c := tmuxGuardShimCheck(home, "", func(string) (string, error) { return shim, nil })
+				if c.OK {
+					t.Errorf("an unparseable exec target must FAIL, got %+v", c)
+				}
+				if !strings.Contains(c.Hint, "rk agent setup") {
+					t.Errorf("hint should carry the re-install remedy `rk agent setup`, got %+v", c)
+				}
+			})
+		})
+	}
+}
+
 func TestTmuxGuardShimCheckResolvesToShim(t *testing.T) {
 	home := t.TempDir()
 	shim, pathEnv := installDoctorShim(t, home)

@@ -46,11 +46,11 @@ func TestRootCmdHasSubcommands(t *testing.T) {
 		}
 	}
 
-	// The old root forms survive as HIDDEN aliases (see agent.go / mux.go):
-	// agent-setup, reaper, snapshot, and init-conf are deprecated but still run;
-	// agent-hook is a permanent machine-invoked contract. Registered, hidden,
-	// never listed.
-	for _, name := range []string{"agent-setup", "agent-hook", "reaper", "snapshot", "init-conf"} {
+	// The old root forms survive as HIDDEN aliases (see agent.go / mux.go /
+	// tmux_guard.go): agent-setup, reaper, snapshot, and init-conf are deprecated
+	// but still run; agent-hook and tmux-guard are PERMANENT machine-invoked
+	// contracts (never warn, never removed). Registered, hidden, never listed.
+	for _, name := range []string{"agent-setup", "agent-hook", "tmux-guard", "reaper", "snapshot", "init-conf"} {
 		cmd, _, err := rootCmd.Find([]string{name})
 		if err != nil || cmd == nil || cmd.Name() != name {
 			t.Errorf("hidden root alias %q not found (err=%v)", name, err)
@@ -77,6 +77,7 @@ func TestRootCmdHasSubcommands(t *testing.T) {
 		{"mux", "await"},
 		{"mux", "reap"},
 		{"mux", "init-conf"},
+		{"mux", "guard"},
 		{"mux", "snapshot", "list"},
 		{"mux", "snapshot", "show"},
 		{"mux", "snapshot", "restore"},

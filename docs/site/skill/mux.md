@@ -66,5 +66,6 @@ After the probe-gated Enter, the verb first watches for the peer to flip to `act
 - `--key` sends key names raw (no paste, no probe — keys have no echo to verify).
 - `send --await` on an UNINSTRUMENTED pane (no `@rk_agent_state`): the message still delivers and `delivered %N` prints; the wait then applies its own rule — if the pane still has no state, the command errors "nothing observable to wait on" (exit 1). The delivery is never rolled back or hidden by a failed wait.
 - `await --notify` fires on EVERY report — including `running` (timeout) and `gone` (pane died), not just a reached state. That is deliberate: you asked to be woken when the wait ends, however it ends.
+- A bare `tmux kill-server` (no `-L`/`-S`) is refused machine-wide by the rk tmux guard shim — use `tmux -L <name> kill-server` for scratch servers (`rk mux guard` is the verb the shim execs).
 - The verbs talk to tmux directly from your context — no daemon dependency, so they work while `rk serve` is down.
 - Waits are bounded by `--timeout` (default 300s, 0 = indefinite), never by an internal command budget — individual tmux reads carry their own short timeouts, the loop itself does not.

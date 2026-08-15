@@ -64,16 +64,22 @@ func init() {
 	// machine-invoked contract installed hook lines depend on.
 	rootCmd.AddCommand(agentSetupAliasCmd)
 	rootCmd.AddCommand(agentHookAliasCmd)
-	rootCmd.AddCommand(tmuxGuardCmd)
+	// tmux-guard joins agent-hook in the PERMANENT class (never warns, never
+	// removed): installed PATH shims exec the literal name frozen at install
+	// time, fronting every PATH-resolved tmux call — a machine-invoked
+	// contract, not deprecation-grade (cli-layering.md delegation rule 3; see
+	// tmuxGuardAliasCmd in tmux_guard.go).
+	rootCmd.AddCommand(tmuxGuardAliasCmd)
 	rootCmd.AddCommand(riffCmd)
 	rootCmd.AddCommand(remoteCmd)
 	rootCmd.AddCommand(roleCmd)
 	rootCmd.AddCommand(codeServerCmd)
 	rootCmd.AddCommand(presentCmd)
 	rootCmd.AddCommand(muxCmd)
-	// Hidden root aliases for the mux family (see mux.go): all three are
+	// Hidden root aliases for the mux family (see mux.go): these three are
 	// deprecation-grade — they warn on stderr and still run, pointing at the
-	// `rk mux` form, and are removable in a future release.
+	// `rk mux` form, and are removable in a future release (unlike the
+	// permanent agent-hook / tmux-guard contracts above).
 	rootCmd.AddCommand(reapAliasCmd)
 	rootCmd.AddCommand(snapshotAliasCmd)
 	rootCmd.AddCommand(initConfAliasCmd)

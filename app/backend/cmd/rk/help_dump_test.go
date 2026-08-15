@@ -190,19 +190,19 @@ func TestCaptureNodeRealTreeSelfExcludesAndDepth(t *testing.T) {
 		t.Error("daemon should have its 'status' subcommand captured")
 	}
 
-	// The mux family is captured to full depth with exactly its five members;
+	// The mux family is captured to full depth with exactly its six members;
 	// snapshot carries its three children at depth.
 	mux, ok := childByName(n, "mux")
 	if !ok {
 		t.Fatal("mux should be present in the real tree")
 	}
-	for _, name := range []string{"send", "await", "reap", "snapshot", "init-conf"} {
+	for _, name := range []string{"send", "await", "reap", "snapshot", "init-conf", "guard"} {
 		if _, ok := childByName(mux, name); !ok {
 			t.Errorf("mux should have its %q subcommand captured", name)
 		}
 	}
-	if len(mux.Commands) != 5 {
-		t.Errorf("mux has %d captured subcommands, want exactly 5 (send, await, reap, snapshot, init-conf)", len(mux.Commands))
+	if len(mux.Commands) != 6 {
+		t.Errorf("mux has %d captured subcommands, want exactly 6 (send, await, reap, snapshot, init-conf, guard)", len(mux.Commands))
 	}
 	muxSnap, ok := childByName(mux, "snapshot")
 	if !ok {
@@ -218,8 +218,9 @@ func TestCaptureNodeRealTreeSelfExcludesAndDepth(t *testing.T) {
 	}
 
 	// The moved/hidden root forms are excluded from the dump: the three mux
-	// deprecation aliases (hidden) and shell-init (hidden, machine-invoked).
-	for _, name := range []string{"reaper", "snapshot", "init-conf", "shell-init"} {
+	// deprecation aliases, the permanent tmux-guard contract (hidden), and
+	// shell-init (hidden, machine-invoked).
+	for _, name := range []string{"reaper", "snapshot", "init-conf", "tmux-guard", "shell-init"} {
 		if _, ok := childByName(n, name); ok {
 			t.Errorf("the hidden %q root form should be excluded from the dump", name)
 		}

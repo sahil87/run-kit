@@ -1,0 +1,9 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-15T12:27:52Z"}
+{"args":"Part 4 of cli-layering: rk mux guard move of rk tmux-guard with permanent hidden root alias; agent setup regenerates shim to new form; doctor states updated","cmd":"fab-new","event":"command","ts":"2026-08-15T12:27:52Z"}
+{"delta":"+4.5","event":"confidence","score":4.5,"trigger":"calc-score","ts":"2026-08-15T12:30:35Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-15T12:34:20Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-15T12:34:25Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-15T12:51:39Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-15T12:55:30Z"}
+{"event":"review","result":"passed","ts":"2026-08-15T12:55:30Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-15T13:08:11Z"}

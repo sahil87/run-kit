@@ -348,7 +348,7 @@ func newAgentSetupCmd(use string, deprecated bool) *cobra.Command {
 			"is shown for confirmation before anything is written. Also installs the " +
 			"tmux guard shim (~/.local/share/rk/shims/tmux plus a marker-owned PATH " +
 			"block in the shell startup files) so `tmux kill-server` without an " +
-			"explicit -L/-S socket is blocked via `rk tmux-guard`. Use --yes to write " +
+			"explicit -L/-S socket is blocked via `rk mux guard`. Use --yes to write " +
 			"without prompting (non-interactive), or --dry-run to preview the diff and " +
 			"write nothing.",
 		Args:         usageArgs(cobra.NoArgs),
@@ -881,7 +881,7 @@ func isRkEntry(entry map[string]any) bool {
 
 // --- tmux guard shim (second managed artifact) ----------------------------------
 
-// The tmux guard shim puts `rk tmux-guard` (tmux_guard.go) in front of every
+// The tmux guard shim puts `rk mux guard` (tmux_guard.go) in front of every
 // PATH-resolved tmux invocation: a shim script at ~/.local/share/rk/shims/tmux
 // plus a marker-owned PATH block in the user's shell startup files. Both pieces
 // follow the same managed-artifact contract as the hooks merge: idempotent

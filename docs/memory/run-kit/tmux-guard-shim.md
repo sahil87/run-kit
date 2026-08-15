@@ -1,8 +1,8 @@
 ---
 type: memory
-description: "The tmux guard PATH shim — `rk tmux-guard` fronts the real tmux and refuses `kill-server` without an explicit `-L`/`-S` (a bare kill in a pane destroys the HOST server — precedence `-L`/`-S` > `$TMUX` > `TMUX_TMPDIR`). Covers the argv decision, shim-skipping resolution, the exec passthrough (`$TMUX` restored, `RK_TMUX_GUARD` stripped), the self-healing shim script (~3s rk probe → guard exec → fail-open PATH walk behind a crude backstop), the `rk agent setup` install contract, and doctor states."
+description: "The tmux guard PATH shim — `rk mux guard` (+ permanent hidden root alias `tmux-guard`) fronts the real tmux and refuses `kill-server` without an explicit `-L`/`-S` (a bare kill destroys the HOST server). Covers the argv decision, shim-skipping resolution, exec passthrough (`$TMUX` restored, `RK_TMUX_GUARD` stripped), the self-healing shim script (probe → guard exec → fail-open walk behind a crude backstop), the `rk agent setup` install contract + shim generations, and doctor states."
 ---
-# tmux Guard PATH Shim (`rk tmux-guard`)
+# tmux Guard PATH Shim (`rk mux guard`)
 
 **Domain**: run-kit
 
@@ -16,11 +16,16 @@ tmux pane kills the host tmux server it lives in — a class prose guidance
 
 Two artifacts and one subcommand:
 
-- **`rk tmux-guard [tmux args…]`** (`app/backend/cmd/rk/tmux_guard.go`) — decides
-  block vs pass over the tmux argv, then process-replaces itself with the real
-  tmux on pass.
+- **`rk mux guard [tmux args…]`** (`app/backend/cmd/rk/tmux_guard.go`) — the
+  canonical command, a visible `mux` family member that decides block vs pass
+  over the tmux argv, then process-replaces itself with the real tmux on pass.
+  **`rk tmux-guard` survives as a PERMANENT hidden root alias** — Hidden, no
+  cobra `Deprecated`, never warns, never removable: installed shims exec the
+  literal name, so this form must resolve silently forever (cli-layering
+  delegation rule 3, the same class as `agent-hook`). Both instances are built
+  by one factory (`newTmuxGuardCmd`) sharing the untouched `runTmuxGuard` core.
 - **The shim** at `~/.local/share/rk/shims/tmux` — a self-healing `#!/bin/sh`
-  script that probes the embedded rk path, execs `rk tmux-guard`, or fails open
+  script that probes the embedded rk path, execs `rk mux guard`, or fails open
   to the real tmux — plus a marker-owned `PATH` block in the user's shell startup
   files, both installed and removed by `rk agent setup` (see
   [agent-state](/run-kit/agent-state.md) § `rk agent setup`, which owns the
@@ -96,7 +101,7 @@ arguments never read as command words:
 ### Requirement: Real-tmux resolution never resolves the shim
 `findRealTmux(pathEnv, shimDir)` SHALL scan `PATH` and return the first
 executable regular file named `tmux` that is not the shim, erroring when none
-exists — it MUST never exec the shim (an infinite shim → `rk tmux-guard` → shim
+exists — it MUST never exec the shim (an infinite shim → `rk mux guard` → shim
 loop). Two independent exclusions apply: PATH entries equal to the rk shims dir
 are skipped, and any candidate whose head (first 512 bytes) sniffs as the rk shim
 — by ownership marker or by its `tmux-guard` invocation — is skipped regardless of
@@ -115,7 +120,10 @@ On pass the guard SHALL process-replace itself via `syscall.Exec` with
 exit code with no relay code. On block it SHALL print the refusal message to
 stderr and exit **1** (operational class per the toolkit exit-code convention),
 naming the precedence trap, the canonical remedy (`tmux -L <name> kill-server`),
-and the bypass. The exec call sits behind the injectable `tmuxGuardExec` seam so
+and the bypass. Every user-facing message prefix names the canonical command
+(`rk mux guard: BLOCKED: …`); first-generation installed shims keep their frozen
+old-prefix (`rk tmux-guard:`) fallback text — installed-artifact text is never
+rewritten outside `rk agent setup`. The exec call sits behind the injectable `tmuxGuardExec` seam so
 tests never execute a real binary, and the subcommand carries
 `DisableFlagParsing` + `ArbitraryArgs` so tmux flags reach the guard rather than
 cobra.
@@ -148,11 +156,15 @@ The installed shim (`tmuxShimScript`) SHALL run three stages, in file order:
   `tmuxShimProbeAttempts` × `tmuxShimProbeInterval` (15 probes, 0.2s apart, ~3s)
   and proceed the moment it becomes executable. The steady state tests the
   condition once and never sleeps; the stall itself is silent.
-- **Guard exec** — `exec "<abs-rk>" tmux-guard "$@"`, passing the original argv
-  verbatim. This MUST stay the script's **first** `exec ` line with the rk path
-  spelled **literally**, because `tmuxShimExecTarget` reads the first
-  double-quoted value on the first such line and every `rk doctor` shim state is
-  built on it; the fail-open exec of the resolved tmux comes later in file order.
+- **Guard exec** — `exec "<abs-rk>" mux guard "$@"` (the second-generation
+  form), passing the original argv verbatim. This MUST stay the script's
+  **first** `exec ` line with the rk path spelled **literally**, because
+  `tmuxShimExecTarget` reads the first double-quoted value on the first such
+  line and every `rk doctor` shim state is built on it; that parse is
+  generation-agnostic (the rk path is the first quoted token in both the
+  `tmux-guard` and `mux guard` exec forms), so doctor verifies both shim
+  generations identically. The fail-open exec of the resolved tmux comes later
+  in file order.
 - **Fail open** — after the budget, the shim SHALL evaluate the bare-`kill-server`
   backstop, then resolve the real tmux itself with a `set -f` + `IFS=:` `PATH`
   walk mirroring `findRealTmux`'s exclusions (empty entries; the rk shims dir,
@@ -181,7 +193,7 @@ compile-time constant or composed at run time from `$HOME`.
 - **GIVEN** the embedded rk path is momentarily absent (a package manager's
   non-atomic relink) and returns within the probe budget
 - **WHEN** any `tmux …` resolves through the shim
-- **THEN** the shim stalls silently and then execs `rk tmux-guard` with the
+- **THEN** the shim stalls silently and then execs `rk mux guard` with the
   original argv — never exiting 127
 
 #### Scenario: a permanently dangling rk path falls open
@@ -219,11 +231,14 @@ under `--dry-run` (the requested preview).
 
 - **Shim file** at `~/.local/share/rk/shims/tmux`, mode 0755, carrying the
   `managed-by: rk agent-setup (tmux guard shim)` ownership marker on line 2 and,
-  past its probe stage, exec'ing `"<abs-rk>" tmux-guard "$@"` — an absolute path
+  past its probe stage, exec'ing `"<abs-rk>" mux guard "$@"` — an absolute path
   resolved by `resolveRkPath` and validated by `validateHookPath`, not the bare
   name `rk`. Rollout of a new script shape is the same idempotent
   replace-in-place: re-running `rk agent setup` registers it as a content change
-  under the existing consent flow, with no migration and no new file. A pre-existing
+  under the existing consent flow, with no migration and no new file.
+  First-generation installed shims exec'ing the literal `tmux-guard` keep
+  working **forever, unchanged**, through the permanent hidden root alias — they
+  roll over to the `mux guard` form only on the next `rk agent setup` re-run. A pre-existing
   **marker-less** file at that path — including a zero-byte one — is left untouched
   with a skip note; ownership keys on *existence* (`readFileIfExists`), not on
   content. An already-current shim is a reported no-op, except that a lost exec
@@ -339,7 +354,7 @@ interactive clients, and its mandatory timeout would sever attached sessions.
 *Introduced by*: `260805-blyf-tmux-guard-path-shim`
 
 ### Shim embeds the validated absolute rk path, not the bare name `rk`
-**Decision**: the installed shim execs `"<abs-rk>" tmux-guard "$@"` using
+**Decision**: the installed shim execs `"<abs-rk>" mux guard "$@"` using
 `resolveRkPath()` (the stable Homebrew symlink, never the version-pinned Cellar
 path) + `validateHookPath()`.
 **Why**: a bare `rk` makes every tmux invocation depend on rk being on `PATH` at
@@ -350,9 +365,48 @@ artifact already solved the stable-path problem with the
 `resolveRkPath`/`validateHookPath` pattern, so the shim mirrors the established
 managed-artifact contract. The same shell-unsafe-char rejection applies, since the
 path sits inside double quotes in the script.
-**Rejected**: a bare `exec rk tmux-guard "$@"` — simpler but PATH-fragile in
+**Rejected**: a bare `exec rk mux guard "$@"` — simpler but PATH-fragile in
 precisely the non-interactive-shell environments this change targets.
 *Introduced by*: `260805-blyf-tmux-guard-path-shim`
+
+### The `tmux-guard` root alias is permanent and byte-silent
+**Decision**: `tmux-guard` stays registered at the root, `Hidden: true`, with no
+cobra `Deprecated` and no warning of any kind, running byte-identically to the
+`mux guard` family member (same decision, same messages, same exit codes).
+**Why**: installed PATH shims carry the literal `tmux-guard` invocation frozen
+at install time and front EVERY PATH-resolved tmux call on the machine — a
+deprecation line would leak onto stderr of every guarded tmux invocation, and
+removal would re-open the bare-kill-server death vector the shim exists to
+close (cli-layering delegation rule 3: machine-invoked entry points are
+contracts). A test pins `Deprecated == ""` so a future sweep converting it to a
+warning alias fails.
+**Rejected**: a deprecation alias (the Part-3 treatment for human-typed verbs —
+wrong class; these artifacts are never re-typed by humans).
+*Introduced by*: `260815-mi5s-mux-guard-move`
+
+### Factory-built guard instances
+**Decision**: `newTmuxGuardCmd(use string)` builds both the visible
+`mux guard` family member and the permanent root alias off the shared,
+untouched `runTmuxGuard` core (the `newReapCmd`/`newAgentHookCmd` precedent).
+**Why**: a cobra command object cannot have two parents, and two hand-declared
+literals would drift — the exit-code handling and `DisableFlagParsing` must be
+provably identical on both forms.
+**Rejected**: cobra `Aliases` (cannot span root↔family); a re-dispatching alias
+(breaks raw-argv passthrough).
+*Introduced by*: `260815-mi5s-mux-guard-move`
+
+### The guard skips `muxRejectInheritedServerFlag`
+**Decision**: unlike `reap`/`snapshot`/`init-conf`, the `mux guard` member does
+not reject an inherited `-L` — `DisableFlagParsing` means every token after
+`guard` flows verbatim into the tmux argv.
+**Why**: nothing is parsed, so nothing is silently ignored — `-L` in a guard
+invocation IS tmux's socket flag, and consuming it would change the guarded
+command's meaning. The pinned invariant is no silent retarget: the explicit
+socket either rides into tmux or the invocation is blocked with the canonical
+remedy.
+**Rejected**: rejecting `-L` (would break `rk mux guard -L x kill-server`, the
+canonical explicit-socket form).
+*Introduced by*: `260815-mi5s-mux-guard-move`
 
 ### Exec env restores `$TMUX` and strips `RK_TMUX_GUARD`
 **Decision**: `tmuxGuardExecEnv()` builds the exec environment as `os.Environ()`

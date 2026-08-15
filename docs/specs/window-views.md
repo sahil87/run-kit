@@ -168,7 +168,7 @@ window exists only to give a URL identity, a sidebar seat, and
 board-pinnability. Two-step exit path:
 
 1. **[target, near]** Derive port → owning pane (listening-services collector
-   already probes; `rk agent-hook` already walks pid ancestry) and surface the
+   already probes; `rk agent hook` already walks pid ancestry) and surface the
    `web` lens on the *owning* row. Host "Open in window" deep-links to
    `/$server/$window?view=web` when an owner derives; synthetic-window
    creation remains the fallback for non-derivable services.

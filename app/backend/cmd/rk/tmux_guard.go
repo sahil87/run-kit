@@ -22,7 +22,7 @@ import (
 // server ($TMUX wins). Prose guidance (CLAUDE.md, agent memory) has failed to
 // prevent this; the guard is the deterministic, harness-agnostic veto.
 //
-// `rk agent-setup` installs a shim at ~/.local/share/rk/shims/tmux that execs
+// `rk agent setup` installs a shim at ~/.local/share/rk/shims/tmux that execs
 // `rk tmux-guard "$@"` (see agent_setup.go), and prepends that directory to
 // PATH via a marker-owned block in the user's shell startup files. Every
 // PATH-resolved `tmux …` then flows through here:
@@ -86,12 +86,13 @@ const tmuxGuardBlockedMessage = "rk tmux-guard: BLOCKED: `tmux kill-server` with
 	"Re-run with an explicit socket:  tmux -L <scratch-name> kill-server\n" +
 	"Bypass (you are sure):           RK_TMUX_GUARD=off tmux kill-server"
 
-// --- shim artifact identity (installed by rk agent-setup, see agent_setup.go) ---
+// --- shim artifact identity (installed by rk agent setup, see agent_setup.go) ---
 
 // tmuxShimMarker is the ownership marker embedded in the installed shim
-// script. agent-setup only overwrites/removes a shim carrying it (the same
+// script. rk agent setup only overwrites/removes a shim carrying it (the same
 // marker-owned contract as its other artifacts), and findRealTmux sniffs it to
-// avoid ever resolving the shim as "the real tmux" (exec recursion).
+// avoid ever resolving the shim as "the real tmux" (exec recursion). The marker
+// TEXT is frozen — it matches artifacts already installed on user machines.
 const tmuxShimMarker = "managed-by: rk agent-setup (tmux guard shim)"
 
 // The shim probes a momentarily-unreachable rk path for
@@ -359,7 +360,7 @@ func tmuxShimExecTarget(content string) string {
 	return ""
 }
 
-// rkShimsDir is the directory agent-setup installs PATH shims into, and the
+// rkShimsDir is the directory rk agent setup installs PATH shims into, and the
 // directory the guard skips when resolving the real tmux.
 func rkShimsDir(home string) string {
 	return filepath.Join(home, filepath.FromSlash(rkShimsRelDir))
@@ -608,7 +609,7 @@ var tmuxGuardCmd = &cobra.Command{
 	Use:   "tmux-guard [tmux args...]",
 	Short: "Front the real tmux binary, blocking bare kill-server",
 	Long: "Guard wrapper installed in front of the real tmux binary (via the PATH shim " +
-		"written by `rk agent-setup`). A `kill-server` invocation without an explicit " +
+		"written by `rk agent setup`). A `kill-server` invocation without an explicit " +
 		"-L/-S socket is refused with an explanation of the socket-resolution trap " +
 		"(-L/-S > $TMUX > TMUX_TMPDIR); every other invocation execs the real tmux " +
 		"verbatim, preserving argv, stdio, and exit code. Set RK_TMUX_GUARD=off to " +

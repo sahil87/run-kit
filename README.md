@@ -39,7 +39,7 @@ The app's welcome page detects your local install and starts the daemon in one c
 Either way, spawn your first agent workspace:
 
 ```bash
-run-kit agent-setup             # optional, once per machine: agent busy/waiting/idle in the dashboard
+run-kit agent setup             # optional, once per machine: agent busy/waiting/idle in the dashboard
 
 # in a tmux session (tmux new -s work if you aren't in one):
 run-kit riff                    # spawn an agent workspace (--skill /name picks the slash-command)
@@ -163,20 +163,20 @@ Each window in the sidebar, dashboard, and pane panel carries a single **status 
 
 See the [status dot reference](docs/site/status-dot.md) for the full legend, the per-state rendering, and the design rationale.
 
-## Agent state — `run-kit agent-setup`
+## Agent state — `run-kit agent setup`
 
 Windows running an AI agent can report a live lifecycle state in the sidebar and pane panel: **active** (turn in progress), **waiting** (blocked on you — a permission prompt or question), or **idle** (turn done, with elapsed duration). `waiting` is the state worth a glance at your phone: the agent isn't working, it's waiting for *you*.
 
 This is opt-in and needs a one-time setup per machine:
 
 ```bash
-run-kit agent-setup              # shows the settings diff, asks before writing
-run-kit agent-setup --uninstall  # removes exactly the run-kit-owned entries
+run-kit agent setup              # shows the settings diff, asks before writing
+run-kit agent setup --uninstall  # removes exactly the run-kit-owned entries
 ```
 
-It installs agent-harness hooks into your user-global agent config (v1: Claude Code, `~/.claude/settings.json`) that stamp a `@rk_agent_state` tmux pane option on lifecycle events. Each hook is a thin, stable wrapper that delegates to `run-kit agent-hook` — a stable interface whose logic (the pid resolution, the value write) lives in the binary. No run-kit **server** is needed at fire time, and because the logic is in the binary, hook fixes track `brew upgrade run-kit` with no settings changes and no session restarts. They work for any session, in any repo, under any workflow. Idempotent: re-running updates run-kit's entries in place (recognizing and replacing older-generation entries too) and never touches your other hooks. Until it's run (and agents are restarted so new sessions pick up the hooks), agent state shows `—`.
+It installs agent-harness hooks into your user-global agent config (v1: Claude Code, `~/.claude/settings.json`) that stamp a `@rk_agent_state` tmux pane option on lifecycle events. Each hook is a thin, stable wrapper that delegates to `run-kit agent hook` — a stable interface whose logic (the pid resolution, the value write) lives in the binary. No run-kit **server** is needed at fire time, and because the logic is in the binary, hook fixes track `brew upgrade run-kit` with no settings changes and no session restarts. They work for any session, in any repo, under any workflow. Idempotent: re-running updates run-kit's entries in place (recognizing and replacing older-generation entries too) and never touches your other hooks. Until it's run (and agents are restarted so new sessions pick up the hooks), agent state shows `—`.
 
-> **Upgrading from an earlier run-kit?** Older installs had the hook *logic* inlined in `settings.json`. Run `run-kit agent-setup` once more to swap in the new delegating wrapper, then restart your agent sessions (harnesses snapshot hook config at session start). This is the last time a hook *logic* change needs a re-setup — future fixes ship in the binary. (Changes to which events map to which state still need a re-setup, since that mapping lives in the settings entries.)
+> **Upgrading from an earlier run-kit?** Older installs had the hook *logic* inlined in `settings.json`. Run `run-kit agent setup` once more to swap in the new delegating wrapper, then restart your agent sessions (harnesses snapshot hook config at session start). This is the last time a hook *logic* change needs a re-setup — future fixes ship in the binary. (Changes to which events map to which state still need a re-setup, since that mapping lives in the settings entries.)
 
 The cross-repo convention is documented in [`docs/specs/agent-state.md`](https://github.com/sahil87/run-kit/blob/main/docs/specs/agent-state.md).
 
@@ -298,7 +298,7 @@ Supports `zsh`, `bash`, `fish`, and `powershell`. Completion-only — run-kit ha
 | `run-kit notify` | Send a Web Push notification to your subscribed devices (see [Push notifications](#push-notifications)). Fail-silent. |
 | `run-kit present` | Show a file, directory, `:port`, localhost URL, or external URL to the user as a web tile attached to the current window (`--window` spawns a standalone iframe window, `--notify` pushes). Prints the resolved URL. |
 | `run-kit doctor` | Check runtime dependencies. Run this first when something breaks. |
-| `run-kit agent-setup` | Install agent-harness hooks (v1: Claude Code) so panes report busy/waiting/idle state (see [Agent state](#agent-state--run-kit-agent-setup)), plus the tmux guard shim that blocks `tmux kill-server` without an explicit `-L`/`-S` socket. Once per machine; `--uninstall` reverses both. |
+| `run-kit agent setup` | Install agent-harness hooks (v1: Claude Code) so panes report busy/waiting/idle state (see [Agent state](#agent-state--run-kit-agent-setup)), plus the tmux guard shim that blocks `tmux kill-server` without an explicit `-L`/`-S` socket. Once per machine; `--uninstall` reverses both. |
 | `run-kit init-conf` | Scaffold default `tmux.conf` and `tmux.d/` drop-in directory to `~/.rk/`. Optional. |
 | `run-kit update` | Upgrade via Homebrew and restart the daemon. |
 | `run-kit desktop` | Install/update the macOS desktop app from GitHub Releases, quarantine-free (`install`, `update`, `status` — see [Desktop app](#desktop-app-macos)). |
@@ -312,7 +312,7 @@ Every command is also reachable via the short `rk` alias (e.g. `rk riff`). Run `
 
 - **`run-kit riff` fails with "not in a tmux session"** — riff requires `$TMUX` to be set. Start tmux first (`tmux new -s work`), then run `run-kit riff` inside it.
 - **`run-kit riff` fails with "wt not found"** — install `wt` via `shll install wt`, or install the full toolkit from [https://shll.ai](https://shll.ai).
-- **Agent state shows `—` for every window** — run `run-kit agent-setup` once on the machine, then start a fresh agent session (hooks apply to new sessions, not already-running ones). A pane sitting at a plain shell also reads `—` by design — state clears when the agent exits.
+- **Agent state shows `—` for every window** — run `run-kit agent setup` once on the machine, then start a fresh agent session (hooks apply to new sessions, not already-running ones). A pane sitting at a plain shell also reads `—` by design — state clears when the agent exits.
 - **Anything else broken** — run `run-kit doctor`. It checks tmux, `wt`, the launcher binary, port availability, and prints per-dependency status.
 
 ## Architecture

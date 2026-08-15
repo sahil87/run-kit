@@ -17,18 +17,19 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// rk agent-hook — the stable interface that agent-harness hooks invoke to report
+// rk agent hook — the stable interface that agent-harness hooks invoke to report
 // generic agent-lifecycle state into the @rk_agent_state pane option (see
 // docs/specs/agent-state.md). It replaces the former self-contained shell
 // one-liner: the harness config now carries only a thin
 //
-//	/bin/sh -c '[ -n "$TMUX_PANE" ] || exit 0; "<abs-rk>" agent-hook --agent claude <state> 2>/dev/null || true'
+//	/bin/sh -c '[ -n "$TMUX_PANE" ] || exit 0; "<abs-rk>" agent hook --agent claude <state> 2>/dev/null || true'
 //
-// wrapper (installed by `run-kit agent-setup`), and ALL logic — the comm-validated
-// ancestor walk, the value formatting — lives here in Go where it is testable and
-// tracks the binary on `brew upgrade run-kit`, with no settings churn and no agent
-// session restarts. The @rk_agent_state VALUE SCHEMA is unchanged, so every
-// reader (internal/tmux, internal/sessions, the frontend) is untouched.
+// wrapper (installed by `run-kit agent setup`), and ALL logic — the
+// comm-validated ancestor walk, the value formatting — lives here in Go where it
+// is testable and tracks the binary on `brew upgrade run-kit`, with no settings
+// churn and no agent session restarts. The @rk_agent_state VALUE SCHEMA is
+// unchanged, so every reader (internal/tmux, internal/sessions, the frontend) is
+// untouched.
 //
 // NEVER-FAIL CONTRACT: every path exits 0. Claude Code treats hook exit code 2 as
 // blocking and other non-zero exits as warnings, so a broken hook must never
@@ -70,53 +71,76 @@ const hookStdinReadLimit = 1 << 20
 // and the reader (internal/tmux) never drift.
 const chatOption = tmux.ChatOption
 
-var agentHookAgent string
-
-var agentHookCmd = &cobra.Command{
-	Use:   "agent-hook <state>",
-	Short: "Report an agent's lifecycle state to run-kit (invoked by installed hooks)",
-	Long: "Write the @rk_agent_state tmux pane option for the current pane so " +
-		"run-kit can show this agent's active/waiting/idle state. This is the " +
-		"stable interface installed by `run-kit agent-setup` — the harness config " +
-		"carries only a thin wrapper and all logic lives in the binary, so hook " +
-		"behavior tracks `brew upgrade run-kit` with no settings changes or session " +
-		"restarts. It no-ops outside tmux and always exits 0 (a hook must never " +
-		"fail or block the agent).",
-	// Args is deliberately ArbitraryArgs (not ExactArgs(1)): cobra's arg-count
-	// validators run BEFORE RunE and return a non-zero error, which would exit the
-	// process non-zero — Claude Code reads a non-zero hook exit as a warning (and 2
-	// as blocking). The never-fail contract must hold for EVERY invocation, so arg
-	// validation moves into RunE, which always returns nil. SilenceErrors/Usage
-	// keep cobra from printing anything on the hot path.
-	Args:          cobra.ArbitraryArgs,
-	SilenceErrors: true,
-	SilenceUsage:  true,
-	// FParseErrWhitelist.UnknownFlags: an unknown flag on the hook-fire path must
-	// not error out before RunE (cobra's flag-parse error exits non-zero, which the
-	// harness reads as a warning). Whitelisting unknown flags lets them fall
-	// through as (ignored) args so the never-fail contract holds for EVERY
-	// invocation. The installed wrapper only ever passes known flags anyway.
-	FParseErrWhitelist: cobra.FParseErrWhitelist{UnknownFlags: true},
-	RunE: func(cmd *cobra.Command, args []string) error {
-		if len(args) != 1 {
-			// Malformed invocation — no state to write. Silent no-op, exit 0.
+// newAgentHookCmd builds one instance of the hook command. A cobra command
+// object cannot have two parents, so the family member (`rk agent hook`) and the
+// root alias (`rk agent-hook`) are two instances sharing the runAgentHook core;
+// the --agent flag binds per-instance. BOTH instances carry the complete
+// never-fail machinery — ArbitraryArgs, FParseErrWhitelist.UnknownFlags,
+// SilenceErrors/SilenceUsage, and a per-command SetFlagErrorFunc(→ nil) that
+// shadows root's usage-error func (see root.go) — because a hook-fire path must
+// exit 0 with no output no matter which installed generation invoked it.
+func newAgentHookCmd(use string) *cobra.Command {
+	var agentFlag string
+	c := &cobra.Command{
+		Use:   use,
+		Short: "Report an agent's lifecycle state to run-kit (invoked by installed hooks)",
+		Long: "Write the @rk_agent_state tmux pane option for the current pane so " +
+			"run-kit can show this agent's active/waiting/idle state. This is the " +
+			"stable interface installed by `run-kit agent setup` — the harness config " +
+			"carries only a thin wrapper and all logic lives in the binary, so hook " +
+			"behavior tracks `brew upgrade run-kit` with no settings changes or session " +
+			"restarts. It no-ops outside tmux and always exits 0 (a hook must never " +
+			"fail or block the agent).",
+		// Args is deliberately ArbitraryArgs (not ExactArgs(1)): cobra's arg-count
+		// validators run BEFORE RunE and return a non-zero error, which would exit the
+		// process non-zero — Claude Code reads a non-zero hook exit as a warning (and 2
+		// as blocking). The never-fail contract must hold for EVERY invocation, so arg
+		// validation moves into RunE, which always returns nil. SilenceErrors/Usage
+		// keep cobra from printing anything on the hot path.
+		Args:          cobra.ArbitraryArgs,
+		SilenceErrors: true,
+		SilenceUsage:  true,
+		// FParseErrWhitelist.UnknownFlags: an unknown flag on the hook-fire path must
+		// not error out before RunE (cobra's flag-parse error exits non-zero, which the
+		// harness reads as a warning). Whitelisting unknown flags lets them fall
+		// through as (ignored) args so the never-fail contract holds for EVERY
+		// invocation. The installed wrapper only ever passes known flags anyway.
+		FParseErrWhitelist: cobra.FParseErrWhitelist{UnknownFlags: true},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) != 1 {
+				// Malformed invocation — no state to write. Silent no-op, exit 0.
+				return nil
+			}
+			runAgentHook(cmd.Context(), agentFlag, args[0])
 			return nil
-		}
-		runAgentHook(cmd.Context(), agentHookAgent, args[0])
-		return nil
-	},
-}
-
-func init() {
-	agentHookCmd.Flags().StringVar(&agentHookAgent, "agent", "claude", "Agent harness whose comm literal drives pid resolution (v1: claude)")
+		},
+	}
+	c.Flags().StringVar(&agentFlag, "agent", "claude", "Agent harness whose comm literal drives pid resolution (v1: claude)")
 	// KNOWN-flag parse errors (e.g. `--agent` present but its value missing) are
 	// returned by pflag BEFORE RunE and are NOT covered by ArbitraryArgs (arg-count
 	// only) or FParseErrWhitelist (unknown flags only). Swallowing them here is the
 	// only seam that keeps such an invocation at exit 0 (never-fail contract) —
 	// main's execute() os.Exit(1)s on any error Execute() returns. RunE then sees
 	// an empty/partial args slice and no-ops without writing.
-	agentHookCmd.SetFlagErrorFunc(func(*cobra.Command, error) error { return nil })
+	c.SetFlagErrorFunc(func(*cobra.Command, error) error { return nil })
+	return c
 }
+
+var (
+	// agentHookFamilyCmd is the `rk agent hook` family member.
+	agentHookFamilyCmd = newAgentHookCmd("hook <state>")
+	// agentHookAliasCmd is the PERMANENT hidden root alias: installed
+	// settings.json hook lines (and harness session snapshots) carry the literal
+	// `agent-hook` invocation frozen at install time, so this form must resolve
+	// — silently, with the full never-fail contract — FOREVER (cli-layering.md
+	// delegation rule 3: machine-invoked entry points are contracts). It is NOT
+	// deprecated and MUST NOT warn, and no cleanup sweep may remove it.
+	agentHookAliasCmd = func() *cobra.Command {
+		c := newAgentHookCmd("agent-hook <state>")
+		c.Hidden = true
+		return c
+	}()
+)
 
 // runAgentHook is the testable core: guard on $TMUX_PANE, validate the agent and
 // token, and — depending on the token — write @rk_agent_state (with a
@@ -199,7 +223,7 @@ func hookStdin() io.Reader { return hookStdinFn() }
 // session id, or "" on any failure. It is deliberately conservative:
 //
 //   - TTY guard: if r is os.Stdin attached to a terminal (os.ModeCharDevice), it
-//     is NOT read — a manual `rk agent-hook` invocation in a terminal must never
+//     is NOT read — a manual `rk agent hook` invocation in a terminal must never
 //     block waiting for stdin.
 //   - Bounded: reads through an io.LimitReader (~1 MiB) so a hung/pathological
 //     producer can't stall the agent's turn.
@@ -442,7 +466,7 @@ func writeChatImpl(ctx context.Context, pane, provider, sessionID string) {
 // pid was resolved (pid <= 0 — the two-segment legacy form readers fall back
 // on), "<state>:<epoch_seconds>:<pid>" when one was. Pure — epoch is a
 // parameter — so the byte-level contract is a testable unit; the schema is
-// UNCHANGED by the agent-hook indirection and readers (parseAgentState, the
+// UNCHANGED by the agent hook indirection and readers (parseAgentState, the
 // reconciler) are untouched.
 func formatAgentStateValue(state string, epoch int64, pid int) string {
 	if pid > 0 {

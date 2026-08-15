@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-15T10:04:30Z"}
+{"args":"Part 2 of cli-layering.md Execution Plan: the rk agent family — rk agent setup (rename + deprecation alias) + rk agent hook (permanent hidden root alias agent-hook)","cmd":"fab-new","event":"command","ts":"2026-08-15T10:04:30Z"}
+{"delta":"+4.7","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-08-15T10:06:35Z"}
+{"delta":"+0.0","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-08-15T10:07:07Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-15T10:10:14Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-15T10:10:39Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-15T10:35:10Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-15T10:43:28Z"}
+{"event":"review","result":"passed","ts":"2026-08-15T10:43:28Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-15T11:00:05Z"}

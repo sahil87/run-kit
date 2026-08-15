@@ -316,8 +316,8 @@ func TestTmuxGuardShimCheckDanglingRkPath(t *testing.T) {
 		if !strings.Contains(c.Hint, gone) {
 			t.Errorf("hint should name the dangling path %q, got %+v", gone, c)
 		}
-		if !strings.Contains(c.Hint, "rk agent-setup") {
-			t.Errorf("hint should carry the re-install remedy `rk agent-setup`, got %+v", c)
+		if !strings.Contains(c.Hint, "rk agent setup") {
+			t.Errorf("hint should carry the re-install remedy `rk agent setup`, got %+v", c)
 		}
 	})
 
@@ -335,8 +335,8 @@ func TestTmuxGuardShimCheckDanglingRkPath(t *testing.T) {
 		if c.OK {
 			t.Errorf("shim with no parseable exec target must FAIL, got %+v", c)
 		}
-		if !strings.Contains(c.Hint, "rk agent-setup") {
-			t.Errorf("hint should carry the re-install remedy `rk agent-setup`, got %+v", c)
+		if !strings.Contains(c.Hint, "rk agent setup") {
+			t.Errorf("hint should carry the re-install remedy `rk agent setup`, got %+v", c)
 		}
 	})
 
@@ -358,8 +358,8 @@ func TestTmuxGuardShimCheckDanglingRkPath(t *testing.T) {
 		if !strings.Contains(c.Hint, "not an executable file") {
 			t.Errorf("hint should say the target is not an executable file, got %+v", c)
 		}
-		if !strings.Contains(c.Hint, "rk agent-setup") {
-			t.Errorf("hint should carry the re-install remedy `rk agent-setup`, got %+v", c)
+		if !strings.Contains(c.Hint, "rk agent setup") {
+			t.Errorf("hint should carry the re-install remedy `rk agent setup`, got %+v", c)
 		}
 	})
 
@@ -378,8 +378,8 @@ func TestTmuxGuardShimCheckDanglingRkPath(t *testing.T) {
 		if !strings.Contains(c.Hint, "not an executable file") {
 			t.Errorf("hint should say the target is not an executable file, got %+v", c)
 		}
-		if !strings.Contains(c.Hint, "rk agent-setup") {
-			t.Errorf("hint should carry the re-install remedy `rk agent-setup`, got %+v", c)
+		if !strings.Contains(c.Hint, "rk agent setup") {
+			t.Errorf("hint should carry the re-install remedy `rk agent setup`, got %+v", c)
 		}
 	})
 }

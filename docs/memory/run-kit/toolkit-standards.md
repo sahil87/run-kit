@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, audit-against-HEAD-build rule, per-standard status. help-dump, readme-extraction, skill, ten principles, update, version PASS. Covers skill topic pages, Principle 9 `--quiet`/reaper caps, SIGTERM-with-grace brew mutations, the help-dump + Principle 9 new-surface check (`rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`/`mux`), `rk update`'s best-effort code-server leg, install-composition Policy A+B PASS."
+description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, audit-against-HEAD-build rule, per-standard status. help-dump, readme-extraction, skill, ten principles, update, version PASS. Covers skill topic pages, Principle 9 `--quiet`/reaper caps, SIGTERM-with-grace brew mutations, the help-dump + Principle 9 new-surface check (`rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`/`mux`/`agent`), `rk update`'s code-server leg, install-composition Policy A+B PASS."
 ---
 # Toolkit Standards Conformance
 
@@ -64,10 +64,10 @@ convention plus the per-command rows):
   `cmd.OutOrStdout()`/`cmd.ErrOrStderr()` (never bare `os.Stdout`/`os.Stderr`) so
   gating is unit-testable — the idiom `doctor.go`/`agent_setup.go` already used.
 - **Three commands adopt the sink** (the audit-named chatter carriers): `update`
-  (`upgrade.go`), `doctor` (`doctor.go`), `agent-setup` (`agent_setup.go`).
+  (`upgrade.go`), `doctor` (`doctor.go`), `agent setup` (`agent_setup.go`).
   `update`'s progress lines route to stderr on non-quiet runs — a consequence of
   "decide the convention once", aligning with Principle 2 (stdout is data).
-- **A consent-mode diff-routing nuance in `agent-setup`**: the consent context
+- **A consent-mode diff-routing nuance in `rk agent setup`**: the consent context
   (a semantic summary on the interactive and `--yes` paths; the full body diff
   under `--dry-run` — see [agent-state](/run-kit/agent-state.md) § the hooks
   merge) routes **per consent mode** via `consent.diffWriter` — on the
@@ -321,6 +321,36 @@ surface measured against the same checks
   carries the topic-index line plus the two one-line capability rows teaching
   both verbs' report contracts.
 
+The `rk agent` family (`setup`/`hook` — see
+[architecture](/run-kit/architecture.md) § CLI Subcommands, `agent` row; full
+contract in [agent-state](/run-kit/agent-state.md)) is the eighth surface
+measured against the same checks (`260815-r2wp-agent-family`):
+
+- **help-dump: the family dumps; the aliases don't.** `agentCmd` and both
+  children are registered unconditionally with `Long:` blocks, so the cobra tree
+  walk picks up the `agent` subtree with exactly {`setup`, `hook`} and no
+  help-dump code change. Both root aliases are `Hidden: true` — hidden nodes are
+  dropped from the dump at every level — so neither `agent-setup` nor
+  `agent-hook` appears (the visible root count drops by one net: two verbs
+  removed, one family added). The help-dump test asserts the subtree and the
+  exclusions dynamically, mirroring the mux assertions.
+- **Principle 2/9: the deprecation pointer is chatter; the hook is silent.**
+  The `agent-setup` alias's cobra `Deprecated` pointer prints to stderr (a
+  diagnostic, not data) and the command still runs with unchanged exit codes;
+  the machine-invoked `agent-hook` alias prints nothing ever — the never-fail
+  contract outranks any alias warning. `agent setup`'s own output keeps the
+  existing sink routing (status lines are chatter, the consent diff routes
+  per-mode — see the P9 section above).
+- **Exit-code convention (P4)** — usage stays 2 on both forms (`agent setup x`
+  and `agent-setup x` both exit 2; the family member wraps its own
+  `usageArgs(cobra.NoArgs)` because root's wrap loop covers only direct
+  children), and the hook's never-fail carve-out (exit 0 on every malformed
+  path) holds on both instances.
+- **The `skill` standard is a no-op here** — the topic-page audit found no
+  `agent-setup`/`agent-hook` references in `docs/site/skill.md` or
+  `docs/site/skill/*.md`; no new `agent` topic page (the family is
+  instrumentation plumbing, not an agent-facing capability briefing).
+
 #### Scenario: A new subcommand group keeps the help tree platform-stable
 - **GIVEN** the `rk desktop` group on a Linux host
 - **WHEN** `rk desktop install` runs
@@ -427,9 +457,9 @@ Each of the ten principles is assessed against `bin/rk` behavior + source, and a
 PASS — no principle gaps remain open. The conformance mechanisms:
 
 **P1/P2/P5 — additive per-command flags:**
-- **P1 (Non-interactive by default)** — `agent-setup` consents non-interactively
+- **P1 (Non-interactive by default)** — `rk agent setup` consents non-interactively
   via `--yes`/`-y` + `--dry-run`, and refuses a non-TTY prompt naming `--yes`. See
-  [agent-state](/run-kit/agent-state.md) § `rk agent-setup` for the consent flow.
+  [agent-state](/run-kit/agent-state.md) § `rk agent setup` for the consent flow.
 - **P2 (stdout is data)** — `status` and `doctor` carry a machine format via
   `--json` (data to stdout; `doctor`'s human diagnostic stays on stderr). See
   [architecture](/run-kit/architecture.md) § CLI Subcommands.
@@ -471,12 +501,15 @@ plumbing rather than a parallel mechanism):
     as `usageError` (exit 2). See [rk-riff](rk-riff.md) § Exit Code Discipline and
     [architecture](architecture.md) § CLI Subcommands (`riff` row), and § Design
     Decisions → "riff exit-class renumbering is a value change, not a mapping change".
-  - **agent-hook never-fail carve-out** — `agent-hook` keeps its own
-    `SetFlagErrorFunc(→ nil)`, which shadows the root's (cobra own-wins), plus its
+  - **agent-hook never-fail carve-out** — both hook command instances (the
+    `agent hook` family member and the permanent hidden root alias `agent-hook`)
+    keep their own
+    `SetFlagErrorFunc(→ nil)`, which shadows the root's (cobra own-wins), plus
     `ArbitraryArgs` + `FParseErrWhitelist.UnknownFlags`, so every malformed invocation
-    exits `0`. This is safety-critical: Claude Code treats a hook exit **2 as
-    *blocking***, so agent-hook must surface neither 1 nor 2. A regression test
-    asserts `exitCode == 0` on `--nope` / missing `--agent` value / bad arg counts.
+    exits `0` on either form. This is safety-critical: Claude Code treats a hook exit **2 as
+    *blocking***, so the hook must surface neither 1 nor 2. A regression test
+    asserts `exitCode == 0` on `--nope` / missing `--agent` value / bad arg counts
+    for both invocation forms.
     See [agent-state](agent-state.md).
   - **Docs surfaces in lockstep** — the exit-code contract line in the embedded
     `rk skill` bundle (`cmd/rk/skill/skill.md`) + its byte-identical mirror

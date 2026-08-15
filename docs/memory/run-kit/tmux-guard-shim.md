@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "The tmux guard PATH shim — `rk tmux-guard` fronts the real tmux and refuses `kill-server` without an explicit `-L`/`-S` (a bare kill in a pane destroys the HOST server — precedence `-L`/`-S` > `$TMUX` > `TMUX_TMPDIR`). Covers the argv decision, shim-skipping resolution, the exec passthrough (`$TMUX` restored, `RK_TMUX_GUARD` stripped), the self-healing shim script (~3s rk probe → guard exec → fail-open PATH walk behind a crude backstop), the `rk agent-setup` install contract, and doctor states."
+description: "The tmux guard PATH shim — `rk tmux-guard` fronts the real tmux and refuses `kill-server` without an explicit `-L`/`-S` (a bare kill in a pane destroys the HOST server — precedence `-L`/`-S` > `$TMUX` > `TMUX_TMPDIR`). Covers the argv decision, shim-skipping resolution, the exec passthrough (`$TMUX` restored, `RK_TMUX_GUARD` stripped), the self-healing shim script (~3s rk probe → guard exec → fail-open PATH walk behind a crude backstop), the `rk agent setup` install contract, and doctor states."
 ---
 # tmux Guard PATH Shim (`rk tmux-guard`)
 
@@ -22,8 +22,8 @@ Two artifacts and one subcommand:
 - **The shim** at `~/.local/share/rk/shims/tmux` — a self-healing `#!/bin/sh`
   script that probes the embedded rk path, execs `rk tmux-guard`, or fails open
   to the real tmux — plus a marker-owned `PATH` block in the user's shell startup
-  files, both installed and removed by `rk agent-setup` (see
-  [agent-state](/run-kit/agent-state.md) § `rk agent-setup`, which owns the
+  files, both installed and removed by `rk agent setup` (see
+  [agent-state](/run-kit/agent-state.md) § `rk agent setup`, which owns the
   installer's consent/diff machinery).
 - **A `rk doctor` check** (`tmux-guard shim`) reporting install state and PATH
   resolution.
@@ -204,7 +204,7 @@ compile-time constant or composed at run time from `$HOME`.
   `["-L", "scratch", "kill-server"]` and `RK_TMUX_GUARD=off` both pass through,
   and the exec'd environment carries neither `RK_TMUX_GUARD` nor any `_rk_*` value
 
-### Requirement: `rk agent-setup` install/uninstall contract
+### Requirement: `rk agent setup` install/uninstall contract
 The shim is a **user-global** managed artifact (one shim, one PATH block), applied
 once after the per-agent hook loop rather than per agent. Both pieces follow the
 same contract as the hooks merge: consent before writing (`--yes` writes
@@ -222,7 +222,7 @@ under `--dry-run` (the requested preview).
   past its probe stage, exec'ing `"<abs-rk>" tmux-guard "$@"` — an absolute path
   resolved by `resolveRkPath` and validated by `validateHookPath`, not the bare
   name `rk`. Rollout of a new script shape is the same idempotent
-  replace-in-place: re-running `rk agent-setup` registers it as a content change
+  replace-in-place: re-running `rk agent setup` registers it as a content change
   under the existing consent flow, with no migration and no new file. A pre-existing
   **marker-less** file at that path — including a zero-byte one — is left untouched
   with a skip note; ownership keys on *existence* (`readFileIfExists`), not on
@@ -254,7 +254,7 @@ under `--dry-run` (the requested preview).
 
 #### Scenario: fresh install then uninstall
 - **GIVEN** a fresh temp home
-- **WHEN** `rk agent-setup` runs with consent, then `--uninstall` runs with consent
+- **WHEN** `rk agent setup` runs with consent, then `--uninstall` runs with consent
 - **THEN** install leaves an executable marker-owned shim plus the block in
   `.zshenv` and `.bashrc` with no `.bash_profile` created; uninstall removes the
   shim and strips the block from every file with all other content intact
@@ -273,7 +273,7 @@ The `tmux-guard shim` check SHALL be pure over an injected
 | No file at the shim path | OK + note "not installed (optional …)" |
 | Marker-less file at the shim path | OK + note (a user file, not an installed shim) |
 | File exists but cannot be read | FAIL + permissions hint (PATH resolution needs no read permission, so tmux may already be dying against it) |
-| Shim's embedded rk path missing or not executable, or its exec line unparseable | FAIL + `rk agent-setup` re-install hint naming the dangling path and the ~3s-stall-then-unguarded consequence |
+| Shim's embedded rk path missing or not executable, or its exec line unparseable | FAIL + `rk agent setup` re-install hint naming the dangling path and the ~3s-stall-then-unguarded consequence |
 | `LookPath("tmux")` resolves elsewhere, or nowhere | FAIL + PATH-ordering hint (open a new shell / check the block) |
 | Resolves to the shim but `findRealTmux` finds nothing behind it | FAIL + install-tmux hint |
 | Resolves to the shim, embedded rk alive, real tmux behind it | OK + note "installed; PATH resolves tmux to the shim" |
@@ -284,7 +284,7 @@ Path comparison uses symlink evaluation with a lexical-clean fallback
 (`doctorSamePath`). Per toolkit Principle 9, `[ OK ]` rows route through the
 quiet-gated `sink.Notef` and only `[FAIL]` rows use ungated stderr.
 
-**As-planned transient**: immediately after `agent-setup` and before a new shell
+**As-planned transient**: immediately after `rk agent setup` and before a new shell
 is opened, the check FAILs because the current shell's `PATH` predates the block —
 the hint says to open a new shell.
 

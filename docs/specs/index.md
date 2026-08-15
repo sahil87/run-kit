@@ -22,7 +22,7 @@
 
 | Spec | Description |
 |------|-------------|
-| [Agent State](agent-state.md) | The `@rk_agent_state` pane-option convention — two-tier ownership, value schema, writer/reader rules, shell reconciler, and the `rk agent-setup` per-agent hook registry (cross-repo contract with fab-kit) |
+| [Agent State](agent-state.md) | The `@rk_agent_state` pane-option convention — two-tier ownership, value schema, writer/reader rules, shell reconciler, and the `rk agent setup` per-agent hook registry (cross-repo contract with fab-kit) |
 | [API](api.md) | HTTP, SSE, and WebSocket endpoint specification — the target API surface |
 | [Architecture](architecture.md) | System architecture, repository structure, data flow, build & deploy |
 | [CLI Layering](cli-layering.md) | Two-tool model — rk owns the tmux/agent substrate, fab owns pipeline choreography: delegation rules, the `rk mux`/`rk agent` grouping plan, hidden plumbing, the `fab pane` migration map, and the 8-part phased execution plan |

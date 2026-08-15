@@ -204,6 +204,28 @@ func TestCaptureNodeRealTreeSelfExcludesAndDepth(t *testing.T) {
 	if len(mux.Commands) != 2 {
 		t.Errorf("mux has %d captured subcommands, want exactly 2 (send, await)", len(mux.Commands))
 	}
+
+	// The agent family is captured to full depth with exactly its two members;
+	// the hidden root aliases (agent-setup / agent-hook) are excluded.
+	agent, ok := childByName(n, "agent")
+	if !ok {
+		t.Fatal("agent should be present in the real tree")
+	}
+	if _, ok := childByName(agent, "setup"); !ok {
+		t.Error("agent should have its 'setup' subcommand captured")
+	}
+	if _, ok := childByName(agent, "hook"); !ok {
+		t.Error("agent should have its 'hook' subcommand captured")
+	}
+	if len(agent.Commands) != 2 {
+		t.Errorf("agent has %d captured subcommands, want exactly 2 (setup, hook)", len(agent.Commands))
+	}
+	if _, ok := childByName(n, "agent-setup"); ok {
+		t.Error("the hidden agent-setup alias should be excluded from the dump")
+	}
+	if _, ok := childByName(n, "agent-hook"); ok {
+		t.Error("the hidden agent-hook alias should be excluded from the dump")
+	}
 }
 
 func TestNodeFieldsCapturedFromCobra(t *testing.T) {

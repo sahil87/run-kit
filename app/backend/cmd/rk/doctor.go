@@ -140,7 +140,7 @@ func codeServerCheck(home string, lookPath func(string) (string, error), dial fu
 // passing check with an informational note, never a failure; a marker-less
 // file at the shim path is a USER file, not an installed shim, and reads as
 // not-installed too (ownership is verified via tmuxShimMarker, mirroring
-// agent-setup). The check fails on the mis-wired states: a file at the shim
+// `rk agent setup`). The check fails on the mis-wired states: a file at the shim
 // path exists but cannot be read (exec.LookPath can still resolve it, so tmux
 // commands may be dying against a file doctor cannot vouch for), the shim's
 // EMBEDDED rk path no longer exists (a dangling binary — the brew rk→run-kit
@@ -166,7 +166,7 @@ func tmuxGuardShimCheck(home, pathEnv string, lookPath func(string) (string, err
 		return check
 	}
 	if !exists {
-		check.Note = "not installed (optional — install with `rk agent-setup`)"
+		check.Note = "not installed (optional — install with `rk agent setup`)"
 		return check
 	}
 	if !strings.Contains(content, tmuxShimMarker) {
@@ -185,18 +185,18 @@ func tmuxGuardShimCheck(home, pathEnv string, lookPath func(string) (string, err
 	target := tmuxShimExecTarget(content)
 	if target == "" {
 		check.OK = false
-		check.Hint = fmt.Sprintf("shim at %s carries no parseable exec target — re-install it with `rk agent-setup`", shimPath)
+		check.Hint = fmt.Sprintf("shim at %s carries no parseable exec target — re-install it with `rk agent setup`", shimPath)
 		return check
 	}
 	info, statErr := os.Stat(target)
 	if statErr != nil {
 		check.OK = false
-		check.Hint = fmt.Sprintf("shim at %s execs %q, which is missing (%v) — every tmux command would stall ~3s and then run UNGUARDED; re-install the shim with `rk agent-setup`", shimPath, target, statErr)
+		check.Hint = fmt.Sprintf("shim at %s execs %q, which is missing (%v) — every tmux command would stall ~3s and then run UNGUARDED; re-install the shim with `rk agent setup`", shimPath, target, statErr)
 		return check
 	}
 	if !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
 		check.OK = false
-		check.Hint = fmt.Sprintf("shim at %s execs %q, which is not an executable file (mode %v) — every tmux command would stall ~3s and then run UNGUARDED; re-install the shim with `rk agent-setup`", shimPath, target, info.Mode())
+		check.Hint = fmt.Sprintf("shim at %s execs %q, which is not an executable file (mode %v) — every tmux command would stall ~3s and then run UNGUARDED; re-install the shim with `rk agent setup`", shimPath, target, info.Mode())
 		return check
 	}
 	resolved, err := lookPath("tmux")

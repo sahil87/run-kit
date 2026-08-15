@@ -1,7 +1,7 @@
 # Agent-State Convention (`@rk_agent_state`)
 
 > The cross-repo contract for generic agent-lifecycle state. run-kit is the
-> writer (`rk agent-setup` installs the hooks) and native reader (backend
+> writer (`rk agent setup` installs the hooks) and native reader (backend
 > `internal/tmux`/`internal/sessions`); fab-kit's `fab pane send`/`pane map`
 > become convention *readers* against this same option (fab-kit backlog
 > `[ioku]`). This spec is the coordination point — implement against it, not
@@ -40,7 +40,7 @@ is derived server-side.
 
 The epoch segment is **mandatory** — readers compute idle/waiting duration from
 it. The pid segment is the **agent process's pid** and SHOULD be written by all
-current writers (resolved inside the `rk agent-hook` binary via the
+current writers (resolved inside the `rk agent hook` binary via the
 comm-validated ancestor walk of Writer rule 5 — never raw `$PPID`, which records
 the harness's ephemeral hook-wrapper shell, not the agent); it feeds the
 PID-liveness reconciler (Reader rule 3). Readers MUST
@@ -69,7 +69,7 @@ Hook commands that write the option MUST:
 3. **Never fail the agent** — every path exits 0 (`… 2>/dev/null || true`); a
    broken hook must never break the agent's turn.
 4. **Never require the run-kit *server*, and never fail or block the agent** —
-   the hook body SHOULD be the stable `rk agent-hook` interface (a thin wrapper
+   the hook body SHOULD be the stable `rk agent hook` interface (a thin wrapper
    installed into harness config; all logic lives in the rk binary). The
    `@rk_agent_state` write happens inside the binary via
    `tmux set-option -pt "$TMUX_PANE" @rk_agent_state "<state>:<epoch>[:<pid>]"`;
@@ -92,7 +92,7 @@ Hook commands that write the option MUST:
    binary** — NOT raw `$PPID`: harnesses spawn hook commands through an
    *ephemeral* intermediate shell that exits when the hook finishes (measured
    with Claude Code — raw `$PPID` recorded that dead wrapper, so liveness
-   suppressed every value). `rk agent-hook` walks up from `getppid()` (bounded,
+   suppressed every value). `rk agent hook` walks up from `getppid()` (bounded,
    **5 hops** — the delegation adds a wrapper layer: `claude → hook shell →
    sh -c → rk`, and `sh` may or may not exec the final command) until the
    process name equals the agent's comm (a per-agent registry literal selected
@@ -102,7 +102,7 @@ Hook commands that write the option MUST:
    state on *wrapped launches*, where `#{pane_current_command}` reads as a shell
    while the agent runs inside it.
 
-Canonical command — the stable delegating wrapper installed by `rk agent-setup`
+Canonical command — the stable delegating wrapper installed by `rk agent setup`
 (state and comm are fixed registry literals; nothing user-provided is
 interpolated; `<abs-rk>` is the absolute rk path resolved at install time, a
 stable symlink rather than a version-pinned path; the interpreter is absolute
@@ -110,11 +110,19 @@ for the same reason — hooks fire under the harness's environment, and a bare
 `sh` fails on sessions whose PATH lacks /bin):
 
 ```sh
-/bin/sh -c '[ -n "$TMUX_PANE" ] || exit 0; "<abs-rk>" agent-hook --agent claude <state> 2>/dev/null || true'
+/bin/sh -c '[ -n "$TMUX_PANE" ] || exit 0; "<abs-rk>" agent hook --agent claude <state> 2>/dev/null || true'
 ```
 
+The old root form `rk agent-hook <state>` is a **permanent hidden alias** of
+`rk agent hook` (delegation rule 3 of
+[`cli-layering.md`](cli-layering.md)): installed hook lines frozen with the
+`agent-hook` literal keep working unmodified **forever** — the alias is never
+deprecated, never warns, and carries the same never-fail contract — while
+`rk agent setup` writes the `agent hook` family form going forward. Existing
+installs are not proactively migrated; they roll over on the next setup re-run.
+
 All logic — the comm-validated ancestor walk, the value formatting, the
-`tmux set-option` write — lives in `rk agent-hook`, which always exits 0 on
+`tmux set-option` write — lives in `rk agent hook`, which always exits 0 on
 every path (a hook must never fail or block the agent; Claude Code reads a
 non-zero hook exit as a warning and exit code 2 as blocking). The subcommand
 targets the pane's own tmux server via the socket captured from `$TMUX` before
@@ -122,8 +130,9 @@ the process strips it, so it works regardless of whether the hook context
 re-exports `$TMUX`.
 
 > **Migration**: this indirection needs **one final** old-style migration —
-> re-run `rk agent-setup` (idempotent; it recognizes and replaces both the
-> legacy inlined one-liner and the new `rk agent-hook` form in place) **and
+> re-run `rk agent setup` (idempotent; it recognizes and replaces every older
+> generation — the legacy inlined one-liner and the `agent-hook` root-form
+> wrapper — in place) **and
 > restart agent sessions** (harnesses snapshot hook config at session start, so
 > the old frozen strings persist until a fresh session). **Subsequent hook
 > *logic* changes need neither** — they ship in the rk binary and take effect on
@@ -171,7 +180,7 @@ Killing the pane (or the server) removes it.
 
 ## Per-Agent Event-Mapping Registry
 
-`rk agent-setup` installs hook commands into an agent's **user-global** config so
+`rk agent setup` installs hook commands into an agent's **user-global** config so
 any session of that agent reports state. It is structured as a per-agent registry
 (agent name → config path + config format + event→state mapping); v1 ships
 Claude Code, with codex / copilot / gemini / opencode as additive follow-ups.
@@ -195,20 +204,22 @@ Claude Code, with codex / copilot / gemini / opencode as additive follow-ups.
 
 The hooks merge into the Claude settings shape
 `hooks → <Event> → [ { matcher?, hooks: [ { type: "command", command } ] } ]`.
-`rk agent-setup` is idempotent (re-run replaces the rk-owned entries in place,
+`rk agent setup` is idempotent (re-run replaces the rk-owned entries in place,
 never duplicates, never touches non-rk hooks), shows the settings diff and asks
 for confirmation before writing, and supports `--uninstall` to remove exactly
-the rk-owned entries. rk-owned entries are identified by **either** the legacy
-`@rk_agent_state` marker (the old inlined one-liner) **or** the new ` agent-hook `
-invocation substring (the delegating wrapper) in the command string — matching
-both is what lets a re-run on the new binary migrate old-generation entries in
-place and lets `--uninstall` remove both generations.
+the rk-owned entries. rk-owned entries are identified by **any of three**
+markers in the command string — the legacy
+`@rk_agent_state` option-name marker (the old inlined one-liner), the
+second-generation ` agent-hook ` invocation substring, **or** the third-generation
+` agent hook ` family form the installer writes today — matching
+all three is what lets a re-run on the new binary migrate old-generation entries in
+place and lets `--uninstall` remove every generation.
 
 ---
 
 ## Chat Session Identity (`@rk_chat`)
 
-A second pane user option, written by the **same** `rk agent-hook` binary on the
+A second pane user option, written by the **same** `rk agent hook` binary on the
 same hook fires, ties a pane to the **live** agent chat session running in it.
 This is the keystone of the HTML-agent-chat-view stack (a chat **view** over the
 pane; the pane stays the agent's parent process — Constitution VI): the chat-read
@@ -232,7 +243,7 @@ exists only in the hook input JSON, which is exactly the class of fact
 | Example | `claude:6f0d9e2a-1c3b-4f7e-9a2d-8b5c4e1f0a37` |
 
 - **`<provider>`** — a lowercase token (`[a-z][a-z0-9_-]*`) equal to the
-  `rk agent-setup` registry agent name (v1: `claude`; `codex`/`gemini` are
+  `rk agent setup` registry agent name (v1: `claude`; `codex`/`gemini` are
   additive). The backend **routes** on this prefix; the frontend **gates** on
   presence. The value is split on the **first** colon (providers never contain a
   colon; a ref might in principle, so everything after the first colon is the ref
@@ -247,10 +258,10 @@ exists only in the hook input JSON, which is exactly the class of fact
 
 Identical never-fail contract to `@rk_agent_state` (self-locate via `$TMUX_PANE`,
 no-op outside tmux, every path exits 0, no rk **server** required, all logic in
-the `rk agent-hook` binary, `-S <socket>` targeting via `tmux.OriginalTMUX`).
+the `rk agent hook` binary, `-S <socket>` targeting via `tmux.OriginalTMUX`).
 Beyond that:
 
-1. **Read the hook stdin JSON** — `rk agent-hook` reads its stdin (the payload
+1. **Read the hook stdin JSON** — `rk agent hook` reads its stdin (the payload
    every hook event receives): a **TTY-guarded** (`os.ModeCharDevice` — a manual
    terminal invocation never blocks), **bounded** (`io.LimitReader`, ~1 MiB),
    **single-object** (`json.Decoder.Decode` — returns after one object, no
@@ -316,12 +327,12 @@ clear would add a settings entry without removing any reader logic.
 
 Two independent migration seams, mirroring the `@rk_agent_state` split:
 
-- **Every-fire stamping** is **binary-only** — it ships in `rk agent-hook` and
+- **Every-fire stamping** is **binary-only** — it ships in `rk agent hook` and
   reaches already-running agents on `brew upgrade rk` with **no settings churn and
   no session restarts** (the `260707-qfps` indirection dividend; the installed
   wrappers already pipe stdin through to the binary).
 - **The `SessionStart` registry row** is an event-mapping change and follows the
-  established rule: **one `rk agent-setup` re-run + session restarts** (harnesses
+  established rule: **one `rk agent setup` re-run + session restarts** (harnesses
   snapshot hook config at session start). Until then, running agents still get
   `@rk_chat` from the every-fire stamping on their existing `active`/`waiting`/
   `idle` hooks — the `SessionStart` row only advances *when* the first stamp lands

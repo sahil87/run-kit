@@ -257,7 +257,7 @@ func WindowIDFromPinSession(name string) (string, bool) {
 
 // AgentStateOption is the tmux PANE-scoped user option that carries the generic
 // agent-lifecycle state written by agent-harness hooks (installed via
-// `rk agent-setup`). Value schema: "<state>:<epoch_seconds>", state ∈
+// `rk agent setup`). Value schema: "<state>:<epoch_seconds>", state ∈
 // active|waiting|idle. It is the tier-2 signal owned by run-kit (tier 1 —
 // change/stage — stays fab's). See docs/specs/agent-state.md.
 const AgentStateOption = "@rk_agent_state"
@@ -273,9 +273,9 @@ const (
 // ChatOption is the tmux PANE-scoped user option that ties a pane to the live
 // agent chat session running in it. Value schema: "<provider>:<session-ref>"
 // (e.g. "claude:6f0d9e2a-1c3b-4f7e-9a2d-8b5c4e1f0a37"). <provider> is the
-// rk agent-setup registry agent name; <session-ref> is a provider-defined opaque
+// rk agent setup registry agent name; <session-ref> is a provider-defined opaque
 // reference (the session UUID for claude). It is written by the same
-// `rk agent-hook` binary that writes @rk_agent_state, on the same fires. The
+// `rk agent hook` binary that writes @rk_agent_state, on the same fires. The
 // pane→session mapping is underivable from disk/tmux/git (multiple transcripts
 // share a cwd), which is exactly the class of fact Constitution X reserves for
 // hooks. See docs/specs/agent-state.md § Chat Session Identity.
@@ -332,7 +332,7 @@ func agentStateStale(pid int, command string) bool {
 
 // parseAgentState parses a raw @rk_agent_state value of the form
 // "<state>:<epoch_seconds>[:<pid>]" into a validated (state, epoch, pid)
-// triple. The pid segment is optional (written by rk agent-setup's hooks as
+// triple. The pid segment is optional (written by rk agent setup's hooks as
 // $PPID — the agent process itself, since the hook runs as its `sh -c` child);
 // pid is 0 when the segment is absent (legacy two-segment writers). A value
 // that is empty, has the wrong segment count, carries an unknown state token,
@@ -393,7 +393,7 @@ func parseChatRef(raw string) (provider, ref string) {
 }
 
 // isChatProvider reports whether p matches [a-z][a-z0-9_-]* (a lowercase token,
-// the shape of an rk agent-setup registry agent name). Non-empty is implied by
+// the shape of an rk agent setup registry agent name). Non-empty is implied by
 // the leading-char requirement.
 func isChatProvider(p string) bool {
 	if p == "" {
@@ -452,7 +452,7 @@ type PaneInfo struct {
 	AgentState      string `json:"agentState,omitempty"`
 	AgentStateEpoch int64  `json:"agentStateEpoch,omitempty"`
 	// ChatProvider / ChatSessionRef are the pre-parsed halves of the pane's
-	// @rk_chat option (provider = the agent-setup registry name, ref = the
+	// @rk_chat option (provider = the agent setup registry name, ref = the
 	// provider-defined session reference; both empty = no chat), after the same
 	// reconciler that governs the agent-state fields (a dead-pid or shell pane
 	// never surfaces chat). Parsed once here via parseChatRef so no consumer
@@ -809,7 +809,7 @@ func parsePanes(lines []string) map[string][]PaneInfo {
 		agentState, agentEpoch, agentPID := parseAgentState(parts[6])
 		chatProvider, chatRef := parseChatRef(parts[7])
 		// Reconciler. Primary form (pid-carrying values from current
-		// agent-setup hooks): PID liveness — the state is trusted iff the agent
+		// agent setup hooks): PID liveness — the state is trusted iff the agent
 		// process is still alive, regardless of the pane's command name. This
 		// fixes the wrapped-launch false negative (an agent started via a
 		// non-exec'ing shell wrapper reports pane_current_command = "bash"

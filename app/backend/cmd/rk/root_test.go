@@ -22,17 +22,16 @@ func TestRootCmdDefaultsToServe(t *testing.T) {
 
 func TestRootCmdHasSubcommands(t *testing.T) {
 	expected := map[string]bool{
-		"serve":       false,
-		"update":      false,
-		"doctor":      false,
-		"status":      false,
-		"daemon":      false,
-		"desktop":     false,
-		"url":         false,
-		"skill":       false,
-		"init-conf":   false,
-		"agent-setup": false,
-		"agent-hook":  false,
+		"serve":     false,
+		"update":    false,
+		"doctor":    false,
+		"status":    false,
+		"daemon":    false,
+		"desktop":   false,
+		"url":       false,
+		"skill":     false,
+		"init-conf": false,
+		"agent":     false,
 	}
 
 	for _, cmd := range rootCmd.Commands() {
@@ -45,6 +44,30 @@ func TestRootCmdHasSubcommands(t *testing.T) {
 		if !found {
 			t.Errorf("expected subcommand %q not found", name)
 		}
+	}
+
+	// The old root forms survive as HIDDEN aliases (see agent.go): agent-setup is
+	// deprecated but still runs; agent-hook is a permanent machine-invoked
+	// contract. Registered, hidden, never listed.
+	for _, name := range []string{"agent-setup", "agent-hook"} {
+		cmd, _, err := rootCmd.Find([]string{name})
+		if err != nil || cmd == nil || cmd.Name() != name {
+			t.Errorf("hidden root alias %q not found (err=%v)", name, err)
+			continue
+		}
+		if !cmd.Hidden {
+			t.Errorf("root alias %q must be Hidden (excluded from -h and the help-dump)", name)
+		}
+	}
+
+	// The agent family groups exactly the two instrumentation verbs.
+	setup, _, err := rootCmd.Find([]string{"agent", "setup"})
+	if err != nil || setup == nil || setup.Name() != "setup" {
+		t.Errorf("agent family member %q not found (err=%v)", "setup", err)
+	}
+	hook, _, err := rootCmd.Find([]string{"agent", "hook"})
+	if err != nil || hook == nil || hook.Name() != "hook" {
+		t.Errorf("agent family member %q not found (err=%v)", "hook", err)
 	}
 }
 
@@ -201,7 +224,8 @@ func TestUsageErrorsExitTwo(t *testing.T) {
 	}{
 		{"unknown command", []string{"bogus"}},
 		{"NoArgs violated (skill)", []string{"skill", "x"}},
-		{"NoArgs violated (agent-setup)", []string{"agent-setup", "x"}},
+		{"NoArgs violated (agent setup)", []string{"agent", "setup", "x"}},
+		{"NoArgs violated (agent-setup alias)", []string{"agent-setup", "x"}},
 		{"ExactArgs(1) too few (notify)", []string{"notify"}},
 		{"ExactArgs(1) too many (notify)", []string{"notify", "a", "b"}},
 		{"MaximumNArgs(1) exceeded (shell-init)", []string{"shell-init", "a", "b"}},

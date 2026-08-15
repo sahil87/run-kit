@@ -5,6 +5,8 @@ import (
 	"io"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 // fakeProc models a process tree for the ancestor-walk tests: pid → (comm, ppid).
@@ -431,34 +433,79 @@ func TestAgentCommForNameKnownAndUnknown(t *testing.T) {
 	}
 }
 
+// agentHookForms enumerates the two registered invocation forms of the hook
+// command — the `rk agent hook` family member and the PERMANENT hidden
+// `rk agent-hook` root alias — with the command instance whose --agent flag
+// binding each form drives. Alias parity (identical behavior on both forms) is
+// the load-bearing guarantee for installed hook lines.
+var agentHookForms = []struct {
+	name   string
+	prefix []string
+	cmd    *cobra.Command
+}{
+	{"family member (agent hook)", []string{"agent", "hook"}, agentHookFamilyCmd},
+	{"permanent root alias (agent-hook)", []string{"agent-hook"}, agentHookAliasCmd},
+}
+
 func TestAgentHookCmdNeverErrorsOnMalformedInvocation(t *testing.T) {
-	// The never-fail contract: NO invocation of `rk agent-hook` may return a
-	// non-nil error from cobra (which would exit non-zero — a warning/blocking
-	// signal to the harness). Missing state, extra args, and unknown flags must
-	// all return nil. $TMUX_PANE unset guarantees no real tmux write is attempted.
+	// The never-fail contract: NO invocation of EITHER form may return a non-nil
+	// error from cobra (which would exit non-zero — a warning/blocking signal to
+	// the harness). Missing state, extra args, and unknown flags must all return
+	// nil. $TMUX_PANE unset guarantees no real tmux write is attempted.
 	t.Setenv("TMUX_PANE", "")
-	cases := [][]string{
-		{"agent-hook", "--agent", "claude"},           // missing state arg
-		{"agent-hook", "--agent", "claude", "a", "b"}, // extra args
-		{"agent-hook", "--bogus", "x"},                // unknown flag
-		{"agent-hook", "--agent"},                     // KNOWN flag missing its value (pflag error before RunE — needs SetFlagErrorFunc)
-		{"agent-hook", "--agent", "claude", "active"}, // valid state (no pane → no-op)
-		{"agent-hook", "--agent", "claude", "stamp"},  // stamp-only token (no pane → no-op)
-		{"agent-hook", "--agent", "claude", "bogus"},  // unknown token (no-op)
+	tail := [][]string{
+		{"--agent", "claude"},           // missing state arg
+		{"--agent", "claude", "a", "b"}, // extra args
+		{"--bogus", "x"},                // unknown flag
+		{"--agent"},                     // KNOWN flag missing its value (pflag error before RunE — needs SetFlagErrorFunc)
+		{"--agent", "claude", "active"}, // valid state (no pane → no-op)
+		{"--agent", "claude", "stamp"},  // stamp-only token (no pane → no-op)
+		{"--agent", "claude", "bogus"},  // unknown token (no-op)
 	}
-	for _, args := range cases {
-		agentHookAgent = "claude" // reset the package-level flag binding between runs
-		rootCmd.SetArgs(args)
-		err := rootCmd.Execute()
-		if err != nil {
-			t.Errorf("rk %v returned error %v; must always be nil (never-fail contract)", args, err)
+	for _, form := range agentHookForms {
+		for _, args := range tail {
+			full := append(append([]string{}, form.prefix...), args...)
+			_ = form.cmd.Flags().Set("agent", "claude") // reset the per-instance flag binding between runs
+			rootCmd.SetArgs(full)
+			err := rootCmd.Execute()
+			if err != nil {
+				t.Errorf("rk %v returned error %v; must always be nil (never-fail contract)", full, err)
+			}
+			// Explicit exit-code assertion: after the root SetFlagErrorFunc tags flag
+			// errors usage-class (2), each instance's OWN SetFlagErrorFunc(→ nil) must
+			// keep shadowing it so `--agent` (missing value) and unknown flags still
+			// exit 0. Claude Code treats a hook exit 2 as *blocking* — this must never
+			// surface.
+			if code := exitCode(err); code != 0 {
+				t.Errorf("rk %v exitCode = %d; must be 0 (never-fail contract; 2 would block the harness)", full, code)
+			}
 		}
-		// Explicit exit-code assertion: after the root SetFlagErrorFunc tags flag
-		// errors usage-class (2), agent-hook's OWN SetFlagErrorFunc(→ nil) must keep
-		// shadowing it so `--agent` (missing value) and unknown flags still exit 0.
-		// Claude Code treats a hook exit 2 as *blocking* — this must never surface.
-		if code := exitCode(err); code != 0 {
-			t.Errorf("rk %v exitCode = %d; must be 0 (never-fail contract; 2 would block the harness)", args, code)
+	}
+}
+
+// TestAgentHookCmdAliasParityOnWritePath proves the two invocation forms are
+// byte-equivalent on a real write: both drive the same RunE core, so a valid
+// fire through either form writes the same @rk_agent_state value for the pane.
+func TestAgentHookCmdAliasParityOnWritePath(t *testing.T) {
+	t.Setenv("TMUX_PANE", "%7")
+	setHookStdin(t, "") // no session id → no chat stamp to compare
+	// The walk seam resolves every ancestor to claude so the pid is deterministic.
+	origComm := processCommFn
+	processCommFn = func(_ context.Context, _ int) string { return "claude" }
+	t.Cleanup(func() { processCommFn = origComm })
+
+	for _, form := range agentHookForms {
+		rec := captureWrite(t)
+		_ = form.cmd.Flags().Set("agent", "claude")
+		rootCmd.SetArgs(append(append([]string{}, form.prefix...), "--agent", "claude", "active"))
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("%s: Execute() = %v, want nil (never-fail)", form.name, err)
+		}
+		if !rec.called || rec.pane != "%7" || rec.state != agentStateActive {
+			t.Errorf("%s: write = (called=%v pane=%q state=%q), want (true, %%7, active)", form.name, rec.called, rec.pane, rec.state)
+		}
+		if rec.pid <= 0 {
+			t.Errorf("%s: pid = %d, want the resolved (>0) claude pid", form.name, rec.pid)
 		}
 	}
 }

@@ -17,7 +17,7 @@ import (
 	"golang.org/x/term"
 )
 
-// rk agent-setup — install the generic agent-state hooks that write the
+// rk agent setup — install the generic agent-state hooks that write the
 // @rk_agent_state pane user option (see docs/specs/agent-state.md). It registers
 // hook commands in a user-global agent config so any session of that agent, in
 // any directory, under any workflow, reports lifecycle state. v1 targets Claude
@@ -31,13 +31,13 @@ import (
 // entries. All file writes go through Go; the hook command is a fixed literal per
 // state with nothing user-provided interpolated (Constitution §I).
 //
-// agent-setup manages two artifact families: the per-agent hooks merge above,
+// rk agent setup manages two artifact families: the per-agent hooks merge above,
 // and the user-global tmux guard shim (shim file + PATH block — see
 // applyTmuxShim below and tmux_guard.go for the guard itself). It used to write
 // a third managed artifact — a user-global "rk-display" SKILL.md that put
 // run-kit's visual-display capability into an agent's context — but that context-injection
 // responsibility has moved to the `rk skill` bundle (served by the skill
-// subcommand, aggregated by the coming `shll agent-setup`). All agent-setup does
+// subcommand, aggregated by the coming `shll agent-setup`). All rk agent setup does
 // with the legacy skill now is a one-release CLEANUP courtesy: on BOTH the
 // install and uninstall passes it offers to remove a stale, marker-owned
 // rk-display skill left by an older run-kit (see removeLegacySkill). An absent
@@ -52,21 +52,29 @@ import (
 // canonical convention string lives in internal/tmux, not re-declared here.
 //
 // The NEW-generation command (agentStateHookCommand below) delegates to
-// `rk agent-hook` and no longer contains the option name, so it is instead
-// identified by rkHookMarkerAgentHook. isRkEntry matches EITHER marker so a
-// re-run of `rk agent-setup` on the new binary strips old-generation entries and
-// replaces them in place, and `--uninstall` removes both generations.
+// `rk agent hook` and no longer contains the option name, so it is instead
+// identified by rkHookMarkerAgentHook (second generation) and
+// rkHookMarkerAgentHookFamily (third generation). isRkEntry matches ALL THREE
+// markers so a re-run of `rk agent setup` on the new binary strips
+// older-generation entries and replaces them in place, and `--uninstall`
+// removes every generation.
 const rkHookMarker = tmux.AgentStateOption
 
-// rkHookMarkerAgentHook identifies the new-generation delegating hook command by
-// its ` agent-hook ` invocation substring. The surrounding spaces keep it from
-// matching an unrelated token that merely contains "agent-hook".
+// rkHookMarkerAgentHook identifies the second-generation delegating hook
+// command by its ` agent-hook ` invocation substring. The surrounding spaces
+// keep it from matching an unrelated token that merely contains "agent-hook".
 const rkHookMarkerAgentHook = " agent-hook "
 
-// The rk-display skill was a SECOND managed artifact rk agent-setup used to
+// rkHookMarkerAgentHookFamily identifies the third-generation delegating hook
+// command — installed by `rk agent setup` — by its ` agent hook ` invocation
+// substring (the family form; spaces included, same matching rule as the
+// second-generation marker).
+const rkHookMarkerAgentHookFamily = " agent hook "
+
+// The rk-display skill was a SECOND managed artifact rk agent setup used to
 // install — a user-global Claude Code skill that put run-kit's visual-display
 // capability into an agent's context. That responsibility has moved to the
-// `rk skill` bundle, so agent-setup no longer WRITES this skill; it only cleans a
+// `rk skill` bundle, so rk agent setup no longer WRITES this skill; it only cleans a
 // stale copy for one release (see removeLegacySkill).
 //
 // rkDisplaySkillDir / rkDisplaySkillFile are the directory (under an agent's
@@ -81,16 +89,18 @@ const (
 )
 
 // agentStateHookCommand builds the STABLE delegating hook command for a given
-// state: a thin wrapper that invokes `rk agent-hook`, keeping all logic in the
-// binary so hook behavior tracks `brew upgrade rk` with no settings churn and no
-// agent session restarts. The former self-contained one-liner (which inlined the
-// comm-validated ancestor walk and the `tmux set-option`) was frozen twice — once
-// in ~/.claude/settings.json at install time, once in the harness's session-start
-// snapshot — so a hook fix shipped in the binary reached zero running agents until
-// every session was restarted (the #320↔#321 skew). Delegating to the binary
-// lifts that freeze.
+// state: a thin wrapper that invokes `rk agent hook` (the family form — the
+// permanent `agent-hook` root alias keeps already-installed older-generation
+// lines working), keeping all logic in the binary so hook behavior tracks
+// `brew upgrade rk` with no settings churn and no agent session restarts. The
+// former self-contained one-liner (which inlined the comm-validated ancestor
+// walk and the `tmux set-option`) was frozen twice — once in
+// ~/.claude/settings.json at install time, once in the harness's session-start
+// snapshot — so a hook fix shipped in the binary reached zero running agents
+// until every session was restarted (the #320↔#321 skew). Delegating to the
+// binary lifts that freeze.
 //
-//	/bin/sh -c '[ -n "$TMUX_PANE" ] || exit 0; "<abs-rk>" agent-hook --agent <comm> <state> 2>/dev/null || true'
+//	/bin/sh -c '[ -n "$TMUX_PANE" ] || exit 0; "<abs-rk>" agent hook --agent <comm> <state> 2>/dev/null || true'
 //
 // The interpreter is absolute for the same reason rkPath is (below): hooks fire
 // under the HARNESS's environment, and an agent session launched with a PATH
@@ -109,7 +119,7 @@ const (
 // (Constitution §I).
 func agentStateHookCommand(rkPath, state, comm string) string {
 	return fmt.Sprintf(
-		`/bin/sh -c '[ -n "$TMUX_PANE" ] || exit 0; "%s" agent-hook --agent %s %s 2>/dev/null || true'`,
+		`/bin/sh -c '[ -n "$TMUX_PANE" ] || exit 0; "%s" agent hook --agent %s %s 2>/dev/null || true'`,
 		rkPath, comm, state,
 	)
 }
@@ -162,8 +172,8 @@ const hookUnsafePathChars = "'\"$`\\"
 // Rejection (a clear install-time error) is chosen over escaping or a silent
 // fallback: escaping would have to survive three nested quoting layers
 // (shell-in-shell-in-JSON — fragile to get right and to review), and such paths
-// do not occur under Homebrew or any conventional install layout. agent-setup is
-// interactive, so the user is present to see the error and act on it.
+// do not occur under Homebrew or any conventional install layout. rk agent setup
+// is interactive, so the user is present to see the error and act on it.
 func validateHookPath(path string) error {
 	if path == "" {
 		return fmt.Errorf("could not resolve the run-kit binary path; install run-kit on PATH (or at a conventional Homebrew location) and re-run")
@@ -184,7 +194,7 @@ type agentHook struct {
 	event   string // e.g. "UserPromptSubmit", "PreToolUse", "Notification", "Stop", "SessionStart"
 	matcher string // optional; empty means the entry carries no "matcher" key
 	// state is the positional token the installed wrapper passes to `rk
-	// agent-hook`: one of agentStateActive|Waiting|Idle (writes @rk_agent_state,
+	// agent hook`: one of agentStateActive|Waiting|Idle (writes @rk_agent_state,
 	// and also stamps @rk_chat when the hook stdin carries a session id) or
 	// agentHookStampToken (writes @rk_chat ONLY — the SessionStart row).
 	state string
@@ -196,7 +206,7 @@ type agentHook struct {
 // user-global skills directory.
 //
 // skillsDir locates the LEGACY rk-display skill for one-release cleanup only
-// (as {skillsDir}/rk-display/SKILL.md — see removeLegacySkill). agent-setup no
+// (as {skillsDir}/rk-display/SKILL.md — see removeLegacySkill). rk agent setup no
 // longer installs any skill; an EMPTY skillsDir means "no legacy skill to clean"
 // — only the hooks merge runs for that agent. v1 sets it only for Claude Code.
 // This field is scheduled for removal one release after this change.
@@ -248,13 +258,7 @@ func agentRegistry(home string) []agentConfig {
 	}
 }
 
-var (
-	agentSetupUninstall bool
-	agentSetupYes       bool
-	agentSetupDryRun    bool
-)
-
-// consent captures how a write should be authorized for a single agent-setup
+// consent captures how a write should be authorized for a single agent setup
 // run, reconciling Principle 1 (a warranted confirmation MUST be satisfiable by
 // a flag, and a non-TTY invocation MUST refuse — never hang on a prompt no one
 // will answer) with Principle 5 (destructive writes MUST support --dry-run):
@@ -321,32 +325,56 @@ func (c consent) authorizeWrite(out io.Writer, reader *bufio.Reader, dryRunNote,
 	return confirm(reader), nil
 }
 
-var agentSetupCmd = &cobra.Command{
-	Use:   "agent-setup",
-	Short: "Install agent-harness hooks that report agent state to run-kit",
-	Long: "Install (or --uninstall) the hooks that write the @rk_agent_state tmux " +
-		"pane option so run-kit can show any agent's active/waiting/idle state. " +
-		"v1 targets Claude Code (~/.claude/settings.json). The install is a JSON " +
-		"merge: existing hooks are preserved, re-running is idempotent, and a diff " +
-		"is shown for confirmation before anything is written. Also installs the " +
-		"tmux guard shim (~/.local/share/rk/shims/tmux plus a marker-owned PATH " +
-		"block in the shell startup files) so `tmux kill-server` without an " +
-		"explicit -L/-S socket is blocked via `rk tmux-guard`. Use --yes to write " +
-		"without prompting (non-interactive), or --dry-run to preview the diff and " +
-		"write nothing.",
-	Args:         cobra.NoArgs,
-	SilenceUsage: true,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		in := cmd.InOrStdin()
-		return runAgentSetup(newSink(cmd), in, agentSetupUninstall, consent{yes: agentSetupYes, dryRun: agentSetupDryRun, stdinIsTTY: isTerminal(in)})
-	},
+// newAgentSetupCmd builds one instance of the setup command. A cobra command
+// object cannot have two parents, so the family member (`rk agent setup`) and
+// the hidden root alias (`rk agent-setup`) are two instances sharing the
+// runAgentSetup core; the flag variables bind per-instance so the two never
+// share state. Args is pre-wrapped with usageArgs for both instances: root's
+// init loop (root.go) only wraps DIRECT children's validators, and the family
+// member's unwrapped NoArgs violation would exit 1 instead of usage-class 2
+// (the alias's wrap is then applied twice — harmless: message and code survive).
+// deprecated marks the root alias: hidden from help, and cobra prints the
+// pointer (to OutOrStderr — stderr in production) before still running the
+// command with identical flags and exit codes.
+func newAgentSetupCmd(use string, deprecated bool) *cobra.Command {
+	var uninstall, yes, dryRun bool
+	c := &cobra.Command{
+		Use:   use,
+		Short: "Install agent-harness hooks that report agent state to run-kit",
+		Long: "Install (or --uninstall) the hooks that write the @rk_agent_state tmux " +
+			"pane option so run-kit can show any agent's active/waiting/idle state. " +
+			"v1 targets Claude Code (~/.claude/settings.json). The install is a JSON " +
+			"merge: existing hooks are preserved, re-running is idempotent, and a diff " +
+			"is shown for confirmation before anything is written. Also installs the " +
+			"tmux guard shim (~/.local/share/rk/shims/tmux plus a marker-owned PATH " +
+			"block in the shell startup files) so `tmux kill-server` without an " +
+			"explicit -L/-S socket is blocked via `rk tmux-guard`. Use --yes to write " +
+			"without prompting (non-interactive), or --dry-run to preview the diff and " +
+			"write nothing.",
+		Args:         usageArgs(cobra.NoArgs),
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			in := cmd.InOrStdin()
+			return runAgentSetup(newSink(cmd), in, uninstall, consent{yes: yes, dryRun: dryRun, stdinIsTTY: isTerminal(in)})
+		},
+	}
+	c.Flags().BoolVar(&uninstall, "uninstall", false, "Remove the rk-owned hook entries instead of installing them")
+	c.Flags().BoolVarP(&yes, "yes", "y", false, "Write without prompting (non-interactive consent)")
+	c.Flags().BoolVar(&dryRun, "dry-run", false, "Show the diff and write nothing (wins over --yes)")
+	if deprecated {
+		c.Hidden = true
+		c.Deprecated = "use `rk agent setup` instead"
+	}
+	return c
 }
 
-func init() {
-	agentSetupCmd.Flags().BoolVar(&agentSetupUninstall, "uninstall", false, "Remove the rk-owned hook entries instead of installing them")
-	agentSetupCmd.Flags().BoolVarP(&agentSetupYes, "yes", "y", false, "Write without prompting (non-interactive consent)")
-	agentSetupCmd.Flags().BoolVar(&agentSetupDryRun, "dry-run", false, "Show the diff and write nothing (wins over --yes)")
-}
+var (
+	// agentSetupFamilyCmd is the `rk agent setup` family member.
+	agentSetupFamilyCmd = newAgentSetupCmd("setup", false)
+	// agentSetupAliasCmd is the hidden deprecation alias kept at the root so the
+	// old human-typed form keeps working while pointing at the new one.
+	agentSetupAliasCmd = newAgentSetupCmd("agent-setup", true)
+)
 
 // runAgentSetup applies the install/uninstall to every agent in the registry,
 // showing a diff and prompting for confirmation before each write. It is split
@@ -393,7 +421,7 @@ func runAgentSetup(sink outputSink, in io.Reader, uninstall bool, cons consent) 
 
 // applyAgentConfig applies the hooks merge for one agent and, on BOTH the install
 // and uninstall passes, cleans up any stale legacy rk-display skill. The hooks
-// merge is the only artifact agent-setup still INSTALLS; the legacy cleanup is a
+// merge is the only artifact rk agent setup still INSTALLS; the legacy cleanup is a
 // one-release courtesy that removes a marker-owned rk-display skill left by an
 // older run-kit. Each step is handled independently — its own tolerant read,
 // diff/prompt, and no-op report — so declining or no-op-ing one does not skip the
@@ -490,9 +518,9 @@ func applyAgentHooks(sink outputSink, reader *bufio.Reader, ac agentConfig, rkPa
 
 // removeLegacySkill cleans up a stale, rk-owned rk-display skill left by an older
 // run-kit. It runs on BOTH the install and uninstall passes (see applyAgentConfig)
-// because re-running plain `rk agent-setup` is the documented upgrade action, so
+// because re-running plain `rk agent setup` is the documented upgrade action, so
 // most machines only ever reach the install path — a cleanup gated on --uninstall
-// would never fire for them. agent-setup no longer WRITES this skill; this is a
+// would never fire for them. rk agent setup no longer WRITES this skill; this is a
 // one-release courtesy scheduled for removal one release after this change.
 //
 // Behavior is uniform across both passes:
@@ -525,7 +553,7 @@ func removeLegacySkill(sink outputSink, reader *bufio.Reader, ac agentConfig, co
 	// The "found a legacy skill" line is narration (chatter), but the consent
 	// prompt + dry-run note are interaction/requested-data and go to the data
 	// channel (survive --quiet), mirroring applyAgentHooks.
-	sink.Notef("%s: found a legacy rk-display skill at %s (agent-setup no longer installs it).\n\n", ac.name, skillPath)
+	sink.Notef("%s: found a legacy rk-display skill at %s (rk agent setup no longer installs it).\n\n", ac.name, skillPath)
 	dryRunNote := fmt.Sprintf("%s: dry run — legacy rk-display skill left in place (nothing removed).", ac.name)
 	promptSuffix := fmt.Sprintf("Remove the %s directory? [y/N] ", skillDir)
 	ok, err := cons.authorizeWrite(sink.data, reader, dryRunNote, promptSuffix)
@@ -624,8 +652,8 @@ func renderHooksSummary(out io.Writer, header string, hooks []agentHook, existin
 }
 
 // countRkEntries counts the rk-owned hook entries across every event array in
-// settings — the replace/remove accounting renderHooksSummary reports. Both
-// hook-command generations count (isRkEntry matches either marker).
+// settings — the replace/remove accounting renderHooksSummary reports. Every
+// hook-command generation counts (isRkEntry matches all three markers).
 func countRkEntries(settings map[string]any) int {
 	n := 0
 	for _, v := range asMap(settings["hooks"]) {
@@ -660,7 +688,7 @@ func renderArtifactDiff(out io.Writer, header, current, proposed string) {
 // isTerminal reports whether r is an interactive terminal, used to decide
 // between the interactive [y/N] prompt and the Principle 1 non-TTY refusal. It
 // uses term.IsTerminal (a TCGETS/TIOCGETA ioctl), NOT a bare os.ModeCharDevice
-// check: a char-device test alone treats /dev/null (`agent-setup </dev/null`,
+// check: a char-device test alone treats /dev/null (`rk agent setup </dev/null`,
 // the exact non-interactive shape an agent uses) as a terminal, which would make
 // the refusal silently not fire. A non-*os.File reader (e.g. a test's
 // strings.Reader or a pipe) is not a TTY, so tests default to the
@@ -743,7 +771,7 @@ func mergeHooks(settings map[string]any, hooks []agentHook, rkPath, comm string)
 	// Strip every existing rk entry from each touched event array FIRST, once —
 	// an event may carry more than one rk hook (e.g. Notification maps to both a
 	// waiting and an idle entry), so removing per-hook would drop entries added
-	// earlier in this same pass. removeRkEntries matches BOTH generations, so a
+	// earlier in this same pass. removeRkEntries matches ALL generations, so a
 	// re-run over old-generation entries replaces them in place. Non-rk entries
 	// are untouched.
 	touched := make(map[string]bool)
@@ -819,14 +847,16 @@ func removeRkEntries(arr []any) []any {
 	return out
 }
 
-// isRkEntry reports whether a hook-entry object is rk-owned. It matches BOTH
-// generations of the hook command: the LEGACY self-contained one-liner (which
-// inlined the @rk_agent_state option name → rkHookMarker) and the NEW delegating
-// one-liner (which invokes `rk agent-hook` → rkHookMarkerAgentHook and no longer
-// contains the option name). Matching both is what lets `rk agent-setup` on the
-// new binary strip old-generation entries and replace them in place, and lets
-// `--uninstall` remove both generations. Non-rk hooks carry neither marker and
-// are preserved untouched.
+// isRkEntry reports whether a hook-entry object is rk-owned. It matches ALL
+// THREE generations of the hook command: the LEGACY self-contained one-liner
+// (which inlined the @rk_agent_state option name → rkHookMarker), the
+// second-generation delegating one-liner (`rk agent-hook` →
+// rkHookMarkerAgentHook), and the third-generation family form (`rk agent hook`
+// → rkHookMarkerAgentHookFamily); the delegating forms no longer contain the
+// option name. Matching all three is what lets `rk agent setup` on the new
+// binary strip older-generation entries and replace them in place, and lets
+// `--uninstall` remove every generation. Non-rk hooks carry no marker and are
+// preserved untouched.
 func isRkEntry(entry map[string]any) bool {
 	if entry == nil {
 		return false
@@ -840,7 +870,9 @@ func isRkEntry(entry map[string]any) bool {
 		if !ok {
 			continue
 		}
-		if strings.Contains(cmd, rkHookMarker) || strings.Contains(cmd, rkHookMarkerAgentHook) {
+		if strings.Contains(cmd, rkHookMarker) ||
+			strings.Contains(cmd, rkHookMarkerAgentHook) ||
+			strings.Contains(cmd, rkHookMarkerAgentHookFamily) {
 			return true
 		}
 	}

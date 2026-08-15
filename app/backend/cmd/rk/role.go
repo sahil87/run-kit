@@ -26,7 +26,7 @@ import (
 // the fail-silent contract belongs to the CALLER, so this command hard-errors
 // outside tmux — and equally when $TMUX yields no socket to target: an
 // explicitly typed command that no-ops silently, or writes to a guessed server,
-// would be confusing (unlike agent-hook, which harness hooks invoke
+// would be confusing (unlike `rk agent hook`, which harness hooks invoke
 // unconditionally and which may degrade to the default socket).
 //
 // Toolkit Principle 9 posture: the confirmation is data on stdout; errors flow
@@ -102,7 +102,7 @@ func runRole(cmd *cobra.Command, token string) error {
 	// Target the pane's OWN server via -S <socket> derived from the original
 	// $TMUX (internal/tmux's init() strips $TMUX from the process — see
 	// writeAgentStateImpl for the full rationale), never a bare invocation.
-	// agent-hook's never-fail contract lets it degrade to the default socket
+	// agent hook's never-fail contract lets it degrade to the default socket
 	// here; this command must NOT: a bare invocation would resolve $TMUX_PANE
 	// against — and radio-clear @rk_role across — whichever server owns the
 	// default socket (spawning one if it is dead). $TMUX_PANE without $TMUX is

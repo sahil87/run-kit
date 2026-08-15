@@ -209,12 +209,15 @@ func TestApplyAgentConfigConfirmWritesAndIsIdempotent(t *testing.T) {
 		t.Fatalf("settings file should exist after confirm: %v", err)
 	}
 	// The NEW-generation command no longer inlines @rk_agent_state — it delegates
-	// to `rk agent-hook`, so the installed hooks are identified by that marker.
-	if !strings.Contains(string(written), rkHookMarkerAgentHook) {
-		t.Errorf("written settings missing new rk hook marker (%q): %s", rkHookMarkerAgentHook, written)
+	// to `rk agent hook`, so the installed hooks are identified by that marker.
+	if !strings.Contains(string(written), rkHookMarkerAgentHookFamily) {
+		t.Errorf("written settings missing new rk hook marker (%q): %s", rkHookMarkerAgentHookFamily, written)
 	}
 	if strings.Contains(string(written), rkHookMarker) {
 		t.Errorf("new-generation command should not contain the legacy %q marker: %s", rkHookMarker, written)
+	}
+	if strings.Contains(string(written), rkHookMarkerAgentHook) {
+		t.Errorf("third-generation command should not contain the second-generation %q marker: %s", rkHookMarkerAgentHook, written)
 	}
 
 	// Second install is a no-op: nothing to do, no prompt consumed.
@@ -231,9 +234,12 @@ func TestApplyAgentConfigConfirmWritesAndIsIdempotent(t *testing.T) {
 	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("y\n")), ac, "", true, consent{stdinIsTTY: true}); err != nil {
 		t.Fatalf("uninstall error: %v", err)
 	}
-	after, _ := os.ReadFile(path)
-	if strings.Contains(string(after), rkHookMarkerAgentHook) {
-		t.Errorf("uninstall should remove rk hooks, still present: %s", after)
+	after, err := readSettings(path)
+	if err != nil {
+		t.Fatalf("read settings after uninstall: %v", err)
+	}
+	if got := countRkEntries(after); got != 0 {
+		t.Errorf("uninstall should remove rk hooks, %d remain: %v", got, after)
 	}
 }
 
@@ -254,7 +260,7 @@ func TestApplyAgentConfigYesWritesWithoutPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("--yes must write the settings file without prompting: %v", err)
 	}
-	if !strings.Contains(string(written), rkHookMarkerAgentHook) {
+	if !strings.Contains(string(written), rkHookMarkerAgentHookFamily) {
 		t.Errorf("written settings missing rk hook marker: %s", written)
 	}
 	if strings.Contains(out.String(), "skipped") {
@@ -399,7 +405,7 @@ func TestIsTerminalRejectsNonTTYFiles(t *testing.T) {
 func TestAgentStateHookCommandShape(t *testing.T) {
 	cmd := agentStateHookCommand("/opt/homebrew/bin/rk", agentStateWaiting, "claude")
 	// The NEW stable form: self-locate via $TMUX_PANE, no-op outside tmux, never
-	// fail the agent, and DELEGATE to `rk agent-hook` (all logic — the walk, the
+	// fail the agent, and DELEGATE to `rk agent hook` (all logic — the walk, the
 	// value formatting — lives in the binary, so it tracks `brew upgrade rk`).
 	// The interpreter must be absolute: hooks fire under the harness's
 	// environment, and a bare `sh` fails on sessions whose PATH lacks /bin.
@@ -408,9 +414,9 @@ func TestAgentStateHookCommandShape(t *testing.T) {
 	}
 	for _, want := range []string{
 		`[ -n "$TMUX_PANE" ] || exit 0`,
-		`"/opt/homebrew/bin/rk"`,      // absolute path, embedded quoted
-		" agent-hook --agent claude ", // the delegating invocation
-		"waiting",                     // the fixed state literal
+		`"/opt/homebrew/bin/rk"`,     // absolute path, embedded quoted
+		" agent hook --agent claude", // the delegating invocation (family form)
+		"waiting",                    // the fixed state literal
 		"2>/dev/null",
 		"|| true",
 	} {
@@ -474,7 +480,7 @@ func TestMergeHooksInstallsSessionStartStampEntry(t *testing.T) {
 	// The installed command keeps the established wrapper shape and passes `stamp`.
 	for _, want := range []string{
 		`[ -n "$TMUX_PANE" ] || exit 0`,
-		" agent-hook --agent claude stamp ",
+		" agent hook --agent claude stamp ",
 		"2>/dev/null",
 		"|| true",
 	} {
@@ -506,17 +512,32 @@ func legacyRkEntry(state string) map[string]any {
 	}
 }
 
-func TestIsRkEntryMatchesBothGenerations(t *testing.T) {
-	// Legacy entry (inlines @rk_agent_state, no `agent-hook`).
+// gen2RkEntry builds a second-generation rk hook entry (the delegating one-liner
+// invoking the old root form `agent-hook`, as installed before the `rk agent`
+// family existed) for migration tests.
+func gen2RkEntry(state string) map[string]any {
+	gen2Cmd := `/bin/sh -c '[ -n "$TMUX_PANE" ] || exit 0; ` +
+		`"/opt/homebrew/bin/rk" agent-hook --agent claude ` + state + ` 2>/dev/null || true'`
+	return map[string]any{
+		"hooks": []any{map[string]any{"type": "command", "command": gen2Cmd}},
+	}
+}
+
+func TestIsRkEntryMatchesAllGenerations(t *testing.T) {
+	// Gen-1 entry (inlines @rk_agent_state, no delegation).
 	if !isRkEntry(legacyRkEntry("active")) {
 		t.Error("legacy @rk_agent_state entry should be recognized as rk-owned")
 	}
-	// New entry (delegates to `rk agent-hook`, no @rk_agent_state).
+	// Gen-2 entry (delegates to the old root form `rk agent-hook`).
+	if !isRkEntry(gen2RkEntry("active")) {
+		t.Error("second-generation `agent-hook` entry should be recognized as rk-owned")
+	}
+	// Gen-3 entry (delegates to `rk agent hook`, no @rk_agent_state).
 	newEntry := rkHookEntry(agentHook{event: "Stop", state: agentStateIdle}, "/opt/homebrew/bin/rk", "claude")
 	if !isRkEntry(newEntry) {
-		t.Error("new agent-hook entry should be recognized as rk-owned")
+		t.Error("new `agent hook` entry should be recognized as rk-owned")
 	}
-	// A non-rk entry carries neither marker and must be preserved.
+	// A non-rk entry carries no marker and must be preserved.
 	nonRk := map[string]any{
 		"hooks": []any{map[string]any{"type": "command", "command": "/usr/local/bin/guard.sh"}},
 	}
@@ -525,12 +546,13 @@ func TestIsRkEntryMatchesBothGenerations(t *testing.T) {
 	}
 }
 
-func TestMergeHooksReplacesLegacyEntriesInPlace(t *testing.T) {
-	// A settings file whose rk hooks are all OLD-generation, plus a non-rk hook.
+func TestMergeHooksReplacesOlderGenerationsInPlace(t *testing.T) {
+	// A settings file whose rk hooks are all OLDER-generation (gen-1 inlined and
+	// gen-2 `agent-hook`), plus a non-rk hook.
 	settings := map[string]any{
 		"hooks": map[string]any{
 			"UserPromptSubmit": []any{legacyRkEntry("active")},
-			"Stop":             []any{legacyRkEntry("idle")},
+			"Stop":             []any{gen2RkEntry("idle")},
 			"PreToolUse": []any{
 				map[string]any{
 					"matcher": "Bash",
@@ -543,13 +565,15 @@ func TestMergeHooksReplacesLegacyEntriesInPlace(t *testing.T) {
 
 	mergeHooks(settings, claudeHooks(), "/opt/homebrew/bin/rk", "claude")
 
-	// Exactly five rk entries — the legacy ones were REPLACED in place, not
+	// Exactly six rk entries — the older ones were REPLACED in place, not
 	// duplicated alongside the new ones.
 	if got := countRkEntries(settings); got != 6 {
-		t.Errorf("rk entries after migrating a legacy file = %d, want 6 (replace, not duplicate)", got)
+		t.Errorf("rk entries after migrating an old-generation file = %d, want 6 (replace, not duplicate)", got)
 	}
-	// No legacy-form command survives.
+	// No gen-1 (inlined set-option) or gen-2 (`agent-hook`) command survives; the
+	// surviving rk entries carry the gen-3 family form.
 	root := asMap(settings["hooks"])
+	foundFamily := false
 	for _, ev := range root {
 		for _, e := range asSlice(ev) {
 			for _, h := range asSlice(asMap(e)["hooks"]) {
@@ -557,8 +581,17 @@ func TestMergeHooksReplacesLegacyEntriesInPlace(t *testing.T) {
 				if strings.Contains(cmd, "set-option") {
 					t.Errorf("a legacy inlined-set-option command survived migration: %s", cmd)
 				}
+				if strings.Contains(cmd, rkHookMarkerAgentHook) {
+					t.Errorf("a second-generation `agent-hook` command survived migration: %s", cmd)
+				}
+				if strings.Contains(cmd, rkHookMarkerAgentHookFamily) {
+					foundFamily = true
+				}
 			}
 		}
+	}
+	if !foundFamily {
+		t.Error("no third-generation `agent hook` command present after migration")
 	}
 	// The non-rk Bash guard is preserved.
 	preTool := asSlice(root["PreToolUse"])
@@ -575,11 +608,12 @@ func TestMergeHooksReplacesLegacyEntriesInPlace(t *testing.T) {
 	}
 }
 
-func TestUnmergeHooksRemovesBothGenerations(t *testing.T) {
+func TestUnmergeHooksRemovesAllGenerations(t *testing.T) {
 	settings := map[string]any{
 		"hooks": map[string]any{
 			"UserPromptSubmit": []any{
 				legacyRkEntry("active"),
+				gen2RkEntry("active"),
 				rkHookEntry(agentHook{event: "UserPromptSubmit", state: agentStateActive}, "/opt/homebrew/bin/rk", "claude"),
 			},
 			"PreToolUse": []any{
@@ -594,7 +628,7 @@ func TestUnmergeHooksRemovesBothGenerations(t *testing.T) {
 	unmergeHooks(settings)
 
 	if got := countRkEntries(settings); got != 0 {
-		t.Errorf("both generations should be removed, %d rk entries remain", got)
+		t.Errorf("all generations should be removed, %d rk entries remain", got)
 	}
 	preTool := asSlice(asMap(settings["hooks"])["PreToolUse"])
 	if len(preTool) != 1 {
@@ -1015,7 +1049,9 @@ func TestAgentSetup_QuietRefusalSurvives(t *testing.T) {
 // via rootCmd.Execute() with `agent-setup --dry-run --quiet` resolves the
 // persistent --quiet flag so newSink discards chatter, while the dry-run diff
 // (data) still reaches stdout. Uses --dry-run so nothing is written to the real
-// ~/.claude/settings.json.
+// ~/.claude/settings.json. It also pins the deprecation-alias contract: the old
+// root form still runs (the diff renders) AND prints a one-line pointer naming
+// `rk agent setup`, while the family form stays warning-free.
 func TestAgentSetup_QuietFlagWiredThroughRoot(t *testing.T) {
 	// Hermetic: point HOME at a temp dir so the run never reads the invoking
 	// user's real ~/.claude/settings.json or scans their real skills dir
@@ -1033,7 +1069,7 @@ func TestAgentSetup_QuietFlagWiredThroughRoot(t *testing.T) {
 		rootCmd.SetArgs(nil)
 		_ = rootCmd.PersistentFlags().Set("quiet", "false")
 		quiet = false
-		agentSetupDryRun = false
+		_ = agentSetupAliasCmd.Flags().Set("dry-run", "false")
 	})
 
 	if err := rootCmd.Execute(); err != nil {
@@ -1042,6 +1078,43 @@ func TestAgentSetup_QuietFlagWiredThroughRoot(t *testing.T) {
 	// The dry-run diff is data — survives --quiet on stdout.
 	if !strings.Contains(stdout.String(), "run-kit agent-state hooks") {
 		t.Errorf("--dry-run --quiet must still render the diff on stdout, got stdout: %q", stdout.String())
+	}
+	// The alias still runs (above) AND warns once, pointing at the new form.
+	// Cobra emits the deprecation via OutOrStderr — stderr in production, the
+	// SetOut buffer here.
+	if got := stdout.String() + stderr.String(); !strings.Contains(got, `Command "agent-setup" is deprecated, use `+"`rk agent setup`") {
+		t.Errorf("the deprecated alias must print a pointer naming `rk agent setup`, got stdout: %q stderr: %q", stdout.String(), stderr.String())
+	}
+	if !agentSetupAliasCmd.Hidden {
+		t.Error("the agent-setup alias must be hidden from help and the help-dump")
+	}
+}
+
+// TestAgentSetupFamilyMemberNoDeprecation pins the other half of the alias
+// contract: the family form `rk agent setup` is the canonical spelling and must
+// NOT carry any deprecation warning.
+func TestAgentSetupFamilyMemberNoDeprecation(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	var stdout, stderr bytes.Buffer
+	rootCmd.SetOut(&stdout)
+	rootCmd.SetErr(&stderr)
+	rootCmd.SetArgs([]string{"agent", "setup", "--dry-run"})
+	t.Cleanup(func() {
+		rootCmd.SetOut(nil)
+		rootCmd.SetErr(nil)
+		rootCmd.SetArgs(nil)
+		_ = agentSetupFamilyCmd.Flags().Set("dry-run", "false")
+	})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("agent setup --dry-run via rootCmd.Execute() error: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "run-kit agent-state hooks") {
+		t.Errorf("agent setup --dry-run must render the diff, got stdout: %q", stdout.String())
+	}
+	if got := stdout.String() + stderr.String(); strings.Contains(got, "deprecated") {
+		t.Errorf("the family form must not print a deprecation warning, got stdout: %q stderr: %q", stdout.String(), stderr.String())
 	}
 }
 
@@ -1824,7 +1897,7 @@ func TestApplyAgentHooksDryRunFullBodies(t *testing.T) {
 		t.Errorf("--dry-run must keep the full-body diff, got: %q", got)
 	}
 	// The proposed body is the real merged document — hook commands included.
-	if !strings.Contains(got, rkHookMarkerAgentHook) {
+	if !strings.Contains(got, rkHookMarkerAgentHookFamily) {
 		t.Errorf("--dry-run proposed body should carry the hook commands, got: %q", got)
 	}
 }

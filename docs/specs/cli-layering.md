@@ -11,7 +11,7 @@
 
 | Layer | Tool | Owns |
 |-------|------|------|
-| **Substrate** | `rk` | tmux conventions (the `@rk_*` option registry), agent instrumentation (`agent-setup`/`agent-hook`, the `@rk_agent_state` lifecycle), pane interaction verbs (`mux send`/`mux await`; future `capture`/`kill`/`process`), server hygiene (guard shim, reaper, layout snapshots, tmux.conf scaffold) — with the daemon, web UI, and desktop shell as consumers of this layer, not its definition |
+| **Substrate** | `rk` | tmux conventions (the `@rk_*` option registry), agent instrumentation (`agent setup`/`agent hook`, the `@rk_agent_state` lifecycle), pane interaction verbs (`mux send`/`mux await`; future `capture`/`kill`/`process`), server hygiene (guard shim, reaper, layout snapshots, tmux.conf scaffold) — with the daemon, web UI, and desktop shell as consumers of this layer, not its definition |
 | **Choreography** | `fab` | changes, stages, dispatch records, provider/profile resolution, confidence scoring, memory indexes, PR metadata — everything keyed to a change or a pipeline stage |
 
 ## Delegation rules
@@ -33,7 +33,7 @@ Root noise is reduced by two mechanisms: **families** (for human-facing verbs, m
 | `rk mux await` | new (260815-a5vf) | free |
 | `rk mux reap` | `rk reaper` | rename + deprecation alias |
 | `rk mux snapshot list\|show\|restore` | `rk snapshot …` | move + deprecation alias (3-level depth has `fab pane window-name` precedent) |
-| `rk mux guard` | `rk tmux-guard` | move + **permanent hidden root alias** (installed PATH shims exec the literal name; `agent-setup` writes the new form going forward) |
+| `rk mux guard` | `rk tmux-guard` | move + **permanent hidden root alias** (installed PATH shims exec the literal name; `rk agent setup` writes the new form going forward) |
 | `rk mux init-conf` | `rk init-conf` | move + deprecation alias (it scaffolds tmux.conf/tmux.d — a mux concern) |
 | *(future)* `rk mux capture`, `rk mux kill`, `rk mux process`, `rk mux panes` | fab pane migration sweep | after a5vf proves the pattern |
 
@@ -84,10 +84,10 @@ and `rk skill` topic-page updates — not listed per-row.
 
 | # | Part | Repo | Delivers | Depends on |
 |---|------|------|----------|------------|
-| 1 | `mux` family + send/await | run-kit | `rk mux` parent (shared `-L`), `rk mux send`, `rk mux await` — **in flight as 260815-a5vf** (intake ready) | — |
-| 2 | `agent` family | run-kit | `rk agent setup`/`rk agent hook`; `agent-hook` stays as permanent hidden alias (installed hook lines); setup writes the new form | — (parallel-safe with 1; overlaps on `root.go` + help-dump test — sequence or rebase) |
+| 1 | `mux` family + send/await | run-kit | `rk mux` parent (shared `-L`), `rk mux send`, `rk mux await` — **merged as 260815-a5vf (PR #617)** | — |
+| 2 | `agent` family | run-kit | **in flight as 260815-r2wp-agent-family** (apply + review done) — `rk agent setup`/`rk agent hook`; `agent-hook` stays as permanent hidden alias (installed hook lines); setup writes the new form | — (parallel-safe with 1; overlaps on `root.go` + help-dump test — sequence or rebase) |
 | 3 | `mux` consolidation, low-risk | run-kit | `mux reap` (← `reaper`), `mux snapshot` (← `snapshot`), `mux init-conf` (← `init-conf`), deprecation aliases; hide `shell-init` | 1 |
-| 4 | guard move | run-kit | `mux guard` (← `tmux-guard`) with permanent hidden root alias; `agent-setup` regenerates shims to the new form; doctor states updated | 1 (light overlap with 2 in `agent-setup`) |
+| 4 | guard move | run-kit | `mux guard` (← `tmux-guard`) with permanent hidden root alias; `rk agent setup` regenerates shims to the new form; doctor states updated | 1 (light overlap with 2 in `agent setup`) |
 | 5 | `fab pane send`/`await` retirement | fab-kit | `fab-operator` + `_cli-agents`/`_cli-external` migrate to `rk mux send`/`await` with a raw-tmux fallback when rk is absent; delete the two CLI verbs (internal builders stay — dispatch delivery uses them) | 1 *(released)* |
 | 6 | substrate twins | run-kit | `rk mux capture`, `rk mux kill`, `rk mux process` — mechanics ported/twinned from fab pane, agent-state-aware where applicable | 1 |
 | 7 | guidance re-point | fab-kit | `_cli-external`/`_cli-agents` point capture/kill/process at rk; fab's pane copies demoted to dispatch-internal (kept for rk-less pane arm), dropped from skill-facing guidance | 5, 6 *(released)* |

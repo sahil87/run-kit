@@ -59,8 +59,12 @@ func init() {
 	rootCmd.AddCommand(urlCmd)
 	rootCmd.AddCommand(skillCmd)
 	rootCmd.AddCommand(notifyCmd)
-	rootCmd.AddCommand(agentSetupCmd)
-	rootCmd.AddCommand(agentHookCmd)
+	rootCmd.AddCommand(agentCmd)
+	// Hidden root aliases for the agent family (see agent.go): agent-setup is
+	// deprecated (warns on stderr, still runs); agent-hook is PERMANENT — the
+	// machine-invoked contract installed hook lines depend on.
+	rootCmd.AddCommand(agentSetupAliasCmd)
+	rootCmd.AddCommand(agentHookAliasCmd)
 	rootCmd.AddCommand(tmuxGuardCmd)
 	rootCmd.AddCommand(riffCmd)
 	rootCmd.AddCommand(remoteCmd)
@@ -75,19 +79,23 @@ func init() {
 
 	// Flag-parse errors on the root and any inheriting subcommand are usage-class
 	// (exit 2). Cobra's FlagErrorFunc is inherited by children that do NOT set
-	// their own, so this one func covers every subcommand except agent-hook, which
-	// sets its own SetFlagErrorFunc(→ nil) to preserve its NEVER-FAIL contract
-	// (Claude Code treats a hook exit 2 as *blocking*). Own-wins inheritance keeps
-	// agent-hook shadowing this — do not remove agent-hook's func.
+	// their own, so this one func covers every subcommand except the two agent-hook
+	// instances (the `agent hook` family member and the permanent `agent-hook`
+	// root alias), which each set their own SetFlagErrorFunc(→ nil) to preserve
+	// the NEVER-FAIL contract (Claude Code treats a hook exit 2 as *blocking*).
+	// Own-wins inheritance keeps both hook instances shadowing this — do not
+	// remove their funcs.
 	rootCmd.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
 		return usageError(err)
 	})
 
 	// Arg-count validator errors (NoArgs / ExactArgs / MaximumNArgs on the
 	// subcommands) are usage-class (exit 2). Wrap each subcommand's non-nil Args
-	// validator centrally so a violation carries the usage sentinel. Commands with
-	// ArbitraryArgs (agent-hook, riff) never produce a validator error, so the wrap
-	// is inert for them. This is deliberately a one-place root-cause fix rather than
+	// validator centrally so a violation carries the usage sentinel. This loop
+	// covers DIRECT children only — family members (mux send/await, agent setup)
+	// wrap their own Args at declaration. Commands with ArbitraryArgs (the
+	// agent-hook alias, riff) never produce a validator error, so the wrap is
+	// inert for them. This is deliberately a one-place root-cause fix rather than
 	// editing each declaration site.
 	for _, c := range rootCmd.Commands() {
 		if c.Args != nil {

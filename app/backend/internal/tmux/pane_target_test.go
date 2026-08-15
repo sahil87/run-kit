@@ -1,8 +1,10 @@
 package tmux
 
 import (
+	"context"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestParsePaneTarget(t *testing.T) {
@@ -137,5 +139,91 @@ func TestAgentStateStale(t *testing.T) {
 	got = parsePanes(legacy)["@1"]
 	if len(got) != 1 || got[0].AgentState != "" {
 		t.Errorf("legacy shell pane = %+v, want reconciled to unknown", got)
+	}
+}
+
+// TestPaneFactsCtx exercises the one-shot fact read against an isolated test
+// server: cwd plus the reconciled (state, epoch, pid) triple, with the
+// dead-pid reconcile and the uninstrumented case reading as unknown. The
+// pid-liveness probe is stubbed (the TestAgentStateStale pattern) so the
+// reconcile is deterministic.
+func TestPaneFactsCtx(t *testing.T) {
+	server, _ := withRealSessionTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	orig := agentProcessAlive
+	t.Cleanup(func() { agentProcessAlive = orig })
+	agentProcessAlive = func(int) bool { return true }
+
+	lines, err := tmuxExecServer(ctx, server, "list-panes", "-t", "real:win0", "-F", "#{pane_id}")
+	if err != nil {
+		t.Fatalf("list panes: %v", err)
+	}
+	paneID := lines[0]
+
+	// Uninstrumented pane: cwd resolves, the agent state reads unknown.
+	facts, err := PaneFactsCtx(ctx, paneID, server)
+	if err != nil {
+		t.Fatalf("PaneFactsCtx: %v", err)
+	}
+	if facts.CWD == "" {
+		t.Error("PaneFacts.CWD empty, want the pane's current path")
+	}
+	if facts.AgentState != "" || facts.AgentStateEpoch != 0 || facts.AgentPID != 0 {
+		t.Errorf("uninstrumented pane = %+v, want unknown state", facts)
+	}
+
+	// A live-pid 3-segment value is trusted verbatim (state + epoch + pid).
+	if _, err := tmuxExecServer(ctx, server, "set-option", "-pt", paneID, AgentStateOption, "waiting:1700000000:4242"); err != nil {
+		t.Fatalf("set agent state: %v", err)
+	}
+	facts, err = PaneFactsCtx(ctx, paneID, server)
+	if err != nil {
+		t.Fatalf("PaneFactsCtx: %v", err)
+	}
+	if facts.AgentState != AgentStateWaiting || facts.AgentStateEpoch != 1700000000 || facts.AgentPID != 4242 {
+		t.Errorf("PaneFacts = %+v, want waiting/1700000000/4242", facts)
+	}
+
+	// A dead pid reconciles to unknown — the pid is never reported.
+	agentProcessAlive = func(int) bool { return false }
+	facts, err = PaneFactsCtx(ctx, paneID, server)
+	if err != nil {
+		t.Fatalf("PaneFactsCtx: %v", err)
+	}
+	if facts.AgentState != "" || facts.AgentPID != 0 {
+		t.Errorf("dead-pid pane = %+v, want reconciled to unknown", facts)
+	}
+
+	// PaneAgentState delegates to the same read.
+	agentProcessAlive = func(int) bool { return true }
+	state, err := PaneAgentState(ctx, paneID, server)
+	if err != nil || state != AgentStateWaiting {
+		t.Errorf("PaneAgentState = %q, %v, want waiting, nil", state, err)
+	}
+}
+
+// TestPanePIDCtx reads the pane's shell PID against an isolated test server.
+func TestPanePIDCtx(t *testing.T) {
+	server, _ := withRealSessionTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	lines, err := tmuxExecServer(ctx, server, "list-panes", "-t", "real:win0", "-F", "#{pane_id}")
+	if err != nil {
+		t.Fatalf("list panes: %v", err)
+	}
+	pid, err := PanePIDCtx(ctx, lines[0], server)
+	if err != nil {
+		t.Fatalf("PanePIDCtx: %v", err)
+	}
+	if pid <= 0 {
+		t.Errorf("PanePIDCtx = %d, want a positive shell pid", pid)
+	}
+	if _, err := PanePIDCtx(ctx, "%999999", server); err == nil {
+		// tmux 3.6a's display-message succeeds with EMPTY output on a missing
+		// pane — the pid parse failure is what surfaces the operational error.
+		t.Error("PanePIDCtx on a missing pane must error")
 	}
 }

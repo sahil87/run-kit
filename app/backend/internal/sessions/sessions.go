@@ -462,11 +462,11 @@ func agentStatePrecedence(state string) int {
 	}
 }
 
-// formatAgentDuration formats an elapsed-seconds value in the Ns/Nm/Nh style
+// FormatAgentDuration formats an elapsed-seconds value in the Ns/Nm/Nh style
 // fab produced (floor division), so the frontend duration surface is
 // byte-compatible with the previous fab-formatted string. A non-positive
 // elapsed yields "".
-func formatAgentDuration(elapsedSeconds int64) string {
+func FormatAgentDuration(elapsedSeconds int64) string {
 	if elapsedSeconds <= 0 {
 		return ""
 	}
@@ -511,7 +511,7 @@ func rollupAgentState(panes []tmux.PaneInfo, nowUnix int64) (state string, durat
 	// Duration is meaningful for idle and waiting (how long the human has been
 	// the blocker / how long at rest); active has no duration.
 	if (state == tmux.AgentStateIdle || state == tmux.AgentStateWaiting) && bestEpoch > 0 {
-		duration = formatAgentDuration(nowUnix - bestEpoch)
+		duration = FormatAgentDuration(nowUnix - bestEpoch)
 	}
 	return state, duration
 }

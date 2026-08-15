@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-15T16:32:58Z"}
+{"args":"Add substrate twins to the rk mux family: rk mux capture, rk mux kill, rk mux process, ported/twinned from fab pane capture/kill/process, agent-state-aware where applicable. Part 6 of docs/specs/cli-layering.md execution plan.","cmd":"fab-new","event":"command","ts":"2026-08-15T16:32:58Z"}
+{"delta":"+4.0","event":"confidence","score":4,"trigger":"calc-score","ts":"2026-08-15T16:35:00Z"}
+{"cmd":"fab-new","event":"command","ts":"2026-08-15T16:35:04Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-15T16:35:30Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-15T16:35:37Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-15T17:07:54Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-15T17:16:56Z"}
+{"event":"review","result":"passed","ts":"2026-08-15T17:16:56Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-15T17:26:25Z"}

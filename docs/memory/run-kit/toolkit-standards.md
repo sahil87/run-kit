@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, audit-against-HEAD-build rule, per-standard PASS status (help-dump, readme-extraction, skill, ten principles, update, version, install-composition). Covers Principle 9 `--quiet`/reaper caps, brew-mutation grace, and the help-dump + Principle 9 new-surface check over `rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`/`mux`/`agent` + the grown six-member `mux` family."
+description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, audit-against-HEAD-build rule, per-standard PASS status (help-dump, readme-extraction, skill, ten principles, update, version, install-composition). Covers Principle 9 `--quiet`/reaper caps, brew-mutation grace, and the help-dump + Principle 9 new-surface check over `rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`/`mux`/`agent` + the grown nine-member `mux` family."
 ---
 # Toolkit Standards Conformance
 
@@ -360,7 +360,8 @@ surface measured against the same checks
 `260815-mi5s-mux-guard-move` — see the tenth surface below):
 
 - **help-dump: the grown family dumps; the moved/hidden names don't.**
-  `muxCmd` carries exactly {`send`, `await`, `reap`, `snapshot` (with its
+  `muxCmd` carries exactly {`send`, `await`, `capture`, `kill`, `process`,
+  `reap`, `snapshot` (with its
   `list`/`show`/`restore` children at depth), `init-conf`, `guard`}, every node
   with a
   `Long:` block, so the cobra tree walk picks up the grown subtree with no
@@ -394,8 +395,9 @@ as a PERMANENT hidden root alias — full contract in
 [tmux-guard-shim](/run-kit/tmux-guard-shim.md)) is the tenth surface measured
 against the same checks (`260815-mi5s-mux-guard-move`):
 
-- **help-dump: six members dump; the permanent alias doesn't.** `muxCmd`
-  carries exactly six members (the ninth-surface set plus `guard`), and
+- **help-dump: nine members dump; the permanent alias doesn't.** `muxCmd`
+  carries exactly nine members (the messaging pair, the operator set, `guard`,
+  and the substrate twins — see the eleventh surface below), and
   `tmux-guard` joins the excluded-hidden-root-forms assertion list — Hidden
   drops it from the dump like the other aliases. The help-dump test asserts
   both dynamically.
@@ -414,6 +416,35 @@ against the same checks (`260815-mi5s-mux-guard-move`):
   shim and names the `-L` remedy; canonical `docs/site/skill/mux.md` and the
   embedded copy stay byte-identical under
   `TestSkillMuxEmbedMatchesCanonical`.
+
+The substrate twins (`rk mux capture`/`kill`/`process` — the generic
+pane-mechanics verbs ported from `fab pane`, agent-state-aware — see
+[architecture](/run-kit/architecture.md) § CLI Subcommands, `mux` row; full
+contract in [agent-messaging](/run-kit/agent-messaging.md)) are the eleventh
+surface measured against the same checks (`260815-82w7-mux-substrate-twins`):
+
+- **help-dump: nine members dump.** `muxCmd` carries exactly nine members —
+  the messaging pair, the three twins, and the operator set — and the
+  help-dump test asserts the nine-member subtree dynamically, with
+  `capture`/`kill`/`process` in the captured-children check. Every node is
+  registered unconditionally with a `Long:` block, so the dumped contract
+  stays platform-stable.
+- **Principle 9: report/data on stdout, chatter on stderr.** All three twins
+  route through the shared `outputSink`: `capture`'s header block / `--raw`
+  content / `--json` wrapper, `kill`'s single `killed %N` line, and
+  `process`'s tree (or `--json`) are `Dataf` (data, surviving `--quiet`); the
+  kill gate's refusal and `process`'s agent-state-read warning are `Notef`
+  chatter on stderr.
+- **Exit-code convention (P4)** — 0 success, 1 operational (missing pane,
+  gate refusal, tmux failure), 2 usage (bad target form, `--lines < 1`,
+  `--json --raw` together via cobra flag-group validation) — never fab's
+  pane-family 2/3 scheme.
+- **The `skill` standard gained three verb sections** — the `mux` topic page
+  (canonical `docs/site/skill/mux.md`, embedded copy byte-identical under
+  `TestSkillMuxEmbedMatchesCanonical`) teaches the three verbs (targets,
+  capture flags/output, the kill gate, process classification, report lines,
+  exit codes), and its framing line broadened beyond agent messaging to cover
+  pane inspection/removal.
 
 #### Scenario: A new subcommand group keeps the help tree platform-stable
 - **GIVEN** the `rk desktop` group on a Linux host

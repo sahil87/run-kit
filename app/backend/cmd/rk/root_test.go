@@ -71,10 +71,13 @@ func TestRootCmdHasSubcommands(t *testing.T) {
 		t.Errorf("agent family member %q not found (err=%v)", "hook", err)
 	}
 
-	// The mux family groups the messaging verbs plus the moved substrate verbs.
+	// The mux family groups the pane-scoped verbs plus the moved operator verbs.
 	for _, path := range [][]string{
 		{"mux", "send"},
 		{"mux", "await"},
+		{"mux", "capture"},
+		{"mux", "kill"},
+		{"mux", "process"},
 		{"mux", "reap"},
 		{"mux", "init-conf"},
 		{"mux", "guard"},

@@ -2078,6 +2078,15 @@ func KillActivePane(windowID string, server string) error {
 	return nil
 }
 
+// KillPaneCtx kills the pane identified by paneID (%N) on the given server,
+// bounded by the caller's context. Unlike KillActivePane (best-effort,
+// silent-success), a tmux failure IS returned — the `rk mux kill` verb's
+// missing-pane and kill-failure diagnostics depend on tmux's stderr.
+func KillPaneCtx(ctx context.Context, paneID string, server string) error {
+	_, err := tmuxExecServer(ctx, server, "kill-pane", "-t", paneID)
+	return err
+}
+
 // CapturePane captures pane content (last N lines) on the specified server.
 // Preserves blank lines. The -e flag preserves ANSI escape sequences (color +
 // text attributes) so callers can render the pane in color rather than as flat
@@ -2094,8 +2103,26 @@ func CapturePane(paneID string, lines int, server string) (string, error) {
 // threads one shared deadline across all its captures so the retry loop stays
 // under the route budget. See CapturePane for the flag semantics.
 func CapturePaneCtx(ctx context.Context, paneID string, lines int, server string) (string, error) {
-	start := -lines
-	return tmuxExecRawServer(ctx, server, "capture-pane", "-t", paneID, "-e", "-p", "-S", strconv.Itoa(start))
+	return tmuxExecRawServer(ctx, server, capturePaneArgs(paneID, lines, true)...)
+}
+
+// CapturePanePlainCtx captures pane content (last N lines) on the specified
+// server as PLAIN text — no -e ANSI escape sequences — bounded by the caller's
+// context. This is the mux capture verb's variant (agent-consumable output);
+// the -e variant stays untouched for the SGR-aware chat echo probe. Content is
+// returned untrimmed, byte-identical to tmux's output.
+func CapturePanePlainCtx(ctx context.Context, paneID string, lines int, server string) (string, error) {
+	return tmuxExecRawServer(ctx, server, capturePaneArgs(paneID, lines, false)...)
+}
+
+// capturePaneArgs builds the capture-pane argv for the last `lines` scrollback
+// lines; escape toggles the -e flag (ANSI escapes preserved vs. plain text).
+func capturePaneArgs(paneID string, lines int, escape bool) []string {
+	args := []string{"capture-pane", "-t", paneID}
+	if escape {
+		args = append(args, "-e")
+	}
+	return append(args, "-p", "-S", strconv.Itoa(-lines))
 }
 
 // IsTestServerName reports whether name belongs to the unified test-socket

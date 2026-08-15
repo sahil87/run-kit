@@ -1,0 +1,55 @@
+id: 82w7
+name: 260815-82w7-mux-substrate-twins
+created: 2026-08-15T16:32:58Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 14
+    acceptance_count: 15
+    acceptance_completed: 15
+confidence:
+    certain: 4
+    confident: 5
+    tentative: 0
+    unresolved: 0
+    score: 4.0
+    fuzzy: true
+    dimensions:
+        signal: 65.0
+        reversibility: 81.1
+        competence: 80.0
+        disambiguation: 72.8
+stage_metrics:
+    intake: {started_at: "2026-08-15T16:32:58Z", driver: fab-new, iterations: 1, completed_at: "2026-08-15T16:35:37Z"}
+    apply: {started_at: "2026-08-15T16:35:37Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-15T17:07:54Z"}
+    review: {started_at: "2026-08-15T17:07:54Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-15T17:16:56Z"}
+    hydrate: {started_at: "2026-08-15T17:16:56Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-15T17:26:25Z"}
+    ship: {started_at: "2026-08-15T17:26:25Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-08-15T17:26:25Z"
+    computed_at_stage: hydrate
+summary: 'rk mux family grows 6 → 9: capture/kill/process substrate twins (plain capture with substrate-only enrichment, agent-state-gated kill, process tree with agent-state pid cross-check); -L scopes the five pane-scoped verbs'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-15T17:26:25Z

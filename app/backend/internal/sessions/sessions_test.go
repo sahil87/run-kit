@@ -698,8 +698,8 @@ func TestFormatAgentDuration(t *testing.T) {
 		{7300, "2h"},
 	}
 	for _, c := range cases {
-		if got := formatAgentDuration(c.elapsed); got != c.want {
-			t.Errorf("formatAgentDuration(%d) = %q, want %q", c.elapsed, got, c.want)
+		if got := FormatAgentDuration(c.elapsed); got != c.want {
+			t.Errorf("FormatAgentDuration(%d) = %q, want %q", c.elapsed, got, c.want)
 		}
 	}
 }

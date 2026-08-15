@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "The `rk mux` family — tmux-substrate verbs with no daemon dependency. `send`/`await` agent messaging: strict %N/@N/=session:window grammar, payload XOR, the @rk_agent_state gate matrix, shared internal/inject delivery, ask-and-wait composition, one-word reports, exit codes 0/1/2. Plus the operator members `reap`/`snapshot`/`init-conf`/`guard` (old root forms survive as hidden aliases; inherited `-L` rejected on non-messaging members — `guard` excepted: its flags flow into the tmux argv)."
+description: "The `rk mux` family — nine tmux-substrate verbs, no daemon dependency. Pane-scoped members (`send`/`await` messaging + `capture`/`kill`/`process` substrate twins) share the strict %N/@N/=session:window grammar and the inherited `-L` flag; toolkit exit codes 0/1/2. Twins add plain capture with substrate-only enrichment, kill's agent-state gate, and process classification incl. the agent-state pid cross-check. Operator members `reap`/`snapshot`/`init-conf`/`guard` reject `-L` (`guard` excepted)."
 ---
 # Agent-to-Agent Messaging (`rk mux`)
 
@@ -11,28 +11,31 @@ description: "The `rk mux` family — tmux-substrate verbs with no daemon depend
 `rk mux` is the tmux-substrate CLI family (per `docs/specs/cli-layering.md`):
 operations that talk to tmux directly from the caller's context with **no daemon
 dependency** (the `rk present` pattern), so they work while `rk serve` is down.
-The family has six members in two tiers. The messaging tier is the conversation
-loop's halves: `rk mux send` delivers a message into another agent's pane — the
+The family has nine members. The messaging pair is the conversation loop's
+halves: `rk mux send` delivers a message into another agent's pane — the
 agent→agent counterpart of `rk present`'s agent→user attach — and `rk mux await`
-blocks until a peer's state (or a file signal) fires. The operator tier groups
-the janitor/recovery/scaffold verbs plus the guard: `rk mux reap` (test-socket
-cleanup), `rk mux snapshot list|show|restore` (layout recovery,
-[layout-snapshots](/run-kit/layout-snapshots.md)), `rk mux init-conf` (tmux
-config scaffold), and `rk mux guard` (fronts the real tmux binary, refusing a
-bare `kill-server` — the verb the installed PATH shim execs; full contract in
-[tmux-guard-shim](/run-kit/tmux-guard-shim.md)). The messaging verbs are
-first-party readers of the
-`@rk_agent_state` convention ([agent-state](/run-kit/agent-state.md)) and share
-the pane-level primitives in `internal/tmux/pane_target.go`. Delivery reuses the
-hardened injection engine the chat-send HTTP route also drives — the shared
-`internal/inject` package ([chat](/run-kit/chat.md) § Send Path) — so the daemon
-route and the CLI verb run ONE implementation.
+blocks until a peer's state (or a file signal) fires. The substrate twins are
+the generic pane-mechanics verbs: `rk mux capture` (scrollback capture with
+substrate-only enrichment), `rk mux kill` (agent-state-gated pane removal), and
+`rk mux process` (the pane's process tree with agent classification). The
+operator tier groups the janitor/recovery/scaffold verbs plus the guard:
+`rk mux reap` (test-socket cleanup), `rk mux snapshot list|show|restore`
+(layout recovery, [layout-snapshots](/run-kit/layout-snapshots.md)),
+`rk mux init-conf` (tmux config scaffold), and `rk mux guard` (fronts the real
+tmux binary, refusing a bare `kill-server` — the verb the installed PATH shim
+execs; full contract in [tmux-guard-shim](/run-kit/tmux-guard-shim.md)). The
+pane-scoped verbs (send/await/capture/kill/process) are first-party readers of
+the `@rk_agent_state` convention ([agent-state](/run-kit/agent-state.md)) and
+share the pane-level primitives in `internal/tmux/pane_target.go`. Delivery
+reuses the hardened injection engine the chat-send HTTP route also drives — the
+shared `internal/inject` package ([chat](/run-kit/chat.md) § Send Path) — so the
+daemon route and the CLI verb run ONE implementation.
 
 The family parent (`muxCmd`, `cmd/rk/mux.go`) carries the shared persistent
 `-L/--server` flag (the `fab pane` pattern). Server resolution: `-L` wins, else
 the caller's own server derived from the original `$TMUX` socket basename, else
-`default`. Only the messaging verbs consume it — the operator members reject an
-explicitly-set `-L` (see Requirements), **except `guard`**: its
+`default`. Only the pane-scoped verbs consume it — the operator members reject
+an explicitly-set `-L` (see Requirements), **except `guard`**: its
 `DisableFlagParsing` means nothing is parsed and `-L`/`-S` flow verbatim into
 the tmux argv, where they are genuinely tmux's socket flags. The old root forms
 (`rk reaper`, `rk snapshot …`, `rk init-conf`) survive as hidden deprecation
@@ -43,7 +46,8 @@ removed — installed shims exec the literal name).
 ## Requirements
 
 ### Requirement: Strict target grammar and agent-pane resolution
-Both verbs SHALL accept exactly three `<target>` forms — pane ID (`%N`), window
+The pane-scoped verbs (send/await/capture/kill/process) SHALL accept exactly
+three `<target>` forms — pane ID (`%N`), window
 ID (`@N`), and exact session:window (`=session:window`) — rejecting everything
 else as a usage error (exit 2) naming the accepted forms
 (`tmux.ParsePaneTarget`). Bare `session:window` names are rejected: tmux's
@@ -133,7 +137,8 @@ Diagnostics and warnings go to stderr (chatter honors `--quiet` via the
 `outputSink` convention; the report line is data). Exit codes follow the toolkit
 convention: **0** success, **1** operational failure (gate refusal, probe
 failure, missing target, tmux failure), **2** usage — never fab's pane-family
-2/3 scheme.
+2/3 scheme. The same code convention binds the substrate twins: a missing pane
+is operational (1), a bad target or flag combination is usage (2).
 
 ### Requirement: `rk mux await` observer
 `rk mux await <target> [--until <state>[,<state>]] [--file <path>]
@@ -192,8 +197,91 @@ full `--timeout` is reachable.
 - **THEN** stdout ends with `waiting %5` or `idle %5`; **WHEN** not, **THEN**
   `running %5`, exit 0.
 
+### Requirement: `rk mux capture` — plain scrollback with substrate-only enrichment
+`rk mux capture <target> [-l/--lines <N>] [--json | --raw]` SHALL capture the
+last N lines of the resolved pane's scrollback as **plain text — no `-e` ANSI
+escapes** — via `tmux.CapturePanePlainCtx` (the `-e` `CapturePaneCtx` variant
+stays untouched for the chat echo probe), never trimming the content. `--lines`
+defaults to 50; `< 1` is a usage error. `--json` and `--raw` are mutually
+exclusive via `MarkFlagsMutuallyExclusive`; `--raw` prints the captured text
+only, byte-identical to tmux's output. The default human output is the header
+block `--- pane %5 ---` / context line / `---` / content; the context line joins
+only the parts that resolved (` | `-separated) and is omitted entirely when
+empty. Enrichment is **substrate-only**: the pane's cwd (`#{pane_current_path}`)
+and the **reconciled** agent state, both read in one `display-message` round
+trip by `tmux.PaneFactsCtx` (the parse + pid-liveness reconcile shared with
+`PaneAgentState`; a legacy or dead-pid value reads as unknown) — fab's
+change/stage fields are NOT carried (choreography facts, fab's layer). The
+duration shows for `idle` **and** `waiting` (epoch > 0), never `active`,
+formatted floor `Ns`/`Nm`/`Nh` via `sessions.FormatAgentDuration` (the
+`rollupAgentState` semantics). `--json` emits (two-space-indented):
+`{"pane", "lines", "content", "cwd", "agent_state", "agent_state_duration"}`
+with the agent fields `null` when the pane is uninstrumented. A missing pane or
+tmux failure is operational (exit 1) carrying tmux's stderr diagnostic.
+
+#### Scenario: Reconciled state with duration, no choreography fields
+- **GIVEN** a pane whose `@rk_agent_state` is `waiting:<epoch 2m ago>:<live-pid>`
+- **WHEN** `rk mux capture %5` runs
+- **THEN** the context line contains `agent: waiting (2m)` and no
+  `change:`/`stage:` parts; **AND GIVEN** a dead-pid value, **THEN** no
+  `agent:` part appears (reconciled to unknown).
+
+### Requirement: `rk mux kill` — agent-state-gated pane removal
+`rk mux kill <target> [--force]` SHALL read the resolved pane's reconciled
+`@rk_agent_state` before killing and apply the gate matrix:
+
+| State | plain | `--force` |
+|-------|-------|-----------|
+| `active` | refuse | kill |
+| `waiting` | refuse (a pending human question lives there) | kill |
+| `idle` | kill | kill |
+| unknown (absent/unparseable/reconciled-away) | kill | kill |
+
+Refusals SHALL name the state, print to stderr, exit 1, and perform no tmux
+mutation. `--force` skips the gate but still validates target existence
+(`tmux.PaneExists`). The kill runs through `tmux.KillPaneCtx` (`kill-pane -t
+%N`) — unlike the best-effort `KillActivePane`, a tmux failure IS returned so
+the verb can surface tmux's stderr. On success stdout carries exactly one
+report line: `killed %N`. A missing pane or tmux kill failure is operational
+(exit 1).
+
+#### Scenario: Refusal names the state and touches nothing
+- **GIVEN** a pane with `@rk_agent_state=active:<epoch>:<live-pid>`
+- **WHEN** `rk mux kill %5` runs
+- **THEN** it refuses naming `active`, exits 1, and the pane survives; **AND
+  WHEN** `rk mux kill %5 --force` runs, **THEN** the pane is killed and stdout
+  is `killed %5`.
+
+### Requirement: `rk mux process` — process tree with agent-state pid cross-check
+`rk mux process <target> [--json]` SHALL resolve the pane's shell PID
+(`#{pane_pid}` via `tmux.PanePIDCtx`) and discover its process tree — **linux**:
+a `/proc` walk (`comm`, NUL-joined `cmdline`, children via
+`/proc/<pid>/task/<tid>/children`, unreadable children skipped); **darwin**: a
+two-pass `ps` (one `pid,ppid,comm -ax` enumeration plus one `pid=,args=` cmdline
+pass joined by PID — TOCTOU-free; a PID missing from the cmdline pass degrades
+to `""`), with the pure `parsePSCmdlines` parser in an un-tagged file so it
+unit-tests on every platform. Classification by lowercased comm: `agent` for
+`claude`, `claude-code`, `codex`, `gemini`, `copilot`; `node` for `node`;
+`git` for `git`/`gh`; else `other`. Additionally, when the pane's reconciled
+`@rk_agent_state` carries a live pid (3-segment value), the tree node with that
+PID SHALL be classified `agent` regardless of comm — the instrumentation is
+authoritative, comm heuristics are fallback; a failed state read degrades to
+comm-only with a stderr warning. `has_agent` is true iff any node classifies
+`agent` by either route. Human output: `Pane %5 (PID 1234)` plus indented
+`PID comm [class]` lines (the tag omitted for `other`) plus a trailing
+`Agent process detected.` when `has_agent`. `--json` emits (two-space-indented):
+`{"pane", "pane_pid", "processes": [{pid, ppid, comm, cmdline, classification,
+children}], "has_agent"}`.
+
+#### Scenario: Instrumented agent behind a wrapper comm
+- **GIVEN** an agent launched through a wrapper whose comm is `my-wrapper`, with
+  `@rk_agent_state=active:<epoch>:<that-pid>`
+- **WHEN** `rk mux process %5` runs
+- **THEN** that node is tagged `[agent]` and `Agent process detected.` prints.
+
 ### Requirement: No daemon dependency; bounded subprocesses
-Both verbs SHALL address tmux directly from the caller's context (`-L <server>`
+The pane-scoped verbs SHALL address tmux directly from the caller's context
+(`-L <server>`
 or the `$TMUX`-derived socket basename — the `rk present` pattern), so
 agent-to-agent messaging works while `rk serve` is down. Every subprocess is an
 `exec.CommandContext` argv slice under a bounded context (5s per tmux operation,
@@ -217,7 +305,7 @@ output, and exit codes. Unlike `agent-hook`/`tmux-guard`, these aliases are NOT
 permanent: they are human-typed verbs, so they are removable in a future release
 (cli-layering.md delegation rule 3 does not apply).
 
-#### Scenario: An explicit `-L` on a non-messaging member is refused
+#### Scenario: An explicit `-L` on an operator member is refused
 - **GIVEN** `rk mux -L foo reap`
 - **WHEN** the command runs
 - **THEN** it exits 2 with a usage error naming `--server`, and nothing is
@@ -267,7 +355,8 @@ mis-targeting in exactly the multi-session setups the verbs serve).
 *Introduced by*: `260815-a5vf-rk-send-await-agent-messaging`
 
 ### Toolkit exit codes and one-word report words, not fab's pane-family scheme
-**Decision**: Both verbs use the toolkit convention (0 success, 1 operational,
+**Decision**: The pane-scoped verbs use the toolkit convention (0 success, 1
+operational,
 2 usage); `await`'s `gone` reports on stdout with exit 1, and the report word —
 not the exit code — discriminates await outcomes.
 **Why**: toolkit standards bind rk's CLI surface; one-word stdout reports keep
@@ -300,9 +389,10 @@ state across instances.
 (duplicates flag definitions anyway, loses help parity).
 *Introduced by*: `260815-lsgf-mux-consolidation-low-risk`
 
-### Reject explicitly-set `-L` on non-messaging members
+### Reject explicitly-set `-L` on operator members
 **Decision**: reap/snapshot/init-conf under `mux` error (usage, exit 2) when the
-inherited `--server` flag was explicitly set. The `guard` member is exempt —
+inherited `--server` flag was explicitly set; the five pane-scoped verbs
+(send/await/capture/kill/process) consume it. The `guard` member is exempt —
 `DisableFlagParsing` means `-L` is never parsed and flows verbatim into the tmux
 argv, so there is nothing to reject (see
 [tmux-guard-shim](/run-kit/tmux-guard-shim.md) § Design Decisions).
@@ -312,3 +402,43 @@ server-scoped).
 **Rejected**: silently ignoring the flag (footgun); plumbing `-L` semantics into
 the moved commands (new behavior, out of scope of the consolidation).
 *Introduced by*: `260815-lsgf-mux-consolidation-low-risk`
+
+### Kill gate refuses active AND waiting
+**Decision**: `rk mux kill` refuses `active` and `waiting` panes without
+`--force`; `idle`/unknown kill.
+**Why**: the send gate's never-interrupt posture applied to destruction — a
+waiting pane holds a pending human question; killing it silently loses that.
+`--force` keeps the operator path one flag away.
+**Rejected**: fab's ungated twin (rk owns the state convention — its verbs
+should be first-party readers); gating only `active` (waiting loss is the
+subtler footgun).
+*Introduced by*: `260815-82w7-mux-substrate-twins`
+
+### Capture enrichment is substrate-only
+**Decision**: capture carries cwd + reconciled agent state/duration; fab's
+change/stage fields are dropped.
+**Why**: cli-layering delegation rule 1 — change/stage come from
+`.fab-status.yaml`, fab's layer; rk must not reimplement the read.
+**Rejected**: shelling out to `fab pane capture` for the join (inverts the
+dependency); porting the `.fab-status.yaml` parse (reimplements fab's layer).
+*Introduced by*: `260815-82w7-mux-substrate-twins`
+
+### Duration semantics follow rk's sessions rollup, not fab's idle-only
+**Decision**: the capture duration shows for `idle` and `waiting` (JSON field
+`agent_state_duration`), not fab's idle-only `agent_idle_duration`.
+**Why**: rk's own reader semantics (`rollupAgentState`: "how long the human has
+been the blocker / how long at rest"); one convention inside rk beats
+byte-parity with a copy being demoted to dispatch-internal.
+**Rejected**: fab's idle-only field (would make rk's CLI disagree with rk's
+dashboard on what waiting duration means).
+*Introduced by*: `260815-82w7-mux-substrate-twins`
+
+### Plain capture is a new primitive, not a flag change
+**Decision**: the no-`-e` capture lives in `CapturePanePlainCtx` alongside
+`CapturePaneCtx` instead of parameterizing or changing it.
+**Why**: the `-e` variant is load-bearing for the chat echo probe (SGR-aware
+novelty detection); a boolean parameter would put the distinction at every call
+site (the SendLiteralArgs/SendKeyArgs lesson).
+**Rejected**: stripping escapes downstream (fragile, and `--raw` must stay
+byte-identical to tmux output).
+*Introduced by*: `260815-82w7-mux-substrate-twins`

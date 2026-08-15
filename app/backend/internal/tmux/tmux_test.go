@@ -2799,3 +2799,66 @@ func TestCreateSession_ServerBirthCwdIsHome(t *testing.T) {
 		t.Errorf("session_path = %q, want %q (server birth must be anchored to home, not rk's CWD)", got, want)
 	}
 }
+
+// TestCapturePaneArgs asserts the capture-pane argv both variants produce: the
+// -e ANSI-escape flag rides ONLY the echo-probe variant (CapturePaneCtx); the
+// plain variant (`rk mux capture`) must emit no -e, and both capture the last
+// N lines of scrollback (-p -S -N).
+func TestCapturePaneArgs(t *testing.T) {
+	plain := capturePaneArgs("%5", 50, false)
+	for _, a := range plain {
+		if a == "-e" {
+			t.Errorf("plain capture argv %v carries -e, want no ANSI escapes", plain)
+		}
+	}
+	escaped := capturePaneArgs("%5", 50, true)
+	foundE := false
+	for _, a := range escaped {
+		if a == "-e" {
+			foundE = true
+		}
+	}
+	if !foundE {
+		t.Errorf("escape capture argv %v missing -e (the echo probe depends on it)", escaped)
+	}
+	want := []string{"capture-pane", "-t", "%5", "-p", "-S", "-50"}
+	if !reflect.DeepEqual(plain, want) {
+		t.Errorf("capturePaneArgs(%%5, 50, false) =\n  %#v\nwant\n  %#v", plain, want)
+	}
+}
+
+func TestKillPaneCtx(t *testing.T) {
+	server, _ := withRealSessionTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// A second pane in win0 gives us a kill target that leaves the session alive.
+	lines, err := tmuxExecServer(ctx, server, "split-window", "-t", "real:win0", "-d", "-P", "-F", "#{pane_id}")
+	if err != nil {
+		t.Fatalf("split victim pane: %v", err)
+	}
+	victim := lines[0]
+
+	if err := KillPaneCtx(ctx, victim, server); err != nil {
+		t.Fatalf("KillPaneCtx(%s): %v", victim, err)
+	}
+	// tmux 3.6a's display-message succeeds (empty) on a missing pane, so verify
+	// the kill through list-panes instead of PaneExists.
+	remaining, err := tmuxExecServer(ctx, server, "list-panes", "-t", "real:win0", "-F", "#{pane_id}")
+	if err != nil {
+		t.Fatalf("list panes after kill: %v", err)
+	}
+	for _, id := range remaining {
+		if id == victim {
+			t.Errorf("pane %s still present after KillPaneCtx", victim)
+		}
+	}
+
+	// A missing pane is a REAL error carrying tmux's diagnostic (unlike
+	// KillActivePane's silent-success contract).
+	if err := KillPaneCtx(ctx, "%999999", server); err == nil {
+		t.Error("KillPaneCtx on a missing pane must error")
+	} else if !strings.Contains(err.Error(), "can't find pane") {
+		t.Errorf("KillPaneCtx error = %q, want tmux's \"can't find pane\" diagnostic", err)
+	}
+}

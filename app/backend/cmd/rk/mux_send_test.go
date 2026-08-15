@@ -7,6 +7,7 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"rk/internal/inject"
 	"rk/internal/tmux"
@@ -31,6 +32,25 @@ type muxFake struct {
 	awaitErr     error
 	stdin        string
 	bufferName   string
+
+	captureContent map[string]string // pane → captured text (default: generic content)
+	captureErr     error
+	captureCalls   []muxCaptureCall
+	facts          map[string]tmux.PaneFacts // pane → substrate facts (default: derived from states)
+	factsErr       error
+	killCalls      []string
+	killErr        error
+	panePIDs       map[string]int // pane → shell pid (default: 1234)
+	panePIDErr     error
+	discoverTree   []processNode
+	discoverErr    error
+	nowUnix        int64 // 0 → fixed reference time (1_800_000_000)
+}
+
+type muxCaptureCall struct {
+	paneID string
+	lines  int
+	server string
 }
 
 type muxEngineCall struct {
@@ -49,12 +69,18 @@ func installMuxFakes(t *testing.T, f *muxFake) {
 	origState, origExists, origResolve := muxSendAgentStateFn, muxSendPaneExistsFn, muxSendResolveWindowFn
 	origAwait, origAwaitDeps := muxAwaitObserveFn, muxAwaitDepsFn
 	origStdin, origBuf := muxStdinFn, muxBufferNameFn
+	origCapPane, origCapFacts, origCapNow := muxCapturePaneFn, muxCaptureFactsFn, muxCaptureNowFn
+	origKillState, origKillExists, origKillPane := muxKillAgentStateFn, muxKillPaneExistsFn, muxKillPaneFn
+	origProcPID, origProcFacts, origProcDiscover := muxProcessPanePIDFn, muxProcessFactsFn, muxProcessDiscoverFn
 	t.Cleanup(func() {
 		muxOriginalTMUXFn, muxServerFlag = origTMUX, origFlag
 		muxSendEngineSendFn, muxSendKeysFn = origEngine, origKeys
 		muxSendAgentStateFn, muxSendPaneExistsFn, muxSendResolveWindowFn = origState, origExists, origResolve
 		muxAwaitObserveFn, muxAwaitDepsFn = origAwait, origAwaitDeps
 		muxStdinFn, muxBufferNameFn = origStdin, origBuf
+		muxCapturePaneFn, muxCaptureFactsFn, muxCaptureNowFn = origCapPane, origCapFacts, origCapNow
+		muxKillAgentStateFn, muxKillPaneExistsFn, muxKillPaneFn = origKillState, origKillExists, origKillPane
+		muxProcessPanePIDFn, muxProcessFactsFn, muxProcessDiscoverFn = origProcPID, origProcFacts, origProcDiscover
 		resetMuxFlags()
 	})
 
@@ -110,6 +136,84 @@ func installMuxFakes(t *testing.T, f *muxFake) {
 	}
 	muxStdinFn = func() io.Reader { return strings.NewReader(f.stdin) }
 	muxBufferNameFn = func() string { return "rk-send-4242" }
+
+	// factsFor derives the default substrate facts from the gate-state map (a
+	// state entry "idle" becomes an idle fact at the fixed reference epoch), so
+	// capture/process tests that only care about state need no extra setup.
+	factsFor := func(paneID string) tmux.PaneFacts {
+		if f.facts != nil {
+			return f.facts[paneID]
+		}
+		facts := tmux.PaneFacts{CWD: "/home/x/code/repo"}
+		if state := f.states[paneID]; state != "" {
+			facts.AgentState = state
+			facts.AgentStateEpoch = 1_800_000_000
+		}
+		return facts
+	}
+	nowFn := func() time.Time {
+		if f.nowUnix > 0 {
+			return time.Unix(f.nowUnix, 0)
+		}
+		return time.Unix(1_800_000_300, 0) // 5m past the default fact epoch
+	}
+
+	muxCapturePaneFn = func(_ context.Context, paneID string, lines int, server string) (string, error) {
+		f.captureCalls = append(f.captureCalls, muxCaptureCall{paneID, lines, server})
+		if f.captureErr != nil {
+			return "", f.captureErr
+		}
+		if f.captureContent != nil {
+			return f.captureContent[paneID], nil
+		}
+		return "line one\nline two\n", nil
+	}
+	muxCaptureFactsFn = func(_ context.Context, paneID, _ string) (tmux.PaneFacts, error) {
+		return factsFor(paneID), f.factsErr
+	}
+	muxCaptureNowFn = nowFn
+
+	muxKillAgentStateFn = func(_ context.Context, paneID, _ string) (string, error) {
+		return f.states[paneID], nil
+	}
+	muxKillPaneExistsFn = func(_ context.Context, paneID, _ string) (bool, error) {
+		if f.paneExists == nil {
+			return true, nil
+		}
+		return f.paneExists[paneID], nil
+	}
+	muxKillPaneFn = func(_ context.Context, paneID, _ string) error {
+		f.killCalls = append(f.killCalls, paneID)
+		return f.killErr
+	}
+
+	muxProcessPanePIDFn = func(_ context.Context, paneID, _ string) (int, error) {
+		if f.panePIDErr != nil {
+			return 0, f.panePIDErr
+		}
+		if f.panePIDs != nil {
+			return f.panePIDs[paneID], nil
+		}
+		return 1234, nil
+	}
+	muxProcessFactsFn = func(_ context.Context, paneID, _ string) (tmux.PaneFacts, error) {
+		return factsFor(paneID), f.factsErr
+	}
+	muxProcessDiscoverFn = func(_ context.Context, pid int) ([]processNode, error) {
+		if f.discoverErr != nil {
+			return nil, f.discoverErr
+		}
+		if f.discoverTree != nil {
+			return f.discoverTree, nil
+		}
+		return []processNode{{
+			PID: pid, Comm: "zsh", Cmdline: "-zsh", Classification: "other",
+			Children: []processNode{{
+				PID: 1250, PPID: pid, Comm: "claude", Cmdline: "claude", Classification: "agent",
+				Children: []processNode{},
+			}},
+		}}, nil
+	}
 }
 
 // resetMuxFlags returns every mux flag (and the root --quiet) to its default so
@@ -122,8 +226,15 @@ func resetMuxFlags() {
 	awaitAfterActiveFlag = false
 	awaitTimeoutFlag = awaitDefaultTimeoutSec
 	awaitNotifyFlag = ""
+	muxCaptureLinesFlag = 50
+	muxCaptureJSONFlag, muxCaptureRawFlag = false, false
+	muxKillForceFlag = false
+	muxProcessJSONFlag = false
 	resetFlagChanged(muxSendCmd, "key", "answer", "force", "no-enter", "await", "timeout")
 	resetFlagChanged(muxAwaitCmd, "until", "file", "after-active", "timeout", "notify")
+	resetFlagChanged(muxCaptureCmd, "lines", "json", "raw")
+	resetFlagChanged(muxKillCmd, "force")
+	resetFlagChanged(muxProcessCmd, "json")
 	// The parent's persistent -L is shared by every mux invocation, so an
 	// explicit `-L x` from one test would otherwise leak into the next.
 	if f := muxCmd.PersistentFlags().Lookup("server"); f != nil {

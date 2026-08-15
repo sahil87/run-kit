@@ -693,6 +693,39 @@ func TestParseSessionsFlair(t *testing.T) {
 	}
 }
 
+// sessionLineIDPath builds a full 9-field tab-delimited tmux line including
+// the trailing #{session_id} and #{session_path} fields.
+func sessionLineIDPath(name, grouped, group, id, path string) string {
+	return strings.Join([]string{name, grouped, group, "0", "", "1", "", id, path}, listDelim)
+}
+
+func TestParseSessionsIDPath(t *testing.T) {
+	tests := []struct {
+		name     string
+		line     string
+		wantID   string
+		wantPath string
+	}{
+		{"9-field line parses id and path", sessionLineIDPath("alpha", "0", "alpha", "$4", "/home/user/code/x"), "$4", "/home/user/code/x"},
+		{"7-field line (no id/path) leaves both empty", sessionLineFlair("alpha", "0", "alpha", ""), "", ""},
+		{"8-field line parses id only", strings.Join([]string{"alpha", "0", "alpha", "0", "", "1", "", "$4"}, listDelim), "$4", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseSessions([]string{tt.line})
+			if len(got) != 1 {
+				t.Fatalf("parseSessions() returned %d sessions, want 1", len(got))
+			}
+			if got[0].ID != tt.wantID {
+				t.Errorf("ID = %q, want %q", got[0].ID, tt.wantID)
+			}
+			if got[0].Path != tt.wantPath {
+				t.Errorf("Path = %q, want %q", got[0].Path, tt.wantPath)
+			}
+		})
+	}
+}
+
 func TestRoleCarriersToClear(t *testing.T) {
 	tests := []struct {
 		name string

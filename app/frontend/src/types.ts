@@ -57,6 +57,12 @@ export type ProjectSession = {
   name: string;
   /** Color value descriptor: "4" for a single ANSI index, "1+3" for a blend. */
   sessionColor?: string;
+  /** Tmux session id (`$N` form, from `#{session_id}`) — the canonical target
+   *  handle. Absent on payloads from an older backend. */
+  sessionId?: string;
+  /** Session working directory (`#{session_path}`), raw. Absent on payloads
+   *  from an older backend; display abbreviation is a frontend concern. */
+  sessionPath?: string;
   /** Row flair state: ""/absent (no flair) | "nyan" | "naruto" | "onepiece".
    *  Decoration only (FLAIR_STATES in themes.ts) — an ambient CSS-only overlay
    *  with no status semantics. */

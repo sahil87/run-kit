@@ -17,11 +17,15 @@ const SERVER = "default";
 // @1: change-bound window WITH an owned open PR (blue "building — active" dot
 // — the PR never owns the dot; the rest PR glyph + full four-register card
 // carry the PR story) AND a reconciled claude chat (so the conversation-fork
-// affordance renders — 260806-s4av). @2: plain scratch window (gray "idle"
-// dot, no glyph, out-register-only card, no fork link).
+// affordance renders — 260806-s4av), carrying two panes (%425 active) so the
+// identity title bar renders its full `Window @N · pane %N · N panes` form.
+// @2: plain scratch window (gray "idle" dot, no glyph, out-register-only card,
+// no fork link, no panes → degraded `Window @N` title).
 const sessionsPayload = JSON.stringify([
   {
     name: "dev",
+    sessionId: "$4",
+    sessionPath: "/home/sahil/code/sahil87/run-kit",
     windows: [
       {
         windowId: "@1",
@@ -44,6 +48,10 @@ const sessionsPayload = JSON.stringify([
         prChecks: "pass",
         prReview: "approved",
         prFetchedAt: new Date().toISOString(),
+        panes: [
+          { paneId: "%7", paneIndex: 0, cwd: "/tmp/wt", command: "zsh", isActive: false },
+          { paneId: "%425", paneIndex: 1, cwd: "/tmp/wt", command: "claude", isActive: true },
+        ],
       },
       {
         windowId: "@2",
@@ -123,9 +131,17 @@ test.describe("Row flyout card (fine pointer)", () => {
     await prRow(page).hover();
     await expect(card(page)).toBeVisible();
 
-    // Content: dot-label header (hue word + status word + waiting suffix — no
-    // PR words; the pr register below carries the PR) + the four registers +
-    // freshness + links.
+    // Content: the identity title bar (`Window @N · pane %N · N panes`, the
+    // card's first element, carrying the fork + docs affordances on its right
+    // edge), then the DEMOTED dot-label body line (hue word + status word +
+    // waiting suffix — no PR words; the pr register below carries the PR) +
+    // the four registers + freshness + links.
+    const titleBar = page.getByTestId("popup-title-bar");
+    await expect(titleBar).toContainText("Window @1 · pane %425 · 2 panes");
+    await expect(titleBar.getByTestId("row-flyout-docs-link")).toBeVisible();
+    await expect(titleBar.getByTestId("row-flyout-fork-link")).toBeVisible();
+    const cardText = (await card(page).innerText()).replaceAll("\n", " ");
+    expect(cardText.indexOf("Window @1")).toBeLessThan(cardText.indexOf("building — active"));
     await expect(card(page)).toContainText("building — active — agent waiting 3m");
     await expect(page.getByTestId("row-flyout-out")).toContainText("out");
     await expect(page.getByTestId("row-flyout-agt")).toContainText("waiting 3m");
@@ -182,10 +198,14 @@ test.describe("Row flyout card (fine pointer)", () => {
     await expect(card(page)).toContainText("building — active");
 
     // Sweep to the sibling row: the first card closes and the sibling's opens
-    // (warm retarget — no strobing, never two cards).
+    // (warm retarget — no strobing, never two cards). The pane-less scratch
+    // window's title degrades to `Window @N` alone.
     await scratchRow(page).hover();
     await expect(card(page)).toHaveCount(1);
     await expect(card(page)).toContainText("idle");
+    const titleBar = page.getByTestId("popup-title-bar");
+    await expect(titleBar).toContainText("Window @2");
+    await expect(titleBar).not.toContainText("pane");
     await expect(page.getByTestId("row-flyout-pr-link")).toHaveCount(0);
   });
 

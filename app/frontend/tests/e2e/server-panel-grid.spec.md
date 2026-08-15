@@ -24,8 +24,9 @@ directly without an expand click.
 
 **What it proves:** On desktop viewport (1024×768), the Server panel is
 open by default and renders a grid of server tiles. The e2e server's tile
-carries the singular-aware full wording (`N windows across M sessions`) in
-its button `title` tooltip — the tile's visible count line is a bare
+carries NO native `title` attribute — hovering it opens the identity
+hover-card (`Server <name>` title bar; `tmux -L <name> · N sessions` body,
+the socket flag + session count) — the tile's visible count line is a bare
 window-count number — and the old `N sess` meta line no longer renders.
 
 **Steps:**
@@ -35,9 +36,9 @@ window-count number — and the old `N sess` meta line no longer renders.
 3. Locate the grid listbox via `getByRole('listbox', { name: /Tmux servers/ })`.
 4. Within the grid, assert at least one `option` tile whose name includes
    the e2e server.
-5. Assert that tile's `title` attribute matches
-   `/\d+ windows? across \d+ sessions?/` (the tooltip is the stable text
-   seam for the count — the visible line is a bare number).
+5. Assert that tile has no `title` attribute; hover it and assert the
+   `server-tip` card appears with `Server <name>` in its title bar and a
+   `tmux -L <name> · N sessions` body line.
 6. Assert the old meta line `/\d+ sess/` has zero matches in the grid.
 
 ### `Desktop: active tile has aria-current`

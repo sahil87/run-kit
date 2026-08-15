@@ -18,6 +18,7 @@ import {
 import { statusDotState } from "@/components/pr-status-model";
 import { dotLabel } from "@/components/status-dot-label";
 import { getOutputLine, getAgentLine, getFabLine, getPrSegments } from "./registers";
+import { PopupTitleBar, PopupTitleBarSecondary, notchFill } from "./popup-title-bar";
 import { formatDuration } from "@/lib/format";
 import { useNow } from "@/hooks/use-now";
 import type { WindowInfo } from "@/types";
@@ -36,16 +37,19 @@ import type { WindowInfo } from "@/types";
  * only its y tracks the hovered row — no mouse-following jitter. Content is the
  * full four-register view (`out`/`agt`/`fab`/`pr`) promoted from the PANE
  * panel, resolved by the SHARED helpers in ./registers.ts (one source, no
- * drift), plus the retired tip's extras: the dot-label header, the docs
- * info-icon link, the "checked Xs ago" freshness line, and the
- * "Open PR #N ↗" link. Registers are read-only text; the PR link and the docs
- * icon are the card's only interactive elements.
+ * drift), plus the identity title bar (`Window @N · pane %N · N panes` — the
+ * shared `PopupTitleBar` chrome, carrying the fork + docs affordances on its
+ * right edge), the demoted dot-label body line, the "checked Xs ago" freshness
+ * line, and the "Open PR #N ↗" link. Registers are read-only text; the PR link
+ * and the title bar's icons are the card's only interactive elements.
  *
  * PERF (ui-patterns § Render Performance — hard constraints): everything here
  * is row-local. The open state lives inside the consuming `WindowRow` via
  * `useRowFlyout` (never lifted to `Sidebar`), the card body mounts ONLY while
  * open, and both live clocks (`useNow` for the `out` register + the freshness
  * line) are leaf-scoped inside that open card — the row itself never ticks.
+ * The title bar is STATIC text derived from the already-passed `win` — it
+ * adds no clock, subscription, or lifted state.
  */
 
 /** Hover open delay outside a warm window (mirrors Tip's 300ms, tuned +50ms —
@@ -269,6 +273,35 @@ function ForkLink({ onFork }: { onFork: () => Promise<void> }) {
 }
 
 /**
+ * Identity title for the card's title bar: `Window @N · pane %N · N panes` —
+ * the tmux window id, the ACTIVE pane's id, and the pane count (all already on
+ * the passed `win`). Static text only (the render-performance contract).
+ * Degrades by omission: no `panes` (test fixtures, degraded payloads) renders
+ * `Window @N` alone; panes without an active one drop just the pane segment.
+ */
+function WindowFlyoutTitle({ win }: { win: WindowInfo }) {
+  const panes = win.panes ?? [];
+  const activePaneId = panes.find((p) => p.isActive)?.paneId;
+  return (
+    <>
+      <PopupTitleBarSecondary>Window </PopupTitleBarSecondary>
+      {win.windowId}
+      {activePaneId && (
+        <>
+          <PopupTitleBarSecondary> · pane </PopupTitleBarSecondary>
+          {activePaneId}
+        </>
+      )}
+      {panes.length > 0 && (
+        <PopupTitleBarSecondary>
+          {` · ${panes.length} pane${panes.length === 1 ? "" : "s"}`}
+        </PopupTitleBarSecondary>
+      )}
+    </>
+  );
+}
+
+/**
  * The card body — mounted ONLY while the flyout is open, so its `useNow()`
  * clock (feeding the `out` register's elapsed) is leaf-scoped per the
  * render-performance contract. Absent layers render as absent (a plain shell
@@ -294,29 +327,36 @@ function RowFlyoutContent({ win, onFork }: { win: WindowInfo; onFork?: () => Pro
 
   return (
     <>
-      {/* Header row: the dot's label text (single source with its aria-label)
-          + the top-right affordance cluster — the fork link (claude chats only,
-          and only when the consumer wired a handler; it owns its own in-flight
-          disabled state) then the quiet circled-(i) docs link. `ml-auto` moves to
-          the cluster wrapper so both glyphs ride the right edge as one group. */}
-      <div className="flex items-start gap-3">
-        <span className="text-text-primary whitespace-nowrap">{label}</span>
-        <span className="ml-auto mt-px flex items-center gap-1.5">
-          {onFork && canForkWindow(win) && <ForkLink onFork={onFork} />}
-          <a
-            href={STATUS_DOT_DOCS_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={(e) => e.stopPropagation()}
-            className="text-text-secondary hover:text-text-primary coarse:p-1"
-            aria-label="What do status dots mean? (opens docs)"
-            title="What do status dots mean?"
-            data-testid="row-flyout-docs-link"
-          >
-            <InfoIcon />
-          </a>
-        </span>
-      </div>
+      {/* Identity title bar (the card's first element): the static `Window @N`
+          title plus the affordance cluster riding the bar's right edge — the
+          fork link (claude chats only, and only when the consumer wired a
+          handler; it owns its own in-flight disabled state) then the quiet
+          circled-(i) docs link. `ml-auto` lives inside PopupTitleBar's right
+          slot so both glyphs ride the right edge as one group. */}
+      <PopupTitleBar
+        right={
+          <>
+            {onFork && canForkWindow(win) && <ForkLink onFork={onFork} />}
+            <a
+              href={STATUS_DOT_DOCS_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="text-text-secondary hover:text-text-primary coarse:p-1"
+              aria-label="What do status dots mean? (opens docs)"
+              title="What do status dots mean?"
+              data-testid="row-flyout-docs-link"
+            >
+              <InfoIcon />
+            </a>
+          </>
+        }
+      >
+        <WindowFlyoutTitle win={win} />
+      </PopupTitleBar>
+      {/* Status label demoted to the first body line — still single-sourced
+          with the status dot's aria-label via the shared dotLabel import. */}
+      <span className="text-text-primary whitespace-nowrap">{label}</span>
       {/* The four orthogonal signal registers (status-pyramid.md), promoted
           from the PANE panel via the shared resolvers. Read-only text except
           the `pr` register, which is open-first (the line is a real anchor)
@@ -510,7 +550,7 @@ export function useRowFlyout(win: WindowInfo, { suppressed = false, onFork }: Us
   // edges; the arrow stays locked to the reference either way.
   const arrowRef = useRef<SVGSVGElement | null>(null);
 
-  const { refs, floatingStyles, context } = useFloating({
+  const { refs, floatingStyles, context, middlewareData } = useFloating({
     open,
     onOpenChange: handleOpenChange,
     // Fixed-x anchor: the row is full-bleed to the sidebar width, so "right"
@@ -596,15 +636,17 @@ export function useRowFlyout(win: WindowInfo, { suppressed = false, onFork }: Us
           }`}
         >
           {/* Row-aligned notch (E1): pinned by the arrow() middleware to the
-              hovered row's vertical center on the card's row-side edge —
-              fill/stroke match the card surface so it reads as one shape. */}
+              hovered row's vertical center on the card's row-side edge. Fill
+              follows the band it lands on: the inset fill while the notch's
+              resolved y sits within the title-bar band (notch + bar read as
+              one shape), the card-surface fill below it. */}
           <FloatingArrow
             ref={arrowRef}
             context={context}
             width={10}
             height={5}
             tipRadius={1}
-            fill="var(--color-bg-primary)"
+            fill={notchFill(middlewareData.arrow?.y)}
             stroke="var(--color-border)"
             strokeWidth={1}
             aria-hidden="true"

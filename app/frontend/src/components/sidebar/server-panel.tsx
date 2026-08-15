@@ -7,6 +7,8 @@ import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useServerReorder, type ServerTileDragProps } from "@/hooks/use-server-reorder";
 import { useToast } from "@/components/toast";
 import { WaitingBadge } from "@/components/waiting-badge";
+import { useIdentityTip, IdentityTipCard } from "./identity-tip";
+import { PopupTitleBarSecondary } from "./popup-title-bar";
 
 type ServerPanelProps = {
   server: string;
@@ -28,13 +30,6 @@ type ServerPanelProps = {
    *  sidebar-width drag in addition to the panel's vertical resize. */
   onSidebarResizeStart?: (e: React.PointerEvent<HTMLDivElement>) => void;
 };
-
-/** Singular-aware tooltip wording: "5 windows across 2 sessions". */
-function windowCountTooltip(windowCount: number, sessionCount: number): string {
-  const w = `${windowCount} window${windowCount === 1 ? "" : "s"}`;
-  const s = `${sessionCount} session${sessionCount === 1 ? "" : "s"}`;
-  return `${w} across ${s}`;
-}
 
 export function ServerPanel({
   server,
@@ -221,12 +216,28 @@ function ServerTile({
   // remains fully attachable and never reads as dead/disconnected.
   const nameClass = isInfraServer(name) ? "text-text-secondary" : "text-text-primary";
 
+  // Tile-level identity tip: `Server <name>` title bar + the socket flag and
+  // session count in the body (server names ARE socket names, so the `tmux
+  // -L` handle composes frontend-side). REPLACES the tile's former native
+  // `title` (never both — the double-tooltip rule).
+  const tip = useIdentityTip();
+
   return (
     <div
       className={`relative${isDragSource ? " opacity-50" : ""}`}
       style={{ scrollSnapAlign: isMobile ? "start" : undefined }}
+      ref={tip.setReference}
+      {...tip.getReferenceProps()}
       draggable={dragProps.draggable}
-      onDragStart={dragProps.onDragStart}
+      onDragStart={
+        dragProps.onDragStart
+          ? (e) => {
+              // A drag gesture must not leave an open hover card behind.
+              tip.close();
+              dragProps.onDragStart!(e);
+            }
+          : undefined
+      }
       onDragOver={dragProps.onDragOver}
       onDragEnd={dragProps.onDragEnd}
       onDrop={dragProps.onDrop}
@@ -237,7 +248,6 @@ function ServerTile({
         aria-current={isActive ? "true" : undefined}
         role="option"
         aria-selected={isActive}
-        title={`${name} — ${windowCountTooltip(windowCount, sessionCount)}`}
         className={`relative block w-full text-left border border-border overflow-hidden transition-colors hover:border-text-secondary ${uncoloredHoverClass}`}
         style={bodyBg ? { backgroundColor: bodyBg } : undefined}
       >
@@ -250,10 +260,10 @@ function ServerTile({
             {name}
           </div>
           {/* Window count + waiting rollup (260708-4li7): a bare window-count
-              number (full wording lives in the tile button's title tooltip)
-              with the badge right-aligned on the same flex row — the count row
-              is the badge's home. WaitingBadge renders null at count <= 0, so
-              the common (nothing-waiting) layout is unchanged. */}
+              number with the badge right-aligned on the same flex row — the
+              count row is the badge's home. WaitingBadge renders null at
+              count <= 0, so the common (nothing-waiting) layout is
+              unchanged. */}
           {/* h-3.5 reserves the badge's full height even when no badge renders:
               the pill is taller than the count text, so without the reserve the
               tile (and its whole grid row) would jump in height every time an
@@ -266,6 +276,18 @@ function ServerTile({
           </div>
         </div>
       </button>
+      <IdentityTipCard
+        tip={tip}
+        testid="server-tip"
+        title={
+          <>
+            <PopupTitleBarSecondary>Server </PopupTitleBarSecondary>
+            {name}
+          </>
+        }
+      >
+        {`tmux -L ${name} · ${sessionCount} session${sessionCount === 1 ? "" : "s"}`}
+      </IdentityTipCard>
     </div>
   );
 }

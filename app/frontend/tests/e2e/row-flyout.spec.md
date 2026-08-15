@@ -18,7 +18,8 @@ to the returned window.
   - `**/api/servers` → a single server `default`.
   - `**/api/windows/*/select*` → 200 (window-select POSTs don't error).
   - `/ws/terminals` WebSocket → accepted and held open.
-  - `/ws/state` (via `mockStateSocket`) → a session `dev` with two windows:
+  - `/ws/state` (via `mockStateSocket`) → a session `dev` (carrying the new
+    `sessionId` / `sessionPath` fields) with two windows:
     - `@1` "feature-work" — change-bound (`fabChange`/`fabStage`), a waiting
       agent (`agentState: waiting`, `3m`), a reconciled claude chat
       (`chatProvider: claude` + a uuid `chatSessionRef`), and an owned open PR
@@ -26,9 +27,11 @@ to the returned window.
       `prReview: approved`, fresh `prFetchedAt`) → blue
       "building — active — agent waiting 3m" dot (the PR never owns the dot —
       compositional vocabulary), rest PR glyph, full four-register card, fork
-      link.
+      link, and a two-pane list (`%425` active) so the identity title bar
+      renders its full `Window @1 · pane %425 · 2 panes` form.
     - `@2` "scratch-shell" — plain window → gray "idle" dot, no glyph,
-      out-register-only card, no fork link.
+      out-register-only card, no fork link, no panes (the title bar degrades to
+      `Window @2`).
 - Rows are located by `[role='treeitem'][data-window-id]`; the card by
   `data-testid="row-flyout-card"`; registers/links by `row-flyout-out|agt|fab|
   pr|checked|pr-link|docs-link|fork-link`; the glyph by `row-pr-glyph`; the dot's
@@ -43,28 +46,33 @@ to the returned window.
 ### `hovering a row opens the register card at the sidebar's right edge`
 
 **What it proves:** whole-row hover (350ms delay) opens the flyout card
-anchored at the sidebar's right edge and vertically aligned to the hovered row,
-carrying the dot-label header, the four registers (`out`/`agt`/`fab`/`pr`),
-the "checked Xs ago" freshness line, and the always-present docs link. The
-`pr` register line is itself the open-first anchor (the panel's PrLinkRow
+anchored at the sidebar's right edge and vertically aligned to the hovered row.
+Its first element is the **identity title bar** (`Window @1 · pane %425 · 2
+panes` — the tmux window id, the active pane's id, and the pane count, in the
+inset-bar treatment), carrying the fork + docs affordances on its right edge;
+the dot label is demoted to the first body line, followed by the four registers
+(`out`/`agt`/`fab`/`pr`), the "checked Xs ago" freshness line, and the PR link.
+The `pr` register line is itself the open-first anchor (the panel's PrLinkRow
 idiom): it wraps the colored segments, ends in an always-visible inline `↗`,
 and opens the PR in a new tab (`noopener noreferrer`).
 
 **Steps:**
 1. Hover the `@1` row; assert the card is visible.
-2. Assert the card contains "building — active — agent waiting 3m" (the dot
-   label — hue word + status word + waiting suffix, no PR words) and each register
-   testid shows its expected content (`waiting 3m`, the fab id·slug·stage·state
-   line, `#386`, the freshness line).
+2. Assert the title bar contains "Window @1 · pane %425 · 2 panes" and holds
+   the docs + fork links; assert the title text precedes the dot-label text
+   ("building — active — agent waiting 3m" — hue word + status word + waiting
+   suffix, no PR words) in the card, and each register testid shows its
+   expected content (`waiting 3m`, the fab id·slug·stage·state line, `#386`,
+   the freshness line).
 3. Assert the pr-register anchor wraps the segments (`#386`, `↗`), carries
    the "Open PR #386 in a new tab" aria-label + href/target/rel, and the docs
    link href.
 4. Assert the row-aligned notch: the card's arrow SVG is present and its
    vertical center falls inside the hovered row's band (the E1 connection
    cue — the notch points at the row that owns the card).
-4. Compare bounding boxes: the card's x ≥ the sidebar `<aside>`'s right edge,
+5. Compare bounding boxes: the card's x ≥ the sidebar `<aside>`'s right edge,
    and the card vertically overlaps the hovered row (±8px).
-5. Assert no line paints outside the `max-w-xs` card box: the card's
+6. Assert no line paints outside the `max-w-xs` card box: the card's
    `scrollWidth` does not exceed its `clientWidth` (the long mocked fab
    register would overflow without the register lines' `truncate`).
 
@@ -73,12 +81,13 @@ and opens the PR in a new tab (`noopener noreferrer`).
 **What it proves:** sweeping the pointer to a sibling row closes the first card
 and opens the sibling's (the shared warm-window delay scope) — only one card
 exists at a time, and the content follows the hovered row (the scratch row's
-card has no PR link).
+card has no PR link). It also proves the title's **degradation**: the pane-less
+scratch window's title bar reads `Window @2` alone, with no pane segment.
 
 **Steps:**
 1. Hover `@1`; assert the card shows "building — active".
 2. Hover `@2`; assert exactly one card exists, containing "idle", with zero
-   PR links.
+   PR links, and its title bar reads "Window @2" without any "pane" segment.
 
 ### `the fork link renders only on a claude-chat row and POSTs the fork endpoint`
 

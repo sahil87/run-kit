@@ -100,6 +100,42 @@ func TestProjectSessionNameFieldJSON(t *testing.T) {
 	}
 }
 
+func TestProjectSessionIDPathJSON(t *testing.T) {
+	// sessionId/sessionPath ride the same ProjectSession marshal that serves
+	// GET /api/sessions and the SSE sessions event.
+	ps := ProjectSession{Name: "test", SessionID: "$4", SessionPath: "/home/user/code/x"}
+	data, err := json.Marshal(ps)
+	if err != nil {
+		t.Fatalf("json.Marshal failed: %v", err)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("json.Unmarshal failed: %v", err)
+	}
+	if raw["sessionId"] != "$4" {
+		t.Errorf("sessionId = %v, want %q", raw["sessionId"], "$4")
+	}
+	if raw["sessionPath"] != "/home/user/code/x" {
+		t.Errorf("sessionPath = %v, want %q", raw["sessionPath"], "/home/user/code/x")
+	}
+
+	// Empty values omit the keys (additive optional-field idiom).
+	bare, err := json.Marshal(ProjectSession{Name: "test"})
+	if err != nil {
+		t.Fatalf("json.Marshal failed: %v", err)
+	}
+	var rawBare map[string]any
+	if err := json.Unmarshal(bare, &rawBare); err != nil {
+		t.Fatalf("json.Unmarshal failed: %v", err)
+	}
+	if _, ok := rawBare["sessionId"]; ok {
+		t.Error("sessionId present on empty SessionID, want omitted")
+	}
+	if _, ok := rawBare["sessionPath"]; ok {
+		t.Error("sessionPath present on empty SessionPath, want omitted")
+	}
+}
+
 func TestPaneMapEntryParsing(t *testing.T) {
 	change := "260313-abc-feature"
 	stage := "apply"

@@ -1,0 +1,55 @@
+id: xb77
+name: 260815-xb77-row-popup-identity-titlebars
+created: 2026-08-15T08:03:44Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 10
+    acceptance_count: 17
+    acceptance_completed: 17
+confidence:
+    certain: 8
+    confident: 4
+    tentative: 0
+    unresolved: 0
+    score: 4.6
+    fuzzy: true
+    dimensions:
+        signal: 83.8
+        reversibility: 83.3
+        competence: 87.9
+        disambiguation: 84.6
+stage_metrics:
+    intake: {started_at: "2026-08-15T08:03:44Z", driver: fab-new, iterations: 1, completed_at: "2026-08-15T08:08:49Z"}
+    apply: {started_at: "2026-08-15T08:08:49Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-15T09:19:38Z"}
+    review: {started_at: "2026-08-15T09:19:38Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-15T09:28:00Z"}
+    hydrate: {started_at: "2026-08-15T09:28:00Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-15T09:35:18Z"}
+    ship: {started_at: "2026-08-15T09:35:18Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-08-15T09:35:18Z"
+    computed_at_stage: hydrate
+summary: 'Identity title bars on sidebar row hover popups: shared PopupTitleBar chrome on the window flyout (Window @N · pane %N · N panes, icons ride the bar, dotLabel demoted, notch inset-fill seam), new session/server identity tips, and 9-field session enumeration (sessionId/sessionPath)'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-15T09:35:18Z

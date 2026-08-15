@@ -11,6 +11,7 @@ import {
   FORK_TOOLTIP,
   canForkWindow,
 } from "./row-flyout-card";
+import { notchFill, POPUP_TITLE_BAR_HEIGHT_PX } from "./popup-title-bar";
 import { dotLabel } from "@/components/status-dot-label";
 import { statusDotState } from "@/components/pr-status-model";
 import type { WindowInfo } from "@/types";
@@ -81,17 +82,83 @@ function renderOpen(win: WindowInfo) {
 }
 
 describe("RowFlyout card content", () => {
-  it("renders the dot label header + docs link on every card (plain shell pane)", () => {
+  it("renders the identity title bar first, the docs link inside it, and the dot label as the first body line", () => {
     const win = makeWindow({ activity: "idle" });
     renderOpen(win);
 
     const card = screen.getByTestId("row-flyout-card");
     expect(card).toBeInTheDocument();
-    // Header label = dotLabel (single source with the dot's aria-label).
-    expect(card).toHaveTextContent(dotLabel(win, statusDotState(win)));
+    const bar = screen.getByTestId("popup-title-bar");
+    // Identity title (degraded form — the fixture carries no panes).
+    expect(bar).toHaveTextContent("Window @0");
+    // The docs affordance rides the bar's right edge.
     const docs = screen.getByTestId("row-flyout-docs-link");
+    expect(bar).toContainElement(docs);
     expect(docs).toHaveAttribute("href", STATUS_DOT_DOCS_URL);
     expect(docs).toHaveAttribute("target", "_blank");
+    // dotLabel demoted to the FIRST BODY LINE, still single-sourced with the
+    // dot's aria-label (the shared import). ("idle" also appears in the `out`
+    // register, so match the primary-text body span exactly.)
+    const labelText = dotLabel(win, statusDotState(win));
+    const label = Array.from(card.querySelectorAll("span")).find(
+      (s) => s.textContent === labelText && s.className.includes("text-text-primary"),
+    )!;
+    expect(label).toBeTruthy();
+    expect(bar.compareDocumentPosition(label) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("composes the full identity title — `Window @N · pane %N · N panes`", () => {
+    renderOpen(
+      makeWindowWithPanes({
+        windowId: "@31",
+        panes: [
+          { paneId: "%7", paneIndex: 0, cwd: "/x", command: "zsh", isActive: false },
+          { paneId: "%425", paneIndex: 1, cwd: "/x", command: "claude", isActive: true },
+        ],
+      }),
+    );
+    const bar = screen.getByTestId("popup-title-bar");
+    expect(bar).toHaveTextContent("Window @31 · pane %425 · 2 panes");
+    // Handles primary, literals secondary.
+    expect(bar.querySelector("span")?.className).toContain("text-text-primary");
+    const secondary = Array.from(bar.querySelectorAll("span")).find((s) =>
+      s.className.includes("text-text-secondary"),
+    );
+    expect(secondary).toBeTruthy();
+  });
+
+  it("uses the singular `1 pane`", () => {
+    renderOpen(makeWindowWithPanes({ windowId: "@31" }));
+    expect(screen.getByTestId("popup-title-bar")).toHaveTextContent("Window @31 · pane %5 · 1 pane");
+  });
+
+  it("degrades to `Window @N` alone when panes are absent, and drops only the pane segment when none is active", () => {
+    renderOpen(makeWindow({ windowId: "@31" }));
+    expect(screen.getByTestId("popup-title-bar")).toHaveTextContent("Window @31");
+    expect(screen.getByTestId("popup-title-bar")).not.toHaveTextContent("pane");
+
+    cleanup();
+    renderOpen(
+      makeWindow({
+        windowId: "@31",
+        panes: [
+          { paneId: "%7", paneIndex: 0, cwd: "/x", command: "zsh", isActive: false },
+          { paneId: "%8", paneIndex: 1, cwd: "/x", command: "zsh", isActive: false },
+        ],
+      }),
+    );
+    expect(screen.getByTestId("popup-title-bar")).toHaveTextContent("Window @31 · 2 panes");
+  });
+
+  it("notch fill follows the band: inset inside the title bar, card surface below", () => {
+    // jsdom has no layout, so the arrow middleware's y is unresolvable there —
+    // the fill decision is pinned through its exported seam.
+    expect(notchFill(0)).toBe("var(--color-bg-inset)");
+    expect(notchFill(POPUP_TITLE_BAR_HEIGHT_PX - 1)).toBe("var(--color-bg-inset)");
+    expect(notchFill(POPUP_TITLE_BAR_HEIGHT_PX)).toBe("var(--color-bg-primary)");
+    expect(notchFill(120)).toBe("var(--color-bg-primary)");
+    expect(notchFill(null)).toBe("var(--color-bg-primary)");
+    expect(notchFill(undefined)).toBe("var(--color-bg-primary)");
   });
 
   it("absent layers render as absent: a plain shell pane shows ONLY the out register", () => {
@@ -244,8 +311,10 @@ describe("Fork affordance (260806-s4av)", () => {
     expect(fork).toHaveAttribute("title", FORK_TOOLTIP);
     expect(fork).toHaveAttribute("aria-label", FORK_TOOLTIP);
     expect(FORK_TOOLTIP).toContain("same directory");
-    // Both header affordances live in one right-edge cluster.
-    expect(fork.parentElement).toContainElement(screen.getByTestId("row-flyout-docs-link"));
+    // Both affordances live in the title bar's right-edge cluster.
+    const cluster = fork.parentElement!;
+    expect(cluster).toContainElement(screen.getByTestId("row-flyout-docs-link"));
+    expect(screen.getByTestId("popup-title-bar")).toContainElement(cluster);
   });
 
   it("is absent for a window with no chat provider", () => {

@@ -6,8 +6,11 @@ import { SwatchPopover } from "@/components/swatch-popover";
 import { WaitingBadge } from "@/components/waiting-badge";
 import { countWaitingWindows } from "@/lib/waiting";
 import { toSafeSessionName } from "@/lib/names";
+import { abbreviateHomePath } from "@/lib/format";
 import { PaletteIcon, BotIcon, PlusIcon, CloseIcon } from "./icons";
 import { Tip } from "@/components/tip";
+import { useIdentityTip, IdentityTipCard } from "./identity-tip";
+import { PopupTitleBarSecondary } from "./popup-title-bar";
 
 type SessionRowProps = {
   /** Tmux server this session belongs to — bound into the identity-arg
@@ -119,6 +122,21 @@ function SessionRowInner({
   // its aria label below).
   const waitingCount = countWaitingWindows(session.windows);
 
+  // Row-level identity tip (tier-1-weight hover-card): full session name in
+  // the title bar + the facts the row can't show (tmux `$N` id, window count,
+  // root path). Suppressed while the color popover is open; closed on drag
+  // start (the window flyout's idiom). sessionId/sessionPath are absent on
+  // old payloads — the tip omits the segments it cannot derive.
+  const tip = useIdentityTip({ suppressed: showColorPicker });
+  const windowCount = session.windows.length;
+  const tipBody = [
+    session.sessionId,
+    `${windowCount} window${windowCount === 1 ? "" : "s"}`,
+    session.sessionPath ? abbreviateHomePath(session.sessionPath) : undefined,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
   const tint = useMemo(() => {
     if (sessionColor == null || !rowTints) return null;
     return rowTints.get(sessionColor) ?? null;
@@ -152,7 +170,7 @@ function SessionRowInner({
       data-session-row={sessionRowKey}
       className={`flex items-center justify-between group pl-1.5 sm:pl-2 relative${tint ? "" : " hover:bg-bg-card/50"} transition-colors${isDragSource ? " opacity-50" : ""}`}
       draggable={draggable}
-      onDragStart={onDragStart ? (e) => onDragStart(e, server, name, orderedNames) : undefined}
+      onDragStart={onDragStart ? (e) => { tip.close(); onDragStart(e, server, name, orderedNames); } : undefined}
       onDragEnd={onDragEnd}
       onDragOver={(e) => {
         onDragOver(e, server, name);
@@ -161,8 +179,14 @@ function SessionRowInner({
       onDragLeave={(e) => onDragLeave(e, server, name)}
       onDrop={(e) => onDrop(e, server, name)}
       style={rowStyle}
-      onMouseEnter={tint ? (e) => { (e.currentTarget as HTMLElement).style.backgroundColor = tint.hover; } : undefined}
-      onMouseLeave={tint ? (e) => { (e.currentTarget as HTMLElement).style.backgroundColor = tint.base; } : undefined}
+      // The row root is the identity tip's floating REFERENCE (placement
+      // "right" → the sidebar's right edge). getReferenceProps CHAINS the row's
+      // own hover handlers so the tint mouse-enter/leave survives the merge.
+      ref={tip.setReference}
+      {...tip.getReferenceProps({
+        onMouseEnter: tint ? (e) => { (e.currentTarget as HTMLElement).style.backgroundColor = tint.hover; } : undefined,
+        onMouseLeave: tint ? (e) => { (e.currentTarget as HTMLElement).style.backgroundColor = tint.base; } : undefined,
+      })}
     >
       {/* Flair overlay (decoration-only channel): an always-on ambient
           CSS-only animation mounted whenever the session carries a flair
@@ -301,6 +325,18 @@ function SessionRowInner({
           />
         </div>
       )}
+      <IdentityTipCard
+        tip={tip}
+        testid="session-tip"
+        title={
+          <>
+            <PopupTitleBarSecondary>Session </PopupTitleBarSecondary>
+            {name}
+          </>
+        }
+      >
+        {tipBody}
+      </IdentityTipCard>
     </div>
   );
 }

@@ -34,12 +34,15 @@ test.describe("Server Panel Tile Grid", () => {
     const activeOption = grid.getByRole("option", { name: new RegExp(TMUX_SERVER) });
     await expect(activeOption).toBeVisible();
 
-    // The tile count is a bare window-count number; the full singular-aware
-    // wording lives in the tile button's title tooltip (the stable text seam).
-    await expect(activeOption).toHaveAttribute(
-      "title",
-      /\d+ windows? across \d+ sessions?/,
-    );
+    // The tile count is a bare window-count number; the identity hover-card
+    // carries the socket flag + session count. The native `title` attribute is
+    // gone (replaced by the card — the double-tooltip rule).
+    await expect(activeOption).not.toHaveAttribute("title");
+    await activeOption.hover();
+    const tip = page.getByTestId("server-tip");
+    await expect(tip).toBeVisible();
+    await expect(tip.getByTestId("popup-title-bar")).toContainText(`Server ${TMUX_SERVER}`);
+    await expect(tip).toContainText(new RegExp(`tmux -L ${TMUX_SERVER} · \\d+ sessions?`));
     // The old "N sess" meta line is gone from the grid.
     await expect(grid.locator("text=/\\d+ sess/")).toHaveCount(0);
   });

@@ -1,9 +1,12 @@
-import { describe, it, expect, afterEach, vi } from "vitest";
+import { describe, it, expect, afterEach, vi, beforeEach } from "vitest";
 import { useState } from "react";
 import { render, screen, cleanup, act, fireEvent } from "@testing-library/react";
 import { SessionRow } from "./session-row";
+import { IDENTITY_TIP_OPEN_DELAY_MS } from "./identity-tip";
 import type { ProjectSession } from "@/types";
-import { makeSession } from "@/test-utils/fixtures";
+import { makeSession, makeWindow } from "@/test-utils/fixtures";
+import { stubMatchMedia } from "@/test-utils/match-media";
+import { ThemeProvider } from "@/contexts/theme-context";
 
 afterEach(() => {
   cleanup();
@@ -273,6 +276,114 @@ describe("SessionRow", () => {
 
       fireEvent.click(screen.getByLabelText("Kill session agent-work"));
       expect(onKillClick).toHaveBeenCalledWith("srv", "agent-work", 1, false);
+    });
+  });
+
+  // Row-level identity tip: `Session <full name>` title bar + one plain-text
+  // body line ($N id · window count · ~-abbreviated root path). Hover/focus
+  // open, Escape/leave dismiss, never on touch, suppressed while the row's
+  // color popover is open, closed on drag start. NO TipGroup/warm-window
+  // coupling — the delay is always the plain cold delay.
+  describe("identity tip", () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+      delete (window as { matchMedia?: unknown }).matchMedia;
+    });
+
+    function hoverRow() {
+      const row = screen.getByRole("treeitem");
+      act(() => {
+        fireEvent.pointerEnter(row, { pointerType: "mouse" });
+        fireEvent.mouseEnter(row);
+        vi.advanceTimersByTime(IDENTITY_TIP_OPEN_DELAY_MS + 50);
+      });
+      return row;
+    }
+
+    it("opens on row hover with the full name in the title bar and the facts line in the body", () => {
+      const session = makeSession({
+        name: "code-surface-latch-distill",
+        sessionId: "$4",
+        sessionPath: "/home/sahil/code/sahil87/run-kit",
+        windows: [makeWindow({}), makeWindow({ windowId: "@2" }), makeWindow({ windowId: "@3" })],
+      });
+      render(<SessionRow {...rowProps(session)} />);
+      expect(screen.queryByTestId("session-tip")).toBeNull();
+
+      hoverRow();
+      const card = screen.getByTestId("session-tip");
+      const bar = screen.getByTestId("popup-title-bar");
+      expect(card).toContainElement(bar);
+      expect(bar).toHaveTextContent("Session code-surface-latch-distill");
+      expect(card).toHaveTextContent("$4 · 3 windows · ~/code/sahil87/run-kit");
+      // Tier-1 weight: no interactive content at all.
+      expect(card.querySelector("a, button")).toBeNull();
+      expect(card.className).toContain("pointer-events-none");
+    });
+
+    it("omits underivable body segments (old payloads without sessionId/sessionPath)", () => {
+      const session = makeSession({ name: "alpha", windows: [makeWindow({}), makeWindow({ windowId: "@2" }), makeWindow({ windowId: "@3" })] });
+      render(<SessionRow {...rowProps(session)} />);
+      hoverRow();
+      const card = screen.getByTestId("session-tip");
+      expect(card).toHaveTextContent("3 windows");
+      expect(card).not.toHaveTextContent("$");
+      expect(card).not.toHaveTextContent("~");
+    });
+
+    it("opens on keyboard row focus and dismisses on Escape", () => {
+      render(<SessionRow {...rowProps(makeSession({ name: "api" }))} />);
+      const row = screen.getByRole("treeitem");
+      act(() => {
+        fireEvent.focus(row);
+      });
+      expect(screen.getByTestId("session-tip")).toBeInTheDocument();
+      act(() => {
+        fireEvent.keyDown(document, { key: "Escape" });
+        vi.advanceTimersByTime(50);
+      });
+      expect(screen.queryByTestId("session-tip")).toBeNull();
+    });
+
+    it("never opens on a coarse pointer", () => {
+      stubMatchMedia((query) => query === "(pointer: coarse)");
+      render(<SessionRow {...rowProps(makeSession({ name: "api" }))} />);
+      const row = screen.getByRole("treeitem");
+      act(() => {
+        fireEvent.pointerEnter(row, { pointerType: "touch" });
+        fireEvent.mouseEnter(row);
+        fireEvent.focus(row);
+        vi.advanceTimersByTime(IDENTITY_TIP_OPEN_DELAY_MS + 100);
+      });
+      expect(screen.queryByTestId("session-tip")).toBeNull();
+    });
+
+    it("is suppressed while the row's color popover is open", () => {
+      // ThemeProvider (SwatchPopover dep) needs a matchMedia stub; fine pointer.
+      stubMatchMedia(() => false);
+      render(
+        <ThemeProvider>
+          <SessionRow {...rowProps(makeSession({ name: "api" }))} />
+        </ThemeProvider>,
+      );
+      fireEvent.click(screen.getByLabelText("Set color for api"));
+      hoverRow();
+      expect(screen.queryByTestId("session-tip")).toBeNull();
+    });
+
+    it("closes on drag start", () => {
+      const onDragStart = vi.fn();
+      render(<SessionRow {...rowProps(makeSession({ name: "api" }))} draggable onDragStart={onDragStart} />);
+      const row = hoverRow();
+      expect(screen.getByTestId("session-tip")).toBeInTheDocument();
+      act(() => {
+        fireEvent.dragStart(row);
+      });
+      expect(screen.queryByTestId("session-tip")).toBeNull();
+      expect(onDragStart).toHaveBeenCalled();
     });
   });
 });

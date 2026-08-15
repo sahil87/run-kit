@@ -23,6 +23,12 @@ type ProjectSession struct {
 	Name string `json:"name"`
 	// Color value descriptor ("4" / "1+3"), sourced from the @session_color tmux option.
 	SessionColor *string `json:"sessionColor,omitempty"`
+	// SessionID is the tmux session id ("$N" form, from #{session_id}) — the
+	// canonical target handle. Additive JSON key.
+	SessionID string `json:"sessionId,omitempty"`
+	// SessionPath is the session working directory (#{session_path}). Raw
+	// derived state; display abbreviation is the frontend's concern.
+	SessionPath string `json:"sessionPath,omitempty"`
 	// Flair is the session's per-row flair decoration ("nyan" / "naruto" /
 	// "onepiece"; "" = unset), sourced from the @rk_session_flair tmux session
 	// option (scope-split from the window @rk_flair — see tmux.SetSessionFlair).
@@ -814,7 +820,7 @@ func FetchSessions(ctx context.Context, server string, provider ActiveWindowProv
 			}
 		}
 
-		result[i] = ProjectSession{Name: sd.info.Name, SessionColor: sd.info.Color, Flair: sd.info.Flair, Windows: sd.windows}
+		result[i] = ProjectSession{Name: sd.info.Name, SessionColor: sd.info.Color, SessionID: sd.info.ID, SessionPath: sd.info.Path, Flair: sd.info.Flair, Windows: sd.windows}
 	}
 
 	return result, nil

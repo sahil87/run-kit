@@ -561,6 +561,11 @@ func withTimeout() (context.Context, context.CancelFunc) {
 type SessionInfo struct {
 	Name  string  `json:"name"`
 	Color *string `json:"color,omitempty"`
+	// ID is the tmux session id (#{session_id}, "$N" form) — the canonical
+	// target handle. Additive JSON key.
+	ID string `json:"id,omitempty"`
+	// Path is the session working directory (#{session_path}). Additive JSON key.
+	Path string `json:"path,omitempty"`
 	// Flair is the session's per-row flair decoration, sourced from the
 	// @rk_session_flair session user option (scope-split from the window's
 	// @rk_flair — see SetSessionFlair): "" (unset)/"nyan"/"naruto"/"onepiece".
@@ -574,8 +579,8 @@ type SessionInfo struct {
 
 // parseSessions parses tmux list-sessions output lines into SessionInfo structs,
 // filtering out session-group copies.
-// Format: name, grouped, group, group_size, @color, windows, @rk_session_flair
-// (7 fields).
+// Format: name, grouped, group, group_size, @color, windows, @rk_session_flair,
+// session_id, session_path (9 fields).
 // Exported for testing.
 func parseSessions(lines []string) []SessionInfo {
 	type rawEntry struct {
@@ -586,6 +591,8 @@ func parseSessions(lines []string) []SessionInfo {
 		colorStr  string
 		windows   int
 		flair     string
+		id        string
+		path      string
 	}
 
 	// Pass 1: parse all valid lines.
@@ -635,6 +642,12 @@ func parseSessions(lines []string) []SessionInfo {
 				e.flair = f
 			}
 		}
+		if len(parts) >= 8 {
+			e.id = parts[7]
+		}
+		if len(parts) >= 9 {
+			e.path = parts[8]
+		}
 		entries = append(entries, e)
 	}
 
@@ -666,7 +679,7 @@ func parseSessions(lines []string) []SessionInfo {
 			keep = true
 		}
 		if keep {
-			si := SessionInfo{Name: e.name, Windows: e.windows, Flair: e.flair}
+			si := SessionInfo{Name: e.name, Windows: e.windows, Flair: e.flair, ID: e.id, Path: e.path}
 			// Color is a value descriptor ("4" / "1+3"); normalize the raw
 			// option token, dropping anything malformed.
 			if normalized, ok := validate.NormalizeColorValue(e.colorStr); ok {
@@ -710,7 +723,7 @@ func ListSessions(ctx context.Context, server string) ([]SessionInfo, error) {
 	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
 	defer cancel()
 
-	format := fmt.Sprintf("#{session_name}%s#{session_grouped}%s#{session_group}%s#{session_group_size}%s#{@session_color}%s#{session_windows}%s#{@rk_session_flair}", listDelim, listDelim, listDelim, listDelim, listDelim, listDelim)
+	format := fmt.Sprintf("#{session_name}%s#{session_grouped}%s#{session_group}%s#{session_group_size}%s#{@session_color}%s#{session_windows}%s#{@rk_session_flair}%s#{session_id}%s#{session_path}", listDelim, listDelim, listDelim, listDelim, listDelim, listDelim, listDelim, listDelim)
 
 	lines, err := tmuxExecServer(ctx, server, "list-sessions", "-F", format)
 	if err != nil {

@@ -1,0 +1,11 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-15T08:03:44Z"}
+{"args":"Identity title bars on sidebar row hover popups: window flyout gets 'Window @N · pane %N · N panes' inset title bar (treatment A), icon cluster rides the bar, dotLabel demoted to body; same title-bar grammar extends to new session and server row tips (session: $N/windows/root path; server: tmux -L socket/sessions)","cmd":"fab-new","event":"command","ts":"2026-08-15T08:03:44Z"}
+{"delta":"+4.6","event":"confidence","score":4.6,"trigger":"calc-score","ts":"2026-08-15T08:06:05Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-08-15T08:07:04Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-15T08:08:36Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-15T08:08:49Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-15T09:19:38Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-15T09:28:00Z"}
+{"event":"review","result":"passed","ts":"2026-08-15T09:28:00Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-15T09:35:18Z"}
+{"cmd":"git-pr","event":"command","ts":"2026-08-15T09:36:52Z"}

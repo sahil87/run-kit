@@ -51,7 +51,7 @@ Grouped sessions share the same windows, so displaying both is incorrect — it 
 
 ## How We Filter
 
-`parseSessions()` in `internal/tmux/tmux.go` parses three format variables per session:
+`parseSessions()` in `internal/tmux/tmux.go` parses the nine-field `ListSessions` format line (`#{session_name}`, `#{session_grouped}`, `#{session_group}`, `#{session_group_size}`, `#{@session_color}`, `#{session_windows}`, `#{@rk_session_flair}`, `#{session_id}`, `#{session_path}`); the group filter keys on three of them:
 
 | Variable | Meaning |
 |----------|---------|
@@ -133,6 +133,8 @@ A window pinned to a board is **linked** (`tmux link-window`) into a **single-wi
 
 1. **`_rk-pin-*`** (`strings.HasPrefix(name, PinSessionPrefix)`) — the **pin-session** itself is never a SESSIONS entry (it renders only as a BOARDS pane); a single early-skip here guarantees no pin-session leaks into the SESSIONS UI regardless of future consumers. Under the link-based model the pinned window is ALSO a member of its home session, so it still appears in SESSIONS via that home membership — the skip hides only the `_rk-pin-*` session name, not the window.
 2. **`_rk-ctl`** (`name == ControlAnchorSessionName`) — the tmuxctl control-mode anchor.
+
+Beyond the filter, `parseSessions` carries two identity fields through: `#{session_id}` (the tmux session id, `$N` form — the canonical target handle) → `SessionInfo.ID` (`json:"id,omitempty"`) and `#{session_path}` (the session working directory, sent raw) → `SessionInfo.Path` (`json:"path,omitempty"`). `internal/sessions` threads both onto the `/api/sessions` JSON and the SSE `sessions` event as the optional `sessionId`/`sessionPath` keys (the `sessionColor` optional-field idiom — additive, absent on old-backend payloads), consumed by the sidebar session-row identity tip (see [sidebar](/run-kit/ui/sidebar.md)). Derived from tmux at request time, no storage (Constitution II); display-side `~` abbreviation of the path is a frontend concern (§ Design Decisions → Path abbreviation is a frontend display heuristic). (`xb77`)
 
 ## `_rk-ctl` Anchor Session (tmuxctl control mode)
 
@@ -637,3 +639,9 @@ Reusable patterns future changes should follow:
 **Why**: The e2e backend (`RK_PORT=3020`, `RK_SERVER_ALLOWLIST=rk-test-e2e` per `scripts/test-e2e.sh`) runs a supervisor that dials the host's non-test sockets (the supervisor skips only `rk-test-*` names); ungated, it would overwrite host servers' origins with `:3020`. The allowlist is the deployment's own declaration of coverage, making "which servers do I stamp" the same question as "which servers do I enumerate".
 **Rejected**: an ungated stamp (test-deployment corruption of host origins); a separate stamp-specific env knob (a second knob for the same coverage concept).
 *Introduced by*: `260814-qb8z-server-url-tmux-option`
+
+### Path abbreviation is a frontend display heuristic
+**Decision**: the backend sends the raw `#{session_path}`; the frontend abbreviates a leading `/home/{user}/` or `/Users/{user}/` prefix to `~` at display time (`abbreviateHomePath`, `app/frontend/src/lib/format.ts`).
+**Why**: raw derived state over the wire (Constitution II posture); `~` is presentation. The frontend cannot know the server's `$HOME`, but the two standard prefixes cover the real cases; unrecognized paths pass through honestly.
+**Rejected**: backend abbreviation (bakes presentation into the API); shipping `$HOME` in the payload (a second field for a cosmetic win).
+*Introduced by*: `260815-xb77-row-popup-identity-titlebars`

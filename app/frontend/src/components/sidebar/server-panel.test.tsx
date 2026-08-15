@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
-import { render, screen, cleanup, fireEvent, within } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, within, act } from "@testing-library/react";
 import { ServerPanel } from "./server-panel";
+import { IDENTITY_TIP_OPEN_DELAY_MS } from "./identity-tip";
 import { ThemeProvider } from "@/contexts/theme-context";
 import { ToastProvider } from "@/components/toast";
 import type { ServerInfo } from "@/api/client";
@@ -8,7 +9,10 @@ import { stubMatchMedia } from "@/test-utils/match-media";
 
 // jsdom does not implement matchMedia — ThemeProvider + useIsMobile both need it.
 // Default to the fine-pointer / desktop-width branch unless a test overrides.
-stubMatchMedia((query) => query.includes("prefers-color-scheme: dark"));
+function stubFinePointer() {
+  stubMatchMedia((query) => query.includes("prefers-color-scheme: dark"));
+}
+stubFinePointer();
 
 function renderPanel(overrides: {
   server?: string;
@@ -149,20 +153,95 @@ describe("ServerPanel", () => {
     expect(options).toHaveLength(3);
   });
 
-  it("tile title carries the name plus singular-aware window/session wording", () => {
+  it("tile carries NO native title — the identity tip card replaces it", () => {
     renderPanel({
-      servers: [
-        { name: "bench-really-long-name", sessionCount: 2, windowCount: 5 },
-        { name: "solo", sessionCount: 1, windowCount: 1 },
-      ],
+      servers: [{ name: "bench-really-long-name", sessionCount: 2, windowCount: 5 }],
       server: "bench-really-long-name",
     });
     const tile = screen.getByRole("option", { name: /bench-really-long-name/ });
-    expect(tile.getAttribute("title")).toBe(
-      "bench-really-long-name — 5 windows across 2 sessions",
-    );
-    const soloTile = screen.getByRole("option", { name: /solo/ });
-    expect(soloTile.getAttribute("title")).toBe("solo — 1 window across 1 session");
+    expect(tile).not.toHaveAttribute("title");
+  });
+
+  // Tile identity tip: `Server <name>` title bar + `tmux -L <name> · N
+  // sessions` body — the socket flag shown uniformly, including `default`.
+  describe("identity tip", () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+      // Restore the fine-pointer default after a coarse-pointer test.
+      stubFinePointer();
+    });
+
+    function hoverTile(name: RegExp) {
+      // The reference props ride the tile's WRAPPER div; jsdom's mouseenter
+      // doesn't bubble, so tests hover the wrapper (in the browser React
+      // synthesizes ancestor enter events from mouseover, so hovering the
+      // button works the same).
+      const tile = screen.getByRole("option", { name }).parentElement!;
+      act(() => {
+        fireEvent.pointerEnter(tile, { pointerType: "mouse" });
+        fireEvent.mouseEnter(tile);
+        vi.advanceTimersByTime(IDENTITY_TIP_OPEN_DELAY_MS + 50);
+      });
+      return tile;
+    }
+
+    it("opens on tile hover with the server name in the title bar and the socket flag + session count in the body", () => {
+      renderPanel({
+        servers: [{ name: "default", sessionCount: 6, windowCount: 9 }],
+        server: "default",
+      });
+      expect(screen.queryByTestId("server-tip")).toBeNull();
+
+      hoverTile(/default/);
+      const card = screen.getByTestId("server-tip");
+      const bar = screen.getByTestId("popup-title-bar");
+      expect(card).toContainElement(bar);
+      expect(bar).toHaveTextContent("Server default");
+      expect(card).toHaveTextContent("tmux -L default · 6 sessions");
+      // Tier-1 weight: no interactive content at all.
+      expect(card.querySelector("a, button")).toBeNull();
+    });
+
+    it("uses the singular `1 session`", () => {
+      renderPanel({
+        servers: [{ name: "solo", sessionCount: 1, windowCount: 1 }],
+        server: "solo",
+      });
+      hoverTile(/solo/);
+      expect(screen.getByTestId("server-tip")).toHaveTextContent("tmux -L solo · 1 session");
+    });
+
+    it("dismisses on Escape and never opens on a coarse pointer", () => {
+      renderPanel({
+        servers: [{ name: "work", sessionCount: 2, windowCount: 5 }],
+        server: "work",
+      });
+      const tile = hoverTile(/work/);
+      expect(screen.getByTestId("server-tip")).toBeInTheDocument();
+      act(() => {
+        fireEvent.keyDown(document, { key: "Escape" });
+        vi.advanceTimersByTime(50);
+      });
+      expect(screen.queryByTestId("server-tip")).toBeNull();
+
+      // Coarse pointer: the whole surface is suppressed (the Tip idiom).
+      cleanup();
+      stubMatchMedia((query) => query === "(pointer: coarse)");
+      renderPanel({
+        servers: [{ name: "work", sessionCount: 2, windowCount: 5 }],
+        server: "work",
+      });
+      act(() => {
+        fireEvent.pointerEnter(tile, { pointerType: "touch" });
+        fireEvent.mouseEnter(tile);
+        fireEvent.focus(tile);
+        vi.advanceTimersByTime(IDENTITY_TIP_OPEN_DELAY_MS + 100);
+      });
+      expect(screen.queryByTestId("server-tip")).toBeNull();
+    });
   });
 
   it("does not repeat the active server name in the header (spinner slot only)", () => {

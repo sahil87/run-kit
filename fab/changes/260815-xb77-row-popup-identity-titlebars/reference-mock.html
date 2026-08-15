@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Row Popup Identity Mocks</title>
+<style>
+  :root {
+    --bg-primary: #0f1117;
+    --bg-inset: #0a0c12;
+    --text-primary: #e8eaf0;
+    --text-secondary: #7a8394;
+    --border: #454d66;
+    --accent: #5b8af0;
+    --accent-green: #22c55e;
+    --purple: #a78bfa;
+    --yellow: #d4a017;
+    --olive-row: #2b2417;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg-inset);
+    color: var(--text-primary);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    padding: 32px 40px 64px;
+  }
+  h1 { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
+  .subtitle { color: var(--text-secondary); font-size: 12px; margin-bottom: 36px; }
+  h2 { font-size: 13px; font-weight: 600; margin: 40px 0 4px; color: var(--accent-green); }
+  h2 .tier { color: var(--text-secondary); font-weight: 400; }
+  .note { color: var(--text-secondary); font-size: 11.5px; max-width: 640px; line-height: 1.5; margin-bottom: 16px; }
+  .note b { color: var(--text-primary); font-weight: 600; }
+
+  .stage {
+    display: flex;
+    align-items: flex-start;
+    background: var(--bg-inset);
+    border: 1px solid #1c2130;
+    border-radius: 8px;
+    padding: 20px 24px;
+    overflow-x: auto;
+  }
+  .stage.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 32px 40px; }
+
+  .vcap { font-size: 11px; color: var(--text-secondary); margin-bottom: 10px; }
+  .vcap b { color: var(--text-primary); font-weight: 600; }
+
+  /* ── sidebar fragment ── */
+  .sidebar {
+    width: 240px;
+    flex-shrink: 0;
+    background: #0c0e14;
+    border-right: 1px solid #1c2130;
+    font-size: 12.5px;
+    padding: 4px 0;
+  }
+  .srv-row, .sess-row, .win-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 10px; white-space: nowrap; overflow: hidden;
+  }
+  .srv-row { color: var(--text-secondary); font-size: 11px; letter-spacing: 0.04em; }
+  .sess-row { color: var(--text-primary); }
+  .win-row { color: #c9cedd; padding-left: 22px; }
+  .row-hl { background: #232838; position: relative; }
+  .row-hl-warm { background: var(--olive-row); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .dot.o-green { border: 1.5px solid var(--accent-green); }
+  .dot.o-yellow { border: 1.5px solid var(--yellow); }
+  .dot.f-yellow { background: var(--yellow); }
+  .dot.f-blue { background: var(--accent); }
+  .caret { color: var(--text-secondary); font-size: 9px; width: 10px; flex-shrink: 0; }
+  .trunc { overflow: hidden; text-overflow: ellipsis; }
+  .cursor {
+    display: inline-block; margin-left: auto; padding-left: 8px;
+    color: var(--text-secondary); font-size: 10px; flex-shrink: 0;
+  }
+
+  /* ── floating card / tip ── */
+  .float-zone { position: relative; padding: 0 24px; flex-shrink: 0; }
+  .card, .tip {
+    position: relative;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    font-size: 12px;
+    width: max-content;
+    max-width: 360px;
+  }
+  .card { padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; }
+  .tip { padding: 6px 10px; display: flex; flex-direction: column; gap: 2px; }
+  .notch {
+    position: absolute; left: -5.5px; width: 9px; height: 9px;
+    background: var(--bg-primary);
+    border-left: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    transform: rotate(45deg);
+  }
+  .sec { color: var(--text-secondary); }
+  .pri { color: var(--text-primary); }
+  .grn { color: var(--accent-green); }
+  .pur { color: var(--purple); }
+  .idline { display: flex; align-items: center; gap: 12px; white-space: nowrap; }
+  .idline .icons { margin-left: auto; display: flex; gap: 6px; color: var(--text-secondary); }
+  .idline .icons svg { display: block; }
+  .regline { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 340px; }
+
+  /* Option A — inset title bar (full-bleed strip) */
+  .titlebar-inset {
+    background: var(--bg-inset);
+    border-bottom: 1px solid var(--border);
+    border-radius: 5px 5px 0 0;
+    margin: -8px -10px 2px;
+    padding: 5px 10px;
+  }
+  /* Option A's notch sits on the title-bar band, so it takes the inset fill */
+  .notch.on-inset { background: var(--bg-inset); }
+
+  /* Option B — hairline divider */
+  .titlebar-rule { padding-bottom: 5px; border-bottom: 1px solid #2a3044; margin-bottom: 2px; }
+
+  /* Option C — tmux pane-border title (rule-embedded) */
+  .titlebar-tmux { gap: 8px; }
+  .titlebar-tmux .hrule { flex: 1 1 0; min-width: 12px; height: 1px; background: #2a3044; }
+  .titlebar-tmux .icons { margin-left: 0; }
+
+  /* Option D — bracket heading (SectionHeading idiom) */
+  .titlebar-bracket .br { color: var(--text-secondary); }
+</style>
+</head>
+<body>
+
+<h1>Sidebar row popups — identity titles</h1>
+<div class="subtitle">One grammar for all three row types: inset title bar (identity) + body (facts). Window keeps its four registers + icons; session &amp; server stay plain text.</div>
+
+<!-- ══════════════ 1. WINDOW FLYOUT — TITLE BAR OPTIONS ══════════════ -->
+<h2>1 · Window row flyout <span class="tier">— title-bar treatments (icons ride the title in all four)</span></h2>
+<div class="note"><b>A</b> full-bleed inset strip — reads most like real window chrome. <b>B</b> hairline divider — quietest, header stays on card bg. <b>C</b> tmux pane-border title — rules flank the text like a terminal pane border. <b>D</b> bracket heading — the app's SectionHeading idiom.</div>
+<div class="stage grid">
+
+  <!-- Option A -->
+  <div>
+    <div class="vcap"><b>A · inset title bar</b> — darker full-bleed strip + bottom border</div>
+    <div class="card">
+      <div class="notch on-inset" style="top: 10px;"></div>
+      <div class="idline titlebar-inset">
+        <span><span class="sec">Window </span><span class="pri">@31</span><span class="sec"> · pane </span><span class="pri">%425</span><span class="sec"> · 2 panes</span></span>
+        <span class="icons">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><circle cx="5" cy="13" r="1.6"/><circle cx="5" cy="3" r="1.6"/><circle cx="12" cy="3" r="1.6"/><line x1="5" y1="4.6" x2="5" y2="11.4"/><path d="M10.4 3H8.5A3.5 3.5 0 0 0 5 6.5V8"/></svg>
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6.5"/><line x1="8" y1="7.25" x2="8" y2="11" stroke-linecap="round"/><circle cx="8" cy="4.75" r="0.5" fill="currentColor" stroke="none"/></svg>
+        </span>
+      </div>
+      <div class="pri">PR-ready — parked</div>
+      <div class="regline"><span class="sec">out claude — idle 46s since last output</span></div>
+      <div class="regline"><span class="sec">agt idle 13h</span></div>
+      <div class="regline"><span class="sec">fab </span><span class="pri">ldbs shell-stage-status-bar · review…</span></div>
+      <div class="regline"><span class="sec">pr&nbsp;&nbsp;</span><span class="pri">#604</span><span class="sec"> · </span><span class="pur">merged</span><span class="sec"> ↗</span></div>
+      <div class="sec">checked 1m ago</div>
+    </div>
+  </div>
+
+  <!-- Option B -->
+  <div>
+    <div class="vcap"><b>B · hairline divider</b> — header on card bg, subtle rule below</div>
+    <div class="card">
+      <div class="notch" style="top: 10px;"></div>
+      <div class="idline titlebar-rule">
+        <span><span class="sec">Window </span><span class="pri">@31</span><span class="sec"> · pane </span><span class="pri">%425</span><span class="sec"> · 2 panes</span></span>
+        <span class="icons">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><circle cx="5" cy="13" r="1.6"/><circle cx="5" cy="3" r="1.6"/><circle cx="12" cy="3" r="1.6"/><line x1="5" y1="4.6" x2="5" y2="11.4"/><path d="M10.4 3H8.5A3.5 3.5 0 0 0 5 6.5V8"/></svg>
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6.5"/><line x1="8" y1="7.25" x2="8" y2="11" stroke-linecap="round"/><circle cx="8" cy="4.75" r="0.5" fill="currentColor" stroke="none"/></svg>
+        </span>
+      </div>
+      <div class="pri">PR-ready — parked</div>
+      <div class="regline"><span class="sec">out claude — idle 46s since last output</span></div>
+      <div class="regline"><span class="sec">agt idle 13h</span></div>
+      <div class="regline"><span class="sec">fab </span><span class="pri">ldbs shell-stage-status-bar · review…</span></div>
+      <div class="regline"><span class="sec">pr&nbsp;&nbsp;</span><span class="pri">#604</span><span class="sec"> · </span><span class="pur">merged</span><span class="sec"> ↗</span></div>
+      <div class="sec">checked 1m ago</div>
+    </div>
+  </div>
+
+  <!-- Option C -->
+  <div>
+    <div class="vcap"><b>C · tmux pane-border title</b> — rules flank the text, terminal-style</div>
+    <div class="card">
+      <div class="notch" style="top: 10px;"></div>
+      <div class="idline titlebar-tmux">
+        <span class="hrule"></span>
+        <span><span class="sec">Window </span><span class="pri">@31</span><span class="sec"> · pane </span><span class="pri">%425</span><span class="sec"> · 2 panes</span></span>
+        <span class="hrule"></span>
+        <span class="icons">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><circle cx="5" cy="13" r="1.6"/><circle cx="5" cy="3" r="1.6"/><circle cx="12" cy="3" r="1.6"/><line x1="5" y1="4.6" x2="5" y2="11.4"/><path d="M10.4 3H8.5A3.5 3.5 0 0 0 5 6.5V8"/></svg>
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6.5"/><line x1="8" y1="7.25" x2="8" y2="11" stroke-linecap="round"/><circle cx="8" cy="4.75" r="0.5" fill="currentColor" stroke="none"/></svg>
+        </span>
+      </div>
+      <div class="pri">PR-ready — parked</div>
+      <div class="regline"><span class="sec">out claude — idle 46s since last output</span></div>
+      <div class="regline"><span class="sec">agt idle 13h</span></div>
+      <div class="regline"><span class="sec">fab </span><span class="pri">ldbs shell-stage-status-bar · review…</span></div>
+      <div class="regline"><span class="sec">pr&nbsp;&nbsp;</span><span class="pri">#604</span><span class="sec"> · </span><span class="pur">merged</span><span class="sec"> ↗</span></div>
+      <div class="sec">checked 1m ago</div>
+    </div>
+  </div>
+
+  <!-- Option D -->
+  <div>
+    <div class="vcap"><b>D · bracket heading</b> — SectionHeading idiom, no extra chrome</div>
+    <div class="card">
+      <div class="notch" style="top: 10px;"></div>
+      <div class="idline titlebar-bracket">
+        <span><span class="br">[ </span><span class="sec">Window </span><span class="pri">@31</span><span class="sec"> · pane </span><span class="pri">%425</span><span class="sec"> · 2 panes</span><span class="br"> ]</span></span>
+        <span class="icons">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><circle cx="5" cy="13" r="1.6"/><circle cx="5" cy="3" r="1.6"/><circle cx="12" cy="3" r="1.6"/><line x1="5" y1="4.6" x2="5" y2="11.4"/><path d="M10.4 3H8.5A3.5 3.5 0 0 0 5 6.5V8"/></svg>
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6.5"/><line x1="8" y1="7.25" x2="8" y2="11" stroke-linecap="round"/><circle cx="8" cy="4.75" r="0.5" fill="currentColor" stroke="none"/></svg>
+        </span>
+      </div>
+      <div class="pri">PR-ready — parked</div>
+      <div class="regline"><span class="sec">out claude — idle 46s since last output</span></div>
+      <div class="regline"><span class="sec">agt idle 13h</span></div>
+      <div class="regline"><span class="sec">fab </span><span class="pri">ldbs shell-stage-status-bar · review…</span></div>
+      <div class="regline"><span class="sec">pr&nbsp;&nbsp;</span><span class="pri">#604</span><span class="sec"> · </span><span class="pur">merged</span><span class="sec"> ↗</span></div>
+      <div class="sec">checked 1m ago</div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ══════════════ 2. SESSION TIP ══════════════ -->
+<h2>2 · Session row tip <span class="tier">— same title-bar grammar, plain-text body, no icons/links</span></h2>
+<div class="note">Title bar carries identity (full untruncated name); body carries the non-visible facts: tmux session id (<b>$4</b>), window count, root path.</div>
+<div class="stage">
+  <div class="sidebar">
+    <div class="sess-row"><span class="caret">▸</span><span class="dot o-yellow"></span><span class="trunc">rebranding-discussion</span></div>
+    <div class="sess-row row-hl-warm"><span class="caret">▾</span><span class="dot o-yellow"></span><span class="trunc">code-surface-latch-dis…</span><span class="cursor">⟵ hover</span></div>
+    <div class="win-row"><span class="dot o-yellow"></span><span class="trunc">vscode-release-digest-…</span></div>
+    <div class="sess-row"><span class="caret">▸</span><span class="dot o-green"></span><span class="trunc">seam-card-tiles-intake</span></div>
+  </div>
+  <div class="float-zone">
+    <div class="card" style="margin-top: 28px;">
+      <div class="notch on-inset" style="top: 10px;"></div>
+      <div class="idline titlebar-inset">
+        <span><span class="sec">Session </span><span class="pri">code-surface-latch-distill</span></span>
+      </div>
+      <div class="sec">$4 · 3 windows · ~/code/sahil87/run-kit</div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════ 3. SERVER TIP ══════════════ -->
+<h2>3 · Server row tip <span class="tier">— same title-bar grammar, socket handle in the body</span></h2>
+<div class="note">Title bar = identity; body = the <b>socket flag</b> (the exact CLI handle, <b>tmux -L default …</b>, invisible anywhere else in the UI) + session count.</div>
+<div class="stage">
+  <div class="sidebar">
+    <div class="srv-row row-hl" style="padding: 6px 10px;"><span class="trunc">SERVER · default</span><span class="cursor">⟵ hover</span></div>
+    <div class="sess-row"><span class="caret">▸</span><span class="dot o-green"></span><span class="trunc">run-kit</span></div>
+    <div class="sess-row"><span class="caret">▸</span><span class="dot f-blue"></span><span class="trunc">companion-window-agents</span></div>
+    <div class="sess-row"><span class="caret">▸</span><span class="dot o-yellow"></span><span class="trunc">code-surface-latch-dis…</span></div>
+  </div>
+  <div class="float-zone">
+    <div class="card" style="margin-top: 2px;">
+      <div class="notch on-inset" style="top: 10px;"></div>
+      <div class="idline titlebar-inset">
+        <span><span class="sec">Server </span><span class="pri">default</span></span>
+      </div>
+      <div class="sec">tmux -L default · 6 sessions</div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

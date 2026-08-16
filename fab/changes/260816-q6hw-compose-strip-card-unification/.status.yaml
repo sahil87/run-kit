@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 7
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-08-16T19:09:20Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-16T20:11:17Z"}
     review: {started_at: "2026-08-16T20:11:17Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-16T20:23:06Z"}
     hydrate: {started_at: "2026-08-16T20:23:06Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-16T20:38:11Z"}
-    ship: {started_at: "2026-08-16T20:38:11Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-08-16T20:38:11Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-16T20:40:29Z"}
+    review-pr: {started_at: "2026-08-16T20:40:29Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/638
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 1084
+    deleted: 282
+    net: 802
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 655
+        deleted: 262
+        net: 393
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-08-16T20:38:11Z"
-    computed_at_stage: hydrate
+        added: 103
+        deleted: 33
+        net: 70
+    computed_at: "2026-08-16T20:40:29Z"
+    computed_at_stage: ship
 summary: "compose strip: unified card/compact layout replaces the pointer render fork — per-pointer morph triggers (coarse focus/multiline/attachments; fine draft-presence latch), fine header fold at the in-tile dock via dockedInTile, rows={1} everywhere, uploading busy state on the \U0001F4CE chip, previews inside the card, a| dropped on coarse"
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-16T20:38:11Z
+last_updated: 2026-08-16T20:40:29Z

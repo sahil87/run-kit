@@ -25,14 +25,16 @@ import {
 } from "@/lib/compose-strip-events";
 import { BottomBar } from "./bottom-bar";
 
-// Mock useFileUpload so tests never hit the network. The mock records calls and
-// returns deterministic paths so attachment path lines can be asserted.
+// Mock useFileUpload so tests never hit the network. The mock records calls,
+// returns deterministic paths so attachment path lines can be asserted, and
+// exposes a mutable `uploading` flag so the chip's busy state can be tested.
 const uploadFilesMock = vi.fn<(files: FileList | File[]) => Promise<UploadedFile[]>>();
+const uploadState = { uploading: false };
 vi.mock("@/hooks/use-file-upload", async (orig) => {
   const actual = await orig<typeof import("@/hooks/use-file-upload")>();
   return {
     ...actual,
-    useFileUpload: () => ({ uploadFiles: uploadFilesMock, uploading: false }),
+    useFileUpload: () => ({ uploadFiles: uploadFilesMock, uploading: uploadState.uploading }),
   };
 });
 
@@ -132,6 +134,7 @@ describe("ComposeStrip", () => {
     // `true` would hide the bottom bar in a later test.
     setComposeStripFocused(false);
     uploadFilesMock.mockReset();
+    uploadState.uploading = false;
     vi.stubGlobal(
       "matchMedia",
       vi.fn().mockReturnValue({
@@ -290,17 +293,38 @@ describe("ComposeStrip", () => {
     expect(ws.sent).toEqual([]);
   });
 
-  // Two-row stack (260724-2bmy): the textarea gets the whole first row at a
-  // 2-line default (desktop too, explicit user direction), with 📎/Insert/Send
-  // on their own row below — previously all four shared one flex row and the
-  // input got ~half the width at 375px.
-  it("stacks a 2-line default textarea above a separate button row", () => {
-    render(<Harness focus={null} />);
-    expect(input()).toHaveAttribute("rows", "2");
-    // The buttons no longer share the textarea's flex row…
-    expect(sendBtn().parentElement).not.toBe(input().parentElement);
-    // …but Insert and Send still sit together (right-aligned cluster).
-    expect(insertBtn().parentElement).toBe(sendBtn().parentElement);
+  // Card/compact model: with no draft the strip is a single compact row; the
+  // first character morphs it into the card — full-width transparent textarea
+  // with the chip row along the card's bottom (no flanking chips).
+  it("fine compact: one row — 📎, a|, textarea, Send — no header fold change, no Insert, rows={1}", () => {
+    stubPointer(false);
+    render(<Harness focus={{ wsRef: makeWs().ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />);
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+    expect(screen.queryByTestId("compose-strip-card")).toBeNull();
+    expect(input()).toHaveAttribute("rows", "1");
+    // Insert is hidden in the compact state (it would be disabled while empty).
+    expect(screen.queryByTestId("compose-strip-insert")).toBeNull();
+    expect(screen.queryByTestId("compose-strip-newline")).toBeNull();
+    // All four controls share the ONE row (the strip body is their parent).
+    const row = input().parentElement;
+    expect(screen.getByRole("button", { name: "Upload file" }).parentElement).toBe(row);
+    expect(screen.getByTestId("compose-strip-a-close").parentElement).toBe(row);
+    expect(sendBtn().parentElement).toBe(row);
+  });
+
+  it("fine card: the first character morphs to the card — full-width textarea above the chip row with Insert", () => {
+    stubPointer(false);
+    render(<Harness focus={{ wsRef: makeWs().ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />);
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+    act(() => fireEvent.change(input(), { target: { value: "x" } }));
+    const card = screen.getByTestId("compose-strip-card");
+    expect(input()).toHaveAttribute("rows", "1");
+    // No flanking chips: the textarea and the chips are in separate rows.
+    expect(sendBtn().parentElement).toBe(card);
+    expect(input().parentElement).toBe(card);
+    // Insert + Send sit on the card's chip row alongside the textarea.
+    expect(insertBtn().parentElement).toBe(card);
+    expect(screen.queryByTestId("compose-strip-newline")).toBeNull();
   });
 
   // Placeholder education (260811-ke2s): the placeholder teaches the strip's
@@ -561,7 +585,7 @@ describe("ComposeStrip", () => {
     expect(input().value).toBe(""); // same clear-on-delivery as submit
   });
 
-  it("the Insert button follows Enter — sends text + \\n and clears; disabled when empty", () => {
+  it("the Insert button follows Enter — sends text + \\n and clears; hidden in the empty compact state", () => {
     const { ref, sent } = makeWs();
     render(
       <ChromeProvider>
@@ -572,10 +596,12 @@ describe("ComposeStrip", () => {
       </ChromeProvider>,
     );
     act(() => fireEvent.click(screen.getByTestId("set-focus")));
-    // Empty draft: Insert follows Enter's empty no-op (disabled) — but Send
-    // stays enabled: its chord's empty case is the bare-\r "Enter in the pane".
-    expect(insertBtn().disabled).toBe(true);
+    // Empty draft: the compact row omits Insert entirely (it follows Enter's
+    // empty no-op) — but Send stays enabled: its chord's empty case is the
+    // bare-\r "Enter in the pane".
+    expect(screen.queryByTestId("compose-strip-insert")).toBeNull();
     expect(sendBtn().disabled).toBe(false);
+    // With text the strip is in card form and Insert renders, enabled.
     act(() => fireEvent.change(input(), { target: { value: "via button" } }));
     expect(insertBtn().disabled).toBe(false);
     act(() => fireEvent.click(insertBtn()));
@@ -1633,12 +1659,49 @@ describe("ComposeStrip", () => {
     expect(input().placeholder).toBe("→ grainy-magpie…");
   });
 
-  it("fine pointers keep the header row unconditionally", () => {
+  it("fine pointers fold the header only at the in-tile dock; the footer dock and broadcast keep it", () => {
     stubPointer(false);
-    render(<Harness focus={{ wsRef: makeWs().ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />);
+    // Footer dock (no dockedInTile prop): the header renders — no tile frame
+    // names the target there (board route, no-tty fallback).
+    const footer = render(
+      <ChromeProvider>
+        <FocusedTerminalProvider>
+          <FocusSetter focus={{ wsRef: makeWs().ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />
+          <ComposeStrip />
+        </FocusedTerminalProvider>
+      </ChromeProvider>,
+    );
     act(() => fireEvent.click(screen.getByTestId("set-focus")));
     expect(screen.getByTestId("compose-strip-target")).toBeInTheDocument();
     expect(screen.getByTestId("compose-strip-close")).toBeInTheDocument();
+    footer.unmount();
+
+    // In-tile dock (dockedInTile): the tile frame names the target, so the
+    // header folds — the `a|` chip is the on-strip closer there.
+    const inTile = render(
+      <ChromeProvider>
+        <FocusedTerminalProvider>
+          <FocusSetter focus={{ wsRef: makeWs().ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />
+          <ComposeStrip dockedInTile />
+        </FocusedTerminalProvider>
+      </ChromeProvider>,
+    );
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+    expect(screen.queryByTestId("compose-strip-target")).toBeNull();
+    expect(screen.queryByTestId("compose-strip-close")).toBeNull();
+    expect(screen.getByTestId("compose-strip-a-close")).toBeInTheDocument();
+    inTile.unmount();
+
+    // Selection broadcast overrides the fold even at the in-tile dock:
+    // `→ N selected` is real signal.
+    render(
+      <ChromeProvider>
+        <FocusedTerminalProvider>
+          <ComposeStrip dockedInTile selectionTarget={{ keys: SELECTION_KEYS, onSend: vi.fn().mockResolvedValue(2) }} />
+        </FocusedTerminalProvider>
+      </ChromeProvider>,
+    );
+    expect(screen.getByTestId("compose-strip-target")).toHaveTextContent("2 selected");
   });
 
   it("the header returns on coarse in selection-broadcast mode — and the ⏎ chip hides there", () => {
@@ -1651,36 +1714,61 @@ describe("ComposeStrip", () => {
     expect(screen.queryByTestId("compose-strip-newline")).toBeNull();
   });
 
-  it("the header returns on coarse in the disabled no-target state; the ⏎ chip is disabled with the textarea", () => {
+  it("the header returns on coarse in the disabled no-target state; the ⏎ chip stays hidden while empty", () => {
     stubPointer(true);
     render(<Harness focus={null} />);
     expect(screen.getByTestId("compose-strip-target")).toHaveTextContent("no target");
     expect(input()).toBeDisabled();
-    expect(newlineBtn()).toBeDisabled();
+    // The no-target state is exempt from the compact morph (it keeps the
+    // card's stacked form), but the ⏎ chip hides while the composer is empty.
+    expect(screen.getByTestId("compose-strip-card")).toBeInTheDocument();
+    expect(screen.queryByTestId("compose-strip-newline")).toBeNull();
   });
 
-  it("coarse collapses to a single row — 📎, textarea, ⏎, Send — with no Insert and rows={1}", () => {
+  it("coarse compact: a single row — 📎, textarea, Send — with no Insert, no ⏎, no a|, rows={1}", () => {
     stubPointer(true);
     render(<Harness focus={{ wsRef: makeWs().ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />);
     act(() => fireEvent.click(screen.getByTestId("set-focus")));
+    // Blurred + empty + no attachments → compact (focus drives the card).
+    expect(screen.queryByTestId("compose-strip-card")).toBeNull();
     expect(input()).toHaveAttribute("rows", "1");
-    // The mobile return key already performs insert-line, so Insert is dropped.
+    // The mobile return key already performs insert-line, so Insert is dropped…
     expect(screen.queryByTestId("compose-strip-insert")).toBeNull();
-    // All four controls share the ONE row.
+    // …the ⏎ chip hides while the composer is empty…
+    expect(screen.queryByTestId("compose-strip-newline")).toBeNull();
+    // …and the a| closer is dropped entirely on coarse.
+    expect(screen.queryByTestId("compose-strip-a-close")).toBeNull();
+    // All three controls share the ONE row.
     const row = input().parentElement;
     expect(screen.getByRole("button", { name: "Upload file" }).parentElement).toBe(row);
-    expect(newlineBtn().parentElement).toBe(row);
     expect(sendBtn().parentElement).toBe(row);
   });
 
-  it("fine pointers keep the two-row stack: rows={2}, Insert present, no ⏎ chip", () => {
+  it("coarse card: the chip row is 📎 · ⏎ · spacer · Send once the composer has text", () => {
+    stubPointer(true);
+    renderFocused();
+    act(() => input().focus()); // focus morphs coarse to the card
+    act(() => fireEvent.change(input(), { target: { value: "draft" } }));
+    const card = screen.getByTestId("compose-strip-card");
+    expect(newlineBtn().parentElement).toBe(card);
+    expect(sendBtn().parentElement).toBe(card);
+    expect(screen.getByRole("button", { name: "Upload file" }).parentElement).toBe(card);
+    expect(screen.queryByTestId("compose-strip-insert")).toBeNull();
+    expect(screen.queryByTestId("compose-strip-a-close")).toBeNull();
+  });
+
+  it("fine card row is 📎 · a| · spacer · Insert · Send with no ⏎ chip", () => {
     stubPointer(false);
     render(<Harness focus={{ wsRef: makeWs().ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />);
     act(() => fireEvent.click(screen.getByTestId("set-focus")));
-    expect(input()).toHaveAttribute("rows", "2");
-    expect(insertBtn()).toBeInTheDocument();
+    act(() => fireEvent.change(input(), { target: { value: "x" } }));
+    expect(input()).toHaveAttribute("rows", "1");
+    const card = screen.getByTestId("compose-strip-card");
+    expect(screen.getByRole("button", { name: "Upload file" }).parentElement).toBe(card);
+    expect(screen.getByTestId("compose-strip-a-close").parentElement).toBe(card);
+    expect(insertBtn().parentElement).toBe(card);
+    expect(sendBtn().parentElement).toBe(card);
     expect(screen.queryByTestId("compose-strip-newline")).toBeNull();
-    expect(sendBtn().parentElement).not.toBe(input().parentElement);
   });
 
   it("⏎ inserts a newline at the caret, keeps focus, and persists through the draft store", () => {
@@ -1704,12 +1792,16 @@ describe("ComposeStrip", () => {
     expect(document.activeElement).toBe(input());
   });
 
-  it("⏎ with an empty composer inserts a bare newline (a local edit — nothing is sent)", () => {
+  it("⏎ is hidden while the composer is empty and appears once the draft has text", () => {
     stubPointer(true);
-    const { sent } = renderFocused();
-    act(() => fireEvent.click(newlineBtn()));
-    expect(input().value).toBe("\n");
-    expect(sent).toEqual([]);
+    renderFocused();
+    // Focused (card form) but empty: the chip stays hidden — a bare newline
+    // on an empty composer would transmit nothing.
+    act(() => input().focus());
+    expect(screen.getByTestId("compose-strip-card")).toBeInTheDocument();
+    expect(screen.queryByTestId("compose-strip-newline")).toBeNull();
+    type("x");
+    expect(newlineBtn()).toBeInTheDocument();
   });
 
   it("⏎ ends an in-progress recall walk (a text mutation like typing)", () => {
@@ -1719,6 +1811,8 @@ describe("ComposeStrip", () => {
     renderFocused();
     arrow("ArrowUp");
     expect(input().value).toBe("newest");
+    // Focus morphs coarse to the card, where the ⏎ chip lives.
+    act(() => input().focus());
 
     act(() => fireEvent.click(newlineBtn()));
     expect(input().value).toBe("newest\n");
@@ -1741,7 +1835,10 @@ describe("ComposeStrip", () => {
     try {
       renderFocused();
       type("abc");
-      act(() => input().setSelectionRange(2, 2));
+      act(() => {
+        input().focus(); // coarse card: the ⏎ chip lives in the card form
+        input().setSelectionRange(2, 2);
+      });
       act(() => fireEvent.click(newlineBtn()));
       expect(exec).toHaveBeenCalledWith("insertText", false, "\n");
     } finally {
@@ -1751,6 +1848,136 @@ describe("ComposeStrip", () => {
         value: original,
       });
     }
+  });
+
+  // ── Card/compact morph triggers + the fine hysteresis latch ─────────────
+
+  it("fine: focus alone NEVER morphs — the compact row stays put (no xterm refit on stray clicks)", () => {
+    stubPointer(false);
+    renderFocused();
+    act(() => input().focus());
+    expect(document.activeElement).toBe(input());
+    expect(screen.queryByTestId("compose-strip-card")).toBeNull();
+    expect(screen.queryByTestId("compose-strip-insert")).toBeNull();
+    act(() => input().blur());
+    expect(screen.queryByTestId("compose-strip-card")).toBeNull();
+  });
+
+  it("fine latch: type → card, erase-all → still card, blur-while-empty → compact", () => {
+    stubPointer(false);
+    renderFocused();
+    act(() => input().focus());
+    type("x");
+    expect(screen.getByTestId("compose-strip-card")).toBeInTheDocument();
+    // Backspacing the draft away must NOT snap mid-edit (the latch holds).
+    type("");
+    expect(screen.getByTestId("compose-strip-card")).toBeInTheDocument();
+    // Only blur-while-empty releases the latch.
+    act(() => input().blur());
+    expect(screen.queryByTestId("compose-strip-card")).toBeNull();
+    // And re-focusing the empty composer does not re-enter the card.
+    act(() => input().focus());
+    expect(screen.queryByTestId("compose-strip-card")).toBeNull();
+  });
+
+  it("fine latch: removing the last attachment while blurred holds the card until the next blur-while-empty", async () => {
+    stubPointer(false);
+    uploadFilesMock.mockResolvedValueOnce([
+      { path: "/wt/.uploads/x.png", file: new File(["x"], "x.png", { type: "image/png" }) },
+    ]);
+    renderFocused();
+    const picker = document.querySelector('input[type="file"]') as HTMLInputElement;
+    await act(async () => {
+      fireEvent.change(picker, { target: { files: [new File(["x"], "x.png", { type: "image/png" })] } });
+    });
+    expect(screen.getByTestId("compose-strip-card")).toBeInTheDocument();
+
+    // Remove the attachment (this also splices its path line out of the
+    // text): with no focus and nothing left, the latch still holds the card.
+    act(() => fireEvent.click(screen.getByLabelText("Remove x.png")));
+    expect(input().value).toBe("");
+    expect(screen.getByTestId("compose-strip-card")).toBeInTheDocument();
+
+    // The release needs an actual blur-while-empty.
+    act(() => input().focus());
+    act(() => input().blur());
+    expect(screen.queryByTestId("compose-strip-card")).toBeNull();
+  });
+
+  it("coarse: focus morphs to the card; blur while empty returns compact", () => {
+    stubPointer(true);
+    renderFocused();
+    expect(screen.queryByTestId("compose-strip-card")).toBeNull();
+    act(() => input().focus());
+    expect(screen.getByTestId("compose-strip-card")).toBeInTheDocument();
+    act(() => input().blur());
+    expect(screen.queryByTestId("compose-strip-card")).toBeNull();
+  });
+
+  it("coarse: a multi-line draft holds the card without focus; a single-line draft compacts", () => {
+    stubPointer(true);
+    renderFocused();
+    // jsdom never wraps (scrollHeight probe reads 0), so the explicit-\n
+    // branch carries this test.
+    type("line one\nline two");
+    expect(screen.getByTestId("compose-strip-card")).toBeInTheDocument();
+    type("single line");
+    expect(screen.queryByTestId("compose-strip-card")).toBeNull();
+  });
+
+  it("coarse: attachments morph to the card (previews render inside it, above the textarea)", async () => {
+    stubPointer(true);
+    uploadFilesMock.mockResolvedValueOnce([
+      { path: "/wt/.uploads/a.png", file: new File(["a"], "a.png", { type: "image/png" }) },
+    ]);
+    renderFocused();
+    const picker = document.querySelector('input[type="file"]') as HTMLInputElement;
+    await act(async () => {
+      fireEvent.change(picker, { target: { files: [new File(["a"], "a.png", { type: "image/png" })] } });
+    });
+    const card = screen.getByTestId("compose-strip-card");
+    const previews = screen.getByTestId("compose-strip-previews");
+    // The preview row is the card's FIRST child, above the textarea.
+    expect(previews.parentElement).toBe(card);
+    expect(
+      previews.compareDocumentPosition(input()) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("coarse: the a| closer is gone in EVERY state (compact, card, broadcast)", () => {
+    stubPointer(true);
+    const view = render(
+      <ChromeProvider>
+        <FocusedTerminalProvider>
+          <FocusSetter focus={{ wsRef: makeWs().ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />
+          <ComposeStrip />
+        </FocusedTerminalProvider>
+      </ChromeProvider>,
+    );
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+    expect(screen.queryByTestId("compose-strip-a-close")).toBeNull();
+    // Card form via focus — still no a|.
+    act(() => input().focus());
+    expect(screen.getByTestId("compose-strip-card")).toBeInTheDocument();
+    expect(screen.queryByTestId("compose-strip-a-close")).toBeNull();
+    view.unmount();
+    // Selection broadcast — still no a|.
+    renderSelection(vi.fn().mockResolvedValue(2));
+    expect(screen.queryByTestId("compose-strip-a-close")).toBeNull();
+  });
+
+  it("while uploading, the busy state lives ON the 📎 chip — disabled, aria-busy, role=status within it", () => {
+    uploadState.uploading = true;
+    render(<Harness focus={{ wsRef: makeWs().ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />);
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+    const chip = screen.getByRole("button", { name: "Upload file" });
+    expect(chip).toBeDisabled();
+    expect(chip).toHaveAttribute("aria-busy", "true");
+    // The live status is attached to the chip itself — no standalone
+    // `Uploading…` text in the header row or inline in the strip body.
+    const status = screen.getByTestId("compose-strip-uploading");
+    expect(status).toHaveAttribute("role", "status");
+    expect(status.closest("button")).toBe(chip);
   });
 
   it("publishes textarea focus to the module store and clears it on blur and unmount", () => {

@@ -2806,6 +2806,10 @@ function AppShell() {
     layout.order.includes("tty");
   const composeStripElement = (
     <ComposeStrip
+      // Dock identity: the strip's fine-pointer header fold keys on this —
+      // in-tile the tile frame already names the target. One shared element
+      // serves both docks, so the prop simply tracks the dock predicate.
+      dockedInTile={inTileDock}
       // Focus-memory write gate: the terminal route's window identity. The
       // strip records `compose` only when its live target IS this window —
       // the focused-terminal context lags a window switch by a commit, and a

@@ -184,6 +184,7 @@ function selectionDraftKey(keys: readonly string[]): string {
 export function ComposeStrip({
   selectionTarget = null,
   focusMemoryWindow,
+  dockedInTile = false,
 }: {
   selectionTarget?: ComposeSelectionTarget | null;
   /** The terminal route's window identity, for the focus-memory write gate
@@ -196,6 +197,13 @@ export function ComposeStrip({
    *  board route's mount — focus memory is a terminal-route concern) ⇒ no
    *  recording. */
   focusMemoryWindow?: { server: string; windowId: string };
+  /** True only when this element renders at the in-tile dock (app.tsx drives
+   *  one shared element from its `inTileDock` predicate, so the strip never
+   *  re-derives dock identity from DOM ancestry). The fine-pointer header
+   *  fold keys on it — the tile frame already names the target; footer
+   *  mounts (selection broadcast, board route, no-tty fallback) omit it and
+   *  keep the header. */
+  dockedInTile?: boolean;
 }) {
   const { focused } = useFocusedTerminal();
   // The header-row × fires the exact same toggle as the bottom-bar `>_` chip
@@ -320,15 +328,43 @@ export function ComposeStrip({
         : `Compose text — Enter inserts · ${composeSubmitKeycap()} sends · ↑ history`
       : "No focused terminal — click a pane to target it";
 
-  // Header fold (260814-ink6): on coarse pointers in normal terminal-target
-  // mode the header row carries no unique signal (one visible pane — the
-  // target name moved into the placeholder) and its × close is droppable
-  // (closing stays lossless via the module draft store; the a▏ chip, the
-  // `View: Text Input` palette action, and ⇧⌘E remain). The header MUST
-  // return whenever it carries real signal — selection-broadcast mode and
-  // the disabled no-target state — and renders unconditionally on fine
-  // pointers.
-  const showHeader = !coarsePointer || isSelectionTarget || !hasTarget;
+  // The header row renders only where it carries real signal: selection
+  // broadcast, the disabled no-target state, and fine pointers at the FOOTER
+  // dock. On coarse terminal-target mode the target name folds into the
+  // placeholder (one visible pane, and closing stays lossless via the module
+  // draft store); at the fine IN-TILE dock the tile frame already names the
+  // target, so the row folds there too.
+  const showHeader = isSelectionTarget || !hasTarget || (!coarsePointer && !dockedInTile);
+
+  // ── Card/compact morph state ─────────────────────────────────────────────
+  // One layout model for both pointer types; only the TRIGGER forks. Coarse:
+  // card while focused, multi-line, or carrying attachments (the OS keyboard
+  // slide masks the layout jump). Fine: card on DRAFT PRESENCE only — never
+  // on focus, because every strip resize refits xterm — held by a hysteresis
+  // latch through any edit (including backspacing the draft to empty) and
+  // released only by blur-while-empty in the textarea's onBlur. Selection
+  // broadcast and the no-target state are exempt: they always take card form
+  // (their header + controls cannot collapse into a compact row).
+  const [textFocused, setTextFocused] = useState(false);
+  const [wrapped, setWrapped] = useState(false);
+  // The latch is keyed so a target switch can never hold a stranger's card
+  // open: it latches for the draft key that had content and reads false for
+  // any other key.
+  const [latchedKey, setLatchedKey] = useState<string | null>(null);
+  useEffect(() => {
+    if (!coarsePointer && draftKey !== null && (text !== "" || files.length > 0)) {
+      setLatchedKey(draftKey);
+    }
+  }, [coarsePointer, draftKey, text, files.length]);
+  // Multi-line probe: an explicit newline, or single-line content whose
+  // rendered height wraps past the one-row box (measured in `resize` below).
+  const multiline = text.includes("\n") || wrapped;
+  const isCard =
+    isSelectionTarget ||
+    !hasTarget ||
+    (coarsePointer
+      ? textFocused || multiline || files.length > 0
+      : text !== "" || files.length > 0 || (draftKey !== null && latchedKey === draftKey));
 
   // Auto-grow to content, bounded to MAX_TEXTAREA_ROWS (then internal scroll).
   const resize = useCallback(() => {
@@ -337,6 +373,10 @@ export function ComposeStrip({
     el.style.height = "auto";
     const line = parseFloat(getComputedStyle(el).lineHeight) || 20;
     const max = line * MAX_TEXTAREA_ROWS;
+    // Under height:auto the box resolves to the rows={1} floor, so a larger
+    // scrollHeight means the content wrapped past one line — the coarse
+    // morph's wrap probe (jsdom: both are 0, so it reads unwrapped).
+    setWrapped(el.scrollHeight > el.offsetHeight + 1);
     el.style.height = `${Math.min(el.scrollHeight, max)}px`;
     el.style.overflowY = el.scrollHeight > max ? "auto" : "hidden";
   }, []);
@@ -750,17 +790,23 @@ export function ComposeStrip({
     ? !composerEmpty && !selectionSending
     : hasTarget;
 
-  // Shared element descriptors for the two pointer layouts below — exactly
-  // one branch renders, so a single descriptor keeps each control's props in
-  // one place (260814-ink6).
+  // Shared element descriptors for the single card/compact structure below —
+  // each control's props live in exactly one place. Every control is a KEYED
+  // sibling of the strip body, so the compact⇄card morph re-styles and
+  // reorders them via classes without ever moving them in the tree: the DOM
+  // nodes (and the textarea's focus) survive the morph.
+  const chipTone = isCard
+    ? "border border-transparent hover:border-border"
+    : "border border-border hover:border-text-secondary";
   const textareaEl = (
     <textarea
+      key="ta"
       ref={textareaRef}
-      // The auto-grow floor follows the rows attribute by construction (the
-      // `height = "auto"` measurement resolves to it): coarse opens at one
-      // line and settles back to it when emptied, fine keeps the 2-row floor
-      // (260724-2bmy). MAX_TEXTAREA_ROWS bounds both.
-      rows={coarsePointer ? 1 : 2}
+      // rows={1} on both pointers — the compact state supersedes the old
+      // fine-pointer 2-row floor. The auto-grow floor follows the rows
+      // attribute by construction (the `height = "auto"` measurement resolves
+      // to it); MAX_TEXTAREA_ROWS bounds growth.
+      rows={1}
       value={text}
       // A user edit ends any recall walk — the visible text is now
       // composition, not a recalled entry, so ↑ returns to meaning cursor
@@ -782,6 +828,7 @@ export function ComposeStrip({
       // cross-write the previous window's key.
       onFocus={() => {
         setComposeStripFocused(true);
+        setTextFocused(true);
         if (
           !isSelectionTarget &&
           focused &&
@@ -791,7 +838,14 @@ export function ComposeStrip({
           recordFocus(focusMemoryKey(focused.server, focused.windowId), "compose");
         }
       }}
-      onBlur={() => setComposeStripFocused(false)}
+      onBlur={() => {
+        setComposeStripFocused(false);
+        setTextFocused(false);
+        // The fine-pointer latch releases ONLY here: blur while empty with no
+        // attachments. Erasing mid-edit and removing the last attachment
+        // while blurred both hold the card (no snap, no xterm refit).
+        if (text === "" && files.length === 0) setLatchedKey(null);
+      }}
       disabled={!hasTarget}
       autoComplete="off"
       autoCorrect="off"
@@ -810,16 +864,22 @@ export function ComposeStrip({
       }
       placeholder={placeholder}
       data-testid="compose-strip-input"
-      // Coarse sizing: py-[9px] + the 16px text-xs line + 2px borders = 36px,
-      // matching the chips' coarse:min-h-[36px] exactly, and min-h-[36px]
-      // floors the JS auto-grow's smaller single-line measurement so the
-      // one-line box sits flush with its flanking chips (260814 alignment
-      // fix). Fine pointers keep min-h-0 (the flex-shrink release) + py-1.5.
-      className={`${coarsePointer ? "flex-1 min-w-0 min-h-[36px] py-[9px]" : "w-full min-h-0 py-1.5"} resize-none rounded border border-border bg-bg-card px-2 font-mono text-xs text-text-primary placeholder:text-text-secondary outline-none focus:border-accent disabled:opacity-50`}
+      // In the card the textarea is full-width, transparent, and borderless —
+      // the card wrapper carries the chrome (including the focused accent
+      // border via focus-within). In the compact row it wears its own border
+      // and takes the flexible middle slot; the coarse sizing (py-[9px] +
+      // the 16px text-xs line + 2px borders = 36px, floored by min-h-[36px])
+      // keeps the one-line box flush with its flanking chips.
+      className={
+        isCard
+          ? "w-full min-w-0 min-h-0 resize-none border-0 bg-transparent px-1 py-1 font-mono text-xs text-text-primary placeholder:text-text-secondary outline-none disabled:opacity-50"
+          : `order-3 flex-1 min-w-0 resize-none rounded border border-border bg-bg-card px-2 font-mono text-xs text-text-primary placeholder:text-text-secondary outline-none focus:border-accent disabled:opacity-50 ${coarsePointer ? "min-h-[36px] py-[9px]" : "min-h-0 py-1.5"}`
+      }
     />
   );
   const fileInput = (
     <input
+      key="file"
       ref={uploadInputRef}
       type="file"
       multiple
@@ -832,69 +892,83 @@ export function ComposeStrip({
       }}
     />
   );
+  // While an upload is in flight the chip itself goes busy (pulsing glyph +
+  // disabled) and carries the live status — the old standalone `Uploading…`
+  // text stole row width exactly when an upload appends path lines.
   const attachChip = (
     <button
+      key="attach"
       type="button"
       aria-label="Upload file"
-      disabled={!canUpload}
+      disabled={!canUpload || uploading}
+      aria-busy={uploading || undefined}
       onMouseDown={preventFocusSteal}
       onClick={() => uploadInputRef.current?.click()}
-      className="rk-glint shrink-0 rounded border border-border px-2 py-1.5 text-xs text-text-secondary transition-colors hover:border-text-secondary disabled:opacity-50 coarse:min-h-[36px]"
+      className={`rk-glint shrink-0 rounded px-2 py-1.5 text-xs text-text-secondary transition-colors disabled:opacity-50 coarse:min-h-[36px] ${chipTone} ${isCard ? "" : "order-1"}`}
     >
-      <span aria-hidden="true">{"📎"}</span>
+      <span aria-hidden="true" className={uploading ? "animate-pulse" : undefined}>{"📎"}</span>
+      {uploading && (
+        <span role="status" data-testid="compose-strip-uploading" className="sr-only">
+          Uploading…
+        </span>
+      )}
     </button>
   );
-  // The `a|` close affordance (260814-ldbs R7): with the desktop bottom bar
-  // gone on fine pointers, the status bar's `a` hint is the strip's OPENER —
-  // so the strip itself gains a same-family closer next to the attach button,
-  // and open/close live in one visual family. Fires the exact same
+  // The `a|` close affordance — fine pointers only (dropped on coarse, where
+  // the bottom-bar `a▏` chip, the `View: Text Input` palette action, and ⇧⌘E
+  // remain the closers). With the header folded at the fine in-tile dock this
+  // is the sole on-strip closer there. Fires the exact same
   // `toggleComposeStrip` path as the header × and the chord.
   const closeChip = (
     <Tip label="Close compose strip" placement="top">
       <button
+        key="close"
         type="button"
         aria-label="Close compose strip (a|)"
         onMouseDown={preventFocusSteal}
         onClick={toggleComposeStrip}
         data-testid="compose-strip-a-close"
-        className="rk-glint shrink-0 rounded border border-border px-2 py-1.5 text-xs text-text-secondary transition-colors hover:border-text-secondary coarse:min-h-[36px]"
+        className={`rk-glint shrink-0 rounded px-2 py-1.5 text-xs text-text-secondary transition-colors coarse:min-h-[36px] ${chipTone} ${isCard ? "" : "order-2"}`}
       >
         <span aria-hidden="true">{"a|"}</span>
       </button>
     </Tip>
   );
   // The coarse-only ⏎ chip — the Shift+Enter local-newline path mobile
-  // keyboards cannot produce. Hidden (not disabled) in selection broadcast:
-  // the chat Enter policy already makes plain Enter a local newline there,
-  // so the chip would duplicate the return key. No Tip — tips never render
-  // on the coarse pointers this chip targets.
+  // keyboards cannot produce. It renders only in the card with a non-empty
+  // composer (hidden while empty; the compact row has no slot for it) and
+  // stays hidden in selection broadcast, where the chat Enter policy already
+  // makes plain Enter a local newline. No Tip — tips never render on the
+  // coarse pointers this chip targets.
   const newlineChip = (
     <button
+      key="newline"
       type="button"
       aria-label="Insert newline"
       disabled={!hasTarget}
       onMouseDown={preventFocusSteal}
       onClick={insertLocalNewline}
       data-testid="compose-strip-newline"
-      className="rk-glint shrink-0 rounded border border-border px-2 py-1.5 text-xs leading-none text-text-secondary transition-colors hover:border-text-secondary disabled:opacity-50 coarse:min-h-[36px] coarse:min-w-[36px]"
+      className={`rk-glint shrink-0 rounded px-2 py-1.5 text-xs leading-none text-text-secondary transition-colors disabled:opacity-50 coarse:min-h-[36px] coarse:min-w-[36px] ${chipTone}`}
     >
       <span aria-hidden="true">{"⏎"}</span>
     </button>
   );
   // Insert follows Enter (insert line — text + "\n", clears the draft); the
   // byte-exact raw insert is chord-only now, kept discoverable in the tip
-  // label (Alt+Enter). Fine pointers only — dropped on coarse, where the
-  // mobile return key already performs insert-line (enterKeyHint="send").
+  // label (Alt+Enter). Fine pointers only, card form only — hidden in the
+  // compact row, where it would be disabled anyway while empty.
   const insertChip = (
     <Tip label="Insert line (Alt+Enter: raw insert)" kbd="Enter" placement="top">
       <button
+        key="insert"
         type="button"
         aria-label="Insert line"
         disabled={!canInsert}
         onMouseDown={preventFocusSteal}
         onClick={() => send("insert-line")}
         data-testid="compose-strip-insert"
-        className="rk-glint shrink-0 rounded border border-border px-2 py-1.5 text-xs text-text-secondary transition-colors hover:border-text-secondary disabled:opacity-40 disabled:cursor-not-allowed coarse:min-h-[36px]"
+        className={`rk-glint shrink-0 rounded px-2 py-1.5 text-xs text-text-secondary transition-colors disabled:opacity-40 disabled:cursor-not-allowed coarse:min-h-[36px] ml-auto ${chipTone}`}
       >
         Insert
       </button>
@@ -908,13 +982,14 @@ export function ComposeStrip({
   const sendChip = (
     <Tip label="Send" kbd={composeSubmitKeycap()} placement="top">
       <button
+        key="send"
         type="button"
         aria-label="Send text"
         disabled={!canSubmit}
         onMouseDown={preventFocusSteal}
         onClick={() => send("submit")}
         data-testid="compose-strip-send"
-        className={`rk-glint shrink-0 rounded border px-3 py-1.5 text-xs transition-colors disabled:opacity-40 disabled:cursor-not-allowed coarse:min-h-[36px] ${
+        className={`rk-glint shrink-0 rounded border px-3 py-1.5 text-xs transition-colors disabled:opacity-40 disabled:cursor-not-allowed coarse:min-h-[36px] ${isCard ? (coarsePointer ? "ml-auto" : "") : "order-4"} ${
           composerEmpty && !isSelectionTarget
             ? "border-border text-text-secondary hover:border-text-secondary"
             : "border-accent bg-accent/20 text-accent hover:bg-accent/30"
@@ -925,136 +1000,113 @@ export function ComposeStrip({
     </Tip>
   );
 
+  // The header row (target label + × close) renders only where `showHeader`
+  // says it carries signal. It is a KEYED sibling of the strip body so the
+  // header appearing or disappearing never remounts the body (and with it
+  // the focused textarea).
+  const headerEl = (
+    <div key="header" className="flex items-center gap-2 text-xs text-text-secondary">
+      <span aria-hidden="true">{"→"}</span>
+      <span data-testid="compose-strip-target" className={hasTarget ? "text-text-primary" : "italic"}>
+        {hasTarget ? targetName : "no target"}
+      </span>
+      <button
+        type="button"
+        aria-label="Close compose strip"
+        title="Close compose strip"
+        onMouseDown={preventFocusSteal}
+        onClick={toggleComposeStrip}
+        data-testid="compose-strip-close"
+        className="rk-glint ml-auto shrink-0 rounded border border-border px-1.5 py-0.5 text-xs leading-none text-text-secondary transition-colors hover:border-text-secondary coarse:min-h-[36px] coarse:min-w-[36px]"
+      >
+        ×
+      </button>
+    </div>
+  );
+
+  // Attachment previews — the card's first child, above the textarea. They
+  // never render in compact form: attachments force the card on both
+  // pointers, so this row and the compact state are mutually exclusive.
+  const previewsEl = (
+    <div key="previews" className="flex w-full gap-1.5 overflow-x-auto" data-testid="compose-strip-previews">
+      {files.map((uf, i) => {
+        const isImage = uf.file.type.startsWith("image/");
+        return (
+          <div key={`${uf.path}-${i}`} className="relative shrink-0 group">
+            {isImage ? (
+              <img
+                src={getBlobUrl(uf.file)}
+                alt={uf.file.name}
+                className="h-[40px] w-auto rounded border border-border object-cover"
+              />
+            ) : (
+              <div className="h-[40px] px-2 flex items-center rounded border border-border bg-bg-primary">
+                <span className="text-[10px] text-text-secondary max-w-[80px] truncate">
+                  {uf.file.name}
+                </span>
+              </div>
+            )}
+            <button
+              type="button"
+              aria-label={`Remove ${uf.file.name}`}
+              onMouseDown={preventFocusSteal}
+              onClick={() => removeFile(i)}
+              className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-bg-primary border border-border text-text-secondary text-[10px] leading-none flex items-center justify-center opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:text-red-500 hover:border-red-500 transition-all"
+            >
+              ×
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+
   return (
     // `data-compose-strip` is a PRODUCTION marker (unlike the test id): the
     // tty tile's pointerdown focus-memory write reads it to tell a press on
     // the docked strip (strip interaction — its textarea records `compose`)
     // apart from a press on the terminal (records `tty`).
     <div data-testid="compose-strip" data-compose-strip>
-      {/* Inner wrapper carries ALL the visible chrome (border, background,
-          input, buttons); the outer element stays an unstyled box so the
-          row-growth/refit mechanic (260718-dhdj — at the footer dock the
-          `auto` row grows and the terminal's ResizeObserver refits; in-tile
-          the tile's flex column does the same) works identically at both
-          docks. No geometry styles — both docks are container-aligned. */}
+      {/* The inner wrapper carries only the dock seam chrome; the outer
+          element stays an unstyled box so the row-growth/refit mechanic (at
+          the footer dock the `auto` row grows and the terminal's
+          ResizeObserver refits; in-tile the tile's flex column does the same)
+          works identically at both docks. */}
       <div
         className="border-t border-border bg-bg-primary px-1.5 py-1.5 flex flex-col gap-1"
         data-testid="compose-strip-inner"
       >
-      {showHeader && (
-      <div className="flex items-center gap-2 text-xs text-text-secondary">
-        <span aria-hidden="true">{"→"}</span>
-        <span data-testid="compose-strip-target" className={hasTarget ? "text-text-primary" : "italic"}>
-          {hasTarget ? targetName : "no target"}
-        </span>
-        {/* Far-right cluster: the conditional uploading status sits immediately
-            left of the always-present × close button. Grouping both in a single
-            ml-auto container keeps the × right-aligned whether or not the
-            uploading status renders. */}
-        <div className="ml-auto flex items-center gap-2">
-          {uploading && (
-            <span role="status" className="text-accent" data-testid="compose-strip-uploading">
-              Uploading…
-            </span>
-          )}
-          <button
-            type="button"
-            aria-label="Close compose strip"
-            title="Close compose strip"
-            onMouseDown={preventFocusSteal}
-            onClick={toggleComposeStrip}
-            data-testid="compose-strip-close"
-            className="rk-glint shrink-0 rounded border border-border px-1.5 py-0.5 text-xs leading-none text-text-secondary transition-colors hover:border-text-secondary coarse:min-h-[36px] coarse:min-w-[36px]"
-          >
-            ×
-          </button>
-        </div>
-      </div>
-      )}
-
-      {files.length > 0 && (
-        <div className="flex gap-1.5 overflow-x-auto" data-testid="compose-strip-previews">
-          {files.map((uf, i) => {
-            const isImage = uf.file.type.startsWith("image/");
-            return (
-              <div key={`${uf.path}-${i}`} className="relative shrink-0 group">
-                {isImage ? (
-                  <img
-                    src={getBlobUrl(uf.file)}
-                    alt={uf.file.name}
-                    className="h-[40px] w-auto rounded border border-border object-cover"
-                  />
-                ) : (
-                  <div className="h-[40px] px-2 flex items-center rounded border border-border bg-bg-card">
-                    <span className="text-[10px] text-text-secondary max-w-[80px] truncate">
-                      {uf.file.name}
-                    </span>
-                  </div>
-                )}
-                <button
-                  type="button"
-                  aria-label={`Remove ${uf.file.name}`}
-                  onMouseDown={preventFocusSteal}
-                  onClick={() => removeFile(i)}
-                  className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-bg-primary border border-border text-text-secondary text-[10px] leading-none flex items-center justify-center opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:text-red-500 hover:border-red-500 transition-all"
-                >
-                  ×
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      )}
+      {showHeader && headerEl}
 
       {/* One warm-tip cluster for the strip's buttons (260722-73al);
           placement `top` — the strip sits at the bottom of the screen. */}
-      {/* The layout forks on pointer type (260814-ink6). Fine pointers keep
-          the two-row stack (260724-2bmy): the textarea alone at `w-full`,
-          then a button row (📎 left; `ml-auto` Insert + Send). Coarse
-          pointers collapse to ONE bottom-aligned row — 📎 · textarea
-          (flex-1) · ⏎ · Send — so a grown textarea rises above the flanking
-          chips; Insert is dropped there (the mobile return key already
-          performs insert-line). */}
+      {/* ONE structure for both forms — the card/compact morph re-styles and
+          reorders the same keyed siblings (never a second branch), so no
+          control remounts and the textarea keeps focus across the morph.
+          Card: a bordered, rounded box — full-width previews, then the
+          full-width transparent textarea, then the chip row (the `w-full`
+          rows wrap above the chips under `flex-wrap`). Compact: the same
+          siblings as a single plain row — 📎 (· a| on fine) · textarea
+          (flex-1) · Send. */}
       <TipGroup>
-      {coarsePointer ? (
-        <div className="flex items-end gap-1.5">
-          {fileInput}
-          {attachChip}
-          {closeChip}
-          {textareaEl}
-          {/* The header row is folded on coarse, so its uploading status is
-              relocated into this row — immediately left of Send, mirroring
-              the header's uploading-left-of-× grouping. */}
-          {uploading && (
-            <span
-              role="status"
-              className="shrink-0 self-center text-xs text-accent"
-              data-testid="compose-strip-uploading"
-            >
-              Uploading…
-            </span>
-          )}
-          {!isSelectionTarget && newlineChip}
-          {sendChip}
-        </div>
-      ) : (
-        <div className="flex flex-col gap-1.5">
-          {textareaEl}
-          <div className="flex items-center gap-1.5">
-            {fileInput}
-            {attachChip}
-            {/* The `a|` closer (260814-ldbs) sits immediately right of attach —
-                the opener/closer family. */}
-            {closeChip}
-            {/* The right group is an ml-auto container rather than a spacer
-                element, leaving the Tip-wrapped Insert/Send untouched. */}
-            <div className="ml-auto flex items-center gap-1.5">
-              {insertChip}
-              {sendChip}
-            </div>
-          </div>
-        </div>
-      )}
+      <div
+        key="body"
+        data-testid={isCard ? "compose-strip-card" : undefined}
+        className={
+          isCard
+            ? "flex flex-wrap items-center gap-1.5 rounded border border-border bg-bg-card px-1.5 py-1 focus-within:border-accent"
+            : "flex items-center gap-1.5"
+        }
+      >
+        {isCard && files.length > 0 && previewsEl}
+        {fileInput}
+        {textareaEl}
+        {attachChip}
+        {!coarsePointer && closeChip}
+        {coarsePointer && isCard && !isSelectionTarget && !composerEmpty && newlineChip}
+        {!coarsePointer && isCard && insertChip}
+        {sendChip}
+      </div>
       </TipGroup>
       </div>
     </div>

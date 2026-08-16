@@ -1,0 +1,12 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-16T19:02:53Z"}
+{"args":"Compose strip card unification — one card layout model for both pointer types, compact single-row empty state, per-pointer morph triggers (coarse focus-or-draft, fine draft-presence with hysteresis latch), chip roster rework, header fold on fine at in-tile dock, 2-row floor retired, uploading spinner on attach chip","cmd":"fab-new","event":"command","ts":"2026-08-16T19:02:53Z"}
+{"delta":"+0.0","event":"confidence","score":4.2,"trigger":"calc-score","ts":"2026-08-16T19:05:13Z"}
+{"delta":"+0.0","event":"confidence","score":4.2,"trigger":"calc-score","ts":"2026-08-16T19:05:36Z"}
+{"delta":"+0.0","event":"confidence","score":4.2,"trigger":"calc-score","ts":"2026-08-16T19:06:00Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-08-16T19:07:11Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-16T19:08:47Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-16T19:09:20Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-16T20:11:17Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-16T20:23:06Z"}
+{"event":"review","result":"passed","ts":"2026-08-16T20:23:06Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-16T20:38:11Z"}

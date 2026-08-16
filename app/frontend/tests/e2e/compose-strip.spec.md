@@ -24,10 +24,18 @@ between docks without losing the per-target draft; the footer dock never
 overflows a 375px mobile viewport). The pane-aligned geometry of 260812-fryz
 is retired — both docks are container-aligned, no measurement, no inline
 margin/width styles.
-It also covers the coarse-pointer presentation collapse (260814-ink6) via a
-nested touch-emulated describe: the header row folds into the placeholder,
-the two-row stack collapses to one row with the ⏎ local-newline chip, and
-the bottom bar hides while the textarea owns focus.
+The strip's layout is ONE card model on both pointers: with no draft it is a
+single compact row (📎 · a| on fine · textarea · Send); the card — a bordered
+box holding the full-width transparent textarea with a quiet chip row below
+it — morphs in on per-pointer triggers (coarse: focus / multi-line draft /
+attachments; fine: draft presence with a hysteresis latch released only by
+blur-while-empty). The `a|` closer is dropped on coarse, the ⏎ chip hides
+while the composer is empty, the fine header folds at the in-tile dock (the
+tile frame names the target; the footer dock and broadcast keep it), and the
+`Uploading…` text is replaced by a busy state on the 📎 chip itself. The
+coarse-pointer coverage runs via a nested touch-emulated describe
+(`hasTouch: true` flips Chromium's `(pointer: coarse)` media query), which
+also pins the bottom bar hiding while the textarea owns focus.
 The chat send form deliberately does NOT follow the strip's Enter policy (it
 keeps Enter=newline — the chat lens cannot show the pane's input box); its
 coverage lives in `chat-view.spec.ts`.
@@ -70,13 +78,15 @@ palette parity).
 6. Open the palette (`Meta+k`), click `View: Text Input`; assert the chip
    returns to `aria-pressed="false"` and the strip is gone.
 
-### `the on-strip × closes the strip; the draft survives close→reopen (260722-d5q7)`
+### `the on-strip a| closes the strip (the in-tile header is folded); the draft survives close→reopen`
 
-**What it proves:** The × close button in the strip's header row fires the same
-`toggleComposeStrip` action as the `a▏` chip — clicking it unmounts the strip
-and returns the chip to `aria-pressed="false"` — with no confirmation dialog,
-and the unsent draft survives the close (the per-target module store outlives
-the strip's unmount) so reopening on the same target restores it.
+**What it proves:** At the fine-pointer in-tile dock the strip's header row —
+and its × — is folded (the tile frame names the target), so the `a|` chip is
+the on-strip closer there: clicking it fires the same `toggleComposeStrip`
+action as the `a▏` chip, unmounting the strip and returning the chip to
+`aria-pressed="false"` — with no confirmation dialog, and the unsent draft
+survives the close (the per-target module store outlives the strip's
+unmount) so reopening on the same target restores it.
 
 **Steps:**
 
@@ -85,7 +95,8 @@ the strip's unmount) so reopening on the same target restores it.
    strip has a live target.
 2. Enable the strip via the `a▏` chip; fill the input with a unique draft
    marker.
-3. Click the × (`compose-strip-close`); assert the strip
+3. Assert `compose-strip-close` is ABSENT (the in-tile header fold); click the
+   `a|` chip (`compose-strip-a-close`); assert the strip
    (`[data-testid=compose-strip]`) is gone and the chip reads
    `aria-pressed="false"` (same preference the chip toggles).
 4. Click the chip to reopen; assert the input still holds the draft marker
@@ -219,7 +230,9 @@ Zooming the tile carries the strip with it (the dock rides the tile).
 
 **What it proves:** The board route has no surface tiles, so the strip docks at
 the shell footer — a child of `<footer>`, never inside a board pane — and
-spans the full row with no inline alignment styles.
+spans the full row with no inline alignment styles. The fine footer dock KEEPS
+the header row (no tile frame names the target there), so the × close renders
+and closes the strip.
 
 **Steps:**
 
@@ -231,6 +244,8 @@ spans the full row with no inline alignment styles.
    `board pane cs-alpha`.
 5. Measure the strip's outer row; poll until the inner wrapper spans it (±2px)
    and assert no `margin-left` inline style.
+6. Assert the header's target label is visible (the footer dock keeps the
+   header); click the × (`compose-strip-close`); assert the strip is gone.
 
 ### `selection broadcast flips the strip from the tile to the footer dock (260813-j3jb)`
 
@@ -259,7 +274,9 @@ target label. The dock split IS the mode signal.
 **What it proves:** At a 375px viewport the tile chrome does not render, so the
 strip docks at the shell footer (never inside the chromeless tile) and causes
 no page-level horizontal overflow — its visible box stays fully inside the
-viewport.
+viewport. With a fine pointer (viewport-only emulation), focus-on-open does
+NOT morph the strip (the fine trigger is draft presence, never focus), and
+the first character morphs it to the card — still without overflow.
 
 **Steps:**
 
@@ -270,22 +287,26 @@ viewport.
    (260814-ldbs: the bottom bar is pointer-gated to coarse, the status bar
    width-gated to desktop), so the keyboard-first path is the opener; assert
    the inner wrapper is visible and the strip is a descendant of `<footer>`.
-3. Poll `document.documentElement.scrollWidth` until ≤ 375 (no horizontal page
-   overflow).
-4. Assert the inner box's `x ≥ 0` and `x + width ≤ 375`.
+3. Assert `compose-strip-card` is ABSENT (fine focus never morphs — the strip
+   stays a compact single row).
+4. Poll `document.documentElement.scrollWidth` until ≤ 375 (no horizontal page
+   overflow); assert the inner box's `x ≥ 0` and `x + width ≤ 375`.
+5. Fill the input with a two-line draft; assert `compose-strip-card` renders
+   (draft presence morphs to the card) and `scrollWidth` stays ≤ 375.
 
-### `compose focus hides the bottom bar; the strip renders one row with a ⏎ newline chip` (coarse pointer collapse, 260814-ink6)
+### `compose focus hides the bottom bar and morphs to the card; blur-while-empty returns compact` (coarse pointer card model)
 
 **What it proves:** On a coarse pointer (`hasTouch: true` flips Chromium's
 `(pointer: coarse)` media query) at 375px: focusing the compose textarea hides
-the bottom-bar key row and blurring (Escape) restores it; the `→ {target}`
-header row folds away and the target name moves into the textarea placeholder;
-the strip renders as a single row (`rows=1`, no Insert button) carrying the
-coarse-only `⏎` chip, which inserts a local newline at the caret without
-sending or dropping focus. Two on-device regressions are pinned (260814):
-hiding the bar leaves NO dead space in the footer (the bar owns its 48px
-frame, so its early-return removes the reserved height), and the single-line
-textarea is exactly 36px — flush with its flanking chips.
+the bottom-bar key row AND morphs the strip to the card — a full-width
+transparent textarea (`rows=1`) above a quiet chip row (no Insert, no `a|`
+closer on coarse; the ⏎ chip hidden while the composer is empty). With text,
+the ⏎ chip appears on the chip row BELOW the textarea, level with Send, and
+inserts a local newline at the caret without sending or dropping focus. The
+`→ {target}` header row folds away and the target name moves into the textarea
+placeholder. Escape blurs: the bottom bar returns, and a multi-line draft
+HOLDS the card. The on-device no-dead-space regression stays pinned (the bar
+owns its 48px frame, so its early-return removes the reserved height).
 
 **Steps:**
 
@@ -296,14 +317,33 @@ textarea is exactly 36px — flush with its flanking chips.
 3. Enable the strip via the `a▏` chip; assert the input is visible and focused
    (focus-on-open), and the bottom bar is now absent.
 4. Assert zero dead space: the footer's bottom edge equals the strip's bottom
-   edge while the bar is hidden (gap regression), and the single row is flush —
-   textarea height is 36px with the ⏎ and Send chips sharing its top and
-   bottom (alignment regression).
-5. Assert `compose-strip-target` is absent (header folded) and the input's
-   placeholder matches `→ ……`.
-6. Assert the input has `rows="1"`, the Insert button is absent, and the
-   `compose-strip-newline` chip is visible.
-7. Click the ⏎ chip; assert the input value is `"\n"` and the input is still
-   focused.
-8. Press Escape; assert the input is blurred and the bottom bar is visible
-   again.
+   edge while the bar is hidden (gap regression).
+5. Assert the card (`compose-strip-card`) renders with `rows="1"`, no Insert,
+   no `compose-strip-a-close`, and no `compose-strip-newline` (hidden while
+   empty); assert `compose-strip-target` is absent (header folded) and the
+   input's placeholder matches `→ ……`.
+6. Fill `"hello"`; assert the ⏎ chip appears on the card's chip row — its top
+   level with Send's, at or below the textarea's bottom edge — and that both
+   chips keep the 36px coarse touch-target floor.
+7. Click the ⏎ chip; assert the input value is `"hello\n"` and the input is
+   still focused.
+8. Press Escape; assert the input is blurred, the bottom bar is visible again,
+   and the card persists (the multi-line draft holds it).
+
+### `coarse compact is a single 36px-flush row — 📎 · textarea · Send` (coarse pointer card model)
+
+**What it proves:** On a coarse pointer, blurring the strip while the draft is
+EMPTY returns it to the compact single row (the card morph's release), and the
+compact row keeps the pinned 36px alignment: the textarea and Send share one
+height with flush tops and bottoms (260814 alignment regression).
+
+**Steps:**
+
+1. Set a 375×812 touch viewport; navigate to the `cat` session's window; wait
+   for `.xterm` and the relay stream.
+2. Enable the strip via the `a▏` chip; assert the input took focus
+   (focus-on-open → card form on coarse).
+3. Press Escape (blur while empty); assert `compose-strip-card` is ABSENT —
+   the strip is back to the compact row.
+4. Measure the textarea and Send chip boxes: textarea height is exactly 36px
+   and both chips share its top and bottom edges.

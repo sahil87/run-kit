@@ -137,7 +137,7 @@ test.describe("Docked compose strip", () => {
     await expect(page.getByTestId("compose-strip")).toHaveCount(0);
   });
 
-  test("the on-strip × closes the strip; the draft survives close→reopen (260722-d5q7)", async ({ page }) => {
+  test("the on-strip a| closes the strip (the in-tile header is folded); the draft survives close→reopen", async ({ page }) => {
     test.setTimeout(60_000);
     const windowId = await resolveWindowId(page, TERM_SESSION);
     await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(windowId)}`, {
@@ -161,9 +161,11 @@ test.describe("Docked compose strip", () => {
     await input.click();
     await input.fill(draft);
 
-    // The header-row × closes the strip — same toggle as the chip, so the chip
-    // reads unpressed. No confirmation dialog appears.
-    await page.getByTestId("compose-strip-close").click();
+    // At the fine in-tile dock the header row — and its × — is folded (the
+    // tile frame names the target), so the `a|` chip is the on-strip closer.
+    // Same toggle as the `a▏` chip: no confirmation dialog appears.
+    await expect(page.getByTestId("compose-strip-close")).toHaveCount(0);
+    await page.getByTestId("compose-strip-a-close").click();
     await expect(page.getByTestId("compose-strip")).toHaveCount(0);
     await expect(chip).toHaveAttribute("aria-pressed", "false");
 
@@ -436,6 +438,12 @@ test.describe("Docked compose strip", () => {
     const rowBox = await boxOf(strip);
     await expectAlignedTo(inner, rowBox, 2);
     await expect(inner).not.toHaveAttribute("style", /margin-left/);
+
+    // The fine footer dock KEEPS the header (no tile frame names the target
+    // here), so the × close renders — and closes the strip.
+    await expect(page.getByTestId("compose-strip-target")).toBeVisible();
+    await page.getByTestId("compose-strip-close").click();
+    await expect(page.getByTestId("compose-strip")).toHaveCount(0);
   });
 
   test("selection broadcast flips the strip from the tile to the footer dock (260813-j3jb)", async ({ page }) => {
@@ -502,6 +510,12 @@ test.describe("Docked compose strip", () => {
     await page.getByRole("option", { name: "View: Text Input" }).click();
     const inner = page.getByTestId("compose-strip-inner");
     await expect(inner).toBeVisible();
+    const input = page.getByTestId("compose-strip-input");
+
+    // Fine pointer (viewport-only emulation): opening focused the textarea,
+    // but focus NEVER morphs on fine — the strip stays a compact single row
+    // until the first character.
+    await expect(page.getByTestId("compose-strip-card")).toHaveCount(0);
 
     // Mobile renders no tile chrome, so the strip docks at the shell footer —
     // never inside the (chromeless) tile — and causes no page-level
@@ -513,18 +527,26 @@ test.describe("Docked compose strip", () => {
     const innerBox = await boxOf(inner);
     expect(innerBox.x).toBeGreaterThanOrEqual(0);
     expect(innerBox.x + innerBox.width).toBeLessThanOrEqual(375);
+
+    // The first character morphs to the card (full-width textarea, chips
+    // below) — still with no horizontal overflow.
+    await input.fill("line one\nline two");
+    await expect(page.getByTestId("compose-strip-card")).toBeVisible();
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
+      .toBeLessThanOrEqual(375);
   });
 
-  // Coarse-pointer presentation collapse (260814-ink6). hasTouch flips
-  // Chromium's `(pointer: coarse)` media query (the same seam
-  // bottom-bar-chip-size.spec.ts uses), activating the coarse layout arm:
-  // the header row folds into the placeholder, the two-row stack collapses
-  // to one row (📎 · textarea · ⏎ · Send, no Insert, rows=1), and the bottom
-  // bar hides while the textarea owns focus.
-  test.describe("coarse pointer collapse (260814-ink6)", () => {
+  // Coarse-pointer card model. hasTouch flips Chromium's `(pointer: coarse)`
+  // media query (the same seam bottom-bar-chip-size.spec.ts uses): the strip
+  // is a single compact row (📎 · textarea · Send) while blurred and empty,
+  // and morphs to the CARD — full-width transparent textarea with a quiet
+  // chip row (📎 · ⏎ · spacer · Send) below it — on focus, a multi-line
+  // draft, or attachments. The bottom bar hides while the textarea owns focus.
+  test.describe("coarse pointer card morph", () => {
     test.use({ hasTouch: true, viewport: { width: 375, height: 812 } });
 
-    test("compose focus hides the bottom bar; the strip renders one row with a ⏎ newline chip", async ({ page }) => {
+    test("compose focus hides the bottom bar and morphs to the card; blur-while-empty returns compact", async ({ page }) => {
       test.setTimeout(60_000);
       const windowId = await resolveWindowId(page, TERM_SESSION);
       await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(windowId)}`, {
@@ -542,7 +564,8 @@ test.describe("Docked compose strip", () => {
       await expect(toolbar).toBeVisible();
 
       // Enable the strip — focus-on-open grabs the textarea (on mobile that
-      // summons the IME), which must hide the bottom bar.
+      // summons the IME), which must hide the bottom bar AND morph coarse to
+      // the card.
       await page.getByRole("button", { name: "Compose text" }).click();
       const input = page.getByTestId("compose-strip-input");
       await expect(input).toBeVisible();
@@ -560,9 +583,27 @@ test.describe("Docked compose strip", () => {
       });
       expect(deadSpace).toBe(0);
 
-      // Single-line alignment: the textarea and its flanking chips share one
-      // 36px height, so tops and bottoms are flush (260814 alignment fix).
-      const rowGeo = await page.evaluate(() => {
+      // Card form: the textarea spans the card's full width with the chip row
+      // below it — no flanking chips. rows=1, no Insert, no a| (dropped on
+      // coarse), and the ⏎ chip hides while the composer is empty.
+      const card = page.getByTestId("compose-strip-card");
+      await expect(card).toBeVisible();
+      await expect(input).toHaveAttribute("rows", "1");
+      await expect(page.getByTestId("compose-strip-insert")).toHaveCount(0);
+      await expect(page.getByTestId("compose-strip-a-close")).toHaveCount(0);
+      await expect(page.getByTestId("compose-strip-newline")).toHaveCount(0);
+
+      // Header folded: no target label / × close; the target moved into the
+      // placeholder.
+      await expect(page.getByTestId("compose-strip-target")).toHaveCount(0);
+      await expect(input).toHaveAttribute("placeholder", /^→ .+…$/);
+
+      // With text the ⏎ chip appears — on the card's chip row BELOW the
+      // textarea, level with Send.
+      await input.fill("hello");
+      const newline = page.getByTestId("compose-strip-newline");
+      await expect(newline).toBeVisible();
+      const cardGeo = await page.evaluate(() => {
         const r = (tid: string) =>
           document.querySelector(`[data-testid="${tid}"]`)?.getBoundingClientRect() ?? null;
         return {
@@ -571,34 +612,63 @@ test.describe("Docked compose strip", () => {
           send: r("compose-strip-send"),
         };
       });
-      expect(rowGeo.ta?.height).toBe(36);
-      expect(rowGeo.nl?.top).toBe(rowGeo.ta?.top);
-      expect(rowGeo.send?.top).toBe(rowGeo.ta?.top);
-      expect(rowGeo.send?.bottom).toBe(rowGeo.ta?.bottom);
-
-      // Header folded: no target label / × close; the target moved into the
-      // placeholder.
-      await expect(page.getByTestId("compose-strip-target")).toHaveCount(0);
-      await expect(input).toHaveAttribute("placeholder", /^→ .+…$/);
-
-      // Single coarse row: rows=1, no Insert, and the ⏎ chip renders.
-      await expect(input).toHaveAttribute("rows", "1");
-      await expect(page.getByTestId("compose-strip-insert")).toHaveCount(0);
-      const newline = page.getByTestId("compose-strip-newline");
-      await expect(newline).toBeVisible();
+      expect(cardGeo.nl?.top).toBe(cardGeo.send?.top);
+      expect(cardGeo.nl?.top).toBeGreaterThanOrEqual(cardGeo.ta?.bottom ?? Infinity);
+      // Coarse touch floors hold inside the card's quiet chip row.
+      expect(cardGeo.nl?.height).toBeGreaterThanOrEqual(36);
+      expect(cardGeo.send?.height).toBeGreaterThanOrEqual(36);
 
       // The ⏎ chip is the mobile Shift+Enter: a local newline at the caret —
       // nothing is sent, and the textarea keeps focus (the keyboard must not
       // dismiss).
       await newline.click();
-      await expect(input).toHaveValue("\n");
+      await expect(input).toHaveValue("hello\n");
       await expect(input).toBeFocused();
       await expect(page.getByTestId("compose-strip")).toBeVisible();
 
-      // Escape blurs the textarea → the bottom bar returns.
+      // Escape blurs the textarea → the bottom bar returns; the multi-line
+      // draft ("hello\n") HOLDS the card.
       await page.keyboard.press("Escape");
       await expect(input).not.toBeFocused();
       await expect(toolbar).toBeVisible();
+      await expect(card).toBeVisible();
+    });
+
+    test("coarse compact is a single 36px-flush row — 📎 · textarea · Send", async ({ page }) => {
+      test.setTimeout(60_000);
+      const windowId = await resolveWindowId(page, TERM_SESSION);
+      await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(windowId)}`, {
+        waitUntil: "domcontentloaded",
+      });
+      await expect(page.locator(".xterm").first()).toBeVisible({ timeout: 15_000 });
+      await expect
+        .poll(() => page.evaluate((w) => Boolean(window.__rkTerminals?.[w]), windowId), {
+          timeout: 15_000,
+        })
+        .toBe(true);
+
+      // Enable the strip (focus-on-open focuses → card), then blur with
+      // Escape while the draft is EMPTY → the compact single row returns.
+      await page.getByRole("button", { name: "Compose text" }).click();
+      const input = page.getByTestId("compose-strip-input");
+      await expect(input).toBeFocused();
+      await page.keyboard.press("Escape");
+      await expect(input).not.toBeFocused();
+      await expect(page.getByTestId("compose-strip-card")).toHaveCount(0);
+
+      // Single-line alignment: the textarea and its flanking chips share one
+      // 36px height, so tops and bottoms are flush (260814 alignment fix).
+      const rowGeo = await page.evaluate(() => {
+        const r = (tid: string) =>
+          document.querySelector(`[data-testid="${tid}"]`)?.getBoundingClientRect() ?? null;
+        return {
+          ta: r("compose-strip-input"),
+          send: r("compose-strip-send"),
+        };
+      });
+      expect(rowGeo.ta?.height).toBe(36);
+      expect(rowGeo.send?.top).toBe(rowGeo.ta?.top);
+      expect(rowGeo.send?.bottom).toBe(rowGeo.ta?.bottom);
     });
   });
 });

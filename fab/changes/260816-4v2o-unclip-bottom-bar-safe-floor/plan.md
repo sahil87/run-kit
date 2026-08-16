@@ -22,6 +22,14 @@ The bottom-bar frame (`bottom-bar.tsx`, the div wrapping the toolbar row) MUST N
 - **WHEN** the geometry assertion measures `812 - boundingBox.bottom` of the last chip
 - **THEN** it is ≥ 16 with the keyboard collapsed and in [6, 16) with `kb-open` set
 
+#### R4: The keyboard gate MUST cover the `env()` arm too
+The toolbar's bottom pad SHALL be a `globals.css`-owned custom property: `--bottom-bar-pad` defined at `:root` as `max(var(--bottom-bar-floor, 0.375rem), env(safe-area-inset-bottom))` and overridden under `html.kb-open` to `var(--bottom-bar-floor, 0.375rem)` (floor-only — the inset zone is covered by the keyboard, so its clearance is wasted height). The toolbar row consumes it as `pb-[var(--bottom-bar-pad,0.375rem)]`; no `env()` reference remains in the component class.
+
+- **GIVEN** the installed PWA (where `env(safe-area-inset-bottom)` reports the real 34pt inset)
+- **WHEN** the on-screen keyboard opens (`html.kb-open` set)
+- **THEN** the pad computes to the 6px floor, not `max(6px, 34pt)`
+- **AND** with the keyboard collapsed the pad is unchanged in every environment (floor in-browser, real inset in the PWA)
+
 #### R3: The `.spec.md` companion MUST document the new tests
 Per the constitution's Test Companion Docs rule, `bottom-bar-safe-floor.spec.md` SHALL be updated in the same commit: what the geometry assertions prove (the floor is visible screen gap — a fixed frame height can silently swallow computed padding) and steps mirroring the test body.
 
@@ -39,7 +47,7 @@ Per the constitution's Test Companion Docs rule, `bottom-bar-safe-floor.spec.md`
 
 ### Non-Goals
 
-- No change to the floor values, the `kb-open` signal, or the `max(floor, env())` expression — they are correct; only the clipping frame is wrong.
+- No change to the floor values or the `kb-open` signal — they are correct. (The `max(floor, env())` expression, originally out of scope, moved into scope via R4: the env arm must not win under the keyboard.)
 - No change to fine-pointer behavior (the bar does not render there, 260814-ldbs).
 
 ## Tasks
@@ -54,6 +62,12 @@ Per the constitution's Test Companion Docs rule, `bottom-bar-safe-floor.spec.md`
 
 - [x] T004 Update `app/frontend/tests/e2e/bottom-bar-safe-floor.spec.md` to document the geometry assertions (what they prove + steps), per the constitution's Test Companion Docs rule <!-- R3 -->
 - [x] T005 [P] Sweep stale "48px frame" wording implying fixed height: call-site comments in `app/frontend/src/app.tsx` (~line 3666 area) and `app/frontend/src/components/board/board-page.tsx` (~line 991); leave `compose-strip.spec.ts`/`.spec.md` if their meaning (bar owns its frame) still holds <!-- R1 -->
+
+### Phase 5: env-arm keyboard gate (amendment, 2026-08-17)
+
+- [x] T006 In `app/frontend/src/globals.css` add `--bottom-bar-pad` at `:root` (`max(var(--bottom-bar-floor, 0.375rem), env(safe-area-inset-bottom))`) and the `html.kb-open` floor-only override; update the § Bottom-bar safe floor comment to state the env-arm gate and why the inset must not win under the keyboard <!-- R4 -->
+- [x] T007 In `app/frontend/src/components/bottom-bar.tsx` change the row class to `pb-[var(--bottom-bar-pad,0.375rem)]` and update the row comment (the `max()` shape now lives in globals.css; env is gated off under kb-open) <!-- R4 -->
+- [x] T008 Update `app/frontend/tests/e2e/bottom-bar-safe-floor.spec.md` intro (the env arm is kb-open-gated; still out of e2e reach) and re-run the existing assertions to confirm they hold unchanged (16px collapsed / 6px kb-open) <!-- R4 -->
 
 ## Acceptance
 
@@ -75,6 +89,8 @@ Per the constitution's Test Companion Docs rule, `bottom-bar-safe-floor.spec.md`
 
 - [x] A-006 Pattern consistency: comment updates state constraints (why fixed height must not return), no narration; existing test structure and helpers reused
 - [x] A-007 No unnecessary duplication: geometry constants (RAISED_FLOOR/BASE_FLOOR) reused in the new assertions, not re-hardcoded
+- [x] A-008 R4: `--bottom-bar-pad` is defined at `:root` and floor-only under `html.kb-open`; the component references only `var(--bottom-bar-pad)`, no inline `env()`
+- [x] A-009 R4: Existing e2e padding assertions pass unchanged (16px collapsed / 6px kb-open) after the pad moves into the custom property
 
 ## Notes
 

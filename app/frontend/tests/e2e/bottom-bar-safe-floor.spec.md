@@ -7,10 +7,17 @@ raised `--bottom-bar-floor` (1rem) on coarse pointers, applied only while the
 on-screen keyboard is collapsed — `useVisualViewport` toggles `html.kb-open`
 when the keyboard opens, dropping the floor back to 6px.
 
+The pad is the `globals.css`-owned `--bottom-bar-pad`:
+`max(--bottom-bar-floor, env(safe-area-inset-bottom))` while the keyboard is
+collapsed, floor-only under `html.kb-open` — the env arm must not win under
+the keyboard (in standalone PWA mode `env()` keeps reporting the 34pt
+home-indicator inset while the keyboard covers that zone).
+
 Chromium also reports `env()` as 0, so these tests assert exactly what is
-honestly measurable: the floor arm of the `max()` expression and the `kb-open`
-class flip. The `env()` arm and the real keyboard signal are out of e2e reach
-(the signal derivation is unit-tested in `use-visual-viewport.test.ts`).
+honestly measurable: the floor arm of the pad expression and the `kb-open`
+class flip. The `env()` arm (both its PWA-collapsed win and its kb-open
+gating) and the real keyboard signal are out of e2e reach — device-verified
+only (the signal derivation is unit-tested in `use-visual-viewport.test.ts`).
 
 The floor is asserted twice, on purpose: once as computed `padding-bottom`
 (the CSS is right) and once as rendered chip position (the padding actually

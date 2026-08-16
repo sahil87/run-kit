@@ -376,17 +376,17 @@ export function BottomBar({ onOpenCompose, onFocusTerminal, surfaceSheet }: Bott
     // self-suppresses under pointer: coarse).
     <div className="border-t-[3px] border-border px-1.5 min-h-[48px]">
     <TipGroup>
-    {/* pb = max(--bottom-bar-floor, safe-area-inset-bottom). env() resolves to
-        0 in in-browser iOS Safari for this fixed-position app (non-zero only in
-        standalone PWA mode), so the corner-arc/home-indicator clearance comes
-        from the floor instead: globals.css raises --bottom-bar-floor from 6px
-        to 1rem on coarse pointers while the keyboard is collapsed. The
-        keyboard-open signal is explicit JS — useVisualViewport toggles
-        html.kb-open, dropping the floor back to 6px so no padding is wasted
-        above the keyboard (do NOT rely on env() or
-        interactive-widget=resizes-content collapsing on iOS). max() keeps
-        genuine inset reporting winning where it exists. (260805-fi9m) */}
-    <div className="flex items-center gap-1.5 coarse:gap-1 pt-1.5 pb-[max(var(--bottom-bar-floor,0.375rem),env(safe-area-inset-bottom))] flex-wrap" role="toolbar" aria-label="Terminal keys">
+    {/* pb = --bottom-bar-pad, owned by globals.css: max(--bottom-bar-floor,
+        env(safe-area-inset-bottom)) while the keyboard is collapsed, floor-only
+        under html.kb-open. The whole expression lives there — not inline here —
+        so the keyboard gate covers the env() arm too: in standalone PWA mode
+        env() keeps reporting the 34pt home-indicator inset while the keyboard
+        covers that zone, and an inline max() would hold the full pad above the
+        keyboard. The keyboard-open signal is explicit JS — useVisualViewport
+        toggles html.kb-open (do NOT rely on env() or
+        interactive-widget=resizes-content collapsing on iOS).
+        (260805-fi9m, 260816-4v2o) */}
+    <div className="flex items-center gap-1.5 coarse:gap-1 pt-1.5 pb-[var(--bottom-bar-pad,0.375rem)] flex-wrap" role="toolbar" aria-label="Terminal keys">
       <Tip label="Tab" placement="top">
         <button aria-label="Tab" className={`${KBD_CLASS} text-text-secondary`} onMouseDown={preventFocusSteal} onClick={() => sendSpecial("\t")}>
           <kbd aria-hidden="true">{"\u21E5"}</kbd>

@@ -57,6 +57,19 @@ Keep the existing computed-`padding-bottom` assertions, and ADD real geometry as
 
 `app/frontend/tests/e2e/bottom-bar-safe-floor.spec.md` — document the new geometry assertions (what they prove: the floor is visible screen gap, not just computed padding; steps mirroring the test body).
 
+### 5. Gate the `env()` arm on keyboard-collapsed (amendment, 2026-08-17)
+
+Device-confirmed after the frame fix released (iPhone screenshot, installed PWA, keyboard open): the pad stays ~34pt above the keyboard. Root cause: standalone PWA mode is the one environment where `env(safe-area-inset-bottom)` reports the real 34pt home-indicator inset — and `env()` is layout-viewport-based, so it KEEPS reporting 34pt while the keyboard covers that zone. `kb-open` correctly drops the floor arm to 6px, but `max(6px, 34pt)` keeps the full pad. The "genuine inset reporting still wins" premise (260805-fi9m) is wrong in exactly the kb-open state.
+
+Fix: move the whole pad into a `globals.css`-owned property so the keyboard gate covers BOTH arms:
+
+```css
+:root { --bottom-bar-pad: max(var(--bottom-bar-floor, 0.375rem), env(safe-area-inset-bottom)); }
+html.kb-open { --bottom-bar-pad: var(--bottom-bar-floor, 0.375rem); }
+```
+
+The toolbar row becomes `pb-[var(--bottom-bar-pad,0.375rem)]`. Keyboard collapsed: unchanged everywhere (floor in-browser, real inset wins in the PWA). Keyboard open: flat 6px in both. Existing e2e computed-padding assertions (16px collapsed / 6px kb-open, Chromium env()=0) hold unchanged; the env arm stays out of e2e reach (device-verified only). Compose strip audited: no `env(safe-area-inset-bottom)` usage — the bar is the sole bottom-edge consumer.
+
 ## Affected Memory
 
 - `run-kit/ui/compose-and-bottom-bar`: (modify) Frame description (`px-1.5 h-[48px]` → `min-h-[48px]` content-growth) in the bar-anatomy paragraph and the row-geometry paragraph; note the clip-vs-floor interaction (a fixed frame height silently swallows the floor).
@@ -81,5 +94,7 @@ Keep the existing computed-`padding-bottom` assertions, and ADD real geometry as
 | 2 | Confident | Fix = `min-h-[48px]` on the frame (content growth) rather than bare auto height or a calc() height | Discussed — user approved "let it size to content... or keep min-h-[48px]"; min-h pins today's minimum, inner paddings already define geometry, Shell row is auto | S:70 R:85 A:80 D:70 |
 | 3 | Confident | E2E adds bounding-box gap assertions (≥16 collapsed, ≥6 and <16 under kb-open) alongside the kept computed-padding checks | Proposed in-session and approved; measures the property the user actually reported | S:75 R:90 A:85 D:80 |
 | 4 | Confident | Nothing else depends on the bar being exactly 48px (Shell `bottombar` grid row is auto; FitAddon handles resize) | Strong signal from PR #598's design notes; verified at apply via grep (What Changes §2) — easily reversed if a consumer surfaces | S:60 R:85 A:75 D:75 |
+| 5 | Confident | The keyboard-open pad leak is the `env()` arm in standalone PWA mode (inset stays 34pt under the keyboard), not a `kb-open` signal failure | Screenshot geometry matches max(6px, 34pt); no-browser-chrome screenshots indicate PWA; env() is layout-viewport-based by spec; also retro-explains the generous collapsed gap | S:75 R:85 A:80 D:75 |
+| 6 | Confident | Fix = globals.css-owned `--bottom-bar-pad` with a `html.kb-open` floor-only override, consumed via `pb-[var(--bottom-bar-pad,0.375rem)]` | Discussed — user approved; single-place geometry (the drift-prone two-place mirror was rejected in this change's own DD); existing e2e assertions hold unchanged | S:80 R:90 A:85 D:80 |
 
-4 assumptions (1 certain, 3 confident, 0 tentative, 0 unresolved).
+6 assumptions (1 certain, 5 confident, 0 tentative, 0 unresolved).

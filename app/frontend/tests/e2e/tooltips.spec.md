@@ -77,7 +77,7 @@ tooltip on touch).
 ### `hovering a status-bar register label opens its plain-words tip`
 
 **What it proves:** The status bar's window-cluster register labels (terse
-3-char keys like `out`) carry tier-1 tips naming the register in plain words
+3-char keys like `tmx`) carry tier-1 tips naming the register in plain words
 (260723-fm08 — the labels moved here from the desktop-retired sidebar PANE
 panel in 260814-ldbs). The label is a non-focusable span, so the tip is
 hover-only — no new tab stops were added for a non-actionable element (the
@@ -86,8 +86,8 @@ hover-only — no new tab stops were added for a non-actionable element (the
 **Steps:**
 1. Navigate to `/default/1` (mocked backend) and wait for the
    `status-bar-window` cluster to be visible.
-2. Hover the exact-text `out` label span inside the cluster.
-3. Assert a `role="tooltip"` element becomes visible reading "Last output".
+2. Hover the exact-text `tmx` label span inside the cluster.
+3. Assert a `role="tooltip"` element becomes visible reading "tmux pane".
 
 ### `hovering the status bar's ⌘K hint shows its tip with the keycap slot`
 

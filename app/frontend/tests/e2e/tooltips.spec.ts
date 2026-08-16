@@ -162,10 +162,12 @@ test.describe("Status-bar label and hint tips (260723-fm08, retargeted 260814-ld
 
     // The register KEY is a non-focusable span — hover-only (no new tab
     // stops, the 73al connection-dot precedent). Hover past the open delay.
-    await cluster.getByText("out", { exact: true }).hover();
+    // The tmx label: always in the strip at the default desktop viewport
+    // (the out register no longer exists in the bar).
+    await cluster.getByText("tmx", { exact: true }).hover();
     const tooltip = page.getByRole("tooltip");
     await expect(tooltip).toBeVisible();
-    await expect(tooltip).toHaveText(/Last output/);
+    await expect(tooltip).toHaveText(/tmux pane/);
   });
 
   test("hovering the status bar's ⌘K hint shows its tip with the keycap slot", async ({ page }) => {

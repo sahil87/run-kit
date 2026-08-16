@@ -264,7 +264,12 @@ function WindowRowInner({
     if (!scrubActiveRef.current) return;
     scrubActiveRef.current = false;
     scrubRowRef.current = null;
-    e.currentTarget.releasePointerCapture?.(e.pointerId);
+    // hasPointerCapture guard (as in surface-layout.tsx): release throws
+    // NotFoundError when the capture was never taken or was already released
+    // implicitly (pointercancel). Optional-call keeps jsdom unit tests working.
+    if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
     // The last card STAYS open — dismissal is the existing outside-press path.
   };
 

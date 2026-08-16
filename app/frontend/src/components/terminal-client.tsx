@@ -500,19 +500,22 @@ export function TerminalClient({
   // delivery the touchend preventDefault didn't cover.
   useEffect(() => {
     if (!scrollLocked) return;
-    // Coarse-pointer only: scroll-lock is a touch feature (the toggle chip is
-    // coarse-gated), but the preference PERSISTS — rehydrated on a
-    // fine-pointer profile, the mousedown suppressor would kill click-to-focus
-    // and selection with no unlock affordance rendered anywhere.
-    if (!evaluateMediaQuery("(pointer: coarse)")) return;
     const container = terminalRef.current;
     if (!container) return;
 
+    // Coarse-pointer only, evaluated PER EVENT (not at effect setup): the
+    // preference persists and the primary pointer can change mid-session, so
+    // a setup-time snapshot could strand the suppression on (fine pointer,
+    // no unlock chip rendered) or off (device turned coarse after lock).
+    const coarse = () => evaluateMediaQuery("(pointer: coarse)");
+
     function onTouchEnd(e: TouchEvent) {
+      if (!coarse()) return;
       e.preventDefault();
     }
 
     function suppress(e: Event) {
+      if (!coarse()) return;
       e.preventDefault();
       e.stopPropagation();
     }
@@ -522,6 +525,7 @@ export function TerminalClient({
     // of a stuck keyboard. Scoped to locked state, so the disruption the
     // comment above warns about cannot affect normal (unlocked) use.
     function onFocusIn(e: FocusEvent) {
+      if (!coarse()) return;
       const target = e.target;
       if (target instanceof HTMLElement && target.closest(".xterm")) {
         target.blur();

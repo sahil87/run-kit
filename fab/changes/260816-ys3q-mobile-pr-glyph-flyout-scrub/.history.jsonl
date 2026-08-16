@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-16T18:36:03Z"}
+{"args":"Mobile PR-status parity + flyout scrub gesture (sidebar window rows, coarse pointers): rest-state PR glyph visible at rest on coarse rows; relocate pin/kill into the row flyout card on coarse; widen the coarse dot-tap target; slide-to-scrub gesture retargeting the single-open flyout; gesture-starts-on-dot scroll-conflict rule","cmd":"fab-new","event":"command","ts":"2026-08-16T18:36:03Z"}
+{"delta":"+3.8","event":"confidence","score":3.8,"trigger":"calc-score","ts":"2026-08-16T18:39:33Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-08-16T18:40:45Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-16T18:42:19Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-16T18:42:39Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-16T19:07:53Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-16T19:13:19Z"}
+{"event":"review","result":"passed","ts":"2026-08-16T19:13:19Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-16T19:22:05Z"}

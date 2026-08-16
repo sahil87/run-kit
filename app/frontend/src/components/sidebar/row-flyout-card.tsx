@@ -17,6 +17,8 @@ import {
 } from "@floating-ui/react";
 import { statusDotState } from "@/components/pr-status-model";
 import { dotLabel } from "@/components/status-dot-label";
+import { PinIcon } from "@/components/pin-icon";
+import { CloseIcon } from "./icons";
 import { getOutputLine, getAgentLine, getFabLine, getPrSegments } from "./registers";
 import { PopupTitleBar, PopupTitleBarSecondary, notchFill } from "./popup-title-bar";
 import { formatDuration } from "@/lib/format";
@@ -101,6 +103,31 @@ export function flyoutOpenDelay(): { open: number; close: number } {
 export function resetFlyoutWarmState(): void {
   activeFlyout = null;
   lastClosedAt = 0;
+  flyoutScrubTargets.clear();
+}
+
+// ── Scrub registry ─────────────────────────────────────────────────────────
+// Slide-to-scrub (coarse pointers): the row's tap-zone gesture hit-tests the
+// finger position and retargets the single-open card across rows. Element-
+// keyed module state beside the warm/single-open coordinator — no context, no
+// lifted state, no re-renders (the § Render Performance constraints).
+
+/** Row root element → that row's imperative open, for scrub retargeting. */
+const flyoutScrubTargets = new Map<HTMLElement, () => void>();
+
+/** Hit-test a scrub position: the registered window row under the point plus
+ *  its imperative open, or null over non-row elements (session headers, gaps,
+ *  the open card itself) and rows without a registered flyout — the caller
+ *  leaves the current card open on null (no flicker-close). */
+export function scrubTargetAt(
+  clientX: number,
+  clientY: number,
+): { row: HTMLElement; open: () => void } | null {
+  const hit = document.elementFromPoint(clientX, clientY);
+  const row = hit?.closest<HTMLElement>('[role="treeitem"][data-window-id]') ?? null;
+  if (!row) return null;
+  const open = flyoutScrubTargets.get(row);
+  return open ? { row, open } : null;
 }
 
 /**
@@ -307,7 +334,19 @@ function WindowFlyoutTitle({ win }: { win: WindowInfo }) {
  * render-performance contract. Absent layers render as absent (a plain shell
  * pane shows only `out`).
  */
-function RowFlyoutContent({ win, onFork }: { win: WindowInfo; onFork?: () => Promise<void> }) {
+function RowFlyoutContent({
+  win,
+  onFork,
+  onPinAction,
+  pinned = false,
+  onKillAction,
+}: {
+  win: WindowInfo;
+  onFork?: () => Promise<void>;
+  onPinAction?: () => void;
+  pinned?: boolean;
+  onKillAction?: () => void;
+}) {
   const nowSeconds = useNow();
   const state = statusDotState(win);
   const label = dotLabel(win, state);
@@ -422,6 +461,40 @@ function RowFlyoutContent({ win, onFork }: { win: WindowInfo; onFork?: () => Pro
       {/* Ambient "PR checked Xs ago" trust signal; omitted without a joined
           PR-status timestamp. Leaf-scoped clock inside the open card. */}
       <FreshnessLine fetchedAtEpoch={fetchedAtEpoch} />
+      {/* Pin/Kill action rows — the card's last block, rendered for ALL pointer
+          types: the pin/kill home on coarse (where the in-row cluster is
+          fine-pointer-only), additive + Tab-reachable on desktop (the
+          FloatingFocusManager order). Optional-handler idiom: a consumer wiring
+          no handler renders no row. Both stopPropagation so an action never
+          selects the underlying row (the PR-link/fork/docs idiom). */}
+      {onPinAction && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onPinAction();
+          }}
+          className="flex items-center gap-1.5 min-w-0 text-left whitespace-nowrap text-text-secondary hover:text-text-primary hover:bg-bg-inset focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent coarse:py-1"
+          data-testid="row-flyout-pin-action"
+        >
+          <PinIcon filled={pinned} />
+          {pinned ? "Pinned — manage boards…" : "Pin to board…"}
+        </button>
+      )}
+      {onKillAction && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onKillAction();
+          }}
+          className="flex items-center gap-1.5 min-w-0 text-left whitespace-nowrap text-text-secondary hover:text-signal-red hover:bg-bg-inset focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent coarse:py-1"
+          data-testid="row-flyout-kill-action"
+        >
+          <CloseIcon />
+          Kill window…
+        </button>
+      )}
     </>
   );
 }
@@ -442,6 +515,17 @@ type UseRowFlyoutOptions = {
    *  than rejecting): the button stays disabled until it does, so repeated clicks
    *  cannot create multiple fork windows. */
   onFork?: () => Promise<void>;
+  /** Open the row's pin popover (the card's Pin action row). The hook closes
+   *  the card BEFORE invoking it — popover-over-flyout precedence is pre-wired
+   *  via the `suppressed` gate, which already includes the popover-open state.
+   *  OPTIONAL: a consumer wiring none renders no Pin action row. */
+  onPinAction?: () => void;
+  /** Pin-state input for the Pin row's label + glyph fill. */
+  pinned?: boolean;
+  /** Kill the row's window (the card's Kill action row) — the consumer MUST
+   *  route it through the existing KillDialog confirm path; the card adds no
+   *  force-kill. OPTIONAL: a consumer wiring none renders no Kill row. */
+  onKillAction?: () => void;
 };
 
 type RowFlyout = {
@@ -472,7 +556,7 @@ type RowFlyout = {
  * treeitem), `useDismiss` (Escape / outside press / blur), plus the exposed
  * `openNow` for the coarse dot-tap.
  */
-export function useRowFlyout(win: WindowInfo, { suppressed = false, onFork }: UseRowFlyoutOptions = {}) {
+export function useRowFlyout(win: WindowInfo, { suppressed = false, onFork, onPinAction, pinned = false, onKillAction }: UseRowFlyoutOptions = {}) {
   const [open, setOpen] = useState(false);
   // True once keyboard focus has entered the OPEN card (Tab from the row).
   // Gates FloatingFocusManager's `returnFocus`: a close where focus was
@@ -597,6 +681,39 @@ export function useRowFlyout(win: WindowInfo, { suppressed = false, onFork }: Us
   }, [handleOpenChange, suppressed]);
   const close = useCallback(() => handleOpenChange(false), [handleOpenChange]);
 
+  // Pin action: close the card BEFORE the handoff — the `suppressed` gate
+  // closes it anyway once the popover opens, but the explicit close keeps the
+  // ordering independent of the consumer's state-update timing.
+  const handlePinAction = onPinAction
+    ? () => {
+        handleOpenChange(false);
+        onPinAction();
+      }
+    : undefined;
+
+  // Capture the reference node as state so the scrub-registry effect keys on
+  // it (set once at mount; an identical-node set bails out of the re-render).
+  const [referenceEl, setReferenceEl] = useState<HTMLElement | null>(null);
+  const setReference = useCallback(
+    (node: HTMLElement | null) => {
+      refs.setReference(node);
+      setReferenceEl(node);
+    },
+    [refs],
+  );
+
+  // Scrub registry: this row's imperative open keyed by its root element.
+  // Re-registers when `openNow`'s closure changes (e.g. the suppressed gate
+  // flips), so a scrub never invokes a stale gate; unregisters on unmount so
+  // a removed row (SSE) can't be retargeted.
+  useEffect(() => {
+    if (!referenceEl) return;
+    flyoutScrubTargets.set(referenceEl, openNow);
+    return () => {
+      flyoutScrubTargets.delete(referenceEl);
+    };
+  }, [referenceEl, openNow]);
+
   const card: ReactNode = open ? (
     <FloatingPortal>
       {/* Non-modal focus management so the card's links (PR + docs) are
@@ -652,14 +769,20 @@ export function useRowFlyout(win: WindowInfo, { suppressed = false, onFork }: Us
             aria-hidden="true"
             data-testid="row-flyout-arrow"
           />
-          <RowFlyoutContent win={win} onFork={onFork} />
+          <RowFlyoutContent
+            win={win}
+            onFork={onFork}
+            onPinAction={handlePinAction}
+            pinned={pinned}
+            onKillAction={onKillAction}
+          />
         </div>
       </FloatingFocusManager>
     </FloatingPortal>
   ) : null;
 
   return {
-    setReference: refs.setReference,
+    setReference,
     referenceProps: getReferenceProps(),
     card,
     open,

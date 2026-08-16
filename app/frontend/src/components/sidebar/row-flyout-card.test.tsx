@@ -4,6 +4,7 @@ import {
   useRowFlyout,
   flyoutOpenDelay,
   resetFlyoutWarmState,
+  scrubTargetAt,
   prFetchedAtEpoch,
   FreshnessLine,
   FLYOUT_OPEN_DELAY_MS,
@@ -38,24 +39,34 @@ afterEach(() => {
  *  seams (`openNow` = the coarse dot-tap, `close` = drag start) are exposed as
  *  buttons so tests can drive them like the row does. `onFork` mirrors the row's
  *  bound fork handler (omitted ⇒ no fork affordance); `onRowClick` stands in for
- *  the real row's select-on-click so stopPropagation can be asserted. */
+ *  the real row's select-on-click so stopPropagation can be asserted. The root
+ *  carries the real row's `role="treeitem"` + `data-window-id` so the scrub
+ *  registry's hit-test (`closest`) resolves it as a window row. */
 function Row({
   win,
   suppressed = false,
   onFork,
+  onPinAction,
+  pinned = false,
+  onKillAction,
   onRowClick,
 }: {
   win: WindowInfo;
   suppressed?: boolean;
   onFork?: () => Promise<void>;
+  onPinAction?: () => void;
+  pinned?: boolean;
+  onKillAction?: () => void;
   onRowClick?: () => void;
 }) {
-  const flyout = useRowFlyout(win, { suppressed, onFork });
+  const flyout = useRowFlyout(win, { suppressed, onFork, onPinAction, pinned, onKillAction });
   return (
     <div
       ref={flyout.setReference}
       {...flyout.referenceProps}
       onClick={onRowClick}
+      role="treeitem"
+      data-window-id={win.windowId}
       data-testid="row"
     >
       row
@@ -486,5 +497,130 @@ describe("prFetchedAtEpoch + FreshnessLine (migrated from the dot tip)", () => {
     cleanup();
     render(<FreshnessLine fetchedAtEpoch={null} />);
     expect(screen.queryByTestId("row-flyout-checked")).toBeNull();
+  });
+});
+
+// Pin/Kill action rows (ys3q): the card is the pin/kill home on coarse
+// pointers (where the in-row cluster is fine-pointer-only) and additive +
+// Tab-reachable on desktop. Optional-handler idiom: a consumer wiring no
+// handler renders no row.
+describe("Pin/Kill action rows (ys3q)", () => {
+  it("renders both action rows when handlers are wired, none when they are not", () => {
+    render(<Row win={makeWindow({})} onPinAction={() => {}} onKillAction={() => {}} />);
+    hoverOpen();
+    expect(screen.getByTestId("row-flyout-pin-action")).toHaveTextContent("Pin to board…");
+    expect(screen.getByTestId("row-flyout-kill-action")).toHaveTextContent("Kill window…");
+
+    cleanup();
+    render(<Row win={makeWindow({})} />);
+    hoverOpen();
+    expect(screen.queryByTestId("row-flyout-pin-action")).toBeNull();
+    expect(screen.queryByTestId("row-flyout-kill-action")).toBeNull();
+  });
+
+  it("the Pin row's label reflects the pinned state", () => {
+    render(<Row win={makeWindow({})} onPinAction={() => {}} pinned />);
+    hoverOpen();
+    expect(screen.getByTestId("row-flyout-pin-action")).toHaveTextContent("Pinned — manage boards…");
+  });
+
+  it("kill invokes onKillAction and never selects the underlying row (stopPropagation); the card stays open for the confirm dialog", () => {
+    const onKillAction = vi.fn();
+    const onRowClick = vi.fn();
+    render(<Row win={makeWindow({})} onKillAction={onKillAction} onRowClick={onRowClick} />);
+    hoverOpen();
+
+    act(() => {
+      fireEvent.click(screen.getByTestId("row-flyout-kill-action"));
+    });
+    expect(onKillAction).toHaveBeenCalledTimes(1);
+    expect(onRowClick).not.toHaveBeenCalled();
+    // The card does not close on kill — the KillDialog confirm path takes over.
+    expect(screen.getByTestId("row-flyout-card")).toBeInTheDocument();
+  });
+
+  it("pin closes the card first, then hands off to the popover opener (never selects the row)", () => {
+    const onPinAction = vi.fn();
+    const onRowClick = vi.fn();
+    render(<Row win={makeWindow({})} onPinAction={onPinAction} onRowClick={onRowClick} />);
+    hoverOpen();
+    expect(screen.getByTestId("row-flyout-card")).toBeInTheDocument();
+
+    act(() => {
+      fireEvent.click(screen.getByTestId("row-flyout-pin-action"));
+    });
+    expect(onPinAction).toHaveBeenCalledTimes(1);
+    expect(onRowClick).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("row-flyout-card")).toBeNull();
+  });
+});
+
+// Scrub registry (ys3q): module-scoped row-element → openNow map, populated by
+// useRowFlyout, driving the coarse slide-to-scrub retarget. jsdom has no
+// elementFromPoint, so the tests stub it (the gesture's hit-test seam).
+describe("scrub registry (ys3q)", () => {
+  function stubElementFromPoint(): ReturnType<typeof vi.fn> {
+    const stub = vi.fn();
+    (document as Document & { elementFromPoint?: unknown }).elementFromPoint = stub;
+    return stub;
+  }
+  afterEach(() => {
+    delete (document as { elementFromPoint?: unknown }).elementFromPoint;
+  });
+
+  it("registers a row's openNow on mount and unregisters on unmount", () => {
+    const elFromPoint = stubElementFromPoint();
+    const { unmount } = render(<Row win={makeWindow({})} />);
+    const row = screen.getByTestId("row");
+
+    // A hit on a DESCENDANT resolves to the row root via closest().
+    elFromPoint.mockReturnValue(row.querySelector("button"));
+    const target = scrubTargetAt(0, 0);
+    expect(target?.row).toBe(row);
+
+    // The registered handle opens that row's card.
+    act(() => {
+      target?.open();
+    });
+    expect(screen.getByTestId("row-flyout-card")).toBeInTheDocument();
+
+    // Unmount unregisters — a removed row can never be retargeted.
+    unmount();
+    expect(scrubTargetAt(0, 0)).toBeNull();
+  });
+
+  it("hit-testing a second row retargets the single-open card; non-row hits return null", () => {
+    const elFromPoint = stubElementFromPoint();
+    render(
+      <>
+        <Row win={makeWindow({ windowId: "@1", name: "a" })} />
+        <Row win={makeWindow({ windowId: "@2", name: "b" })} />
+      </>,
+    );
+    const rows = screen.getAllByTestId("row");
+
+    elFromPoint.mockReturnValue(rows[0]);
+    const a = scrubTargetAt(0, 0);
+    expect(a?.row).toBe(rows[0]);
+    act(() => {
+      a?.open();
+    });
+    expect(screen.getByTestId("row-flyout-card")).toHaveTextContent("Window @1");
+
+    elFromPoint.mockReturnValue(rows[1]);
+    const b = scrubTargetAt(0, 0);
+    expect(b?.row).toBe(rows[1]);
+    act(() => {
+      b?.open();
+    });
+    // One card, now anchored to B.
+    expect(screen.getAllByTestId("row-flyout-card")).toHaveLength(1);
+    expect(screen.getByTestId("row-flyout-card")).toHaveTextContent("Window @2");
+
+    // Non-row element under the finger (header, gap, the card itself) → null,
+    // so the caller leaves the current card open (no flicker-close).
+    elFromPoint.mockReturnValue(document.body);
+    expect(scrubTargetAt(0, 0)).toBeNull();
+    expect(screen.getByTestId("row-flyout-card")).toHaveTextContent("Window @2");
   });
 });

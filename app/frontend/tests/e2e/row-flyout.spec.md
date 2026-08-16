@@ -6,10 +6,14 @@ glyph** (93dy) — the one status-detail surface that replaced the per-dot
 the card opens on whole-row hover at a fixed x (the sidebar's right edge), on
 keyboard row focus, and on coarse-pointer dot-tap; it carries the four-register
 view plus the PR/docs links; a window with an owned PR shows a rest-state
-git-pull-request glyph that swaps for the pin/✕ actions on hover. It also covers
-the card's **conversation-fork link** (260806-s4av) — gated on the window
-carrying a `claude` chat, POSTing the window-keyed fork endpoint, and navigating
-to the returned window.
+git-pull-request glyph that swaps for the pin/✕ actions on hover (fine
+pointers). It also covers the card's **conversation-fork link** (260806-s4av) —
+gated on the window carrying a `claude` chat, POSTing the window-keyed fork
+endpoint, and navigating to the returned window — and the **coarse-pointer
+parity + slide-to-scrub gesture** (ys3q): on touch the rest glyph stays
+visible, the pin/✕ cluster relocates into the card as Pin/Kill action rows,
+the dot's leading tap zone widens to the touch-target convention, and a
+press-and-slide from the zone retargets the single-open card across rows.
 
 ## Shared setup
 
@@ -34,8 +38,9 @@ to the returned window.
       `Window @2`).
 - Rows are located by `[role='treeitem'][data-window-id]`; the card by
   `data-testid="row-flyout-card"`; registers/links by `row-flyout-out|agt|fab|
-  pr|checked|pr-link|docs-link|fork-link`; the glyph by `row-pr-glyph`; the dot's
-  tap wrapper by `status-dot-tap`.
+  pr|checked|pr-link|docs-link|fork-link`; the card's Pin/Kill action rows by
+  `row-flyout-pin-action` / `row-flyout-kill-action`; the glyph by
+  `row-pr-glyph`; the dot's tap wrapper by `status-dot-tap`.
 - The coarse-pointer describe additionally mocks `(pointer: coarse)` via
   `matchMedia` (Playwright desktop Chromium cannot flip the real pointer media
   feature — the `tooltips.spec.ts` precedent) and enables `hasTouch` so `tap()`
@@ -162,20 +167,71 @@ no-PR row never shows a glyph; leaving the row restores it.
    opacity is 1 (the opacity-revealed action now owns the slot).
 3. Hover `@2`: assert `@1`'s glyph is visible again.
 
-### `touch: no hover-open, no rest glyph; dot-tap opens the card without selecting the row` *(coarse describe)*
+### `rest PR glyph is visible and pin/✕ are gone at rest; dot-tap opens the card without selecting the row` *(coarse describe)*
 
-**What it proves:** on coarse pointers the hover trigger is suppressed
-(`mouseOnly`) and the rest glyph never shows (the always-visible action
-cluster wins the slots); the touch status path is the dot-tap, which opens the
-card WITHOUT selecting the row; tapping the row body still selects (navigates)
-and never hover-opens a card.
+**What it proves:** the mobile parity change (ys3q) — on coarse pointers the
+rest-state PR glyph IS visible (the pin/✕ cluster is render-gated off: the
+buttons are absent from the DOM, not merely hidden, so they are neither
+visible nor hittable nor focusable on touch); the dot's leading tap zone is a
+real ≥32×36px touch target; tapping it opens the card (which now carries the
+Pin/Kill action rows) WITHOUT selecting the row; tapping the row body still
+selects (navigates) and never hover-opens a card.
 
 **Steps:**
 1. With the coarse mock + `hasTouch`: coarse ⇒ `useIsMobile()` ⇒ the sidebar
    is a closed drawer, so first open it via the "Toggle navigation" hamburger
-   (the mobile-layout.spec.ts idiom); then assert `@1`'s glyph is hidden.
-2. Tap `@1`'s dot wrapper: assert the card opens with "building — active" and the URL
-   is still the bare server route (the tap did not select the row).
-3. Escape-dismiss the card, tap `@2`'s row body: assert the URL left the bare
+   (the mobile-layout.spec.ts idiom).
+2. Assert `@1`'s glyph is visible, `@2` has none, and `@1` contains NO
+   pin/kill buttons.
+3. Measure `@1`'s dot tap zone: width ≥ 32px, height ≥ 36px.
+4. Tap the zone: assert the card opens with "building — active", carries the
+   `row-flyout-pin-action` and `row-flyout-kill-action` rows, and the URL is
+   still the bare server route (the tap did not select the row).
+5. Escape-dismiss the card, tap `@2`'s row body: assert the URL left the bare
    server route (tap = select) and, after waiting past the 350ms open delay,
    no card appeared.
+
+### `card kill row opens the existing kill confirmation dialog (no force-kill on touch)` *(coarse describe)*
+
+**What it proves:** the card's Kill action row routes through the EXISTING
+`KillDialog` confirmation path — no new kill path, no confirm bypass (there is
+no modifier-force on touch) — and activating it never selects the row.
+
+**Steps:**
+1. Route `**/api/windows/*/kill*` to a 200 that records each request.
+2. Open the drawer, tap `@1`'s dot tap zone to open the card.
+3. Tap the card's Kill action row: assert the "Kill window?" dialog is
+   visible, ZERO kill requests have fired, and the URL is still `/default`.
+4. Tap Cancel: assert the dialog closes and still no kill request fired.
+
+### `card pin row closes the card and opens the existing pin popover` *(coarse describe)*
+
+**What it proves:** the card's Pin action row closes the card and hands off to
+the row's existing `PinPopover` (popover-over-flyout precedence is pre-wired
+via the flyout's `suppressed` gate) — the coarse pin path — without selecting
+the row.
+
+**Steps:**
+1. Open the drawer, tap `@1`'s dot tap zone to open the card.
+2. Tap the card's Pin action row.
+3. Assert the card is gone, the "Pin window to board" dialog is visible, and
+   the URL is still `/default`.
+
+### `scrub: press + slide retargets the single card across rows; release keeps it; tap-elsewhere dismisses` *(coarse describe)*
+
+**What it proves:** the slide-to-scrub gesture (ys3q) — pointerdown on the tap
+zone opens that row's card and captures the pointer; sliding across a sibling
+row retargets the single-open card (one card at a time); releasing keeps the
+last card open; the gesture never selects or navigates a row; and the existing
+outside-press dismissal still works afterwards.
+
+**Steps:**
+1. Open the drawer; move the mouse to the center of `@1`'s tap zone and press
+   (mouse.down dispatches pointerdown — the scrub trigger under the coarse
+   mock).
+2. Assert the card opens with "building — active".
+3. Slide (mouse.move, still pressed) onto `@2`'s row: assert exactly one card,
+   now showing "Window @2", and the URL still `/default` (no navigation).
+4. Release (mouse.up): assert the @2 card stays open and the drawer/rows are
+   still visible.
+5. Click a neutral spot in the main content: assert the card is dismissed.

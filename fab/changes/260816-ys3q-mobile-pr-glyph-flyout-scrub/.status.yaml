@@ -1,0 +1,55 @@
+id: ys3q
+name: 260816-ys3q-mobile-pr-glyph-flyout-scrub
+created: 2026-08-16T18:36:03Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 10
+    acceptance_count: 17
+    acceptance_completed: 17
+confidence:
+    certain: 7
+    confident: 8
+    tentative: 0
+    unresolved: 0
+    score: 3.8
+    fuzzy: true
+    dimensions:
+        signal: 70.9
+        reversibility: 80.1
+        competence: 80.3
+        disambiguation: 78.7
+stage_metrics:
+    intake: {started_at: "2026-08-16T18:36:03Z", driver: fab-new, iterations: 1, completed_at: "2026-08-16T18:42:39Z"}
+    apply: {started_at: "2026-08-16T18:42:39Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-16T19:07:53Z"}
+    review: {started_at: "2026-08-16T19:07:53Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-16T19:13:19Z"}
+    hydrate: {started_at: "2026-08-16T19:13:19Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-16T19:22:05Z"}
+    ship: {started_at: "2026-08-16T19:22:05Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-08-16T19:22:05Z"
+    computed_at_stage: hydrate
+summary: 'Mobile PR-status parity: rest PR glyph visible on coarse, pin/kill relocated to flyout-card action rows, widened dot tap zone + slide-to-scrub retargeting'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-16T19:22:05Z

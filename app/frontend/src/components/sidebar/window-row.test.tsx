@@ -17,19 +17,41 @@ afterEach(() => {
 
 /** The combined Label picker (SwatchPopover) uses `useTheme()`, which throws
  *  without a matchMedia shim + ThemeProvider. Provide a minimal dark-mode mock
- *  for the label-zone describe block. */
+ *  for the label-zone describe block. Query-aware: ONLY the color-scheme query
+ *  matches — an always-true stub would also flip `(pointer: coarse)` and gate
+ *  off the fine-pointer-only pin/kill cluster. */
 function mockMatchMedia() {
-  const mql = {
-    matches: true,
-    media: "(prefers-color-scheme: dark)",
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
-    dispatchEvent: vi.fn(),
-    addListener: vi.fn(),
-    removeListener: vi.fn(),
-    onchange: null,
-  };
-  vi.stubGlobal("matchMedia", vi.fn().mockReturnValue(mql));
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn().mockImplementation((q: string) => ({
+      matches: q === "(prefers-color-scheme: dark)",
+      media: q,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      onchange: null,
+    })),
+  );
+}
+
+/** Coarse-pointer stub: only `(pointer: coarse)` matches (the e2e
+ *  mockCoarsePointer idiom). jsdom has no real pointer media feature. */
+function mockCoarsePointer() {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn().mockImplementation((q: string) => ({
+      matches: q === "(pointer: coarse)",
+      media: q,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      onchange: null,
+    })),
+  );
 }
 
 const noop = () => {};
@@ -489,7 +511,7 @@ describe("WindowRow", () => {
       expect(screen.queryByTestId("row-pr-glyph")).toBeNull();
     });
 
-    it("slot discipline: the glyph is a right-edge overlay in the ✕ slot that display-swaps away on hover/coarse/cluster-focus", () => {
+    it("slot discipline: the glyph is a right-edge overlay in the ✕ slot that display-swaps away on hover/cluster-focus", () => {
       const win = makeWindow({ windowId: "@0", index: 0, name: "my-shell", prNumber: 386, prState: "open" });
       const { container } = renderRowWithIcons(win);
       const glyph = screen.getByTestId("row-pr-glyph");
@@ -502,10 +524,12 @@ describe("WindowRow", () => {
       expect(glyph.className).toContain("right-0");
       expect(glyph.className).toContain("min-w-[24px]");
       expect(glyph.className).toContain("min-h-[24px]");
-      // Display swap (not an opacity fade), gone on coarse pointers and while
-      // keyboard focus is inside the cluster; never a pointer target.
+      // Display swap (not an opacity fade) on fine-pointer hover and while
+      // keyboard focus is inside the cluster; never a pointer target. COARSE
+      // pointers keep the glyph at rest (the action cluster is fine-pointer-
+      // only, so the glyph is the row's only at-rest PR channel on touch).
       expect(glyph.className).toContain("group-hover:hidden");
-      expect(glyph.className).toContain("coarse:hidden");
+      expect(glyph.className).not.toContain("coarse:hidden");
       expect(glyph.className).toContain("group-has-[:focus-visible]/icons:hidden");
       expect(glyph.className).toContain("pointer-events-none");
       expect(glyph.className).not.toContain("opacity-");
@@ -545,14 +569,17 @@ describe("WindowRow", () => {
   // jsdom does not evaluate :hover / @media (pointer: coarse) / :has() as
   // computed styles, so the hardening contract is asserted as class strings.
   describe("hover-icon cluster hardening", () => {
-    it("icon container is inert at rest and restores interactivity on hover, coarse pointers, and focus within", () => {
+    it("icon container is inert at rest and restores interactivity on hover and focus within (fine-pointer-only cluster)", () => {
       const win = makeWindow({ windowId: "@0", index: 0 });
       const { container } = renderRowWithIcons(win);
       const cluster = container.querySelector("div.absolute.right-2");
       expect(cluster).not.toBeNull();
       expect(cluster!.className).toContain("pointer-events-none");
       expect(cluster!.className).toContain("group-hover:pointer-events-auto");
-      expect(cluster!.className).toContain("coarse:pointer-events-auto");
+      // The cluster still mounts on coarse (it anchors the PR glyph overlay)
+      // but no longer restores interactivity there — its buttons are
+      // render-gated off (pin/kill live on the flyout card's action rows).
+      expect(cluster!.className).not.toContain("coarse:pointer-events-auto");
       expect(cluster!.className).toContain("has-[:focus-visible]:pointer-events-auto");
     });
 
@@ -1217,5 +1244,196 @@ describe("held-row continuity while the flyout is open (E1)", () => {
     // card (where CSS :hover on the row is lost).
     expect(button.className).toMatch(/(?:^| )bg-bg-card\/50/);
     expect(button.className).toMatch(/(?:^| )text-text-primary/);
+  });
+});
+
+// Coarse-pointer parity + slide-to-scrub (ys3q): on coarse the rest-state PR
+// glyph stays visible (the pin/✕ cluster is render-gated off — pin/kill moved
+// to the flyout card's action rows), the dot's tap zone widens to the
+// touch-target convention with `touch-action: none`, and pointerdown opens the
+// flyout while a captured slide retargets the single-open card across rows —
+// never selecting/navigating, never escalating into an HTML5 drag.
+describe("coarse pointer: rest glyph, relocated cluster, tap zone + scrub (ys3q)", () => {
+  beforeEach(() => {
+    resetFlyoutWarmState();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    resetFlyoutWarmState();
+  });
+
+  function renderCoarseRow(win: WindowInfo, extra: Partial<React.ComponentProps<typeof WindowRow>> = {}) {
+    mockCoarsePointer();
+    return render(
+      <WindowRow
+        win={win}
+        session="alpha"
+        isSelected={false}
+        isDragOver={false}
+        editingWindow={null}
+        editingName=""
+        inputRef={{ current: null }}
+        onSelectWindow={noop}
+        onStartEditing={noop}
+        onWindowNameChange={noop}
+        onRenameKeyDown={noop as React.KeyboardEventHandler<HTMLInputElement>}
+        onRenameBlur={noop}
+        onKillClick={noop}
+        onDragStart={noopDrag}
+        onDragOver={noopDrag}
+        onDrop={noopDrag}
+        onDragEnd={noop}
+        server="srv"
+        {...extra}
+      />,
+    );
+  }
+
+  it("keeps the rest-state PR glyph visible under coarse and render-gates the pin/kill buttons out of the DOM", () => {
+    const win = makeWindow({ windowId: "@0", index: 0, name: "my-shell", prNumber: 386, prState: "open", prChecks: "pass" });
+    const { container } = renderCoarseRow(win);
+    const glyph = screen.getByTestId("row-pr-glyph");
+    expect(glyph.className).not.toContain("coarse:hidden");
+    expect(glyph.className).toContain("text-accent-green");
+    // Render-gated, not CSS-hidden: no invisible focusable buttons on touch.
+    expect(screen.queryByLabelText("Pin my-shell to a board")).toBeNull();
+    expect(screen.queryByLabelText("Kill window my-shell")).toBeNull();
+    // The cluster container still mounts — it anchors the glyph's overlay.
+    expect(container.querySelector("div.absolute.right-2")).not.toBeNull();
+  });
+
+  it("keeps the pin/kill buttons in the DOM under a fine pointer (desktop unchanged)", () => {
+    const win = makeWindow({ windowId: "@0", index: 0, name: "my-shell" });
+    renderRowWithIcons(win);
+    expect(screen.getByLabelText("Pin my-shell to a board")).toBeInTheDocument();
+    expect(screen.getByLabelText("Kill window my-shell")).toBeInTheDocument();
+  });
+
+  it("grows the dot tap zone with coarse-only touch-target classes; fine-pointer geometry untouched", () => {
+    renderRow(makeWindow({ windowId: "@0", index: 0 }));
+    const zone = screen.getByTestId("status-dot-tap");
+    expect(zone.className).toContain("coarse:min-w-[32px]");
+    expect(zone.className).toContain("coarse:min-h-[36px]");
+    expect(zone.className).toContain("coarse:justify-center");
+    expect(zone.className).toContain("coarse:touch-none");
+    // The base geometry stays shrink-wrapped — every added class is
+    // coarse:-prefixed, so a fine pointer sees today's layout.
+    expect(zone.className).toContain("flex items-center shrink-0");
+    expect(zone.className).not.toMatch(/(?:^| )min-w-/);
+  });
+
+  it("pointerdown on the tap zone opens the flyout card; the tap never selects the row and release keeps the card", () => {
+    const onSelectWindow = vi.fn();
+    renderCoarseRow(makeWindow({ windowId: "@0", index: 0, name: "my-shell" }), { onSelectWindow });
+    const zone = screen.getByTestId("status-dot-tap");
+    act(() => {
+      fireEvent.pointerDown(zone, { pointerId: 1, pointerType: "touch" });
+    });
+    expect(screen.getByTestId("row-flyout-card")).toBeInTheDocument();
+    expect(onSelectWindow).not.toHaveBeenCalled();
+    // The tap's trailing click is stopPropagation'd (no selection), and the
+    // release leaves the card open (dismissal is the outside-press path).
+    act(() => {
+      fireEvent.pointerUp(zone, { pointerId: 1, pointerType: "touch" });
+      fireEvent.click(zone);
+    });
+    expect(onSelectWindow).not.toHaveBeenCalled();
+    expect(screen.getByTestId("row-flyout-card")).toBeInTheDocument();
+  });
+
+  it("a captured slide retargets the single-open card across rows; non-row elements leave it open; release keeps it", () => {
+    mockCoarsePointer();
+    const rowProps = {
+      session: "alpha",
+      isSelected: false,
+      isDragOver: false,
+      editingWindow: null,
+      editingName: "",
+      inputRef: { current: null },
+      onSelectWindow: noop,
+      onStartEditing: noop,
+      onWindowNameChange: noop,
+      onRenameKeyDown: noop as React.KeyboardEventHandler<HTMLInputElement>,
+      onRenameBlur: noop,
+      onKillClick: noop,
+      server: "srv",
+    };
+    render(
+      <>
+        <WindowRow
+          {...rowProps}
+          win={makeWindow({ windowId: "@1", index: 0, name: "win-a", fabChange: "260816-aaaa-x", fabStage: "apply", fabDisplayState: "active" })}
+        />
+        <WindowRow {...rowProps} win={makeWindow({ windowId: "@2", index: 1, name: "win-b" })} />
+      </>,
+    );
+    const rows = screen.getAllByRole("treeitem");
+    const zoneA = rows[0].querySelector('[data-testid="status-dot-tap"]')!;
+    act(() => {
+      fireEvent.pointerDown(zoneA, { pointerId: 1, pointerType: "touch" });
+    });
+    expect(screen.getByTestId("row-flyout-card")).toHaveTextContent("Window @1");
+
+    // jsdom has no elementFromPoint — stub the scrub's hit-test seam.
+    const elFromPoint = vi.fn();
+    (document as Document & { elementFromPoint?: unknown }).elementFromPoint = elFromPoint;
+    try {
+      // Finger over row B → the card retargets (single open card).
+      elFromPoint.mockReturnValue(rows[1].querySelector("button"));
+      act(() => {
+        fireEvent.pointerMove(zoneA, { pointerId: 1, clientX: 5, clientY: 5 });
+      });
+      expect(screen.getAllByTestId("row-flyout-card")).toHaveLength(1);
+      expect(screen.getByTestId("row-flyout-card")).toHaveTextContent("Window @2");
+
+      // Finger over a non-row element → no flicker-close.
+      elFromPoint.mockReturnValue(document.body);
+      act(() => {
+        fireEvent.pointerMove(zoneA, { pointerId: 1, clientX: 5, clientY: 6 });
+      });
+      expect(screen.getByTestId("row-flyout-card")).toHaveTextContent("Window @2");
+
+      // Release keeps the last card open.
+      act(() => {
+        fireEvent.pointerUp(zoneA, { pointerId: 1, pointerType: "touch" });
+      });
+      expect(screen.getByTestId("row-flyout-card")).toHaveTextContent("Window @2");
+    } finally {
+      delete (document as { elementFromPoint?: unknown }).elementFromPoint;
+    }
+  });
+
+  it("an active scrub suppresses HTML5 dragstart; a normal drag works after release", () => {
+    const onDragStart = vi.fn();
+    renderCoarseRow(makeWindow({ windowId: "@0", index: 0, name: "my-shell" }), {
+      draggable: true,
+      onDragStart,
+    });
+    const root = screen.getByRole("treeitem");
+    const zone = screen.getByTestId("status-dot-tap");
+    act(() => {
+      fireEvent.pointerDown(zone, { pointerId: 1, pointerType: "touch" });
+    });
+    act(() => {
+      fireEvent.dragStart(root);
+    });
+    expect(onDragStart).not.toHaveBeenCalled();
+    act(() => {
+      fireEvent.pointerUp(zone, { pointerId: 1, pointerType: "touch" });
+    });
+    act(() => {
+      fireEvent.dragStart(root);
+    });
+    expect(onDragStart).toHaveBeenCalledTimes(1);
+  });
+
+  it("ghost rows wire no scrub — pointerdown on the zone opens nothing", () => {
+    mockCoarsePointer();
+    renderGhostRow(makeGhostWindow());
+    const zone = screen.getByTestId("status-dot-tap");
+    act(() => {
+      fireEvent.pointerDown(zone, { pointerId: 1, pointerType: "touch" });
+    });
+    expect(screen.queryByTestId("row-flyout-card")).toBeNull();
   });
 });

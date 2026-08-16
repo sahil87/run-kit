@@ -10,7 +10,7 @@ import { prOwnsGlyph, prGlyphColor } from "@/components/pr-status-model";
 import { PinPopover } from "./pin-popover";
 import { PaletteIcon, CloseIcon, GitPullRequestIcon, GitPullRequestClosedIcon } from "./icons";
 import { PinIcon } from "@/components/pin-icon";
-import { useRowFlyout } from "./row-flyout-card";
+import { useRowFlyout, scrubTargetAt } from "./row-flyout-card";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import { toSafeWindowName } from "@/lib/names";
 
@@ -199,6 +199,11 @@ function WindowRowInner({
   const [showLabelPicker, setShowLabelPicker] = useState(false);
   const [showPinPopover, setShowPinPopover] = useState(false);
   const pinBtnRef = useRef<HTMLButtonElement>(null);
+  // When the pin affordance is wired up, reserve a few extra px on the right so
+  // labels don't run under the icon group. Also gates the flyout card's Pin
+  // action row (the coarse-pointer pin path — the in-row cluster is
+  // fine-pointer-only).
+  const showPinIcon = !ghost && !!server;
 
   // Row-hover register flyout card (93dy) — the tier-2 hover surface that
   // replaced the per-dot StatusDotTip. ALL flyout state is row-local (this
@@ -216,7 +221,52 @@ function WindowRowInner({
   const flyout = useRowFlyout(win, {
     suppressed: ghost || showPinPopover || showLabelPicker,
     onFork: handleFork,
+    // The card's Pin/Kill action rows (the coarse-pointer pin/kill home —
+    // additive on fine pointers). Pin closes the card (inside the hook) and
+    // opens the row's existing PinPopover; kill routes through the existing
+    // KillDialog confirm path — never a force-kill (no modifier on touch).
+    // Optional-handler idiom: ghost rows and pin-less surfaces wire none.
+    onPinAction: showPinIcon ? () => setShowPinPopover(true) : undefined,
+    pinned: isPinnedToAny,
+    onKillAction: ghost ? undefined : () => onKillClick(srv, session, win.windowId, false),
   });
+
+  // Slide-to-scrub (coarse pointers): pointerdown on the tap zone opens this
+  // row's flyout card and captures the pointer; while the scrub is active,
+  // pointermove hit-tests the finger position against rendered window rows and
+  // retargets the single-open card via the module-scoped registry (the touch
+  // translation of the desktop hover sweep). The scrub NEVER selects or
+  // navigates a row; release keeps the last card open (outside-press dismissal
+  // is unchanged). `touch-action: none` on the zone keeps a drag that starts
+  // here from scrolling the drawer; drags starting elsewhere scroll normally.
+  const scrubActiveRef = useRef(false);
+  const scrubRowRef = useRef<HTMLElement | null>(null);
+
+  const onScrubStart = (e: React.PointerEvent<HTMLSpanElement>) => {
+    e.stopPropagation();
+    scrubActiveRef.current = true;
+    scrubRowRef.current = e.currentTarget.closest('[role="treeitem"]');
+    flyout.openNow();
+    // jsdom lacks the pointer-capture APIs — optional-call so unit tests can
+    // drive the gesture without stubbing them.
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+  };
+  const onScrubMove = (e: React.PointerEvent<HTMLSpanElement>) => {
+    if (!scrubActiveRef.current) return;
+    const target = scrubTargetAt(e.clientX, e.clientY);
+    // Non-row elements under the finger (session headers, gaps, the open card
+    // itself) leave the current card open — no flicker-close.
+    if (!target || target.row === scrubRowRef.current) return;
+    scrubRowRef.current = target.row;
+    target.open();
+  };
+  const onScrubEnd = (e: React.PointerEvent<HTMLSpanElement>) => {
+    if (!scrubActiveRef.current) return;
+    scrubActiveRef.current = false;
+    scrubRowRef.current = null;
+    e.currentTarget.releasePointerCapture?.(e.pointerId);
+    // The last card STAYS open — dismissal is the existing outside-press path.
+  };
 
   // Listen for the imperative `pin-popover:open` / `label-popover:open` events
   // dispatched by the command palette's "Board: Pin Current Window" and
@@ -292,7 +342,6 @@ function WindowRowInner({
   // their EXACT pre-full-bleed x-positions (no content shift).
   // When the pin icon is wired up, reserve a few extra px on the right so labels
   // don't run under the icon group.
-  const showPinIcon = !ghost && !!server;
   const buttonClass = useMemo(() => {
     const rightPad = showPinIcon ? "pr-[68px]" : "pr-11";
     // Dense rows on fine pointers (24px); touch keeps the 36px target via the
@@ -378,6 +427,11 @@ function WindowRowInner({
       onDragStart={
         dragEnabled && onDragStart
           ? (e) => {
+              // An active touch scrub must not escalate into an HTML5 row drag.
+              if (scrubActiveRef.current) {
+                e.preventDefault();
+                return;
+              }
               // A drag gesture must not leave (or race) an open hover card.
               flyout.close();
               onDragStart(e, srv, session, win.index, win.windowId, win.name);
@@ -515,20 +569,23 @@ function WindowRowInner({
               activity (filled=active, hollow ring=idle). The PR story lives on
               the trailing rest-state glyph, never here. See StatusDot /
               statusDotState.
-              On COARSE pointers the wrapper wires a dot-tap to open the flyout
-              card (touch has no hover; hover-open is mouseOnly) — the tap stops
-              propagation so it never selects the row. On fine pointers the
-              wrapper is inert and a dot click selects the row as before. */}
+              On COARSE pointers the wrapper grows into a proper leading tap
+              zone (≥32×36px, dot centered — the row-cluster touch-target
+              convention; fine-pointer geometry is untouched) carrying
+              `touch-action: none`, and wires the slide-to-scrub gesture:
+              pointerdown opens the flyout card (touch has no hover;
+              hover-open is mouseOnly), a captured slide retargets the card
+              across rows, release keeps the last card open. The trailing
+              click only stops propagation, so a tap never selects the row.
+              On fine pointers the wrapper is inert and a dot click selects
+              the row as before. */}
           <span
-            className="flex items-center shrink-0"
-            onClick={
-              coarse && !ghost
-                ? (e) => {
-                    e.stopPropagation();
-                    flyout.openNow();
-                  }
-                : undefined
-            }
+            className="flex items-center shrink-0 coarse:min-w-[32px] coarse:min-h-[36px] coarse:justify-center coarse:touch-none"
+            onPointerDown={coarse && !ghost ? onScrubStart : undefined}
+            onPointerMove={coarse && !ghost ? onScrubMove : undefined}
+            onPointerUp={coarse && !ghost ? onScrubEnd : undefined}
+            onPointerCancel={coarse && !ghost ? onScrubEnd : undefined}
+            onClick={coarse && !ghost ? (e) => e.stopPropagation() : undefined}
             data-testid="status-dot-tap"
           >
             <StatusDot win={win} />
@@ -564,13 +621,17 @@ function WindowRowInner({
             color affordance lives in the left-edge label zone (hwtr). */}
       </button>
       {/* Hover-reveal buttons: pin + kill (actions only — the color button moved
-          to the left label zone, hwtr). Inert at rest on fine pointers
-          (pointer-events-none) so stray clicks near the row's right edge fall
-          through to the row-select button instead of hitting an invisible icon;
-          interactivity is restored on hover, coarse pointers, and keyboard focus
+          to the left label zone, hwtr). FINE-POINTER-ONLY: on coarse pointers the
+          buttons are not rendered at all — pin/kill live on the flyout card's
+          action rows instead (an always-visible ✕ per row is a fat-finger hazard
+          on a phone). The container still mounts on coarse: it anchors the PR
+          glyph's absolute last-slot overlay. On fine pointers the cluster is
+          inert at rest (pointer-events-none) so stray clicks near the row's
+          right edge fall through to the row-select button instead of hitting an
+          invisible icon; interactivity is restored on hover and keyboard focus
           within (has-[:focus-visible]). Named `group/icons` so the rest-state
           PR glyph below can key its hide on focus WITHIN this cluster. */}
-      <div className="group/icons absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 z-10 pointer-events-none group-hover:pointer-events-auto coarse:pointer-events-auto has-[:focus-visible]:pointer-events-auto">
+      <div className="group/icons absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 z-10 pointer-events-none group-hover:pointer-events-auto has-[:focus-visible]:pointer-events-auto">
         {/* Rest-state PR glyph (93dy — user-approved partial Row-Minimalism
             reversal): a window with an OWNED PR (prOwnsGlyph — open/failing/
             merged/closed) shows a git-pull-request glyph at rest,
@@ -580,10 +641,12 @@ function WindowRowInner({
             swaps). It is INFORMATIONAL ONLY — aria-hidden decoration (the
             dot's aria-label + the flyout card + PANE panel carry the info),
             pointer-events-none, and it disappears entirely on row hover
-            (display swap, not an opacity fade), on coarse pointers (actions
-            are always visible there), and while keyboard focus is inside the
-            action cluster — so it can never be a click target or occlude the
-            revealed ✕. Color via the shared PR vocabulary (prGlyphColor),
+            (display swap, not an opacity fade) and while keyboard focus is
+            inside the action cluster — so it can never be a click target or
+            occlude the revealed ✕. COARSE pointers keep it at rest: the
+            action cluster is fine-pointer-only, so the glyph is the row's
+            only at-rest PR channel on touch. Color via the shared PR
+            vocabulary (prGlyphColor),
             six-way: muted closed (dead PR), red failing, gray open-draft,
             yellow checks-running, green open, purple merged — closed sits
             ABOVE fail (stale checks are noise), draft is open-gated and sits
@@ -596,12 +659,12 @@ function WindowRowInner({
           <span
             aria-hidden="true"
             data-testid="row-pr-glyph"
-            className={`absolute right-0 top-1/2 -translate-y-1/2 flex items-center justify-center px-0.5 min-w-[24px] min-h-[24px] pointer-events-none group-hover:hidden coarse:hidden group-has-[:focus-visible]/icons:hidden ${prGlyphColor(win)}`}
+            className={`absolute right-0 top-1/2 -translate-y-1/2 flex items-center justify-center px-0.5 min-w-[24px] min-h-[24px] pointer-events-none group-hover:hidden group-has-[:focus-visible]/icons:hidden ${prGlyphColor(win)}`}
           >
             {win.prState === "closed" ? <GitPullRequestClosedIcon /> : <GitPullRequestIcon />}
           </span>
         )}
-        {showPinIcon && (
+        {showPinIcon && !coarse && (
           <button
             ref={pinBtnRef}
             type="button"
@@ -611,7 +674,7 @@ function WindowRowInner({
             // was removed in the axis split): a row pinned to the board you're
             // viewing gets an ACCENT-colored persistent glyph; a row pinned to
             // some other board is a monochrome persistent glyph; an unpinned row
-            // shows the glyph only on hover/focus/coarse. isPinnedToActiveBoard
+            // shows the glyph only on hover/focus. isPinnedToActiveBoard
             // implies isPinnedToAny, so the accent branch is always persistent.
             onClick={(e) => {
               e.stopPropagation();
@@ -622,12 +685,13 @@ function WindowRowInner({
                 ? "opacity-100 text-accent hover:text-accent"
                 : isPinnedToAny
                 ? "opacity-100 text-text-secondary hover:text-text-primary"
-                : "opacity-0 group-hover:opacity-100 coarse:opacity-100 focus-visible:opacity-100 text-text-secondary hover:text-text-primary"
-            } px-0.5 min-w-[24px] coarse:min-w-[32px] min-h-[24px] coarse:min-h-[36px] flex items-center justify-center`}
+                : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-text-secondary hover:text-text-primary"
+            } px-0.5 min-w-[24px] min-h-[24px] flex items-center justify-center`}
           >
             <PinIcon filled={isPinnedToAny} />
           </button>
         )}
+        {!coarse && (
         <button
           type="button"
           aria-label={`Kill window ${win.name}`}
@@ -635,10 +699,11 @@ function WindowRowInner({
             e.stopPropagation();
             if (!ghost) onKillClick(srv, session, win.windowId, e.ctrlKey || e.metaKey);
           }}
-          className="text-text-secondary hover:text-signal-red transition-opacity cursor-pointer opacity-0 group-hover:opacity-100 coarse:opacity-100 focus-visible:opacity-100 px-0.5 min-w-[24px] coarse:min-w-[32px] min-h-[24px] coarse:min-h-[36px] flex items-center justify-center"
+          className="text-text-secondary hover:text-signal-red transition-opacity cursor-pointer opacity-0 group-hover:opacity-100 focus-visible:opacity-100 px-0.5 min-w-[24px] min-h-[24px] flex items-center justify-center"
         >
           <CloseIcon />
         </button>
+        )}
       </div>
       {showPinPopover && server && (
         <PinPopover

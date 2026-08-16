@@ -336,29 +336,46 @@ test.describe("Row flyout card (fine pointer)", () => {
 test.describe("Row flyout card (coarse pointer)", () => {
   test.use({ hasTouch: true });
 
-  test("touch: no hover-open, no rest glyph; dot-tap opens the card without selecting the row", async ({
-    page,
-  }) => {
+  /** Coarse ⇒ `useIsMobile()` ⇒ the sidebar is a closed drawer: open it via
+   *  the hamburger before reaching for rows (mobile-layout.spec.ts idiom). */
+  async function gotoCoarseDrawer(page: Page) {
     await mockCoarsePointer(page);
     await mockBackend(page);
-    // Coarse pointer ⇒ `useIsMobile()` ⇒ the sidebar is a closed drawer: open
-    // it via the hamburger before reaching for rows (mobile-layout.spec.ts
-    // idiom).
     await page.goto(`/${SERVER}`);
     await page.getByRole("button", { name: "Toggle navigation" }).tap();
     await expect(prRow(page)).toBeVisible({ timeout: 10_000 });
     await expect(scratchRow(page)).toBeVisible();
+  }
 
-    // The rest glyph never renders visibly on coarse pointers (the action
-    // cluster is always visible there and wins the slots).
-    await expect(prRow(page).getByTestId("row-pr-glyph")).toBeHidden();
+  test("rest PR glyph is visible and pin/✕ are gone at rest; dot-tap opens the card without selecting the row", async ({
+    page,
+  }) => {
+    await gotoCoarseDrawer(page);
 
-    // Tap the DOT (the touch status path): the card opens and the tap does
-    // NOT select the row (stopPropagation) — the URL stays on the server
-    // route (@1's select would navigate to /default/1).
-    await prRow(page).getByTestId("status-dot-tap").tap();
+    // Coarse rest state: the rest-state PR glyph is the row's at-rest PR
+    // channel; the pin/✕ cluster is fine-pointer-only — the buttons are not
+    // in the DOM at all (pin/kill moved into the flyout card).
+    await expect(prRow(page).getByTestId("row-pr-glyph")).toBeVisible();
+    await expect(prRow(page).getByLabel("Pin feature-work to a board")).toHaveCount(0);
+    await expect(prRow(page).getByLabel("Kill window feature-work")).toHaveCount(0);
+    await expect(scratchRow(page).getByTestId("row-pr-glyph")).toHaveCount(0);
+
+    // The widened leading tap zone (the touch status path): a ≥32×36 target.
+    const zone = prRow(page).getByTestId("status-dot-tap");
+    const zoneBox = await zone.boundingBox();
+    expect(zoneBox).not.toBeNull();
+    expect(zoneBox!.width).toBeGreaterThanOrEqual(32);
+    expect(zoneBox!.height).toBeGreaterThanOrEqual(36);
+
+    // Tapping the zone opens the card and does NOT select the row
+    // (stopPropagation) — the URL stays on the server route (@1's select
+    // would navigate to /default/1).
+    await zone.tap();
     await expect(card(page)).toBeVisible();
     await expect(card(page)).toContainText("building — active");
+    // The card is the coarse pin/kill home.
+    await expect(card(page).getByTestId("row-flyout-pin-action")).toBeVisible();
+    await expect(card(page).getByTestId("row-flyout-kill-action")).toBeVisible();
     await expect(page).toHaveURL(new RegExp(`/${SERVER}/?$`));
 
     // A touch interaction with the row BODY does not hover-open a card: it
@@ -372,6 +389,77 @@ test.describe("Row flyout card (coarse pointer)", () => {
     await expect(page).not.toHaveURL(new RegExp(`/${SERVER}/?$`));
     // …and no flyout card appeared from the touch interaction.
     await page.waitForTimeout(600); // past the 350ms open delay
+    await expect(card(page)).toHaveCount(0);
+  });
+
+  test("card kill row opens the existing kill confirmation dialog (no force-kill on touch)", async ({
+    page,
+  }) => {
+    const killRequests: string[] = [];
+    await page.route("**/api/windows/*/kill*", (route) => {
+      killRequests.push(route.request().url());
+      return route.fulfill({ status: 200, contentType: "application/json", body: '{"ok":true}' });
+    });
+    await gotoCoarseDrawer(page);
+
+    await prRow(page).getByTestId("status-dot-tap").tap();
+    await expect(card(page)).toBeVisible();
+    await card(page).getByTestId("row-flyout-kill-action").tap();
+
+    // The existing KillDialog confirm path — no kill POST has fired.
+    await expect(page.getByText("Kill window?")).toBeVisible();
+    expect(killRequests).toHaveLength(0);
+    // The row was not selected either.
+    await expect(page).toHaveURL(new RegExp(`/${SERVER}/?$`));
+
+    await page.getByRole("button", { name: "Cancel" }).tap();
+    await expect(page.getByText("Kill window?")).toHaveCount(0);
+    expect(killRequests).toHaveLength(0);
+  });
+
+  test("card pin row closes the card and opens the existing pin popover", async ({ page }) => {
+    await gotoCoarseDrawer(page);
+
+    await prRow(page).getByTestId("status-dot-tap").tap();
+    await expect(card(page)).toBeVisible();
+    await card(page).getByTestId("row-flyout-pin-action").tap();
+
+    // Popover-over-flyout precedence: the card is gone, the row's PinPopover
+    // is open, and the row was never selected.
+    await expect(card(page)).toHaveCount(0);
+    await expect(page.getByRole("dialog", { name: "Pin window to board" })).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`/${SERVER}/?$`));
+  });
+
+  test("scrub: press + slide retargets the single card across rows; release keeps it; tap-elsewhere dismisses", async ({
+    page,
+  }) => {
+    await gotoCoarseDrawer(page);
+
+    // Press the tap zone (pointerdown opens the card and captures the
+    // pointer), then slide onto the sibling row without lifting.
+    const zoneBox = (await prRow(page).getByTestId("status-dot-tap").boundingBox())!;
+    await page.mouse.move(zoneBox.x + zoneBox.width / 2, zoneBox.y + zoneBox.height / 2);
+    await page.mouse.down();
+    await expect(card(page)).toBeVisible();
+    await expect(card(page)).toContainText("building — active");
+
+    const scratchBox = (await scratchRow(page).boundingBox())!;
+    await page.mouse.move(scratchBox.x + scratchBox.width / 2, scratchBox.y + scratchBox.height / 2, {
+      steps: 5,
+    });
+    // One card, retargeted to @2 (the scrub never selects/navigates).
+    await expect(card(page)).toHaveCount(1);
+    await expect(card(page)).toContainText("Window @2");
+    await expect(page).toHaveURL(new RegExp(`/${SERVER}/?$`));
+
+    // Release keeps the last card open and the drawer stays put.
+    await page.mouse.up();
+    await expect(card(page)).toContainText("Window @2");
+    await expect(prRow(page)).toBeVisible();
+
+    // Tapping elsewhere dismisses via the existing outside-press path.
+    await page.mouse.click(700, 300);
     await expect(card(page)).toHaveCount(0);
   });
 });

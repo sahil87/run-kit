@@ -1047,6 +1047,10 @@ describe("Sidebar", () => {
 
   describe("window kill clears optimistic state on success", () => {
     it("Ctrl+click kill: killed entry is removed after API call resolves", async () => {
+      // Ctrl+click force-kill is a FINE-pointer path — the in-row kill button
+      // is render-gated off on coarse (the file's blanket matchMedia stub
+      // defaults to coarse), so pin the pointer to fine for this test.
+      stubPointer(false);
       const { killWindow: killWindowMock } = await import("@/api/client");
       vi.mocked(killWindowMock).mockResolvedValue({ ok: true });
 

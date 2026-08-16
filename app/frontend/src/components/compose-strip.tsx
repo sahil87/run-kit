@@ -367,7 +367,12 @@ export function ComposeStrip({
       : text !== "" || files.length > 0 || (draftKey !== null && latchedKey === draftKey));
 
   // Auto-grow to content, bounded to MAX_TEXTAREA_ROWS (then internal scroll).
-  const resize = useCallback(() => {
+  // `preserveWrap` is the layout-remeasure mode: a morph-driven re-measure may
+  // SET the wrap probe but never CLEAR it — the card's full-width box renders
+  // the same text unwrapped, so a fresh read there would release the very
+  // trigger that just opened the card and oscillate compact⇄card forever.
+  // Only a text edit (the fresh mode below) can clear it.
+  const resize = useCallback((preserveWrap = false) => {
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = "auto";
@@ -376,12 +381,21 @@ export function ComposeStrip({
     // Under height:auto the box resolves to the rows={1} floor, so a larger
     // scrollHeight means the content wrapped past one line — the coarse
     // morph's wrap probe (jsdom: both are 0, so it reads unwrapped).
-    setWrapped(el.scrollHeight > el.offsetHeight + 1);
+    const measured = el.scrollHeight > el.offsetHeight + 1;
+    setWrapped((prev) => (preserveWrap ? prev || measured : measured));
     el.style.height = `${Math.min(el.scrollHeight, max)}px`;
     el.style.overflowY = el.scrollHeight > max ? "auto" : "hidden";
   }, []);
 
-  useLayoutEffect(resize, [text, resize]);
+  useLayoutEffect(() => resize(), [text, resize]);
+  // The wrap probe is layout-dependent — the compact box is narrower than the
+  // card's (chips flank it) — so a card⇄compact morph re-measures under the
+  // new width: a long single-line draft that fit the full-width card must
+  // re-enter the card when the compact row wraps it (blur changes no text, so
+  // the text-keyed measure above never runs on a morph). Preserve mode keeps
+  // the re-entry stable, and the re-run also refreshes the pixel height the
+  // old width left behind.
+  useLayoutEffect(() => resize(true), [isCard, resize]);
 
   // Blob-URL lifecycle: this mount's preview URLs are per-mount (the map is a
   // fresh ref each mount), so revoke them on unmount to avoid a leak. The

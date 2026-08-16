@@ -1925,6 +1925,34 @@ describe("ComposeStrip", () => {
     expect(screen.queryByTestId("compose-strip-card")).toBeNull();
   });
 
+  it("coarse: blur with a draft that wraps only in the compact row re-enters the card (layout-aware wrap probe)", () => {
+    stubPointer(true);
+    renderFocused();
+    // jsdom has no layout, so emulate the width-dependent wrap: long text
+    // reads one line in the full-width card box (`w-full`) but two lines in
+    // the narrower compact box (`flex-1`, chips flanking); short text fits
+    // both. The morph re-measures under the new layout, so the probe must
+    // read the box it actually renders in.
+    const el = input();
+    Object.defineProperty(el, "offsetHeight", { configurable: true, get: () => 20 });
+    Object.defineProperty(el, "scrollHeight", {
+      configurable: true,
+      get: () => (el.className.includes("flex-1") && el.value.length > 40 ? 40 : 20),
+    });
+    act(() => el.focus());
+    type("a long single-line draft that fits the wide card but wraps compact");
+    expect(screen.getByTestId("compose-strip-card")).toBeInTheDocument();
+    // Blur: focus no longer holds the card, but the compact re-measure finds
+    // the text wrapping — the multiline trigger holds the card open (and the
+    // card's unwrapped reading must NOT release it: no oscillation).
+    act(() => el.blur());
+    expect(screen.getByTestId("compose-strip-card")).toBeInTheDocument();
+    // A text edit re-measures fresh: shortened to fit the compact row, the
+    // strip compacts.
+    type("ok");
+    expect(screen.queryByTestId("compose-strip-card")).toBeNull();
+  });
+
   it("coarse: attachments morph to the card (previews render inside it, above the textarea)", async () => {
     stubPointer(true);
     uploadFilesMock.mockResolvedValueOnce([

@@ -37,6 +37,7 @@ stage_metrics:
     review-pr: {started_at: "2026-08-16T20:03:56Z", driver: git-pr, iterations: 2}
 prs:
     - https://github.com/sahil87/run-kit/pull/632
+    - https://github.com/sahil87/run-kit/pull/635
 change_type_source: explicit
 true_impact:
     added: 413
@@ -54,4 +55,4 @@ true_impact:
     computed_at_stage: ship
 summary: 'Bottom-bar safe pad: min-h frame unclips the floor, and --bottom-bar-pad (globals.css) gates BOTH max() arms on kb-open — the PWA env inset no longer holds the pad above the keyboard'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-16T20:03:56Z
+last_updated: 2026-08-16T20:09:46Z

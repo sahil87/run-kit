@@ -48,6 +48,7 @@ function Row({
   onFork,
   onPinAction,
   pinned = false,
+  pinnedBoard,
   onKillAction,
   onRowClick,
 }: {
@@ -56,10 +57,11 @@ function Row({
   onFork?: () => Promise<void>;
   onPinAction?: () => void;
   pinned?: boolean;
+  pinnedBoard?: string;
   onKillAction?: () => void;
   onRowClick?: () => void;
 }) {
-  const flyout = useRowFlyout(win, { suppressed, onFork, onPinAction, pinned, onKillAction });
+  const flyout = useRowFlyout(win, { suppressed, onFork, onPinAction, pinned, pinnedBoard, onKillAction });
   return (
     <div
       ref={flyout.setReference}
@@ -299,39 +301,44 @@ describe("RowFlyout card content", () => {
   });
 });
 
-describe("Fork affordance (260806-s4av)", () => {
-  // The fork link is DOUBLE-gated: the window must carry a claude chat AND the
-  // consumer must have wired a handler. Both halves are asserted, plus the
-  // stopPropagation contract (forking must never also select the row) and the
-  // in-flight guard (the POST creates a tmux window, so N clicks would fork N
-  // times).
+describe("Fork action row (260806-s4av)", () => {
+  // The fork action row is DOUBLE-gated: the window must carry a claude chat
+  // AND the consumer must have wired a handler. Both halves are asserted, plus
+  // the stopPropagation contract (forking must never also select the row) and
+  // the in-flight guard (the POST creates a tmux window, so N clicks would
+  // fork N times). Fork's ONLY home is the sectioned action list — the title
+  // bar keeps just the docs link.
 
   /** A settled fork handler — the app's real one surfaces its own errors and
    *  resolves either way, so a resolved promise is the faithful stand-in. */
   const forkResolved = () => vi.fn<() => Promise<void>>(() => Promise.resolve());
 
-  it("renders beside the docs link for a claude-chat window with a handler", () => {
+  it("renders as an action row (never in the title bar) for a claude-chat window with a handler", () => {
     const onFork = forkResolved();
     render(<Row win={makeWindow({ chatProvider: "claude" })} onFork={onFork} />);
     hoverOpen();
 
-    const fork = screen.getByTestId("row-flyout-fork-link");
+    const fork = screen.getByTestId("row-flyout-fork-action");
     expect(fork).toBeInTheDocument();
     // Copy names the same-directory semantics — what distinguishes a fork from
-    // the spawn dialog's fresh (usually new-worktree) agent.
+    // the spawn dialog's fresh (usually new-worktree) agent. The label +
+    // sub-hint split carries the same words as the tooltip.
     expect(fork).toHaveAttribute("title", FORK_TOOLTIP);
     expect(fork).toHaveAttribute("aria-label", FORK_TOOLTIP);
     expect(FORK_TOOLTIP).toContain("same directory");
-    // Both affordances live in the title bar's right-edge cluster.
-    const cluster = fork.parentElement!;
-    expect(cluster).toContainElement(screen.getByTestId("row-flyout-docs-link"));
-    expect(screen.getByTestId("popup-title-bar")).toContainElement(cluster);
+    expect(fork).toHaveTextContent("Fork conversation");
+    expect(fork).toHaveTextContent("new window, same directory");
+    // One affordance, one home: the title bar holds ONLY the docs link.
+    const bar = screen.getByTestId("popup-title-bar");
+    expect(bar).toContainElement(screen.getByTestId("row-flyout-docs-link"));
+    expect(bar).not.toContainElement(fork);
+    expect(bar.querySelectorAll("a, button")).toHaveLength(1);
   });
 
   it("is absent for a window with no chat provider", () => {
     render(<Row win={makeWindow({})} onFork={forkResolved()} />);
     hoverOpen();
-    expect(screen.queryByTestId("row-flyout-fork-link")).toBeNull();
+    expect(screen.queryByTestId("row-flyout-fork-action")).toBeNull();
     // The docs link is unaffected — the card still renders normally.
     expect(screen.getByTestId("row-flyout-docs-link")).toBeInTheDocument();
   });
@@ -339,13 +346,13 @@ describe("Fork affordance (260806-s4av)", () => {
   it("is absent for a non-claude provider (fork is a Claude Code mechanism)", () => {
     render(<Row win={makeWindow({ chatProvider: "codex" })} onFork={forkResolved()} />);
     hoverOpen();
-    expect(screen.queryByTestId("row-flyout-fork-link")).toBeNull();
+    expect(screen.queryByTestId("row-flyout-fork-action")).toBeNull();
   });
 
   it("is absent when the consumer wired no handler (board-route sidebar / bare row)", () => {
     render(<Row win={makeWindow({ chatProvider: "claude" })} />);
     hoverOpen();
-    expect(screen.queryByTestId("row-flyout-fork-link")).toBeNull();
+    expect(screen.queryByTestId("row-flyout-fork-action")).toBeNull();
   });
 
   it("clicking calls the handler and does not bubble to the row", () => {
@@ -355,14 +362,14 @@ describe("Fork affordance (260806-s4av)", () => {
     hoverOpen();
 
     act(() => {
-      fireEvent.click(screen.getByTestId("row-flyout-fork-link"));
+      fireEvent.click(screen.getByTestId("row-flyout-fork-action"));
     });
     expect(onFork).toHaveBeenCalledTimes(1);
     // stopPropagation: forking must never also select the underlying row.
     expect(onRowClick).not.toHaveBeenCalled();
   });
 
-  it("disables the button while a fork is in flight, so a second click fires no second POST", async () => {
+  it("disables the row while a fork is in flight, so a second click fires no second POST", async () => {
     // A handler that stays PENDING until the test resolves it — the in-flight
     // window the guard has to cover. The POST creates a tmux window, so a second
     // click getting through would create a second fork.
@@ -376,7 +383,7 @@ describe("Fork affordance (260806-s4av)", () => {
     render(<Row win={makeWindow({ chatProvider: "claude" })} onFork={onFork} />);
     hoverOpen();
 
-    const fork = screen.getByTestId("row-flyout-fork-link");
+    const fork = screen.getByTestId("row-flyout-fork-action");
     expect(fork).toBeEnabled();
 
     act(() => {
@@ -395,7 +402,7 @@ describe("Fork affordance (260806-s4av)", () => {
     await act(async () => {
       settle();
     });
-    expect(screen.getByTestId("row-flyout-fork-link")).toBeEnabled();
+    expect(screen.getByTestId("row-flyout-fork-action")).toBeEnabled();
   });
 
   it("canForkWindow gates on the claude provider exactly", () => {
@@ -500,28 +507,72 @@ describe("prFetchedAtEpoch + FreshnessLine (migrated from the dot tip)", () => {
   });
 });
 
-// Pin/Kill action rows (ys3q): the card is the pin/kill home on coarse
-// pointers (where the in-row cluster is fine-pointer-only) and additive +
-// Tab-reachable on desktop. Optional-handler idiom: a consumer wiring no
+// Sectioned action rows (fork → pin → kill): the card is the pin/kill home on
+// coarse pointers (where the in-row cluster is fine-pointer-only) and additive
+// + Tab-reachable on desktop. Optional-handler idiom: a consumer wiring no
 // handler renders no row.
 describe("Pin/Kill action rows (ys3q)", () => {
   it("renders both action rows when handlers are wired, none when they are not", () => {
     render(<Row win={makeWindow({})} onPinAction={() => {}} onKillAction={() => {}} />);
     hoverOpen();
     expect(screen.getByTestId("row-flyout-pin-action")).toHaveTextContent("Pin to board…");
-    expect(screen.getByTestId("row-flyout-kill-action")).toHaveTextContent("Kill window…");
+    expect(screen.getByTestId("row-flyout-pin-action")).toHaveTextContent("not pinned");
+    expect(screen.getByTestId("row-flyout-kill-action")).toHaveTextContent("Kill window");
+    expect(screen.getByTestId("row-flyout-kill-action")).toHaveTextContent("confirms first");
 
     cleanup();
     render(<Row win={makeWindow({})} />);
     hoverOpen();
     expect(screen.queryByTestId("row-flyout-pin-action")).toBeNull();
     expect(screen.queryByTestId("row-flyout-kill-action")).toBeNull();
+    // No handlers at all ⇒ the sectioned container itself is absent (no lone
+    // top border under the freshness line).
+    expect(screen.queryByTestId("row-flyout-actions")).toBeNull();
   });
 
-  it("the Pin row's label reflects the pinned state", () => {
+  it("the Pin row's sub-hint reflects the pinned state (board name, bare pinned, not pinned)", () => {
+    render(<Row win={makeWindow({})} onPinAction={() => {}} pinned pinnedBoard="work" />);
+    hoverOpen();
+    const pin = screen.getByTestId("row-flyout-pin-action");
+    expect(pin).toHaveTextContent("Pin to board…");
+    expect(pin).toHaveTextContent("work");
+
+    cleanup();
+    // Pinned without a known board degrades to a bare pinned wording.
     render(<Row win={makeWindow({})} onPinAction={() => {}} pinned />);
     hoverOpen();
-    expect(screen.getByTestId("row-flyout-pin-action")).toHaveTextContent("Pinned — manage boards…");
+    expect(screen.getByTestId("row-flyout-pin-action")).toHaveTextContent("pinned");
+    expect(screen.getByTestId("row-flyout-pin-action")).not.toHaveTextContent("undefined");
+  });
+
+  it("rows render in the fixed fork → pin → kill order with the sectioned-list geometry", () => {
+    render(
+      <Row
+        win={makeWindow({ chatProvider: "claude" })}
+        onFork={() => Promise.resolve()}
+        onPinAction={() => {}}
+        onKillAction={() => {}}
+      />,
+    );
+    hoverOpen();
+    const fork = screen.getByTestId("row-flyout-fork-action");
+    const pin = screen.getByTestId("row-flyout-pin-action");
+    const kill = screen.getByTestId("row-flyout-kill-action");
+    expect(fork.compareDocumentPosition(pin) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(pin.compareDocumentPosition(kill) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // One section with a top border off the registers block; touch height on
+    // coarse, ~28px on fine pointers.
+    const section = fork.parentElement!;
+    expect(section.className).toContain("border-t");
+    expect(section.className).toContain("divide-y");
+    expect(section).toContainElement(pin);
+    expect(section).toContainElement(kill);
+    for (const row of [fork, pin, kill]) {
+      expect(row.className).toContain("min-h-[28px]");
+      expect(row.className).toContain("coarse:min-h-[36px]");
+    }
+    // Red treatment on kill.
+    expect(kill.className).toContain("hover:text-signal-red");
   });
 
   it("kill invokes onKillAction and never selects the underlying row (stopPropagation); the card stays open for the confirm dialog", () => {
@@ -622,5 +673,45 @@ describe("scrub registry (ys3q)", () => {
     elFromPoint.mockReturnValue(document.body);
     expect(scrubTargetAt(0, 0)).toBeNull();
     expect(screen.getByTestId("row-flyout-card")).toHaveTextContent("Window @2");
+  });
+});
+
+// Pointer-conditional placement + containment: on coarse the card anchors
+// BELOW the row (bottom-start, top-start fallback) and the width cap comes
+// from the size() middleware (the fine-pointer `max-w-xs` class is dropped so
+// it cannot fight the cap); on fine the `right` arm is unchanged. jsdom has
+// no layout, so placement geometry itself is pinned in e2e
+// (row-flyout.spec.ts); here we pin the class-level contract.
+describe("coarse placement + width cap", () => {
+  /** Coarse-pointer stub: only `(pointer: coarse)` matches (the
+   *  window-row.test.tsx idiom). jsdom has no real pointer media feature. */
+  function mockCoarsePointer() {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn().mockImplementation((q: string) => ({
+        matches: q === "(pointer: coarse)",
+        media: q,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        onchange: null,
+      })),
+    );
+  }
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("drops the fine-pointer max-w-xs class on coarse (the size() middleware owns the cap)", () => {
+    mockCoarsePointer();
+    renderOpen(makeWindow({}));
+    expect(screen.getByTestId("row-flyout-card").className).not.toContain("max-w-xs");
+  });
+
+  it("keeps the max-w-xs cap on a fine pointer (the right-placement arm is unchanged)", () => {
+    renderOpen(makeWindow({}));
+    expect(screen.getByTestId("row-flyout-card").className).toContain("max-w-xs");
   });
 });

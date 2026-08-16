@@ -1289,17 +1289,23 @@ describe("coarse pointer: rest glyph, relocated cluster, tap zone + scrub (ys3q)
     );
   }
 
-  it("keeps the rest-state PR glyph visible under coarse and render-gates the pin/kill buttons out of the DOM", () => {
+  it("renders the rest-state PR glyph in the rail's 16px slot under coarse and render-gates the pin/kill cluster out of the DOM", () => {
     const win = makeWindow({ windowId: "@0", index: 0, name: "my-shell", prNumber: 386, prState: "open", prChecks: "pass" });
     const { container } = renderCoarseRow(win);
     const glyph = screen.getByTestId("row-pr-glyph");
     expect(glyph.className).not.toContain("coarse:hidden");
     expect(glyph.className).toContain("text-accent-green");
+    // The glyph's coarse home is the rail's fixed slot — NOT the fine-pointer
+    // last-slot overlay (no absolute right-0 geometry).
+    const rail = screen.getByTestId("status-rail");
+    expect(rail.contains(glyph)).toBe(true);
+    expect(glyph.className).not.toContain("absolute");
     // Render-gated, not CSS-hidden: no invisible focusable buttons on touch.
     expect(screen.queryByLabelText("Pin my-shell to a board")).toBeNull();
     expect(screen.queryByLabelText("Kill window my-shell")).toBeNull();
-    // The cluster container still mounts — it anchors the glyph's overlay.
-    expect(container.querySelector("div.absolute.right-2")).not.toBeNull();
+    // The whole fine-pointer cluster is gone on coarse — the rail owns the
+    // row's right edge (an empty hover-armed container would swallow touches).
+    expect(container.querySelector("div.absolute.right-2")).toBeNull();
   });
 
   it("keeps the pin/kill buttons in the DOM under a fine pointer (desktop unchanged)", () => {
@@ -1435,5 +1441,179 @@ describe("coarse pointer: rest glyph, relocated cluster, tap zone + scrub (ys3q)
       fireEvent.pointerDown(zone, { pointerId: 1, pointerType: "touch" });
     });
     expect(screen.queryByTestId("row-flyout-card")).toBeNull();
+  });
+
+  // Right-edge status rail (b8eu): the flyout gesture's visible home on coarse
+  // pointers — a 48px inset band with two fixed slots (16px PR glyph + 12px
+  // chevron hint), the PRIMARY tap/scrub target sharing the dot zone's
+  // handlers. jsdom evaluates no media queries, so geometry/presence is
+  // asserted as class strings + inline styles.
+  describe("status rail", () => {
+    it("renders on every coarse non-ghost row: 48px inset band, seam border, touch-none, both fixed slots", () => {
+      const win = makeWindow({ windowId: "@0", index: 0, name: "my-shell" });
+      renderCoarseRow(win);
+      const rail = screen.getByTestId("status-rail");
+      expect(rail.style.width).toBe("48px");
+      expect(rail.className).toContain("bg-bg-inset");
+      expect(rail.className).toContain("border-l");
+      expect(rail.className).toContain("border-border");
+      expect(rail.className).toContain("touch-none");
+      // The chevron hint renders on EVERY rail (a consistent rail is a
+      // learnable rail) — including this PR-less row: muted, ~55% opacity,
+      // aria-hidden decoration, in the fixed 12px slot.
+      const chevron = Array.from(rail.querySelectorAll("span")).find((s) => s.textContent === "›")!;
+      expect(chevron).toBeTruthy();
+      expect(chevron.className).toContain("w-3");
+      expect(chevron.className).toContain("opacity-55");
+      expect(chevron.getAttribute("aria-hidden")).toBe("true");
+      // The 16px glyph slot holds an empty span when the row owns no PR, so
+      // the chevron column never shifts sideways.
+      const glyphSlot = chevron.previousElementSibling as HTMLElement;
+      expect(glyphSlot.className).toContain("w-4");
+      expect(glyphSlot.children).toHaveLength(0);
+      expect(screen.queryByTestId("row-pr-glyph")).toBeNull();
+    });
+
+    it("does not render on fine pointers or on ghost rows", () => {
+      renderRowWithIcons(makeWindow({ windowId: "@0", index: 0 }));
+      expect(screen.queryByTestId("status-rail")).toBeNull();
+      cleanup();
+      mockCoarsePointer();
+      renderGhostRow(makeGhostWindow());
+      expect(screen.queryByTestId("status-rail")).toBeNull();
+    });
+
+    it("deepens to the selected-tint variant on the selected row (derived from the tint system, no new token)", () => {
+      mockCoarsePointer();
+      const rowTints = computeRowTints(DEFAULT_DARK_THEME.palette);
+      const win = makeWindow({ windowId: "@0", index: 0, name: "sel", color: "orange" });
+      const props = {
+        win,
+        session: "alpha",
+        isDragOver: false,
+        color: "orange",
+        rowTints,
+        editingWindow: null,
+        editingName: "",
+        inputRef: { current: null },
+        onSelectWindow: noop,
+        onStartEditing: noop,
+        onWindowNameChange: noop,
+        onRenameKeyDown: noop as React.KeyboardEventHandler<HTMLInputElement>,
+        onRenameBlur: noop,
+        onKillClick: noop,
+        server: "srv",
+      };
+      const { unmount } = render(<WindowRow {...props} isSelected={true} />);
+      // Selected: the inset base mixed with the row's own selected tint.
+      expect(screen.getByTestId("status-rail").style.backgroundColor).toContain(
+        "color-mix(in srgb, var(--color-bg-inset)",
+      );
+      unmount();
+      // Unselected: the plain bg-inset band (class only, no inline mix).
+      render(<WindowRow {...props} isSelected={false} />);
+      const rail = screen.getByTestId("status-rail");
+      expect(rail.style.backgroundColor).toBe("");
+      expect(rail.className).toContain("bg-bg-inset");
+    });
+
+    it("reserves coarse right padding on the row button so the name truncates before the rail (ghost rows excepted)", () => {
+      const win = makeWindow({ windowId: "@0", index: 0, name: "my-shell" });
+      renderCoarseRow(win);
+      const button = screen.getByRole("treeitem").querySelector("button")!;
+      expect(button.className).toContain("coarse:pr-[48px]");
+      cleanup();
+      mockCoarsePointer();
+      const { container } = renderGhostRow(makeGhostWindow());
+      const ghostButton = container.querySelector("button")!;
+      expect(ghostButton.className).not.toContain("coarse:pr-[48px]");
+    });
+
+    it("pointerdown on the rail opens the card (primary target); the tap never selects the row and release keeps the card", () => {
+      const onSelectWindow = vi.fn();
+      renderCoarseRow(makeWindow({ windowId: "@0", index: 0, name: "my-shell" }), { onSelectWindow });
+      const rail = screen.getByTestId("status-rail");
+      act(() => {
+        fireEvent.pointerDown(rail, { pointerId: 1, pointerType: "touch" });
+      });
+      expect(screen.getByTestId("row-flyout-card")).toBeInTheDocument();
+      expect(onSelectWindow).not.toHaveBeenCalled();
+      act(() => {
+        fireEvent.pointerUp(rail, { pointerId: 1, pointerType: "touch" });
+        fireEvent.click(rail);
+      });
+      expect(onSelectWindow).not.toHaveBeenCalled();
+      expect(screen.getByTestId("row-flyout-card")).toBeInTheDocument();
+    });
+
+    it("a scrub started on the rail retargets the single-open card across rows (shared handlers/registry)", () => {
+      mockCoarsePointer();
+      const rowProps = {
+        session: "alpha",
+        isSelected: false,
+        isDragOver: false,
+        editingWindow: null,
+        editingName: "",
+        inputRef: { current: null },
+        onSelectWindow: noop,
+        onStartEditing: noop,
+        onWindowNameChange: noop,
+        onRenameKeyDown: noop as React.KeyboardEventHandler<HTMLInputElement>,
+        onRenameBlur: noop,
+        onKillClick: noop,
+        server: "srv",
+      };
+      render(
+        <>
+          <WindowRow {...rowProps} win={makeWindow({ windowId: "@1", index: 0, name: "win-a" })} />
+          <WindowRow {...rowProps} win={makeWindow({ windowId: "@2", index: 1, name: "win-b" })} />
+        </>,
+      );
+      const rows = screen.getAllByRole("treeitem");
+      const railA = rows[0].querySelector('[data-testid="status-rail"]')!;
+      act(() => {
+        fireEvent.pointerDown(railA, { pointerId: 1, pointerType: "touch" });
+      });
+      expect(screen.getByTestId("row-flyout-card")).toHaveTextContent("Window @1");
+
+      // jsdom has no elementFromPoint — stub the scrub's hit-test seam.
+      const elFromPoint = vi.fn();
+      (document as Document & { elementFromPoint?: unknown }).elementFromPoint = elFromPoint;
+      try {
+        elFromPoint.mockReturnValue(rows[1].querySelector("button"));
+        act(() => {
+          fireEvent.pointerMove(railA, { pointerId: 1, clientX: 5, clientY: 5 });
+        });
+        expect(screen.getAllByTestId("row-flyout-card")).toHaveLength(1);
+        expect(screen.getByTestId("row-flyout-card")).toHaveTextContent("Window @2");
+        act(() => {
+          fireEvent.pointerUp(railA, { pointerId: 1, pointerType: "touch" });
+        });
+        expect(screen.getByTestId("row-flyout-card")).toHaveTextContent("Window @2");
+      } finally {
+        delete (document as { elementFromPoint?: unknown }).elementFromPoint;
+      }
+    });
+
+    it("both scrub ends resolve rows via the stricter '[role=\"treeitem\"][data-window-id]' selector", () => {
+      const closestSpy = vi.spyOn(Element.prototype, "closest");
+      try {
+        renderCoarseRow(makeWindow({ windowId: "@0", index: 0, name: "my-shell" }));
+        act(() => {
+          fireEvent.pointerDown(screen.getByTestId("status-rail"), { pointerId: 1, pointerType: "touch" });
+        });
+        // The start handler must NOT resolve a bare treeitem (the loose
+        // pre-unification selector) — it uses the registry's strict form.
+        expect(closestSpy).toHaveBeenCalledWith('[role="treeitem"][data-window-id]');
+        const calls = closestSpy.mock.calls.filter(
+          ([sel]) => typeof sel === "string" && sel.includes('[role="treeitem"]'),
+        );
+        for (const [sel] of calls) {
+          expect(sel).toBe('[role="treeitem"][data-window-id]');
+        }
+      } finally {
+        closestSpy.mockRestore();
+      }
+    });
   });
 });

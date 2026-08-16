@@ -10,7 +10,7 @@ import { prOwnsGlyph, prGlyphColor } from "@/components/pr-status-model";
 import { PinPopover } from "./pin-popover";
 import { PaletteIcon, CloseIcon, GitPullRequestIcon, GitPullRequestClosedIcon } from "./icons";
 import { PinIcon } from "@/components/pin-icon";
-import { useRowFlyout, scrubTargetAt } from "./row-flyout-card";
+import { useRowFlyout, scrubTargetAt, STATUS_RAIL_WIDTH_PX } from "./row-flyout-card";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import { toSafeWindowName } from "@/lib/names";
 
@@ -228,6 +228,8 @@ function WindowRowInner({
     // Optional-handler idiom: ghost rows and pin-less surfaces wire none.
     onPinAction: showPinIcon ? () => setShowPinPopover(true) : undefined,
     pinned: isPinnedToAny,
+    // Feeds the Pin action row's sub-hint (the board name when known).
+    pinnedBoard,
     onKillAction: ghost ? undefined : () => onKillClick(srv, session, win.windowId, false),
   });
 
@@ -245,7 +247,9 @@ function WindowRowInner({
   const onScrubStart = (e: React.PointerEvent<HTMLSpanElement>) => {
     e.stopPropagation();
     scrubActiveRef.current = true;
-    scrubRowRef.current = e.currentTarget.closest('[role="treeitem"]');
+    // The stricter selector (shared with `scrubTargetAt`) — a plain
+    // `[role="treeitem"]` could resolve an ancestor that is not a window row.
+    scrubRowRef.current = e.currentTarget.closest('[role="treeitem"][data-window-id]');
     flyout.openNow();
     // jsdom lacks the pointer-capture APIs — optional-call so unit tests can
     // drive the gesture without stubbing them.
@@ -349,9 +353,14 @@ function WindowRowInner({
   // don't run under the icon group.
   const buttonClass = useMemo(() => {
     const rightPad = showPinIcon ? "pr-[68px]" : "pr-11";
+    // Coarse reserve (non-ghost rows): the name must truncate before the
+    // 48px status rail that overlays the row's right edge (the literal
+    // matches STATUS_RAIL_WIDTH_PX — Tailwind scans literal classes only).
+    // Inert on fine pointers; ghost rows have no rail and no reserve.
+    const coarsePad = ghost ? "" : " coarse:pr-[48px]";
     // Dense rows on fine pointers (24px); touch keeps the 36px target via the
     // `coarse:` variant (context.md § Mobile Responsive Design).
-    const base = `w-full text-left flex items-center justify-between gap-2 py-px pl-[30px] ${rightPad} text-xs transition-colors min-h-[24px] coarse:min-h-[36px]`;
+    const base = `w-full text-left flex items-center justify-between gap-2 py-px pl-[30px] ${rightPad}${coarsePad} text-xs transition-colors min-h-[24px] coarse:min-h-[36px]`;
     if (isSelected) {
       // Selection = deeper tint (tint.selected / gray sentinel via buttonStyle)
       // + bold + brightened text. No border (removed in the axis split).
@@ -367,7 +376,20 @@ function WindowRowInner({
     return `${base} text-text-secondary hover:text-text-primary hover:bg-bg-card/50${
       flyout.open ? " text-text-primary bg-bg-card/50" : ""
     }`;
-  }, [tint, isSelected, showPinIcon, flyout.open]);
+  }, [tint, isSelected, showPinIcon, ghost, flyout.open]);
+
+  // Rail background: the bg-inset band by default (a class); a SELECTED row
+  // deepens it by mixing the row's own selected tint (tint.selected, or the
+  // uncolored gray sentinel) into the inset base — derived from the existing
+  // tint system, never a new token.
+  const railStyle = useMemo(() => {
+    if (!coarse || ghost || !isSelected) return undefined;
+    const selected = tint?.selected ?? uncoloredSelectedTint?.selected;
+    if (!selected) return undefined;
+    return {
+      backgroundColor: `color-mix(in srgb, var(--color-bg-inset) 55%, ${selected})`,
+    };
+  }, [coarse, ghost, isSelected, tint, uncoloredSelectedTint]);
 
   // ── Left-edge label zone ────────────────────────────────────────────────
   // The 26px left of the status dot is ONE target opening the combined Label
@@ -627,15 +649,18 @@ function WindowRowInner({
       </button>
       {/* Hover-reveal buttons: pin + kill (actions only — the color button moved
           to the left label zone, hwtr). FINE-POINTER-ONLY: on coarse pointers the
-          buttons are not rendered at all — pin/kill live on the flyout card's
-          action rows instead (an always-visible ✕ per row is a fat-finger hazard
-          on a phone). The container still mounts on coarse: it anchors the PR
-          glyph's absolute last-slot overlay. On fine pointers the cluster is
-          inert at rest (pointer-events-none) so stray clicks near the row's
-          right edge fall through to the row-select button instead of hitting an
-          invisible icon; interactivity is restored on hover and keyboard focus
-          within (has-[:focus-visible]). Named `group/icons` so the rest-state
-          PR glyph below can key its hide on focus WITHIN this cluster. */}
+          whole cluster is not rendered at all — its buttons are fine-only (pin/
+          kill live on the flyout card's action rows; an always-visible ✕ per row
+          is a fat-finger hazard on a phone), the PR glyph's coarse home is the
+          status rail, and the empty container would only risk swallowing rail
+          touches when a sticky :hover restores its pointer-events. On fine
+          pointers the cluster is inert at rest (pointer-events-none) so stray
+          clicks near the row's right edge fall through to the row-select button
+          instead of hitting an invisible icon; interactivity is restored on
+          hover and keyboard focus within (has-[:focus-visible]). Named
+          `group/icons` so the rest-state PR glyph below can key its hide on
+          focus WITHIN this cluster. */}
+      {!coarse && (
       <div className="group/icons absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 z-10 pointer-events-none group-hover:pointer-events-auto has-[:focus-visible]:pointer-events-auto">
         {/* Rest-state PR glyph (93dy — user-approved partial Row-Minimalism
             reversal): a window with an OWNED PR (prOwnsGlyph — open/failing/
@@ -648,10 +673,10 @@ function WindowRowInner({
             pointer-events-none, and it disappears entirely on row hover
             (display swap, not an opacity fade) and while keyboard focus is
             inside the action cluster — so it can never be a click target or
-            occlude the revealed ✕. COARSE pointers keep it at rest: the
-            action cluster is fine-pointer-only, so the glyph is the row's
-            only at-rest PR channel on touch. Color via the shared PR
-            vocabulary (prGlyphColor),
+            occlude the revealed ✕. FINE-POINTER-ONLY: on coarse pointers the
+            glyph renders in the status rail's fixed 16px slot instead — one
+            PR channel per pointer world (the rail slot IS the coarse home).
+            Color via the shared PR vocabulary (prGlyphColor),
             six-way: muted closed (dead PR), red failing, gray open-draft,
             yellow checks-running, green open, purple merged — closed sits
             ABOVE fail (stale checks are noise), draft is open-gated and sits
@@ -710,6 +735,57 @@ function WindowRowInner({
         </button>
         )}
       </div>
+      )}
+      {/* Right-edge status rail — COARSE pointers, non-ghost rows only (on
+          fine pointers the hover cluster above owns the right edge and no
+          rail exists): a 48px recessed inset band giving the flyout gesture
+          a visible, learnable home. It is the PRIMARY tap/scrub target
+          (the dot's tap zone stays as a secondary target on the SAME
+          handlers): pointerdown opens the card + captures the pointer, a
+          slide retargets via the shared registry, release keeps the last
+          card. `touch-none` keeps a press-and-slide here from scrolling the
+          drawer; the click stopPropagation keeps a rail tap from selecting
+          the row. Two FIXED slots column-align down the sidebar: a 16px
+          PR-glyph slot (an empty span when the row owns no PR — on coarse
+          the glyph lives HERE, not in the fine-pointer overlay) and a 12px
+          chevron hint on EVERY row (a consistent rail is a learnable rail).
+          Static per-render content only (its inputs are row props/
+          derivations) — no subscriptions, no ticks. */}
+      {coarse && !ghost && (
+        <span
+          data-testid="status-rail"
+          className="absolute right-0 top-0 bottom-0 z-10 flex items-center justify-end gap-0.5 border-l border-border bg-bg-inset pr-1 touch-none"
+          style={{ width: STATUS_RAIL_WIDTH_PX, ...railStyle }}
+          onPointerDown={onScrubStart}
+          onPointerMove={onScrubMove}
+          onPointerUp={onScrubEnd}
+          onPointerCancel={onScrubEnd}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* 16px PR-glyph slot — the empty span holds the column when the
+              row owns no PR, so the chevron never shifts sideways. */}
+          <span className="flex w-4 shrink-0 items-center justify-center">
+            {prOwnsGlyph(win) && (
+              <span
+                aria-hidden="true"
+                data-testid="row-pr-glyph"
+                className={`flex items-center justify-center pointer-events-none ${prGlyphColor(win)}`}
+              >
+                {win.prState === "closed" ? <GitPullRequestClosedIcon /> : <GitPullRequestIcon />}
+              </span>
+            )}
+          </span>
+          {/* 12px chevron hint — aria-hidden decoration (the Icon-System
+              no-text-glyph rule governs ACTION icons; this is a static
+              affordance hint), muted at ~55%. */}
+          <span
+            aria-hidden="true"
+            className="flex w-3 shrink-0 items-center justify-center text-text-secondary opacity-55"
+          >
+            ›
+          </span>
+        </span>
+      )}
       {showPinPopover && server && (
         <PinPopover
           server={server}

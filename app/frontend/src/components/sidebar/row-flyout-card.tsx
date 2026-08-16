@@ -4,6 +4,7 @@ import {
   offset,
   flip,
   shift,
+  size,
   arrow,
   FloatingArrow,
   useHover,
@@ -23,6 +24,7 @@ import { getOutputLine, getAgentLine, getFabLine, getPrSegments } from "./regist
 import { PopupTitleBar, PopupTitleBarSecondary, notchFill } from "./popup-title-bar";
 import { formatDuration } from "@/lib/format";
 import { useNow } from "@/hooks/use-now";
+import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import type { WindowInfo } from "@/types";
 
 /**
@@ -32,18 +34,24 @@ import type { WindowInfo } from "@/types";
  *
  *   - fine-pointer WHOLE-ROW hover (a large, forgiving target vs the 7px dot),
  *   - keyboard row focus (the roving-tabindex treeitem — Constitution V),
- *   - touch dot-tap (the row wires the coarse-pointer tap to `openNow`).
+ *   - touch rail/dot-tap (the row wires the coarse-pointer press to `openNow`).
  *
- * The card is anchored to the ROW element with `placement: "right"` +
- * `FloatingPortal`, so its x-position is FIXED at the sidebar's right edge and
- * only its y tracks the hovered row — no mouse-following jitter. Content is the
+ * Placement is pointer-conditional: on FINE pointers the card anchors to the
+ * ROW element with `placement: "right"` + `FloatingPortal`, so its x-position
+ * is FIXED at the sidebar's right edge and only its y tracks the hovered row —
+ * no mouse-following jitter; on COARSE pointers it anchors BELOW the row
+ * (`bottom-start`, `top-start` fallback) with its width capped short of the
+ * row's 48px status rail, so the finger's column stays visible mid-scrub.
+ * Content is the
  * full four-register view (`out`/`agt`/`fab`/`pr`) promoted from the PANE
  * panel, resolved by the SHARED helpers in ./registers.ts (one source, no
  * drift), plus the identity title bar (`Window @N · pane %N · N panes` — the
- * shared `PopupTitleBar` chrome, carrying the fork + docs affordances on its
+ * shared `PopupTitleBar` chrome, carrying only the ⓘ docs affordance on its
  * right edge), the demoted dot-label body line, the "checked Xs ago" freshness
- * line, and the "Open PR #N ↗" link. Registers are read-only text; the PR link
- * and the title bar's icons are the card's only interactive elements.
+ * line, the "Open PR #N ↗" link, and the sectioned action rows (fork / pin /
+ * kill with sub-hints — one home per action, both pointer worlds). Registers
+ * are read-only text; the PR/docs links and the action rows are the card's
+ * only interactive elements.
  *
  * PERF (ui-patterns § Render Performance — hard constraints): everything here
  * is row-local. The open state lives inside the consuming `WindowRow` via
@@ -58,6 +66,13 @@ import type { WindowInfo } from "@/types";
  *  the card is heavier than a tier-1 tip, so it should not flash on drive-by
  *  pointer sweeps). */
 export const FLYOUT_OPEN_DELAY_MS = 350;
+
+/** Width of the window row's coarse-pointer status rail (window-row.tsx). The
+ *  coarse card's max-width is capped at row-width minus this (plus a gap) so
+ *  the card never covers the rail — the finger's column stays visible and
+ *  touchable mid-scrub. The row's `coarse:pr-[48px]` padding reserve is the
+ *  SAME value as a literal class (Tailwind scans literals only). */
+export const STATUS_RAIL_WIDTH_PX = 48;
 /** How long the flyout cluster stays "warm" (instant retarget) after the last
  *  card closes — the same 500ms window `TipGroup` uses. */
 export const FLYOUT_WARM_WINDOW_MS = 500;
@@ -252,9 +267,23 @@ export function canForkWindow(win: WindowInfo): boolean {
   return win.chatProvider === FORKABLE_CHAT_PROVIDER;
 }
 
+/** Shared geometry for the card's sectioned action rows: full-bleed inside
+ *  the action section (which carries the `-mx-2` counter-inset, so the top
+ *  border + inter-row hairlines span edge to edge), one line tall — icon +
+ *  label left, muted sub-hint right; ≥36px touch height on coarse, ~28px on
+ *  fine pointers (the row-cluster touch-target convention). */
+const ACTION_ROW_CLASS =
+  "flex w-full items-center gap-1.5 min-w-0 px-2 text-left whitespace-nowrap min-h-[28px] coarse:min-h-[36px] text-text-secondary hover:bg-bg-inset focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent";
+
+/** The muted per-action sub-hint riding the row's right edge. It is the row's
+ *  FLEXIBLE part (`min-w-0 truncate`): inside the `max-w-xs` fine-pointer card
+ *  a long hint ellipsizes instead of painting past the card box; the label
+ *  (wrapped in a shrink-0 span at each call site) never truncates. */
+const ACTION_ROW_HINT_CLASS = "ml-auto min-w-0 truncate pl-2 text-text-secondary opacity-60";
+
 /**
- * The header's fork affordance, with its own IN-FLIGHT state so the busy flag is
- * leaf-scoped (the card's render-performance discipline — only this button
+ * The fork action row, with its own IN-FLIGHT state so the busy flag is
+ * leaf-scoped (the card's render-performance discipline — only this row
  * re-renders while a fork is in flight).
  *
  * The guard is load-bearing, not cosmetic: `onFork` POSTs a mutating endpoint that
@@ -262,7 +291,7 @@ export function canForkWindow(win: WindowInfo): boolean {
  * promise settles is the spawn dialog's `disabled={busy}` idiom; the busy state
  * clears on settle (success and error alike) so a failed fork stays retryable.
  */
-function ForkLink({ onFork }: { onFork: () => Promise<void> }) {
+function ForkActionRow({ onFork }: { onFork: () => Promise<void> }) {
   const [busy, setBusy] = useState(false);
   // The card unmounts when the flyout closes (and a successful fork navigates
   // away), so a settle after unmount is a real possibility — guard the setState.
@@ -289,12 +318,14 @@ function ForkLink({ onFork }: { onFork: () => Promise<void> }) {
         });
       }}
       disabled={busy}
-      className="text-text-secondary hover:text-text-primary disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-text-secondary coarse:p-1"
+      className={`${ACTION_ROW_CLASS} hover:text-text-primary disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-text-secondary`}
       aria-label={FORK_TOOLTIP}
       title={FORK_TOOLTIP}
-      data-testid="row-flyout-fork-link"
+      data-testid="row-flyout-fork-action"
     >
       <ForkIcon />
+      <span className="shrink-0">Fork conversation</span>
+      <span className={ACTION_ROW_HINT_CLASS}>new window, same directory</span>
     </button>
   );
 }
@@ -339,12 +370,14 @@ function RowFlyoutContent({
   onFork,
   onPinAction,
   pinned = false,
+  pinnedBoard,
   onKillAction,
 }: {
   win: WindowInfo;
   onFork?: () => Promise<void>;
   onPinAction?: () => void;
   pinned?: boolean;
+  pinnedBoard?: string;
   onKillAction?: () => void;
 }) {
   const nowSeconds = useNow();
@@ -363,32 +396,29 @@ function RowFlyoutContent({
     </span>
   ));
   const fetchedAtEpoch = prFetchedAtEpoch(win);
+  // The fork row keeps the DOUBLE gate: a forkable window AND a wired handler.
+  const showFork = !!onFork && canForkWindow(win);
 
   return (
     <>
       {/* Identity title bar (the card's first element): the static `Window @N`
-          title plus the affordance cluster riding the bar's right edge — the
-          fork link (claude chats only, and only when the consumer wired a
-          handler; it owns its own in-flight disabled state) then the quiet
-          circled-(i) docs link. `ml-auto` lives inside PopupTitleBar's right
-          slot so both glyphs ride the right edge as one group. */}
+          title plus the quiet circled-(i) docs link on the bar's right edge.
+          Actions (fork/pin/kill) live in the sectioned action list at the
+          card's bottom — one affordance, one home. */}
       <PopupTitleBar
         right={
-          <>
-            {onFork && canForkWindow(win) && <ForkLink onFork={onFork} />}
-            <a
-              href={STATUS_DOT_DOCS_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-              className="text-text-secondary hover:text-text-primary coarse:p-1"
-              aria-label="What do status dots mean? (opens docs)"
-              title="What do status dots mean?"
-              data-testid="row-flyout-docs-link"
-            >
-              <InfoIcon />
-            </a>
-          </>
+          <a
+            href={STATUS_DOT_DOCS_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="text-text-secondary hover:text-text-primary coarse:p-1"
+            aria-label="What do status dots mean? (opens docs)"
+            title="What do status dots mean?"
+            data-testid="row-flyout-docs-link"
+          >
+            <InfoIcon />
+          </a>
         }
       >
         <WindowFlyoutTitle win={win} />
@@ -461,39 +491,55 @@ function RowFlyoutContent({
       {/* Ambient "PR checked Xs ago" trust signal; omitted without a joined
           PR-status timestamp. Leaf-scoped clock inside the open card. */}
       <FreshnessLine fetchedAtEpoch={fetchedAtEpoch} />
-      {/* Pin/Kill action rows — the card's last block, rendered for ALL pointer
-          types: the pin/kill home on coarse (where the in-row cluster is
-          fine-pointer-only), additive + Tab-reachable on desktop (the
-          FloatingFocusManager order). Optional-handler idiom: a consumer wiring
-          no handler renders no row. Both stopPropagation so an action never
-          selects the underlying row (the PR-link/fork/docs idiom). */}
-      {onPinAction && (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onPinAction();
-          }}
-          className="flex items-center gap-1.5 min-w-0 text-left whitespace-nowrap text-text-secondary hover:text-text-primary hover:bg-bg-inset focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent coarse:py-1"
-          data-testid="row-flyout-pin-action"
+      {/* Sectioned action rows — the card's last block, rendered for ALL
+          pointer types: the pin/kill home on coarse (where the in-row cluster
+          is fine-pointer-only), additive + Tab-reachable on desktop (the
+          FloatingFocusManager order). One row per action in a fixed
+          fork → pin → kill order, a top border off the registers/freshness
+          block and inter-row hairlines (divide-y); the `-mx-2` counter-inset
+          (the title bar's idiom) lets the rules span the card edge to edge.
+          Optional-handler idiom: a consumer wiring no handler renders no row.
+          All rows stopPropagation so an action never selects the underlying
+          row (the PR-link/docs idiom). */}
+      {(showFork || onPinAction || onKillAction) && (
+        <div
+          className="-mx-2 mt-0.5 border-t border-border divide-y divide-border"
+          data-testid="row-flyout-actions"
         >
-          <PinIcon filled={pinned} />
-          {pinned ? "Pinned — manage boards…" : "Pin to board…"}
-        </button>
-      )}
-      {onKillAction && (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onKillAction();
-          }}
-          className="flex items-center gap-1.5 min-w-0 text-left whitespace-nowrap text-text-secondary hover:text-signal-red hover:bg-bg-inset focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent coarse:py-1"
-          data-testid="row-flyout-kill-action"
-        >
-          <CloseIcon />
-          Kill window…
-        </button>
+          {showFork && <ForkActionRow onFork={onFork} />}
+          {onPinAction && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onPinAction();
+              }}
+              className={`${ACTION_ROW_CLASS} hover:text-text-primary`}
+              data-testid="row-flyout-pin-action"
+            >
+              <PinIcon filled={pinned} />
+              <span className="shrink-0">Pin to board…</span>
+              <span className={ACTION_ROW_HINT_CLASS}>
+                {pinned ? (pinnedBoard ?? "pinned") : "not pinned"}
+              </span>
+            </button>
+          )}
+          {onKillAction && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onKillAction();
+              }}
+              className={`${ACTION_ROW_CLASS} hover:text-signal-red`}
+              data-testid="row-flyout-kill-action"
+            >
+              <CloseIcon />
+              <span className="shrink-0">Kill window</span>
+              <span className={ACTION_ROW_HINT_CLASS}>confirms first</span>
+            </button>
+          )}
+        </div>
       )}
     </>
   );
@@ -520,8 +566,12 @@ type UseRowFlyoutOptions = {
    *  via the `suppressed` gate, which already includes the popover-open state.
    *  OPTIONAL: a consumer wiring none renders no Pin action row. */
   onPinAction?: () => void;
-  /** Pin-state input for the Pin row's label + glyph fill. */
+  /** Pin-state input for the Pin row's glyph fill + sub-hint. */
   pinned?: boolean;
+  /** The board this window is pinned to (the row's existing `pinnedBoard`
+   *  prop), surfaced as the Pin row's sub-hint when pinned. Undefined while
+   *  pinned degrades to a bare "pinned" wording. */
+  pinnedBoard?: string;
   /** Kill the row's window (the card's Kill action row) — the consumer MUST
    *  route it through the existing KillDialog confirm path; the card adds no
    *  force-kill. OPTIONAL: a consumer wiring none renders no Kill row. */
@@ -556,7 +606,7 @@ type RowFlyout = {
  * treeitem), `useDismiss` (Escape / outside press / blur), plus the exposed
  * `openNow` for the coarse dot-tap.
  */
-export function useRowFlyout(win: WindowInfo, { suppressed = false, onFork, onPinAction, pinned = false, onKillAction }: UseRowFlyoutOptions = {}) {
+export function useRowFlyout(win: WindowInfo, { suppressed = false, onFork, onPinAction, pinned = false, pinnedBoard, onKillAction }: UseRowFlyoutOptions = {}) {
   const [open, setOpen] = useState(false);
   // True once keyboard focus has entered the OPEN card (Tab from the row).
   // Gates FloatingFocusManager's `returnFocus`: a close where focus was
@@ -634,12 +684,16 @@ export function useRowFlyout(win: WindowInfo, { suppressed = false, onFork, onPi
   // edges; the arrow stays locked to the reference either way.
   const arrowRef = useRef<SVGSVGElement | null>(null);
 
-  const { refs, floatingStyles, context, middlewareData } = useFloating({
+  const coarse = useCoarsePointer();
+  const { refs, floatingStyles, context, middlewareData, placement } = useFloating({
     open,
     onOpenChange: handleOpenChange,
-    // Fixed-x anchor: the row is full-bleed to the sidebar width, so "right"
-    // of the ROW element is the sidebar's right edge — stable across rows.
-    placement: "right",
+    // Fine pointers: fixed-x anchor — the row is full-bleed to the sidebar
+    // width, so "right" of the ROW element is the sidebar's right edge,
+    // stable across rows. Coarse pointers: the card anchors BELOW the row
+    // (the drawer has no free space at either side for a "right" card), with
+    // a top-start fallback near the drawer bottom.
+    placement: coarse ? "bottom-start" : "right",
     // `fixed` (not the default `absolute`): the card is portalled to
     // document.body, and an absolutely-positioned card whose right edge lands
     // past the viewport GROWS document.body's scrollWidth — horizontal page
@@ -649,8 +703,28 @@ export function useRowFlyout(win: WindowInfo, { suppressed = false, onFork, onPi
     // keep positioning against the viewport as before.
     strategy: "fixed",
     // arrow() runs after shift() so the notch is positioned against the final
-    // shifted card rect (the floating-ui documented order).
-    middleware: [offset(6), flip(), shift({ padding: 8 }), arrow({ element: arrowRef })],
+    // shifted card rect (the floating-ui documented order). The coarse arm
+    // adds size() AFTER shift(): the containment cap (below) must win over
+    // the `max-w-xs`-free width, and shift() keeps the card inside the
+    // viewport padding.
+    middleware: coarse
+      ? [
+          offset(6),
+          flip({ fallbackPlacements: ["top-start"] }),
+          shift({ padding: 8 }),
+          size({
+            // Containment invariant: the card's right edge stops BEFORE the
+            // row's 48px status rail, so the finger's column stays visible
+            // and touchable mid-scrub. bottom-start left-aligns the card to
+            // the row, so the cap is row width − rail − an 8px gap.
+            apply({ rects, elements }) {
+              const cap = rects.reference.width - STATUS_RAIL_WIDTH_PX - 8;
+              elements.floating.style.maxWidth = `${Math.max(cap, 120)}px`;
+            },
+          }),
+          arrow({ element: arrowRef }),
+        ]
+      : [offset(6), flip(), shift({ padding: 8 }), arrow({ element: arrowRef })],
     whileElementsMounted: autoUpdate,
   });
 
@@ -748,22 +822,33 @@ export function useRowFlyout(win: WindowInfo, { suppressed = false, onFork, onPi
           // card out of the row via margin-left + opacity: floating-ui owns
           // this element's `transform` for positioning, so the entrance must
           // never animate transform (it would clobber the translate).
-          className={`z-50 flex flex-col gap-1 bg-bg-primary border border-border rounded-md shadow-lg px-2 py-1.5 text-xs font-mono w-max max-w-xs${
+          // The `max-w-xs` cap is FINE-POINTER-ONLY: on coarse the size()
+          // middleware owns the width cap (stop before the status rail).
+          className={`z-50 flex flex-col gap-1 bg-bg-primary border border-border rounded-md shadow-lg px-2 py-1.5 text-xs font-mono w-max${coarse ? "" : " max-w-xs"}${
             coldOpenRef.current ? " rk-flyout-in" : ""
           }`}
         >
           {/* Row-aligned notch (E1): pinned by the arrow() middleware to the
-              hovered row's vertical center on the card's row-side edge. Fill
-              follows the band it lands on: the inset fill while the notch's
-              resolved y sits within the title-bar band (notch + bar read as
-              one shape), the card-surface fill below it. */}
+              hovered row on the card's row-side edge. The resolved coordinate
+              is axis-dependent: on a SIDE placement (fine pointers) it is `y`
+              measured from the card's top — the notchFill title-band seam. On
+              the coarse BOTTOM placement the arrow sits on the card's TOP
+              edge, which is always inside the full-width title band (fill 0
+              → inset); flipped to TOP the arrow sits on the bottom edge, in
+              the action area (null → card surface). */}
           <FloatingArrow
             ref={arrowRef}
             context={context}
             width={10}
             height={5}
             tipRadius={1}
-            fill={notchFill(middlewareData.arrow?.y)}
+            fill={notchFill(
+              placement.startsWith("bottom")
+                ? 0
+                : placement.startsWith("top")
+                  ? null
+                  : middlewareData.arrow?.y,
+            )}
             stroke="var(--color-border)"
             strokeWidth={1}
             aria-hidden="true"
@@ -774,6 +859,7 @@ export function useRowFlyout(win: WindowInfo, { suppressed = false, onFork, onPi
             onFork={onFork}
             onPinAction={handlePinAction}
             pinned={pinned}
+            pinnedBoard={pinnedBoard}
             onKillAction={onKillAction}
           />
         </div>

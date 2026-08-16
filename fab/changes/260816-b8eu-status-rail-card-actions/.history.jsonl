@@ -1,0 +1,11 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-16T20:20:42Z"}
+{"args":"Right-edge status rail + contained mobile card + explicit card actions (sidebar window rows) — builds on merged PR #634","cmd":"fab-new","event":"command","ts":"2026-08-16T20:20:42Z"}
+{"delta":"+4.8","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-08-16T20:23:08Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-08-16T20:24:19Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-16T20:25:20Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-16T20:27:27Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-16T20:59:24Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-16T21:06:26Z"}
+{"event":"review","result":"passed","ts":"2026-08-16T21:06:26Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-16T21:19:47Z"}
+{"cmd":"git-pr","event":"command","ts":"2026-08-16T21:20:28Z"}

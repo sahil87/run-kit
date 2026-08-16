@@ -9,8 +9,12 @@ import { mockStateSocket } from "./_state-socket-mock";
 // for intent + steps.
 //
 // The flyout opens on WHOLE-ROW hover (350ms delay, warm-window retarget),
-// keyboard row focus, and coarse-pointer dot-tap; it anchors to the row with
-// placement "right", so it renders at the sidebar's right edge.
+// keyboard row focus, and coarse-pointer rail/dot-tap; placement is
+// pointer-conditional — "right" (the sidebar's right edge) on fine pointers,
+// "bottom-start" below the row on coarse, with the card width capped short of
+// the row's 48px status rail. Card actions (fork / pin / kill) are explicit
+// sectioned rows at the card's bottom on BOTH pointer worlds — the title bar
+// carries only the ⓘ docs link.
 
 const SERVER = "default";
 
@@ -132,14 +136,31 @@ test.describe("Row flyout card (fine pointer)", () => {
     await expect(card(page)).toBeVisible();
 
     // Content: the identity title bar (`Window @N · pane %N · N panes`, the
-    // card's first element, carrying the fork + docs affordances on its right
-    // edge), then the DEMOTED dot-label body line (hue word + status word +
+    // card's first element, carrying ONLY the ⓘ docs affordance on its right
+    // edge — actions live in the sectioned rows at the card's bottom), then
+    // the DEMOTED dot-label body line (hue word + status word +
     // waiting suffix — no PR words; the pr register below carries the PR) +
     // the four registers + freshness + links.
     const titleBar = page.getByTestId("popup-title-bar");
     await expect(titleBar).toContainText("Window @1 · pane %425 · 2 panes");
     await expect(titleBar.getByTestId("row-flyout-docs-link")).toBeVisible();
-    await expect(titleBar.getByTestId("row-flyout-fork-link")).toBeVisible();
+    await expect(titleBar.getByTestId("row-flyout-fork-action")).toHaveCount(0);
+    // Sectioned action rows (fork → pin → kill, one home per action, BOTH
+    // pointer worlds): labels + sub-hints, in order.
+    const forkRow = card(page).getByTestId("row-flyout-fork-action");
+    const pinRow = card(page).getByTestId("row-flyout-pin-action");
+    const killRow = card(page).getByTestId("row-flyout-kill-action");
+    await expect(forkRow).toContainText("Fork conversation");
+    await expect(forkRow).toContainText("new window, same directory");
+    await expect(pinRow).toContainText("Pin to board…");
+    await expect(pinRow).toContainText("not pinned");
+    await expect(killRow).toContainText("Kill window");
+    await expect(killRow).toContainText("confirms first");
+    const forkBox = (await forkRow.boundingBox())!;
+    const pinBox = (await pinRow.boundingBox())!;
+    const killBox = (await killRow.boundingBox())!;
+    expect(forkBox.y).toBeLessThan(pinBox.y);
+    expect(pinBox.y).toBeLessThan(killBox.y);
     const cardText = (await card(page).innerText()).replaceAll("\n", " ");
     expect(cardText.indexOf("Window @1")).toBeLessThan(cardText.indexOf("building — active"));
     await expect(card(page)).toContainText("building — active — agent waiting 3m");
@@ -209,19 +230,20 @@ test.describe("Row flyout card (fine pointer)", () => {
     await expect(page.getByTestId("row-flyout-pr-link")).toHaveCount(0);
   });
 
-  test("the fork link renders only on a claude-chat row and POSTs the fork endpoint", async ({
+  test("the fork action row renders only on a claude-chat row and POSTs the fork endpoint", async ({
     page,
   }) => {
-    // Gate: @1 carries a reconciled claude chat → the fork affordance renders
-    // beside the docs link; @2 (plain shell, no chatProvider) does not.
+    // Gate: @1 carries a reconciled claude chat → the fork action row renders
+    // in the card's sectioned action list; @2 (plain shell, no chatProvider)
+    // does not.
     await prRow(page).hover();
-    const forkLink = page.getByTestId("row-flyout-fork-link");
-    await expect(forkLink).toBeVisible();
-    await expect(forkLink).toHaveAttribute("title", /same directory/i);
+    const forkRow = page.getByTestId("row-flyout-fork-action");
+    await expect(forkRow).toBeVisible();
+    await expect(forkRow).toHaveAttribute("title", /same directory/i);
 
     await scratchRow(page).hover();
     await expect(card(page)).toContainText("idle");
-    await expect(page.getByTestId("row-flyout-fork-link")).toHaveCount(0);
+    await expect(page.getByTestId("row-flyout-fork-action")).toHaveCount(0);
 
     // Clicking it POSTs the window-keyed fork endpoint with NO body (every input
     // is derived server-side). Mocked with an empty windowId so the app skips
@@ -237,7 +259,7 @@ test.describe("Row flyout card (fine pointer)", () => {
     });
 
     await prRow(page).hover();
-    await page.getByTestId("row-flyout-fork-link").click();
+    await page.getByTestId("row-flyout-fork-action").click();
     await expect.poll(() => forkRequests.length).toBe(1);
     // Window-keyed: the source window's id is in the path (percent-encoded '@').
     expect(forkRequests[0]).toContain("/fork");
@@ -263,7 +285,7 @@ test.describe("Row flyout card (fine pointer)", () => {
     );
 
     await prRow(page).hover();
-    await page.getByTestId("row-flyout-fork-link").click();
+    await page.getByTestId("row-flyout-fork-action").click();
 
     // @9 → URL segment `9` (the route strips the '@'), the same navigation the
     // spawn dialog performs with a riff result.
@@ -347,35 +369,74 @@ test.describe("Row flyout card (coarse pointer)", () => {
     await expect(scratchRow(page)).toBeVisible();
   }
 
-  test("rest PR glyph is visible and pin/✕ are gone at rest; dot-tap opens the card without selecting the row", async ({
+  test("rail renders on every row with aligned slots; rail-tap opens a contained bottom-start card without selecting the row", async ({
     page,
   }) => {
     await gotoCoarseDrawer(page);
 
-    // Coarse rest state: the rest-state PR glyph is the row's at-rest PR
-    // channel; the pin/✕ cluster is fine-pointer-only — the buttons are not
+    // The widened mobile drawer: 92% of the viewport capped at 340px.
+    const drawerBox = (await page.locator('aside[aria-label="Navigation"]').boundingBox())!;
+    expect(drawerBox.width).toBe(Math.min(Math.round(page.viewportSize()!.width * 0.92), 340));
+
+    // Coarse rest state: the rest-state PR glyph lives in the rail's fixed
+    // 16px slot; the pin/✕ cluster is fine-pointer-only — the buttons are not
     // in the DOM at all (pin/kill moved into the flyout card).
-    await expect(prRow(page).getByTestId("row-pr-glyph")).toBeVisible();
+    const prRail = prRow(page).getByTestId("status-rail");
+    const scratchRail = scratchRow(page).getByTestId("status-rail");
+    await expect(prRail).toBeVisible();
+    await expect(scratchRail).toBeVisible();
+    await expect(prRail.getByTestId("row-pr-glyph")).toBeVisible();
+    await expect(scratchRail.getByTestId("row-pr-glyph")).toHaveCount(0);
+    // The chevron hint renders on EVERY row — glyph or not (a consistent rail
+    // is a learnable rail).
+    await expect(prRail).toContainText("›");
+    await expect(scratchRail).toContainText("›");
     await expect(prRow(page).getByLabel("Pin feature-work to a board")).toHaveCount(0);
     await expect(prRow(page).getByLabel("Kill window feature-work")).toHaveCount(0);
-    await expect(scratchRow(page).getByTestId("row-pr-glyph")).toHaveCount(0);
 
-    // The widened leading tap zone (the touch status path): a ≥32×36 target.
+    // The widened leading tap zone (the SECONDARY touch target) still meets
+    // the ≥32×36 touch-target convention.
     const zone = prRow(page).getByTestId("status-dot-tap");
     const zoneBox = await zone.boundingBox();
     expect(zoneBox).not.toBeNull();
     expect(zoneBox!.width).toBeGreaterThanOrEqual(32);
     expect(zoneBox!.height).toBeGreaterThanOrEqual(36);
 
-    // Tapping the zone opens the card and does NOT select the row
-    // (stopPropagation) — the URL stays on the server route (@1's select
-    // would navigate to /default/1).
-    await zone.tap();
+    // Tapping the RAIL (the primary target) opens the card and does NOT
+    // select the row (stopPropagation) — the URL stays on the server route
+    // (@1's select would navigate to /default/1).
+    await prRail.tap();
     await expect(card(page)).toBeVisible();
     await expect(card(page)).toContainText("building — active");
-    // The card is the coarse pin/kill home.
+    // The card is the coarse pin/kill home — and fork's only home.
+    await expect(card(page).getByTestId("row-flyout-fork-action")).toBeVisible();
     await expect(card(page).getByTestId("row-flyout-pin-action")).toBeVisible();
     await expect(card(page).getByTestId("row-flyout-kill-action")).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`/${SERVER}/?$`));
+
+    // Coarse placement + containment: the card anchors BELOW its row
+    // (bottom-start), renders fully on-screen, and its right edge stops
+    // BEFORE the rail column — the finger's column stays visible/touchable.
+    const cardBox = (await card(page).boundingBox())!;
+    const rowBox = (await prRow(page).boundingBox())!;
+    const railBox = (await prRail.boundingBox())!;
+    const viewport = page.viewportSize()!;
+    expect(cardBox.y).toBeGreaterThanOrEqual(rowBox.y + rowBox.height - 1);
+    expect(cardBox.x).toBeGreaterThanOrEqual(0);
+    expect(cardBox.y + cardBox.height).toBeLessThanOrEqual(viewport.height);
+    expect(cardBox.x + cardBox.width).toBeLessThanOrEqual(viewport.width);
+    expect(cardBox.x + cardBox.width).toBeLessThanOrEqual(railBox.x + 1);
+    // The notch points UP at the row/rail: the arrow rides the card's top
+    // edge.
+    const arrowBox = (await page.getByTestId("row-flyout-arrow").boundingBox())!;
+    expect(arrowBox.y + arrowBox.height).toBeLessThanOrEqual(cardBox.y + 2);
+
+    // The dot-tap zone still works as the SECONDARY target: dismiss, then tap
+    // the dot zone to reopen.
+    await page.keyboard.press("Escape");
+    await expect(card(page)).toHaveCount(0);
+    await zone.tap();
+    await expect(card(page)).toBeVisible();
     await expect(page).toHaveURL(new RegExp(`/${SERVER}/?$`));
 
     // A touch interaction with the row BODY does not hover-open a card: it
@@ -431,15 +492,16 @@ test.describe("Row flyout card (coarse pointer)", () => {
     await expect(page).toHaveURL(new RegExp(`/${SERVER}/?$`));
   });
 
-  test("scrub: press + slide retargets the single card across rows; release keeps it; tap-elsewhere dismisses", async ({
+  test("scrub: press the rail + slide retargets the single card across rows; release keeps it; tap-elsewhere dismisses", async ({
     page,
   }) => {
     await gotoCoarseDrawer(page);
 
-    // Press the tap zone (pointerdown opens the card and captures the
-    // pointer), then slide onto the sibling row without lifting.
-    const zoneBox = (await prRow(page).getByTestId("status-dot-tap").boundingBox())!;
-    await page.mouse.move(zoneBox.x + zoneBox.width / 2, zoneBox.y + zoneBox.height / 2);
+    // Press the rail (the primary scrub target — pointerdown opens the card
+    // and captures the pointer), then slide onto the sibling row without
+    // lifting.
+    const railBox = (await prRow(page).getByTestId("status-rail").boundingBox())!;
+    await page.mouse.move(railBox.x + railBox.width / 2, railBox.y + railBox.height / 2);
     await page.mouse.down();
     await expect(card(page)).toBeVisible();
     await expect(card(page)).toContainText("building — active");
@@ -452,6 +514,12 @@ test.describe("Row flyout card (coarse pointer)", () => {
     await expect(card(page)).toHaveCount(1);
     await expect(card(page)).toContainText("Window @2");
     await expect(page).toHaveURL(new RegExp(`/${SERVER}/?$`));
+
+    // Containment mid-scrub: the retargeted card never covers the finger's
+    // rail column on the row it now belongs to.
+    const retargetedCardBox = (await card(page).boundingBox())!;
+    const scratchRailBox = (await scratchRow(page).getByTestId("status-rail").boundingBox())!;
+    expect(retargetedCardBox.x + retargetedCardBox.width).toBeLessThanOrEqual(scratchRailBox.x + 1);
 
     // Release keeps the last card open and the drawer stays put.
     await page.mouse.up();

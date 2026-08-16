@@ -301,7 +301,7 @@ export function Shell({
             role="dialog"
             aria-modal="true"
             aria-label="Navigation"
-            className="absolute inset-y-0 left-0 z-50 w-[88%] max-w-[320px] bg-bg-primary border-r border-border overflow-y-auto shadow-2xl pointer-events-auto"
+            className="absolute inset-y-0 left-0 z-50 w-[92%] max-w-[340px] bg-bg-primary border-r border-border overflow-y-auto shadow-2xl pointer-events-auto"
           >
             {sidebarChildren}
           </aside>

@@ -1,19 +1,26 @@
 # row-flyout.spec.ts
 
-Verifies the **sidebar row-hover register flyout card** and the **rest-state PR
-glyph** (93dy) — the one status-detail surface that replaced the per-dot
-`StatusDotTip` hover-card (whose `status-dot-tip.spec.ts` this file replaces):
-the card opens on whole-row hover at a fixed x (the sidebar's right edge), on
-keyboard row focus, and on coarse-pointer dot-tap; it carries the four-register
-view plus the PR/docs links; a window with an owned PR shows a rest-state
-git-pull-request glyph that swaps for the pin/✕ actions on hover (fine
-pointers). It also covers the card's **conversation-fork link** (260806-s4av) —
-gated on the window carrying a `claude` chat, POSTing the window-keyed fork
-endpoint, and navigating to the returned window — and the **coarse-pointer
-parity + slide-to-scrub gesture** (ys3q): on touch the rest glyph stays
-visible, the pin/✕ cluster relocates into the card as Pin/Kill action rows,
-the dot's leading tap zone widens to the touch-target convention, and a
-press-and-slide from the zone retargets the single-open card across rows.
+Verifies the **sidebar row-hover register flyout card**, the **rest-state PR
+glyph** (93dy), and the **right-edge status rail** (b8eu) — the one
+status-detail surface that replaced the per-dot `StatusDotTip` hover-card
+(whose `status-dot-tip.spec.ts` this file replaces): the card opens on
+whole-row hover at a fixed x (the sidebar's right edge) on fine pointers and
+BELOW the row (`bottom-start`, width-capped short of the rail) on coarse
+pointers, on keyboard row focus, and on coarse-pointer rail-tap/dot-tap; it
+carries the four-register view plus the PR/docs links; a window with an owned
+PR shows a rest-state git-pull-request glyph that swaps for the pin/✕ actions
+on hover (fine pointers) and lives in the rail's fixed 16px slot on coarse. It
+also covers the card's **sectioned action rows** — fork / pin / kill, one row
+per action with a sub-hint, on BOTH pointer worlds (the title bar carries only
+the ⓘ docs link; fork's title-bar icon is gone). The **conversation-fork
+action row** (260806-s4av) is gated on the window carrying a `claude` chat,
+POSTs the window-keyed fork endpoint, and navigates to the returned window.
+And the **coarse-pointer parity + slide-to-scrub gesture** (ys3q, extended by
+b8eu): on touch the pin/✕ cluster relocates into the card's action rows, the
+48px status rail is the PRIMARY tap/scrub target (the dot's leading tap zone
+is the kept secondary target), and a press-and-slide from the rail retargets
+the single-open card across rows without the card ever covering the rail
+column.
 
 ## Shared setup
 
@@ -31,16 +38,17 @@ press-and-slide from the zone retargets the single-open card across rows.
       `prReview: approved`, fresh `prFetchedAt`) → blue
       "building — active — agent waiting 3m" dot (the PR never owns the dot —
       compositional vocabulary), rest PR glyph, full four-register card, fork
-      link, and a two-pane list (`%425` active) so the identity title bar
+      action row, and a two-pane list (`%425` active) so the identity title bar
       renders its full `Window @1 · pane %425 · 2 panes` form.
     - `@2` "scratch-shell" — plain window → gray "idle" dot, no glyph,
-      out-register-only card, no fork link, no panes (the title bar degrades to
+      out-register-only card, no fork row, no panes (the title bar degrades to
       `Window @2`).
 - Rows are located by `[role='treeitem'][data-window-id]`; the card by
   `data-testid="row-flyout-card"`; registers/links by `row-flyout-out|agt|fab|
-  pr|checked|pr-link|docs-link|fork-link`; the card's Pin/Kill action rows by
-  `row-flyout-pin-action` / `row-flyout-kill-action`; the glyph by
-  `row-pr-glyph`; the dot's tap wrapper by `status-dot-tap`.
+  pr|checked|pr-link|docs-link`; the card's sectioned action rows by
+  `row-flyout-fork-action` / `row-flyout-pin-action` / `row-flyout-kill-action`;
+  the glyph by `row-pr-glyph`; the coarse status rail by `status-rail`; the
+  dot's tap wrapper by `status-dot-tap`.
 - The coarse-pointer describe additionally mocks `(pointer: coarse)` via
   `matchMedia` (Playwright desktop Chromium cannot flip the real pointer media
   feature — the `tooltips.spec.ts` precedent) and enables `hasTouch` so `tap()`
@@ -54,30 +62,37 @@ press-and-slide from the zone retargets the single-open card across rows.
 anchored at the sidebar's right edge and vertically aligned to the hovered row.
 Its first element is the **identity title bar** (`Window @1 · pane %425 · 2
 panes` — the tmux window id, the active pane's id, and the pane count, in the
-inset-bar treatment), carrying the fork + docs affordances on its right edge;
-the dot label is demoted to the first body line, followed by the four registers
+inset-bar treatment), carrying ONLY the docs link on its right edge (fork is
+gone from the title bar — one affordance, one home); the dot label is demoted
+to the first body line, followed by the four registers
 (`out`/`agt`/`fab`/`pr`), the "checked Xs ago" freshness line, and the PR link.
-The `pr` register line is itself the open-first anchor (the panel's PrLinkRow
-idiom): it wraps the colored segments, ends in an always-visible inline `↗`,
-and opens the PR in a new tab (`noopener noreferrer`).
+The card's bottom carries the **sectioned action rows** in the fixed fork →
+pin → kill order, each with its sub-hint ("new window, same directory" /
+pin-state / "confirms first"). The `pr` register line is itself the open-first
+anchor (the panel's PrLinkRow idiom): it wraps the colored segments, ends in an
+always-visible inline `↗`, and opens the PR in a new tab
+(`noopener noreferrer`).
 
 **Steps:**
 1. Hover the `@1` row; assert the card is visible.
-2. Assert the title bar contains "Window @1 · pane %425 · 2 panes" and holds
-   the docs + fork links; assert the title text precedes the dot-label text
-   ("building — active — agent waiting 3m" — hue word + status word + waiting
-   suffix, no PR words) in the card, and each register testid shows its
-   expected content (`waiting 3m`, the fab id·slug·stage·state line, `#386`,
-   the freshness line).
-3. Assert the pr-register anchor wraps the segments (`#386`, `↗`), carries
+2. Assert the title bar contains "Window @1 · pane %425 · 2 panes", holds the
+   docs link, and contains NO fork affordance; assert the title text precedes
+   the dot-label text ("building — active — agent waiting 3m" — hue word +
+   status word + waiting suffix, no PR words) in the card, and each register
+   testid shows its expected content (`waiting 3m`, the fab id·slug·stage·state
+   line, `#386`, the freshness line).
+3. Assert the sectioned action rows: fork ("Fork conversation" / "new window,
+   same directory"), pin ("Pin to board…" / "not pinned"), kill ("Kill window"
+   / "confirms first"), in that vertical order (bounding-box y).
+4. Assert the pr-register anchor wraps the segments (`#386`, `↗`), carries
    the "Open PR #386 in a new tab" aria-label + href/target/rel, and the docs
    link href.
-4. Assert the row-aligned notch: the card's arrow SVG is present and its
+5. Assert the row-aligned notch: the card's arrow SVG is present and its
    vertical center falls inside the hovered row's band (the E1 connection
    cue — the notch points at the row that owns the card).
-5. Compare bounding boxes: the card's x ≥ the sidebar `<aside>`'s right edge,
+6. Compare bounding boxes: the card's x ≥ the sidebar `<aside>`'s right edge,
    and the card vertically overlaps the hovered row (±8px).
-6. Assert no line paints outside the `max-w-xs` card box: the card's
+7. Assert no line paints outside the `max-w-xs` card box: the card's
    `scrollWidth` does not exceed its `clientWidth` (the long mocked fab
    register would overflow without the register lines' `truncate`).
 
@@ -94,25 +109,25 @@ scratch window's title bar reads `Window @2` alone, with no pane segment.
 2. Hover `@2`; assert exactly one card exists, containing "idle", with zero
    PR links, and its title bar reads "Window @2" without any "pane" segment.
 
-### `the fork link renders only on a claude-chat row and POSTs the fork endpoint`
+### `the fork action row renders only on a claude-chat row and POSTs the fork endpoint`
 
-**What it proves:** the conversation-fork affordance (260806-s4av) is gated on the
-window carrying a reconciled `claude` chat, its tooltip names the same-directory
-semantics, and clicking it POSTs the window-keyed `POST
-/api/windows/{windowId}/fork` endpoint — with no body, since every other input is
-derived server-side — without selecting or navigating the underlying row.
+**What it proves:** the conversation-fork action row (260806-s4av) is gated on
+the window carrying a reconciled `claude` chat, its tooltip names the
+same-directory semantics, and clicking it POSTs the window-keyed `POST
+/api/windows/{windowId}/fork` endpoint — with no body, since every other input
+is derived server-side — without selecting or navigating the underlying row.
 
 **Steps:**
-1. Hover `@1` (the claude-chat window); assert the fork link is visible and its
-   `title` mentions "same directory".
+1. Hover `@1` (the claude-chat window); assert the fork action row is visible
+   and its `title` mentions "same directory".
 2. Hover `@2` (a plain shell window, no `chatProvider`); assert the card is the
-   scratch one ("idle") and carries zero fork links.
-3. Route `**/api/windows/*/fork*` to a 200 recording each request URL, returning
-   an EMPTY `windowId` so the app deliberately skips navigation (the best-effort
-   window-id contract) and the assertion stays on this route.
-4. Hover `@1` again and click the fork link; assert exactly one fork request
-   fired and its decoded URL is `/api/windows/@1/fork` (window-keyed, the source
-   window's id in the path).
+   scratch one ("idle") and carries zero fork rows.
+3. Route `**/api/windows/*/fork*` to a 200 recording each request URL,
+   returning an EMPTY `windowId` so the app deliberately skips navigation (the
+   best-effort window-id contract) and the assertion stays on this route.
+4. Hover `@1` again and click the fork action row; assert exactly one fork
+   request fired and its decoded URL is `/api/windows/@1/fork` (window-keyed,
+   the source window's id in the path).
 5. Assert the URL is still `/default` — forking never also selects the row.
 
 ### `a successful fork navigates to the returned window`
@@ -124,7 +139,7 @@ result. (The empty-`windowId` skip is proven by the test above.)
 
 **Steps:**
 1. Route `**/api/windows/*/fork*` to a 200 returning `windowId: "@9"`.
-2. Hover `@1` and click the fork link.
+2. Hover `@1` and click the fork action row.
 3. Assert the URL becomes `/default/9` — `@9` with the route's `@` stripped.
 
 ### `clicking the card's PR link does not select/navigate the window row`
@@ -167,27 +182,39 @@ no-PR row never shows a glyph; leaving the row restores it.
    opacity is 1 (the opacity-revealed action now owns the slot).
 3. Hover `@2`: assert `@1`'s glyph is visible again.
 
-### `rest PR glyph is visible and pin/✕ are gone at rest; dot-tap opens the card without selecting the row` *(coarse describe)*
+### `rail renders on every row with aligned slots; rail-tap opens a contained bottom-start card without selecting the row` *(coarse describe)*
 
-**What it proves:** the mobile parity change (ys3q) — on coarse pointers the
-rest-state PR glyph IS visible (the pin/✕ cluster is render-gated off: the
-buttons are absent from the DOM, not merely hidden, so they are neither
-visible nor hittable nor focusable on touch); the dot's leading tap zone is a
-real ≥32×36px touch target; tapping it opens the card (which now carries the
-Pin/Kill action rows) WITHOUT selecting the row; tapping the row body still
-selects (navigates) and never hover-opens a card.
+**What it proves:** the status-rail change (b8eu) — on coarse pointers every
+non-ghost row renders the 48px right-edge rail, the rest-state PR glyph lives
+in the rail's fixed 16px slot, and the chevron hint renders on every row
+(glyph or not); the pin/✕ cluster is render-gated off (the buttons are absent
+from the DOM, not merely hidden); the dot's leading tap zone remains a real
+≥32×36px touch target as the SECONDARY opener; tapping the RAIL (the primary
+target) opens the card — anchored BELOW the row, fully on-screen, its right
+edge stopping before the rail column, notch pointing up — WITHOUT selecting
+the row; tapping the row body still selects (navigates) and never hover-opens
+a card. Also asserts the widened mobile drawer (92% of the viewport, capped
+at 340px).
 
 **Steps:**
 1. With the coarse mock + `hasTouch`: coarse ⇒ `useIsMobile()` ⇒ the sidebar
    is a closed drawer, so first open it via the "Toggle navigation" hamburger
    (the mobile-layout.spec.ts idiom).
-2. Assert `@1`'s glyph is visible, `@2` has none, and `@1` contains NO
-   pin/kill buttons.
-3. Measure `@1`'s dot tap zone: width ≥ 32px, height ≥ 36px.
-4. Tap the zone: assert the card opens with "building — active", carries the
-   `row-flyout-pin-action` and `row-flyout-kill-action` rows, and the URL is
-   still the bare server route (the tap did not select the row).
-5. Escape-dismiss the card, tap `@2`'s row body: assert the URL left the bare
+2. Assert the drawer width is `min(92vw, 340px)`.
+3. Assert both rows render a visible `status-rail`; `@1`'s rail contains the
+   `row-pr-glyph` and `@2`'s does not; both rails show the `›` chevron hint;
+   `@1` contains NO pin/kill buttons.
+4. Measure `@1`'s dot tap zone: width ≥ 32px, height ≥ 36px.
+5. Tap `@1`'s rail: assert the card opens with "building — active", carries
+   the fork/pin/kill action rows, and the URL is still the bare server route
+   (the tap did not select the row).
+6. Assert coarse placement + containment via bounding boxes: the card's top is
+   at/below the row's bottom edge (bottom-start), the whole card is inside the
+   viewport, the card's right edge is ≤ the rail's left edge, and the arrow
+   notch rides the card's top edge (pointing up at the rail).
+7. Escape-dismiss, then tap the dot zone (secondary target): the card reopens
+   and the URL stays on the server route.
+8. Escape-dismiss again, tap `@2`'s row body: assert the URL left the bare
    server route (tap = select) and, after waiting past the 350ms open delay,
    no card appeared.
 
@@ -217,21 +244,25 @@ the row.
 3. Assert the card is gone, the "Pin window to board" dialog is visible, and
    the URL is still `/default`.
 
-### `scrub: press + slide retargets the single card across rows; release keeps it; tap-elsewhere dismisses` *(coarse describe)*
+### `scrub: press the rail + slide retargets the single card across rows; release keeps it; tap-elsewhere dismisses` *(coarse describe)*
 
-**What it proves:** the slide-to-scrub gesture (ys3q) — pointerdown on the tap
-zone opens that row's card and captures the pointer; sliding across a sibling
-row retargets the single-open card (one card at a time); releasing keeps the
-last card open; the gesture never selects or navigates a row; and the existing
+**What it proves:** the slide-to-scrub gesture (ys3q) starting from the RAIL
+(b8eu's primary target) — pointerdown on the rail opens that row's card and
+captures the pointer; sliding across a sibling row retargets the single-open
+card (one card at a time); the retargeted card still never covers the finger's
+rail column (the containment invariant mid-scrub); releasing keeps the last
+card open; the gesture never selects or navigates a row; and the existing
 outside-press dismissal still works afterwards.
 
 **Steps:**
-1. Open the drawer; move the mouse to the center of `@1`'s tap zone and press
+1. Open the drawer; move the mouse to the center of `@1`'s rail and press
    (mouse.down dispatches pointerdown — the scrub trigger under the coarse
    mock).
 2. Assert the card opens with "building — active".
 3. Slide (mouse.move, still pressed) onto `@2`'s row: assert exactly one card,
    now showing "Window @2", and the URL still `/default` (no navigation).
-4. Release (mouse.up): assert the @2 card stays open and the drawer/rows are
+4. Assert containment on the retargeted card: its right edge is ≤ `@2`'s
+   rail's left edge.
+5. Release (mouse.up): assert the @2 card stays open and the drawer/rows are
    still visible.
-5. Click a neutral spot in the main content: assert the card is dismissed.
+6. Click a neutral spot in the main content: assert the card is dismissed.

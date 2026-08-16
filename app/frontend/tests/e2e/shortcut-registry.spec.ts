@@ -15,7 +15,11 @@ import { mockStateSocket } from "./_state-socket-mock";
 // ⌘-tier demotions (260730-n789) via a spoofed-platform block (deep mac
 // paths are unit-tested in lib/keybindings.test.ts — e2e runs on Linux) and
 // the split-pane chords (260807-rbx5): the divider pair ⇧Ctrl+\/⇧Ctrl+- here,
-// ⌘D/⇧⌘D on a spoofed mac (the `macCode` refinement).
+// ⌘D/⇧⌘D on a spoofed mac (the `macCode` refinement). Plus the VS
+// Code-aligned chrome chords: sidebar on B (⇧Ctrl+B here, ⌘B on the spoofed
+// mac), the code-tile toggle on J, and the tty↔code focus hop on Backquote
+// (⇧Ctrl+` here; ⌃` on the spoofed mac — the seam's mac-only ctrl-tier
+// refusal rule).
 
 const SERVER = "default";
 
@@ -38,7 +42,7 @@ function sessionsPayload() {
   ]);
 }
 
-async function mockBackend(page: Page) {
+async function mockBackend(page: Page, sessionsJson?: string) {
   await page.routeWebSocket(/\/ws\/terminals/, () => {});
   await page.route("**/api/windows/*/select*", (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: '{"ok":true}' }),
@@ -63,7 +67,17 @@ async function mockBackend(page: Page) {
       ]),
     }),
   );
-  await mockStateSocket(page, { sessions: sessionsPayload() });
+  await mockStateSocket(page, { sessions: sessionsJson ?? sessionsPayload() });
+}
+
+/** The default payload with `gitRoot` stamped on window @1 — code-capable
+ *  (the code surface's availability is the window's derived gitRoot). */
+function codeCapablePayload(): string {
+  const payload = JSON.parse(sessionsPayload()) as [
+    { windows: Record<string, unknown>[] },
+  ];
+  payload[0].windows[0].gitRoot = "/tmp/win-one";
+  return JSON.stringify(payload);
 }
 
 async function gotoWindowOne(page: Page) {
@@ -307,6 +321,44 @@ test.describe("macOS per-platform defaults (spoofed platform)", () => {
     expect(created).toBe(false);
     await expect(page).toHaveURL(new RegExp(`/${SERVER}/1(?:$|[/?#])`));
   });
+
+  test("⌘B toggles the sidebar on a mac host (both mac hosts — no shell gate)", async ({ page }) => {
+    await spoofMacPlatform(page);
+    await mockBackend(page);
+    await gotoWindowOne(page);
+
+    const sidebar = page.locator('aside[aria-label="Sidebar"]');
+    await expect(sidebar).toBeVisible();
+    await page.keyboard.press("Meta+KeyB");
+    await expect(sidebar).toHaveCount(0);
+    await page.keyboard.press("Meta+KeyB");
+    await expect(sidebar).toBeVisible();
+  });
+
+  test("⌘J toggles the code tile and ⌃` hops focus on a mac host", async ({ page }) => {
+    await spoofMacPlatform(page);
+    await mockBackend(page, codeCapablePayload());
+    await gotoWindowOne(page);
+
+    const codeTile = page.getByTestId("surface-tile-code");
+    const ttyTile = page.getByTestId("surface-tile-tty");
+
+    // ⌘J opens, then closes the code tile.
+    await expect(codeTile).toHaveCount(0);
+    await page.keyboard.press("Meta+KeyJ");
+    await expect(codeTile).toBeVisible({ timeout: 10_000 });
+    await page.keyboard.press("Meta+KeyJ");
+    await expect(codeTile).toBeHidden({ timeout: 10_000 });
+
+    // ⌃` (the ctrl-tier refusal rule 3 under terminal focus) reopens the
+    // tile and hops focus to it; a second ⌃` hops back to the tty.
+    await page.keyboard.press("Control+Backquote");
+    await expect(codeTile).toBeVisible({ timeout: 10_000 });
+    await expect(codeTile).toHaveClass(/border-accent-green/);
+    await page.keyboard.press("Control+Backquote");
+    await expect(ttyTile).toHaveClass(/border-accent-green/);
+    await expect(codeTile).not.toHaveClass(/border-accent-green/);
+  });
 });
 
 // Split chords (260807-rbx5): the divider pair ⇧Ctrl+\/⇧Ctrl+- on Win/Linux
@@ -374,6 +426,56 @@ test.describe("split chords (260807-rbx5)", () => {
       { horizontal: true, cwd: "/tmp/win-one" },
       { horizontal: false, cwd: "/tmp/win-one" },
     ]);
+  });
+});
+
+test.describe("VS Code-aligned chrome chords (B / J / Backquote)", () => {
+  const sidebar = (page: Page) => page.locator('aside[aria-label="Sidebar"]');
+  const codeTile = (page: Page) => page.getByTestId("surface-tile-code");
+  const ttyTile = (page: Page) => page.getByTestId("surface-tile-tty");
+
+  test("Shift+Ctrl+B toggles the sidebar", async ({ page }) => {
+    await mockBackend(page);
+    await gotoWindowOne(page);
+
+    await expect(sidebar(page)).toBeVisible();
+    await page.keyboard.press("Shift+Control+KeyB");
+    await expect(sidebar(page)).toHaveCount(0);
+    await page.keyboard.press("Shift+Control+KeyB");
+    await expect(sidebar(page)).toBeVisible();
+  });
+
+  test("Shift+Ctrl+J toggles the code tile on a code-capable window", async ({ page }) => {
+    await mockBackend(page, codeCapablePayload());
+    await gotoWindowOne(page);
+
+    await expect(codeTile(page)).toHaveCount(0);
+    await page.keyboard.press("Shift+Control+KeyJ");
+    await expect(codeTile(page)).toBeVisible({ timeout: 10_000 });
+    await page.keyboard.press("Shift+Control+KeyJ");
+    // Hide-never-unmount: the closed tile stays mounted, hidden.
+    await expect(codeTile(page)).toBeHidden({ timeout: 10_000 });
+  });
+
+  test("Shift+Ctrl+` opens the closed code tile and hops focus, then hops back to the tty", async ({
+    page,
+  }) => {
+    await mockBackend(page, codeCapablePayload());
+    await gotoWindowOne(page);
+
+    // Open-then-focus: the closed code tile opens AND takes the focused-tile
+    // accent border (slot A / tty is the default focus).
+    await expect(ttyTile(page)).toBeVisible();
+    await page.keyboard.press("Shift+Control+Backquote");
+    await expect(codeTile(page)).toBeVisible({ timeout: 10_000 });
+    await expect(codeTile(page)).toHaveClass(/border-accent-green/);
+    await expect(ttyTile(page)).not.toHaveClass(/border-accent-green/);
+
+    // Second press hops focus back to the tty tile (no close — it's a hop).
+    await page.keyboard.press("Shift+Control+Backquote");
+    await expect(ttyTile(page)).toHaveClass(/border-accent-green/);
+    await expect(codeTile(page)).not.toHaveClass(/border-accent-green/);
+    await expect(codeTile(page)).toBeVisible();
   });
 });
 

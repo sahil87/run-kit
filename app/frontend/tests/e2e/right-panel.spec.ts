@@ -373,24 +373,25 @@ test.describe("Top-bar surface toggles — open-tile toggles over the surface la
     await expect(webTile(page)).toHaveCount(0);
   });
 
-  test("⇧⌘. / Shift+Ctrl+. toggles the first non-tty tile (P7, retargeted)", async ({ page }) => {
+  test("⇧Ctrl+J / ⌘J toggles the code tile (the code-toggle chord)", async ({ page }) => {
     test.setTimeout(30_000);
     const id = await makeWindow(page, `rp-chord-${Date.now()}`, { url: IFRAME_URL });
     await gotoWindow(page, id);
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
-    // Wait for the toggle button — the chord's handler is gated on a non-tty
-    // surface's availability, which arrives via the SSE `@rk_url` push; firing
-    // before it lands would hit a handler-less chord (a no-op by design).
-    await expect(toggleButton(page, "Web")).toBeVisible({ timeout: READY_TIMEOUT });
+    // Wait for the Code toggle — the chord's handler is gated on the code
+    // surface's availability (the derived gitRoot, arriving via the SSE window
+    // payload); firing before it lands would hit a handler-less chord (a no-op
+    // by design).
+    await expect(toggleButton(page, "Code")).toBeVisible({ timeout: READY_TIMEOUT });
 
     // xterm owns focus after the terminal renders — the shifted-tier chord must
     // fire from there (the dispatcher's `.xterm` carve-out).
-    await page.keyboard.press("Shift+Control+Period");
-    await expect(webIframe(page)).toBeVisible({ timeout: 10_000 });
-    await expectLayoutParam(page, "split-h:tty,web");
+    await page.keyboard.press("Shift+Control+KeyJ");
+    await expect(codeTile(page)).toBeVisible({ timeout: 10_000 });
+    await expectLayoutParam(page, "split-h:tty,code");
 
-    await page.keyboard.press("Shift+Control+Period");
-    await expect(webTile(page)).toBeHidden();
+    await page.keyboard.press("Shift+Control+KeyJ");
+    await expect(codeTile(page)).toBeHidden();
     await expectLayoutParam(page, null); // default layout mirrors as a CLEAN URL (param dropped)
   });
 

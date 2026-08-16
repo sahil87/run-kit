@@ -6,16 +6,19 @@ import { useKeybindings } from "@/hooks/use-keybindings";
 import { matchesCombo, shouldSuppressChord } from "@/lib/keybindings";
 
 /**
- * `Cmd+\` (macOS) / `Ctrl+\` (Linux/Windows) toggles the sidebar. Constitution V
- * (Keyboard-First) requires every user-facing action be keyboard-reachable;
- * the sidebar's visibility now is one such action. We register at Shell level
- * so the chord works on every route that mounts a `<Shell>` (AppShell + BoardPage).
+ * `Cmd+B` (macOS) / `Shift+Ctrl+B` (Linux/Windows) toggles the sidebar.
+ * Constitution V (Keyboard-First) requires every user-facing action be
+ * keyboard-reachable; the sidebar's visibility now is one such action. We
+ * register at Shell level so the chord works on every route that mounts a
+ * `<Shell>` (AppShell + BoardPage).
  *
- * The chord comes from the keybinding registry (`sidebar-toggle`, default ⌘\,
- * per-device rebindable — 260730-g40a); the input gating is the shared
- * `shouldSuppressChord` predicate (real text inputs suppress; the `.xterm`
- * helper textarea and `.rk-chat-input` carve-outs pass through). Binding held
- * in a ref so the listener registers once per mount.
+ * The chord comes from the keybinding registry (`sidebar-toggle`, default ⌘B
+ * on mac — demoted via `macTier`, since ⌘B is page-interceptable in a mac
+ * browser — and ⇧Ctrl+B elsewhere; per-device rebindable — 260730-g40a); the
+ * input gating is the shared `shouldSuppressChord` predicate (real text
+ * inputs suppress; the `.xterm` helper textarea and `.rk-chat-input`
+ * carve-outs pass through). Binding held in a ref so the listener registers
+ * once per mount.
  */
 function useSidebarKeyboardToggle(toggle: () => void) {
   const { byAction } = useKeybindings();
@@ -149,8 +152,8 @@ export function Shell({
   const isMobile = useIsMobile();
   const drawerRef = useRef<HTMLElement>(null);
 
-  // Cmd+\ / Ctrl+\ toggles the sidebar. Cmd captures only — see hook for
-  // the input/textarea/contenteditable suppression rules.
+  // Cmd+B / Shift+Ctrl+B toggles the sidebar. Cmd captures only — see hook
+  // for the input/textarea/contenteditable suppression rules.
   useSidebarKeyboardToggle(() => setSidebarOpen(!sidebarOpen));
 
   // The mobile drawer is `aria-modal`: trap Tab focus within it and close on

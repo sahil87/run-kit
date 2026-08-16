@@ -4,7 +4,7 @@
  * One module owns every app chord as DATA: the run-kit action tier
  * (`Shift+CmdOrCtrl+<key>` on Windows/Linux; on macOS several actions demote
  * to the unshifted ⌘ tier — see `macTier`/`defaultComboFor`, 260730-n789),
- * the migrated legacy chords (⌘K palette, ⌘\ sidebar, ⌘. lens
+ * the migrated legacy chords (⌘K palette, ⌘. lens
  * cycle, board ⌘[/⌘] pane cycle — combos unchanged), the
  * claimed-key map (shell menu accelerators, OS keys, browser-reserved keys —
  * per tier), the per-device override layer
@@ -32,9 +32,11 @@
  *   decision (B): letter consistency over chord weight).
  * - `cmd` — unshifted `CmdOrCtrl` (legacy punctuation chords: ⌘K ⌘\ ⌘. ⌘[⌘]).
  *   Matches Meta OR Ctrl, preserving each legacy listener's exact predicate.
- * - `ctrl` — plain Ctrl on BOTH platforms (no shipped default uses it — a
- *   mac chord capture reads plain Ctrl as this tier, keeping it distinct from
- *   ⌘, which is macOS window/system territory the page must not claim).
+ * - `ctrl` — plain Ctrl on BOTH platforms. `focus-hop` is the one shipped
+ *   default on it (mac only, via `macTier` — plain Ctrl belongs to the pane
+ *   on Win/Linux, so the base tier there is shifted); the tier otherwise
+ *   keeps a mac chord capture reading plain Ctrl distinct from ⌘ (macOS
+ *   window/system territory the page must not claim).
  */
 export type BindingTier = "shifted" | "cmd" | "ctrl";
 
@@ -135,20 +137,26 @@ export const KEYBINDINGS_STORAGE_KEY = "runkit-keybindings";
  * decide per-route applicability by handler presence.
  *
  * macOS demotions (260730-n789 — letters constant, modifier varies; the split
- * pair's `macCode` is the one deliberate code exception): [/]//
- * default to the unshifted ⌘ tier on every mac host (interceptable in
- * browsers, native back/forward convention); N/T/W and , demote only inside
+ * pair's `macCode` is the one deliberate code exception): [/]// and the
+ * VS Code-aligned B/J pair default to the unshifted ⌘ tier on every mac host
+ * (interceptable in browsers — ⌘B bold and mac Chrome's ⌘J Downloads panel
+ * are the same class as the shipped ⌘[/⌘]/⌘/ and ⌘D interceptions, not
+ * reserved like ⌘N/T/W); N/T/W and , demote only inside
  * the desktop shell (`macShellOnly` — mac browsers reserve N/T/W even
  * shifted, so those stay palette-only there; ⌘, is browser Preferences, so
  * settings keeps the shifted default outside the shell). H/L/A stay
  * shifted everywhere: ⌘H is macOS
  * Hide and ⌘A is select-all/Edit-role — immovable — and demoting L alone
  * would split the H/L pair across tiers. Win/Linux is unchanged (plain Ctrl
- * belongs to the pane).
+ * belongs to the pane — so `focus-hop`'s ⌃` is mac-only and its base tier is
+ * shifted, the first shipped `ctrl`-tier default).
  *
  * Legacy migrations (combos unchanged — established, browser-safe
  * punctuation): ⌘K palette (ignoreInputs preserves its fire-everywhere
- * behavior), ⌘\ sidebar, ⌘. lens cycle, board ⌘[/⌘].
+ * behavior), ⌘. lens cycle, board ⌘[/⌘].
+ *
+ * `KeyP` is deliberately unbound on EVERY tier — reserved for a future
+ * create/open-PR action (the Conductor ⇧⌘P convention). Do not spend it.
  */
 export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // — run-kit shifted tier (global) —
@@ -196,16 +204,29 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // OS-conventional ⌘, — the create-session precedent. ignoreInputs mirrors
   // shortcuts-overlay/compose-toggle: a chrome-level opener fires from inputs.
   { actionId: "settings-open", code: "Comma", tier: "shifted", macTier: "cmd", macShellOnly: true, scope: "global", kind: "builtin", label: "Settings", description: "open the settings dialog", mapLabel: "settings", ignoreInputs: true },
+  // ⌘B/⇧Ctrl+B sidebar toggle — the VS Code primary-sidebar keycap. ⌘B is
+  // page-interceptable in a mac browser (no claimed-keys entry on KeyB in any
+  // tier), so the demotion applies in BOTH mac hosts (no macShellOnly). On
+  // Win/Linux the shifted tier keeps plain Ctrl+B with the pane (readline
+  // back-char / nested-tmux prefix).
+  { actionId: "sidebar-toggle", code: "KeyB", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Toggle sidebar", mapLabel: "sidebar" },
+  // ⌘J/⇧Ctrl+J code-editor toggle — VS Code's ⌘J panel keycap for the
+  // code surface (run-kit's secondary panel). Same demotion class as ⌘B
+  // above: mac Chrome's ⌘J Downloads accelerator is preventDefault-
+  // interceptable, so no macShellOnly and no claimed-keys entry on KeyJ.
+  // Terminal scope: the tile exists only on window routes (handler presence
+  // gates).
+  { actionId: "code-toggle", code: "KeyJ", tier: "shifted", macTier: "cmd", scope: "terminal", kind: "builtin", label: "Toggle code editor", description: "open/close the code tile", mapLabel: "code" },
+  // ⌃`/⇧Ctrl+` tty↔code focus hop — VS Code's ⌃` gesture. The FIRST shipped
+  // ctrl-tier default (mac only: plain Ctrl belongs to the pane on Win/Linux,
+  // so the base tier there is shifted and `macTier` does the demotion; the
+  // mac terminal seam refuses it via refusal rule 3). No mapLabel: Backquote
+  // has no keycap cell in the overlay grids (the Period/Backslash/Comma
+  // no-cell precedent).
+  { actionId: "focus-hop", code: "Backquote", tier: "shifted", macTier: "ctrl", scope: "terminal", kind: "builtin", label: "Focus terminal ↔ code", description: "hop focus between the tty and code tiles" },
   // — legacy chords, migrated with combos unchanged —
   { actionId: "command-palette", code: "KeyK", tier: "cmd", scope: "global", kind: "builtin", label: "Command palette", ignoreInputs: true },
-  { actionId: "sidebar-toggle", code: "Backslash", tier: "cmd", scope: "global", kind: "builtin", label: "Toggle sidebar" },
   { actionId: "view-cycle", code: "Period", tier: "cmd", scope: "terminal", kind: "builtin", label: "Cycle view lens", description: "tty → web → chat" },
-  // ⇧⌘. panel toggle (260811-2r1w-right-panel-shell-web-surface): spec
-  // right-panel.md P7 names ⌘., but ⌘. is already `view-cycle` above — the
-  // panel takes the SHIFTED tier of the same key (Period), leaving the shipped
-  // lens cycle untouched; the tiers are disjoint so `findConflicts` stays
-  // clean. Terminal scope: the rail/panel exist only on the window route.
-  { actionId: "panel-toggle", code: "Period", tier: "shifted", scope: "terminal", kind: "builtin", label: "Toggle right panel", description: "open/close the web panel", mapLabel: "panel" },
   // ⌘; layout-shape cycle (260812-ab5v-surface-layout-core R9/R11): the ▦
   // chip's chord — the NEXT same-arity preset, order kept (tmux `next-layout`
   // muscle memory). It joins the legacy `⌘<punctuation>` family beside ⌘.
@@ -418,7 +439,7 @@ export function hasReclaimableMatch(
 /**
  * Whether the terminal's custom key handler must REFUSE this keydown so it
  * bubbles to the window dispatcher instead of reaching the pane
- * (`terminal-client.tsx`). Two rules:
+ * (`terminal-client.tsx`). Three rules:
  *
  * 1. Any enabled SHIFTED-tier match, on every platform (260730-g40a): legacy
  *    TTY encoding cannot distinguish Ctrl+Shift+letter from Ctrl+letter, so
@@ -428,9 +449,18 @@ export function hasReclaimableMatch(
  *    loss-free and lets the demoted ⌘[/⌘]/⌘/ (and shell-host ⌘N/T/W) fire
  *    while the terminal owns focus. The metaKey gate is load-bearing:
  *    `matchesCombo`'s cmd tier also accepts plain Ctrl, and mac Ctrl+[ is ESC
- *    — plain-Ctrl chords must ALWAYS pass through to the pane. On Win/Linux
- *    this rule never applies (cmd-tier combos ARE plain-Ctrl chords there),
- *    keeping the seam byte-identical to the pre-n789 behavior.
+ *    — plain-Ctrl chords matching no enabled ctrl-tier binding must ALWAYS
+ *    pass through to the pane. On Win/Linux this rule never applies (cmd-tier
+ *    combos ARE plain-Ctrl chords there), keeping the seam byte-identical to
+ *    the pre-n789 behavior.
+ * 3. On macOS ONLY: an enabled CTRL-tier match pressed with CTRLKEY (and
+ *    without metaKey — a ⌘+Ctrl combined press must not double-match; the
+ *    inverse of rule 2's gate) — lets ⌃` (focus-hop) bubble to the
+ *    dispatcher under terminal focus. This steals NUL (the byte Ctrl+`
+ *    encodes to) from the pane: near-zero cost, the same trade VS Code makes
+ *    for its own ⌃`. Win/Linux stays byte-identical — no ctrl-tier default
+ *    resolves there (focus-hop's base tier is shifted), and the rule is
+ *    platform-gated to mac.
  */
 export function shouldRefuseTerminalChord(
   e: ChordEvent,
@@ -439,7 +469,8 @@ export function shouldRefuseTerminalChord(
 ): boolean {
   const matches = findMatches(e, bindings);
   if (matches.some((b) => b.tier === "shifted")) return true;
-  return platform === "mac" && e.metaKey && matches.some((b) => b.tier === "cmd");
+  if (platform === "mac" && e.metaKey && matches.some((b) => b.tier === "cmd")) return true;
+  return platform === "mac" && e.ctrlKey && !e.metaKey && matches.some((b) => b.tier === "ctrl");
 }
 
 // ── override storage ────────────────────────────────────────────────────────

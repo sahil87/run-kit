@@ -171,29 +171,29 @@ describe("buildLayoutActions — verbs + shapes (R7/R9)", () => {
   });
 });
 
-describe("buildLayoutActions — the ⇧⌘. hint (panel-toggle documentation)", () => {
+describe("buildLayoutActions — the toggle-chord hint (code-toggle documentation)", () => {
   it("stamps the toggle chord on the chord-target surface's Add/Close entry", () => {
-    // tty-only open: the target (web) is closed → its ADD entry carries it.
+    // tty-only open: the target (code) is closed → its ADD entry carries it.
     const added = build(
       { shape: "single", order: ["tty"] },
-      { toggleTarget: "web", toggleShortcut: "⇧⌘." },
+      { toggleTarget: "code", toggleShortcut: "⌘J" },
     );
-    expect(added.find((a) => a.id === "layout-add-web")?.shortcut).toBe("⇧⌘.");
-    expect(added.find((a) => a.id === "layout-add-code")?.shortcut).toBeUndefined();
+    expect(added.find((a) => a.id === "layout-add-code")?.shortcut).toBe("⌘J");
+    expect(added.find((a) => a.id === "layout-add-web")?.shortcut).toBeUndefined();
     // Target open: its CLOSE entry carries the hint instead.
     const closed = build(
-      { shape: "split-h", order: ["tty", "web"] },
-      { toggleTarget: "web", toggleShortcut: "⇧⌘." },
+      { shape: "split-h", order: ["tty", "code"] },
+      { toggleTarget: "code", toggleShortcut: "⌘J" },
     );
-    expect(closed.find((a) => a.id === "layout-close-web")?.shortcut).toBe("⇧⌘.");
+    expect(closed.find((a) => a.id === "layout-close-code")?.shortcut).toBe("⌘J");
   });
 
   it("omits the hint when the chord is disabled/unbound (empty shortcut)", () => {
     const actions = build(
       { shape: "single", order: ["tty"] },
-      { toggleTarget: "web", toggleShortcut: "" },
+      { toggleTarget: "code", toggleShortcut: "" },
     );
-    expect(actions.find((a) => a.id === "layout-add-web")?.shortcut).toBeUndefined();
+    expect(actions.find((a) => a.id === "layout-add-code")?.shortcut).toBeUndefined();
   });
 });
 

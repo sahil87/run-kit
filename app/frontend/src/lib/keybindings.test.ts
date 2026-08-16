@@ -48,20 +48,6 @@ function byId(bindings: EffectiveBinding[], actionId: string): EffectiveBinding 
   return found;
 }
 
-/** A synthetic `ctrl`-tier terminal binding for tests exercising the
- *  cmd/ctrl tier-collision mechanics (findConflicts / applyCapture). No
- *  SHIPPED default uses the tier — the one row that did (`layout-zoom`,
- *  Ctrl+`) was removed in 260813-j3jb — so the tier's behavior is anchored
- *  here instead of on a registry row. */
-const SYNTHETIC_CTRL: KeyBinding = {
-  actionId: "synthetic-ctrl",
-  code: "Backquote",
-  tier: "ctrl",
-  scope: "terminal",
-  kind: "builtin",
-  label: "Synthetic ctrl",
-};
-
 describe("DEFAULT_BINDINGS integrity", () => {
   it("has unique actionIds", () => {
     const ids = DEFAULT_BINDINGS.map((b) => b.actionId);
@@ -87,17 +73,24 @@ describe("DEFAULT_BINDINGS integrity", () => {
       "agent-next-waiting": "KeyA",
       "shortcuts-overlay": "Slash",
       "settings-open": "Comma",
-      "panel-toggle": "Period",
+      "sidebar-toggle": "KeyB",
+      "code-toggle": "KeyJ",
+      "focus-hop": "Backquote",
     });
   });
 
   it("compose-toggle: ⇧⌘E, global, ignoreInputs, no mac demotion (260801-sm6g)", () => {
     const def = DEFAULT_BINDINGS.find((b) => b.actionId === "compose-toggle");
-    expect(def).toMatchObject({
+    // Full-row equality: the ⇧⌘E row is a do-not-move constraint.
+    expect(def).toEqual({
+      actionId: "compose-toggle",
       code: "KeyE",
       tier: "shifted",
       scope: "global",
       kind: "builtin",
+      label: "Compose text",
+      description: "toggle the compose strip",
+      mapLabel: "compose",
       ignoreInputs: true,
     });
     expect(def?.macTier).toBeUndefined();
@@ -173,9 +166,8 @@ describe("DEFAULT_BINDINGS integrity", () => {
     });
   });
 
-  it("migrates the five legacy chords with combos unchanged", () => {
+  it("migrates the surviving legacy chords with combos unchanged", () => {
     expect(byId(resolved(), "command-palette")).toMatchObject({ code: "KeyK", tier: "cmd" });
-    expect(byId(resolved(), "sidebar-toggle")).toMatchObject({ code: "Backslash", tier: "cmd" });
     expect(byId(resolved(), "view-cycle")).toMatchObject({ code: "Period", tier: "cmd", scope: "terminal" });
     // 260813-j3jb: the Ctrl+` `layout-zoom` row is removed (it collided with
     // code-server's own Ctrl+`); the zoom ACTION survives via palette + ⛶ verb.
@@ -185,19 +177,151 @@ describe("DEFAULT_BINDINGS integrity", () => {
     expect(byId(resolved(), "board-cycle-prev")).toMatchObject({ code: "BracketLeft", tier: "cmd", scope: "board" });
   });
 
-  it("ships panel-toggle on the shifted tier of Period (260811-2r1w) — disjoint from view-cycle's ⌘.", () => {
-    expect(byId(resolved(), "panel-toggle")).toMatchObject({
-      code: "Period",
+  it("sidebar-toggle: the B keycap — ⌘B on mac in BOTH hosts, ⇧Ctrl+B on Win/Linux", () => {
+    const def = DEFAULT_BINDINGS.find((b) => b.actionId === "sidebar-toggle");
+    expect(def).toEqual({
+      actionId: "sidebar-toggle",
+      code: "KeyB",
       tier: "shifted",
-      scope: "terminal",
-      enabled: true,
+      macTier: "cmd",
+      scope: "global",
+      kind: "builtin",
+      label: "Toggle sidebar",
+      mapLabel: "sidebar",
     });
-    // Same code, different tier: a ⇧⌘. keydown matches ONLY panel-toggle and
-    // a ⌘. keydown matches ONLY view-cycle — no shadow, no conflict.
-    const shiftPeriod = chord({ code: "Period", shiftKey: true, metaKey: true });
-    expect(findMatches(shiftPeriod, resolved()).map((b) => b.actionId)).toEqual(["panel-toggle"]);
-    const cmdPeriod = chord({ code: "Period", metaKey: true });
-    expect(findMatches(cmdPeriod, resolved()).map((b) => b.actionId)).toEqual(["view-cycle"]);
+    // No macShellOnly: ⌘B is preventDefault-interceptable in a mac browser.
+    for (const host of [SHELL_MAC, BROWSER_MAC]) {
+      expect(byId(resolved(host), "sidebar-toggle")).toMatchObject({
+        code: "KeyB",
+        tier: "cmd",
+        enabled: true,
+        isDefault: true,
+      });
+      expect(
+        findMatches(chord({ code: "KeyB", metaKey: true }), resolved(host)).map((b) => b.actionId),
+      ).toEqual(["sidebar-toggle"]);
+    }
+    for (const host of [SHELL_OTHER, BROWSER_OTHER]) {
+      const bindings = resolved(host);
+      expect(byId(bindings, "sidebar-toggle")).toMatchObject({
+        code: "KeyB",
+        tier: "shifted",
+        enabled: true,
+        isDefault: true,
+      });
+      expect(
+        findMatches(chord({ code: "KeyB", shiftKey: true, ctrlKey: true }), bindings).map(
+          (b) => b.actionId,
+        ),
+      ).toEqual(["sidebar-toggle"]);
+      // Plain Ctrl+B matches nothing — readline back-char / nested-tmux
+      // prefix stays with the pane.
+      expect(findMatches(chord({ code: "KeyB", ctrlKey: true }), bindings)).toEqual([]);
+    }
+  });
+
+  it("Backslash/cmd is no longer a shipped default in any host (a user override may still bind it)", () => {
+    for (const host of ALL_HOSTS) {
+      expect(resolved(host).some((b) => b.code === "Backslash" && b.tier === "cmd")).toBe(false);
+    }
+    const rebound = resolveBindings(
+      DEFAULT_BINDINGS,
+      { "sidebar-toggle": { code: "Backslash", tier: "cmd" } },
+      SHELL_OTHER,
+    );
+    expect(byId(rebound, "sidebar-toggle")).toMatchObject({
+      code: "Backslash",
+      tier: "cmd",
+      enabled: true,
+      isDefault: false,
+    });
+  });
+
+  it("code-toggle: the J keycap — ⌘J on mac in BOTH hosts, ⇧Ctrl+J on Win/Linux", () => {
+    const def = DEFAULT_BINDINGS.find((b) => b.actionId === "code-toggle");
+    expect(def).toEqual({
+      actionId: "code-toggle",
+      code: "KeyJ",
+      tier: "shifted",
+      macTier: "cmd",
+      scope: "terminal",
+      kind: "builtin",
+      label: "Toggle code editor",
+      description: "open/close the code tile",
+      mapLabel: "code",
+    });
+    for (const host of [SHELL_MAC, BROWSER_MAC]) {
+      expect(byId(resolved(host), "code-toggle")).toMatchObject({
+        code: "KeyJ",
+        tier: "cmd",
+        enabled: true,
+        isDefault: true,
+      });
+    }
+    for (const host of [SHELL_OTHER, BROWSER_OTHER]) {
+      expect(byId(resolved(host), "code-toggle")).toMatchObject({
+        code: "KeyJ",
+        tier: "shifted",
+        enabled: true,
+        isDefault: true,
+      });
+      // ⇧Ctrl+J matches ONLY code-toggle (⌘. stayed with view-cycle).
+      expect(
+        findMatches(chord({ code: "KeyJ", shiftKey: true, ctrlKey: true }), resolved(host)).map(
+          (b) => b.actionId,
+        ),
+      ).toEqual(["code-toggle"]);
+    }
+  });
+
+  it("focus-hop: Backquote — the first shipped ctrl-tier default (mac ⌃`), ⇧Ctrl+` on Win/Linux", () => {
+    const def = DEFAULT_BINDINGS.find((b) => b.actionId === "focus-hop");
+    expect(def).toEqual({
+      actionId: "focus-hop",
+      code: "Backquote",
+      tier: "shifted",
+      macTier: "ctrl",
+      scope: "terminal",
+      kind: "builtin",
+      label: "Focus terminal ↔ code",
+      description: "hop focus between the tty and code tiles",
+    });
+    // No mapLabel: Backquote has no keycap cell in the overlay grids.
+    for (const host of [SHELL_MAC, BROWSER_MAC]) {
+      const bindings = resolved(host);
+      expect(byId(bindings, "focus-hop")).toMatchObject({
+        code: "Backquote",
+        tier: "ctrl",
+        enabled: true,
+        isDefault: true,
+      });
+      expect(
+        findMatches(chord({ code: "Backquote", ctrlKey: true }), bindings).map((b) => b.actionId),
+      ).toEqual(["focus-hop"]);
+    }
+    for (const host of [SHELL_OTHER, BROWSER_OTHER]) {
+      const bindings = resolved(host);
+      expect(byId(bindings, "focus-hop")).toMatchObject({
+        code: "Backquote",
+        tier: "shifted",
+        enabled: true,
+        isDefault: true,
+      });
+      // Plain Ctrl+` matches NOTHING off mac — the pane owns plain Ctrl there.
+      expect(findMatches(chord({ code: "Backquote", ctrlKey: true }), bindings)).toEqual([]);
+      expect(
+        findMatches(chord({ code: "Backquote", shiftKey: true, ctrlKey: true }), bindings).map(
+          (b) => b.actionId,
+        ),
+      ).toEqual(["focus-hop"]);
+    }
+  });
+
+  it("reserves KeyP unbound on every tier and host (a future PR action's keycap)", () => {
+    expect(DEFAULT_BINDINGS.some((b) => b.code === "KeyP" || b.macCode === "KeyP")).toBe(false);
+    for (const host of ALL_HOSTS) {
+      expect(resolved(host).some((b) => b.code === "KeyP")).toBe(false);
+    }
   });
 
   it("ships layout-cycle on ⌘; (260812-ab5v R9/R11) — the ▦ chip's same-arity shape cycle", () => {
@@ -409,6 +533,17 @@ describe("claimedKeys", () => {
     expect(codes("other", false, "cmd")).toEqual([]);
   });
 
+  it("claims nothing on KeyB / KeyJ / Backquote in any tier or host (the VS Code-aligned keycaps stay free)", () => {
+    for (const platform of ["mac", "other"] as const) {
+      for (const shell of [true, false]) {
+        const claimed = claimedKeys(platform, shell).map((c) => c.code);
+        for (const code of ["KeyB", "KeyJ", "Backquote"]) {
+          expect(claimed).not.toContain(code);
+        }
+      }
+    }
+  });
+
   it("every pre-n789 claim carries tier 'shifted'", () => {
     for (const host of [true, false]) {
       for (const c of claimedKeys("other", host)) {
@@ -482,28 +617,28 @@ describe("scopesOverlap / findConflicts", () => {
   });
 
   it("flags a cmd-tier binding masking a ctrl-tier one on the same code and scope", () => {
-    // No shipped default uses the `ctrl` tier (260813-j3jb removed the
-    // layout-zoom row), so the fixture adds a synthetic ctrl-tier terminal
-    // binding: a Ctrl chord captured on non-mac reads as `cmd` and matches the
-    // same keydown — both are terminal-scoped, a real conflict, not a shadow.
+    // focus-hop ships the registry's one ctrl-tier default (mac ⌃`): a
+    // view-cycle override onto ⌘` collides with it — a plain Ctrl chord
+    // matches both tiers, and both are terminal-scoped: a real conflict, not
+    // a shadow.
     const bindings = resolveBindings(
-      [...DEFAULT_BINDINGS, SYNTHETIC_CTRL],
+      DEFAULT_BINDINGS,
       { "view-cycle": { code: "Backquote", tier: "cmd" } },
-      SHELL_OTHER,
+      SHELL_MAC,
     );
     const conflicts = findConflicts(bindings);
     expect(conflicts).toHaveLength(1);
-    expect([conflicts[0].a, conflicts[0].b].sort()).toEqual(["synthetic-ctrl", "view-cycle"]);
+    expect([conflicts[0].a, conflicts[0].b].sort()).toEqual(["focus-hop", "view-cycle"]);
   });
 
   it("treats a same-combo global↔scoped pair as a shadow, not a conflict (260730-n789)", () => {
-    // sidebar-toggle (global) onto the synthetic ctrl row's colliding combo:
-    // scopes differ with one global → dispatch precedence resolves it, no
-    // conflict.
+    // sidebar-toggle (global) overridden onto the colliding ⌘` combo against
+    // focus-hop's mac ⌃` (terminal): scopes differ with one global → dispatch
+    // precedence resolves it, no conflict.
     const bindings = resolveBindings(
-      [...DEFAULT_BINDINGS, SYNTHETIC_CTRL],
+      DEFAULT_BINDINGS,
       { "sidebar-toggle": { code: "Backquote", tier: "cmd" } },
-      SHELL_OTHER,
+      SHELL_MAC,
     );
     expect(findConflicts(bindings)).toEqual([]);
     // The shipped mac default map carries exactly this shape: board ⌘[/⌘]
@@ -581,21 +716,21 @@ describe("applyCapture (steal-with-warning)", () => {
   });
 
   it("steals across the colliding cmd/ctrl tiers on the same code", () => {
-    // sidebar-toggle (global) captures cmd+Backquote — the chord a non-mac
-    // Ctrl+` capture produces. It matches the same keydown as the synthetic
-    // ctrl-tier terminal binding, so that row must be flagged and unbound
-    // instead of silently masked at dispatch.
+    // sidebar-toggle (global) captures ⌘` on a mac host — the chord matches
+    // the same keydown as focus-hop's shipped ctrl-tier ⌃` (terminal scope),
+    // so that row must be flagged and unbound instead of silently masked at
+    // dispatch.
     const { overrides, stolenFrom } = applyCapture(
-      resolveBindings([...DEFAULT_BINDINGS, SYNTHETIC_CTRL], {}, SHELL_OTHER),
+      resolved(SHELL_MAC),
       {},
       "sidebar-toggle",
       { code: "Backquote", tier: "cmd" },
-      SHELL_OTHER,
+      SHELL_MAC,
     );
-    expect(stolenFrom).toBe("synthetic-ctrl");
+    expect(stolenFrom).toBe("focus-hop");
     expect(overrides).toEqual({
       "sidebar-toggle": { code: "Backquote", tier: "cmd" },
-      "synthetic-ctrl": null,
+      "focus-hop": null,
     });
   });
 
@@ -1060,7 +1195,7 @@ describe("shouldRefuseTerminalChord (260730-n789)", () => {
     ).toBe(true);
   });
 
-  it("mac: NEVER refuses plain-Ctrl chords (Ctrl+[ is ESC and belongs to the pane)", () => {
+  it("mac: plain-Ctrl chords matching no ctrl-tier binding pass through (Ctrl+[ is ESC)", () => {
     const bindings = resolved(SHELL_MAC);
     expect(
       shouldRefuseTerminalChord(chord({ code: "BracketLeft", ctrlKey: true }), bindings, "mac"),
@@ -1068,6 +1203,44 @@ describe("shouldRefuseTerminalChord (260730-n789)", () => {
     // Unbound ⌘ keys pass through too (no enabled match).
     expect(
       shouldRefuseTerminalChord(chord({ code: "KeyF", metaKey: true }), bindings, "mac"),
+    ).toBe(false);
+  });
+
+  it("mac rule 3: an enabled ctrl-tier match pressed with ctrlKey is refused (⌃` focus hop)", () => {
+    const bindings = resolved(SHELL_MAC);
+    expect(
+      shouldRefuseTerminalChord(chord({ code: "Backquote", ctrlKey: true }), bindings, "mac"),
+    ).toBe(true);
+    // The metaKey exclusion: a ⌘+Ctrl combined press must not double-match
+    // (it matches no ctrl-tier combo anyway — matchesCombo requires !metaKey).
+    expect(
+      shouldRefuseTerminalChord(
+        chord({ code: "Backquote", ctrlKey: true, metaKey: true }),
+        bindings,
+        "mac",
+      ),
+    ).toBe(false);
+    // A user-disabled ctrl-tier binding restores passthrough (⌃` → NUL
+    // reaches the pane again).
+    const disabled = resolved(SHELL_MAC, { "focus-hop": null });
+    expect(
+      shouldRefuseTerminalChord(chord({ code: "Backquote", ctrlKey: true }), disabled, "mac"),
+    ).toBe(false);
+  });
+
+  it("win/linux: no ctrl-tier default resolves there — plain Ctrl+` stays the pane's (byte-identical seam)", () => {
+    const bindings = resolved(SHELL_OTHER);
+    // ⇧Ctrl+` IS refused (rule 1 — focus-hop's base tier is shifted); plain
+    // Ctrl+` matches nothing and reaches the pane unchanged.
+    expect(
+      shouldRefuseTerminalChord(
+        chord({ code: "Backquote", shiftKey: true, ctrlKey: true }),
+        bindings,
+        "other",
+      ),
+    ).toBe(true);
+    expect(
+      shouldRefuseTerminalChord(chord({ code: "Backquote", ctrlKey: true }), bindings, "other"),
     ).toBe(false);
   });
 
@@ -1312,6 +1485,22 @@ describe("hasReclaimableMatch — the code-iframe reclaim carve-out (260812-wfic
     const bindings = resolved(SHELL_MAC);
     expect(hasReclaimableMatch(chord({ code: "KeyK", metaKey: true }), bindings)).toBe(true);
     expect(hasReclaimableMatch(chord({ code: "Period", metaKey: true }), bindings)).toBe(true);
+  });
+
+  it("the code toggle and focus hop reclaim from inside the code iframe (toggle symmetry / ⌃` preemption)", () => {
+    // ⌘J (code-toggle's mac default) and ⌃` (focus-hop's ctrl tier) match
+    // non-ttyOnly bindings, so a keydown inside the code-server iframe
+    // re-dispatches to the parent — preempting code-server's own ⌃`
+    // integrated-terminal toggle. ⇧Ctrl+J reclaims off mac the same way.
+    const mac = resolved(SHELL_MAC);
+    expect(hasReclaimableMatch(chord({ code: "KeyJ", metaKey: true }), mac)).toBe(true);
+    expect(hasReclaimableMatch(chord({ code: "Backquote", ctrlKey: true }), mac)).toBe(true);
+    expect(
+      hasReclaimableMatch(
+        chord({ code: "KeyJ", shiftKey: true, ctrlKey: true }),
+        resolved(SHELL_OTHER),
+      ),
+    ).toBe(true);
   });
 
   it("no match at all → false (the embedded app's own chords pass through)", () => {

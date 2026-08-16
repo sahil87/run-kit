@@ -22,7 +22,7 @@ always; web via `@rk_url`; code via gitRoot), the add/close arity walk (1→2
 `split-h`, 2→3 `main-left`), disabled-at-3 with its tooltip,
 hide-never-unmount across tile close/reopen, the retired `?panel=`/`?view=`
 deep links resolving through the permanent translation shim, value-bearing
-per-window persistence, the ⇧⌘. chord toggling the first non-tty tile, and
+per-window persistence, the `code-toggle` chord (⇧Ctrl+J) toggling the code tile, and
 the desktop-terminal-only gate (server route + mobile). Divider-ratio drag
 coverage lives in `surface-layout.spec.ts`; the overflow menu's Tiles section
 (when the group drops out of the bar) is the top-bar-overflow spec's beat.
@@ -218,19 +218,20 @@ Steps:
 2. Assert the terminal renders, exactly one `surface-layout` grid exists, and
    no web tile mounts.
 
-### ⇧⌘. / Shift+Ctrl+. toggles the first non-tty tile (P7, retargeted)
+### ⇧Ctrl+J / ⌘J toggles the code tile (the code-toggle chord)
 What it proves: the keyboard path (Constitution V) — the registry's
-`panel-toggle` chord (shifted tier of `Period`, leaving `view-cycle`'s ⌘.
-untouched; UNRELATED to the deleted rail) toggles the first non-tty available
-surface's TILE via the shared mutation path, firing even while xterm owns
-focus.
+`code-toggle` chord (⌘J on mac, ⇧Ctrl+J on Win/Linux; VS Code's panel-toggle
+keycap) toggles the code surface's TILE via the shared mutation path, firing
+even while xterm owns focus. The web tile's keyboard path is the palette
+(`Layout: Add Web` / `Layout: Close Web`).
 Steps:
-1. Create a web-capable window; navigate; assert the terminal, then wait for
-   the `Web tile` toggle (the chord's handler is gated on the SSE `@rk_url`
-   push — firing earlier would hit a handler-less chord).
-2. Press `Shift+Control+Period`; assert the web iframe appears and the URL
-   mirrors `split-h:tty,web`.
-3. Press `Shift+Control+Period` again; assert the web tile is hidden and the
+1. Create a web-capable window (repo-root cwd ⇒ also code-capable); navigate;
+   assert the terminal, then wait for the `Code tile` toggle (the chord's
+   handler is gated on the derived gitRoot arriving via the SSE window
+   payload — firing earlier would hit a handler-less chord).
+2. Press `Shift+Control+KeyJ`; assert the code tile appears and the URL
+   mirrors `split-h:tty,code`.
+3. Press `Shift+Control+KeyJ` again; assert the code tile is hidden and the
    URL is clean — the default `single:tty` mirrors with the param dropped.
 
 ### the toggle group does not render off the terminal route (the server route's banner carries no tile toggles)

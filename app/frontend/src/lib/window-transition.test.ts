@@ -716,12 +716,13 @@ describe("in-flight receipt — redraw bytes racing the select POST's resolution
 describe("isMaskExemptKey (rework F2 — global chords survive the masked swallow)", () => {
   const key = (
     k: string,
-    mods: { metaKey?: boolean; ctrlKey?: boolean; altKey?: boolean } = {},
+    mods: { metaKey?: boolean; ctrlKey?: boolean; altKey?: boolean; shiftKey?: boolean } = {},
   ) => ({
     key: k,
     metaKey: mods.metaKey ?? false,
     ctrlKey: mods.ctrlKey ?? false,
     altKey: mods.altKey ?? false,
+    shiftKey: mods.shiftKey ?? false,
   });
 
   it("exempts Escape (palette/dialog dismiss)", () => {
@@ -741,12 +742,17 @@ describe("isMaskExemptKey (rework F2 — global chords survive the masked swallo
     expect(isMaskExemptKey(key("V", { metaKey: true }))).toBe(false);
   });
 
-  it("exempts the Ctrl-bound global chords: Ctrl+K, Ctrl+., Ctrl+\\", () => {
+  it("exempts the Ctrl-bound global chords: Ctrl+K, Ctrl+., Shift+Ctrl+B", () => {
     expect(isMaskExemptKey(key("k", { ctrlKey: true }))).toBe(true);
     expect(isMaskExemptKey(key(".", { ctrlKey: true }))).toBe(true);
-    expect(isMaskExemptKey(key("\\", { ctrlKey: true }))).toBe(true);
-    // Ctrl+` is no longer a chord (the layout-zoom binding was removed in
-    // 260813-j3jb) — the mask swallows it like any other non-chord key.
+    expect(isMaskExemptKey(key("B", { ctrlKey: true, shiftKey: true }))).toBe(true);
+    // Plain Ctrl+B is pty input (readline back-char) — shift is what marks
+    // the sidebar chord; Ctrl+\ is no longer any shipped binding.
+    expect(isMaskExemptKey(key("b", { ctrlKey: true }))).toBe(false);
+    expect(isMaskExemptKey(key("\\", { ctrlKey: true }))).toBe(false);
+    // Ctrl+` (mac focus-hop) stays swallowed during a transition: on
+    // Win/Linux plain Ctrl+` is pty input, and a mid-transition focus hop
+    // can simply be retried once the mask drops.
     expect(isMaskExemptKey(key("`", { ctrlKey: true }))).toBe(false);
   });
 

@@ -41,8 +41,8 @@
  *                                 is degenerate (a `single` layout cycles to
  *                                 itself).
  *
- * The shipped ⇧⌘. `panel-toggle` chord toggles the FIRST non-tty available
- * surface's tile; that surface's Add/Close entry carries its effective combo
+ * The `code-toggle` chord (⌘J/⇧Ctrl+J) toggles the code surface's tile; that
+ * surface's Add/Close entry carries its effective combo
  * (`toggleTarget`/`toggleShortcut`) so the chord stays discoverable (the
  * retired `Panel: Code` hint precedent).
  */
@@ -78,8 +78,8 @@ export type LayoutPaletteOptions = {
   onApply: (next: Layout) => void;
   /** Toggle the transient slot-A zoom (SurfaceLayout's registered seam). */
   onZoomToggle: () => void;
-  /** The `panel-toggle` chord's target surface (first non-tty available) and
-   *  its effective combo — stamped on that surface's Add/Close entry. */
+  /** The `code-toggle` chord's target surface and its effective combo —
+   *  stamped on that surface's Add/Close entry. */
   toggleTarget?: SurfaceKind | null;
   toggleShortcut?: string;
   /** Focused-tile palette parity (260812-wfic R10): the currently focused
@@ -100,7 +100,7 @@ export function buildLayoutActions(
   const arity = SHAPE_ARITY[layout.shape];
   const openKinds = [...new Set(order)];
 
-  /** The ⇧⌘. hint for the chord-target surface's Add/Close entry. */
+  /** The toggle chord's hint for the chord-target surface's Add/Close entry. */
   const toggleHint = (kind: SurfaceKind) =>
     opts.toggleTarget === kind && opts.toggleShortcut
       ? { shortcut: opts.toggleShortcut }

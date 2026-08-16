@@ -12,10 +12,16 @@ actions stay palette-reachable). Also covers the **macOS ⌘-tier demotions**
 (260730-n789) via a spoofed-platform block: ⌘[/⌘] back/forward and ⌘/
 overlay resolve on mac hosts (deep mac paths — shell-host N/T/W demotion,
 claimed sets — are unit-tested in `lib/keybindings.test.ts`; e2e runs on
-Linux). Finally it covers the **split-pane chords** (260807-rbx5): the
+Linux). It also covers the **split-pane chords** (260807-rbx5): the
 divider pair ⇧Ctrl+\/⇧Ctrl+- splitting side-by-side then stacked on this
 host, and ⌘D/⇧⌘D doing the same on a spoofed mac (the `macCode` refinement —
-both actions bound and palette-hinted on every host).
+both actions bound and palette-hinted on every host). Finally it covers the
+**VS Code-aligned chrome chords**: `sidebar-toggle` on the B keycap (⇧Ctrl+B
+here, ⌘B on a spoofed mac — both mac hosts, no shell gate), `code-toggle` on
+J (⇧Ctrl+J / ⌘J — toggles the code tile on a code-capable window), and
+`focus-hop` on Backquote (⇧Ctrl+` here, ⌃` on a spoofed mac via the seam's
+mac-only ctrl-tier refusal rule — open-then-focus on a closed code tile,
+then the hop back to the tty tile).
 
 ## Shared setup
 
@@ -30,6 +36,8 @@ both actions bound and palette-hinted on every host).
     POST body is captured for assertion (260807-rbx5).
   - `/ws/state` (via `mockStateSocket`) → session `dev` with three windows:
     `@1` "win-one" (active), `@2` "win-two", `@3` "win-three".
+    `codeCapablePayload()` re-stamps the payload with `gitRoot` on `@1` —
+    the code surface's availability is the window's derived gitRoot.
   - The terminals mux WebSocket (`/ws/terminals`) is stubbed.
 - `gotoWindowOne(page)` navigates to `/default/1` and gates on "win-one"
   rendering.
@@ -231,6 +239,73 @@ refusal and ⇧⌘D the shifted-tier one.
 2. Press Meta+D → one POST; press Shift+Meta+D → a second POST.
 3. Assert the two bodies are `{horizontal: true, cwd: "/tmp/win-one"}` then
    `{horizontal: false, cwd: "/tmp/win-one"}`.
+
+### `Shift+Ctrl+B toggles the sidebar`
+
+**What it proves:** the `sidebar-toggle` binding lives on the B keycap — the
+shifted tier on Win/Linux — and fires from the component-local shell listener
+while the terminal owns focus.
+
+**Steps:**
+1. Mock the backend; open `/default/1`; assert the `aside[aria-label="Sidebar"]`
+   is visible.
+2. Press Shift+Ctrl+B → the sidebar unmounts.
+3. Press Shift+Ctrl+B again → it returns.
+
+### `Shift+Ctrl+J toggles the code tile on a code-capable window`
+
+**What it proves:** the `code-toggle` binding (⇧Ctrl+J on Win/Linux) toggles
+the code surface's tile through the shared layout-mutation path, gated on the
+window carrying a derived `gitRoot`.
+
+**Steps:**
+1. Mock the backend with the code-capable payload (`gitRoot` on `@1`); open
+   `/default/1`; assert no code tile exists.
+2. Press Shift+Ctrl+J → the `surface-tile-code` tile appears.
+3. Press Shift+Ctrl+J again → the tile hides (mounted-hidden — the
+   hide-never-unmount rule).
+
+### `Shift+Ctrl+` opens the closed code tile and hops focus, then hops back to the tty`
+
+**What it proves:** the `focus-hop` binding implements VS Code's ⌃` gesture:
+pressed with the code tile closed it OPENS the tile and moves the
+focused-tile accent border to it (open-then-focus); pressed again it hops
+focus back to the tty tile without closing anything.
+
+**Steps:**
+1. Mock the backend with the code-capable payload; open `/default/1` (slot A /
+   tty holds the default focus).
+2. Press Shift+Ctrl+` → the code tile appears and carries
+   `border-accent-green`; the tty tile loses it.
+3. Press Shift+Ctrl+` again → the tty tile carries the accent border, the code
+   tile stays open and loses it.
+
+### `⌘B toggles the sidebar on a mac host (both mac hosts — no shell gate)`
+
+**What it proves:** the `sidebar-toggle` `macTier: "cmd"` demotion applies in
+a mac BROWSER host (⌘B is page-interceptable; no claimed-keys entry on KeyB) —
+no `macShellOnly`.
+
+**Steps:**
+1. Spoof the mac platform; mock the backend; open `/default/1`.
+2. Press Meta+B → the sidebar unmounts; press Meta+B again → it returns.
+
+### `⌘J toggles the code tile and ⌃` hops focus on a mac host`
+
+**What it proves:** on a mac host the `code-toggle` default resolves to ⌘J and
+`focus-hop` to ⌃` (the registry's first shipped ctrl-tier default), and ⌃`
+reaches the dispatcher from under terminal focus via the seam's mac-only
+ctrl-tier refusal rule (rule 3).
+
+**Steps:**
+1. Spoof the mac platform; mock the backend with the code-capable payload;
+   open `/default/1`.
+2. Press Meta+J → the code tile appears; press Meta+J again → it hides
+   (mounted-hidden).
+3. Press Control+` → the closed code tile reopens and takes the
+   `border-accent-green` focused-tile border.
+4. Press Control+` again → the accent border hops back to the tty tile; the
+   code tile stays open.
 
 ### `Shift+Ctrl+N is inert in a browser host (create-session stays palette-only)`
 

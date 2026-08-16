@@ -938,16 +938,19 @@ function AppShell() {
   // an OPEN surface closes its tile (closeSurface — arity
   // collapses), a closed one appends a tile (addSurface — 1→2 `split-h`,
   // 2→3 `main-left`). A disallowed mutation (closing the last tile, adding a
-  // fourth) is a null no-op. Stable across SSE ticks. Shared by the top-bar
-  // surface-toggle group, the tile verbs, and the palette. Acts on the
-  // RENDERED layout (260815-wkcw) so a transiently auto-opened web tile
-  // toggles closed here exactly like a manually opened one.
+  // fourth) is a null no-op; the boolean return reports whether the mutation
+  // applied (focus-hop's open-then-focus flag depends on it). Stable across
+  // SSE ticks. Shared by the top-bar surface-toggle group, the tile verbs,
+  // and the palette. Acts on the RENDERED layout (260815-wkcw) so a
+  // transiently auto-opened web tile toggles closed here exactly like a
+  // manually opened one.
   const togglePanel = useCallback(
     (surface: SurfaceName) => {
       const next = renderLayout.order.includes(surface)
         ? closeSurface(renderLayout, surface)
         : addSurface(renderLayout, surface);
       if (next) applyLayout(next);
+      return next !== null;
     },
     [renderLayout, applyLayout],
   );
@@ -3440,8 +3443,10 @@ function AppShell() {
                 layoutFocusTileRef.current?.("tty");
               } else if (renderLayout.order.includes("code")) {
                 layoutFocusTileRef.current?.("code");
-              } else {
-                togglePanel("code");
+              } else if (togglePanel("code")) {
+                // Flag only an APPLIED open: a full 3-tile layout refuses the
+                // add (null no-op), and a stuck flag would auto-focus code
+                // whenever a later unrelated action opens it.
                 focusCodeOnLandingRef.current = true;
               }
             }

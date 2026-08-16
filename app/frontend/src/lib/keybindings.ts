@@ -30,7 +30,7 @@
  * The three chord tiers:
  * - `shifted` — `Shift+CmdOrCtrl` (the run-kit action tier; uniform per intake
  *   decision (B): letter consistency over chord weight).
- * - `cmd` — unshifted `CmdOrCtrl` (legacy punctuation chords: ⌘K ⌘\ ⌘. ⌘[⌘]).
+ * - `cmd` — unshifted `CmdOrCtrl` (legacy punctuation chords: ⌘K ⌘. ⌘[⌘]).
  *   Matches Meta OR Ctrl, preserving each legacy listener's exact predicate.
  * - `ctrl` — plain Ctrl on BOTH platforms. `focus-hop` is the one shipped
  *   default on it (mac only, via `macTier` — plain Ctrl belongs to the pane

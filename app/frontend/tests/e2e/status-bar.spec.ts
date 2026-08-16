@@ -137,9 +137,9 @@ test.describe("Status bar (260814-ldbs)", () => {
     await expect(windowCluster(page).getByText("wt")).toBeVisible();
     await expect(statusBar(page).getByTestId("status-bar-overflow")).toBeHidden();
 
-    // ~800px desktop band: cwd (≥xl), tmx (≥lg) and out (≥900px) are dropped
-    // by their deterministic breakpoint classes; git/agt/fab/PR survive; the
-    // bar does not scroll.
+    // ~800px desktop band: rightmost dies first — cwd (≥xl) and tmx (≥lg)
+    // are dropped by their deterministic breakpoint classes; git/agt/fab/PR
+    // survive; the bar does not scroll.
     await page.setViewportSize({ width: 800, height: 600 });
     await expect(windowCluster(page).getByText("wt")).toBeHidden();
     await expect(windowCluster(page).getByText("pane 1/1 %1")).toBeHidden();
@@ -155,18 +155,22 @@ test.describe("Status bar (260814-ldbs)", () => {
     await chevron.click();
     const menu = page.getByRole("menu", { name: "Overflow status segments" });
     await expect(menu).toBeVisible();
-    await expect(menu.getByText(/^cwd /)).toBeVisible();
     await expect(menu.getByText(/^tmx /)).toBeVisible();
+    await expect(menu.getByText(/^cwd /)).toBeVisible();
+    // No out row exists at any width — the register is deleted outright.
+    await expect(menu.getByText(/^out /)).toHaveCount(0);
     // Keyboard: focus enters the panel on open, ArrowUp/ArrowDown rove between
     // the VISIBLE rows only. The rows a breakpoint currently hides stay in the
-    // DOM (cpu/version at this width) and must be skipped — a display:none row
-    // cannot take focus, so including it would strand nav on a dead index.
+    // DOM (git/cpu/version at this width) and must be skipped — a display:none
+    // row cannot take focus, so including it would strand nav on a dead index.
     // This is the browser-only half of the contract; jsdom computes no layout.
-    await expect(menu.getByText(/^cwd /)).toBeFocused();
-    await page.keyboard.press("ArrowDown");
+    // Menu rows mirror the strip order (git → tmx → cwd), so the first
+    // VISIBLE row here is tmx (git's segment survives ≥md, hiding its row).
     await expect(menu.getByText(/^tmx /)).toBeFocused();
-    await page.keyboard.press("ArrowUp");
+    await page.keyboard.press("ArrowDown");
     await expect(menu.getByText(/^cwd /)).toBeFocused();
+    await page.keyboard.press("ArrowUp");
+    await expect(menu.getByText(/^tmx /)).toBeFocused();
     // Wrapping backwards off the first row lands on the LAST visible row — the
     // compose action, not the hidden version row that follows the metrics rows.
     await page.keyboard.press("ArrowUp");

@@ -19,7 +19,6 @@ import {
 } from "@/contexts/session-context";
 import { useInstanceName } from "@/contexts/instance-name-context";
 import { useChromeState } from "@/contexts/chrome-context";
-import { useNow } from "@/hooks/use-now";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { formatCombo } from "@/lib/keybindings";
 import { Tip } from "@/components/tip";
@@ -27,7 +26,7 @@ import { StatusDot } from "@/components/status-dot";
 import { HostMetrics, normalizeLoadPercent } from "@/components/host-metrics";
 import { displayVersion } from "@/lib/palette-version";
 import { formatMemory, gaugeColor } from "@/lib/gauge";
-import { getOutputLine, getAgentLine, getFabLine, getPrSegments } from "./sidebar/registers";
+import { getAgentLine, getFabLine, getPrSegments } from "./sidebar/registers";
 import { MENU_ROW_CLASS } from "@/components/top-bar-overflow-menu";
 import type { MetricsSnapshot, WindowInfo } from "@/types";
 
@@ -55,18 +54,19 @@ import type { MetricsSnapshot, WindowInfo } from "@/types";
  * contexts at this leaf (the HostPanel/SidebarFooter precedent): the metrics
  * contexts are deliberately split from SessionContext so the ~2.5s metrics
  * stream re-renders only subscribers — passing metrics DOWN through AppShell
- * would re-render the whole shell every tick. The `out` register's live clock
- * is leaf-scoped in `WindowCluster` (the PANE panel's `useNow` rule).
+ * would re-render the whole shell every tick.
  *
  * OVERFLOW — degradation ladder, never scroll (R5, the top-bar precedent):
  *   1. Flexible values truncate in place (`min-w-0 truncate` on the branch /
  *      fab slug / cwd basename).
  *   2. Whole segments drop at deterministic CSS breakpoints (no JS
- *      measurement): the left cluster dies in status-pyramid order — cwd
- *      (≥xl), tmx (≥lg), out (≥900px), git (≥md); PR/fab/agt never drop. The
- *      right cluster drops the hints (≥xl), then ld (≥lg), then cpu/mem
- *      (≥md), then version (≥700px); the connection dot never drops. The
- *      clusters degrade independently (separate sides of the `ml-auto` flex).
+ *      measurement). The left cluster renders in DESCENDING relevance
+ *      (git → pr → fab → agt → tmx → cwd), and display order equals survival
+ *      order, so the rule is simply: RIGHTMOST DIES FIRST — cwd (≥xl), then
+ *      tmx (≥lg), then git (≥md); PR/fab/agt never drop. The right cluster
+ *      drops the hints (≥xl), then ld (≥lg), then cpu/mem (≥md), then
+ *      version (≥700px); the connection dot never drops. The clusters
+ *      degrade independently (separate sides of the `ml-auto` flex).
  *   3. A trailing `…` chevron (the top-bar `menuOnly` row pattern) lists every
  *      dropped segment — each menu row carries the INVERSE breakpoint class of
  *      its strip segment, so a row appears exactly when its segment is hidden.
@@ -174,10 +174,8 @@ function loadPercent(m: MetricsSnapshot): number {
 
 /** LEFT cluster (terminal route only) — the current window's registers,
  *  resolved by the shared `sidebar/registers.ts` helpers + the PANE panel's
- *  identity-row sources. Owns the leaf-scoped `useNow` clock for the `out`
- *  register (the single-instance panel precedent). */
+ *  identity-row sources. */
 function WindowCluster({ win }: { win: WindowInfo }) {
-  const nowSeconds = useNow();
   const activePane = win.panes?.find((p) => p.isActive);
   const paneCount = win.panes?.length ?? 0;
   const paneId = activePane?.paneId ?? "";
@@ -186,47 +184,20 @@ function WindowCluster({ win }: { win: WindowInfo }) {
   const cwdMissing = activePane?.cwdMissing ?? false;
   const cwdBase = cwdFull.split("/").filter(Boolean).pop() ?? cwdFull;
   const gitBranch = activePane?.gitBranch ?? "";
-  const outLine = getOutputLine(win, nowSeconds);
   const agtLine = getAgentLine(win);
   const fabLine = getFabLine(win);
   const prSegments = getPrSegments(win);
 
   return (
     <div className="flex items-center gap-3 min-w-0" data-testid="status-bar-window">
-      {/* Survival order (R5, status-pyramid-ordered — last dies first):
-          cwd (≥xl) → tmx (≥lg) → out (≥900px) → git (≥md) → agt/fab/PR never
-          drop from the strip (they truncate or ride the bar to 640px). */}
-      <Segment label="cwd" tip={cwdMissing ? `${cwdFull} (no longer exists)` : cwdFull} className="hidden xl:flex">
-        <span className={cwdMissing ? "text-signal-red" : undefined}>
-          {cwdBase}
-          {cwdMissing ? " (deleted)" : ""}
-        </span>
-      </Segment>
-      <Segment label="tmx" tip="tmux pane" className="hidden lg:flex">
-        {tmxValue}
-      </Segment>
-      <Segment label="out" tip="Last output" className="hidden min-[900px]:flex">
-        {outLine}
-      </Segment>
+      {/* DESCENDING relevance, branch-first (the stable anchor — pr/fab/agt
+          are volatile per-window). Display order equals survival order, so
+          the ladder is one rule: rightmost dies first — cwd (≥xl) → tmx
+          (≥lg) → git (≥md); agt/fab/PR never drop from the strip (they
+          truncate or ride the bar to 640px). */}
       {gitBranch && (
         <Segment label="⑂" tip="Git branch" className="hidden md:flex">
           {gitBranch}
-        </Segment>
-      )}
-      {agtLine && (
-        <span className="flex items-center gap-1.5 min-w-0 whitespace-nowrap">
-          <StatusDot win={win} />
-          <Tip label="Agent state" placement="top">
-            <span className="flex items-center gap-1 min-w-0">
-              <span className={`${LABEL_CLASS} shrink-0`}>agt</span>
-              <span className={`min-w-0 truncate ${VALUE_CLASS}`}>{agtLine}</span>
-            </span>
-          </Tip>
-        </span>
-      )}
-      {fabLine && (
-        <Segment label="fab" tip="Fab change">
-          {fabLine}
         </Segment>
       )}
       {prSegments &&
@@ -267,6 +238,31 @@ function WindowCluster({ win }: { win: WindowInfo }) {
             </span>
           </span>
         ))}
+      {fabLine && (
+        <Segment label="fab" tip="Fab change">
+          {fabLine}
+        </Segment>
+      )}
+      {agtLine && (
+        <span className="flex items-center gap-1.5 min-w-0 whitespace-nowrap">
+          <StatusDot win={win} />
+          <Tip label="Agent state" placement="top">
+            <span className="flex items-center gap-1 min-w-0">
+              <span className={`${LABEL_CLASS} shrink-0`}>agt</span>
+              <span className={`min-w-0 truncate ${VALUE_CLASS}`}>{agtLine}</span>
+            </span>
+          </Tip>
+        </span>
+      )}
+      <Segment label="tmx" tip="tmux pane" className="hidden lg:flex">
+        {tmxValue}
+      </Segment>
+      <Segment label="cwd" tip={cwdMissing ? `${cwdFull} (no longer exists)` : cwdFull} className="hidden xl:flex">
+        <span className={cwdMissing ? "text-signal-red" : undefined}>
+          {cwdBase}
+          {cwdMissing ? " (deleted)" : ""}
+        </span>
+      </Segment>
     </div>
   );
 }
@@ -387,8 +383,10 @@ function OverflowMenu({
 
   const rows: ReactNode[] = [];
   if (win) {
-    // Inverse of the strip: a row appears exactly while its segment is hidden.
-    rows.push(textRow("cwd", `cwd ${cwdBase}`, "xl:hidden"));
+    // Inverse of the strip: a row appears exactly while its segment is
+    // hidden, in strip order (git → tmx → cwd) so the menu reads as the
+    // strip's continuation.
+    if (gitBranch) rows.push(textRow("git", `⑂ ${gitBranch}`, "md:hidden"));
     rows.push(
       textRow(
         "tmx",
@@ -396,8 +394,7 @@ function OverflowMenu({
         "lg:hidden",
       ),
     );
-    rows.push(textRow("out", `out ${getOutputLine(win, Math.floor(Date.now() / 1000))}`, "min-[900px]:hidden"));
-    if (gitBranch) rows.push(textRow("git", `⑂ ${gitBranch}`, "md:hidden"));
+    rows.push(textRow("cwd", `cwd ${cwdBase}`, "xl:hidden"));
     // agt/fab/PR never drop from the strip, so they never need a menu row.
   }
   if (metrics) {

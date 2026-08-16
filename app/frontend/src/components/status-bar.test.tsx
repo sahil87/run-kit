@@ -76,14 +76,18 @@ describe("StatusBar (260814-ldbs)", () => {
       expect(screen.queryByTestId("status-bar-window")).not.toBeInTheDocument();
     });
 
-    it("renders the tmx/cwd/git/out registers from the window record", () => {
+    it("renders the git/tmx/cwd identity registers in descending-relevance order", () => {
       renderBar({ window: makeWindowWithPanes() });
       expect(screen.getByText("pane 1/1 %5")).toBeInTheDocument();
       // cwd renders as the BASENAME with the full path in the tooltip.
       expect(screen.getByText("run-kit")).toBeInTheDocument();
       expect(screen.getByText("main")).toBeInTheDocument();
-      // out register: a plain shell pane with no activity timestamp → command.
-      expect(screen.getByText("zsh")).toBeInTheDocument();
+      // There is no out register in the strip (deleted outright).
+      expect(screen.queryByText("zsh")).not.toBeInTheDocument();
+      // Strip order is descending relevance: git → tmx → cwd.
+      const text = screen.getByTestId("status-bar-window").textContent ?? "";
+      expect(text.indexOf("main")).toBeLessThan(text.indexOf("pane 1/1 %5"));
+      expect(text.indexOf("pane 1/1 %5")).toBeLessThan(text.indexOf("run-kit"));
     });
 
     it("renders agt/fab/PR registers when those layers are present", () => {
@@ -104,6 +108,11 @@ describe("StatusBar (260814-ldbs)", () => {
       const pr = screen.getByRole("link", { name: "Open PR #603 in a new tab" });
       expect(pr).toHaveAttribute("href", "https://github.com/sahil87/run-kit/pull/603");
       expect(pr).toHaveAttribute("target", "_blank");
+      // Full descending-relevance order: git → pr → fab → agt (→ tmx → cwd).
+      const text = screen.getByTestId("status-bar-window").textContent ?? "";
+      expect(text.indexOf("main")).toBeLessThan(text.indexOf("#603"));
+      expect(text.indexOf("#603")).toBeLessThan(text.indexOf("ldbs shell-stage-status-bar"));
+      expect(text.indexOf("ldbs shell-stage-status-bar")).toBeLessThan(text.indexOf("waiting 3m"));
     });
 
     it("renders the PR register as plain text when no URL exists", () => {
@@ -237,7 +246,8 @@ describe("StatusBar (260814-ldbs)", () => {
       // Window + metrics rows (each inverse-gated to its strip segment)…
       expect(texts.some((t) => t?.startsWith("cwd "))).toBe(true);
       expect(texts.some((t) => t?.startsWith("tmx "))).toBe(true);
-      expect(texts.some((t) => t?.startsWith("out "))).toBe(true);
+      // No out row — the out register is deleted from the bar.
+      expect(texts.some((t) => t?.startsWith("out "))).toBe(false);
       expect(texts.some((t) => t === "⑂ main")).toBe(true);
       expect(texts.some((t) => t?.startsWith("ld "))).toBe(true);
       expect(texts.some((t) => t?.startsWith("cpu "))).toBe(true);
@@ -258,8 +268,8 @@ describe("StatusBar (260814-ldbs)", () => {
       renderBar({ window: makeWindowWithPanes(), server: "alpha" });
       const bar = screen.getByTestId("status-bar-window");
       // Truncation survives; whole-segment drops are breakpoint-class driven
-      // (no JS measurement): cwd dies at ≥xl-only visibility, tmx at ≥lg,
-      // out at ≥900px, git at ≥md.
+      // (no JS measurement), rightmost dies first: cwd at ≥xl-only
+      // visibility, tmx at ≥lg, git at ≥md.
       expect(bar.querySelector(".xl\\:flex")).not.toBeNull();
       // The chevron mirrors the ladder: visible only below xl.
       const chevron = screen.getByTestId("status-bar-overflow");

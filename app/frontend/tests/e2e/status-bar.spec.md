@@ -55,25 +55,31 @@ bottom bar is absent there too.
 
 ### `narrow desktop width: low-priority segments drop (never scroll) and the … chevron lists them`
 
-**What it proves:** R5/A-011 — the degradation ladder at the ~800px band:
-deterministic CSS breakpoint classes hide cwd (≥xl), tmx (≥lg) and out
-(≥900px) while git/agt/fab/PR survive; the bar never scrolls; the `…`
-chevron (hidden at full width) appears and its menu lists the dropped
-segments; the menu's rows are keyboard-reachable by arrow-nav, which skips the
-rows a breakpoint currently hides; Escape closes it.
+**What it proves:** R5/A-011 — the degradation ladder at the ~800px band. The
+left cluster renders in descending relevance (git → pr → fab → agt → tmx →
+cwd) and display order equals survival order, so the rule is rightmost dies
+first: deterministic CSS breakpoint classes hide cwd (≥xl) and tmx (≥lg)
+while git/agt/fab/PR survive (there is no `out` segment — deleted
+outright); the bar never scrolls; the `…` chevron (hidden at full width)
+appears and its menu lists the dropped segments in strip order; the menu's
+rows are keyboard-reachable by arrow-nav, which skips the rows a breakpoint
+currently hides; Escape closes it.
 
 **Steps:**
 1. Navigate to `/default/1`; wait for the window cluster.
 2. At 1440px assert all window segments visible and the chevron hidden.
 3. Resize to 800×600; assert cwd/tmx hidden, git/agt still visible, and
    `scrollWidth ≤ clientWidth` on the bar.
-4. Click the chevron; assert the menu lists `cwd`/`tmx` rows.
-5. Assert focus entered the panel on the first visible row (`cwd`), that
-   ArrowDown/ArrowUp move to `tmx` and back, and that ArrowUp off the first row
-   wraps to the last VISIBLE row (the compose action) rather than the
-   breakpoint-hidden version row — a `display: none` row cannot take focus, so
-   arrow-nav must skip it. This is the browser-only half of the contract; the
-   unit suite covers the rove itself, where jsdom computes no layout.
+4. Click the chevron; assert the menu lists `tmx`/`cwd` rows and no `out`
+   row.
+5. Assert focus entered the panel on the first VISIBLE row (`tmx` — the menu
+   mirrors the strip order git → tmx → cwd, and git's row is hidden while its
+   segment survives ≥md), that ArrowDown/ArrowUp move to `cwd` and back, and
+   that ArrowUp off the first row wraps to the last VISIBLE row (the compose
+   action) rather than the breakpoint-hidden version row — a `display: none`
+   row cannot take focus, so arrow-nav must skip it. This is the browser-only
+   half of the contract; the unit suite covers the rove itself, where jsdom
+   computes no layout.
 6. Press Escape; assert the menu closes.
 
 ### `the compose hint opens the compose strip (the relocated bottom-bar affordance)`

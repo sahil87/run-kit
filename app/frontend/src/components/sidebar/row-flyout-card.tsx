@@ -397,7 +397,10 @@ function RowFlyoutContent({
   ));
   const fetchedAtEpoch = prFetchedAtEpoch(win);
   // The fork row keeps the DOUBLE gate: a forkable window AND a wired handler.
-  const showFork = !!onFork && canForkWindow(win);
+  // Derived as a narrowed handler (not a boolean) so the ForkActionRow call
+  // site type-checks structurally instead of leaning on aliased-condition
+  // narrowing, which a refactor could silently break.
+  const forkHandler = canForkWindow(win) ? onFork : undefined;
 
   return (
     <>
@@ -501,12 +504,12 @@ function RowFlyoutContent({
           Optional-handler idiom: a consumer wiring no handler renders no row.
           All rows stopPropagation so an action never selects the underlying
           row (the PR-link/docs idiom). */}
-      {(showFork || onPinAction || onKillAction) && (
+      {(forkHandler || onPinAction || onKillAction) && (
         <div
           className="-mx-2 mt-0.5 border-t border-border divide-y divide-border"
           data-testid="row-flyout-actions"
         >
-          {showFork && <ForkActionRow onFork={onFork} />}
+          {forkHandler && <ForkActionRow onFork={forkHandler} />}
           {onPinAction && (
             <button
               type="button"
@@ -724,7 +727,21 @@ export function useRowFlyout(win: WindowInfo, { suppressed = false, onFork, onPi
           }),
           arrow({ element: arrowRef }),
         ]
-      : [offset(6), flip(), shift({ padding: 8 }), arrow({ element: arrowRef })],
+      : [
+          offset(6),
+          flip(),
+          shift({ padding: 8 }),
+          size({
+            // Symmetric reset of the coarse arm's inline cap: if the pointer
+            // flips coarse → fine while the card is mounted, a stale inline
+            // maxWidth would otherwise persist and override the fine-pointer
+            // `max-w-xs` class (inline style wins over the class).
+            apply({ elements }) {
+              elements.floating.style.maxWidth = "";
+            },
+          }),
+          arrow({ element: arrowRef }),
+        ],
     whileElementsMounted: autoUpdate,
   });
 

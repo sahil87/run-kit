@@ -920,16 +920,25 @@ html.fullbleed .app-shell {
    instead. The floor applies only while the on-screen keyboard is collapsed:
    useVisualViewport toggles `kb-open` on <html> when the keyboard opens, and
    the bar then rides above the keyboard on flat screen area where the extra
-   padding would only waste height. The consumer (bottom-bar.tsx) keeps the
-   max(var(--bottom-bar-floor), env(safe-area-inset-bottom)) shape so genuine
-   inset reporting (standalone PWA, future Safari) still wins. */
+   padding would only waste height.
+
+   The pad itself is owned here as --bottom-bar-pad so the kb-open gate covers
+   BOTH arms of the max(). The env() arm may win only while the keyboard is
+   collapsed: env() is layout-viewport-based and keeps reporting the 34pt
+   home-indicator inset while the keyboard covers that zone (standalone PWA,
+   device-confirmed 2026-08-17), so under kb-open the pad is floor-only —
+   max(6px, 34pt) would hold the full pad above the keyboard. (260816-4v2o) */
 :root {
   --bottom-bar-floor: 0.375rem;
+  --bottom-bar-pad: max(var(--bottom-bar-floor, 0.375rem), env(safe-area-inset-bottom));
 }
 @media (pointer: coarse) {
   html:not(.kb-open) {
     --bottom-bar-floor: 1rem;
   }
+}
+html.kb-open {
+  --bottom-bar-pad: var(--bottom-bar-floor, 0.375rem);
 }
 
 /* Prevent xterm scroll from chaining to the page on iOS */

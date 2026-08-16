@@ -20,12 +20,14 @@ export function parseFabChange(fabChange: string): { id: string; slug: string } 
   };
 }
 
-/** Abbreviate a leading `/home/{user}/` or `/Users/{user}/` prefix to `~` for
- *  display. Unrecognized shapes pass through unchanged — the backend cannot
- *  know the client's `$HOME`, so the two standard prefixes are the honest
- *  heuristic. A bare home dir (`/home/u`) abbreviates to `~`. */
+/** Abbreviate a leading `/home/{user}/`, `/Users/{user}/`, or `/root/` prefix
+ *  to `~` for display. Unrecognized shapes pass through unchanged — the backend
+ *  cannot know the client's `$HOME`, so the standard prefixes are the honest
+ *  heuristic. A bare home dir (`/home/u`, `/root`) abbreviates to `~`. The sole
+ *  home-substitution owner in the frontend — display consumers (session
+ *  identity tip, the PANE panel's shortenPath) delegate here. */
 export function abbreviateHomePath(path: string): string {
-  const m = /^\/(?:home|Users)\/[^/]+(?=\/|$)/.exec(path);
+  const m = /^\/(?:(?:home|Users)\/[^/]+|root)(?=\/|$)/.exec(path);
   return m ? `~${path.slice(m[0].length)}` : path;
 }
 

@@ -1,0 +1,11 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-16T20:22:10Z"}
+{"args":"Chore: consolidate duplicated home-directory path-abbreviation logic (abbreviateHomePath in lib/format.ts vs HOME_PATTERNS in status-panel.tsx shortenPath) into one shared helper; fold /root coverage into abbreviateHomePath with boundary semantics; from PR #618 fab review should-fix","cmd":"fab-new","event":"command","ts":"2026-08-16T20:22:10Z"}
+{"delta":"+4.9","event":"confidence","score":4.9,"trigger":"calc-score","ts":"2026-08-16T20:23:42Z"}
+{"delta":"+0.0","event":"confidence","score":4.9,"trigger":"calc-score","ts":"2026-08-16T20:24:02Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-08-16T20:25:07Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-16T20:26:41Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-16T20:26:58Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-16T20:28:46Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-16T20:31:05Z"}
+{"event":"review","result":"passed","ts":"2026-08-16T20:31:05Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-16T20:31:36Z"}

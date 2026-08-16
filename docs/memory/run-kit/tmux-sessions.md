@@ -641,7 +641,7 @@ Reusable patterns future changes should follow:
 *Introduced by*: `260814-qb8z-server-url-tmux-option`
 
 ### Path abbreviation is a frontend display heuristic
-**Decision**: the backend sends the raw `#{session_path}`; the frontend abbreviates a leading `/home/{user}/` or `/Users/{user}/` prefix to `~` at display time (`abbreviateHomePath`, `app/frontend/src/lib/format.ts`).
-**Why**: raw derived state over the wire (Constitution II posture); `~` is presentation. The frontend cannot know the server's `$HOME`, but the two standard prefixes cover the real cases; unrecognized paths pass through honestly.
+**Decision**: the backend sends the raw `#{session_path}`; the frontend abbreviates a leading `/home/{user}/`, `/Users/{user}/`, or `/root` prefix (segment-boundary-checked) to `~` at display time (`abbreviateHomePath`, `app/frontend/src/lib/format.ts` — the frontend's single home-substitution owner, also consumed by the PANE panel's `shortenPath`, `momh`).
+**Why**: raw derived state over the wire (Constitution II posture); `~` is presentation. The frontend cannot know the server's `$HOME`, but the standard prefixes cover the real cases; unrecognized paths pass through honestly.
 **Rejected**: backend abbreviation (bakes presentation into the API); shipping `$HOME` in the payload (a second field for a cosmetic win).
 *Introduced by*: `260815-xb77-row-popup-identity-titlebars`

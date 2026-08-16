@@ -8,7 +8,7 @@ import { StarTwinkle } from "@/components/star-twinkle";
 import { CollapsiblePanel } from "./collapsible-panel";
 import { ICON_CLASS } from "./icons";
 import { copyToClipboard } from "@/lib/clipboard";
-import { parseFabChange } from "@/lib/format";
+import { abbreviateHomePath, parseFabChange } from "@/lib/format";
 import { getOutputLine, getAgentLine, getFabLine, getPrSegments } from "./registers";
 import { StatusDot } from "@/components/status-dot";
 import { Tip } from "@/components/tip";
@@ -37,22 +37,11 @@ type WindowPanelProps = {
   window: WindowInfo | null;
 };
 
-const HOME_PATTERNS = [/^\/home\/[^/]+/, /^\/Users\/[^/]+/, /^\/root(?=\/|$)/];
-
 /** Shorten an absolute path by replacing $HOME with ~ and truncating deep paths */
 function shortenPath(cwd: string): string {
-  // Step 1: Home substitution
-  let path = cwd;
-  for (const pattern of HOME_PATTERNS) {
-    const match = path.match(pattern);
-    if (match) {
-      const rest = path.slice(match[0].length);
-      path = rest.startsWith("/") ? "~" + rest : "~";
-      break;
-    }
-  }
+  const path = abbreviateHomePath(cwd);
 
-  // Step 2: Truncation — keep last 2 segments if more than 2
+  // Truncation — keep last 2 segments if more than 2
   let segments: string[];
   if (path.startsWith("~/")) {
     segments = path.slice(2).split("/").filter(Boolean);

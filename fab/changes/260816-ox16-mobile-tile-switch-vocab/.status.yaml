@@ -9,7 +9,7 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
+    ship: done
     review-pr: done
 plan:
     generated: true
@@ -33,24 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-08-16T19:08:49Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-16T19:58:11Z"}
     review: {started_at: "2026-08-16T19:58:11Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-16T20:16:30Z"}
     hydrate: {started_at: "2026-08-16T20:16:30Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-16T20:30:27Z"}
-    ship: {started_at: "2026-08-16T20:30:27Z", driver: fab-fff, iterations: 1}
-    review-pr: {started_at: "2026-08-16T20:40:03Z", driver: git-pr-review, iterations: 1, completed_at: "2026-08-16T20:40:03Z"}
-prs: []
+    ship: {started_at: "2026-08-16T20:30:27Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-16T20:33:02Z"}
+    review-pr: {started_at: "2026-08-16T20:33:02Z", driver: git-pr-review, iterations: 1, completed_at: "2026-08-16T20:40:03Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/637
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 1120
+    deleted: 628
+    net: 492
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 671
+        deleted: 583
+        net: 88
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-08-16T20:30:27Z"
-    computed_at_stage: hydrate
+        added: 286
+        deleted: 154
+        net: 132
+    computed_at: "2026-08-16T20:33:02Z"
+    computed_at_stage: ship
 summary: 'Mobile switch-to-tile verb (top-bar surface-toggles switch mode, pinned in-bar, radio semantics) replaces the bottom-bar ▦ chip + mobile-surface-sheet; palette vocabulary renamed Layout: Add/Close/Focus → Tile: Show/Hide/Focus with new mobile Tile: Switch to <X> entries superseding View: on mobile'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
 last_updated: 2026-08-16T20:40:03Z

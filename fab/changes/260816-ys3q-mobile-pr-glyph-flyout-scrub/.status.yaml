@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 10
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-08-16T18:42:39Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-16T19:07:53Z"}
     review: {started_at: "2026-08-16T19:07:53Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-16T19:13:19Z"}
     hydrate: {started_at: "2026-08-16T19:13:19Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-16T19:22:05Z"}
-    ship: {started_at: "2026-08-16T19:22:05Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-08-16T19:22:05Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-16T19:25:06Z"}
+    review-pr: {started_at: "2026-08-16T19:25:06Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/634
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 1185
+    deleted: 98
+    net: 1087
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 773
+        deleted: 83
+        net: 690
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-08-16T19:22:05Z"
-    computed_at_stage: hydrate
+        added: 101
+        deleted: 13
+        net: 88
+    computed_at: "2026-08-16T19:25:06Z"
+    computed_at_stage: ship
 summary: 'Mobile PR-status parity: rest PR glyph visible on coarse, pin/kill relocated to flyout-card action rows, widened dot tap zone + slide-to-scrub retargeting'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-16T19:22:05Z
+last_updated: 2026-08-16T19:25:06Z

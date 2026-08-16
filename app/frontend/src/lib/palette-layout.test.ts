@@ -1,10 +1,12 @@
 import { describe, it, expect, vi } from "vitest";
-import { buildLayoutActions } from "./palette-layout";
+import { buildLayoutActions, buildTileSwitchActions } from "./palette-layout";
 import type { Layout, SurfaceKind } from "./surface-layout";
 
 /**
- * `buildLayoutActions` (260812-ab5v R11) — the palette's `Layout:` entries per
- * layout state. Pure-builder tests in the `palette-view.test.ts` pattern.
+ * `buildLayoutActions` (260812-ab5v R11) — the palette's `Tile:`/`Layout:`
+ * entries per layout state. Pure-builder tests in the `palette-view.test.ts`
+ * pattern. `buildTileSwitchActions` — the mobile `Tile: Switch to <Surface>`
+ * entries (the top-bar switch group's palette twin).
  */
 
 const ALL: SurfaceKind[] = ["tty", "web", "chat", "code"];
@@ -26,16 +28,16 @@ function build(
 const ids = (layout: Layout, available: SurfaceKind[] = ALL) =>
   build(layout, {}, available).map((a) => a.id);
 
-describe("buildLayoutActions — adds/closes (R10/R11)", () => {
-  it("single:tty offers an Add per available non-open surface and NO closes/verbs", () => {
+describe("buildLayoutActions — shows/hides (R10/R11)", () => {
+  it("single:tty offers a Show per available non-open surface and NO hides/verbs", () => {
     const actions = ids({ shape: "single", order: ["tty"] });
-    expect(actions).toContain("layout-add-web");
-    expect(actions).toContain("layout-add-chat");
-    expect(actions).toContain("layout-add-code");
-    expect(actions).not.toContain("layout-add-tty"); // already open
-    // single: no closes (the last tile never closes), no promote/swap/zoom,
+    expect(actions).toContain("tile-show-web");
+    expect(actions).toContain("tile-show-chat");
+    expect(actions).toContain("tile-show-code");
+    expect(actions).not.toContain("tile-show-tty"); // already open
+    // single: no hides (the last tile never hides), no promote/swap/zoom,
     // no shape jumps, no cycle (the arity-1 ring is degenerate).
-    expect(actions.some((id) => id.startsWith("layout-close-"))).toBe(false);
+    expect(actions.some((id) => id.startsWith("tile-hide-"))).toBe(false);
     expect(actions.some((id) => id.startsWith("layout-promote-"))).toBe(false);
     expect(actions.some((id) => id.startsWith("layout-swap-"))).toBe(false);
     expect(actions).not.toContain("layout-zoom");
@@ -43,41 +45,52 @@ describe("buildLayoutActions — adds/closes (R10/R11)", () => {
     expect(actions).not.toContain("layout-cycle");
   });
 
-  it("add runs addSurface through onApply (1→2 grows to split-h)", () => {
+  it("show runs addSurface through onApply (1→2 grows to split-h)", () => {
     const onApply = vi.fn();
     const actions = build({ shape: "single", order: ["tty"] }, { onApply });
-    actions.find((a) => a.id === "layout-add-code")!.onSelect();
+    actions.find((a) => a.id === "tile-show-code")!.onSelect();
     expect(onApply).toHaveBeenCalledWith({ shape: "split-h", order: ["tty", "code"] });
   });
 
-  it("at 3 tiles no Add entries are offered (max — the rail disables instead)", () => {
+  it("at 3 tiles no Show entries are offered (max — the rail disables instead)", () => {
     const actions = ids({ shape: "main-left", order: ["tty", "code", "web"] });
-    expect(actions.some((id) => id.startsWith("layout-add-"))).toBe(false);
-    expect(actions).toContain("layout-close-web");
+    expect(actions.some((id) => id.startsWith("tile-show-"))).toBe(false);
+    expect(actions).toContain("tile-hide-web");
   });
 
-  it("close runs closeSurface through onApply (3→2 collapses to split-h)", () => {
+  it("hide runs closeSurface through onApply (3→2 collapses to split-h)", () => {
     const onApply = vi.fn();
     const actions = build(
       { shape: "main-left", order: ["tty", "code", "web"] },
       { onApply },
     );
-    actions.find((a) => a.id === "layout-close-web")!.onSelect();
+    actions.find((a) => a.id === "tile-hide-web")!.onSelect();
     expect(onApply).toHaveBeenCalledWith({ shape: "split-h", order: ["tty", "code"] });
   });
 
-  it("an unavailable surface gets no Add entry", () => {
+  it("an unavailable surface gets no Show entry", () => {
     const actions = ids({ shape: "single", order: ["tty"] }, ["tty", "web"]);
-    expect(actions).toContain("layout-add-web");
-    expect(actions).not.toContain("layout-add-code");
+    expect(actions).toContain("tile-show-web");
+    expect(actions).not.toContain("tile-show-code");
   });
 
-  it("still offers `Layout: Add Chat` / `Layout: Close Chat` — chat's palette entries survive the rail demotion (260812-0c6o)", () => {
-    // SURFACE_RAIL_HIDDEN filters the rail/sheet at render; `buildLayoutActions`
+  it("still offers `Tile: Show Chat` / `Tile: Hide Chat` — chat's palette entries survive the rail demotion (260812-0c6o)", () => {
+    // SURFACE_RAIL_HIDDEN filters the rail at render; `buildLayoutActions`
     // keys off AVAILABILITY, so chat stays palette-reachable as its sole entry
     // point.
-    expect(ids({ shape: "single", order: ["tty"] })).toContain("layout-add-chat");
-    expect(ids({ shape: "split-h", order: ["tty", "chat"] })).toContain("layout-close-chat");
+    expect(ids({ shape: "single", order: ["tty"] })).toContain("tile-show-chat");
+    expect(ids({ shape: "split-h", order: ["tty", "chat"] })).toContain("tile-hide-chat");
+  });
+
+  it("Show/Hide labels carry the Tile: prefix; arrangement verbs keep Layout:", () => {
+    const actions = build({ shape: "split-h", order: ["tty", "code"] });
+    expect(actions.find((a) => a.id === "tile-hide-code")?.label).toBe("Tile: Hide Code");
+    expect(actions.find((a) => a.id === "layout-promote-code")?.label).toBe(
+      "Layout: Promote Code",
+    );
+    expect(actions.some((a) => a.label.startsWith("Layout: Add"))).toBe(false);
+    expect(actions.some((a) => a.label.startsWith("Layout: Close"))).toBe(false);
+    expect(actions.some((a) => a.label.startsWith("Layout: Focus"))).toBe(false);
   });
 });
 
@@ -172,20 +185,20 @@ describe("buildLayoutActions — verbs + shapes (R7/R9)", () => {
 });
 
 describe("buildLayoutActions — the toggle-chord hint (code-toggle documentation)", () => {
-  it("stamps the toggle chord on the chord-target surface's Add/Close entry", () => {
-    // tty-only open: the target (code) is closed → its ADD entry carries it.
+  it("stamps the toggle chord on the chord-target surface's Show/Hide entry", () => {
+    // tty-only open: the target (code) is closed → its SHOW entry carries it.
     const added = build(
       { shape: "single", order: ["tty"] },
       { toggleTarget: "code", toggleShortcut: "⌘J" },
     );
-    expect(added.find((a) => a.id === "layout-add-code")?.shortcut).toBe("⌘J");
-    expect(added.find((a) => a.id === "layout-add-web")?.shortcut).toBeUndefined();
-    // Target open: its CLOSE entry carries the hint instead.
+    expect(added.find((a) => a.id === "tile-show-code")?.shortcut).toBe("⌘J");
+    expect(added.find((a) => a.id === "tile-show-web")?.shortcut).toBeUndefined();
+    // Target open: its HIDE entry carries the hint instead.
     const closed = build(
       { shape: "split-h", order: ["tty", "code"] },
       { toggleTarget: "code", toggleShortcut: "⌘J" },
     );
-    expect(closed.find((a) => a.id === "layout-close-code")?.shortcut).toBe("⌘J");
+    expect(closed.find((a) => a.id === "tile-hide-code")?.shortcut).toBe("⌘J");
   });
 
   it("omits the hint when the chord is disabled/unbound (empty shortcut)", () => {
@@ -193,18 +206,18 @@ describe("buildLayoutActions — the toggle-chord hint (code-toggle documentatio
       { shape: "single", order: ["tty"] },
       { toggleTarget: "code", toggleShortcut: "" },
     );
-    expect(actions.find((a) => a.id === "layout-add-code")?.shortcut).toBeUndefined();
+    expect(actions.find((a) => a.id === "tile-show-code")?.shortcut).toBeUndefined();
   });
 });
 
-describe("buildLayoutActions — Layout: Focus <Surface> (260812-wfic R10)", () => {
+describe("buildLayoutActions — Tile: Focus <Surface> (260812-wfic R10)", () => {
   it("offers one Focus entry per open NON-focused kind (the focused one is omitted)", () => {
     const actions = build(
       { shape: "split-h", order: ["tty", "code"] },
       { focusedKind: "tty", onFocus: vi.fn() },
     ).map((a) => a.id);
-    expect(actions).toContain("layout-focus-code");
-    expect(actions).not.toContain("layout-focus-tty"); // already focused
+    expect(actions).toContain("tile-focus-code");
+    expect(actions).not.toContain("tile-focus-tty"); // already focused
   });
 
   it("a Focus entry fires onFocus with the kind (the focusTileRef seam), never onApply", () => {
@@ -214,8 +227,8 @@ describe("buildLayoutActions — Layout: Focus <Surface> (260812-wfic R10)", () 
       { shape: "split-h", order: ["tty", "code"] },
       { onApply, focusedKind: "tty", onFocus },
     );
-    const entry = actions.find((a) => a.id === "layout-focus-code")!;
-    expect(entry.label).toBe("Layout: Focus Code");
+    const entry = actions.find((a) => a.id === "tile-focus-code")!;
+    expect(entry.label).toBe("Tile: Focus Code");
     entry.onSelect();
     expect(onFocus).toHaveBeenCalledWith("code");
     expect(onApply).not.toHaveBeenCalled();
@@ -227,22 +240,22 @@ describe("buildLayoutActions — Layout: Focus <Surface> (260812-wfic R10)", () 
       { focusedKind: "code", onFocus: vi.fn() },
       ["tty", "code"],
     ).map((a) => a.id);
-    expect(actions.filter((id) => id === "layout-focus-tty")).toHaveLength(1);
+    expect(actions.filter((id) => id === "tile-focus-tty")).toHaveLength(1);
   });
 
   it("hidden at arity 1, without onFocus (mobile), and without focusedKind", () => {
     const onFocus = vi.fn();
     expect(
       build({ shape: "single", order: ["tty"] }, { focusedKind: "tty", onFocus })
-        .some((a) => a.id.startsWith("layout-focus-")),
+        .some((a) => a.id.startsWith("tile-focus-")),
     ).toBe(false);
     expect(
       build({ shape: "split-h", order: ["tty", "code"] }, { focusedKind: "tty" })
-        .some((a) => a.id.startsWith("layout-focus-")),
+        .some((a) => a.id.startsWith("tile-focus-")),
     ).toBe(false);
     expect(
       build({ shape: "split-h", order: ["tty", "code"] }, { onFocus })
-        .some((a) => a.id.startsWith("layout-focus-")),
+        .some((a) => a.id.startsWith("tile-focus-")),
     ).toBe(false);
   });
 
@@ -251,8 +264,36 @@ describe("buildLayoutActions — Layout: Focus <Surface> (260812-wfic R10)", () 
       { shape: "main-left", order: ["tty", "code", "web"] },
       { focusedKind: "code", onFocus: vi.fn() },
     ).map((a) => a.id);
-    expect(actions).toContain("layout-focus-tty");
-    expect(actions).toContain("layout-focus-web");
-    expect(actions).not.toContain("layout-focus-code");
+    expect(actions).toContain("tile-focus-tty");
+    expect(actions).toContain("tile-focus-web");
+    expect(actions).not.toContain("tile-focus-code");
+  });
+});
+
+describe("buildTileSwitchActions — Tile: Switch to <Surface> (mobile)", () => {
+  it("offers one entry per available, not-hidden, not-visible surface", () => {
+    const actions = buildTileSwitchActions(ALL, "tty", vi.fn());
+    expect(actions.map((a) => a.id)).toEqual(["tile-switch-web", "tile-switch-code"]);
+    // chat is SURFACE_RAIL_HIDDEN — its Show/Hide entries stay its only
+    // palette entry points.
+    expect(actions.some((a) => a.id === "tile-switch-chat")).toBe(false);
+  });
+
+  it("labels read `Tile: Switch to <Surface>` and fire onSwitch with the kind", () => {
+    const onSwitch = vi.fn();
+    const actions = buildTileSwitchActions(["tty", "web"], "tty", onSwitch);
+    const entry = actions.find((a) => a.id === "tile-switch-web")!;
+    expect(entry.label).toBe("Tile: Switch to Web");
+    entry.onSelect();
+    expect(onSwitch).toHaveBeenCalledWith("web");
+  });
+
+  it("a single-surface window yields no entries (nothing to switch to)", () => {
+    expect(buildTileSwitchActions(["tty"], "tty", vi.fn())).toEqual([]);
+  });
+
+  it("excludes the visible surface from the destination list", () => {
+    const actions = buildTileSwitchActions(["tty", "web", "code"], "web", vi.fn());
+    expect(actions.map((a) => a.id)).toEqual(["tile-switch-tty", "tile-switch-code"]);
   });
 });

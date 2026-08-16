@@ -68,9 +68,9 @@ tiles.
   — hover the divider or zone, never the dots); the
   `surface-divider-intersection` two-axis zone (main-* shapes only, z-ordered
   above the dividers); the `.xterm` terminal surface; the `Proxied content`
-  web iframe; the
-  mobile `mobile-surfaces-chip` / `mobile-surface-sheet` / `mobile-surface-tab-<kind>`
-  testids. Tile verb buttons (`Zoom/Promote/Swap/Close <Surface>`) are boxed
+  web iframe; on mobile the same banner buttons serve the switch group (the
+  retired `mobile-surfaces-chip` / `mobile-surface-sheet` /
+  `mobile-surface-tab-<kind>` testids are asserted ABSENT). Tile verb buttons (`Zoom/Promote/Swap/Close <Surface>`) are boxed
   and visible at rest since 260812-wfic (R4) — tests still `.hover()` the tile
   before clicking to exercise the hover affordance.
 - **Focus clicks**: the focused-tile seam is pointerdown-capture anywhere in
@@ -232,14 +232,15 @@ Stays within the ≤2-tile perf budget. Steps:
 5. Click the tty tile's `Zoom Terminal` verb; assert the segment stays visible
    while `Promote Terminal` is gone and `Close Terminal` stays.
 
-### 375px mobile: a 3-tile ?layout= URL renders slot A + sheet tabs for the rest (R13, A-018)
+### 375px mobile: a 3-tile ?layout= URL renders slot A + the top-bar switch group for the rest (R13, A-018)
 What it proves: below `isMobileViewport()` the layout manager renders only
-slot A — no grid, no dividers, no top-bar toggle group — and the remaining resolved surfaces
-are reachable as sheet tabs whose selection is TRANSIENT (the URL/desktop
-arrangement never changes). The nested describe runs `test.use({ hasTouch:
-true })` so `(pointer: coarse)` matches — a real phone is coarse AND narrow,
-and since 260814-ldbs the bottom bar (the ▦ chip's home) is pointer-gated, so
-a fine-pointer narrow window would get no chip bar by design.
+slot A — no grid, no dividers — and the remaining resolved surfaces are
+reachable via the top-bar switch group (radio semantics: the visible tile
+pressed), whose tap is TRANSIENT when the target is already open (the
+URL/desktop arrangement never changes). The nested describe runs
+`test.use({ hasTouch: true })` so `(pointer: coarse)` matches — a real phone
+is coarse AND narrow, and since 260814-ldbs the bottom bar is pointer-gated,
+so a fine-pointer narrow window would exercise a different bar by design.
 Steps:
 1. Set the 375×812 viewport (context already has `hasTouch`); create a
    web-capable window.
@@ -248,14 +249,13 @@ Steps:
    sidebar is an unmounted drawer at 375px anyway).
 3. Assert the tty tile is visible, the code/web tiles are mounted-hidden, no
    divider exists (and no `surface-divider-intersection` — the gap-seam chrome
-   is desktop-only, 260814-011r R5), no `Terminal tile` toggle button renders
-   in the banner (the top-bar `surface-toggles` group is desktop
-   terminal-route only), and the
-   `mobile-surfaces-chip` appears (>1 open surface).
-4. Click the chip; assert the `mobile-surface-sheet` dialog opens with
-   Terminal/Code/Web tabs, Terminal marked `aria-pressed`.
-5. Click the Code tab; assert the sheet closes, the code tile becomes visible
-   (tty hidden), and the URL still reads `?layout=main-left:tty,code,web`.
+   is desktop-only, 260814-011r R5), the banner's `Terminal tile` /
+   `Code tile` / `Web tile` buttons render with Terminal `aria-pressed=true`
+   (READY_TIMEOUT — the multi-surface layout resolves with the window
+   payload), and no `mobile-surfaces-chip` exists in the DOM.
+4. Click the `Code tile` button; assert the code tile becomes visible (tty
+   hidden), the pressed state flips (Code pressed, Terminal not), and the URL
+   still reads `?layout=main-left:tty,code,web`.
 
 ### stage bottom-edge parity: sidebar card and content column both end 6px above the status bar
 What it proves: in the resting desktop state (fine pointer, compose strip

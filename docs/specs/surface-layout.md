@@ -172,6 +172,7 @@ was retired).*
 | **⇄ Swap** | Swap with neighbor (directional chords: swap-left/right/up/down); order permutes |
 | **▦ Cycle shape** | Next preset, same order — one chip on the layout (top-bar right cluster), not per-tile; its popover shows the preset glyphs for direct jump |
 | **✕ Close** | Surface leaves; layout collapses to the smaller shape |
+| **Switch-to-tile** (mobile-primary) | No arrangement change — swaps WHICH surface the mobile single slot renders: transient (no URL/localStorage write, L3 untouched) when the target is already open in the resolved layout; `single:<surface>` through the shared mutation path (persisted + mirrored) when it is available but not open. Lives in the top-bar switch group (§ Mobile) and the `Tile: Switch to <Surface>` palette entries that supersede `View:` at mobile width |
 
 **Rail semantics change**: rail buttons become **open-tile toggles** — lit for
 every open tile; clicking an unlit icon adds that surface to the next slot,
@@ -207,10 +208,24 @@ moves into the layout.
 ## Mobile (P5 carried forward)
 
 Below `isMobileViewport()` the layout manager does not render multi-tile:
-mobile keeps a single tile plus the sheet pattern (surfaces as sheet tabs).
-Terminal and panel never share width on a phone. A phone arriving at a
-3-tile `?layout=` URL shows slot A and offers the rest as tabs. Desktop-only
-in v1 mirrors right-panel's call.
+mobile keeps a single tile (slot A) plus the top-bar **switch group** — the
+`surface-toggles` cluster entry forked to switch mode: one button per
+available surface (the rail-hidden set still filters at render — chat gets no
+button), rendered only when ≥2 surfaces are available, with radio semantics
+(the visible tile pressed; tapping the pressed button is a no-op). The group
+is pinned in-bar at mobile — it never drops into the overflow chevron (other
+chips yield first) and registers no overflow-menu rows — and carries the same
+availability dots as the desktop toggles. Terminal and panel never share width
+on a phone. A phone arriving at a 3-tile `?layout=` URL shows slot A and
+offers the rest via the switch group.
+
+The buttons run the **switch-to-tile** verb (§ Verbs): an already-open target
+swaps the visible tile transiently; an available-but-not-open target applies
+`single:<surface>` through the shared mutation path. The transient auto-open
+carve-out (§ L3) NEVER auto-swaps the visible tile on mobile: an auto-opened
+web surface reads as an unpressed button with its availability dot, reachable
+by tap. The palette mirrors the group with `Tile: Switch to <Surface>` entries
+(Constitution V), which supersede the `View:` lens entries at mobile width.
 
 ---
 

@@ -162,15 +162,18 @@ pending bubble (the retractable-state contract — always applied, incl. null).
 
 **What it proves:** at 375px with a realistically long window name, the retired
 switcher (`260812-0c6o`) leaves no chrome anywhere — the center heading keeps
-its room because there is never an inline pill — the palette is the switch
-surface (`View: Terminal` is offered as the way back), and the top-bar
-single-row budget still holds (no wrap, no horizontal page overflow).
+its room because there is never an inline pill — and chat's rail-hidden status
+means the top-bar switch group renders no chat button (here only tty survives
+the hidden filter, so the ≥2 gate renders no group at all); the palette's
+`Tile: Switch to Terminal` entry is the way back (the `View:` lens entries are
+superseded on mobile), and the top-bar single-row budget still holds (no wrap,
+no horizontal page overflow).
 
 **Steps:**
 1. Mock the backend with a long `@1` window name (`riff-gallant-jackal-worktree-mobile`); set the viewport to 375×812; navigate to `/default/1?view=chat`.
 2. Assert the `chat-view` is visible (the lens resolved / window loaded).
 3. Assert the in-bar switcher group ("Window view") has count 0 AND the `view-toggle` testid has count 0.
-4. Open the palette with `View: Terminal`; assert the option is visible; Escape-close.
+4. Open the palette with `View: Terminal`; assert NO `View: Terminal` option (mobile supersession); refill with `Switch`; assert the `Tile: Switch to Terminal` option is visible; Escape-close.
 5. Assert `document.body.scrollWidth <= 375`.
 6. Assert the header's bounding-box height is < 56px (a wrap would ~double it).
 

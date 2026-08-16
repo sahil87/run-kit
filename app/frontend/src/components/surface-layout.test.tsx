@@ -1047,8 +1047,8 @@ describe("SurfaceLayout mobile (R13 seam)", () => {
     });
     const ttyTile = screen.getByTestId("surface-tile-tty");
     expect(ttyTile.classList.contains("hidden")).toBe(false);
-    // The remaining resolved surfaces stay mounted-hidden (T014 turns them
-    // into sheet tabs).
+    // The remaining resolved surfaces stay mounted-hidden (reachable via the
+    // top-bar switch group).
     expect(screen.getByTestId("surface-tile-code").classList.contains("hidden")).toBe(true);
     expect(screen.getByTestId("surface-tile-web").classList.contains("hidden")).toBe(true);
     expect(screen.queryByTestId("surface-divider-0")).toBeNull();

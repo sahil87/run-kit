@@ -6,9 +6,11 @@ import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
 // Own session so this file never collides with other specs (fullyParallel off).
 const TEST_SESSION = `e2e-webview-${Date.now()}`;
 const MOBILE_VIEWPORT = { width: 375, height: 812 };
-// The ViewSwitcher is RETIRED (260812-0c6o): the palette's `View: …` actions
-// are the ONLY lens-switch surface (plus the rail's open-tile toggles for
-// non-hidden surfaces) — the chevron menu carries no `View:` rows and the
+// The ViewSwitcher is RETIRED (260812-0c6o): on desktop the palette's
+// `View: …` actions are the ONLY lens-switch surface (plus the top-bar
+// open-tile toggles for non-hidden surfaces); on MOBILE the `View:` entries
+// are superseded by the top-bar switch group and its `Tile: Switch to
+// <Surface>` palette twin — the chevron menu carries no `View:` rows and the
 // `view-toggle` testid exists nowhere. Lens switching in this suite therefore
 // routes through the palette (or `?view=` deep links where the lens itself is
 // under test). The generous 1440px desktop width remains a valid
@@ -284,14 +286,15 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     await expectLayoutParam(page, "single:web");
   });
 
-  test("375px mobile: the palette is the lens switcher; no switcher chrome at any width", async ({
+  test("375px mobile: the switch group + `Tile: Switch` palette entries are the lens switchers; no switcher chrome at any width", async ({
     page,
   }) => {
-    // 260812-0c6o: the ViewSwitcher is retired — at 375px with a realistically
-    // long window name the heading keeps its room, lens switching routes through
-    // the command palette at every width, and the pill never renders anywhere.
-    // The lens itself still resolves + renders on mobile without horizontal
-    // overflow.
+    // At 375px with a realistically long window name the heading keeps its
+    // room WITH the switch group present (the retained single-line /
+    // no-overflow contract), `View:` palette entries are superseded by
+    // `Tile: Switch to <Surface>` on mobile only, and the pill never renders
+    // anywhere. The lens itself still resolves + renders on mobile without
+    // horizontal overflow.
     await page.setViewportSize(MOBILE_VIEWPORT);
     const id = await makeWindow(page, `wv-mobile-long-worktree-name-${Date.now()}`, {
       url: IFRAME_URL,
@@ -307,19 +310,56 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     // No in-bar pill, no probe copy — the testid exists nowhere.
     await expect(inBarSwitcher(page)).toHaveCount(0);
     await expect(page.getByTestId("view-toggle")).toHaveCount(0);
-    // The palette is the switch surface: switch back to tty at phone width.
-    await switchLens(page, "Terminal");
+
+    // The top-bar switch group renders with the VISIBLE surface (web)
+    // pressed; its palette twin lists `Tile: Switch to Terminal` and the
+    // mobile palette carries NO `View:` LENS entries (superseded — other
+    // `View:` entries like Fixed Width remain).
+    const banner = page.getByRole("banner");
+    const ttyToggle = banner.getByRole("button", { name: "Terminal tile", exact: true });
+    const webToggle = banner.getByRole("button", { name: "Web tile", exact: true });
+    await expect(webToggle).toHaveAttribute("aria-pressed", "true", {
+      timeout: READY_TIMEOUT,
+    });
+    await expect(ttyToggle).toHaveAttribute("aria-pressed", "false");
+    const paletteInput = await openPalette(page, "View: Web");
+    await expect(page.getByRole("option", { name: "View: Web", exact: true })).toHaveCount(0);
+    await paletteInput.fill("Switch");
+    const switchToTty = page.getByRole("option", { name: "Tile: Switch to Terminal" });
+    await expect(switchToTty).toBeVisible({ timeout: 10_000 });
+    // Switch back to tty via the palette twin — tty is NOT open in
+    // `single:web`, so the verb runs the persisting arm.
+    await switchToTty.click();
+    await expect(page.getByRole("dialog", { name: "Command palette" })).toBeHidden();
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
     await expectLayoutParam(page, null); // default layout mirrors as a CLEAN URL (param dropped)
 
-    // No horizontal page overflow at 375px.
+    // The one-tap phone flow: from `single:tty` the top-bar Web button
+    // switches to the available-but-not-open web surface through the
+    // PERSISTING arm — `single:web` lands in the URL mirror.
+    await webToggle.click();
+    await expect(iframe(page)).toBeVisible({ timeout: 10_000 });
+    await expectLayoutParam(page, "single:web");
+
+    // No horizontal page overflow at 375px (with the group present and the
+    // long window name).
     const bodyWidth = await page.evaluate(() => document.body.scrollWidth);
     expect(bodyWidth).toBeLessThanOrEqual(MOBILE_VIEWPORT.width);
 
-    // Still no switcher chrome at desktop width either.
+    // Still no switcher chrome at desktop width either — and the desktop
+    // palette keeps its `View:` entries with NO `Tile: Switch` ones.
     await page.setViewportSize(DESKTOP_VIEWPORT);
     await expect(page.getByText("Window:", { exact: true })).toBeVisible({ timeout: 10_000 });
     await expect(inBarSwitcher(page)).toHaveCount(0);
     await expect(page.getByTestId("view-toggle")).toHaveCount(0);
+    const desktopPaletteInput = await openPalette(page, "View: Terminal");
+    await expect(
+      page.getByRole("option", { name: "View: Terminal" }),
+    ).toBeVisible({ timeout: 10_000 });
+    await desktopPaletteInput.fill("Switch");
+    await expect(
+      page.getByRole("option", { name: /^Tile: Switch to / }),
+    ).toHaveCount(0);
+    await page.keyboard.press("Escape");
   });
 });

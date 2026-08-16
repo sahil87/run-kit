@@ -100,7 +100,7 @@ describe("availableTiles", () => {
 
   it("still lists chat for a chat-capable window — the rail demotion (SURFACE_RAIL_HIDDEN) filters at RENDER, not at availability", () => {
     // 260812-0c6o: chat is palette-only. `availableTiles` deliberately keeps
-    // chat so the palette's `Layout: Add Chat` / `Layout: Close Chat` entries
+    // chat so the palette's `Tile: Show Chat` / `Tile: Hide Chat` entries
     // keep working as chat's entry points.
     expect(availableTiles(fullWin)).toContain("chat");
     expect(SURFACE_RAIL_HIDDEN.has("chat")).toBe(true);

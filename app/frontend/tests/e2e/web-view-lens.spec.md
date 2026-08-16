@@ -10,9 +10,12 @@ the permanent translation shim (`single:X`), the palette's `View: …` actions
 set `single:<view>` through the shared mutation path (R12), and the URL mirror
 rewrites everything to `?layout=` — so URL assertions key off the decoded
 `layout` param, never `view`. Since `260812-0c6o` the ViewSwitcher is RETIRED:
-the command palette is the ONLY lens-switch surface (plus the rail's open-tile
-toggles) — the chevron menu carries no `View:` rows and the `view-toggle`
-testid exists nowhere.
+the command palette is the ONLY lens-switch surface (plus the top-bar
+surface-toggles group) — the chevron menu carries no `View:` rows and the
+`view-toggle` testid exists nowhere. On MOBILE the `View:` palette entries are
+superseded by `Tile: Switch to <Surface>` (the top-bar switch group's twin —
+the group renders pinned in-bar with radio semantics at ≥2 shown surfaces);
+desktop keeps `View:` and sees no `Tile: Switch` entries.
 
 ## Shared setup
 
@@ -133,12 +136,15 @@ Steps:
    URL mirrors `?layout=single:web` — the persisted last-layout resolved
    (localStorage rung).
 
-### 375px mobile: the palette is the lens switcher; no switcher chrome at any width
-What it proves: since `260812-0c6o` the ViewSwitcher is retired — at 375px with
-a realistically long window name the center heading keeps its room, lens
-switching routes through the command palette at every width, and no switcher
-chrome (`view-toggle` testid, "Window view" group) exists anywhere. The lens
-itself still resolves and renders on mobile without horizontal overflow.
+### 375px mobile: the switch group + `Tile: Switch` palette entries are the lens switchers; no switcher chrome at any width
+What it proves: at 375px with a realistically long window name the center
+heading keeps its room WITH the pinned switch group present (the retained
+single-line / no-horizontal-overflow contract), the mobile palette supersedes
+the `View:` lens entries with `Tile: Switch to <Surface>`, the top-bar Web
+button performs the one-tap tty→web switch through the PERSISTING arm
+(`single:web` mirrored into the URL), and no switcher chrome (`view-toggle`
+testid, "Window view" group) exists anywhere. The lens itself still resolves
+and renders on mobile.
 Steps:
 1. Set the 375×812 viewport; create a window with `@rk_url` and a long
    worktree-style name.
@@ -150,8 +156,16 @@ Steps:
    reason). Assert the iframe renders.
 3. Assert no in-bar switcher group ("Window view") AND no `view-toggle` testid
    anywhere in the DOM.
-4. `switchLens("Terminal")` via the palette at phone width; assert the terminal
-   renders and the URL mirrors a clean URL (the default drops the param).
-5. Assert no horizontal page overflow (`body.scrollWidth <= 375`).
-6. Resize to the desktop viewport (1440×800); assert there is STILL no in-bar
-   pill and no `view-toggle` testid.
+4. Assert the banner's `Web tile` button reads `aria-pressed=true` and
+   `Terminal tile` reads `false` (radio semantics — the visible tile pressed).
+5. Open the palette with `View: Web`; assert NO `View: Web` option (mobile
+   supersession). Refill with `Switch`; click `Tile: Switch to Terminal`;
+   assert the terminal renders and the URL mirrors a clean URL (the default
+   drops the param — the persisting arm, tty not previously open).
+6. Click the banner's `Web tile` button; assert the iframe renders and the URL
+   mirrors `?layout=single:web` — the one-tap tty→web phone flow persists.
+7. Assert no horizontal page overflow (`body.scrollWidth <= 375`).
+8. Resize to the desktop viewport (1440×800); assert there is STILL no in-bar
+   pill and no `view-toggle` testid; open the palette with `View: Terminal`,
+   assert the option renders; refill with `Switch` and assert NO
+   `Tile: Switch to …` options (desktop keeps `View:`).

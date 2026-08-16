@@ -27,6 +27,7 @@ import {
   swapWithNext,
   translateLegacyParams,
   writeStoredLayout,
+  SURFACE_RAIL_HIDDEN,
   type Layout,
   type SurfaceKind,
 } from "@/lib/surface-layout";
@@ -49,7 +50,7 @@ import { FocusedPaneProvider } from "@/contexts/focused-pane-context";
 import { computeKillRedirect } from "@/lib/navigation";
 import { deriveEffectiveSessionOrder, computeMoveOrder, computeWindowMoveTarget } from "@/lib/palette-move";
 import { buildViewActions } from "@/lib/palette-view";
-import { buildLayoutActions } from "@/lib/palette-layout";
+import { buildLayoutActions, buildTileSwitchActions } from "@/lib/palette-layout";
 import { buildStatusRefreshAction } from "@/lib/palette-status-refresh";
 import { buildPinActions } from "@/lib/palette-pin";
 import {
@@ -844,7 +845,8 @@ function AppShell() {
   // window, the LIVE derivation latches — and derivation never moves the editor
   // again (not on a pane switch, not on tile close/reopen, not on reload). Keyed
   // on the resolved layout's order, the choke point every entry path (view
-  // switcher, surface toggle, `?view=code`/`?layout=` deep link, mobile sheet)
+  // switcher, surface toggle, `?view=code`/`?layout=` deep link, mobile
+  // switch group)
   // resolves through — never on availability alone: a code lens that is merely
   // OFFERED seeds nothing. An empty derivation seeds nothing either, so a window
   // that was never inside a repo behaves exactly as it did before the latch.
@@ -973,13 +975,13 @@ function AppShell() {
   const layoutZoomToggleRef = useRef<(() => void) | null>(null);
   const [layoutZoomed, setLayoutZoomed] = useState(false);
 
-  // Mobile slot-A tab state (T014/R13): below `isMobileViewport()` the center
-  // renders ONE tile; the bottom-bar ▦ chip's sheet tabs swap WHICH surface
-  // that is. This is TRANSIENT local state — the shared layout is never
+  // Mobile slot-A state (T014/R13): below `isMobileViewport()` the center
+  // renders ONE tile; the top-bar switch group swaps WHICH surface that is.
+  // This is TRANSIENT local state — the shared layout is never
   // mutated (it stays desktop's arrangement; no URL/localStorage write, the
   // same discipline as zoom). Resets on a window switch; a surface that left
   // the layout falls back to slot A. Reads the RENDERED layout (260815-wkcw)
-  // so a transiently auto-opened web surface is reachable as a sheet tab —
+  // so a transiently auto-opened web surface is reachable as a switch target —
   // the fallback stays slot A (the visible tile is never auto-swapped, R4).
   const [mobileSlotA, setMobileSlotA] = useState<SurfaceName | null>(null);
   useEffect(() => setMobileSlotA(null), [server, windowParam]);
@@ -988,13 +990,31 @@ function AppShell() {
       ? mobileSlotA
       : renderLayout.order[0];
 
+  // Switch-to-tile (mobile-primary): an ALREADY-OPEN surface swaps the visible
+  // tile transiently (no URL/localStorage write — the zoom discipline, so a
+  // shared multi-tile arrangement arriving via `?layout=` survives); an
+  // available-but-not-open surface goes through `switchView` (→
+  // `applyLayout(single:<surface>)`) so the persistence, URL mirror, and
+  // code-folder latch seeding (keys on `layout.order.includes("code")`) all
+  // apply — a transient-only arm would silently break latch seeding.
+  const switchToTile = useCallback(
+    (surface: SurfaceName) => {
+      if (renderLayout.order.includes(surface)) {
+        setMobileSlotA(surface);
+      } else {
+        switchView(surface);
+      }
+    },
+    [renderLayout, switchView],
+  );
+
   // Focused tile (260812-wfic R2/R8): SurfaceLayout owns the focused SLOT as
   // transient state (the zoom precedent — the per-window reset comes free
   // from its `${server}:${windowId}` key) and reports the focused KIND up via
   // `onFocusedKindChange`; the shell mirrors only the kind — it's all the
-  // `ttyOnly` dispatcher gate and the `Layout: Focus <Surface>` palette
+  // `ttyOnly` dispatcher gate and the `Tile: Focus <Surface>` palette
   // entries need. On mobile the single VISIBLE slot counts as focused (the
-  // sheet-tab selection), so the split chords fire only when the shown tile
+  // switch-group selection), so the split chords fire only when the shown tile
   // is tty. `focusTileRef` is the palette's focus-by-kind seam (the
   // `zoomToggleRef` pattern). Until the component reports (first render,
   // window switch), slot A is the fallback — never a hardcoded tty guess, so
@@ -2862,15 +2882,22 @@ function AppShell() {
       // lens now never touches the window's identity. The gating (available AND
       // not-current) + hint composition live in the pure `buildViewActions`
       // (lib/palette-view.ts) so they are unit-testable without mounting the
-      // shell.
-      ...buildViewActions(currentViews, resolvedView, switchView, {
-        cycle: (() => {
-          const b = bindingByAction.get("view-cycle");
-          return b?.enabled ? formatCombo(b, bindingHost.platform) : "";
-        })(),
-      }),
+      // shell. MOBILE supersedes them: a phone doesn't need collapse-to-single
+      // `View:` semantics — the palette instead lists the top-bar switch
+      // group's twin (`Tile: Switch to <Surface>`, Constitution V parity) via
+      // the pure `buildTileSwitchActions` (the switch-to-tile verb).
+      ...(isMobile
+        ? windowParam
+          ? buildTileSwitchActions(panelSurfaces, mobileActiveTile, switchToTile)
+          : []
+        : buildViewActions(currentViews, resolvedView, switchView, {
+            cycle: (() => {
+              const b = bindingByAction.get("view-cycle");
+              return b?.enabled ? formatCombo(b, bindingHost.platform) : "";
+            })(),
+          })),
       // Layout entries (260812-ab5v R11, T012) — Constitution V palette parity
-      // for the surface toggles, tile verbs, and ▦ chip: `Layout: Add/Close
+      // for the surface toggles, tile verbs, and ▦ chip: `Tile: Show/Hide
       // <Surface>` (the top-bar toggle group's actions), `Layout: Zoom`/`Unzoom` (the
       // transient slot-A zoom), `Layout: Promote/Swap <Surface>` (the tile
       // verbs), per-shape jumps for the current arity, and `Layout: Cycle
@@ -2881,9 +2908,9 @@ function AppShell() {
       // pure `buildLayoutActions` (lib/palette-layout.ts), the
       // `buildViewActions` precedent. The entries
       // act on the RENDERED layout (260815-wkcw) — a transiently auto-opened
-      // web tile offers `Layout: Close Web`, and closing it records the
+      // web tile offers `Tile: Hide Web`, and hiding it records the
       // dismissal latch through `applyLayout`. The `code-toggle` chord (⌘J /
-      // ⇧Ctrl+J) is documented via the code surface's Add/Close entry hint
+      // ⇧Ctrl+J) is documented via the code surface's Show/Hide entry hint
       // (the `toggleTarget`/`toggleShortcut` seam; enabled-else-undefined).
       ...(windowParam
         ? buildLayoutActions(renderLayout, panelSurfaces, {
@@ -2891,9 +2918,9 @@ function AppShell() {
             zoomEnabled: !isMobile && renderLayout.order.length > 1,
             onApply: applyLayout,
             onZoomToggle: () => layoutZoomToggleRef.current?.(),
-            // `Layout: Focus <Surface>` (260812-wfic R10) — keyboard parity
+            // `Tile: Focus <Surface>` (260812-wfic R10) — keyboard parity
             // for click-to-focus; desktop only (mobile's switcher is the
-            // sheet tabs), routed through SurfaceLayout's focus seam.
+            // top-bar switch group), routed through SurfaceLayout's focus seam.
             focusedKind: focusedTileKind,
             onFocus: !isMobile
               ? (kind: SurfaceKind) => layoutFocusTileRef.current?.(kind)
@@ -2911,7 +2938,7 @@ function AppShell() {
         onSelect: toggleFixedWidth,
       },
     ],
-    [sessionName, fixedWidth, toggleFixedWidth, toggleComposeStrip, currentViews, resolvedView, switchView, bindingByAction, bindingHost, windowParam, isMobile, renderLayout, panelSurfaces, applyLayout, layoutZoomed, focusedTileKind],
+    [sessionName, fixedWidth, toggleFixedWidth, toggleComposeStrip, currentViews, resolvedView, switchView, bindingByAction, bindingHost, windowParam, isMobile, renderLayout, panelSurfaces, applyLayout, layoutZoomed, focusedTileKind, mobileActiveTile, switchToTile],
   );
 
   // Navigation actions (`Go: Back` / `Go: Forward` / ancestor entries,
@@ -3431,7 +3458,7 @@ function AppShell() {
           ? () => togglePanel("code")
           : undefined,
       // ⌃`/⇧Ctrl+` focus hop (VS Code's ⌃` gesture): tty↔code through the
-      // `Layout: Focus <Surface>` focus-by-kind seam. Hopping TO tty records
+      // `Tile: Focus <Surface>` focus-by-kind seam. Hopping TO tty records
       // `tty` via that seam's `recordTtySlot`; hopping to code writes NO
       // focus memory (the recording asymmetry — only in-frame `onInteract`
       // records `code`). A closed-but-available code tile opens first
@@ -3604,14 +3631,31 @@ function AppShell() {
       onCreateWindow: handleCreateWindow,
       onSpawnAgent: handleSlotSpawnAgent,
       // Top-bar surface-toggle group: the tile surfaces the current window
-      // offers, the open tiles, and the shared toggle mutation. Registered on
-      // every desktop terminal route; absent on board/host/mobile → no group.
-      // Reads the RENDERED layout (260815-wkcw) so a transiently auto-opened
-      // web tile reads lit and its toggle closes it.
+      // offers (`tty` first) plus the mode discriminant — desktop registers
+      // TOGGLE mode (the open tiles + the shared toggle mutation); mobile
+      // registers SWITCH mode (the visible tile + the switch-to-tile verb),
+      // gated on ≥2 surfaces surviving the SURFACE_RAIL_HIDDEN render filter
+      // (with fewer there is nothing to switch to — no group). Absent on
+      // board/host routes → no group. Desktop reads the RENDERED layout
+      // (260815-wkcw) so a transiently auto-opened web tile reads lit and its
+      // toggle closes it.
       surfaceToggles:
         windowParam && !isMobile
-          ? { available: panelSurfaces, open: renderLayout.order, onToggle: togglePanel }
-          : undefined,
+          ? {
+              mode: "toggle" as const,
+              available: panelSurfaces,
+              open: renderLayout.order,
+              onToggle: togglePanel,
+            }
+          : windowParam &&
+              panelSurfaces.filter((s) => !SURFACE_RAIL_HIDDEN.has(s)).length >= 2
+            ? {
+                mode: "switch" as const,
+                available: panelSurfaces,
+                active: mobileActiveTile,
+                onSwitch: switchToTile,
+              }
+            : undefined,
       // ▦ Layout chip machinery (260812-ab5v R9): the on-screen layout + the
       // single mutation path. The top bar's chip/rows jump presets through
       // `applyLayout` like every other mutation — from the RENDERED layout
@@ -3636,6 +3680,8 @@ function AppShell() {
       isMobile,
       panelSurfaces,
       togglePanel,
+      mobileActiveTile,
+      switchToTile,
       renderLayout,
       applyLayout,
     ],
@@ -3710,21 +3756,6 @@ function AppShell() {
           <BottomBar
             onOpenCompose={toggleComposeStrip}
             onFocusTerminal={() => focusTerminalRef.current?.()}
-            // Mobile surface tabs (T014/R13): only on the mobile terminal
-            // route with a multi-tile layout — the ▦ chip's sheet swaps the
-            // mobile slot-A surface via transient state (never a layout
-            // mutation). Tabs are deduped (a duplicate-tty layout gets one
-            // Terminal tab). Reads the RENDERED layout (260815-wkcw) so a
-            // transiently auto-opened web surface appears as a tab.
-            surfaceSheet={
-              isMobile && windowParam && renderLayout.order.length > 1
-                ? {
-                    surfaces: [...new Set(renderLayout.order)],
-                    active: mobileActiveTile,
-                    onSelect: (surface) => setMobileSlotA(surface),
-                  }
-                : undefined
-            }
           />
         </>
       }
@@ -3857,7 +3888,7 @@ function AppShell() {
               // here, so none of them can follow the terminal.
               window={effectiveWindow}
               isMobile={isMobile}
-              // T014: on mobile the sheet tabs pick which slot renders
+              // On mobile the top-bar switch group picks which slot renders
               // (transient — the layout itself is untouched).
               mobileActiveSlot={renderLayout.order.indexOf(mobileActiveTile)}
               wsRef={wsRef}
@@ -3911,7 +3942,7 @@ function AppShell() {
               onZoomChange={setLayoutZoomed}
               // Focused tile (260812-wfic R2/R10): the component owns the
               // focused SLOT and reports the focused KIND for the ttyOnly
-              // chord gate; the palette's `Layout: Focus <Surface>` entries
+              // chord gate; the palette's `Tile: Focus <Surface>` entries
               // drive focus through the ref seam.
               onFocusedKindChange={setReportedFocusedKind}
               focusTileRef={layoutFocusTileRef}

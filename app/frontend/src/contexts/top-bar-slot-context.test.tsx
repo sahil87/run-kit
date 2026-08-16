@@ -116,7 +116,7 @@ describe("TopBarSlotContext", () => {
           onNavigate: () => {},
           onToggleSidebar: () => {},
           onCreateWindow: () => {},
-          surfaceToggles: { available: ["tty", "web"], open: ["tty"], onToggle },
+          surfaceToggles: { mode: "toggle", available: ["tty", "web"], open: ["tty"], onToggle },
         }),
         [],
       );
@@ -127,7 +127,7 @@ describe("TopBarSlotContext", () => {
       const slot = useTopBarSlot();
       return (
         <span data-testid="toggles-slot">
-          {slot?.surfaceToggles
+          {slot?.surfaceToggles?.mode === "toggle"
             ? `${slot.surfaceToggles.available.join(",")}|${slot.surfaceToggles.open.join(",")}|${typeof slot.surfaceToggles.onToggle}`
             : "null"}
         </span>

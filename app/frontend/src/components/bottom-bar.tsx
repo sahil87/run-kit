@@ -13,22 +13,10 @@ import {
 import { formatCombo } from "@/lib/keybindings";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
-import { MobileSurfaceSheet } from "@/components/mobile-surface-sheet";
-import type { SurfaceKind } from "@/lib/surface-layout";
 
 type BottomBarProps = {
   onOpenCompose?: () => void;
   onFocusTerminal?: () => void;
-  /** Mobile surface tabs (260812-ab5v T014/R13): present only on the mobile
-   *  terminal route with a MULTI-tile resolved layout. A ▦ chip opens the
-   *  full-height sheet (`mobile-surface-sheet`) listing the open surfaces as
-   *  tabs; selecting one swaps the mobile slot-A surface via transient
-   *  app-level state — NEVER a layout mutation. */
-  surfaceSheet?: {
-    surfaces: SurfaceKind[];
-    active: SurfaceKind;
-    onSelect: (surface: SurfaceKind) => void;
-  };
 };
 
 /** xterm modifier parameter: 1 + (alt?2:0) + (ctrl?4:0) */
@@ -91,7 +79,7 @@ const MODIFIER_TIP_LABELS: Record<string, string> = {
 /** Prevent mousedown from stealing focus away from the terminal. */
 const preventFocusSteal = (e: React.MouseEvent) => e.preventDefault();
 
-export function BottomBar({ onOpenCompose, onFocusTerminal, surfaceSheet }: BottomBarProps) {
+export function BottomBar({ onOpenCompose, onFocusTerminal }: BottomBarProps) {
   const { focused } = useFocusedTerminal();
   // Scroll-lock is a persisted chrome preference (ChromeContext,
   // `runkit-scroll-lock`) so it survives remounts, route changes, and mobile
@@ -102,9 +90,6 @@ export function BottomBar({ onOpenCompose, onFocusTerminal, surfaceSheet }: Bott
   const wsRef = focused?.wsRef;
   const mods = useModifierState();
   const [fnOpen, setFnOpen] = useState(false);
-  // Mobile surface sheet (T014) — open state only; surfaces/selection are
-  // app-owned transient state.
-  const [sheetOpen, setSheetOpen] = useState(false);
   const fnRef = useRef<HTMLDivElement>(null);
   // HOST-effective chords for the chip tips' kbd slots (the settings-gear
   // chord pattern, 260801-mqim): reflect overrides, omitted when
@@ -506,35 +491,6 @@ export function BottomBar({ onOpenCompose, onFocusTerminal, surfaceSheet }: Bott
           to the status bar's `a` compose segment. */}
 
       <div className="ml-auto flex items-center gap-1.5 coarse:gap-1">
-        {/* ▦ Surfaces chip (260812-ab5v T014/R13) — mobile multi-tile only:
-            opens the full-height sheet of surface tabs that swap which
-            surface renders in slot A (transient, mobile-only). The Tip
-            self-suppresses on the coarse pointers this chip targets. */}
-        {surfaceSheet && surfaceSheet.surfaces.length > 1 && (
-          <>
-            <Tip label="Surfaces" placement="top">
-              <button
-                type="button"
-                aria-label="Surfaces"
-                aria-haspopup="dialog"
-                aria-expanded={sheetOpen}
-                data-testid="mobile-surfaces-chip"
-                className={`${KBD_CLASS} text-text-secondary`}
-                onClick={() => setSheetOpen((v) => !v)}
-              >
-                <kbd aria-hidden="true">▦</kbd>
-              </button>
-            </Tip>
-            {sheetOpen && (
-              <MobileSurfaceSheet
-                surfaces={surfaceSheet.surfaces}
-                active={surfaceSheet.active}
-                onSelect={surfaceSheet.onSelect}
-                onClose={() => setSheetOpen(false)}
-              />
-            )}
-          </>
-        )}
         {/* Keyboard toggle — visible only on touch devices; long-press for scroll-lock */}
         <button
           type="button"

@@ -11,7 +11,8 @@ import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
 // unification; the ONLY 3-tile test in the file — the plaintext origin's h1
 // connection pool is 6 slots, so every other flow stays at ≤2 tiles, per the
 // spec's Performance note), refresh/window-switch/history semantics (L2–L4), divider
-// ratio persistence (R5), the mobile slot-A + sheet-tabs branch (R13), and —
+// ratio persistence (R5), the mobile slot-A + top-bar switch-group branch
+// (R13), and —
 // from 260812-wfic — the focused-tile accent border (R2) and the tty-scoped
 // split-chord gate (R8). 260813-w1lf adds the tty pane segment (Split H ·
 // Split V · Close Pane — any arity, zoom-visible, tty-only) and the terminal
@@ -518,7 +519,7 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
   test.describe("mobile (375px, coarse pointer)", () => {
     test.use({ hasTouch: true });
 
-    test("375px mobile: a 3-tile ?layout= URL renders slot A + sheet tabs for the rest (R13, A-018)", async ({
+    test("375px mobile: a 3-tile ?layout= URL renders slot A + the top-bar switch group for the rest (R13, A-018)", async ({
       page,
     }) => {
       test.setTimeout(30_000);
@@ -538,33 +539,27 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
       await expect(divider(page, 0)).toHaveCount(0);
       // Gap-seam chrome is desktop-only (260814-011r R5): no intersection zone.
       await expect(page.getByTestId("surface-divider-intersection")).toHaveCount(0);
-      // No surface toggles on mobile (the top-bar group is desktop-only), but
-      // the ▦ Surfaces chip appears because MORE THAN ONE surface is open.
-      await expect(
-        page.getByRole("banner").getByRole("button", { name: "Terminal tile" }),
-      ).toHaveCount(0);
-      const chip = page.getByTestId("mobile-surfaces-chip");
+      // The top-bar switch group renders with RADIO semantics: one button per
+      // shown surface, the VISIBLE one (slot A) pressed. The retired ▦
+      // Surfaces chip is gone.
+      const banner = page.getByRole("banner");
+      const ttyToggle = banner.getByRole("button", { name: "Terminal tile", exact: true });
+      const codeToggle = banner.getByRole("button", { name: "Code tile", exact: true });
+      const webToggle = banner.getByRole("button", { name: "Web tile", exact: true });
       // READY_TIMEOUT: on a cold deep link the multi-surface layout (and so the
-      // chip) resolves only once the window payload lands with rkUrl/gitRoot.
-      await expect(chip).toBeVisible({ timeout: READY_TIMEOUT });
+      // group) resolves only once the window payload lands with rkUrl/gitRoot.
+      await expect(webToggle).toBeVisible({ timeout: READY_TIMEOUT });
+      await expect(ttyToggle).toHaveAttribute("aria-pressed", "true");
+      await expect(codeToggle).toHaveAttribute("aria-pressed", "false");
+      await expect(page.getByTestId("mobile-surfaces-chip")).toHaveCount(0);
 
-      // The sheet exposes every open surface as a tab, slot A marked pressed.
-      await chip.click();
-      const sheet = page.getByTestId("mobile-surface-sheet");
-      await expect(sheet).toBeVisible();
-      await expect(page.getByTestId("mobile-surface-tab-tty")).toHaveAttribute(
-        "aria-pressed",
-        "true",
-      );
-      await expect(page.getByTestId("mobile-surface-tab-code")).toBeVisible();
-      await expect(page.getByTestId("mobile-surface-tab-web")).toBeVisible();
-
-      // Selecting the Code tab swaps the mobile slot-A surface — TRANSIENT: the
-      // URL (and the desktop arrangement it encodes) is untouched.
-      await page.getByTestId("mobile-surface-tab-code").click();
-      await expect(sheet).toBeHidden();
+      // Tapping the Code button swaps the mobile slot-A surface — TRANSIENT:
+      // the URL (and the desktop arrangement it encodes) is untouched.
+      await codeToggle.click();
       await expect(tile(page, "code")).toBeVisible({ timeout: 10_000 });
       await expect(tile(page, "tty")).toBeHidden();
+      await expect(codeToggle).toHaveAttribute("aria-pressed", "true");
+      await expect(ttyToggle).toHaveAttribute("aria-pressed", "false");
       await expectLayoutParam(page, "main-left:tty,code,web");
     });
   });

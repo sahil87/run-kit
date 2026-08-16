@@ -9,13 +9,18 @@ import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
 // DELETED the rail (`right-panel.tsx` + the `right-panel-rail` testid): its
 // availability-gated open-tile toggles relocated into the top bar's right
 // cluster as ONE bordered sub-group (SurfaceToggleGroup in top-bar.tsx,
-// `data-testid="surface-toggles"`), desktop terminal route only, leftmost in
-// the cluster and the FIRST overflow fit candidate. The button grammar is the
+// `data-testid="surface-toggles"`), terminal route only, on desktop leftmost in
+// the cluster and the FIRST overflow fit candidate. On MOBILE the same entry
+// forks to SWITCH mode: radio semantics (pressed = the visible tile, tap runs
+// the switch-to-tile verb), pinned in-bar (never overflows, no Tiles menu
+// rows), gated on ≥2 shown surfaces; the bottom-bar ▦ Surfaces chip and
+// mobile-surface-sheet it replaces are DELETED. The button grammar is the
 // rail's, unchanged: one Tip-wrapped button per available surface not in
 // SURFACE_RAIL_HIDDEN (chat never gets a toggle), tty first, "<Label> tile"
-// aria names, SURFACE_GLYPH glyphs (`>_`/`://`/`{}`), aria-pressed = tile open,
-// a corner availability dot on every button, disabled-at-3 with the "Close a
-// tile first" tip. The rail-collapse chrome (the "Toggle panel" top-bar chip,
+// aria names, SURFACE_GLYPH glyphs (`>_`/`://`/`{}`), aria-pressed = tile open
+// (toggle mode) / tile visible (switch mode), a corner availability dot on
+// every button, disabled-at-3 with the "Close a tile first" tip (toggle mode
+// only). The rail-collapse chrome (the "Toggle panel" top-bar chip,
 // the `runkit-rail-open` preference, the `Panel: Toggle rail` palette action)
 // is GONE — its tests are deleted with it, not migrated. See
 // right-panel.spec.md for intent + steps.
@@ -30,10 +35,10 @@ import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
 // Own session so this file never collides with other specs (fullyParallel off).
 const TEST_SESSION = `e2e-rightpanel-${Date.now()}`;
 const MOBILE_VIEWPORT = { width: 375, height: 812 };
-// The toggle group is DESKTOP-ONLY (app.tsx gates surfaceToggles on
-// `windowParam && !isMobile`) — the suite runs at a wide desktop width (the
-// group is the first overflow fit candidate, so a wide viewport keeps it
-// in-bar); the mobile test overrides to 375px.
+// The toggle group's TOGGLE mode is desktop-only; mobile registers the SWITCH
+// mode (radio semantics, pinned in-bar, ≥2 shown surfaces). The suite runs at
+// a wide desktop width (the group is the first overflow fit candidate there,
+// so a wide viewport keeps it in-bar); the mobile test overrides to 375px.
 const DESKTOP_VIEWPORT = { width: 1440, height: 800 };
 
 // A URL that the proxy converts to a same-origin `/proxy/<port>/…` path — the
@@ -409,12 +414,12 @@ test.describe("Top-bar surface toggles — open-tile toggles over the surface la
   test.describe("mobile (375px, coarse pointer)", () => {
     // hasTouch flips Chromium's `(pointer: coarse)` media query — a real phone
     // is coarse AND narrow (the bottom-bar-chip-size seam). 260814-ldbs made
-    // the bottom bar pointer-gated, and the ▦ Surfaces chip lives in that
-    // bar, so a viewport-only "mobile" emulation (fine pointer, narrow width)
-    // would get NO chip bar by design — the iPad/phone seam is pointer-decided.
+    // the bottom bar pointer-gated, so a viewport-only "mobile" emulation
+    // (fine pointer, narrow width) exercises a different bar — the iPad/phone
+    // seam is pointer-decided.
     test.use({ hasTouch: true });
 
-    test("375px mobile: no top-bar toggle group; a 2-tile deep link renders slot A with the surfaces chip", async ({ page }) => {
+    test("375px mobile: the top-bar switch group renders with radio semantics and switches the open web tile transiently", async ({ page }) => {
       test.setTimeout(30_000);
       await page.setViewportSize(MOBILE_VIEWPORT);
       const id = await makeWindow(page, `rp-mobile-${Date.now()}`, { url: IFRAME_URL });
@@ -423,18 +428,30 @@ test.describe("Top-bar surface toggles — open-tile toggles over the surface la
       // mounted until the drawer opens. Gate on the terminal instead.
       await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(id)}?layout=split-h:tty,web`);
       await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
-      // The group is desktop-terminal-only (app.tsx gates surfaceToggles on
-      // `windowParam && !isMobile`) — the mobile banner carries no tile
-      // toggles. The center renders ONLY slot A (tty) full-width; the web tile
-      // stays mounted-hidden and reachable via the ▦ Surfaces chip's sheet.
-      await expect(toggleButton(page, "Terminal")).toHaveCount(0);
-      await expect(toggleButton(page, "Web")).toHaveCount(0);
+      // The mobile banner carries the switch group (app.tsx registers switch
+      // mode when ≥2 surfaces survive the hidden filter): one button per
+      // shown surface, the VISIBLE surface pressed (slot A = tty on arrival).
+      // The center renders ONLY slot A (tty) full-width; the web tile stays
+      // mounted-hidden until switched to.
+      const ttyToggle = toggleButton(page, "Terminal");
+      const webToggle = toggleButton(page, "Web");
+      // READY_TIMEOUT: on a cold deep link the second surface (and so the
+      // group) resolves only once the window payload lands with rkUrl.
+      await expect(webToggle).toBeVisible({ timeout: READY_TIMEOUT });
+      await expect(ttyToggle).toHaveAttribute("aria-pressed", "true");
+      await expect(webToggle).toHaveAttribute("aria-pressed", "false");
       await expect(webTile(page)).toBeHidden();
-      // READY_TIMEOUT: on a cold deep link the second surface (and so the chip)
-      // resolves only once the window payload lands with rkUrl.
-      await expect(page.getByTestId("mobile-surfaces-chip")).toBeVisible({
-        timeout: READY_TIMEOUT,
-      });
+      // The ▦ Surfaces chip + sheet are retired — the top-bar group subsumes
+      // them, so no `mobile-surfaces-chip` testid exists anywhere in the DOM.
+      await expect(page.getByTestId("mobile-surfaces-chip")).toHaveCount(0);
+      // Tapping the unpressed Web button switches the visible tile. The web
+      // tile is OPEN in the deep-linked layout, so the swap is TRANSIENT: the
+      // URL (and the desktop arrangement it encodes) stays untouched.
+      await webToggle.click();
+      await expect(webTile(page)).toBeVisible({ timeout: 10_000 });
+      await expect(webToggle).toHaveAttribute("aria-pressed", "true");
+      await expect(ttyToggle).toHaveAttribute("aria-pressed", "false");
+      await expectLayoutParam(page, "split-h:tty,web");
     });
   });
 });

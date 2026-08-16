@@ -89,6 +89,12 @@ type RegistryEntry = {
    *  the measurement probe, not in the fit computation) — its menuRender()
    *  rows ALWAYS render in the overflow menu (subject to `hidden`). */
   menuOnly?: boolean;
+  /** When true the entry NEVER overflows (not in the measurement probe, not in
+   *  the fit computation, not in the overflow menu) — it renders pinned in-bar
+   *  and its measured width is RESERVED from the fit budget, like the trailing
+   *  chevron block. The mobile surface-switch group uses this: it is the
+   *  primary mobile tile-switch affordance, so other chips drop first. */
+  pinned?: boolean;
   /** Chevron-menu section (260731-oiho) — Tiles / View / Window / App. */
   menuGroup: MenuGroup;
   barRender: () => ReactNode;
@@ -133,14 +139,25 @@ type TopBarProps = {
   onNavigate: (windowId: string) => void;
   onToggleSidebar: () => void;
   /** Terminal-mode surface-toggle group: the tile surfaces the current window
-   *  offers (`tty` first), the OPEN tiles, and the shared toggle mutation —
-   *  rendered as a bordered sub-group at the right cluster's L1 head (the
-   *  retired right rail's toggles, relocated). Absent → no group rendered. */
-  surfaceToggles?: {
-    available: SurfaceKind[];
-    open: SurfaceKind[];
-    onToggle: (surface: SurfaceKind) => void;
-  };
+   *  offers (`tty` first) plus a mode discriminant — TOGGLE (desktop: the OPEN
+   *  tiles + the shared toggle mutation — rendered as a bordered sub-group at
+   *  the right cluster's L1 head, the retired right rail's toggles relocated)
+   *  or SWITCH (mobile: the VISIBLE tile + the switch-to-tile verb — radio
+   *  semantics, pinned in-bar, no overflow-menu rows). Absent → no group
+   *  rendered. */
+  surfaceToggles?:
+    | {
+        mode: "toggle";
+        available: SurfaceKind[];
+        open: SurfaceKind[];
+        onToggle: (surface: SurfaceKind) => void;
+      }
+    | {
+        mode: "switch";
+        available: SurfaceKind[];
+        active: SurfaceKind;
+        onSwitch: (surface: SurfaceKind) => void;
+      };
   onCreateWindow: (session: string) => void;
   /** Open the spawn-agent dialog for a session (260713-sbk1). When present, the
    *  terminal-mode window-switcher dropdown shows a `+ New Agent` item beside
@@ -323,21 +340,28 @@ function HistoryNav() {
 }
 
 type SurfaceToggles = NonNullable<TopBarProps["surfaceToggles"]>;
+/** The desktop toggle-mode arm — the menu rows exist only in that mode. */
+type SurfaceTogglesToggle = Extract<SurfaceToggles, { mode: "toggle" }>;
 
 /**
  * Surface-toggle group — the retired right rail's open-tile toggles relocated
  * into the right cluster as ONE bordered sub-group (with a trailing divider),
- * terminal route only. The button grammar is the rail's, unchanged: one
- * Tip-wrapped button per available surface not in `SURFACE_RAIL_HIDDEN` (chat
- * renders no toggle), `tty` first, glyphs from `SURFACE_GLYPH`; LIT
- * (`aria-pressed`, accent-green border/text on a 10% wash) = an open tile;
- * every button carries the corner availability
- * dot; at 3 open tiles the unlit buttons render DISABLED with a "Close a tile
- * first" tooltip (Tip wraps a span so the disabled button still tips — disabled
- * controls swallow pointer events). Clicking routes through the caller's shared
- * `togglePanel` mutation semantics (unlit → `addSurface` 1→2 `split-h` /
- * 2→3 `main-left`, lit → `closeSurface`, closing the last tile is a null
- * no-op there).
+ * terminal route only. Two modes share the button grammar — one Tip-wrapped
+ * button per available surface not in `SURFACE_RAIL_HIDDEN` (chat renders no
+ * toggle), `tty` first, glyphs from `SURFACE_GLYPH`, LIT (`aria-pressed`,
+ * accent-green border/text on a 10% wash), the corner availability dot on
+ * every button:
+ *
+ * - TOGGLE (desktop): lit = an open tile; at 3 open tiles the unlit buttons
+ *   render DISABLED with a "Close a tile first" tooltip (Tip wraps a span so
+ *   the disabled button still tips — disabled controls swallow pointer
+ *   events). Clicking routes through the caller's shared `togglePanel`
+ *   mutation semantics (unlit → `addSurface` 1→2 `split-h` / 2→3 `main-left`,
+ *   lit → `closeSurface`, closing the last tile is a null no-op there).
+ * - SWITCH (mobile): RADIO semantics — lit = the VISIBLE tile (exactly one);
+ *   tapping an unlit button runs the caller's switch-to-tile verb, tapping the
+ *   lit one is a no-op. The disabled-at-3 state does not apply (switching
+ *   never adds a fourth tile).
  *
  * Buttons are SEGMENTS inside the group's border (the split-chip precedent):
  * only the LIT one draws a border, so unlit neighbors never double up on the
@@ -346,8 +370,9 @@ type SurfaceToggles = NonNullable<TopBarProps["surfaceToggles"]>;
  */
 function SurfaceToggleGroup({ toggles }: { toggles: SurfaceToggles }) {
   // Max 3 tiles (Constitution IV): at 3, further adds are disallowed — the
-  // unlit buttons render disabled instead of no-oping silently.
-  const full = toggles.open.length >= 3;
+  // unlit buttons render disabled instead of no-oping silently. Toggle mode
+  // only: switch mode never adds a tile, so nothing disables there.
+  const full = toggles.mode === "toggle" && toggles.open.length >= 3;
   const shown = toggles.available.filter((surface) => !SURFACE_RAIL_HIDDEN.has(surface));
   return (
     <span data-testid="surface-toggles" className="flex items-center gap-1.5">
@@ -355,8 +380,11 @@ function SurfaceToggleGroup({ toggles }: { toggles: SurfaceToggles }) {
         className={`flex items-center rounded border border-border ${TOP_BAR_BUTTON_H}`}
       >
         {shown.map((surface) => {
-          const isOpen = toggles.open.includes(surface);
-          const disabled = !isOpen && full;
+          const pressed =
+            toggles.mode === "toggle"
+              ? toggles.open.includes(surface)
+              : toggles.active === surface;
+          const disabled = toggles.mode === "toggle" && !pressed && full;
           const label = SURFACE_LABEL[surface];
           return (
             <Tip key={surface} label={disabled ? "Close a tile first" : label}>
@@ -365,12 +393,18 @@ function SurfaceToggleGroup({ toggles }: { toggles: SurfaceToggles }) {
               <span className="inline-flex">
                 <button
                   type="button"
-                  onClick={() => toggles.onToggle(surface)}
+                  onClick={() => {
+                    if (toggles.mode === "toggle") {
+                      toggles.onToggle(surface);
+                    } else if (!pressed) {
+                      toggles.onSwitch(surface);
+                    }
+                  }}
                   disabled={disabled}
-                  aria-pressed={isOpen}
+                  aria-pressed={pressed}
                   aria-label={`${label} tile`}
                   className={`rk-glint relative w-[26px] ${TOP_BAR_SEGMENT_H} flex items-center justify-center rounded border text-[11px] font-mono transition-colors focus-visible:outline-2 focus-visible:outline-accent-green disabled:opacity-40 disabled:cursor-not-allowed ${
-                    isOpen
+                    pressed
                       ? "border-accent-green bg-accent-green/10 text-accent-green"
                       : "border-transparent text-text-secondary hover:text-text-primary"
                   }`}
@@ -400,7 +434,7 @@ function SurfaceToggleGroup({ toggles }: { toggles: SurfaceToggles }) {
  * leading-glyph parity rule), disabled-at-3 like the bar buttons. Clicking a
  * row runs the same shared toggle mutation as the bar group.
  */
-function SurfaceToggleMenuRows({ toggles }: { toggles: SurfaceToggles }) {
+function SurfaceToggleMenuRows({ toggles }: { toggles: SurfaceTogglesToggle }) {
   const full = toggles.open.length >= 3;
   const shown = toggles.available.filter((surface) => !SURFACE_RAIL_HIDDEN.has(surface));
   return (
@@ -538,8 +572,8 @@ export function TopBar({
   // buttons) and the overflow menu (the rest render as rows) — so bar↔menu can
   // never drift. Order encodes drop priority: L1 first, then L2, then L3, and
   // within a tier leftmost drops first (overflow consumes FROM THE FRONT). Only
-  // the trailing chevron is EXEMPT (never overflows) and renders outside this
-  // candidate list. As of 260731-oiho THREE entries are `menuOnly` (the n2n4
+  // the trailing chevron and `pinned` entries are EXEMPT (never overflow) and
+  // render outside the fit candidate list. As of 260731-oiho THREE entries are `menuOnly` (the n2n4
   // mechanism — never in-bar, rows always in the menu): the demoted
   // fixed-width, terminal-font (Aa), and
   // close-pane/Kill (sticky per-device preferences + the destructive ✕ that
@@ -562,15 +596,24 @@ export function TopBar({
     // renderings share one slot-data source. Overflowed, it renders one
     // checkbox row per shown surface under the Tiles menu section. Hidden
     // until AppShell registers the slot (or off the window route).
+    //
+    // Mobile (switch mode) inverts both rules: the group is the primary
+    // mobile tile-switch affordance, so it is PINNED in-bar (exempt from the
+    // fit pipeline — other chips drop first) and registers NO menu rows (the
+    // add-a-tile checkbox path never exists on mobile — switch mode's
+    // SurfaceToggleMenuRows absence is deliberate, not an omission).
     {
       id: "surface-toggles",
       modes: ["terminal"],
       menuGroup: "tiles",
       hidden: !(mode === "terminal" && currentWindow && surfaceToggles),
+      pinned: surfaceToggles?.mode === "switch",
       barRender: () =>
         surfaceToggles ? <SurfaceToggleGroup toggles={surfaceToggles} /> : null,
       menuRender: () =>
-        surfaceToggles ? <SurfaceToggleMenuRows toggles={surfaceToggles} /> : null,
+        surfaceToggles?.mode === "toggle" ? (
+          <SurfaceToggleMenuRows toggles={surfaceToggles} />
+        ) : null,
     },
     // Open-in-App split-button (260722-6d0f) — terminal-only, immediately
     // after the surface-toggles head so it yields to overflow BEFORE any other
@@ -789,13 +832,19 @@ export function TopBar({
 
   // Candidate (non-exempt) entries for the current mode, minus any `hidden` ones.
   const candidates = rightItems.filter((e) => e.modes.includes(mode) && !e.hidden);
+  // Pinned entries (the mobile surface-switch group) never overflow: they
+  // render in-bar unconditionally, OUTSIDE the fit system — not in the probe,
+  // not a fit candidate, not in the overflow menu. Their measured width is
+  // reserved from the fit budget below (the trailing-chevron precedent), so
+  // the OTHER candidates absorb the squeeze.
+  const pinnedItems = candidates.filter((e) => e.pinned);
   // Fit candidates — the entries eligible for IN-BAR placement. `menuOnly`
   // entries (260731-oiho: fixed-width,
   // terminal-font, close-pane) never render in-bar: they are excluded from the
   // visible row, the measurement probe, and the fit budget (zero pixels). The
   // probe's children must stay index-aligned with the widths array the fit
   // reads, so the probe renders exactly this list.
-  const fitCandidates = candidates.filter((e) => !e.menuOnly);
+  const fitCandidates = candidates.filter((e) => !e.menuOnly && !e.pinned);
 
   // Measurement: one ResizeObserver on the right cell + a hidden probe row that
   // renders every FIT candidate's BAR form so we always know each real width
@@ -812,12 +861,17 @@ export function TopBar({
   // sidebar footer, 260724-6j1v). Nothing is hardcoded — every reserved pixel
   // is measured.
   const trailingRef = useRef<HTMLDivElement>(null);
+  // Pinned-block ref whose measured width is likewise RESERVED before fitting
+  // (the mobile surface-switch group — pinned in-bar, never overflowed).
+  const pinnedRef = useRef<HTMLDivElement>(null);
   const [visibleCount, setVisibleCount] = useState(0);
   // Serialize the FIT-candidate ids into a dependency key so the measure effect
   // re-runs when the probed SET changes (mode switch, a control appearing/
   // disappearing) — not on every render. `menuOnly` entries never affect the
-  // fit, so they are deliberately absent from this key.
-  const candidateKey = fitCandidates.map((c) => c.id).join(",");
+  // fit, so they are deliberately absent from this key; the PINNED set rides
+  // along (a pinned entry appearing/disappearing changes the reserved width).
+  const candidateKey =
+    fitCandidates.map((c) => c.id).join(",") + "|" + pinnedItems.map((c) => c.id).join(",");
 
   useLayoutEffect(() => {
     const cell = rightCellRef.current;
@@ -829,11 +883,14 @@ export function TopBar({
     const measure = () => {
       const available = cell.clientWidth;
       // Reserve the exempt width (measured): the trailing chevron block,
-      // joined to the candidate run by one gap.
+      // joined to the candidate run by one gap, plus any pinned block (the
+      // mobile surface-switch group) with its own gap when present.
       const trailing = trailingRef.current?.offsetWidth ?? 0;
+      const pinned = pinnedRef.current?.offsetWidth ?? 0;
       const reserved =
         trailing +
-        RIGHT_GAP_PX; // gap between the last candidate and the chevron block
+        RIGHT_GAP_PX + // gap between the last candidate and the chevron block
+        (pinned > 0 ? pinned + RIGHT_GAP_PX : 0); // pinned block + its gap
       // Overflow consumes the pyramid FROM THE LEFT (L1 drops first, L3 last —
       // the documented invariant). In the bar L1 is leftmost and L3 is pinned
       // rightmost, so the SURVIVING in-bar set is a SUFFIX of the registry
@@ -859,6 +916,7 @@ export function TopBar({
     ro.observe(cell);
     ro.observe(probe);
     if (trailingRef.current) ro.observe(trailingRef.current);
+    if (pinnedRef.current) ro.observe(pinnedRef.current);
     return () => ro.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [candidateKey, mode, updateKey, showChip]);
@@ -872,7 +930,7 @@ export function TopBar({
   const splitAt = fitCandidates.length - visibleCount;
   const visibleItems = fitCandidates.slice(splitAt);
   const visibleIds = new Set(visibleItems.map((e) => e.id));
-  const overflowItems = candidates.filter((e) => !visibleIds.has(e.id));
+  const overflowItems = candidates.filter((e) => !visibleIds.has(e.id) && !e.pinned);
   const overflowRows: OverflowMenuRow[] = overflowItems
     .map((e) => ({ id: e.id, group: e.menuGroup, node: e.menuRender() }))
     .filter((r) => r.node != null);
@@ -1163,7 +1221,8 @@ export function TopBar({
             loop). The pyramid invariant holds — overflow consumes L1→L2→L3 from
             the left and surviving buttons keep their positions.
 
-            Only the trailing chevron is EXEMPT (never overflows; the
+            Only the trailing chevron and `pinned` entries (the mobile
+            surface-switch group) are EXEMPT (never overflow; the
             connection dot moved to the sidebar footer, 260724-6j1v);
             fixed-width / terminal-font /
             close-pane (260731-oiho) are `menuOnly` — never in-bar, their rows
@@ -1199,6 +1258,20 @@ export function TopBar({
               its registry entry is `menuOnly`, so its ONLY rendering is the
               per-view `View: …` rows inside the chevron menu — the pill is
               excluded from the visible row, the probe, and the fit budget. */}
+
+          {/* Pinned entries — always in-bar, never overflowed, never probed
+              (the mobile surface-switch group; its measured width is reserved
+              from the fit budget). Rendered at the head: the only pinned entry
+              is the registry head, so registry order is preserved. */}
+          {pinnedItems.length > 0 && (
+            <div ref={pinnedRef} className="flex items-center gap-3 shrink-0">
+              {pinnedItems.map((e) => (
+                <span key={e.id} className="flex items-center shrink-0">
+                  {e.barRender()}
+                </span>
+              ))}
+            </div>
+          )}
 
           {/* Visible fit candidates — the leading N that fit, as icon buttons. */}
           {visibleItems.map((e) => (

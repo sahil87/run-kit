@@ -1626,6 +1626,7 @@ describe("TopBar", () => {
       open: ("tty" | "web" | "chat" | "code")[];
       onToggle: (surface: "tty" | "web" | "chat" | "code") => void;
     }> = {}) => ({
+      mode: "toggle" as const,
       available: overrides.available ?? ["tty", "web", "code"],
       open: overrides.open ?? ["tty"],
       onToggle: overrides.onToggle ?? vi.fn(),
@@ -1680,7 +1681,7 @@ describe("TopBar", () => {
 
     it("hides the chat toggle on a chat-capable window while web/code remain (SURFACE_RAIL_HIDDEN)", () => {
       // The demotion is render-time only: chat stays AVAILABLE (the palette's
-      // `Layout: Add Chat` still works) but the group shows no chat toggle.
+      // `Tile: Show Chat` still works) but the group shows no chat toggle.
       renderTopBar({ surfaceToggles: toggles({ available: ["tty", "web", "chat", "code"] }) });
       act(() => fireEvent.click(screen.getByLabelText("More controls")));
       const menu = screen.getByRole("menu", { name: "More controls" });

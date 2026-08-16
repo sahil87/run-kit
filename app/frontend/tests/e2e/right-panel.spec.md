@@ -223,7 +223,7 @@ What it proves: the keyboard path (Constitution V) — the registry's
 `code-toggle` chord (⌘J on mac, ⇧Ctrl+J on Win/Linux; VS Code's panel-toggle
 keycap) toggles the code surface's TILE via the shared mutation path, firing
 even while xterm owns focus. The web tile's keyboard path is the palette
-(`Layout: Add Web` / `Layout: Close Web`).
+(`Tile: Show Web` / `Tile: Hide Web`).
 Steps:
 1. Create a web-capable window (repo-root cwd ⇒ also code-capable); navigate;
    assert the terminal, then wait for the `Code tile` toggle (the chord's
@@ -244,21 +244,27 @@ Steps:
 2. Assert the banner carries no `Terminal tile`, `Web tile`, or `Code tile`
    button.
 
-### 375px mobile: no top-bar toggle group; a 2-tile deep link renders slot A with the surfaces chip
-What it proves: the desktop-only gate — `surfaceToggles` is registered only
-when `windowParam && !isMobile`, so at 375px the banner carries no tile
-toggles, and a multi-tile `?layout=` deep link shows ONLY slot A full-width
-with the remaining surface mounted-hidden and reachable via the ▦ Surfaces
-chip. The nested describe runs `test.use({ hasTouch: true })` so
-`(pointer: coarse)` matches — a real phone is coarse AND narrow, and since
-260814-ldbs the bottom bar (the chip's home) is pointer-gated: a fine-pointer
-narrow window gets no chip bar by design.
+### 375px mobile: the top-bar switch group renders with radio semantics and switches the open web tile transiently
+What it proves: the mobile SWITCH fork of the surface-toggles entry — at 375px
+with ≥2 shown surfaces the banner carries one `<Label> tile` button per shown
+surface (the visible one pressed), the retired ▦ Surfaces chip is gone, and
+tapping an unpressed button swaps the visible tile TRANSIENTLY when the target
+is already open in the deep-linked layout (URL untouched). The nested describe
+runs `test.use({ hasTouch: true })` so `(pointer: coarse)` matches — a real
+phone is coarse AND narrow, and since 260814-ldbs the bottom bar is
+pointer-gated: a fine-pointer narrow window exercises a different bar by
+design.
 Steps:
 1. Set a 375×812 viewport (context already has `hasTouch`); create a
    web-capable window.
 2. Navigate with `?layout=split-h:tty,web` (gating on the terminal, not the
    `Connected` dot — on mobile the dot lives in the drawer's footer, which is
    unmounted until the drawer opens).
-3. Assert the terminal is visible, the banner carries no `Terminal tile` /
-   `Web tile` button, the web tile is hidden (mounted), and the
-   `mobile-surfaces-chip` renders.
+3. Assert the terminal is visible, the banner's `Web tile` button renders
+   (READY_TIMEOUT — the second surface resolves with the window payload), the
+   `Terminal tile` button reads `aria-pressed=true` and `Web tile` reads
+   `false`, the web tile is hidden (mounted), and no `mobile-surfaces-chip`
+   exists in the DOM.
+4. Click `Web tile`; assert the web tile becomes visible, the pressed state
+   flips (Web pressed, Terminal not), and the `?layout=` param still reads
+   `split-h:tty,web` — the swap never mutated the shared arrangement.

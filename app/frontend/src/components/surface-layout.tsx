@@ -76,7 +76,7 @@ import type { WindowInfo } from "@/types";
  *   focused slot leaves the layout. The focused KIND is reported upward via
  *   `onFocusedKindChange` (app.tsx mirrors it for the `ttyOnly` shortcut
  *   gate) and settable by kind through the `focusTileRef` seam (the
- *   `zoomToggleRef` pattern — the palette's `Layout: Focus <Surface>`).
+ *   `zoomToggleRef` pattern — the palette's `Tile: Focus <Surface>`).
  * - **Zoom (R6)**: transient component state ONLY — one tile full-center, the
  *   others hidden at display level. No URL/localStorage write; the toggle
  *   renders only when arity > 1.
@@ -112,8 +112,8 @@ import type { WindowInfo } from "@/types";
  */
 
 /** Human labels for the tile header + verb aria-labels live in
- *  `lib/surface-layout.ts` (`SURFACE_LABEL` — shared with the rail, palette,
- *  and mobile sheet so none drift). */
+ *  `lib/surface-layout.ts` (`SURFACE_LABEL` — shared with the surface
+ *  toggles, palette, and mobile switch group so none drift). */
 
 /** Everything a chat tile needs — the AppShell-owned `kind:"chat"`
  *  subscription (`chatStream`) plus the send wrapper, bundled so the tile
@@ -139,8 +139,8 @@ interface SurfaceLayoutProps {
    *  (the ladder's degradation should already have dropped it). */
   window: ViewWindow | null;
   /** Below `isMobileViewport()` only ONE slot renders (R13) — no dividers, no
-   *  verb chrome. `mobileActiveSlot` (T014) picks WHICH slot: the mobile sheet
-   *  tabs swap the slot-A surface via transient app-level state WITHOUT
+   *  verb chrome. `mobileActiveSlot` picks WHICH slot: the top-bar switch
+   *  group swaps the slot-A surface via transient app-level state WITHOUT
    *  mutating the shared layout (the layout stays desktop's arrangement).
    *  Absent/out-of-range → slot 0. */
   isMobile: boolean;
@@ -195,7 +195,7 @@ interface SurfaceLayoutProps {
    *  KIND whenever it changes (default slot A). Arity-1 still reports — the
    *  shell's `ttyOnly` shortcut gate treats `single:tty` as tty-focused. */
   onFocusedKindChange?: (kind: SurfaceKind) => void;
-  /** `Layout: Focus <Surface>` palette seam (260812-wfic R10): the component
+  /** `Tile: Focus <Surface>` palette seam (260812-wfic R10): the component
    *  registers a focus-by-kind setter here (the FIRST slot of that kind),
    *  cleared on unmount — the `zoomToggleRef` pattern. */
   focusTileRef?: React.MutableRefObject<((kind: SurfaceKind) => void) | null>;
@@ -604,7 +604,7 @@ export function SurfaceLayout({
     if (focusedKind) reportFocusedKind(focusedKind);
   }, [focusedKind, reportFocusedKind]);
 
-  // Palette focus seam (R10): `Layout: Focus <Surface>` routes through this
+  // Palette focus seam (R10): `Tile: Focus <Surface>` routes through this
   // ref — focus the FIRST slot of the given kind (duplicate tty tiles: slot A
   // wins). No-op for a kind that is not open.
   useEffect(() => {
@@ -1139,10 +1139,10 @@ export function SurfaceLayout({
   };
 
   // Mobile (R13): ONE slot only, full-width, no verb chrome, no dividers.
-  // Which slot is `mobileActiveSlot` (T014) — the mobile sheet's tabs swap the
+  // Which slot is `mobileActiveSlot` — the top-bar switch group swaps the
   // shown surface via transient app-level state, NEVER mutating the shared
   // layout (it stays desktop's arrangement). All resolved surfaces stay
-  // mounted-hidden so switching tabs loses no state.
+  // mounted-hidden so switching loses no state.
   //
   // IMPORTANT (both branches): visible + hidden tiles render from ONE flat
   // array. Two separate `{arr1}{arr2}` expression slots reconcile

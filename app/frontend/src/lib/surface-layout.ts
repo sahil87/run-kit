@@ -107,8 +107,8 @@ export function shapesForArity(arity: 1 | 2 | 3): LayoutShape[] {
 
 /**
  * Human labels for the surface kinds (T010–T014 shared copy: tile headers,
- * rail tooltips/aria, palette `Layout:` entries, mobile sheet tabs — one
- * source so none drift).
+ * rail tooltips/aria, palette `Tile:`/`Layout:` entries, the mobile switch
+ * group — one source so none drift).
  */
 export const SURFACE_LABEL: Record<SurfaceKind, string> = {
   tty: "Terminal",
@@ -131,9 +131,9 @@ export const SHAPE_LABEL: Record<LayoutShape, string> = {
 };
 
 /**
- * Rail/sheet icon glyphs (R10 — icons replace the rail's text labels; the
+ * Surface icon glyphs (R10 — icons replace the rail's text labels; the
  * intake's approved set): `>_` tty, `://` web, `⌸` chat, `{}` code. Pure data
- * shared by the rail and the mobile sheet tabs.
+ * shared by the surface toggles and the mobile switch group.
  */
 export const SURFACE_GLYPH: Record<SurfaceKind, string> = {
   tty: ">_",
@@ -209,9 +209,9 @@ export function availableTiles(win: ViewWindow | null | undefined): SurfaceKind[
 }
 
 /**
- * Surfaces demoted OUT of the right rail and the mobile surface sheet
+ * Surfaces demoted OUT of the top-bar toggle/switch group
  * (260812-0c6o): the chat lens is a half-built feature, so it is palette-only
- * (`Layout: Add Chat` / `View: Chat`) — the rail/sheet filter by this flag AT
+ * (`Tile: Show Chat` / `View: Chat`) — the group filters by this flag AT
  * RENDER, never at availability: `availableTiles` deliberately stays unchanged
  * so the palette entries keep working, and an already-open chat tile still
  * renders and closes normally (the flag hides the toggle, never the tile).

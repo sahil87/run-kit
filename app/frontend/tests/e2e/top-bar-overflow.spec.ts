@@ -38,12 +38,17 @@ function intersects(
 // the surface-toggle group (`data-testid="surface-toggles"` — the REMOVED
 // right rail's open-tile toggles relocated into the bar as ONE bordered
 // sub-group, leftmost; detected via its "Terminal tile" button — tty is
-// always an available surface). The group drops FIRST and as ONE unit; the ▦
-// Layout chip (260812-ab5v R9; overflowed, it renders `Layout: …` radio rows
-// in the menu) drops next — the merged split control left the terminal bar in
-// 260813-w1lf (pane verbs moved to the tty tile header's pane segment; the
-// `split` entry is `menuOnly` in terminal mode now, its rows ALWAYS in the
-// chevron menu — see MENU_ONLY below). L2 is empty (fixed-width, Aa, and ✕ are
+// always an available surface). On DESKTOP the group drops FIRST and as ONE
+// unit; the ▦ Layout chip (260812-ab5v R9; overflowed, it renders `Layout: …`
+// radio rows in the menu) drops next — the merged split control left the
+// terminal bar in 260813-w1lf (pane verbs moved to the tty tile header's pane
+// segment; the `split` entry is `menuOnly` in terminal mode now, its rows
+// ALWAYS in the chevron menu — see MENU_ONLY below). On MOBILE (<640px) the
+// same entry forks to SWITCH mode (radio semantics) and is PINNED in-bar —
+// exempt from the fit pipeline, never overflowed, no Tiles menu rows — so the
+// pyramid/fit assertions below count only the FIT candidates there (the
+// pinned "Terminal tile" button is excluded from L1 at mobile widths and
+// asserted present separately). L2 is empty (fixed-width, Aa, and ✕ are
 // `menuOnly`), L3 is Refresh + the Settings gear (relocated from the sidebar
 // footer, 260812-d1at; the LAST fit candidate, so Refresh drops before it).
 // The update chip is context-gated and omitted from the ordering assertion.
@@ -62,6 +67,10 @@ type NameMatcher = string | RegExp;
 const L1: NameMatcher[] = ["Terminal tile", "Layout"];
 const L2: NameMatcher[] = [];
 const L3: NameMatcher[] = ["Refresh page", "Open settings"];
+// Below the mobile breakpoint the group forks to PINNED switch mode — in-bar
+// by exemption, not by fit — so the pyramid assertions count only the FIT
+// candidates there.
+const L1_MOBILE: NameMatcher[] = L1.filter((n) => n !== "Terminal tile");
 // The demoted controls (260731-oiho + the terminal split in 260813-w1lf, the
 // n2n4 menuOnly mechanism): their bar forms render NOWHERE at ANY width; their
 // rows are ALWAYS in the menu.
@@ -101,10 +110,12 @@ async function inBarCount(page: Page, names: NameMatcher[]): Promise<number> {
  *  them, producing an inconsistent split (seen flaky: L3 already overflowed
  *  while L2 still read as in-bar mid-cascade after a resize). Re-read until two
  *  consecutive snapshots agree (bounded), so invariants are asserted on a
- *  stable layout, not a transient frame. */
-async function settledTierCounts(page: Page): Promise<[number, number, number]> {
+ *  stable layout, not a transient frame. `desktop=false` counts only the FIT
+ *  candidates (the pinned mobile switch group is excluded from L1). */
+async function settledTierCounts(page: Page, desktop = true): Promise<[number, number, number]> {
+  const l1 = desktop ? L1 : L1_MOBILE;
   const read = async (): Promise<[number, number, number]> => [
-    await inBarCount(page, L1),
+    await inBarCount(page, l1),
     await inBarCount(page, L2),
     await inBarCount(page, L3),
   ];
@@ -220,22 +231,31 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
     for (const width of WIDTHS) {
       await page.setViewportSize({ width, height: 800 });
       await expect(heading).toBeVisible({ timeout: 10_000 });
-      const [l1, l2, l3] = await settledTierCounts(page);
-
-      // The candidate set changes at the mobile boundary: the desktop-only
-      // surface-toggle group (260815-19me — AppShell registers the slot only
-      // when NOT mobile) unmounts below 640px (MOBILE_BREAKPOINT_PX), dropping
-      // an L1 fit candidate and freeing width that can legitimately re-admit
-      // an already-dropped candidate. Monotonicity therefore holds WITHIN each
+      // The candidate set changes at the mobile boundary: below 640px
+      // (MOBILE_BREAKPOINT_PX) the surface-toggle group forks to SWITCH mode
+      // and becomes PINNED (exempt from the fit, always in-bar), dropping an
+      // L1 fit candidate and freeing width that can legitimately re-admit an
+      // already-dropped candidate. Monotonicity therefore holds WITHIN each
       // viewport regime (desktop ≥640 / mobile <640) — re-baseline once at the
       // crossing. The per-width pyramid-order assertions below are
-      // regime-independent and still run at every width.
+      // regime-independent and still run at every width; the mobile tier
+      // counts exclude the pinned group's button.
       const isDesktopWidth = width >= 640;
       if (prevWasDesktop && !isDesktopWidth) {
-        prevL1 = L1.length;
+        prevL1 = L1_MOBILE.length;
         prevL2 = L2.length;
       }
       prevWasDesktop = isDesktopWidth;
+      const [l1, l2, l3] = await settledTierCounts(page, isDesktopWidth);
+      // The pinned switch group is ALWAYS in-bar at mobile widths on this
+      // code-capable window ([tty, code] ≥ 2 shown surfaces) — the primary
+      // mobile affordance never overflows.
+      if (!isDesktopWidth) {
+        await expect(
+          byRoleName(page, "Terminal tile"),
+          `pinned switch group in-bar at ${width}px`,
+        ).toBeVisible({ timeout: 10_000 });
+      }
 
       // Monotonic non-increasing as width shrinks (each tier only loses members).
       expect(l1, `L1 in-bar non-increasing at ${width}px`).toBeLessThanOrEqual(prevL1);
@@ -254,14 +274,14 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
       prevL2 = l2;
     }
     // At the narrowest width the pyramid's FRONT has been fully consumed: the
-    // L1 surface-toggle group is unmounted (mobile) and the ▦ Layout chip has
-    // overflowed. The L3 tail
+    // ▦ Layout chip has overflowed (the pinned mobile switch group is exempt —
+    // asserted in-bar above, not counted here). The L3 tail
     // (Refresh · Settings gear — the gear last, 260812-d1at) deliberately
     // survives at the mobile leaf — the pyramid ORDER, not an all-gone cliff,
     // is the contract. (Exact-name matching matters here: a substring
     // "Layout" would false-positive on sidebar window rows whose names carry
     // the worktree slug.)
-    expect(await inBarCount(page, L1), "L1 (toggle group + ▦ layout chip) gone at 375px").toBe(0);
+    expect(await inBarCount(page, L1_MOBILE), "L1 fit candidates (▦ layout chip) gone at 375px").toBe(0);
   });
 
   test("the chevron menu contains the overflowed + menuOnly rows plus the version row, grouped under section labels", async ({
@@ -296,9 +316,9 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
     await expect(menu.getByRole("menuitem", { name: "Close pane" })).toBeVisible();
     // Density + grouping (260731-oiho): thin uppercase section labels group the
     // rows in the fixed Tiles → View → Window → App order. TILES IS ABSENT
-    // here: the surface-toggle group is desktop-only (260815-19me — AppShell
-    // registers its slot only when NOT mobile), so at this mobile width the
-    // registry entry is HIDDEN (not overflowed) and contributes no section.
+    // here: at this mobile width the surface-toggles entry is in SWITCH mode —
+    // PINNED in-bar and registering NO menu rows — so it contributes no
+    // section.
     await expect(menu.getByText("Tiles", { exact: true })).toHaveCount(0);
     await expect(
       menu.getByRole("menuitemcheckbox", { name: "Terminal tile" }),
@@ -547,7 +567,7 @@ test.describe("Top-bar overflow: the view-switcher is retired (260812-0c6o)", ()
     }
   });
 
-  test("the surface-toggle group is the first fit candidate to yield (the ▦ Layout chip next)", async ({
+  test("the surface-toggle group is the first fit candidate to yield on desktop (the ▦ Layout chip next); on mobile it is PINNED in-bar", async ({
     page,
   }) => {
     await gotoViewWindow(page);
@@ -557,9 +577,12 @@ test.describe("Top-bar overflow: the view-switcher is retired (260812-0c6o)", ()
     // terminal mode (260813-w1lf), the FIRST fit candidate is the L1-head
     // surface-toggle group — located via its "Terminal tile" button (tty is
     // always available; the aria-hidden probe copy is excluded by the role
-    // query). The invariant across the sweep: whenever the group is still
-    // in-bar nothing has dropped yet, so every L1/L2/L3 control must also be
-    // in-bar (the surviving set is a suffix of the fit order).
+    // query). The DESKTOP invariant across the sweep: whenever the group is
+    // still in-bar nothing has dropped yet, so every L1/L2/L3 control must
+    // also be in-bar (the surviving set is a suffix of the fit order). On
+    // MOBILE the group forks to switch mode and is PINNED (exempt from the
+    // fit): it stays in-bar at every mobile width while other candidates
+    // overflow around it.
     const groupToggle = () => byRoleName(page, "Terminal tile");
     const allCandidates = [...L1, ...L2, ...L3];
     let sawInBar = false;
@@ -571,6 +594,15 @@ test.describe("Top-bar overflow: the view-switcher is retired (260812-0c6o)", ()
       // effect) has settled before the plain `count()` reads below.
       if (width === 1440) {
         await expect(groupToggle()).toBeVisible({ timeout: 10_000 });
+      }
+      if (width < 640) {
+        // Mobile: the pinned switch group is ALWAYS in-bar (this window shows
+        // [tty, web, code] — ≥2 surfaces), quite apart from the fit outcome.
+        await expect(
+          groupToggle(),
+          `pinned switch group in-bar at ${width}px`,
+        ).toBeVisible({ timeout: 10_000 });
+        continue;
       }
       const inBar = (await groupToggle().count()) > 0;
       if (inBar) {
@@ -586,14 +618,9 @@ test.describe("Top-bar overflow: the view-switcher is retired (260812-0c6o)", ()
       }
     }
     // The sweep genuinely exercised both sides: in-bar at some wide width
-    // (gated above), and definitely gone at the mobile leaf — the group is
-    // desktop-only (unregistered below 640px), so it is unmounted there quite
-    // apart from overflow. A RETRYING count so a still-settling re-fit can't
-    // flake the gone side.
+    // (gated above), and pinned in-bar at the mobile leaf (asserted in the
+    // loop — the switch fork never overflows there).
     expect(sawInBar, "the surface-toggle group was in-bar at some (wide) width").toBe(true);
-    await page.setViewportSize({ width: 375, height: 800 });
-    await expect(heading).toBeVisible({ timeout: 10_000 });
-    await expect(groupToggle()).toHaveCount(0, { timeout: 10_000 });
   });
 
   test("the overflowed surface-toggle group renders a Tiles menu section FIRST (before View)", async ({
@@ -602,13 +629,14 @@ test.describe("Top-bar overflow: the view-switcher is retired (260812-0c6o)", ()
     await gotoViewWindow(page);
     const heading = page.getByRole("button", { name: `Rename window ${VIEW_WINDOW_NAME}` });
 
-    // The group is desktop-only (its registry entry is HIDDEN below 640px, not
-    // overflowed — the main block's 375px menu test proves that absence), so
-    // its menu form appears only at a DESKTOP width narrow enough to overflow
-    // it. Step down from 800px until the in-bar `Terminal tile` button is
-    // gone — the group is the L1 HEAD (first to drop), so a narrow-enough
-    // desktop width always reaches this. Each probe is a bounded RETRYING
-    // expect so a mid-cascade re-fit frame can't fake the drop.
+    // The group's MENU form is desktop-only (below 640px the entry switches to
+    // the pinned in-bar switch group with NO menu rows — the main block's
+    // 375px menu test proves that absence), so it appears only at a DESKTOP
+    // width narrow enough to overflow it. Step down from 800px until the
+    // in-bar `Terminal tile` button is gone — the group is the L1 HEAD (first
+    // to drop), so a narrow-enough desktop width always reaches this. Each
+    // probe is a bounded RETRYING expect so a mid-cascade re-fit frame can't
+    // fake the drop.
     let menuWidth = 0;
     for (let w = 800; w > 640; w -= 10) {
       await page.setViewportSize({ width: w, height: 800 });

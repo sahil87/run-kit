@@ -358,7 +358,11 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
   test("375px: the chat lens renders with a long window name and no switcher chrome (no horizontal overflow)", async ({ page }) => {
     // 260812-0c6o: the ViewSwitcher is retired — at phone width with a
     // realistically long window name the heading keeps its room and there is
-    // no switcher chrome anywhere; the palette is the switch surface.
+    // no switcher chrome anywhere. Chat is rail-hidden, so the top-bar switch
+    // group renders no chat button (and with chat visible only tty survives
+    // the hidden filter — under the ≥2 gate the group doesn't render here);
+    // the palette's `Tile: Switch to Terminal` entry is the way back (the
+    // `View:` lens entries are superseded on mobile).
     await mockBackend(page, backfillCleared(), undefined, "riff-gallant-jackal-worktree-mobile");
     await page.setViewportSize(MOBILE);
     await page.goto(`/${SERVER}/1?view=chat`);
@@ -371,9 +375,16 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
     await expect(page.getByRole("group", { name: "Window view" })).toHaveCount(0);
     await expect(page.getByTestId("view-toggle")).toHaveCount(0);
 
-    // The palette offers the way back (`View: Terminal` — chat is current).
-    await openPalette(page, "View: Terminal");
-    await expect(page.getByRole("option", { name: "View: Terminal" })).toBeVisible();
+    // The palette offers the way back — `Tile: Switch to Terminal` (chat is
+    // current), and NO `View: Terminal` (superseded on mobile).
+    const paletteInput = await openPalette(page, "View: Terminal");
+    await expect(
+      page.getByRole("option", { name: "View: Terminal", exact: true }),
+    ).toHaveCount(0);
+    await paletteInput.fill("Switch");
+    await expect(
+      page.getByRole("option", { name: "Tile: Switch to Terminal" }),
+    ).toBeVisible();
     await page.keyboard.press("Escape");
 
     // No horizontal page overflow at 375px even with the long name.

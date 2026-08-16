@@ -68,15 +68,25 @@ export type TopBarSlot = {
   autofit?: boolean;
   onToggleAutofit?: () => void;
   /** Terminal-mode surface-toggle group data: the tile surfaces the current
-   *  window offers (`tty` first), the OPEN tiles (the resolved layout's
-   *  `order`), and the shared toggle mutation (unlit → `addSurface`, lit →
-   *  `closeSurface`). Registered by `AppShell` on every desktop terminal route;
-   *  absent on board/host/mobile → no group in the top bar. */
-  surfaceToggles?: {
-    available: SurfaceKind[];
-    open: SurfaceKind[];
-    onToggle: (surface: SurfaceKind) => void;
-  };
+   *  window offers (`tty` first) plus a mode discriminant — TOGGLE (desktop:
+   *  the OPEN tiles (the resolved layout's `order`) and the shared toggle
+   *  mutation (unlit → `addSurface`, lit → `closeSurface`)) or SWITCH (mobile:
+   *  the VISIBLE tile and the switch-to-tile verb). Registered by `AppShell`
+   *  on terminal routes (switch mode additionally gated on ≥2 shown surfaces);
+   *  absent on board/host routes → no group in the top bar. */
+  surfaceToggles?:
+    | {
+        mode: "toggle";
+        available: SurfaceKind[];
+        open: SurfaceKind[];
+        onToggle: (surface: SurfaceKind) => void;
+      }
+    | {
+        mode: "switch";
+        available: SurfaceKind[];
+        active: SurfaceKind;
+        onSwitch: (surface: SurfaceKind) => void;
+      };
   /** Surface-layout machinery (260812-ab5v R9), registered by `AppShell` on the
    *  terminal route: the RESOLVED layout + the single user-mutation path
    *  (`applyLayout`). Feed the top bar's ▦ Layout chip. Absent on non-terminal

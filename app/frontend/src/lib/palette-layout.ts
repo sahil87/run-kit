@@ -9,11 +9,13 @@
  * user-mutation path) running the pure `surface-layout.ts` mutations.
  *
  * Entries, per current layout state:
- *  - `Layout: Add <Surface>`    — per AVAILABLE, not-open surface; omitted at
+ *  - `Tile: Show <Surface>`     — per AVAILABLE, not-open surface; omitted at
  *                                 3 tiles (max — the rail's disabled buttons
- *                                 are the mouse mirror).
- *  - `Layout: Close <Surface>`  — per open kind; omitted on a `single` layout
- *                                 (closing the last tile is disallowed, R7).
+ *                                 are the mouse mirror). "Show" is the honest
+ *                                 verb: the entry reveals a renderer, it does
+ *                                 not rearrange the layout.
+ *  - `Tile: Hide <Surface>`     — per open kind; omitted on a `single` layout
+ *                                 (hiding the last tile is disallowed, R7).
  *  - `Layout: Zoom` / `Layout: Unzoom` — the transient slot-A zoom toggle
  *                                 (desktop multi-tile only; R6 keeps zoom out
  *                                 of URL/localStorage). Exactly one renders,
@@ -21,7 +23,7 @@
  *  - `Layout: Promote <Surface>` / `Layout: Swap <Surface>` — per open kind
  *                                 (promote of slot A is a no-op, so it's
  *                                 omitted; swap-with-next always wraps).
- *  - `Layout: Focus <Surface>`   — per open, not-currently-focused kind
+ *  - `Tile: Focus <Surface>`     — per open, not-currently-focused kind
  *                                 (260812-wfic R10 — keyboard parity for the
  *                                 pointer's click-to-focus, Constitution V);
  *                                 desktop multi-tile only (the caller passes
@@ -42,7 +44,7 @@
  *                                 itself).
  *
  * The `code-toggle` chord (⌘J/⇧Ctrl+J) toggles the code surface's tile; that
- * surface's Add/Close entry carries its effective combo
+ * surface's Show/Hide entry carries its effective combo
  * (`toggleTarget`/`toggleShortcut`) so the chord stays discoverable (the
  * retired `Panel: Code` hint precedent).
  */
@@ -58,6 +60,7 @@ import {
   SHAPE_ARITY,
   SHAPE_LABEL,
   SURFACE_LABEL,
+  SURFACE_RAIL_HIDDEN,
   type Layout,
   type SurfaceKind,
 } from "./surface-layout";
@@ -85,7 +88,8 @@ export type LayoutPaletteOptions = {
   /** Focused-tile palette parity (260812-wfic R10): the currently focused
    *  kind (omitted from the entries) and the focus-by-kind callback (app.tsx
    *  routes it through SurfaceLayout's `focusTileRef` seam). `onFocus`
-   *  absent ⇒ no Focus entries (mobile; focus is the sheet tabs there). */
+   *  absent ⇒ no Focus entries (mobile; the top-bar switch group is the
+   *  switcher there). */
   focusedKind?: SurfaceKind | null;
   onFocus?: (kind: SurfaceKind) => void;
 };
@@ -100,19 +104,19 @@ export function buildLayoutActions(
   const arity = SHAPE_ARITY[layout.shape];
   const openKinds = [...new Set(order)];
 
-  /** The toggle chord's hint for the chord-target surface's Add/Close entry. */
+  /** The toggle chord's hint for the chord-target surface's Show/Hide entry. */
   const toggleHint = (kind: SurfaceKind) =>
     opts.toggleTarget === kind && opts.toggleShortcut
       ? { shortcut: opts.toggleShortcut }
       : {};
 
-  // Adds — available AND not open AND room to grow (max 3 tiles).
+  // Shows — available AND not open AND room to grow (max 3 tiles).
   if (order.length < 3) {
     for (const kind of available) {
       if (openKinds.includes(kind)) continue;
       actions.push({
-        id: `layout-add-${kind}`,
-        label: `Layout: Add ${SURFACE_LABEL[kind]}`,
+        id: `tile-show-${kind}`,
+        label: `Tile: Show ${SURFACE_LABEL[kind]}`,
         ...toggleHint(kind),
         onSelect: () => {
           const next = addSurface(layout, kind);
@@ -122,12 +126,12 @@ export function buildLayoutActions(
     }
   }
 
-  // Closes — one per open kind; the last tile never closes (R7).
+  // Hides — one per open kind; the last tile never hides (R7).
   if (order.length > 1) {
     for (const kind of openKinds) {
       actions.push({
-        id: `layout-close-${kind}`,
-        label: `Layout: Close ${SURFACE_LABEL[kind]}`,
+        id: `tile-hide-${kind}`,
+        label: `Tile: Hide ${SURFACE_LABEL[kind]}`,
         ...toggleHint(kind),
         onSelect: () => {
           const next = closeSurface(layout, kind);
@@ -150,14 +154,15 @@ export function buildLayoutActions(
   // Focus (260812-wfic R10) — keyboard parity for click-to-focus: one entry
   // per OPEN, not-currently-focused kind. Desktop multi-tile only: at arity 1
   // there is nothing to move focus to, and the caller passes no `onFocus` on
-  // mobile (the sheet tabs are the switcher there). Duplicate kinds (two tty
-  // tiles) yield one entry — the seam focuses the first slot of the kind.
+  // mobile (the top-bar switch group is the switcher there). Duplicate kinds
+  // (two tty tiles) yield one entry — the seam focuses the first slot of the
+  // kind.
   if (order.length > 1 && opts.onFocus && opts.focusedKind) {
     for (const kind of openKinds) {
       if (kind === opts.focusedKind) continue;
       actions.push({
-        id: `layout-focus-${kind}`,
-        label: `Layout: Focus ${SURFACE_LABEL[kind]}`,
+        id: `tile-focus-${kind}`,
+        label: `Tile: Focus ${SURFACE_LABEL[kind]}`,
         onSelect: () => opts.onFocus?.(kind),
       });
     }
@@ -209,4 +214,29 @@ export function buildLayoutActions(
   }
 
   return actions;
+}
+
+/**
+ * Build the mobile switch-to-tile palette actions (`Tile: Switch to
+ * <Surface>`) — the keyboard twin of the top-bar switch group (Constitution
+ * V). One entry per AVAILABLE surface that survives the `SURFACE_RAIL_HIDDEN`
+ * render-time filter (chat is palette-reachable only via its Show/Hide
+ * entries) and is not the currently visible one — the palette shows the
+ * destination, never the current tile (the `buildViewActions` pattern). A
+ * single-surface window yields an empty array — there is nothing to switch
+ * to. On mobile these supersede the `View:` entries; the bodies invoke the
+ * caller's switch-to-tile verb.
+ */
+export function buildTileSwitchActions(
+  available: SurfaceKind[],
+  visible: SurfaceKind,
+  onSwitch: (surface: SurfaceKind) => void,
+): LayoutPaletteAction[] {
+  return available
+    .filter((kind) => kind !== visible && !SURFACE_RAIL_HIDDEN.has(kind))
+    .map((kind) => ({
+      id: `tile-switch-${kind}`,
+      label: `Tile: Switch to ${SURFACE_LABEL[kind]}`,
+      onSelect: () => onSwitch(kind),
+    }));
 }

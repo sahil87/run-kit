@@ -1,0 +1,56 @@
+id: ox16
+name: 260816-ox16-mobile-tile-switch-vocab
+created: 2026-08-16T19:04:06Z
+created_by: Sahil Ahuja
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: done
+plan:
+    generated: true
+    task_count: 10
+    acceptance_count: 20
+    acceptance_completed: 20
+confidence:
+    certain: 6
+    confident: 3
+    tentative: 2
+    unresolved: 0
+    score: 3.5
+    fuzzy: true
+    dimensions:
+        signal: 76.4
+        reversibility: 76.4
+        competence: 72.7
+        disambiguation: 74.1
+stage_metrics:
+    intake: {started_at: "2026-08-16T19:04:06Z", driver: fab-new, iterations: 1, completed_at: "2026-08-16T19:08:49Z"}
+    apply: {started_at: "2026-08-16T19:08:49Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-16T19:58:11Z"}
+    review: {started_at: "2026-08-16T19:58:11Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-16T20:16:30Z"}
+    hydrate: {started_at: "2026-08-16T20:16:30Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-16T20:30:27Z"}
+    ship: {started_at: "2026-08-16T20:30:27Z", driver: fab-fff, iterations: 1}
+    review-pr: {started_at: "2026-08-16T20:40:03Z", driver: git-pr-review, iterations: 1, completed_at: "2026-08-16T20:40:03Z"}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-08-16T20:30:27Z"
+    computed_at_stage: hydrate
+summary: 'Mobile switch-to-tile verb (top-bar surface-toggles switch mode, pinned in-bar, radio semantics) replaces the bottom-bar ▦ chip + mobile-surface-sheet; palette vocabulary renamed Layout: Add/Close/Focus → Tile: Show/Hide/Focus with new mobile Tile: Switch to <X> entries superseding View: on mobile'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-16T20:40:03Z

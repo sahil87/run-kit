@@ -238,3 +238,84 @@ describe("ChromeProvider compose-strip preference", () => {
     setItem.mockRestore();
   });
 });
+
+const SCROLL_LOCK_KEY = "runkit-scroll-lock";
+
+function ScrollLockConsumer() {
+  const { scrollLocked } = useChromeState();
+  const { setScrollLocked } = useChromeDispatch();
+  return (
+    <div>
+      <span data-testid="locked">{String(scrollLocked)}</span>
+      <button onClick={() => setScrollLocked(true)}>lock</button>
+      <button onClick={() => setScrollLocked(false)}>unlock</button>
+    </div>
+  );
+}
+
+function renderScrollLockConsumer() {
+  return render(
+    <ChromeProvider>
+      <ScrollLockConsumer />
+    </ChromeProvider>,
+  );
+}
+
+const locked = () => screen.getByTestId("locked").textContent;
+
+describe("ChromeProvider scroll-lock preference", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    mockViewport(false);
+  });
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    localStorage.clear();
+  });
+
+  it("defaults to unlocked (false) when unset", () => {
+    renderScrollLockConsumer();
+    expect(locked()).toBe("false");
+    expect(localStorage.getItem(SCROLL_LOCK_KEY)).toBeNull();
+  });
+
+  it("rehydrates a locked preference from localStorage on init", () => {
+    localStorage.setItem(SCROLL_LOCK_KEY, "true");
+    renderScrollLockConsumer();
+    expect(locked()).toBe("true");
+  });
+
+  it("locks and persists 'true'", () => {
+    renderScrollLockConsumer();
+    click("lock");
+    expect(locked()).toBe("true");
+    expect(localStorage.getItem(SCROLL_LOCK_KEY)).toBe("true");
+  });
+
+  it("unlocks and persists 'false'", () => {
+    localStorage.setItem(SCROLL_LOCK_KEY, "true");
+    renderScrollLockConsumer();
+    expect(locked()).toBe("true");
+    click("unlock");
+    expect(locked()).toBe("false");
+    expect(localStorage.getItem(SCROLL_LOCK_KEY)).toBe("false");
+  });
+
+  it("degrades to unlocked on a corrupt stored value", () => {
+    localStorage.setItem(SCROLL_LOCK_KEY, "banana");
+    renderScrollLockConsumer();
+    expect(locked()).toBe("false");
+  });
+
+  it("survives a localStorage write throw without breaking (try/catch noop)", () => {
+    renderScrollLockConsumer();
+    const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("quota exceeded");
+    });
+    expect(() => click("lock")).not.toThrow();
+    expect(locked()).toBe("true");
+    setItem.mockRestore();
+  });
+});

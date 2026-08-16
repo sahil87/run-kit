@@ -14,6 +14,7 @@ const SIDEBAR_OPEN_STORAGE_KEY = "runkit-sidebar-open";
 const SIDEBAR_WIDTH_STORAGE_KEY = "runkit-sidebar-width";
 const TERMINAL_FONT_STORAGE_KEY = "runkit-terminal-font-size";
 const COMPOSE_STRIP_STORAGE_KEY = "runkit-compose-strip";
+const SCROLL_LOCK_STORAGE_KEY = "runkit-scroll-lock";
 
 const SIDEBAR_DEFAULT_WIDTH = 220;
 const SIDEBAR_MIN_WIDTH = 160;
@@ -61,6 +62,17 @@ function readFixedWidth(): boolean {
 function readComposeStrip(): boolean {
   try {
     return localStorage.getItem(COMPOSE_STRIP_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+/** Whether terminal scroll-lock is engaged (a global chrome preference,
+ * persisted like `composeStripEnabled`). Absent or unreadable key defaults to
+ * unlocked. */
+function readScrollLocked(): boolean {
+  try {
+    return localStorage.getItem(SCROLL_LOCK_STORAGE_KEY) === "true";
   } catch {
     return false;
   }
@@ -131,6 +143,11 @@ type ChromeState = {
    * persisted to `runkit-compose-strip`. When on, the strip renders above the
    * bottom bar on every route that mounts a `<BottomBar>`. */
   composeStripEnabled: boolean;
+  /** Whether terminal scroll-lock is engaged — a global chrome preference
+   * persisted to `runkit-scroll-lock` so the lock survives remounts, route
+   * changes, and mobile tab reloads. Every TerminalClient (single-terminal
+   * and board panes) suppresses tap-to-focus while this is on. */
+  scrollLocked: boolean;
 };
 
 type ChromeDispatch = {
@@ -158,6 +175,8 @@ type ChromeDispatch = {
   resetTerminalFont: () => void;
   /** Toggle the docked compose strip on/off, persisting to localStorage. */
   toggleComposeStrip: () => void;
+  /** Set terminal scroll-lock on/off, persisting to localStorage. */
+  setScrollLocked: (locked: boolean) => void;
 };
 
 const ChromeStateContext = createContext<ChromeState | null>(null);
@@ -244,9 +263,16 @@ export function ChromeProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  const [scrollLocked, setScrollLockedState] = useState(readScrollLocked);
+
+  const setScrollLocked = useCallback((locked: boolean) => {
+    try { localStorage.setItem(SCROLL_LOCK_STORAGE_KEY, String(locked)); } catch { /* noop */ }
+    setScrollLockedState(locked);
+  }, []);
+
   const stateValue = useMemo<ChromeState>(
-    () => ({ currentSession, currentWindow, sidebarOpen, sidebarWidth, isConnected, fixedWidth, terminalFontSize, composeStripEnabled }),
-    [currentSession, currentWindow, sidebarOpen, sidebarWidth, isConnected, fixedWidth, terminalFontSize, composeStripEnabled],
+    () => ({ currentSession, currentWindow, sidebarOpen, sidebarWidth, isConnected, fixedWidth, terminalFontSize, composeStripEnabled, scrollLocked }),
+    [currentSession, currentWindow, sidebarOpen, sidebarWidth, isConnected, fixedWidth, terminalFontSize, composeStripEnabled, scrollLocked],
   );
 
   const dispatchRef = useRef<ChromeDispatch | null>(null);
@@ -263,6 +289,7 @@ export function ChromeProvider({ children }: { children: React.ReactNode }) {
       decreaseTerminalFont,
       resetTerminalFont,
       toggleComposeStrip,
+      setScrollLocked,
     };
   }
 

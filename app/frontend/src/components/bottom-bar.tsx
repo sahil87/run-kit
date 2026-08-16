@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect, useSyncExternalStore } from "react";
 import { useModifierState, type ModifierSnapshot } from "@/hooks/use-modifier-state";
 import { useFocusedTerminal } from "@/contexts/focused-terminal-context";
-import { useChromeState } from "@/contexts/chrome-context";
+import { useChromeState, useChromeDispatch } from "@/contexts/chrome-context";
 import { ArrowPad } from "@/components/arrow-pad";
 import { KBD_CLASS } from "@/components/kbd-chip";
 import { Tip, TipGroup } from "@/components/tip";
@@ -19,7 +19,6 @@ import type { SurfaceKind } from "@/lib/surface-layout";
 type BottomBarProps = {
   onOpenCompose?: () => void;
   onFocusTerminal?: () => void;
-  onScrollLockChange?: (locked: boolean) => void;
   /** Mobile surface tabs (260812-ab5v T014/R13): present only on the mobile
    *  terminal route with a MULTI-tile resolved layout. A ▦ chip opens the
    *  full-height sheet (`mobile-surface-sheet`) listing the open surfaces as
@@ -92,13 +91,17 @@ const MODIFIER_TIP_LABELS: Record<string, string> = {
 /** Prevent mousedown from stealing focus away from the terminal. */
 const preventFocusSteal = (e: React.MouseEvent) => e.preventDefault();
 
-export function BottomBar({ onOpenCompose, onFocusTerminal, onScrollLockChange, surfaceSheet }: BottomBarProps) {
+export function BottomBar({ onOpenCompose, onFocusTerminal, surfaceSheet }: BottomBarProps) {
   const { focused } = useFocusedTerminal();
-  const { composeStripEnabled } = useChromeState();
+  // Scroll-lock is a persisted chrome preference (ChromeContext,
+  // `runkit-scroll-lock`) so it survives remounts, route changes, and mobile
+  // tab reloads — a per-mount useState here silently reset the lock on every
+  // one of those, which is how the keyboard kept coming back mid-read.
+  const { composeStripEnabled, scrollLocked } = useChromeState();
+  const { setScrollLocked } = useChromeDispatch();
   const wsRef = focused?.wsRef;
   const mods = useModifierState();
   const [fnOpen, setFnOpen] = useState(false);
-  const [scrollLocked, setScrollLocked] = useState(false);
   // Mobile surface sheet (T014) — open state only; surfaces/selection are
   // app-owned transient state.
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -225,14 +228,6 @@ export function BottomBar({ onOpenCompose, onFocusTerminal, onScrollLockChange, 
   const longPressTouchStartRef = useRef<{ x: number; y: number } | null>(null);
   const didLongPressRef = useRef(false);
 
-  const toggleScrollLock = useCallback(
-    (locked: boolean) => {
-      setScrollLocked(locked);
-      onScrollLockChange?.(locked);
-    },
-    [onScrollLockChange],
-  );
-
   const cancelLongPress = useCallback(() => {
     if (longPressTimerRef.current) {
       clearTimeout(longPressTimerRef.current);
@@ -255,11 +250,11 @@ export function BottomBar({ onOpenCompose, onFocusTerminal, onScrollLockChange, 
         if (next && activeEl instanceof HTMLElement && activeEl.closest(".xterm")) {
           activeEl.blur();
         }
-        toggleScrollLock(next);
+        setScrollLocked(next);
         navigator.vibrate?.(50);
       }, LONG_PRESS_MS);
     },
-    [scrollLocked, toggleScrollLock],
+    [scrollLocked, setScrollLocked],
   );
 
   const handleKbdTouchMove = useCallback(
@@ -296,9 +291,11 @@ export function BottomBar({ onOpenCompose, onFocusTerminal, onScrollLockChange, 
       return;
     }
     if (scrollLocked) {
-      // Tap in locked mode: unlock and summon keyboard
-      toggleScrollLock(false);
-      focusInput();
+      // Tap in locked mode: unlock ONLY — never summon the keyboard. The tap
+      // usually means "stop being locked", not "type now"; summoning here put
+      // the keyboard up for users trying to reinforce the lock. The next tap
+      // of the now-⌨ chip shows the keyboard as usual.
+      setScrollLocked(false);
       return;
     }
     if (termFocused && document.activeElement instanceof HTMLElement) {
@@ -306,7 +303,7 @@ export function BottomBar({ onOpenCompose, onFocusTerminal, onScrollLockChange, 
     } else {
       focusInput();
     }
-  }, [scrollLocked, termFocused, toggleScrollLock, focusInput]);
+  }, [scrollLocked, termFocused, setScrollLocked, focusInput]);
 
   const send = useCallback(
     (data: string) => {

@@ -42,7 +42,7 @@ Task runner: `just` (see `justfile`). Frontend deps managed by pnpm (in `app/fro
 - **Framework**: Vite 8 + React 19 (SPA, no SSR)
 - **Routing**: TanStack Router — routes: `/` (redirect), `/$session/$window`
 - **UI**: Tailwind CSS 4
-- **Terminal**: xterm.js 5 (`@xterm/xterm`) with FitAddon and WebLinks addon
+- **Terminal**: xterm.js 6 (`@xterm/xterm`) with FitAddon and WebLinks addon
 - **API client**: `src/api/client.ts`
 - **Testing**: Vitest 4, Testing Library (React + jest-dom), jsdom, Playwright (e2e)
 - **Build**: `tsc --noEmit && vite build`

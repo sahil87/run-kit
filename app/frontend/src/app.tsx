@@ -668,7 +668,7 @@ function AppShell() {
   const serversLoaded = ctx.serversLoaded;
   const pendingServer = ctx.pendingServer;
   const sessions = useMergedSessions(rawSessions, server);
-  const { sidebarOpen, sidebarWidth, fixedWidth, composeStripEnabled } = useChromeState();
+  const { sidebarOpen, sidebarWidth, fixedWidth, composeStripEnabled, scrollLocked } = useChromeState();
   const { setCurrentSession, setCurrentWindow, setSidebarOpen, setSidebarWidth, persistSidebarWidth, toggleFixedWidth, toggleComposeStrip } = useChromeDispatch();
   const navigate = useNavigate();
   const isMobile = useIsMobile();
@@ -1155,8 +1155,9 @@ function AppShell() {
   // predicate lives beside the mount sites below); its enablement is the
   // persisted `composeStripEnabled` chrome preference, toggled by the `>_` chip
   // and the `View: Text Input` palette action. No per-terminal compose-open
-  // state.
-  const [scrollLocked, setScrollLocked] = useState(false);
+  // state. Scroll-lock is likewise a persisted chrome preference (read via
+  // `scrollLocked` above) — BottomBar owns the toggle, this shell only threads
+  // the value down to the terminal surfaces.
   // Server create/kill dialogs + the merged palette list (260811-239r): both
   // dialogs mount ONCE in AppLayout (`ServerDialogs`); this route shell only
   // consumes the triggers (sidebar/palette call sites) and the open-state (the
@@ -3709,7 +3710,6 @@ function AppShell() {
           <BottomBar
             onOpenCompose={toggleComposeStrip}
             onFocusTerminal={() => focusTerminalRef.current?.()}
-            onScrollLockChange={setScrollLocked}
             // Mobile surface tabs (T014/R13): only on the mobile terminal
             // route with a multi-tile layout — the ▦ chip's sheet swaps the
             // mobile slot-A surface via transient state (never a layout

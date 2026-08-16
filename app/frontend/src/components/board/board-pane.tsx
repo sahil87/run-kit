@@ -63,8 +63,8 @@ interface BoardPaneProps {
    *  should-fix #1). Omitted on mobile. */
   dropTargetProps?: BoardPaneDropProps;
   /** When `true`, this pane's TerminalClient suppresses xterm focus on
-   * touchend (long-press scroll-lock). Forwarded from the BoardPage's
-   * shell-level scroll-lock state. */
+   * touch/tap (long-press scroll-lock). Forwarded from the persisted
+   * ChromeContext scroll-lock preference read by BoardPage. */
   scrollLocked?: boolean;
   /**
    * Optional callback ref to the pane's root DOM element. Distinct from the

@@ -302,7 +302,7 @@ function BoardPageContent({ name }: { name: string }) {
   // Chrome dispatch — lifted above the keybinding handlers so the ⇧⌘E
   // compose-toggle chord (260801-sm6g) and the palette memos below can consume
   // it (also feeds the sidebar toggle).
-  const { sidebarOpen, composeStripEnabled } = useChromeState();
+  const { sidebarOpen, composeStripEnabled, scrollLocked } = useChromeState();
   const { setSidebarOpen, toggleComposeStrip } = useChromeDispatch();
 
   // Keyboard chords (260730-g40a): the pane-cycle ⌘[/⌘] pair migrated into
@@ -916,8 +916,9 @@ function BoardPageContent({ name }: { name: string }) {
   // is truthy) and `ScrollLock` long-press never reaches a handler. The compose
   // strip is a single global surface enabled via the `composeStripEnabled`
   // chrome preference; the `>_` chip toggles it, and the strip reads the focused
-  // BoardPane live from `FocusedTerminalContext` (260718-dhdj).
-  const [scrollLocked, setScrollLocked] = useState(false);
+  // BoardPane live from `FocusedTerminalContext` (260718-dhdj). Scroll-lock is
+  // likewise a persisted chrome preference (`scrollLocked` above) — BottomBar
+  // owns the toggle, this page only threads the value down to the panes.
   const focusFocusedPaneRef = useRef<(() => void) | null>(null);
   // Track the currently-focused pane's imperative focus method so BottomBar's
   // "Show keyboard" handler can re-focus the right xterm. The focused pane
@@ -998,7 +999,6 @@ function BoardPageContent({ name }: { name: string }) {
             <BottomBar
               onOpenCompose={toggleComposeStrip}
               onFocusTerminal={() => focusFocusedPaneRef.current?.()}
-              onScrollLockChange={setScrollLocked}
             />
           </>
         }

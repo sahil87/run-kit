@@ -181,16 +181,19 @@ function renderTerminalClient(scrollLocked = false) {
 
 describe("TerminalClient scroll-lock focus prevention", () => {
   beforeEach(() => {
-    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({
-      matches: false,
-      media: "",
+    // Coarse pointer must MATCH: the scroll-lock suppression effect gates on
+    // `(pointer: coarse)` (a persisted lock rehydrated on a fine-pointer
+    // profile must not suppress — see the fine-pointer test below).
+    vi.stubGlobal("matchMedia", vi.fn().mockImplementation((query: string) => ({
+      matches: query === "(pointer: coarse)",
+      media: query,
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
       onchange: null,
       addListener: vi.fn(),
       removeListener: vi.fn(),
       dispatchEvent: vi.fn(),
-    }));
+    })));
   });
 
   afterEach(() => {
@@ -233,6 +236,137 @@ describe("TerminalClient scroll-lock focus prevention", () => {
     });
 
     expect(preventSpy).not.toHaveBeenCalled();
+  });
+
+  // The capture-phase suppressors must beat xterm's own element-level
+  // listeners (contextmenu → rightClickHandler focuses the helper textarea;
+  // mousedown → terminal.focus()). The child-level listener stands in for
+  // xterm's: if it never fires and the event is defaultPrevented, xterm's
+  // can't have run either.
+  it.each(["contextmenu", "mousedown"] as const)(
+    "suppresses %s in the capture phase before child listeners when locked",
+    async (type) => {
+      const { container } = renderTerminalClient(true);
+      await act(async () => {});
+
+      const terminalDiv = container.querySelector("[role='application']");
+      expect(terminalDiv).toBeTruthy();
+      const child = document.createElement("div");
+      terminalDiv!.appendChild(child);
+      const childListener = vi.fn();
+      child.addEventListener(type, childListener);
+
+      const event = new MouseEvent(type, { bubbles: true, cancelable: true });
+      act(() => {
+        child.dispatchEvent(event);
+      });
+
+      expect(childListener).not.toHaveBeenCalled();
+      expect(event.defaultPrevented).toBe(true);
+    },
+  );
+
+  it.each(["contextmenu", "mousedown"] as const)(
+    "lets %s through to child listeners when unlocked",
+    async (type) => {
+      const { container } = renderTerminalClient(false);
+      await act(async () => {});
+
+      const terminalDiv = container.querySelector("[role='application']");
+      const child = document.createElement("div");
+      terminalDiv!.appendChild(child);
+      const childListener = vi.fn();
+      child.addEventListener(type, childListener);
+
+      const event = new MouseEvent(type, { bubbles: true, cancelable: true });
+      act(() => {
+        child.dispatchEvent(event);
+      });
+
+      expect(childListener).toHaveBeenCalled();
+    },
+  );
+
+  it("blurs a focus landing inside .xterm while locked (backstop)", async () => {
+    const { container } = renderTerminalClient(true);
+    await act(async () => {});
+
+    const terminalDiv = container.querySelector("[role='application']");
+    const xtermEl = document.createElement("div");
+    xtermEl.className = "xterm";
+    const textarea = document.createElement("textarea");
+    xtermEl.appendChild(textarea);
+    terminalDiv!.appendChild(xtermEl);
+
+    act(() => {
+      textarea.focus();
+    });
+
+    expect(document.activeElement).not.toBe(textarea);
+  });
+
+  it("does not blur xterm focus when unlocked", async () => {
+    const { container } = renderTerminalClient(false);
+    await act(async () => {});
+
+    const terminalDiv = container.querySelector("[role='application']");
+    const xtermEl = document.createElement("div");
+    xtermEl.className = "xterm";
+    const textarea = document.createElement("textarea");
+    xtermEl.appendChild(textarea);
+    terminalDiv!.appendChild(xtermEl);
+
+    act(() => {
+      textarea.focus();
+    });
+
+    expect(document.activeElement).toBe(textarea);
+  });
+
+  it("does not suppress on a fine pointer even when locked (persisted-lock rehydration)", async () => {
+    // A persisted lock rehydrated on a fine-pointer profile must leave the
+    // terminal fully interactive — the unlock chip only renders on coarse.
+    vi.stubGlobal("matchMedia", vi.fn().mockImplementation((query: string) => ({
+      matches: false,
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })));
+    const { container } = renderTerminalClient(true);
+    await act(async () => {});
+
+    const terminalDiv = container.querySelector("[role='application']");
+    const child = document.createElement("div");
+    terminalDiv!.appendChild(child);
+    const childListener = vi.fn();
+    child.addEventListener("mousedown", childListener);
+
+    const event = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
+    act(() => {
+      child.dispatchEvent(event);
+    });
+
+    expect(childListener).toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it("does not blur focus outside .xterm while locked", async () => {
+    const { container } = renderTerminalClient(true);
+    await act(async () => {});
+
+    const terminalDiv = container.querySelector("[role='application']");
+    const plain = document.createElement("textarea");
+    terminalDiv!.appendChild(plain);
+
+    act(() => {
+      plain.focus();
+    });
+
+    expect(document.activeElement).toBe(plain);
   });
 });
 

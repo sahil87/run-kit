@@ -486,8 +486,25 @@ export function TerminalClient({
   // sequences and can corrupt xterm.js internal state), we preventDefault()
   // on touchend to suppress the synthetic mousedown → focusin → click chain.
   // touchstart/touchmove still fire normally so SGR scroll keeps working.
+  //
+  // touchend suppression alone is not enough: xterm has two element-level
+  // focus paths, and one bypasses the synthetic-click chain entirely —
+  // "contextmenu" → rightClickHandler → moveTextAreaUnderMouseCursor, which
+  // WebKit's long-press recognizer can fire during a slow scroll drag. The
+  // React onContextMenu preventDefault on this container is root-delegated
+  // (bubble phase), so it runs AFTER xterm's own listener has already moved
+  // and focused the textarea. Capture-phase listeners on the container run
+  // BEFORE xterm's element listeners, so stopping the event here is what
+  // actually prevents the focus. mousedown capture closes the second path
+  // (xterm's mousedown handler calls focus()) against any synthetic-mouse
+  // delivery the touchend preventDefault didn't cover.
   useEffect(() => {
     if (!scrollLocked) return;
+    // Coarse-pointer only: scroll-lock is a touch feature (the toggle chip is
+    // coarse-gated), but the preference PERSISTS — rehydrated on a
+    // fine-pointer profile, the mousedown suppressor would kill click-to-focus
+    // and selection with no unlock affordance rendered anywhere.
+    if (!evaluateMediaQuery("(pointer: coarse)")) return;
     const container = terminalRef.current;
     if (!container) return;
 
@@ -495,8 +512,32 @@ export function TerminalClient({
       e.preventDefault();
     }
 
+    function suppress(e: Event) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+
+    // Backstop for focus paths the suppressors don't cover: while locked, any
+    // focus landing inside xterm is immediately blurred — a flicker instead
+    // of a stuck keyboard. Scoped to locked state, so the disruption the
+    // comment above warns about cannot affect normal (unlocked) use.
+    function onFocusIn(e: FocusEvent) {
+      const target = e.target;
+      if (target instanceof HTMLElement && target.closest(".xterm")) {
+        target.blur();
+      }
+    }
+
     container.addEventListener("touchend", onTouchEnd, { capture: true });
-    return () => container.removeEventListener("touchend", onTouchEnd, { capture: true });
+    container.addEventListener("contextmenu", suppress, { capture: true });
+    container.addEventListener("mousedown", suppress, { capture: true });
+    container.addEventListener("focusin", onFocusIn, { capture: true });
+    return () => {
+      container.removeEventListener("touchend", onTouchEnd, { capture: true });
+      container.removeEventListener("contextmenu", suppress, { capture: true });
+      container.removeEventListener("mousedown", suppress, { capture: true });
+      container.removeEventListener("focusin", onFocusIn, { capture: true });
+    };
   }, [scrollLocked]);
 
   // Mobile touch-to-scroll: translate vertical swipe gestures into SGR mouse

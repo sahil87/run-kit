@@ -51,7 +51,6 @@ function renderBottomBar(
         {focus && <FocusSeeder focus={focus} />}
         <BottomBar
           onFocusTerminal={vi.fn()}
-          onScrollLockChange={vi.fn()}
           {...overrides}
         />
       </FocusedTerminalProvider>
@@ -59,9 +58,14 @@ function renderBottomBar(
   );
 }
 
+// Lock state lives in ChromeContext persisted to this key — the observable
+// for these tests alongside the chip's aria-label.
+const SCROLL_LOCK_KEY = "runkit-scroll-lock";
+
 describe("BottomBar scroll-lock", () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    localStorage.clear();
   });
 
   afterEach(() => {
@@ -69,6 +73,7 @@ describe("BottomBar scroll-lock", () => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+    localStorage.clear();
   });
 
   it("renders keyboard toggle with 'Show keyboard' label by default", () => {
@@ -76,9 +81,8 @@ describe("BottomBar scroll-lock", () => {
     expect(screen.getByLabelText("Show keyboard")).toBeInTheDocument();
   });
 
-  it("long-press toggles scroll-lock on", () => {
-    const onScrollLockChange = vi.fn();
-    renderBottomBar({ onScrollLockChange });
+  it("long-press toggles scroll-lock on and persists it", () => {
+    renderBottomBar();
 
     const btn = screen.getByLabelText("Show keyboard");
 
@@ -90,20 +94,18 @@ describe("BottomBar scroll-lock", () => {
     // Advance past 500ms threshold
     act(() => { vi.advanceTimersByTime(500); });
 
-    expect(onScrollLockChange).toHaveBeenCalledWith(true);
+    expect(screen.getByLabelText(/Scroll lock on/)).toBeInTheDocument();
+    expect(localStorage.getItem(SCROLL_LOCK_KEY)).toBe("true");
   });
 
   it("long-press when locked toggles scroll-lock off", () => {
-    const onScrollLockChange = vi.fn();
-    renderBottomBar({ onScrollLockChange });
+    renderBottomBar();
 
     const btn = screen.getByLabelText("Show keyboard");
 
     // First long-press to lock
     fireEvent.touchStart(btn, { touches: [{ clientX: 100, clientY: 100 }] });
     act(() => { vi.advanceTimersByTime(500); });
-
-    expect(onScrollLockChange).toHaveBeenCalledWith(true);
 
     // Now button shows locked state
     const lockedBtn = screen.getByLabelText(/Scroll lock on/);
@@ -112,7 +114,15 @@ describe("BottomBar scroll-lock", () => {
     fireEvent.touchStart(lockedBtn, { touches: [{ clientX: 100, clientY: 100 }] });
     act(() => { vi.advanceTimersByTime(500); });
 
-    expect(onScrollLockChange).toHaveBeenCalledWith(false);
+    expect(screen.getByLabelText("Show keyboard")).toBeInTheDocument();
+    expect(localStorage.getItem(SCROLL_LOCK_KEY)).toBe("false");
+  });
+
+  it("rehydrates a persisted lock on mount (locked chip, no interaction)", () => {
+    localStorage.setItem(SCROLL_LOCK_KEY, "true");
+    renderBottomBar();
+
+    expect(screen.getByLabelText(/Scroll lock on/)).toBeInTheDocument();
   });
 
   it("tap (short touch) preserves existing keyboard toggle behavior", () => {
@@ -130,10 +140,9 @@ describe("BottomBar scroll-lock", () => {
     expect(onFocusTerminal).toHaveBeenCalledTimes(1);
   });
 
-  it("tap in locked mode unlocks and summons keyboard", () => {
+  it("tap in locked mode unlocks WITHOUT summoning the keyboard", () => {
     const onFocusTerminal = vi.fn();
-    const onScrollLockChange = vi.fn();
-    renderBottomBar({ onFocusTerminal, onScrollLockChange });
+    renderBottomBar({ onFocusTerminal });
 
     const btn = screen.getByLabelText("Show keyboard");
 
@@ -141,9 +150,7 @@ describe("BottomBar scroll-lock", () => {
     fireEvent.touchStart(btn, { touches: [{ clientX: 100, clientY: 100 }] });
     act(() => { vi.advanceTimersByTime(500); });
 
-    expect(onScrollLockChange).toHaveBeenCalledWith(true);
     onFocusTerminal.mockClear();
-    onScrollLockChange.mockClear();
 
     // Tap the now-locked button (short touch + click)
     const lockedBtn = screen.getByLabelText(/Scroll lock on/);
@@ -152,13 +159,15 @@ describe("BottomBar scroll-lock", () => {
     fireEvent.touchEnd(lockedBtn);
     fireEvent.click(lockedBtn);
 
-    expect(onScrollLockChange).toHaveBeenCalledWith(false);
-    expect(onFocusTerminal).toHaveBeenCalledTimes(1);
+    // Unlocks — but the keyboard is NOT summoned (a tap on 🔒 means "stop
+    // being locked", not "type now").
+    expect(screen.getByLabelText("Show keyboard")).toBeInTheDocument();
+    expect(localStorage.getItem(SCROLL_LOCK_KEY)).toBe("false");
+    expect(onFocusTerminal).not.toHaveBeenCalled();
   });
 
   it("touch move > 10px cancels long-press", () => {
-    const onScrollLockChange = vi.fn();
-    renderBottomBar({ onScrollLockChange });
+    renderBottomBar();
 
     const btn = screen.getByLabelText("Show keyboard");
 
@@ -171,7 +180,8 @@ describe("BottomBar scroll-lock", () => {
     // Wait past 500ms — should NOT trigger
     act(() => { vi.advanceTimersByTime(600); });
 
-    expect(onScrollLockChange).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText(/Scroll lock on/)).toBeNull();
+    expect(localStorage.getItem(SCROLL_LOCK_KEY)).toBeNull();
   });
 
   it("shows lock icon and accent styling when scroll-locked", () => {
@@ -220,8 +230,7 @@ describe("BottomBar scroll-lock", () => {
 
   it("click after long-press is suppressed (no double action)", () => {
     const onFocusTerminal = vi.fn();
-    const onScrollLockChange = vi.fn();
-    renderBottomBar({ onFocusTerminal, onScrollLockChange });
+    renderBottomBar({ onFocusTerminal });
 
     const btn = screen.getByLabelText("Show keyboard");
 
@@ -230,8 +239,7 @@ describe("BottomBar scroll-lock", () => {
     act(() => { vi.advanceTimersByTime(500); });
 
     // Long-press triggered lock
-    expect(onScrollLockChange).toHaveBeenCalledWith(true);
-    onScrollLockChange.mockClear();
+    expect(screen.getByLabelText(/Scroll lock on/)).toBeInTheDocument();
 
     // Subsequent click after long-press should be suppressed
     fireEvent.touchEnd(btn);
@@ -239,7 +247,8 @@ describe("BottomBar scroll-lock", () => {
 
     // Should NOT have called onFocusTerminal or toggled scroll lock again
     expect(onFocusTerminal).not.toHaveBeenCalled();
-    expect(onScrollLockChange).not.toHaveBeenCalled();
+    expect(screen.getByLabelText(/Scroll lock on/)).toBeInTheDocument();
+    expect(localStorage.getItem(SCROLL_LOCK_KEY)).toBe("true");
   });
 
   it("calls navigator.vibrate on long-press toggle", () => {

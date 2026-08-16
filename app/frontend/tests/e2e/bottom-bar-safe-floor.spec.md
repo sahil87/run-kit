@@ -12,6 +12,13 @@ honestly measurable: the floor arm of the `max()` expression and the `kb-open`
 class flip. The `env()` arm and the real keyboard signal are out of e2e reach
 (the signal derivation is unit-tested in `use-visual-viewport.test.ts`).
 
+The floor is asserted twice, on purpose: once as computed `padding-bottom`
+(the CSS is right) and once as rendered chip position (the padding actually
+became screen gap). The two can disagree — a fixed-height frame around the
+toolbar clips the padding against the app-shell's `overflow: hidden` while
+computed style still reads 16px (the 260816-4v2o clipping bug, shipped
+undetected because only computed style was asserted).
+
 ## Shared setup
 
 - Viewport is iPhone 14-sized (375×812) in both describes via `test.use`.
@@ -20,6 +27,9 @@ class flip. The `env()` arm and the real keyboard signal are out of e2e reach
   `globals.css`.
 - Padding is read as the computed `padding-bottom` of the
   `toolbar[name='Terminal keys']` element.
+- Rendered gap is read as `window.innerHeight` minus the lowest
+  `getBoundingClientRect().bottom` across the toolbar's chips
+  (`chipGapToViewportBottom` helper).
 - The keyboard-open state is simulated by adding/removing `kb-open` on
   `<html>` via `page.evaluate` — Playwright cannot summon a real on-screen
   keyboard.
@@ -38,6 +48,23 @@ padding is wasted above the keyboard — in both directions.
 2. Assert the toolbar's computed `padding-bottom` is `16px`.
 3. Add `kb-open` to `<html>` via `page.evaluate`; assert it becomes `6px`.
 4. Remove `kb-open`; assert it returns to `16px`.
+
+### `the floor is rendered screen gap, not just computed padding`
+
+**What it proves:** The raised floor is actually visible on screen — the
+chips' bottom edge clears the viewport bottom by the full 16px while the
+keyboard is collapsed, and the gap relaxes below the raised floor (but not
+below 6px) when the keyboard opens. This catches the failure mode the padding
+test cannot: a fixed-height frame (`h-[48px]`) swallowing the floor while
+computed padding still reads 16px. The bar's frame is `min-h-[48px]` and
+grows with the row (61px collapsed, 51px kb-open on coarse pointers).
+
+**Steps:**
+1. Navigate to `/${TMUX_SERVER}` with `hasTouch: true` at 375×812.
+2. Measure the rendered gap (viewport height minus the lowest chip bottom);
+   assert it is ≥ 16px.
+3. Add `kb-open` to `<html>`; assert the gap is ≥ 6px and < 16px.
+4. Remove `kb-open`; assert the gap returns to ≥ 16px.
 
 ### `the bar does not render, kb-open or not`
 

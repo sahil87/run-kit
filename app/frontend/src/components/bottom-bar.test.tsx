@@ -364,11 +364,13 @@ describe("BottomBar pointer gate (260814-ldbs R3)", () => {
     renderBottomBar({ onOpenCompose: vi.fn() }, null, "coarse");
     const toolbar = screen.getByRole("toolbar", { name: "Terminal keys" });
     expect(toolbar).toBeInTheDocument();
-    // Attached frame chrome: the 3px structural seam + 48px row (TipGroup
-    // renders no DOM wrapper, so the toolbar's parent IS the frame).
+    // Attached frame chrome: the 3px structural seam + min-48px row (TipGroup
+    // renders no DOM wrapper, so the toolbar's parent IS the frame). min-h,
+    // never fixed h — a fixed frame clips the coarse raised safe floor.
     const frame = toolbar.parentElement!;
     expect(frame.className).toContain("border-t-[3px]");
-    expect(frame.className).toContain("h-[48px]");
+    expect(frame.className).toContain("min-h-[48px]");
+    expect(frame.className).not.toMatch(/(?:^|\s)h-\[48px\]/);
   });
 });
 

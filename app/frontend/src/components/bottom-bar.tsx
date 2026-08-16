@@ -362,10 +362,14 @@ export function BottomBar({ onOpenCompose, onFocusTerminal, onScrollLockChange, 
   if (!coarse || composeFocused) return null;
 
   return (
-    // The bar's fixed-height frame (3px seam + 48px row) lives HERE, not at
-    // the footer call sites, so the coarse compose-focus early-return above
-    // removes the reserved height too — a caller-side wrapper would keep a
-    // 48px hole below the compose strip while the bar is hidden (260814).
+    // The bar's frame (3px seam + min-48px content-growing row) lives HERE,
+    // not at the footer call sites, so the coarse compose-focus early-return
+    // above removes the reserved height too — a caller-side wrapper would keep
+    // a 48px hole below the compose strip while the bar is hidden (260814).
+    // min-h, never a fixed h: the row below is taller than 48px on coarse
+    // pointers (36px chips + the raised safe floor = 58px), and a fixed frame
+    // clips that floor against the app-shell's overflow:hidden — the chips end
+    // up ~3px from the physical screen edge, under the iPhone corner arc.
     // TipGroup: the chip row is one warm-tip cluster (260723-fm08). Living
     // inside BottomBar itself, it covers BOTH render sites (app shell and the
     // board twin) with a single provider. Tips go only on the symbol-glyph
@@ -373,7 +377,7 @@ export function BottomBar({ onOpenCompose, onFocusTerminal, onScrollLockChange, 
     // menuitem entries and the arrow-popup buttons already show text labels,
     // and the coarse-only ⌨/🔒 chip could never render a tip (Tip
     // self-suppresses under pointer: coarse).
-    <div className="border-t-[3px] border-border px-1.5 h-[48px]">
+    <div className="border-t-[3px] border-border px-1.5 min-h-[48px]">
     <TipGroup>
     {/* pb = max(--bottom-bar-floor, safe-area-inset-bottom). env() resolves to
         0 in in-browser iOS Safari for this fixed-position app (non-zero only in

@@ -1,0 +1,55 @@
+id: 4v2o
+name: 260816-4v2o-unclip-bottom-bar-safe-floor
+created: 2026-08-16T18:17:18Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 5
+    acceptance_count: 7
+    acceptance_completed: 7
+confidence:
+    certain: 2
+    confident: 2
+    tentative: 0
+    unresolved: 0
+    score: 4.9
+    fuzzy: true
+    dimensions:
+        signal: 73.8
+        reversibility: 87.5
+        competence: 83.8
+        disambiguation: 80.0
+stage_metrics:
+    intake: {started_at: "2026-08-16T18:17:18Z", driver: fab-new, iterations: 1, completed_at: "2026-08-16T18:19:17Z"}
+    apply: {started_at: "2026-08-16T18:19:17Z", driver: fab-ff, iterations: 1, completed_at: "2026-08-16T18:23:17Z"}
+    review: {started_at: "2026-08-16T18:23:17Z", driver: fab-ff, iterations: 1, completed_at: "2026-08-16T18:28:59Z"}
+    hydrate: {started_at: "2026-08-16T18:28:59Z", driver: fab-ff, iterations: 1, completed_at: "2026-08-16T18:30:41Z"}
+    ship: {started_at: "2026-08-16T18:30:41Z", driver: fab-ff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-08-16T18:30:41Z"
+    computed_at_stage: hydrate
+summary: Bottom-bar frame h-[48px] → min-h-[48px] so the coarse raised safe floor renders as real screen gap; e2e now asserts rendered chip-to-viewport-bottom geometry, not just computed padding
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-16T18:30:41Z

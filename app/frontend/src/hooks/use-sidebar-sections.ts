@@ -20,12 +20,9 @@ export const SIDEBAR_SECTIONS: readonly {
   { section: "host", key: "runkit-sidebar-section-host", defaultValue: false, label: "Host" },
 ];
 
-const SECTION_ENTRY: Record<SidebarSection, (typeof SIDEBAR_SECTIONS)[number]> = {
-  boards: SIDEBAR_SECTIONS[0],
-  server: SIDEBAR_SECTIONS[1],
-  pane: SIDEBAR_SECTIONS[2],
-  host: SIDEBAR_SECTIONS[3],
-};
+const SECTION_ENTRY = Object.fromEntries(
+  SIDEBAR_SECTIONS.map((entry) => [entry.section, entry]),
+) as Record<SidebarSection, (typeof SIDEBAR_SECTIONS)[number]>;
 
 /**
  * Persisted visibility boolean for one sidebar section, shared reactively

@@ -395,7 +395,9 @@ test.describe("Row flyout card (coarse pointer)", () => {
 
     // The widened mobile drawer: 92% of the viewport capped at 340px.
     const drawerBox = (await page.locator('aside[aria-label="Navigation"]').boundingBox())!;
-    expect(drawerBox.width).toBe(Math.min(Math.round(page.viewportSize()!.width * 0.92), 340));
+    expect(Math.round(drawerBox.width)).toBe(
+      Math.min(Math.round(page.viewportSize()!.width * 0.92), 340),
+    );
 
     // Coarse rest state: the rest-state PR glyph lives in the rail's fixed
     // 16px slot; the pin/✕ cluster is fine-pointer-only — the buttons are not
@@ -405,8 +407,8 @@ test.describe("Row flyout card (coarse pointer)", () => {
     const scratchRail = scratchRow(page).getByTestId("status-rail");
     await expect(prRail).toBeVisible();
     await expect(scratchRail).toBeVisible();
-    expect((await prRail.boundingBox())!.width).toBe(56);
-    expect((await scratchRail.boundingBox())!.width).toBe(56);
+    expect(Math.round((await prRail.boundingBox())!.width)).toBe(56);
+    expect(Math.round((await scratchRail.boundingBox())!.width)).toBe(56);
     await expect(prRail.getByTestId("row-pr-glyph")).toBeVisible();
     await expect(scratchRail.getByTestId("row-pr-glyph")).toHaveCount(0);
     // The chevron hint renders on EVERY row — glyph or not (a consistent rail

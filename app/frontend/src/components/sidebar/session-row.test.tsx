@@ -3,10 +3,12 @@ import { useState } from "react";
 import { render, screen, cleanup, act, fireEvent } from "@testing-library/react";
 import { SessionRow } from "./session-row";
 import { IDENTITY_TIP_OPEN_DELAY_MS } from "./identity-tip";
+import { resetFlyoutWarmState } from "./row-flyout-card";
 import type { ProjectSession } from "@/types";
 import { makeSession, makeWindow } from "@/test-utils/fixtures";
 import { stubMatchMedia } from "@/test-utils/match-media";
 import { ThemeProvider } from "@/contexts/theme-context";
+import { computeRowTints, DEFAULT_DARK_THEME } from "@/themes";
 
 afterEach(() => {
   cleanup();
@@ -384,6 +386,162 @@ describe("SessionRow", () => {
       });
       expect(screen.queryByTestId("session-tip")).toBeNull();
       expect(onDragStart).toHaveBeenCalled();
+    });
+  });
+
+  // Coarse rail + session card (260817-ve5m): the rail extends the one
+  // continuous strip to session rows, the 4-icon cluster is render-gated
+  // `!coarse` (its actions live in the rail-triggered card), and the card
+  // carries the title/facts/action rows. jsdom evaluates no media queries, so
+  // the pointer is stubbed and geometry is asserted as classes/inline styles.
+  describe("coarse rail + session card (260817-ve5m)", () => {
+    beforeEach(() => {
+      resetFlyoutWarmState();
+      // Coarse pointer + dark scheme (ThemeProvider/SwatchPopover need the
+      // color-scheme query answered too).
+      stubMatchMedia((q) => q === "(pointer: coarse)" || q === "(prefers-color-scheme: dark)");
+    });
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      resetFlyoutWarmState();
+    });
+
+    function tapRail() {
+      act(() => {
+        fireEvent.pointerDown(screen.getByTestId("status-rail"), { pointerId: 1, pointerType: "touch" });
+      });
+    }
+
+    it("renders the 56px tier-tinted rail with an empty glyph slot + chevron, and gates the cluster out of the DOM", () => {
+      const rowTints = computeRowTints(DEFAULT_DARK_THEME.palette);
+      const session = makeSession({ name: "agent-work", sessionColor: "2" });
+      render(<SessionRow {...rowProps(session)} sessionColor="2" rowTints={rowTints} onSpawnAgent={noop} />);
+      const rail = screen.getByTestId("status-rail");
+      expect(rail.style.width).toBe("56px");
+      expect(rail.className).toContain("bg-bg-inset");
+      expect(rail.className).toContain("border-l");
+      expect(rail.className).toContain("touch-none");
+      // Per-tier band tint: the session's family tint mixed into the inset
+      // base (the shared color-mix idiom — never a new token).
+      expect(rail.style.backgroundColor).toContain("color-mix(in srgb, var(--color-bg-inset) 55%");
+      // The 16px glyph slot is ALWAYS an empty span on this tier; the 12px
+      // chevron is muted ~55% aria-hidden decoration.
+      const chevron = Array.from(rail.querySelectorAll("span")).find((s) => s.textContent === "›")!;
+      expect(chevron.className).toContain("w-3");
+      expect(chevron.className).toContain("opacity-55");
+      const glyphSlot = chevron.previousElementSibling as HTMLElement;
+      expect(glyphSlot.className).toContain("w-4");
+      expect(glyphSlot.children).toHaveLength(0);
+      // The row root carries the shared scrub hit-test handle.
+      expect(screen.getByRole("treeitem")).toHaveAttribute("data-rail-row");
+      // Render-gated, not CSS-hidden: no cluster buttons exist on coarse.
+      expect(screen.queryByLabelText("Set color for agent-work")).toBeNull();
+      expect(screen.queryByLabelText("Spawn agent in agent-work")).toBeNull();
+      expect(screen.queryByLabelText("New window in agent-work")).toBeNull();
+      expect(screen.queryByLabelText("Kill session agent-work")).toBeNull();
+    });
+
+    it("renders no rail and the unchanged cluster on fine pointers", () => {
+      stubMatchMedia((q) => q === "(prefers-color-scheme: dark)");
+      const session = makeSession({ name: "agent-work" });
+      render(<SessionRow {...rowProps(session)} />);
+      expect(screen.queryByTestId("status-rail")).toBeNull();
+      expect(screen.getByLabelText("Set color for agent-work")).toBeInTheDocument();
+      expect(screen.getByLabelText("New window in agent-work")).toBeInTheDocument();
+      expect(screen.getByLabelText("Kill session agent-work")).toBeInTheDocument();
+    });
+
+    it("rail tap opens the session card — title, facts line, action rows in order, actions route", () => {
+      const onSpawnAgent = vi.fn();
+      const onCreateWindow = vi.fn();
+      const onKillClick = vi.fn();
+      const session = makeSession({
+        name: "agent-work",
+        sessionId: "$4",
+        sessionPath: "/home/sahil/code/run-kit",
+        windows: [makeWindow({}), makeWindow({ windowId: "@2" })],
+      });
+      render(
+        <SessionRow
+          {...rowProps(session)}
+          onSpawnAgent={onSpawnAgent}
+          onCreateWindow={onCreateWindow}
+          onKillClick={onKillClick}
+        />,
+      );
+      tapRail();
+      const card = screen.getByTestId("row-flyout-card");
+      expect(screen.getByTestId("popup-title-bar")).toHaveTextContent("Session agent-work");
+      // The identity tip's facts line verbatim (omission-degrading).
+      expect(card).toHaveTextContent("$4 · 2 windows · ~/code/run-kit");
+      // Fixed order: Change color… → Spawn agent… → New window → Kill session.
+      const color = screen.getByTestId("row-flyout-color-action");
+      const spawn = screen.getByTestId("row-flyout-spawn-action");
+      const create = screen.getByTestId("row-flyout-create-action");
+      const kill = screen.getByTestId("row-flyout-kill-action");
+      expect(color).toHaveTextContent("Change color…");
+      expect(spawn).toHaveTextContent("Spawn agent…");
+      expect(create).toHaveTextContent("New window");
+      expect(kill).toHaveTextContent("Kill session");
+      expect(kill).toHaveTextContent("confirms first");
+      expect(kill.className).toContain("hover:text-signal-red");
+      expect(color.compareDocumentPosition(spawn) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(spawn.compareDocumentPosition(create) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(create.compareDocumentPosition(kill) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+      act(() => { fireEvent.click(spawn); });
+      expect(onSpawnAgent).toHaveBeenCalledWith("srv", "agent-work");
+      act(() => { fireEvent.click(create); });
+      expect(onCreateWindow).toHaveBeenCalledWith("srv", "agent-work");
+      act(() => { fireEvent.click(kill); });
+      // The existing kill-dialog path — never a force-kill on touch.
+      expect(onKillClick).toHaveBeenCalledWith("srv", "agent-work", 2, false);
+    });
+
+    it("omits the Spawn agent… row when no onSpawnAgent is wired (the board-route sidebar)", () => {
+      render(<SessionRow {...rowProps(makeSession({ name: "agent-work" }))} />);
+      tapRail();
+      expect(screen.queryByTestId("row-flyout-spawn-action")).toBeNull();
+      expect(screen.getByTestId("row-flyout-color-action")).toBeInTheDocument();
+      expect(screen.getByTestId("row-flyout-create-action")).toBeInTheDocument();
+      expect(screen.getByTestId("row-flyout-kill-action")).toBeInTheDocument();
+    });
+
+    it("Change color… closes the card and opens the color popover; the open popover inhibits re-opening", () => {
+      render(
+        <ThemeProvider>
+          <SessionRow {...rowProps(makeSession({ name: "agent-work" }))} />
+        </ThemeProvider>,
+      );
+      tapRail();
+      act(() => { fireEvent.click(screen.getByTestId("row-flyout-color-action")); });
+      expect(screen.queryByTestId("row-flyout-card")).toBeNull();
+      expect(screen.getByRole("listbox", { name: "Color picker" })).toBeInTheDocument();
+      // Popover-over-card precedence: the suppressed gate holds while the
+      // popover is open — a rail tap flashes nothing.
+      tapRail();
+      expect(screen.queryByTestId("row-flyout-card")).toBeNull();
+    });
+
+    it("lightens the rail only while the card is open (held treatment travels with the card)", () => {
+      render(<SessionRow {...rowProps(makeSession({ name: "agent-work" }))} />);
+      const rail = screen.getByTestId("status-rail");
+      expect(rail.style.backgroundColor).toBe("");
+      tapRail();
+      expect(rail.style.backgroundColor).toContain("color-mix(in srgb, var(--color-bg-inset) 40%");
+      expect(rail.style.borderColor).toBe("var(--color-text-secondary)");
+      act(() => {
+        fireEvent.keyDown(document, { key: "Escape" });
+      });
+      expect(screen.queryByTestId("row-flyout-card")).toBeNull();
+      expect(rail.style.backgroundColor).toBe("");
+    });
+
+    it("ghost sessions get no rail and no card", () => {
+      const ghost = { ...makeSession({ name: "ghosty" }), optimistic: true };
+      render(<SessionRow {...rowProps(ghost)} />);
+      expect(screen.queryByTestId("status-rail")).toBeNull();
+      expect(screen.getByRole("treeitem")).not.toHaveAttribute("data-rail-row");
     });
   });
 });

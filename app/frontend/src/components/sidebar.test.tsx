@@ -379,12 +379,16 @@ describe("Sidebar", () => {
   });
 
   it("shows kill button for each session", () => {
+    // The session-row action cluster is render-gated off on coarse (the
+    // file's blanket matchMedia stub defaults to coarse) — pin fine.
+    stubPointer(false);
     renderSidebar();
     const killButtons = screen.getAllByLabelText(/Kill session/);
     expect(killButtons).toHaveLength(2);
   });
 
   it("shows kill confirmation dialog when kill button is clicked", () => {
+    stubPointer(false);
     renderSidebar();
     fireEvent.click(screen.getByLabelText("Kill session run-kit"));
     expect(screen.getByRole("dialog")).toBeInTheDocument();

@@ -1,0 +1,55 @@
+id: ve5m
+name: 260817-ve5m-three-tier-status-rail-cards
+created: 2026-08-17T00:54:42Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 9
+    acceptance_count: 20
+    acceptance_completed: 20
+confidence:
+    certain: 11
+    confident: 4
+    tentative: 0
+    unresolved: 0
+    score: 4.8
+    fuzzy: true
+    dimensions:
+        signal: 86.3
+        reversibility: 77.3
+        competence: 88.7
+        disambiguation: 85.7
+stage_metrics:
+    intake: {started_at: "2026-08-17T00:54:42Z", driver: fab-new, iterations: 1, completed_at: "2026-08-17T01:00:36Z"}
+    apply: {started_at: "2026-08-17T01:00:36Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-17T01:49:03Z"}
+    review: {started_at: "2026-08-17T01:49:03Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-17T01:54:38Z"}
+    hydrate: {started_at: "2026-08-17T01:54:38Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-17T02:15:44Z"}
+    ship: {started_at: "2026-08-17T02:15:44Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-08-17T02:15:44Z"
+    computed_at_stage: hydrate
+summary: 'Three-tier status rail: one shared useRowFlyout card shell serves window/session/server cards (Change color… first row everywhere), clusters render-gated !coarse, coarse left-zone reclaimed, rail 48→56px, cross-tier scrub via data-rail-row'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-17T02:15:44Z

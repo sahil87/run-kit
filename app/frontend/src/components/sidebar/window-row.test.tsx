@@ -938,15 +938,15 @@ describe("WindowRow", () => {
       expect(pin.className).toContain("text-text-secondary");
     });
 
-    it("renders the label zone (cursor pointer, coarse-active) when the write seams are wired", () => {
+    it("renders the label zone (cursor pointer) on fine pointers when the write seams are wired", () => {
       const win = makeWindow({ windowId: "@0", index: 0 });
       renderAxis(win);
       // The 26px left-edge zone OPENS the picker — a menu-opener, so `pointer`
-      // (not the old `cell` cursor) and NOT coarse-inert (touch label access).
+      // (not the old `cell` cursor). Fine-pointer-only since 260817-ve5m (the
+      // coarse pointer path is the card's `Change color…` row).
       const zone = screen.getByLabelText("Set window label");
       expect(zone.className).toContain("cursor-pointer");
       expect(zone.className).not.toContain("cursor-[cell]");
-      expect(zone.className).not.toContain("coarse:pointer-events-none");
     });
 
     it("clicking the label zone opens the picker and does NOT select the row (no cycling)", () => {
@@ -1133,21 +1133,23 @@ describe("WindowRow", () => {
       expect(row.querySelector(".rk-hazard")).toBeNull();
     });
 
-    it("dashed and thick stripes render display-only in the label zone", () => {
+    it("dashed and thick stripes render display-only at the row's left edge", () => {
       const dashed = makeWindow({ windowId: "@0", index: 0, marker: "dashed", color: "orange" });
       const { unmount } = renderAxis(dashed);
-      let zone = screen.getByLabelText("Set window label");
+      // The stripe is hoisted to the ROW ROOT (260817-ve5m) so it stays
+      // rendered on coarse pointers, where the interactive zone is gone.
+      let row = document.querySelector('[data-window-id="@0"]') as HTMLElement;
       // Dashed: a fixed-rhythm one-period gradient tile (element-height
       // independent), not a border.
-      const dashedStripe = zone.querySelector('[style*="background-image"]') as HTMLElement | null;
+      const dashedStripe = row.querySelector('[style*="background-image"]') as HTMLElement | null;
       expect(dashedStripe).not.toBeNull();
       expect(dashedStripe!.style.backgroundSize).toBe("3px 12px");
       expect(dashedStripe!.style.backgroundRepeat).toBe("repeat-y");
       unmount();
       const thick = makeWindow({ windowId: "@1", index: 1, marker: "thick", color: "orange" });
       renderAxis(thick);
-      zone = screen.getByLabelText("Set window label");
-      const thickStripe = zone.querySelector('[style*="border-left"]') as HTMLElement | null;
+      row = document.querySelector('[data-window-id="@1"]') as HTMLElement;
+      const thickStripe = row.querySelector('[style*="border-left"]') as HTMLElement | null;
       expect(thickStripe).not.toBeNull();
       // Thick = 6px continuous solid bar.
       expect(thickStripe!.style.borderLeft).toContain("6px solid");
@@ -1182,17 +1184,24 @@ describe("WindowRow", () => {
       const win = makeWindow({ windowId: "@0", index: 0, marker: "solid", color: "orange" });
       const { container } = renderAxis(win);
       const zone = screen.getByLabelText("Set window label");
-      // The stripe is a display-only child with a left border in the guarded
-      // color; it anchors near-flush at the zone's (= the sidebar's) left edge.
-      const stripe = zone.querySelector('[style*="border-left"]') as HTMLElement | null;
+      // The stripe is a display-only ROW-LEVEL element (hoisted out of the
+      // zone in 260817-ve5m so it survives the zone's coarse removal) with a
+      // left border in the guarded color; it anchors near-flush at the
+      // sidebar's left edge.
+      const row = container.querySelector('[data-window-id="@0"]') as HTMLElement;
+      const stripe = row.querySelector('[style*="border-left"]') as HTMLElement | null;
       expect(stripe).not.toBeNull();
       expect(stripe!.style.borderLeft).toContain("solid");
+      // Display-only — never a click target.
+      expect(stripe!.className).toContain("pointer-events-none");
       // Edge-anchored: a small 4px inset from the sidebar edge (full-bleed
       // rows), not the old 17px post-icon-zone placement.
       expect(stripe!.style.left).toBe("4px");
-      // No next-state ghost preview element exists anymore.
-      expect(zone.querySelectorAll('[style*="border-left"]').length).toBe(1);
-      // Container must not be present twice (single stripe).
+      // No next-state ghost preview element exists anymore, and the zone
+      // itself no longer carries a stripe.
+      expect(row.querySelectorAll('[style*="border-left"]').length).toBe(1);
+      expect(zone.querySelector('[style*="border-left"]')).toBeNull();
+      // Container must not be present twice (single zone).
       expect(container.querySelectorAll('[aria-label="Set window label"]').length).toBe(1);
     });
 
@@ -1443,17 +1452,18 @@ describe("coarse pointer: rest glyph, relocated cluster, tap zone + scrub (ys3q)
     expect(screen.queryByTestId("row-flyout-card")).toBeNull();
   });
 
-  // Right-edge status rail (b8eu): the flyout gesture's visible home on coarse
-  // pointers — a 48px inset band with two fixed slots (16px PR glyph + 12px
+  // Right-edge status rail (b8eu, widened + three-tiered in 260817-ve5m): the
+  // flyout gesture's visible home on coarse
+  // pointers — a 56px inset band with two fixed slots (16px PR glyph + 12px
   // chevron hint), the PRIMARY tap/scrub target sharing the dot zone's
   // handlers. jsdom evaluates no media queries, so geometry/presence is
   // asserted as class strings + inline styles.
   describe("status rail", () => {
-    it("renders on every coarse non-ghost row: 48px inset band, seam border, touch-none, both fixed slots", () => {
+    it("renders on every coarse non-ghost row: 56px inset band, seam border, touch-none, both fixed slots", () => {
       const win = makeWindow({ windowId: "@0", index: 0, name: "my-shell" });
       renderCoarseRow(win);
       const rail = screen.getByTestId("status-rail");
-      expect(rail.style.width).toBe("48px");
+      expect(rail.style.width).toBe("56px");
       expect(rail.className).toContain("bg-bg-inset");
       expect(rail.className).toContain("border-l");
       expect(rail.className).toContain("border-border");
@@ -1521,12 +1531,12 @@ describe("coarse pointer: rest glyph, relocated cluster, tap zone + scrub (ys3q)
       const win = makeWindow({ windowId: "@0", index: 0, name: "my-shell" });
       renderCoarseRow(win);
       const button = screen.getByRole("treeitem").querySelector("button")!;
-      expect(button.className).toContain("coarse:pr-[48px]");
+      expect(button.className).toContain("coarse:pr-[56px]");
       cleanup();
       mockCoarsePointer();
       const { container } = renderGhostRow(makeGhostWindow());
       const ghostButton = container.querySelector("button")!;
-      expect(ghostButton.className).not.toContain("coarse:pr-[48px]");
+      expect(ghostButton.className).not.toContain("coarse:pr-[56px]");
     });
 
     it("pointerdown on the rail opens the card (primary target); the tap never selects the row and release keeps the card", () => {
@@ -1595,25 +1605,171 @@ describe("coarse pointer: rest glyph, relocated cluster, tap zone + scrub (ys3q)
       }
     });
 
-    it("both scrub ends resolve rows via the stricter '[role=\"treeitem\"][data-window-id]' selector", () => {
+    it("both scrub ends resolve rows via the shared '[data-rail-row]' selector (260817-ve5m)", () => {
       const closestSpy = vi.spyOn(Element.prototype, "closest");
       try {
         renderCoarseRow(makeWindow({ windowId: "@0", index: 0, name: "my-shell" }));
         act(() => {
           fireEvent.pointerDown(screen.getByTestId("status-rail"), { pointerId: 1, pointerType: "touch" });
         });
-        // The start handler must NOT resolve a bare treeitem (the loose
-        // pre-unification selector) — it uses the registry's strict form.
-        expect(closestSpy).toHaveBeenCalledWith('[role="treeitem"][data-window-id]');
+        // The start handler resolves via the ONE shared attribute selector —
+        // identical to `scrubTargetAt`'s — covering all three tier DOM shapes
+        // (window treeitem, session treeitem, non-treeitem server header).
+        expect(closestSpy).toHaveBeenCalledWith("[data-rail-row]");
         const calls = closestSpy.mock.calls.filter(
-          ([sel]) => typeof sel === "string" && sel.includes('[role="treeitem"]'),
+          ([sel]) => typeof sel === "string" && sel.includes("rail-row"),
         );
         for (const [sel] of calls) {
-          expect(sel).toBe('[role="treeitem"][data-window-id]');
+          expect(sel).toBe("[data-rail-row]");
         }
+        // The row root carries the attribute (ghost rows don't — they have no
+        // rail and a suppressed flyout).
+        expect(screen.getByRole("treeitem")).toHaveAttribute("data-rail-row");
       } finally {
         closestSpy.mockRestore();
       }
+    });
+
+    // Held-rail highlight (260817-ve5m R8): while the row's card is open its
+    // rail lightens (band a shade up + brightened seam); at rest the plain
+    // band. Keyed on the row-local flyout open state.
+    it("lightens the rail (band + seam) only while the row's card is open", () => {
+      renderCoarseRow(makeWindow({ windowId: "@0", index: 0, name: "my-shell" }));
+      const rail = screen.getByTestId("status-rail");
+      // At rest: the plain bg-inset band (class only, no inline mix/seam).
+      expect(rail.style.backgroundColor).toBe("");
+      expect(rail.style.borderColor).toBe("");
+      act(() => {
+        fireEvent.pointerDown(rail, { pointerId: 1, pointerType: "touch" });
+      });
+      expect(screen.getByTestId("row-flyout-card")).toBeInTheDocument();
+      // Held: one shade up (a deeper mix share of the hover shade) + a
+      // brightened seam — derived from existing tokens, no new ones.
+      expect(rail.style.backgroundColor).toContain("color-mix(in srgb, var(--color-bg-inset) 40%");
+      expect(rail.style.borderColor).toBe("var(--color-text-secondary)");
+      // Release keeps the card open (and thus the held rail); dismissal via
+      // Escape returns the rail to rest.
+      act(() => {
+        fireEvent.pointerUp(rail, { pointerId: 1, pointerType: "touch" });
+      });
+      expect(rail.style.backgroundColor).toContain("color-mix");
+      act(() => {
+        fireEvent.keyDown(document, { key: "Escape" });
+      });
+      expect(screen.queryByTestId("row-flyout-card")).toBeNull();
+      expect(rail.style.backgroundColor).toBe("");
+      expect(rail.style.borderColor).toBe("");
+    });
+  });
+
+  // Coarse left-zone reclaim (260817-ve5m R3): the interactive label zone +
+  // its palette-icon reveal are desktop-only; the display-only marker stripe
+  // (and the row overlays) stay; the content start reclaims the zone's width.
+  describe("coarse left-zone reclaim", () => {
+    /** Coarse + dark-scheme stub — the Label picker (SwatchPopover → useTheme)
+     *  needs the color-scheme query answered too. */
+    function mockCoarseDark() {
+      vi.stubGlobal(
+        "matchMedia",
+        vi.fn().mockImplementation((q: string) => ({
+          matches: q === "(pointer: coarse)" || q === "(prefers-color-scheme: dark)",
+          media: q,
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+          dispatchEvent: vi.fn(),
+          addListener: vi.fn(),
+          removeListener: vi.fn(),
+          onchange: null,
+        })),
+      );
+    }
+
+    function renderCoarseAxis(win: WindowInfo, extra: Partial<React.ComponentProps<typeof WindowRow>> = {}) {
+      mockCoarseDark();
+      return render(
+        <ThemeProvider>
+          <WindowRow
+            win={win}
+            session="alpha"
+            isSelected={false}
+            isDragOver={false}
+            color={win.color}
+            marker={win.marker}
+            editingWindow={null}
+            editingName=""
+            inputRef={{ current: null }}
+            onSelectWindow={noop}
+            onStartEditing={noop}
+            onWindowNameChange={noop}
+            onRenameKeyDown={noop as React.KeyboardEventHandler<HTMLInputElement>}
+            onRenameBlur={noop}
+            onKillClick={noop}
+            onColorChange={noop}
+            onMarkerChange={noop}
+            rowTints={computeRowTints(DEFAULT_DARK_THEME.palette)}
+            rowBorders={computeRowBorders(DEFAULT_DARK_THEME.palette, DEFAULT_DARK_THEME.category)}
+            server="srv"
+            {...extra}
+          />
+        </ThemeProvider>,
+      );
+    }
+
+    it("no interactive zone or icon reveal on coarse; the display-only stripe stays; content starts at ≈16px", () => {
+      const win = makeWindow({ windowId: "@0", index: 0, name: "my-shell", marker: "solid", color: "orange" });
+      renderCoarseAxis(win);
+      // The interactive zone + its reveal are gone from the DOM on coarse.
+      expect(screen.queryByLabelText("Set window label")).toBeNull();
+      // The display-only stripe REMAINS (information, not an affordance),
+      // pointer-events-none, anchored at the 4px inset.
+      const row = screen.getByRole("treeitem");
+      const stripe = row.querySelector('[style*="border-left"]') as HTMLElement | null;
+      expect(stripe).not.toBeNull();
+      expect(stripe!.className).toContain("pointer-events-none");
+      expect(stripe!.style.left).toBe("4px");
+      // The stripe overlays stay: a dashed row still mounts its data rain.
+      cleanup();
+      mockCoarseDark();
+      renderCoarseAxis(makeWindow({ windowId: "@1", index: 1, marker: "dashed", color: "orange" }));
+      expect(screen.getByRole("treeitem").querySelector(".rk-dash-rain")).toBeTruthy();
+    });
+
+    it("splits the content start: fine pointers keep pl-[30px], coarse reclaims to pl-4", () => {
+      renderCoarseAxis(makeWindow({ windowId: "@0", index: 0, name: "my-shell" }));
+      const button = screen.getByRole("treeitem").querySelector("button")!;
+      expect(button.className).toContain("pl-[30px]");
+      expect(button.className).toContain("coarse:pl-4");
+    });
+
+    it("the window card's FIRST action row is Change color…, closing the card and opening the label picker (never selecting the row)", () => {
+      const onSelectWindow = vi.fn();
+      renderCoarseAxis(makeWindow({ windowId: "@0", index: 0, name: "my-shell" }), { onSelectWindow });
+      act(() => {
+        fireEvent.pointerDown(screen.getByTestId("status-rail"), { pointerId: 1, pointerType: "touch" });
+      });
+      const card = screen.getByTestId("row-flyout-card");
+      // Row order: Change color… → Pin → Kill (no fork — no chat provider).
+      const color = screen.getByTestId("row-flyout-color-action");
+      expect(color).toHaveTextContent("Change color…");
+      const pin = screen.getByTestId("row-flyout-pin-action");
+      const kill = screen.getByTestId("row-flyout-kill-action");
+      expect(card.querySelector('[data-testid="row-flyout-actions"]')).toContainElement(color);
+      expect(color.compareDocumentPosition(pin) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(pin.compareDocumentPosition(kill) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      // Close-then-open handoff: the card closes, the row's combined Label
+      // picker opens, and the row was never selected.
+      act(() => {
+        fireEvent.click(color);
+      });
+      expect(screen.queryByTestId("row-flyout-card")).toBeNull();
+      expect(screen.getByRole("listbox", { name: "Label picker" })).toBeInTheDocument();
+      expect(onSelectWindow).not.toHaveBeenCalled();
+      // Popover-over-card precedence: while the picker is open the card's
+      // suppressed gate inhibits re-opening.
+      act(() => {
+        fireEvent.pointerDown(screen.getByTestId("status-rail"), { pointerId: 2, pointerType: "touch" });
+      });
+      expect(screen.queryByTestId("row-flyout-card")).toBeNull();
     });
   });
 });

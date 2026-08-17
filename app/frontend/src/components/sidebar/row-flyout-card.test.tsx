@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, cleanup, fireEvent, act } from "@testing-library/react";
 import {
   useRowFlyout,
+  WindowFlyoutContent,
   flyoutOpenDelay,
   resetFlyoutWarmState,
   scrubTargetAt,
@@ -9,10 +10,16 @@ import {
   FreshnessLine,
   FLYOUT_OPEN_DELAY_MS,
   STATUS_DOT_DOCS_URL,
+  STATUS_RAIL_WIDTH_PX,
+  RAIL_ROW_SELECTOR,
+  railRestBand,
+  railHeldBand,
+  RAIL_HELD_SEAM,
   FORK_TOOLTIP,
   canForkWindow,
 } from "./row-flyout-card";
-import { notchFill, POPUP_TITLE_BAR_HEIGHT_PX } from "./popup-title-bar";
+import { PopupTitleBar, PopupTitleBarSecondary, notchFill, POPUP_TITLE_BAR_HEIGHT_PX } from "./popup-title-bar";
+import { CardActionList, CardActionRow } from "./row-flyout-card";
 import { dotLabel } from "@/components/status-dot-label";
 import { statusDotState } from "@/components/pr-status-model";
 import type { WindowInfo } from "@/types";
@@ -34,17 +41,21 @@ afterEach(() => {
   resetFlyoutWarmState();
 });
 
-/** Minimal consumer mirroring WindowRow's wiring: the hook's reference props
- *  ride a plain row element, and the card renders as a sibling. The imperative
- *  seams (`openNow` = the coarse dot-tap, `close` = drag start) are exposed as
- *  buttons so tests can drive them like the row does. `onFork` mirrors the row's
- *  bound fork handler (omitted ⇒ no fork affordance); `onRowClick` stands in for
- *  the real row's select-on-click so stopPropagation can be asserted. The root
- *  carries the real row's `role="treeitem"` + `data-window-id` so the scrub
- *  registry's hit-test (`closest`) resolves it as a window row. */
+/** Minimal consumer mirroring WindowRow's wiring: the shared shell's
+ *  reference props ride a plain row element, the card renders as a sibling,
+ *  and the window tier's content is built via the `content` render prop (the
+ *  close-then-open handoff idiom for the Change color…/Pin rows lives at this
+ *  seam in the real row). The imperative seams (`openNow` = the coarse
+ *  rail-tap, `close` = drag start) are exposed as buttons so tests can drive
+ *  them like the row does. `onFork` mirrors the row's bound fork handler
+ *  (omitted ⇒ no fork affordance); `onRowClick` stands in for the real row's
+ *  select-on-click so stopPropagation can be asserted. The root carries the
+ *  shared `data-rail-row` handle so the scrub registry's hit-test resolves
+ *  it. */
 function Row({
   win,
   suppressed = false,
+  onChangeColorAction,
   onFork,
   onPinAction,
   pinned = false,
@@ -54,6 +65,7 @@ function Row({
 }: {
   win: WindowInfo;
   suppressed?: boolean;
+  onChangeColorAction?: () => void;
   onFork?: () => Promise<void>;
   onPinAction?: () => void;
   pinned?: boolean;
@@ -61,7 +73,34 @@ function Row({
   onKillAction?: () => void;
   onRowClick?: () => void;
 }) {
-  const flyout = useRowFlyout(win, { suppressed, onFork, onPinAction, pinned, pinnedBoard, onKillAction });
+  const flyout = useRowFlyout({
+    suppressed,
+    content: ({ close }) => (
+      <WindowFlyoutContent
+        win={win}
+        onChangeColorAction={
+          onChangeColorAction
+            ? () => {
+                close();
+                onChangeColorAction();
+              }
+            : undefined
+        }
+        onFork={onFork}
+        onPinAction={
+          onPinAction
+            ? () => {
+                close();
+                onPinAction();
+              }
+            : undefined
+        }
+        pinned={pinned}
+        pinnedBoard={pinnedBoard}
+        onKillAction={onKillAction}
+      />
+    ),
+  });
   return (
     <div
       ref={flyout.setReference}
@@ -69,6 +108,7 @@ function Row({
       onClick={onRowClick}
       role="treeitem"
       data-window-id={win.windowId}
+      data-rail-row=""
       data-testid="row"
     >
       row
@@ -507,7 +547,8 @@ describe("prFetchedAtEpoch + FreshnessLine (migrated from the dot tip)", () => {
   });
 });
 
-// Sectioned action rows (fork → pin → kill): the card is the pin/kill home on
+// Sectioned action rows (change color → fork → pin → kill): the card is the
+// color/pin/kill home on
 // coarse pointers (where the in-row cluster is fine-pointer-only) and additive
 // + Tab-reachable on desktop. Optional-handler idiom: a consumer wiring no
 // handler renders no row.
@@ -519,6 +560,9 @@ describe("Pin/Kill action rows (ys3q)", () => {
     expect(screen.getByTestId("row-flyout-pin-action")).toHaveTextContent("not pinned");
     expect(screen.getByTestId("row-flyout-kill-action")).toHaveTextContent("Kill window");
     expect(screen.getByTestId("row-flyout-kill-action")).toHaveTextContent("confirms first");
+    // Optional-handler gating covers the Change color… row too: no color seam
+    // wired ⇒ no row (and no throw).
+    expect(screen.queryByTestId("row-flyout-color-action")).toBeNull();
 
     cleanup();
     render(<Row win={makeWindow({})} />);
@@ -545,19 +589,25 @@ describe("Pin/Kill action rows (ys3q)", () => {
     expect(screen.getByTestId("row-flyout-pin-action")).not.toHaveTextContent("undefined");
   });
 
-  it("rows render in the fixed fork → pin → kill order with the sectioned-list geometry", () => {
+  it("rows render in the fixed change-color → fork → pin → kill order with the sectioned-list geometry", () => {
     render(
       <Row
         win={makeWindow({ chatProvider: "claude" })}
+        onChangeColorAction={() => {}}
         onFork={() => Promise.resolve()}
         onPinAction={() => {}}
         onKillAction={() => {}}
       />,
     );
     hoverOpen();
+    // `Change color…` is the FIRST action row of every tier's card
+    // (260817-ve5m), exact wording.
+    const color = screen.getByTestId("row-flyout-color-action");
+    expect(color).toHaveTextContent("Change color…");
     const fork = screen.getByTestId("row-flyout-fork-action");
     const pin = screen.getByTestId("row-flyout-pin-action");
     const kill = screen.getByTestId("row-flyout-kill-action");
+    expect(color.compareDocumentPosition(fork) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(fork.compareDocumentPosition(pin) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(pin.compareDocumentPosition(kill) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // One section with a top border off the registers block; touch height on
@@ -565,9 +615,10 @@ describe("Pin/Kill action rows (ys3q)", () => {
     const section = fork.parentElement!;
     expect(section.className).toContain("border-t");
     expect(section.className).toContain("divide-y");
+    expect(section).toContainElement(color);
     expect(section).toContainElement(pin);
     expect(section).toContainElement(kill);
-    for (const row of [fork, pin, kill]) {
+    for (const row of [color, fork, pin, kill]) {
       expect(row.className).toContain("min-h-[28px]");
       expect(row.className).toContain("coarse:min-h-[36px]");
     }
@@ -713,5 +764,218 @@ describe("coarse placement + width cap", () => {
   it("keeps the max-w-xs cap on a fine pointer (the right-placement arm is unchanged)", () => {
     renderOpen(makeWindow({}));
     expect(screen.getByTestId("row-flyout-card").className).toContain("max-w-xs");
+  });
+});
+
+// `Change color…` (260817-ve5m): the FIRST action row of every tier's card —
+// on the window card on BOTH pointer worlds. Mechanism is the Pin-row idiom:
+// close the card, then invoke the consumer's picker opener.
+describe("Change color… action row (260817-ve5m)", () => {
+  it("closes the card first, then hands off to the picker opener (never selects the row)", () => {
+    const onChangeColorAction = vi.fn();
+    const onRowClick = vi.fn();
+    render(<Row win={makeWindow({})} onChangeColorAction={onChangeColorAction} onRowClick={onRowClick} />);
+    hoverOpen();
+    expect(screen.getByTestId("row-flyout-card")).toBeInTheDocument();
+
+    act(() => {
+      fireEvent.click(screen.getByTestId("row-flyout-color-action"));
+    });
+    expect(onChangeColorAction).toHaveBeenCalledTimes(1);
+    expect(onRowClick).not.toHaveBeenCalled();
+    // The card closed BEFORE the handoff (the harness mirrors the row's
+    // close-then-open seam).
+    expect(screen.queryByTestId("row-flyout-card")).toBeNull();
+  });
+
+  it("renders on the fine-pointer (hover-opened) window card too, above Fork", () => {
+    render(
+      <Row
+        win={makeWindow({ chatProvider: "claude" })}
+        onChangeColorAction={() => {}}
+        onFork={() => Promise.resolve()}
+      />,
+    );
+    hoverOpen();
+    const color = screen.getByTestId("row-flyout-color-action");
+    const fork = screen.getByTestId("row-flyout-fork-action");
+    expect(color.compareDocumentPosition(fork) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});
+
+// Three-tier constants + idioms (260817-ve5m): the ONE rail-width constant,
+// the ONE shared hit-test selector, and the shared rail-band shade idioms.
+describe("three-tier rail constants + tint idioms (260817-ve5m)", () => {
+  it("STATUS_RAIL_WIDTH_PX is 56 — one constant, all tiers; the coarse width cap follows it", () => {
+    expect(STATUS_RAIL_WIDTH_PX).toBe(56);
+  });
+
+  it("RAIL_ROW_SELECTOR is the single shared data-attribute selector", () => {
+    expect(RAIL_ROW_SELECTOR).toBe("[data-rail-row]");
+  });
+
+  it("the rail-band idioms derive from existing tokens (color-mix into the inset base), no new tokens", () => {
+    expect(railRestBand("rgb(1 2 3)")).toBe("color-mix(in srgb, var(--color-bg-inset) 55%, rgb(1 2 3))");
+    // Held = one shade up: a deeper tint share.
+    expect(railHeldBand("rgb(1 2 3)")).toBe("color-mix(in srgb, var(--color-bg-inset) 40%, rgb(1 2 3))");
+    expect(RAIL_HELD_SEAM).toBe("var(--color-text-secondary)");
+  });
+});
+
+// The coarse-only tiers (260817-ve5m): session/server cards use the SAME shell
+// with hover/focus triggers disabled — the rail's tap/scrub (`openNow`) is the
+// one trigger — and register in the same scrub registry, so a scrub retargets
+// the single-open card ACROSS tiers.
+describe("coarseOnly tiers: session/server cards (260817-ve5m)", () => {
+  /** A coarse-only tier consumer (the session/server shape): generic tier
+   *  content — PopupTitleBar title, one facts line, a CardActionList — on a
+   *  non-treeitem root carrying the shared data-rail-row handle. */
+  function TierRow({
+    testid,
+    title,
+    facts,
+    onAction,
+    onRowClick,
+  }: {
+    testid: string;
+    title: string;
+    facts: string;
+    onAction?: () => void;
+    onRowClick?: () => void;
+  }) {
+    const flyout = useRowFlyout({
+      coarseOnly: true,
+      content: () => (
+        <>
+          <PopupTitleBar>
+            <PopupTitleBarSecondary>Server </PopupTitleBarSecondary>
+            {title}
+          </PopupTitleBar>
+          <span className="text-text-secondary">{facts}</span>
+          <CardActionList>
+            <CardActionRow
+              icon={<span />}
+              label="Kill server"
+              hint="confirms first"
+              danger
+              testid="row-flyout-kill-action"
+              onClick={() => onAction?.()}
+            />
+          </CardActionList>
+        </>
+      ),
+    });
+    return (
+      <div
+        ref={flyout.setReference}
+        {...flyout.referenceProps}
+        onClick={onRowClick}
+        data-rail-row=""
+        data-testid={testid}
+      >
+        {testid}
+        {/* The real rail's trailing click stopPropagations so a tap never
+            selects the row — mirror that here. */}
+        <button
+          type="button"
+          data-testid={`${testid}-open`}
+          onClick={(e) => {
+            e.stopPropagation();
+            flyout.openNow();
+          }}
+        />
+        {flyout.card}
+      </div>
+    );
+  }
+
+  it("never hover/focus-opens (the rail tap is the one trigger); openNow opens the card", () => {
+    render(<TierRow testid="srv" title="alpha" facts="tmux -L alpha · 2 sessions" />);
+    const row = screen.getByTestId("srv");
+    act(() => {
+      fireEvent.pointerEnter(row, { pointerType: "mouse" });
+      fireEvent.mouseEnter(row);
+      fireEvent.focus(row);
+      vi.advanceTimersByTime(FLYOUT_OPEN_DELAY_MS + 100);
+    });
+    expect(screen.queryByTestId("row-flyout-card")).toBeNull();
+
+    act(() => {
+      fireEvent.click(screen.getByTestId("srv-open"));
+    });
+    const card = screen.getByTestId("row-flyout-card");
+    expect(card).toBeInTheDocument();
+    // Title + facts + the sectioned action list; the coarse arm owns the
+    // width (no fine-pointer max-w-xs class).
+    expect(screen.getByTestId("popup-title-bar")).toHaveTextContent("Server alpha");
+    expect(card).toHaveTextContent("tmux -L alpha · 2 sessions");
+    expect(screen.getByTestId("row-flyout-kill-action")).toHaveTextContent("Kill server");
+    expect(screen.getByTestId("row-flyout-kill-action")).toHaveTextContent("confirms first");
+    expect(card.className).not.toContain("max-w-xs");
+  });
+
+  it("card action rows stopPropagation (never toggle/select the underlying row)", () => {
+    const onAction = vi.fn();
+    const onRowClick = vi.fn();
+    render(<TierRow testid="srv" title="alpha" facts="f" onAction={onAction} onRowClick={onRowClick} />);
+    act(() => {
+      fireEvent.click(screen.getByTestId("srv-open"));
+    });
+    act(() => {
+      fireEvent.click(screen.getByTestId("row-flyout-kill-action"));
+    });
+    expect(onAction).toHaveBeenCalledTimes(1);
+    expect(onRowClick).not.toHaveBeenCalled();
+  });
+
+  it("registers in the one scrub registry: a scrub retargets the single-open card ACROSS tiers", () => {
+    const elFromPoint = vi.fn();
+    (document as Document & { elementFromPoint?: unknown }).elementFromPoint = elFromPoint;
+    try {
+      render(
+        <>
+          <Row win={makeWindow({ windowId: "@1", name: "win-a" })} />
+          <TierRow testid="srv" title="alpha" facts="tmux -L alpha · 2 sessions" />
+        </>,
+      );
+      const winRow = screen.getByTestId("row");
+      const srvRow = screen.getByTestId("srv");
+
+      // Open the WINDOW tier's card via the registry.
+      elFromPoint.mockReturnValue(winRow);
+      const a = scrubTargetAt(0, 0);
+      expect(a?.row).toBe(winRow);
+      act(() => {
+        a?.open();
+      });
+      expect(screen.getByTestId("row-flyout-card")).toHaveTextContent("Window @1");
+
+      // Hit-test the SERVER tier's (non-treeitem) root — the shared
+      // data-rail-row selector resolves it where the old
+      // '[role="treeitem"][data-window-id]' selector could not.
+      elFromPoint.mockReturnValue(srvRow);
+      const b = scrubTargetAt(0, 0);
+      expect(b?.row).toBe(srvRow);
+      act(() => {
+        b?.open();
+      });
+      // One card, retargeted across the tier boundary.
+      expect(screen.getAllByTestId("row-flyout-card")).toHaveLength(1);
+      expect(screen.getByTestId("row-flyout-card")).toHaveTextContent("Server alpha");
+    } finally {
+      delete (document as { elementFromPoint?: unknown }).elementFromPoint;
+    }
+  });
+
+  it("a rail-bearing-shaped element with NO registered flyout does not resolve (registry lookup, not just the attribute)", () => {
+    const elFromPoint = vi.fn();
+    (document as Document & { elementFromPoint?: unknown }).elementFromPoint = elFromPoint;
+    try {
+      render(<div data-rail-row="" data-testid="stray" />);
+      elFromPoint.mockReturnValue(screen.getByTestId("stray"));
+      expect(scrubTargetAt(0, 0)).toBeNull();
+    } finally {
+      delete (document as { elementFromPoint?: unknown }).elementFromPoint;
+    }
   });
 });

@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Continuous Rail Mock v4</title>
+<style>
+  :root{
+    --bg:#0b0e14; --bg-row:#11151d; --bg-row-alt:#0e1219; --bg-inset:#1a2029;
+    --bg-card:#141922; --border:#2a3140; --text:#c9d1d9; --text-2:#7d8590;
+    --accent:#3fb950; --yellow:#e3b341; --blue:#58a6ff; --purple:#a371f7;
+    --red:#f85149; --sel:#2d3350; --srv:#4a4370; --ses:#274332;
+    --rail-w:56px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font:13px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;padding:16px 10px 48px;max-width:430px;margin:0 auto}
+  h1{font-size:15px;letter-spacing:.04em;margin:4px 0 2px}
+  h2{font-size:11px;color:var(--text-2);text-transform:uppercase;letter-spacing:.12em;margin:28px 0 10px;border-bottom:1px solid var(--border);padding-bottom:6px}
+  p.note{color:var(--text-2);font-size:11.5px;margin:6px 0 14px}
+  .drawer{background:var(--bg-row-alt);border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:10px}
+  .cap{font-size:10.5px;color:var(--text-2);margin:6px 2px 18px}
+  .cap b{color:var(--text)} .cap i{color:var(--accent);font-style:normal}
+
+  /* rows */
+  .row{position:relative;display:flex;align-items:center;min-height:36px;padding-left:16px;padding-right:calc(var(--rail-w) + 8px);border-bottom:1px solid #161b24}
+  .row:last-child{border-bottom:none}
+  .row.sel{background:var(--sel)}
+  .row.srvhdr{background:var(--srv);min-height:40px;padding-left:12px;font-weight:600;letter-spacing:.05em}
+  .row.seshdr{background:var(--ses);min-height:40px;padding-left:12px;font-weight:600}
+  .chev{color:var(--text);opacity:.8;margin-right:8px;font-size:10px}
+  .dot{width:7px;height:7px;border-radius:50%;flex:none;margin-right:8px}
+  .dot.solid-y{background:var(--yellow)} .dot.solid-b{background:var(--blue)}
+  .dot.ring-g{border:1.8px solid var(--accent)} .dot.ring-gr{border:1.8px solid var(--text-2)}
+  .name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-2)}
+  .sel .name,.srvhdr .name,.seshdr .name{color:var(--text)}
+
+  /* rail — one continuous strip on every row type */
+  .rail{position:absolute;right:0;top:0;bottom:0;width:var(--rail-w);
+        display:flex;align-items:center;justify-content:center;gap:4px;
+        background:var(--bg-inset);border-left:1px solid var(--border)}
+  .row:not(:last-child) .rail{border-bottom:0}
+  .sel .rail{background:#343b5e;border-left-color:#3d4568}
+  .srvhdr .rail{background:#3a3560;border-left-color:#524b7d}
+  .seshdr .rail{background:#1e3327;border-left-color:#2f4d3a}
+  .slot-pr{width:16px;height:16px;flex:none;display:flex;align-items:center;justify-content:center}
+  .slot-hint{width:12px;flex:none;display:flex;align-items:center;justify-content:center;color:var(--text-2);opacity:.55;font-size:11px}
+  .srvhdr .slot-hint,.seshdr .slot-hint{opacity:.75;color:var(--text)}
+  .pr{width:14px;height:14px;display:block}
+
+  /* left label zone (window rows) — palette reveal */
+  .lz{position:absolute;left:0;top:0;bottom:0;width:26px;z-index:2}
+  .lz .glow{position:absolute;inset:0;background:color-mix(in srgb,var(--yellow) 14%,transparent);opacity:0}
+  .lz .pico{position:absolute;left:9px;top:50%;transform:translateY(-50%);opacity:0;color:var(--yellow)}
+  .row.holding .lz .glow{opacity:1}
+  .row.holding .lz .pico{opacity:1}
+  .row.holding{background:#1b202b}
+  .row.holding .rail{background:#232a36;border-left-color:#39424f}
+  svg.pal{width:12px;height:12px;display:block}
+
+  /* card */
+  .cardwrap{position:relative;padding:4px calc(var(--rail-w) + 6px) 10px 8px}
+  .notch{position:absolute;top:-1px;right:calc(var(--rail-w) + 20px);width:10px;height:10px;background:var(--bg-inset);border-left:1px solid var(--border);border-top:1px solid var(--border);transform:rotate(45deg);z-index:2}
+  .card{position:relative;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;box-shadow:0 8px 24px rgba(0,0,0,.5);font-size:12px;overflow:hidden}
+  .card .tb{display:flex;align-items:center;gap:6px;background:var(--bg-inset);border-bottom:1px solid var(--border);padding:5px 8px}
+  .tb .t2{color:var(--text-2)} .tb .right{margin-left:auto;display:flex;gap:10px;color:var(--text-2)}
+  .card .body{padding:6px 8px;display:flex;flex-direction:column;gap:3px}
+  .body .l2{color:var(--text-2)}
+  .actions{border-top:1px solid var(--border);display:flex;flex-direction:column}
+  .actions .arow{display:flex;align-items:center;gap:8px;padding:8px;min-height:36px;color:var(--text)}
+  .actions .arow+.arow{border-top:1px solid #1c222d}
+  .arow .ic{width:14px;text-align:center;color:var(--text-2)}
+  .arow.kill{color:var(--red)} .arow.kill .ic{color:var(--red)}
+  .arow .sub{margin-left:auto;color:var(--text-2);font-size:10.5px}
+
+  .finger{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:34px;height:34px;border-radius:50%;background:rgba(201,209,217,.16);border:1.5px solid rgba(201,209,217,.45);z-index:3}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;margin:8px 2px 0;font-size:10.5px;color:var(--text-2)}
+</style>
+</head>
+<body>
+<h1>Continuous rail — mock v4</h1>
+<p class="note">Extends the shipped window-row rail to <b>session rows and server-group headers</b> — one unbroken strip down the tree — with the v4 geometry: on touch the left label ZONE is gone (Change color… lives in every card), the marker STRIPE stays as pure display (yellow stripe row in §1), content starts at 16px (+14px to names), and the rail grows to 56px. Held rails highlight. Desktop untouched.</p>
+
+<h2>1 · One continuous strip (all three row tiers)</h2>
+<div class="drawer">
+  <div class="row srvhdr"><span class="chev">▼</span><span class="name">RUNKIT</span>
+    <span class="rail"><span class="slot-pr"></span><span class="slot-hint">›</span></span>
+  </div>
+  <div class="row"><span class="dot solid-y"></span><span class="name">operator</span>
+    <span class="rail"><span class="slot-pr"></span><span class="slot-hint">›</span></span>
+  </div>
+  <div class="row seshdr"><span class="chev">▼</span><span class="name">runKit</span>
+    <span class="rail"><span class="slot-pr"></span><span class="slot-hint">›</span></span>
+  </div>
+  <div class="row" style="box-shadow:inset 6px 0 0 -2px var(--yellow)"><span class="dot solid-y"></span><span class="name">blank-tile-resize-bug</span>
+    <span class="rail"><span class="slot-pr"></span><span class="slot-hint">›</span></span>
+  </div>
+  <div class="row"><span class="dot ring-g"></span><span class="name">mobile-tile-switch-vocab</span>
+    <span class="rail"><span class="slot-pr"><svg class="pr" viewBox="0 0 24 24" fill="none" stroke="var(--purple)" stroke-width="2" stroke-linecap="round"><circle cx="6" cy="6" r="3"/><path d="M6 9v6"/><circle cx="6" cy="18" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><circle cx="18" cy="18" r="3"/></svg></span><span class="slot-hint">›</span></span>
+  </div>
+  <div class="row sel"><span class="dot ring-g"></span><span class="name">status-rail-interactions</span>
+    <span class="rail"><span class="slot-pr"><svg class="pr" viewBox="0 0 24 24" fill="none" stroke="var(--purple)" stroke-width="2" stroke-linecap="round"><circle cx="6" cy="6" r="3"/><path d="M6 9v6"/><circle cx="6" cy="18" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><circle cx="18" cy="18" r="3"/></svg></span><span class="slot-hint">›</span></span>
+  </div>
+</div>
+<p class="cap"><b>Note the headers:</b> the 🎨 🤖 + ✕ clusters are GONE from the session/server header rows on touch — the rail takes the edge, and those actions move into each row's card (§2/§3). The rail band tints per row type (server purple-family, session green-family, window neutral/selected) so the strip reads continuous but you always know which tier you're on. Desktop is untouched everywhere.</p>
+
+<h2>2 · Session card (rail tap on a session row)</h2>
+<div class="drawer">
+  <div class="row seshdr"><span class="chev">▼</span><span class="name">runKit</span>
+    <span class="rail"><span class="slot-pr"></span><span class="slot-hint">›</span><span class="finger"></span></span>
+  </div>
+  <div class="cardwrap">
+    <div class="notch"></div>
+    <div class="card">
+      <div class="tb"><span class="t2">Session</span> runKit<span class="right"><span>ⓘ</span></span></div>
+      <div class="body">
+        <span class="l2">$4 · 7 windows · ~/code/sahil87/run-kit</span>
+      </div>
+      <div class="actions">
+        <div class="arow"><span class="ic">🎨</span>Change color…</div>
+        <div class="arow"><span class="ic">⌬</span>Spawn agent…<span class="sub">dialog</span></div>
+        <div class="arow"><span class="ic">＋</span>New window</div>
+        <div class="arow kill"><span class="ic">✕</span>Kill session<span class="sub">confirms first</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="row"><span class="dot solid-y"></span><span class="name">blank-tile-resize-bug</span>
+    <span class="rail"><span class="slot-pr"></span><span class="slot-hint">›</span></span>
+  </div>
+</div>
+<p class="cap">The session identity tip (today desktop-hover-only, suppressed on touch) becomes a real card on coarse: identity title + the one-line facts, then the four relocated cluster actions. Same bottom-start placement, same containment (right edge before the rail).</p>
+
+<h2>3 · Server card (rail tap on a group header)</h2>
+<div class="drawer">
+  <div class="row srvhdr"><span class="chev">▼</span><span class="name">RUNKIT</span>
+    <span class="rail"><span class="slot-pr"></span><span class="slot-hint">›</span><span class="finger"></span></span>
+  </div>
+  <div class="cardwrap">
+    <div class="notch"></div>
+    <div class="card">
+      <div class="tb"><span class="t2">Server</span> runKit<span class="right"><span>ⓘ</span></span></div>
+      <div class="body">
+        <span class="l2">tmux -L runKit · 9 sessions · 51 windows</span>
+      </div>
+      <div class="actions">
+        <div class="arow"><span class="ic">🎨</span>Change color…</div>
+        <div class="arow"><span class="ic">＋</span>New session</div>
+        <div class="arow kill"><span class="ic">✕</span>Kill server<span class="sub">confirms first</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="row"><span class="dot solid-y"></span><span class="name">operator</span>
+    <span class="rail"><span class="slot-pr"></span><span class="slot-hint">›</span></span>
+  </div>
+</div>
+<p class="cap">Server header card: socket identity line + the relocated header actions. (Killing <b>rk-daemon</b> keeps its extra red warning in the confirm dialog, as today.)</p>
+
+<h2>4 · Held rail highlight + Change color in the window card</h2>
+<div class="drawer">
+  <div class="row"><span class="dot solid-b"></span><span class="name">riff-smooth-buzzard</span>
+    <span class="rail"><span class="slot-pr"></span><span class="slot-hint">›</span></span>
+  </div>
+  <div class="row holding"><span class="dot solid-y"></span><span class="name">status-rail-interactions</span>
+    <span class="rail"><span class="slot-pr"></span><span class="slot-hint">›</span><span class="finger"></span></span>
+  </div>
+  <div class="cardwrap">
+    <div class="notch"></div>
+    <div class="card">
+      <div class="tb"><span class="t2">Window</span> @304 <span class="t2">· pane</span> %496<span class="right"><span>ⓘ</span></span></div>
+      <div class="body"><span>PR-ready — parked</span><span class="l2">fab ox16 mobile-tile-switch-vocab · done</span></div>
+      <div class="actions">
+        <div class="arow"><span class="ic">🎨</span>Change color…</div>
+        <div class="arow"><span class="ic">⑂</span>Fork conversation</div>
+        <div class="arow"><span class="ic">⚲</span>Pin to board…</div>
+        <div class="arow kill"><span class="ic">✕</span>Kill window</div>
+      </div>
+    </div>
+  </div>
+  <div class="row"><span class="dot ring-gr"></span><span class="name">run-kit</span>
+    <span class="rail"><span class="slot-pr"></span><span class="slot-hint">›</span></span>
+  </div>
+</div>
+<p class="cap"><b>While your finger is on a rail</b> its band lightens and the seam brightens (the held state — travels with the card during a scrub). <b>Change color…</b> is the first action row of EVERY card (window/session/server, desktop included — the same close-card→open-picker handoff as Pin). On touch the left label zone is gone; the marker stripe stays as display. Desktop keeps the zone + hover reveal exactly as today.</p>
+
+<div class="legend">
+  <span>one 48px strip, three tier tints</span>
+  <span>headers: clusters → cards</span>
+  <span>held rail lightens · Change color… in every card</span>
+</div>
+</body>
+</html>

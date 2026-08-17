@@ -46,6 +46,17 @@ import { ServerPanel } from "./server-panel";
 import { SessionRow } from "./session-row";
 import { WindowPanel } from "./status-panel";
 import { WindowRow } from "./window-row";
+import { PopupTitleBar, PopupTitleBarSecondary } from "./popup-title-bar";
+import {
+  useRowFlyout,
+  useRailScrub,
+  CardActionList,
+  CardActionRow,
+  STATUS_RAIL_WIDTH_PX,
+  railRestBand,
+  railHeldBand,
+  RAIL_HELD_SEAM,
+} from "./row-flyout-card";
 
 /** Shallow element-wise compare of two flat string arrays (same length, same
  *  elements in order). Used to detect when an SSE-delivered session order has
@@ -2297,13 +2308,19 @@ function ServerGroupInner(props: ServerGroupProps) {
   // heuristic) as the ServerTile portal in server-panel.tsx.
   const [showColorPicker, setShowColorPicker] = useState(false);
   const paletteBtnRef = useRef<HTMLButtonElement>(null);
+  // The header element doubles as the popover's anchor on coarse pointers,
+  // where the palette button is render-gated off with the cluster (the card's
+  // `Change color…` row is the touch entry point) — fine-pointer anchoring at
+  // the palette button is unchanged.
+  const headerRef = useRef<HTMLElement | null>(null);
   const [popoverPos, setPopoverPos] = useState<{ top: number; right: number } | null>(null);
   useLayoutEffect(() => {
-    if (!showColorPicker || !paletteBtnRef.current) {
+    const anchor = paletteBtnRef.current ?? headerRef.current;
+    if (!showColorPicker || !anchor) {
       setPopoverPos(null);
       return;
     }
-    const rect = paletteBtnRef.current.getBoundingClientRect();
+    const rect = anchor.getBoundingClientRect();
     const approxPopoverHeight = 100; // rough; fine for flip heuristic
     const below = rect.bottom + 4;
     const fitsBelow = below + approxPopoverHeight <= window.innerHeight;
@@ -2313,6 +2330,93 @@ function ServerGroupInner(props: ServerGroupProps) {
       right: Math.max(4, window.innerWidth - rect.right),
     });
   }, [showColorPicker]);
+
+  // The coarse-pointer server card (260817-ve5m): the SAME shared card shell
+  // as the window flyout (one placement/containment/held implementation),
+  // coarse-ONLY — on fine pointers the hover cluster remains the surface, so
+  // the hover/focus triggers stay disabled and the header rail's tap/scrub
+  // (`openNow`) is the one trigger. Title + one facts line + the relocated
+  // cluster actions, bound to the EXISTING stable identity-arg seams
+  // (`onServerColorChange`/`onCreateSession`/`onKillServer` — no new props, so
+  // the R6a memo contract is untouched; all card state is group-local).
+  const flyout = useRowFlyout({
+    coarseOnly: true,
+    suppressed: showColorPicker,
+    content: ({ close }) => (
+      <>
+        <PopupTitleBar>
+          <PopupTitleBarSecondary>Server </PopupTitleBarSecondary>
+          {server}
+        </PopupTitleBar>
+        {/* Server names ARE socket names (the ServerPanel tile identity-tip
+            wording); the session count derives from the group's own data —
+            no new fetch. */}
+        <span className="text-text-secondary break-words">
+          {`tmux -L ${server} · ${sessions.length} session${sessions.length === 1 ? "" : "s"}`}
+        </span>
+        <CardActionList>
+          <CardActionRow
+            icon={<PaletteIcon />}
+            label="Change color…"
+            testid="row-flyout-color-action"
+            // Close-then-open (the Pin-row idiom): the card closes BEFORE the
+            // group's color popover opens; `suppressed` includes
+            // `showColorPicker`, so popover-over-card precedence holds.
+            onClick={() => {
+              close();
+              setShowColorPicker(true);
+            }}
+          />
+          <CardActionRow
+            icon={<PlusIcon />}
+            label="New session"
+            testid="row-flyout-create-action"
+            onClick={() => onCreateSession(server)}
+          />
+          <CardActionRow
+            icon={<CloseIcon />}
+            label="Kill server"
+            hint="confirms first"
+            danger
+            testid="row-flyout-kill-action"
+            // Routes through the existing killServerTarget dialog via
+            // onKillServer (the rk-daemon warning renders as today).
+            onClick={() => onKillServer(server)}
+          />
+        </CardActionList>
+      </>
+    ),
+  });
+  const scrub = useRailScrub(flyout.openNow);
+
+  // The header is the server card's floating reference AND the popover's
+  // coarse-anchor fallback — one stable callback sets both.
+  const setHeaderRefs = useCallback(
+    (node: HTMLElement | null) => {
+      flyout.setReference(node);
+      headerRef.current = node;
+    },
+    [flyout.setReference],
+  );
+
+  // Rail band: the header's family tint mixed into the inset base (the shared
+  // rail-tint idiom); while this header's card is open the band steps up one
+  // shade and the seam brightens (the held treatment, R8).
+  const railStyle = useMemo(() => {
+    if (!groupCoarsePointer) return undefined;
+    if (flyout.open) {
+      return {
+        backgroundColor: railHeldBand(
+          headerTint ? (isCurrent ? headerTint.selected : headerTint.hover) : "var(--color-bg-card)",
+        ),
+        borderColor: RAIL_HELD_SEAM,
+      };
+    }
+    if (headerTint) {
+      return { backgroundColor: railRestBand(isCurrent ? headerTint.selected : headerTint.base) };
+    }
+    return undefined;
+  }, [groupCoarsePointer, flyout.open, headerTint, isCurrent]);
 
   return (
     <section
@@ -2325,10 +2429,25 @@ function ServerGroupInner(props: ServerGroupProps) {
           selected fill + brighter text; inactive rests at the base fill with
           the guarded accent text and deepens on hover. */}
       <div
-        className="group relative flex items-stretch w-full transition-colors"
+        // `coarse:pr-[56px]` reserves the rail's column on coarse so the
+        // header label truncates before it (the literal matches
+        // STATUS_RAIL_WIDTH_PX — Tailwind scans literal classes only). On
+        // fine pointers the hover cluster owns the right edge, no reserve.
+        className="group relative flex items-stretch w-full transition-colors coarse:pr-[56px]"
         aria-current={isCurrent ? "true" : undefined}
         data-current-server={isCurrent ? "true" : undefined}
         data-server={server}
+        // The shared rail-row hit-test handle (260817-ve5m) — the scrub
+        // gesture's both ends resolve row roots via the IDENTICAL
+        // `RAIL_ROW_SELECTOR` across all three tier DOM shapes (this header
+        // is NOT a treeitem, which is why the attribute route exists).
+        data-rail-row=""
+        // The header is the server card's floating REFERENCE (+ the popover's
+        // coarse-anchor fallback). Spread FIRST so the header's own hover
+        // handlers below are never overridden (the coarse-only card wires no
+        // hover/focus reference handlers anyway).
+        ref={setHeaderRefs}
+        {...flyout.referenceProps}
         style={{
           backgroundColor: headerBg,
           borderTop: headerAccent ? `1px solid ${headerAccent}` : undefined,
@@ -2369,14 +2488,19 @@ function ServerGroupInner(props: ServerGroupProps) {
             the icons stay legible on the tinted fill; buttons INHERIT it at
             rest, which lets their own Tailwind hover: classes win on hover
             (an inline color on the buttons themselves would beat any class).
-            The palette is hover-revealed with the coarse touch fallback (the
-            session-row convention — NOT the SERVER-tile mobile hide); + and ✕
-            are always visible, exactly like the session row's + ✕ pair.
+            The palette is hover-revealed; + and ✕ are always visible, exactly
+            like the session row's + ✕ pair.
             260813-kvk7: the cluster adopts the session-row slot metrics
             (session-row.tsx) — PlusIcon/CloseIcon SVGs in
-            px-0.5 min-w-[24px] coarse:min-w-[32px] min-h-[24px]
-            coarse:min-h-[36px] slots with the wrapper's pr-2 — so the +/×
-            icon columns align vertically across every sidebar header tier. */}
+            px-0.5 min-w-[24px] min-h-[24px] slots with the wrapper's pr-2 —
+            so the +/× icon columns align vertically across every sidebar
+            header tier.
+            FINE-POINTER-ONLY (260817-ve5m): on coarse pointers the cluster is
+            render-gated out of the DOM (the window-row relocation precedent —
+            not CSS-hidden, so no invisible focusable buttons on touch); its
+            actions live in the rail-triggered server card, and the rail owns
+            the right edge. Desktop clusters unchanged. */}
+        {!groupCoarsePointer && (
         <div
           className={`flex items-center pr-2 ${isCurrent ? "text-text-primary" : ""}`}
           style={!isCurrent && headerAccent ? { color: headerAccent } : undefined}
@@ -2391,7 +2515,7 @@ function ServerGroupInner(props: ServerGroupProps) {
               type="button"
               onClick={() => setShowColorPicker((v) => !v)}
               aria-label={`Set color for server ${server}`}
-              className="opacity-0 group-hover:opacity-100 coarse:opacity-100 focus-visible:opacity-100 transition-opacity px-0.5 min-w-[24px] coarse:min-w-[32px] min-h-[24px] coarse:min-h-[36px] flex items-center justify-center"
+              className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity px-0.5 min-w-[24px] min-h-[24px] flex items-center justify-center"
             >
               <PaletteIcon />
             </button>
@@ -2401,7 +2525,7 @@ function ServerGroupInner(props: ServerGroupProps) {
               type="button"
               onClick={() => onCreateSession(server)}
               aria-label={`New session on ${server}`}
-              className="hover:text-text-primary transition-colors px-0.5 min-w-[24px] coarse:min-w-[32px] min-h-[24px] coarse:min-h-[36px] flex items-center justify-center"
+              className="hover:text-text-primary transition-colors px-0.5 min-w-[24px] min-h-[24px] flex items-center justify-center"
             >
               <PlusIcon />
             </button>
@@ -2411,12 +2535,43 @@ function ServerGroupInner(props: ServerGroupProps) {
               type="button"
               onClick={() => onKillServer(server)}
               aria-label={`Kill server ${server}`}
-              className="hover:text-signal-red transition-colors px-0.5 min-w-[24px] coarse:min-w-[32px] min-h-[24px] coarse:min-h-[36px] flex items-center justify-center"
+              className="hover:text-signal-red transition-colors px-0.5 min-w-[24px] min-h-[24px] flex items-center justify-center"
             >
               <CloseIcon />
             </button>
           </Tip>
         </div>
+        )}
+        {/* Right-edge status rail — COARSE pointers only (260817-ve5m): the
+            SAME 56px recessed inset band the window row ships, forming ONE
+            continuous strip down the tree. The band tints from the header's
+            family tint (railRestBand); while this header's card is open it
+            carries the held treatment (`railStyle`). The 16px glyph slot is
+            ALWAYS an empty span on this tier (server headers own no PR glyph)
+            so the 12px chevron column-aligns with the window/session rails.
+            It is the card's tap/scrub target (the shared `useRailScrub`
+            trio); the pointerdown/click stopPropagation keeps a rail tap from
+            toggling the group. */}
+        {groupCoarsePointer && (
+          <span
+            data-testid="status-rail"
+            className="absolute right-0 top-0 bottom-0 z-10 flex items-center justify-end gap-0.5 border-l border-border bg-bg-inset pr-1 touch-none"
+            style={{ width: STATUS_RAIL_WIDTH_PX, ...railStyle }}
+            {...scrub.handlers}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* 16px glyph slot — always empty on server headers; it exists so
+                the chevron never shifts sideways between tiers. */}
+            <span className="flex w-4 shrink-0 items-center justify-center" />
+            {/* 12px chevron hint — aria-hidden decoration, muted at ~55%. */}
+            <span
+              aria-hidden="true"
+              className="flex w-3 shrink-0 items-center justify-center text-text-secondary opacity-55"
+            >
+              ›
+            </span>
+          </span>
+        )}
         {/* Color picker portalled to body so it escapes the sessions list's
             overflow-y: auto clip (the ServerTile precedent). */}
         {showColorPicker && popoverPos && createPortal(
@@ -2437,6 +2592,9 @@ function ServerGroupInner(props: ServerGroupProps) {
           </div>,
           document.body,
         )}
+        {/* The coarse-pointer server card — portalled to document.body,
+            mounted ONLY while open (the shared shell's perf contract). */}
+        {flyout.card}
       </div>
 
       {isOpen && (

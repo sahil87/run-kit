@@ -12,9 +12,14 @@ import { mockStateSocket } from "./_state-socket-mock";
 // keyboard row focus, and coarse-pointer rail/dot-tap; placement is
 // pointer-conditional — "right" (the sidebar's right edge) on fine pointers,
 // "bottom-start" below the row on coarse, with the card width capped short of
-// the row's 48px status rail. Card actions (fork / pin / kill) are explicit
-// sectioned rows at the card's bottom on BOTH pointer worlds — the title bar
-// carries only the ⓘ docs link.
+// the row's 56px status rail. Card actions (change color / fork / pin / kill)
+// are explicit sectioned rows at the card's bottom on BOTH pointer worlds —
+// the title bar carries only the ⓘ docs link. 260817-ve5m extends the rail +
+// card to the session rows and server-group headers (coarse-only surfaces —
+// tap/scrub is their one trigger), makes `Change color…` the first action row
+// of every tier's card, removes the coarse left label zone (the display-only
+// marker stripe stays; the content start reclaims ~14px), and generalizes the
+// scrub to retarget cards ACROSS tiers via the shared `data-rail-row` handle.
 
 const SERVER = "default";
 
@@ -24,7 +29,9 @@ const SERVER = "default";
 // affordance renders — 260806-s4av), carrying two panes (%425 active) so the
 // identity title bar renders its full `Window @N · pane %N · N panes` form.
 // @2: plain scratch window (gray "idle" dot, no glyph, out-register-only card,
-// no fork link, no panes → degraded `Window @N` title).
+// no fork link, no panes → degraded `Window @N` title) carrying an orange
+// color + solid marker so the coarse left-zone reclaim can prove the
+// display-only stripe survives the interactive zone's removal.
 const sessionsPayload = JSON.stringify([
   {
     name: "dev",
@@ -65,6 +72,8 @@ const sessionsPayload = JSON.stringify([
         activity: "idle",
         isActiveWindow: false,
         activityTimestamp: 0,
+        color: "orange",
+        marker: "solid",
       },
     ],
   },
@@ -117,6 +126,11 @@ function mockCoarsePointer(page: Page) {
 const tree = (page: Page) => page.locator("[role='tree']");
 const prRow = (page: Page) => tree(page).locator("[role='treeitem'][data-window-id='@1']");
 const scratchRow = (page: Page) => tree(page).locator("[role='treeitem'][data-window-id='@2']");
+// The two non-window rail tiers (260817-ve5m): the session row (a level-1
+// treeitem keyed `${server}:${name}`) and the server-group header (NOT a
+// treeitem — the shared `data-rail-row` attribute is what unifies the shapes).
+const sessionRow = (page: Page) => tree(page).locator("[data-session-row='default:dev']");
+const serverHeader = (page: Page) => page.locator("[data-server='default']");
 const card = (page: Page) => page.getByTestId("row-flyout-card");
 
 async function gotoAndWait(page: Page) {
@@ -145,20 +159,25 @@ test.describe("Row flyout card (fine pointer)", () => {
     await expect(titleBar).toContainText("Window @1 · pane %425 · 2 panes");
     await expect(titleBar.getByTestId("row-flyout-docs-link")).toBeVisible();
     await expect(titleBar.getByTestId("row-flyout-fork-action")).toHaveCount(0);
-    // Sectioned action rows (fork → pin → kill, one home per action, BOTH
-    // pointer worlds): labels + sub-hints, in order.
+    // Sectioned action rows (change color → fork → pin → kill, one home per
+    // action, BOTH pointer worlds): labels + sub-hints, in order. `Change
+    // color…` is the FIRST row of every tier's card (260817-ve5m).
+    const colorRow = card(page).getByTestId("row-flyout-color-action");
     const forkRow = card(page).getByTestId("row-flyout-fork-action");
     const pinRow = card(page).getByTestId("row-flyout-pin-action");
     const killRow = card(page).getByTestId("row-flyout-kill-action");
+    await expect(colorRow).toContainText("Change color…");
     await expect(forkRow).toContainText("Fork conversation");
     await expect(forkRow).toContainText("new window, same directory");
     await expect(pinRow).toContainText("Pin to board…");
     await expect(pinRow).toContainText("not pinned");
     await expect(killRow).toContainText("Kill window");
     await expect(killRow).toContainText("confirms first");
+    const colorBox = (await colorRow.boundingBox())!;
     const forkBox = (await forkRow.boundingBox())!;
     const pinBox = (await pinRow.boundingBox())!;
     const killBox = (await killRow.boundingBox())!;
+    expect(colorBox.y).toBeLessThan(forkBox.y);
     expect(forkBox.y).toBeLessThan(pinBox.y);
     expect(pinBox.y).toBeLessThan(killBox.y);
     const cardText = (await card(page).innerText()).replaceAll("\n", " ");
@@ -380,11 +399,14 @@ test.describe("Row flyout card (coarse pointer)", () => {
 
     // Coarse rest state: the rest-state PR glyph lives in the rail's fixed
     // 16px slot; the pin/✕ cluster is fine-pointer-only — the buttons are not
-    // in the DOM at all (pin/kill moved into the flyout card).
+    // in the DOM at all (pin/kill moved into the flyout card). The rail is
+    // 56px wide (260817-ve5m — one constant, all tiers).
     const prRail = prRow(page).getByTestId("status-rail");
     const scratchRail = scratchRow(page).getByTestId("status-rail");
     await expect(prRail).toBeVisible();
     await expect(scratchRail).toBeVisible();
+    expect((await prRail.boundingBox())!.width).toBe(56);
+    expect((await scratchRail.boundingBox())!.width).toBe(56);
     await expect(prRail.getByTestId("row-pr-glyph")).toBeVisible();
     await expect(scratchRail.getByTestId("row-pr-glyph")).toHaveCount(0);
     // The chevron hint renders on EVERY row — glyph or not (a consistent rail
@@ -408,10 +430,16 @@ test.describe("Row flyout card (coarse pointer)", () => {
     await prRail.tap();
     await expect(card(page)).toBeVisible();
     await expect(card(page)).toContainText("building — active");
-    // The card is the coarse pin/kill home — and fork's only home.
+    // The card is the coarse color/pin/kill home — and fork's only home.
+    // `Change color…` leads the action rows on every tier (260817-ve5m).
+    const colorRow = card(page).getByTestId("row-flyout-color-action");
+    await expect(colorRow).toContainText("Change color…");
     await expect(card(page).getByTestId("row-flyout-fork-action")).toBeVisible();
     await expect(card(page).getByTestId("row-flyout-pin-action")).toBeVisible();
     await expect(card(page).getByTestId("row-flyout-kill-action")).toBeVisible();
+    const colorBox = (await colorRow.boundingBox())!;
+    const forkBox = (await card(page).getByTestId("row-flyout-fork-action").boundingBox())!;
+    expect(colorBox.y).toBeLessThan(forkBox.y);
     await expect(page).toHaveURL(new RegExp(`/${SERVER}/?$`));
 
     // Coarse placement + containment: the card anchors BELOW its row
@@ -529,5 +557,175 @@ test.describe("Row flyout card (coarse pointer)", () => {
     // Tapping elsewhere dismisses via the existing outside-press path.
     await page.mouse.click(700, 300);
     await expect(card(page)).toHaveCount(0);
+  });
+
+  test("coarse left-zone reclaim: no interactive zone, the display-only marker stripe stays, content starts ≈16px", async ({
+    page,
+  }) => {
+    await gotoCoarseDrawer(page);
+
+    // The interactive label zone (and its palette-icon reveal) is REMOVED on
+    // coarse — no element carries its aria-label anywhere in the tree.
+    await expect(page.locator('[aria-label="Set window label"]')).toHaveCount(0);
+
+    // The display-only marker stripe REMAINS on coarse (information, not an
+    // affordance): @2 carries a solid marker, rendered as a left-edge stripe.
+    const stripe = scratchRow(page).locator('div[style*="border-left"]');
+    await expect(stripe).toBeVisible();
+
+    // The reclaimed geometry: the row content (the dot tap zone) starts ≈16px
+    // from the row's left edge (4px stripe inset + 10px max stripe + 2px
+    // clearance) instead of the fine-pointer 30px.
+    const rowBox = (await scratchRow(page).boundingBox())!;
+    const zoneBox = (await scratchRow(page).getByTestId("status-dot-tap").boundingBox())!;
+    expect(Math.abs(zoneBox.x - rowBox.x - 16)).toBeLessThanOrEqual(1);
+  });
+
+  test("session rail tap opens the session card; its actions route (kill confirms first)", async ({
+    page,
+  }) => {
+    const killRequests: string[] = [];
+    await page.route("**/api/sessions/*/kill*", (route) => {
+      killRequests.push(route.request().url());
+      return route.fulfill({ status: 200, contentType: "application/json", body: '{"ok":true}' });
+    });
+    await gotoCoarseDrawer(page);
+
+    // The session row carries the rail; its fine-pointer 4-icon cluster is
+    // absent from the DOM on coarse.
+    const rail = sessionRow(page).getByTestId("status-rail");
+    await expect(rail).toBeVisible();
+    await expect(sessionRow(page).getByLabel("Kill session dev")).toHaveCount(0);
+    await expect(sessionRow(page).getByLabel("New window in dev")).toHaveCount(0);
+
+    await rail.tap();
+    await expect(card(page)).toBeVisible();
+    // Title + the identity-tip facts line + the relocated action rows in the
+    // fixed order (Spawn agent… is wired on this route).
+    await expect(page.getByTestId("popup-title-bar")).toContainText("Session dev");
+    await expect(card(page)).toContainText("$4 · 2 windows · ~/code/sahil87/run-kit");
+    const colorRow = card(page).getByTestId("row-flyout-color-action");
+    const spawnRow = card(page).getByTestId("row-flyout-spawn-action");
+    const createRow = card(page).getByTestId("row-flyout-create-action");
+    const killRow = card(page).getByTestId("row-flyout-kill-action");
+    await expect(colorRow).toContainText("Change color…");
+    await expect(spawnRow).toContainText("Spawn agent…");
+    await expect(createRow).toContainText("New window");
+    await expect(killRow).toContainText("Kill session");
+    await expect(killRow).toContainText("confirms first");
+    const ys = await Promise.all(
+      [colorRow, spawnRow, createRow, killRow].map(async (r) => (await r.boundingBox())!.y),
+    );
+    expect(ys[0]).toBeLessThan(ys[1]);
+    expect(ys[1]).toBeLessThan(ys[2]);
+    expect(ys[2]).toBeLessThan(ys[3]);
+    // Nothing navigated or collapsed.
+    await expect(page).toHaveURL(new RegExp(`/${SERVER}/?$`));
+    await expect(prRow(page)).toBeVisible();
+
+    // Kill session routes through the EXISTING confirm dialog — no kill POST.
+    await killRow.tap();
+    await expect(page.getByText("Kill session?")).toBeVisible();
+    await expect(page.getByText(/and all 2 windows/)).toBeVisible();
+    expect(killRequests).toHaveLength(0);
+    await page.getByRole("button", { name: "Cancel" }).tap();
+    await expect(page.getByText("Kill session?")).toHaveCount(0);
+
+    // Change color… closes the card and opens the row's existing color
+    // popover (popover-over-card precedence holds: no card flash while open).
+    await rail.tap();
+    await expect(card(page)).toBeVisible();
+    await card(page).getByTestId("row-flyout-color-action").tap();
+    await expect(card(page)).toHaveCount(0);
+    await expect(page.getByRole("listbox", { name: "Color picker" })).toBeVisible();
+    await rail.tap();
+    await expect(card(page)).toHaveCount(0);
+  });
+
+  test("server rail tap opens the server card; Kill server routes to the existing dialog without toggling the group", async ({
+    page,
+  }) => {
+    const killRequests: string[] = [];
+    await page.route("**/api/servers/kill*", (route) => {
+      killRequests.push(route.request().url());
+      return route.fulfill({ status: 200, contentType: "application/json", body: '{"ok":true}' });
+    });
+    await gotoCoarseDrawer(page);
+
+    // The group header carries the rail; its 3-icon cluster is absent on
+    // coarse.
+    const header = serverHeader(page);
+    const rail = header.getByTestId("status-rail");
+    await expect(rail).toBeVisible();
+    await expect(header.getByLabel("Kill server default")).toHaveCount(0);
+    await expect(header.getByLabel("New session on default")).toHaveCount(0);
+
+    await rail.tap();
+    await expect(card(page)).toBeVisible();
+    await expect(page.getByTestId("popup-title-bar")).toContainText("Server default");
+    // Server names ARE socket names; the count is the group's own data (the
+    // singular form degrades like the identity tip's `1 window`).
+    await expect(card(page)).toContainText("tmux -L default · 1 session");
+    const colorRow = card(page).getByTestId("row-flyout-color-action");
+    const createRow = card(page).getByTestId("row-flyout-create-action");
+    const killRow = card(page).getByTestId("row-flyout-kill-action");
+    await expect(colorRow).toContainText("Change color…");
+    await expect(createRow).toContainText("New session");
+    await expect(killRow).toContainText("Kill server");
+    await expect(killRow).toContainText("confirms first");
+
+    // Kill server routes through the existing killServerTarget dialog (the
+    // rk-daemon warning is not in play for this mocked non-daemon server), no
+    // kill POST fires, and the group header was never toggled.
+    await killRow.tap();
+    await expect(page.getByText(/and all its sessions/)).toBeVisible();
+    expect(killRequests).toHaveLength(0);
+    await expect(header.getByRole("button", { name: /Collapse default sessions/ })).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`/${SERVER}/?$`));
+    await page.getByRole("button", { name: "Cancel" }).tap();
+    await expect(page.getByText(/and all its sessions/)).toHaveCount(0);
+  });
+
+  test("cross-tier scrub: window → session → server retarget; release keeps the server card; nothing navigates or collapses", async ({
+    page,
+  }) => {
+    await gotoCoarseDrawer(page);
+
+    // Press @1's rail, then slide up across the session row onto the
+    // server-group header without lifting.
+    const winRailBox = (await prRow(page).getByTestId("status-rail").boundingBox())!;
+    await page.mouse.move(winRailBox.x + winRailBox.width / 2, winRailBox.y + winRailBox.height / 2);
+    await page.mouse.down();
+    await expect(card(page)).toBeVisible();
+    await expect(card(page)).toContainText("Window @1");
+
+    const sessionRailBox = (await sessionRow(page).getByTestId("status-rail").boundingBox())!;
+    await page.mouse.move(
+      sessionRailBox.x + sessionRailBox.width / 2,
+      sessionRailBox.y + sessionRailBox.height / 2,
+      { steps: 5 },
+    );
+    // One card, retargeted across the tier boundary to the session card.
+    await expect(card(page)).toHaveCount(1);
+    await expect(page.getByTestId("popup-title-bar")).toContainText("Session dev");
+
+    const headerRailBox = (await serverHeader(page).getByTestId("status-rail").boundingBox())!;
+    await page.mouse.move(
+      headerRailBox.x + headerRailBox.width / 2,
+      headerRailBox.y + headerRailBox.height / 2,
+      { steps: 5 },
+    );
+    await expect(card(page)).toHaveCount(1);
+    await expect(page.getByTestId("popup-title-bar")).toContainText("Server default");
+
+    // Release keeps the server card; the scrub never selected, navigated, or
+    // toggled anything.
+    await page.mouse.up();
+    await expect(card(page)).toContainText("tmux -L default · 1 session");
+    await expect(page).toHaveURL(new RegExp(`/${SERVER}/?$`));
+    await expect(
+      serverHeader(page).getByRole("button", { name: /Collapse default sessions/ }),
+    ).toBeVisible();
+    await expect(prRow(page)).toBeVisible();
   });
 });

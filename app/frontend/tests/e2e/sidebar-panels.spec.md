@@ -1,13 +1,15 @@
 # sidebar-panels.spec.ts
 
 Behavioural contract for the `CollapsiblePanel`-based Host and Pane panels.
-Since `260814-ldbs` (R6) the panels are **drawer-only**: the desktop sidebar
-no longer renders them (their registers graduated to the full-width status
-bar), so the panel tests run on a **mobile viewport with the drawer open**
-(`hasTouch: true` + 375×812 — the drawer is the panels' mobile home, unchanged).
-A desktop test pins the fork itself. Validates that SSE-driven host metrics
-render, window context updates when a window is selected, and the
-collapse/expand state persists via `localStorage`.
+Since iha5 the panels are **visibility-gated per section** (the
+`runkit-sidebar-section-pane|host` booleans), both defaulting OFF on every
+viewport — the `260814-ldbs` drawer-only fork became a default, not a hard
+`isMobile` gate. The panel tests run on a **mobile viewport with the drawer
+open** (`hasTouch: true` + 375×812) and first opt both sections in via
+`addInitScript` seeds. A desktop test pins the default-off contract.
+Validates that SSE-driven host metrics render, window context updates when a
+window is selected, and the collapse/expand state persists via
+`localStorage`.
 
 ## DOM note
 
@@ -32,7 +34,10 @@ only reaches the header. These tests deliberately use `locator("../..")`.
 - The `mobile drawer` describe runs `test.use({ hasTouch: true, viewport:
   375×812 })` — `hasTouch` flips Chromium's `(pointer: coarse)` media query
   (the `bottom-bar-chip-size.spec.ts` seam), so `useIsMobile()` reports
-  mobile and the sidebar renders as the drawer.
+  mobile and the sidebar renders as the drawer. Its `beforeEach` seeds
+  `runkit-sidebar-section-pane=true` and `runkit-sidebar-section-host=true`
+  via `addInitScript` (both sections default OFF since iha5; the seed
+  re-runs on every navigation, so in-test reloads keep the panels mounted).
 - `gotoDrawer(page, path)` navigates, then opens the drawer via the
   `Toggle navigation` button and returns the `role="dialog"` drawer. It
   gates on the toggle, NOT the sidebar-footed `Connected` dot — a closed
@@ -42,11 +47,13 @@ only reaches the header. These tests deliberately use `locator("../..")`.
 
 ## Tests
 
-### `desktop sidebar renders NO PANE/HOST panels — the status bar carries the registers`
+### `desktop sidebar renders NO PANE/HOST panels under the defaults (both sections default off; the status bar carries the registers)`
 
-**What it proves:** The R6 fork — on a desktop (fine pointer, wide) the
-sidebar renders no Pane/Host panels at all; the registers' new home (the
-status bar) is present instead.
+**What it proves:** The default-visibility contract — on a desktop (fine
+pointer, wide) with nothing seeded, the sidebar renders no Pane/Host panels
+(both sections default off); the registers' home (the status bar) is present
+instead. (Desktop opt-in via the rail is covered by
+`sidebar-section-rail.spec.ts`.)
 
 **Steps:**
 1. `gotoServerReady(TMUX_SERVER)` (desktop default).

@@ -129,9 +129,9 @@ Below the `min-width: 640px` breakpoint (matching the existing project mobile co
 
 ### Sidebar Boards Section (`app/frontend/src/components/sidebar/boards-section.tsx`)
 
-Renders **at the very top of the sidebar** — the section order is **Boards → Servers → Sessions**. Visible on every route that mounts `<Sidebar>` (`/$server/...` and `/board/$name`). The board route reuses the same `BoardsSection` component for board switching; there is no separate BoardPage listing. (`260509-17m3`)
+Renders near the top of the sidebar, directly below the section-visibility rail ([sidebar](/run-kit/ui/sidebar.md) § Section-Visibility Rail) — the vertical order is **rail → Boards → Servers → Sessions**. The section is **visibility-gated**: it renders only while its rail/palette toggle (`runkit-sidebar-section-boards`, default ON) is on, and toggling it off fully unmounts the section on every route that mounts `<Sidebar>` (`/$server/...` and `/board/$name`). The board route reuses the same `BoardsSection` component for board switching; there is no separate BoardPage listing. (`260509-17m3`)
 
-- **Always visible**, regardless of `boards.length` or current route
+- **No content-dependent show/hide** — while the section toggle is on (the default), the section renders regardless of `boards.length` or current route
 - **Hint mode** — when `boards.length === 0`, the body shows a one-line hint `Pin a window to start a board` (`text-xs text-text-secondary`) verbatim from 4vuv's copy. Applies on every route, not only on `/board/<name>` — placing Boards at the top would cause a layout shift if the section hid/showed dynamically (Servers would jump up, then back down when the first board materializes)
 - **First board materializes** — hint replaced by a single board row in place; no other section's vertical position shifts
 - **Last board removed** — section reverts to hint mode; no layout shift to ServerPanel or Sessions

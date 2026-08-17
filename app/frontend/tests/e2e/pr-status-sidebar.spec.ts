@@ -88,6 +88,12 @@ async function mockBackend(page: Page) {
 test.describe("Pane panel PR status", () => {
   test.beforeEach(async ({ page }) => {
     await mockBackend(page);
+    // The Pane panel is visibility-gated and defaults OFF (iha5) — opt the
+    // section in. The init script re-runs on every navigation, so the
+    // in-test goto/reload sequences keep the panel mounted.
+    await page.addInitScript(() => {
+      localStorage.setItem("runkit-sidebar-section-pane", "true");
+    });
   });
 
   test("Pane panel shows the PR row for a change-bound window and hides it for a scratch window", async ({
@@ -97,17 +103,23 @@ test.describe("Pane panel PR status", () => {
     // window, which is keyed off the URL's window segment.
     await page.goto(BOUND_WINDOW_URL);
 
-    // Change-bound window (@1): Pane panel carries the pr row.
-    const prRow = page.locator("[title='https://github.com/o/r/pull/386']");
+    // Change-bound window (@1): Pane panel carries the pr row. Scoped to the
+    // sidebar nav — the desktop status bar renders its own PR link copy (the
+    // panel is opted-in here, so both surfaces legitimately render it).
+    const prRow = page.locator(
+      "nav[aria-label='Sessions'] [title='https://github.com/o/r/pull/386']",
+    );
     await expect(prRow).toBeVisible();
     await expect(prRow).toContainText("#386");
     await expect(prRow).toContainText("open");
 
     // Scratch window (@2) — not change-bound → no pr row.
     await page.goto(SCRATCH_WINDOW_URL);
-    await expect(page.locator("[title='https://github.com/o/r/pull/386']")).toHaveCount(0);
+    await expect(
+      page.locator("nav[aria-label='Sessions'] [title='https://github.com/o/r/pull/386']"),
+    ).toHaveCount(0);
     // No PR-number text anywhere in the Pane panel for the scratch window.
-    await expect(page.getByText(/#386/)).toHaveCount(0);
+    await expect(page.locator("nav[aria-label='Sessions']").getByText(/#386/)).toHaveCount(0);
   });
 
   test("Pane panel PR row renders at 375px (mobile) and 1024px (desktop)", async ({ page }) => {
@@ -117,14 +129,16 @@ test.describe("Pane panel PR status", () => {
     await page.goto(BOUND_WINDOW_URL);
     await page.locator("button[aria-label='Toggle navigation']").click();
     await expect(
-      page.locator("[title='https://github.com/o/r/pull/386']"),
+      page.locator("nav[aria-label='Sessions'] [title='https://github.com/o/r/pull/386']"),
     ).toContainText("#386");
 
-    // Desktop: persistent sidebar column — the pr row still renders.
+    // Desktop: persistent sidebar column — the pr row still renders (the Pane
+    // section is seeded ON, the opt-in path; scoped to the nav so the status
+    // bar's own PR link copy doesn't trip strict mode).
     await page.setViewportSize({ width: 1024, height: 800 });
     await page.goto(BOUND_WINDOW_URL);
     await expect(
-      page.locator("[title='https://github.com/o/r/pull/386']"),
+      page.locator("nav[aria-label='Sessions'] [title='https://github.com/o/r/pull/386']"),
     ).toContainText("#386");
   });
 });

@@ -251,6 +251,10 @@ describe("Sidebar", () => {
   });
 
   it("collapse/expand sessions via chevron click", () => {
+    // Opt the Pane section in (it defaults OFF since iha5 — the visibility
+    // rail's default keeps the drawer pure nav); this test's "status panel"
+    // assertions read the WindowPanel's copy of the selected window.
+    localStorage.setItem("runkit-sidebar-section-pane", "true");
     renderSidebar();
     // "main" appears in tree + status panel
     expect(screen.getAllByText("main").length).toBeGreaterThanOrEqual(2);
@@ -262,6 +266,7 @@ describe("Sidebar", () => {
     // Click chevron again to expand
     fireEvent.click(screen.getByLabelText(/Expand run-kit/));
     expect(screen.getAllByText("main").length).toBeGreaterThanOrEqual(2);
+    localStorage.removeItem("runkit-sidebar-section-pane");
   });
 
   it("session name click navigates to first window (not toggles)", () => {

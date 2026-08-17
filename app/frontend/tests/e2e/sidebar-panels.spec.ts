@@ -7,10 +7,11 @@ const TEST_SESSION = `e2e-panels-${Date.now()}`;
 const MOBILE_VIEWPORT = { width: 375, height: 812 };
 
 /**
- * The PANE/HOST panels are DRAWER-ONLY (260814-ldbs R6): the desktop sidebar
- * no longer renders them (their registers graduated to the full-width status
- * bar), so every panel test here runs on a mobile viewport with the drawer
- * open. `hasTouch: true` flips Chromium's `(pointer: coarse)` media query —
+ * The PANE/HOST panels are visibility-gated per section (iha5): both default
+ * OFF on every viewport, so the mobile drawer tests below first opt the
+ * sections in via `addInitScript` seeds of `runkit-sidebar-section-pane|host`
+ * (the 260814-ldbs drawer-only fork became a default, not a hard `isMobile`
+ * gate). `hasTouch: true` flips Chromium's `(pointer: coarse)` media query —
  * combined with the 375px width, `useIsMobile()` reports mobile (the same
  * seam bottom-bar-chip-size.spec.ts uses).
  */
@@ -47,7 +48,7 @@ async function ensureDrawerOpen(page: Page) {
   return drawer;
 }
 
-test.describe("Sidebar Host & Window Panels (drawer-only, 260814-ldbs)", () => {
+test.describe("Sidebar Host & Window Panels (visibility-gated, iha5)", () => {
   test.beforeAll(() => {
     createSession(TEST_SESSION);
   });
@@ -56,12 +57,13 @@ test.describe("Sidebar Host & Window Panels (drawer-only, 260814-ldbs)", () => {
     killSession(TEST_SESSION);
   });
 
-  test("desktop sidebar renders NO PANE/HOST panels — the status bar carries the registers", async ({
+  test("desktop sidebar renders NO PANE/HOST panels under the defaults (both sections default off; the status bar carries the registers)", async ({
     page,
   }) => {
-    // Desktop (fine pointer, wide): the panels are gone and the session
-    // region owns the freed height; the window/host values live in the
-    // status bar instead.
+    // Desktop (fine pointer, wide), nothing seeded: both sections default off,
+    // so the panels are gone and the session region owns the freed height; the
+    // window/host values live in the status bar instead. (A desktop user can
+    // opt back in via the rail — covered by sidebar-section-rail.spec.ts.)
     await gotoServerReady(page, TMUX_SERVER);
     await expect(page.getByRole("button", { name: /^Pane/ })).toHaveCount(0);
     await expect(page.getByRole("button", { name: /^Host/ })).toHaveCount(0);
@@ -70,6 +72,16 @@ test.describe("Sidebar Host & Window Panels (drawer-only, 260814-ldbs)", () => {
 
   test.describe("mobile drawer", () => {
     test.use({ hasTouch: true, viewport: MOBILE_VIEWPORT });
+
+    test.beforeEach(async ({ page }) => {
+      // Opt the Pane/Host sections in — both default OFF (iha5), and these
+      // tests exercise the panels themselves. The seed survives the in-test
+      // `page.reload()` (init scripts re-run on every navigation).
+      await page.addInitScript(() => {
+        localStorage.setItem("runkit-sidebar-section-pane", "true");
+        localStorage.setItem("runkit-sidebar-section-host", "true");
+      });
+    });
 
     test("Host panel shows real system metrics via SSE", async ({ page }) => {
       await gotoDrawer(page, `/${TMUX_SERVER}`);

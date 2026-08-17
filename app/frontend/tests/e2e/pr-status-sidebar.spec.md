@@ -18,7 +18,12 @@ window-tree rows — so each test selects the target window, then reads the pane
       `prReview: approved` (the gate is satisfied). `@1` is the active window,
       so the Pane panel reflects it on load.
     - `@2` "scratch-shell" — no `fabChange` (the gate fails).
-- `beforeEach` installs both routes before navigation.
+- `beforeEach` installs both routes before navigation, and seeds
+  `localStorage['runkit-sidebar-section-pane'] = 'true'` via `addInitScript` —
+  the Pane panel is visibility-gated and defaults OFF (iha5), so the tests
+  opt the section in; the seed re-runs on every navigation, keeping the panel
+  mounted through the in-test goto sequences (and enabling it on the desktop
+  viewport, where the panel is now an opt-in).
 
 ## Tests
 
@@ -30,7 +35,10 @@ selected window is change-bound with a PR, the Pane panel shows the `pr` row
 PR URL, with copy role-swapped to a hover-revealed icon — see change 41ks);
 when the selected window is a scratch window, no PR row appears. (This spec
 locates the row by its `[title]` = PR URL, which is element-type-agnostic, so
-it matches the anchor unchanged.)
+it matches the anchor unchanged. Since iha5 the locators are scoped to the
+`nav[aria-label='Sessions']` sidebar: with the Pane section opted in, the
+desktop status bar legitimately renders its own PR link copy, and an
+unscoped `[title]` locator trips Playwright strict mode.)
 
 **Steps:**
 1. Navigate directly to the change-bound window route `/default/1` (`@1`; the

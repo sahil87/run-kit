@@ -32,6 +32,7 @@ import { rangeBetween, selectionKey as windowSelectionKey } from "@/lib/selectio
 import { useWindowRename } from "@/hooks/use-window-rename";
 import { useWindowPins } from "@/hooks/use-window-pins";
 import { useSessionsScope } from "@/hooks/use-sessions-scope";
+import { useSidebarSectionVisible } from "@/hooks/use-sidebar-sections";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import { useScrollEdgeFade } from "@/hooks/use-scroll-edge-fade";
@@ -40,6 +41,7 @@ import { useActiveBoardName } from "@/hooks/use-active-board";
 import { useMergedSessions } from "@/contexts/optimistic-context";
 import { countWaitingInSessions } from "@/lib/waiting";
 import { BoardsSection, WINDOW_DRAG_MIME } from "./boards-section";
+import { SectionRail } from "./section-rail";
 import { HostPanel } from "./host-panel";
 import { KillDialog } from "./kill-dialog";
 import { ServerPanel } from "./server-panel";
@@ -885,6 +887,13 @@ export function Sidebar({
   // deferred to the next frame so it runs AFTER the trap's mount-focus
   // (committed in Shell's effect) and wins the same-tick race.
   const isMobile = useIsMobile();
+  // Section-visibility rail (iha5): four shared booleans gate the optional
+  // sections. Read locally here — nothing threads through the memoized
+  // ServerGroup/SessionRow/WindowRow tree (R6a untouched).
+  const [boardsSectionVisible] = useSidebarSectionVisible("boards");
+  const [serverSectionVisible] = useSidebarSectionVisible("server");
+  const [paneSectionVisible] = useSidebarSectionVisible("pane");
+  const [hostSectionVisible] = useSidebarSectionVisible("host");
   const { sidebarOpen } = useChromeState();
   const navRef = useRef<HTMLElement>(null);
   useEffect(() => {
@@ -1497,14 +1506,20 @@ export function Sidebar({
     // opens sibling tips instantly.
     <TipGroup>
     <nav ref={navRef} aria-label="Sessions" className="flex flex-col h-full">
-      {/* Boards — cross-server section, always visible at the top of the
-          sidebar (renders an empty-state hint when no boards exist). Boards
-          are curated workspaces; placing them above Servers reflects their
-          higher-affinity destination role. */}
-      <BoardsSection />
+      {/* Section-visibility rail (iha5) — always the first child; toggles the
+          optional sections below. Not self-hideable; Sessions has no toggle. */}
+      <SectionRail />
 
-      {/* Server panel — collapsible. The set of servers is the same multi-server
-          list, so this stays below Boards regardless of route. */}
+      {/* Boards — cross-server section, visibility-gated (default on; renders
+          an empty-state hint when no boards exist). Boards are curated
+          workspaces; placing them above Servers reflects their
+          higher-affinity destination role. */}
+      {boardsSectionVisible && <BoardsSection />}
+
+      {/* Server panel — collapsible, visibility-gated (default on). The set of
+          servers is the same multi-server list, so this stays below Boards
+          regardless of route. */}
+      {serverSectionVisible && (
       <ServerPanel
         server={currentServer ?? ""}
         servers={servers}
@@ -1517,6 +1532,7 @@ export function Sidebar({
         onRefreshServers={refreshServers}
         onSidebarResizeStart={onSidebarResizeStart}
       />
+      )}
 
       {/* Sessions — flex-grows to fill remaining space; per-server groups inside */}
       <div className="border-t-[3px] border-border flex flex-col flex-1 min-h-0">
@@ -1681,22 +1697,30 @@ export function Sidebar({
         />
       </div>
 
-      {/* Status panels — pinned at bottom, DRAWER-ONLY (260814-ldbs R6): the
-          desktop sidebar no longer renders the PANE/HOST panels — their
-          registers graduated to the full-width status bar and the session
-          list absorbs the freed height (the desktop sidebar is pure
-          navigation). The mobile drawer keeps both panels byte-identical —
-          the established persistent-chrome→tap-away degradation: mobile has
-          no status bar, so the drawer stays the panels' home. */}
-      {isMobile && (
-        <BottomPanels currentServer={currentServer} currentSessionName={currentSession} currentWindowId={currentWindowId} />
+      {/* Status panels — visibility-gated per section (iha5 R5): the PANE and
+          HOST panels mount independently under their own rail/palette toggles
+          on EVERY viewport. Both default OFF, so the default rendering matches
+          the pre-rail behavior (260814-ldbs's drawer-only fork becomes a
+          default, not a hard `isMobile` gate) — a desktop user can now opt
+          back in, and the mobile drawer is pure nav + footer by default.
+          Toggle-off fully unmounts the panel; its CollapsiblePanel
+          collapse/height storage keys are untouched, so re-toggling restores
+          the section exactly as left. */}
+      {(paneSectionVisible || hostSectionVisible) && (
+        <BottomPanels
+          showPane={paneSectionVisible}
+          showHost={hostSectionVisible}
+          currentServer={currentServer}
+          currentSessionName={currentSession}
+          currentWindowId={currentWindowId}
+        />
       )}
 
       {/* Footer — a passive status row (260812-d1at): LEFT = readouts
           (connection dot + version), RIGHT = a quiet status/hints slot
           (update-available hint only). The action chips relocated to the top
-          bar (gear chip + chevron-menu App rows). MOBILE-ONLY (mirroring the
-          BottomPanels gate above): on desktop the full-width status bar owns
+          bar (gear chip + chevron-menu App rows). MOBILE-ONLY (NOT part of the
+          section-visibility rail): on desktop the full-width status bar owns
           the dot + version and the UpdateChip owns the update surface, so the
           footer would be a third copy; the mobile drawer has no status bar, so
           it keeps the footer byte-identical. */}
@@ -1879,10 +1903,16 @@ function SidebarFooter({ isConnected }: { isConnected: boolean }) {
  *  follows the board's focused tile via the focused-pane context instead
  *  (260720-zx4i). */
 function BottomPanels({
+  showPane,
+  showHost,
   currentServer,
   currentSessionName,
   currentWindowId,
 }: {
+  /** Per-section visibility toggles (iha5) — each panel mounts independently
+   *  under its own boolean, on every viewport. */
+  showPane: boolean;
+  showHost: boolean;
   currentServer: string | null;
   currentSessionName: string | null;
   currentWindowId: string | null;
@@ -1911,8 +1941,8 @@ function BottomPanels({
   const selectedWindow = routeWindow ?? fallbackWindow;
   return (
     <>
-      <WindowPanel window={selectedWindow} />
-      <HostPanel />
+      {showPane && <WindowPanel window={selectedWindow} />}
+      {showHost && <HostPanel />}
     </>
   );
 }

@@ -1375,11 +1375,14 @@ describe("BottomPanels — board-route focused-pane fallback + HOST dot (zx4i)",
     return screen.getByRole("button", { name: /^Pane/ });
   }
 
-  // Panels are DRAWER-ONLY (260814-ldbs R6): the desktop sidebar renders no
-  // PANE/HOST panels anymore (their registers graduated to the status bar), so
-  // every test in this block forces the mobile viewport — the drawer render is
-  // the panels' only remaining home. The file-default non-mobile stub is
-  // restored afterwards so the override never leaks into later suites.
+  // Panels are visibility-gated per section (iha5 R5) with BOTH defaulting
+  // off — the 260814-ldbs drawer-only fork became a DEFAULT, not a hard
+  // `isMobile` gate. These tests exercise the panels themselves, so they opt
+  // both sections in via the persisted keys. They still force the mobile
+  // viewport (the drawer's panel layout is the canonical home); the
+  // desktop-opt-in case lives in the section-visibility gating suite below.
+  // The file-default non-mobile stub is restored afterwards so the override
+  // never leaks into later suites.
   function stubMobilePanels() {
     vi.stubGlobal(
       "matchMedia",
@@ -1400,6 +1403,8 @@ describe("BottomPanels — board-route focused-pane fallback + HOST dot (zx4i)",
   }
   beforeEach(() => {
     stubMobilePanels();
+    localStorage.setItem("runkit-sidebar-section-pane", "true");
+    localStorage.setItem("runkit-sidebar-section-host", "true");
   });
   afterEach(() => {
     vi.stubGlobal(
@@ -1417,22 +1422,12 @@ describe("BottomPanels — board-route focused-pane fallback + HOST dot (zx4i)",
     );
   });
 
-  it("renders NO PANE/HOST panels on the desktop sidebar (drawer-only fork, 260814-ldbs R6)", () => {
-    // Desktop (the file-default non-mobile stub): the panels are gone and the
-    // session region owns the height.
-    vi.stubGlobal(
-      "matchMedia",
-      vi.fn().mockImplementation((query: string) => ({
-        matches: query.includes("prefers-color-scheme: dark"),
-        media: query,
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-        dispatchEvent: vi.fn(),
-        addListener: vi.fn(),
-        removeListener: vi.fn(),
-        onchange: null,
-      })),
-    );
+  it("renders NO PANE/HOST panels under the DEFAULT section visibility (both default off — the drawer-only fork is now a default, iha5 R5)", () => {
+    // Drop this block's opt-in seeds to exercise the defaults: with nothing
+    // stored, neither panel mounts even in the mobile drawer (the drawer's
+    // default is pure nav + footer).
+    localStorage.removeItem("runkit-sidebar-section-pane");
+    localStorage.removeItem("runkit-sidebar-section-host");
     renderSidebar({
       currentServer: null,
       servers: boardServers,
@@ -1556,6 +1551,110 @@ describe("BottomPanels — board-route focused-pane fallback + HOST dot (zx4i)",
     expect(screen.getByText("board-host")).toBeInTheDocument();
     expect(screen.queryByText("No metrics")).not.toBeInTheDocument();
     expect(screen.queryByTitle(/SSE (dis)?connected/)).not.toBeInTheDocument();
+  });
+});
+
+describe("Sidebar — section-visibility rail + gating (iha5)", () => {
+  const railToggle = (name: string) =>
+    screen.getByRole("button", { name: `Toggle ${name} section` });
+  const paneHeader = () => screen.queryByRole("button", { name: /^Pane/ });
+  const hostHeader = () => screen.queryByRole("button", { name: /^Host/ });
+  const boardsHeader = () => screen.queryByRole("button", { name: /^Boards/ });
+  const serverHeader = () => screen.queryByRole("button", { name: /^Server/ });
+
+  function stubMobileViewport() {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn().mockImplementation((query: string) => ({
+        matches:
+          query.includes("prefers-color-scheme: dark") ||
+          query.includes("max-width") ||
+          query.includes("pointer: coarse"),
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        onchange: null,
+      })),
+    );
+  }
+  function stubDesktopViewport() {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn().mockImplementation((query: string) => ({
+        matches: query.includes("prefers-color-scheme: dark"),
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        onchange: null,
+      })),
+    );
+  }
+  afterEach(() => {
+    stubDesktopViewport();
+  });
+
+  it("default render matches the pre-rail behavior: rail + Boards + Server present, Pane/Host absent", () => {
+    renderSidebar();
+    expect(screen.getByTestId("section-rail")).toBeInTheDocument();
+    expect(railToggle("Boards").getAttribute("aria-pressed")).toBe("true");
+    expect(railToggle("Server").getAttribute("aria-pressed")).toBe("true");
+    expect(railToggle("Pane").getAttribute("aria-pressed")).toBe("false");
+    expect(railToggle("Host").getAttribute("aria-pressed")).toBe("false");
+    expect(boardsHeader()).toBeInTheDocument();
+    expect(serverHeader()).toBeInTheDocument();
+    expect(paneHeader()).not.toBeInTheDocument();
+    expect(hostHeader()).not.toBeInTheDocument();
+  });
+
+  it("mobile drawer defaults to pure nav + footer (no PANE/HOST panels)", () => {
+    stubMobileViewport();
+    renderSidebar();
+    expect(paneHeader()).not.toBeInTheDocument();
+    expect(hostHeader()).not.toBeInTheDocument();
+    // The footer keeps its own isMobile gate (NOT a toggleable section).
+    expect(screen.getByRole("status")).toBeInTheDocument();
+  });
+
+  it("mounts PANE + HOST on the DESKTOP sidebar when their sections are toggled on (opt-in return of the ldbs panels)", () => {
+    localStorage.setItem("runkit-sidebar-section-pane", "true");
+    localStorage.setItem("runkit-sidebar-section-host", "true");
+    renderSidebar();
+    expect(paneHeader()).toBeInTheDocument();
+    expect(hostHeader()).toBeInTheDocument();
+  });
+
+  it("rail toggle fully unmounts/remounts a section (Boards header gone, then back)", () => {
+    renderSidebar();
+    fireEvent.click(railToggle("Boards"));
+    expect(boardsHeader()).not.toBeInTheDocument();
+    expect(localStorage.getItem("runkit-sidebar-section-boards")).toBe("false");
+    fireEvent.click(railToggle("Boards"));
+    expect(boardsHeader()).toBeInTheDocument();
+  });
+
+  it("collapse state survives a visibility round-trip untouched", () => {
+    localStorage.setItem("runkit-sidebar-section-pane", "true");
+    renderSidebar();
+    const header = paneHeader()!;
+    expect(header.getAttribute("aria-expanded")).toBe("true");
+
+    fireEvent.click(header); // collapse via the chevron
+    expect(localStorage.getItem("runkit-panel-window")).toBe("false");
+
+    const toggle = railToggle("Pane");
+    fireEvent.click(toggle); // section off — fully unmounts
+    expect(paneHeader()).not.toBeInTheDocument();
+    // The collapse storage key is NOT touched by visibility toggling.
+    expect(localStorage.getItem("runkit-panel-window")).toBe("false");
+
+    fireEvent.click(toggle); // section on — remounts exactly as left
+    expect(paneHeader()!.getAttribute("aria-expanded")).toBe("false");
   });
 });
 

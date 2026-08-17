@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, act } from "@testing-library/react";
 import { useGlobalPaletteActions } from "./use-global-palette-actions";
 import { CommandPalette, type PaletteAction } from "@/components/command-palette";
 import { ChromeProvider } from "@/contexts/chrome-context";
@@ -63,8 +63,12 @@ describe("useGlobalPaletteActions", () => {
     mockBack.mockReset();
     mockForward.mockReset();
     captured = [];
+    localStorage.clear();
   });
-  afterEach(cleanup);
+  afterEach(() => {
+    cleanup();
+    localStorage.clear();
+  });
 
   it("builds the global groups in the canonical relative order (nav → font → refresh → help → shortcuts → settings)", () => {
     renderHook();
@@ -125,5 +129,22 @@ describe("useGlobalPaletteActions", () => {
     expect(screen.getByText("Help: Documentation")).toBeInTheDocument();
     expect(screen.getByText("Help: Keyboard Shortcuts")).toBeInTheDocument();
     expect(screen.getByText("Settings: Open")).toBeInTheDocument();
+  });
+
+  it("registers the four Panel: Toggle actions, each flipping its section's persisted boolean (iha5 R6)", () => {
+    renderHook();
+    const byId = new Map(captured.map((a) => [a.id, a]));
+    expect(byId.get("panel-toggle-boards")?.label).toBe("Panel: Toggle Boards");
+    expect(byId.get("panel-toggle-server")?.label).toBe("Panel: Toggle Server");
+    expect(byId.get("panel-toggle-pane")?.label).toBe("Panel: Toggle Pane");
+    expect(byId.get("panel-toggle-host")?.label).toBe("Panel: Toggle Host");
+
+    // Defaults: boards/server on, pane/host off.
+    act(() => byId.get("panel-toggle-pane")?.onSelect());
+    expect(localStorage.getItem("runkit-sidebar-section-pane")).toBe("true");
+    expect(localStorage.getItem("runkit-sidebar-section-host")).toBeNull();
+
+    act(() => byId.get("panel-toggle-boards")?.onSelect());
+    expect(localStorage.getItem("runkit-sidebar-section-boards")).toBe("false");
   });
 });

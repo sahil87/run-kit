@@ -234,6 +234,93 @@ export function GitPullRequestClosedIcon({ size = 13 }: { size?: number }) {
   );
 }
 
+/** Boards-section toggle glyph for the section rail — a lucide `layout-grid`
+ *  silhouette (four rounded cells). Same fixed idiom as the sibling icons. */
+export function BoardsSectionIcon({ size = 13 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="3" y="3" width="7" height="7" rx="1" />
+      <rect x="14" y="3" width="7" height="7" rx="1" />
+      <rect x="14" y="14" width="7" height="7" rx="1" />
+      <rect x="3" y="14" width="7" height="7" rx="1" />
+    </svg>
+  );
+}
+
+/** Server-section toggle glyph for the section rail — a lucide `server`
+ *  silhouette (two stacked rack units with status dots). Same fixed idiom. */
+export function ServerSectionIcon({ size = 13 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="2" y="2" width="20" height="8" rx="2" />
+      <rect x="2" y="14" width="20" height="8" rx="2" />
+      <path d="M6 6h.01" />
+      <path d="M6 18h.01" />
+    </svg>
+  );
+}
+
+/** Pane-section toggle glyph for the section rail — a lucide `panel-bottom`
+ *  silhouette (a frame with a bottom dock). Same fixed idiom. */
+export function PaneSectionIcon({ size = 13 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <path d="M3 15h18" />
+    </svg>
+  );
+}
+
+/** Host-section toggle glyph for the section rail — a lucide `activity`
+ *  silhouette (a metrics pulse line). Same fixed idiom. */
+export function HostSectionIcon({ size = 13 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+    </svg>
+  );
+}
+
 /** Small close/kill icon for the session- and window-row kill triggers — a
  *  lucide `x` cross. Replaces the former U+2715 text glyph for the same
  *  one-stroke-system reason as `PlusIcon`. (260724-2bmy) */

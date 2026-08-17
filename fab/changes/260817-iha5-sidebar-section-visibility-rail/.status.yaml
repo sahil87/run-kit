@@ -1,0 +1,55 @@
+id: iha5
+name: 260817-iha5-sidebar-section-visibility-rail
+created: 2026-08-17T03:46:57Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 11
+    acceptance_count: 17
+    acceptance_completed: 17
+confidence:
+    certain: 9
+    confident: 4
+    tentative: 0
+    unresolved: 0
+    score: 4.4
+    fuzzy: true
+    dimensions:
+        signal: 81.2
+        reversibility: 80.8
+        competence: 85.8
+        disambiguation: 81.5
+stage_metrics:
+    intake: {started_at: "2026-08-17T03:46:57Z", driver: fab-new, iterations: 1, completed_at: "2026-08-17T03:56:23Z"}
+    apply: {started_at: "2026-08-17T03:56:23Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-17T04:21:19Z"}
+    review: {started_at: "2026-08-17T04:21:19Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-17T04:27:42Z"}
+    hydrate: {started_at: "2026-08-17T04:27:42Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-17T04:36:26Z"}
+    ship: {started_at: "2026-08-17T04:36:26Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-08-17T04:36:26Z"
+    computed_at_stage: hydrate
+summary: 'Sidebar section-visibility rail: four rail + palette toggles (runkit-sidebar-section-*) gate Boards/Server/Pane/Host — defaults on/on/off/off — replacing the isMobile BottomPanels fork with per-section visibility on every viewport.'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-17T04:36:26Z

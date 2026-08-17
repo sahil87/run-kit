@@ -6,6 +6,7 @@ import { useUpdateNotification } from "@/contexts/session-context";
 import { useUpdateCheck } from "@/hooks/use-update-check";
 import { consumeUpdateWatchTarget } from "@/hooks/use-update-click";
 import { useKeybindings } from "@/hooks/use-keybindings";
+import { useSidebarSectionVisible } from "@/hooks/use-sidebar-sections";
 import { useToast } from "@/components/toast";
 import type { PaletteAction } from "@/components/command-palette";
 import { HELP_URL } from "@/components/global-chrome";
@@ -149,6 +150,24 @@ export function useGlobalPaletteActions({
     [openSettings],
   );
 
+  // Sidebar section-visibility toggles (iha5 R6) — the keyboard recovery path
+  // for the section rail (Constitution V). Always available on every route:
+  // flipping a persisted boolean is harmless where no sidebar is mounted, and
+  // the next sidebar mount reflects it.
+  const [boardsVisible, setBoardsVisible] = useSidebarSectionVisible("boards");
+  const [serverVisible, setServerVisible] = useSidebarSectionVisible("server");
+  const [paneVisible, setPaneVisible] = useSidebarSectionVisible("pane");
+  const [hostVisible, setHostVisible] = useSidebarSectionVisible("host");
+  const panelActions: PaletteAction[] = useMemo(
+    () => [
+      { id: "panel-toggle-boards", label: "Panel: Toggle Boards", onSelect: () => setBoardsVisible(!boardsVisible) },
+      { id: "panel-toggle-server", label: "Panel: Toggle Server", onSelect: () => setServerVisible(!serverVisible) },
+      { id: "panel-toggle-pane", label: "Panel: Toggle Pane", onSelect: () => setPaneVisible(!paneVisible) },
+      { id: "panel-toggle-host", label: "Panel: Toggle Host", onSelect: () => setHostVisible(!hostVisible) },
+    ],
+    [boardsVisible, setBoardsVisible, serverVisible, setServerVisible, paneVisible, setPaneVisible, hostVisible, setHostVisible],
+  );
+
   // Update actions — keyboard-first parity (Constitution V) for the top-bar
   // update chip. Gated on a qualifying pending update (dev version suppressed).
   // Only the Dismiss action remains here (mirroring the chip's `✕` for
@@ -240,10 +259,10 @@ export function useGlobalPaletteActions({
       // formatted per platform and reflecting overrides; disabled bindings
       // (user-disabled or browser-reserved) render no hint (260730-g40a).
       withShortcutHints(
-        [...navActions, ...terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, settingsEntry, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions],
+        [...navActions, ...terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, settingsEntry, ...panelActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions],
         bindingByAction,
         bindingHost.platform,
       ),
-    [navActions, terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, settingsEntry, updateActions, checkActions, maintenanceActions, versionActions, bindingByAction, bindingHost],
+    [navActions, terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, settingsEntry, panelActions, updateActions, checkActions, maintenanceActions, versionActions, bindingByAction, bindingHost],
   );
 }

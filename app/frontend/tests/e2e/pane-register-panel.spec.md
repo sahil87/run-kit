@@ -21,12 +21,16 @@ Absent layers render as absent; the L3 PR register shows for ANY pane with a
     - `@2` "plain-shell" — a bare shell (only L0 output).
     - `@3` "pr-only" — a plain pane (no `fabChange`) WITH a derived PR `#999`.
   - The terminals mux WebSocket (`/ws/terminals`) is stubbed.
-- `beforeEach` installs the routes before navigation.
-- **Drawer-only panels (260814-ldbs R6)**: the desktop sidebar no longer
-  renders the PANE/HOST panels (their registers graduated to the status bar),
-  so the suite runs `test.use({ hasTouch: true, viewport: 375×812 })` and
+- `beforeEach` seeds `runkit-sidebar-section-pane = "true"` via
+  `addInitScript` (the PANE section is visibility-gated and default-off since
+  iha5 — the sidebar-panels.spec.md idiom), then installs the routes before
+  navigation.
+- **Visibility-gated panels (iha5, formerly drawer-only 260814-ldbs R6)**: the
+  PANE panel mounts only when its section is toggled on (default off on every
+  viewport; its registers live in the desktop status bar), so the suite seeds
+  the section on, runs `test.use({ hasTouch: true, viewport: 375×812 })`, and
   opens the drawer (`Toggle navigation` button → `role="dialog"`) before
-  asserting — the drawer keeps the panels byte-identical.
+  asserting.
 
 ## Tests
 

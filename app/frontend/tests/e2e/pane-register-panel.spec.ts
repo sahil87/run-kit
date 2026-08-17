@@ -85,13 +85,17 @@ async function mockBackend(page: Page) {
 }
 
 test.describe("PANE panel four-register view", () => {
-  // The PANE/HOST panels are DRAWER-ONLY (260814-ldbs R6): the desktop sidebar
-  // no longer renders them, so these tests run at the mobile viewport and open
-  // the drawer (the panels' only remaining home) before asserting. `hasTouch`
-  // flips `(pointer: coarse)` so `useIsMobile()` reports mobile.
+  // The PANE panel is visibility-gated and DEFAULT-OFF (iha5 — the 260814-ldbs
+  // drawer-only fork became a `runkit-sidebar-section-pane` default): seed the
+  // section on via addInitScript (the sidebar-panels.spec.ts idiom), run at the
+  // mobile viewport, and open the drawer before asserting. `hasTouch` flips
+  // `(pointer: coarse)` so `useIsMobile()` reports mobile.
   test.use({ hasTouch: true, viewport: { width: 375, height: 812 } });
 
   test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => {
+      localStorage.setItem("runkit-sidebar-section-pane", "true");
+    });
     await mockBackend(page);
   });
 

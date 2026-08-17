@@ -5,8 +5,8 @@
  *   - `version` / `platform`: readable by EVERY page (including pages loaded
  *     from registered rk servers) — this is the SPA's shell-detection seam
  *     (`app/frontend/src/lib/shell.ts`).
- *   - `servers`: list/switch/add/reorder invokers for the SPA command
- *     palette and titlebar-strip host switcher. The group
+ *   - `servers`: list/switch/add/reorder/remove/rename invokers for the SPA
+ *     command palette and titlebar-strip host switcher. The group
  *     name and its `servers:*` channels are the web SPA's contract and keep
  *     their server naming (the entries are hosts — rk instances — shell-side).
  *     Privileged for registered host origins AND the welcome page — main.ts
@@ -54,6 +54,9 @@ contextBridge.exposeInMainWorld("runkitShell", {
     add: (): Promise<unknown> => ipcRenderer.invoke("servers:add"),
     reorder: (id: string, toIndex: number): Promise<unknown> =>
       ipcRenderer.invoke("servers:reorder", { id, toIndex }),
+    remove: (id: string): Promise<unknown> => ipcRenderer.invoke("servers:remove", id),
+    rename: (id: string, name: string): Promise<unknown> =>
+      ipcRenderer.invoke("servers:rename", { id, name }),
   },
   badge: {
     set: (count: number): Promise<unknown> => ipcRenderer.invoke("badge:set", count),

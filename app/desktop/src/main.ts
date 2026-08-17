@@ -87,6 +87,7 @@ import {
   setActiveHost,
   setHostAccentColor,
   setHostLastPath,
+  setHostName,
 } from "./hosts";
 import {
   activateView,
@@ -1150,6 +1151,13 @@ function parseReorderPayload(value: unknown): { id: string; toIndex: number } | 
   return { id: value.id, toIndex: value.toIndex };
 }
 
+function parseRenamePayload(value: unknown): { id: string; name: string } | null {
+  if (typeof value !== "object" || value === null) return null;
+  if (!("id" in value) || typeof value.id !== "string") return null;
+  if (!("name" in value) || typeof value.name !== "string") return null;
+  return { id: value.id, name: value.name };
+}
+
 function registerIpcHandlers(): void {
   ipcMain.handle(
     "welcome:test-host",
@@ -1253,6 +1261,32 @@ function registerIpcHandlers(): void {
     const parsed = parseReorderPayload(payload);
     if (!parsed) return { ok: false, error: "Invalid request" };
     moveHost(userDataDir(), parsed.id, parsed.toIndex);
+    rebuildMenu();
+    return { ok: true };
+  });
+
+  // servers:remove — the SPA dropdown's per-row Disconnect. Adds no removal
+  // logic: it routes into the ONE confirmAndRemoveHost path the native
+  // Hosts → Remove item calls (Cancel-default confirm dialog, store removal,
+  // view destruction, menu rebuild, active-host fallback). User-cancel and an
+  // unknown id (the store's no-op convention) both resolve ok — cancel is a
+  // successful no-op, matching the reorder handler.
+  ipcMain.handle("servers:remove", async (event, id: unknown): Promise<IpcResult> => {
+    if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
+    if (typeof id !== "string") return { ok: false, error: "Invalid request" };
+    await confirmAndRemoveHost(id);
+    return { ok: true };
+  });
+
+  // servers:rename — the SPA dropdown's inline row edit. Host names appear
+  // in the native Hosts-menu radio labels and `Remove "<name>"…` items, so a
+  // committed rename rebuilds the menu unconditionally (unknown id and no-op
+  // values included — the rebuild is harmless, the store no-ops).
+  ipcMain.handle("servers:rename", (event, payload: unknown): IpcResult => {
+    if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
+    const parsed = parseRenamePayload(payload);
+    if (!parsed) return { ok: false, error: "Invalid request" };
+    setHostName(userDataDir(), parsed.id, parsed.name);
     rebuildMenu();
     return { ok: true };
   });

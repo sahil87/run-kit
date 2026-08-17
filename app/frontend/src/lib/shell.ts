@@ -226,6 +226,95 @@ export async function reorderShellHosts(id: string, toIndex: number): Promise<bo
     typeof result === "object" && result !== null && "ok" in result && result.ok === true
   );
 }
+
+/** A `servers` group that also carries the optional `remove` invoker (newer shells). */
+interface ShellServersRemoveBridge extends ShellServersBridge {
+  remove: (id: string) => Promise<unknown>;
+}
+
+/** A `servers` group that also carries the optional `rename` invoker (newer shells). */
+interface ShellServersRenameBridge extends ShellServersBridge {
+  rename: (id: string, name: string) => Promise<unknown>;
+}
+
+/**
+ * The `remove` invoker is additive to the `servers` group (shells older than
+ * the host-switcher's per-row Disconnect expose only list/switch/add/reorder),
+ * so it is narrowed separately from `isServersBridge` — the group stays
+ * usable without it.
+ */
+function isServersRemoveBridge(
+  bridge: ShellServersBridge,
+): bridge is ShellServersRemoveBridge {
+  return "remove" in bridge && typeof Reflect.get(bridge, "remove") === "function";
+}
+
+/** True when the shell can disconnect a registered host (`servers.remove` present). */
+export function canRemoveShellHost(): boolean {
+  const bridge = serversBridge();
+  return bridge !== null && isServersRemoveBridge(bridge);
+}
+
+/**
+ * Disconnect a registered host — the shell runs its native Cancel-default
+ * confirm dialog and, on confirm, removes the registration and destroys the
+ * host's view (an active host falls back to the first remaining or welcome).
+ * The SPA adds no second confirmation; cancel resolves `true` as a successful
+ * no-op. Resolves `false` in a plain browser, on an older shell whose
+ * `servers` group lacks the `remove` invoker, or when the shell
+ * rejects/denies the call. Never throws.
+ */
+export async function removeShellHost(id: string): Promise<boolean> {
+  const bridge = serversBridge();
+  if (!bridge || !isServersRemoveBridge(bridge)) return false;
+  let result: unknown;
+  try {
+    result = await bridge.remove(id);
+  } catch {
+    return false;
+  }
+  return (
+    typeof result === "object" && result !== null && "ok" in result && result.ok === true
+  );
+}
+
+/**
+ * The `rename` invoker is additive to the `servers` group (shells older than
+ * the host-switcher's inline row rename lack it), so it is narrowed
+ * separately from `isServersBridge` — the group stays usable without it.
+ */
+function isServersRenameBridge(
+  bridge: ShellServersBridge,
+): bridge is ShellServersRenameBridge {
+  return "rename" in bridge && typeof Reflect.get(bridge, "rename") === "function";
+}
+
+/** True when the shell can rename a registered host (`servers.rename` present). */
+export function canRenameShellHost(): boolean {
+  const bridge = serversBridge();
+  return bridge !== null && isServersRenameBridge(bridge);
+}
+
+/**
+ * Rename a registered host — names are display-only (entries key on the
+ * immutable id) and appear in the shell's native menu, which the shell
+ * rebuilds on commit. Resolves `false` in a plain browser, on an older shell
+ * whose `servers` group lacks the `rename` invoker, or when the shell
+ * rejects/denies the call. Never throws.
+ */
+export async function renameShellHost(id: string, name: string): Promise<boolean> {
+  const bridge = serversBridge();
+  if (!bridge || !isServersRenameBridge(bridge)) return false;
+  let result: unknown;
+  try {
+    result = await bridge.rename(id, name);
+  } catch {
+    return false;
+  }
+  return (
+    typeof result === "object" && result !== null && "ok" in result && result.ok === true
+  );
+}
 /** The bridge's `badge` group — thin IPC invoker resolving unknown shapes. */
 interface ShellBadgeBridge {
   set: (count: number) => Promise<unknown>;

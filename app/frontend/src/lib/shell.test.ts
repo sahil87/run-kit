@@ -2,9 +2,13 @@ import { describe, it, expect, afterEach } from "vitest";
 import {
   addShellHost,
   canAddShellHost,
+  canRemoveShellHost,
+  canRenameShellHost,
   canReorderShellHosts,
   isShell,
   listShellServers,
+  removeShellHost,
+  renameShellHost,
   reorderShellHosts,
   setShellAccent,
   setShellBadge,
@@ -402,5 +406,117 @@ describe("canReorderShellHosts / reorderShellHosts", () => {
       reorder: () => Promise.reject(new Error("ipc gone")),
     });
     expect(await reorderShellHosts("a", 0)).toBe(false);
+  });
+});
+
+// The remove/rename invokers are ADDITIVE to the servers group (older shells
+// expose only list/switch/add/reorder): the can* predicates gate the strip's
+// Disconnect/rename affordances on their presence, and the invokers degrade
+// exactly like their siblings — false for plain browser, pre-remove/pre-rename
+// shells, a non-function member, denial, and rejected invokes.
+
+describe("canRemoveShellHost / removeShellHost", () => {
+  it("resolves true on an { ok: true } ack when the group carries remove", async () => {
+    let seen: string | null = null;
+    bridgeWith({
+      list: () => Promise.resolve({ ok: true, servers: [] }),
+      switch: () => Promise.resolve({ ok: true }),
+      remove: (id: string) => {
+        seen = id;
+        return Promise.resolve({ ok: true });
+      },
+    });
+    expect(canRemoveShellHost()).toBe(true);
+    expect(await removeShellHost("b")).toBe(true);
+    expect(seen).toBe("b");
+  });
+
+  it("reads as unavailable in a plain browser and on a shell without remove (older shell)", async () => {
+    expect(canRemoveShellHost()).toBe(false);
+    expect(await removeShellHost("a")).toBe(false);
+    bridgeWith({
+      list: () => Promise.resolve({ ok: true, servers: [serverA, serverB] }),
+      switch: () => Promise.resolve({ ok: true }),
+    });
+    expect(canRemoveShellHost()).toBe(false);
+    expect(await removeShellHost("a")).toBe(false);
+  });
+
+  it("reads as unavailable when remove is not a function", async () => {
+    bridgeWith({
+      list: () => Promise.resolve({ ok: true, servers: [] }),
+      switch: () => Promise.resolve({ ok: true }),
+      remove: "servers:remove",
+    });
+    expect(canRemoveShellHost()).toBe(false);
+    expect(await removeShellHost("a")).toBe(false);
+  });
+
+  it("resolves false on a denied result and on a rejected invoke", async () => {
+    bridgeWith({
+      list: () => Promise.resolve({ ok: true, servers: [] }),
+      switch: () => Promise.resolve({ ok: true }),
+      remove: () => Promise.resolve({ ok: false, error: "Not allowed" }),
+    });
+    expect(await removeShellHost("a")).toBe(false);
+    bridgeWith({
+      list: () => Promise.resolve({ ok: true, servers: [] }),
+      switch: () => Promise.resolve({ ok: true }),
+      remove: () => Promise.reject(new Error("ipc gone")),
+    });
+    expect(await removeShellHost("a")).toBe(false);
+  });
+});
+
+describe("canRenameShellHost / renameShellHost", () => {
+  it("resolves true on an { ok: true } ack when the group carries rename", async () => {
+    let seen: { id: string; name: string } | null = null;
+    bridgeWith({
+      list: () => Promise.resolve({ ok: true, servers: [] }),
+      switch: () => Promise.resolve({ ok: true }),
+      rename: (id: string, name: string) => {
+        seen = { id, name };
+        return Promise.resolve({ ok: true });
+      },
+    });
+    expect(canRenameShellHost()).toBe(true);
+    expect(await renameShellHost("b", "lab-2")).toBe(true);
+    expect(seen).toEqual({ id: "b", name: "lab-2" });
+  });
+
+  it("reads as unavailable in a plain browser and on a shell without rename (older shell)", async () => {
+    expect(canRenameShellHost()).toBe(false);
+    expect(await renameShellHost("a", "x")).toBe(false);
+    bridgeWith({
+      list: () => Promise.resolve({ ok: true, servers: [serverA, serverB] }),
+      switch: () => Promise.resolve({ ok: true }),
+    });
+    expect(canRenameShellHost()).toBe(false);
+    expect(await renameShellHost("a", "x")).toBe(false);
+  });
+
+  it("reads as unavailable when rename is not a function", async () => {
+    bridgeWith({
+      list: () => Promise.resolve({ ok: true, servers: [] }),
+      switch: () => Promise.resolve({ ok: true }),
+      rename: "servers:rename",
+    });
+    expect(canRenameShellHost()).toBe(false);
+    expect(await renameShellHost("a", "x")).toBe(false);
+  });
+
+  it("resolves false on a denied result and on a rejected invoke", async () => {
+    bridgeWith({
+      list: () => Promise.resolve({ ok: true, servers: [] }),
+      switch: () => Promise.resolve({ ok: true }),
+      rename: () => Promise.resolve({ ok: false, error: "Not allowed" }),
+    });
+    expect(await renameShellHost("a", "x")).toBe(false);
+    bridgeWith({
+      list: () => Promise.resolve({ ok: true, servers: [] }),
+      switch: () => Promise.resolve({ ok: true }),
+      rename: () => Promise.reject(new Error("ipc gone")),
+    });
+    expect(await renameShellHost("a", "x")).toBe(false);
   });
 });

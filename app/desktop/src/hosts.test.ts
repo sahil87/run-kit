@@ -23,6 +23,7 @@ import {
   setActiveHost,
   setHostAccentColor,
   setHostLastPath,
+  setHostName,
 } from "./hosts";
 
 function tmpDataDir(): string {
@@ -231,6 +232,71 @@ test("setHostLastPath with an unchanged value writes nothing", () => {
   const before = readFileSync(join(dir, "hosts.json"), "utf8");
   const again = setHostLastPath(dir, a.host.id, "/w");
   assert.deepEqual(again, first);
+  assert.equal(readFileSync(join(dir, "hosts.json"), "utf8"), before);
+});
+
+test("setHostName renames, trims, and round-trips through load", () => {
+  const dir = tmpDataDir();
+  const a = addHost(dir, "a", "http://a:1");
+  assert.equal(a.ok, true);
+  if (!a.ok) return;
+
+  const next = setHostName(dir, a.host.id, "  studio  ");
+  assert.equal(next.hosts[0].name, "studio");
+  assert.deepEqual(loadHosts(dir), next);
+});
+
+test("setHostName leaves every other field and the list order untouched", () => {
+  const dir = tmpDataDir();
+  const a = addHost(dir, "a", "http://a:1");
+  const b = addHost(dir, "b", "http://b:2");
+  assert.equal(a.ok && b.ok, true);
+  if (!a.ok || !b.ok) return;
+  setHostLastPath(dir, a.host.id, "/w");
+  setHostAccentColor(dir, a.host.id, "#ff0044");
+
+  const before = loadHosts(dir);
+  const next = setHostName(dir, a.host.id, "renamed");
+  assert.deepEqual(next.hosts, [
+    { ...before.hosts[0], name: "renamed" },
+    before.hosts[1],
+  ]);
+  assert.equal(next.activeId, before.activeId);
+});
+
+test("setHostName with an unknown id writes nothing", () => {
+  const dir = tmpDataDir();
+  const a = addHost(dir, "a", "http://a:1");
+  assert.equal(a.ok, true);
+  if (!a.ok) return;
+
+  const before = readFileSync(join(dir, "hosts.json"), "utf8");
+  const result = setHostName(dir, "nope", "x");
+  assert.deepEqual(result, a.list);
+  assert.equal(readFileSync(join(dir, "hosts.json"), "utf8"), before);
+});
+
+test("setHostName with the unchanged name writes nothing", () => {
+  const dir = tmpDataDir();
+  const a = addHost(dir, "a", "http://a:1");
+  assert.equal(a.ok, true);
+  if (!a.ok) return;
+
+  const before = readFileSync(join(dir, "hosts.json"), "utf8");
+  const again = setHostName(dir, a.host.id, " a ");
+  assert.deepEqual(again, a.list);
+  assert.equal(readFileSync(join(dir, "hosts.json"), "utf8"), before);
+});
+
+test("setHostName with an empty or whitespace-only name keeps the current name", () => {
+  const dir = tmpDataDir();
+  const a = addHost(dir, "a", "http://a:1");
+  assert.equal(a.ok, true);
+  if (!a.ok) return;
+
+  const before = readFileSync(join(dir, "hosts.json"), "utf8");
+  assert.deepEqual(setHostName(dir, a.host.id, ""), a.list);
+  assert.deepEqual(setHostName(dir, a.host.id, "   "), a.list);
   assert.equal(readFileSync(join(dir, "hosts.json"), "utf8"), before);
 });
 

@@ -6,8 +6,12 @@ import { useToast } from "@/components/toast";
 import {
   addShellHost,
   canAddShellHost,
+  canRemoveShellHost,
+  canRenameShellHost,
   canReorderShellHosts,
   listShellServers,
+  removeShellHost,
+  renameShellHost,
   reorderShellHosts,
   shellInfo,
   switchShellServer,
@@ -70,6 +74,17 @@ import type { ShellHostMenuRow } from "@/lib/shell-strip";
  * native menu on each committed move. All three ride the optional
  * `reorder` invoker / additive projection fields — an older shell renders
  * exactly the plain marker/name/origin/hint rows.
+ *
+ * Two further capability-gated row affordances join the grip in a trailing
+ * hover/focus-revealed cluster: Disconnect (routes into the shell's ONE
+ * removal path — the native Cancel-default confirm dialog is the only
+ * confirmation; the SPA adds none) and an inline rename (Enter/blur commits,
+ * Escape cancels — the window-heading precedent; an empty/unchanged commit
+ * is a cancel, no dialog anywhere). Delete/Backspace and F2 reach both from
+ * the focused row (Constitution V), and while the rename input holds focus
+ * the menu's capture-phase key handling suspends. Each affordance rides its
+ * own optional invoker (`servers.remove` / `servers.rename`), so an older
+ * shell renders rows without the icons or the bindings.
  */
 
 /** Custom MIME so a host-reorder drag never collides with the other
@@ -136,6 +151,31 @@ export function ShellTitlebarStrip() {
   // The reorder affordances (drag grip, ⌥↑/⌥↓) ride the optional
   // `servers.reorder` invoker — an older shell renders plain rows.
   const canReorder = canReorderShellHosts();
+  // Disconnect and inline rename ride their own optional invokers
+  // (`servers.remove` / `servers.rename`), gated independently — an older
+  // shell renders rows without the icons or the key bindings.
+  const canRemove = canRemoveShellHost();
+  const canRename = canRenameShellHost();
+  // The trailing reservation must fit every rendered cluster member (icons
+  // are hover/focus-revealed but the width is static): grip + up to two
+  // icon buttons.
+  const affordanceCount = (canReorder ? 1 : 0) + (canRemove ? 1 : 0) + (canRename ? 1 : 0);
+  const affordancePad =
+    affordanceCount === 0
+      ? "pr-3"
+      : affordanceCount === 1
+        ? "pr-6"
+        : affordanceCount === 2
+          ? "pr-11"
+          : "pr-16";
+
+  // Inline row rename: the editing row's id plus its draft. `keyHandledRef`
+  // is the WindowHeading blur guard — a key-driven commit/cancel (Enter/
+  // Escape) tears the input down, and the trailing blur must not re-commit.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState("");
+  const keyHandledRef = useRef(false);
+  const editInputRef = useRef<HTMLInputElement>(null);
 
   // Latest COMMITTED host-row count, read live inside the capture-phase
   // keydown handler: that handler stays attached from a commit until the
@@ -170,6 +210,57 @@ export function ShellTitlebarStrip() {
     },
     [addToast, fetchServers],
   );
+
+  // Disconnect routes into the shell's ONE removal path — the native
+  // Cancel-default confirm dialog is the only confirmation (the SPA adds
+  // none). The list refetches to reconcile either way; a failure toasts.
+  const disconnectHost = useCallback(
+    (id: string) => {
+      void removeShellHost(id).then((ok) => {
+        if (!ok) addToast("Shell host disconnect failed", "error");
+        fetchServers();
+      });
+    },
+    [addToast, fetchServers],
+  );
+
+  const startRename = useCallback((row: ShellHostMenuRow) => {
+    keyHandledRef.current = false;
+    setEditDraft(row.name);
+    setEditingId(row.id);
+  }, []);
+
+  // Entering edit focuses the input with the current name selected (the
+  // window-heading rename precedent).
+  useEffect(() => {
+    if (editingId !== null) {
+      editInputRef.current?.focus();
+      editInputRef.current?.select();
+    }
+  }, [editingId]);
+
+  // Commit trims; an empty/whitespace-only or unchanged commit is a cancel
+  // (no invoke). A real commit updates the row name optimistically, invokes
+  // the shell, and refetches to reconcile — the menu stays open throughout.
+  const commitRename = useCallback(() => {
+    const id = editingId;
+    const trimmed = editDraft.trim();
+    setEditingId(null);
+    if (id === null) return;
+    const row = rowsRef.current.find((r) => r.id === id);
+    if (!row || trimmed === "" || trimmed === row.name) return;
+    setServers((prev) =>
+      prev ? prev.map((s) => (s.id === id ? { ...s, name: trimmed } : s)) : prev,
+    );
+    void renameShellHost(id, trimmed).then((ok) => {
+      if (!ok) addToast("Shell host rename failed", "error");
+      fetchServers();
+    });
+  }, [editingId, editDraft, addToast, fetchServers]);
+
+  const cancelRename = useCallback(() => {
+    setEditingId(null);
+  }, []);
 
   // Shared move commit (⌥↑/⌥↓ per keypress): the local list reorders
   // OPTIMISTICALLY so the accelerator hints re-number immediately, and the
@@ -270,14 +361,44 @@ export function ShellTitlebarStrip() {
   // Escape closes + refocuses the trigger; ArrowDown/ArrowUp move focus with
   // wraparound (capture-phase, mirroring BreadcrumbDropdown). With the
   // reorder capability, ⌥↑/⌥↓ instead MOVES the focused host row. Enter
-  // needs no handler — the focused row is a native <button>.
+  // needs no handler — the focused row is a native <button>. Delete/Backspace
+  // disconnects the focused row and F2 enters its inline rename.
   useEffect(() => {
     if (!open) return;
     function handleKey(e: KeyboardEvent) {
+      // Edit-mode suspension: while a row's rename input holds focus the menu
+      // owns no keys — the input's own handlers run (Escape exits only the
+      // edit, Enter commits, arrows/Delete/Backspace edit text).
+      if (e.target instanceof HTMLInputElement) return;
       if (e.key === "Escape") {
         e.stopPropagation();
         setOpen(false);
         triggerRef.current?.focus();
+        return;
+      }
+      if (e.key === "Delete" || e.key === "Backspace") {
+        // Disconnect the focused host row — the shell's native confirm dialog
+        // is the accident guard. The Add-Host footer is not bound, and an
+        // older shell without the capability falls through untouched.
+        if (!canRemove) return;
+        const idx = itemRefs.current.findIndex((el) => el === document.activeElement);
+        if (idx < 0 || idx >= hostCountRef.current) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const row = rowsRef.current[idx];
+        if (row) disconnectHost(row.id);
+        return;
+      }
+      if (e.key === "F2") {
+        // Enter inline rename on the focused host row — same gating as
+        // Delete/Backspace (host rows only, capability-gated).
+        if (!canRename) return;
+        const idx = itemRefs.current.findIndex((el) => el === document.activeElement);
+        if (idx < 0 || idx >= hostCountRef.current) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const row = rowsRef.current[idx];
+        if (row) startRename(row);
         return;
       }
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
@@ -325,7 +446,7 @@ export function ShellTitlebarStrip() {
     }
     document.addEventListener("keydown", handleKey, { capture: true });
     return () => document.removeEventListener("keydown", handleKey, { capture: true });
-  }, [open, rows.length, canAdd, canReorder, moveHostRow]);
+  }, [open, rows.length, canAdd, canReorder, canRemove, canRename, moveHostRow, disconnectHost, startRename]);
 
   // Focus lands on the active row on open.
   useEffect(() => {
@@ -432,83 +553,207 @@ export function ShellTitlebarStrip() {
               className="rk-shell-no-drag absolute left-1/2 top-full z-50 mt-1 max-h-72 min-w-[220px] max-w-[320px] -translate-x-1/2 overflow-y-auto rounded-lg border border-border bg-bg-primary py-1 shadow-2xl"
             >
               {rows.map((row, i) => (
-                <button
+                // Non-interactive row wrapper: owns the hover/focus group and
+                // the drag handlers (they bubble up from the draggable primary
+                // button and cover the trailing cluster zone). Icon buttons
+                // and the rename input are SIBLINGS of the primary button —
+                // interactive elements must never nest inside it.
+                <div
                   key={row.id}
-                  ref={(el) => {
-                    itemRefs.current[i] = el;
-                  }}
-                  type="button"
-                  // menuitemradio + aria-checked: the active host is a
-                  // single-select state AT must hear, not a color-only cue
-                  // (the view-switcher precedent; aria-pressed is invalid on
-                  // a menu item).
-                  role="menuitemradio"
-                  aria-checked={row.active}
-                  tabIndex={focusedIndex === i ? 0 : -1}
-                  onClick={() => selectHost(row.id)}
-                  draggable={canReorder}
+                  className="group relative"
                   onDragStart={(e) => onRowDragStart(e, row.id)}
                   onDragOver={(e) => onRowDragOver(e, row.id)}
                   onDrop={onRowDrop}
                   onDragEnd={onRowDragEnd}
-                  className={`group relative flex w-full items-baseline gap-2 py-2 pl-3 text-left text-sm transition-colors ${
-                    canReorder ? "pr-6" : "pr-3"
-                  } ${
-                    row.active
-                      ? "text-accent"
-                      : "text-text-secondary hover:bg-bg-card hover:text-text-primary"
-                  }`}
                 >
-                  {/* Accent edge bar — absolutely overlaid on the row's left
-                      edge so a colorless row keeps identical alignment. The
-                      row model hex-validated the value (no interpolation of
-                      unvalidated strings). */}
-                  {row.accentColor !== null && (
-                    <span
-                      aria-hidden="true"
-                      data-testid="shell-host-accent-bar"
-                      className="absolute bottom-1 left-0 top-1 w-[3px] rounded-full"
-                      style={{ backgroundColor: row.accentColor }}
-                    />
+                  {editingId === row.id ? (
+                    // Inline rename: the primary button is replaced (an input
+                    // inside a button is invalid HTML); marker/origin columns
+                    // keep the row's alignment.
+                    <div className="relative flex w-full items-baseline gap-2 py-2 pl-3 pr-3 text-left text-sm">
+                      <span aria-hidden="true" className="w-3 shrink-0">
+                        {row.active ? "✓" : ""}
+                      </span>
+                      <input
+                        ref={editInputRef}
+                        type="text"
+                        value={editDraft}
+                        onChange={(e) => setEditDraft(e.target.value)}
+                        onBlur={() => {
+                          // A key-driven commit/cancel already settled the
+                          // edit — swallow the trailing teardown blur.
+                          if (keyHandledRef.current) {
+                            keyHandledRef.current = false;
+                            return;
+                          }
+                          commitRename();
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            keyHandledRef.current = true;
+                            commitRename();
+                            requestAnimationFrame(() => itemRefs.current[i]?.focus());
+                          } else if (e.key === "Escape") {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            keyHandledRef.current = true;
+                            cancelRename();
+                            requestAnimationFrame(() => itemRefs.current[i]?.focus());
+                          }
+                        }}
+                        aria-label={`Rename ${row.name}`}
+                        style={{ width: `${Math.max(editDraft.length + 1, 3)}ch` }}
+                        className="min-w-0 shrink-0 border-b border-accent bg-transparent text-left text-sm text-text-primary outline-none"
+                      />
+                      <span className="min-w-0 truncate text-xs opacity-60">{row.origin}</span>
+                    </div>
+                  ) : (
+                    <>
+                      <button
+                        ref={(el) => {
+                          itemRefs.current[i] = el;
+                        }}
+                        type="button"
+                        // menuitemradio + aria-checked: the active host is a
+                        // single-select state AT must hear, not a color-only cue
+                        // (the view-switcher precedent; aria-pressed is invalid on
+                        // a menu item).
+                        role="menuitemradio"
+                        aria-checked={row.active}
+                        tabIndex={focusedIndex === i ? 0 : -1}
+                        onClick={() => selectHost(row.id)}
+                        draggable={canReorder}
+                        className={`relative flex w-full items-baseline gap-2 py-2 pl-3 text-left text-sm transition-colors ${affordancePad} ${
+                          row.active
+                            ? "text-accent"
+                            : "text-text-secondary hover:bg-bg-card hover:text-text-primary"
+                        }`}
+                      >
+                        {/* Accent edge bar — absolutely overlaid on the row's
+                            left edge so a colorless row keeps identical
+                            alignment. The row model hex-validated the value
+                            (no interpolation of unvalidated strings). */}
+                        {row.accentColor !== null && (
+                          <span
+                            aria-hidden="true"
+                            data-testid="shell-host-accent-bar"
+                            className="absolute bottom-1 left-0 top-1 w-[3px] rounded-full"
+                            style={{ backgroundColor: row.accentColor }}
+                          />
+                        )}
+                        {/* Active marker column — fixed width so names align. */}
+                        <span aria-hidden="true" className="w-3 shrink-0">
+                          {row.active ? "✓" : ""}
+                        </span>
+                        <span className="min-w-0 shrink-0 truncate">{row.name}</span>
+                        {/* Dimmed origin — display names are not unique, the
+                            origin disambiguates. */}
+                        <span className="min-w-0 truncate text-xs opacity-60">{row.origin}</span>
+                        {/* Amber waiting-agent count — BACKGROUND hosts only
+                            (the row model nulls the active row's count; the
+                            dock badge is the active host's attention surface).
+                            Waiting-only semantics: 0/absent renders nothing. */}
+                        {row.waiting !== null && (
+                          <span className="ml-auto shrink-0 pl-2 text-xs text-amber-600">
+                            ● {row.waiting}
+                          </span>
+                        )}
+                        {/* Trailing accelerator hint mirroring the native Hosts
+                            menu bindings (⌥⌘1–9 mac / ⇧Ctrl+1–9 win-linux,
+                            9-cap). It shares the trailing zone with the action
+                            cluster, so it hides while the cluster shows. */}
+                        {row.hint && (
+                          <span
+                            className={`${row.waiting === null ? "ml-auto " : ""}${
+                              affordanceCount > 0
+                                ? "group-hover:invisible group-focus-within:invisible "
+                                : ""
+                            }shrink-0 pl-2 text-xs text-text-secondary`}
+                          >
+                            {row.hint}
+                          </span>
+                        )}
+                      </button>
+                      {/* Trailing action cluster — hover/focus-revealed, edit ·
+                          disconnect · grip (its width is the row's `pr-*`
+                          reservation). Icon buttons are tab-skip: the keyboard
+                          paths are the row-level Delete/Backspace and F2
+                          bindings (Constitution V). */}
+                      {affordanceCount > 0 && (
+                        <div className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                          {canRename && (
+                            <Tip label="Rename">
+                              <button
+                                type="button"
+                                aria-label="Rename"
+                                tabIndex={-1}
+                                onClick={() => startRename(row)}
+                                className="flex h-5 w-5 items-center justify-center rounded text-text-secondary transition-colors hover:bg-bg-card hover:text-text-primary"
+                              >
+                                <svg
+                                  aria-hidden="true"
+                                  width="12"
+                                  height="12"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                >
+                                  <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" />
+                                  <path d="m15 5 4 4" />
+                                </svg>
+                              </button>
+                            </Tip>
+                          )}
+                          {canRemove && (
+                            <Tip label="Disconnect">
+                              <button
+                                type="button"
+                                aria-label="Disconnect"
+                                tabIndex={-1}
+                                onClick={() => disconnectHost(row.id)}
+                                className="flex h-5 w-5 items-center justify-center rounded text-text-secondary transition-colors hover:bg-bg-card hover:text-text-primary"
+                              >
+                                <svg
+                                  aria-hidden="true"
+                                  width="12"
+                                  height="12"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                >
+                                  <path d="m19 5 3-3" />
+                                  <path d="m2 22 3-3" />
+                                  <path d="M6.3 20.3a2.4 2.4 0 0 0 3.4 0L12 18l-6-6-2.3 2.3a2.4 2.4 0 0 0 0 3.4Z" />
+                                  <path d="M7.5 13.5 10 11" />
+                                  <path d="M10.5 16.5 13 14" />
+                                  <path d="m12 6 6 6 2.3-2.3a2.4 2.4 0 0 0 0-3.4l-2.6-2.6a2.4 2.4 0 0 0-3.4 0Z" />
+                                </svg>
+                              </button>
+                            </Tip>
+                          )}
+                          {/* Drag grip — visual affordance only; the row
+                              itself is the draggable. */}
+                          {canReorder && (
+                            <span
+                              aria-hidden="true"
+                              className="pointer-events-none text-[10px] leading-none tracking-[-2px] text-text-secondary opacity-60"
+                            >
+                              ⋮⋮
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </>
                   )}
-                  {/* Active marker column — fixed width so names align. */}
-                  <span aria-hidden="true" className="w-3 shrink-0">
-                    {row.active ? "✓" : ""}
-                  </span>
-                  <span className="min-w-0 shrink-0 truncate">{row.name}</span>
-                  {/* Dimmed origin — display names are not unique, the origin
-                      disambiguates. */}
-                  <span className="min-w-0 truncate text-xs opacity-60">{row.origin}</span>
-                  {/* Amber waiting-agent count — BACKGROUND hosts only (the
-                      row model nulls the active row's count; the dock badge
-                      is the active host's attention surface). Waiting-only
-                      semantics: 0/absent renders nothing. */}
-                  {row.waiting !== null && (
-                    <span className="ml-auto shrink-0 pl-2 text-xs text-amber-600">
-                      ● {row.waiting}
-                    </span>
-                  )}
-                  {/* Trailing accelerator hint mirroring the native Hosts
-                      menu bindings (⌥⌘1–9 mac / ⇧Ctrl+1–9 win-linux, 9-cap). */}
-                  {row.hint && (
-                    <span
-                      className={`${row.waiting === null ? "ml-auto " : ""}shrink-0 pl-2 text-xs text-text-secondary`}
-                    >
-                      {row.hint}
-                    </span>
-                  )}
-                  {/* Drag grip — hover-revealed at the row's trailing edge
-                      (the `pr-6` above reserves its width). Visual affordance
-                      only; the row itself is the draggable. */}
-                  {canReorder && (
-                    <span
-                      aria-hidden="true"
-                      className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] leading-none tracking-[-2px] text-text-secondary opacity-0 transition-opacity group-hover:opacity-60"
-                    >
-                      ⋮⋮
-                    </span>
-                  )}
-                </button>
+                </div>
               ))}
               {canAdd && (
                 <button

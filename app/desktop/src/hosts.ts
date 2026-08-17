@@ -212,6 +212,26 @@ export function setHostLastPath(dir: string, id: string, lastPath: string): Host
 }
 
 /**
+ * Rename a host entry. Names are display-only — entries key on the immutable
+ * id, and names are not unique (several entries can share one origin). Trim
+ * follows the `addHost` convention; an unknown id, an empty/whitespace-only
+ * trimmed value, or an unchanged name is a no-op (nothing written) — the
+ * store's keep-current convention rather than a rejection.
+ */
+export function setHostName(dir: string, id: string, name: string): HostList {
+  const list = loadHosts(dir);
+  const trimmed = name.trim();
+  const entry = list.hosts.find((h) => h.id === id);
+  if (!entry || trimmed === "" || entry.name === trimmed) return list;
+  const next: HostList = {
+    ...list,
+    hosts: list.hosts.map((h) => (h.id === id ? { ...h, name: trimmed } : h)),
+  };
+  saveHosts(dir, next);
+  return next;
+}
+
+/**
  * Strict hex gate for a reported accent color — byte-for-byte the SPA
  * consumer's `HOST_ACCENT_HEX` (app/frontend/src/lib/shell-strip.ts), so
  * nothing the shell persists can fail the SPA's row-paint validation. The

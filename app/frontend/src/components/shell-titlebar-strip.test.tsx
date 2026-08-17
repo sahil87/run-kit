@@ -47,12 +47,16 @@ function accentValue(overrides: Partial<InstanceAccent> = {}): InstanceAccent {
  *  rejected call, i.e. an older shell / denial). `withAdd` includes the
  *  optional `add` invoker (newer shells — drives the `+ Add Host…` footer);
  *  `withReorder` includes the optional `reorder` invoker (drives the drag
- *  grip + ⌥↑/⌥↓ move). Returns the spies for call-count/payload assertions. */
+ *  grip + ⌥↑/⌥↓ move); `withRemove`/`withRename` include the optional
+ *  `remove`/`rename` invokers (the Disconnect icon + inline rename).
+ *  Returns the spies for call-count/payload assertions. */
 function shellBridge(
   servers: unknown[] | null,
   platform = "darwin",
   withAdd = false,
   withReorder = false,
+  withRemove = false,
+  withRename = false,
 ) {
   const list = vi.fn(() =>
     servers === null
@@ -62,6 +66,8 @@ function shellBridge(
   const switchFn = vi.fn(() => Promise.resolve({ ok: true }));
   const add = vi.fn(() => Promise.resolve({ ok: true }));
   const reorder = vi.fn(() => Promise.resolve({ ok: true }));
+  const remove = vi.fn(() => Promise.resolve({ ok: true }));
+  const rename = vi.fn(() => Promise.resolve({ ok: true }));
   window.runkitShell = {
     version: "1.2.3",
     platform,
@@ -70,9 +76,11 @@ function shellBridge(
       switch: switchFn,
       ...(withAdd ? { add } : {}),
       ...(withReorder ? { reorder } : {}),
+      ...(withRemove ? { remove } : {}),
+      ...(withRename ? { rename } : {}),
     },
   };
-  return { list, switch: switchFn, add, reorder };
+  return { list, switch: switchFn, add, reorder, remove, rename };
 }
 
 function renderStrip(accent: InstanceAccent = accentValue()) {
@@ -99,8 +107,10 @@ async function renderInteractive(
   platform = "darwin",
   withAdd = false,
   withReorder = false,
+  withRemove = false,
+  withRename = false,
 ) {
-  const bridge = shellBridge(list, platform, withAdd, withReorder);
+  const bridge = shellBridge(list, platform, withAdd, withReorder, withRemove, withRename);
   renderStrip();
   await waitFor(() => {
     expect(screen.getByRole("button", { name: "Switch host" })).toBeInTheDocument();
@@ -659,5 +669,267 @@ describe("ShellTitlebarStrip host menu — accent bars, waiting counts, reorder 
     expect(screen.queryByText(/●/)).not.toBeInTheDocument();
     for (const row of rows) expect(row).toHaveAttribute("draggable", "false");
     expect(screen.queryByRole("menuitem", { name: "Add Host…" })).not.toBeInTheDocument();
+  });
+});
+
+describe("ShellTitlebarStrip host menu — Disconnect + inline rename", () => {
+  /** Bridge carrying all four optional invokers (add/reorder/remove/rename). */
+  const renderFull = (list: unknown[] = hosts) =>
+    renderInteractive(list, "darwin", true, true, true, true);
+
+  it("renders the Disconnect and Rename icons per row when the bridge carries both invokers", async () => {
+    await renderFull();
+    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    expect(screen.getAllByRole("button", { name: "Disconnect" })).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: "Rename" })).toHaveLength(2);
+  });
+
+  it("gates each icon on its own capability (remove without rename renders only Disconnect)", async () => {
+    await renderInteractive(hosts, "darwin", false, false, true, false);
+    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    expect(screen.getAllByRole("button", { name: "Disconnect" })).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: "Rename" })).not.toBeInTheDocument();
+  });
+
+  it("renders plain rows on an older shell — no icons, and the keys fall through unswallowed", async () => {
+    await renderInteractive(hosts); // list/switch only
+    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    expect(screen.queryByRole("button", { name: "Disconnect" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Rename" })).not.toBeInTheDocument();
+    const rows = screen.getAllByRole("menuitemradio");
+    await waitFor(() => expect(document.activeElement).toBe(rows[0]));
+    // fireEvent returns false when a handler called preventDefault — both
+    // keys must fall through untouched without the capability.
+    expect(fireEvent.keyDown(document, { key: "Backspace" })).toBe(true);
+    expect(fireEvent.keyDown(document, { key: "F2" })).toBe(true);
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+  });
+
+  it("Disconnect icon click invokes remove with the row id and refetches (menu stays open)", async () => {
+    const bridge = await renderFull();
+    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    expect(bridge.list).toHaveBeenCalledTimes(2); // mount + open refetch
+    fireEvent.click(screen.getAllByRole("button", { name: "Disconnect" })[1]);
+    expect(bridge.remove).toHaveBeenCalledTimes(1);
+    expect(bridge.remove).toHaveBeenCalledWith("b");
+    // Success reconciles via refetch; the menu stays open for background rows.
+    await waitFor(() => expect(bridge.list).toHaveBeenCalledTimes(3));
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    expect(bridge.switch).not.toHaveBeenCalled();
+  });
+
+  it("a failed disconnect surfaces the toast and refetches", async () => {
+    const bridge = await renderFull();
+    bridge.remove.mockResolvedValue({ ok: false });
+    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Disconnect" })[0]);
+    await waitFor(() => {
+      expect(screen.getByText("Shell host disconnect failed")).toBeInTheDocument();
+    });
+    await waitFor(() => expect(bridge.list).toHaveBeenCalledTimes(3));
+  });
+
+  it("Delete/Backspace on a focused host row disconnects it; the footer is not bound", async () => {
+    const bridge = await renderFull();
+    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    const rows = screen.getAllByRole("menuitemradio");
+    await waitFor(() => expect(document.activeElement).toBe(rows[0]));
+    expect(fireEvent.keyDown(document, { key: "Backspace" })).toBe(false); // swallowed
+    expect(bridge.remove).toHaveBeenCalledTimes(1);
+    expect(bridge.remove).toHaveBeenCalledWith("a");
+    expect(fireEvent.keyDown(document, { key: "Delete" })).toBe(false);
+    expect(bridge.remove).toHaveBeenCalledTimes(2);
+    // Wrap up to the Add-Host footer: Delete there falls through, no invoke.
+    fireEvent.keyDown(document, { key: "ArrowUp" });
+    expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "Add Host…" }));
+    expect(fireEvent.keyDown(document, { key: "Delete" })).toBe(true);
+    expect(bridge.remove).toHaveBeenCalledTimes(2);
+  });
+
+  it("F2 on a focused row enters inline rename (input prefilled, focused, replaces the row button)", async () => {
+    await renderFull();
+    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    const rows = screen.getAllByRole("menuitemradio");
+    await waitFor(() => expect(document.activeElement).toBe(rows[0]));
+    fireEvent.keyDown(document, { key: "F2" });
+    const input = screen.getByRole("textbox", { name: "Rename studio-mac" });
+    expect(input).toHaveValue("studio-mac");
+    await waitFor(() => expect(document.activeElement).toBe(input));
+    // The editing row's primary button is replaced (no nested interactive).
+    expect(screen.getAllByRole("menuitemradio")).toHaveLength(1);
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+  });
+
+  it("the Rename icon enters inline edit for its row", async () => {
+    await renderFull();
+    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Rename" })[1]);
+    const input = screen.getByRole("textbox", { name: "Rename lab" });
+    expect(input).toHaveValue("lab");
+  });
+
+  it("Enter commits the trimmed name: one invoke, optimistic update, refetch, menu stays open", async () => {
+    const bridge = await renderFull();
+    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    const rows = screen.getAllByRole("menuitemradio");
+    await waitFor(() => expect(document.activeElement).toBe(rows[0]));
+    fireEvent.keyDown(document, { key: "F2" });
+    const input = screen.getByRole("textbox", { name: "Rename studio-mac" });
+    fireEvent.change(input, { target: { value: " workshop " } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(bridge.rename).toHaveBeenCalledTimes(1);
+    expect(bridge.rename).toHaveBeenCalledWith("a", "workshop");
+    // Optimistic local rename renders immediately; the menu stays open.
+    expect(screen.getAllByRole("menuitemradio")[0].textContent).toContain("workshop");
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    // The reconcile refetch runs (its list snapshot is the store's truth).
+    await waitFor(() => expect(bridge.list).toHaveBeenCalledTimes(3));
+  });
+
+  it("blur commits the edit", async () => {
+    const bridge = await renderFull();
+    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    const rows = screen.getAllByRole("menuitemradio");
+    await waitFor(() => expect(document.activeElement).toBe(rows[0]));
+    fireEvent.keyDown(document, { key: "F2" });
+    const input = screen.getByRole("textbox", { name: "Rename studio-mac" });
+    fireEvent.change(input, { target: { value: "blurred" } });
+    fireEvent.blur(input);
+    expect(bridge.rename).toHaveBeenCalledTimes(1);
+    expect(bridge.rename).toHaveBeenCalledWith("a", "blurred");
+  });
+
+  it("Escape cancels the edit without invoking and without closing the menu", async () => {
+    const bridge = await renderFull();
+    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    const rows = screen.getAllByRole("menuitemradio");
+    await waitFor(() => expect(document.activeElement).toBe(rows[0]));
+    fireEvent.keyDown(document, { key: "F2" });
+    const input = screen.getByRole("textbox", { name: "Rename studio-mac" });
+    fireEvent.change(input, { target: { value: "never committed" } });
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(bridge.rename).not.toHaveBeenCalled();
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    // The row returns to display mode with the prior name.
+    const restored = screen.getAllByRole("menuitemradio");
+    expect(restored).toHaveLength(2);
+    expect(restored[0].textContent).toContain("studio-mac");
+  });
+
+  it("an empty or unchanged commit performs no invoke", async () => {
+    const bridge = await renderFull();
+    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    let rows = screen.getAllByRole("menuitemradio");
+    await waitFor(() => expect(document.activeElement).toBe(rows[0]));
+    // Whitespace-only commit → cancel.
+    fireEvent.keyDown(document, { key: "F2" });
+    let input = screen.getByRole("textbox", { name: "Rename studio-mac" });
+    fireEvent.change(input, { target: { value: "   " } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(bridge.rename).not.toHaveBeenCalled();
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    // Unchanged commit → cancel.
+    rows = screen.getAllByRole("menuitemradio");
+    rows[0].focus();
+    fireEvent.keyDown(document, { key: "F2" });
+    input = screen.getByRole("textbox", { name: "Rename studio-mac" });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(bridge.rename).not.toHaveBeenCalled();
+  });
+
+  it("a failed rename surfaces the toast and refetches", async () => {
+    const bridge = await renderFull();
+    bridge.rename.mockResolvedValue({ ok: false });
+    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    const rows = screen.getAllByRole("menuitemradio");
+    await waitFor(() => expect(document.activeElement).toBe(rows[0]));
+    fireEvent.keyDown(document, { key: "F2" });
+    const input = screen.getByRole("textbox", { name: "Rename studio-mac" });
+    fireEvent.change(input, { target: { value: "denied" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => {
+      expect(screen.getByText("Shell host rename failed")).toBeInTheDocument();
+    });
+    await waitFor(() => expect(bridge.list).toHaveBeenCalledTimes(3));
+  });
+
+  it("edit mode suspends menu keys: arrows move no focus, Escape exits only the edit", async () => {
+    await renderFull();
+    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    const rows = screen.getAllByRole("menuitemradio");
+    await waitFor(() => expect(document.activeElement).toBe(rows[0]));
+    fireEvent.keyDown(document, { key: "F2" });
+    const input = screen.getByRole("textbox", { name: "Rename studio-mac" });
+    await waitFor(() => expect(document.activeElement).toBe(input));
+    // ArrowDown inside the input: no roving, no reorder, menu stays open.
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(input);
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    // Escape inside the input exits the edit only.
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+  });
+
+  it("a remove-shrunk refetch reconciles in place and keeps the focus re-clamp guard", async () => {
+    // Mount + open resolve both hosts; the post-remove refetch resolves one.
+    const list = vi
+      .fn<() => Promise<unknown>>()
+      .mockImplementationOnce(() => Promise.resolve({ ok: true, servers: hosts }))
+      .mockImplementationOnce(() => Promise.resolve({ ok: true, servers: hosts }))
+      .mockImplementation(() => Promise.resolve({ ok: true, servers: [hosts[1]] }));
+    const remove = vi.fn(() => Promise.resolve({ ok: true }));
+    window.runkitShell = {
+      version: "1.2.3",
+      platform: "darwin",
+      servers: { list, switch: vi.fn(() => Promise.resolve({ ok: true })), remove },
+    };
+    renderStrip();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Switch host" })).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    let rows = screen.getAllByRole("menuitemradio");
+    await waitFor(() => expect(document.activeElement).toBe(rows[0]));
+    fireEvent.keyDown(document, { key: "ArrowDown" }); // seat on row 1 (out of bounds post-shrink)
+    expect(document.activeElement).toBe(rows[1]);
+    fireEvent.click(screen.getAllByRole("button", { name: "Disconnect" })[0]);
+    expect(remove).toHaveBeenCalledWith("a");
+    await waitFor(() => expect(screen.getAllByRole("menuitemradio")).toHaveLength(1));
+    // The seat clamps onto the surviving row and focus follows.
+    rows = screen.getAllByRole("menuitemradio");
+    await waitFor(() => {
+      expect(rows[0]).toHaveAttribute("tabindex", "0");
+      expect(document.activeElement).toBe(rows[0]);
+    });
+    expect(rows[0].textContent).toContain("lab");
+  });
+
+  it("a remove-emptied refetch closes the menu and releases arrow keys app-wide", async () => {
+    const list = vi
+      .fn<() => Promise<unknown>>()
+      .mockImplementationOnce(() => Promise.resolve({ ok: true, servers: hosts }))
+      .mockImplementationOnce(() => Promise.resolve({ ok: true, servers: hosts }))
+      .mockImplementation(() => Promise.resolve({ ok: true, servers: [] }));
+    const remove = vi.fn(() => Promise.resolve({ ok: true }));
+    window.runkitShell = {
+      version: "1.2.3",
+      platform: "darwin",
+      servers: { list, switch: vi.fn(() => Promise.resolve({ ok: true })), remove },
+    };
+    renderStrip();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Switch host" })).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Disconnect" })[0]);
+    // The emptied list downgrades the strip to the static label (close-on-empty).
+    await waitFor(() => {
+      expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+      expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    });
+    expect(fireEvent.keyDown(document.body, { key: "ArrowDown" })).toBe(true);
+    expect(fireEvent.keyDown(document.body, { key: "ArrowUp" })).toBe(true);
   });
 });

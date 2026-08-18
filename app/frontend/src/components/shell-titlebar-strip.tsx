@@ -727,7 +727,13 @@ export function ShellTitlebarStrip() {
                             dock badge is the active host's attention surface).
                             Waiting-only semantics: 0/absent renders nothing. */}
                         {row.waiting !== null && (
-                          <span className="ml-auto shrink-0 pl-2 text-xs text-amber-600">
+                          <span
+                            className={`ml-auto shrink-0 pl-2 text-xs text-amber-600${
+                              affordanceCount > 0
+                                ? " group-hover:invisible group-focus-within:invisible"
+                                : ""
+                            }`}
+                          >
                             ● {row.waiting}
                           </span>
                         )}
@@ -753,7 +759,11 @@ export function ShellTitlebarStrip() {
                           paths are the row-level Delete/Backspace and F2
                           bindings (Constitution V). */}
                       {affordanceCount > 0 && (
-                        <div className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                        // Instant reveal (no fade — the Tip precedent: a
+                        // transition reads as a miss on a quick sweep) on a
+                        // solid surface chip, so the icons stay legible over
+                        // the origin text and never mix with the row beneath.
+                        <div className="invisible absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-1 rounded bg-bg-card px-1 py-0.5 group-hover:visible group-focus-within:visible">
                           {canRename && (
                             <Tip label="Rename">
                               <button
@@ -761,7 +771,7 @@ export function ShellTitlebarStrip() {
                                 aria-label="Rename"
                                 tabIndex={-1}
                                 onClick={() => startRename(row)}
-                                className="flex h-5 w-5 items-center justify-center rounded text-text-secondary transition-colors hover:bg-bg-card hover:text-text-primary"
+                                className="flex h-5 w-5 items-center justify-center rounded text-text-secondary transition-colors hover:bg-bg-inset hover:text-text-primary"
                               >
                                 <svg
                                   aria-hidden="true"
@@ -787,7 +797,7 @@ export function ShellTitlebarStrip() {
                                 aria-label="Disconnect"
                                 tabIndex={-1}
                                 onClick={() => requestDisconnect(row)}
-                                className="flex h-5 w-5 items-center justify-center rounded text-text-secondary transition-colors hover:bg-bg-card hover:text-text-primary"
+                                className="flex h-5 w-5 items-center justify-center rounded text-text-secondary transition-colors hover:bg-bg-inset hover:text-text-primary"
                               >
                                 <svg
                                   aria-hidden="true"

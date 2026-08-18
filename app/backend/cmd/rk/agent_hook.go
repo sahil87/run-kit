@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"rk/internal/ports"
 	"rk/internal/tmux"
 
 	"github.com/spf13/cobra"
@@ -321,7 +322,7 @@ func resolveAgentPID(ctx context.Context, startPPID int, comm string) int {
 
 // processCommFn / processPPIDFn are package-level seams so the walk is unit
 // testable without spawning a real ancestor chain (mirrors agentProcessAlive /
-// findPortOwner elsewhere in this package).
+// findPortOwnerFn elsewhere in this package).
 var (
 	processCommFn = processCommImpl
 	processPPIDFn = processPPIDImpl
@@ -336,15 +337,15 @@ func processComm(ctx context.Context, pid int) string { return processCommFn(ctx
 func processPPID(ctx context.Context, pid int) int { return processPPIDFn(ctx, pid) }
 
 // processCommImpl reads a pid's comm (executable basename) by delegating to
-// resolveCommand — the existing helper in daemon_portowner.go (same package):
-// Linux reads /proc/<pid>/comm with no subprocess; elsewhere it shells out to
-// `ps -o comm=` via exec.CommandContext with a timeout. Reused rather than
-// re-implemented so the two comm-resolution sites cannot drift.
+// ports.ResolveCommand: Linux reads /proc/<pid>/comm with no subprocess;
+// elsewhere it shells out to `ps -o comm=` via exec.CommandContext with a
+// timeout. Reused rather than re-implemented so the two comm-resolution sites
+// cannot drift.
 func processCommImpl(ctx context.Context, pid int) string {
 	if pid <= 0 {
 		return ""
 	}
-	return resolveCommand(ctx, pid)
+	return ports.ResolveCommand(ctx, pid)
 }
 
 // processPPIDImpl returns a pid's parent pid, or 0 on failure. On Linux it reads

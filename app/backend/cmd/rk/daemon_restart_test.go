@@ -8,32 +8,35 @@ import (
 	"strings"
 	"testing"
 
+	"rk/internal/daemon"
 	"rk/internal/remote"
 )
 
-// restartSeams stubs every daemon/remote seam the restart flow reaches and
-// records the call order, so tests can assert sequencing without a tmux
-// server or ssh. Individual fields can be overridden after the call.
-type restartSeams struct {
+// restartCLISeams stubs the restart wrapper's seams — the single
+// daemon.Restart call plus the tunnel capture/reconnect pair — and records the
+// call order, so tests assert what stays CLI-owned (flags → options mapping,
+// tunnel capture before the restart, reconnect after) without a tmux server or
+// ssh. Sequencing internals are tested in internal/daemon.
+type restartCLISeams struct {
 	calls   []string
 	connect []string // remote names passed to remoteConnectFn, in order
+	opts    daemon.RestartOptions
 }
 
-func stubRestartSeams(t *testing.T, running bool, connectErr error) *restartSeams {
+func stubRestartCLISeams(t *testing.T, connectErr error) *restartCLISeams {
 	t.Helper()
-	s := &restartSeams{}
+	s := &restartCLISeams{}
 
-	origRunning, origStop, origStart, origKill := daemonIsRunningFn, daemonStopFn, daemonStartFn, daemonKillServerFn
-	origTunnels, origConnect, origTMUX := listTunnelsFn, remoteConnectFn, restartOriginalTMUXFn
+	origRestart, origTunnels, origConnect := daemonRestartFn, listTunnelsFn, remoteConnectFn
 	t.Cleanup(func() {
-		daemonIsRunningFn, daemonStopFn, daemonStartFn, daemonKillServerFn = origRunning, origStop, origStart, origKill
-		listTunnelsFn, remoteConnectFn, restartOriginalTMUXFn = origTunnels, origConnect, origTMUX
+		daemonRestartFn, listTunnelsFn, remoteConnectFn = origRestart, origTunnels, origConnect
 	})
 
-	daemonIsRunningFn = func() bool { s.calls = append(s.calls, "isRunning"); return running }
-	daemonStopFn = func() error { s.calls = append(s.calls, "stop"); return nil }
-	daemonStartFn = func() error { s.calls = append(s.calls, "start"); return nil }
-	daemonKillServerFn = func() error { s.calls = append(s.calls, "killServer"); return nil }
+	daemonRestartFn = func(opts daemon.RestartOptions) error {
+		s.calls = append(s.calls, "restart")
+		s.opts = opts
+		return nil
+	}
 	listTunnelsFn = func(ctx context.Context) map[string]bool {
 		s.calls = append(s.calls, "listTunnels")
 		return map[string]bool{"alpha": true, "beta": false}
@@ -46,7 +49,6 @@ func stubRestartSeams(t *testing.T, running bool, connectErr error) *restartSeam
 		}
 		return remote.ConnectResult{Origin: "http://127.0.0.1:3100"}, nil
 	}
-	restartOriginalTMUXFn = func() string { return "" } // outside tmux by default
 	return s
 }
 
@@ -94,43 +96,20 @@ func execDaemonRestart(t *testing.T, flags ...string) (string, error) {
 	return buf.String(), err
 }
 
-func TestInsideDaemonServer(t *testing.T) {
-	cases := []struct {
-		tmuxEnv string
-		want    bool
-	}{
-		{"", false},
-		{"/tmp/tmux-1001/default,12345,0", false},
-		{"/tmp/tmux-1001/rk-daemon,12345,0", true},
-		{"/private/tmp/tmux-501/rk-daemon,9,2", true},
-		{"/tmp/tmux-1001/rk-daemon-other,1,0", false},
+func TestDaemonRestart_FlagsBecomeRestartOptions(t *testing.T) {
+	s := stubRestartCLISeams(t, nil)
+	withRemotesStore(t, twoRemotesYAML)
+
+	if _, err := execDaemonRestart(t, "--full", "--force"); err != nil {
+		t.Fatalf("Execute: %v", err)
 	}
-	for _, c := range cases {
-		if got := insideDaemonServer(c.tmuxEnv); got != c.want {
-			t.Errorf("insideDaemonServer(%q) = %v, want %v", c.tmuxEnv, got, c.want)
-		}
+	if !s.opts.Full || !s.opts.Force {
+		t.Errorf("opts = %+v, want {Full:true, Force:true}", s.opts)
 	}
 }
 
-func TestDaemonRestart_FullRefusesInsideDaemonServer(t *testing.T) {
-	s := stubRestartSeams(t, true, nil)
-	restartOriginalTMUXFn = func() string { return "/tmp/tmux-1001/rk-daemon,4242,0" }
-	withRemotesStore(t, "")
-
-	_, err := execDaemonRestart(t, "--full")
-	if err == nil {
-		t.Fatal("expected refusal error, got nil")
-	}
-	if !strings.Contains(err.Error(), "refusing --full") {
-		t.Errorf("error = %q; want it to contain 'refusing --full'", err)
-	}
-	if len(s.calls) != 0 {
-		t.Errorf("guard must fire before any action; calls = %v", s.calls)
-	}
-}
-
-func TestDaemonRestart_FullSequence(t *testing.T) {
-	s := stubRestartSeams(t, true, nil)
+func TestDaemonRestart_FullCapturesTunnelsBeforeRestartThenReconnects(t *testing.T) {
+	s := stubRestartCLISeams(t, nil)
 	withRemotesStore(t, twoRemotesYAML)
 
 	out, err := execDaemonRestart(t, "--full")
@@ -138,9 +117,9 @@ func TestDaemonRestart_FullSequence(t *testing.T) {
 		t.Fatalf("Execute: %v (output: %s)", err, out)
 	}
 
-	want := []string{"listTunnels", "isRunning", "stop", "killServer", "start", "connect:alpha"}
+	want := []string{"listTunnels", "restart", "connect:alpha"}
 	if strings.Join(s.calls, ",") != strings.Join(want, ",") {
-		t.Errorf("call order = %v, want %v", s.calls, want)
+		t.Errorf("call order = %v, want %v (capture before restart, reconnect after)", s.calls, want)
 	}
 	if len(s.connect) != 1 || s.connect[0] != "alpha" {
 		t.Errorf("reconnected %v, want only previously-up [alpha]", s.connect)
@@ -151,7 +130,7 @@ func TestDaemonRestart_FullSequence(t *testing.T) {
 }
 
 func TestDaemonRestart_FullReconnectFailureWarnsNotFails(t *testing.T) {
-	stubRestartSeams(t, false, context.DeadlineExceeded)
+	stubRestartCLISeams(t, context.DeadlineExceeded)
 	withRemotesStore(t, twoRemotesYAML)
 
 	out, err := execDaemonRestart(t, "--full")
@@ -167,7 +146,7 @@ func TestDaemonRestart_FullReconnectFailureWarnsNotFails(t *testing.T) {
 }
 
 func TestDaemonRestart_FullNoRemotesIsSilentNoOp(t *testing.T) {
-	s := stubRestartSeams(t, false, nil)
+	s := stubRestartCLISeams(t, nil)
 	withRemotesStore(t, "") // missing file ⇒ remote.Load's empty v1 case
 
 	out, err := execDaemonRestart(t, "--full")
@@ -184,46 +163,30 @@ func TestDaemonRestart_FullNoRemotesIsSilentNoOp(t *testing.T) {
 	}
 }
 
-func TestDaemonRestart_PlainNeverTouchesServerOrRemotes(t *testing.T) {
-	s := stubRestartSeams(t, true, nil)
+func TestDaemonRestart_PlainNeverTouchesTunnels(t *testing.T) {
+	s := stubRestartCLISeams(t, nil)
 	withRemotesStore(t, twoRemotesYAML)
 
 	_, err := execDaemonRestart(t)
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
+	if s.opts.Full || s.opts.Force {
+		t.Errorf("opts = %+v, want the zero value", s.opts)
+	}
 	for _, call := range s.calls {
-		if call == "killServer" || call == "listTunnels" || strings.HasPrefix(call, "connect:") {
+		if call == "listTunnels" || strings.HasPrefix(call, "connect:") {
 			t.Errorf("plain restart reached --full-only seam %q; calls = %v", call, s.calls)
 		}
 	}
-	want := []string{"isRunning", "stop", "start"}
+	want := []string{"restart"}
 	if strings.Join(s.calls, ",") != strings.Join(want, ",") {
 		t.Errorf("call order = %v, want %v", s.calls, want)
 	}
 }
 
-func TestDaemonRestart_FullForceCombination(t *testing.T) {
-	s := stubRestartSeams(t, true, nil)
-	withRemotesStore(t, twoRemotesYAML)
-	pinFreePort(t)
-	withPortOwnerStub(t, func(ctx context.Context, host string, port int) (*PortOwner, error) {
-		s.calls = append(s.calls, "portOwner")
-		return nil, nil // port free — force step probes and moves on
-	})
-
-	_, err := execDaemonRestart(t, "--full", "--force")
-	if err != nil {
-		t.Fatalf("Execute: %v", err)
-	}
-	want := []string{"listTunnels", "isRunning", "stop", "killServer", "portOwner", "start", "connect:alpha"}
-	if strings.Join(s.calls, ",") != strings.Join(want, ",") {
-		t.Errorf("call order = %v, want %v (force probe between kill and start)", s.calls, want)
-	}
-}
-
 func TestDaemonRestart_FullMalformedStoreWarnsAndSkipsReconnect(t *testing.T) {
-	s := stubRestartSeams(t, false, nil)
+	s := stubRestartCLISeams(t, nil)
 	withRemotesStore(t, "version: 99\nnot yaml: [\n")
 
 	out, err := execDaemonRestart(t, "--full")
@@ -236,6 +199,32 @@ func TestDaemonRestart_FullMalformedStoreWarnsAndSkipsReconnect(t *testing.T) {
 	for _, call := range s.calls {
 		if call == "listTunnels" || strings.HasPrefix(call, "connect:") {
 			t.Errorf("malformed store must skip derivation and reconnect; calls = %v", s.calls)
+		}
+	}
+	// The restart itself still ran — remote bookkeeping must not gate it.
+	if len(s.calls) != 1 || s.calls[0] != "restart" {
+		t.Errorf("calls = %v, want [restart]", s.calls)
+	}
+}
+
+// A restart failure (e.g. the --full inside-server refusal) propagates and
+// skips the reconnect.
+func TestDaemonRestart_RestartErrorPropagates(t *testing.T) {
+	s := stubRestartCLISeams(t, nil)
+	withRemotesStore(t, twoRemotesYAML)
+	daemonRestartFn = func(opts daemon.RestartOptions) error {
+		s.calls = append(s.calls, "restart")
+		s.opts = opts
+		return os.ErrPermission
+	}
+
+	_, err := execDaemonRestart(t, "--full")
+	if err == nil {
+		t.Fatal("expected the restart error to propagate, got nil")
+	}
+	for _, call := range s.calls {
+		if strings.HasPrefix(call, "connect:") {
+			t.Errorf("reconnect ran despite the failed restart; calls = %v", s.calls)
 		}
 	}
 }

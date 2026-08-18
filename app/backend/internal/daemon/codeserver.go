@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"rk/internal/codeserver"
 	"rk/internal/config"
@@ -398,14 +399,54 @@ var codeServerKillRun = func(ctx context.Context, args ...string) error {
 	return runTmux(ctx, args...)
 }
 
+// Port-release wait: tmux kill-session/kill-server only SIGHUPs the pane, and
+// the node-based code-server takes up to a few seconds to unbind its port.
+// Without the wait, an ensure/start composed right after a kill probes the
+// still-bound port and misclassifies the DYING instance as externally managed
+// — so the kill primitives own the wait and composition is safe by
+// construction. Vars, not consts, so tests shrink them (the
+// stopGracePeriod/stopPollInterval idiom).
+var (
+	codeServerPortFreeTimeout = 5 * time.Second
+	codeServerPortFreePoll    = 200 * time.Millisecond
+)
+
+// codeServerPortBusy resolves the code-server port and probes it in one seam
+// so tests script busy/free sequences without sockets. An unresolvable port
+// (0) reports free — there is nothing to wait on.
+var codeServerPortBusy = func() bool {
+	port := config.Load().ResolvedCodeServerPort()
+	if port == 0 {
+		return false
+	}
+	return portInUse(localhostAddr, port)
+}
+
+// waitForCodeServerPortFree polls until the code-server port stops accepting
+// connections or the budget expires. Expiry is non-fatal by design: the
+// caller's externally-managed classification then fires exactly as it would
+// without the wait — the wait only closes the race window, it adds no failure
+// mode.
+func waitForCodeServerPortFree() {
+	deadline := time.Now().Add(codeServerPortFreeTimeout)
+	for codeServerPortBusy() {
+		if time.Now().After(deadline) {
+			return
+		}
+		time.Sleep(codeServerPortFreePoll)
+	}
+}
+
 // KillCodeServerSession kills the rk-code-server session (exact-match target —
 // prefix-match hijack is the class of footgun the `=` anchors exist to
 // prevent). Used by `rk code-server update` so the flipped symlink takes
 // effect: code-server's hot exit preserves unsaved buffers across the respawn.
 // An absent session is success (nothing to kill). The killed return
 // distinguishes "killed ours" from "nothing to kill": kill-session only
-// SIGHUPs the pane, so a caller that intends to rebind the port must wait for
-// the dying process to release it — but only when a session actually died.
+// SIGHUPs the pane, so on a successful kill this function blocks — bounded by
+// codeServerPortFreeTimeout — until the dying process releases the code-server
+// port, making kill+rebind compositions safe by construction. A caller that
+// never rebinds pays nothing unless a session actually died.
 func KillCodeServerSession() (killed bool, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
 	defer cancel()
@@ -416,12 +457,6 @@ func KillCodeServerSession() (killed bool, err error) {
 	if err := codeServerKillRun(ctx, "kill-session", "-t", "="+CodeServerSessionName); err != nil {
 		return false, fmt.Errorf("killing the %s session: %w", CodeServerSessionName, err)
 	}
+	waitForCodeServerPortFree()
 	return true, nil
-}
-
-// CodeServerPortInUse reports whether the code-server port accepts TCP on
-// loopback — portInUse exported for the CLI's respawn wait, so the one dial
-// implementation (probeHost substitution, portProbeTimeout) is shared.
-func CodeServerPortInUse(port int) bool {
-	return portInUse(localhostAddr, port)
 }

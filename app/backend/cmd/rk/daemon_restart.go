@@ -3,31 +3,23 @@ package main
 import (
 	"context"
 	"fmt"
-	"path/filepath"
-	"strings"
 
-	"rk/internal/config"
 	"rk/internal/daemon"
 	"rk/internal/remote"
-	"rk/internal/tmux"
 
 	"github.com/spf13/cobra"
 )
 
-// Seam vars for the daemon/remote calls the restart flow makes, so tests can
-// drive sequencing and failure branches without a tmux server or ssh — the
-// package's established injection idiom (innerServePIDFn, remotesPathFn).
+// Seam vars for the calls the restart wrapper makes, so tests can drive
+// outcomes without a tmux server or ssh — the package's established injection
+// idiom (remotesPathFn). All sequencing lives in daemon.Restart; the CLI owns
+// only flags, tunnel capture, outcome prints, and the post-restart reconnect
+// (reconnect stays CLI-side: internal/remote imports internal/daemon, so the
+// daemon package cannot own it without an import cycle).
 var (
-	daemonIsRunningFn  = daemon.IsRunning
-	daemonStopFn       = daemon.Stop
-	daemonStartFn      = daemon.Start
-	daemonKillServerFn = daemon.KillServer
-	listTunnelsFn      = remote.ListTunnels
-	remoteConnectFn    = remote.Connect
-	// restartOriginalTMUXFn reads tmux.OriginalTMUX — the pre-strip $TMUX captured
-	// before internal/tmux's init() unsets the env var (reading the env here
-	// would always see empty and the --full guard could never fire).
-	restartOriginalTMUXFn = func() string { return tmux.OriginalTMUX }
+	daemonRestartFn = daemon.Restart
+	listTunnelsFn   = remote.ListTunnels
+	remoteConnectFn = remote.Connect
 )
 
 var daemonRestartCmd = &cobra.Command{
@@ -54,10 +46,6 @@ rk-daemon server, where the kill would take down the invoking pane mid-restart.`
 		force, _ := cmd.Flags().GetBool("force")
 		full, _ := cmd.Flags().GetBool("full")
 
-		if full && insideDaemonServer(restartOriginalTMUXFn()) {
-			return fmt.Errorf("refusing --full from inside the %s tmux server: kill-server would kill this pane mid-restart — run it from a shell outside that server", daemon.ServerSocket)
-		}
-
 		// Capture the up-tunnel set BEFORE anything dies: tunnel state is
 		// derived from the rk-remotes windows, which --full is about to kill.
 		var reconnect []string
@@ -65,40 +53,8 @@ rk-daemon server, where the kill would take down the invoking pane mid-restart.`
 			reconnect = upRemoteNames(cmd.Context(), cmd)
 		}
 
-		if daemonIsRunningFn() {
-			fmt.Fprintln(cmd.OutOrStdout(), "Restarting run-kit daemon...")
-			if err := daemonStopFn(); err != nil {
-				return fmt.Errorf("stopping daemon: %w", err)
-			}
-		}
-
-		if full {
-			if err := daemonKillServerFn(); err != nil {
-				return fmt.Errorf("killing the %s tmux server: %w", daemon.ServerSocket, err)
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Killed the %s tmux server (sibling sessions included)\n", daemon.ServerSocket)
-		}
-
-		if force {
-			cfg := config.Load()
-			// Surface lookup errors instead of falling through to daemon.Start():
-			// if both lsof and ss are unavailable we don't actually know whether
-			// the port is free, and silently proceeding would leave --force
-			// failing with an opaque bind error instead of the real cause.
-			owner, lookupErr := findPortOwner(cmd.Context(), cfg.Host, cfg.Port)
-			if lookupErr != nil {
-				return fmt.Errorf("port-owner lookup failed during --force: %w", lookupErr)
-			}
-			if owner != nil && !ownerIsDaemon(owner) {
-				if err := terminateOwner(cmd.Context(), owner); err != nil {
-					return fmt.Errorf("--force kill of port owner failed: %w", err)
-				}
-				fmt.Fprintf(cmd.OutOrStdout(), "Killed port owner: PID %d (%s)\n", owner.PID, owner.Command)
-			}
-		}
-
-		if err := daemonStartFn(); err != nil {
-			return fmt.Errorf("starting daemon: %w", err)
+		if err := daemonRestartFn(daemon.RestartOptions{Force: force, Full: full}); err != nil {
+			return err
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "run-kit daemon started (%s/%s/%s)\n",
 			daemon.ServerSocket, daemon.SessionName, daemon.WindowName)
@@ -106,18 +62,6 @@ rk-daemon server, where the kill would take down the invoking pane mid-restart.`
 		reconnectRemotes(cmd, reconnect)
 		return nil
 	},
-}
-
-// insideDaemonServer reports whether tmuxEnv (the $TMUX value, format
-// "socketpath,pid,session") points at the rk-daemon tmux server. Named -L
-// sockets materialize as <tmpdir>/tmux-<uid>/<name>, so the socket path's
-// basename IS the server name. Empty (not inside tmux) is never inside.
-func insideDaemonServer(tmuxEnv string) bool {
-	sock, _, _ := strings.Cut(tmuxEnv, ",")
-	if sock == "" {
-		return false
-	}
-	return filepath.Base(sock) == daemon.ServerSocket
 }
 
 // upRemoteNames derives the registered remotes whose tunnel windows are

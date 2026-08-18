@@ -6,9 +6,14 @@ import (
 
 	"rk/internal/config"
 	"rk/internal/daemon"
+	"rk/internal/ports"
 
 	"github.com/spf13/cobra"
 )
+
+// innerServePIDFn is the cmd-level seam over daemon.InnerServePID, so status
+// tests drive the held-by-daemon classification without a live daemon pane.
+var innerServePIDFn = daemon.InnerServePID
 
 // Port-state enum values for the JSON output of `rk daemon status --json`.
 const (
@@ -69,7 +74,7 @@ Not to be confused with 'run-kit status' (top-level tmux session summary).`,
 		}
 
 		cfg := config.Load()
-		owner, lookupErr := findPortOwner(cmd.Context(), cfg.Host, cfg.Port)
+		owner, lookupErr := findPortOwnerFn(cmd.Context(), cfg.Host, cfg.Port)
 
 		// Distinguish "no holder" from "we couldn't tell" — the latter must
 		// not be reported as "free" because scripts (especially --json
@@ -97,7 +102,7 @@ func init() {
 	daemonStatusCmd.Flags().Bool("json", false, "Emit a machine-readable JSON object")
 }
 
-func writeStatusJSON(cmd *cobra.Command, running bool, innerPID int, host string, port int, state string, owner *PortOwner, lookupErr error) error {
+func writeStatusJSON(cmd *cobra.Command, running bool, innerPID int, host string, port int, state string, owner *ports.PortOwner, lookupErr error) error {
 	report := statusReport{
 		Daemon: statusDaemon{Running: running},
 		Port:   statusPort{Host: host, Port: port, State: state},
@@ -127,7 +132,7 @@ func writeStatusJSON(cmd *cobra.Command, running bool, innerPID int, host string
 	return nil
 }
 
-func writeStatusText(cmd *cobra.Command, running bool, innerPID int, host string, port int, state string, owner *PortOwner, lookupErr error) {
+func writeStatusText(cmd *cobra.Command, running bool, innerPID int, host string, port int, state string, owner *ports.PortOwner, lookupErr error) {
 	out := cmd.OutOrStdout()
 	if running {
 		fmt.Fprintln(out, "Daemon:    running")

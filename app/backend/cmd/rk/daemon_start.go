@@ -7,14 +7,20 @@ import (
 
 	"rk/internal/config"
 	"rk/internal/daemon"
+	"rk/internal/ports"
 
 	"github.com/spf13/cobra"
 )
 
-// innerServePIDFn is the package-level hook for resolving the daemon's inner
-// serve PID. Tests substitute it to drive --force self-recognition without
-// touching tmux.
-var innerServePIDFn = daemon.InnerServePID
+// Cmd-level seam vars over the port-owner machinery (internal/ports) and the
+// daemon self-recognition predicate (internal/daemon), so tests stub at this
+// layer without spawning lsof/ss or touching tmux — the package's established
+// injection idiom.
+var (
+	findPortOwnerFn  = ports.FindPortOwner
+	terminateOwnerFn = ports.TerminateOwner
+	ownerIsDaemonFn  = daemon.OwnerIsDaemon
+)
 
 // portInUseSubstring is the marker substring present in the daemon-package
 // port-probe refusal error. The --force path uses it to decide whether the
@@ -48,7 +54,7 @@ Refuses to --force-kill the run-kit daemon itself.`,
 		}
 
 		cfg := config.Load()
-		owner, lookupErr := findPortOwner(cmd.Context(), cfg.Host, cfg.Port)
+		owner, lookupErr := findPortOwnerFn(cmd.Context(), cfg.Host, cfg.Port)
 		if lookupErr != nil {
 			return fmt.Errorf("port held but owner lookup failed: %w (original: %v)", lookupErr, err)
 		}
@@ -56,10 +62,10 @@ Refuses to --force-kill the run-kit daemon itself.`,
 			// Port appears free now — original Start() error is the source of truth.
 			return err
 		}
-		if ownerIsDaemon(owner) {
+		if ownerIsDaemonFn(owner) {
 			return errors.New("daemon already running on port; refusing to --force-kill self")
 		}
-		if killErr := terminateOwner(cmd.Context(), owner); killErr != nil {
+		if killErr := terminateOwnerFn(cmd.Context(), owner); killErr != nil {
 			return fmt.Errorf("--force kill of PID %d (%s) failed: %w", owner.PID, owner.Command, killErr)
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "Killed port owner: PID %d (%s)\n", owner.PID, owner.Command)
@@ -82,15 +88,4 @@ func init() {
 // failure, etc).
 func isPortInUseErr(err error) bool {
 	return err != nil && strings.Contains(err.Error(), portInUseSubstring)
-}
-
-// ownerIsDaemon reports whether the PortOwner is the rk daemon's inner serve
-// PID. Uses the injectable innerServePIDFn hook so tests can drive the
-// self-recognition branch.
-func ownerIsDaemon(owner *PortOwner) bool {
-	pid, err := innerServePIDFn()
-	if err != nil || pid <= 0 {
-		return false
-	}
-	return pid == owner.PID
 }

@@ -1,0 +1,57 @@
+id: gs6y
+name: 260818-gs6y-unify-daemon-restart-sequencing
+created: 2026-08-18T04:46:54Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 10
+    acceptance_count: 20
+    acceptance_completed: 20
+confidence:
+    certain: 4
+    confident: 4
+    tentative: 0
+    unresolved: 0
+    score: 4.7
+    fuzzy: true
+    dimensions:
+        signal: 75.0
+        reversibility: 76.9
+        competence: 85.0
+        disambiguation: 75.6
+stage_metrics:
+    intake: {started_at: "2026-08-18T04:46:54Z", driver: fab-new, iterations: 1, completed_at: "2026-08-18T05:09:20Z"}
+    apply: {started_at: "2026-08-18T05:09:20Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-18T06:26:45Z"}
+    review: {started_at: "2026-08-18T06:26:45Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-18T06:32:01Z"}
+    hydrate: {started_at: "2026-08-18T06:32:01Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-18T06:42:40Z"}
+    ship: {started_at: "2026-08-18T06:42:40Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-18T06:46:07Z"}
+    review-pr: {started_at: "2026-08-18T06:46:07Z", driver: git-pr, iterations: 1, completed_at: "2026-08-18T06:54:42Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/651
+change_type_source: explicit
+true_impact:
+    added: 1152
+    deleted: 431
+    net: 721
+    excluding:
+        added: 750
+        deleted: 414
+        net: 336
+    tests:
+        added: 491
+        deleted: 219
+        net: 272
+    computed_at: "2026-08-18T06:46:07Z"
+    computed_at_stage: ship
+summary: 'unified daemon restart sequencing: daemon.Restart(RestartOptions) owns the sequencer, kill primitives are release-synchronous w.r.t. the code-server port, port-owner helpers moved to internal/ports'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-18T06:54:42Z

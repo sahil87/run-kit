@@ -197,7 +197,7 @@ const paletteActions = useMemo(
 | `Pin: Current Window to <board>` (one per board the window is NOT already pinned to, ordered last-used-first) (`260718-gxrq`) | Only when `sessionName && currentWindow && server` | Direct pin via `usePinActions.pin` — the keyboard-first pin path (Cmd+K → type → Enter; §2c success toast is the feedback). Built by the pure `buildPinActions` (`lib/palette-pin.ts`) — see § Pin palette actions |
 | `Pin: Current Window to new board…` (`id: pin-current-new-board`) | Only when `sessionName && currentWindow && server` | Dispatches `pin-popover:open` to the matching `WindowRow` (free-text entry needs the popover — the palette has no value input); it carries the popover-opening role for pinning to a new board (`260718-gxrq`) |
 | `Board: Unpin Current Window` | Only when current window is pinned to ≥1 board | Unpins from all boards the current window is pinned to (single-action — no per-board picker in v1) |
-| `Board: Leave Board View` | Only on `/board/<name>` | Navigate to last viewed window route, or `/` if none |
+| `Board: Leave Board View` | Only on `/board/<name>` | Navigate to `/` (Host) |
 | `Board: Cycle Pane Focus →` | Only on `/board/<name>` and ≥1 pane | Same as `Cmd+]` |
 | `Board: Cycle Pane Focus ←` | Only on `/board/<name>` and ≥1 pane | Same as `Cmd+[` |
 | `Board: Unpin Focused Pane` (`260704-9o7k`) | Only on `/board/<name>` and ≥1 pane | Unpins the focused entry via the shared `unpinFocused` handler (`onSelect: unpinFocused`) — non-destructive, NOT a kill. Keyboard parity for the **tile-header pin-glyph unpin**, NOT for the top-bar Kill row (which is a window-kill) (`260715-6jwn`) |

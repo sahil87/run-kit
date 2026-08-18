@@ -32,6 +32,12 @@ export type StateSocketMockOptions = {
    *  and as a live `sessions` event. This is exactly the payload specs used to
    *  put in the SSE `event: sessions\ndata: <sessions>` frame. */
   sessions?: string;
+  /** Per-server override of `sessions`, keyed by server name. A subscribe for a
+   *  key present here gets that payload; every other key falls back to
+   *  `sessions`. Needed by specs that mock more than one server and require them
+   *  to differ — e.g. an empty server, whose landing resolution has no window to
+   *  pick (`lib/last-window-per-server.ts`). */
+  sessionsByServer?: Record<string, string>;
   /** Optional host-metrics snapshot object (delivered as a `metrics` global). */
   metrics?: unknown;
   /** Optional services snapshot ({services:[...]}) delivered as a `services` global. */
@@ -101,16 +107,17 @@ export async function mockStateSocket(page: Page, opts: StateSocketMockOptions =
           if (msg.kind === "server" && typeof msg.key === "string") {
             // Ack with the sessions snapshot (verbatim), then a live event so
             // the frontend's slice update fires either way.
-            const snapshot = opts.sessions !== undefined ? JSON.parse(opts.sessions) : null;
+            const sessions = opts.sessionsByServer?.[msg.key] ?? opts.sessions;
+            const snapshot = sessions !== undefined ? JSON.parse(sessions) : null;
             ws.send(JSON.stringify({ op: "ack", req: msg.req, snapshot }));
-            if (opts.sessions !== undefined) {
+            if (sessions !== undefined) {
               ws.send(
                 JSON.stringify({
                   op: "event",
                   kind: "server",
                   key: msg.key,
                   type: "sessions",
-                  data: JSON.parse(opts.sessions),
+                  data: JSON.parse(sessions),
                 }),
               );
             }

@@ -26,6 +26,15 @@ remount; it verifies the persistent-layout chrome mounts correctly on a **cold
 load** at `/`. Only hops 1 and 3 (a server tile and a board tile, both
 router-driven) test the no-remount persistence claim.
 
+**Hop 1 clicks the EMPTY server's tile, deliberately.** A Host-page server tile
+is a **switch** affordance, and a switch resolves a landing window for the target
+server — so a tile for a server that HAS windows navigates to `/$server/$window`,
+not `/$server`. The bare server route stays reachable from a tile only when the
+target has no windows for the resolution to pick, which is what `spare` (zero
+sessions) provides. That keeps hop 1 a genuine client-side hop into
+`tmux Server` mode without misstating the switch contract. The populated-server
+case has its own test below.
+
 The internal implementation (a single non-remounting `RootTopBar` fed by a
 route-derived mode + a page-registered slot context) is unit-tested in
 `top-bar-slot-context.test.tsx`; this e2e covers the observable cross-route
@@ -35,14 +44,16 @@ behavior a user would see.
 
 - Fully mocked — no tmux server, no `gh`, no real backend reads. The spec injects
   data via `page.route`:
-  - `**/api/servers` → a single server `default` (one clickable server tile; one
-    state-socket attach).
+  - `**/api/servers` → two servers: `default` (one session) and `spare` (zero
+    sessions), giving two clickable server tiles on the Host page.
   - `**/api/boards` → one board `myboard` (a clickable tile in the Host BOARDS
     zone).
   - `**/api/boards/myboard` → one board entry (server `default`, window `@1`) so
     the board route has content.
-  - `/ws/state` (state socket, via `mockStateSocket`) → the subscribe ack + `sessions` event carry the mocked payload: session `dev` with a
-    single active window `@1` "feature-work".
+  - `/ws/state` (state socket, via `mockStateSocket`) → the subscribe ack +
+    `sessions` event carry a **per-server** payload (`sessionsByServer`):
+    `default` gets session `dev` with a single active window `@1`
+    "feature-work"; `spare` gets `[]`.
   - `**/api/windows/*/select*` → `{ ok: true }` (trailing `*` matches the
     `?server=` query string) so window-selection POSTs during nav don't error.
   - the `/ws/terminals` mux WebSocket is stubbed (accepted, held open) so any terminal pane
@@ -69,17 +80,33 @@ including the board heading rendered from the URL while the lazy chunk loads.
 **Steps:**
 1. `goto("/")`; assert the solo `Host` heading and the `RunKit home` brand
    crumb are visible.
-2. Click the `default` server tile (scoped to the "Tmux servers" region). Assert
-   URL `/default`, heading `tmux Server default`, brand crumb visible, and the
-   previous `Host` heading is gone (count 0 — the mode is route-derived, not
-   stacked).
+2. Click the `spare` server tile (scoped to the "Tmux servers" region; `spare`
+   has no sessions, so the switch resolves no landing window — see the hop 1
+   note above). Assert URL `/spare`, heading `tmux Server spare`, brand crumb
+   visible, and the previous `Host` heading is gone (count 0 — the mode is
+   route-derived, not stacked).
 3. **(Reload boundary)** Click the `RunKit home` brand crumb — a full document
    reload, not client-side nav. Assert URL `/`, the persistent-layout chrome
    remounts with the `Host` heading, brand crumb visible, and the
-   `tmux Server default` heading gone.
+   `tmux Server spare` heading gone.
 4. Click the `myboard` board tile (scoped to the "Boards" region). Assert URL
    `/board/myboard`, heading `Board myboard` (from the URL param while the lazy
    board chunk loads), and the brand crumb still visible.
+
+### `a Host-page tile for a server with windows switches into that server's window`
+
+**What it proves:** the switch counterpart of hop 1 — a Host-page server tile for
+a server that HAS windows resolves a landing window and navigates to the terminal
+route, instead of dropping the user on the session-tiles overview. This is the
+behavior that makes hop 1 use `spare`, so the two tests pin both halves of the
+switch contract.
+
+**Steps:**
+1. `goto("/")`; assert the solo `Host` heading is visible.
+2. Click the `default` server tile (scoped to the "Tmux servers" region).
+3. Assert URL `/default/1` (the window id `@1` minus its `@`), the brand crumb is
+   still visible, and there is NO `tmux Server default` heading (count 0 — the
+   bar is in terminal mode, not server mode).
 
 ### `an unmatched route falls back to the minimal host heading (not the fuzzy-matched board param)`
 

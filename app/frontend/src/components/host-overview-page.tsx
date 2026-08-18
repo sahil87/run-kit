@@ -21,6 +21,8 @@ import { SectionHeading } from "@/components/section-heading";
 import { StatusBar } from "@/components/status-bar";
 import { Tip } from "@/components/tip";
 import { displayVersion } from "@/lib/palette-version";
+import { deriveEffectiveSessionOrder } from "@/lib/palette-move";
+import { readLastWindow, resolveServerLandingWindow } from "@/lib/last-window-per-server";
 
 /** Well-known / system ports (< 1024, the reserved range) — sshd:22, smtp:25,
  *  etc. With the SERVICES zone now showing ALL listening ports (no HTTP probe
@@ -42,6 +44,7 @@ export function HostOverviewPage() {
     refreshServers,
     markServerPending,
     sessionsByServer,
+    sessionOrderByServer,
     daemonVersion,
     isConnectedByServer,
   } = useSessionContext();
@@ -58,6 +61,34 @@ export function HostOverviewPage() {
   const [createName, setCreateName] = useState("");
   const navigate = useNavigate();
   const { addToast } = useToast();
+  // Server-tile switch — resolves a landing window for the target server
+  // (remembered → derived from the effective session order), falling back to
+  // bare `/$server` (the session-tiles overview) when the resolver finds
+  // nothing. Only this SWITCH path resolves; the create-server navigations
+  // below keep landing on bare `/$server`.
+  const handleSwitchServer = useCallback(
+    (name: string) => {
+      const targetSessions = sessionsByServer.get(name) ?? [];
+      const windowId = resolveServerLandingWindow({
+        sessions: targetSessions,
+        sessionOrder: deriveEffectiveSessionOrder(
+          targetSessions.map((s) => s.name),
+          sessionOrderByServer.get(name) ?? [],
+        ),
+        remembered: readLastWindow(name),
+      });
+      if (windowId) {
+        navigate({
+          to: "/$server/$window",
+          params: { server: name, window: windowId },
+          search: {},
+        });
+      } else {
+        navigate({ to: "/$server", params: { server: name } });
+      }
+    },
+    [navigate, sessionsByServer, sessionOrderByServer],
+  );
   const hostMetrics = useHostMetrics();
   // Effective palette chord for the empty-zone education copy (260811-ke2s) —
   // derived, never hardcoded; the `→ Pin:` clause is omitted when the binding
@@ -361,9 +392,7 @@ export function HostOverviewPage() {
                 onDragOver={drag.onDragOver}
                 onDragEnd={drag.onDragEnd}
                 onDrop={drag.onDrop}
-                onClick={() =>
-                  navigate({ to: "/$server", params: { server: name } })
-                }
+                onClick={() => handleSwitchServer(name)}
                 className={`relative bg-bg-card border border-border rounded p-4 text-left hover:border-text-secondary transition-colors min-h-[60px]${isDragSource ? " opacity-50" : ""}`}
               >
                 {/* Attention rollup (260706-y1ar): per-server waiting count,

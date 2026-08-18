@@ -40,6 +40,8 @@ import { useChromeState } from "@/contexts/chrome-context";
 import { useActiveBoardName } from "@/hooks/use-active-board";
 import { useMergedSessions } from "@/contexts/optimistic-context";
 import { countWaitingInSessions } from "@/lib/waiting";
+import { deriveEffectiveSessionOrder } from "@/lib/palette-move";
+import { readLastWindow, resolveServerLandingWindow } from "@/lib/last-window-per-server";
 import { BoardsSection, WINDOW_DRAG_MIME } from "./boards-section";
 import { SectionRail } from "./section-rail";
 import { HostPanel } from "./host-panel";
@@ -227,13 +229,35 @@ export function Sidebar({
     getAllServerColors().then(setServerColors).catch(() => {});
   }, []);
 
-  // Server-switch handler — navigates and lets the route param drive
-  // `currentServer` via the provider's `useMatches()` lookup.
+  // Server-switch handler — resolves a landing window for the target server
+  // (remembered → derived from the effective session order) and navigates to
+  // it, falling back to bare `/$server` (the session-tiles overview) when the
+  // resolver finds nothing. The route param drives `currentServer` via the
+  // provider's `useMatches()` lookup.
   const handleSwitchServer = useCallback(
     (name: string) => {
-      navigate({ to: "/$server", params: { server: name } });
+      const targetSessions = sessionsByServer.get(name) ?? [];
+      const windowId = resolveServerLandingWindow({
+        sessions: targetSessions,
+        sessionOrder: deriveEffectiveSessionOrder(
+          targetSessions.map((s) => s.name),
+          ctx.sessionOrderByServer.get(name) ?? [],
+        ),
+        remembered: readLastWindow(name),
+      });
+      if (windowId) {
+        navigate({
+          to: "/$server/$window",
+          params: { server: name, window: windowId },
+          // Clear any carried-over layout param so the target window resolves
+          // its OWN layout, not the outgoing window's.
+          search: {},
+        });
+      } else {
+        navigate({ to: "/$server", params: { server: name } });
+      }
     },
-    [navigate],
+    [navigate, sessionsByServer, ctx.sessionOrderByServer],
   );
 
   // Sessions section collapse state — per-server, persisted in localStorage

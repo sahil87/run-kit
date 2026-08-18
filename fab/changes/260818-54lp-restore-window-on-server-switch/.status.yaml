@@ -1,0 +1,57 @@
+id: 54lp
+name: 260818-54lp-restore-window-on-server-switch
+created: 2026-08-18T07:43:07Z
+created_by: droid-ash
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 8
+    acceptance_count: 24
+    acceptance_completed: 24
+confidence:
+    certain: 8
+    confident: 4
+    tentative: 0
+    unresolved: 0
+    score: 4.1
+    fuzzy: true
+    dimensions:
+        signal: 68.8
+        reversibility: 83.8
+        competence: 82.5
+        disambiguation: 75.4
+stage_metrics:
+    intake: {started_at: "2026-08-18T07:43:07Z", driver: fab-new, iterations: 1, completed_at: "2026-08-18T07:51:45Z"}
+    apply: {started_at: "2026-08-18T07:51:45Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-18T07:58:53Z"}
+    review: {started_at: "2026-08-18T07:58:53Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-18T08:03:00Z"}
+    hydrate: {started_at: "2026-08-18T08:03:00Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-18T08:06:32Z"}
+    ship: {started_at: "2026-08-18T08:06:32Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-18T08:09:12Z"}
+    review-pr: {started_at: "2026-08-18T08:09:12Z", driver: git-pr, iterations: 1, completed_at: "2026-08-18T08:11:15Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/652
+change_type_source: explicit
+true_impact:
+    added: 841
+    deleted: 14
+    net: 827
+    excluding:
+        added: 336
+        deleted: 10
+        net: 326
+    tests:
+        added: 148
+        deleted: 0
+        net: 148
+    computed_at: "2026-08-18T08:09:12Z"
+    computed_at_stage: ship
+summary: 'Per-server last-window memory (runkit-last-window:{server}): the three server-switch entry points resolve a landing window via resolveServerLandingWindow instead of always landing on the session-tiles overview; / stays the overview for every non-switch path.'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-18T08:11:15Z

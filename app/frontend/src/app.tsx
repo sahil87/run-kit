@@ -48,6 +48,11 @@ import { FocusedTerminalProvider } from "@/contexts/focused-terminal-context";
 import { TopBarSlotProvider, useTopBarSlot, useTopBarNotFound, useRegisterTopBarSlot } from "@/contexts/top-bar-slot-context";
 import { FocusedPaneProvider } from "@/contexts/focused-pane-context";
 import { computeKillRedirect } from "@/lib/navigation";
+import {
+  readLastWindow,
+  resolveServerLandingWindow,
+  writeLastWindow,
+} from "@/lib/last-window-per-server";
 import { deriveEffectiveSessionOrder, computeMoveOrder, computeWindowMoveTarget } from "@/lib/palette-move";
 import { buildViewActions } from "@/lib/palette-view";
 import { buildLayoutActions, buildTileSwitchActions } from "@/lib/palette-layout";
@@ -839,6 +844,16 @@ function AppShell() {
   // so seeding lands first within a commit (effects run in order).
   useEffect(() => {
     if (windowParam) seedLayoutFromLegacy(server, windowParam);
+  }, [server, windowParam]);
+
+  // Per-server last-window memory: record the viewed window against its server
+  // on EVERY arrival path (sidebar click, palette, deep link, board hop, tmux
+  // writeback), so a later server switch can reopen it. Write-only — no
+  // navigation, and independent of the alignment guard (`hasAlignedToUrlRef`)
+  // and click-suppression window (`pendingClickRef`). No write on bare
+  // `/$server` — a stored value stays intact there.
+  useEffect(() => {
+    if (server && windowParam) writeLastWindow(server, windowParam);
   }, [server, windowParam]);
 
   // Seed rule (if5d R2): the first time the code surface actually renders for a
@@ -2201,14 +2216,37 @@ function AppShell() {
     ] satisfies PaletteAction[];
   }, [themeMode, themeDark, themeLight, setTheme]);
 
-  // Server management
+  // Server management. The switch resolves a landing window for the target
+  // server (remembered → derived from the effective session order) instead of
+  // always dropping on the session-tiles overview; bare `/$server` stays the
+  // fallback when the resolver finds nothing. Push history (no `replace`) —
+  // user-initiated switches are retraced by the top-bar ◀ ▶ arrows.
   const handleSwitchServer = useCallback(
     (name: string) => {
       if (name !== server) {
-        navigate({ to: "/$server", params: { server: name } });
+        const targetSessions = ctx.sessionsByServer.get(name) ?? [];
+        const windowId = resolveServerLandingWindow({
+          sessions: targetSessions,
+          sessionOrder: deriveEffectiveSessionOrder(
+            targetSessions.map((s) => s.name),
+            ctx.sessionOrderByServer.get(name) ?? [],
+          ),
+          remembered: readLastWindow(name),
+        });
+        if (windowId) {
+          navigate({
+            to: "/$server/$window",
+            params: { server: name, window: windowId },
+            // Clear any carried-over layout param so the target window
+            // resolves its OWN layout, not the outgoing window's.
+            search: {},
+          });
+        } else {
+          navigate({ to: "/$server", params: { server: name } });
+        }
       }
     },
-    [server, navigate],
+    [server, navigate, ctx.sessionsByServer, ctx.sessionOrderByServer],
   );
 
   // The create/kill server flows (useOptimisticAction wrappers, pending/killed

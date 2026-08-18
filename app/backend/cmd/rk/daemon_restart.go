@@ -127,12 +127,12 @@ func insideDaemonServer(tmuxEnv string) bool {
 func upRemoteNames(ctx context.Context, cmd *cobra.Command) []string {
 	path, err := remotesPathFn()
 	if err != nil {
-		fmt.Fprintf(cmd.OutOrStdout(), "warning: skipping remote-tunnel reconnect (store path: %v)\n", err)
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: skipping remote-tunnel reconnect (store path: %v)\n", err)
 		return nil
 	}
 	f, err := remote.Load(path)
 	if err != nil {
-		fmt.Fprintf(cmd.OutOrStdout(), "warning: skipping remote-tunnel reconnect (loading remotes: %v)\n", err)
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: skipping remote-tunnel reconnect (loading remotes: %v)\n", err)
 		return nil
 	}
 	if len(f.Remotes) == 0 {
@@ -150,33 +150,36 @@ func upRemoteNames(ctx context.Context, cmd *cobra.Command) []string {
 
 // reconnectRemotes re-runs the idempotent connect flow for each previously-up
 // remote. Per-remote failures warn and continue — the restart succeeded; a
-// dead remote box has its own recovery (`rk remote connect <name>`).
+// dead remote box has its own recovery (`rk remote connect <name>`). Output
+// splits per Principle 9, mirroring `rk remote connect`'s sink routing:
+// progress, installed/updated notices, and warnings are stderr chatter; the
+// per-remote reconnected-origin outcome line is stdout data.
 func reconnectRemotes(cmd *cobra.Command, names []string) {
 	if len(names) == 0 {
 		return
 	}
-	out := cmd.OutOrStdout()
+	out, errOut := cmd.OutOrStdout(), cmd.ErrOrStderr()
 	path, pathErr := remotesPathFn()
 	for _, name := range names {
-		fmt.Fprintf(out, "Reconnecting remote %s...\n", name)
+		fmt.Fprintf(errOut, "Reconnecting remote %s...\n", name)
 		err := pathErr
 		if err == nil {
 			var res remote.ConnectResult
 			res, err = remoteConnectFn(cmd.Context(), path, name, displayVersion(), func(format string, a ...any) {
-				fmt.Fprintf(out, "  "+format+"\n", a...)
+				fmt.Fprintf(errOut, "  "+format+"\n", a...)
 			})
 			if err == nil {
 				if res.Installed {
-					fmt.Fprintf(out, "installed rk v%s on %s\n", res.RemoteVersion, name)
+					fmt.Fprintf(errOut, "installed rk v%s on %s\n", res.RemoteVersion, name)
 				}
 				if res.Updated {
-					fmt.Fprintf(out, "updated rk on %s to v%s\n", name, res.RemoteVersion)
+					fmt.Fprintf(errOut, "updated rk on %s to v%s\n", name, res.RemoteVersion)
 				}
 				fmt.Fprintf(out, "Reconnected remote %s (%s)\n", name, res.Origin)
 				continue
 			}
 		}
-		fmt.Fprintf(out, "warning: reconnecting remote %s failed: %v — run `rk remote connect %s`\n", name, err, name)
+		fmt.Fprintf(errOut, "warning: reconnecting remote %s failed: %v — run `rk remote connect %s`\n", name, err, name)
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 
 	"strings"
 	"testing"
+	"time"
 
 	"rk/internal/codeserver"
 	"rk/internal/daemon"
@@ -41,17 +42,21 @@ func withCodeServerCLISeams(t *testing.T, home string, srv *httptest.Server) (ki
 	origHome, origNew := codeServerUserHomeFn, newCodeServerInstallerFn
 	origStart, origKill := codeServerStartFn, codeServerKillFn
 	origRunning, origSession := codeServerDaemonRunningFn, codeServerSessionCommandFn
+	origBusy := codeServerPortBusyFn
 	t.Cleanup(func() {
 		codeServerUserHomeFn, newCodeServerInstallerFn = origHome, origNew
 		codeServerStartFn, codeServerKillFn = origStart, origKill
 		codeServerDaemonRunningFn, codeServerSessionCommandFn = origRunning, origSession
+		codeServerPortBusyFn = origBusy
 	})
 
-	// Hermetic defaults for the respawn seams: daemon up, no session — the
-	// migration respawn is a strict no-op unless a test opts in. Never leave
-	// the real probes wired (they would touch a live tmux socket).
+	// Hermetic defaults for the respawn seams: daemon up, no session, port
+	// free — the migration respawn is a strict no-op and the port-free wait
+	// returns immediately unless a test opts in. Never leave the real probes
+	// wired (they would touch a live tmux socket or dial a real port).
 	codeServerDaemonRunningFn = func() bool { return true }
 	codeServerSessionCommandFn = func() (string, bool, error) { return "", false, nil }
+	codeServerPortBusyFn = func() bool { return false }
 
 	codeServerUserHomeFn = func() (string, error) { return home, nil }
 	if srv != nil {
@@ -63,9 +68,20 @@ func withCodeServerCLISeams(t *testing.T, home string, srv *httptest.Server) (ki
 			return ins
 		}
 	}
-	codeServerKillFn = func() error { *kills++; return nil }
+	codeServerKillFn = func() (bool, error) { *kills++; return true, nil }
 	codeServerStartFn = func() (daemon.EnsureOutcome, error) { *starts++; return daemon.EnsureStarted, nil }
 	return kills, starts
+}
+
+// shrinkPortFreeWait shrinks the respawn's port-free wait vars so the
+// never-frees branch runs without burning wall-clock (the internal/remote
+// readiness-poll test idiom).
+func shrinkPortFreeWait(t *testing.T) {
+	t.Helper()
+	origTimeout, origPoll := codeServerPortFreeTimeout, codeServerPortFreePoll
+	t.Cleanup(func() { codeServerPortFreeTimeout, codeServerPortFreePoll = origTimeout, origPoll })
+	codeServerPortFreeTimeout = 20 * time.Millisecond
+	codeServerPortFreePoll = time.Millisecond
 }
 
 // csTarball builds a minimal code-server-shaped release tarball in memory.
@@ -387,6 +403,94 @@ func TestCodeServerUpdateDaemonDownNoKillNamesManualChain(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "Updated code-server v4.132.0 -> v4.133.0") {
 		t.Errorf("stdout = %q, want the install outcome line — the flip itself succeeded", out.String())
+	}
+}
+
+// --- the respawn kill→probe race window (260818-nzho) ---
+
+// (a) Killed session, port busy then freed: the respawn waits out the dying
+// instance and start runs against a free port — no externally-managed
+// misclassification of rk's own process.
+func TestRespawnWaitsForKilledPortToFree(t *testing.T) {
+	withCodeServerCLISeams(t, t.TempDir(), nil)
+	shrinkPortFreeWait(t)
+	probes, startsAfterFree := 0, false
+	codeServerPortBusyFn = func() bool {
+		probes++
+		return probes <= 2 // busy, busy, free
+	}
+	codeServerStartFn = func() (daemon.EnsureOutcome, error) {
+		startsAfterFree = probes >= 3
+		return daemon.EnsureStarted, nil
+	}
+
+	out, err := respawnCodeServerSession(newSink(bareCmd(&bytes.Buffer{}, &bytes.Buffer{})), "4.133.0")
+	if err != nil || out != respawnDone {
+		t.Fatalf("got (%v, %v), want (respawnDone, nil)", out, err)
+	}
+	if probes < 3 {
+		t.Errorf("port probes = %d, want the wait to poll past the busy reports", probes)
+	}
+	if !startsAfterFree {
+		t.Error("start ran before the port probe reported free")
+	}
+}
+
+// (b) Killed session, port never frees: the budget expires and the respawn
+// falls through to start unchanged — the externally-managed classification
+// remains the (truthful) outcome, no new error path.
+func TestRespawnPortNeverFreesFallsThrough(t *testing.T) {
+	withCodeServerCLISeams(t, t.TempDir(), nil)
+	shrinkPortFreeWait(t)
+	codeServerPortBusyFn = func() bool { return true }
+	codeServerStartFn = func() (daemon.EnsureOutcome, error) { return daemon.EnsureExternallyManaged, nil }
+
+	var errOut bytes.Buffer
+	out, err := respawnCodeServerSession(newSink(bareCmd(&bytes.Buffer{}, &errOut)), "4.133.0")
+	if err != nil || out != respawnExternallyManaged {
+		t.Fatalf("got (%v, %v), want (respawnExternallyManaged, nil) on budget expiry", out, err)
+	}
+	if !strings.Contains(errOut.String(), "externally managed") {
+		t.Errorf("stderr = %q, want the existing externally-managed note", errOut.String())
+	}
+}
+
+// (c) No session existed (killed=false): no wait — the port probe is never
+// consulted and start runs immediately.
+func TestRespawnNoSessionSkipsWait(t *testing.T) {
+	withCodeServerCLISeams(t, t.TempDir(), nil)
+	codeServerKillFn = func() (bool, error) { return false, nil }
+	probed := false
+	codeServerPortBusyFn = func() bool { probed = true; return false }
+	started := false
+	codeServerStartFn = func() (daemon.EnsureOutcome, error) { started = true; return daemon.EnsureStarted, nil }
+
+	out, err := respawnCodeServerSession(newSink(bareCmd(&bytes.Buffer{}, &bytes.Buffer{})), "4.133.0")
+	if err != nil || out != respawnDone {
+		t.Fatalf("got (%v, %v), want (respawnDone, nil)", out, err)
+	}
+	if probed {
+		t.Error("port probed despite killed=false — the wait must be gated on a real kill")
+	}
+	if !started {
+		t.Error("start not called")
+	}
+}
+
+// A kill failure still short-circuits before any wait or start.
+func TestRespawnKillErrorNoWaitNoStart(t *testing.T) {
+	withCodeServerCLISeams(t, t.TempDir(), nil)
+	codeServerKillFn = func() (bool, error) { return false, fmt.Errorf("kill failed") }
+	probed, started := false, false
+	codeServerPortBusyFn = func() bool { probed = true; return false }
+	codeServerStartFn = func() (daemon.EnsureOutcome, error) { started = true; return daemon.EnsureStarted, nil }
+
+	out, err := respawnCodeServerSession(newSink(bareCmd(&bytes.Buffer{}, &bytes.Buffer{})), "4.133.0")
+	if err == nil || out != respawnFailed {
+		t.Fatalf("got (%v, %v), want (respawnFailed, non-nil)", out, err)
+	}
+	if probed || started {
+		t.Errorf("probed=%v started=%v, want false/false after a kill error", probed, started)
 	}
 }
 

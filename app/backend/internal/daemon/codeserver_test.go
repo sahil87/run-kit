@@ -534,8 +534,57 @@ func TestKillCodeServerSessionAbsentIsNoop(t *testing.T) {
 	// Absence short-circuits before any tmux call, so no runTmux seam is
 	// needed — a live tmux server would still see no kill-session.
 	_, _, _ = withCodeServerSeams(t, false)
-	if err := KillCodeServerSession(); err != nil {
+	killed, err := KillCodeServerSession()
+	if err != nil {
 		t.Fatalf("absent session must be a no-op, got %v", err)
+	}
+	if killed {
+		t.Error("killed = true, want false — nothing existed to kill")
+	}
+}
+
+func TestKillCodeServerSessionPresentKillsAndReports(t *testing.T) {
+	withCodeServerSeams(t, true)
+	origKill := codeServerKillRun
+	t.Cleanup(func() { codeServerKillRun = origKill })
+	var gotArgs []string
+	codeServerKillRun = func(_ context.Context, args ...string) error {
+		gotArgs = args
+		return nil
+	}
+
+	killed, err := KillCodeServerSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !killed {
+		t.Error("killed = false, want true — the session existed and the kill succeeded")
+	}
+	want := []string{"kill-session", "-t", "=" + CodeServerSessionName}
+	if len(gotArgs) != len(want) {
+		t.Fatalf("kill argv = %v, want %v", gotArgs, want)
+	}
+	for i := range want {
+		if gotArgs[i] != want[i] {
+			t.Fatalf("kill argv = %v, want the exact-match %v", gotArgs, want)
+		}
+	}
+}
+
+func TestKillCodeServerSessionKillErrorReportsNotKilled(t *testing.T) {
+	withCodeServerSeams(t, true)
+	origKill := codeServerKillRun
+	t.Cleanup(func() { codeServerKillRun = origKill })
+	codeServerKillRun = func(context.Context, ...string) error {
+		return fmt.Errorf("tmux exited 1")
+	}
+
+	killed, err := KillCodeServerSession()
+	if err == nil {
+		t.Fatal("err = nil, want the wrapped kill failure")
+	}
+	if killed {
+		t.Error("killed = true, want false on a failed kill")
 	}
 }
 

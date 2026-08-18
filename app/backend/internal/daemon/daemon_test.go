@@ -245,6 +245,10 @@ func TestStartWithBinary_InvalidPath(t *testing.T) {
 	t.Setenv("RK_HOST", "127.0.0.1")
 	t.Setenv("RK_PORT", fmt.Sprintf("%d", port))
 
+	// Satisfy the tmux-presence precheck hermetically — this test asserts
+	// the symlink-resolution path and must pass on tmux-less hosts too.
+	stubTmuxLookPath(t, "tmux")
+
 	// StartWithBinary should return an error for a nonexistent path.
 	err := StartWithBinary("/nonexistent/path/rk")
 	if err == nil {
@@ -323,6 +327,9 @@ func TestRestartWithBinary_InvalidPath(t *testing.T) {
 	port := freeTCPPort(t)
 	t.Setenv("RK_HOST", "127.0.0.1")
 	t.Setenv("RK_PORT", fmt.Sprintf("%d", port))
+
+	// Satisfy the tmux-presence precheck hermetically (see TestStartWithBinary_InvalidPath).
+	stubTmuxLookPath(t, "tmux")
 
 	err := RestartWithBinary("/nonexistent/path/rk")
 	if err == nil {

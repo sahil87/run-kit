@@ -7,7 +7,9 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"time"
 
@@ -245,6 +247,25 @@ func KillServer() error {
 	return err
 }
 
+// daemonTmuxLookPath resolves tmux on PATH for the Start/StartWithBinary
+// precheck. Package-level so tests can simulate a tmux-less host (the
+// codeServerLookPath idiom).
+var daemonTmuxLookPath = exec.LookPath
+
+// checkTmuxPresent fails fast when tmux is absent from PATH, with a
+// remediation hint instead of the raw exec wrap that a missing binary would
+// otherwise surface mid-operation. It runs before IsRunning, the port guard,
+// and the stale-socket reap — all of which shell out to tmux. The same
+// lookPath drives the package-manager probe so a stubbed host yields a
+// deterministic hint in tests.
+func checkTmuxPresent() error {
+	if _, err := daemonTmuxLookPath("tmux"); err != nil {
+		return fmt.Errorf("tmux not found on PATH — the run-kit daemon runs inside a tmux session; %s (or run `rk doctor` for a full dependency check)",
+			tmux.InstallHint(runtime.GOOS, daemonTmuxLookPath))
+	}
+	return nil
+}
+
 // Start creates a new daemon tmux session running `rk serve`.
 // The command is passed directly to new-session so the session exits when the server exits.
 // Uses os.Executable to resolve the current binary, so a locally-built binary restarts itself
@@ -252,6 +273,9 @@ func KillServer() error {
 // Returns an error if a daemon is already running, or if the configured port is
 // already held by another process (e.g. a foreground `rk serve`).
 func Start() error {
+	if err := checkTmuxPresent(); err != nil {
+		return err
+	}
 	if IsRunning() {
 		return fmt.Errorf("daemon already running")
 	}
@@ -282,6 +306,9 @@ func Start() error {
 // (e.g. after brew upgrade deletes the old Cellar directory).
 // Inherits the same port-availability + stale-socket-reap guards as Start.
 func StartWithBinary(binPath string) error {
+	if err := checkTmuxPresent(); err != nil {
+		return err
+	}
 	if IsRunning() {
 		return fmt.Errorf("daemon already running")
 	}

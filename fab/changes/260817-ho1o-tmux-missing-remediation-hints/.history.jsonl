@@ -1,0 +1,12 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-17T16:51:37Z"}
+{"args":"daemon start with tmux missing dies with raw error (creating tmux session: exec tmux not found) — add doctor-style remediation hint (brew/apt install tmux, or point at rk doctor); doctor's non-brew tmux hint is also generic — make it package-manager-aware on Linux","cmd":"fab-new","event":"command","ts":"2026-08-17T16:51:37Z"}
+{"delta":"+0.0","event":"confidence","score":4.5,"trigger":"calc-score","ts":"2026-08-17T16:52:50Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-18T01:53:34Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-18T01:53:47Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-18T02:01:11Z"}
+{"event":"review","result":"failed","ts":"2026-08-18T02:10:44Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-18T02:10:44Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-18T02:13:20Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-18T02:21:54Z"}
+{"event":"review","result":"passed","ts":"2026-08-18T02:21:54Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-18T02:24:41Z"}

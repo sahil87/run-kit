@@ -13,6 +13,7 @@ import (
 
 	"rk/internal/codeserver"
 	"rk/internal/config"
+	"rk/internal/tmux"
 
 	"github.com/spf13/cobra"
 )
@@ -52,11 +53,7 @@ func runDoctorChecks() doctorReport {
 	report := doctorReport{OK: true}
 
 	if _, err := exec.LookPath("tmux"); err != nil {
-		hint := "install tmux and ensure it is on PATH"
-		if runtime.GOOS == "darwin" {
-			hint = "install with: brew install tmux"
-		}
-		report.Checks = append(report.Checks, doctorCheck{Name: "tmux", OK: false, Hint: hint})
+		report.Checks = append(report.Checks, doctorCheck{Name: "tmux", OK: false, Hint: tmux.InstallHint(runtime.GOOS, exec.LookPath)})
 		report.OK = false
 	} else {
 		report.Checks = append(report.Checks, doctorCheck{Name: "tmux", OK: true})

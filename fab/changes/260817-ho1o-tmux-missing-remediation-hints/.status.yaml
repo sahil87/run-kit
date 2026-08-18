@@ -1,0 +1,55 @@
+id: ho1o
+name: 260817-ho1o-tmux-missing-remediation-hints
+created: 2026-08-17T16:51:37Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 4
+    acceptance_count: 13
+    acceptance_completed: 13
+confidence:
+    certain: 1
+    confident: 5
+    tentative: 0
+    unresolved: 0
+    score: 4.5
+    fuzzy: true
+    dimensions:
+        signal: 65.0
+        reversibility: 87.5
+        competence: 76.7
+        disambiguation: 67.5
+stage_metrics:
+    intake: {started_at: "2026-08-17T16:51:37Z", driver: fab-new, iterations: 1, completed_at: "2026-08-18T01:53:47Z"}
+    apply: {started_at: "2026-08-18T02:10:44Z", driver: fab-fff, iterations: 2, completed_at: "2026-08-18T02:13:20Z"}
+    review: {started_at: "2026-08-18T02:13:20Z", driver: fab-fff, iterations: 2, completed_at: "2026-08-18T02:21:54Z"}
+    hydrate: {started_at: "2026-08-18T02:21:54Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-18T02:24:41Z"}
+    ship: {started_at: "2026-08-18T02:24:41Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-08-18T02:24:41Z"
+    computed_at_stage: hydrate
+summary: rk daemon start fails fast on missing tmux with a package-manager-aware install hint (shared tmux.InstallHint helper, also behind rk doctor's tmux row)
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-18T02:24:41Z

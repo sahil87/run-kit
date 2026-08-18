@@ -884,3 +884,52 @@ func TestStartSession_BirthCwdIsHome(t *testing.T) {
 		t.Errorf("daemon session_path = %q, want %q (server birth must be anchored to home)", got, want)
 	}
 }
+
+// TestKillServer_DeadSocketIsSuccess proves KillServer's idempotence: a socket
+// with no live server (never started, or already killed) is success, because
+// the caller's next step is birthing a fresh server anyway.
+func TestKillServer_DeadSocketIsSuccess(t *testing.T) {
+	if !hasTmux() {
+		t.Skip("tmux not available")
+	}
+	socket := testSocketName("killsrv-dead")
+	withServerSocket(t, socket)
+
+	if err := KillServer(); err != nil {
+		t.Errorf("KillServer on dead socket = %v, want nil", err)
+	}
+}
+
+// TestKillServer_KillsLiveServerAndSiblings proves KillServer takes down the
+// whole server — every session on the socket, not just the daemon session —
+// which is exactly the sibling-killing behavior the session-scoped reap avoids
+// and the --full restart opts into.
+func TestKillServer_KillsLiveServerAndSiblings(t *testing.T) {
+	if !hasTmux() {
+		t.Skip("tmux not available")
+	}
+	socket := testSocketName("killsrv-live")
+	withServerSocket(t, socket)
+	_ = exec.Command("tmux", "-L", socket, "kill-server").Run()
+	t.Cleanup(func() { _ = exec.Command("tmux", "-L", socket, "kill-server").Run() })
+
+	for _, session := range []string{SessionName, "rk-jobs-sibling"} {
+		if err := exec.Command("tmux", "-L", socket, "new-session", "-d", "-s", session, "sleep", "300").Run(); err != nil {
+			t.Fatalf("creating session %s: %v", session, err)
+		}
+	}
+
+	if err := KillServer(); err != nil {
+		t.Fatalf("KillServer: %v", err)
+	}
+	if err := exec.Command("tmux", "-L", socket, "has-session", "-t", "="+SessionName).Run(); err == nil {
+		t.Error("daemon session still present after KillServer")
+	}
+	if err := exec.Command("tmux", "-L", socket, "has-session", "-t", "=rk-jobs-sibling").Run(); err == nil {
+		t.Error("sibling session still present after KillServer (whole server should be gone)")
+	}
+	// Idempotent re-run against the now-dead server.
+	if err := KillServer(); err != nil {
+		t.Errorf("KillServer re-run after kill = %v, want nil", err)
+	}
+}

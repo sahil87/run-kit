@@ -228,6 +228,23 @@ func reapStaleDaemonSocket(ctx context.Context) {
 	}
 }
 
+// KillServer kills the ENTIRE tmux server on the daemon socket — the daemon
+// session and every sibling (rk-jobs, rk-code-server, rk-remotes, the _rk-ctl
+// anchor). This is the opt-in "full restart" primitive behind
+// `rk daemon restart --full`; ordinary restarts stay session-scoped
+// (reapStaleDaemonSocket) per the 260813 sibling-kill lesson. Delegates to
+// tmux.KillServer (which emits the killAudit teardown line and runs under its
+// own timeout) and widens its dead-server tolerance: a socket with no live
+// server is success — the caller's next step is birthing a fresh one anyway.
+// Uses the serverSocket var (not the constant) to honor the test seam.
+func KillServer() error {
+	err := tmux.KillServer(serverSocket)
+	if err != nil && tmux.IsServerGone(err) {
+		return nil
+	}
+	return err
+}
+
 // Start creates a new daemon tmux session running `rk serve`.
 // The command is passed directly to new-session so the session exits when the server exits.
 // Uses os.Executable to resolve the current binary, so a locally-built binary restarts itself

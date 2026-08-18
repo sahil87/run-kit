@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"rk/internal/config"
+	"rk/internal/ports"
 	"rk/internal/tmux"
 )
 
@@ -239,12 +240,31 @@ func reapStaleDaemonSocket(ctx context.Context) {
 // own timeout) and widens its dead-server tolerance: a socket with no live
 // server is success — the caller's next step is birthing a fresh one anyway.
 // Uses the serverSocket var (not the constant) to honor the test seam.
+//
+// Release-synchronous w.r.t. the code-server port: when an rk-code-server
+// sibling existed pre-kill, the kill's SIGHUP leaves the node process seconds
+// from unbinding, so KillServer runs the bounded port-free wait before
+// returning — a Start() composed right after can no longer misclassify the
+// dying instance as externally managed. The wait is CONDITIONAL on the sibling
+// having existed: when it never did, a busy code-server port belongs to a
+// genuinely externally managed instance that will not release it, and waiting
+// would burn the full timeout on every full restart.
 func KillServer() error {
+	probeCtx, probeCancel := context.WithTimeout(context.Background(), cmdTimeout)
+	hadCodeServer := codeServerSessionExists(probeCtx)
+	probeCancel()
+
 	err := tmux.KillServer(serverSocket)
 	if err != nil && tmux.IsServerGone(err) {
 		return nil
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	if hadCodeServer {
+		waitForCodeServerPortFree()
+	}
+	return nil
 }
 
 // daemonTmuxLookPath resolves tmux on PATH for the Start/StartWithBinary
@@ -490,28 +510,6 @@ func Stop() error {
 	}
 }
 
-// Restart stops the daemon if running, then starts it.
-// If no daemon is running, it just starts one.
-func Restart() error {
-	if IsRunning() {
-		if err := Stop(); err != nil {
-			return fmt.Errorf("stopping daemon: %w", err)
-		}
-	}
-	return Start()
-}
-
-// RestartWithBinary stops the daemon if running, then starts it using the provided binary path.
-// Use this instead of Restart when the running process's os.Executable path may be stale.
-func RestartWithBinary(binPath string) error {
-	if IsRunning() {
-		if err := Stop(); err != nil {
-			return fmt.Errorf("stopping daemon: %w", err)
-		}
-	}
-	return StartWithBinary(binPath)
-}
-
 // InnerServePID returns the PID of the `rk serve` process running inside the
 // daemon tmux pane, derived from tmux's `pane_pid` format spec. Used by the
 // `rk daemon` CLI surface to recognize the daemon as the port owner (so
@@ -535,4 +533,19 @@ func InnerServePID() (int, error) {
 		return 0, fmt.Errorf("parsing pane_pid %q: %w", s, err)
 	}
 	return pid, nil
+}
+
+// innerServePIDFn is the package seam over InnerServePID so tests drive the
+// OwnerIsDaemon self-recognition branch without a live daemon pane.
+var innerServePIDFn = InnerServePID
+
+// OwnerIsDaemon reports whether the port owner is the rk daemon's inner serve
+// PID — the --force paths must never signal the daemon itself. An
+// unresolvable inner PID is not proof of ownership: it reports false.
+func OwnerIsDaemon(owner *ports.PortOwner) bool {
+	pid, err := innerServePIDFn()
+	if err != nil || pid <= 0 {
+		return false
+	}
+	return pid == owner.PID
 }

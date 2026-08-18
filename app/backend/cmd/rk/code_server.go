@@ -7,10 +7,8 @@ import (
 	"io/fs"
 	"os"
 	"strings"
-	"time"
 
 	"rk/internal/codeserver"
-	"rk/internal/config"
 	"rk/internal/daemon"
 
 	"github.com/spf13/cobra"
@@ -41,42 +39,6 @@ var codeServerKillFn = daemon.KillCodeServerSession
 // socket.
 var codeServerDaemonRunningFn = daemon.IsRunning
 var codeServerSessionCommandFn = daemon.CodeServerSessionCommand
-
-// Respawn port-free wait: tmux kill-session only SIGHUPs the pane, and the
-// node-based code-server takes up to a few seconds to unbind its port. Started
-// immediately, the ensure path's portInUse probe finds the dying instance and
-// misclassifies it as externally managed — so after killing OUR OWN session
-// the respawn waits (bounded) for the port to actually free. Vars, not consts,
-// so tests shrink them (the internal/remote readiness-poll idiom).
-var (
-	codeServerPortFreeTimeout = 5 * time.Second
-	codeServerPortFreePoll    = 200 * time.Millisecond
-)
-
-// codeServerPortBusyFn resolves the code-server port and probes it in one
-// seam so the race-window tests script busy/free sequences without sockets.
-// An unresolvable port (0) reports free — there is nothing to wait on.
-var codeServerPortBusyFn = func() bool {
-	port := config.Load().ResolvedCodeServerPort()
-	if port == 0 {
-		return false
-	}
-	return daemon.CodeServerPortInUse(port)
-}
-
-// waitForCodeServerPortFree polls until the code-server port stops accepting
-// connections or the budget expires. Expiry is non-fatal by design: the start
-// path's externally-managed classification then fires exactly as it would
-// today — the wait only closes the race window, it adds no failure mode.
-func waitForCodeServerPortFree() {
-	deadline := time.Now().Add(codeServerPortFreeTimeout)
-	for codeServerPortBusyFn() {
-		if time.Now().After(deadline) {
-			return
-		}
-		time.Sleep(codeServerPortFreePoll)
-	}
-}
 
 var codeServerCmd = &cobra.Command{
 	Use:   "code-server",
@@ -269,17 +231,14 @@ func respawnCodeServerSession(sink outputSink, version string) (respawnOutcome, 
 		return respawnDaemonDown, nil
 	}
 	sink.Notef("Restarting the code-server session on v%s...\n", version)
-	killed, err := codeServerKillFn()
-	if err != nil {
+	if _, err := codeServerKillFn(); err != nil {
 		return respawnFailed, err
 	}
-	if killed {
-		// Our own session just died; its port takes a moment to unbind. Wait
-		// so the start below cannot misread the dying instance as externally
-		// managed. A genuinely foreign instance was never killed (killed is
-		// false), so the carve-out still fires without any wait.
-		waitForCodeServerPortFree()
-	}
+	// The kill is release-synchronous: when it killed our own session, the
+	// port is already free (or the release budget expired), so the start below
+	// cannot misread the dying instance as externally managed. A genuinely
+	// foreign instance was never killed (killed is false), so the carve-out
+	// still fires unchanged.
 	outcome, err := codeServerStartFn()
 	if err != nil {
 		return respawnFailed, fmt.Errorf("respawning code-server (the new version IS installed — start it with `rk code-server start`): %w", err)

@@ -6,31 +6,30 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
-	"os"
-	"os/exec"
 	"strings"
 	"testing"
 
 	"rk/internal/daemon"
+	"rk/internal/ports"
 
 	"github.com/spf13/cobra"
 )
 
-// withPortOwnerStub swaps findPortOwner to the given stub for the test's
+// withPortOwnerStub swaps findPortOwnerFn to the given stub for the test's
 // duration. Tests use this to drive --force paths without spawning lsof/ss.
-func withPortOwnerStub(t *testing.T, stub func(ctx context.Context, host string, port int) (*PortOwner, error)) {
+func withPortOwnerStub(t *testing.T, stub func(ctx context.Context, host string, port int) (*ports.PortOwner, error)) {
 	t.Helper()
-	orig := findPortOwner
-	findPortOwner = stub
-	t.Cleanup(func() { findPortOwner = orig })
+	orig := findPortOwnerFn
+	findPortOwnerFn = stub
+	t.Cleanup(func() { findPortOwnerFn = orig })
 }
 
-// withInnerServePID swaps innerServePIDFn to a stub returning the given pid/err.
-func withInnerServePID(t *testing.T, pid int, err error) {
+// withOwnerIsDaemon swaps ownerIsDaemonFn to a stub returning the given verdict.
+func withOwnerIsDaemon(t *testing.T, isDaemon bool) {
 	t.Helper()
-	orig := innerServePIDFn
-	innerServePIDFn = func() (int, error) { return pid, err }
-	t.Cleanup(func() { innerServePIDFn = orig })
+	orig := ownerIsDaemonFn
+	ownerIsDaemonFn = func(*ports.PortOwner) bool { return isDaemon }
+	t.Cleanup(func() { ownerIsDaemonFn = orig })
 }
 
 // pinFreePort sets RK_HOST/RK_PORT to a known-free port for the duration of
@@ -94,7 +93,7 @@ func TestDaemonStatusJSON_ShapeIsValid(t *testing.T) {
 		t.Skip("skipping — production daemon is running")
 	}
 	pinFreePort(t)
-	withPortOwnerStub(t, func(ctx context.Context, host string, port int) (*PortOwner, error) {
+	withPortOwnerStub(t, func(ctx context.Context, host string, port int) (*ports.PortOwner, error) {
 		return nil, nil
 	})
 
@@ -140,12 +139,13 @@ func TestDaemonStart_ForceRefusesSelfKill(t *testing.T) {
 	t.Setenv("RK_HOST", "127.0.0.1")
 	t.Setenv("RK_PORT", fmt.Sprintf("%d", port))
 
-	// Stub findPortOwner to return PID matching the (stubbed) inner serve PID.
+	// Stub the owner lookup to report a holder and the self-recognition
+	// predicate to identify it as the daemon itself.
 	const fakePID = 42424
-	withPortOwnerStub(t, func(ctx context.Context, host string, port int) (*PortOwner, error) {
-		return &PortOwner{PID: fakePID, Command: "rk", Source: "test"}, nil
+	withPortOwnerStub(t, func(ctx context.Context, host string, port int) (*ports.PortOwner, error) {
+		return &ports.PortOwner{PID: fakePID, Command: "rk", Source: "test"}, nil
 	})
-	withInnerServePID(t, fakePID, nil)
+	withOwnerIsDaemon(t, true)
 
 	buf := new(bytes.Buffer)
 	rootCmd.SetOut(buf)
@@ -159,32 +159,5 @@ func TestDaemonStart_ForceRefusesSelfKill(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "refusing to --force-kill self") {
 		t.Errorf("error = %q; want it to contain 'refusing to --force-kill self'", err)
-	}
-}
-
-func TestFindPortOwnerImpl_FindsListener(t *testing.T) {
-	if _, err := exec.LookPath("lsof"); err != nil {
-		t.Skip("lsof not on PATH")
-	}
-
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("net.Listen: %v", err)
-	}
-	defer ln.Close()
-	port := ln.Addr().(*net.TCPAddr).Port
-
-	owner, err := findPortOwnerImpl(context.Background(), "127.0.0.1", port)
-	if err != nil {
-		t.Fatalf("findPortOwnerImpl error: %v", err)
-	}
-	if owner == nil {
-		t.Fatal("findPortOwnerImpl returned nil owner for a bound listener")
-	}
-	if owner.PID != os.Getpid() {
-		t.Errorf("owner.PID = %d, want %d (test process)", owner.PID, os.Getpid())
-	}
-	if owner.Source != "lsof" {
-		t.Errorf("owner.Source = %q, want %q", owner.Source, "lsof")
 	}
 }

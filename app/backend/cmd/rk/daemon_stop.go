@@ -44,17 +44,17 @@ Useful for reclaiming a port held by a foreground 'run-kit serve' or stale proce
 		// failure must be surfaced rather than treated as "no holder" — silently
 		// declaring success when we couldn't actually check would defeat the
 		// purpose of the flag.
-		owner, lookupErr := findPortOwner(cmd.Context(), cfg.Host, cfg.Port)
+		owner, lookupErr := findPortOwnerFn(cmd.Context(), cfg.Host, cfg.Port)
 		if lookupErr != nil {
 			return fmt.Errorf("port-owner lookup failed during --force: %w", lookupErr)
 		}
 		if owner == nil {
 			return nil
 		}
-		if ownerIsDaemon(owner) {
+		if ownerIsDaemonFn(owner) {
 			return errors.New("port still held by what appears to be our daemon; manual investigation needed")
 		}
-		if err := terminateOwner(cmd.Context(), owner); err != nil {
+		if err := terminateOwnerFn(cmd.Context(), owner); err != nil {
 			return fmt.Errorf("--force kill of PID %d (%s) failed: %w", owner.PID, owner.Command, err)
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "Killed port owner: PID %d (%s)\n", owner.PID, owner.Command)

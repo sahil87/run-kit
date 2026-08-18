@@ -62,7 +62,7 @@ var skipBrewUpdate bool
 // Command construction goes through newBrewCmd, which configures graceful
 // cancellation (SIGTERM + WaitDelay grace) for the mutating subcommands —
 // see its doc comment. The seam itself only relocates the call behind a var,
-// matching the daemon_start.go innerServePIDFn idiom.
+// matching the daemon_status.go innerServePIDFn idiom.
 //
 // Per-subcommand stdout/stderr wiring is keyed on args[0]; a new brew
 // subcommand not matched here inherits the default (Stderr-only) wiring.
@@ -143,9 +143,11 @@ func brewStreams(q bool) (stdout, stderr io.Writer, errBuf *bytes.Buffer) {
 }
 
 // restartDaemonFn is the package-level seam for the post-upgrade daemon
-// restart. Defaults to the real daemon.RestartWithBinary so tests can record
-// the call without restarting a real daemon. Mirrors innerServePIDFn.
-var restartDaemonFn = daemon.RestartWithBinary
+// restart. Defaults to the real daemon.Restart with the Binary option so tests
+// can record the call without restarting a real daemon. Mirrors innerServePIDFn.
+var restartDaemonFn = func(binPath string) error {
+	return daemon.Restart(daemon.RestartOptions{Binary: binPath})
+}
 
 // resolveExeFn is the package-level seam for resolving this binary's on-disk
 // path (used to detect a Homebrew install via the selfpath.CellarMarker).

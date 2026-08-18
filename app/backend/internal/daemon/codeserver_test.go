@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"rk/internal/codeserver"
 	"rk/internal/testutil"
@@ -578,6 +579,10 @@ func TestKillCodeServerSessionKillErrorReportsNotKilled(t *testing.T) {
 	codeServerKillRun = func(context.Context, ...string) error {
 		return fmt.Errorf("tmux exited 1")
 	}
+	probed := false
+	origBusy := codeServerPortBusy
+	t.Cleanup(func() { codeServerPortBusy = origBusy })
+	codeServerPortBusy = func() bool { probed = true; return false }
 
 	killed, err := KillCodeServerSession()
 	if err == nil {
@@ -585,6 +590,91 @@ func TestKillCodeServerSessionKillErrorReportsNotKilled(t *testing.T) {
 	}
 	if killed {
 		t.Error("killed = true, want false on a failed kill")
+	}
+	if probed {
+		t.Error("port probed after a failed kill — the wait is gated on a successful kill")
+	}
+}
+
+// --- the kill→rebind race window: the port-release wait lives in the kill ---
+
+// shrinkPortFreeWait shrinks the port-free wait vars so the never-frees branch
+// runs without burning wall-clock (the withStopTiming idiom).
+func shrinkPortFreeWait(t *testing.T) {
+	t.Helper()
+	origTimeout, origPoll := codeServerPortFreeTimeout, codeServerPortFreePoll
+	t.Cleanup(func() { codeServerPortFreeTimeout, codeServerPortFreePoll = origTimeout, origPoll })
+	codeServerPortFreeTimeout = 20 * time.Millisecond
+	codeServerPortFreePoll = time.Millisecond
+}
+
+// stubCodeServerPortBusy swaps the port probe for the given scripted function
+// and returns a probe counter.
+func stubCodeServerPortBusy(t *testing.T, fn func(probes int) bool) *int {
+	t.Helper()
+	probes := new(int)
+	orig := codeServerPortBusy
+	t.Cleanup(func() { codeServerPortBusy = orig })
+	codeServerPortBusy = func() bool { *probes++; return fn(*probes) }
+	return probes
+}
+
+// (a) Killed session, port busy then freed: the kill returns only after the
+// port probe reports free — a kill+start composition can no longer observe the
+// dying instance.
+func TestKillCodeServerSessionWaitsForPortToFree(t *testing.T) {
+	withCodeServerSeams(t, true)
+	origKill := codeServerKillRun
+	t.Cleanup(func() { codeServerKillRun = origKill })
+	codeServerKillRun = func(context.Context, ...string) error { return nil }
+	probes := stubCodeServerPortBusy(t, func(p int) bool { return p <= 2 }) // busy, busy, free
+
+	killed, err := KillCodeServerSession()
+	if err != nil || !killed {
+		t.Fatalf("got (%v, %v), want (true, nil)", killed, err)
+	}
+	if *probes < 3 {
+		t.Errorf("port probes = %d, want the wait to poll past the busy reports before returning", *probes)
+	}
+}
+
+// (b) Killed session, port never frees: the budget expires and the kill
+// returns normally — the caller's externally-managed classification then fires
+// exactly as without the wait; no new failure mode.
+func TestKillCodeServerSessionPortNeverFreesBudgetExpires(t *testing.T) {
+	withCodeServerSeams(t, true)
+	shrinkPortFreeWait(t)
+	origKill := codeServerKillRun
+	t.Cleanup(func() { codeServerKillRun = origKill })
+	codeServerKillRun = func(context.Context, ...string) error { return nil }
+	probes := stubCodeServerPortBusy(t, func(int) bool { return true })
+
+	start := time.Now()
+	killed, err := KillCodeServerSession()
+	if err != nil || !killed {
+		t.Fatalf("got (%v, %v), want (true, nil) — budget expiry is non-fatal", killed, err)
+	}
+	if *probes < 2 {
+		t.Errorf("port probes = %d, want the wait to keep polling until the budget expired", *probes)
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Errorf("wait outlasted its budget: %v", elapsed)
+	}
+}
+
+// (c) No session existed (killed=false): no wait — the port probe is never
+// consulted. A busy port here belongs to a genuinely externally managed
+// instance that will not release it.
+func TestKillCodeServerSessionAbsentNeverProbesPort(t *testing.T) {
+	withCodeServerSeams(t, false)
+	probes := stubCodeServerPortBusy(t, func(int) bool { return true })
+
+	killed, err := KillCodeServerSession()
+	if err != nil || killed {
+		t.Fatalf("got (%v, %v), want (false, nil)", killed, err)
+	}
+	if *probes != 0 {
+		t.Errorf("port probes = %d, want 0 — nothing died, nothing to wait for", *probes)
 	}
 }
 

@@ -1,4 +1,4 @@
-package main
+package ports
 
 import (
 	"context"
@@ -19,11 +19,11 @@ import (
 // Constitution §I (Process Execution: 5-10s for short-lived helpers).
 const portOwnerCmdTimeout = 5 * time.Second
 
-// terminateOwnerPollInterval is how often terminateOwner re-checks whether the
+// terminateOwnerPollInterval is how often TerminateOwner re-checks whether the
 // targeted PID has exited after SIGTERM.
 const terminateOwnerPollInterval = 200 * time.Millisecond
 
-// terminateOwnerGracePeriod is how long terminateOwner waits for graceful exit
+// terminateOwnerGracePeriod is how long TerminateOwner waits for graceful exit
 // after SIGTERM before escalating to SIGKILL.
 const terminateOwnerGracePeriod = 5 * time.Second
 
@@ -34,11 +34,7 @@ type PortOwner struct {
 	Source  string // "lsof" or "ss" — diagnostic, not load-bearing
 }
 
-// findPortOwner is the package-level lookup hook used by daemon subcommands.
-// Tests substitute it to drive --force paths without spawning lsof/ss.
-var findPortOwner = findPortOwnerImpl
-
-// findPortOwnerImpl returns the process listening on the given TCP port, or
+// FindPortOwner returns the process listening on the given TCP port, or
 // (nil, nil) when no listener is found. The host argument is accepted for
 // display/diagnostic purposes only — the underlying queries are port-only
 // (both `lsof -ti:<port>` and `ss -tlnp '( sport = :<port> )'` cover loopback
@@ -46,7 +42,7 @@ var findPortOwner = findPortOwnerImpl
 //
 // Returns (nil, error) only when both lsof and ss fail (e.g., neither tool is
 // on PATH, or both errored unexpectedly).
-func findPortOwnerImpl(ctx context.Context, host string, port int) (*PortOwner, error) {
+func FindPortOwner(ctx context.Context, host string, port int) (*PortOwner, error) {
 	_ = host // documented as display-only; not used in the lookup
 	owner, lsofErr := findPortOwnerLsof(ctx, port)
 	if lsofErr == nil {
@@ -102,7 +98,7 @@ func findPortOwnerLsof(ctx context.Context, port int) (*PortOwner, error) {
 	}
 
 	owner := &PortOwner{PID: pid, Source: "lsof"}
-	owner.Command = resolveCommand(cctx, pid)
+	owner.Command = ResolveCommand(cctx, pid)
 	return owner, nil
 }
 
@@ -157,14 +153,14 @@ func findPortOwnerSS(ctx context.Context, port int) (*PortOwner, error) {
 	}
 
 	owner := &PortOwner{PID: pid, Source: "ss"}
-	owner.Command = resolveCommand(cctx, pid)
+	owner.Command = ResolveCommand(cctx, pid)
 	return owner, nil
 }
 
-// resolveCommand returns the basename of the executable for the given PID, or
+// ResolveCommand returns the basename of the executable for the given PID, or
 // the empty string on failure. Linux reads `/proc/<pid>/comm`; macOS shells
 // out to `ps -p <pid> -o comm=`.
-func resolveCommand(ctx context.Context, pid int) string {
+func ResolveCommand(ctx context.Context, pid int) string {
 	if runtime.GOOS == "linux" {
 		data, err := os.ReadFile(fmt.Sprintf("/proc/%d/comm", pid))
 		if err != nil {
@@ -183,11 +179,11 @@ func resolveCommand(ctx context.Context, pid int) string {
 	return filepath.Base(strings.TrimSpace(string(out)))
 }
 
-// terminateOwner sends SIGTERM to the owner PID and polls for exit up to
+// TerminateOwner sends SIGTERM to the owner PID and polls for exit up to
 // terminateOwnerGracePeriod; if the PID is still alive at the deadline,
 // escalates to SIGKILL. Mirrors daemon.Stop's graceful-then-forceful pattern.
 // Signal delivery uses syscall.Kill — never a shell `kill` invocation.
-func terminateOwner(ctx context.Context, owner *PortOwner) error {
+func TerminateOwner(ctx context.Context, owner *PortOwner) error {
 	if owner == nil {
 		return nil
 	}

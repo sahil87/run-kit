@@ -318,7 +318,7 @@ func TestStart_TmuxMissingHintIsPackageManagerAware(t *testing.T) {
 	}
 }
 
-func TestRestartWithBinary_InvalidPath(t *testing.T) {
+func TestRestart_BinaryInvalidPath(t *testing.T) {
 	if IsRunning() {
 		t.Skip("skipping — production daemon is running")
 	}
@@ -331,9 +331,9 @@ func TestRestartWithBinary_InvalidPath(t *testing.T) {
 	// Satisfy the tmux-presence precheck hermetically (see TestStartWithBinary_InvalidPath).
 	stubTmuxLookPath(t, "tmux")
 
-	err := RestartWithBinary("/nonexistent/path/rk")
+	err := Restart(RestartOptions{Binary: "/nonexistent/path/rk"})
 	if err == nil {
-		t.Fatal("RestartWithBinary with invalid path should return error")
+		t.Fatal("Restart with an invalid Binary path should return error")
 	}
 	wantMsg := "resolving executable symlinks"
 	if !strings.Contains(err.Error(), wantMsg) {
@@ -397,7 +397,8 @@ func TestStop_LegacySessionName(t *testing.T) {
 
 // TestStop_TimeoutThenSessionVanished is the regression test for the rk-update
 // restart bug: Stop() reported a non-nil error on a graceful shutdown that
-// actually SUCCEEDED, aborting RestartWithBinary before the new binary launched.
+// actually SUCCEEDED, aborting the upgrade restart before the new binary
+// launched.
 //
 // The bug lived ONLY in the timeout/kill branch: when the inner serve's graceful
 // shutdown outlasted Stop()'s budget, the grace timer fired, and by kill-time the
@@ -954,16 +955,22 @@ func TestStartSession_BirthCwdIsHome(t *testing.T) {
 
 // TestKillServer_DeadSocketIsSuccess proves KillServer's idempotence: a socket
 // with no live server (never started, or already killed) is success, because
-// the caller's next step is birthing a fresh server anyway.
+// the caller's next step is birthing a fresh server anyway. The pre-kill
+// sibling probe against the dead socket reports no rk-code-server session, so
+// no port wait runs.
 func TestKillServer_DeadSocketIsSuccess(t *testing.T) {
 	if !hasTmux() {
 		t.Skip("tmux not available")
 	}
 	socket := testSocketName("killsrv-dead")
 	withServerSocket(t, socket)
+	probes := stubCodeServerPortBusy(t, func(int) bool { return true })
 
 	if err := KillServer(); err != nil {
 		t.Errorf("KillServer on dead socket = %v, want nil", err)
+	}
+	if *probes != 0 {
+		t.Errorf("port probes = %d, want 0 — a dead server has no dying sibling to wait for", *probes)
 	}
 }
 
@@ -998,5 +1005,60 @@ func TestKillServer_KillsLiveServerAndSiblings(t *testing.T) {
 	// Idempotent re-run against the now-dead server.
 	if err := KillServer(); err != nil {
 		t.Errorf("KillServer re-run after kill = %v, want nil", err)
+	}
+}
+
+// TestKillServer_WaitsForCodeServerPortWhenSiblingExisted pins the
+// release-synchronous half of the --full contract: when an rk-code-server
+// sibling existed pre-kill, KillServer returns only after the code-server port
+// stops accepting connections — a Start() composed right after can no longer
+// misclassify the dying instance as externally managed (the --full bug).
+func TestKillServer_WaitsForCodeServerPortWhenSiblingExisted(t *testing.T) {
+	if !hasTmux() {
+		t.Skip("tmux not available")
+	}
+	socket := testSocketName("killsrv-wait")
+	withServerSocket(t, socket)
+	_ = exec.Command("tmux", "-L", socket, "kill-server").Run()
+	t.Cleanup(func() { _ = exec.Command("tmux", "-L", socket, "kill-server").Run() })
+	if err := exec.Command("tmux", "-L", socket, "new-session", "-d", "-s", SessionName, "sleep", "300").Run(); err != nil {
+		t.Fatalf("creating session: %v", err)
+	}
+
+	_, _, _ = withCodeServerSeams(t, true) // the sibling existed pre-kill
+	probes := stubCodeServerPortBusy(t, func(p int) bool { return p <= 2 })
+
+	if err := KillServer(); err != nil {
+		t.Fatalf("KillServer: %v", err)
+	}
+	if *probes != 3 {
+		t.Errorf("port probes = %d, want 3 (busy, busy, free) — the kill must wait out the dying sibling", *probes)
+	}
+}
+
+// TestKillServer_NoWaitWhenSiblingNeverExisted pins the conditionality: with
+// no rk-code-server session pre-kill, a busy code-server port belongs to a
+// genuinely externally managed instance that will not release it — probing it
+// would burn the full wait budget on every --full restart for those users.
+func TestKillServer_NoWaitWhenSiblingNeverExisted(t *testing.T) {
+	if !hasTmux() {
+		t.Skip("tmux not available")
+	}
+	socket := testSocketName("killsrv-nowait")
+	withServerSocket(t, socket)
+	_ = exec.Command("tmux", "-L", socket, "kill-server").Run()
+	t.Cleanup(func() { _ = exec.Command("tmux", "-L", socket, "kill-server").Run() })
+	if err := exec.Command("tmux", "-L", socket, "new-session", "-d", "-s", SessionName, "sleep", "300").Run(); err != nil {
+		t.Fatalf("creating session: %v", err)
+	}
+
+	_, _, _ = withCodeServerSeams(t, false) // no sibling — externally managed port stays untouched
+	probes := stubCodeServerPortBusy(t, func(int) bool { return true })
+
+	if err := KillServer(); err != nil {
+		t.Fatalf("KillServer: %v", err)
+	}
+	if *probes != 0 {
+		t.Errorf("port probes = %d, want 0 — no sibling died, so no release to wait for", *probes)
 	}
 }

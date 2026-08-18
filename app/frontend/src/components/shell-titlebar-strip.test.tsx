@@ -817,6 +817,23 @@ describe("ShellTitlebarStrip host menu — Disconnect + inline rename", () => {
     expect(restored[0].textContent).toContain("studio-mac");
   });
 
+  it("closing the menu cancels an in-flight edit — the row is whole again on reopen", async () => {
+    // Regression: an outside-click close unmounts the rename input without a
+    // blur, and a surviving editingId re-rendered that row as a stuck,
+    // unfocused edit input on the next open (no icons, no switch-on-click).
+    const bridge = await renderFull();
+    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Rename" })[0]);
+    expect(screen.getByRole("textbox", { name: "Rename studio-mac" })).toBeInTheDocument();
+    fireEvent.mouseDown(document.body); // outside close while editing
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("menuitemradio")).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: "Rename" })).toHaveLength(2);
+    expect(bridge.rename).not.toHaveBeenCalled(); // close = cancel, never commit
+  });
+
   it("an empty or unchanged commit performs no invoke", async () => {
     const bridge = await renderFull();
     fireEvent.click(screen.getByRole("button", { name: "Switch host" }));

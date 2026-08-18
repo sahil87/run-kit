@@ -262,6 +262,15 @@ export function ShellTitlebarStrip() {
     setEditingId(null);
   }, []);
 
+  // Closing the menu cancels an in-flight edit. Every close path except the
+  // input's own blur (outside click, Escape from a row, close-on-empty,
+  // selecting a host) unmounts the input WITHOUT a blur event, so without
+  // this reset the stale `editingId` re-renders that row as an unfocused
+  // edit input on the next open — a row with no icons and no switch-on-click.
+  useEffect(() => {
+    if (!open) setEditingId(null);
+  }, [open]);
+
   // Shared move commit (⌥↑/⌥↓ per keypress): the local list reorders
   // OPTIMISTICALLY so the accelerator hints re-number immediately, and the
   // roving-tabindex seat follows the moved row (DOM focus follows on its

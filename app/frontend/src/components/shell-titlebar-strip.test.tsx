@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
-import { act, render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
+import { act, render, screen, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { ShellTitlebarStrip } from "./shell-titlebar-strip";
 import {
   InstanceAccentValueProvider,
@@ -705,17 +705,39 @@ describe("ShellTitlebarStrip host menu — Disconnect + inline rename", () => {
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   });
 
-  it("Disconnect icon click invokes remove with the row id and refetches (menu stays open)", async () => {
+  it("Disconnect icon click opens the themed confirm; confirming invokes remove and refetches (menu stays open)", async () => {
     const bridge = await renderFull();
     fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
     expect(bridge.list).toHaveBeenCalledTimes(2); // mount + open refetch
     fireEvent.click(screen.getAllByRole("button", { name: "Disconnect" })[1]);
+    // The SPA's own Dialog confirms — no invoke yet.
+    const dialog = screen.getByRole("dialog", { name: "Disconnect host?" });
+    expect(dialog.textContent).toContain("lab");
+    expect(bridge.remove).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Disconnect" }));
     expect(bridge.remove).toHaveBeenCalledTimes(1);
     expect(bridge.remove).toHaveBeenCalledWith("b");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     // Success reconciles via refetch; the menu stays open for background rows.
     await waitFor(() => expect(bridge.list).toHaveBeenCalledTimes(3));
     expect(screen.getByRole("menu")).toBeInTheDocument();
     expect(bridge.switch).not.toHaveBeenCalled();
+  });
+
+  it("cancelling the disconnect confirm invokes nothing and keeps the menu open", async () => {
+    const bridge = await renderFull();
+    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Disconnect" })[0]);
+    const dialog = screen.getByRole("dialog", { name: "Disconnect host?" });
+    // The focus trap seats on Cancel — the Cancel-default contract.
+    await waitFor(() =>
+      expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "Cancel" })),
+    );
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(bridge.remove).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    expect(screen.getAllByRole("menuitemradio")).toHaveLength(2);
   });
 
   it("a failed disconnect surfaces the toast and refetches", async () => {
@@ -723,27 +745,47 @@ describe("ShellTitlebarStrip host menu — Disconnect + inline rename", () => {
     bridge.remove.mockResolvedValue({ ok: false });
     fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
     fireEvent.click(screen.getAllByRole("button", { name: "Disconnect" })[0]);
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", { name: "Disconnect" }),
+    );
     await waitFor(() => {
       expect(screen.getByText("Shell host disconnect failed")).toBeInTheDocument();
     });
     await waitFor(() => expect(bridge.list).toHaveBeenCalledTimes(3));
   });
 
-  it("Delete/Backspace on a focused host row disconnects it; the footer is not bound", async () => {
+  it("Delete/Backspace on a focused host row opens its disconnect confirm; the footer is not bound", async () => {
     const bridge = await renderFull();
     fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
     const rows = screen.getAllByRole("menuitemradio");
     await waitFor(() => expect(document.activeElement).toBe(rows[0]));
     expect(fireEvent.keyDown(document, { key: "Backspace" })).toBe(false); // swallowed
+    const dialog = screen.getByRole("dialog", { name: "Disconnect host?" });
+    expect(dialog.textContent).toContain("studio-mac");
+    // While the dialog is up, menu keys suspend — Delete retargets nothing.
+    fireEvent.keyDown(document, { key: "Delete" });
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    expect(bridge.remove).not.toHaveBeenCalled();
+    // Cancel invokes nothing and restores focus to the target's row (the
+    // Delete → Escape round-trip lands back where it started).
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getAllByRole("menuitemradio")[0]),
+    );
+    expect(bridge.remove).not.toHaveBeenCalled();
+    // Confirming the re-opened dialog invokes exactly once with the row id.
+    fireEvent.keyDown(document, { key: "Delete" });
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", { name: "Disconnect" }),
+    );
     expect(bridge.remove).toHaveBeenCalledTimes(1);
     expect(bridge.remove).toHaveBeenCalledWith("a");
-    expect(fireEvent.keyDown(document, { key: "Delete" })).toBe(false);
-    expect(bridge.remove).toHaveBeenCalledTimes(2);
     // Wrap up to the Add-Host footer: Delete there falls through, no invoke.
     fireEvent.keyDown(document, { key: "ArrowUp" });
     expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "Add Host…" }));
     expect(fireEvent.keyDown(document, { key: "Delete" })).toBe(true);
-    expect(bridge.remove).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(bridge.remove).toHaveBeenCalledTimes(1);
   });
 
   it("F2 on a focused row enters inline rename (input prefilled, focused, replaces the row button)", async () => {
@@ -912,6 +954,9 @@ describe("ShellTitlebarStrip host menu — Disconnect + inline rename", () => {
     fireEvent.keyDown(document, { key: "ArrowDown" }); // seat on row 1 (out of bounds post-shrink)
     expect(document.activeElement).toBe(rows[1]);
     fireEvent.click(screen.getAllByRole("button", { name: "Disconnect" })[0]);
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", { name: "Disconnect" }),
+    );
     expect(remove).toHaveBeenCalledWith("a");
     await waitFor(() => expect(screen.getAllByRole("menuitemradio")).toHaveLength(1));
     // The seat clamps onto the surviving row and focus follows.
@@ -941,6 +986,9 @@ describe("ShellTitlebarStrip host menu — Disconnect + inline rename", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
     fireEvent.click(screen.getAllByRole("button", { name: "Disconnect" })[0]);
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", { name: "Disconnect" }),
+    );
     // The emptied list downgrades the strip to the static label (close-on-empty).
     await waitFor(() => {
       expect(screen.queryByRole("menu")).not.toBeInTheDocument();

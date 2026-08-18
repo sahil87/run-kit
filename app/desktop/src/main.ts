@@ -591,13 +591,32 @@ function rebuildMenu(): void {
   );
 }
 
-async function confirmAndRemoveHost(id: string): Promise<void> {
+/**
+ * The removal tail shared by both confirmed paths: store removal, view
+ * teardown, menu rebuild, and the active-host fallback. Confirmation is the
+ * caller's job — the native menu confirms with the OS dialog below, and the
+ * SPA dropdown confirms with its own themed dialog before invoking
+ * `servers:remove`. An unknown id is the store's no-op convention.
+ */
+function removeHostEverywhere(id: string): void {
   const win = mainWindow;
   if (!win) return;
   const list = loadHosts(userDataDir());
   const entry = list.hosts.find((h) => h.id === id);
   if (!entry) return;
   const wasActive = resolveActiveHost(list)?.id === id;
+  removeHost(userDataDir(), id);
+  destroyHostView(id); // the view dies with its host entry
+  rebuildMenu();
+  if (wasActive) showActive(win); // first remaining host, or welcome
+}
+
+async function confirmAndRemoveHost(id: string): Promise<void> {
+  const win = mainWindow;
+  if (!win) return;
+  const list = loadHosts(userDataDir());
+  const entry = list.hosts.find((h) => h.id === id);
+  if (!entry) return;
 
   const { response } = await dialog.showMessageBox(win, {
     type: "warning",
@@ -609,10 +628,7 @@ async function confirmAndRemoveHost(id: string): Promise<void> {
   });
   if (response !== 0) return;
 
-  removeHost(userDataDir(), id);
-  destroyHostView(id); // the view dies with its host entry
-  rebuildMenu();
-  if (wasActive) showActive(win); // first remaining host, or welcome
+  removeHostEverywhere(id);
 }
 
 // ─── Health ping (main process — renderer stays sandboxed) ────────────────
@@ -1265,16 +1281,18 @@ function registerIpcHandlers(): void {
     return { ok: true };
   });
 
-  // servers:remove — the SPA dropdown's per-row Disconnect. Adds no removal
-  // logic: it routes into the ONE confirmAndRemoveHost path the native
-  // Hosts → Remove item calls (Cancel-default confirm dialog, store removal,
-  // view destruction, menu rebuild, active-host fallback). User-cancel and an
-  // unknown id (the store's no-op convention) both resolve ok — cancel is a
-  // successful no-op, matching the reorder handler.
-  ipcMain.handle("servers:remove", async (event, id: unknown): Promise<IpcResult> => {
+  // servers:remove — the SPA dropdown's per-row Disconnect, ALREADY CONFIRMED
+  // renderer-side: the SPA shows its own themed confirm dialog before
+  // invoking, so this channel is the confirmed action and shows no native
+  // dialog (two dialogs for one intent is the failure mode). It shares the
+  // one removal tail (`removeHostEverywhere`) with the native Hosts → Remove
+  // item, which keeps its native dialog — no SPA page draws for the menu. An
+  // unknown id (the store's no-op convention) still resolves ok, matching the
+  // reorder handler.
+  ipcMain.handle("servers:remove", (event, id: unknown): IpcResult => {
     if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
     if (typeof id !== "string") return { ok: false, error: "Invalid request" };
-    await confirmAndRemoveHost(id);
+    removeHostEverywhere(id);
     return { ok: true };
   });
 

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useInstanceAccent } from "@/contexts/instance-accent-context";
 import { useTheme } from "@/contexts/theme-context";
+import { Dialog } from "@/components/dialog";
 import { Tip } from "@/components/tip";
 import { useToast } from "@/components/toast";
 import {
@@ -76,9 +77,9 @@ import type { ShellHostMenuRow } from "@/lib/shell-strip";
  * exactly the plain marker/name/origin/hint rows.
  *
  * Two further capability-gated row affordances join the grip in a trailing
- * hover/focus-revealed cluster: Disconnect (routes into the shell's ONE
- * removal path — the native Cancel-default confirm dialog is the only
- * confirmation; the SPA adds none) and an inline rename (Enter/blur commits,
+ * hover/focus-revealed cluster: Disconnect (confirmed by the SPA's own themed
+ * Dialog — the KillDialog pattern — then invoking the shell's confirmed
+ * removal; the shell shows no dialog on this path) and an inline rename (Enter/blur commits,
  * Escape cancels — the window-heading precedent; an empty/unchanged commit
  * is a cancel, no dialog anywhere). Delete/Backspace and F2 reach both from
  * the focused row (Constitution V), and while the rename input holds focus
@@ -211,9 +212,13 @@ export function ShellTitlebarStrip() {
     [addToast, fetchServers],
   );
 
-  // Disconnect routes into the shell's ONE removal path — the native
-  // Cancel-default confirm dialog is the only confirmation (the SPA adds
-  // none). The list refetches to reconcile either way; a failure toasts.
+  // Disconnect confirms in the SPA's own themed Dialog (the KillDialog
+  // pattern — Cancel first so the focus trap lands on it, destructive red
+  // confirm), then invokes the shell's confirmed removal. The shell shows no
+  // dialog of its own on this path; the native Hosts → Remove menu item keeps
+  // its native dialog because no SPA page draws for it.
+  const [confirmTarget, setConfirmTarget] = useState<ShellHostMenuRow | null>(null);
+
   const disconnectHost = useCallback(
     (id: string) => {
       void removeShellHost(id).then((ok) => {
@@ -223,6 +228,22 @@ export function ShellTitlebarStrip() {
     },
     [addToast, fetchServers],
   );
+
+  const confirmDisconnect = useCallback(() => {
+    const target = confirmTarget;
+    setConfirmTarget(null);
+    if (target) disconnectHost(target.id);
+  }, [confirmTarget, disconnectHost]);
+
+  // Cancel restores focus to the target's row (still present) so the
+  // keyboard flow Delete → Escape lands back where it started.
+  const cancelDisconnect = useCallback(() => {
+    const target = confirmTarget;
+    setConfirmTarget(null);
+    if (!target) return;
+    const idx = rowsRef.current.findIndex((r) => r.id === target.id);
+    if (idx >= 0) requestAnimationFrame(() => itemRefs.current[idx]?.focus());
+  }, [confirmTarget]);
 
   const startRename = useCallback((row: ShellHostMenuRow) => {
     keyHandledRef.current = false;
@@ -267,8 +288,12 @@ export function ShellTitlebarStrip() {
   // selecting a host) unmounts the input WITHOUT a blur event, so without
   // this reset the stale `editingId` re-renders that row as an unfocused
   // edit input on the next open — a row with no icons and no switch-on-click.
+  // The disconnect confirm dialog is menu-scoped state too and resets with it.
   useEffect(() => {
-    if (!open) setEditingId(null);
+    if (!open) {
+      setEditingId(null);
+      setConfirmTarget(null);
+    }
   }, [open]);
 
   // Shared move commit (⌥↑/⌥↓ per keypress): the local list reorders
@@ -372,6 +397,7 @@ export function ShellTitlebarStrip() {
   // reorder capability, ⌥↑/⌥↓ instead MOVES the focused host row. Enter
   // needs no handler — the focused row is a native <button>. Delete/Backspace
   // disconnects the focused row and F2 enters its inline rename.
+  const confirmOpen = confirmTarget !== null;
   useEffect(() => {
     if (!open) return;
     function handleKey(e: KeyboardEvent) {
@@ -379,6 +405,9 @@ export function ShellTitlebarStrip() {
       // owns no keys — the input's own handlers run (Escape exits only the
       // edit, Enter commits, arrows/Delete/Backspace edit text).
       if (e.target instanceof HTMLInputElement) return;
+      // Dialog suspension: while the disconnect confirm is up, its focus trap
+      // owns every key (Escape cancels the dialog, not the menu).
+      if (confirmOpen) return;
       if (e.key === "Escape") {
         e.stopPropagation();
         setOpen(false);
@@ -386,16 +415,16 @@ export function ShellTitlebarStrip() {
         return;
       }
       if (e.key === "Delete" || e.key === "Backspace") {
-        // Disconnect the focused host row — the shell's native confirm dialog
-        // is the accident guard. The Add-Host footer is not bound, and an
-        // older shell without the capability falls through untouched.
+        // Open the disconnect confirm for the focused host row — the SPA's
+        // themed dialog is the accident guard. The Add-Host footer is not
+        // bound, and an older shell without the capability falls through.
         if (!canRemove) return;
         const idx = itemRefs.current.findIndex((el) => el === document.activeElement);
         if (idx < 0 || idx >= hostCountRef.current) return;
         e.preventDefault();
         e.stopPropagation();
         const row = rowsRef.current[idx];
-        if (row) disconnectHost(row.id);
+        if (row) setConfirmTarget(row);
         return;
       }
       if (e.key === "F2") {
@@ -455,7 +484,7 @@ export function ShellTitlebarStrip() {
     }
     document.addEventListener("keydown", handleKey, { capture: true });
     return () => document.removeEventListener("keydown", handleKey, { capture: true });
-  }, [open, rows.length, canAdd, canReorder, canRemove, canRename, moveHostRow, disconnectHost, startRename]);
+  }, [open, rows.length, canAdd, canReorder, canRemove, canRename, confirmOpen, moveHostRow, startRename]);
 
   // Focus lands on the active row on open.
   useEffect(() => {
@@ -724,7 +753,7 @@ export function ShellTitlebarStrip() {
                                 type="button"
                                 aria-label="Disconnect"
                                 tabIndex={-1}
-                                onClick={() => disconnectHost(row.id)}
+                                onClick={() => setConfirmTarget(row)}
                                 className="flex h-5 w-5 items-center justify-center rounded text-text-secondary transition-colors hover:bg-bg-card hover:text-text-primary"
                               >
                                 <svg
@@ -785,6 +814,35 @@ export function ShellTitlebarStrip() {
                 </button>
               )}
             </div>
+          )}
+          {/* Disconnect confirm — the shared themed Dialog (the KillDialog
+              pattern: Cancel first so the focus trap seats on it, destructive
+              red confirm). Rendered inside the container so its backdrop
+              mousedown never trips the menu's outside-click close; the menu
+              stays open behind it. */}
+          {confirmTarget !== null && (
+            <Dialog title="Disconnect host?" onClose={cancelDisconnect}>
+              <p className="text-sm text-text-secondary mb-3">
+                Disconnect <strong>{confirmTarget.name}</strong>?
+                <span className="mt-1 block truncate text-xs opacity-60">
+                  {confirmTarget.origin}
+                </span>
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={cancelDisconnect}
+                  className="flex-1 text-sm py-1.5 border border-border rounded hover:border-text-secondary"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmDisconnect}
+                  className="flex-1 text-sm py-1.5 bg-red-900/30 border border-red-900 rounded hover:bg-red-900/50"
+                >
+                  Disconnect
+                </button>
+              </div>
+            </Dialog>
           )}
         </div>
       ) : (

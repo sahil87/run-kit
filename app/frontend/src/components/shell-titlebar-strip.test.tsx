@@ -57,6 +57,7 @@ function shellBridge(
   withReorder = false,
   withRemove = false,
   withRename = false,
+  withRemoveConfirmed = withRemove,
 ) {
   const list = vi.fn(() =>
     servers === null
@@ -67,6 +68,7 @@ function shellBridge(
   const add = vi.fn(() => Promise.resolve({ ok: true }));
   const reorder = vi.fn(() => Promise.resolve({ ok: true }));
   const remove = vi.fn(() => Promise.resolve({ ok: true }));
+  const removeConfirmed = vi.fn(() => Promise.resolve({ ok: true }));
   const rename = vi.fn(() => Promise.resolve({ ok: true }));
   window.runkitShell = {
     version: "1.2.3",
@@ -77,10 +79,11 @@ function shellBridge(
       ...(withAdd ? { add } : {}),
       ...(withReorder ? { reorder } : {}),
       ...(withRemove ? { remove } : {}),
+      ...(withRemoveConfirmed ? { removeConfirmed } : {}),
       ...(withRename ? { rename } : {}),
     },
   };
-  return { list, switch: switchFn, add, reorder, remove, rename };
+  return { list, switch: switchFn, add, reorder, remove, removeConfirmed, rename };
 }
 
 function renderStrip(accent: InstanceAccent = accentValue()) {
@@ -109,8 +112,17 @@ async function renderInteractive(
   withReorder = false,
   withRemove = false,
   withRename = false,
+  withRemoveConfirmed = withRemove,
 ) {
-  const bridge = shellBridge(list, platform, withAdd, withReorder, withRemove, withRename);
+  const bridge = shellBridge(
+    list,
+    platform,
+    withAdd,
+    withReorder,
+    withRemove,
+    withRename,
+    withRemoveConfirmed,
+  );
   renderStrip();
   await waitFor(() => {
     expect(screen.getByRole("button", { name: "Switch host" })).toBeInTheDocument();
@@ -713,10 +725,11 @@ describe("ShellTitlebarStrip host menu — Disconnect + inline rename", () => {
     // The SPA's own Dialog confirms — no invoke yet.
     const dialog = screen.getByRole("dialog", { name: "Disconnect host?" });
     expect(dialog.textContent).toContain("lab");
-    expect(bridge.remove).not.toHaveBeenCalled();
+    expect(bridge.removeConfirmed).not.toHaveBeenCalled();
     fireEvent.click(within(dialog).getByRole("button", { name: "Disconnect" }));
-    expect(bridge.remove).toHaveBeenCalledTimes(1);
-    expect(bridge.remove).toHaveBeenCalledWith("b");
+    expect(bridge.removeConfirmed).toHaveBeenCalledTimes(1);
+    expect(bridge.removeConfirmed).toHaveBeenCalledWith("b");
+    expect(bridge.remove).not.toHaveBeenCalled();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     // Success reconciles via refetch; the menu stays open for background rows.
     await waitFor(() => expect(bridge.list).toHaveBeenCalledTimes(3));
@@ -734,15 +747,35 @@ describe("ShellTitlebarStrip host menu — Disconnect + inline rename", () => {
       expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "Cancel" })),
     );
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
-    expect(bridge.remove).not.toHaveBeenCalled();
+    expect(bridge.removeConfirmed).not.toHaveBeenCalled();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(screen.getByRole("menu")).toBeInTheDocument();
     expect(screen.getAllByRole("menuitemradio")).toHaveLength(2);
   });
 
+  it("falls back to the native-confirm channel on a shell without removeConfirmed (no SPA dialog)", async () => {
+    // servers:remove shipped with shell-side confirmation (v3.17.11) — a
+    // shell predating removeConfirmed must keep that as the ONE dialog, so
+    // the SPA invokes it directly and draws nothing itself.
+    const bridge = await renderInteractive(hosts, "darwin", false, false, true, false, false);
+    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Disconnect" })[1]);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(bridge.remove).toHaveBeenCalledTimes(1);
+    expect(bridge.remove).toHaveBeenCalledWith("b");
+    expect(bridge.removeConfirmed).not.toHaveBeenCalled();
+    // Delete on a focused row takes the same fallback.
+    const rows = screen.getAllByRole("menuitemradio");
+    rows[0].focus();
+    expect(fireEvent.keyDown(document, { key: "Delete" })).toBe(false);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(bridge.remove).toHaveBeenCalledTimes(2);
+    expect(bridge.remove).toHaveBeenLastCalledWith("a");
+  });
+
   it("a failed disconnect surfaces the toast and refetches", async () => {
     const bridge = await renderFull();
-    bridge.remove.mockResolvedValue({ ok: false });
+    bridge.removeConfirmed.mockResolvedValue({ ok: false });
     fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
     fireEvent.click(screen.getAllByRole("button", { name: "Disconnect" })[0]);
     fireEvent.click(
@@ -765,27 +798,27 @@ describe("ShellTitlebarStrip host menu — Disconnect + inline rename", () => {
     // While the dialog is up, menu keys suspend — Delete retargets nothing.
     fireEvent.keyDown(document, { key: "Delete" });
     expect(screen.getAllByRole("dialog")).toHaveLength(1);
-    expect(bridge.remove).not.toHaveBeenCalled();
+    expect(bridge.removeConfirmed).not.toHaveBeenCalled();
     // Cancel invokes nothing and restores focus to the target's row (the
     // Delete → Escape round-trip lands back where it started).
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
     await waitFor(() =>
       expect(document.activeElement).toBe(screen.getAllByRole("menuitemradio")[0]),
     );
-    expect(bridge.remove).not.toHaveBeenCalled();
+    expect(bridge.removeConfirmed).not.toHaveBeenCalled();
     // Confirming the re-opened dialog invokes exactly once with the row id.
     fireEvent.keyDown(document, { key: "Delete" });
     fireEvent.click(
       within(screen.getByRole("dialog")).getByRole("button", { name: "Disconnect" }),
     );
-    expect(bridge.remove).toHaveBeenCalledTimes(1);
-    expect(bridge.remove).toHaveBeenCalledWith("a");
+    expect(bridge.removeConfirmed).toHaveBeenCalledTimes(1);
+    expect(bridge.removeConfirmed).toHaveBeenCalledWith("a");
     // Wrap up to the Add-Host footer: Delete there falls through, no invoke.
     fireEvent.keyDown(document, { key: "ArrowUp" });
     expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "Add Host…" }));
     expect(fireEvent.keyDown(document, { key: "Delete" })).toBe(true);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(bridge.remove).toHaveBeenCalledTimes(1);
+    expect(bridge.removeConfirmed).toHaveBeenCalledTimes(1);
   });
 
   it("F2 on a focused row enters inline rename (input prefilled, focused, replaces the row button)", async () => {
@@ -942,7 +975,7 @@ describe("ShellTitlebarStrip host menu — Disconnect + inline rename", () => {
     window.runkitShell = {
       version: "1.2.3",
       platform: "darwin",
-      servers: { list, switch: vi.fn(() => Promise.resolve({ ok: true })), remove },
+      servers: { list, switch: vi.fn(() => Promise.resolve({ ok: true })), removeConfirmed: remove },
     };
     renderStrip();
     await waitFor(() => {
@@ -978,7 +1011,7 @@ describe("ShellTitlebarStrip host menu — Disconnect + inline rename", () => {
     window.runkitShell = {
       version: "1.2.3",
       platform: "darwin",
-      servers: { list, switch: vi.fn(() => Promise.resolve({ ok: true })), remove },
+      servers: { list, switch: vi.fn(() => Promise.resolve({ ok: true })), removeConfirmed: remove },
     };
     renderStrip();
     await waitFor(() => {

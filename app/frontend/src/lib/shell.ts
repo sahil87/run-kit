@@ -278,6 +278,57 @@ export async function removeShellHost(id: string): Promise<boolean> {
   );
 }
 
+/** A `servers` group that also carries the optional `removeConfirmed` invoker
+ *  (shells newer than the SPA-drawn disconnect confirm). */
+interface ShellServersRemoveConfirmedBridge extends ShellServersBridge {
+  removeConfirmed: (id: string) => Promise<unknown>;
+}
+
+/**
+ * `removeConfirmed` is additive on top of `remove`: `servers:remove` shipped
+ * with shell-side native confirmation and its meaning is frozen, so the
+ * already-confirmed variant is a separate invoker. The SPA confirms with its
+ * own themed dialog only when this one is present, and falls back to the
+ * native-confirm `remove` path on shells that predate it — both skew
+ * directions keep exactly one confirmation.
+ */
+function isServersRemoveConfirmedBridge(
+  bridge: ShellServersBridge,
+): bridge is ShellServersRemoveConfirmedBridge {
+  return (
+    "removeConfirmed" in bridge &&
+    typeof Reflect.get(bridge, "removeConfirmed") === "function"
+  );
+}
+
+/** True when the shell accepts an already-confirmed disconnect
+ *  (`servers.removeConfirmed` present) — the gate for the SPA's own dialog. */
+export function canConfirmedRemoveShellHost(): boolean {
+  const bridge = serversBridge();
+  return bridge !== null && isServersRemoveConfirmedBridge(bridge);
+}
+
+/**
+ * Disconnect a registered host the SPA has ALREADY confirmed (its themed
+ * dialog) — the shell shows no dialog and removes immediately. Resolves
+ * `false` in a plain browser, on a shell whose `servers` group lacks the
+ * `removeConfirmed` invoker, or when the shell rejects/denies the call.
+ * Never throws.
+ */
+export async function confirmedRemoveShellHost(id: string): Promise<boolean> {
+  const bridge = serversBridge();
+  if (!bridge || !isServersRemoveConfirmedBridge(bridge)) return false;
+  let result: unknown;
+  try {
+    result = await bridge.removeConfirmed(id);
+  } catch {
+    return false;
+  }
+  return (
+    typeof result === "object" && result !== null && "ok" in result && result.ok === true
+  );
+}
+
 /**
  * The `rename` invoker is additive to the `servers` group (shells older than
  * the host-switcher's inline row rename lack it), so it is narrowed

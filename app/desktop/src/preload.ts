@@ -55,6 +55,8 @@ contextBridge.exposeInMainWorld("runkitShell", {
     reorder: (id: string, toIndex: number): Promise<unknown> =>
       ipcRenderer.invoke("servers:reorder", { id, toIndex }),
     remove: (id: string): Promise<unknown> => ipcRenderer.invoke("servers:remove", id),
+    removeConfirmed: (id: string): Promise<unknown> =>
+      ipcRenderer.invoke("servers:remove-confirmed", id),
     rename: (id: string, name: string): Promise<unknown> =>
       ipcRenderer.invoke("servers:rename", { id, name }),
   },

@@ -1281,15 +1281,27 @@ function registerIpcHandlers(): void {
     return { ok: true };
   });
 
-  // servers:remove — the SPA dropdown's per-row Disconnect, ALREADY CONFIRMED
-  // renderer-side: the SPA shows its own themed confirm dialog before
-  // invoking, so this channel is the confirmed action and shows no native
-  // dialog (two dialogs for one intent is the failure mode). It shares the
-  // one removal tail (`removeHostEverywhere`) with the native Hosts → Remove
-  // item, which keeps its native dialog — no SPA page draws for the menu. An
-  // unknown id (the store's no-op convention) still resolves ok, matching the
-  // reorder handler.
-  ipcMain.handle("servers:remove", (event, id: unknown): IpcResult => {
+  // servers:remove — the SPA dropdown's per-row Disconnect with the SHELL
+  // confirming: the semantics this channel SHIPPED with (v3.17.11), frozen —
+  // it routes into the confirmAndRemoveHost path the native Hosts → Remove
+  // item calls (Cancel-default native dialog, then the shared removal tail).
+  // A v3.17.11-era page invokes it with no dialog of its own, so the native
+  // dialog here is that page's ONLY confirmation. User-cancel and an unknown
+  // id both resolve ok — cancel is a successful no-op, matching reorder.
+  ipcMain.handle("servers:remove", async (event, id: unknown): Promise<IpcResult> => {
+    if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
+    if (typeof id !== "string") return { ok: false, error: "Invalid request" };
+    await confirmAndRemoveHost(id);
+    return { ok: true };
+  });
+
+  // servers:remove-confirmed — the ADDITIVE already-confirmed variant for
+  // newer SPAs that confirm with their own themed dialog before invoking
+  // (exactly one dialog per intent): no native dialog, straight into the
+  // shared removal tail. Changing servers:remove's meaning instead would
+  // strip a released page of its only confirmation — the two-sided skew
+  // contract is why this is a new channel, not new semantics.
+  ipcMain.handle("servers:remove-confirmed", (event, id: unknown): IpcResult => {
     if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
     if (typeof id !== "string") return { ok: false, error: "Invalid request" };
     removeHostEverywhere(id);

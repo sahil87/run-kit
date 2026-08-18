@@ -2,11 +2,13 @@ import { describe, it, expect, afterEach } from "vitest";
 import {
   addShellHost,
   canAddShellHost,
+  canConfirmedRemoveShellHost,
   canRemoveShellHost,
   canRenameShellHost,
   canReorderShellHosts,
   isShell,
   listShellServers,
+  confirmedRemoveShellHost,
   removeShellHost,
   renameShellHost,
   reorderShellHosts,
@@ -465,6 +467,62 @@ describe("canRemoveShellHost / removeShellHost", () => {
       remove: () => Promise.reject(new Error("ipc gone")),
     });
     expect(await removeShellHost("a")).toBe(false);
+  });
+});
+
+describe("canConfirmedRemoveShellHost / confirmedRemoveShellHost", () => {
+  it("resolves true on an { ok: true } ack when the group carries removeConfirmed", async () => {
+    let seen: string | null = null;
+    bridgeWith({
+      list: () => Promise.resolve({ ok: true, servers: [] }),
+      switch: () => Promise.resolve({ ok: true }),
+      removeConfirmed: (id: string) => {
+        seen = id;
+        return Promise.resolve({ ok: true });
+      },
+    });
+    expect(canConfirmedRemoveShellHost()).toBe(true);
+    expect(await confirmedRemoveShellHost("b")).toBe(true);
+    expect(seen).toBe("b");
+  });
+
+  it("is independent of remove: a shell carrying only remove reads as unavailable", async () => {
+    // servers:remove shipped with shell-side confirmation, so its presence
+    // must NOT enable the SPA-dialog path — that is the skew guard.
+    bridgeWith({
+      list: () => Promise.resolve({ ok: true, servers: [] }),
+      switch: () => Promise.resolve({ ok: true }),
+      remove: () => Promise.resolve({ ok: true }),
+    });
+    expect(canConfirmedRemoveShellHost()).toBe(false);
+    expect(await confirmedRemoveShellHost("a")).toBe(false);
+  });
+
+  it("reads as unavailable in a plain browser and when removeConfirmed is not a function", async () => {
+    expect(canConfirmedRemoveShellHost()).toBe(false);
+    expect(await confirmedRemoveShellHost("a")).toBe(false);
+    bridgeWith({
+      list: () => Promise.resolve({ ok: true, servers: [] }),
+      switch: () => Promise.resolve({ ok: true }),
+      removeConfirmed: "servers:remove-confirmed",
+    });
+    expect(canConfirmedRemoveShellHost()).toBe(false);
+    expect(await confirmedRemoveShellHost("a")).toBe(false);
+  });
+
+  it("resolves false on a denied result and on a rejected invoke", async () => {
+    bridgeWith({
+      list: () => Promise.resolve({ ok: true, servers: [] }),
+      switch: () => Promise.resolve({ ok: true }),
+      removeConfirmed: () => Promise.resolve({ ok: false, error: "Not allowed" }),
+    });
+    expect(await confirmedRemoveShellHost("a")).toBe(false);
+    bridgeWith({
+      list: () => Promise.resolve({ ok: true, servers: [] }),
+      switch: () => Promise.resolve({ ok: true }),
+      removeConfirmed: () => Promise.reject(new Error("ipc gone")),
+    });
+    expect(await confirmedRemoveShellHost("a")).toBe(false);
   });
 });
 

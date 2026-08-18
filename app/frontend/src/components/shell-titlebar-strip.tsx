@@ -7,9 +7,11 @@ import { useToast } from "@/components/toast";
 import {
   addShellHost,
   canAddShellHost,
+  canConfirmedRemoveShellHost,
   canRemoveShellHost,
   canRenameShellHost,
   canReorderShellHosts,
+  confirmedRemoveShellHost,
   listShellServers,
   removeShellHost,
   renameShellHost,
@@ -154,8 +156,14 @@ export function ShellTitlebarStrip() {
   const canReorder = canReorderShellHosts();
   // Disconnect and inline rename ride their own optional invokers
   // (`servers.remove` / `servers.rename`), gated independently — an older
-  // shell renders rows without the icons or the key bindings.
-  const canRemove = canRemoveShellHost();
+  // shell renders rows without the icons or the key bindings. The additive
+  // `removeConfirmed` invoker decides WHERE disconnect confirms: present →
+  // the SPA's themed dialog then the already-confirmed channel; absent (a
+  // shell predating it) → plain `remove`, whose native dialog confirms.
+  // Either way exactly one dialog guards the action.
+  const canRemoveNative = canRemoveShellHost();
+  const canRemoveConfirmed = canConfirmedRemoveShellHost();
+  const canRemove = canRemoveNative || canRemoveConfirmed;
   const canRename = canRenameShellHost();
   // The trailing reservation must fit every rendered cluster member (icons
   // are hover/focus-revealed but the width is static): grip + up to two
@@ -219,7 +227,9 @@ export function ShellTitlebarStrip() {
   // its native dialog because no SPA page draws for it.
   const [confirmTarget, setConfirmTarget] = useState<ShellHostMenuRow | null>(null);
 
-  const disconnectHost = useCallback(
+  // The native-confirm path (shells without `removeConfirmed`): the shell's
+  // own Cancel-default dialog guards the removal.
+  const disconnectHostNative = useCallback(
     (id: string) => {
       void removeShellHost(id).then((ok) => {
         if (!ok) addToast("Shell host disconnect failed", "error");
@@ -229,11 +239,34 @@ export function ShellTitlebarStrip() {
     [addToast, fetchServers],
   );
 
+  // The SPA-confirmed path: the themed dialog above already confirmed, so
+  // this invokes the already-confirmed channel (no shell dialog).
+  const disconnectHostConfirmed = useCallback(
+    (id: string) => {
+      void confirmedRemoveShellHost(id).then((ok) => {
+        if (!ok) addToast("Shell host disconnect failed", "error");
+        fetchServers();
+      });
+    },
+    [addToast, fetchServers],
+  );
+
+  // One entry point for both trigger surfaces (icon click, Delete/Backspace):
+  // open the themed dialog when the shell accepts confirmed removals, else
+  // hand straight to the native-confirm channel.
+  const requestDisconnect = useCallback(
+    (row: ShellHostMenuRow) => {
+      if (canRemoveConfirmed) setConfirmTarget(row);
+      else disconnectHostNative(row.id);
+    },
+    [canRemoveConfirmed, disconnectHostNative],
+  );
+
   const confirmDisconnect = useCallback(() => {
     const target = confirmTarget;
     setConfirmTarget(null);
-    if (target) disconnectHost(target.id);
-  }, [confirmTarget, disconnectHost]);
+    if (target) disconnectHostConfirmed(target.id);
+  }, [confirmTarget, disconnectHostConfirmed]);
 
   // Cancel restores focus to the target's row (still present) so the
   // keyboard flow Delete → Escape lands back where it started.
@@ -415,16 +448,16 @@ export function ShellTitlebarStrip() {
         return;
       }
       if (e.key === "Delete" || e.key === "Backspace") {
-        // Open the disconnect confirm for the focused host row — the SPA's
-        // themed dialog is the accident guard. The Add-Host footer is not
-        // bound, and an older shell without the capability falls through.
+        // Disconnect the focused host row — the themed dialog (or the native
+        // one on older shells) is the accident guard. The Add-Host footer is
+        // not bound, and a shell without any remove capability falls through.
         if (!canRemove) return;
         const idx = itemRefs.current.findIndex((el) => el === document.activeElement);
         if (idx < 0 || idx >= hostCountRef.current) return;
         e.preventDefault();
         e.stopPropagation();
         const row = rowsRef.current[idx];
-        if (row) setConfirmTarget(row);
+        if (row) requestDisconnect(row);
         return;
       }
       if (e.key === "F2") {
@@ -484,7 +517,7 @@ export function ShellTitlebarStrip() {
     }
     document.addEventListener("keydown", handleKey, { capture: true });
     return () => document.removeEventListener("keydown", handleKey, { capture: true });
-  }, [open, rows.length, canAdd, canReorder, canRemove, canRename, confirmOpen, moveHostRow, startRename]);
+  }, [open, rows.length, canAdd, canReorder, canRemove, canRename, confirmOpen, moveHostRow, requestDisconnect, startRename]);
 
   // Focus lands on the active row on open.
   useEffect(() => {
@@ -753,7 +786,7 @@ export function ShellTitlebarStrip() {
                                 type="button"
                                 aria-label="Disconnect"
                                 tabIndex={-1}
-                                onClick={() => setConfirmTarget(row)}
+                                onClick={() => requestDisconnect(row)}
                                 className="flex h-5 w-5 items-center justify-center rounded text-text-secondary transition-colors hover:bg-bg-card hover:text-text-primary"
                               >
                                 <svg

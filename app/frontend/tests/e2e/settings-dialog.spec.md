@@ -1,17 +1,22 @@
 # settings-dialog.spec.ts
 
 Validates the VS Code-style settings dialog (260723-o7q8; desktop
-preference-pane layout + Notifications row 260724-6j1v): mounted once at
+preference-pane layout + Notifications row 260724-6j1v; TABBED in
+260818-bncw — General / Appearance / Shortcuts on one `role="tablist"`: a
+left rail ≥480px, a horizontal strip under the title below, riding the
+fixed-height `size="xl"` Dialog variant): mounted once at
 `AppLayout` so it opens on every route (server routes AND `/board/$name`,
 which renders no AppShell), triggered from the command palette and the
 top-bar gear, with a visible This-host/This-device persistence-scope
-split, and host-scoped edits persisting through `/api/settings/*`.
+split INSIDE each tab, and host-scoped edits persisting through
+`/api/settings/*`.
 
 Control-level behavior (input commit/cancel semantics, inline errors, theme
-selects, font stepper, accent popover) is exercised deterministically by unit
+selects, font stepper, accent popover, roving-tabindex arrow nav) is
+exercised deterministically by unit
 tests (`settings-dialog.test.tsx`, `settings-dialog-context.test.tsx`,
 `instance-name-context.test.tsx`); these e2e tests focus on the mount-point,
-trigger, and persistence contracts that unit tests can't cover.
+trigger, layout, and persistence contracts that unit tests can't cover.
 
 ## Shared setup
 
@@ -31,55 +36,65 @@ trigger, and persistence contracts that unit tests can't cover.
 
 ## Tests
 
-### `palette opens the dialog on a server route with the This-host/This-device split`
+### `palette opens the dialog on the General tab; the Appearance tab carries the rest (260818-bncw)`
 
 **What it proves:** The "Settings: Open" palette action opens the single
-AppLayout-mounted dialog on a server route, both persistence-scope sections
-render with their controls (instance name, SSH host, accent color, theme
-pair, terminal font), and Escape closes it (keyboard-first contract).
+AppLayout-mounted dialog on a server route ON THE GENERAL TAB (the tab-less
+default), the General tab shows its scope-split controls (instance name, SSH
+host, notifications), clicking the Appearance tab reveals its controls
+(accent color, theme pair, terminal font), and Escape closes the dialog
+(keyboard-first contract).
 
 **Steps:**
 
 1. Navigate to `/rk-test-e2e` and wait for the Connected indicator.
 2. `Meta+K` → type `Settings: Open` → Enter.
-3. Assert the `Settings` dialog is visible.
-4. Assert "This host" and "This device" section labels render.
-5. Assert the Instance name input, SSH host input, `Set instance color`
-   button, Dark theme select, and `Increase terminal font` button render.
+3. Assert the `Settings` dialog is visible with the General tab
+   `aria-selected`.
+4. Assert "This host" and "This device" section labels render, plus the
+   Instance name input, SSH host input, and the `Notifications` label.
+5. Click the Appearance tab; assert the `Set instance color` button, Dark
+   theme select, and `Increase terminal font` button render.
 6. Press Escape; assert the dialog is gone.
 
-### `desktop preference-pane layout with the Notifications row (260724-6j1v)`
+### `tabbed preference-pane layout with the Notifications row (260724-6j1v, 260818-bncw)`
 
-**What it proves:** The dialog uses the wide `lg` Dialog variant (`max-w-2xl`,
-not the phone-card `max-w-sm`); each setting is a preference row — a
-`min-[480px]:grid-cols-[190px_1fr]` grid (label column left, control column
-right); and the Notifications row (moved from the retired top-bar bell) renders
-under This device with its test-send button and setup-guide link. Status text
-varies by browser permission state, so only state-independent contents are
-asserted here (state-by-state behavior is unit-tested).
+**What it proves:** The dialog uses the `xl` Dialog variant (`max-w-4xl` +
+fixed height, not the phone-card `max-w-sm`); the ONE tablist markup renders
+with roving tabindex (the active tab is the list's only Tab stop); each
+setting is a preference row — a `min-[480px]:grid-cols-[190px_1fr]` grid
+(label column left, control column right); and the Notifications row (moved
+from the retired top-bar bell) renders under This device on the General tab
+with its test-send button and setup-guide link. Status text varies by browser
+permission state, so only state-independent contents are asserted here
+(state-by-state behavior is unit-tested).
 
 **Steps:**
 
 1. Navigate to `/rk-test-e2e` and wait for the Connected indicator.
 2. Open the dialog via the palette (`Settings: Open`).
-3. Assert the dialog panel's class carries `max-w-2xl` and not `max-w-sm`.
-4. Resolve the Instance-name input's closest `.grid` ancestor and assert its
+3. Assert the dialog panel's class carries `max-w-4xl` and not `max-w-sm`.
+4. Assert the tablist (`Settings sections`) renders and the General tab has
+   `tabindex="0"` while Appearance has `tabindex="-1"`.
+5. Resolve the Instance-name input's closest `.grid` ancestor and assert its
    class contains `min-[480px]:grid-cols-[190px_1fr]`.
-5. Assert the `Notifications` label, the `Send test notification` button, and
+6. Assert the `Notifications` label, the `Send test notification` button, and
    the `Setup & troubleshooting guide` link (GitHub notifications doc, new
    tab) are visible.
-6. Press Escape; assert the dialog is gone.
+7. Press Escape; assert the dialog is gone.
 
-### `short viewport (375x667): the dialog fits and its last row is reachable by scroll (260724-6j1v)`
+### `short viewport (375x667): the tab strip fits and the tall Shortcuts panel scrolls internally (260724-6j1v, 260818-bncw)`
 
-**What it proves:** On a short viewport the (taller, `lg`) settings dialog
-does not clip off-screen with no scroll path: the panel's border box fits
-entirely inside the viewport, the panel itself is the scroll container
-(`scrollHeight > clientHeight`), and the last row's control (the
-Notifications setup-guide link) is reachable by scrolling within it. Guards
-the rework finding M1 regression class. The `Connected` readiness gate is
-deliberately not used — at a mobile viewport the sidebar (which hosts the
-dot) is an unmounted drawer, so the top-bar chevron is the readiness signal.
+**What it proves:** On a short mobile viewport the fixed-height xl dialog
+does not clip: the panel's border box fits entirely inside the viewport; the
+SAME tablist markup renders as the horizontal strip under the title with all
+three tabs reachable; the page gains no horizontal overflow; and the tall
+Shortcuts tab's PANEL (not the dialog) is the scroll container
+(`scrollHeight > clientHeight` on the tabpanel), with its last element (the
+reset-all footer) reachable by scrolling within it. The `Connected`
+readiness gate is deliberately not used — at a mobile viewport the sidebar
+(which hosts the dot) is an unmounted drawer, so the top-bar chevron is the
+readiness signal.
 
 **Steps:**
 
@@ -87,16 +102,22 @@ dot) is an unmounted drawer, so the top-bar chevron is the readiness signal.
    top-bar `More controls` chevron.
 2. Open the dialog via the palette (`Settings: Open`).
 3. Assert the dialog `boundingBox()` lies fully within `[0,0]–[375,667]`.
-4. Assert `scrollHeight > clientHeight` on the dialog panel (content
-   overflows into a scroll path).
-5. `scrollIntoViewIfNeeded()` the `Setup & troubleshooting guide` link;
-   assert it is visible and its box sits inside the viewport.
+4. Assert all three tabs (General / Appearance / Shortcuts) are visible in
+   the strip, and `document.documentElement` has no horizontal overflow.
+5. Click the Shortcuts tab; assert `settings-shortcuts-panel` is visible and
+   the tabpanel's `scrollHeight > clientHeight`.
+6. `scrollIntoViewIfNeeded()` the `reset all` button; assert it is visible
+   and its box sits inside the viewport.
 
 ### `palette opens the same dialog on /board/$name (no AppShell there)`
 
 **What it proves:** The dialog is reachable on the board route — the whole
 point of the AppLayout mount, since `/board/$name` does not render AppShell
-and mounts its own palette (`boardRouteActions`).
+and mounts its own palette (`boardRouteActions`) — and the BOARD shell's
+`shortcuts-overlay` chord handler resolves the same layout-global entry:
+⇧Ctrl+/ switches the open dialog to the Shortcuts tab and re-firing closes
+it. On the sessionless board route the macro add flow stays gated off and
+the TMUX section renders its "No tmux server running" empty state.
 
 **Steps:**
 
@@ -106,7 +127,11 @@ and mounts its own palette (`boardRouteActions`).
    pane header.
 3. `Meta+K` → type `Settings: Open` → Enter.
 4. Assert the `Settings` dialog is visible with both scope sections.
-5. Finally: `POST /api/boards/<name>/unpin` so the board does not outlive
+5. Press Shift+Ctrl+/ → the dialog stays open on the Shortcuts tab
+   (`settings-shortcuts-panel` visible); assert the add-flow button is
+   absent and the TMUX empty state renders.
+6. Press Shift+Ctrl+/ again → the dialog closes.
+7. Finally: `POST /api/boards/<name>/unpin` so the board does not outlive
    the run.
 
 ### `top-bar gear opens the dialog (Tip-named, no native title)`

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup, waitFor, fireEvent } from "@testing-library/react";
+import { render, screen, cleanup, waitFor, fireEvent, within } from "@testing-library/react";
 import { useEffect } from "react";
 import { ThemeProvider } from "@/contexts/theme-context";
 import { ToastProvider } from "@/components/toast";
@@ -16,8 +16,23 @@ vi.mock("@/api/client", () => ({
   setThemePreference: vi.fn().mockResolvedValue(undefined),
   getSSHHost: vi.fn(),
   setSSHHost: vi.fn().mockResolvedValue(undefined),
+  getRiffPresets: vi.fn().mockRejectedValue(new Error("no API in test")),
+  getKeybindings: vi.fn().mockResolvedValue([]),
 }));
 import { getSSHHost, setSSHHost } from "@/api/client";
+
+// The Shortcuts tab's plumbing reads the session context, the route params,
+// and the merged palette list — mock all three seams light (no current
+// server/route → no add flow, the tmux section's empty state).
+vi.mock("@/contexts/session-context", () => ({
+  useSessionContext: () => ({ currentServer: null, sessionsByServer: new Map() }),
+}));
+vi.mock("@tanstack/react-router", () => ({
+  useMatches: () => [],
+}));
+vi.mock("@/contexts/palette-actions-context", () => ({
+  usePaletteActions: () => [],
+}));
 
 // Mock the open-context store so the commit→invalidate seam is observable
 // without dragging the real store (and its fetches) into dialog tests.
@@ -73,16 +88,19 @@ function makeInstanceName(overrides: Partial<InstanceName> = {}): InstanceName {
   };
 }
 
-/** Opens the dialog on mount (the palette/gear stand-in). */
-function OpenOnMount() {
+/** Opens the dialog on mount (the palette/gear stand-in). `tab` deep-links. */
+function OpenOnMount({ tab }: { tab?: "general" | "appearance" | "shortcuts" }) {
   const { openSettings } = useSettingsDialog();
   useEffect(() => {
-    openSettings();
-  }, [openSettings]);
+    openSettings(tab);
+  }, [openSettings, tab]);
   return null;
 }
 
-function renderDialog(instanceNameValue: InstanceName = makeInstanceName()) {
+function renderDialog(
+  instanceNameValue: InstanceName = makeInstanceName(),
+  tab?: "general" | "appearance" | "shortcuts",
+) {
   return render(
     <ThemeProvider>
       <ToastProvider>
@@ -90,7 +108,7 @@ function renderDialog(instanceNameValue: InstanceName = makeInstanceName()) {
           <InstanceAccentValueProvider value={NULL_ACCENT}>
             <InstanceNameValueProvider value={instanceNameValue}>
               <SettingsDialogProvider>
-                <OpenOnMount />
+                <OpenOnMount tab={tab} />
                 <SettingsDialog />
               </SettingsDialogProvider>
             </InstanceNameValueProvider>
@@ -99,6 +117,11 @@ function renderDialog(instanceNameValue: InstanceName = makeInstanceName()) {
       </ToastProvider>
     </ThemeProvider>,
   );
+}
+
+/** Switch to a tab by its rail/strip button. */
+function selectTab(label: "General" | "Appearance" | "Shortcuts") {
+  fireEvent.click(screen.getByRole("tab", { name: label }));
 }
 
 beforeEach(() => {
@@ -121,18 +144,64 @@ afterEach(() => {
 });
 
 describe("SettingsDialog", () => {
-  it("renders the This-host / This-device scope split with the expected controls", async () => {
+  it("renders the three tabs and opens on General by default", () => {
     renderDialog();
     expect(screen.getByRole("dialog", { name: "Settings" })).toBeInTheDocument();
+    const tablist = screen.getByRole("tablist", { name: "Settings sections" });
+    for (const label of ["General", "Appearance", "Shortcuts"]) {
+      expect(within(tablist).getByRole("tab", { name: label })).toBeInTheDocument();
+    }
+    expect(screen.getByRole("tab", { name: "General" })).toHaveAttribute("aria-selected", "true");
+    // General = instance name + SSH host (This host), notifications (This device).
     expect(screen.getByText("This host")).toBeInTheDocument();
     expect(screen.getByText("This device")).toBeInTheDocument();
     expect(screen.getByLabelText("Instance name")).toBeInTheDocument();
     expect(screen.getByLabelText("SSH host")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Set instance color" })).toBeInTheDocument();
+    expect(screen.getByText("Notifications")).toBeInTheDocument();
+  });
+
+  it("the Appearance tab carries the theme pair + accent (This host) and terminal font (This device)", () => {
+    renderDialog();
+    selectTab("Appearance");
+    expect(screen.getByRole("tab", { name: "Appearance" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("This host")).toBeInTheDocument();
+    expect(screen.getByText("This device")).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "Theme mode" })).toBeInTheDocument();
     expect(screen.getByLabelText("Dark theme")).toBeInTheDocument();
     expect(screen.getByLabelText("Light theme")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Set instance color" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Increase terminal font" })).toBeInTheDocument();
+  });
+
+  it("the Shortcuts tab mounts the ported shortcuts panel", () => {
+    renderDialog();
+    selectTab("Shortcuts");
+    expect(screen.getByTestId("settings-shortcuts-panel")).toBeInTheDocument();
+    expect(screen.getByText("GLOBAL")).toBeInTheDocument();
+  });
+
+  it("arrow keys rove the tablist and activate on focus", () => {
+    renderDialog();
+    const general = screen.getByRole("tab", { name: "General" });
+    general.focus();
+    fireEvent.keyDown(general.closest('[role="tablist"]')!, { key: "ArrowDown" });
+    const appearance = screen.getByRole("tab", { name: "Appearance" });
+    expect(appearance).toHaveFocus();
+    expect(appearance).toHaveAttribute("aria-selected", "true");
+    // Roving tabindex: the active tab is the list's one Tab stop.
+    expect(screen.getByRole("tab", { name: "General" })).toHaveAttribute("tabindex", "-1");
+    expect(appearance).toHaveAttribute("tabindex", "0");
+    // The other axis works too, and wraps.
+    fireEvent.keyDown(general.closest('[role="tablist"]')!, { key: "ArrowLeft" });
+    expect(screen.getByRole("tab", { name: "General" })).toHaveAttribute("aria-selected", "true");
+    fireEvent.keyDown(general.closest('[role="tablist"]')!, { key: "ArrowUp" });
+    expect(screen.getByRole("tab", { name: "Shortcuts" })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("a deep-linked open lands on the requested tab", () => {
+    renderDialog(makeInstanceName(), "shortcuts");
+    expect(screen.getByRole("tab", { name: "Shortcuts" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByTestId("settings-shortcuts-panel")).toBeInTheDocument();
   });
 
   it("shows the stored SSH host SETTING (empty when unset) and commits on blur", async () => {
@@ -220,6 +289,7 @@ describe("SettingsDialog", () => {
 
   it("font stepper steps the shared ChromeContext preference", async () => {
     renderDialog();
+    selectTab("Appearance");
     // Desktop default (matchMedia mocked to false) is 13px.
     expect(screen.getByText("13px")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Increase terminal font" }));
@@ -230,16 +300,18 @@ describe("SettingsDialog", () => {
 
   it("opens the color-only SwatchPopover from the accent control", async () => {
     renderDialog();
+    selectTab("Appearance");
     fireEvent.click(screen.getByRole("button", { name: "Set instance color" }));
     // The popover's removal row is the color-only marker ("Clear" + ✕).
     expect(await screen.findByText("Clear")).toBeInTheDocument();
   });
 
-  it("uses the wide lg dialog variant with the 190px/1fr preference-row grid (260724-6j1v)", () => {
+  it("uses the xl dialog variant (fixed height, max-w-4xl) with the 190px/1fr preference-row grid (260724-6j1v)", () => {
     renderDialog();
-    // Desktop preference pane: the shared Dialog's lg width variant.
+    // Tabbed preference pane: the shared Dialog's xl width variant.
     const panel = screen.getByRole("dialog", { name: "Settings" });
-    expect(panel.className).toContain("max-w-2xl");
+    expect(panel.className).toContain("max-w-4xl");
+    expect(panel.className).toContain("h-[min(40rem,calc(100vh-2rem))]");
     // Each setting is a preference row — a two-column grid at ≥480px that
     // collapses to one column below (single markup path).
     const input = screen.getByLabelText("Instance name");
@@ -311,6 +383,22 @@ describe("SettingsDialog", () => {
     renderDialog();
     expect(screen.getByRole("dialog", { name: "Settings" })).toBeInTheDocument();
     fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Settings" })).not.toBeInTheDocument(),
+    );
+  });
+
+  it("an armed rebind capture's Escape cancels the capture WITHOUT closing the dialog", async () => {
+    renderDialog(makeInstanceName(), "shortcuts");
+    fireEvent.click(screen.getByLabelText("Change binding for Next window"));
+    expect(screen.getByText("press keys…")).toBeInTheDocument();
+    // The capture-phase listener stopPropagations — the focus trap never sees
+    // this Escape, so only the capture cancels.
+    fireEvent.keyDown(document, { key: "Escape", code: "Escape" });
+    expect(screen.queryByText("press keys…")).toBeNull();
+    expect(screen.getByRole("dialog", { name: "Settings" })).toBeInTheDocument();
+    // A second Escape (no capture armed) closes the dialog.
+    fireEvent.keyDown(document, { key: "Escape", code: "Escape" });
     await waitFor(() =>
       expect(screen.queryByRole("dialog", { name: "Settings" })).not.toBeInTheDocument(),
     );

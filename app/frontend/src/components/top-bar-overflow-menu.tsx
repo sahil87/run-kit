@@ -18,6 +18,7 @@ import { Tip } from "@/components/tip";
 import { HELP_URL, HelpIcon, ThemeModeIcon } from "@/components/global-chrome";
 import { KeyboardIcon } from "@/components/sidebar/icons";
 import { useTheme } from "@/contexts/theme-context";
+import { useSettingsDialog } from "@/contexts/settings-dialog-context";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { formatCombo } from "@/lib/keybindings";
 
@@ -163,13 +164,15 @@ export function HelpMenuRow() {
   );
 }
 
-/** Keyboard shortcuts — toggles the layout-mounted ShortcutsOverlay via the
- *  `shortcuts-overlay:open` document CustomEvent (the retired footer button's
- *  exact mechanism). The trailing keycap shows the HOST-effective
- *  `shortcuts-overlay` chord, omitted when the binding is unbound/disabled (a
- *  chord slot advertising a dead chord would lie). */
+/** Keyboard shortcuts — deep-links into the settings dialog's Shortcuts tab
+ *  via the layout-provided `useSettingsDialog()` (the standalone overlay and
+ *  its `shortcuts-overlay:open` event seam are retired, 260818-bncw). The
+ *  trailing keycap shows the HOST-effective `shortcuts-overlay` chord, omitted
+ *  when the binding is unbound/disabled (a chord slot advertising a dead chord
+ *  would lie). */
 export function KeyboardMenuRow() {
   const { byAction, host } = useKeybindings();
+  const { openSettings } = useSettingsDialog();
   const binding = byAction.get("shortcuts-overlay");
   const chord = binding?.enabled
     ? formatCombo({ code: binding.code, tier: binding.tier }, host.platform)
@@ -179,7 +182,7 @@ export function KeyboardMenuRow() {
       type="button"
       role="menuitem"
       tabIndex={-1}
-      onClick={() => document.dispatchEvent(new CustomEvent("shortcuts-overlay:open"))}
+      onClick={() => openSettings("shortcuts")}
       className={MENU_ROW_CLASS}
     >
       <KeyboardIcon size={14} />

@@ -333,10 +333,10 @@ function BoardPageContent({ name }: { name: string }) {
       "board-cycle-prev": entries.length > 0 ? () => cycle(-1) : undefined,
       "go-back": () => router.history.back(),
       "go-forward": () => router.history.forward(),
-      // The overlay state is layout-owned now (260811-239r, R12): resolve the
-      // global `Help: Keyboard Shortcuts` entry's `onSelect` through the merged
-      // palette list (the fromPalette convention) — same toggle as the palette
-      // entry and the top-bar overflow menu's Keyboard shortcuts row.
+      // The shortcuts surface is the settings dialog's Shortcuts tab now
+      // (260818-bncw): resolve the global `Help: Keyboard Shortcuts` entry's
+      // `onSelect` through the merged palette list (the fromPalette
+      // convention) — the same toggle the chord and palette entry share.
       "shortcuts-overlay": paletteGlobals.find((a) => a.id === "shortcuts-overlay")?.onSelect,
       "compose-toggle": toggleComposeStrip,
       // ⇧⌘,/⌘, settings (260801-mqim) — the board twin mounts the same
@@ -347,11 +347,6 @@ function BoardPageContent({ name }: { name: string }) {
     };
   }, [entries.length, router, paletteGlobals, toggleComposeStrip, openSettings]);
   useKeybindingDispatch(boardKeyHandlers);
-
-  // The `shortcuts-overlay:open` CustomEvent's listener (fired by the top-bar
-  // overflow menu's Keyboard shortcuts row since 260812-d1at) moved
-  // to AppLayout with the overlay state (260811-239r) — one listener for the
-  // single layout-mounted overlay.
 
   // Drag-resize state — separate from the persisted widths; live during drag.
   // Handlers live in refs so an unmount cleanup or a `pointercancel` (e.g.

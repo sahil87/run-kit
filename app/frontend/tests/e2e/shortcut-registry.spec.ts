@@ -6,8 +6,9 @@ import { mockStateSocket } from "./_state-socket-mock";
 // shortcut-registry.spec.md for intent + steps.
 //
 // Keyboard shortcut registry (260730-g40a): the `Shift+CmdOrCtrl+<key>`
-// run-kit action tier, the window-level dispatcher, the cheatsheet overlay
-// (⇧CmdOrCtrl+/ on Win/Linux hosts, demoted to ⌘/ on mac — 260730-n789),
+// run-kit action tier, the window-level dispatcher, the shortcuts surface —
+// the settings dialog's Shortcuts tab since 260818-bncw (⇧CmdOrCtrl+/ on
+// Win/Linux hosts, demoted to ⌘/ on mac — 260730-n789),
 // click-to-capture rebinding persisted to
 // localStorage["runkit-keybindings"], palette `shortcut` hints from the
 // effective map, and browser-reserved key inertness (Playwright runs a plain
@@ -19,7 +20,9 @@ import { mockStateSocket } from "./_state-socket-mock";
 // Code-aligned chrome chords: sidebar on B (⇧Ctrl+B here, ⌘B on the spoofed
 // mac), the code-tile toggle on J, and the tty↔code focus hop on Backquote
 // (⇧Ctrl+` here; ⌃` on the spoofed mac — the seam's mac-only ctrl-tier
-// refusal rule).
+// refusal rule). Plus the tabbed-dialog deep-links (260818-bncw): the
+// three-state `shortcuts-overlay` toggle, the pure-opener `settings-open`,
+// pointer/arrow tab switching, and the `Settings: Appearance` palette action.
 
 const SERVER = "default";
 
@@ -119,30 +122,41 @@ test.describe("shifted-tier window cycling", () => {
 });
 
 test.describe("shortcuts overlay", () => {
-  test("Shift+CmdOrCtrl+/ toggles the overlay; filter narrows; Escape closes", async ({ page }) => {
+  // The overlay's body is the settings dialog's Shortcuts tab now
+  // (260818-bncw): the chord deep-links into the one dialog, and the panel
+  // carries its own testid inside `dialog[name=Settings]`.
+  const settingsDialog = (page: Page) => page.getByRole("dialog", { name: "Settings" });
+  const shortcutsPanel = (page: Page) => page.getByTestId("settings-shortcuts-panel");
+
+  test("Shift+CmdOrCtrl+/ toggles the Shortcuts tab; filter narrows; Escape closes", async ({ page }) => {
     await mockBackend(page);
     await gotoWindowOne(page);
 
     await page.keyboard.press("Shift+Control+Slash");
-    const overlay = page.getByTestId("shortcuts-overlay");
-    await expect(overlay).toBeVisible();
+    const panel = shortcutsPanel(page);
+    await expect(panel).toBeVisible();
+    // The chord deep-links: the dialog opened ON the Shortcuts tab.
+    await expect(settingsDialog(page).getByRole("tab", { name: "Shortcuts" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
 
     // Filter narrows rows and hides empty groups.
     await page.getByLabel("Filter shortcuts").fill("waiting");
-    await expect(overlay.getByText("Next waiting agent")).toBeVisible();
-    await expect(overlay.getByText("New session")).toHaveCount(0);
+    await expect(panel.getByText("Next waiting agent")).toBeVisible();
+    await expect(panel.getByText("New session")).toHaveCount(0);
 
-    // The chord toggles the sheet closed even from the filter input
+    // The chord toggles the dialog closed even from the filter input
     // (`ignoreInputs`), then reopen and close via Escape.
     await page.keyboard.press("Shift+Control+Slash");
-    await expect(overlay).toHaveCount(0);
+    await expect(settingsDialog(page)).toHaveCount(0);
     await page.keyboard.press("Shift+Control+Slash");
-    await expect(overlay).toBeVisible();
+    await expect(panel).toBeVisible();
     await page.keyboard.press("Escape");
-    await expect(overlay).toHaveCount(0);
+    await expect(settingsDialog(page)).toHaveCount(0);
   });
 
-  test("the Help: Keyboard Shortcuts palette entry opens the overlay", async ({ page }) => {
+  test("the Help: Keyboard Shortcuts palette entry opens the Shortcuts tab", async ({ page }) => {
     await mockBackend(page);
     await gotoWindowOne(page);
 
@@ -151,15 +165,15 @@ test.describe("shortcuts overlay", () => {
     await expect(paletteInput).toBeVisible();
     await paletteInput.fill("Help: Keyboard Shortcuts");
     await page.keyboard.press("Enter");
-    await expect(page.getByTestId("shortcuts-overlay")).toBeVisible();
+    await expect(shortcutsPanel(page)).toBeVisible();
   });
 
-  test("the merged overlay carries the jump nav and the read-only tmux section (260801-sm6g)", async ({ page }) => {
+  test("the merged surface carries the jump nav and the read-only tmux section (260801-sm6g)", async ({ page }) => {
     await mockBackend(page);
     await gotoWindowOne(page);
 
     await page.keyboard.press("Shift+Control+Slash");
-    await expect(page.getByTestId("shortcuts-overlay")).toBeVisible();
+    await expect(shortcutsPanel(page)).toBeVisible();
 
     // Sticky jump-nav chips, one per section.
     const nav = page.getByTestId("shortcuts-jump-nav");
@@ -192,7 +206,7 @@ test.describe("shortcuts overlay", () => {
     await expect(paletteInput).toBeVisible();
     await paletteInput.fill("tmux Keybindings");
     await expect(page.getByText("Help: tmux Keybindings")).toHaveCount(0);
-    // The overlay entry is the single shortcuts surface.
+    // The shortcuts entry is the single shortcuts surface.
     await paletteInput.fill("Keyboard Shortcuts");
     await expect(page.getByText("Help: Keyboard Shortcuts")).toBeVisible();
   });
@@ -202,7 +216,7 @@ test.describe("shortcuts overlay", () => {
     await gotoWindowOne(page);
 
     await page.keyboard.press("Shift+Control+Slash");
-    await expect(page.getByTestId("shortcuts-overlay")).toBeVisible();
+    await expect(shortcutsPanel(page)).toBeVisible();
 
     await page.getByLabel("Change binding for Next window").click();
     await page.keyboard.press("Shift+Control+KeyU");
@@ -214,13 +228,83 @@ test.describe("shortcuts overlay", () => {
     });
 
     await page.keyboard.press("Escape");
-    await expect(page.getByTestId("shortcuts-overlay")).toHaveCount(0);
+    await expect(settingsDialog(page)).toHaveCount(0);
 
     // The rebound chord dispatches; the vacated default no longer does.
     await page.keyboard.press("Shift+Control+KeyL");
     await expect(page).toHaveURL(new RegExp(`/${SERVER}/1(?:$|[/?#])`));
     await page.keyboard.press("Shift+Control+KeyU");
     await expect(page).toHaveURL(new RegExp(`/${SERVER}/2(?:$|[/?#])`));
+  });
+});
+
+// Tabbed settings dialog (260818-bncw): the two chords' deep-link semantics —
+// `settings-open` a pure opener, `shortcuts-overlay` a three-state toggle —
+// plus the per-tab palette action and the pointer/arrow tab navigation.
+test.describe("tabbed settings dialog deep-links (260818-bncw)", () => {
+  const settingsDialog = (page: Page) => page.getByRole("dialog", { name: "Settings" });
+  const tab = (page: Page, name: string) =>
+    settingsDialog(page).getByRole("tab", { name, exact: true });
+
+  test("settings-open lands on General; the shortcuts chord switches tabs without closing; re-fire is a no-op", async ({
+    page,
+  }) => {
+    await mockBackend(page);
+    await gotoWindowOne(page);
+
+    // ⇧Ctrl+, opens on General (the pure opener).
+    await page.keyboard.press("Shift+Control+Comma");
+    await expect(settingsDialog(page)).toBeVisible();
+    await expect(tab(page, "General")).toHaveAttribute("aria-selected", "true");
+    await expect(settingsDialog(page).getByLabel("Instance name")).toBeVisible();
+
+    // ⇧Ctrl+/ while open on General SWITCHES to Shortcuts (no close).
+    await page.keyboard.press("Shift+Control+Slash");
+    await expect(settingsDialog(page)).toBeVisible();
+    await expect(tab(page, "Shortcuts")).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByTestId("settings-shortcuts-panel")).toBeVisible();
+
+    // ⇧Ctrl+, while open on Shortcuts: no-op — never closes, never yanks.
+    await page.keyboard.press("Shift+Control+Comma");
+    await expect(settingsDialog(page)).toBeVisible();
+    await expect(tab(page, "Shortcuts")).toHaveAttribute("aria-selected", "true");
+
+    // ⇧Ctrl+/ while open on Shortcuts closes (the toggle's second state).
+    await page.keyboard.press("Shift+Control+Slash");
+    await expect(settingsDialog(page)).toHaveCount(0);
+  });
+
+  test("tabs switch by pointer and by roving arrow keys", async ({ page }) => {
+    await mockBackend(page);
+    await gotoWindowOne(page);
+
+    await page.keyboard.press("Shift+Control+Comma");
+    await expect(settingsDialog(page)).toBeVisible();
+
+    // Pointer: Appearance shows the theme controls.
+    await tab(page, "Appearance").click();
+    await expect(tab(page, "Appearance")).toHaveAttribute("aria-selected", "true");
+    await expect(settingsDialog(page).getByRole("group", { name: "Theme mode" })).toBeVisible();
+
+    // Roving arrow keys: ArrowDown from the focused tab activates the next.
+    await tab(page, "Appearance").focus();
+    await page.keyboard.press("ArrowDown");
+    await expect(tab(page, "Shortcuts")).toHaveAttribute("aria-selected", "true");
+    await expect(tab(page, "Shortcuts")).toBeFocused();
+  });
+
+  test("the Settings: Appearance palette action deep-links the Appearance tab", async ({ page }) => {
+    await mockBackend(page);
+    await gotoWindowOne(page);
+
+    await page.keyboard.press("Meta+k");
+    const paletteInput = page.getByPlaceholder("Type a command");
+    await expect(paletteInput).toBeVisible();
+    await paletteInput.fill("Settings: Appearance");
+    await expect(page.getByText("Settings: Appearance")).toBeVisible();
+    await page.keyboard.press("Enter");
+    await expect(settingsDialog(page)).toBeVisible();
+    await expect(tab(page, "Appearance")).toHaveAttribute("aria-selected", "true");
   });
 });
 
@@ -276,18 +360,19 @@ test.describe("macOS per-platform defaults (spoofed platform)", () => {
     await expect(page).toHaveURL(new RegExp(`/${SERVER}/2(?:$|[/?#])`));
   });
 
-  test("⌘/ toggles the overlay on a mac host and the ⌘ map layer is selectable", async ({ page }) => {
+  test("⌘/ toggles the Shortcuts tab on a mac host and the ⌘ map layer is selectable", async ({ page }) => {
     await spoofMacPlatform(page);
     await mockBackend(page);
     await gotoWindowOne(page);
 
     await page.keyboard.press("Meta+Slash");
-    const overlay = page.getByTestId("shortcuts-overlay");
-    await expect(overlay).toBeVisible();
+    const dialog = page.getByRole("dialog", { name: "Settings" });
+    const panel = page.getByTestId("settings-shortcuts-panel");
+    await expect(panel).toBeVisible();
     // Display initializes from the detected (spoofed mac) host → the map
     // header offers the ⌘ modifier layer (260801-r8j2), ⇧⌘ selected by
     // default.
-    const picker = overlay.getByRole("group", { name: "Keyboard map modifier" });
+    const picker = panel.getByRole("group", { name: "Keyboard map modifier" });
     await expect(picker).toBeVisible();
     const cmdOption = picker.getByRole("button", { name: "⌘", exact: true });
     await expect(cmdOption).toHaveAttribute("aria-pressed", "false");
@@ -295,9 +380,9 @@ test.describe("macOS per-platform defaults (spoofed platform)", () => {
     // (⌘L is the browser's address bar).
     await cmdOption.click();
     await expect(cmdOption).toHaveAttribute("aria-pressed", "true");
-    await expect(overlay.locator('[title="address bar"]')).toBeVisible();
+    await expect(panel.locator('[title="address bar"]')).toBeVisible();
     await page.keyboard.press("Meta+Slash");
-    await expect(overlay).toHaveCount(0);
+    await expect(dialog).toHaveCount(0);
   });
 
   test("⌘N and ⇧⌘N stay inert in a mac browser host (create-session palette-only)", async ({ page }) => {

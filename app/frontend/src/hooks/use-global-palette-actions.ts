@@ -32,20 +32,23 @@ import { copyToClipboard } from "@/lib/clipboard";
  * emits only the history pair + `Go: Host` — the palette-bearing superset for
  * a route with no board/window context.
  *
- * `onToggleShortcutsOverlay` is the layout-lifted shortcuts-overlay toggle
- * (260730-g40a): the `Help: Keyboard Shortcuts` entry's `onSelect`, which the
- * `shortcuts-overlay` chord also resolves through (via the merged list).
+ * `Help: Keyboard Shortcuts` (id `shortcuts-overlay`) is the Shortcuts-tab
+ * deep-link TOGGLE (260818-bncw): closed → open on Shortcuts; open on
+ * Shortcuts → close; open on another tab → switch to Shortcuts. The
+ * `shortcuts-overlay` chord resolves this entry's body through the merged
+ * list, so chord and palette can never drift.
  */
-export function useGlobalPaletteActions({
-  onToggleShortcutsOverlay,
-}: {
-  onToggleShortcutsOverlay: () => void;
-}): PaletteAction[] {
+export function useGlobalPaletteActions(): PaletteAction[] {
   const matches = useMatches();
   const router = useRouter();
   const navigate = useNavigate();
   const { increaseTerminalFont, decreaseTerminalFont, resetTerminalFont } = useChromeDispatch();
-  const { openSettings } = useSettingsDialog();
+  const {
+    isOpen: settingsOpen,
+    activeTab: settingsTab,
+    openSettings,
+    closeSettings,
+  } = useSettingsDialog();
   const { addToast } = useToast();
   const { byAction: bindingByAction, host: bindingHost } = useKeybindings();
 
@@ -127,26 +130,42 @@ export function useGlobalPaletteActions({
     [],
   );
 
-  // The registry cheatsheet overlay (260730-g40a). The id doubles as the
-  // registry actionId, so the effective-chord hint (⌘/ on macOS, ⇧Ctrl+/ on
-  // win/linux) renders on this entry AND the chord resolves through this
-  // entry's `onSelect` (the fromPalette convention) — the overlay state itself
-  // is layout-lifted (R12), toggled via the callback prop.
+  // The shortcuts surface (260730-g40a) — the settings dialog's Shortcuts tab
+  // since 260818-bncw. The id doubles as the registry actionId, so the
+  // effective-chord hint (⌘/ on macOS, ⇧Ctrl+/ on win/linux) renders on this
+  // entry AND the chord resolves through this entry's `onSelect` (the
+  // fromPalette convention). Per-binding TOGGLE semantics, refined for tabs:
+  // closed → open on Shortcuts; open on Shortcuts → close; open on another
+  // tab → switch to Shortcuts (never close — the user asked for shortcuts).
   const shortcutsEntry: PaletteAction = useMemo(
     () => ({
       id: "shortcuts-overlay",
       label: "Help: Keyboard Shortcuts",
-      onSelect: onToggleShortcutsOverlay,
+      onSelect: () => {
+        if (settingsOpen && settingsTab === "shortcuts") closeSettings();
+        else openSettings("shortcuts");
+      },
     }),
-    [onToggleShortcutsOverlay],
+    [settingsOpen, settingsTab, openSettings, closeSettings],
   );
 
-  // Settings dialog (o7q8): the palette is the primary keyboard path (no
-  // dedicated shortcut — Cmd+, is browser-reserved). The dialog itself mounts
-  // once in AppLayout; this is just the one-line trigger (previously
-  // duplicated into the board palette, DD-8).
+  // Settings dialog (o7q8): the palette is the primary keyboard path. The
+  // dialog mounts once in AppLayout; `Settings: Open` is a PURE OPENER —
+  // tab-less `openSettings()` lands General when closed and is a
+  // tab-preserving no-op when open (260801-mqim: re-fire never closes, never
+  // yanks the tab). `Settings: Appearance` (260818-bncw) is the per-tab
+  // deep-link; the Shortcuts tab's entry is `Help: Keyboard Shortcuts` above
+  // (one action per intent — no duplicate `Settings: Shortcuts`).
   const settingsEntry: PaletteAction = useMemo(
-    () => ({ id: "settings-open", label: "Settings: Open", onSelect: openSettings }),
+    () => ({ id: "settings-open", label: "Settings: Open", onSelect: () => openSettings() }),
+    [openSettings],
+  );
+  const settingsAppearanceEntry: PaletteAction = useMemo(
+    () => ({
+      id: "settings-appearance",
+      label: "Settings: Appearance",
+      onSelect: () => openSettings("appearance"),
+    }),
     [openSettings],
   );
 
@@ -259,10 +278,10 @@ export function useGlobalPaletteActions({
       // formatted per platform and reflecting overrides; disabled bindings
       // (user-disabled or browser-reserved) render no hint (260730-g40a).
       withShortcutHints(
-        [...navActions, ...terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, settingsEntry, ...panelActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions],
+        [...navActions, ...terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, settingsEntry, settingsAppearanceEntry, ...panelActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions],
         bindingByAction,
         bindingHost.platform,
       ),
-    [navActions, terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, settingsEntry, panelActions, updateActions, checkActions, maintenanceActions, versionActions, bindingByAction, bindingHost],
+    [navActions, terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, settingsEntry, settingsAppearanceEntry, panelActions, updateActions, checkActions, maintenanceActions, versionActions, bindingByAction, bindingHost],
   );
 }

@@ -93,6 +93,20 @@ describe("Dialog", () => {
     expect(panel.className).not.toContain("max-w-sm");
   });
 
+  it("renders the xl variant as a fixed-height non-scrolling panel (max-w-4xl)", () => {
+    render(
+      <Dialog title="Settings" onClose={() => {}} size="xl">
+        <p>body</p>
+      </Dialog>,
+    );
+    const panel = screen.getByRole("dialog");
+    expect(panel.className).toContain("max-w-4xl");
+    expect(panel.className).toContain("h-[min(40rem,calc(100vh-2rem))]");
+    // The panel itself never scrolls on xl — each tab panel owns its scroll.
+    expect(panel.className).toContain("overflow-hidden");
+    expect(panel.className).not.toContain("overflow-y-auto");
+  });
+
   it("carries the short-viewport scroll path on both size variants (260724-6j1v)", () => {
     // Tall dialogs (the lg settings pane) must scroll inside short viewports
     // instead of clipping off-screen: the panel caps its height and scrolls,

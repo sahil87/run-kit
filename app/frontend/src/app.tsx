@@ -42,7 +42,6 @@ import { isMacroActionId, type MacroAction } from "@/lib/macros";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { useKeybindingDispatch } from "@/hooks/use-keybinding-dispatch";
 import { useMacros } from "@/hooks/use-macros";
-import { ShortcutsOverlay } from "@/components/shortcuts-overlay";
 import { ChromeProvider, useChromeState, useChromeDispatch, SIDEBAR_WIDTH_BOUNDS } from "@/contexts/chrome-context";
 import { FocusedTerminalProvider } from "@/contexts/focused-terminal-context";
 import { TopBarSlotProvider, useTopBarSlot, useTopBarNotFound, useRegisterTopBarSlot } from "@/contexts/top-bar-slot-context";
@@ -138,7 +137,7 @@ import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 import { LogoSpinner } from "@/components/logo-spinner";
 import type { ServerInfo } from "@/api/client";
 
-import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowRole, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, sendChatMessage, refreshStatus, isInfraServer, spawnRiff, getRiffPresets, forkWindow } from "@/api/client";
+import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowRole, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, sendChatMessage, refreshStatus, isInfraServer, spawnRiff, forkWindow } from "@/api/client";
 import { useBoards } from "@/hooks/use-boards";
 import { useWindowPins } from "@/hooks/use-window-pins";
 import { usePinActions } from "@/hooks/use-pin-actions";
@@ -270,8 +269,8 @@ export function AppLayout() {
     // would either miss boards or duplicate the dialog.
     //
     // Server dialogs + the palette-actions slot (260811-239r) join it at the
-    // same layer: the create/kill server dialogs, the single CommandPalette,
-    // and the ShortcutsOverlay each mount exactly once below, and any route
+    // same layer: the create/kill server dialogs and the single CommandPalette
+    // each mount exactly once below, and any route
     // (boards included) triggers them through `server-dialogs-context` /
     // registers route-scoped palette actions into `palette-actions-context`.
     // Order matters: the palette slot's global actions are built INSIDE
@@ -296,29 +295,12 @@ function AppLayoutContent() {
   // until an accent is resolved.
   const { stripeHex, washHex } = useInstanceAccent();
 
-  // The registry cheatsheet overlay state (260730-g40a), lifted from the
-  // AppShell/BoardPage twins to the layout (260811-239r, R12) — the
-  // `Help: Keyboard Shortcuts` global palette entry cannot toggle route-local
-  // state. Toggled by the per-platform shortcuts chord (which resolves this
-  // entry's `onSelect` through the merged palette list), the palette entry
-  // itself, and the top-bar overflow menu's Keyboard shortcuts row (the
-  // listener below; the row relocated from the sidebar footer in 260812-d1at). THE
-  // single shortcuts surface — its TMUX section absorbed the retired tmux
-  // keybindings modal (260801-sm6g).
-  const [showShortcutsOverlay, setShowShortcutsOverlay] = useState(false);
-  const toggleShortcutsOverlay = useCallback(() => setShowShortcutsOverlay((prev) => !prev), []);
-  const globalActions = useGlobalPaletteActions({ onToggleShortcutsOverlay: toggleShortcutsOverlay });
-
-  // Sidebar-footer Keyboard icon → overlay toggle (260801-sm6g). The sidebar
-  // mounts from BOTH route shells (AppShell; the board route in
-  // board-page.tsx), so the affordance signals via a document CustomEvent —
-  // the `palette:open` precedent. The listener lived in each route shell while
-  // the overlay was twinned; the single layout-lifted overlay owns it now.
-  useEffect(() => {
-    const onOverlayOpen = () => setShowShortcutsOverlay((prev) => !prev);
-    document.addEventListener("shortcuts-overlay:open", onOverlayOpen);
-    return () => document.removeEventListener("shortcuts-overlay:open", onOverlayOpen);
-  }, []);
+  // The shortcuts surface lives in the settings dialog's Shortcuts tab now
+  // (260818-bncw): the `Help: Keyboard Shortcuts` global entry toggles it via
+  // `useSettingsDialog()` (the `shortcuts-overlay` chord resolves that entry's
+  // body through the merged palette list) — no layout-owned overlay state, no
+  // `shortcuts-overlay:open` event seam.
+  const globalActions = useGlobalPaletteActions();
 
   return (
     <PaletteActionsProvider globalActions={globalActions}>
@@ -365,12 +347,6 @@ function AppLayoutContent() {
         list: the active route's registered actions first, then the global
         groups built above. The per-route palette mounts are gone. */}
     <LayoutCommandPalette />
-    {/* The ONE shortcuts-overlay mount (260811-239r, R12) — lifted from the
-        AppShell/BoardPage twins alongside its state. */}
-    <LayoutShortcutsOverlay
-      open={showShortcutsOverlay}
-      onClose={() => setShowShortcutsOverlay(false)}
-    />
     </PaletteActionsProvider>
   );
 }
@@ -384,84 +360,6 @@ function LayoutCommandPalette() {
     <Suspense fallback={null}>
       <CommandPalette actions={allActions} />
     </Suspense>
-  );
-}
-
-/** The layout shortcuts-overlay mount (260811-239r). Carries the session-
- *  scoped add-flow inputs AppShell used to feed its own mount: the macro
- *  add-flow's palette-target candidates (every merged palette action except
- *  the macro entries themselves — no macro→macro chains) and the best-effort
- *  riff-preset fetch. Both stay gated on a route with a server + session
- *  (derived from the same deepest-first route-param walk + SSE snapshot
- *  AppShell used), so a board-route overlay behaves exactly as before (no add
- *  flow, no badges). */
-function LayoutShortcutsOverlay({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const ctx = useSessionContext();
-  const matches = useMatches();
-  const allActions = usePaletteActions();
-
-  let serverParam: string | undefined;
-  let windowParam: string | undefined;
-  for (let i = matches.length - 1; i >= 0; i--) {
-    const p = (matches[i]?.params ?? {}) as { server?: string; window?: string };
-    if (serverParam === undefined && typeof p.server === "string") serverParam = p.server;
-    if (windowParam === undefined && typeof p.window === "string") windowParam = p.window;
-  }
-  const server = ctx.currentServer ?? serverParam ?? "";
-  // The session of the URL's window, derived from the streamed sessions — the
-  // same derivation AppShell used to scope the riff-preset fetch.
-  const sessionName = useMemo(() => {
-    if (!windowParam || !server) return undefined;
-    return (ctx.sessionsByServer.get(server) ?? []).find((s) =>
-      s.windows.some((w) => w.windowId === windowParam),
-    )?.name;
-  }, [ctx.sessionsByServer, server, windowParam]);
-
-  const macroPaletteTargets = useMemo(
-    () =>
-      server
-        ? allActions
-            .filter((a) => !isMacroActionId(a.id))
-            .map((a) => ({ id: a.id, label: a.label }))
-        : undefined,
-    [server, allActions],
-  );
-
-  // Best-effort riff-preset names for the overlay's CUSTOM section (add-flow
-  // targets + missing-preset badges), fetched while the overlay is open on a
-  // route with a session (GET /api/riff/presets derives the repo from the
-  // session's active pane — the same preflight seam the spawn dialog uses).
-  // null = unknown: the overlay shows no badges and offers palette targets
-  // only.
-  const [riffPresetNames, setRiffPresetNames] = useState<string[] | null>(null);
-  useEffect(() => {
-    if (!open || !sessionName) {
-      // Reset on close / sessionless routes — this mount persists across
-      // routes (unlike the per-route twins it replaced), so a previously
-      // fetched list would otherwise leak into later opens elsewhere.
-      setRiffPresetNames(null);
-      return;
-    }
-    let cancelled = false;
-    getRiffPresets(server, sessionName)
-      .then((data) => {
-        if (!cancelled) setRiffPresetNames(data.presets.map((p) => p.name));
-      })
-      .catch(() => {
-        if (!cancelled) setRiffPresetNames(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [open, server, sessionName]);
-
-  return (
-    <ShortcutsOverlay
-      open={open}
-      onClose={onClose}
-      paletteTargets={macroPaletteTargets}
-      riffPresetNames={riffPresetNames}
-    />
   );
 }
 

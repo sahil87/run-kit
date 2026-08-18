@@ -2,26 +2,32 @@
 
 Verifies the **keyboard shortcut registry** (260730-g40a): the
 `Shift+CmdOrCtrl+<key>` run-kit action tier dispatched by the window-level
-registry dispatcher, the shortcuts cheatsheet overlay (⇧CmdOrCtrl+/ on
-Win/Linux hosts, demoted to ⌘/ on mac — 260730-n789; a dialog — not a
-route), click-to-capture rebinding persisted as diffs to
+registry dispatcher, the shortcuts surface — the settings dialog's **Shortcuts
+tab** since 260818-bncw (the standalone overlay shell is retired; the chord
+⇧CmdOrCtrl+/ on Win/Linux hosts, demoted to ⌘/ on mac — 260730-n789,
+deep-links into the one `Settings` dialog), click-to-capture rebinding
+persisted as diffs to
 `localStorage["runkit-keybindings"]`, palette `shortcut` hints sourced from
 the effective map, and browser-reserved key inertness (Playwright is a plain
 browser host, so the shifted N/T/W defaults resolve disabled while their
 actions stay palette-reachable). Also covers the **macOS ⌘-tier demotions**
 (260730-n789) via a spoofed-platform block: ⌘[/⌘] back/forward and ⌘/
-overlay resolve on mac hosts (deep mac paths — shell-host N/T/W demotion,
-claimed sets — are unit-tested in `lib/keybindings.test.ts`; e2e runs on
-Linux). It also covers the **split-pane chords** (260807-rbx5): the
+shortcuts toggle resolve on mac hosts (deep mac paths — shell-host N/T/W
+demotion, claimed sets — are unit-tested in `lib/keybindings.test.ts`; e2e
+runs on Linux). It also covers the **split-pane chords** (260807-rbx5): the
 divider pair ⇧Ctrl+\/⇧Ctrl+- splitting side-by-side then stacked on this
 host, and ⌘D/⇧⌘D doing the same on a spoofed mac (the `macCode` refinement —
-both actions bound and palette-hinted on every host). Finally it covers the
+both actions bound and palette-hinted on every host). It covers the
 **VS Code-aligned chrome chords**: `sidebar-toggle` on the B keycap (⇧Ctrl+B
 here, ⌘B on a spoofed mac — both mac hosts, no shell gate), `code-toggle` on
 J (⇧Ctrl+J / ⌘J — toggles the code tile on a code-capable window), and
 `focus-hop` on Backquote (⇧Ctrl+` here, ⌃` on a spoofed mac via the seam's
 mac-only ctrl-tier refusal rule — open-then-focus on a closed code tile,
-then the hop back to the tty tile).
+then the hop back to the tty tile). Finally it covers the **tabbed-dialog
+deep-links** (260818-bncw): `settings-open` (⇧Ctrl+,) as the pure opener
+landing on General, the `shortcuts-overlay` three-state toggle (closed → open
+on Shortcuts; open on Shortcuts → close; open elsewhere → switch), pointer +
+roving-arrow tab switching, and the `Settings: Appearance` palette action.
 
 ## Shared setup
 
@@ -31,7 +37,7 @@ then the hop back to the tty tile).
   - `**/api/windows/*/select*` → 200 (trailing `*` so the client's appended
     `?server=` query is still intercepted).
   - `**/api/keybindings*` → three curated tmux bindings (two root-table, one
-    prefix-table) for the overlay's read-only TMUX section (260801-sm6g).
+    prefix-table) for the Shortcuts tab's read-only TMUX section (260801-sm6g).
   - `**/api/windows/*/split*` (via `mockSplit`, per split test) → 200; each
     POST body is captured for assertion (260807-rbx5).
   - `/ws/state` (via `mockStateSocket`) → session `dev` with three windows:
@@ -75,33 +81,35 @@ a window switch pushes an entry that the chords retrace.
 2. Press Shift+Ctrl+[ → back to `/default/1`.
 3. Press Shift+Ctrl+] → forward to `/default/2`.
 
-### `Shift+CmdOrCtrl+/ toggles the overlay; filter narrows; Escape closes`
+### `Shift+CmdOrCtrl+/ toggles the Shortcuts tab; filter narrows; Escape closes`
 
-**What it proves:** the cheatsheet overlay opens/closes on its chord (including
-from inside the overlay's own filter input — the binding is `ignoreInputs`),
-the filter narrows rows, and Escape closes.
+**What it proves:** the shortcuts chord deep-links into the settings dialog's
+Shortcuts tab (260818-bncw) and toggles the dialog closed on a second press
+(including from inside the panel's own filter input — the binding is
+`ignoreInputs`), the filter narrows rows, and Escape closes the dialog.
 
 **Steps:**
-1. Open `/default/1`; press Shift+Ctrl+/ → the `shortcuts-overlay` dialog is
-   visible.
+1. Open `/default/1`; press Shift+Ctrl+/ → the `Settings` dialog is visible
+   with the Shortcuts tab selected (`settings-shortcuts-panel` testid).
 2. Fill the filter with "waiting" → the "Next waiting agent" row remains, the
    "New session" row is filtered out.
-3. Press Shift+Ctrl+/ again (focus in the filter input) → overlay closes.
-4. Reopen with the chord; press Escape → overlay closes.
+3. Press Shift+Ctrl+/ again (focus in the filter input) → the dialog closes.
+4. Reopen with the chord; press Escape → the dialog closes.
 
-### `the Help: Keyboard Shortcuts palette entry opens the overlay`
+### `the Help: Keyboard Shortcuts palette entry opens the Shortcuts tab`
 
-**What it proves:** the overlay is palette-reachable (Constitution V) via the
-`shortcuts-overlay` action.
+**What it proves:** the Shortcuts tab is palette-reachable (Constitution V)
+via the `shortcuts-overlay` action.
 
 **Steps:**
 1. Open the palette (`Meta+k`), fill "Help: Keyboard Shortcuts", press Enter.
-2. Assert the overlay dialog is visible.
+2. Assert the settings dialog is visible on the Shortcuts tab
+   (`settings-shortcuts-panel`).
 
-### `the merged overlay carries the jump nav and the read-only tmux section (260801-sm6g)`
+### `the merged surface carries the jump nav and the read-only tmux section (260801-sm6g)`
 
-**What it proves:** the overlay is the single merged shortcuts surface — it
-renders the sticky jump-nav chip row (key map · global · terminal · board ·
+**What it proves:** the Shortcuts tab is the single merged shortcuts surface —
+it renders the sticky jump-nav chip row (key map · global · terminal · board ·
 tmux), folds the current server's curated tmux keybindings in as a read-only
 locked section (prefix rows as `Ctrl` `S` *then* `\` sequences), and one
 filter spans app + tmux rows with live per-chip match counts (zero-hit chips
@@ -109,7 +117,7 @@ dim).
 
 **Steps:**
 1. Mock the backend (incl. `**/api/keybindings*`); open `/default/1`; open the
-   overlay with Shift+Ctrl+/.
+   Shortcuts tab with Shift+Ctrl+/.
 2. Assert every jump chip renders in the nav (`shortcuts-jump-nav`).
 3. Assert the TMUX section (`tmux-section`) shows the mocked root rows and the
    prefix row's "then" sequence separator.
@@ -119,7 +127,7 @@ dim).
 ### `the legacy Help: tmux Keybindings palette entry is gone (260801-sm6g)`
 
 **What it proves:** the legacy tmux keybindings dialog was deleted with its
-palette entry — `Help: Keyboard Shortcuts` (the overlay) is the single
+palette entry — `Help: Keyboard Shortcuts` (the Shortcuts tab) is the single
 shortcuts entry.
 
 **Steps:**
@@ -136,12 +144,48 @@ rebinds the action, the override persists as a diff in
 chord fires; the vacated default no longer does).
 
 **Steps:**
-1. Open `/default/1`; open the overlay with Shift+Ctrl+/.
+1. Open `/default/1`; open the Shortcuts tab with Shift+Ctrl+/.
 2. Click the combo button for "Next window"; press Shift+Ctrl+U.
 3. Assert localStorage holds `{"window-next":{"code":"KeyU","tier":"shifted"}}`.
-4. Close the overlay (Escape).
+4. Close the dialog (Escape).
 5. Press Shift+Ctrl+L (the vacated default) → URL stays `/default/1`.
 6. Press Shift+Ctrl+U → URL navigates to `/default/2`.
+
+### `settings-open lands on General; the shortcuts chord switches tabs without closing; re-fire is a no-op`
+
+**What it proves:** the per-binding deep-link semantics (260818-bncw):
+`settings-open` (⇧Ctrl+,) is a pure opener that lands on General and never
+closes or yanks the tab on re-fire; `shortcuts-overlay` (⇧Ctrl+/) is a
+three-state toggle — closed → open on Shortcuts, open on another tab → switch
+to Shortcuts, open on Shortcuts → close.
+
+**Steps:**
+1. Open `/default/1`; press Shift+Ctrl+, → the dialog opens on General
+   (Instance name visible).
+2. Press Shift+Ctrl+/ → the dialog stays open, now on the Shortcuts tab.
+3. Press Shift+Ctrl+, → nothing changes (still open on Shortcuts).
+4. Press Shift+Ctrl+/ → the dialog closes.
+
+### `tabs switch by pointer and by roving arrow keys`
+
+**What it proves:** the tablist switches panels on click and implements
+roving-tabindex arrow-key navigation with activate-on-focus.
+
+**Steps:**
+1. Open the dialog (Shift+Ctrl+,).
+2. Click the Appearance tab → it selects and the Theme mode group renders.
+3. Focus the Appearance tab; press ArrowDown → Shortcuts selects and takes
+   focus.
+
+### `the Settings: Appearance palette action deep-links the Appearance tab`
+
+**What it proves:** the per-tab palette entry (id `settings-appearance`)
+opens the dialog directly on the Appearance tab.
+
+**Steps:**
+1. Open the palette (`Meta+k`); fill "Settings: Appearance" → the entry is
+   visible; press Enter.
+2. Assert the dialog is open with the Appearance tab selected.
 
 ### `registered palette entries render effective per-platform combos`
 
@@ -167,22 +211,23 @@ chord), window cycling stays shifted (H/L unchanged), and the old
 3. Press Meta+[ → back to `/default/1`; Meta+] → forward to `/default/2`.
 4. Press Shift+Ctrl+[ ; wait 300ms → URL unchanged (`/default/2`).
 
-### `⌘/ toggles the overlay on a mac host and the ⌘ map layer is selectable`
+### `⌘/ toggles the Shortcuts tab on a mac host and the ⌘ map layer is selectable`
 
-**What it proves:** the `shortcuts-overlay` default demotes to ⌘/ on macOS,
-and the overlay's macOS display (initialized from the detected host) offers
+**What it proves:** the `shortcuts-overlay` default demotes to ⌘/ on macOS and
+toggles the settings dialog's Shortcuts tab; the tab's macOS display
+(initialized from the detected host) offers
 the single keyboard map's modifier picker ("Holding ⇧⌘ | ⌘" — 260801-r8j2)
 with ⇧⌘ selected by default; selecting ⌘ renders the ⌘ layer with the mac
 claimed set.
 
 **Steps:**
 1. Spoof the mac platform; mock the backend; open `/default/1`.
-2. Press Meta+/ → the overlay opens.
+2. Press Meta+/ → the dialog opens on the Shortcuts tab.
 3. Assert the "Keyboard map modifier" picker group is visible and its ⌘
    option is unselected (`aria-pressed="false"` — ⇧⌘ is the default layer).
 4. Click the ⌘ option → it selects (`aria-pressed="true"`) and the ⌘ layer's
    mac-browser claimed set renders (the "address bar" ⌘L cell).
-5. Press Meta+/ again → the overlay closes.
+5. Press Meta+/ again → the dialog closes.
 
 ### `⌘N and ⇧⌘N stay inert in a mac browser host (create-session palette-only)`
 

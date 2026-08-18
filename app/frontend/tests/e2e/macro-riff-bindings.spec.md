@@ -1,8 +1,9 @@
 # macro-riff-bindings.spec.ts
 
 Verifies **macro shortcut bindings over riff presets** (260730-hbyh): the
-shortcuts overlay's editable CUSTOM section (add-macro flow, resolved-command
-preview, missing-preset badge), macro chords executing through the existing
+editable CUSTOM section of the settings dialog's Shortcuts tab
+(260818-bncw — the standalone overlay shell is retired): add-macro flow,
+resolved-command preview, missing-preset badge, macro chords executing through the existing
 `POST /api/riff` spawn seam with the **preset name only** (never shell text),
 success toast + navigation to the spawned window, the kind-tagged
 `Macro: {label}` command-palette entry decorated with its effective combo,
@@ -17,7 +18,7 @@ the backend 400 as an error toast).
   - `**/api/servers` → a single server `default`.
   - `**/api/windows/*/select*` → 200.
   - `**/api/riff/presets*` → one preset `discuss` (deck-h, 2 panes), tier
-    `default` — the preflight the overlay fetches while open.
+    `default` — the preflight the Shortcuts tab fetches while visible.
   - `**/api/riff?*` → the spawn seam; each POST body is captured for
     assertion. Per test it returns 200
     `{server, session, window: "riff-swift-fox", windowId: "@9"}` or a 400
@@ -40,13 +41,14 @@ the backend 400 as an error toast).
 ### `add a riff-preset macro, capture a key, and the chord spawns + navigates`
 
 **What it proves:** the whole macro lifecycle works end-to-end from the
-overlay — target picking (riff preset from the fetched preflight), naming,
+Shortcuts tab — target picking (riff preset from the fetched preflight), naming,
 one-flow key capture, persistence into the two localStorage stores, and the
 chord dispatching a validated riff spawn that toasts and navigates.
 
 **Steps:**
 1. Mock the backend; open `/default/1`.
-2. Press Shift+Ctrl+/ to open the overlay; click
+2. Press Shift+Ctrl+/ to open the Shortcuts tab (the settings dialog opens on
+   it); click
    `+ bind a key to a palette action or riff preset…`.
 3. Search targets for "discuss"; pick `riff: discuss`; the name input
    pre-fills with the target label; click `add + capture key`.
@@ -55,7 +57,7 @@ chord dispatching a validated riff spawn that toasts and navigates.
    (`macro:riff-discuss` → preset `discuss`) and `runkit-keybindings` holds
    `{code: "KeyD", tier: "shifted"}`; the row shows the preview
    `rk riff --preset discuss`.
-6. Escape closes the overlay; press Shift+Ctrl+D.
+6. Escape closes the dialog; press Shift+Ctrl+D.
 7. Assert exactly one POST with body `{session: "dev", preset: "discuss"}`
    (preset name only — no shell text), the `Spawned riff-swift-fox` toast,
    and navigation to `/default/9`.
@@ -76,7 +78,7 @@ selecting it runs the same execution path as the chord.
 4. Press Enter to select it; assert the spawn toast and the single POST body
    `{session: "dev", preset: "discuss"}`.
 
-### `the overlay flags the row and the chord surfaces the backend 400 as a toast`
+### `the Shortcuts tab flags the row and the chord surfaces the backend 400 as a toast`
 
 **What it proves:** a macro whose preset no longer exists in fabconfig is
 never a silent no-op — the CUSTOM row shows a `missing preset` badge once the
@@ -87,9 +89,9 @@ no navigation.
 **Steps:**
 1. Seed a macro targeting preset `gone` bound to ⇧Ctrl+G; mock the backend
    with the spawn route returning 400 `unknown preset "gone" …`.
-2. Open `/default/1`; open the overlay (⇧Ctrl+/).
+2. Open `/default/1`; open the Shortcuts tab (⇧Ctrl+/).
 3. Assert the `missing preset` badge renders on the macro row (the mocked
-   preflight defines only `discuss`); Escape closes the overlay.
+   preflight defines only `discuss`); Escape closes the dialog.
 4. Press Shift+Ctrl+G; assert the error toast with the backend message, the
    single POST body `{session: "dev", preset: "gone"}`, and that the URL
    stays `/default/1`.

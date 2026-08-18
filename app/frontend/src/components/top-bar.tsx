@@ -2569,7 +2569,7 @@ function SettingsGearButton() {
     <Tip label="Settings" kbd={chord}>
       <button
         type="button"
-        onClick={openSettings}
+        onClick={() => openSettings()}
         aria-label="Open settings"
         className={TOP_BAR_BUTTON}
       >
@@ -2588,7 +2588,7 @@ function SettingsMenuRow() {
       type="button"
       role="menuitem"
       tabIndex={-1}
-      onClick={openSettings}
+      onClick={() => openSettings()}
       className={MENU_ROW_CLASS}
     >
       <GearIcon size={14} />

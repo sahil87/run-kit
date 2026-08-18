@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 5
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-08-18T01:08:38Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-18T01:11:37Z"}
     review: {started_at: "2026-08-18T01:11:37Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-18T01:19:11Z"}
     hydrate: {started_at: "2026-08-18T01:19:11Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-18T01:21:04Z"}
-    ship: {started_at: "2026-08-18T01:21:04Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-08-18T01:21:04Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-18T01:22:11Z"}
+    review-pr: {started_at: "2026-08-18T01:22:11Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/647
 change_type_source: explicit
 true_impact:
-    added: 127
-    deleted: 0
-    net: 127
+    added: 523
+    deleted: 14
+    net: 509
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 228
+        deleted: 12
+        net: 216
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-08-18T01:21:04Z"
-    computed_at_stage: hydrate
+        added: 158
+        deleted: 5
+        net: 153
+    computed_at: "2026-08-18T01:22:11Z"
+    computed_at_stage: ship
 summary: code-server respawn now waits (5s/200ms, killed-gated) for its own killed port to free before restarting, fixing the update-kills-editor race; KillCodeServerSession returns killed bool; daemon.CodeServerPortInUse exported
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-18T01:21:04Z
+last_updated: 2026-08-18T01:22:11Z

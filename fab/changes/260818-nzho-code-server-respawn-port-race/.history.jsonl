@@ -1,0 +1,4 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-18T00:59:33Z"}
+{"args":"Fix: code-server respawn after update misclassifies its own dying instance as externally managed (port race) and never respawns","cmd":"fab-new","event":"command","ts":"2026-08-18T00:59:33Z"}
+{"delta":"+4.7","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-08-18T01:01:56Z"}
+{"cmd":"fab-draft","event":"command","ts":"2026-08-18T01:02:06Z"}

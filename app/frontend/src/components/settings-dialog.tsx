@@ -524,24 +524,33 @@ function SettingsDialogBody({ onClose }: { onClose: () => void }) {
       <TipGroup>
         <div className="flex flex-col min-[480px]:flex-row gap-3 flex-1 min-h-0">
           <SettingsTabList activeTab={activeTab} onSelect={setActiveTab} />
-          <div
-            role="tabpanel"
-            id={`settings-panel-${activeTab}`}
-            aria-labelledby={`settings-tab-${activeTab}`}
-            className="flex-1 min-w-0 min-h-0 overflow-y-auto"
-          >
-            {activeTab === "general" && (
-              <GeneralPanel
-                hostname={hostname}
-                instanceName={instanceName}
-                setInstanceName={setInstanceName}
-                sshHost={sshHost}
-                setSSHHostState={setSSHHostState}
-              />
-            )}
-            {activeTab === "appearance" && <AppearancePanel />}
-            {activeTab === "shortcuts" && <ShortcutsTabPanel />}
-          </div>
+          {/* One stable tabpanel per tab so every tab's `aria-controls` target
+              exists; inactive panels are `hidden`, content stays mount-gated. */}
+          {SETTINGS_TABS.map((t) => {
+            const active = t.id === activeTab;
+            return (
+              <div
+                key={t.id}
+                role="tabpanel"
+                id={`settings-panel-${t.id}`}
+                aria-labelledby={`settings-tab-${t.id}`}
+                hidden={!active}
+                className="flex-1 min-w-0 min-h-0 overflow-y-auto"
+              >
+                {active && t.id === "general" && (
+                  <GeneralPanel
+                    hostname={hostname}
+                    instanceName={instanceName}
+                    setInstanceName={setInstanceName}
+                    sshHost={sshHost}
+                    setSSHHostState={setSSHHostState}
+                  />
+                )}
+                {active && t.id === "appearance" && <AppearancePanel />}
+                {active && t.id === "shortcuts" && <ShortcutsTabPanel />}
+              </div>
+            );
+          })}
         </div>
       </TipGroup>
     </Dialog>

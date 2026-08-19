@@ -1,0 +1,625 @@
+/* ── Flair overlays (decoration-only channel) ────────────────────────────────
+   A row carrying a flair value (`nyan` / `naruto` / `onepiece` / `train` /
+   `pacman` / `matrix` / `aquarium`; plus the tile-only `dvd` / `tetris` /
+   `invaders` / `cube` / `warp`) gets an
+   always-on, ambient, CSS-only animated overlay — pure decoration: no wiring
+   to @rk_agent_state or the status pyramid, and it animates in EVERY row
+   state (rest, hover, selected). Mounted on window rows, session rows, and
+   server group header rows as a dedicated absolutely-positioned inner element
+   (inset-0, overflow-hidden, pointer-events-none, z-5) — the SAME overlay
+   discipline as .rk-scanlines: clipping lives on the overlay, NEVER the row
+   root (whose top-full popovers must stay unclipped).
+
+   Sprites are ORIGINAL stylized pixel art embedded as inline SVG data URIs —
+   no external requests, no copyrighted assets. Traversal is
+   background-position only, NEVER transform (the drag-ghost rule — see
+   .rk-scanlines-crawl) and never `left` (no layout thrash).
+
+   FRAME ANIMATION (the sprite-sheet mechanism): each sprite is a VERTICAL
+   sheet of 22px-tall frames (frame n at y = -22n). The two
+   background-position LONGHANDS animate independently and compose without
+   clobbering (the same longhand-split the onepiece bob pioneered):
+   background-position-x carries the slow linear traversal, while
+   background-position-y steps through the sheet with `step-end` keyframes —
+   a run cycle, sail billow, flag flutter, and bob at classic low-fps sprite
+   cadence, all compositor-only. The pseudos are fixed 22px strips (static
+   top/margin centering, no animated layout), so the px frame offsets hold at
+   every row height (24px rows, 36px coarse rows, 18px picker preview cells).
+
+   Each sprite layer is no-repeat and slides from a fully-off-left negative
+   offset to a fully-off-right `calc(100% + Npx)` (the scanline-band trick: a
+   no-repeat background outside its area paints nothing), so any row width
+   traverses edge-to-edge. A trail layer rides the SAME keyframes as its
+   sprite on the same pseudo; the from/to constants are balanced per layer
+   (start offset − image width + end offset equal across layers) so both
+   layers displace by identical px and the trail stays glued to the sprite.
+   Ambient parallax layers (nyan's starfield, naruto's speed streaks, the
+   onepiece waves) live on ::before as repeat-x tiles drifting the OPPOSITE
+   way, displaced by exact tile multiples per loop (seamless). Trails and
+   ambience carry low alphas; the sprites themselves are near-opaque but
+   small, and row text paints above the z-5 overlay, so rows stay readable.
+
+   Nine more treatments extend the channel. train / pacman / matrix /
+   aquarium are row-capable on the SAME 22px-strip discipline (pacman's dot
+   layer LEADS the sprite instead of trailing — same glued-constant
+   balancing; aquarium carries two fish at different speeds on one pseudo
+   by giving the faster fish TWO crossings per loop, its mid-loop teleport
+   landing fully off-screen; matrix is ambience-only — no traversal, no px
+   sprite frames — so its pseudo is full-box `inset: 0`, rain tiles being
+   seamless at any box height). dvd / tetris / invaders / cube / warp are
+   TILE-ONLY: mounted inside ~76×56px server tiles (the overlay element is
+   `absolute inset-0 overflow-hidden`), so they use full-box `inset: 0`
+   pseudos instead of the strip, and dvd / cube / warp animate `transform`
+   on dedicated CHILD SPANS — the single sanctioned exception to the
+   never-transform rule, confined to those tile child spans and never used
+   on row pseudos.
+
+   WebGL was CONSIDERED AND REJECTED for these: browsers cap live WebGL
+   contexts per page (~8–16), and every flaired row would need one — dozens
+   of rows would silently evict each other's contexts. Stepped sprite sheets
+   are the frame-true look at compositor cost.
+
+   ORDER MATTERS (same discipline as .rk-dash-rain): these base rules PRECEDE
+   the prefers-reduced-motion block so its equal-specificity hidden overrides
+   win by source order — the flairs are motion-only decoration and hide
+   entirely there. */
+
+/* nyan: the pop-tart cat. ::after is a 22px strip with TWO layers — the cat
+   sheet (36×88: 4 frames — leg shuffle A/B, tail wag up/down, 1px body bob)
+   and a 140px rainbow comet-trail (6 full-saturation stripes, left edge
+   faded out through an SVG mask) glued to the cat's left edge. The frames
+   animation steps the sheet on layer 1 and jiggles the trail ±1px on layer 2
+   at the same ~6.7fps cadence (the original's stripe wave). ::before is a
+   parallax starfield: an 80px twinkling-star tile (2-frame sheet) drifting
+   the OPPOSITE way, exactly one tile per loop. ~9s traversal. */
+@keyframes rk-flair-nyan-x {
+  from { background-position-x: -36px, -176px; }
+  to { background-position-x: calc(100% + 40px), calc(100% + 4px); }
+}
+@keyframes rk-flair-nyan-y {
+  0% { background-position-y: 0px, 0px; }
+  25% { background-position-y: -22px, 1px; }
+  50% { background-position-y: -44px, 0px; }
+  75% { background-position-y: -66px, 1px; }
+  100% { background-position-y: -66px, 1px; }
+}
+@keyframes rk-flair-nyan-stars-x {
+  from { background-position-x: 0; }
+  to { background-position-x: -80px; }
+}
+@keyframes rk-flair-nyan-stars-y {
+  0% { background-position-y: 0; }
+  50% { background-position-y: -22px; }
+  100% { background-position-y: -22px; }
+}
+.rk-flair-nyan::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 22px;
+  margin-top: -11px;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='44' viewBox='0 0 80 44'%3E%3Cg fill='white' fill-opacity='0.38'%3E%3Crect x='11' y='3' width='1' height='5'/%3E%3Crect x='9' y='5' width='5' height='1'/%3E%3Crect x='51' y='13' width='1' height='1'/%3E%3Crect x='68' y='7' width='1' height='1'/%3E%3C/g%3E%3Cg fill='white' fill-opacity='0.38' transform='translate(0,22)'%3E%3Crect x='11' y='5' width='1' height='1'/%3E%3Crect x='50' y='11' width='1' height='5'/%3E%3Crect x='48' y='13' width='5' height='1'/%3E%3Crect x='68' y='16' width='1' height='1'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 80px 44px;
+  background-repeat: repeat-x;
+  background-position: 0 0;
+  animation:
+    rk-flair-nyan-stars-x 2.4s linear infinite,
+    rk-flair-nyan-stars-y 0.9s step-end infinite;
+}
+.rk-flair-nyan::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 22px;
+  margin-top: -11px;
+  pointer-events: none;
+  opacity: 0.92;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='36' height='88' viewBox='0 0 36 88'%3E%3Cdefs%3E%3Cg id='c'%3E%3Crect x='4' y='5' width='23' height='14' fill='%23f0b060'/%3E%3Crect x='6' y='7' width='19' height='10' fill='%23f78fc0'/%3E%3Crect x='8' y='9' width='1' height='2' fill='%23d6579e'/%3E%3Crect x='12' y='12' width='1' height='2' fill='%23d6579e'/%3E%3Crect x='16' y='8' width='1' height='2' fill='%23d6579e'/%3E%3Crect x='19' y='13' width='1' height='2' fill='%23d6579e'/%3E%3Crect x='10' y='15' width='1' height='1' fill='%23d6579e'/%3E%3Crect x='23' y='7' width='2' height='3' fill='%23a8b0bc'/%3E%3Crect x='33' y='7' width='2' height='3' fill='%23a8b0bc'/%3E%3Crect x='22' y='9' width='14' height='10' fill='%23a8b0bc'/%3E%3Crect x='25' y='12' width='2' height='2' fill='%23272b31'/%3E%3Crect x='31' y='12' width='2' height='2' fill='%23272b31'/%3E%3Crect x='29' y='14' width='1' height='1' fill='%23272b31'/%3E%3Crect x='27' y='16' width='4' height='1' fill='%23272b31'/%3E%3Crect x='23' y='15' width='2' height='2' fill='%23f08fa8'/%3E%3Crect x='34' y='15' width='2' height='2' fill='%23f08fa8'/%3E%3C/g%3E%3Cg id='ta'%3E%3Crect x='0' y='9' width='3' height='2' fill='%23a8b0bc'/%3E%3Crect x='2' y='11' width='3' height='2' fill='%23a8b0bc'/%3E%3C/g%3E%3Cg id='tb'%3E%3Crect x='0' y='13' width='3' height='2' fill='%23a8b0bc'/%3E%3Crect x='2' y='11' width='3' height='2' fill='%23a8b0bc'/%3E%3C/g%3E%3Cg id='la'%3E%3Crect x='5' y='19' width='3' height='3' fill='%23a8b0bc'/%3E%3Crect x='10' y='19' width='3' height='3' fill='%23a8b0bc'/%3E%3Crect x='16' y='19' width='3' height='3' fill='%23a8b0bc'/%3E%3Crect x='21' y='19' width='3' height='3' fill='%23a8b0bc'/%3E%3C/g%3E%3Cg id='lb'%3E%3Crect x='7' y='19' width='3' height='3' fill='%23a8b0bc'/%3E%3Crect x='13' y='19' width='3' height='3' fill='%23a8b0bc'/%3E%3Crect x='18' y='19' width='3' height='3' fill='%23a8b0bc'/%3E%3Crect x='23' y='19' width='3' height='3' fill='%23a8b0bc'/%3E%3C/g%3E%3C/defs%3E%3Cg%3E%3Cuse href='%23c'/%3E%3Cuse href='%23ta'/%3E%3Cuse href='%23la'/%3E%3C/g%3E%3Cg transform='translate(0,23)'%3E%3Cuse href='%23c'/%3E%3Cuse href='%23ta'/%3E%3Cuse href='%23lb'/%3E%3C/g%3E%3Cg transform='translate(0,44)'%3E%3Cuse href='%23c'/%3E%3Cuse href='%23tb'/%3E%3Cuse href='%23la'/%3E%3C/g%3E%3Cg transform='translate(0,67)'%3E%3Cuse href='%23c'/%3E%3Cuse href='%23tb'/%3E%3Cuse href='%23lb'/%3E%3C/g%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='22' viewBox='0 0 140 22'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='0'%3E%3Cstop offset='0' stop-color='white' stop-opacity='0'/%3E%3Cstop offset='0.35' stop-color='white' stop-opacity='0.75'/%3E%3Cstop offset='1' stop-color='white' stop-opacity='0.95'/%3E%3C/linearGradient%3E%3Cmask id='m'%3E%3Crect width='140' height='22' fill='url(%23g)'/%3E%3C/mask%3E%3C/defs%3E%3Cg mask='url(%23m)' opacity='0.62'%3E%3Crect y='2' width='140' height='3' fill='%23ff2222'/%3E%3Crect y='5' width='140' height='3' fill='%23ff9900'/%3E%3Crect y='8' width='140' height='3' fill='%23ffee00'/%3E%3Crect y='11' width='140' height='3' fill='%2333dd22'/%3E%3Crect y='14' width='140' height='3' fill='%231e90ff'/%3E%3Crect y='17' width='140' height='3' fill='%237b46ff'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 36px 88px, 140px 22px;
+  background-repeat: no-repeat, no-repeat;
+  background-position: -36px 0, -176px 0;
+  animation:
+    rk-flair-nyan-x 9s linear infinite,
+    rk-flair-nyan-y 0.6s step-end infinite;
+}
+
+/* naruto: an orange-clad runner in the arms-back naruto-run lean. ::after is
+   a 22px strip with the runner sheet (32×88: 4 frames — stride / tuck / mid
+   stride leg cycle, fluttering headband ribbon, 1px bob) plus a 120px trail
+   sheet (120×44, 2 frames: drifting leaves, dust puffs, speed lines) glued
+   behind, stepping at ~8fps. ::before is a faint full-width speed-streak
+   tile racing the OPPOSITE way. ~6s traversal (the dash). */
+@keyframes rk-flair-naruto-x {
+  from { background-position-x: -32px, -152px; }
+  to { background-position-x: calc(100% + 40px), calc(100% + 8px); }
+}
+@keyframes rk-flair-naruto-y {
+  0% { background-position-y: 0px, 0px; }
+  25% { background-position-y: -22px, -22px; }
+  50% { background-position-y: -44px, 0px; }
+  75% { background-position-y: -66px, -22px; }
+  100% { background-position-y: -66px, -22px; }
+}
+@keyframes rk-flair-naruto-streaks {
+  from { background-position-x: 0; }
+  to { background-position-x: -48px; }
+}
+.rk-flair-naruto::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 22px;
+  margin-top: -11px;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='22' viewBox='0 0 48 22'%3E%3Crect x='4' y='7' width='20' height='1' fill='%23aab2c0' fill-opacity='0.10'/%3E%3Crect x='28' y='13' width='16' height='1' fill='%23aab2c0' fill-opacity='0.08'/%3E%3C/svg%3E");
+  background-size: 48px 22px;
+  background-repeat: repeat-x;
+  background-position: 0 0;
+  animation: rk-flair-naruto-streaks 0.7s linear infinite;
+}
+.rk-flair-naruto::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 22px;
+  margin-top: -11px;
+  pointer-events: none;
+  opacity: 0.92;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='88' viewBox='0 0 32 88'%3E%3Cdefs%3E%3Cg id='u'%3E%3Crect x='20' y='1' width='8' height='2' fill='%23f6d32d'/%3E%3Crect x='19' y='0' width='2' height='2' fill='%23f6d32d'/%3E%3Crect x='23' y='0' width='2' height='1' fill='%23f6d32d'/%3E%3Crect x='26' y='0' width='2' height='2' fill='%23f6d32d'/%3E%3Crect x='19' y='2' width='1' height='3' fill='%23f6d32d'/%3E%3Crect x='20' y='3' width='7' height='5' fill='%23f2c49b'/%3E%3Crect x='20' y='4' width='8' height='2' fill='%232f4f9f'/%3E%3Crect x='22' y='4' width='3' height='2' fill='%23cdd6e4'/%3E%3Crect x='26' y='6' width='1' height='1' fill='%23222222'/%3E%3Cpath d='M17 8 L23 8 L21 15 L14 15 Z' fill='%23ff7f27'/%3E%3Crect x='9' y='8' width='7' height='2' fill='%23ff7f27'/%3E%3Crect x='6' y='8' width='3' height='2' fill='%23f2c49b'/%3E%3Crect x='10' y='11' width='7' height='2' fill='%23ff7f27'/%3E%3Crect x='7' y='11' width='3' height='2' fill='%23f2c49b'/%3E%3C/g%3E%3Cg id='ra'%3E%3Crect x='12' y='4' width='8' height='1' fill='%232f4f9f'/%3E%3Crect x='10' y='3' width='4' height='1' fill='%232f4f9f'/%3E%3C/g%3E%3Cg id='rb'%3E%3Crect x='12' y='5' width='8' height='1' fill='%232f4f9f'/%3E%3Crect x='10' y='6' width='4' height='1' fill='%232f4f9f'/%3E%3C/g%3E%3Cg id='ga'%3E%3Cpath d='M15 14 L19 14 L23 17 L21 19 L17 16 Z' fill='%23ff7f27'/%3E%3Crect x='22' y='18' width='4' height='2' fill='%23303338'/%3E%3Cpath d='M15 14 L17 15 L12 18 L10 16 Z' fill='%23ff7f27'/%3E%3Crect x='8' y='17' width='4' height='2' fill='%23303338'/%3E%3C/g%3E%3Cg id='gb'%3E%3Crect x='16' y='14' width='3' height='4' fill='%23ff7f27'/%3E%3Crect x='16' y='18' width='4' height='2' fill='%23303338'/%3E%3Cpath d='M14 14 L16 14 L14 18 L12 17 Z' fill='%23ff7f27'/%3E%3Crect x='10' y='17' width='3' height='2' fill='%23303338'/%3E%3C/g%3E%3Cg id='gc'%3E%3Cpath d='M15 14 L18 14 L21 18 L19 19 Z' fill='%23ff7f27'/%3E%3Crect x='19' y='18' width='4' height='2' fill='%23303338'/%3E%3Cpath d='M14 14 L16 15 L13 19 L11 18 Z' fill='%23ff7f27'/%3E%3Crect x='9' y='18' width='4' height='2' fill='%23303338'/%3E%3C/g%3E%3C/defs%3E%3Cg%3E%3Cuse href='%23u'/%3E%3Cuse href='%23ra'/%3E%3Cuse href='%23ga'/%3E%3C/g%3E%3Cg transform='translate(0,23)'%3E%3Cuse href='%23u'/%3E%3Cuse href='%23rb'/%3E%3Cuse href='%23gb'/%3E%3C/g%3E%3Cg transform='translate(0,44)'%3E%3Cuse href='%23u'/%3E%3Cuse href='%23ra'/%3E%3Cuse href='%23gc'/%3E%3C/g%3E%3Cg transform='translate(0,67)'%3E%3Cuse href='%23u'/%3E%3Cuse href='%23rb'/%3E%3Cuse href='%23gb'/%3E%3C/g%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='44' viewBox='0 0 120 44'%3E%3Cg%3E%3Crect x='30' y='8' width='40' height='1' fill='%23ffffff' fill-opacity='0.22'/%3E%3Crect x='10' y='12' width='55' height='1' fill='%23ff7f27' fill-opacity='0.3'/%3E%3Crect x='45' y='15' width='35' height='1' fill='%23ffffff' fill-opacity='0.18'/%3E%3Crect x='25' y='5' width='2' height='2' fill='%234caf50' fill-opacity='0.7'/%3E%3Crect x='70' y='10' width='2' height='2' fill='%234caf50' fill-opacity='0.6'/%3E%3Ccircle cx='95' cy='18' r='1.5' fill='%23888888' fill-opacity='0.3'/%3E%3Ccircle cx='108' cy='19' r='1' fill='%23888888' fill-opacity='0.25'/%3E%3C/g%3E%3Cg transform='translate(0,22)'%3E%3Crect x='22' y='8' width='40' height='1' fill='%23ffffff' fill-opacity='0.22'/%3E%3Crect x='4' y='12' width='55' height='1' fill='%23ff7f27' fill-opacity='0.3'/%3E%3Crect x='38' y='15' width='35' height='1' fill='%23ffffff' fill-opacity='0.18'/%3E%3Crect x='18' y='9' width='2' height='2' fill='%234caf50' fill-opacity='0.7'/%3E%3Crect x='63' y='4' width='2' height='2' fill='%234caf50' fill-opacity='0.6'/%3E%3Ccircle cx='88' cy='19' r='1.5' fill='%23888888' fill-opacity='0.3'/%3E%3Ccircle cx='102' cy='18' r='1' fill='%23888888' fill-opacity='0.25'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 32px 88px, 120px 44px;
+  background-repeat: no-repeat, no-repeat;
+  background-position: -32px 0, -152px 0;
+  animation:
+    rk-flair-naruto-x 6s linear infinite,
+    rk-flair-naruto-y 0.5s step-end infinite;
+}
+
+/* onepiece: a pirate ship under sail. ::after is a bottom-anchored 22px
+   strip with the ship sheet (34×88: 4 frames — sail billow A/B, fluttering
+   black flag with the straw-hat-over-skull emblem, ±1.4° hull roll, 1px
+   bob, wake dashes off the stern) stepping at a gentle ~2.5fps. ::before is
+   TWO scallop-wave tiles (16px and 24px periods) drifting the OPPOSITE way
+   at different speeds — parallax swell, displaced by exact tile multiples
+   per loop. ~14s traversal. */
+@keyframes rk-flair-onepiece-x {
+  from { background-position-x: -34px; }
+  to { background-position-x: calc(100% + 34px); }
+}
+@keyframes rk-flair-onepiece-y {
+  0% { background-position-y: 0px; }
+  25% { background-position-y: -22px; }
+  50% { background-position-y: -44px; }
+  75% { background-position-y: -66px; }
+  100% { background-position-y: -66px; }
+}
+@keyframes rk-flair-onepiece-waves {
+  from { background-position-x: 0, 0; }
+  to { background-position-x: -48px, -72px; }
+}
+.rk-flair-onepiece::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='4' viewBox='0 0 16 4'%3E%3Cpath d='M0 2 Q4 0 8 2 T16 2' fill='none' stroke='%235b8fd9' stroke-opacity='0.5' stroke-width='1.2'/%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='5' viewBox='0 0 24 5'%3E%3Cpath d='M0 3 Q6 1 12 3 T24 3' fill='none' stroke='%237fb3e8' stroke-opacity='0.3' stroke-width='1'/%3E%3C/svg%3E");
+  background-size: 16px 4px, 24px 5px;
+  background-repeat: repeat-x, repeat-x;
+  background-position: 0 100%, 0 calc(100% - 2px);
+  animation: rk-flair-onepiece-waves 4s linear infinite;
+}
+.rk-flair-onepiece::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 22px;
+  pointer-events: none;
+  opacity: 0.92;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='34' height='88' viewBox='0 0 34 88'%3E%3Cdefs%3E%3Cg id='h'%3E%3Crect x='4' y='14' width='26' height='1' fill='%23543314'/%3E%3Crect x='4' y='15' width='26' height='2' fill='%237a4a21'/%3E%3Crect x='5' y='17' width='24' height='1' fill='%23543314'/%3E%3Crect x='6' y='18' width='21' height='1' fill='%237a4a21'/%3E%3Crect x='8' y='19' width='17' height='1' fill='%235d3a1a'/%3E%3Crect x='3' y='12' width='3' height='3' fill='%237a4a21'/%3E%3Crect x='28' y='12' width='3' height='3' fill='%237a4a21'/%3E%3Crect x='30' y='11' width='4' height='1' fill='%23543314'/%3E%3Crect x='16' y='1' width='2' height='13' fill='%233d2b1f'/%3E%3Crect x='10' y='3' width='14' height='1' fill='%233d2b1f'/%3E%3C/g%3E%3Cg id='sa'%3E%3Cpath d='M11 4 Q26 6 24 13 L13 13 Q15 8 11 4 Z' fill='%23efe8d6'/%3E%3C/g%3E%3Cg id='sb'%3E%3Cpath d='M11 4 Q24 6 22 13 L13 13 Q14 8 11 4 Z' fill='%23e6dfc9'/%3E%3C/g%3E%3Cg id='fa'%3E%3Cpath d='M18 0 L26 1 L25 4 L18 4 Z' fill='%231d1d1d'/%3E%3Crect x='19' y='1' width='4' height='1' fill='%23f2c94c'/%3E%3Crect x='20' y='2' width='2' height='2' fill='%23ffffff'/%3E%3C/g%3E%3Cg id='fb'%3E%3Cpath d='M18 0 L25 0 L26 4 L18 4 Z' fill='%231d1d1d'/%3E%3Crect x='19' y='1' width='4' height='1' fill='%23f2c94c'/%3E%3Crect x='20' y='2' width='2' height='2' fill='%23ffffff'/%3E%3C/g%3E%3Cg id='w1'%3E%3Crect x='0' y='16' width='3' height='1' fill='%23ffffff' fill-opacity='0.35'/%3E%3Crect x='1' y='18' width='2' height='1' fill='%23ffffff' fill-opacity='0.25'/%3E%3C/g%3E%3Cg id='w2'%3E%3Crect x='0' y='17' width='4' height='1' fill='%23ffffff' fill-opacity='0.3'/%3E%3Crect x='2' y='19' width='2' height='1' fill='%23ffffff' fill-opacity='0.2'/%3E%3C/g%3E%3C/defs%3E%3Cg%3E%3Cuse href='%23h'/%3E%3Cuse href='%23sa'/%3E%3Cuse href='%23fa'/%3E%3Cuse href='%23w1'/%3E%3C/g%3E%3Cg transform='translate(0,22) rotate(1.4 17 16)'%3E%3Cuse href='%23h'/%3E%3Cuse href='%23sa'/%3E%3Cuse href='%23fb'/%3E%3Cuse href='%23w2'/%3E%3C/g%3E%3Cg transform='translate(0,43)'%3E%3Cuse href='%23h'/%3E%3Cuse href='%23sb'/%3E%3Cuse href='%23fa'/%3E%3Cuse href='%23w1'/%3E%3C/g%3E%3Cg transform='translate(0,66) rotate(-1.4 17 16)'%3E%3Cuse href='%23h'/%3E%3Cuse href='%23sb'/%3E%3Cuse href='%23fb'/%3E%3Cuse href='%23w2'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 34px 88px;
+  background-repeat: no-repeat;
+  background-position: -34px 0;
+  animation:
+    rk-flair-onepiece-x 14s linear infinite,
+    rk-flair-onepiece-y 1.6s step-end infinite;
+}
+
+/* train: the `sl` steam-locomotive homage, marching RIGHT→LEFT. ::after is a
+   22px strip with TWO layers — the consist sheet (90×88: 4 frames — engine
+   with chimney / boiler / cab leading on the LEFT, two coach cars trailing
+   right; the two driving wheels carry a bright crank pin + side rod at 0° /
+   90° / 180° / 270° per frame so the wheels VISIBLY turn, ~6.3fps) and a
+   48px 2-frame steam-puff sheet (puffs rise off the chimney and drift
+   up-and-back, alternating per step) glued with its left edge 1px left of
+   the consist's. Traversal is the MIRROR of nyan's: from fully-off-right
+   `calc(100% + Npx)` down to fully-off-left negatives, with the constants
+   balanced per layer (94/51 ↔ −90/−91) so engine and steam never separate
+   and BOTH layers end fully off-screen (clean loop boundary). ::before is a
+   faint track-tie tile (24px period) racing the OPPOSITE way, exactly one
+   tile per loop. ~11s traversal. */
+@keyframes rk-flair-train-x {
+  from { background-position-x: calc(100% + 94px), calc(100% + 51px); }
+  to { background-position-x: -90px, -91px; }
+}
+@keyframes rk-flair-train-y {
+  0% { background-position-y: 0px, 0px; }
+  25% { background-position-y: -22px, -22px; }
+  50% { background-position-y: -44px, 0px; }
+  75% { background-position-y: -66px, -22px; }
+  100% { background-position-y: -66px, -22px; }
+}
+@keyframes rk-flair-train-ties {
+  from { background-position-x: 0; }
+  to { background-position-x: 24px; }
+}
+.rk-flair-train::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 22px;
+  margin-top: -11px;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='22' viewBox='0 0 24 22'%3E%3Crect x='0' y='16' width='24' height='1' fill='%236a7280' fill-opacity='0.10'/%3E%3Crect x='3' y='18' width='4' height='2' fill='%236a7280' fill-opacity='0.2'/%3E%3Crect x='13' y='18' width='4' height='2' fill='%236a7280' fill-opacity='0.16'/%3E%3Crect x='21' y='19' width='3' height='1' fill='%236a7280' fill-opacity='0.12'/%3E%3C/svg%3E");
+  background-size: 24px 22px;
+  background-repeat: repeat-x;
+  background-position: 0 0;
+  animation: rk-flair-train-ties 0.8s linear infinite;
+}
+.rk-flair-train::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 22px;
+  margin-top: -11px;
+  pointer-events: none;
+  opacity: 0.92;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='90' height='88' viewBox='0 0 90 88'%3E%3Cdefs%3E%3Cg id='eng'%3E%3Crect x='3' y='5' width='4' height='5' fill='%233a3f4a'/%3E%3Crect x='2' y='4' width='6' height='1' fill='%234a505c'/%3E%3Crect x='3' y='10' width='15' height='5' fill='%234a505c'/%3E%3Crect x='1' y='10' width='2' height='5' fill='%235a6270'/%3E%3Crect x='0' y='11' width='1' height='2' fill='%23f6d32d'/%3E%3Crect x='18' y='5' width='11' height='10' fill='%237a3b2e'/%3E%3Crect x='17' y='4' width='13' height='1' fill='%233a3f4a'/%3E%3Crect x='20' y='7' width='4' height='3' fill='%23cdd6e4'/%3E%3Crect x='1' y='15' width='28' height='2' fill='%232e333d'/%3E%3Crect x='0' y='13' width='2' height='1' fill='%236a7280'/%3E%3Crect x='0' y='14' width='3' height='1' fill='%236a7280'/%3E%3C/g%3E%3Cg id='dr'%3E%3Crect x='0' y='0' width='5' height='1' fill='%23242932'/%3E%3Crect x='0' y='4' width='5' height='1' fill='%23242932'/%3E%3Crect x='0' y='1' width='1' height='3' fill='%23242932'/%3E%3Crect x='4' y='1' width='1' height='3' fill='%23242932'/%3E%3Crect x='2' y='2' width='1' height='1' fill='%238a93a3'/%3E%3C/g%3E%3Cg id='fw'%3E%3Crect x='0' y='0' width='3' height='1' fill='%23242932'/%3E%3Crect x='0' y='2' width='3' height='1' fill='%23242932'/%3E%3Crect x='0' y='1' width='1' height='1' fill='%23242932'/%3E%3Crect x='2' y='1' width='1' height='1' fill='%23242932'/%3E%3Crect x='1' y='1' width='1' height='1' fill='%238a93a3'/%3E%3C/g%3E%3Cg id='coa'%3E%3Crect x='-1' y='5' width='26' height='2' fill='%233a3f4a'/%3E%3Crect x='0' y='7' width='24' height='9' fill='%236b4a2f'/%3E%3Crect x='3' y='9' width='4' height='3' fill='%23d8c97a' fill-opacity='0.75'/%3E%3Crect x='10' y='9' width='4' height='3' fill='%23d8c97a' fill-opacity='0.75'/%3E%3Crect x='17' y='9' width='4' height='3' fill='%23d8c97a' fill-opacity='0.75'/%3E%3Crect x='0' y='16' width='24' height='2' fill='%232e333d'/%3E%3C/g%3E%3Cg id='st'%3E%3Cuse href='%23eng'/%3E%3Crect x='30' y='14' width='5' height='1' fill='%234a505c'/%3E%3Crect x='59' y='14' width='4' height='1' fill='%234a505c'/%3E%3Cuse href='%23fw' transform='translate(3,17)'/%3E%3Cuse href='%23dr' transform='translate(9,15)'/%3E%3Cuse href='%23dr' transform='translate(17,15)'/%3E%3Cuse href='%23coa' transform='translate(35,0)'/%3E%3Cuse href='%23fw' transform='translate(38,18)'/%3E%3Cuse href='%23fw' transform='translate(53,18)'/%3E%3Cuse href='%23coa' transform='translate(63,0)'/%3E%3Cuse href='%23fw' transform='translate(66,18)'/%3E%3Cuse href='%23fw' transform='translate(81,18)'/%3E%3C/g%3E%3C/defs%3E%3Cg%3E%3Cuse href='%23st'/%3E%3Crect x='13' y='17' width='8' height='1' fill='%239aa3b2'/%3E%3Crect x='13' y='17' width='1' height='1' fill='%23c8d0dd'/%3E%3Crect x='21' y='17' width='1' height='1' fill='%23c8d0dd'/%3E%3C/g%3E%3Cg transform='translate(0,22)'%3E%3Cuse href='%23st'/%3E%3Crect x='11' y='19' width='8' height='1' fill='%239aa3b2'/%3E%3Crect x='11' y='19' width='1' height='1' fill='%23c8d0dd'/%3E%3Crect x='19' y='19' width='1' height='1' fill='%23c8d0dd'/%3E%3C/g%3E%3Cg transform='translate(0,44)'%3E%3Cuse href='%23st'/%3E%3Crect x='9' y='17' width='8' height='1' fill='%239aa3b2'/%3E%3Crect x='9' y='17' width='1' height='1' fill='%23c8d0dd'/%3E%3Crect x='17' y='17' width='1' height='1' fill='%23c8d0dd'/%3E%3C/g%3E%3Cg transform='translate(0,66)'%3E%3Cuse href='%23st'/%3E%3Crect x='11' y='15' width='8' height='1' fill='%239aa3b2'/%3E%3Crect x='11' y='15' width='1' height='1' fill='%23c8d0dd'/%3E%3Crect x='19' y='15' width='1' height='1' fill='%23c8d0dd'/%3E%3C/g%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='44' viewBox='0 0 48 44'%3E%3Cg fill='white'%3E%3Ccircle cx='6' cy='9' r='2' fill-opacity='0.5'/%3E%3Ccircle cx='12' cy='6' r='2.5' fill-opacity='0.38'/%3E%3Ccircle cx='19' cy='4' r='2' fill-opacity='0.3'/%3E%3Ccircle cx='26' cy='2' r='1.5' fill-opacity='0.22'/%3E%3Ccircle cx='33' cy='1' r='1' fill-opacity='0.15'/%3E%3C/g%3E%3Cg fill='white' transform='translate(0,22)'%3E%3Ccircle cx='7' cy='10' r='1.5' fill-opacity='0.5'/%3E%3Ccircle cx='14' cy='7' r='2' fill-opacity='0.4'/%3E%3Ccircle cx='21' cy='4' r='2' fill-opacity='0.3'/%3E%3Ccircle cx='29' cy='3' r='1.5' fill-opacity='0.22'/%3E%3Ccircle cx='37' cy='1' r='1' fill-opacity='0.15'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 90px 88px, 48px 44px;
+  background-repeat: no-repeat, no-repeat;
+  background-position: calc(100% + 94px) 0, calc(100% + 51px) 0;
+  animation:
+    rk-flair-train-x 11s linear infinite,
+    rk-flair-train-y 0.64s step-end infinite;
+}
+
+/* pacman: the yellow chomper, LEFT→RIGHT. ::after is a 22px strip with THREE
+   layers — the pacman sheet (20×44: 2 frames — wedge mouth open / closed at
+   ~5fps chomp), a 140px dot layer (nine 3×3 pellets at 16px pitch, far end
+   faded through an SVG mask) glued so its left edge sits at pacman's mouth —
+   the dots LEAD (the trail geometry of nyan, run forwards: dots in front,
+   blank behind) — and a 16×44 red-ghost sheet (2-frame skirt wiggle) glued
+   26px behind. All three constants are balanced (−154/−140/−180 →
+   +64/+198/+34) so the chase never separates, and the from-offsets park ALL
+   THREE layers fully off-left (pacman enters a beat after his dots) just as
+   the to-offsets park them fully off-right — loop boundaries happen with a
+   completely empty row. ~7s traversal. */
+@keyframes rk-flair-pacman-x {
+  from { background-position-x: -154px, -140px, -180px; }
+  to { background-position-x: calc(100% + 64px), calc(100% + 198px), calc(100% + 34px); }
+}
+@keyframes rk-flair-pacman-y {
+  0% { background-position-y: 0px, 0px, 0px; }
+  50% { background-position-y: -22px, 0px, -22px; }
+  100% { background-position-y: -22px, 0px, -22px; }
+}
+.rk-flair-pacman::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 22px;
+  margin-top: -11px;
+  pointer-events: none;
+  opacity: 0.92;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='44' viewBox='0 0 20 44'%3E%3Cg fill='%23ffd83d'%3E%3Crect x='6' y='2' width='7' height='1'/%3E%3Crect x='4' y='3' width='11' height='1'/%3E%3Crect x='3' y='4' width='13' height='1'/%3E%3Crect x='2' y='5' width='15' height='1'/%3E%3Crect x='1' y='6' width='17' height='1'/%3E%3Crect x='1' y='7' width='17' height='1'/%3E%3Crect x='1' y='8' width='13' height='1'/%3E%3Crect x='1' y='9' width='11' height='1'/%3E%3Crect x='1' y='10' width='10' height='1'/%3E%3Crect x='1' y='11' width='10' height='1'/%3E%3Crect x='1' y='12' width='11' height='1'/%3E%3Crect x='1' y='13' width='13' height='1'/%3E%3Crect x='1' y='14' width='17' height='1'/%3E%3Crect x='2' y='15' width='15' height='1'/%3E%3Crect x='3' y='16' width='13' height='1'/%3E%3Crect x='4' y='17' width='11' height='1'/%3E%3Crect x='6' y='18' width='7' height='1'/%3E%3C/g%3E%3Crect x='7' y='5' width='2' height='2' fill='%23222222'/%3E%3Cg fill='%23ffd83d' transform='translate(0,22)'%3E%3Crect x='6' y='2' width='7' height='1'/%3E%3Crect x='4' y='3' width='11' height='1'/%3E%3Crect x='3' y='4' width='13' height='1'/%3E%3Crect x='2' y='5' width='15' height='1'/%3E%3Crect x='1' y='6' width='17' height='1'/%3E%3Crect x='1' y='7' width='17' height='1'/%3E%3Crect x='1' y='8' width='17' height='1'/%3E%3Crect x='1' y='9' width='17' height='1'/%3E%3Crect x='1' y='10' width='16' height='1'/%3E%3Crect x='1' y='11' width='16' height='1'/%3E%3Crect x='1' y='12' width='17' height='1'/%3E%3Crect x='1' y='13' width='17' height='1'/%3E%3Crect x='1' y='14' width='17' height='1'/%3E%3Crect x='2' y='15' width='15' height='1'/%3E%3Crect x='3' y='16' width='13' height='1'/%3E%3Crect x='4' y='17' width='11' height='1'/%3E%3Crect x='6' y='18' width='7' height='1'/%3E%3C/g%3E%3Crect x='7' y='27' width='2' height='2' fill='%23222222'/%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='22' viewBox='0 0 140 22'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='0'%3E%3Cstop offset='0' stop-color='white' stop-opacity='1'/%3E%3Cstop offset='0.55' stop-color='white' stop-opacity='0.9'/%3E%3Cstop offset='1' stop-color='white' stop-opacity='0.12'/%3E%3C/linearGradient%3E%3Cmask id='m'%3E%3Crect width='140' height='22' fill='url(%23g)'/%3E%3C/mask%3E%3C/defs%3E%3Cg mask='url(%23m)' fill='%23e8eaf0' fill-opacity='0.8'%3E%3Crect x='4' y='10' width='3' height='3'/%3E%3Crect x='20' y='10' width='3' height='3'/%3E%3Crect x='36' y='10' width='3' height='3'/%3E%3Crect x='52' y='10' width='3' height='3'/%3E%3Crect x='68' y='10' width='3' height='3'/%3E%3Crect x='84' y='10' width='3' height='3'/%3E%3Crect x='100' y='10' width='3' height='3'/%3E%3Crect x='116' y='10' width='3' height='3'/%3E%3Crect x='132' y='10' width='3' height='3'/%3E%3C/g%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='44' viewBox='0 0 16 44'%3E%3Cdefs%3E%3Cg id='gb'%3E%3Crect x='4' y='3' width='8' height='1' fill='%23ff4545'/%3E%3Crect x='3' y='4' width='10' height='1' fill='%23ff4545'/%3E%3Crect x='2' y='5' width='12' height='8' fill='%23ff4545'/%3E%3Crect x='5' y='6' width='2' height='3' fill='white'/%3E%3Crect x='9' y='6' width='2' height='3' fill='white'/%3E%3Crect x='6' y='7' width='1' height='2' fill='%2320242e'/%3E%3Crect x='10' y='7' width='1' height='2' fill='%2320242e'/%3E%3C/g%3E%3C/defs%3E%3Cuse href='%23gb'/%3E%3Crect x='2' y='13' width='3' height='2' fill='%23ff4545'/%3E%3Crect x='6' y='13' width='3' height='2' fill='%23ff4545'/%3E%3Crect x='10' y='13' width='3' height='2' fill='%23ff4545'/%3E%3Cg transform='translate(0,22)'%3E%3Cuse href='%23gb'/%3E%3Crect x='3' y='13' width='3' height='2' fill='%23ff4545'/%3E%3Crect x='7' y='13' width='3' height='2' fill='%23ff4545'/%3E%3Crect x='11' y='13' width='2' height='2' fill='%23ff4545'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 20px 44px, 140px 22px, 16px 44px;
+  background-repeat: no-repeat, no-repeat, no-repeat;
+  background-position: -154px 0, -140px 0, -180px 0;
+  animation:
+    rk-flair-pacman-x 7s linear infinite,
+    rk-flair-pacman-y 0.4s step-end infinite;
+}
+
+/* matrix: ambient glyph rain — NO traversal, no character sheet. ::before is
+   full-box (inset 0: rain has no px sprite frames, and the tiles are seamless
+   at any box height — on rows it reads as the strip, on tiles it fills the
+   box) with THREE repeating tiles of vertical katakana-like stroke clusters
+   in accent-green tones (the palette's #22c55e family, hardcoded because CSS
+   custom properties cannot resolve inside data URIs), each stack BRIGHTEST
+   at its falling head. One linear loop drops the three layers by 1 / 2 / 4
+   exact tile heights respectively (88 / 132 / 176px over 9s), so each layer
+   rains at its own speed and every loop boundary is an exact tile multiple —
+   seamless. */
+@keyframes rk-flair-matrix-fall {
+  from { background-position-y: 0px, 0px, 0px; }
+  to { background-position-y: 88px, 132px, 176px; }
+}
+.rk-flair-matrix::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='88' viewBox='0 0 32 88'%3E%3Cg fill='%23a8ffc0'%3E%3Crect x='4' y='74' width='3' height='1' fill-opacity='0.55'/%3E%3Crect x='6' y='75' width='1' height='2' fill-opacity='0.55'/%3E%3Crect x='18' y='40' width='3' height='1' fill-opacity='0.5'/%3E%3Crect x='20' y='41' width='1' height='2' fill-opacity='0.5'/%3E%3C/g%3E%3Cg fill='%2322c55e'%3E%3Crect x='4' y='64' width='3' height='1' fill-opacity='0.3'/%3E%3Crect x='4' y='65' width='1' height='2' fill-opacity='0.3'/%3E%3Crect x='5' y='54' width='1' height='3' fill-opacity='0.26'/%3E%3Crect x='4' y='56' width='3' height='1' fill-opacity='0.26'/%3E%3Crect x='4' y='44' width='3' height='1' fill-opacity='0.22'/%3E%3Crect x='6' y='45' width='1' height='2' fill-opacity='0.22'/%3E%3Crect x='4' y='34' width='1' height='3' fill-opacity='0.18'/%3E%3Crect x='4' y='24' width='3' height='1' fill-opacity='0.14'/%3E%3Crect x='4' y='25' width='1' height='2' fill-opacity='0.14'/%3E%3Crect x='5' y='14' width='1' height='3' fill-opacity='0.10'/%3E%3Crect x='4' y='4' width='3' height='1' fill-opacity='0.07'/%3E%3Crect x='18' y='30' width='3' height='1' fill-opacity='0.28'/%3E%3Crect x='18' y='31' width='1' height='2' fill-opacity='0.28'/%3E%3Crect x='19' y='20' width='1' height='3' fill-opacity='0.24'/%3E%3Crect x='18' y='22' width='3' height='1' fill-opacity='0.24'/%3E%3Crect x='18' y='10' width='3' height='1' fill-opacity='0.18'/%3E%3Crect x='18' y='2' width='1' height='3' fill-opacity='0.12'/%3E%3Crect x='18' y='50' width='3' height='1' fill-opacity='0.08'/%3E%3Crect x='19' y='60' width='1' height='3' fill-opacity='0.12'/%3E%3Crect x='18' y='70' width='3' height='1' fill-opacity='0.16'/%3E%3Crect x='20' y='71' width='1' height='2' fill-opacity='0.16'/%3E%3Crect x='18' y='80' width='1' height='3' fill-opacity='0.2'/%3E%3C/g%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='66' viewBox='0 0 24 66'%3E%3Cg fill='%238fffb0'%3E%3Crect x='8' y='56' width='3' height='1' fill-opacity='0.45'/%3E%3Crect x='10' y='57' width='1' height='2' fill-opacity='0.45'/%3E%3C/g%3E%3Cg fill='%2322c55e'%3E%3Crect x='8' y='46' width='3' height='1' fill-opacity='0.26'/%3E%3Crect x='8' y='47' width='1' height='2' fill-opacity='0.26'/%3E%3Crect x='9' y='36' width='1' height='3' fill-opacity='0.22'/%3E%3Crect x='8' y='26' width='3' height='1' fill-opacity='0.17'/%3E%3Crect x='8' y='16' width='1' height='3' fill-opacity='0.13'/%3E%3Crect x='8' y='6' width='3' height='1' fill-opacity='0.09'/%3E%3C/g%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='44' viewBox='0 0 40 44'%3E%3Cg fill='%238fffb0'%3E%3Crect x='6' y='34' width='3' height='1' fill-opacity='0.3'/%3E%3Crect x='8' y='35' width='1' height='2' fill-opacity='0.3'/%3E%3Crect x='26' y='14' width='3' height='1' fill-opacity='0.24'/%3E%3Crect x='28' y='15' width='1' height='2' fill-opacity='0.24'/%3E%3C/g%3E%3Cg fill='%2322c55e'%3E%3Crect x='6' y='24' width='3' height='1' fill-opacity='0.18'/%3E%3Crect x='7' y='14' width='1' height='3' fill-opacity='0.14'/%3E%3Crect x='6' y='4' width='3' height='1' fill-opacity='0.10'/%3E%3Crect x='26' y='4' width='3' height='1' fill-opacity='0.12'/%3E%3Crect x='26' y='24' width='3' height='1' fill-opacity='0.10'/%3E%3Crect x='27' y='34' width='1' height='3' fill-opacity='0.08'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 32px 88px, 24px 66px, 40px 44px;
+  background-repeat: repeat, repeat, repeat;
+  background-position: 0 0, 0 0, 0 0;
+  animation: rk-flair-matrix-fall 9s linear infinite;
+}
+
+/* aquarium: the asciiquarium homage. ::after is a 22px strip with THREE
+   layers — an orange fish sheet (18×44, 2-frame tail flap, facing right)
+   crossing LEFT→RIGHT once per 22s loop, a blue fish sheet (16×44, facing
+   left) crossing RIGHT→LEFT TWICE per loop — its mid-loop keyframe pair
+   (50% / 50.01%) teleports it between fully-off-screen positions, giving two
+   genuinely different speeds on one pseudo with no visible snap — and a
+   10×44 seaweed sheet (2-frame sway) anchored at a constant 6px near the
+   left edge. The y-step keyframes toggle the three sheets at 2.5 / 5 / 2.5
+   flips per second from one step-end cadence. ::before is a rising-bubble
+   tile (36×44, repeat) drifting UP exactly one tile per 5s loop. */
+@keyframes rk-flair-aquarium-x {
+  0% { background-position-x: -18px, calc(100% + 20px), 6px; }
+  50% { background-position-x: calc(50% + 2px), -16px, 6px; }
+  50.01% { background-position-x: calc(50% + 2px), calc(100% + 20px), 6px; }
+  100% { background-position-x: calc(100% + 22px), -16px, 6px; }
+}
+@keyframes rk-flair-aquarium-y {
+  0% { background-position-y: 0px, 0px, 0px; }
+  25% { background-position-y: 0px, -22px, 0px; }
+  50% { background-position-y: -22px, 0px, -22px; }
+  75% { background-position-y: -22px, -22px, -22px; }
+  100% { background-position-y: -22px, -22px, -22px; }
+}
+@keyframes rk-flair-aquarium-bubbles {
+  from { background-position-y: 0; }
+  to { background-position-y: -44px; }
+}
+.rk-flair-aquarium::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='36' height='44' viewBox='0 0 36 44'%3E%3Cg fill='white'%3E%3Ccircle cx='6' cy='32' r='1.5' fill-opacity='0.3'/%3E%3Ccircle cx='15' cy='20' r='1' fill-opacity='0.25'/%3E%3Ccircle cx='24' cy='28' r='2' fill-opacity='0.2'/%3E%3Ccircle cx='31' cy='10' r='1' fill-opacity='0.3'/%3E%3Ccircle cx='10' cy='6' r='1' fill-opacity='0.2'/%3E%3Ccircle cx='28' cy='38' r='1' fill-opacity='0.22'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 36px 44px;
+  background-repeat: repeat;
+  background-position: 0 0;
+  animation: rk-flair-aquarium-bubbles 5s linear infinite;
+}
+.rk-flair-aquarium::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 22px;
+  margin-top: -11px;
+  pointer-events: none;
+  opacity: 0.92;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='44' viewBox='0 0 18 44'%3E%3Cdefs%3E%3Cg id='fa'%3E%3Crect x='4' y='8' width='8' height='1' fill='%23f6a34c'/%3E%3Crect x='2' y='9' width='12' height='1' fill='%23f6a34c'/%3E%3Crect x='2' y='10' width='12' height='1' fill='%23f6a34c'/%3E%3Crect x='2' y='11' width='12' height='1' fill='%23f6a34c'/%3E%3Crect x='2' y='12' width='12' height='1' fill='%23f6a34c'/%3E%3Crect x='4' y='13' width='8' height='1' fill='%23f6a34c'/%3E%3Crect x='5' y='7' width='4' height='1' fill='%23d07f2e'/%3E%3Crect x='11' y='10' width='1' height='1' fill='%2320242e'/%3E%3C/g%3E%3C/defs%3E%3Cuse href='%23fa'/%3E%3Crect x='0' y='8' width='2' height='3' fill='%23e88f35'/%3E%3Cg transform='translate(0,22)'%3E%3Cuse href='%23fa'/%3E%3Crect x='0' y='11' width='2' height='3' fill='%23e88f35'/%3E%3C/g%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='44' viewBox='0 0 16 44'%3E%3Cdefs%3E%3Cg id='fb'%3E%3Crect x='4' y='8' width='8' height='1' fill='%235b8fd9'/%3E%3Crect x='2' y='9' width='12' height='1' fill='%235b8fd9'/%3E%3Crect x='2' y='10' width='12' height='1' fill='%235b8fd9'/%3E%3Crect x='2' y='11' width='12' height='1' fill='%235b8fd9'/%3E%3Crect x='2' y='12' width='12' height='1' fill='%235b8fd9'/%3E%3Crect x='4' y='13' width='8' height='1' fill='%235b8fd9'/%3E%3Crect x='6' y='7' width='4' height='1' fill='%234a7ac0'/%3E%3Crect x='4' y='10' width='1' height='1' fill='%2320242e'/%3E%3C/g%3E%3C/defs%3E%3Cuse href='%23fb'/%3E%3Crect x='14' y='8' width='2' height='3' fill='%234a7ac0'/%3E%3Cg transform='translate(0,22)'%3E%3Cuse href='%23fb'/%3E%3Crect x='14' y='11' width='2' height='3' fill='%234a7ac0'/%3E%3C/g%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='44' viewBox='0 0 10 44'%3E%3Cg fill='%233fae5c'%3E%3Crect x='4' y='16' width='2' height='6' fill-opacity='0.8'/%3E%3Crect x='3' y='11' width='2' height='5' fill-opacity='0.8'/%3E%3Crect x='4' y='6' width='2' height='5' fill-opacity='0.8'/%3E%3Crect x='3' y='4' width='2' height='2' fill-opacity='0.8'/%3E%3Crect x='1' y='18' width='2' height='4' fill-opacity='0.65'/%3E%3Crect x='0' y='16' width='2' height='2' fill-opacity='0.65'/%3E%3C/g%3E%3Cg fill='%233fae5c' transform='translate(0,22)'%3E%3Crect x='4' y='16' width='2' height='6' fill-opacity='0.8'/%3E%3Crect x='5' y='11' width='2' height='5' fill-opacity='0.8'/%3E%3Crect x='6' y='6' width='2' height='5' fill-opacity='0.8'/%3E%3Crect x='6' y='4' width='2' height='2' fill-opacity='0.8'/%3E%3Crect x='1' y='18' width='2' height='4' fill-opacity='0.65'/%3E%3Crect x='2' y='16' width='2' height='2' fill-opacity='0.65'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 18px 44px, 16px 44px, 10px 44px;
+  background-repeat: no-repeat, no-repeat, no-repeat;
+  background-position: -18px 0, calc(100% + 20px) 0, 6px 0;
+  animation:
+    rk-flair-aquarium-x 22s linear infinite,
+    rk-flair-aquarium-y 0.8s step-end infinite;
+}
+
+/* dvd (TILE-ONLY): the bouncing DVD-logo homage, mounted inside ~76×56px
+   server tiles. Markup contract: the overlay holds
+   <span class="rk-dvd"><span class="rk-dvd-logo"></span></span>. .rk-dvd
+   sweeps translateX 0→48px on a 7.3s linear ALTERNATE loop while its child
+   .rk-dvd-logo sweeps translateY 0→42px on an INCOMMENSURATE 5.1s alternate
+   loop — the composition ricochets around the box like the screensaver —
+   plus a 3.7s step-end hue-rotate recolor loop so the color changes read as
+   bounce-triggered. The logo is a 28×14 rounded "RK" lozenge inline SVG.
+   Transform on these CHILD SPANS is the sanctioned tile-only exception. */
+@keyframes rk-flair-dvd-x {
+  from { transform: translateX(0); }
+  to { transform: translateX(48px); }
+}
+@keyframes rk-flair-dvd-y {
+  from { transform: translateY(0); }
+  to { transform: translateY(42px); }
+}
+@keyframes rk-flair-dvd-hue {
+  0% { filter: hue-rotate(0deg); }
+  17% { filter: hue-rotate(50deg); }
+  34% { filter: hue-rotate(120deg); }
+  51% { filter: hue-rotate(190deg); }
+  68% { filter: hue-rotate(250deg); }
+  85% { filter: hue-rotate(310deg); }
+  100% { filter: hue-rotate(310deg); }
+}
+.rk-flair-dvd .rk-dvd {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  animation: rk-flair-dvd-x 7.3s linear infinite alternate;
+}
+.rk-flair-dvd .rk-dvd-logo {
+  display: block;
+  width: 28px;
+  height: 14px;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='14' viewBox='0 0 28 14'%3E%3Crect x='0' y='0' width='28' height='14' rx='4' fill='%23f2f4f8'/%3E%3Cg fill='%2320242e'%3E%3Crect x='5' y='4' width='1' height='7'/%3E%3Crect x='6' y='4' width='2' height='1'/%3E%3Crect x='8' y='5' width='1' height='2'/%3E%3Crect x='6' y='7' width='2' height='1'/%3E%3Crect x='7' y='8' width='1' height='1'/%3E%3Crect x='8' y='9' width='1' height='2'/%3E%3Crect x='12' y='4' width='1' height='7'/%3E%3Crect x='13' y='6' width='1' height='1'/%3E%3Crect x='14' y='5' width='1' height='1'/%3E%3Crect x='15' y='4' width='1' height='1'/%3E%3Crect x='13' y='8' width='1' height='1'/%3E%3Crect x='14' y='9' width='1' height='1'/%3E%3Crect x='15' y='10' width='1' height='1'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 28px 14px;
+  background-repeat: no-repeat;
+  animation:
+    rk-flair-dvd-y 5.1s linear infinite alternate,
+    rk-flair-dvd-hue 3.7s step-end infinite;
+}
+
+/* tetris (TILE-ONLY): pieces falling into the tile's bottom-RIGHT corner.
+   ::after is a full-box (inset 0) pseudo carrying ONE 76×448 sheet — 8
+   frames of 56px (= the tile height, right-anchored so the stack hugs the
+   corner even if a tile runs wide): an L-piece descends in two steps and
+   lands, a square follows and stacks beside it, an I-piece stacks on top,
+   then a white FLASH frame reads as the line clear, and the loop restarts
+   on the empty well. The physics is drawn into the frames, not computed;
+   background-position-y steps the sheet with step-end at ~1.7fps. */
+@keyframes rk-flair-tetris-y {
+  0% { background-position-y: 0px; }
+  12.5% { background-position-y: -56px; }
+  25% { background-position-y: -112px; }
+  37.5% { background-position-y: -168px; }
+  50% { background-position-y: -224px; }
+  62.5% { background-position-y: -280px; }
+  75% { background-position-y: -336px; }
+  87.5% { background-position-y: -392px; }
+  100% { background-position-y: -392px; }
+}
+.rk-flair-tetris::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.9;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='76' height='448' viewBox='0 0 76 448'%3E%3Cdefs%3E%3Cg id='p1'%3E%3Crect x='0' y='0' width='6' height='6'/%3E%3Crect x='7' y='0' width='6' height='6'/%3E%3Crect x='7' y='-7' width='6' height='6'/%3E%3C/g%3E%3Cg id='p2'%3E%3Crect x='0' y='0' width='6' height='6'/%3E%3Crect x='7' y='0' width='6' height='6'/%3E%3Crect x='0' y='-7' width='6' height='6'/%3E%3Crect x='7' y='-7' width='6' height='6'/%3E%3C/g%3E%3Cg id='p3'%3E%3Crect x='0' y='0' width='6' height='6'/%3E%3Crect x='0' y='-7' width='6' height='6'/%3E%3C/g%3E%3C/defs%3E%3Cg fill='%2360a5fa'%3E%3Cuse href='%23p1' transform='translate(61,7)'/%3E%3C/g%3E%3Cg transform='translate(0,56)' fill='%2360a5fa'%3E%3Cuse href='%23p1' transform='translate(61,21)'/%3E%3C/g%3E%3Cg transform='translate(0,112)'%3E%3Cg fill='%2360a5fa'%3E%3Cuse href='%23p1' transform='translate(61,49)'/%3E%3C/g%3E%3Cg fill='%23facc15'%3E%3Cuse href='%23p2' transform='translate(47,7)'/%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(0,168)'%3E%3Cg fill='%2360a5fa'%3E%3Cuse href='%23p1' transform='translate(61,49)'/%3E%3C/g%3E%3Cg fill='%23facc15'%3E%3Cuse href='%23p2' transform='translate(47,21)'/%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(0,224)'%3E%3Cg fill='%2360a5fa'%3E%3Cuse href='%23p1' transform='translate(61,49)'/%3E%3C/g%3E%3Cg fill='%23facc15'%3E%3Cuse href='%23p2' transform='translate(47,49)'/%3E%3C/g%3E%3Cg fill='%23c084fc'%3E%3Cuse href='%23p3' transform='translate(68,7)'/%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(0,280)'%3E%3Cg fill='%2360a5fa'%3E%3Cuse href='%23p1' transform='translate(61,49)'/%3E%3C/g%3E%3Cg fill='%23facc15'%3E%3Cuse href='%23p2' transform='translate(47,49)'/%3E%3C/g%3E%3Cg fill='%23c084fc'%3E%3Cuse href='%23p3' transform='translate(68,21)'/%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(0,336)'%3E%3Cg fill='%2360a5fa'%3E%3Cuse href='%23p1' transform='translate(61,49)'/%3E%3C/g%3E%3Cg fill='%23facc15'%3E%3Cuse href='%23p2' transform='translate(47,49)'/%3E%3C/g%3E%3Cg fill='%23c084fc'%3E%3Cuse href='%23p3' transform='translate(68,35)'/%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(0,392)' fill='white'%3E%3Cuse href='%23p1' transform='translate(61,49)'/%3E%3Cuse href='%23p2' transform='translate(47,49)'/%3E%3Cuse href='%23p3' transform='translate(68,35)'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 76px 448px;
+  background-repeat: no-repeat;
+  background-position: 100% 0;
+  animation: rk-flair-tetris-y 4.8s step-end infinite;
+}
+
+/* invaders (TILE-ONLY): a 3×2 formation (crabs over squids) marching
+   right → down → left with the classic 2-frame arm/feet wiggle. ::after is
+   a full-box pseudo with TWO layers: a 76×672 sheet — 12 frames of 56px,
+   each frame drawing the whole formation at its march offset (0/6/12px
+   right, then 6px down and back) with the wiggle alternating every frame,
+   stepped at ~2.5fps so the formation shuffles one step every two frames —
+   and a static 76×56 second layer holding the two shield stubs at the
+   bottom edge (constant 0 offsets in every keyframe). The loop's jump back
+   to the top reads as the next wave arriving. */
+@keyframes rk-flair-invaders-y {
+  0% { background-position-y: 0px, 0px; }
+  8.333% { background-position-y: -56px, 0px; }
+  16.667% { background-position-y: -112px, 0px; }
+  25% { background-position-y: -168px, 0px; }
+  33.333% { background-position-y: -224px, 0px; }
+  41.667% { background-position-y: -280px, 0px; }
+  50% { background-position-y: -336px, 0px; }
+  58.333% { background-position-y: -392px, 0px; }
+  66.667% { background-position-y: -448px, 0px; }
+  75% { background-position-y: -504px, 0px; }
+  83.333% { background-position-y: -560px, 0px; }
+  91.667% { background-position-y: -616px, 0px; }
+  100% { background-position-y: -616px, 0px; }
+}
+.rk-flair-invaders::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.9;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='76' height='672' viewBox='0 0 76 672'%3E%3Cdefs%3E%3Cg id='cb'%3E%3Crect x='2' y='0' width='1' height='1'/%3E%3Crect x='7' y='0' width='1' height='1'/%3E%3Crect x='3' y='1' width='4' height='1'/%3E%3Crect x='1' y='2' width='8' height='1'/%3E%3Crect x='0' y='3' width='10' height='1'/%3E%3Crect x='1' y='4' width='8' height='1'/%3E%3Crect x='3' y='3' width='1' height='1' fill='%230f1117'/%3E%3Crect x='6' y='3' width='1' height='1' fill='%230f1117'/%3E%3C/g%3E%3Cg id='ia'%3E%3Cuse href='%23cb'/%3E%3Crect x='0' y='4' width='1' height='3'/%3E%3Crect x='9' y='4' width='1' height='3'/%3E%3Crect x='1' y='7' width='2' height='1'/%3E%3Crect x='4' y='7' width='2' height='1'/%3E%3Crect x='7' y='7' width='2' height='1'/%3E%3C/g%3E%3Cg id='ib'%3E%3Cuse href='%23cb'/%3E%3Crect x='0' y='5' width='1' height='2'/%3E%3Crect x='9' y='5' width='1' height='2'/%3E%3Crect x='2' y='7' width='2' height='1'/%3E%3Crect x='5' y='7' width='2' height='1'/%3E%3Crect x='8' y='7' width='2' height='1'/%3E%3C/g%3E%3Cg id='sq'%3E%3Crect x='3' y='0' width='2' height='1'/%3E%3Crect x='2' y='1' width='4' height='1'/%3E%3Crect x='1' y='2' width='6' height='1'/%3E%3Crect x='0' y='3' width='8' height='1'/%3E%3Crect x='2' y='2' width='1' height='1' fill='%230f1117'/%3E%3Crect x='5' y='2' width='1' height='1' fill='%230f1117'/%3E%3C/g%3E%3Cg id='sa'%3E%3Cuse href='%23sq'/%3E%3Crect x='0' y='4' width='1' height='3'/%3E%3Crect x='2' y='4' width='1' height='2'/%3E%3Crect x='5' y='4' width='1' height='2'/%3E%3Crect x='7' y='4' width='1' height='3'/%3E%3C/g%3E%3Cg id='sb'%3E%3Cuse href='%23sq'/%3E%3Crect x='0' y='4' width='1' height='2'/%3E%3Crect x='3' y='4' width='1' height='3'/%3E%3Crect x='4' y='4' width='1' height='3'/%3E%3Crect x='7' y='4' width='1' height='2'/%3E%3C/g%3E%3C/defs%3E%3Cg%3E%3Cg fill='%23b9f6ca'%3E%3Cuse href='%23ia' transform='translate(18,8)'/%3E%3Cuse href='%23ia' transform='translate(34,8)'/%3E%3Cuse href='%23ia' transform='translate(50,8)'/%3E%3C/g%3E%3Cg fill='%238fd0ff'%3E%3Cuse href='%23sa' transform='translate(19,22)'/%3E%3Cuse href='%23sa' transform='translate(35,22)'/%3E%3Cuse href='%23sa' transform='translate(51,22)'/%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(0,56)'%3E%3Cg fill='%23b9f6ca'%3E%3Cuse href='%23ib' transform='translate(18,8)'/%3E%3Cuse href='%23ib' transform='translate(34,8)'/%3E%3Cuse href='%23ib' transform='translate(50,8)'/%3E%3C/g%3E%3Cg fill='%238fd0ff'%3E%3Cuse href='%23sb' transform='translate(19,22)'/%3E%3Cuse href='%23sb' transform='translate(35,22)'/%3E%3Cuse href='%23sb' transform='translate(51,22)'/%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(0,112)'%3E%3Cg transform='translate(6,0)' fill='%23b9f6ca'%3E%3Cuse href='%23ia' transform='translate(18,8)'/%3E%3Cuse href='%23ia' transform='translate(34,8)'/%3E%3Cuse href='%23ia' transform='translate(50,8)'/%3E%3C/g%3E%3Cg transform='translate(6,0)' fill='%238fd0ff'%3E%3Cuse href='%23sa' transform='translate(19,22)'/%3E%3Cuse href='%23sa' transform='translate(35,22)'/%3E%3Cuse href='%23sa' transform='translate(51,22)'/%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(0,168)'%3E%3Cg transform='translate(6,0)' fill='%23b9f6ca'%3E%3Cuse href='%23ib' transform='translate(18,8)'/%3E%3Cuse href='%23ib' transform='translate(34,8)'/%3E%3Cuse href='%23ib' transform='translate(50,8)'/%3E%3C/g%3E%3Cg transform='translate(6,0)' fill='%238fd0ff'%3E%3Cuse href='%23sb' transform='translate(19,22)'/%3E%3Cuse href='%23sb' transform='translate(35,22)'/%3E%3Cuse href='%23sb' transform='translate(51,22)'/%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(0,224)'%3E%3Cg transform='translate(12,0)' fill='%23b9f6ca'%3E%3Cuse href='%23ia' transform='translate(18,8)'/%3E%3Cuse href='%23ia' transform='translate(34,8)'/%3E%3Cuse href='%23ia' transform='translate(50,8)'/%3E%3C/g%3E%3Cg transform='translate(12,0)' fill='%238fd0ff'%3E%3Cuse href='%23sa' transform='translate(19,22)'/%3E%3Cuse href='%23sa' transform='translate(35,22)'/%3E%3Cuse href='%23sa' transform='translate(51,22)'/%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(0,280)'%3E%3Cg transform='translate(12,0)' fill='%23b9f6ca'%3E%3Cuse href='%23ib' transform='translate(18,8)'/%3E%3Cuse href='%23ib' transform='translate(34,8)'/%3E%3Cuse href='%23ib' transform='translate(50,8)'/%3E%3C/g%3E%3Cg transform='translate(12,0)' fill='%238fd0ff'%3E%3Cuse href='%23sb' transform='translate(19,22)'/%3E%3Cuse href='%23sb' transform='translate(35,22)'/%3E%3Cuse href='%23sb' transform='translate(51,22)'/%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(0,336)'%3E%3Cg transform='translate(12,6)' fill='%23b9f6ca'%3E%3Cuse href='%23ia' transform='translate(18,8)'/%3E%3Cuse href='%23ia' transform='translate(34,8)'/%3E%3Cuse href='%23ia' transform='translate(50,8)'/%3E%3C/g%3E%3Cg transform='translate(12,6)' fill='%238fd0ff'%3E%3Cuse href='%23sa' transform='translate(19,22)'/%3E%3Cuse href='%23sa' transform='translate(35,22)'/%3E%3Cuse href='%23sa' transform='translate(51,22)'/%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(0,392)'%3E%3Cg transform='translate(12,6)' fill='%23b9f6ca'%3E%3Cuse href='%23ib' transform='translate(18,8)'/%3E%3Cuse href='%23ib' transform='translate(34,8)'/%3E%3Cuse href='%23ib' transform='translate(50,8)'/%3E%3C/g%3E%3Cg transform='translate(12,6)' fill='%238fd0ff'%3E%3Cuse href='%23sb' transform='translate(19,22)'/%3E%3Cuse href='%23sb' transform='translate(35,22)'/%3E%3Cuse href='%23sb' transform='translate(51,22)'/%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(0,448)'%3E%3Cg transform='translate(6,6)' fill='%23b9f6ca'%3E%3Cuse href='%23ia' transform='translate(18,8)'/%3E%3Cuse href='%23ia' transform='translate(34,8)'/%3E%3Cuse href='%23ia' transform='translate(50,8)'/%3E%3C/g%3E%3Cg transform='translate(6,6)' fill='%238fd0ff'%3E%3Cuse href='%23sa' transform='translate(19,22)'/%3E%3Cuse href='%23sa' transform='translate(35,22)'/%3E%3Cuse href='%23sa' transform='translate(51,22)'/%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(0,504)'%3E%3Cg transform='translate(6,6)' fill='%23b9f6ca'%3E%3Cuse href='%23ib' transform='translate(18,8)'/%3E%3Cuse href='%23ib' transform='translate(34,8)'/%3E%3Cuse href='%23ib' transform='translate(50,8)'/%3E%3C/g%3E%3Cg transform='translate(6,6)' fill='%238fd0ff'%3E%3Cuse href='%23sb' transform='translate(19,22)'/%3E%3Cuse href='%23sb' transform='translate(35,22)'/%3E%3Cuse href='%23sb' transform='translate(51,22)'/%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(0,560)'%3E%3Cg transform='translate(0,6)' fill='%23b9f6ca'%3E%3Cuse href='%23ia' transform='translate(18,8)'/%3E%3Cuse href='%23ia' transform='translate(34,8)'/%3E%3Cuse href='%23ia' transform='translate(50,8)'/%3E%3C/g%3E%3Cg transform='translate(0,6)' fill='%238fd0ff'%3E%3Cuse href='%23sa' transform='translate(19,22)'/%3E%3Cuse href='%23sa' transform='translate(35,22)'/%3E%3Cuse href='%23sa' transform='translate(51,22)'/%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(0,616)'%3E%3Cg transform='translate(0,6)' fill='%23b9f6ca'%3E%3Cuse href='%23ib' transform='translate(18,8)'/%3E%3Cuse href='%23ib' transform='translate(34,8)'/%3E%3Cuse href='%23ib' transform='translate(50,8)'/%3E%3C/g%3E%3Cg transform='translate(0,6)' fill='%238fd0ff'%3E%3Cuse href='%23sb' transform='translate(19,22)'/%3E%3Cuse href='%23sb' transform='translate(35,22)'/%3E%3Cuse href='%23sb' transform='translate(51,22)'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='76' height='56' viewBox='0 0 76 56'%3E%3Cg fill='%233fae5c' fill-opacity='0.5'%3E%3Crect x='20' y='48' width='10' height='3'/%3E%3Crect x='21' y='46' width='8' height='2'/%3E%3Crect x='48' y='48' width='10' height='3'/%3E%3Crect x='49' y='46' width='8' height='2'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 76px 672px, 76px 56px;
+  background-repeat: no-repeat, no-repeat;
+  background-position: 0 0, 0 0;
+  animation: rk-flair-invaders-y 4.8s step-end infinite;
+}
+
+/* cube (TILE-ONLY 3D): a wireframe cube tumbling inside the tile. Markup
+   contract: the overlay (which sets the perspective) holds
+   <span class="rk-cube"> with SIX <span class="rk-cube-face"> children.
+   .rk-cube is a 26×26 preserve-3d stage centered in the ~76×56px box on an
+   8s tumble (rotateX −18°→342° while rotateY runs 0°→360° — a smooth loop,
+   not an alternate); the six faces are translucent accent-green fills with
+   brighter green borders, folded into a cube with rotateY/rotateX +
+   translateZ(13px). Transform on these CHILD SPANS is the sanctioned
+   tile-only exception. */
+@keyframes rk-flair-cube-spin {
+  from { transform: rotateX(-18deg) rotateY(0deg); }
+  to { transform: rotateX(342deg) rotateY(360deg); }
+}
+.rk-flair-cube {
+  perspective: 110px;
+}
+.rk-flair-cube .rk-cube {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 26px;
+  height: 26px;
+  margin: -13px 0 0 -13px;
+  pointer-events: none;
+  transform-style: preserve-3d;
+  animation: rk-flair-cube-spin 8s linear infinite;
+}
+.rk-flair-cube .rk-cube-face {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: rgba(34, 197, 94, 0.07);
+  border: 1px solid rgba(34, 197, 94, 0.5);
+}
+.rk-flair-cube .rk-cube-face:nth-child(1) { transform: translateZ(13px); }
+.rk-flair-cube .rk-cube-face:nth-child(2) { transform: rotateY(180deg) translateZ(13px); }
+.rk-flair-cube .rk-cube-face:nth-child(3) { transform: rotateY(90deg) translateZ(13px); }
+.rk-flair-cube .rk-cube-face:nth-child(4) { transform: rotateY(-90deg) translateZ(13px); }
+.rk-flair-cube .rk-cube-face:nth-child(5) { transform: rotateX(90deg) translateZ(13px); }
+.rk-flair-cube .rk-cube-face:nth-child(6) { transform: rotateX(-90deg) translateZ(13px); }
+
+/* warp (TILE-ONLY 3D): a hyperspace starfield. Markup contract: the overlay
+   (which sets the perspective) holds THREE <span class="rk-warp-plane">
+   children. Each plane is oversized (inset −150%, so it still covers the box
+   at its far-depth scale), carries a repeating 48px star tile, and flies
+   from translateZ(−160px) (small, faded in) to translateZ(55px) (past the
+   60px perspective camera, fading out) on a 3.6s linear loop; the three
+   planes are staggered by negative animation-delays (−1.2s / −2.4s) so one
+   plane is always mid-flight — continuous depth zoom. The tile overlay's
+   own overflow-hidden clips the past-camera blowout. */
+@keyframes rk-flair-warp-zoom {
+  0% { transform: translateZ(-160px); opacity: 0; }
+  20% { opacity: 0.75; }
+  75% { opacity: 0.5; }
+  100% { transform: translateZ(55px); opacity: 0; }
+}
+.rk-flair-warp {
+  perspective: 60px;
+}
+.rk-flair-warp .rk-warp-plane {
+  position: absolute;
+  inset: -150%;
+  pointer-events: none;
+  opacity: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 48 48'%3E%3Cg fill='white'%3E%3Crect x='6' y='8' width='1' height='1' fill-opacity='0.55'/%3E%3Crect x='20' y='26' width='2' height='2' fill-opacity='0.4'/%3E%3Crect x='38' y='12' width='1' height='1' fill-opacity='0.6'/%3E%3Crect x='12' y='40' width='1' height='1' fill-opacity='0.35'/%3E%3Crect x='30' y='44' width='2' height='1' fill-opacity='0.3'/%3E%3Crect x='44' y='34' width='1' height='1' fill-opacity='0.5'/%3E%3Crect x='26' y='6' width='1' height='1' fill-opacity='0.4'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 48px 48px;
+  background-repeat: repeat;
+  animation: rk-flair-warp-zoom 3.6s linear infinite;
+}
+.rk-flair-warp .rk-warp-plane:nth-child(2) { animation-delay: -1.2s; }
+.rk-flair-warp .rk-warp-plane:nth-child(3) { animation-delay: -2.4s; }

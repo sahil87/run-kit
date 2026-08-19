@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useTheme } from "@/contexts/theme-context";
 import { Tip, TipGroup } from "@/components/tip";
+import { FlairOverlay } from "@/components/flair-overlay";
 import {
   PICKER_COLOR_VALUES,
   MARKER_STATES,
@@ -45,12 +46,14 @@ type SwatchPopoverProps = {
    *  square style, no marker column, no hairline. */
   selectedMarker?: string;
   onSelectMarker?: (marker: string) => void;
-  /** When `onSelectFlair` is supplied, a flair row (∅ / nyan / naruto /
-   *  onepiece) renders below the color grid behind a horizontal hairline —
-   *  live row previews like the marker column, each carrying its always-on
-   *  rk-flair-* overlay. Selection calls `onSelectFlair` DIRECTLY — `""`
-   *  clears, no cycling. ArrowDown from the bottom color row enters it as an
-   *  extra grid row (FLAIR_ROW). Offered on window and session rows; NOT
+  /** When `onSelectFlair` is supplied, a flair section (∅ + the named
+   *  FLAIR_STATES — nyan / naruto / onepiece / pacman / matrix / aquarium /
+   *  roadrunner / invaders / cube / warp) renders below the color grid behind
+   *  a horizontal hairline — live row previews like the marker column, each
+   *  carrying its always-on rk-flair-* overlay. Selection calls
+   *  `onSelectFlair` DIRECTLY — `""` clears, no cycling. ArrowDown from the
+   *  bottom color row enters it as extra grid rows (FLAIR_ROW … FLAIR_ROW+2,
+   *  a 4/4/3 wrap of the 11 cells). Offered on window and session rows; NOT
    *  server group headers. */
   selectedFlair?: string;
   onSelectFlair?: (flair: string) => void;
@@ -71,13 +74,31 @@ const MARKER_CELLS = MARKER_STATES;
 /** Number of grid rows: the removal row + 20 / 4 = 5 color rows. */
 const GRID_ROWS = 1 + Math.ceil(PICKER_COLOR_VALUES.length / COLOR_COLS); // 6
 
-/** The flair row index: one row below the color grid, cells at cols 1–4. The
- *  marker column does NOT extend into it — ArrowLeft from its first cell is a
- *  no-op. */
+/** The first flair row index: one row below the color grid. The flair cells
+ *  flow inside the SAME 4-wide grid, so the 11 cells (∅ + 10 named) wrap into
+ *  THREE logical rows of 4/4/3 (FLAIR_ROW, FLAIR_ROW+1, FLAIR_ROW+2): flair
+ *  index i sits at row FLAIR_ROW + floor(i/4), col (i%4)+1. The marker column
+ *  does NOT extend into the flair rows — ArrowLeft from their first cell is a
+ *  no-op, and entering any flair row from col 0 lands on col 1. */
 const FLAIR_ROW = GRID_ROWS;
 
+/** Number of logical flair rows (3 for the 11-cell catalogue). */
+const FLAIR_ROWS = Math.ceil(FLAIR_STATES.length / COLOR_COLS);
+
+/** Last valid column in a logical flair row — 4 for full rows, 3 for the
+ *  short last row (ArrowRight clamps here, ArrowDown clamps onto it). */
+function maxFlairCol(row: number): number {
+  return Math.min(COLOR_COLS, FLAIR_STATES.length - (row - FLAIR_ROW) * COLOR_COLS);
+}
+
+/** Flair-state index for a grid position in the flair rows. */
+function flairIndexAt(row: number, col: number): number {
+  return (row - FLAIR_ROW) * COLOR_COLS + (col - 1);
+}
+
 /** Keyboard focus position on the conceptual grid. row 0 = removal row
- *  (∅ | Clear | ✕), 1–5 = color rows, FLAIR_ROW = flair row; col 0 = marker
+ *  (∅ | Clear | ✕), 1–5 = color rows, FLAIR_ROW…FLAIR_ROW+FLAIR_ROWS-1 =
+ *  flair rows; col 0 = marker
  *  column, 1–4 = color columns. On row 0 the Clear button spans cols 1–3 as a
  *  SINGLE focus target canonicalized to col 1; the ✕ cell sits at col 4. */
 type GridPos = { row: number; col: number };
@@ -166,8 +187,8 @@ export function SwatchPopover({
   // Activate the cell at a grid position (Enter/Space).
   const activate = useCallback(
     (pos: GridPos) => {
-      if (pos.row === FLAIR_ROW) {
-        const flair = FLAIR_STATES[pos.col - 1];
+      if (pos.row >= FLAIR_ROW) {
+        const flair = FLAIR_STATES[flairIndexAt(pos.row, pos.col)];
         if (onSelectFlair && flair !== undefined) onSelectFlair(flair);
       } else if (pos.col === 0) {
         // The undefined check guards against the 1:1 pairing drifting
@@ -233,7 +254,8 @@ export function SwatchPopover({
         setFocus((f) => {
           if (f.col === 0) return { row: f.row, col: 1 }; // cross the hairline
           if (f.row === 0) return { row: 0, col: COLOR_COLS }; // Clear → ✕ (Clear spans cols 1–3)
-          if (f.row === FLAIR_ROW) return { row: f.row, col: Math.min(f.col + 1, FLAIR_STATES.length) };
+          // Flair rows: clamp at EACH row's last cell (4/4/3).
+          if (f.row >= FLAIR_ROW) return { row: f.row, col: Math.min(f.col + 1, maxFlairCol(f.row)) };
           return { row: f.row, col: Math.min(f.col + 1, maxColorCol(f.row)) };
         });
       } else if (e.key === "ArrowLeft") {
@@ -249,12 +271,13 @@ export function SwatchPopover({
       } else if (e.key === "ArrowDown") {
         e.preventDefault();
         setFocus((f) => {
-          const lastRow = showFlair ? FLAIR_ROW : GRID_ROWS - 1;
+          const lastRow = showFlair ? FLAIR_ROW + FLAIR_ROWS - 1 : GRID_ROWS - 1;
           if (f.row >= lastRow) return f; // bottom row
           const row = f.row + 1;
-          // Into the flair row: the marker column has no cell there, so col 0
-          // lands on the row's first cell (∅, col 1).
-          if (row === FLAIR_ROW) return { row, col: f.col === 0 ? 1 : f.col };
+          // Into a flair row: the marker column has no cell there, so col 0
+          // lands on the row's first cell (∅, col 1) — the exception extends
+          // to ALL flair rows.
+          if (row >= FLAIR_ROW) return { row, col: Math.min(f.col === 0 ? 1 : f.col, maxFlairCol(row)) };
           if (f.col === 0) return { row, col: 0 }; // within the marker column
           return { row, col: Math.min(f.col, maxColorCol(row)) };
         });
@@ -264,6 +287,9 @@ export function SwatchPopover({
           if (f.row === 0) return f; // top row
           const row = f.row - 1;
           if (f.col === 0) return { row, col: 0 }; // within the marker column
+          // Between flair rows (4/4/3): the row above is never narrower, so
+          // the column carries straight up.
+          if (f.row > FLAIR_ROW) return { row, col: f.col };
           // Into the removal row: cols 1–3 land on Clear (single spanning
           // target, canonical col 1); col 4 lands on the ✕ close cell.
           if (row === 0) return { row: 0, col: f.col === COLOR_COLS ? COLOR_COLS : 1 };
@@ -419,14 +445,19 @@ export function SwatchPopover({
               </button>
             );
           })}
-          {/* Flair row: live row previews of the selected color, each carrying
-              its always-on rk-flair-* overlay. */}
+          {/* Flair section: live row previews of the selected color, each
+              carrying its always-on rk-flair-* overlay. The 11 cells (∅ + the
+              named FLAIR_STATES) flow inside the 4-wide grid as 4/4/3 — the
+              keyboard nav treats them as three logical rows (FLAIR_ROW…+2). */}
           {showFlair && (
             <>
               <div className="col-span-4 h-px bg-border self-center" aria-hidden="true" />
               {FLAIR_STATES.map((state, i) => {
                 const isSelected = currentFlair === state;
-                const isFocused = keyboardActive && focus.row === FLAIR_ROW && focus.col === i + 1;
+                const isFocused =
+                  keyboardActive &&
+                  focus.row === FLAIR_ROW + Math.floor(i / COLOR_COLS) &&
+                  focus.col === (i % COLOR_COLS) + 1;
                 const isPreview = state !== "";
                 return (
                   <Tip key={state || "none"} label={state || "none"}>
@@ -447,9 +478,7 @@ export function SwatchPopover({
                         : undefined
                     }
                   >
-                    {isPreview && (
-                      <span aria-hidden="true" className={`rk-flair-${state} absolute inset-0 pointer-events-none`} />
-                    )}
+                    {isPreview && <FlairOverlay flair={state} />}
                     {state === "" && (
                       <span className="absolute inset-0 flex items-center justify-center text-text-secondary" style={{ fontSize: 10, lineHeight: 1 }}>
                         &#x2205;

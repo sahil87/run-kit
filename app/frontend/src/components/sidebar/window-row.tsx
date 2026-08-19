@@ -5,6 +5,7 @@ import type { MergedSession } from "@/contexts/optimistic-context";
 import type { BoardSummary } from "@/api/boards";
 import { UNCOLORED_SELECTED_KEY, markerStripeStyle, type RowTint } from "@/themes";
 import { SwatchPopover } from "@/components/swatch-popover";
+import { FlairOverlay } from "@/components/flair-overlay";
 import { StatusDot } from "@/components/status-dot";
 import { prOwnsGlyph, prGlyphColor } from "@/components/pr-status-model";
 import { PinPopover } from "./pin-popover";
@@ -80,6 +81,10 @@ type WindowRowProps = {
   /** Whether this row is draggable (ghost rows are not). When false the drag
    *  handlers are not wired. */
   draggable?: boolean;
+  /** True while this row is the drag source — hides the flair overlay for the
+   *  drag's duration (cube/warp animate transforms on child spans, which would
+   *  corrupt the drag ghost; the guard is uniform across flairs). */
+  isDragSource?: boolean;
   onDragStart?: (e: React.DragEvent, server: string, session: string, index: number, windowId: string, name: string) => void;
   onDragOver?: (e: React.DragEvent, server: string, session: string, index: number) => void;
   onDrop?: (e: React.DragEvent, server: string, session: string, index: number) => void;
@@ -174,6 +179,7 @@ function WindowRowInner({
   onRenameBlur,
   onKillClick,
   draggable = false,
+  isDragSource = false,
   onDragStart,
   onDragOver,
   onDrop,
@@ -551,13 +557,9 @@ function WindowRowInner({
           as the marker textures above (dedicated clipped inner element, never
           the root, pointer-events-none, z-5) and composes with the color tint
           and any marker overlay. Hidden entirely under prefers-reduced-motion
-          (globals.css § Flair overlays). */}
-      {win.flair && (
-        <span
-          aria-hidden="true"
-          className={`absolute inset-0 z-[5] overflow-hidden pointer-events-none rk-flair-${win.flair}`}
-        />
-      )}
+          (globals.css § Flair overlays) and while this row is the drag source
+          (cube/warp animate transforms on child spans — the drag ghost rule). */}
+      <FlairOverlay flair={win.flair} hidden={isDragSource} />
       {/* Display-only marker stripe (all pointers, incl. coarse — it is
           information, not an affordance): anchored `STRIPE_EDGE_INSET`px from
           the sidebar's physical left edge, spanning the former zone's width.

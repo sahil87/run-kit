@@ -202,7 +202,7 @@ func ValidateInstanceName(value string) string {
 var (
 	markerTokens = []string{"dotted", "dashed", "solid", "double", "thick"}
 	roleTokens   = []string{"operator"}
-	flairTokens  = []string{"nyan", "naruto", "onepiece"}
+	flairTokens  = []string{"nyan", "naruto", "onepiece", "pacman", "matrix", "aquarium", "roadrunner", "invaders", "cube", "warp"}
 )
 
 // closedSet builds the membership map for an ordered token slice, including
@@ -260,12 +260,13 @@ func ValidateRoleValue(value string) string {
 
 // FlairValues is the closed set of accepted @rk_flair values (window and
 // session user options), derived from flairTokens. The empty string means
-// "unset" (no flair); the three named states select the per-row flair
-// animation in the UI.
+// "unset" (no flair); the named states select the per-row flair animation in
+// the UI.
 var FlairValues = closedSet(flairTokens)
 
-// ValidateFlairValue validates an @rk_flair value: one of ""/nyan/naruto/
-// onepiece. Returns an empty string if valid, an error message otherwise. The
+// ValidateFlairValue validates an @rk_flair value against flairTokens (one of
+// ""/nyan/naruto/onepiece/pacman/matrix/aquarium/roadrunner/invaders/cube/
+// warp). Returns an empty string if valid, an error message otherwise. The
 // single shared flair-value rule reused by the window-option and session-flair
 // handlers.
 func ValidateFlairValue(value string) string {

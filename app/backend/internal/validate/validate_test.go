@@ -523,16 +523,17 @@ func TestValidateRoleValue(t *testing.T) {
 
 func TestValidateFlairValue(t *testing.T) {
 	// The empty string is valid — it means "unset" (no flair). The closed set
-	// is the 3 named states (nyan/naruto/onepiece).
-	valid := []string{"", "nyan", "naruto", "onepiece"}
+	// is the 10 named states (the frontend's FLAIR_STATES minus "").
+	valid := []string{"", "nyan", "naruto", "onepiece", "pacman", "matrix", "aquarium", "roadrunner", "invaders", "cube", "warp"}
 	for _, v := range valid {
 		if msg := ValidateFlairValue(v); msg != "" {
 			t.Errorf("ValidateFlairValue(%q) = %q, want valid", v, msg)
 		}
 	}
 	// Anything outside the closed set is rejected (case-sensitive, no whitespace
-	// tolerance — the frontend only ever writes the canonical tokens).
-	invalid := []string{"Nyan", "NYAN", "Naruto", "ONEPIECE", " nyan ", " onepiece ", "pikachu", "one-piece", "4", "1+3", "none", "true"}
+	// tolerance — the frontend only ever writes the canonical tokens). The
+	// rejected-in-review train/dvd/tetris tokens stay OUT.
+	invalid := []string{"Nyan", "NYAN", "Naruto", "ONEPIECE", " nyan ", " onepiece ", "pikachu", "one-piece", "4", "1+3", "none", "true", "train", "dvd", "tetris"}
 	for _, v := range invalid {
 		if msg := ValidateFlairValue(v); msg == "" {
 			t.Errorf("ValidateFlairValue(%q) = valid, want error", v)

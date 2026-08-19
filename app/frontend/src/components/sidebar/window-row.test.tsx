@@ -215,6 +215,59 @@ describe("WindowRow", () => {
       const { container } = renderRow(win);
       expect(container.querySelector("[class*='rk-flair-']")).toBeNull();
     });
+
+    it("hides the flair overlay while the row is the drag source (drag-ghost guard)", () => {
+      const win = makeWindow({ windowId: "@0", index: 0, flair: "cube" });
+      const { container, rerender } = render(
+        <WindowRow
+          win={win}
+          session="alpha"
+          isSelected={false}
+          isDragOver={false}
+          isDragSource={true}
+          editingWindow={null}
+          editingName=""
+          inputRef={{ current: null }}
+          onSelectWindow={noop}
+          onStartEditing={noop}
+          onWindowNameChange={noop}
+          onRenameKeyDown={noop as React.KeyboardEventHandler<HTMLInputElement>}
+          onRenameBlur={noop}
+          onKillClick={noop}
+          onDragStart={noopDrag}
+          onDragOver={noopDrag}
+          onDrop={noopDrag}
+          onDragEnd={noop}
+        />,
+      );
+      expect(container.querySelector("[class*='rk-flair-']")).toBeNull();
+      // At rest the cube markup contract renders (wrappers + 6 faces).
+      rerender(
+        <WindowRow
+          win={win}
+          session="alpha"
+          isSelected={false}
+          isDragOver={false}
+          isDragSource={false}
+          editingWindow={null}
+          editingName=""
+          inputRef={{ current: null }}
+          onSelectWindow={noop}
+          onStartEditing={noop}
+          onWindowNameChange={noop}
+          onRenameKeyDown={noop as React.KeyboardEventHandler<HTMLInputElement>}
+          onRenameBlur={noop}
+          onKillClick={noop}
+          onDragStart={noopDrag}
+          onDragOver={noopDrag}
+          onDrop={noopDrag}
+          onDragEnd={noop}
+        />,
+      );
+      const cube = container.querySelector(".rk-flair-cube .rk-cube-x .rk-cube-y .rk-cube");
+      expect(cube).not.toBeNull();
+      expect(cube!.querySelectorAll(".rk-cube-face")).toHaveLength(6);
+    });
   });
 
   // Row Minimalism (260706-y1ar; status-pyramid.md § Row Minimalism): the

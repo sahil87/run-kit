@@ -63,7 +63,9 @@ export type ProjectSession = {
   /** Session working directory (`#{session_path}`), raw. Absent on payloads
    *  from an older backend; display abbreviation is a frontend concern. */
   sessionPath?: string;
-  /** Row flair state: ""/absent (no flair) | "nyan" | "naruto" | "onepiece".
+  /** Row flair state: ""/absent (no flair) | "nyan" | "naruto" | "onepiece" |
+   *  "pacman" | "matrix" | "aquarium" | "roadrunner" | "invaders" | "cube" |
+   *  "warp".
    *  Decoration only (FLAIR_STATES in themes.ts) — an ambient CSS-only overlay
    *  with no status semantics. */
   flair?: string;
@@ -93,8 +95,10 @@ export type WindowInfo = {
    *  label axis from `color` — see docs/specs/themes.md. */
   marker?: string;
   /** Row flair state, from the `@rk_flair` window option: ""/absent (no
-   *  flair) | "nyan" | "naruto" | "onepiece". Decoration only (FLAIR_STATES in
-   *  themes.ts) — an ambient CSS-only overlay with no status semantics. */
+   *  flair) | "nyan" | "naruto" | "onepiece" | "pacman" | "matrix" |
+   *  "aquarium" | "roadrunner" | "invaders" | "cube" | "warp". Decoration
+   *  only (FLAIR_STATES in themes.ts) — an ambient CSS-only overlay with no
+   *  status semantics. */
   flair?: string;
   /** Window role from the `@rk_role` window option: ""/absent (no role) |
    *  "operator" (the server's operator window — the sidebar pins its row at

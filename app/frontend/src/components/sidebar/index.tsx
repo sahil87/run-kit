@@ -2828,6 +2828,11 @@ function ServerGroupInner(props: ServerGroupProps) {
                             session={session.name}
                             isSelected={isSelected}
                             isDragOver={isDragOver}
+                            isDragSource={
+                              dragSource?.server === server &&
+                              dragSource?.session === session.name &&
+                              dragSource?.index === win.index
+                            }
                             color={win.color}
                             marker={win.marker}
                             rowTints={rowTints}

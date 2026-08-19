@@ -75,6 +75,17 @@ describe("SessionRow", () => {
       const { container } = render(<SessionRow {...rowProps(session)} />);
       expect(container.querySelector("[class*='rk-flair-']")).toBeNull();
     });
+
+    it("hides the flair overlay while the row is the drag source (drag-ghost guard)", () => {
+      const session = makeSession({ name: "agent-work", flair: "warp" });
+      const { container, rerender } = render(
+        <SessionRow {...rowProps(session)} isDragSource={true} />,
+      );
+      expect(container.querySelector("[class*='rk-flair-']")).toBeNull();
+      // At rest the warp markup contract renders (three starfield planes).
+      rerender(<SessionRow {...rowProps(session)} isDragSource={false} />);
+      expect(container.querySelectorAll(".rk-flair-warp .rk-warp-plane")).toHaveLength(3);
+    });
   });
 
   // One icon system (260724-2bmy): + and ✕ are stroke SVGs (PlusIcon/CloseIcon)

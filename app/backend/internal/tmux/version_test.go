@@ -54,23 +54,24 @@ func TestParseVersion(t *testing.T) {
 // `#{version}` server probe — no `tmux ` prefix, same unknown semantics.
 func TestParseVersionToken(t *testing.T) {
 	cases := []struct {
+		name      string
 		token     string
 		wantOK    bool
 		wantMajor int
 		wantMinor int
 		wantRaw   string
 	}{
-		{"3.2a", true, 3, 2, "3.2a"},
-		{"3.4", true, 3, 4, "3.4"},
-		{"4.0", true, 4, 0, "4.0"},
-		{"3.4\n", true, 3, 4, "3.4"},
-		{"next-3.7", false, 0, 0, ""},
-		{"3.2a-3ubuntu1", false, 0, 0, ""},
-		{"tmux 3.4", false, 0, 0, ""},
-		{"", false, 0, 0, ""},
+		{"release with suffix", "3.2a", true, 3, 2, "3.2a"},
+		{"plain release", "3.4", true, 3, 4, "3.4"},
+		{"major bump", "4.0", true, 4, 0, "4.0"},
+		{"trailing newline", "3.4\n", true, 3, 4, "3.4"},
+		{"snapshot", "next-3.7", false, 0, 0, ""},
+		{"vendor suffix", "3.2a-3ubuntu1", false, 0, 0, ""},
+		{"client -V shape", "tmux 3.4", false, 0, 0, ""},
+		{"empty", "", false, 0, 0, ""},
 	}
 	for _, tc := range cases {
-		t.Run(tc.token, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			v, ok := parseVersionToken(tc.token)
 			if ok != tc.wantOK {
 				t.Fatalf("parseVersionToken(%q) ok = %v, want %v", tc.token, ok, tc.wantOK)

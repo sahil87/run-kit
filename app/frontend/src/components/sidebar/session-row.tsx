@@ -3,6 +3,7 @@ import type { ProjectSession } from "@/types";
 import type { MergedSession } from "@/contexts/optimistic-context";
 import type { RowTint } from "@/themes";
 import { SwatchPopover } from "@/components/swatch-popover";
+import { FlairOverlay } from "@/components/flair-overlay";
 import { WaitingBadge } from "@/components/waiting-badge";
 import { countWaitingWindows } from "@/lib/waiting";
 import { toSafeSessionName } from "@/lib/names";
@@ -322,13 +323,9 @@ function SessionRowInner({
           row's marker textures (dedicated clipped inner element, never the
           root, pointer-events-none, z-5); composes with the color tint.
           Hidden entirely under prefers-reduced-motion (globals.css § Flair
-          overlays). */}
-      {session.flair && (
-        <span
-          aria-hidden="true"
-          className={`absolute inset-0 z-[5] overflow-hidden pointer-events-none rk-flair-${session.flair}`}
-        />
-      )}
+          overlays) and while this row is the drag source (cube/warp animate
+          transforms on child spans — the drag ghost rule). */}
+      <FlairOverlay flair={session.flair} hidden={isDragSource} />
       <div className="flex items-center gap-1.5 min-w-0 flex-1">
         <button
           onClick={() => onToggleCollapse(server, name)}

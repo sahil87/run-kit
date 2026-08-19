@@ -469,7 +469,7 @@ export const MARKER_STATES = ["", "dotted", "dashed", "solid", "double", "thick"
  *  conventions, it carries no semantic at all: no wiring to `@rk_agent_state`
  *  or the status pyramid. Mirrors the backend closed set minus the empty
  *  string, with `""` at the front. */
-export const FLAIR_STATES = ["", "nyan", "naruto", "onepiece"] as const;
+export const FLAIR_STATES = ["", "nyan", "naruto", "onepiece", "pacman", "matrix", "aquarium", "roadrunner", "invaders", "cube", "warp"] as const;
 
 /** A flair state — one of FLAIR_STATES. */
 export type FlairState = (typeof FLAIR_STATES)[number];

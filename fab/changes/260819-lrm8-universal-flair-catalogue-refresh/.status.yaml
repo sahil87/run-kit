@@ -1,0 +1,56 @@
+id: lrm8
+name: 260819-lrm8-universal-flair-catalogue-refresh
+created: 2026-08-19T14:46:39Z
+created_by: Sahil Ahuja
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 15
+    acceptance_count: 18
+    acceptance_completed: 18
+confidence:
+    certain: 11
+    confident: 3
+    tentative: 0
+    unresolved: 0
+    score: 4.9
+    fuzzy: true
+    dimensions:
+        signal: 86.1
+        reversibility: 84.3
+        competence: 87.9
+        disambiguation: 87.5
+stage_metrics:
+    intake: {started_at: "2026-08-19T14:46:39Z", driver: fab-new, iterations: 1, completed_at: "2026-08-19T14:53:43Z"}
+    apply: {started_at: "2026-08-19T14:53:43Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-19T16:09:51Z"}
+    review: {started_at: "2026-08-19T16:09:51Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-19T16:24:28Z"}
+    hydrate: {started_at: "2026-08-19T16:24:28Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-19T16:31:06Z"}
+    ship: {started_at: "2026-08-19T16:31:06Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-19T16:34:03Z"}
+    review-pr: {started_at: "2026-08-19T16:34:03Z", driver: git-pr, iterations: 1, completed_at: "2026-08-19T16:42:48Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/659
+change_type_source: explicit
+true_impact:
+    added: 2478
+    deleted: 96
+    net: 2382
+    excluding:
+        added: 670
+        deleted: 85
+        net: 585
+    tests:
+        added: 6
+        deleted: 5
+        net: 1
+    computed_at: "2026-08-19T16:34:03Z"
+    computed_at_stage: ship
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-19T16:42:48Z

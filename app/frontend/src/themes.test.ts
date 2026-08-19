@@ -438,7 +438,7 @@ describe("markerStripeStyle", () => {
   });
 
   it("FLAIR_STATES is the closed set in display order (empty first)", () => {
-    expect(FLAIR_STATES).toEqual(["", "nyan", "naruto", "onepiece"]);
+    expect(FLAIR_STATES).toEqual(["", "nyan", "naruto", "onepiece", "pacman", "matrix", "aquarium", "roadrunner", "invaders", "cube", "warp"]);
   });
 });
 

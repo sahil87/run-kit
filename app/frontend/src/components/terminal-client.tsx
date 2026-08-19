@@ -282,6 +282,13 @@ export function TerminalClient({
         fontSize: fontPx,
         theme: deriveXtermTheme(activeTheme.palette),
         allowProposedApi: true,
+        // Option/Alt is Meta, not a third-level shift. xterm's default (false)
+        // lets macOS compose Option+letter into a glyph (Option+P → `π`) and
+        // sends those bytes to the pty, so Meta-bound CLI keybindings never
+        // fire. The tradeoff is deliberate: composing special characters inside
+        // a pane loses to driving CLI agents. Matches the ESC-prefix convention
+        // the bottom bar's `sendSpecial` already uses for synthetic Alt keys.
+        macOptionIsMeta: true,
       });
 
       const fitAddon = new FitAddon();

@@ -158,7 +158,13 @@ interface SurfaceLayoutProps {
    *  tile's `CodeSurface`, which reports the folder the EDITOR navigated itself
    *  to. The parent latches it — this component only carries the prop. */
   onCodeFolderNavigated?: (folder: string) => void;
-  shouldReclaimChord?: (e: KeyboardEvent) => boolean;
+  /** Chord-reclaim predicate FACTORY (260819-ie2i R3): called with a tile's
+   *  kind at each iframe mount to bind the kind-aware registry predicate —
+   *  `case "code"` passes `shouldReclaimChord("code")` to CodeSurface
+   *  (behavior unchanged), `case "web"` passes `shouldReclaimChord("web")` to
+   *  IframeWindow. Each mount consults a predicate bound to its OWN kind,
+   *  built from the one registry. */
+  shouldReclaimChord?: (kind: SurfaceKind) => (e: KeyboardEvent) => boolean;
   /** Steal-guard revert seam (spec right-panel.md § The code lens): handed
    *  straight to the code tile's `CodeSurface`, which invokes it when focus
    *  lands inside the frame's document (the in-frame `focusin` — a script
@@ -876,6 +882,10 @@ export function SurfaceLayout({
             rkUrl={win.rkUrl}
             onSwitchToTty={onSwitchToTty}
             onInteract={slot >= 0 ? () => focusSlot(slot) : undefined}
+            // Web-kind reclaim predicate (260819-ie2i R3): the single
+            // renderContent site is the ONLY IframeWindow mount, so every
+            // slot/zoom/panel rendering inherits the wiring with no fork.
+            shouldReclaimChord={shouldReclaimChord?.("web")}
           />
         ) : null;
       case "code":
@@ -886,7 +896,7 @@ export function SurfaceLayout({
           <CodeSurface
             gitRoot={win.gitRoot}
             reachable={codeReachable}
-            shouldReclaimChord={shouldReclaimChord}
+            shouldReclaimChord={shouldReclaimChord?.("code")}
             onInteract={
               slot >= 0
                 ? () => {

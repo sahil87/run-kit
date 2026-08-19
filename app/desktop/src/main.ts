@@ -597,11 +597,9 @@ function rebuildMenu(): void {
  * teardown, menu rebuild, and the active-host fallback. Confirmation is the
  * caller's job — the native menu confirms with the OS dialog below, and the
  * SPA dropdown confirms with its own themed dialog before invoking
- * `servers:remove`. An unknown id is the store's no-op convention.
+ * `servers:remove-confirmed`. An unknown id is the store's no-op convention.
  */
 function removeHostEverywhere(id: string): void {
-  const win = mainWindow;
-  if (!win) return;
   const list = loadHosts(userDataDir());
   const entry = list.hosts.find((h) => h.id === id);
   if (!entry) return;
@@ -609,7 +607,10 @@ function removeHostEverywhere(id: string): void {
   removeHost(userDataDir(), id);
   destroyHostView(id); // the view dies with its host entry
   rebuildMenu();
-  if (wasActive) showActive(win); // first remaining host, or welcome
+  // Only the fallback swap needs a window — the removal itself must land
+  // even mid-teardown, or a confirmed remove acks { ok: true } having done
+  // nothing and the host resurrects on the next list read.
+  if (wasActive && mainWindow) showActive(mainWindow); // first remaining host, or welcome
 }
 
 async function confirmAndRemoveHost(id: string): Promise<void> {
@@ -1344,6 +1345,13 @@ function registerIpcHandlers(): void {
     if (!normalized.ok) return normalized;
     const before = loadHosts(userDataDir()).hosts.find((h) => h.id === parsed.id);
     if (!before || before.url === normalized.origin) return { ok: true };
+    // SSH-tunnel hosts are url-managed by `rk remote connect` (their url IS
+    // the tunnel origin, and activation keeps healing it via `remote`):
+    // re-pointing one would leave a remote-carrying entry whose tunnel heals
+    // an origin the entry no longer registers.
+    if (before.remote !== undefined && before.remote !== "") {
+      return { ok: false, error: "This host's URL is managed by its SSH connection" };
+    }
     const wasDisplayed = views.activeHostId === parsed.id;
     setHostUrl(userDataDir(), parsed.id, normalized.origin);
     destroyHostView(parsed.id);

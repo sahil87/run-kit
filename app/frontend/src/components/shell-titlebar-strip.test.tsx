@@ -896,6 +896,45 @@ describe("ShellTitlebarStrip host menu — Remove + Edit Host dialog", () => {
     expect(bridge.rename).not.toHaveBeenCalled();
   });
 
+  it("Save returns focus to the edited row (F2 → Enter round-trip)", async () => {
+    await renderFull();
+    openMenu();
+    const rows = screen.getAllByRole("menuitemradio");
+    await waitFor(() => expect(document.activeElement).toBe(rows[0]));
+    fireEvent.keyDown(document, { key: "F2" });
+    const dialog = screen.getByRole("dialog", { name: "Edit host" });
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "Name" }), {
+      target: { value: "renamed" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getAllByRole("menuitemradio")[0]),
+    );
+  });
+
+  it("an untouched URL prefill is never parsed — a malformed stored url cannot block a name-only Save", async () => {
+    const bridge = await renderInteractive(
+      [{ id: "a", name: "studio-mac", url: "bad url", active: true }],
+      "darwin",
+      true,
+      true,
+      true,
+      true,
+    );
+    openMenu();
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    const dialog = screen.getByRole("dialog", { name: "Edit host" });
+    // The origin column falls back to the raw string for a malformed url.
+    expect(within(dialog).getByRole("textbox", { name: "URL" })).toHaveValue("bad url");
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "Name" }), {
+      target: { value: "renamed" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    expect(bridge.rename).toHaveBeenCalledWith("a", "renamed");
+    expect(bridge.setUrl).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
   it("without setUrl the URL field is disabled and Save edits the name only", async () => {
     const bridge = await renderInteractive(hosts, "darwin", true, true, true, true, true, false);
     openMenu();

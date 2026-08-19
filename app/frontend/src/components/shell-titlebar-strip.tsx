@@ -198,21 +198,13 @@ export function ShellTitlebarStrip() {
 
   const [confirmTarget, setConfirmTarget] = useState<ShellHostMenuRow | null>(null);
 
-  // Native-confirm path: the shell's Cancel-default dialog guards it.
-  const removeHostNative = useCallback(
-    (id: string) => {
-      void removeShellHost(id).then((ok) => {
-        if (!ok) addToast("Shell host remove failed", "error");
-        fetchServers();
-      });
-    },
-    [addToast, fetchServers],
-  );
-
-  // SPA-confirmed path: the themed dialog already confirmed, no shell dialog.
-  const removeHostConfirmed = useCallback(
-    (id: string) => {
-      void confirmedRemoveShellHost(id).then((ok) => {
+  // One removal tail for both confirm surfaces — `confirmed` picks the
+  // channel: the SPA's themed dialog already confirmed (removeConfirmed) vs
+  // the shell's own native Cancel-default dialog (remove).
+  const finishRemove = useCallback(
+    (id: string, confirmed: boolean) => {
+      const invoke = confirmed ? confirmedRemoveShellHost : removeShellHost;
+      void invoke(id).then((ok) => {
         if (!ok) addToast("Shell host remove failed", "error");
         fetchServers();
       });
@@ -223,25 +215,30 @@ export function ShellTitlebarStrip() {
   const requestRemove = useCallback(
     (row: ShellHostMenuRow) => {
       if (canRemoveConfirmed) setConfirmTarget(row);
-      else removeHostNative(row.id);
+      else finishRemove(row.id, false);
     },
-    [canRemoveConfirmed, removeHostNative],
+    [canRemoveConfirmed, finishRemove],
   );
+
+  // Closing a dialog re-seats the roving focus on its target's row —
+  // key-driven round-trips (Delete → Escape, F2 → Save/Escape) must not
+  // strand document focus on <body> while the menu stays open.
+  const refocusRow = useCallback((id: string) => {
+    const idx = rowsRef.current.findIndex((r) => r.id === id);
+    if (idx >= 0) requestAnimationFrame(() => itemRefs.current[idx]?.focus());
+  }, []);
 
   const confirmRemove = useCallback(() => {
     const target = confirmTarget;
     setConfirmTarget(null);
-    if (target) removeHostConfirmed(target.id);
-  }, [confirmTarget, removeHostConfirmed]);
+    if (target) finishRemove(target.id, true);
+  }, [confirmTarget, finishRemove]);
 
-  // Cancel restores focus to the target's row (Delete → Escape round-trip).
   const cancelRemove = useCallback(() => {
     const target = confirmTarget;
     setConfirmTarget(null);
-    if (!target) return;
-    const idx = rowsRef.current.findIndex((r) => r.id === target.id);
-    if (idx >= 0) requestAnimationFrame(() => itemRefs.current[idx]?.focus());
-  }, [confirmTarget]);
+    if (target) refocusRow(target.id);
+  }, [confirmTarget, refocusRow]);
 
   // Edit Host dialog (pencil / F2): name rides servers:rename; the URL field
   // rides the additive servers:set-url and is disabled on shells without it.
@@ -260,20 +257,23 @@ export function ShellTitlebarStrip() {
   const cancelEdit = useCallback(() => {
     const target = editTarget;
     setEditTarget(null);
-    if (!target) return;
-    const idx = rowsRef.current.findIndex((r) => r.id === target.id);
-    if (idx >= 0) requestAnimationFrame(() => itemRefs.current[idx]?.focus());
-  }, [editTarget]);
+    if (target) refocusRow(target.id);
+  }, [editTarget, refocusRow]);
 
   // Save commits only what changed; the shell re-normalizes the URL
-  // authoritatively and owns the page swap for a displayed host.
+  // authoritatively and owns the page swap for a displayed host. "Changed"
+  // is judged against the dialog's own prefill first (an untouched field is
+  // never a change — and never parsed, so a name-only edit cannot be blocked
+  // by a malformed stored URL), then against the LIVE row (a background
+  // refetch may have reconciled while the dialog sat open).
   const saveEdit = useCallback(() => {
     const target = editTarget;
     if (!target) return;
+    const live = rowsRef.current.find((r) => r.id === target.id) ?? target;
     const name = editName.trim();
     const urlRaw = editUrl.trim();
-    let origin = target.origin;
-    if (canSetUrl && urlRaw !== "") {
+    let origin = live.origin;
+    if (canSetUrl && urlRaw !== "" && urlRaw !== target.origin) {
       try {
         const parsed = new URL(urlRaw);
         if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
@@ -286,8 +286,9 @@ export function ShellTitlebarStrip() {
       }
     }
     setEditTarget(null);
-    const nameChanged = name !== "" && name !== target.name;
-    const urlChanged = canSetUrl && origin !== target.origin;
+    refocusRow(target.id);
+    const nameChanged = name !== "" && name !== target.name && name !== live.name;
+    const urlChanged = canSetUrl && origin !== live.origin;
     if (!nameChanged && !urlChanged) return;
     if (nameChanged) {
       setServers((prev) =>
@@ -310,7 +311,7 @@ export function ShellTitlebarStrip() {
       );
     }
     void Promise.all(ops).then(() => fetchServers());
-  }, [editTarget, editName, editUrl, canSetUrl, addToast, fetchServers]);
+  }, [editTarget, editName, editUrl, canSetUrl, addToast, fetchServers, refocusRow]);
 
   // Menu-scoped dialog state dies with the menu — close paths bypass the
   // dialogs' own handlers, and stale state would wedge the next open.
@@ -421,7 +422,7 @@ export function ShellTitlebarStrip() {
   // wraparound (capture-phase, mirroring BreadcrumbDropdown). With the
   // reorder capability, ⌥↑/⌥↓ instead MOVES the focused host row. Enter
   // needs no handler — the focused row is a native <button>. Delete/Backspace
-  // disconnects the focused row and F2 enters its inline rename.
+  // opens the focused row's remove confirm and F2 its Edit Host dialog.
   const dialogOpen = confirmTarget !== null || editTarget !== null;
   useEffect(() => {
     if (!open) return;
@@ -620,142 +621,140 @@ export function ShellTitlebarStrip() {
                   onDrop={onRowDrop}
                   onDragEnd={onRowDragEnd}
                 >
-                  <>
-                      <button
-                        ref={(el) => {
-                          itemRefs.current[i] = el;
-                        }}
-                        type="button"
-                        // menuitemradio + aria-checked: the active host is a
-                        // single-select state AT must hear, not a color-only cue
-                        // (the view-switcher precedent; aria-pressed is invalid on
-                        // a menu item).
-                        role="menuitemradio"
-                        aria-checked={row.active}
-                        tabIndex={focusedIndex === i ? 0 : -1}
-                        onClick={() => selectHost(row.id)}
-                        draggable={canReorder}
-                        className={`relative flex w-full items-baseline gap-2 py-2 pl-3 pr-12 text-left text-sm transition-colors ${
-                          row.active
-                            ? "text-accent"
-                            : "text-text-secondary hover:bg-bg-card hover:text-text-primary"
+                  <button
+                    ref={(el) => {
+                      itemRefs.current[i] = el;
+                    }}
+                    type="button"
+                    // menuitemradio + aria-checked: the active host is a
+                    // single-select state AT must hear, not a color-only cue
+                    // (the view-switcher precedent; aria-pressed is invalid on
+                    // a menu item).
+                    role="menuitemradio"
+                    aria-checked={row.active}
+                    tabIndex={focusedIndex === i ? 0 : -1}
+                    onClick={() => selectHost(row.id)}
+                    draggable={canReorder}
+                    className={`relative flex w-full items-baseline gap-2 py-2 pl-3 pr-12 text-left text-sm transition-colors ${
+                      row.active
+                        ? "text-accent"
+                        : "text-text-secondary hover:bg-bg-card hover:text-text-primary"
+                    }`}
+                  >
+                    {/* Accent edge bar — overlaid so colorless rows keep
+                        alignment; hex-validated in the row model. */}
+                    {row.accentColor !== null && (
+                      <span
+                        aria-hidden="true"
+                        data-testid="shell-host-accent-bar"
+                        className="absolute bottom-1 left-0 top-1 w-[3px] rounded-full"
+                        style={{ backgroundColor: row.accentColor }}
+                      />
+                    )}
+                    {/* Active marker column — fixed width so names align. */}
+                    <span aria-hidden="true" className="w-3 shrink-0">
+                      {row.active ? "✓" : ""}
+                    </span>
+                    <span className="min-w-0 shrink-0 truncate">{row.name}</span>
+                    {/* Dimmed origin — display names are not unique, the
+                        origin disambiguates. */}
+                    <span className="min-w-0 truncate text-xs opacity-60">{row.origin}</span>
+                    {/* Waiting count — background rows only; yields the
+                        trailing zone while the cluster shows. */}
+                    {row.waiting !== null && (
+                      <span
+                        className={`ml-auto shrink-0 pl-2 text-xs text-amber-600${
+                          affordanceCount > 0
+                            ? " group-hover:invisible group-focus-within:invisible"
+                            : ""
                         }`}
                       >
-                        {/* Accent edge bar — overlaid so colorless rows keep
-                            alignment; hex-validated in the row model. */}
-                        {row.accentColor !== null && (
-                          <span
-                            aria-hidden="true"
-                            data-testid="shell-host-accent-bar"
-                            className="absolute bottom-1 left-0 top-1 w-[3px] rounded-full"
-                            style={{ backgroundColor: row.accentColor }}
-                          />
-                        )}
-                        {/* Active marker column — fixed width so names align. */}
-                        <span aria-hidden="true" className="w-3 shrink-0">
-                          {row.active ? "✓" : ""}
-                        </span>
-                        <span className="min-w-0 shrink-0 truncate">{row.name}</span>
-                        {/* Dimmed origin — display names are not unique, the
-                            origin disambiguates. */}
-                        <span className="min-w-0 truncate text-xs opacity-60">{row.origin}</span>
-                        {/* Waiting count — background rows only; yields the
-                            trailing zone while the cluster shows. */}
-                        {row.waiting !== null && (
-                          <span
-                            className={`ml-auto shrink-0 pl-2 text-xs text-amber-600${
-                              affordanceCount > 0
-                                ? " group-hover:invisible group-focus-within:invisible"
-                                : ""
-                            }`}
+                        ● {row.waiting}
+                      </span>
+                    )}
+                    {/* Accelerator hint — the row's at-rest data, right-
+                        aligned identically on every row; the hover cluster
+                        takes over the zone. */}
+                    {row.hint && (
+                      <span
+                        className={`absolute right-2 top-1/2 -translate-y-1/2 text-xs text-text-secondary${
+                          affordanceCount > 0
+                            ? " group-hover:invisible group-focus-within:invisible"
+                            : ""
+                        }`}
+                      >
+                        {row.hint}
+                      </span>
+                    )}
+                  </button>
+                  {/* Hover/focus action cluster: edit · remove · grip.
+                      Instant reveal (visibility, no fade) on a solid chip;
+                      buttons tab-skip — Delete/Backspace and F2 are the
+                      keyboard paths. */}
+                  {affordanceCount > 0 && (
+                    <div className="invisible absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-1 rounded bg-bg-card px-1 py-0.5 group-hover:visible group-focus-within:visible">
+                      {canRename && (
+                        <Tip label="Edit">
+                          <button
+                            type="button"
+                            aria-label="Edit"
+                            tabIndex={-1}
+                            onClick={() => openEdit(row)}
+                            className="flex h-5 w-5 items-center justify-center rounded text-text-secondary transition-colors hover:bg-bg-inset hover:text-text-primary"
                           >
-                            ● {row.waiting}
-                          </span>
-                        )}
-                        {/* Accelerator hint — the row's at-rest data, right-
-                            aligned identically on every row; the hover cluster
-                            takes over the zone. */}
-                        {row.hint && (
-                          <span
-                            className={`absolute right-2 top-1/2 -translate-y-1/2 text-xs text-text-secondary${
-                              affordanceCount > 0
-                                ? " group-hover:invisible group-focus-within:invisible"
-                                : ""
-                            }`}
-                          >
-                            {row.hint}
-                          </span>
-                        )}
-                      </button>
-                      {/* Hover/focus action cluster: edit · remove · grip.
-                          Instant reveal (visibility, no fade) on a solid chip;
-                          buttons tab-skip — Delete/Backspace and F2 are the
-                          keyboard paths. */}
-                      {affordanceCount > 0 && (
-                        <div className="invisible absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-1 rounded bg-bg-card px-1 py-0.5 group-hover:visible group-focus-within:visible">
-                          {canRename && (
-                            <Tip label="Edit">
-                              <button
-                                type="button"
-                                aria-label="Edit"
-                                tabIndex={-1}
-                                onClick={() => openEdit(row)}
-                                className="flex h-5 w-5 items-center justify-center rounded text-text-secondary transition-colors hover:bg-bg-inset hover:text-text-primary"
-                              >
-                                <svg
-                                  aria-hidden="true"
-                                  width="12"
-                                  height="12"
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="2"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                >
-                                  <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" />
-                                  <path d="m15 5 4 4" />
-                                </svg>
-                              </button>
-                            </Tip>
-                          )}
-                          {canRemove && (
-                            <Tip label="Remove">
-                              <button
-                                type="button"
-                                aria-label="Remove"
-                                tabIndex={-1}
-                                onClick={() => requestRemove(row)}
-                                className="flex h-5 w-5 items-center justify-center rounded text-text-secondary transition-colors hover:bg-bg-inset hover:text-text-primary"
-                              >
-                                <svg
-                                  aria-hidden="true"
-                                  width="12"
-                                  height="12"
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="2"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                >
-                                  <path d="M5 12h14" />
-                                </svg>
-                              </button>
-                            </Tip>
-                          )}
-                          {/* Drag grip — visual only; the row is the draggable. */}
-                          {canReorder && (
-                            <span
+                            <svg
                               aria-hidden="true"
-                              className="pointer-events-none text-[10px] leading-none tracking-[-2px] text-text-secondary opacity-60"
+                              width="12"
+                              height="12"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
                             >
-                              ⋮⋮
-                            </span>
-                          )}
-                        </div>
+                              <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" />
+                              <path d="m15 5 4 4" />
+                            </svg>
+                          </button>
+                        </Tip>
                       )}
-                  </>
+                      {canRemove && (
+                        <Tip label="Remove">
+                          <button
+                            type="button"
+                            aria-label="Remove"
+                            tabIndex={-1}
+                            onClick={() => requestRemove(row)}
+                            className="flex h-5 w-5 items-center justify-center rounded text-text-secondary transition-colors hover:bg-bg-inset hover:text-text-primary"
+                          >
+                            <svg
+                              aria-hidden="true"
+                              width="12"
+                              height="12"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <path d="M5 12h14" />
+                            </svg>
+                          </button>
+                        </Tip>
+                      )}
+                      {/* Drag grip — visual only; the row is the draggable. */}
+                      {canReorder && (
+                        <span
+                          aria-hidden="true"
+                          className="pointer-events-none text-[10px] leading-none tracking-[-2px] text-text-secondary opacity-60"
+                        >
+                          ⋮⋮
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
               ))}
               {canAdd && (
@@ -783,77 +782,85 @@ export function ShellTitlebarStrip() {
           {/* Both dialogs render inside the container so their backdrop
               mousedown never trips the menu's outside-click close. */}
           {confirmTarget !== null && (
-            <Dialog title="Remove host" onClose={cancelRemove}>
-              <p className="text-sm text-text-secondary mb-3">
-                Are you sure you want to remove <strong>{confirmTarget.name}</strong> (
-                {confirmTarget.origin})?
-              </p>
-              <div className="flex gap-2">
-                <button
-                  onClick={cancelRemove}
-                  className="flex-1 text-sm py-1.5 border border-border rounded hover:border-text-secondary"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={confirmRemove}
-                  className="flex-1 text-sm py-1.5 bg-red-900/30 border border-red-900 rounded hover:bg-red-900/50"
-                >
-                  Remove
-                </button>
-              </div>
-            </Dialog>
+            // The z-[60] wrapper lifts the dialog ABOVE the z-50 menu popover
+            // (same stacking context): without it the menu paints over the
+            // backdrop and stays clickable while the "modal" confirm is up.
+            <div className="relative z-[60]">
+              <Dialog title="Remove host" onClose={cancelRemove}>
+                <p className="text-sm text-text-secondary mb-3">
+                  Are you sure you want to remove <strong>{confirmTarget.name}</strong> (
+                  {confirmTarget.origin})?
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={cancelRemove}
+                    className="flex-1 text-sm py-1.5 border border-border rounded hover:border-text-secondary"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={confirmRemove}
+                    className="flex-1 text-sm py-1.5 bg-red-900/30 border border-red-900 rounded hover:bg-red-900/50"
+                  >
+                    Remove
+                  </button>
+                </div>
+              </Dialog>
+            </div>
           )}
           {editTarget !== null && (
-            <Dialog title="Edit host" onClose={cancelEdit}>
-              <label className="mb-2 block text-xs text-text-secondary">
-                Name
-                <input
-                  type="text"
-                  value={editName}
-                  onChange={(e) => setEditName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") saveEdit();
-                  }}
-                  className="mt-1 w-full rounded border border-border bg-transparent px-2 py-1 text-sm text-text-primary outline-none focus:border-accent"
-                />
-              </label>
-              <label className="mb-1 block text-xs text-text-secondary">
-                URL
-                <input
-                  type="text"
-                  value={editUrl}
-                  disabled={!canSetUrl}
-                  onChange={(e) => setEditUrl(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") saveEdit();
-                  }}
-                  className="mt-1 w-full rounded border border-border bg-transparent px-2 py-1 text-sm text-text-primary outline-none focus:border-accent disabled:opacity-50"
-                />
-              </label>
-              {!canSetUrl && (
-                <p className="mb-2 text-xs text-text-secondary opacity-70">
-                  URL editing needs a newer desktop app.
-                </p>
-              )}
-              {editError !== null && (
-                <p className="mb-2 text-xs text-signal-red">{editError}</p>
-              )}
-              <div className="mt-2 flex gap-2">
-                <button
-                  onClick={cancelEdit}
-                  className="flex-1 text-sm py-1.5 border border-border rounded hover:border-text-secondary"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={saveEdit}
-                  className="flex-1 text-sm py-1.5 border border-accent rounded text-accent hover:bg-bg-card"
-                >
-                  Save
-                </button>
-              </div>
-            </Dialog>
+            // Same z-[60] lift as the remove confirm above.
+            <div className="relative z-[60]">
+              <Dialog title="Edit host" onClose={cancelEdit}>
+                <label className="mb-2 block text-xs text-text-secondary">
+                  Name
+                  <input
+                    type="text"
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") saveEdit();
+                    }}
+                    className="mt-1 w-full rounded border border-border bg-transparent px-2 py-1 text-sm text-text-primary outline-none focus:border-accent"
+                  />
+                </label>
+                <label className="mb-1 block text-xs text-text-secondary">
+                  URL
+                  <input
+                    type="text"
+                    value={editUrl}
+                    disabled={!canSetUrl}
+                    onChange={(e) => setEditUrl(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") saveEdit();
+                    }}
+                    className="mt-1 w-full rounded border border-border bg-transparent px-2 py-1 text-sm text-text-primary outline-none focus:border-accent disabled:opacity-50"
+                  />
+                </label>
+                {!canSetUrl && (
+                  <p className="mb-2 text-xs text-text-secondary opacity-70">
+                    URL editing needs a newer desktop app.
+                  </p>
+                )}
+                {editError !== null && (
+                  <p className="mb-2 text-xs text-signal-red">{editError}</p>
+                )}
+                <div className="mt-2 flex gap-2">
+                  <button
+                    onClick={cancelEdit}
+                    className="flex-1 text-sm py-1.5 border border-border rounded hover:border-text-secondary"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={saveEdit}
+                    className="flex-1 text-sm py-1.5 border border-accent rounded text-accent hover:bg-bg-card"
+                  >
+                    Save
+                  </button>
+                </div>
+              </Dialog>
+            </div>
           )}
         </div>
       ) : (

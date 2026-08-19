@@ -5,8 +5,8 @@
  *
  * Remote flow: validate → `welcome:test-host` ping (main process) →
  * `welcome:add-host` (persist + set active; the display name auto-derives
- * from the ping's returned hostname when the optional Name field is blank
- * affordance exists: remove-and-re-add is the only way to change a name).
+ * from the ping's returned hostname when the optional Name field is blank —
+ * post-add corrections live in the SPA dropdown's Edit Host dialog).
  * `?mode=add` shows a cancel link back to the active host.
  *
  * Local flow ("This Mac" section, darwin/linux only — suppressed on win32):

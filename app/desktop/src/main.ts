@@ -88,6 +88,7 @@ import {
   setHostAccentColor,
   setHostLastPath,
   setHostName,
+  setHostUrl,
 } from "./hosts";
 import {
   activateView,
@@ -1174,6 +1175,13 @@ function parseRenamePayload(value: unknown): { id: string; name: string } | null
   return { id: value.id, name: value.name };
 }
 
+function parseSetUrlPayload(value: unknown): { id: string; url: string } | null {
+  if (typeof value !== "object" || value === null) return null;
+  if (!("id" in value) || typeof value.id !== "string") return null;
+  if (!("url" in value) || typeof value.url !== "string") return null;
+  return { id: value.id, url: value.url };
+}
+
 function registerIpcHandlers(): void {
   ipcMain.handle(
     "welcome:test-host",
@@ -1318,6 +1326,29 @@ function registerIpcHandlers(): void {
     if (!parsed) return { ok: false, error: "Invalid request" };
     setHostName(userDataDir(), parsed.id, parsed.name);
     rebuildMenu();
+    return { ok: true };
+  });
+
+  // servers:set-url — the SPA Edit Host dialog's URL field (additive channel,
+  // the rename template). The origin is normalized HERE (the store mutator
+  // takes it pre-validated); a change re-points the registration, drops the
+  // old-origin lastPath store-side, and destroys the host's view so the next
+  // visit loads the new origin — when that host is the one DISPLAYED, the
+  // window re-attaches immediately so it never sits on a destroyed view. The
+  // menu rebuild refreshes registered-origin-derived state everywhere.
+  ipcMain.handle("servers:set-url", (event, payload: unknown): IpcResult => {
+    if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
+    const parsed = parseSetUrlPayload(payload);
+    if (!parsed) return { ok: false, error: "Invalid request" };
+    const normalized = normalizeOrigin(parsed.url);
+    if (!normalized.ok) return normalized;
+    const before = loadHosts(userDataDir()).hosts.find((h) => h.id === parsed.id);
+    if (!before || before.url === normalized.origin) return { ok: true };
+    const wasDisplayed = views.activeHostId === parsed.id;
+    setHostUrl(userDataDir(), parsed.id, normalized.origin);
+    destroyHostView(parsed.id);
+    rebuildMenu();
+    if (wasDisplayed && mainWindow) showActive(mainWindow);
     return { ok: true };
   });
 

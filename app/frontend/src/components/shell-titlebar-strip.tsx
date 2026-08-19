@@ -11,11 +11,13 @@ import {
   canRemoveShellHost,
   canRenameShellHost,
   canReorderShellHosts,
+  canSetShellHostUrl,
   confirmedRemoveShellHost,
   listShellServers,
   removeShellHost,
   renameShellHost,
   reorderShellHosts,
+  setShellHostUrl,
   shellInfo,
   switchShellServer,
 } from "@/lib/shell";
@@ -78,16 +80,13 @@ import type { ShellHostMenuRow } from "@/lib/shell-strip";
  * `reorder` invoker / additive projection fields — an older shell renders
  * exactly the plain marker/name/origin/hint rows.
  *
- * Two further capability-gated row affordances join the grip in a trailing
- * hover/focus-revealed cluster: Disconnect (confirmed by the SPA's own themed
- * Dialog — the KillDialog pattern — then invoking the shell's confirmed
- * removal; the shell shows no dialog on this path) and an inline rename (Enter/blur commits,
- * Escape cancels — the window-heading precedent; an empty/unchanged commit
- * is a cancel, no dialog anywhere). Delete/Backspace and F2 reach both from
- * the focused row (Constitution V), and while the rename input holds focus
- * the menu's capture-phase key handling suspends. Each affordance rides its
- * own optional invoker (`servers.remove` / `servers.rename`), so an older
- * shell renders rows without the icons or the bindings.
+ * Two further capability-gated affordances join the grip in the trailing
+ * hover/focus-revealed cluster: Remove (minus icon, themed confirm dialog —
+ * or the shell's native dialog on shells without `removeConfirmed`) and Edit
+ * (pencil, the Edit Host dialog: name via `servers:rename`, URL via the
+ * additive `servers:set-url`). Delete/Backspace and F2 reach both from the
+ * focused row; the ⌥⌘n hint is the row's at-rest right-aligned data and
+ * yields the zone while the cluster shows. Older shells degrade per invoker.
  */
 
 /** Custom MIME so a host-reorder drag never collides with the other
@@ -154,37 +153,14 @@ export function ShellTitlebarStrip() {
   // The reorder affordances (drag grip, ⌥↑/⌥↓) ride the optional
   // `servers.reorder` invoker — an older shell renders plain rows.
   const canReorder = canReorderShellHosts();
-  // Disconnect and inline rename ride their own optional invokers
-  // (`servers.remove` / `servers.rename`), gated independently — an older
-  // shell renders rows without the icons or the key bindings. The additive
-  // `removeConfirmed` invoker decides WHERE disconnect confirms: present →
-  // the SPA's themed dialog then the already-confirmed channel; absent (a
-  // shell predating it) → plain `remove`, whose native dialog confirms.
-  // Either way exactly one dialog guards the action.
+  // removeConfirmed decides WHERE Remove confirms: themed SPA dialog when
+  // present, the shell's native dialog otherwise — exactly one either way.
   const canRemoveNative = canRemoveShellHost();
   const canRemoveConfirmed = canConfirmedRemoveShellHost();
   const canRemove = canRemoveNative || canRemoveConfirmed;
   const canRename = canRenameShellHost();
-  // The trailing reservation must fit every rendered cluster member (icons
-  // are hover/focus-revealed but the width is static): grip + up to two
-  // icon buttons.
+  const canSetUrl = canSetShellHostUrl();
   const affordanceCount = (canReorder ? 1 : 0) + (canRemove ? 1 : 0) + (canRename ? 1 : 0);
-  const affordancePad =
-    affordanceCount === 0
-      ? "pr-3"
-      : affordanceCount === 1
-        ? "pr-6"
-        : affordanceCount === 2
-          ? "pr-11"
-          : "pr-16";
-
-  // Inline row rename: the editing row's id plus its draft. `keyHandledRef`
-  // is the WindowHeading blur guard — a key-driven commit/cancel (Enter/
-  // Escape) tears the input down, and the trailing blur must not re-commit.
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editDraft, setEditDraft] = useState("");
-  const keyHandledRef = useRef(false);
-  const editInputRef = useRef<HTMLInputElement>(null);
 
   // Latest COMMITTED host-row count, read live inside the capture-phase
   // keydown handler: that handler stays attached from a commit until the
@@ -220,57 +196,46 @@ export function ShellTitlebarStrip() {
     [addToast, fetchServers],
   );
 
-  // Disconnect confirms in the SPA's own themed Dialog (the KillDialog
-  // pattern — Cancel first so the focus trap lands on it, destructive red
-  // confirm), then invokes the shell's confirmed removal. The shell shows no
-  // dialog of its own on this path; the native Hosts → Remove menu item keeps
-  // its native dialog because no SPA page draws for it.
   const [confirmTarget, setConfirmTarget] = useState<ShellHostMenuRow | null>(null);
 
-  // The native-confirm path (shells without `removeConfirmed`): the shell's
-  // own Cancel-default dialog guards the removal.
-  const disconnectHostNative = useCallback(
+  // Native-confirm path: the shell's Cancel-default dialog guards it.
+  const removeHostNative = useCallback(
     (id: string) => {
       void removeShellHost(id).then((ok) => {
-        if (!ok) addToast("Shell host disconnect failed", "error");
+        if (!ok) addToast("Shell host remove failed", "error");
         fetchServers();
       });
     },
     [addToast, fetchServers],
   );
 
-  // The SPA-confirmed path: the themed dialog above already confirmed, so
-  // this invokes the already-confirmed channel (no shell dialog).
-  const disconnectHostConfirmed = useCallback(
+  // SPA-confirmed path: the themed dialog already confirmed, no shell dialog.
+  const removeHostConfirmed = useCallback(
     (id: string) => {
       void confirmedRemoveShellHost(id).then((ok) => {
-        if (!ok) addToast("Shell host disconnect failed", "error");
+        if (!ok) addToast("Shell host remove failed", "error");
         fetchServers();
       });
     },
     [addToast, fetchServers],
   );
 
-  // One entry point for both trigger surfaces (icon click, Delete/Backspace):
-  // open the themed dialog when the shell accepts confirmed removals, else
-  // hand straight to the native-confirm channel.
-  const requestDisconnect = useCallback(
+  const requestRemove = useCallback(
     (row: ShellHostMenuRow) => {
       if (canRemoveConfirmed) setConfirmTarget(row);
-      else disconnectHostNative(row.id);
+      else removeHostNative(row.id);
     },
-    [canRemoveConfirmed, disconnectHostNative],
+    [canRemoveConfirmed, removeHostNative],
   );
 
-  const confirmDisconnect = useCallback(() => {
+  const confirmRemove = useCallback(() => {
     const target = confirmTarget;
     setConfirmTarget(null);
-    if (target) disconnectHostConfirmed(target.id);
-  }, [confirmTarget, disconnectHostConfirmed]);
+    if (target) removeHostConfirmed(target.id);
+  }, [confirmTarget, removeHostConfirmed]);
 
-  // Cancel restores focus to the target's row (still present) so the
-  // keyboard flow Delete → Escape lands back where it started.
-  const cancelDisconnect = useCallback(() => {
+  // Cancel restores focus to the target's row (Delete → Escape round-trip).
+  const cancelRemove = useCallback(() => {
     const target = confirmTarget;
     setConfirmTarget(null);
     if (!target) return;
@@ -278,54 +243,81 @@ export function ShellTitlebarStrip() {
     if (idx >= 0) requestAnimationFrame(() => itemRefs.current[idx]?.focus());
   }, [confirmTarget]);
 
-  const startRename = useCallback((row: ShellHostMenuRow) => {
-    keyHandledRef.current = false;
-    setEditDraft(row.name);
-    setEditingId(row.id);
+  // Edit Host dialog (pencil / F2): name rides servers:rename; the URL field
+  // rides the additive servers:set-url and is disabled on shells without it.
+  const [editTarget, setEditTarget] = useState<ShellHostMenuRow | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editUrl, setEditUrl] = useState("");
+  const [editError, setEditError] = useState<string | null>(null);
+
+  const openEdit = useCallback((row: ShellHostMenuRow) => {
+    setEditName(row.name);
+    setEditUrl(row.origin);
+    setEditError(null);
+    setEditTarget(row);
   }, []);
 
-  // Entering edit focuses the input with the current name selected (the
-  // window-heading rename precedent).
-  useEffect(() => {
-    if (editingId !== null) {
-      editInputRef.current?.focus();
-      editInputRef.current?.select();
+  const cancelEdit = useCallback(() => {
+    const target = editTarget;
+    setEditTarget(null);
+    if (!target) return;
+    const idx = rowsRef.current.findIndex((r) => r.id === target.id);
+    if (idx >= 0) requestAnimationFrame(() => itemRefs.current[idx]?.focus());
+  }, [editTarget]);
+
+  // Save commits only what changed; the shell re-normalizes the URL
+  // authoritatively and owns the page swap for a displayed host.
+  const saveEdit = useCallback(() => {
+    const target = editTarget;
+    if (!target) return;
+    const name = editName.trim();
+    const urlRaw = editUrl.trim();
+    let origin = target.origin;
+    if (canSetUrl && urlRaw !== "") {
+      try {
+        const parsed = new URL(urlRaw);
+        if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+          throw new Error("non-http");
+        }
+        origin = parsed.origin;
+      } catch {
+        setEditError("Enter a full http(s) URL, e.g. http://host:3000");
+        return;
+      }
     }
-  }, [editingId]);
+    setEditTarget(null);
+    const nameChanged = name !== "" && name !== target.name;
+    const urlChanged = canSetUrl && origin !== target.origin;
+    if (!nameChanged && !urlChanged) return;
+    if (nameChanged) {
+      setServers((prev) =>
+        prev ? prev.map((s) => (s.id === target.id ? { ...s, name } : s)) : prev,
+      );
+    }
+    const ops: Promise<unknown>[] = [];
+    if (nameChanged) {
+      ops.push(
+        renameShellHost(target.id, name).then((ok) => {
+          if (!ok) addToast("Shell host rename failed", "error");
+        }),
+      );
+    }
+    if (urlChanged) {
+      ops.push(
+        setShellHostUrl(target.id, origin).then((ok) => {
+          if (!ok) addToast("Shell host URL update failed", "error");
+        }),
+      );
+    }
+    void Promise.all(ops).then(() => fetchServers());
+  }, [editTarget, editName, editUrl, canSetUrl, addToast, fetchServers]);
 
-  // Commit trims; an empty/whitespace-only or unchanged commit is a cancel
-  // (no invoke). A real commit updates the row name optimistically, invokes
-  // the shell, and refetches to reconcile — the menu stays open throughout.
-  const commitRename = useCallback(() => {
-    const id = editingId;
-    const trimmed = editDraft.trim();
-    setEditingId(null);
-    if (id === null) return;
-    const row = rowsRef.current.find((r) => r.id === id);
-    if (!row || trimmed === "" || trimmed === row.name) return;
-    setServers((prev) =>
-      prev ? prev.map((s) => (s.id === id ? { ...s, name: trimmed } : s)) : prev,
-    );
-    void renameShellHost(id, trimmed).then((ok) => {
-      if (!ok) addToast("Shell host rename failed", "error");
-      fetchServers();
-    });
-  }, [editingId, editDraft, addToast, fetchServers]);
-
-  const cancelRename = useCallback(() => {
-    setEditingId(null);
-  }, []);
-
-  // Closing the menu cancels an in-flight edit. Every close path except the
-  // input's own blur (outside click, Escape from a row, close-on-empty,
-  // selecting a host) unmounts the input WITHOUT a blur event, so without
-  // this reset the stale `editingId` re-renders that row as an unfocused
-  // edit input on the next open — a row with no icons and no switch-on-click.
-  // The disconnect confirm dialog is menu-scoped state too and resets with it.
+  // Menu-scoped dialog state dies with the menu — close paths bypass the
+  // dialogs' own handlers, and stale state would wedge the next open.
   useEffect(() => {
     if (!open) {
-      setEditingId(null);
       setConfirmTarget(null);
+      setEditTarget(null);
     }
   }, [open]);
 
@@ -430,17 +422,12 @@ export function ShellTitlebarStrip() {
   // reorder capability, ⌥↑/⌥↓ instead MOVES the focused host row. Enter
   // needs no handler — the focused row is a native <button>. Delete/Backspace
   // disconnects the focused row and F2 enters its inline rename.
-  const confirmOpen = confirmTarget !== null;
+  const dialogOpen = confirmTarget !== null || editTarget !== null;
   useEffect(() => {
     if (!open) return;
     function handleKey(e: KeyboardEvent) {
-      // Edit-mode suspension: while a row's rename input holds focus the menu
-      // owns no keys — the input's own handlers run (Escape exits only the
-      // edit, Enter commits, arrows/Delete/Backspace edit text).
-      if (e.target instanceof HTMLInputElement) return;
-      // Dialog suspension: while the disconnect confirm is up, its focus trap
-      // owns every key (Escape cancels the dialog, not the menu).
-      if (confirmOpen) return;
+      // While either dialog is up its focus trap owns every key.
+      if (dialogOpen) return;
       if (e.key === "Escape") {
         e.stopPropagation();
         setOpen(false);
@@ -457,19 +444,18 @@ export function ShellTitlebarStrip() {
         e.preventDefault();
         e.stopPropagation();
         const row = rowsRef.current[idx];
-        if (row) requestDisconnect(row);
+        if (row) requestRemove(row);
         return;
       }
       if (e.key === "F2") {
-        // Enter inline rename on the focused host row — same gating as
-        // Delete/Backspace (host rows only, capability-gated).
+        // Edit the focused host row — same gating as Delete/Backspace.
         if (!canRename) return;
         const idx = itemRefs.current.findIndex((el) => el === document.activeElement);
         if (idx < 0 || idx >= hostCountRef.current) return;
         e.preventDefault();
         e.stopPropagation();
         const row = rowsRef.current[idx];
-        if (row) startRename(row);
+        if (row) openEdit(row);
         return;
       }
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
@@ -517,7 +503,7 @@ export function ShellTitlebarStrip() {
     }
     document.addEventListener("keydown", handleKey, { capture: true });
     return () => document.removeEventListener("keydown", handleKey, { capture: true });
-  }, [open, rows.length, canAdd, canReorder, canRemove, canRename, confirmOpen, moveHostRow, requestDisconnect, startRename]);
+  }, [open, rows.length, canAdd, canReorder, canRemove, canRename, dialogOpen, moveHostRow, requestRemove, openEdit]);
 
   // Focus lands on the active row on open.
   useEffect(() => {
@@ -624,11 +610,8 @@ export function ShellTitlebarStrip() {
               className="rk-shell-no-drag absolute left-1/2 top-full z-50 mt-1 max-h-72 min-w-[220px] max-w-[320px] -translate-x-1/2 overflow-y-auto rounded-lg border border-border bg-bg-primary py-1 shadow-2xl"
             >
               {rows.map((row, i) => (
-                // Non-interactive row wrapper: owns the hover/focus group and
-                // the drag handlers (they bubble up from the draggable primary
-                // button and cover the trailing cluster zone). Icon buttons
-                // and the rename input are SIBLINGS of the primary button —
-                // interactive elements must never nest inside it.
+                // Row wrapper owns the hover/focus group and drag handlers;
+                // icon buttons are SIBLINGS of the button (never nested).
                 <div
                   key={row.id}
                   className="group relative"
@@ -637,51 +620,7 @@ export function ShellTitlebarStrip() {
                   onDrop={onRowDrop}
                   onDragEnd={onRowDragEnd}
                 >
-                  {editingId === row.id ? (
-                    // Inline rename: the primary button is replaced (an input
-                    // inside a button is invalid HTML); marker/origin columns
-                    // keep the row's alignment.
-                    <div className="relative flex w-full items-baseline gap-2 py-2 pl-3 pr-3 text-left text-sm">
-                      <span aria-hidden="true" className="w-3 shrink-0">
-                        {row.active ? "✓" : ""}
-                      </span>
-                      <input
-                        ref={editInputRef}
-                        type="text"
-                        value={editDraft}
-                        onChange={(e) => setEditDraft(e.target.value)}
-                        onBlur={() => {
-                          // A key-driven commit/cancel already settled the
-                          // edit — swallow the trailing teardown blur.
-                          if (keyHandledRef.current) {
-                            keyHandledRef.current = false;
-                            return;
-                          }
-                          commitRename();
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            keyHandledRef.current = true;
-                            commitRename();
-                            requestAnimationFrame(() => itemRefs.current[i]?.focus());
-                          } else if (e.key === "Escape") {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            keyHandledRef.current = true;
-                            cancelRename();
-                            requestAnimationFrame(() => itemRefs.current[i]?.focus());
-                          }
-                        }}
-                        aria-label={`Rename ${row.name}`}
-                        style={{ width: `${Math.max(editDraft.length + 1, 3)}ch` }}
-                        className="min-w-0 shrink-0 border-b border-accent bg-transparent text-left text-sm text-text-primary outline-none"
-                      />
-                      <span className="min-w-0 truncate text-xs opacity-60">{row.origin}</span>
-                    </div>
-                  ) : (
-                    <>
+                  <>
                       <button
                         ref={(el) => {
                           itemRefs.current[i] = el;
@@ -696,16 +635,14 @@ export function ShellTitlebarStrip() {
                         tabIndex={focusedIndex === i ? 0 : -1}
                         onClick={() => selectHost(row.id)}
                         draggable={canReorder}
-                        className={`relative flex w-full items-baseline gap-2 py-2 pl-3 text-left text-sm transition-colors ${affordancePad} ${
+                        className={`relative flex w-full items-baseline gap-2 py-2 pl-3 pr-12 text-left text-sm transition-colors ${
                           row.active
                             ? "text-accent"
                             : "text-text-secondary hover:bg-bg-card hover:text-text-primary"
                         }`}
                       >
-                        {/* Accent edge bar — absolutely overlaid on the row's
-                            left edge so a colorless row keeps identical
-                            alignment. The row model hex-validated the value
-                            (no interpolation of unvalidated strings). */}
+                        {/* Accent edge bar — overlaid so colorless rows keep
+                            alignment; hex-validated in the row model. */}
                         {row.accentColor !== null && (
                           <span
                             aria-hidden="true"
@@ -722,10 +659,8 @@ export function ShellTitlebarStrip() {
                         {/* Dimmed origin — display names are not unique, the
                             origin disambiguates. */}
                         <span className="min-w-0 truncate text-xs opacity-60">{row.origin}</span>
-                        {/* Amber waiting-agent count — BACKGROUND hosts only
-                            (the row model nulls the active row's count; the
-                            dock badge is the active host's attention surface).
-                            Waiting-only semantics: 0/absent renders nothing. */}
+                        {/* Waiting count — background rows only; yields the
+                            trailing zone while the cluster shows. */}
                         {row.waiting !== null && (
                           <span
                             className={`ml-auto shrink-0 pl-2 text-xs text-amber-600${
@@ -737,40 +672,34 @@ export function ShellTitlebarStrip() {
                             ● {row.waiting}
                           </span>
                         )}
-                        {/* Trailing accelerator hint mirroring the native Hosts
-                            menu bindings (⌥⌘1–9 mac / ⇧Ctrl+1–9 win-linux,
-                            9-cap). It shares the trailing zone with the action
-                            cluster, so it hides while the cluster shows. */}
+                        {/* Accelerator hint — the row's at-rest data, right-
+                            aligned identically on every row; the hover cluster
+                            takes over the zone. */}
                         {row.hint && (
                           <span
-                            className={`${row.waiting === null ? "ml-auto " : ""}${
+                            className={`absolute right-2 top-1/2 -translate-y-1/2 text-xs text-text-secondary${
                               affordanceCount > 0
-                                ? "group-hover:invisible group-focus-within:invisible "
+                                ? " group-hover:invisible group-focus-within:invisible"
                                 : ""
-                            }shrink-0 pl-2 text-xs text-text-secondary`}
+                            }`}
                           >
                             {row.hint}
                           </span>
                         )}
                       </button>
-                      {/* Trailing action cluster — hover/focus-revealed, edit ·
-                          disconnect · grip (its width is the row's `pr-*`
-                          reservation). Icon buttons are tab-skip: the keyboard
-                          paths are the row-level Delete/Backspace and F2
-                          bindings (Constitution V). */}
+                      {/* Hover/focus action cluster: edit · remove · grip.
+                          Instant reveal (visibility, no fade) on a solid chip;
+                          buttons tab-skip — Delete/Backspace and F2 are the
+                          keyboard paths. */}
                       {affordanceCount > 0 && (
-                        // Instant reveal (no fade — the Tip precedent: a
-                        // transition reads as a miss on a quick sweep) on a
-                        // solid surface chip, so the icons stay legible over
-                        // the origin text and never mix with the row beneath.
                         <div className="invisible absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-1 rounded bg-bg-card px-1 py-0.5 group-hover:visible group-focus-within:visible">
                           {canRename && (
-                            <Tip label="Rename">
+                            <Tip label="Edit">
                               <button
                                 type="button"
-                                aria-label="Rename"
+                                aria-label="Edit"
                                 tabIndex={-1}
-                                onClick={() => startRename(row)}
+                                onClick={() => openEdit(row)}
                                 className="flex h-5 w-5 items-center justify-center rounded text-text-secondary transition-colors hover:bg-bg-inset hover:text-text-primary"
                               >
                                 <svg
@@ -791,12 +720,12 @@ export function ShellTitlebarStrip() {
                             </Tip>
                           )}
                           {canRemove && (
-                            <Tip label="Disconnect">
+                            <Tip label="Remove">
                               <button
                                 type="button"
-                                aria-label="Disconnect"
+                                aria-label="Remove"
                                 tabIndex={-1}
-                                onClick={() => requestDisconnect(row)}
+                                onClick={() => requestRemove(row)}
                                 className="flex h-5 w-5 items-center justify-center rounded text-text-secondary transition-colors hover:bg-bg-inset hover:text-text-primary"
                               >
                                 <svg
@@ -810,18 +739,12 @@ export function ShellTitlebarStrip() {
                                   strokeLinecap="round"
                                   strokeLinejoin="round"
                                 >
-                                  <path d="m19 5 3-3" />
-                                  <path d="m2 22 3-3" />
-                                  <path d="M6.3 20.3a2.4 2.4 0 0 0 3.4 0L12 18l-6-6-2.3 2.3a2.4 2.4 0 0 0 0 3.4Z" />
-                                  <path d="M7.5 13.5 10 11" />
-                                  <path d="M10.5 16.5 13 14" />
-                                  <path d="m12 6 6 6 2.3-2.3a2.4 2.4 0 0 0 0-3.4l-2.6-2.6a2.4 2.4 0 0 0-3.4 0Z" />
+                                  <path d="M5 12h14" />
                                 </svg>
                               </button>
                             </Tip>
                           )}
-                          {/* Drag grip — visual affordance only; the row
-                              itself is the draggable. */}
+                          {/* Drag grip — visual only; the row is the draggable. */}
                           {canReorder && (
                             <span
                               aria-hidden="true"
@@ -832,8 +755,7 @@ export function ShellTitlebarStrip() {
                           )}
                         </div>
                       )}
-                    </>
-                  )}
+                  </>
                 </div>
               ))}
               {canAdd && (
@@ -858,31 +780,79 @@ export function ShellTitlebarStrip() {
               )}
             </div>
           )}
-          {/* Disconnect confirm — the shared themed Dialog (the KillDialog
-              pattern: Cancel first so the focus trap seats on it, destructive
-              red confirm). Rendered inside the container so its backdrop
-              mousedown never trips the menu's outside-click close; the menu
-              stays open behind it. */}
+          {/* Both dialogs render inside the container so their backdrop
+              mousedown never trips the menu's outside-click close. */}
           {confirmTarget !== null && (
-            <Dialog title="Disconnect host?" onClose={cancelDisconnect}>
+            <Dialog title="Remove host?" onClose={cancelRemove}>
               <p className="text-sm text-text-secondary mb-3">
-                Disconnect <strong>{confirmTarget.name}</strong>?
+                Remove <strong>{confirmTarget.name}</strong>?
                 <span className="mt-1 block truncate text-xs opacity-60">
                   {confirmTarget.origin}
                 </span>
               </p>
               <div className="flex gap-2">
                 <button
-                  onClick={cancelDisconnect}
+                  onClick={cancelRemove}
                   className="flex-1 text-sm py-1.5 border border-border rounded hover:border-text-secondary"
                 >
                   Cancel
                 </button>
                 <button
-                  onClick={confirmDisconnect}
+                  onClick={confirmRemove}
                   className="flex-1 text-sm py-1.5 bg-red-900/30 border border-red-900 rounded hover:bg-red-900/50"
                 >
-                  Disconnect
+                  Remove
+                </button>
+              </div>
+            </Dialog>
+          )}
+          {editTarget !== null && (
+            <Dialog title="Edit host" onClose={cancelEdit}>
+              <label className="mb-2 block text-xs text-text-secondary">
+                Name
+                <input
+                  type="text"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") saveEdit();
+                  }}
+                  className="mt-1 w-full rounded border border-border bg-transparent px-2 py-1 text-sm text-text-primary outline-none focus:border-accent"
+                />
+              </label>
+              <label className="mb-1 block text-xs text-text-secondary">
+                URL
+                <input
+                  type="text"
+                  value={editUrl}
+                  disabled={!canSetUrl}
+                  onChange={(e) => setEditUrl(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") saveEdit();
+                  }}
+                  className="mt-1 w-full rounded border border-border bg-transparent px-2 py-1 text-sm text-text-primary outline-none focus:border-accent disabled:opacity-50"
+                />
+              </label>
+              {!canSetUrl && (
+                <p className="mb-2 text-xs text-text-secondary opacity-70">
+                  URL editing needs a newer desktop app.
+                </p>
+              )}
+              {editError !== null && (
+                <p className="mb-2 text-xs text-signal-red">{editError}</p>
+              )}
+              <div className="mt-2 flex gap-2">
+                <button
+                  onClick={cancelEdit}
+                  className="flex-1 text-sm py-1.5 border border-border rounded hover:border-text-secondary"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={saveEdit}
+                  className="flex-1 text-sm py-1.5 border border-accent rounded text-accent hover:bg-bg-card"
+                >
+                  Save
                 </button>
               </div>
             </Dialog>

@@ -232,6 +232,50 @@ interface ShellServersRemoveBridge extends ShellServersBridge {
   remove: (id: string) => Promise<unknown>;
 }
 
+/** A `servers` group that also carries the optional `setUrl` invoker
+ *  (shells newer than the Edit Host dialog's URL field). */
+interface ShellServersSetUrlBridge extends ShellServersBridge {
+  setUrl: (id: string, url: string) => Promise<unknown>;
+}
+
+/**
+ * `setUrl` is additive like its siblings: the Edit Host dialog enables its
+ * URL field only when the shell carries the invoker, so an older shell edits
+ * names but never silently drops a URL change.
+ */
+function isServersSetUrlBridge(
+  bridge: ShellServersBridge,
+): bridge is ShellServersSetUrlBridge {
+  return "setUrl" in bridge && typeof Reflect.get(bridge, "setUrl") === "function";
+}
+
+/** True when the shell can re-point a host at a new URL (`servers.setUrl` present). */
+export function canSetShellHostUrl(): boolean {
+  const bridge = serversBridge();
+  return bridge !== null && isServersSetUrlBridge(bridge);
+}
+
+/**
+ * Re-point a registered host at a new origin (the shell normalizes and
+ * validates the URL, drops the old-origin lastPath, and reloads the host's
+ * view). Resolves `false` in a plain browser, on a shell without the
+ * `setUrl` invoker, on an invalid URL, or on a rejected/denied call.
+ * Never throws.
+ */
+export async function setShellHostUrl(id: string, url: string): Promise<boolean> {
+  const bridge = serversBridge();
+  if (!bridge || !isServersSetUrlBridge(bridge)) return false;
+  let result: unknown;
+  try {
+    result = await bridge.setUrl(id, url);
+  } catch {
+    return false;
+  }
+  return (
+    typeof result === "object" && result !== null && "ok" in result && result.ok === true
+  );
+}
+
 /** A `servers` group that also carries the optional `rename` invoker (newer shells). */
 interface ShellServersRenameBridge extends ShellServersBridge {
   rename: (id: string, name: string) => Promise<unknown>;

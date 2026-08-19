@@ -5,12 +5,14 @@ import {
   canConfirmedRemoveShellHost,
   canRemoveShellHost,
   canRenameShellHost,
+  canSetShellHostUrl,
   canReorderShellHosts,
   isShell,
   listShellServers,
   confirmedRemoveShellHost,
   removeShellHost,
   renameShellHost,
+  setShellHostUrl,
   reorderShellHosts,
   setShellAccent,
   setShellBadge,
@@ -523,6 +525,56 @@ describe("canConfirmedRemoveShellHost / confirmedRemoveShellHost", () => {
       removeConfirmed: () => Promise.reject(new Error("ipc gone")),
     });
     expect(await confirmedRemoveShellHost("a")).toBe(false);
+  });
+});
+
+describe("canSetShellHostUrl / setShellHostUrl", () => {
+  it("resolves true on an { ok: true } ack and passes id + url through", async () => {
+    let seen: { id: string; url: string } | null = null;
+    bridgeWith({
+      list: () => Promise.resolve({ ok: true, servers: [] }),
+      switch: () => Promise.resolve({ ok: true }),
+      setUrl: (id: string, url: string) => {
+        seen = { id, url };
+        return Promise.resolve({ ok: true });
+      },
+    });
+    expect(canSetShellHostUrl()).toBe(true);
+    expect(await setShellHostUrl("b", "http://x:4100")).toBe(true);
+    expect(seen).toEqual({ id: "b", url: "http://x:4100" });
+  });
+
+  it("reads as unavailable in a plain browser, without the invoker, and when it is not a function", async () => {
+    expect(canSetShellHostUrl()).toBe(false);
+    expect(await setShellHostUrl("a", "http://x")).toBe(false);
+    bridgeWith({
+      list: () => Promise.resolve({ ok: true, servers: [] }),
+      switch: () => Promise.resolve({ ok: true }),
+      rename: () => Promise.resolve({ ok: true }),
+    });
+    expect(canSetShellHostUrl()).toBe(false);
+    bridgeWith({
+      list: () => Promise.resolve({ ok: true, servers: [] }),
+      switch: () => Promise.resolve({ ok: true }),
+      setUrl: "servers:set-url",
+    });
+    expect(canSetShellHostUrl()).toBe(false);
+    expect(await setShellHostUrl("a", "http://x")).toBe(false);
+  });
+
+  it("resolves false on a denied result and on a rejected invoke", async () => {
+    bridgeWith({
+      list: () => Promise.resolve({ ok: true, servers: [] }),
+      switch: () => Promise.resolve({ ok: true }),
+      setUrl: () => Promise.resolve({ ok: false, error: "Invalid request" }),
+    });
+    expect(await setShellHostUrl("a", "http://x")).toBe(false);
+    bridgeWith({
+      list: () => Promise.resolve({ ok: true, servers: [] }),
+      switch: () => Promise.resolve({ ok: true }),
+      setUrl: () => Promise.reject(new Error("ipc gone")),
+    });
+    expect(await setShellHostUrl("a", "http://x")).toBe(false);
   });
 });
 

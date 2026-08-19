@@ -249,8 +249,14 @@
           spellcheck="false"
           autocomplete="off"
         />
-        <!-- No display-name input: the connect flow auto-derives the name
-             from the health ping's hostname (origin fallback). -->
+        <label for="name">Name</label>
+        <input
+          id="name"
+          type="text"
+          placeholder="optional — auto from server"
+          spellcheck="false"
+          autocomplete="off"
+        />
         <p id="error" hidden class="error"></p>
         <button id="connect" type="submit">Connect</button>
         <a id="cancel" href="#" hidden>Cancel</a>

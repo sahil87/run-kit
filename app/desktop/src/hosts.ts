@@ -232,6 +232,30 @@ export function setHostName(dir: string, id: string, name: string): HostList {
 }
 
 /**
+ * Re-point a registration at a new origin — the Edit Host dialog's URL field.
+ * The caller (the `servers:set-url` handler) has already run `normalizeOrigin`,
+ * so `origin` arrives validated; the mutator keeps the family shape (unknown
+ * id / unchanged value are no-ops that write nothing). A changed origin drops
+ * `lastPath`: the remembered route belongs to the OLD origin, and restoring it
+ * against the new one would deep-link into a different instance's tree.
+ */
+export function setHostUrl(dir: string, id: string, origin: string): HostList {
+  const list = loadHosts(dir);
+  const entry = list.hosts.find((h) => h.id === id);
+  if (!entry || entry.url === origin) return list;
+  const next: HostList = {
+    ...list,
+    hosts: list.hosts.map((h) => {
+      if (h.id !== id) return h;
+      const { lastPath: _dropped, ...rest } = h;
+      return { ...rest, url: origin };
+    }),
+  };
+  saveHosts(dir, next);
+  return next;
+}
+
+/**
  * Strict hex gate for a reported accent color — byte-for-byte the SPA
  * consumer's `HOST_ACCENT_HEX` (app/frontend/src/lib/shell-strip.ts), so
  * nothing the shell persists can fail the SPA's row-paint validation. The

@@ -58,6 +58,7 @@ function shellBridge(
   withRemove = false,
   withRename = false,
   withRemoveConfirmed = withRemove,
+  withSetUrl = withRename,
 ) {
   const list = vi.fn(() =>
     servers === null
@@ -70,6 +71,7 @@ function shellBridge(
   const remove = vi.fn(() => Promise.resolve({ ok: true }));
   const removeConfirmed = vi.fn(() => Promise.resolve({ ok: true }));
   const rename = vi.fn(() => Promise.resolve({ ok: true }));
+  const setUrl = vi.fn(() => Promise.resolve({ ok: true }));
   window.runkitShell = {
     version: "1.2.3",
     platform,
@@ -81,9 +83,10 @@ function shellBridge(
       ...(withRemove ? { remove } : {}),
       ...(withRemoveConfirmed ? { removeConfirmed } : {}),
       ...(withRename ? { rename } : {}),
+      ...(withSetUrl ? { setUrl } : {}),
     },
   };
-  return { list, switch: switchFn, add, reorder, remove, removeConfirmed, rename };
+  return { list, switch: switchFn, add, reorder, remove, removeConfirmed, rename, setUrl };
 }
 
 function renderStrip(accent: InstanceAccent = accentValue()) {
@@ -113,6 +116,7 @@ async function renderInteractive(
   withRemove = false,
   withRename = false,
   withRemoveConfirmed = withRemove,
+  withSetUrl = withRename,
 ) {
   const bridge = shellBridge(
     list,
@@ -122,6 +126,7 @@ async function renderInteractive(
     withRemove,
     withRename,
     withRemoveConfirmed,
+    withSetUrl,
   );
   renderStrip();
   await waitFor(() => {
@@ -684,87 +689,80 @@ describe("ShellTitlebarStrip host menu — accent bars, waiting counts, reorder 
   });
 });
 
-describe("ShellTitlebarStrip host menu — Disconnect + inline rename", () => {
-  /** Bridge carrying all four optional invokers (add/reorder/remove/rename). */
+describe("ShellTitlebarStrip host menu — Remove + Edit Host dialog", () => {
+  /** Bridge carrying every optional invoker. */
   const renderFull = (list: unknown[] = hosts) =>
     renderInteractive(list, "darwin", true, true, true, true);
 
-  it("renders the Disconnect and Rename icons per row when the bridge carries both invokers", async () => {
+  const openMenu = () => fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+
+  it("renders the Edit and Remove icons per row when the bridge carries both invokers", async () => {
     await renderFull();
-    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
-    expect(screen.getAllByRole("button", { name: "Disconnect" })).toHaveLength(2);
-    expect(screen.getAllByRole("button", { name: "Rename" })).toHaveLength(2);
+    openMenu();
+    expect(screen.getAllByRole("button", { name: "Remove" })).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: "Edit" })).toHaveLength(2);
   });
 
-  it("gates each icon on its own capability (remove without rename renders only Disconnect)", async () => {
+  it("gates each icon on its own capability (remove without rename renders only Remove)", async () => {
     await renderInteractive(hosts, "darwin", false, false, true, false);
-    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
-    expect(screen.getAllByRole("button", { name: "Disconnect" })).toHaveLength(2);
-    expect(screen.queryByRole("button", { name: "Rename" })).not.toBeInTheDocument();
+    openMenu();
+    expect(screen.getAllByRole("button", { name: "Remove" })).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
   });
 
   it("renders plain rows on an older shell — no icons, and the keys fall through unswallowed", async () => {
     await renderInteractive(hosts); // list/switch only
-    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
-    expect(screen.queryByRole("button", { name: "Disconnect" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Rename" })).not.toBeInTheDocument();
+    openMenu();
+    expect(screen.queryByRole("button", { name: "Remove" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
     const rows = screen.getAllByRole("menuitemradio");
     await waitFor(() => expect(document.activeElement).toBe(rows[0]));
-    // fireEvent returns false when a handler called preventDefault — both
-    // keys must fall through untouched without the capability.
     expect(fireEvent.keyDown(document, { key: "Backspace" })).toBe(true);
     expect(fireEvent.keyDown(document, { key: "F2" })).toBe(true);
-    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("Disconnect icon click opens the themed confirm; confirming invokes remove and refetches (menu stays open)", async () => {
+  it("Remove icon opens the themed confirm; confirming invokes removeConfirmed (menu stays open)", async () => {
     const bridge = await renderFull();
-    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    openMenu();
     expect(bridge.list).toHaveBeenCalledTimes(2); // mount + open refetch
-    fireEvent.click(screen.getAllByRole("button", { name: "Disconnect" })[1]);
-    // The SPA's own Dialog confirms — no invoke yet.
-    const dialog = screen.getByRole("dialog", { name: "Disconnect host?" });
+    fireEvent.click(screen.getAllByRole("button", { name: "Remove" })[1]);
+    const dialog = screen.getByRole("dialog", { name: "Remove host?" });
     expect(dialog.textContent).toContain("lab");
     expect(bridge.removeConfirmed).not.toHaveBeenCalled();
-    fireEvent.click(within(dialog).getByRole("button", { name: "Disconnect" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Remove" }));
     expect(bridge.removeConfirmed).toHaveBeenCalledTimes(1);
     expect(bridge.removeConfirmed).toHaveBeenCalledWith("b");
     expect(bridge.remove).not.toHaveBeenCalled();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    // Success reconciles via refetch; the menu stays open for background rows.
     await waitFor(() => expect(bridge.list).toHaveBeenCalledTimes(3));
     expect(screen.getByRole("menu")).toBeInTheDocument();
     expect(bridge.switch).not.toHaveBeenCalled();
   });
 
-  it("cancelling the disconnect confirm invokes nothing and keeps the menu open", async () => {
+  it("cancelling the remove confirm invokes nothing and keeps the menu open", async () => {
     const bridge = await renderFull();
-    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
-    fireEvent.click(screen.getAllByRole("button", { name: "Disconnect" })[0]);
-    const dialog = screen.getByRole("dialog", { name: "Disconnect host?" });
-    // The focus trap seats on Cancel — the Cancel-default contract.
+    openMenu();
+    fireEvent.click(screen.getAllByRole("button", { name: "Remove" })[0]);
+    const dialog = screen.getByRole("dialog", { name: "Remove host?" });
+    // Focus trap seats on Cancel — the Cancel-default contract.
     await waitFor(() =>
       expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "Cancel" })),
     );
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
     expect(bridge.removeConfirmed).not.toHaveBeenCalled();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(screen.getByRole("menu")).toBeInTheDocument();
     expect(screen.getAllByRole("menuitemradio")).toHaveLength(2);
   });
 
   it("falls back to the native-confirm channel on a shell without removeConfirmed (no SPA dialog)", async () => {
-    // servers:remove shipped with shell-side confirmation (v3.17.11) — a
-    // shell predating removeConfirmed must keep that as the ONE dialog, so
-    // the SPA invokes it directly and draws nothing itself.
     const bridge = await renderInteractive(hosts, "darwin", false, false, true, false, false);
-    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
-    fireEvent.click(screen.getAllByRole("button", { name: "Disconnect" })[1]);
+    openMenu();
+    fireEvent.click(screen.getAllByRole("button", { name: "Remove" })[1]);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(bridge.remove).toHaveBeenCalledTimes(1);
     expect(bridge.remove).toHaveBeenCalledWith("b");
     expect(bridge.removeConfirmed).not.toHaveBeenCalled();
-    // Delete on a focused row takes the same fallback.
     const rows = screen.getAllByRole("menuitemradio");
     rows[0].focus();
     expect(fireEvent.keyDown(document, { key: "Delete" })).toBe(false);
@@ -773,47 +771,41 @@ describe("ShellTitlebarStrip host menu — Disconnect + inline rename", () => {
     expect(bridge.remove).toHaveBeenLastCalledWith("a");
   });
 
-  it("a failed disconnect surfaces the toast and refetches", async () => {
+  it("a failed remove surfaces the toast and refetches", async () => {
     const bridge = await renderFull();
     bridge.removeConfirmed.mockResolvedValue({ ok: false });
-    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
-    fireEvent.click(screen.getAllByRole("button", { name: "Disconnect" })[0]);
+    openMenu();
+    fireEvent.click(screen.getAllByRole("button", { name: "Remove" })[0]);
     fireEvent.click(
-      within(screen.getByRole("dialog")).getByRole("button", { name: "Disconnect" }),
+      within(screen.getByRole("dialog")).getByRole("button", { name: "Remove" }),
     );
     await waitFor(() => {
-      expect(screen.getByText("Shell host disconnect failed")).toBeInTheDocument();
+      expect(screen.getByText("Shell host remove failed")).toBeInTheDocument();
     });
     await waitFor(() => expect(bridge.list).toHaveBeenCalledTimes(3));
   });
 
-  it("Delete/Backspace on a focused host row opens its disconnect confirm; the footer is not bound", async () => {
+  it("Delete/Backspace opens the focused row's remove confirm; keys suspend while it is up; the footer is not bound", async () => {
     const bridge = await renderFull();
-    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    openMenu();
     const rows = screen.getAllByRole("menuitemradio");
     await waitFor(() => expect(document.activeElement).toBe(rows[0]));
     expect(fireEvent.keyDown(document, { key: "Backspace" })).toBe(false); // swallowed
-    const dialog = screen.getByRole("dialog", { name: "Disconnect host?" });
+    const dialog = screen.getByRole("dialog", { name: "Remove host?" });
     expect(dialog.textContent).toContain("studio-mac");
-    // While the dialog is up, menu keys suspend — Delete retargets nothing.
-    fireEvent.keyDown(document, { key: "Delete" });
+    fireEvent.keyDown(document, { key: "Delete" }); // suspended — no new target
     expect(screen.getAllByRole("dialog")).toHaveLength(1);
-    expect(bridge.removeConfirmed).not.toHaveBeenCalled();
-    // Cancel invokes nothing and restores focus to the target's row (the
-    // Delete → Escape round-trip lands back where it started).
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
     await waitFor(() =>
       expect(document.activeElement).toBe(screen.getAllByRole("menuitemradio")[0]),
     );
     expect(bridge.removeConfirmed).not.toHaveBeenCalled();
-    // Confirming the re-opened dialog invokes exactly once with the row id.
     fireEvent.keyDown(document, { key: "Delete" });
     fireEvent.click(
-      within(screen.getByRole("dialog")).getByRole("button", { name: "Disconnect" }),
+      within(screen.getByRole("dialog")).getByRole("button", { name: "Remove" }),
     );
     expect(bridge.removeConfirmed).toHaveBeenCalledTimes(1);
     expect(bridge.removeConfirmed).toHaveBeenCalledWith("a");
-    // Wrap up to the Add-Host footer: Delete there falls through, no invoke.
     fireEvent.keyDown(document, { key: "ArrowUp" });
     expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "Add Host…" }));
     expect(fireEvent.keyDown(document, { key: "Delete" })).toBe(true);
@@ -821,151 +813,134 @@ describe("ShellTitlebarStrip host menu — Disconnect + inline rename", () => {
     expect(bridge.removeConfirmed).toHaveBeenCalledTimes(1);
   });
 
-  it("F2 on a focused row enters inline rename (input prefilled, focused, replaces the row button)", async () => {
+  it("the Edit icon opens the Edit Host dialog with name and URL prefilled", async () => {
     await renderFull();
-    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    openMenu();
+    fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[1]);
+    const dialog = screen.getByRole("dialog", { name: "Edit host" });
+    expect(within(dialog).getByRole("textbox", { name: "Name" })).toHaveValue("lab");
+    expect(within(dialog).getByRole("textbox", { name: "URL" })).toHaveValue("http://b:3000");
+  });
+
+  it("F2 on a focused row opens its Edit Host dialog", async () => {
+    await renderFull();
+    openMenu();
     const rows = screen.getAllByRole("menuitemradio");
     await waitFor(() => expect(document.activeElement).toBe(rows[0]));
-    fireEvent.keyDown(document, { key: "F2" });
-    const input = screen.getByRole("textbox", { name: "Rename studio-mac" });
-    expect(input).toHaveValue("studio-mac");
-    await waitFor(() => expect(document.activeElement).toBe(input));
-    // The editing row's primary button is replaced (no nested interactive).
-    expect(screen.getAllByRole("menuitemradio")).toHaveLength(1);
-    expect(screen.getByRole("menu")).toBeInTheDocument();
+    expect(fireEvent.keyDown(document, { key: "F2" })).toBe(false);
+    const dialog = screen.getByRole("dialog", { name: "Edit host" });
+    expect(within(dialog).getByRole("textbox", { name: "Name" })).toHaveValue("studio-mac");
   });
 
-  it("the Rename icon enters inline edit for its row", async () => {
-    await renderFull();
-    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
-    fireEvent.click(screen.getAllByRole("button", { name: "Rename" })[1]);
-    const input = screen.getByRole("textbox", { name: "Rename lab" });
-    expect(input).toHaveValue("lab");
-  });
-
-  it("Enter commits the trimmed name: one invoke, optimistic update, refetch, menu stays open", async () => {
+  it("Save commits a changed name: trimmed rename invoke, optimistic update, refetch, menu open", async () => {
     const bridge = await renderFull();
-    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
-    const rows = screen.getAllByRole("menuitemradio");
-    await waitFor(() => expect(document.activeElement).toBe(rows[0]));
-    fireEvent.keyDown(document, { key: "F2" });
-    const input = screen.getByRole("textbox", { name: "Rename studio-mac" });
-    fireEvent.change(input, { target: { value: " workshop " } });
-    fireEvent.keyDown(input, { key: "Enter" });
+    openMenu();
+    fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[0]);
+    const dialog = screen.getByRole("dialog", { name: "Edit host" });
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "Name" }), {
+      target: { value: "  studio  " },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
     expect(bridge.rename).toHaveBeenCalledTimes(1);
-    expect(bridge.rename).toHaveBeenCalledWith("a", "workshop");
-    // Optimistic local rename renders immediately; the menu stays open.
-    expect(screen.getAllByRole("menuitemradio")[0].textContent).toContain("workshop");
-    expect(screen.getByRole("menu")).toBeInTheDocument();
-    // The reconcile refetch runs (its list snapshot is the store's truth).
+    expect(bridge.rename).toHaveBeenCalledWith("a", "studio");
+    expect(bridge.setUrl).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("menuitemradio")[0].textContent).toContain("studio");
     await waitFor(() => expect(bridge.list).toHaveBeenCalledTimes(3));
-  });
-
-  it("blur commits the edit", async () => {
-    const bridge = await renderFull();
-    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
-    const rows = screen.getAllByRole("menuitemradio");
-    await waitFor(() => expect(document.activeElement).toBe(rows[0]));
-    fireEvent.keyDown(document, { key: "F2" });
-    const input = screen.getByRole("textbox", { name: "Rename studio-mac" });
-    fireEvent.change(input, { target: { value: "blurred" } });
-    fireEvent.blur(input);
-    expect(bridge.rename).toHaveBeenCalledTimes(1);
-    expect(bridge.rename).toHaveBeenCalledWith("a", "blurred");
-  });
-
-  it("Escape cancels the edit without invoking and without closing the menu", async () => {
-    const bridge = await renderFull();
-    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
-    const rows = screen.getAllByRole("menuitemradio");
-    await waitFor(() => expect(document.activeElement).toBe(rows[0]));
-    fireEvent.keyDown(document, { key: "F2" });
-    const input = screen.getByRole("textbox", { name: "Rename studio-mac" });
-    fireEvent.change(input, { target: { value: "never committed" } });
-    fireEvent.keyDown(input, { key: "Escape" });
-    expect(bridge.rename).not.toHaveBeenCalled();
-    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
     expect(screen.getByRole("menu")).toBeInTheDocument();
-    // The row returns to display mode with the prior name.
-    const restored = screen.getAllByRole("menuitemradio");
-    expect(restored).toHaveLength(2);
-    expect(restored[0].textContent).toContain("studio-mac");
   });
 
-  it("closing the menu cancels an in-flight edit — the row is whole again on reopen", async () => {
-    // Regression: an outside-click close unmounts the rename input without a
-    // blur, and a surviving editingId re-rendered that row as a stuck,
-    // unfocused edit input on the next open (no icons, no switch-on-click).
+  it("Save commits a changed URL through setUrl (normalized to the origin)", async () => {
     const bridge = await renderFull();
-    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
-    fireEvent.click(screen.getAllByRole("button", { name: "Rename" })[0]);
-    expect(screen.getByRole("textbox", { name: "Rename studio-mac" })).toBeInTheDocument();
-    fireEvent.mouseDown(document.body); // outside close while editing
-    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
-    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
-    expect(screen.getAllByRole("menuitemradio")).toHaveLength(2);
-    expect(screen.getAllByRole("button", { name: "Rename" })).toHaveLength(2);
-    expect(bridge.rename).not.toHaveBeenCalled(); // close = cancel, never commit
+    openMenu();
+    fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[0]);
+    const dialog = screen.getByRole("dialog", { name: "Edit host" });
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "URL" }), {
+      target: { value: "http://new-box:4100/some/path" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    expect(bridge.setUrl).toHaveBeenCalledTimes(1);
+    expect(bridge.setUrl).toHaveBeenCalledWith("a", "http://new-box:4100");
+    expect(bridge.rename).not.toHaveBeenCalled();
   });
 
-  it("an empty or unchanged commit performs no invoke", async () => {
+  it("an invalid URL keeps the dialog open with an inline error and no invoke", async () => {
     const bridge = await renderFull();
-    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
-    let rows = screen.getAllByRole("menuitemradio");
-    await waitFor(() => expect(document.activeElement).toBe(rows[0]));
-    // Whitespace-only commit → cancel.
-    fireEvent.keyDown(document, { key: "F2" });
-    let input = screen.getByRole("textbox", { name: "Rename studio-mac" });
-    fireEvent.change(input, { target: { value: "   " } });
-    fireEvent.keyDown(input, { key: "Enter" });
+    openMenu();
+    fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[0]);
+    const dialog = screen.getByRole("dialog", { name: "Edit host" });
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "URL" }), {
+      target: { value: "not-a-url" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    expect(screen.getByRole("dialog", { name: "Edit host" })).toBeInTheDocument();
+    expect(dialog.textContent).toContain("Enter a full http(s) URL");
     expect(bridge.rename).not.toHaveBeenCalled();
-    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
-    // Unchanged commit → cancel.
-    rows = screen.getAllByRole("menuitemradio");
-    rows[0].focus();
-    fireEvent.keyDown(document, { key: "F2" });
-    input = screen.getByRole("textbox", { name: "Rename studio-mac" });
-    fireEvent.keyDown(input, { key: "Enter" });
+    expect(bridge.setUrl).not.toHaveBeenCalled();
+  });
+
+  it("Save with nothing changed (or an emptied name) invokes nothing", async () => {
+    const bridge = await renderFull();
+    openMenu();
+    fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[0]);
+    let dialog = screen.getByRole("dialog", { name: "Edit host" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
     expect(bridge.rename).not.toHaveBeenCalled();
+    expect(bridge.setUrl).not.toHaveBeenCalled();
+    fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[0]);
+    dialog = screen.getByRole("dialog", { name: "Edit host" });
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "Name" }), {
+      target: { value: "   " },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    expect(bridge.rename).not.toHaveBeenCalled();
+  });
+
+  it("without setUrl the URL field is disabled and Save edits the name only", async () => {
+    const bridge = await renderInteractive(hosts, "darwin", true, true, true, true, true, false);
+    openMenu();
+    fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[0]);
+    const dialog = screen.getByRole("dialog", { name: "Edit host" });
+    expect(within(dialog).getByRole("textbox", { name: "URL" })).toBeDisabled();
+    expect(dialog.textContent).toContain("URL editing needs a newer desktop app");
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "Name" }), {
+      target: { value: "renamed" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    expect(bridge.rename).toHaveBeenCalledWith("a", "renamed");
+    expect(bridge.setUrl).not.toHaveBeenCalled();
   });
 
   it("a failed rename surfaces the toast and refetches", async () => {
     const bridge = await renderFull();
     bridge.rename.mockResolvedValue({ ok: false });
-    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
-    const rows = screen.getAllByRole("menuitemradio");
-    await waitFor(() => expect(document.activeElement).toBe(rows[0]));
-    fireEvent.keyDown(document, { key: "F2" });
-    const input = screen.getByRole("textbox", { name: "Rename studio-mac" });
-    fireEvent.change(input, { target: { value: "denied" } });
-    fireEvent.keyDown(input, { key: "Enter" });
+    openMenu();
+    fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[0]);
+    const dialog = screen.getByRole("dialog", { name: "Edit host" });
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "Name" }), {
+      target: { value: "renamed" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
     await waitFor(() => {
       expect(screen.getByText("Shell host rename failed")).toBeInTheDocument();
     });
     await waitFor(() => expect(bridge.list).toHaveBeenCalledTimes(3));
   });
 
-  it("edit mode suspends menu keys: arrows move no focus, Escape exits only the edit", async () => {
-    await renderFull();
-    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
-    const rows = screen.getAllByRole("menuitemradio");
-    await waitFor(() => expect(document.activeElement).toBe(rows[0]));
-    fireEvent.keyDown(document, { key: "F2" });
-    const input = screen.getByRole("textbox", { name: "Rename studio-mac" });
-    await waitFor(() => expect(document.activeElement).toBe(input));
-    // ArrowDown inside the input: no roving, no reorder, menu stays open.
-    fireEvent.keyDown(input, { key: "ArrowDown" });
-    expect(document.activeElement).toBe(input);
-    expect(screen.getByRole("menu")).toBeInTheDocument();
-    // Escape inside the input exits the edit only.
-    fireEvent.keyDown(input, { key: "Escape" });
-    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
-    expect(screen.getByRole("menu")).toBeInTheDocument();
+  it("closing the menu cancels an open Edit dialog — the row is whole again on reopen", async () => {
+    const bridge = await renderFull();
+    openMenu();
+    fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[0]);
+    expect(screen.getByRole("dialog", { name: "Edit host" })).toBeInTheDocument();
+    fireEvent.mouseDown(document.body); // outside close while the dialog is up
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    openMenu();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("menuitemradio")).toHaveLength(2);
+    expect(bridge.rename).not.toHaveBeenCalled();
   });
 
   it("a remove-shrunk refetch reconciles in place and keeps the focus re-clamp guard", async () => {
-    // Mount + open resolve both hosts; the post-remove refetch resolves one.
     const list = vi
       .fn<() => Promise<unknown>>()
       .mockImplementationOnce(() => Promise.resolve({ ok: true, servers: hosts }))
@@ -981,18 +956,17 @@ describe("ShellTitlebarStrip host menu — Disconnect + inline rename", () => {
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Switch host" })).toBeInTheDocument();
     });
-    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    openMenu();
     let rows = screen.getAllByRole("menuitemradio");
     await waitFor(() => expect(document.activeElement).toBe(rows[0]));
     fireEvent.keyDown(document, { key: "ArrowDown" }); // seat on row 1 (out of bounds post-shrink)
     expect(document.activeElement).toBe(rows[1]);
-    fireEvent.click(screen.getAllByRole("button", { name: "Disconnect" })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: "Remove" })[0]);
     fireEvent.click(
-      within(screen.getByRole("dialog")).getByRole("button", { name: "Disconnect" }),
+      within(screen.getByRole("dialog")).getByRole("button", { name: "Remove" }),
     );
     expect(remove).toHaveBeenCalledWith("a");
     await waitFor(() => expect(screen.getAllByRole("menuitemradio")).toHaveLength(1));
-    // The seat clamps onto the surviving row and focus follows.
     rows = screen.getAllByRole("menuitemradio");
     await waitFor(() => {
       expect(rows[0]).toHaveAttribute("tabindex", "0");
@@ -1017,17 +991,18 @@ describe("ShellTitlebarStrip host menu — Disconnect + inline rename", () => {
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Switch host" })).toBeInTheDocument();
     });
-    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
-    fireEvent.click(screen.getAllByRole("button", { name: "Disconnect" })[0]);
+    openMenu();
+    fireEvent.click(screen.getAllByRole("button", { name: "Remove" })[0]);
     fireEvent.click(
-      within(screen.getByRole("dialog")).getByRole("button", { name: "Disconnect" }),
+      within(screen.getByRole("dialog")).getByRole("button", { name: "Remove" }),
     );
     // The emptied list downgrades the strip to the static label (close-on-empty).
     await waitFor(() => {
       expect(screen.queryByRole("menu")).not.toBeInTheDocument();
-      expect(screen.queryByRole("button")).not.toBeInTheDocument();
     });
-    expect(fireEvent.keyDown(document.body, { key: "ArrowDown" })).toBe(true);
-    expect(fireEvent.keyDown(document.body, { key: "ArrowUp" })).toBe(true);
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "Switch host" })).not.toBeInTheDocument();
+    });
+    expect(fireEvent.keyDown(document, { key: "ArrowDown" })).toBe(true);
   });
 });

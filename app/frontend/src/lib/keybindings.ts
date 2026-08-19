@@ -26,6 +26,8 @@
  * ⌥⌘1–9 (260731-nv5r): territory this registry can never claim.
  */
 
+import type { ViewName } from "./window-view";
+
 /**
  * The three chord tiers:
  * - `shifted` — `Shift+CmdOrCtrl` (the run-kit action tier; uniform per intake
@@ -107,6 +109,13 @@ export type KeyBinding = {
    *  intercepts a keydown whose only matches are `ttyOnly` (a keydown inside
    *  the code-server iframe means the code tile owns focus). */
   ttyOnly?: boolean;
+  /** The `ttyOnly` mirror for the web tile (260819-ie2i): this chord is only
+   *  meaningful when the web tile owns focus. The dispatcher handler map
+   *  treats a `webOnly` binding's handler as absent unless the focused tile is
+   *  web, and the reclaim predicate intercepts it only when the keydown
+   *  arrived inside a WEB lens iframe — inside the code iframe ⌘F stays with
+   *  code-server's own find. */
+  webOnly?: boolean;
 };
 
 /** A resolved binding after the override layer + host reservations applied. */
@@ -236,6 +245,14 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // palette body (`Layout: Cycle Shape`) exists only on window routes, so
   // elsewhere the chord falls through untouched.
   { actionId: "layout-cycle", code: "Semicolon", tier: "cmd", scope: "terminal", kind: "builtin", label: "Cycle layout shape", description: "next same-arity preset, order kept", mapLabel: "layout" },
+  // ⌘F/Ctrl+F web-tile find-in-page (260819-ie2i) — the cmd tier yields the
+  // browser's own find chord on every platform, reclaimed only while the web
+  // tile owns focus (the `webOnly` gate: handler absent elsewhere, so the
+  // chord falls through to native find — and to the pane's Ctrl+F on
+  // Win/Linux terminal focus, where the cmd-tier seam rule is mac-only).
+  // `ignoreInputs`: a chrome-level opener, it fires from the URL bar and the
+  // find input itself (the ⌘K/settings-open class).
+  { actionId: "web-find", code: "KeyF", tier: "cmd", scope: "terminal", kind: "builtin", label: "Find in page", description: "search the web tile's page", mapLabel: "find", ignoreInputs: true, webOnly: true },
   { actionId: "board-cycle-next", code: "BracketRight", tier: "cmd", scope: "board", kind: "builtin", label: "Cycle pane focus →" },
   { actionId: "board-cycle-prev", code: "BracketLeft", tier: "cmd", scope: "board", kind: "builtin", label: "Cycle pane focus ←" },
 ];
@@ -420,20 +437,29 @@ export function findMatches(
 }
 
 /**
- * The code-iframe reclaim predicate (260812-wfic R9): whether a keydown inside
- * the code-server iframe should be reclaimed and re-dispatched to the parent
- * document. A keydown arriving there means the CODE tile owns focus, so a
- * chord whose only registry matches are `ttyOnly` (the split pair — tmux
- * pane-targeting) must NOT be reclaimed: it belongs to code-server's own
- * keybinding service (its ⌘D add-selection-to-next-match). A chord matching
- * BOTH a `ttyOnly` and a non-`ttyOnly` binding is still reclaimed (`.some`
- * semantics) — the non-ttyOnly match has a global meaning.
+ * The lens-iframe reclaim predicate (260812-wfic R9, kind-aware since
+ * 260819-ie2i): whether a keydown inside a same-origin lens iframe should be
+ * reclaimed and re-dispatched to the parent document. `kind` is the kind of
+ * the iframe the keydown arrived in — the surface that owns focus. A chord
+ * whose only registry matches are `ttyOnly` (the split pair — tmux
+ * pane-targeting) is never reclaimed: it belongs to the embedded app's own
+ * keybinding service (code-server's ⌘D add-selection-to-next-match). A
+ * `webOnly` match (⌘F web find) is reclaimable only inside a WEB iframe — in
+ * the code iframe ⌘F stays with code-server's own find. A chord matching BOTH
+ * a gated and an ungated binding is still reclaimed (`.some` semantics) — the
+ * ungated match has a global meaning. For `"code"` the result is
+ * byte-identical to the pre-kind-aware predicate on every pre-ie2i binding.
  */
 export function hasReclaimableMatch(
   e: ChordEvent,
   bindings: readonly EffectiveBinding[],
+  kind: ViewName,
 ): boolean {
-  return findMatches(e, bindings).some((b) => !b.ttyOnly);
+  return findMatches(e, bindings).some((b) => {
+    if (b.ttyOnly) return false;
+    if (b.webOnly) return kind === "web";
+    return true;
+  });
 }
 
 /**

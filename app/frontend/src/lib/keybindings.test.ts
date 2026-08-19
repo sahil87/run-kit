@@ -1202,7 +1202,7 @@ describe("shouldRefuseTerminalChord (260730-n789)", () => {
     ).toBe(false);
     // Unbound ⌘ keys pass through too (no enabled match).
     expect(
-      shouldRefuseTerminalChord(chord({ code: "KeyF", metaKey: true }), bindings, "mac"),
+      shouldRefuseTerminalChord(chord({ code: "KeyG", metaKey: true }), bindings, "mac"),
     ).toBe(false);
   });
 
@@ -1471,43 +1471,61 @@ describe("ttyOnly registry flag — 260812-wfic (R7)", () => {
   });
 });
 
-describe("hasReclaimableMatch — the code-iframe reclaim carve-out (260812-wfic R9)", () => {
-  it("a chord whose only matches are ttyOnly is NOT reclaimed (⌘D / ⇧Ctrl+\\)", () => {
+describe("hasReclaimableMatch — the lens-iframe reclaim carve-out (260812-wfic R9, kind-aware 260819-ie2i)", () => {
+  it("a chord whose only matches are ttyOnly is NOT reclaimed in EITHER iframe kind (⌘D / ⇧Ctrl+\\)", () => {
     // mac ⌘D (split-horizontal's mac refinement) and the win/linux divider
-    // chord both match ONLY ttyOnly bindings — code-server keeps them.
-    expect(hasReclaimableMatch(chord({ code: "KeyD", metaKey: true }), resolved(SHELL_MAC))).toBe(false);
+    // chord both match ONLY ttyOnly bindings — code-server keeps them, and no
+    // web frame may claim them either.
+    expect(hasReclaimableMatch(chord({ code: "KeyD", metaKey: true }), resolved(SHELL_MAC), "code")).toBe(false);
+    expect(hasReclaimableMatch(chord({ code: "KeyD", metaKey: true }), resolved(SHELL_MAC), "web")).toBe(false);
     expect(
-      hasReclaimableMatch(chord({ code: "Backslash", shiftKey: true, ctrlKey: true }), resolved(SHELL_OTHER)),
+      hasReclaimableMatch(chord({ code: "Backslash", shiftKey: true, ctrlKey: true }), resolved(SHELL_OTHER), "code"),
+    ).toBe(false);
+    expect(
+      hasReclaimableMatch(chord({ code: "Backslash", shiftKey: true, ctrlKey: true }), resolved(SHELL_OTHER), "web"),
     ).toBe(false);
   });
 
-  it("non-ttyOnly registry chords are still reclaimed (⌘K, ⌘.)", () => {
+  it("non-gated registry chords are reclaimed under BOTH kinds (⌘K, ⌘.)", () => {
     const bindings = resolved(SHELL_MAC);
-    expect(hasReclaimableMatch(chord({ code: "KeyK", metaKey: true }), bindings)).toBe(true);
-    expect(hasReclaimableMatch(chord({ code: "Period", metaKey: true }), bindings)).toBe(true);
+    expect(hasReclaimableMatch(chord({ code: "KeyK", metaKey: true }), bindings, "code")).toBe(true);
+    expect(hasReclaimableMatch(chord({ code: "KeyK", metaKey: true }), bindings, "web")).toBe(true);
+    expect(hasReclaimableMatch(chord({ code: "Period", metaKey: true }), bindings, "code")).toBe(true);
+    expect(hasReclaimableMatch(chord({ code: "Period", metaKey: true }), bindings, "web")).toBe(true);
+  });
+
+  it("webOnly chords (⌘F web-find) reclaim ONLY inside a web iframe — the code iframe keeps code-server's find", () => {
+    const mac = resolved(SHELL_MAC);
+    expect(hasReclaimableMatch(chord({ code: "KeyF", metaKey: true }), mac, "web")).toBe(true);
+    expect(hasReclaimableMatch(chord({ code: "KeyF", metaKey: true }), mac, "code")).toBe(false);
+    const other = resolved(SHELL_OTHER);
+    expect(hasReclaimableMatch(chord({ code: "KeyF", ctrlKey: true }), other, "web")).toBe(true);
+    expect(hasReclaimableMatch(chord({ code: "KeyF", ctrlKey: true }), other, "code")).toBe(false);
   });
 
   it("the code toggle and focus hop reclaim from inside the code iframe (toggle symmetry / ⌃` preemption)", () => {
     // ⌘J (code-toggle's mac default) and ⌃` (focus-hop's ctrl tier) match
-    // non-ttyOnly bindings, so a keydown inside the code-server iframe
+    // non-gated bindings, so a keydown inside the code-server iframe
     // re-dispatches to the parent — preempting code-server's own ⌃`
     // integrated-terminal toggle. ⇧Ctrl+J reclaims off mac the same way.
     const mac = resolved(SHELL_MAC);
-    expect(hasReclaimableMatch(chord({ code: "KeyJ", metaKey: true }), mac)).toBe(true);
-    expect(hasReclaimableMatch(chord({ code: "Backquote", ctrlKey: true }), mac)).toBe(true);
+    expect(hasReclaimableMatch(chord({ code: "KeyJ", metaKey: true }), mac, "code")).toBe(true);
+    expect(hasReclaimableMatch(chord({ code: "Backquote", ctrlKey: true }), mac, "code")).toBe(true);
     expect(
       hasReclaimableMatch(
         chord({ code: "KeyJ", shiftKey: true, ctrlKey: true }),
         resolved(SHELL_OTHER),
+        "code",
       ),
     ).toBe(true);
   });
 
   it("no match at all → false (the embedded app's own chords pass through)", () => {
-    expect(hasReclaimableMatch(chord({ code: "KeyQ" }), resolved(SHELL_OTHER))).toBe(false);
+    expect(hasReclaimableMatch(chord({ code: "KeyQ" }), resolved(SHELL_OTHER), "code")).toBe(false);
+    expect(hasReclaimableMatch(chord({ code: "KeyQ" }), resolved(SHELL_OTHER), "web")).toBe(false);
   });
 
-  it("a chord matching BOTH a ttyOnly and a non-ttyOnly binding IS reclaimed (.some semantics, A-016)", () => {
+  it("a chord matching BOTH a ttyOnly and a non-gated binding IS reclaimed (.some semantics, A-016)", () => {
     // No such default pair ships today; construct it to pin the semantics: a
     // shared chord keeps its global meaning, so the reclaim must fire.
     const shared: KeyBinding = {
@@ -1520,7 +1538,31 @@ describe("hasReclaimableMatch — the code-iframe reclaim carve-out (260812-wfic
     };
     const bindings = resolveBindings([...DEFAULT_BINDINGS, shared], {}, SHELL_OTHER);
     expect(
-      hasReclaimableMatch(chord({ code: "Backslash", shiftKey: true, ctrlKey: true }), bindings),
+      hasReclaimableMatch(chord({ code: "Backslash", shiftKey: true, ctrlKey: true }), bindings, "code"),
     ).toBe(true);
+  });
+});
+
+describe("webOnly — the web-find data flag (260819-ie2i)", () => {
+  it("exactly web-find carries the flag in the shipped defaults", () => {
+    const flagged = DEFAULT_BINDINGS.filter((b) => b.webOnly).map((b) => b.actionId);
+    expect(flagged).toEqual(["web-find"]);
+  });
+
+  it("web-find ships as ⌘F on mac and Ctrl+F on Win/Linux (cmd tier, no mac refinement)", () => {
+    expect(byId(resolved(SHELL_MAC), "web-find")).toMatchObject({ code: "KeyF", tier: "cmd", enabled: true });
+    expect(byId(resolved(BROWSER_MAC), "web-find")).toMatchObject({ code: "KeyF", tier: "cmd", enabled: true });
+    expect(byId(resolved(SHELL_OTHER), "web-find")).toMatchObject({ code: "KeyF", tier: "cmd", enabled: true });
+    expect(byId(resolved(BROWSER_OTHER), "web-find")).toMatchObject({ code: "KeyF", tier: "cmd", enabled: true });
+    expect(formatCombo(byId(resolved(SHELL_MAC), "web-find"), "mac")).toBe("⌘F");
+    expect(formatCombo(byId(resolved(SHELL_OTHER), "web-find"), "other")).toBe("Ctrl+F");
+  });
+
+  it("survives resolution onto the effective map in every host", () => {
+    for (const host of ALL_HOSTS) {
+      const bindings = resolved(host);
+      expect(byId(bindings, "web-find").webOnly).toBe(true);
+      expect(byId(bindings, "command-palette").webOnly).toBeUndefined();
+    }
   });
 });

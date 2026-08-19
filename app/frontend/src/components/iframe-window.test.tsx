@@ -244,4 +244,215 @@ describe("IframeWindow", () => {
     // call is the URL bar's Enter-commit, which we did not trigger here).
     expect(updateWindowUrl).not.toHaveBeenCalled();
   });
+
+  // Chord reclaim (260819-ie2i R1): the seam reports onInteract first, then
+  // consumes ONLY predicate-matching chords in the frame and re-dispatches a
+  // synthetic bubbling keydown on the parent document.
+  describe("chord reclaim seam", () => {
+    const getIframe = () =>
+      screen.getByTitle("Proxied content") as HTMLIFrameElement;
+
+    it("a matching chord is prevented in the frame and re-dispatched on the parent document", () => {
+      const onInteract = vi.fn();
+      renderIframe({
+        windowId: "@2",
+        rkUrl: "http://localhost:8080/docs",
+        onInteract,
+        shouldReclaimChord: (e) => e.code === "KeyK",
+      });
+      const parentReceived = vi.fn();
+      document.addEventListener("keydown", parentReceived);
+      try {
+        const doc = getIframe().contentDocument!;
+        const event = new KeyboardEvent("keydown", {
+          key: "k",
+          code: "KeyK",
+          metaKey: true,
+          cancelable: true,
+        });
+        doc.dispatchEvent(event);
+        // onInteract reported first; the frame's event was consumed…
+        expect(onInteract).toHaveBeenCalledTimes(1);
+        expect(event.defaultPrevented).toBe(true);
+        // …and a synthetic copy (key/code/modifiers, bubbling) landed on the
+        // parent document.
+        expect(parentReceived).toHaveBeenCalledTimes(1);
+        const synthetic = parentReceived.mock.calls[0][0] as KeyboardEvent;
+        expect(synthetic.code).toBe("KeyK");
+        expect(synthetic.metaKey).toBe(true);
+        expect(synthetic.bubbles).toBe(true);
+      } finally {
+        document.removeEventListener("keydown", parentReceived);
+      }
+    });
+
+    it("a non-matching keydown passes through untouched (no prevent, no re-dispatch)", () => {
+      const onInteract = vi.fn();
+      renderIframe({
+        windowId: "@2",
+        rkUrl: "http://localhost:8080/docs",
+        onInteract,
+        shouldReclaimChord: () => false,
+      });
+      const parentReceived = vi.fn();
+      document.addEventListener("keydown", parentReceived);
+      try {
+        const doc = getIframe().contentDocument!;
+        const event = new KeyboardEvent("keydown", {
+          key: "a",
+          code: "KeyA",
+          cancelable: true,
+        });
+        doc.dispatchEvent(event);
+        expect(onInteract).toHaveBeenCalledTimes(1);
+        expect(event.defaultPrevented).toBe(false);
+        expect(parentReceived).not.toHaveBeenCalled();
+      } finally {
+        document.removeEventListener("keydown", parentReceived);
+      }
+    });
+
+    it("without the predicate the seam stays report-only (legacy behavior)", () => {
+      const onInteract = vi.fn();
+      renderIframe({ windowId: "@2", rkUrl: "http://localhost:8080/docs", onInteract });
+      const parentReceived = vi.fn();
+      document.addEventListener("keydown", parentReceived);
+      try {
+        const doc = getIframe().contentDocument!;
+        const event = new KeyboardEvent("keydown", {
+          key: "k",
+          code: "KeyK",
+          metaKey: true,
+          cancelable: true,
+        });
+        doc.dispatchEvent(event);
+        expect(onInteract).toHaveBeenCalledTimes(1);
+        expect(event.defaultPrevented).toBe(false);
+        expect(parentReceived).not.toHaveBeenCalled();
+      } finally {
+        document.removeEventListener("keydown", parentReceived);
+      }
+    });
+  });
+
+  // Find bar (260819-ie2i R5/R7/R8): open seams, counter/navigation, the
+  // cross-origin disabled state, and reset-on-load.
+  describe("find bar", () => {
+    const getIframe = () =>
+      screen.getByTitle("Proxied content") as HTMLIFrameElement;
+
+    /** Swap in a fresh same-origin frame document carrying `html` and fire
+     *  `load` — the attach seam's re-attach path (jsdom's initial frame
+     *  document is bare, so we shadow the whole contentDocument, the
+     *  existing seam tests' pattern). */
+    function seedFrameDocument(html: string) {
+      const doc = document.implementation.createHTMLDocument();
+      doc.body.innerHTML = html;
+      Object.defineProperty(getIframe(), "contentDocument", {
+        value: doc,
+        configurable: true,
+      });
+      fireEvent.load(getIframe());
+    }
+
+    function openBarViaEvent() {
+      // fireEvent (not a raw dispatchEvent) so the state update lands inside act().
+      fireEvent(document, new CustomEvent("web-find:open"));
+    }
+
+    it("opens via the web-find:open CustomEvent with the input focused, and via the ⌕ button", () => {
+      renderIframe({ windowId: "@2", rkUrl: "http://localhost:8080/docs" });
+      expect(screen.queryByTestId("web-find-bar")).toBeNull();
+      openBarViaEvent();
+      const input = screen.getByLabelText("Find query") as HTMLInputElement;
+      expect(input).toHaveFocus();
+      fireEvent.click(screen.getByLabelText("Close find bar"));
+      expect(screen.queryByTestId("web-find-bar")).toBeNull();
+      fireEvent.click(screen.getByLabelText("Find in page"));
+      expect(screen.getByTestId("web-find-bar")).toBeTruthy();
+    });
+
+    it("counts matches, Enter/Shift+Enter cycle with wrap, Escape closes", () => {
+      renderIframe({ windowId: "@2", rkUrl: "http://localhost:8080/docs" });
+      seedFrameDocument("<p>version one</p><p>the version floor</p><p>Version</p>");
+      openBarViaEvent();
+      const input = screen.getByLabelText("Find query");
+      const counter = () => screen.getByLabelText("Match count").textContent;
+
+      fireEvent.change(input, { target: { value: "version" } });
+      expect(counter()).toBe("1/3");
+
+      fireEvent.keyDown(input, { key: "Enter" });
+      expect(counter()).toBe("2/3");
+      fireEvent.keyDown(input, { key: "Enter" });
+      expect(counter()).toBe("3/3");
+      // Wraps forward past the last and backward before the first.
+      fireEvent.keyDown(input, { key: "Enter" });
+      expect(counter()).toBe("1/3");
+      fireEvent.keyDown(input, { key: "Enter", shiftKey: true });
+      expect(counter()).toBe("3/3");
+
+      fireEvent.keyDown(input, { key: "Escape" });
+      expect(screen.queryByTestId("web-find-bar")).toBeNull();
+    });
+
+    it("a query with no matches reads 0/0 and navigation is a no-op; clearing the query clears the count", () => {
+      renderIframe({ windowId: "@2", rkUrl: "http://localhost:8080/docs" });
+      seedFrameDocument("<p>nothing here</p>");
+      openBarViaEvent();
+      const input = screen.getByLabelText("Find query");
+      const counter = () => screen.getByLabelText("Match count").textContent;
+
+      fireEvent.change(input, { target: { value: "absent" } });
+      expect(counter()).toBe("0/0");
+      fireEvent.keyDown(input, { key: "Enter" });
+      expect(counter()).toBe("0/0");
+      fireEvent.change(input, { target: { value: "" } });
+      expect(counter()).toBe("0/0");
+    });
+
+    it("a cross-origin frame renders the bar disabled with the hint (R7)", () => {
+      renderIframe({ windowId: "@2", rkUrl: "https://example.com/docs" });
+      const iframe = getIframe();
+      // Simulate cross-origin: contentDocument/contentWindow access throws.
+      Object.defineProperty(iframe, "contentDocument", {
+        get() {
+          throw new Error("cross-origin");
+        },
+        configurable: true,
+      });
+      Object.defineProperty(iframe, "contentWindow", {
+        get() {
+          throw new Error("cross-origin");
+        },
+        configurable: true,
+      });
+      fireEvent.load(iframe);
+
+      fireEvent.click(screen.getByLabelText("Find in page"));
+      expect(
+        screen.getByText("page is cross-origin — find unavailable"),
+      ).toBeTruthy();
+      expect((screen.getByLabelText("Find query") as HTMLInputElement).disabled).toBe(true);
+      expect((screen.getByLabelText("Next match") as HTMLButtonElement).disabled).toBe(true);
+      expect((screen.getByLabelText("Previous match") as HTMLButtonElement).disabled).toBe(true);
+      expect(screen.queryByLabelText("Match count")).toBeNull();
+    });
+
+    it("a frame navigation resets matches and the query (R8)", () => {
+      renderIframe({ windowId: "@2", rkUrl: "http://localhost:8080/docs" });
+      seedFrameDocument("<p>version one</p>");
+      openBarViaEvent();
+      const input = screen.getByLabelText("Find query") as HTMLInputElement;
+      fireEvent.change(input, { target: { value: "version" } });
+      expect(screen.getByLabelText("Match count").textContent).toBe("1/1");
+
+      // A navigation replaces the document — the seed helper IS that path.
+      seedFrameDocument("<p>version version</p>");
+
+      // The term does not persist across navigations (assumption 7).
+      expect(input.value).toBe("");
+      expect(screen.getByLabelText("Match count").textContent).toBe("0/0");
+    });
+  });
 });

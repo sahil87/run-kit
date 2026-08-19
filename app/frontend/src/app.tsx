@@ -38,6 +38,7 @@ import {
   type AutoExpandState,
 } from "@/lib/present-auto-expand";
 import { matchesCombo, hasReclaimableMatch, shouldSuppressChord, withShortcutHints, formatCombo } from "@/lib/keybindings";
+import { WEB_FIND_OPEN_EVENT } from "@/lib/find-in-page";
 import { isMacroActionId, type MacroAction } from "@/lib/macros";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { useKeybindingDispatch } from "@/hooks/use-keybinding-dispatch";
@@ -1037,16 +1038,19 @@ function AppShell() {
   const keybindings = useKeybindings();
   const { byAction: bindingByAction, host: bindingHost } = keybindings;
 
-  // Chord-reclaim predicate for the code surface's iframe (keyboard-capture
-  // spike, intake k3vp §5; tty-scoped carve-out 260812-wfic R9): a keydown
-  // inside the same-origin code-server iframe is reclaimed exactly when it
-  // matches an ENABLED NON-`ttyOnly` registry binding — so run-kit's chords
-  // (palette, view-cycle, code-toggle, …) survive iframe focus while both
-  // the embedded app's OWN Ctrl/⌘ chords AND the tmux-pane split pair (a
-  // keydown inside the iframe means the code tile owns focus) pass through
-  // to code-server's keybinding service.
-  const reclaimChord = useCallback(
-    (e: KeyboardEvent) => hasReclaimableMatch(e, keybindings.bindings),
+  // Chord-reclaim predicate factory for same-origin lens iframes
+  // (keyboard-capture spike, intake k3vp §5; tty-scoped carve-out
+  // 260812-wfic R9; kind-aware generalization 260819-ie2i R3): a keydown
+  // inside a lens iframe is reclaimed exactly when it matches an ENABLED
+  // registry binding that is meaningful under that iframe's kind — so
+  // run-kit's chords (palette, view-cycle, code-toggle, …) survive iframe
+  // focus while the embedded app's OWN Ctrl/⌘ chords pass through, the
+  // tmux-pane split pair (`ttyOnly`) stays with code-server's keybinding
+  // service in BOTH iframe kinds, and ⌘F (`webOnly` web-find) is reclaimed
+  // only inside the WEB tile's frame (code-server keeps its own find).
+  const reclaimChordForKind = useCallback(
+    (kind: SurfaceKind) => (e: KeyboardEvent) =>
+      hasReclaimableMatch(e, keybindings.bindings, kind),
     [keybindings.bindings],
   );
 
@@ -2877,6 +2881,22 @@ function AppShell() {
         label: fixedWidth ? "View: Full Width" : "View: Fixed Width (900px)",
         onSelect: toggleFixedWidth,
       },
+      // `Web: Find in page` (260819-ie2i R4) — the palette discovery surface
+      // for the web tile's find bar, shown only when the RENDERED layout
+      // includes an open web tile. The id IS the registry actionId, so
+      // `withShortcutHints` renders the effective ⌘F/Ctrl+F combo for free
+      // (the code-review shortcut rule); the body dispatches the
+      // `web-find:open` CustomEvent the chord's gated handler resolves to —
+      // one seam for all three entry points.
+      ...(windowParam && renderLayout.order.includes("web")
+        ? [
+            {
+              id: "web-find",
+              label: "Web: Find in page",
+              onSelect: () => document.dispatchEvent(new CustomEvent(WEB_FIND_OPEN_EVENT)),
+            },
+          ]
+        : []),
     ],
     [sessionName, fixedWidth, toggleFixedWidth, toggleComposeStrip, currentViews, resolvedView, switchView, bindingByAction, bindingHost, windowParam, isMobile, renderLayout, panelSurfaces, applyLayout, layoutZoomed, focusedTileKind, mobileActiveTile, switchToTile],
   );
@@ -3319,6 +3339,15 @@ function AppShell() {
       bindingByAction.get(id)?.ttyOnly && focusedTileKind !== "tty"
         ? undefined
         : fromPalette(id);
+    // webOnly gate (260819-ie2i R2) — the ttyOnly mirror: a `webOnly`
+    // binding's handler is treated as ABSENT unless the web tile owns focus,
+    // so ⌘F falls through untouched everywhere else (native browser find; the
+    // pane's Ctrl+F under Win/Linux terminal focus). The gate consults the
+    // registry flag as data, never an actionId list.
+    const webGated = (id: string) =>
+      bindingByAction.get(id)?.webOnly && focusedTileKind !== "web"
+        ? undefined
+        : fromPalette(id);
     const windows = currentSession?.windows ?? [];
     const cycleWindow = (delta: -1 | 1) => {
       const idx = windows.findIndex((w) => w.windowId === windowParam);
@@ -3387,6 +3416,11 @@ function AppShell() {
       // still bounces the chord out of the xterm pane to this dispatcher.
       "split-horizontal": ttyGated("split-horizontal"),
       "split-vertical": ttyGated("split-vertical"),
+      // ⌘F/Ctrl+F web find (260819-ie2i R4) — resolves the `Web: Find in
+      // page` palette body through the webOnly gate: present only while the
+      // web tile owns focus AND the layout has an open web tile (the palette
+      // gating), so the chord is inert everywhere else.
+      "web-find": webGated("web-find"),
       // ⌘J/⇧Ctrl+J code toggle — the code surface's dedicated tile chord (VS
       // Code's ⌘J panel analog), toggling the tile via addSurface/
       // closeSurface (through `togglePanel`). Its gating (desktop window
@@ -3853,7 +3887,7 @@ function AppShell() {
               // Follow rule (if5d R3): after the seed, the editor's own
               // navigation is the ONLY writer of the latch.
               onCodeFolderNavigated={latchCodeFolder}
-              shouldReclaimChord={reclaimChord}
+              shouldReclaimChord={reclaimChordForKind}
               // The web tile's `>_` affordance keeps the legacy "switch to
               // terminal" behavior: collapse to `single:tty`.
               // Tile verbs act on the RENDERED layout (260815-wkcw) — a

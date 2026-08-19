@@ -1,3 +1,10 @@
 {"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-19T15:34:07Z"}
 {"args":"Web tile keyboard reclaim + find-in-page: wire IframeWindow into the CodeSurface chord-reclaim seam for same-origin frames, and add a find bar (Cmd+F) operating on contentDocument for same-origin content, disabled with hint for cross-origin","cmd":"fab-new","event":"command","ts":"2026-08-19T15:34:07Z"}
 {"delta":"+4.4","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-08-19T15:35:45Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-08-19T15:56:24Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-19T15:58:03Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-19T15:59:09Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-19T16:40:31Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-19T16:48:59Z"}
+{"event":"review","result":"passed","ts":"2026-08-19T16:48:59Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-19T17:02:35Z"}

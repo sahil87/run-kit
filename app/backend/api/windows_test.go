@@ -156,6 +156,49 @@ func TestWindowOptionsEmptyUrl(t *testing.T) {
 	}
 }
 
+// @rk_url scheme allowlist (R1): absolute http:/https: URLs and root-relative
+// paths pass; javascript:/data:/file:, scheme-relative //…, bare hosts, and
+// whitespace-only values are rejected with 400 and zero tmux calls.
+func TestWindowOptionsRkURLSchemeAllowlist(t *testing.T) {
+	accepted := []string{
+		"https://example.com",
+		"https://example.com/path?q=1",
+		"http://localhost:3000/x",
+		"/proxy/3000/",
+		"/present/@320/file.html?server=runKit&v=1",
+		"/",
+	}
+	for _, url := range accepted {
+		ops := &mockTmuxOps{}
+		rec := postOptions(t, ops, "@0", fmt.Sprintf(`{"options":{"@rk_url":%q}}`, url))
+		if rec.Code != http.StatusOK {
+			t.Errorf("accept %q: status = %d, want %d; body=%s", url, rec.Code, http.StatusOK, rec.Body.String())
+		}
+	}
+
+	rejected := []string{
+		"javascript:alert(1)",
+		"data:text/html,<script>alert(1)</script>",
+		"file:///etc/passwd",
+		"//evil.com/x",
+		"ftp://example.com/x",
+		"example.com",
+		"localhost:3000",
+		"   ",
+		"https://",
+	}
+	for _, url := range rejected {
+		ops := &mockTmuxOps{}
+		rec := postOptions(t, ops, "@0", fmt.Sprintf(`{"options":{"@rk_url":%q}}`, url))
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("reject %q: status = %d, want %d", url, rec.Code, http.StatusBadRequest)
+		}
+		if ops.setWindowOptionsCalled {
+			t.Errorf("reject %q: SetWindowOptions must NOT be called", url)
+		}
+	}
+}
+
 // Unknown key → 400; the key is never forwarded to tmux. A mixed body (one
 // valid + one invalid key) must also abort with zero tmux calls (atomic).
 func TestWindowOptionsUnknownKeyRejected(t *testing.T) {

@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import http from "node:http";
 import { READY_TIMEOUT, resolveWindow as resolveWindowRaw } from "./_ready";
 import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
+import { stubProxyPorts } from "./_web-tile";
 
 // Own session so this file never collides with other specs (fullyParallel off).
 const TEST_SESSION = `e2e-codesurface-${Date.now()}`;
@@ -113,6 +114,13 @@ async function expectLayoutParam(page: Page, expected: string | null): Promise<v
     .poll(() => new URL(page.url()).searchParams.get("layout"), { timeout: 10_000 })
     .toBe(expected);
 }
+
+// The dead-port error state (260819-v6y4 R8) hides the iframe when nothing
+// listens on 8080 — these tests assert tile chrome, never frame content, so
+// the proxy path is route-stubbed live (see _web-tile.ts).
+test.beforeEach(async ({ page }) => {
+  await stubProxyPorts(page, 8080);
+});
 
 test.beforeAll(async ({ browser }) => {
   createSession(TEST_SESSION);

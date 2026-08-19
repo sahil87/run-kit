@@ -163,6 +163,30 @@ summary {
   position: relative;
   overflow: hidden;
 }
+
+/* Web-tile load progress (260819-v6y4 R11): a 2px accent-green indeterminate
+   sweep on the web tile content's top edge while the iframe loads, per the
+   approved design study. Rendered only while loading (the element's presence
+   IS the state). Reduced motion: the sweep is zeroed to a static dim line
+   (gated below) — load feedback is never motion-only. */
+@keyframes rk-web-progress-sweep {
+  0% { transform: translateX(-110%); }
+  100% { transform: translateX(300%); }
+}
+.rk-web-progress {
+  position: relative;
+  height: 2px;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.rk-web-progress::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 38%;
+  background: var(--color-accent-green);
+  animation: rk-web-progress-sweep 1.15s ease-in-out infinite;
+}
 .rk-glint::after {
   content: "";
   position: absolute;
@@ -1169,6 +1193,9 @@ html[data-theme="light"] {
 @media (prefers-reduced-motion: reduce) {
   .rk-glint::after,
   .rk-glint:hover::after { animation: none; opacity: 0; }
+  /* Web-tile progress line: sweep zeroed to a static dim line — load feedback
+     is never motion-only. */
+  .rk-web-progress::after { animation: none; width: 100%; opacity: 0.35; }
   .rk-brand-glitch:hover { animation: none; }
   /* (brand-logo glow sweep is skipped in JS — no CSS gate needed) */
   /* (typed-label sweep is skipped in JS — no CSS gate needed) */

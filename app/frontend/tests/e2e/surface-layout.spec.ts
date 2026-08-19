@@ -2,6 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { READY_TIMEOUT, resolveWindow as resolveWindowRaw } from "./_ready";
 import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
+import { stubProxyPorts } from "./_web-tile";
 
 // Surface-layout core e2e (260812-ab5v-surface-layout-core; spec
 // docs/specs/surface-layout.md, plan tasks T016). Covers the resolution ladder
@@ -94,6 +95,13 @@ const tile = (page: Page, kind: "tty" | "web" | "code", occ = 1) =>
 const divider = (page: Page, index = 0) => page.getByTestId(`surface-divider-${index}`);
 const terminal = (page: Page) => page.locator(".xterm").first();
 const webIframe = (page: Page) => page.getByTitle("Proxied content");
+
+// The dead-port error state (260819-v6y4 R8) hides the iframe when nothing
+// listens on 8080 — these tests assert tile chrome, never frame content, so
+// the proxy path is route-stubbed live (see _web-tile.ts).
+test.beforeEach(async ({ page }) => {
+  await stubProxyPorts(page, 8080);
+});
 
 test.beforeAll(async ({ browser }) => {
   createSession(TEST_SESSION);

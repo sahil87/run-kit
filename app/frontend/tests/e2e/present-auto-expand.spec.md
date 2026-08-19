@@ -10,6 +10,8 @@ value stays dismissed until the value changes.
 
 ## Shared setup
 
+- **`beforeEach`**: `stubProxyPorts(page, …)` (`_web-tile.ts`) route-stubs `/proxy/8080/**` with a static 200 page — the dead-port error state (260819-v6y4 R8) hides the iframe when nothing listens on the stamped `http://localhost:8080/` URL, and these tests assert tile chrome, never frame content.
+
 - **tmux server**: the isolated `rk-test-e2e` socket (`E2E_TMUX_SERVER`),
   started by `scripts/test-e2e.sh` on port 3020.
 - **`beforeAll`**: create one dedicated session `e2e-present-<ts>` (80×24) so

@@ -116,7 +116,6 @@ function layoutElement(overrides: LayoutOverrides = {}) {
         busy: false,
       }}
       codeReachable
-      onSwitchToTty={vi.fn()}
       onPromote={overrides.onPromote ?? vi.fn()}
       onSwap={overrides.onSwap ?? vi.fn()}
       onClose={overrides.onClose ?? vi.fn()}
@@ -206,6 +205,63 @@ describe("SurfaceLayout shape rendering", () => {
     expect(codeTile.textContent).toContain("repo");
     const webTile = screen.getByTestId("surface-tile-web");
     expect(webTile.textContent).toContain("localhost:8080");
+  });
+
+  // Web tile header (260819-v6y4 R10): kind badge (design-study hues) + the
+  // reported page title, falling back to the address's display form. The
+  // tileMeta web branch derives through web-url.ts — relative `/present/…` /
+  // `/proxy/…` addresses get header meta instead of the old `new URL` throw.
+  describe("web tile header badge + title (260819-v6y4 R10)", () => {
+    it("a presented file gets the green present badge and the basename display form", () => {
+      renderLayout({
+        layout: { shape: "split-h", order: ["tty", "web"] },
+        window: { rkUrl: "/present/@320/tmux-version-floor.html?server=runKit&v=1" },
+      });
+      const webTile = screen.getByTestId("surface-tile-web");
+      const badge = within(webTile).getByTestId("web-kind-badge");
+      expect(badge.textContent).toBe("present");
+      expect(badge.className).toContain("text-accent-green");
+      // No page title reported (IframeWindow is mocked) → display-form fallback.
+      expect(webTile.textContent).toContain("tmux-version-floor.html");
+    });
+
+    it("a proxied port gets the amber :{port} proxy badge (relative URL — the old new URL throw)", () => {
+      renderLayout({
+        layout: { shape: "split-h", order: ["tty", "web"] },
+        window: { rkUrl: "/proxy/3000/board/runKit" },
+      });
+      const webTile = screen.getByTestId("surface-tile-web");
+      const badge = within(webTile).getByTestId("web-kind-badge");
+      expect(badge.textContent).toBe(":3000 proxy");
+      expect(badge.className).toContain("text-signal-yellow");
+      expect(webTile.textContent).toContain("localhost:3000/board/runKit");
+    });
+
+    it("an external URL gets the blue external badge", () => {
+      renderLayout({
+        layout: { shape: "split-h", order: ["tty", "web"] },
+        window: { rkUrl: "https://shll.ai/rk/skill" },
+      });
+      const webTile = screen.getByTestId("surface-tile-web");
+      const badge = within(webTile).getByTestId("web-kind-badge");
+      expect(badge.textContent).toBe("external");
+      expect(badge.className).toContain("text-signal-blue");
+      expect(webTile.textContent).toContain("shll.ai/rk/skill");
+    });
+
+    it("the reported page title replaces the display form via the onPageMeta seam", () => {
+      renderLayout({ layout: { shape: "split-h", order: ["tty", "web"] } });
+      const props = iframeSpy.mock.lastCall?.[0] as {
+        onPageMeta?: (meta: { title: string | null }) => void;
+      };
+      expect(props.onPageMeta).toBeTruthy();
+      act(() => props.onPageMeta!({ title: "tmux Version Floor" }));
+      const webTile = screen.getByTestId("surface-tile-web");
+      expect(webTile.textContent).toContain("tmux Version Floor");
+      // A null report (cross-origin / empty) falls back to the display form.
+      act(() => props.onPageMeta!({ title: null }));
+      expect(webTile.textContent).toContain("localhost:8080");
+    });
   });
 });
 
@@ -593,7 +649,6 @@ describe("SurfaceLayout duplicate tty tiles", () => {
           busy: false,
         }}
         codeReachable
-        onSwitchToTty={vi.fn()}
         onPromote={vi.fn()}
         onSwap={vi.fn()}
         onClose={vi.fn()}
@@ -689,7 +744,6 @@ describe("SurfaceLayout hide-never-unmount (P3)", () => {
           busy: false,
         }}
         codeReachable
-        onSwitchToTty={vi.fn()}
         onPromote={vi.fn()}
         onSwap={vi.fn()}
         onClose={vi.fn()}
@@ -718,7 +772,6 @@ describe("SurfaceLayout hide-never-unmount (P3)", () => {
           busy: false,
         }}
         codeReachable
-        onSwitchToTty={vi.fn()}
         onPromote={vi.fn()}
         onSwap={vi.fn()}
         onClose={vi.fn()}

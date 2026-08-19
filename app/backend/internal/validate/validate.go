@@ -2,6 +2,7 @@ package validate
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -271,6 +272,29 @@ var FlairValues = closedSet(flairTokens)
 // handlers.
 func ValidateFlairValue(value string) string {
 	return validateClosedSet(value, "Flair", FlairValues, flairTokens)
+}
+
+// ValidateRkURLValue validates an @rk_url window-option value against the
+// scheme allowlist (constitution §I — the value becomes an iframe src on
+// every viewer's web tile): absolute http:/https: URLs with a host, and
+// root-relative paths ("/…" but not scheme-relative "//…"). Everything else
+// — javascript:/data:/file: and any other scheme, scheme-relative "//…",
+// bare hosts — is rejected with a message naming the accepted forms. The
+// empty/whitespace check stays with the caller (it owns the "cannot be
+// empty" wording). Returns empty string if valid, an error message otherwise.
+func ValidateRkURLValue(value string) string {
+	const accepted = "URL must be an http:// or https:// URL, or a root-relative path (/…)"
+	if strings.HasPrefix(value, "/") && !strings.HasPrefix(value, "//") {
+		return ""
+	}
+	u, err := url.Parse(value)
+	if err != nil || u.Host == "" {
+		return accepted
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return accepted
+	}
+	return ""
 }
 
 // windowIDPattern matches a tmux window ID: an '@' followed by one or more digits

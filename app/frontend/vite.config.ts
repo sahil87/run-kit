@@ -56,6 +56,13 @@ export default defineConfig({
         target: `http://127.0.0.1:${(parseInt(process.env.RK_PORT ?? "3000") + 1)}`,
         ws: true,
       },
+      // The `rk present` content route (/present/{windowId}/*) — forwarded to
+      // the Go backend, which serves files from the window's @rk_present_root.
+      // Plain GETs; without this the dev server answers the SPA fallback and
+      // presented tiles render run-kit inside themselves.
+      "/present": {
+        target: `http://127.0.0.1:${(parseInt(process.env.RK_PORT ?? "3000") + 1)}`,
+      },
       // PWA identity assets — served dynamically by the Go backend so the
       // instance accent can tint the manifest/icons in dev too. `server.proxy`
       // runs before Vite's public-dir middleware, so these shadow the static

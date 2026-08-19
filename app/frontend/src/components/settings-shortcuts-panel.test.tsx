@@ -127,13 +127,15 @@ describe("SettingsShortcutsPanel", () => {
     // claims disappear).
     fireEvent.click(cmdBtn);
     expect(cmdBtn).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByTitle("address bar")).toBeInTheDocument();
+    // ⌘T stands in as the browser-owned cmd-tier claim (⌘L was unclaimed in
+    // 260819-v6y4 — page-interceptable, bound by web-address).
+    expect(screen.getByTitle("new tab")).toBeInTheDocument();
     expect(screen.queryByTitle("incognito")).toBeNull();
     // Switching the display back to Win·Linux drops the ⌘ option and falls
     // back to the shifted layer.
     fireEvent.click(screen.getByText("Win · Linux"));
     expect(screen.queryByRole("group", { name: "Keyboard map modifier" })).toBeNull();
-    expect(screen.queryByTitle("address bar")).toBeNull();
+    expect(screen.queryByTitle("new tab")).toBeNull();
     expect(screen.getByTitle("incognito")).toBeInTheDocument();
   });
 
@@ -149,7 +151,7 @@ describe("SettingsShortcutsPanel", () => {
     render(<SettingsShortcutsPanel />);
     const picker = screen.getByRole("group", { name: "Keyboard map modifier" });
     expect(within(picker).getByText("⌘")).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByTitle("address bar")).toBeInTheDocument();
+    expect(screen.getByTitle("new tab")).toBeInTheDocument();
   });
 
   it("header hint shows the HOST-effective chord: ⌘/ on a mac host (260730-n789)", () => {

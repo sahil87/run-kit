@@ -379,6 +379,9 @@ func validateWindowOption(key string, value *string) string {
 		if strings.TrimSpace(*value) == "" {
 			return "URL cannot be empty"
 		}
+		if errMsg := validate.ValidateRkURLValue(*value); errMsg != "" {
+			return errMsg
+		}
 	case optKeyRkType:
 		// No set-value validation: handleWindowTypeUpdate set any non-empty
 		// string verbatim. An empty string is treated as unset below.

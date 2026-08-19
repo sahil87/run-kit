@@ -30,6 +30,7 @@ import {
   SplitVerticalGlyph,
 } from "@/components/top-bar-icons";
 import type { ViewWindow } from "@/lib/window-view";
+import { classifyAddress, displayForm, proxyPortOf } from "@/lib/web-url";
 import type { ChatEvent, ChatPending } from "@/lib/chat-stream";
 import type { WindowInfo } from "@/types";
 
@@ -172,8 +173,6 @@ interface SurfaceLayoutProps {
    *  decides — armed guard + remembered kind ≠ `code` ⇒ revert and return
    *  `true`; anything else ⇒ `false` (the focus stands). Absent ⇒ no guard. */
   onProgrammaticFocus?: () => boolean;
-  /** The web tile's `>_` affordance — "switch to terminal" (single:tty). */
-  onSwitchToTty: () => void;
   /** Verb callbacks — the parent applies the pure mutation + persistence +
    *  URL mirroring (R3 write discipline). */
   onPromote: (surface: SurfaceKind) => void;
@@ -440,7 +439,9 @@ function intersectionAxes(shape: LayoutShape): { xIndex: number; yIndex: number 
 }
 
 /** Small header meta (R7): the code folder's basename for code, the `@rk_url`
- *  host for web. Anything unparseable degrades to no meta. `gitRoot` arrives
+ *  display form for web (the kind-specific pretty form — never throws, so a
+ *  relative `/present/…`/`/proxy/…` address gets header meta too,
+ *  260819-v6y4 R10). `gitRoot` arrives
  *  LATCHED (260813-if5d), so the header names the folder the editor is actually
  *  in — never the pane the terminal happens to sit in. */
 function tileMeta(kind: SurfaceKind, win: ViewWindow | null): string | null {
@@ -449,11 +450,7 @@ function tileMeta(kind: SurfaceKind, win: ViewWindow | null): string | null {
     return parts.length > 0 ? parts[parts.length - 1] : null;
   }
   if (kind === "web" && win?.rkUrl) {
-    try {
-      return new URL(win.rkUrl).host;
-    } catch {
-      return null;
-    }
+    return displayForm(win.rkUrl);
   }
   return null;
 }
@@ -475,7 +472,6 @@ export function SurfaceLayout({
   onCodeFolderNavigated,
   shouldReclaimChord,
   onProgrammaticFocus,
-  onSwitchToTty,
   onPromote,
   onSwap,
   onClose,
@@ -542,6 +538,12 @@ export function SurfaceLayout({
   useEffect(() => {
     onZoomChange?.(zoomed);
   }, [zoomed, onZoomChange]);
+
+  // Web tile page title (260819-v6y4 R10): reported by IframeWindow's
+  // onPageMeta on each same-origin frame load; null (cross-origin, pre-load,
+  // or empty) falls the header back to the address's display form. The
+  // per-window reset comes free from the parent's key (the zoom precedent).
+  const [webPageTitle, setWebPageTitle] = useState<string | null>(null);
 
   // Focused tile (260812-wfic R2) — transient, like zoom: the slot that last
   // received pointer/keyboard interaction. Default slot A; falls back to slot
@@ -880,8 +882,12 @@ export function SurfaceLayout({
           <IframeWindow
             windowId={windowId}
             rkUrl={win.rkUrl}
-            onSwitchToTty={onSwitchToTty}
             onInteract={slot >= 0 ? () => focusSlot(slot) : undefined}
+            // Page-title seam (260819-v6y4 R10): the header render is this
+            // component's, but only the mounted iframe can read the
+            // same-origin contentDocument.title — reported up on each load.
+            // At most one web tile per layout, so one state slot serves.
+            onPageMeta={(m) => setWebPageTitle(m.title)}
             // Web-kind reclaim predicate (260819-ie2i R3): the single
             // renderContent site is the ONLY IframeWindow mount, so every
             // slot/zoom/panel rendering inherits the wiring with no fork.
@@ -952,6 +958,29 @@ export function SurfaceLayout({
     const testId = `surface-tile-${kind}${suffix}`;
     const label = SURFACE_LABEL[kind];
     const meta = tileMeta(kind, win);
+    // Web tile header (260819-v6y4 R10): a kind badge (hues per the approved
+    // design study — green=present, amber=proxied port, blue=external) plus
+    // the page title reported up from the iframe, falling back to the
+    // address's display form. The `relative` kind renders no badge (the plain
+    // label + meta fallback below covers it).
+    const webBadge: { text: string; cls: string } | null = (() => {
+      if (kind !== "web" || !win?.rkUrl) return null;
+      const kindOf = classifyAddress(win.rkUrl);
+      if (kindOf === "present") {
+        return { text: "present", cls: "text-accent-green border-accent-green/40 bg-accent-green/10" };
+      }
+      if (kindOf === "proxy") {
+        const port = proxyPortOf(win.rkUrl);
+        return {
+          text: `:${port ?? "?"} proxy`,
+          cls: "text-signal-yellow border-signal-yellow/40 bg-signal-yellow/10",
+        };
+      }
+      if (kindOf === "external") {
+        return { text: "external", cls: "text-signal-blue border-signal-blue/40 bg-signal-blue/10" };
+      }
+      return null;
+    })();
     const isZoomed = zoomed && slot === zoomedIndex;
     const showVerbs = !mobile && arity > 1 && slot >= 0;
     // Focused-tile highlight (260812-wfic R2): accent-green border + kind
@@ -1021,11 +1050,27 @@ export function SurfaceLayout({
             >
               {SURFACE_GLYPH[kind]}
             </span>
-            <span className="shrink-0 text-text-primary">{label}</span>
-            {meta && (
-              <span className="min-w-0 truncate rounded bg-bg-inset px-1.5 text-[10px] text-text-secondary">
-                {meta}
-              </span>
+            {webBadge ? (
+              <>
+                <span
+                  data-testid="web-kind-badge"
+                  className={`shrink-0 rounded border px-1.5 text-[10px] ${webBadge.cls}`}
+                >
+                  {webBadge.text}
+                </span>
+                <span className="min-w-0 truncate text-text-primary">
+                  {webPageTitle ?? meta}
+                </span>
+              </>
+            ) : (
+              <>
+                <span className="shrink-0 text-text-primary">{label}</span>
+                {meta && (
+                  <span className="min-w-0 truncate rounded bg-bg-inset px-1.5 text-[10px] text-text-secondary">
+                    {meta}
+                  </span>
+                )}
+              </>
             )}
             <span className="flex-1" />
             {/* Pane segment (260813-w1lf content verbs): tty tiles carry a

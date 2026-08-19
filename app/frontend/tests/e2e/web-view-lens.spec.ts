@@ -2,6 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { execSync } from "node:child_process";
 import { READY_TIMEOUT, resolveWindow as resolveWindowRaw } from "./_ready";
 import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
+import { stubProxyPorts } from "./_web-tile";
 
 // Own session so this file never collides with other specs (fullyParallel off).
 const TEST_SESSION = `e2e-webview-${Date.now()}`;
@@ -109,6 +110,13 @@ async function switchLens(page: Page, label: "Terminal" | "Web"): Promise<void> 
   await option.click();
   await expect(page.getByRole("dialog", { name: "Command palette" })).toBeHidden();
 }
+
+// The dead-port error state (260819-v6y4 R8) hides the iframe when nothing
+// listens on 8080 — these tests assert tile chrome, never frame content, so
+// the proxy path is route-stubbed live (see _web-tile.ts).
+test.beforeEach(async ({ page }) => {
+  await stubProxyPorts(page, 8080);
+});
 
 test.beforeAll(() => {
   createSession(TEST_SESSION);

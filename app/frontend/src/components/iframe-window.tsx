@@ -1,8 +1,18 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { updateWindowUrl } from "@/api/client";
+import { checkFrame, updateWindowUrl } from "@/api/client";
 import { useSessionContext } from "@/contexts/session-context";
 import { Tip, TipGroup } from "@/components/tip";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
+import {
+  WEB_ADDRESS_FOCUS_EVENT,
+  WEB_OPEN_EXTERNAL_EVENT,
+  classifyAddress,
+  displayForm,
+  isAllowedUrl,
+  normalizeAddressInput,
+  proxyPortOf,
+  toProxySrc,
+} from "@/lib/web-url";
 import {
   WEB_FIND_OPEN_EVENT,
   applyHighlights,
@@ -16,15 +26,6 @@ import {
 interface IframeWindowProps {
   windowId: string;
   rkUrl: string;
-  /** Switch this window to the tty lens (260714-t97o-web-view-lens). Wired from
-   *  `app.tsx`'s `switchView("tty")` — drops the `?view=` param (tty is the
-   *  clean-URL default) and records tty in localStorage. The `>_` button calls
-   *  THIS; it no longer mutates `@rk_type` (view choice is per-viewer client
-   *  state, not window identity — spec R7). OPTIONAL (260811-2r1w): the
-   *  right-panel `web` surface omits it, suppressing the `>_` affordance — in
-   *  the panel the tty is already beside the iframe, so switching the MAIN
-   *  slot is meaningless. The URL bar and refresh render in both contexts. */
-  onSwitchToTty?: () => void;
   /** Tile-focus seam: fired when a pointerdown/keydown arrives inside the
    *  same-origin contentDocument, or — the cross-origin fallback — when the
    *  parent window blurs with this iframe as the active element. Clicks
@@ -40,28 +41,66 @@ interface IframeWindowProps {
    *  untouched (typing into a framed form is unchanged); every keydown still
    *  reports `onInteract` first. Absent ⇒ report-only (legacy behavior). */
   shouldReclaimChord?: (e: KeyboardEvent) => boolean;
+  /** Page-meta seam (260819-v6y4 R10): fired on every frame `load` with the
+   *  same-origin document's title, `null` when cross-origin or empty. The
+   *  header (SurfaceLayout) owns the render, but only the mounted iframe can
+   *  read `contentDocument.title` — the `onInteract`/`onFolderNavigated`
+   *  callback-seam shape. Absent ⇒ no reporting. */
+  onPageMeta?: (meta: { title: string | null }) => void;
 }
 
-/** Renders an iframe with a URL bar for proxy windows. */
+/** The tile's error surface (260819-v6y4 R8) — rendered IN PLACE of the
+ *  iframe's visible area; copy per the approved design study (states 05/06).
+ *  A silent blank iframe is no longer a reachable state for a probed-blocked
+ *  external URL or a dead proxied port. */
+type TileError =
+  | { kind: "refused"; host: string; reason: string }
+  | { kind: "unreachable"; host: string; reason: string }
+  | { kind: "dead-port"; port: number };
+
+/** Renders an iframe with browser chrome: back/forward + reload, a
+ *  display/edit address bar, find, open-in-browser, a load progress line, and
+ *  explicit error states. */
 export function IframeWindow({
   windowId,
   rkUrl,
-  onSwitchToTty,
   onInteract,
   shouldReclaimChord,
+  onPageMeta,
 }: IframeWindowProps) {
   // IframeWindow renders only from AppShell terminal routes where currentServer
   // is set. Fall back to empty string when null (action no-ops with bad server).
   const { currentServer } = useSessionContext();
   const server = currentServer ?? "";
   const [inputUrl, setInputUrl] = useState(rkUrl);
+  // Edit mode (R7): at rest the address bar shows the kind-specific DISPLAY
+  // form; focus reveals the raw editable value (select-all). Enter is the ONE
+  // write to @rk_url; Escape reverts.
+  const [editing, setEditing] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  // Per-viewer current-path tracking (R7): the same-origin frame's location,
+  // read on its `load` events and kept in root-relative form (the viewer
+  // origin stripped). Display-only — NEVER POSTed (spec window-views R7).
+  const [trackedLocation, setTrackedLocation] = useState<string | null>(null);
+  // Load feedback (R11): set on src change/reload, cleared on `load`.
+  const [loading, setLoading] = useState(true);
+  const [tileError, setTileError] = useState<TileError | null>(null);
+  // Bumped by the dead-port Retry button to re-run detection + reload.
+  const [probeNonce, setProbeNonce] = useState(0);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const addressInputRef = useRef<HTMLInputElement>(null);
   const currentSrcRef = useRef(rkUrl);
   const interactRef = useRef(onInteract);
   interactRef.current = onInteract;
   const reclaimRef = useRef(shouldReclaimChord);
   reclaimRef.current = shouldReclaimChord;
+  const pageMetaRef = useRef(onPageMeta);
+  pageMetaRef.current = onPageMeta;
   const coarse = useCoarsePointer();
+
+  /** The current address in RAW form: the tracked frame location when known,
+   *  else the stored @rk_url. The ↗ button and the edit reveal read this. */
+  const rawAddress = trackedLocation ?? rkUrl;
 
   // ── find-in-page state (260819-ie2i R5–R8) ──────────────────────────────
   const [findOpen, setFindOpen] = useState(false);
@@ -69,7 +108,8 @@ export function IframeWindow({
   const [findMatches, setFindMatches] = useState<Range[]>([]);
   const [findActive, setFindActive] = useState(0);
   // Cross-origin frames reject contentDocument/location access — no reclaim,
-  // no search; the find bar renders disabled with the hint (R7).
+  // no search; the find bar renders disabled with the hint (R7). Back/forward
+  // hide and reload degrades to the about:blank bounce on the same signal.
   const [crossOrigin, setCrossOrigin] = useState(false);
   const findInputRef = useRef<HTMLInputElement>(null);
   // Which highlight path the last apply took — the `window.find()` fallback
@@ -108,6 +148,11 @@ export function IframeWindow({
   // would strand the seam — `report` reads the ref, so it simply no-ops until
   // then. Every load also RESETS the find state (R8): matches, highlights, and
   // the query die with the document they were collected from.
+  //
+  // The same load pass (260819-v6y4) clears the progress line, tracks the
+  // frame's current location for the address bar's display form, and reports
+  // the page title through onPageMeta — all same-origin-gated reads with the
+  // attach seam's try/catch posture.
   useEffect(() => {
     const iframe = iframeRef.current;
     if (!iframe) return;
@@ -131,19 +176,45 @@ export function IframeWindow({
         }),
       );
     };
-    const attach = () => {
+    const attach = (fromLoad: boolean) => {
       let doc: Document | null = null;
       try {
         // Same-origin probe: a cross-origin frame throws on location access
         // and yields a null contentDocument — either one marks the tile
-        // cross-origin (find disabled, no reclaim; the blur fallback stays
-        // the only interaction signal, unchanged).
+        // cross-origin (find disabled, back/forward hidden, reload degrades
+        // to the bounce; the blur fallback stays the only interaction
+        // signal, unchanged).
         void iframe.contentWindow?.location.href;
         doc = iframe.contentDocument;
       } catch {
         doc = null;
       }
       setCrossOrigin(!doc);
+      // The load-gated work (R7/R10/R11) runs on the frame's `load` events
+      // ONLY — the mount-time attach sees the initial about:blank document,
+      // so clearing the progress line or tracking the location there would
+      // fire before the real src has loaded.
+      if (fromLoad) {
+        setLoading(false);
+        // Current-path tracking + title reporting: same-origin only. The
+        // tracked location is stored root-relative (viewer origin stripped)
+        // so the display-form derivation sees the same shape as a stored
+        // relative @rk_url. about:blank (the cross-origin reload bounce's
+        // midpoint) reports nothing.
+        if (doc) {
+          try {
+            const loc = iframe.contentWindow?.location;
+            if (loc && loc.origin === window.location.origin && loc.href !== "about:blank") {
+              setTrackedLocation(loc.pathname + loc.search + loc.hash);
+            }
+          } catch {
+            /* noop */
+          }
+          pageMetaRef.current?.({ title: doc.title !== "" ? doc.title : null });
+        } else {
+          pageMetaRef.current?.({ title: null });
+        }
+      }
       // R8 reset — no stale highlight or count survives a navigation, and the
       // search term does not persist.
       setFindQuery("");
@@ -164,11 +235,12 @@ export function IframeWindow({
     const onWindowBlur = () => {
       if (document.activeElement === iframe) report();
     };
-    attach();
-    iframe.addEventListener("load", attach);
+    const onLoad = () => attach(true);
+    attach(false);
+    iframe.addEventListener("load", onLoad);
     window.addEventListener("blur", onWindowBlur);
     return () => {
-      iframe.removeEventListener("load", attach);
+      iframe.removeEventListener("load", onLoad);
       window.removeEventListener("blur", onWindowBlur);
       try {
         attachedDoc?.removeEventListener("pointerdown", report, true);
@@ -187,6 +259,32 @@ export function IframeWindow({
     document.addEventListener(WEB_FIND_OPEN_EVENT, open);
     return () => document.removeEventListener(WEB_FIND_OPEN_EVENT, open);
   }, []);
+
+  // The `web-address:focus` seam (260819-v6y4 R12): ⌘L and the palette action
+  // dispatch one document CustomEvent; the mounted web tile focuses its
+  // address input (the focus handler enters edit mode + select-all).
+  useEffect(() => {
+    const focusAddress = () => {
+      const input = addressInputRef.current;
+      if (!input) return;
+      input.focus();
+      input.select();
+    };
+    document.addEventListener(WEB_ADDRESS_FOCUS_EVENT, focusAddress);
+    return () => document.removeEventListener(WEB_ADDRESS_FOCUS_EVENT, focusAddress);
+  }, []);
+
+  // The `web-open-external` seam (R9): the palette action dispatches one
+  // document CustomEvent; the mounted web tile pops its CURRENT address (the
+  // tracked frame location when known — it owns that state, the palette
+  // doesn't). Relative addresses resolve against the viewer origin.
+  useEffect(() => {
+    const openExternal = () => {
+      window.open(trackedLocation ?? rkUrl, "_blank", "noopener");
+    };
+    document.addEventListener(WEB_OPEN_EXTERNAL_EVENT, openExternal);
+    return () => document.removeEventListener(WEB_OPEN_EXTERNAL_EVENT, openExternal);
+  }, [trackedLocation, rkUrl]);
 
   // Autofocus the input on open (R5).
   useEffect(() => {
@@ -256,32 +354,131 @@ export function IframeWindow({
   // Only update iframe src when the URL has actually changed to avoid unnecessary reloads.
   useEffect(() => {
     setInputUrl(rkUrl);
+    setTrackedLocation(null);
+    setSubmitError(null);
     if (rkUrl !== currentSrcRef.current) {
       currentSrcRef.current = rkUrl;
+      setLoading(true);
       if (iframeRef.current) {
         iframeRef.current.src = toProxySrc(rkUrl);
       }
     }
   }, [rkUrl]);
 
-  const handleRefresh = useCallback(() => {
-    if (iframeRef.current) {
-      // Force reload by briefly clearing src then re-setting it
-      const src = iframeRef.current.src;
-      iframeRef.current.src = "about:blank";
-      // Use setTimeout(0) to ensure the browser processes the blank navigation
-      setTimeout(() => {
-        if (iframeRef.current) {
-          iframeRef.current.src = src;
+  // Error-state probes (R8). External absolute URLs: the backend frame-check
+  // probe reads the refusal headers cross-origin iframes can't signal.
+  // Proxied ports: a same-origin fetch of the proxied path reads the reverse
+  // proxy's 502 (nothing listening). Probe results RENDER OVER the iframe
+  // area; the iframe stays mounted (hidden) so its listeners survive and a
+  // Retry needs no remount. Present/relative kinds never probe.
+  const addressKind = classifyAddress(rkUrl);
+  useEffect(() => {
+    let cancelled = false;
+    if (addressKind === "external") {
+      let host = rkUrl;
+      try {
+        host = new URL(rkUrl).host;
+      } catch {
+        /* displayForm posture — degrade to raw */
+      }
+      checkFrame(rkUrl).then((res) => {
+        if (cancelled) return;
+        if (!res.reachable) {
+          setTileError({ kind: "unreachable", host, reason: res.reason });
+          setLoading(false);
+        } else if (!res.embeddable) {
+          setTileError({ kind: "refused", host, reason: res.reason });
+          setLoading(false);
+        } else {
+          setTileError(null);
         }
-      }, 0);
+      });
+    } else if (addressKind === "proxy") {
+      const port = proxyPortOf(rkUrl);
+      // A same-origin fetch failure is the app server itself being down —
+      // not a dead upstream — so it leaves the iframe alone.
+      fetch(toProxySrc(rkUrl))
+        .then((res) => {
+          if (cancelled) return;
+          if (res.status === 502 && port !== null) {
+            setTileError({ kind: "dead-port", port });
+            setLoading(false);
+          } else {
+            setTileError(null);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) setTileError(null);
+        });
+    } else {
+      setTileError(null);
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [rkUrl, addressKind, probeNonce]);
+
+  // Real reload (R6): same-origin frames reload their CURRENT location
+  // (in-page state and the navigated-to page survive — no reset to @rk_url);
+  // the about:blank bounce remains ONLY as the cross-origin fallback.
+  const handleRefresh = useCallback(() => {
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+    setLoading(true);
+    if (!crossOrigin) {
+      try {
+        iframe.contentWindow?.location.reload();
+        return;
+      } catch {
+        /* fall through to the bounce */
+      }
+    }
+    // Force reload by briefly clearing src then re-setting it
+    const src = iframe.src;
+    iframe.src = "about:blank";
+    // Use setTimeout(0) to ensure the browser processes the blank navigation
+    setTimeout(() => {
+      if (iframeRef.current) {
+        iframeRef.current.src = src;
+      }
+    }, 0);
+  }, [crossOrigin]);
+
+  // Back/forward (R5): contentWindow.history, same-origin only (the buttons
+  // are hidden when crossOrigin), per-viewer — never an @rk_url write. A
+  // boundary click is a harmless no-op (no canGoBack signal exists).
+  const navigateFrameHistory = useCallback((delta: -1 | 1) => {
+    try {
+      const win = iframeRef.current?.contentWindow;
+      if (!win) return;
+      if (delta < 0) win.history.back();
+      else win.history.forward();
+      setLoading(true);
+    } catch {
+      /* noop */
     }
   }, []);
 
+  // Open in browser (R9): the CURRENT address in a new tab — relative
+  // addresses resolve naturally against the viewer's origin (the stored
+  // @rk_url stays relative per the display contract).
+  const handleOpenExternal = useCallback(() => {
+    window.open(rawAddress, "_blank", "noopener");
+  }, [rawAddress]);
+
   const handleSubmit = useCallback(() => {
-    const trimmed = inputUrl.trim();
-    if (!trimmed) return;
-    updateWindowUrl(server, windowId, trimmed).catch(() => {
+    const normalized = normalizeAddressInput(inputUrl);
+    if (!normalized) return;
+    // Frontend mirror of the backend scheme allowlist (R4): invalid schemes
+    // surface inline and fire NO POST; the backend remains enforcement.
+    if (!isAllowedUrl(normalized)) {
+      setSubmitError("must be an http(s) URL or a /path");
+      return;
+    }
+    setSubmitError(null);
+    setEditing(false);
+    addressInputRef.current?.blur();
+    updateWindowUrl(server, windowId, normalized).catch(() => {
       // Revert input on failure
       setInputUrl(rkUrl);
     });
@@ -292,16 +489,55 @@ export function IframeWindow({
       if (e.key === "Enter") {
         e.preventDefault();
         handleSubmit();
+      } else if (e.key === "Escape") {
+        // Revert to the rest display form without a POST.
+        e.preventDefault();
+        setInputUrl(rawAddress);
+        setSubmitError(null);
+        setEditing(false);
+        addressInputRef.current?.blur();
       }
     },
-    [handleSubmit],
+    [handleSubmit, rawAddress],
   );
+
+  // Select-all once edit mode's raw value has rendered (the focus event fires
+  // with the DISPLAY value still in the input — the selection must wait a
+  // commit).
+  useEffect(() => {
+    if (editing) addressInputRef.current?.select();
+  }, [editing]);
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
-      {/* URL Bar — one warm-tip cluster (260722-73al). */}
+      {/* URL Bar — one warm-tip cluster (260722-73al). Button order per the
+          approved design study: ◀ ▶ ↻ [address] ⌕ ↗ (the `>_` switch-to-
+          terminal button was removed, 260819-v6y4 R13 — the top-bar surface
+          toggles own view switching). */}
       <TipGroup>
       <div className="flex items-center gap-1.5 px-2 py-1 border-b border-border bg-bg-primary shrink-0">
+        {!crossOrigin && (
+          <>
+            <Tip label="Back">
+              <button
+                onClick={() => navigateFrameHistory(-1)}
+                className="shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-bg-card text-text-secondary"
+                aria-label="Back"
+              >
+                <span className="text-sm">&#x25c0;</span>
+              </button>
+            </Tip>
+            <Tip label="Forward">
+              <button
+                onClick={() => navigateFrameHistory(1)}
+                className="shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-bg-card text-text-secondary"
+                aria-label="Forward"
+              >
+                <span className="text-sm">&#x25b6;</span>
+              </button>
+            </Tip>
+          </>
+        )}
         <Tip label="Refresh">
           <button
             onClick={handleRefresh}
@@ -312,17 +548,33 @@ export function IframeWindow({
           </button>
         </Tip>
         <input
+          ref={addressInputRef}
           type="text"
-          value={inputUrl}
-          onChange={(e) => setInputUrl(e.target.value)}
+          value={editing ? inputUrl : displayForm(rawAddress)}
+          onChange={(e) => {
+            setInputUrl(e.target.value);
+            setSubmitError(null);
+          }}
+          onFocus={() => {
+            setInputUrl(rawAddress);
+            setEditing(true);
+          }}
+          onBlur={() => {
+            setEditing(false);
+            setSubmitError(null);
+            setInputUrl(rawAddress);
+          }}
           onKeyDown={handleKeyDown}
           className="flex-1 min-w-0 bg-bg-card text-text-primary text-sm px-2 py-1 rounded border border-border outline-none focus:border-text-secondary"
           aria-label="URL"
+          aria-invalid={submitError !== null}
           spellCheck={false}
         />
-        <span className="shrink-0 text-text-secondary text-xs select-none" aria-hidden="true">
-          &#x23ce;
-        </span>
+        {submitError && (
+          <span role="alert" className="shrink-0 text-signal-red text-xs select-none">
+            {submitError}
+          </span>
+        )}
         <Tip label="Find in page">
           <button
             onClick={() => setFindOpen((o) => !o)}
@@ -333,17 +585,15 @@ export function IframeWindow({
             <span className="text-sm">&#x2315;</span>
           </button>
         </Tip>
-        {onSwitchToTty && (
-          <Tip label="Switch to terminal">
-            <button
-              onClick={onSwitchToTty}
-              className="shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-bg-card text-text-secondary"
-              aria-label="Switch to terminal"
-            >
-              <span className="text-xs font-mono">&gt;_</span>
-            </button>
-          </Tip>
-        )}
+        <Tip label="Open in browser">
+          <button
+            onClick={handleOpenExternal}
+            className="shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-bg-card text-text-secondary"
+            aria-label="Open in browser"
+          >
+            <span className="text-sm">&#x2197;</span>
+          </button>
+        </Tip>
       </div>
       </TipGroup>
 
@@ -411,29 +661,69 @@ export function IframeWindow({
         </div>
       )}
 
+      {/* Load progress line (R11): the 2px indeterminate sweep on the
+          content's top edge while the frame loads; zeroed under
+          prefers-reduced-motion (globals.css). */}
+      {loading && <div className="rk-web-progress" data-testid="web-load-progress" />}
+
+      {/* Error states (R8) render in place of the iframe's VISIBLE area (the
+          iframe stays mounted but hidden so its listeners survive a Retry).
+          Copy per the approved design study (states 05/06). */}
+      {tileError && (
+        <div
+          className="flex-1 min-h-0 flex flex-col items-center justify-center gap-2.5 text-center px-6"
+          data-testid="web-tile-error"
+        >
+          <span className="text-2xl text-text-secondary select-none" aria-hidden="true">
+            {tileError.kind === "refused" ? "⊘" : "⚡"}
+          </span>
+          <span className="text-text-primary text-sm">
+            {tileError.kind === "refused"
+              ? `${tileError.host} refuses embedding`
+              : tileError.kind === "unreachable"
+                ? `${tileError.host} can't be reached`
+                : `nothing listening on :${tileError.port}`}
+          </span>
+          <span className="text-text-secondary text-xs">
+            {tileError.kind === "refused"
+              ? `${tileError.reason} — this site can't render inside a tile`
+              : tileError.kind === "unreachable"
+                ? tileError.reason
+                : "connection refused — the dev server may have stopped"}
+          </span>
+          {tileError.kind === "dead-port" ? (
+            <button
+              onClick={() => {
+                setTileError(null);
+                setLoading(true);
+                setProbeNonce((n) => n + 1);
+                handleRefresh();
+              }}
+              className="mt-1 px-3.5 h-[30px] rounded border border-border text-accent-green text-sm hover:bg-bg-card"
+              aria-label="Retry"
+            >
+              ↻ Retry
+            </button>
+          ) : (
+            <button
+              onClick={handleOpenExternal}
+              className="mt-1 px-3.5 h-[30px] rounded border border-border text-accent-green text-sm hover:bg-bg-card"
+              aria-label="Open in browser"
+            >
+              Open in browser ↗
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Iframe */}
       <iframe
         ref={iframeRef}
         src={toProxySrc(rkUrl)}
-        className="flex-1 w-full border-0"
+        className={`flex-1 w-full border-0 ${tileError ? "hidden" : ""}`}
         title="Proxied content"
         sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals allow-downloads"
       />
     </div>
   );
-}
-
-/**
- * Convert a localhost URL to a proxy path.
- * e.g. http://localhost:8080/docs -> /proxy/8080/docs
- * Non-localhost URLs pass through unchanged.
- */
-function toProxySrc(url: string): string {
-  const match = url.match(/^https?:\/\/(?:localhost|127\.0\.0\.1):(\d+)(\/.*)?$/);
-  if (match) {
-    const port = match[1];
-    const path = match[2] ?? "/";
-    return `/proxy/${port}${path}`;
-  }
-  return url;
 }

@@ -1,5 +1,6 @@
 # Archived Changes
 
+- **260819-vtd1-tmux-version-floor** — tmux Version Floor
 - **260817-pfvt-host-dropdown-disconnect-rename** — Host-Switcher Dropdown Per-Row Disconnect & Rename
 - **260817-r65p-row-popup-elevation-contrast** — row popup elevation contrast
 - **260816-b8eu-status-rail-card-actions** — Right-edge status rail + contained mobile card + explicit card actions

@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 9
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-08-19T16:40:31Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-19T16:48:59Z"}
     hydrate: {started_at: "2026-08-19T16:48:59Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-19T17:02:35Z"}
     ship: {started_at: "2026-08-19T17:02:35Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-19T17:04:49Z"}
-    review-pr: {started_at: "2026-08-19T17:04:49Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-08-19T17:04:49Z", driver: git-pr, iterations: 1, completed_at: "2026-08-19T17:36:21Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/661
 true_impact:
@@ -53,4 +53,4 @@ true_impact:
     computed_at_stage: ship
 summary: Web tile chord reclaim (webOnly flag + kind-aware hasReclaimableMatch) and ⌘F find-in-page bar (lib/find-in-page.ts, web-find:open seam, cross-origin disabled state)
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-19T17:04:49Z
+last_updated: 2026-08-19T17:36:21Z

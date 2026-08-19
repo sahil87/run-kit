@@ -328,16 +328,18 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
     await expect(menu.getByText("App", { exact: true })).toBeVisible();
     // The relocated chrome rows (260812-d1at) are menuOnly — ALWAYS in the App
     // section, above the fixed version row. Notifications stay gone (they live
-    // in the settings dialog, 260724-6j1v).
+    // in the settings dialog, 260724-6j1v), and so does Theme… — theme
+    // switching lives in the settings dialog's inline picker and the palette
+    // (260819-qkow).
     await expect(menu.getByRole("menuitem", { name: /Help — run-kit docs/ })).toBeVisible();
     await expect(menu.getByRole("menuitem", { name: "Keyboard shortcuts" })).toBeVisible();
-    await expect(menu.getByRole("menuitem", { name: /Theme…/ })).toBeVisible();
+    await expect(menu.getByRole("menuitem", { name: /Theme…/ })).toHaveCount(0);
     await expect(menu.getByRole("menuitem", { name: /notification/i })).toHaveCount(0);
     // The fixed version row is always present (plain `RunKit` or `RunKit v…`).
     await expect(menu.getByRole("menuitem", { name: /RunKit/ })).toBeVisible();
   });
 
-  test("the menuOnly rows (split / fixed-width / Aa / close-pane / Help / Keyboard / Theme…) are in the menu even at a WIDE width", async ({
+  test("the menuOnly rows (split / fixed-width / Aa / close-pane / Help / Keyboard) are in the menu even at a WIDE width", async ({
     page,
   }) => {
     // The distinguishing 260731-oiho case: the bar has room at 1280px — the
@@ -346,7 +348,7 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
     // 260813-w1lf; the rail-toggle chip REMOVED, 260815-19me) — yet the
     // demoted controls still live ONLY in the menu (menu-only, not
     // space-driven overflow). The 260812-d1at chrome rows share that
-    // placement: Help / Keyboard / Theme… are `menuOnly` App-section rows.
+    // placement: Help / Keyboard are `menuOnly` App-section rows.
     const id = await resolveWindow(page, WINDOW_NAME);
     await gotoWindow(page, id);
     const heading = page.getByRole("button", { name: `Rename window ${WINDOW_NAME}` });
@@ -363,9 +365,7 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
     expect(tileBox.x, "toggle group left of the ▦ Layout chip").toBeLessThan(layoutBox.x);
     // …but never the demoted set (split included) nor the chrome rows.
     expect(await inBarCount(page, MENU_ONLY)).toBe(0);
-    expect(
-      await inBarCount(page, ["Help — run-kit docs", "Keyboard shortcuts", /Theme…/]),
-    ).toBe(0);
+    expect(await inBarCount(page, ["Help — run-kit docs", "Keyboard shortcuts"])).toBe(0);
     // The Settings gear IS in-bar (a real fit candidate), immediately left of
     // the chevron (Refresh · Gear · chevron order).
     const gear = byRoleName(page, "Open settings");
@@ -384,7 +384,6 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
     await expect(menu.getByRole("menuitem", { name: "Close pane" })).toBeVisible();
     await expect(menu.getByRole("menuitem", { name: /Help — run-kit docs/ })).toBeVisible();
     await expect(menu.getByRole("menuitem", { name: "Keyboard shortcuts" })).toBeVisible();
-    await expect(menu.getByRole("menuitem", { name: /Theme…/ })).toBeVisible();
     // The split rows are menuOnly in terminal mode (260813-w1lf) — ALWAYS in
     // the menu, wide width included (the mobile path + muscle-memory fallback).
     await expect(menu.getByRole("menuitem", { name: "Split horizontal" })).toBeVisible();
@@ -393,7 +392,7 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
     await expect(menu.getByRole("menuitem", { name: "Settings" })).toHaveCount(0);
   });
 
-  test("the App-section chrome rows work: Help links out, Keyboard opens the overlay, Theme… opens the selector", async ({
+  test("the App-section chrome rows work: Help links out, Keyboard opens the overlay", async ({
     page,
   }) => {
     const id = await resolveWindow(page, WINDOW_NAME);
@@ -420,15 +419,6 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
     await expect(page.getByTestId("settings-shortcuts-panel")).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(page.getByRole("dialog", { name: "Settings" })).toHaveCount(0);
-
-    // Theme… — opens the theme selector (click-cycling is retired).
-    await page.getByRole("button", { name: "More controls" }).click();
-    await page
-      .getByRole("menu", { name: "More controls" })
-      .getByRole("menuitem", { name: /Theme…/ })
-      .click();
-    await expect(page.getByRole("dialog", { name: "Theme selector" })).toBeVisible();
-    await page.keyboard.press("Escape");
   });
 
   test("the version row copies the version to the clipboard", async ({ page, context }) => {
@@ -457,8 +447,8 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
 
   test("a menu action (fixed-width toggle) works from the menu", async ({ page }) => {
     // The fixed-width checkbox row is the representative stateful menu action
-    // (the one-shot chrome rows — Keyboard / Theme… — have their own event
-    // coverage above).
+    // (the one-shot chrome rows — Keyboard — have their own event coverage
+    // above).
     const id = await resolveWindow(page, WINDOW_NAME);
     await gotoWindow(page, id);
     const heading = page.getByRole("button", { name: `Rename window ${WINDOW_NAME}` });

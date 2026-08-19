@@ -22,7 +22,6 @@ import {
   TopBarOverflowMenu,
   HelpMenuRow,
   KeyboardMenuRow,
-  ThemeMenuRow,
   type OverflowMenuRow,
   type MenuGroup,
   MENU_ROW_CLASS,
@@ -819,14 +818,6 @@ export function TopBar({
       menuGroup: "app",
       barRender: () => null,
       menuRender: () => <KeyboardMenuRow />,
-    },
-    {
-      id: "theme",
-      modes: ["terminal", "board", "server", "host"],
-      menuOnly: true,
-      menuGroup: "app",
-      barRender: () => null,
-      menuRender: () => <ThemeMenuRow />,
     },
   ];
 

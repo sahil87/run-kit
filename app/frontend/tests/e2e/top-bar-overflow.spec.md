@@ -19,7 +19,7 @@ bar / mobile drawer footer);
 (f) a menu action (fixed-width toggle) works from the menu; (g) the demoted
 controls (fixed-width, Aa, close-pane — `menuOnly` since 260731-oiho — the
 merged split control, `menuOnly` in terminal mode since 260813-w1lf — plus
-the relocated Help / Keyboard / Theme… chrome rows, `menuOnly` since
+the relocated Help / Keyboard chrome rows, `menuOnly` since
 260812-d1at) render in-bar NOWHERE at any width while their rows are ALWAYS in
 the menu; (h) the Settings gear (260812-d1at, relocated from the sidebar
 footer) is a real fit candidate — the LAST one (Refresh drops before it) —
@@ -135,8 +135,9 @@ cliff) is the contract.
 overflowed ▦ Layout chip's
 `Layout: Single` radio row (260812-ab5v — one row per arity-valid shape; this
 1-tile window has just the one), the menuOnly trio's rows, and the relocated
-App-section chrome rows (260812-d1at: Help — run-kit docs, Keyboard shortcuts,
-Theme…), plus the always-present version row — grouped under the View /
+App-section chrome rows (260812-d1at: Help — run-kit docs, Keyboard
+shortcuts; the Theme… row is gone since 260819-qkow — theme switching lives
+in the settings dialog and the palette), plus the always-present version row — grouped under the View /
 Window / App uppercase section labels (c, 260731-oiho). The TILES section is
 ABSENT at this mobile width: the surface-toggles entry is in SWITCH mode
 there — pinned in-bar and registering NO menu rows — so it contributes no
@@ -152,11 +153,12 @@ is asserted either way.
    are present, plus a `RunKit` version row; assert NO `Tiles` section label
    and NO `Terminal tile` checkbox row (the mobile switch mode registers no
    menu rows); assert the View / Window / App
-   section labels render; assert the Help / Keyboard shortcuts / Theme… rows
-   are PRESENT (260812-d1at) and the notification row is ABSENT (260724-6j1v —
-   the bell lives in the settings dialog).
+   section labels render; assert the Help / Keyboard shortcuts rows are
+   PRESENT (260812-d1at), the Theme… row is ABSENT (260819-qkow), and the
+   notification row is ABSENT (260724-6j1v — the bell lives in the settings
+   dialog).
 
-### `the menuOnly rows (split / fixed-width / Aa / close-pane / Help / Keyboard / Theme…) are in the menu even at a WIDE width`
+### `the menuOnly rows (split / fixed-width / Aa / close-pane / Help / Keyboard) are in the menu even at a WIDE width`
 
 **What it proves:** the 260731-oiho demotion (extended to the terminal split in
 260813-w1lf) is menu-ONLY, not space-driven —
@@ -173,30 +175,26 @@ in-bar entry's rows are NOT duplicated into the menu.
    button's box is LEFT of the Layout chip's (registry order — the group is
    the L1 head).
 2. Assert the in-bar count of the `MENU_ONLY` set (split included) and of the Help / Keyboard
-   shortcuts / Theme… rows is 0; assert the `Open settings` gear is visible
+   shortcuts rows is 0; assert the `Open settings` gear is visible
    in-bar with a bounding box between Refresh's and the chevron's.
 3. Open the menu; assert the Fixed width checkbox row, the Terminal font
-   stepper group, the Close pane row, and the three chrome rows are present;
+   stepper group, the Close pane row, and the two chrome rows are present;
    assert the Split horizontal / Split vertical rows ARE present (menuOnly —
    always in the menu, wide width included) and NO `Settings` row (the gear is
    in-bar, so it contributes no menu row).
 
-### `the App-section chrome rows work: Help links out, Keyboard opens the overlay, Theme… opens the selector`
+### `the App-section chrome rows work: Help links out, Keyboard opens the overlay`
 
 **What it proves:** the relocated rows (260812-d1at) are functional, not just
-present — Help is a safe external link, Keyboard shortcuts deep-links into
+present — Help is a safe external link, and Keyboard shortcuts deep-links into
 the settings dialog's Shortcuts tab (260818-bncw — the standalone overlay and
-its `shortcuts-overlay:open` event seam are retired), and Theme… opens the
-theme selector (the retired footer
-button's click-cycling is gone).
+its `shortcuts-overlay:open` event seam are retired).
 
 **Steps:**
 1. Navigate to the terminal window; set 375×800; open the `More controls` menu.
 2. Assert the Help row's `href` / `target="_blank"` / `rel="noopener…"`.
 3. Click `Keyboard shortcuts`; assert the `Settings` dialog is visible with
    the `settings-shortcuts-panel` testid inside; Escape-close it.
-4. Reopen the menu; click `Theme…`; assert the `Theme selector` dialog is
-   visible; Escape-close it.
 
 ### `the version row copies the version to the clipboard`
 
@@ -213,7 +211,7 @@ button's click-cycling is gone).
 
 **What it proves:** a menu action mutates app state from within the menu (f).
 The fixed-width checkbox row is the representative stateful menu action (the
-one-shot chrome rows — Keyboard / Theme… — have their own coverage above).
+one-shot chrome rows — Keyboard — have their own coverage above).
 
 **Steps:**
 1. Open the menu at 375px; read the `Fixed width` row's `aria-checked`.

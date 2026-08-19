@@ -15,9 +15,8 @@ import { LogoSpinner } from "@/components/logo-spinner";
 import { useUpdateClick } from "@/hooks/use-update-click";
 import { useUpdateCheck } from "@/hooks/use-update-check";
 import { Tip } from "@/components/tip";
-import { HELP_URL, HelpIcon, ThemeModeIcon } from "@/components/global-chrome";
+import { HELP_URL, HelpIcon } from "@/components/global-chrome";
 import { KeyboardIcon } from "@/components/sidebar/icons";
-import { useTheme } from "@/contexts/theme-context";
 import { useSettingsDialog } from "@/contexts/settings-dialog-context";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { formatCombo } from "@/lib/keybindings";
@@ -137,12 +136,13 @@ export const MENU_ROW_KBD_CLASS =
   "ml-auto text-xs text-text-secondary bg-bg-card px-1.5 py-0.5 rounded border border-border";
 
 /**
- * The App section's relocated global-chrome rows (260812-d1at) — Help,
- * Keyboard shortcuts, and Theme…, moved out of the sidebar footer. All three
- * reuse the shared `global-chrome.tsx` definitions (and the sidebar's
- * `KeyboardIcon`) so the menu can never drift from the command palettes. They
- * are `menuOnly` registry entries in `top-bar.tsx`: always in the menu, never
- * in the bar, on every top-bar mode.
+ * The App section's relocated global-chrome rows (260812-d1at) — Help and
+ * Keyboard shortcuts, moved out of the sidebar footer. Both reuse the shared
+ * `global-chrome.tsx` definitions (and the sidebar's `KeyboardIcon`) so the
+ * menu can never drift from the command palettes. They are `menuOnly`
+ * registry entries in `top-bar.tsx`: always in the menu, never in the bar,
+ * on every top-bar mode. Theme switching carries no menu row — it lives in
+ * the settings dialog's inline picker and the palette's theme actions.
  */
 
 /** Help — external docs link. An anchor, never a button: external navigation
@@ -192,29 +192,6 @@ export function KeyboardMenuRow() {
           {chord}
         </kbd>
       )}
-    </button>
-  );
-}
-
-/** Theme… — opens the theme selector via the `theme-selector:open` document
- *  CustomEvent. This REPLACES the retired footer button's click-cycling
- *  (260812-d1at): cycle-on-click doesn't map to a menu row, and the selector
- *  is the clearer interaction. The trailing slot shows the current effective
- *  mode. */
-export function ThemeMenuRow() {
-  const { preference, resolved } = useTheme();
-  const themeMode = preference === "system" ? "system" : resolved;
-  return (
-    <button
-      type="button"
-      role="menuitem"
-      tabIndex={-1}
-      onClick={() => document.dispatchEvent(new CustomEvent("theme-selector:open"))}
-      className={MENU_ROW_CLASS}
-    >
-      <ThemeModeIcon mode={themeMode} />
-      <span className="flex-1">Theme…</span>
-      <span className="shrink-0 text-text-secondary">{themeMode}</span>
     </button>
   );
 }

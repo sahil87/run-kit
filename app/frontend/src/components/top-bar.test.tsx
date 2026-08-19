@@ -1301,12 +1301,13 @@ describe("TopBar", () => {
       expect(within(menu).getByText("Refresh page")).toBeInTheDocument();
       // The App section's relocated chrome rows (260812-d1at): Settings (the
       // gear's overflow fallback — everything overflows in jsdom), Help,
-      // Keyboard shortcuts, Theme…. Notifications stay GONE (folded into the
-      // settings dialog, 260724-6j1v).
+      // Keyboard shortcuts. Notifications stay GONE (folded into the settings
+      // dialog, 260724-6j1v); Theme… is gone too — theme switching lives in
+      // the settings dialog's inline picker and the palette (260819-qkow).
       expect(within(menu).getByRole("menuitem", { name: "Settings" })).toBeInTheDocument();
       expect(within(menu).getByRole("menuitem", { name: /Help — run-kit docs/ })).toBeInTheDocument();
       expect(within(menu).getByRole("menuitem", { name: /Keyboard shortcuts/ })).toBeInTheDocument();
-      expect(within(menu).getByRole("menuitem", { name: /Theme…/ })).toBeInTheDocument();
+      expect(within(menu).queryByRole("menuitem", { name: /Theme…/ })).not.toBeInTheDocument();
       expect(within(menu).queryByText("Enable notifications")).not.toBeInTheDocument();
       // The fixed version row is always present (last).
       expect(within(menu).getByText("RunKit")).toBeInTheDocument();
@@ -1325,8 +1326,8 @@ describe("TopBar", () => {
       // Membership + fixed section order: a known View row (Fixed width) sits
       // between the View and Window labels; a Window row (Split vertical)
       // between Window and App; the App section carries Refresh + the relocated
-      // chrome rows (260812-d1at: Settings · Help · Keyboard · Theme…) + the
-      // version row.
+      // chrome rows (260812-d1at: Settings · Help · Keyboard) + the version
+      // row.
       const follows = (a: Element, b: Element) =>
         Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
       const fixedWidthRow = within(menu).getByRole("menuitemcheckbox", { name: /Fixed width/ });
@@ -1335,7 +1336,6 @@ describe("TopBar", () => {
       const settingsRow = within(menu).getByRole("menuitem", { name: "Settings" });
       const helpRow = within(menu).getByRole("menuitem", { name: /Help — run-kit docs/ });
       const keyboardRow = within(menu).getByRole("menuitem", { name: /Keyboard shortcuts/ });
-      const themeRow = within(menu).getByRole("menuitem", { name: /Theme…/ });
       expect(follows(viewLabel, fixedWidthRow)).toBe(true);
       expect(follows(fixedWidthRow, windowLabel)).toBe(true);
       expect(follows(windowLabel, splitRow)).toBe(true);
@@ -1344,9 +1344,8 @@ describe("TopBar", () => {
       expect(follows(refreshRow, settingsRow)).toBe(true);
       expect(follows(settingsRow, helpRow)).toBe(true);
       expect(follows(helpRow, keyboardRow)).toBe(true);
-      expect(follows(keyboardRow, themeRow)).toBe(true);
       // The fixed version row rides the App section's tail.
-      expect(follows(themeRow, within(menu).getByText("RunKit"))).toBe(true);
+      expect(follows(keyboardRow, within(menu).getByText("RunKit"))).toBe(true);
     });
 
     it("renders NO section labels when the menu holds only the version row", () => {
@@ -1841,22 +1840,11 @@ describe("TopBar", () => {
       }
     });
 
-    it("the Theme… row opens the theme selector (click-cycling retired) and shows the effective mode", () => {
+    it("carries no Theme… row — theme switching lives in the settings dialog and the palette", () => {
       renderTopBar();
       act(() => fireEvent.click(screen.getByLabelText("More controls")));
       const menu = screen.getByRole("menu", { name: "More controls" });
-      // Default preference is "system" (the stub matches dark scheme), so the
-      // trailing slot reads "system".
-      const row = within(menu).getByRole("menuitem", { name: /Theme…/ });
-      expect(row).toHaveTextContent("system");
-      const openListener = vi.fn();
-      document.addEventListener("theme-selector:open", openListener);
-      try {
-        act(() => fireEvent.click(row));
-        expect(openListener).toHaveBeenCalledTimes(1);
-      } finally {
-        document.removeEventListener("theme-selector:open", openListener);
-      }
+      expect(within(menu).queryByRole("menuitem", { name: /Theme…/ })).not.toBeInTheDocument();
     });
 
     it("the Settings menu row (the gear's overflow fallback) also opens the dialog", () => {

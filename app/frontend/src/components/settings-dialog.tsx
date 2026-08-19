@@ -16,7 +16,7 @@ import { useChromeState, useChromeDispatch, TERMINAL_FONT_BOUNDS } from "@/conte
 import { useTheme, useThemeActions } from "@/contexts/theme-context";
 import { usePushSubscription } from "@/hooks/use-push-subscription";
 import { NOTIFICATIONS_HELP_URL } from "@/components/global-chrome";
-import { THEMES } from "@/themes";
+import { ThemePickerList } from "@/components/theme-picker-list";
 import { getSSHHost, setSSHHost, getRiffPresets } from "@/api/client";
 import { invalidateOpenContext } from "@/hooks/use-open-targets";
 import { isMacroActionId } from "@/lib/macros";
@@ -185,10 +185,12 @@ function TextSetting({
   );
 }
 
-/** Theme-pair second surface: mode buttons + per-mode preferred-theme selects,
- *  all driving the existing `setTheme()` wiring (the top-bar selector stays). */
+/** Theme surface: mode buttons + the shared searchable picker rendered inline
+ *  (the same `ThemePickerList` core the top-bar modal uses), all driving the
+ *  existing `setTheme()` wiring. Both preferred slots stay visible at once —
+ *  the DARK group checks `themeDark`, the LIGHT group checks `themeLight`. */
 function ThemePairControl() {
-  const { preference, resolved, themeDark, themeLight } = useTheme();
+  const { preference, resolved, theme, themeDark, themeLight } = useTheme();
   const { setTheme } = useThemeActions();
   const mode = preference === "system" ? "system" : resolved;
 
@@ -207,11 +209,6 @@ function ThemePairControl() {
     </button>
   );
 
-  const darkThemes = THEMES.filter((t) => t.category === "dark");
-  const lightThemes = THEMES.filter((t) => t.category === "light");
-  const selectClass =
-    "w-full bg-bg-primary text-text-primary p-1.5 border border-border rounded outline-none text-xs";
-
   return (
     <PreferenceRow label="Theme" sublabel="Mode plus the theme each mode resolves to">
       <div className="flex gap-1.5 mb-2" role="group" aria-label="Theme mode">
@@ -219,41 +216,20 @@ function ThemePairControl() {
         {modeButton("light", "Light", () => setTheme(themeLight))}
         {modeButton("dark", "Dark", () => setTheme(themeDark))}
       </div>
-      <div className="grid grid-cols-2 gap-2 max-w-[420px]">
-        <div>
-          <label htmlFor="settings-theme-dark" className="block text-[10px] text-text-secondary mb-1">
-            Dark theme
-          </label>
-          <select
-            id="settings-theme-dark"
-            value={themeDark}
-            onChange={(e) => setTheme(e.target.value)}
-            className={selectClass}
-          >
-            {darkThemes.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label htmlFor="settings-theme-light" className="block text-[10px] text-text-secondary mb-1">
-            Light theme
-          </label>
-          <select
-            id="settings-theme-light"
-            value={themeLight}
-            onChange={(e) => setTheme(e.target.value)}
-            className={selectClass}
-          >
-            {lightThemes.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-              </option>
-            ))}
-          </select>
-        </div>
+      <div className="max-w-[420px]">
+        <ThemePickerList
+          checkedIds={[themeDark, themeLight]}
+          initialSelectedId={theme.id}
+          onConfirm={(t) => setTheme(t.id)}
+          // Eat the Escape only when it just reverted a preview or closed the
+          // list — an idle Escape must still bubble to the dialog's focus
+          // trap and close it.
+          onEscape={(e, consumed) => {
+            if (consumed) e.stopPropagation();
+          }}
+          cancelOnLeave
+          collapsible
+        />
       </div>
     </PreferenceRow>
   );

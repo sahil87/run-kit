@@ -16,24 +16,35 @@ test.describe("Mobile layout", () => {
     expect(bodyWidth).toBeLessThanOrEqual(MOBILE_VIEWPORT.width);
   });
 
-  test("theme is reachable via the chevron menu's Theme… row on mobile (the footer carries no actions)", async ({
+  test("theme is reachable via the settings dialog on mobile (no chrome theme button anywhere)", async ({
     page,
   }) => {
-    // 260812-d1at relocated the footer actions to the top bar: theme lives in
-    // the overflow chevron menu's App section as a menuOnly `Theme…` row that
-    // opens the theme selector (click-cycling is retired). The sidebar footer
-    // carries no theme button anymore — drawer open or closed.
+    // Theme switching lives in the settings dialog's Appearance picker and
+    // the palette (260819-qkow) — the chevron menu carries no Theme… row and
+    // the sidebar footer carries no theme button, drawer open or closed.
     await page.goto(`/${TMUX_SERVER}`);
     const chevron = page.getByRole("button", { name: "More controls" });
     await expect(chevron).toBeVisible({ timeout: 10_000 });
-    // No theme button anywhere in the bar (the row is menuOnly).
     await expect(page.getByRole("button", { name: / theme$/ })).toHaveCount(0);
-    // The chevron menu carries the Theme… row; clicking it opens the selector.
     await chevron.click();
     const menu = page.getByRole("menu", { name: "More controls" });
     await expect(menu).toBeVisible();
-    await menu.getByRole("menuitem", { name: /Theme…/ }).click();
-    await expect(page.getByRole("dialog", { name: "Theme selector" })).toBeVisible();
+    await expect(menu.getByRole("menuitem", { name: /Theme…/ })).toHaveCount(0);
+    // Settings reaches the Appearance theme picker. The gear is a fit
+    // candidate: when it still fits in-bar at 375px there is no menu row, so
+    // take whichever surface rendered.
+    await page.keyboard.press("Escape");
+    const gear = page.getByRole("button", { name: "Open settings" });
+    if (await gear.isVisible()) {
+      await gear.click();
+    } else {
+      await chevron.click();
+      await menu.getByRole("menuitem", { name: "Settings" }).click();
+    }
+    const dialog = page.getByRole("dialog", { name: "Settings" });
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("tab", { name: "Appearance" }).click();
+    await expect(dialog.getByTestId("theme-picker-trigger")).toBeVisible();
     await page.keyboard.press("Escape");
     // Even with the drawer open, the footer has no theme button.
     await page.getByRole("button", { name: "Toggle navigation" }).click();
@@ -42,10 +53,10 @@ test.describe("Mobile layout", () => {
     ).toHaveCount(0);
   });
 
-  test("theme lives in the top-bar overflow menu on desktop (never in the sidebar footer)", async ({ page }) => {
+  test("no chrome theme control on desktop either (sidebar footer and top bar both clean)", async ({ page }) => {
     // On desktop the sidebar is open by default — its footer is a passive
-    // status row now (260812-d1at), so no theme button renders there; the
-    // Theme… row sits in the top bar's chevron menu (menuOnly — never in-bar).
+    // status row (260812-d1at) and the chevron menu carries no Theme… row
+    // (260819-qkow): theme switching is the settings dialog + palette.
     await page.setViewportSize({ width: 1024, height: 768 });
     await page.goto(`/${TMUX_SERVER}`);
     await expect(
@@ -57,7 +68,7 @@ test.describe("Mobile layout", () => {
     await page.getByRole("button", { name: "More controls" }).click();
     await expect(
       page.getByRole("menu", { name: "More controls" }).getByRole("menuitem", { name: /Theme…/ }),
-    ).toBeVisible();
+    ).toHaveCount(0);
   });
 
   test("mobile drawer opens below top bar", async ({ page }) => {

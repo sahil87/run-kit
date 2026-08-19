@@ -1,10 +1,10 @@
 # mobile-layout.spec.ts
 
 Responsive-layout guardrails: mobile viewports must not leak horizontal
-overflow, must keep the theme control REACHABLE (since 260812-d1at it lives in
-the top bar's overflow chevron menu as the App-section `Theme…` row — on every
-viewport, no drawer needed), and must expose a drawer-style navigation
-that sits *below* (not over) the top bar.
+overflow, must keep theme switching REACHABLE (since 260819-qkow it lives in
+the settings dialog's Appearance picker and the palette — the chevron menu
+carries no Theme… row), and must expose a drawer-style navigation that sits
+*below* (not over) the top bar.
 
 ## Shared setup
 
@@ -25,34 +25,37 @@ xterm.js canvas without `overflow: hidden` on its column.
 2. Read `document.body.scrollWidth` via `page.evaluate`.
 3. Assert it is `≤ 375` (the viewport width).
 
-### `theme is reachable via the chevron menu's Theme… row on mobile (the footer carries no actions)`
+### `theme is reachable via the settings dialog on mobile (no chrome theme button anywhere)`
 
-**What it proves:** 260812-d1at relocated the footer actions to the top bar:
-theme is a menuOnly `Theme…` row in the chevron menu's App section that opens
-the theme selector (click-cycling is retired). The sidebar footer carries no
-theme button anymore — even with the drawer open.
+**What it proves:** Theme switching lives in the settings dialog's Appearance
+picker and the palette (260819-qkow): the chevron menu carries no `Theme…`
+row, the bar carries no theme button, and the sidebar footer carries none
+either — even with the drawer open — yet the Settings row still reaches the
+Appearance theme picker.
 
 **Steps:**
 1. Navigate to `/${TMUX_SERVER}` (viewport is 375px).
 2. Assert the `More controls` chevron is visible, and that no `* theme` button
-   exists in the bar (the row is menuOnly — never in-bar).
-3. Open the chevron menu, click the `Theme…` menuitem, and assert the
-   `Theme selector` dialog opens; Escape-close it.
+   exists in the bar.
+3. Open the chevron menu; assert it has NO `Theme…` menuitem; open Settings
+   via the in-bar gear (or the menu's `Settings` row when the gear
+   overflowed), switch to the Appearance tab, and assert the
+   `theme-picker-trigger` renders; Escape-close the dialog.
 4. Click `Toggle navigation` (the hamburger) and assert the sidebar nav still
    contains zero theme buttons.
 
-### `theme lives in the top-bar overflow menu on desktop (never in the sidebar footer)`
+### `no chrome theme control on desktop either (sidebar footer and top bar both clean)`
 
 **What it proves:** On desktop the sidebar is open by default — its footer is
-a passive status row now (260812-d1at), so no theme button renders there; the
-`Theme…` row sits in the top bar's chevron menu (menuOnly — never in-bar).
+a passive status row (260812-d1at) and the chevron menu carries no `Theme…`
+row (260819-qkow): theme switching is the settings dialog + palette.
 
 **Steps:**
 1. Resize viewport to 1024×768.
 2. Navigate to `/${TMUX_SERVER}`.
 3. Assert zero theme buttons inside `navigation[name='Sessions']` (the
    sidebar) and inside the top-bar right cell (`data-testid="top-bar-right"`).
-4. Open the chevron menu and assert the `Theme…` menuitem is visible.
+4. Open the chevron menu and assert it has NO `Theme…` menuitem.
 
 ### `mobile drawer opens below top bar`
 

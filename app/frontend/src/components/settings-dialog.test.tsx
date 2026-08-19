@@ -160,17 +160,120 @@ describe("SettingsDialog", () => {
     expect(screen.getByText("Notifications")).toBeInTheDocument();
   });
 
-  it("the Appearance tab carries the theme pair + accent (This host) and terminal font (This device)", () => {
+  it("the Appearance tab carries the theme control + accent (This host) and terminal font (This device)", () => {
     renderDialog();
     selectTab("Appearance");
     expect(screen.getByRole("tab", { name: "Appearance" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByText("This host")).toBeInTheDocument();
     expect(screen.getByText("This device")).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "Theme mode" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Dark theme")).toBeInTheDocument();
-    expect(screen.getByLabelText("Light theme")).toBeInTheDocument();
+    // The theme picker is the shared searchable core rendered inline — the
+    // per-mode <select>s are gone. At rest a trigger shows the ACTIVE theme;
+    // the search field + list live in a popover opened from it (collapsible).
+    expect(screen.getByTestId("theme-picker-trigger")).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Search themes" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("listbox", { name: "Themes" })).not.toBeInTheDocument();
+    expect(document.querySelector("select")).toBeNull();
     expect(screen.getByRole("button", { name: "Set instance color" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Increase terminal font" })).toBeInTheDocument();
+  });
+
+  describe("Appearance inline theme picker (260819-qkow)", () => {
+    /** Renders on the Appearance tab, opens the picker popover from its
+     *  trigger, and returns the search input. */
+    function openAppearance() {
+      renderDialog(makeInstanceName(), "appearance");
+      fireEvent.click(screen.getByTestId("theme-picker-trigger"));
+      return screen.getByRole("combobox", { name: "Search themes" });
+    }
+
+    it("the trigger shows the ACTIVE theme at rest; clicking it opens the popover", () => {
+      renderDialog(makeInstanceName(), "appearance");
+      const trigger = screen.getByTestId("theme-picker-trigger");
+      // matchMedia mocks matches:false → system resolves light → Default Light.
+      expect(trigger).toHaveTextContent("Default Light");
+      expect(trigger).toHaveAttribute("aria-expanded", "false");
+      expect(screen.queryByRole("listbox", { name: "Themes" })).not.toBeInTheDocument();
+      fireEvent.click(trigger);
+      // The trigger swaps to the focused search field with the list open.
+      expect(screen.queryByTestId("theme-picker-trigger")).not.toBeInTheDocument();
+      const input = screen.getByRole("combobox", { name: "Search themes" });
+      expect(input).toHaveAttribute("aria-expanded", "true");
+      expect(input).toHaveFocus();
+      expect(screen.getByRole("listbox", { name: "Themes" })).toBeInTheDocument();
+    });
+
+    it("filters themes by search query in the open popover", () => {
+      const input = openAppearance();
+      fireEvent.change(input, { target: { value: "gru" } });
+      const list = screen.getByRole("listbox", { name: "Themes" });
+      expect(within(list).getByText("Gruvbox Dark")).toBeInTheDocument();
+      expect(within(list).getByText("Gruvbox Light")).toBeInTheDocument();
+      expect(within(list).queryByText("Dracula")).not.toBeInTheDocument();
+    });
+
+    it("shows checkmarks on BOTH preferred slots (dark and light)", () => {
+      openAppearance();
+      const list = screen.getByRole("listbox", { name: "Themes" });
+      const checked = within(list)
+        .getAllByLabelText("Current theme")
+        .map((el) => el.closest('[role="option"]')!);
+      expect(checked).toHaveLength(2);
+      const names = checked.map((row) => row.textContent);
+      expect(names).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining("Default Dark"),
+          expect.stringContaining("Default Light"),
+        ]),
+      );
+    });
+
+    it("clicking a theme commits it through setTheme, closes the popover, and updates the trigger", () => {
+      openAppearance();
+      const list = screen.getByRole("listbox", { name: "Themes" });
+      fireEvent.click(within(list).getByText("Dracula"));
+      expect(localStorage.getItem("runkit-theme")).toBe("dracula");
+      expect(localStorage.getItem("runkit-theme-dark")).toBe("dracula");
+      // The dialog stays open; the commit closes the popover and the trigger
+      // now names the committed theme.
+      expect(screen.getByRole("dialog", { name: "Settings" })).toBeInTheDocument();
+      expect(screen.queryByRole("listbox", { name: "Themes" })).not.toBeInTheDocument();
+      const trigger = screen.getByTestId("theme-picker-trigger");
+      expect(trigger).toHaveTextContent("Dracula");
+      // Reopening shows the DARK slot check moved to Dracula.
+      fireEvent.click(trigger);
+      const reopened = screen.getByRole("listbox", { name: "Themes" });
+      const checkedNames = within(reopened)
+        .getAllByLabelText("Current theme")
+        .map((el) => el.closest('[role="option"]')!.textContent);
+      expect(checkedNames).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining("Dracula"),
+          expect.stringContaining("Default Light"),
+        ]),
+      );
+    });
+
+    it("Escape closes the POPOVER (not the dialog) and refocuses the trigger; an idle Escape closes the dialog", () => {
+      const input = openAppearance();
+      // ArrowDown starts a live preview in the open popover.
+      fireEvent.keyDown(input, { key: "ArrowDown" });
+      fireEvent.keyDown(input, { key: "Escape" });
+      expect(screen.queryByRole("listbox", { name: "Themes" })).not.toBeInTheDocument();
+      expect(screen.getByRole("dialog", { name: "Settings" })).toBeInTheDocument();
+      const trigger = screen.getByTestId("theme-picker-trigger");
+      expect(trigger).toHaveFocus();
+      // Nothing open or previewing now — Escape bubbles to the focus trap.
+      fireEvent.keyDown(trigger, { key: "Escape" });
+      expect(screen.queryByRole("dialog", { name: "Settings" })).not.toBeInTheDocument();
+    });
+
+    it("searching narrows the selection and Enter commits the first match", () => {
+      const input = openAppearance();
+      fireEvent.change(input, { target: { value: "drac" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+      expect(localStorage.getItem("runkit-theme")).toBe("dracula");
+    });
   });
 
   it("the Shortcuts tab mounts the ported shortcuts panel", () => {

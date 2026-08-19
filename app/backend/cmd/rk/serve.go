@@ -9,8 +9,10 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -133,6 +135,17 @@ To run run-kit as a background daemon, see 'run-kit daemon start' (and the rest 
 		}
 		logger := setupSlog(logLevel)
 		slog.SetDefault(logger)
+
+		// Below-floor tmux warning, after slog.SetDefault so it rides the
+		// configured logger (incl. the RK_DAEMON_LOG tee): the daemon-start
+		// stderr warning is invisible on the desktop "Start & connect" and
+		// `rk update` restart paths. Unknown versions log nothing.
+		vctx, vcancel := context.WithTimeout(context.Background(), tmux.TmuxTimeout)
+		v, vok := tmuxVersionProbe(vctx)
+		vcancel()
+		if vok && v.BelowFloor() {
+			slog.Warn(tmux.UpgradeHint(runtime.GOOS, exec.LookPath, v.Raw))
+		}
 
 		// Graceful shutdown via SIGINT/SIGTERM
 		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

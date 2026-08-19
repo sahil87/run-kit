@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"rk/internal/tmux"
 )
 
 // sshScript answers ssh invocations by remote-command string; every other
@@ -17,8 +19,13 @@ type sshScript struct {
 	ran       []string
 }
 
+// stubSSH answers ssh invocations by remote-command string; every other
+// binary is unexpected. It records the remote commands run, in order. It also
+// stubs the local-tmux version probe to unknown (pass-through) so Connect
+// tests stay hermetic regardless of the host's tmux.
 func stubSSH(t *testing.T, s *sshScript) {
 	t.Helper()
+	stubTmuxVersionProbe(t, tmux.Version{}, false)
 	orig := runCmdFn
 	runCmdFn = func(_ context.Context, name string, args ...string) execResult {
 		if name != "ssh" {
@@ -33,6 +40,16 @@ func stubSSH(t *testing.T, s *sshScript) {
 		return execResult{}
 	}
 	t.Cleanup(func() { runCmdFn = orig })
+}
+
+// stubTmuxVersionProbe swaps tmuxVersionFn for a stub returning the given
+// version/known pair (unknown — the pass-through case — when known is false),
+// restoring at cleanup.
+func stubTmuxVersionProbe(t *testing.T, v tmux.Version, known bool) {
+	t.Helper()
+	orig := tmuxVersionFn
+	t.Cleanup(func() { tmuxVersionFn = orig })
+	tmuxVersionFn = func(context.Context) (tmux.Version, bool) { return v, known }
 }
 
 // writeStore persists a single-remote store into a temp dir, returning the path.
@@ -52,10 +69,70 @@ func okVersion(v string) execResult {
 }
 
 func TestConnect_UnknownRemoteErrors(t *testing.T) {
+	stubTmuxVersionProbe(t, tmux.Version{}, false)
 	path := writeStore(t)
 	_, err := Connect(context.Background(), path, "nope", "3.0.0", nil)
 	if err == nil || !strings.Contains(err.Error(), "rk remote add") {
 		t.Errorf("error = %v, want add hint", err)
+	}
+}
+
+func TestConnect_BelowFloorRefusesBeforeAnySubprocess(t *testing.T) {
+	// The tunnels gate is the one hard floor enforcement: below tmux 3.4 the
+	// tunnel's ssh argv would be shell-joined (Constitution §I), so Connect
+	// refuses at entry — before the ssh probe, the store read's tmux work,
+	// or any tunnel creation.
+	stubNoSubprocess(t)
+	stubTmuxVersionProbe(t, tmux.Version{Major: 3, Minor: 2, Raw: "3.2a"}, true)
+	path := writeStore(t, testRemote)
+
+	_, err := Connect(context.Background(), path, "buildbox", "3.2.0", nil)
+	if err == nil {
+		t.Fatal("below-floor local tmux must refuse Connect")
+	}
+	msg := err.Error()
+	for _, want := range []string{"3.2a", "3.4", "brew"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("error = %q, want it to name the found version, the floor, and the upgrade hint (%q)", msg, want)
+		}
+	}
+	if strings.Contains(msg, "apt") {
+		t.Errorf("error = %q — the upgrade hint must never recommend apt", msg)
+	}
+}
+
+func TestConnect_VersionGatePassThrough(t *testing.T) {
+	// Unknown and at-floor local versions both pass the gate and reach the
+	// normal flow (here: the ssh probe, which the script answers).
+	for name, tc := range map[string]struct {
+		v     tmux.Version
+		known bool
+	}{
+		"unknown version proceeds":  {tmux.Version{}, false},
+		"exactly at floor proceeds": {tmux.Version{Major: 3, Minor: 4, Raw: "3.4"}, true},
+		"above floor proceeds":      {tmux.Version{Major: 3, Minor: 6, Raw: "3.6a"}, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := writeStore(t, testRemote)
+			ssh := &sshScript{responses: map[string]execResult{
+				remoteVersionCmd:     okVersion("3.2.0"),
+				remoteDaemonStartCmd: {},
+				remoteURLCmd:         {stdout: "http://127.0.0.1:3000\n"},
+			}}
+			stubSSH(t, ssh)
+			// Re-stub after stubSSH (which defaults the probe to unknown) so
+			// the case's version wins.
+			stubTmuxVersionProbe(t, tc.v, tc.known)
+			stubTmux(t, &tmuxScript{listOut: "buildbox\tssh\n"})
+			stubDial(t, func(string) bool { return true })
+
+			if _, err := Connect(context.Background(), path, "buildbox", "3.2.0", nil); err != nil {
+				t.Fatalf("Connect error = %v, want the gate to pass through", err)
+			}
+			if len(ssh.ran) == 0 {
+				t.Error("no ssh probe ran — the gate must pass through, not short-circuit")
+			}
+		})
 	}
 }
 
@@ -300,6 +377,9 @@ func TestHostileStoredTargetRejectedBeforeAnySubprocess(t *testing.T) {
 		t.Fatal(err)
 	}
 	stubNoSubprocess(t)
+	// The Connect floor gate probes the local tmux version before Load —
+	// stub it to unknown so the test stays hermetic on below-floor hosts.
+	stubTmuxVersionProbe(t, tmux.Version{}, false)
 
 	if _, err := Connect(context.Background(), path, "buildbox", "3.2.0", nil); err == nil ||
 		!strings.Contains(err.Error(), "invalid target") {

@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -261,7 +262,9 @@ func TestStartWithBinary_InvalidPath(t *testing.T) {
 }
 
 // stubTmuxLookPath swaps daemonTmuxLookPath for a stub resolving exactly the
-// given binaries, restoring the real exec.LookPath at cleanup.
+// given binaries, restoring the real exec.LookPath at cleanup. When tmux is
+// among the resolved binaries the version probe is stubbed to unknown too, so
+// precheck-passing tests stay hermetic (no real `tmux -V` on the host).
 func stubTmuxLookPath(t *testing.T, found ...string) {
 	t.Helper()
 	set := make(map[string]bool, len(found))
@@ -275,6 +278,71 @@ func stubTmuxLookPath(t *testing.T, found ...string) {
 			return "/usr/bin/" + name, nil
 		}
 		return "", errors.New("not found")
+	}
+	if set["tmux"] {
+		stubTmuxVersion(t, tmux.Version{}, false)
+	}
+}
+
+// stubTmuxVersion swaps daemonTmuxVersion for a stub returning the given
+// version/known pair (unknown when known is false), restoring at cleanup.
+func stubTmuxVersion(t *testing.T, v tmux.Version, known bool) {
+	t.Helper()
+	orig := daemonTmuxVersion
+	t.Cleanup(func() { daemonTmuxVersion = orig })
+	daemonTmuxVersion = func(context.Context) (tmux.Version, bool) { return v, known }
+}
+
+// captureWarnWriter swaps daemonWarnWriter for a buffer, restored at cleanup.
+func captureWarnWriter(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	buf := new(bytes.Buffer)
+	orig := daemonWarnWriter
+	t.Cleanup(func() { daemonWarnWriter = orig })
+	daemonWarnWriter = buf
+	return buf
+}
+
+func TestCheckTmuxPresent_BelowFloorWarnsOnceAndContinues(t *testing.T) {
+	stubTmuxLookPath(t, "tmux")
+	stubTmuxVersion(t, tmux.Version{Major: 3, Minor: 2, Raw: "3.2a"}, true)
+	buf := captureWarnWriter(t)
+
+	// The warning is not a gate: below floor, the precheck still passes.
+	if err := checkTmuxPresent(); err != nil {
+		t.Fatalf("checkTmuxPresent below floor = %v, want nil (warn-don't-block)", err)
+	}
+	want := tmux.UpgradeHint(runtime.GOOS, daemonTmuxLookPath, "3.2a")
+	got := strings.TrimSpace(buf.String())
+	if got != want {
+		t.Errorf("warning = %q, want exactly %q", got, want)
+	}
+}
+
+func TestCheckTmuxPresent_AtFloorAndUnknownStaySilent(t *testing.T) {
+	cases := []struct {
+		name  string
+		v     tmux.Version
+		known bool
+	}{
+		// Exactly 3.4 passes silently — the >= comparison is load-bearing.
+		{"at floor", tmux.Version{Major: 3, Minor: 4, Raw: "3.4"}, true},
+		{"above floor", tmux.Version{Major: 3, Minor: 6, Raw: "3.6a"}, true},
+		{"unknown", tmux.Version{}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			stubTmuxLookPath(t, "tmux")
+			stubTmuxVersion(t, tc.v, tc.known)
+			buf := captureWarnWriter(t)
+
+			if err := checkTmuxPresent(); err != nil {
+				t.Fatalf("checkTmuxPresent = %v, want nil", err)
+			}
+			if buf.Len() != 0 {
+				t.Errorf("warning writer got %q, want silence", buf.String())
+			}
+		})
 	}
 }
 

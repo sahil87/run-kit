@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"os"
@@ -272,18 +273,44 @@ func KillServer() error {
 // codeServerLookPath idiom).
 var daemonTmuxLookPath = exec.LookPath
 
+// daemonTmuxVersion probes the PATH tmux version for the below-floor start
+// warning (the daemonTmuxLookPath seam idiom).
+var daemonTmuxVersion = tmux.CurrentVersion
+
+// daemonWarnWriter receives the once-at-start below-floor warning — stderr
+// in production, a buffer in tests.
+var daemonWarnWriter io.Writer = os.Stderr
+
 // checkTmuxPresent fails fast when tmux is absent from PATH, with a
 // remediation hint instead of the raw exec wrap that a missing binary would
 // otherwise surface mid-operation. It runs before IsRunning, the port guard,
 // and the stale-socket reap — all of which shell out to tmux. The same
 // lookPath drives the package-manager probe so a stubbed host yields a
 // deterministic hint in tests.
+//
+// A present tmux additionally gets the version floor check: below floor
+// prints one warning and continues (warn-don't-block — only remote tunnels
+// hard-require ≥ 3.4); unknown versions neither warn nor block.
 func checkTmuxPresent() error {
 	if _, err := daemonTmuxLookPath("tmux"); err != nil {
 		return fmt.Errorf("tmux not found on PATH — the run-kit daemon runs inside a tmux session; %s (or run `rk doctor` for a full dependency check)",
 			tmux.InstallHint(runtime.GOOS, daemonTmuxLookPath))
 	}
+	warnTmuxBelowFloor()
 	return nil
+}
+
+// warnTmuxBelowFloor prints the shared upgrade message once at daemon start
+// when the PATH tmux parses below the supported floor. Blocking start would
+// brick currently-working setups the moment rk upgrades, so this only warns.
+func warnTmuxBelowFloor() {
+	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
+	defer cancel()
+	v, ok := daemonTmuxVersion(ctx)
+	if !ok || !v.BelowFloor() {
+		return
+	}
+	fmt.Fprintln(daemonWarnWriter, tmux.UpgradeHint(runtime.GOOS, daemonTmuxLookPath, v.Raw))
 }
 
 // Start creates a new daemon tmux session running `rk serve`.

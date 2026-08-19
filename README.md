@@ -16,6 +16,8 @@ curl -fsSL https://shll.ai/install | sh
 
 Installs the entire shll toolkit via Homebrew, handling tap trust automatically. run-kit relies on its sibling tools (`wt` for the riff worktree flow), so the full-toolkit install is the supported path.
 
+Requires **tmux ≥ 3.4** (checked at runtime; `rk doctor` reports your version) — see the [install & access guide](docs/site/install.md#tmux-version--34) for the upgrade path.
+
 ## Quick start
 
 From install to a working dashboard with one agent running. Two front doors to the same dashboard — pick one:

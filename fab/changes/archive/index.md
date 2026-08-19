@@ -1,5 +1,6 @@
 # Archived Changes
 
+- **260819-v6y4-web-tile-browser-chrome** — Web Tile Browser Chrome + Polish + Hardening
 - **260819-a8bf-doctor-tmux-drift-note** — Doctor tmux Drift Note
 - **260819-ie2i-web-tile-keyboard-find** — Web Tile Keyboard Reclaim + Find-in-Page
 - **260819-vtd1-tmux-version-floor** — tmux Version Floor

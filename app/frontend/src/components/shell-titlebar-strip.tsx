@@ -783,12 +783,10 @@ export function ShellTitlebarStrip() {
           {/* Both dialogs render inside the container so their backdrop
               mousedown never trips the menu's outside-click close. */}
           {confirmTarget !== null && (
-            <Dialog title="Remove host?" onClose={cancelRemove}>
+            <Dialog title="Remove host" onClose={cancelRemove}>
               <p className="text-sm text-text-secondary mb-3">
-                Remove <strong>{confirmTarget.name}</strong>?
-                <span className="mt-1 block truncate text-xs opacity-60">
-                  {confirmTarget.origin}
-                </span>
+                Are you sure you want to remove <strong>{confirmTarget.name}</strong> (
+                {confirmTarget.origin})?
               </p>
               <div className="flex gap-2">
                 <button

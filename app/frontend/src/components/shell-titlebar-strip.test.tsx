@@ -727,7 +727,7 @@ describe("ShellTitlebarStrip host menu — Remove + Edit Host dialog", () => {
     openMenu();
     expect(bridge.list).toHaveBeenCalledTimes(2); // mount + open refetch
     fireEvent.click(screen.getAllByRole("button", { name: "Remove" })[1]);
-    const dialog = screen.getByRole("dialog", { name: "Remove host?" });
+    const dialog = screen.getByRole("dialog", { name: "Remove host" });
     expect(dialog.textContent).toContain("lab");
     expect(bridge.removeConfirmed).not.toHaveBeenCalled();
     fireEvent.click(within(dialog).getByRole("button", { name: "Remove" }));
@@ -744,7 +744,7 @@ describe("ShellTitlebarStrip host menu — Remove + Edit Host dialog", () => {
     const bridge = await renderFull();
     openMenu();
     fireEvent.click(screen.getAllByRole("button", { name: "Remove" })[0]);
-    const dialog = screen.getByRole("dialog", { name: "Remove host?" });
+    const dialog = screen.getByRole("dialog", { name: "Remove host" });
     // Focus trap seats on Cancel — the Cancel-default contract.
     await waitFor(() =>
       expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "Cancel" })),
@@ -791,7 +791,7 @@ describe("ShellTitlebarStrip host menu — Remove + Edit Host dialog", () => {
     const rows = screen.getAllByRole("menuitemradio");
     await waitFor(() => expect(document.activeElement).toBe(rows[0]));
     expect(fireEvent.keyDown(document, { key: "Backspace" })).toBe(false); // swallowed
-    const dialog = screen.getByRole("dialog", { name: "Remove host?" });
+    const dialog = screen.getByRole("dialog", { name: "Remove host" });
     expect(dialog.textContent).toContain("studio-mac");
     fireEvent.keyDown(document, { key: "Delete" }); // suspended — no new target
     expect(screen.getAllByRole("dialog")).toHaveLength(1);

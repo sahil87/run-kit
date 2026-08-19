@@ -160,17 +160,89 @@ describe("SettingsDialog", () => {
     expect(screen.getByText("Notifications")).toBeInTheDocument();
   });
 
-  it("the Appearance tab carries the theme pair + accent (This host) and terminal font (This device)", () => {
+  it("the Appearance tab carries the theme control + accent (This host) and terminal font (This device)", () => {
     renderDialog();
     selectTab("Appearance");
     expect(screen.getByRole("tab", { name: "Appearance" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByText("This host")).toBeInTheDocument();
     expect(screen.getByText("This device")).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "Theme mode" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Dark theme")).toBeInTheDocument();
-    expect(screen.getByLabelText("Light theme")).toBeInTheDocument();
+    // The theme picker is the shared searchable core rendered inline — the
+    // per-mode <select>s are gone.
+    expect(screen.getByRole("combobox", { name: "Search themes" })).toBeInTheDocument();
+    expect(screen.getByRole("listbox", { name: "Themes" })).toBeInTheDocument();
+    expect(document.querySelector("select")).toBeNull();
     expect(screen.getByRole("button", { name: "Set instance color" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Increase terminal font" })).toBeInTheDocument();
+  });
+
+  describe("Appearance inline theme picker (260819-qkow)", () => {
+    function openAppearance() {
+      renderDialog(makeInstanceName(), "appearance");
+      return screen.getByRole("combobox", { name: "Search themes" });
+    }
+
+    it("filters themes by search query", () => {
+      const input = openAppearance();
+      fireEvent.change(input, { target: { value: "gru" } });
+      const list = screen.getByRole("listbox", { name: "Themes" });
+      expect(within(list).getByText("Gruvbox Dark")).toBeInTheDocument();
+      expect(within(list).getByText("Gruvbox Light")).toBeInTheDocument();
+      expect(within(list).queryByText("Dracula")).not.toBeInTheDocument();
+    });
+
+    it("shows checkmarks on BOTH preferred slots (dark and light)", () => {
+      openAppearance();
+      const list = screen.getByRole("listbox", { name: "Themes" });
+      const checked = within(list)
+        .getAllByLabelText("Current theme")
+        .map((el) => el.closest('[role="option"]')!);
+      expect(checked).toHaveLength(2);
+      const names = checked.map((row) => row.textContent);
+      expect(names).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining("Default Dark"),
+          expect.stringContaining("Default Light"),
+        ]),
+      );
+    });
+
+    it("clicking a theme commits it through setTheme (slot + mode update)", () => {
+      openAppearance();
+      const list = screen.getByRole("listbox", { name: "Themes" });
+      fireEvent.click(within(list).getByText("Dracula"));
+      expect(localStorage.getItem("runkit-theme")).toBe("dracula");
+      expect(localStorage.getItem("runkit-theme-dark")).toBe("dracula");
+      // The dialog stays open; the DARK slot check moved to Dracula.
+      expect(screen.getByRole("dialog", { name: "Settings" })).toBeInTheDocument();
+      const checkedNames = within(list)
+        .getAllByLabelText("Current theme")
+        .map((el) => el.closest('[role="option"]')!.textContent);
+      expect(checkedNames).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining("Dracula"),
+          expect.stringContaining("Default Light"),
+        ]),
+      );
+    });
+
+    it("a preview-cancelling Escape does NOT close the dialog; an idle Escape does", () => {
+      const input = openAppearance();
+      // ArrowDown starts a live preview.
+      fireEvent.keyDown(input, { key: "ArrowDown" });
+      fireEvent.keyDown(input, { key: "Escape" });
+      expect(screen.getByRole("dialog", { name: "Settings" })).toBeInTheDocument();
+      // No preview pending now — Escape bubbles to the focus trap and closes.
+      fireEvent.keyDown(input, { key: "Escape" });
+      expect(screen.queryByRole("dialog", { name: "Settings" })).not.toBeInTheDocument();
+    });
+
+    it("searching narrows the selection and Enter commits the first match", () => {
+      const input = openAppearance();
+      fireEvent.change(input, { target: { value: "drac" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+      expect(localStorage.getItem("runkit-theme")).toBe("dracula");
+    });
   });
 
   it("the Shortcuts tab mounts the ported shortcuts panel", () => {

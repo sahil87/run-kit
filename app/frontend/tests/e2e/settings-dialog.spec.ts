@@ -108,10 +108,14 @@ test.describe("Settings dialog", () => {
     await expect(dialog.getByLabel("SSH host")).toBeVisible();
     await expect(dialog.getByText("Notifications", { exact: true })).toBeVisible();
 
-    // The Appearance tab keeps its own scope split.
+    // The Appearance tab keeps its own scope split. The theme control is the
+    // shared searchable picker rendered inline (260819-qkow) — both preferred
+    // slots (dark + light) carry a check at once.
     await dialog.getByRole("tab", { name: "Appearance" }).click();
     await expect(dialog.getByRole("button", { name: "Set instance color" })).toBeVisible();
-    await expect(dialog.getByLabel("Dark theme")).toBeVisible();
+    await expect(dialog.getByRole("combobox", { name: "Search themes" })).toBeVisible();
+    await expect(dialog.getByRole("listbox", { name: "Themes" })).toBeVisible();
+    await expect(dialog.getByLabel("Current theme")).toHaveCount(2);
     await expect(dialog.getByRole("button", { name: "Increase terminal font" })).toBeVisible();
 
     // Escape closes (keyboard-first contract).

@@ -42,8 +42,9 @@ trigger, layout, and persistence contracts that unit tests can't cover.
 AppLayout-mounted dialog on a server route ON THE GENERAL TAB (the tab-less
 default), the General tab shows its scope-split controls (instance name, SSH
 host, notifications), clicking the Appearance tab reveals its controls
-(accent color, theme pair, terminal font), and Escape closes the dialog
-(keyboard-first contract).
+(accent color, the inline searchable theme picker with both preferred slots
+checked, terminal font), and Escape closes the dialog (keyboard-first
+contract).
 
 **Steps:**
 
@@ -53,8 +54,10 @@ host, notifications), clicking the Appearance tab reveals its controls
    `aria-selected`.
 4. Assert "This host" and "This device" section labels render, plus the
    Instance name input, SSH host input, and the `Notifications` label.
-5. Click the Appearance tab; assert the `Set instance color` button, Dark
-   theme select, and `Increase terminal font` button render.
+5. Click the Appearance tab; assert the `Set instance color` button, the
+   inline theme picker (search combobox + Themes listbox) with exactly two
+   `Current theme` checks (the dark and light preferred slots), and the
+   `Increase terminal font` button render.
 6. Press Escape; assert the dialog is gone.
 
 ### `tabbed preference-pane layout with the Notifications row (260724-6j1v, 260818-bncw)`

@@ -24,6 +24,7 @@ import {
   setHostAccentColor,
   setHostLastPath,
   setHostName,
+  setHostUrl,
 } from "./hosts";
 
 function tmpDataDir(): string {
@@ -232,6 +233,48 @@ test("setHostLastPath with an unchanged value writes nothing", () => {
   const before = readFileSync(join(dir, "hosts.json"), "utf8");
   const again = setHostLastPath(dir, a.host.id, "/w");
   assert.deepEqual(again, first);
+  assert.equal(readFileSync(join(dir, "hosts.json"), "utf8"), before);
+});
+
+test("setHostUrl re-points the origin, drops lastPath, and round-trips", () => {
+  const dir = tmpDataDir();
+  const a = addHost(dir, "a", "http://a:1");
+  assert.equal(a.ok, true);
+  if (!a.ok) return;
+  setHostLastPath(dir, a.host.id, "/w");
+
+  const next = setHostUrl(dir, a.host.id, "http://new:4100");
+  assert.equal(next.hosts[0].url, "http://new:4100");
+  assert.equal("lastPath" in next.hosts[0], false);
+  assert.deepEqual(loadHosts(dir), next);
+});
+
+test("setHostUrl leaves other fields, other entries, and the list order untouched", () => {
+  const dir = tmpDataDir();
+  const a = addHost(dir, "a", "http://a:1");
+  const b = addHost(dir, "b", "http://b:2");
+  assert.equal(a.ok && b.ok, true);
+  if (!a.ok || !b.ok) return;
+  setHostAccentColor(dir, a.host.id, "#ff0044");
+
+  const before = loadHosts(dir);
+  const next = setHostUrl(dir, a.host.id, "http://new:4100");
+  assert.deepEqual(next.hosts, [
+    { ...before.hosts[0], url: "http://new:4100" },
+    before.hosts[1],
+  ]);
+  assert.equal(next.activeId, before.activeId);
+});
+
+test("setHostUrl with an unknown id or the unchanged origin writes nothing", () => {
+  const dir = tmpDataDir();
+  const a = addHost(dir, "a", "http://a:1");
+  assert.equal(a.ok, true);
+  if (!a.ok) return;
+
+  const before = readFileSync(join(dir, "hosts.json"), "utf8");
+  assert.deepEqual(setHostUrl(dir, "nope", "http://x:1"), a.list);
+  assert.deepEqual(setHostUrl(dir, a.host.id, "http://a:1"), a.list);
   assert.equal(readFileSync(join(dir, "hosts.json"), "utf8"), before);
 });
 

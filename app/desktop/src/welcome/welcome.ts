@@ -5,8 +5,8 @@
  *
  * Remote flow: validate → `welcome:test-host` ping (main process) →
  * `welcome:add-host` (persist + set active; the display name auto-derives
- * from the ping's returned hostname — there is no name input, and no rename
- * affordance exists: remove-and-re-add is the only way to change a name).
+ * from the ping's returned hostname when the optional Name field is blank —
+ * post-add corrections live in the SPA dropdown's Edit Host dialog).
  * `?mode=add` shows a cancel link back to the active host.
  *
  * Local flow ("This Mac" section, darwin/linux only — suppressed on win32):
@@ -45,6 +45,7 @@ interface RemoteBridge {
 interface WelcomeElements {
   form: HTMLFormElement;
   urlInput: HTMLInputElement;
+  nameInput: HTMLInputElement;
   errorEl: HTMLElement;
   connectButton: HTMLButtonElement;
   cancelLink: HTMLAnchorElement;
@@ -156,6 +157,7 @@ function getShellPlatform(): string | null {
 function getWelcomeElements(): WelcomeElements | null {
   const form = document.getElementById("connect-form");
   const urlInput = document.getElementById("url");
+  const nameInput = document.getElementById("name");
   const errorEl = document.getElementById("error");
   const connectButton = document.getElementById("connect");
   const cancelLink = document.getElementById("cancel");
@@ -177,6 +179,7 @@ function getWelcomeElements(): WelcomeElements | null {
   if (
     !(form instanceof HTMLFormElement) ||
     !(urlInput instanceof HTMLInputElement) ||
+    !(nameInput instanceof HTMLInputElement) ||
     !(errorEl instanceof HTMLElement) ||
     !(connectButton instanceof HTMLButtonElement) ||
     !(cancelLink instanceof HTMLAnchorElement) ||
@@ -201,6 +204,7 @@ function getWelcomeElements(): WelcomeElements | null {
   return {
     form,
     urlInput,
+    nameInput,
     errorEl,
     connectButton,
     cancelLink,
@@ -520,11 +524,13 @@ function wireWelcomePage(els: WelcomeElements, bridge: WelcomeBridge): void {
       return;
     }
 
-    // No name input on the connect form: the display name auto-derives from
-    // the ping's hostname (the store falls back to the origin when empty),
-    // and there is no rename — remove-and-re-add changes a name.
+    // A blank Name falls back to the ping's hostname (store falls back to
+    // the origin when both are empty).
     setBusy("Connecting…");
-    const added = await bridge.addHost(ping.hostname, ping.origin);
+    const added = await bridge.addHost(
+      els.nameInput.value.trim() || ping.hostname,
+      ping.origin,
+    );
     if (!isAckOk(added)) {
       showError(errorOf(added));
       setBusy(null);

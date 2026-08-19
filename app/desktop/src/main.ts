@@ -88,6 +88,7 @@ import {
   setHostAccentColor,
   setHostLastPath,
   setHostName,
+  setHostUrl,
 } from "./hosts";
 import {
   activateView,
@@ -591,13 +592,33 @@ function rebuildMenu(): void {
   );
 }
 
+/**
+ * The removal tail shared by both confirmed paths: store removal, view
+ * teardown, menu rebuild, and the active-host fallback. Confirmation is the
+ * caller's job — the native menu confirms with the OS dialog below, and the
+ * SPA dropdown confirms with its own themed dialog before invoking
+ * `servers:remove-confirmed`. An unknown id is the store's no-op convention.
+ */
+function removeHostEverywhere(id: string): void {
+  const list = loadHosts(userDataDir());
+  const entry = list.hosts.find((h) => h.id === id);
+  if (!entry) return;
+  const wasActive = resolveActiveHost(list)?.id === id;
+  removeHost(userDataDir(), id);
+  destroyHostView(id); // the view dies with its host entry
+  rebuildMenu();
+  // Only the fallback swap needs a window — the removal itself must land
+  // even mid-teardown, or a confirmed remove acks { ok: true } having done
+  // nothing and the host resurrects on the next list read.
+  if (wasActive && mainWindow) showActive(mainWindow); // first remaining host, or welcome
+}
+
 async function confirmAndRemoveHost(id: string): Promise<void> {
   const win = mainWindow;
   if (!win) return;
   const list = loadHosts(userDataDir());
   const entry = list.hosts.find((h) => h.id === id);
   if (!entry) return;
-  const wasActive = resolveActiveHost(list)?.id === id;
 
   const { response } = await dialog.showMessageBox(win, {
     type: "warning",
@@ -609,10 +630,7 @@ async function confirmAndRemoveHost(id: string): Promise<void> {
   });
   if (response !== 0) return;
 
-  removeHost(userDataDir(), id);
-  destroyHostView(id); // the view dies with its host entry
-  rebuildMenu();
-  if (wasActive) showActive(win); // first remaining host, or welcome
+  removeHostEverywhere(id);
 }
 
 // ─── Health ping (main process — renderer stays sandboxed) ────────────────
@@ -1158,6 +1176,13 @@ function parseRenamePayload(value: unknown): { id: string; name: string } | null
   return { id: value.id, name: value.name };
 }
 
+function parseSetUrlPayload(value: unknown): { id: string; url: string } | null {
+  if (typeof value !== "object" || value === null) return null;
+  if (!("id" in value) || typeof value.id !== "string") return null;
+  if (!("url" in value) || typeof value.url !== "string") return null;
+  return { id: value.id, url: value.url };
+}
+
 function registerIpcHandlers(): void {
   ipcMain.handle(
     "welcome:test-host",
@@ -1265,16 +1290,30 @@ function registerIpcHandlers(): void {
     return { ok: true };
   });
 
-  // servers:remove — the SPA dropdown's per-row Disconnect. Adds no removal
-  // logic: it routes into the ONE confirmAndRemoveHost path the native
-  // Hosts → Remove item calls (Cancel-default confirm dialog, store removal,
-  // view destruction, menu rebuild, active-host fallback). User-cancel and an
-  // unknown id (the store's no-op convention) both resolve ok — cancel is a
-  // successful no-op, matching the reorder handler.
+  // servers:remove — the SPA dropdown's per-row Disconnect with the SHELL
+  // confirming: the semantics this channel SHIPPED with (v3.17.11), frozen —
+  // it routes into the confirmAndRemoveHost path the native Hosts → Remove
+  // item calls (Cancel-default native dialog, then the shared removal tail).
+  // A v3.17.11-era page invokes it with no dialog of its own, so the native
+  // dialog here is that page's ONLY confirmation. User-cancel and an unknown
+  // id both resolve ok — cancel is a successful no-op, matching reorder.
   ipcMain.handle("servers:remove", async (event, id: unknown): Promise<IpcResult> => {
     if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
     if (typeof id !== "string") return { ok: false, error: "Invalid request" };
     await confirmAndRemoveHost(id);
+    return { ok: true };
+  });
+
+  // servers:remove-confirmed — the ADDITIVE already-confirmed variant for
+  // newer SPAs that confirm with their own themed dialog before invoking
+  // (exactly one dialog per intent): no native dialog, straight into the
+  // shared removal tail. Changing servers:remove's meaning instead would
+  // strip a released page of its only confirmation — the two-sided skew
+  // contract is why this is a new channel, not new semantics.
+  ipcMain.handle("servers:remove-confirmed", (event, id: unknown): IpcResult => {
+    if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
+    if (typeof id !== "string") return { ok: false, error: "Invalid request" };
+    removeHostEverywhere(id);
     return { ok: true };
   });
 
@@ -1288,6 +1327,36 @@ function registerIpcHandlers(): void {
     if (!parsed) return { ok: false, error: "Invalid request" };
     setHostName(userDataDir(), parsed.id, parsed.name);
     rebuildMenu();
+    return { ok: true };
+  });
+
+  // servers:set-url — the SPA Edit Host dialog's URL field (additive channel,
+  // the rename template). The origin is normalized HERE (the store mutator
+  // takes it pre-validated); a change re-points the registration, drops the
+  // old-origin lastPath store-side, and destroys the host's view so the next
+  // visit loads the new origin — when that host is the one DISPLAYED, the
+  // window re-attaches immediately so it never sits on a destroyed view. The
+  // menu rebuild refreshes registered-origin-derived state everywhere.
+  ipcMain.handle("servers:set-url", (event, payload: unknown): IpcResult => {
+    if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
+    const parsed = parseSetUrlPayload(payload);
+    if (!parsed) return { ok: false, error: "Invalid request" };
+    const normalized = normalizeOrigin(parsed.url);
+    if (!normalized.ok) return normalized;
+    const before = loadHosts(userDataDir()).hosts.find((h) => h.id === parsed.id);
+    if (!before || before.url === normalized.origin) return { ok: true };
+    // SSH-tunnel hosts are url-managed by `rk remote connect` (their url IS
+    // the tunnel origin, and activation keeps healing it via `remote`):
+    // re-pointing one would leave a remote-carrying entry whose tunnel heals
+    // an origin the entry no longer registers.
+    if (before.remote !== undefined && before.remote !== "") {
+      return { ok: false, error: "This host's URL is managed by its SSH connection" };
+    }
+    const wasDisplayed = views.activeHostId === parsed.id;
+    setHostUrl(userDataDir(), parsed.id, normalized.origin);
+    destroyHostView(parsed.id);
+    rebuildMenu();
+    if (wasDisplayed && mainWindow) showActive(mainWindow);
     return { ok: true };
   });
 

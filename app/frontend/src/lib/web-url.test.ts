@@ -14,6 +14,7 @@ describe("classifyAddress (260819-v6y4 R3)", () => {
     expect(classifyAddress("/proxy/3000/board/runKit")).toBe("proxy");
     expect(classifyAddress("http://localhost:8080/docs")).toBe("proxy");
     expect(classifyAddress("http://127.0.0.1:5173")).toBe("proxy");
+    expect(classifyAddress("http://[::1]:5173/x")).toBe("proxy");
     expect(classifyAddress("https://shll.ai/rk/skill")).toBe("external");
     expect(classifyAddress("/board/runKit")).toBe("relative");
   });
@@ -35,6 +36,13 @@ describe("displayForm (260819-v6y4 R3)", () => {
       "tmux-version-floor.html",
     );
     expect(displayForm("/present/@320/dir/index.html?server=a")).toBe("index.html");
+  });
+
+  it("present: a page's own query params survive plumbing removal", () => {
+    expect(displayForm("/present/@320/report.html?server=runKit&v=1&tab=perf")).toBe(
+      "report.html?tab=perf",
+    );
+    expect(displayForm("/present/@320/doc.html?server=a&v=1#section")).toBe("doc.html#section");
   });
 
   it("proxy: localhost:{port}{path} — the /proxy/ plumbing never shows", () => {

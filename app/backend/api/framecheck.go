@@ -149,7 +149,8 @@ func requestOrigin(r *http.Request) string {
 // X-Frame-Options of ANY value blocks (DENY and SAMEORIGIN both block a
 // cross-origin viewer — the probe serves external absolute URLs only, so the
 // viewer is never same-origin with the target). A CSP frame-ancestors
-// directive blocks unless it lists `*` or the viewer's origin. Returns the
+// directive blocks unless it lists `*`, the viewer's origin, or a
+// scheme-source (`https:`/`http:`) matching the viewer's scheme. Returns the
 // human-readable reason (the directive echo the tile's error state shows)
 // and whether framing is blocked.
 func frameBlockReason(h http.Header, viewerOrigin string) (string, bool) {
@@ -164,7 +165,14 @@ func frameBlockReason(h http.Header, viewerOrigin string) (string, bool) {
 			}
 			allowed := false
 			for _, source := range fields[1:] {
-				if source == "*" || source == viewerOrigin {
+				if source == "*" || strings.EqualFold(source, viewerOrigin) {
+					allowed = true
+					break
+				}
+				// CSP scheme-source (`https:` / `http:`) allows any origin of
+				// that scheme — match it against the viewer origin's scheme.
+				if strings.HasSuffix(source, ":") && !strings.Contains(source, "/") &&
+					strings.HasPrefix(strings.ToLower(viewerOrigin), strings.ToLower(source)+"//") {
 					allowed = true
 					break
 				}

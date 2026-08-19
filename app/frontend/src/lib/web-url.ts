@@ -37,7 +37,7 @@ export const WEB_ADDRESS_FOCUS_EVENT = "web-address:focus";
 export const WEB_OPEN_EXTERNAL_EVENT = "web-open-external";
 
 /** Loopback hostnames whose absolute URLs classify as proxied ports. */
-const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
 
 /** Plumbing query params hidden from the present-kind display form — the
  *  `server` identity param and `rk present`'s `v` cache-buster. */
@@ -107,10 +107,16 @@ export function displayForm(url: string): string {
   try {
     const kind = classifyAddress(url);
     if (kind === "present") {
-      const path = url.split(/[?#]/, 1)[0];
-      const segments = path.split("/").filter(Boolean);
+      // Hide only the plumbing params (`server`, `v`) — a presented page's
+      // own query params stay visible after the basename.
+      const u = new URL(url, "http://x");
+      const segments = u.pathname.split("/").filter(Boolean);
       const base = segments.length > 0 ? segments[segments.length - 1] : "";
-      return base !== "" && base !== "present" ? base : url;
+      if (base === "" || base === "present") return url;
+      const params = new URLSearchParams(u.search);
+      for (const plumbing of PRESENT_PLUMBING_PARAMS) params.delete(plumbing);
+      const rest = params.toString();
+      return `${base}${rest !== "" ? `?${rest}` : ""}${u.hash}`;
     }
     if (kind === "proxy") {
       const abs = parseHttpUrl(url);

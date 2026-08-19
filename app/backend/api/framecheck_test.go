@@ -106,6 +106,8 @@ func TestFrameCheckCSPFrameAncestors(t *testing.T) {
 		{"self blocks", "frame-ancestors 'self'", false},
 		{"none blocks", "frame-ancestors 'none'", false},
 		{"foreign origin blocks", "frame-ancestors https://other.example", false},
+		{"matching scheme-source allows", "frame-ancestors http:", true},
+		{"mismatched scheme-source blocks", "frame-ancestors https:", false},
 		{"other directives ignored", "default-src 'self'; img-src *", true},
 	}
 	for _, tc := range cases {

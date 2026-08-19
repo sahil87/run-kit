@@ -2,14 +2,18 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"rk/internal/codeserver"
+	"rk/internal/tmux"
 )
 
 func TestDoctorCommandOutput(t *testing.T) {
@@ -525,6 +529,85 @@ func TestTmuxGuardShimCheckPathRegression(t *testing.T) {
 			t.Errorf("failure must carry a hint, got %+v", c)
 		}
 	})
+}
+
+// TestTmuxVersionCheckNoteShapes pins the three version-note shapes: the
+// plain version at/above the floor, the shared below-floor message (WARN —
+// the row stays OK, mirroring the code-server precedent), and no note for an
+// unknown version (never block on a parse).
+func TestTmuxVersionCheckNoteShapes(t *testing.T) {
+	stub := func(v tmux.Version, known bool) {
+		orig := tmuxVersionProbe
+		tmuxVersionProbe = func(context.Context) (tmux.Version, bool) { return v, known }
+		t.Cleanup(func() { tmuxVersionProbe = orig })
+	}
+
+	t.Run("at or above floor carries the plain version", func(t *testing.T) {
+		stub(tmux.Version{Major: 3, Minor: 6, Raw: "3.6a"}, true)
+		c := tmuxVersionCheck()
+		if !c.OK {
+			t.Errorf("at-floor row must stay OK, got %+v", c)
+		}
+		if c.Note != "3.6a" {
+			t.Errorf("note = %q, want the plain version %q", c.Note, "3.6a")
+		}
+	})
+
+	t.Run("exactly the floor is not below", func(t *testing.T) {
+		stub(tmux.Version{Major: 3, Minor: 4, Raw: "3.4"}, true)
+		c := tmuxVersionCheck()
+		if c.Note != "3.4" {
+			t.Errorf("note = %q, want %q (>= comparison is load-bearing)", c.Note, "3.4")
+		}
+	})
+
+	t.Run("below floor is OK with the upgrade message", func(t *testing.T) {
+		stub(tmux.Version{Major: 3, Minor: 2, Raw: "3.2a"}, true)
+		c := tmuxVersionCheck()
+		if !c.OK {
+			t.Errorf("below-floor row must stay OK (doctor is the detail view, not the gate), got %+v", c)
+		}
+		want := tmux.UpgradeHint(runtime.GOOS, exec.LookPath, "3.2a")
+		if c.Note != want {
+			t.Errorf("note = %q, want the shared upgrade message %q", c.Note, want)
+		}
+	})
+
+	t.Run("unknown carries no note", func(t *testing.T) {
+		stub(tmux.Version{}, false)
+		c := tmuxVersionCheck()
+		if !c.OK || c.Note != "" {
+			t.Errorf("unknown version must be OK with an empty note, got %+v", c)
+		}
+	})
+}
+
+// TestTmuxVersionCheckNoteSurvivesJSON proves the --json report carries the
+// version via the check's existing `note` field.
+func TestTmuxVersionCheckNoteSurvivesJSON(t *testing.T) {
+	orig := tmuxVersionProbe
+	tmuxVersionProbe = func(context.Context) (tmux.Version, bool) {
+		return tmux.Version{Major: 3, Minor: 6, Raw: "3.6a"}, true
+	}
+	t.Cleanup(func() { tmuxVersionProbe = orig })
+
+	data, err := json.Marshal(doctorReport{OK: true, Checks: []doctorCheck{tmuxVersionCheck()}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Checks []struct {
+			Name string `json:"name"`
+			OK   bool   `json:"ok"`
+			Note string `json:"note"`
+		} `json:"checks"`
+	}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if len(decoded.Checks) != 1 || decoded.Checks[0].Note != "3.6a" || !decoded.Checks[0].OK {
+		t.Errorf("--json check = %+v, want ok:true with note %q", decoded.Checks, "3.6a")
+	}
 }
 
 // TestDoctorFailRowWording pins should-fix #3: the shared human [FAIL] row

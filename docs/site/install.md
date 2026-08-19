@@ -27,6 +27,22 @@ The last step also needs [`wt`](https://github.com/sahil87/wt) and your agent CL
 
 `run-kit agent setup` installs agent-harness hooks into your user-global agent config (v1: Claude Code, `~/.claude/settings.json`) so windows running an agent report live **active/waiting/idle** state in the dashboard. It shows the settings diff and asks before writing; re-running is idempotent, and `run-kit agent setup --uninstall` removes exactly the run-kit-owned entries. Until it's run (and agent sessions are restarted so new sessions pick up the hooks), agent state shows `—`. See [Agent state in the README](https://github.com/sahil87/run-kit/blob/main/README.md#agent-state--run-kit-agent-setup) for how the hooks work.
 
+## tmux version (≥ 3.4)
+
+run-kit requires **tmux 3.4 or newer**. The version is checked at runtime against whatever `tmux` your `PATH` resolves: `run-kit daemon start` prints a one-line warning below the floor (and still starts), `run-kit doctor` reports the version on its tmux row, and `run-kit remote connect` refuses outright below 3.4 — its tunnel windows pass remote host input as tmux argv, which only ≥ 3.4 executes without going through a shell.
+
+The recommended upgrade path is Homebrew on **both** platforms:
+
+```bash
+brew upgrade tmux     # macOS
+brew install tmux     # Linux — your distro's tmux is too old on older LTS releases
+```
+
+Two caveats:
+
+- **PATH order matters.** On Linux, `brew shellenv` must put Homebrew's bin **before** `/usr/bin`, or the distro tmux keeps winning and the runtime check keeps warning — it probes the `tmux` your `PATH` actually resolves, which is exactly the binary run-kit uses.
+- **Upgrades are latent.** An upgraded binary takes effect only at the next `tmux kill-server` — the running tmux server keeps its old binary, and the upgrade itself never kills your sessions.
+
 ## Upgrade
 
 ```bash

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -22,6 +23,11 @@ import (
 // `doctor` as a --json carrier; the structured result goes to stdout (data)
 // while the human diagnostic remains on stderr.
 var doctorJSON bool
+
+// tmuxVersionProbe is the seam for the PATH tmux version probe, shared by the
+// doctor tmux row and the serve-startup warning — tests substitute it to
+// drive the below-floor / unknown branches without a real tmux.
+var tmuxVersionProbe = tmux.CurrentVersion
 
 // doctorCheck is one dependency check in the --json report. `ok` is the pass
 // flag; `hint` carries the remediation string on failure (empty when ok);
@@ -56,7 +62,7 @@ func runDoctorChecks() doctorReport {
 		report.Checks = append(report.Checks, doctorCheck{Name: "tmux", OK: false, Hint: tmux.InstallHint(runtime.GOOS, exec.LookPath)})
 		report.OK = false
 	} else {
-		report.Checks = append(report.Checks, doctorCheck{Name: "tmux", OK: true})
+		report.Checks = append(report.Checks, tmuxVersionCheck())
 	}
 
 	if home, err := os.UserHomeDir(); err == nil {
@@ -76,6 +82,27 @@ func runDoctorChecks() doctorReport {
 	report.Checks = append(report.Checks, codeServerCheck(home, exec.LookPath, dialTCP))
 
 	return report
+}
+
+// tmuxVersionCheck is the passing tmux row, enriched with the probed version:
+// the plain version at/above the floor, the shared below-floor message below
+// it (WARN-shaped — the row stays OK, mirroring the code-server precedent;
+// doctor is the detail view, not the enforcement point), and no note for an
+// unknown version (never block on a parse). --json carries the note verbatim.
+func tmuxVersionCheck() doctorCheck {
+	check := doctorCheck{Name: "tmux", OK: true}
+	ctx, cancel := context.WithTimeout(context.Background(), tmux.TmuxTimeout)
+	defer cancel()
+	v, ok := tmuxVersionProbe(ctx)
+	if !ok {
+		return check
+	}
+	if v.BelowFloor() {
+		check.Note = tmux.UpgradeHint(runtime.GOOS, exec.LookPath, v.Raw)
+	} else {
+		check.Note = v.Raw
+	}
+	return check
 }
 
 // dialTCP is the production reachability probe for the code-server doctor row:

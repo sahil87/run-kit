@@ -3,8 +3,21 @@ package remote
 import (
 	"context"
 	"fmt"
+	"os/exec"
+	"runtime"
 	"strconv"
+	"time"
+
+	"rk/internal/tmux"
 )
+
+// tmuxVersionProbeTimeout bounds the local `tmux -V` probe at Connect entry.
+const tmuxVersionProbeTimeout = 5 * time.Second
+
+// tmuxVersionFn probes the LOCAL tmux version for the Connect floor gate —
+// the local tmux is what executes the tunnel argv, so it is the
+// security-relevant one. Package-level seam (the tmuxRunFn/dialFn idiom).
+var tmuxVersionFn = tmux.CurrentVersion
 
 // Progress receives human-readable progress lines during Connect — the CLI
 // wires it to the chatter channel (stderr; --quiet drops it), the desktop
@@ -36,6 +49,19 @@ type ConnectResult struct {
 func Connect(ctx context.Context, storePath, nameOrTarget, localVersion string, progress Progress) (ConnectResult, error) {
 	if progress == nil {
 		progress = func(string, ...any) {}
+	}
+
+	// Local tmux floor gate, at entry before any ssh: the tunnel window's
+	// ssh argv relies on tmux ≥ 3.4 exec'ing a multi-argument shell-command
+	// WITHOUT a shell — below the floor tmux shell-joins it, and the remote
+	// target would be string-interpolated through a shell (Constitution §I).
+	// This is the one hard gate; unknown versions pass through (never block
+	// on a parse).
+	vctx, vcancel := context.WithTimeout(ctx, tmuxVersionProbeTimeout)
+	v, vok := tmuxVersionFn(vctx)
+	vcancel()
+	if vok && v.BelowFloor() {
+		return ConnectResult{}, fmt.Errorf("remote tunnels: %s", tmux.UpgradeHint(runtime.GOOS, exec.LookPath, v.Raw))
 	}
 
 	f, err := Load(storePath)

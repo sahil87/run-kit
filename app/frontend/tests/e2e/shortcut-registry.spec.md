@@ -225,8 +225,11 @@ claimed set.
 2. Press Meta+/ → the dialog opens on the Shortcuts tab.
 3. Assert the "Keyboard map modifier" picker group is visible and its ⌘
    option is unselected (`aria-pressed="false"` — ⇧⌘ is the default layer).
-4. Click the ⌘ option → it selects (`aria-pressed="true"`) and the ⌘ layer's
-   mac-browser claimed set renders (the "address bar" ⌘L cell).
+4. Click the ⌘ option → it selects (`aria-pressed="true"`) and the ⌘ layer
+   renders: the ⌘L cell shows the `web-address` binding's "address" keycap
+   (the shifted layer's KeyL reads "next win", so this proves the layer
+   swap), and no "address bar" cell exists — the old mac-browser ⌘L claim
+   is removed (260819-v6y4).
 5. Press Meta+/ again → the dialog closes.
 
 ### `⌘N and ⇧⌘N stay inert in a mac browser host (create-session palette-only)`

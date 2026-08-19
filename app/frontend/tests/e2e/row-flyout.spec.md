@@ -78,7 +78,7 @@ width at ≈16px).
 
 ### `hovering a row opens the register card at the sidebar's right edge`
 
-**What it proves:** whole-row hover (350ms delay) opens the flyout card
+**What it proves:** whole-row hover (500ms delay) opens the flyout card
 anchored at the sidebar's right edge and vertically aligned to the hovered row.
 Its first element is the **identity title bar** (`Window @1 · pane %425 · 2
 panes` — the tmux window id, the active pane's id, and the pane count, in the
@@ -248,7 +248,7 @@ coarse too.
 7. Escape-dismiss, then tap the dot zone (secondary target): the card reopens
    and the URL stays on the server route.
 8. Escape-dismiss again, tap `@2`'s row body: assert the URL left the bare
-   server route (tap = select) and, after waiting past the 350ms open delay,
+   server route (tap = select) and, after waiting past the 500ms open delay,
    no card appeared.
 
 ### `card kill row opens the existing kill confirmation dialog (no force-kill on touch)` *(coarse describe)*

@@ -65,10 +65,11 @@ import type { WindowInfo } from "@/types";
  * value belongs in the PANE panel, which is a single instance.
  */
 
-/** Hover open delay outside a warm window (mirrors Tip's 300ms, tuned +50ms —
- *  the card is heavier than a tier-1 tip, so it should not flash on drive-by
- *  pointer sweeps). */
-export const FLYOUT_OPEN_DELAY_MS = 350;
+/** Hover open delay outside a warm window (Tip is 300ms; the card is heavier
+ *  than a tier-1 tip and interactive, so the first open is deliberate — it
+ *  should not flash on drive-by pointer sweeps. Warm retargets stay instant,
+ *  so only the first hover pays this). */
+export const FLYOUT_OPEN_DELAY_MS = 500;
 
 /** Width of the coarse-pointer status rail (rendered by every rail-bearing
  *  row tier — window-row.tsx, session-row.tsx, index.tsx ServerGroup). The
@@ -809,7 +810,7 @@ export function useRowFlyout({ suppressed = false, coarseOnly = false, content }
       activeFlyout = self;
     } else if (activeFlyout === self) {
       // Stamp the warm window only when THIS flyout was actually open — a
-      // no-op close (e.g. a drag-start before the 350ms delay elapsed, or a
+      // no-op close (e.g. a drag-start before the open delay elapsed, or a
       // close racing another row's open) must not falsely arm the 500ms
       // instant-retarget window.
       activeFlyout = null;

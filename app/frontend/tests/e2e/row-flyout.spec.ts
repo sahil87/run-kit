@@ -8,7 +8,7 @@ import { mockStateSocket } from "./_state-socket-mock";
 // retired status-dot-tip.spec.ts this file replaces. See row-flyout.spec.md
 // for intent + steps.
 //
-// The flyout opens on WHOLE-ROW hover (350ms delay, warm-window retarget),
+// The flyout opens on WHOLE-ROW hover (500ms delay, warm-window retarget),
 // keyboard row focus, and coarse-pointer rail/dot-tap; placement is
 // pointer-conditional — "right" (the sidebar's right edge) on fine pointers,
 // "bottom-start" below the row on coarse, with the card width capped short of
@@ -483,7 +483,7 @@ test.describe("Row flyout card (coarse pointer)", () => {
     // server route onto a window route…
     await expect(page).not.toHaveURL(new RegExp(`/${SERVER}/?$`));
     // …and no flyout card appeared from the touch interaction.
-    await page.waitForTimeout(600); // past the 350ms open delay
+    await page.waitForTimeout(800); // past the 500ms open delay
     await expect(card(page)).toHaveCount(0);
   });
 

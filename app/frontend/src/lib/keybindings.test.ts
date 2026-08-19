@@ -514,12 +514,16 @@ describe("claimedKeys", () => {
     }
   });
 
-  it("mac browser claims ⌘ N/T/W/L + tab digits as browser-owned, Q/H/M as system", () => {
+  it("mac browser claims ⌘ N/T/W + tab digits as browser-owned, Q/H/M as system", () => {
     const macBrowserCmd = claimedKeys("mac", false).filter((c) => c.tier === "cmd");
     const browserOwned = macBrowserCmd.filter((c) => c.owner === "browser").map((c) => c.code);
     expect(browserOwned).toEqual(
-      expect.arrayContaining(["KeyN", "KeyT", "KeyW", "KeyL", "Digit1", "Digit9"]),
+      expect.arrayContaining(["KeyN", "KeyT", "KeyW", "Digit1", "Digit9"]),
     );
+    // ⌘L is NOT claimed (260819-v6y4): page-interceptable (the ⌘D/⌘J class),
+    // and web-address's webOnly gate preserves the browser address bar
+    // everywhere except web-tile focus.
+    expect(browserOwned).not.toContain("KeyL");
     const systemOwned = macBrowserCmd.filter((c) => c.owner === "system").map((c) => c.code).sort();
     expect(systemOwned).toEqual(["KeyH", "KeyM", "KeyQ"]);
     // ⌘[/⌘]/⌘/ stay free — that is the whole demotion premise.
@@ -1124,7 +1128,9 @@ describe("per-platform default tiers — 260730-n789", () => {
   });
 
   it("mac-browser ⌘ browser claims disable overrides tier-aware; the mac shell frees them", () => {
-    const overrides = { "window-next": { code: "KeyL", tier: "cmd" as const } };
+    // KeyN stands in as the browser-claimed cmd-tier key (KeyL was unclaimed
+    // in 260819-v6y4 — ⌘L is page-interceptable, bound by web-address).
+    const overrides = { "window-next": { code: "KeyN", tier: "cmd" as const } };
     expect(byId(resolveBindings(DEFAULT_BINDINGS, overrides, BROWSER_MAC), "window-next")).toMatchObject({
       enabled: false,
       disabledReason: "reserved",
@@ -1503,6 +1509,15 @@ describe("hasReclaimableMatch — the lens-iframe reclaim carve-out (260812-wfic
     expect(hasReclaimableMatch(chord({ code: "KeyF", ctrlKey: true }), other, "code")).toBe(false);
   });
 
+  it("web-address (⌘L) reclaims ONLY inside a web iframe (260819-v6y4 R12) — in-frame ⌘L coverage rides the kind-aware predicate", () => {
+    const mac = resolved(BROWSER_MAC);
+    expect(hasReclaimableMatch(chord({ code: "KeyL", metaKey: true }), mac, "web")).toBe(true);
+    expect(hasReclaimableMatch(chord({ code: "KeyL", metaKey: true }), mac, "code")).toBe(false);
+    const other = resolved(SHELL_OTHER);
+    expect(hasReclaimableMatch(chord({ code: "KeyL", ctrlKey: true }), other, "web")).toBe(true);
+    expect(hasReclaimableMatch(chord({ code: "KeyL", ctrlKey: true }), other, "code")).toBe(false);
+  });
+
   it("the code toggle and focus hop reclaim from inside the code iframe (toggle symmetry / ⌃` preemption)", () => {
     // ⌘J (code-toggle's mac default) and ⌃` (focus-hop's ctrl tier) match
     // non-gated bindings, so a keydown inside the code-server iframe
@@ -1544,9 +1559,9 @@ describe("hasReclaimableMatch — the lens-iframe reclaim carve-out (260812-wfic
 });
 
 describe("webOnly — the web-find data flag (260819-ie2i)", () => {
-  it("exactly web-find carries the flag in the shipped defaults", () => {
+  it("exactly web-find and web-address carry the flag in the shipped defaults", () => {
     const flagged = DEFAULT_BINDINGS.filter((b) => b.webOnly).map((b) => b.actionId);
-    expect(flagged).toEqual(["web-find"]);
+    expect(flagged).toEqual(["web-find", "web-address"]);
   });
 
   it("web-find ships as ⌘F on mac and Ctrl+F on Win/Linux (cmd tier, no mac refinement)", () => {
@@ -1556,6 +1571,20 @@ describe("webOnly — the web-find data flag (260819-ie2i)", () => {
     expect(byId(resolved(BROWSER_OTHER), "web-find")).toMatchObject({ code: "KeyF", tier: "cmd", enabled: true });
     expect(formatCombo(byId(resolved(SHELL_MAC), "web-find"), "mac")).toBe("⌘F");
     expect(formatCombo(byId(resolved(SHELL_OTHER), "web-find"), "other")).toBe("Ctrl+F");
+  });
+
+  it("web-address ships as ⌘L/Ctrl+L (cmd tier, webOnly, ignoreInputs) — enabled in a mac BROWSER since the KeyL claim is removed (260819-v6y4 R12)", () => {
+    for (const host of ALL_HOSTS) {
+      expect(byId(resolved(host), "web-address")).toMatchObject({
+        code: "KeyL",
+        tier: "cmd",
+        enabled: true,
+        ignoreInputs: true,
+        webOnly: true,
+      });
+    }
+    expect(formatCombo(byId(resolved(SHELL_MAC), "web-address"), "mac")).toBe("⌘L");
+    expect(formatCombo(byId(resolved(SHELL_OTHER), "web-address"), "other")).toBe("Ctrl+L");
   });
 
   it("survives resolution onto the effective map in every host", () => {

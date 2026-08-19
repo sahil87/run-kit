@@ -373,6 +373,36 @@ export async function updateWindowUrl(
   return setWindowOptions(server, windowId, { "@rk_url": url });
 }
 
+/** The GET /api/frame-check response — the backend probe's derived verdict
+ *  on whether an absolute external URL can be framed (260819-v6y4 R2). */
+export interface FrameCheckResult {
+  reachable: boolean;
+  embeddable: boolean;
+  status: number;
+  reason: string;
+}
+
+/**
+ * Probe an absolute external URL for frame-refusal headers. Host-global read
+ * — no `server` param (the probe targets external hosts, never a tmux
+ * server). Fail-silent: a network error resolves to the unreachable shape so
+ * the tile renders its connection-error state instead of throwing.
+ */
+export async function checkFrame(url: string): Promise<FrameCheckResult> {
+  try {
+    const res = await deduplicatedFetch(`/api/frame-check?url=${encodeURIComponent(url)}`);
+    if (!res.ok) throw new Error(`frame-check failed: ${res.status}`);
+    return res.json();
+  } catch (e) {
+    return {
+      reachable: false,
+      embeddable: false,
+      status: 0,
+      reason: e instanceof Error ? e.message : "frame-check request failed",
+    };
+  }
+}
+
 export async function selectWindow(
   server: string,
   windowId: string,

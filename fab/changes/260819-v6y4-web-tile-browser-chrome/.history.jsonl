@@ -2,3 +2,13 @@
 {"args":"Web tile browser chrome + polish + hardening: open-in-browser escape hatch, frame-refusal probe + error state, same-origin back/forward + real reload + current-path display, URL bar hardening (scheme allowlist, normalization) and visual polish (clean URL display, page title + kind badge, load progress, Cmd+L focus)","cmd":"fab-new","event":"command","ts":"2026-08-19T15:36:08Z"}
 {"delta":"+4.2","event":"confidence","score":4.2,"trigger":"calc-score","ts":"2026-08-19T15:38:03Z"}
 {"delta":"+0.0","event":"confidence","score":4.2,"trigger":"calc-score","ts":"2026-08-19T15:53:17Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-08-19T17:32:46Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-19T17:34:34Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-19T17:43:10Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-19T22:33:31Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-19T22:33:52Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-19T22:43:52Z"}
+{"event":"review","result":"passed","ts":"2026-08-19T22:43:52Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-19T22:57:17Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-08-19T22:59:49Z"}
+{"event":"review","result":"passed","ts":"2026-08-19T23:29:51Z"}

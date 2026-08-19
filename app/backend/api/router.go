@@ -726,6 +726,10 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/push/subscribe", s.handlePushSubscribe)
 	r.Post("/api/notify", s.handleNotify)
 
+	// Frame-refusal probe — read-only header fetch for the web tile's
+	// embedding check (absolute external URLs only). See api/framecheck.go.
+	r.Get("/api/frame-check", s.handleFrameCheck)
+
 	// Reverse proxy for iframe windows
 	r.HandleFunc("/proxy/{port}/*", s.handleProxy)
 	r.HandleFunc("/proxy/{port}", s.handleProxy)

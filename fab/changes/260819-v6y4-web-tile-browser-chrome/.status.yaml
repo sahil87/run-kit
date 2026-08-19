@@ -5,17 +5,17 @@ created_by: sahil-noon
 change_type: fix
 issues: []
 progress:
-    intake: ready
-    apply: pending
-    review: pending
-    hydrate: pending
-    ship: pending
-    review-pr: pending
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
 plan:
-    generated: false
-    task_count: 0
-    acceptance_count: 0
-    acceptance_completed: 0
+    generated: true
+    task_count: 15
+    acceptance_count: 28
+    acceptance_completed: 28
 confidence:
     certain: 5
     confident: 7
@@ -29,7 +29,28 @@ confidence:
         competence: 81.3
         disambiguation: 75.8
 stage_metrics:
-    intake: {started_at: "2026-08-19T15:36:08Z", driver: fab-new, iterations: 1}
-prs: []
+    intake: {started_at: "2026-08-19T15:36:08Z", driver: fab-new, iterations: 1, completed_at: "2026-08-19T17:43:10Z"}
+    apply: {started_at: "2026-08-19T17:43:10Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-19T22:33:52Z"}
+    review: {started_at: "2026-08-19T22:33:52Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-19T22:43:52Z"}
+    hydrate: {started_at: "2026-08-19T22:43:52Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-19T22:57:17Z"}
+    ship: {started_at: "2026-08-19T22:57:17Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-19T22:59:49Z"}
+    review-pr: {started_at: "2026-08-19T22:59:49Z", driver: git-pr, iterations: 1, completed_at: "2026-08-19T23:29:51Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/669
+true_impact:
+    added: 2444
+    deleted: 155
+    net: 2289
+    excluding:
+        added: 2079
+        deleted: 119
+        net: 1960
+    tests:
+        added: 679
+        deleted: 5
+        net: 674
+    computed_at: "2026-08-19T22:59:49Z"
+    computed_at_stage: ship
+summary: 'Web tile browser chrome + hardening: lib/web-url.ts display/edit address bar with normalization, same-origin back/forward + real reload, in-tile error states (frame-refusal via new GET /api/frame-check probe, unreachable, dead-port), load progress line, header kind badge + page title, ⌘L web-address binding + Web palette actions, backend @rk_url scheme allowlist; >_ switch-to-terminal button removed'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-19T15:53:17Z
+last_updated: 2026-08-19T23:29:51Z

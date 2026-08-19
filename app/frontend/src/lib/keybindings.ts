@@ -253,6 +253,14 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // `ignoreInputs`: a chrome-level opener, it fires from the URL bar and the
   // find input itself (the ⌘K/settings-open class).
   { actionId: "web-find", code: "KeyF", tier: "cmd", scope: "terminal", kind: "builtin", label: "Find in page", description: "search the web tile's page", mapLabel: "find", ignoreInputs: true, webOnly: true },
+  // ⌘L/Ctrl+L focus the web tile's address bar (260819-v6y4 R12) — the
+  // browser's own address-bar chord, reclaimed only while the web tile owns
+  // focus (the webOnly gate: handler absent elsewhere, so the chord falls
+  // through to the browser's address bar on mac — ⌘L is page-interceptable,
+  // the ⌘D/⌘J class, so the mac-browser claimed-keys row was REMOVED — and to
+  // readline's clear-screen under Win/Linux terminal focus). `ignoreInputs`:
+  // a chrome-level opener, it fires from inside the address input itself.
+  { actionId: "web-address", code: "KeyL", tier: "cmd", scope: "terminal", kind: "builtin", label: "Focus address bar", description: "focus the web tile's address bar", mapLabel: "address", ignoreInputs: true, webOnly: true },
   { actionId: "board-cycle-next", code: "BracketRight", tier: "cmd", scope: "board", kind: "builtin", label: "Cycle pane focus →" },
   { actionId: "board-cycle-prev", code: "BracketLeft", tier: "cmd", scope: "board", kind: "builtin", label: "Cycle pane focus ←" },
 ];
@@ -320,14 +328,17 @@ const MAC_SHELL_CMD_CLAIMS: ClaimedKey[] = [
   { code: "Minus", tier: "cmd", label: "zoom", owner: "shell", platform: "mac" },
 ];
 
-/** Mac BROWSER ⌘-tier reserved keys: browser-owned N/T/W/L + tab digits are
+/** Mac BROWSER ⌘-tier reserved keys: browser-owned N/T/W + tab digits are
  *  uninterceptable (they disable resolution, like the shifted browser set);
- *  Q/H/M are OS-level (display-only, owner `system`). */
+ *  Q/H/M are OS-level (display-only, owner `system`). ⌘L is deliberately NOT
+ *  claimed (260819-v6y4): it is page-interceptable (the ⌘D/⌘J class —
+ *  vscode.dev intercepts it), and the `web-address` binding's webOnly gate
+ *  preserves the browser's own address-bar behavior everywhere except
+ *  web-tile focus, which is exactly what the retired claim protected. */
 const MAC_BROWSER_CMD_CLAIMS: ClaimedKey[] = [
   { code: "KeyN", tier: "cmd", label: "new window", owner: "browser", platform: "mac" },
   { code: "KeyT", tier: "cmd", label: "new tab", owner: "browser", platform: "mac" },
   { code: "KeyW", tier: "cmd", label: "close tab", owner: "browser", platform: "mac" },
-  { code: "KeyL", tier: "cmd", label: "address bar", owner: "browser", platform: "mac" },
   // ⌘, is the browser's own Preferences accelerator on macOS (the reason
   // `settings-open`'s browser default stays shifted, 260801-mqim) — claimed so
   // an override onto it resolves reserved instead of advertising a dead chord.

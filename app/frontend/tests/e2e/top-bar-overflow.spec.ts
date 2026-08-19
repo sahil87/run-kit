@@ -2,6 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { execSync } from "node:child_process";
 import { resolveWindow as resolveWindowRaw, gotoWindow as gotoWindowRaw } from "./_ready";
 import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
+import { stubProxyPorts } from "./_web-tile";
 
 // Regression proof for the top-bar overflow chevron menu (260715-h1ck) AND for
 // the review M1 fix (the measured right cell must FILL its `1fr` grid track, not
@@ -127,6 +128,13 @@ async function settledTierCounts(page: Page, desktop = true): Promise<[number, n
   }
   return prev;
 }
+
+// The dead-port error state (260819-v6y4 R8) hides the iframe when nothing
+// listens on 8080 — these tests assert tile chrome, never frame content, so
+// the proxy path is route-stubbed live (see _web-tile.ts).
+test.beforeEach(async ({ page }) => {
+  await stubProxyPorts(page, 8080);
+});
 
 test.beforeAll(() => {
   createSession(TEST_SESSION);

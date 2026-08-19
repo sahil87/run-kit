@@ -39,6 +39,7 @@ import {
 } from "@/lib/present-auto-expand";
 import { matchesCombo, hasReclaimableMatch, shouldSuppressChord, withShortcutHints, formatCombo } from "@/lib/keybindings";
 import { WEB_FIND_OPEN_EVENT } from "@/lib/find-in-page";
+import { WEB_ADDRESS_FOCUS_EVENT, WEB_OPEN_EXTERNAL_EVENT } from "@/lib/web-url";
 import { isMacroActionId, type MacroAction } from "@/lib/macros";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { useKeybindingDispatch } from "@/hooks/use-keybinding-dispatch";
@@ -2895,6 +2896,20 @@ function AppShell() {
               label: "Web: Find in page",
               onSelect: () => document.dispatchEvent(new CustomEvent(WEB_FIND_OPEN_EVENT)),
             },
+            // `Web: Focus address bar` + `Web: Open in browser` (260819-v6y4
+            // R9/R12) — same gating and one-CustomEvent seam shape as
+            // web-find; the mounted web tile is each event's single receiver
+            // (the tile owns the tracked frame location the ↗ action opens).
+            {
+              id: "web-address",
+              label: "Web: Focus address bar",
+              onSelect: () => document.dispatchEvent(new CustomEvent(WEB_ADDRESS_FOCUS_EVENT)),
+            },
+            {
+              id: "web-open-external",
+              label: "Web: Open in browser",
+              onSelect: () => document.dispatchEvent(new CustomEvent(WEB_OPEN_EXTERNAL_EVENT)),
+            },
           ]
         : []),
     ],
@@ -3421,6 +3436,13 @@ function AppShell() {
       // web tile owns focus AND the layout has an open web tile (the palette
       // gating), so the chord is inert everywhere else.
       "web-find": webGated("web-find"),
+      // ⌘L/Ctrl+L focus the web tile's address bar (260819-v6y4 R12) — the
+      // `Web: Focus address bar` palette body through the webOnly gate: the
+      // chord falls through untouched everywhere else (the browser's own
+      // address bar on mac, readline clear-screen under Win/Linux terminal
+      // focus). The mac-browser cmd-tier KeyL claim is REMOVED — ⌘L is
+      // page-interceptable (the ⌘D/⌘J class).
+      "web-address": webGated("web-address"),
       // ⌘J/⇧Ctrl+J code toggle — the code surface's dedicated tile chord (VS
       // Code's ⌘J panel analog), toggling the tile via addSurface/
       // closeSurface (through `togglePanel`). Its gating (desktop window
@@ -3888,13 +3910,10 @@ function AppShell() {
               // navigation is the ONLY writer of the latch.
               onCodeFolderNavigated={latchCodeFolder}
               shouldReclaimChord={reclaimChordForKind}
-              // The web tile's `>_` affordance keeps the legacy "switch to
-              // terminal" behavior: collapse to `single:tty`.
               // Tile verbs act on the RENDERED layout (260815-wkcw) — a
               // mutation during an active auto-open persists from what the
               // viewer sees, and closing the transient web tile records the
               // dismissal latch through `applyLayout`.
-              onSwitchToTty={() => applyLayout({ shape: "single", order: ["tty"] })}
               onPromote={(surface) => applyLayout(promote(renderLayout, surface))}
               onSwap={(surface) => applyLayout(swapWithNext(renderLayout, surface))}
               onClose={(surface) => {

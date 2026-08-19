@@ -376,11 +376,14 @@ test.describe("macOS per-platform defaults (spoofed platform)", () => {
     await expect(picker).toBeVisible();
     const cmdOption = picker.getByRole("button", { name: "⌘", exact: true });
     await expect(cmdOption).toHaveAttribute("aria-pressed", "false");
-    // Selecting ⌘ renders the ⌘ layer — the mac-browser claimed set appears
-    // (⌘L is the browser's address bar).
+    // Selecting ⌘ renders the ⌘ layer — KeyL shows the web-address binding's
+    // "address" keycap (⌘L, 260819-v6y4; on the shifted layer the same key
+    // reads "next win", so this cell proves the layer swap). The old
+    // mac-browser "address bar" claim on ⌘L is removed.
     await cmdOption.click();
     await expect(cmdOption).toHaveAttribute("aria-pressed", "true");
-    await expect(panel.locator('[title="address bar"]')).toBeVisible();
+    await expect(panel.locator('[title="address"]')).toBeVisible();
+    await expect(panel.locator('[title="address bar"]')).toHaveCount(0);
     await page.keyboard.press("Meta+Slash");
     await expect(dialog).toHaveCount(0);
   });

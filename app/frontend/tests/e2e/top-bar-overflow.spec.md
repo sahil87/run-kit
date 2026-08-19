@@ -39,6 +39,8 @@ the rail: the chevron is the SOLE element of the trailing exempt block.
 
 ## Shared setup
 
+- **`beforeEach`**: `stubProxyPorts(page, …)` (`_web-tile.ts`) route-stubs `/proxy/8080/**` with a static 200 page — the dead-port error state (260819-v6y4 R8) hides the iframe when nothing listens on the stamped `http://localhost:8080/` URL, and these tests assert tile chrome, never frame content.
+
 - Real isolated tmux server (`rk-test-e2e`, port 3020 via `just test-e2e`). A
   dedicated session with an extra named window (`overflow-win-<ts>`) so the
   terminal route renders the right cluster (the surface-toggle group + the

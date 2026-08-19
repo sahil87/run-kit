@@ -158,7 +158,7 @@ describe("HostPanel instance accent (1etw)", () => {
       accent: accentValue({ color: "4", stripeHex: "#3355aa", washHex: "#111318" }),
     });
     fireEvent.click(screen.getByLabelText("Set instance color"));
-    expect(screen.getByText("Clear")).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Clear color" })).toBeInTheDocument();
   });
 
   it("a swatch pick writes through setColor and keeps the popover open (live toggling)", async () => {
@@ -177,9 +177,9 @@ describe("HostPanel instance accent (1etw)", () => {
     expect(setColor).toHaveBeenCalledWith("1");
     // Selection does NOT dismiss (the picker's dismissal contract) — the ✕
     // cell is the explicit close.
-    expect(screen.getByText("Clear")).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Clear color" })).toBeInTheDocument();
     fireEvent.click(screen.getByLabelText("Close picker"));
-    expect(screen.queryByText("Clear")).not.toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Clear color" })).not.toBeInTheDocument();
   });
 
   it("Clear sends null (restores the hash default)", async () => {
@@ -190,7 +190,7 @@ describe("HostPanel instance accent (1etw)", () => {
       accent: accentValue({ color: "4", isExplicit: true, stripeHex: "#3355aa", setColor }),
     });
     fireEvent.click(screen.getByLabelText("Set instance color"));
-    fireEvent.click(screen.getByText("Clear"));
+    fireEvent.click(screen.getByRole("option", { name: "Clear color" }));
     expect(setColor).toHaveBeenCalledWith(null);
   });
 

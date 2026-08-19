@@ -1063,36 +1063,63 @@ describe("WindowRow", () => {
       expect(screen.queryByRole("listbox", { name: "Label picker" })).toBeNull();
     });
 
-    it("a dashed-marker row gets the data-rain overlay (clipped inner element, NOT the root) + marker color var; the stripe stays static", () => {
-      const win = makeWindow({ windowId: "@0", index: 0, color: "green", marker: "dashed" });
-      const { container } = renderAxis(win);
-      const row = container.querySelector('[data-window-id="@0"]') as HTMLElement;
-      // Same overlay discipline as scanlines/hazard: the clip lives on a
-      // dedicated inner overlay, never the root (must-fix 4).
-      expect(row.className).not.toContain("rk-dash-rain");
-      const overlay = row.querySelector(".rk-dash-rain") as HTMLElement;
-      expect(overlay).toBeTruthy();
-      expect(overlay.className).toContain("overflow-hidden");
-      expect(overlay.className).toContain("pointer-events-none");
-      // The marker color rides on the ROOT (the overlay pseudo inherits it).
-      expect(row.style.getPropertyValue("--rk-marker-color")).not.toBe("");
-      // The gutter stripe itself is STATIC — the rain is a row treatment, the
-      // stripe never animates.
-      const zone = container.querySelector('[aria-label="Set window label"]')!;
-      expect(zone.querySelector(".rk-dash-rain")).toBeNull();
-    });
-
-    it("the rain is ALWAYS-ON — present on selected dashed rows too (not selection-gated)", () => {
-      const win = makeWindow({ windowId: "@0", index: 0, color: "green", marker: "dashed" });
-      const { container } = renderAxis(win, { isSelected: true });
-      expect(container.querySelector(".rk-dash-rain")).toBeTruthy();
-    });
-
-    it("non-dashed markers carry no data-rain overlay even when selected (the rain is dashed-only)", () => {
-      for (const marker of ["dotted", "solid", "double", "thick"]) {
+    it("markers carry NO row motion — dashed/double rows mount no rain/scanline overlay (the motion split moved both to the flair axis)", () => {
+      for (const marker of ["dashed", "double", "thick", "solid", "dotted"]) {
         const win = makeWindow({ windowId: "@0", index: 0, color: "green", marker });
         const { container, unmount } = renderAxis(win, { isSelected: true });
         expect(container.querySelector(".rk-dash-rain")).toBeNull();
+        expect(container.querySelector("[class*='rk-scanlines']")).toBeNull();
+        // No marker texture var leaks onto the root for non-hatch markers.
+        const row = container.querySelector('[data-window-id="@0"]') as HTMLElement;
+        expect(row.style.getPropertyValue("--rk-marker-color")).toBe("");
+        unmount();
+      }
+    });
+
+    it("the rain is a FLAIR now: a dashed row with flair rain mounts the tinted rk-flair-rain overlay", () => {
+      const win = makeWindow({ windowId: "@0", index: 0, color: "green", marker: "dashed", flair: "rain" });
+      const { container } = renderAxis(win);
+      const overlay = container.querySelector(".rk-flair-rain") as HTMLElement;
+      expect(overlay).toBeTruthy();
+      expect(overlay.className).toContain("overflow-hidden");
+      expect(overlay.className).toContain("pointer-events-none");
+      // The tinted flair reads the row's guarded family color.
+      expect(overlay.style.getPropertyValue("--rk-flair-color")).not.toBe("");
+    });
+
+    it("a hatch-marker row gets the static hazard-wedge overlay (clipped inner element, NOT the root) + marker color var", () => {
+      const win = makeWindow({ windowId: "@0", index: 0, color: "green", marker: "hatch" });
+      const { container } = renderAxis(win);
+      const row = container.querySelector('[data-window-id="@0"]') as HTMLElement;
+      // The clip lives on a dedicated inner element so the root stays free to
+      // overflow for the `top-full` popovers — the root carries NEITHER the
+      // hazard class NOR overflow-hidden.
+      expect(row.className).not.toContain("rk-hazard");
+      expect(row.className).not.toContain("overflow-hidden");
+      const overlay = row.querySelector(".rk-hazard") as HTMLElement;
+      expect(overlay).toBeTruthy();
+      expect(overlay.className).toContain("overflow-hidden");
+      expect(overlay.className).toContain("pointer-events-none");
+      // The marker color rides on the ROOT (the overlay's ::before inherits it).
+      expect(row.style.getPropertyValue("--rk-marker-color")).not.toBe("");
+    });
+
+    it("the hazard wedge is STATIC in every state — no animation class even when selected", () => {
+      const win = makeWindow({ windowId: "@0", index: 0, color: "green", marker: "hatch" });
+      const { container } = renderAxis(win, { isSelected: true });
+      const overlay = container.querySelector(".rk-hazard") as HTMLElement;
+      expect(overlay).toBeTruthy();
+      // No animated twin exists for hatch (explicit design decision) — a
+      // selected hatch row renders exactly the same static overlay.
+      expect(overlay.className).not.toContain("crawl");
+    });
+
+    it("non-hatch rows render no hazard overlay (thick went quiet, double released its scanlines)", () => {
+      for (const marker of ["thick", "double", "dashed", "solid"]) {
+        const win = makeWindow({ windowId: "@0", index: 0, marker });
+        const { container, unmount } = renderAxis(win);
+        const row = container.querySelector('[data-window-id="@0"]') as HTMLElement;
+        expect(row.querySelector(".rk-hazard")).toBeNull();
         unmount();
       }
     });
@@ -1109,81 +1136,6 @@ describe("WindowRow", () => {
         );
       });
       expect(screen.getByRole("listbox", { name: "Label picker" })).toBeInTheDocument();
-    });
-
-    it("a double-marker row gets the static scanline overlay (in a clipped inner element, NOT the root) + marker color var", () => {
-      const win = makeWindow({ windowId: "@0", index: 0, color: "green", marker: "double" });
-      const { container } = renderAxis(win);
-      const row = container.querySelector('[data-window-id="@0"]') as HTMLElement;
-      // The clip lives on a dedicated inner overlay so the root can overflow for
-      // popovers (must-fix 4): the root carries NEITHER the scanline class NOR
-      // overflow-hidden; the overlay carries both.
-      expect(row.className).not.toContain("rk-scanlines");
-      expect(row.className).not.toContain("overflow-hidden");
-      const overlay = row.querySelector(".rk-scanlines") as HTMLElement;
-      expect(overlay).toBeTruthy();
-      expect(overlay.className).toContain("overflow-hidden");
-      expect(overlay.className).toContain("pointer-events-none");
-      // The marker color rides on the ROOT (the overlay pseudos inherit it).
-      expect(row.style.getPropertyValue("--rk-marker-color")).not.toBe("");
-    });
-
-    it("a selected double-marker row animates the overlay (crawl) while the root stays unclipped", () => {
-      const win = makeWindow({ windowId: "@0", index: 0, marker: "double" });
-      const { container } = renderAxis(win, { isSelected: true });
-      const row = container.querySelector('[data-window-id="@0"]') as HTMLElement;
-      // Root never clips (popovers must escape); the overlay owns crawl + clip.
-      expect(row.className).not.toContain("overflow-hidden");
-      const overlay = row.querySelector(".rk-scanlines") as HTMLElement;
-      expect(overlay).toBeTruthy();
-      expect(overlay.className).toContain("rk-scanlines-crawl");
-      expect(overlay.className).toContain("overflow-hidden");
-    });
-
-    it("a non-double row renders no scanline overlay", () => {
-      const win = makeWindow({ windowId: "@0", index: 0, marker: "solid" });
-      const { container } = renderAxis(win);
-      const row = container.querySelector('[data-window-id="@0"]') as HTMLElement;
-      expect(row.className).not.toContain("rk-scanlines");
-      expect(row.querySelector(".rk-scanlines")).toBeNull();
-    });
-
-    it("a thick-marker row gets the static hazard-wedge overlay (clipped inner element, NOT the root) + marker color var", () => {
-      const win = makeWindow({ windowId: "@0", index: 0, color: "green", marker: "thick" });
-      const { container } = renderAxis(win);
-      const row = container.querySelector('[data-window-id="@0"]') as HTMLElement;
-      // Same overlay discipline as the scanlines: the clip lives on a dedicated
-      // inner element so the root stays free to overflow for the `top-full`
-      // popovers — the root carries NEITHER the hazard class NOR overflow-hidden.
-      expect(row.className).not.toContain("rk-hazard");
-      expect(row.className).not.toContain("overflow-hidden");
-      const overlay = row.querySelector(".rk-hazard") as HTMLElement;
-      expect(overlay).toBeTruthy();
-      expect(overlay.className).toContain("overflow-hidden");
-      expect(overlay.className).toContain("pointer-events-none");
-      // The marker color rides on the ROOT (the overlay's ::before inherits it).
-      expect(row.style.getPropertyValue("--rk-marker-color")).not.toBe("");
-    });
-
-    it("the hazard wedge is STATIC in every state — no animation class even when selected", () => {
-      const win = makeWindow({ windowId: "@0", index: 0, color: "green", marker: "thick" });
-      const { container } = renderAxis(win, { isSelected: true });
-      const row = container.querySelector('[data-window-id="@0"]') as HTMLElement;
-      const overlay = row.querySelector(".rk-hazard") as HTMLElement;
-      expect(overlay).toBeTruthy();
-      // No animated twin exists for thick (explicit design decision) — a
-      // selected thick row renders exactly the same static overlay, and no
-      // scanline/crawl classes leak in.
-      expect(overlay.className).not.toContain("crawl");
-      expect(row.querySelector(".rk-scanlines")).toBeNull();
-      expect(row.querySelector(".rk-scanlines-crawl")).toBeNull();
-    });
-
-    it("a non-thick row renders no hazard overlay", () => {
-      const win = makeWindow({ windowId: "@0", index: 0, marker: "double" });
-      const { container } = renderAxis(win);
-      const row = container.querySelector('[data-window-id="@0"]') as HTMLElement;
-      expect(row.querySelector(".rk-hazard")).toBeNull();
     });
 
     it("dashed and thick stripes render display-only at the row's left edge", () => {
@@ -1780,11 +1732,17 @@ describe("coarse pointer: rest glyph, relocated cluster, tap zone + scrub (ys3q)
       expect(stripe).not.toBeNull();
       expect(stripe!.className).toContain("pointer-events-none");
       expect(stripe!.style.left).toBe("4px");
-      // The stripe overlays stay: a dashed row still mounts its data rain.
+      // Coarse rows mount the same static overlays: a hatch row still carries
+      // its hazard wedge (and dashed rows carry no rain anywhere — the motion
+      // split).
+      cleanup();
+      mockCoarseDark();
+      renderCoarseAxis(makeWindow({ windowId: "@1", index: 1, marker: "hatch", color: "orange" }));
+      expect(screen.getByRole("treeitem").querySelector(".rk-hazard")).toBeTruthy();
       cleanup();
       mockCoarseDark();
       renderCoarseAxis(makeWindow({ windowId: "@1", index: 1, marker: "dashed", color: "orange" }));
-      expect(screen.getByRole("treeitem").querySelector(".rk-dash-rain")).toBeTruthy();
+      expect(screen.getByRole("treeitem").querySelector(".rk-dash-rain")).toBeNull();
     });
 
     it("splits the content start: fine pointers keep pl-[30px], coarse reclaims to pl-4", () => {

@@ -52,4 +52,24 @@ describe("FlairOverlay", () => {
     rerender(<FlairOverlay flair="cube" hidden={false} />);
     expect(container.querySelector(".rk-flair-cube .rk-cube")).not.toBeNull();
   });
+
+  it("renders the tinted flairs (rain/scan) as bare spans — no child markup", () => {
+    for (const flair of ["rain", "scan"]) {
+      const { container } = render(<FlairOverlay flair={flair} />);
+      const overlay = container.querySelector(`.rk-flair-${flair}`);
+      expect(overlay).not.toBeNull();
+      expect(overlay!.children).toHaveLength(0);
+    }
+  });
+
+  it("the color prop sets --rk-flair-color inline (the rain/scan tint source)", () => {
+    const { container } = render(<FlairOverlay flair="rain" color="#123456" />);
+    const overlay = container.querySelector(".rk-flair-rain") as HTMLElement;
+    expect(overlay.style.getPropertyValue("--rk-flair-color")).toBe("#123456");
+    // Omitted: no inline property — the CSS falls back to --color-border.
+    const { container: bare } = render(<FlairOverlay flair="scan" />);
+    expect(
+      (bare.querySelector(".rk-flair-scan") as HTMLElement).style.getPropertyValue("--rk-flair-color"),
+    ).toBe("");
+  });
 });

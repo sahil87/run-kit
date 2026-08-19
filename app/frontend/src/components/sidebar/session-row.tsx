@@ -2,6 +2,7 @@ import { useState, useRef, useMemo, useCallback, memo, type HTMLAttributes } fro
 import type { ProjectSession } from "@/types";
 import type { MergedSession } from "@/contexts/optimistic-context";
 import type { RowTint } from "@/themes";
+import { UNCOLORED_SELECTED_KEY } from "@/themes";
 import { SwatchPopover } from "@/components/swatch-popover";
 import { FlairOverlay } from "@/components/flair-overlay";
 import { WaitingBadge } from "@/components/waiting-badge";
@@ -33,6 +34,9 @@ type SessionRowProps = {
   /** Color value descriptor: "4" for a single ANSI index, "1+3" for a blend. */
   sessionColor?: string;
   rowTints?: Map<string, RowTint>;
+  /** Guarded per-family border colors (contrast-adjusted) — the tint source
+   *  for the tinted flairs (rain/scan read --rk-flair-color). */
+  rowBorders?: Map<string, string>;
   isCollapsed: boolean;
   isSessionDropTarget: boolean;
   editingSession: string | null;
@@ -95,6 +99,7 @@ function SessionRowInner({
   session,
   sessionColor,
   rowTints,
+  rowBorders,
   isCollapsed,
   isSessionDropTarget,
   editingSession,
@@ -230,6 +235,15 @@ function SessionRowInner({
     return rowTints.get(sessionColor) ?? null;
   }, [sessionColor, rowTints]);
 
+  // The guarded family color — the tint source for the rain/scan flairs
+  // (they read --rk-flair-color; the sprite flairs ignore it). Uncolored rows
+  // fall back to the gray sentinel, matching the window row's marker color.
+  const flairColor = useMemo(() => {
+    if (!rowBorders) return undefined;
+    if (sessionColor != null) return rowBorders.get(sessionColor) ?? undefined;
+    return rowBorders.get(UNCOLORED_SELECTED_KEY) ?? undefined;
+  }, [sessionColor, rowBorders]);
+
   // Rail band: the session's family tint mixed into the inset base (the shared
   // rail-tint idiom); while the row's card is open the band steps up one shade
   // and the seam brightens (the held treatment, R8).
@@ -321,11 +335,13 @@ function SessionRowInner({
           CSS-only animation mounted whenever the session carries a flair
           value — in every row state. Same overlay discipline as the window
           row's marker textures (dedicated clipped inner element, never the
-          root, pointer-events-none, z-5); composes with the color tint.
-          Hidden entirely under prefers-reduced-motion (globals.css § Flair
+          root, pointer-events-none, z-5); composes with the color tint. The
+          guarded family color rides as `color` so the tinted flairs
+          (rain/scan) match the row's family. Hidden entirely under
+          prefers-reduced-motion (globals.css § Flair
           overlays) and while this row is the drag source (cube/warp animate
           transforms on child spans — the drag ghost rule). */}
-      <FlairOverlay flair={session.flair} hidden={isDragSource} />
+      <FlairOverlay flair={session.flair} hidden={isDragSource} color={flairColor} />
       <div className="flex items-center gap-1.5 min-w-0 flex-1">
         <button
           onClick={() => onToggleCollapse(server, name)}
@@ -474,6 +490,7 @@ function SessionRowInner({
         <div className="absolute right-0 top-full z-50">
           <SwatchPopover
             selectedColor={sessionColor}
+            rowName={name}
             // Selection does NOT close (the picker's dismissal contract).
             onSelect={(c) => onColorChange(server, name, c)}
             selectedFlair={session.flair}

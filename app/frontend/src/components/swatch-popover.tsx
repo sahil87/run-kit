@@ -32,95 +32,116 @@ type SwatchPopoverProps = {
    *  vocabularies. `null` clears the color. */
   onSelect: (color: string | null) => void;
   /** Dismissal model: selection NEVER dismisses — the picker stays open so
-   *  color + marker combos can be previewed live against the row. It closes
-   *  only via the explicit ✕ cell, a click outside, or Escape; callers must
-   *  NOT close in their onSelect/onSelectMarker handlers. */
+   *  color + marker + flair combos can be previewed live against the row. It
+   *  closes only via the explicit ✕ cell, a click outside, or Escape; callers
+   *  must NOT close in their onSelect/onSelectMarker/onSelectFlair
+   *  handlers. */
   onClose: () => void;
-  /** When `onSelectMarker` is supplied, the popover renders the side-by-side
-   *  Label picker: a marker column (∅ / dotted / dashed / solid / double /
-   *  thick) LEFT of a vertical hairline. Non-∅ cells are LIVE ROW PREVIEWS of
-   *  the currently selected color, mirroring the row's RESTING look (details
-   *  at the marker-column JSX). Selection calls `onSelectMarker` DIRECTLY —
-   *  any state is one click, `""` clears. Keyboard nav crosses the hairline
-   *  (ArrowLeft/Right). When ABSENT, the pure color grid renders — same
-   *  square style, no marker column, no hairline. */
+  /** The row's real name for the composite preview (a window/session name);
+   *  callers without a row get a neutral sample name. */
+  rowName?: string;
+  /** When `onSelectMarker` is supplied, the popover renders the banded Label
+   *  picker: a `[ marker ]` band between the color and flair bands — a single
+   *  static row of the 8 marker states (its ∅ lives in the band header). The
+   *  cells are mini row previews of the currently selected color (tint base +
+   *  guarded stripe + the hatch hazard texture). Selection calls
+   *  `onSelectMarker` DIRECTLY — any state is one click, `""` clears (via the
+   *  header ∅). When ABSENT, no marker band renders. */
   selectedMarker?: string;
   onSelectMarker?: (marker: string) => void;
-  /** When `onSelectFlair` is supplied, a flair section (∅ + the named
-   *  FLAIR_STATES — nyan / naruto / onepiece / pacman / matrix / aquarium /
-   *  roadrunner / invaders / cube / warp) renders below the color grid behind
-   *  a horizontal hairline — live row previews like the marker column, each
-   *  carrying its always-on rk-flair-* overlay. Selection calls
-   *  `onSelectFlair` DIRECTLY — `""` clears, no cycling. ArrowDown from the
-   *  bottom color row enters it as extra grid rows (FLAIR_ROW … FLAIR_ROW+2,
-   *  a 4/4/3 wrap of the 11 cells). Offered on window and session rows; NOT
-   *  server group headers. */
+  /** When `onSelectFlair` is supplied, a `[ flair ]` band renders below the
+   *  marker band — a 2-row column-flow strip of the 12 named FLAIR_STATES
+   *  (rain/scan leading), each cell carrying its always-on rk-flair-* overlay.
+   *  Selection calls `onSelectFlair` DIRECTLY — `""` clears (via the header
+   *  ∅). Offered on window and session rows; NOT server group headers. */
   selectedFlair?: string;
   onSelectFlair?: (flair: string) => void;
 };
 
-/** Colors per row. The layout is a conceptual 5-column grid: marker column
- *  (col 0, when shown) + 4 color columns (cols 1–4), 6 rows (removal row + 5
- *  color rows). The 4-wide layout renders each family's two shades ADJACENT
- *  because PICKER_COLOR_VALUES is in paired order. */
-const COLOR_COLS = 4;
+/** Cell geometry: every band cell is an 18px square on a 3px gap. */
+const CELL = "w-[18px] h-[18px]";
 
-/** DELIBERATE 1:1 PAIRING: the marker column and the color grid pair
- *  row-for-row — the invariant GRID_ROWS === MARKER_CELLS.length is part of
- *  the design (asserted in swatch-popover.test.tsx). Extend MARKER_STATES and
- *  PICKER_COLOR_VALUES together so it holds. */
-const MARKER_CELLS = MARKER_STATES;
+/** Neutral sample name for the composite preview when the caller has no row
+ *  (settings/host accent pickers). */
+const SAMPLE_ROW_NAME = "row-name";
 
-/** Number of grid rows: the removal row + 20 / 4 = 5 color rows. */
-const GRID_ROWS = 1 + Math.ceil(PICKER_COLOR_VALUES.length / COLOR_COLS); // 6
+/** The color band's two shade rows in column-flow order: PICKER_COLOR_VALUES
+ *  is PAIRED (red, red-dark, orange, orange-dark, …), so the normal shades are
+ *  the even indices (band row 1) and the dark shades the odd (band row 2) —
+ *  family columns, shade rows. */
+const COLOR_ROW_NORMAL = PICKER_COLOR_VALUES.filter((_, i) => i % 2 === 0);
+const COLOR_ROW_DARK = PICKER_COLOR_VALUES.filter((_, i) => i % 2 === 1);
 
-/** The first flair row index: one row below the color grid. The flair cells
- *  flow inside the SAME 4-wide grid, so the 11 cells (∅ + 10 named) wrap into
- *  THREE logical rows of 4/4/3 (FLAIR_ROW, FLAIR_ROW+1, FLAIR_ROW+2): flair
- *  index i sits at row FLAIR_ROW + floor(i/4), col (i%4)+1. The marker column
- *  does NOT extend into the flair rows — ArrowLeft from their first cell is a
- *  no-op, and entering any flair row from col 0 lands on col 1. */
-const FLAIR_ROW = GRID_ROWS;
+/** The flair band's two rows in column-flow order over the 12 named states
+ *  (grid-flow-col + two fixed rows fills DOWN each column first): row 1 takes
+ *  the even indices, row 2 the odd. */
+const FLAIR_NAMED = FLAIR_STATES.slice(1);
+const FLAIR_ROW_1 = FLAIR_NAMED.filter((_, i) => i % 2 === 0);
+const FLAIR_ROW_2 = FLAIR_NAMED.filter((_, i) => i % 2 === 1);
 
-/** Number of logical flair rows (3 for the 11-cell catalogue). */
-const FLAIR_ROWS = Math.ceil(FLAIR_STATES.length / COLOR_COLS);
-
-/** Last valid column in a logical flair row — 4 for full rows, 3 for the
- *  short last row (ArrowRight clamps here, ArrowDown clamps onto it). */
-function maxFlairCol(row: number): number {
-  return Math.min(COLOR_COLS, FLAIR_STATES.length - (row - FLAIR_ROW) * COLOR_COLS);
-}
-
-/** Flair-state index for a grid position in the flair rows. */
-function flairIndexAt(row: number, col: number): number {
-  return (row - FLAIR_ROW) * COLOR_COLS + (col - 1);
-}
-
-/** Keyboard focus position on the conceptual grid. row 0 = removal row
- *  (∅ | Clear | ✕), 1–5 = color rows, FLAIR_ROW…FLAIR_ROW+FLAIR_ROWS-1 =
- *  flair rows; col 0 = marker
- *  column, 1–4 = color columns. On row 0 the Clear button spans cols 1–3 as a
- *  SINGLE focus target canonicalized to col 1; the ✕ cell sits at col 4. */
+/** Keyboard focus: a position in the logical row stack (see `grid` in the
+ *  component). Every band is a plain grid; a band's header ∅ is row 0 of the
+ *  band (ArrowUp from a strip's first row lands on it); the ✕ close cell is
+ *  the stack's top row. */
 type GridPos = { row: number; col: number };
 
-/** Color-array index for a grid position (rows 1–5, cols 1–4). */
-function colorIndexAt(row: number, col: number): number {
-  return (row - 1) * COLOR_COLS + (col - 1);
+/** Stable DOM id for a logical cell — the ref map the arrow-move
+ *  scrollIntoView reads (the scroll strip stays invisible to the grid
+ *  model). */
+function cellId(kind: string, value?: string): string {
+  return value === undefined ? kind : `${kind}:${value}`;
 }
 
-/** Last valid color column in a color row. 20 colors fill the 5×4 grid
- *  exactly, but the clamp is kept generic so a future vocabulary change
- *  degrades safely. */
-function maxColorCol(row: number): number {
-  const rowStart = (row - 1) * COLOR_COLS;
-  const inRow = Math.min(PICKER_COLOR_VALUES.length - rowStart, COLOR_COLS);
-  return inRow; // cols are 1-based, so a full row's last col is 4
+/** The green-bracket micro band header — `[ axis ]` + the right-aligned ∅
+ *  clear cell (a ring on the ∅ means the axis is UNSET). The header ∅ is row 0
+ *  of its band in the keyboard model. */
+function BandHeader({
+  axis,
+  clearLabel,
+  isUnset,
+  onClear,
+  focused,
+  cellRef,
+}: {
+  axis: string;
+  clearLabel: string;
+  isUnset: boolean;
+  onClear: () => void;
+  focused: boolean;
+  cellRef: (el: HTMLButtonElement | null) => void;
+}) {
+  return (
+    <div className="flex items-center gap-1.5 mt-1">
+      <span
+        aria-hidden="true"
+        className="flex-1 text-[9px] tracking-[0.18em] text-text-secondary select-none"
+      >
+        <span className="text-accent-green/65">[</span> {axis}{" "}
+        <span className="text-accent-green/65">]</span>
+      </span>
+      <Tip label={clearLabel}>
+        <button
+          ref={cellRef}
+          role="option"
+          aria-selected={isUnset}
+          aria-label={clearLabel}
+          onClick={onClear}
+          className={`${CELL} overflow-hidden transition-all text-text-secondary hover:text-text-primary bg-bg-inset flex items-center justify-center ${
+            focused ? "ring-1 ring-text-secondary" : ""
+          } ${isUnset ? "ring-1 ring-text-primary" : ""}`}
+        >
+          <span style={{ fontSize: 10, lineHeight: 1 }}>&#x2205;</span>
+        </button>
+      </Tip>
+    </div>
+  );
 }
 
 export function SwatchPopover({
   selectedColor,
   onSelect,
   onClose,
+  rowName,
   selectedMarker,
   onSelectMarker,
   selectedFlair,
@@ -142,13 +163,17 @@ export function SwatchPopover({
   const parsedSelected = parseColorValue(selectedColor);
   const selectedValue = parsedSelected ? formatColorValue(parsedSelected) : undefined;
 
-  // Preview color for the marker/flair cells. A swatch pick updates this
-  // local override so the previews repaint immediately regardless of whether
-  // (or how fast) the caller echoes the selection back through props — the
-  // popover stays open on pick, and the preview must not lag the click.
-  // `undefined` = no override; `null` = cleared (gray sentinel).
+  // Preview state for the band cells + composite preview row. A pick updates
+  // the local override so the previews repaint immediately regardless of
+  // whether (or how fast) the caller echoes the selection back through props —
+  // the popover stays open on pick, and the preview must not lag the click.
+  // `undefined` = no override; color's `null` = cleared (gray sentinel).
   const [previewOverride, setPreviewOverride] = useState<string | null | undefined>(undefined);
+  const [markerOverride, setMarkerOverride] = useState<string | undefined>(undefined);
+  const [flairOverride, setFlairOverride] = useState<string | undefined>(undefined);
   const previewValue = previewOverride === undefined ? selectedValue : previewOverride ?? undefined;
+  const previewMarker = markerOverride ?? selectedMarker ?? "";
+  const previewFlair = flairOverride ?? selectedFlair ?? "";
   const previewTint =
     (previewValue != null ? rowTints.get(previewValue) : undefined) ??
     rowTints.get(UNCOLORED_SELECTED_KEY);
@@ -170,40 +195,127 @@ export function SwatchPopover({
   const currentMarker = selectedMarker ?? "";
   const currentFlair = selectedFlair ?? "";
 
-  // Initial focus FOLLOWS SELECTION: the selected swatch, or the Clear cell
-  // when uncolored — never an arbitrary swatch, whose focus ring would read
-  // as a phantom selection.
+  /** The logical row stack the keyboard walks: [✕] · [color ∅] · color shade
+   *  rows · ([marker ∅] · marker row) · ([flair ∅] · flair rows). Each entry
+   *  is a row of cell ids; vertical moves preserve the column as a GOAL
+   *  COLUMN (carried raw through the single-cell header rows, clamped to the
+   *  target row's extent only for display/activation); horizontal moves
+   *  operate on the clamped column. */
+  const grid = useMemo<string[][]>(() => {
+    const rows: string[][] = [
+      [cellId("close")],
+      [cellId("clear-color")],
+      COLOR_ROW_NORMAL.map((v) => cellId("color", v)),
+      COLOR_ROW_DARK.map((v) => cellId("color", v)),
+    ];
+    if (showMarkers) {
+      rows.push(
+        [cellId("clear-marker")],
+        MARKER_STATES.slice(1).map((s) => cellId("marker", s)),
+      );
+    }
+    if (showFlair) {
+      rows.push(
+        [cellId("clear-flair")],
+        FLAIR_ROW_1.map((s) => cellId("flair", s)),
+        FLAIR_ROW_2.map((s) => cellId("flair", s)),
+      );
+    }
+    return rows;
+  }, [showMarkers, showFlair]);
+
+  // Initial focus FOLLOWS SELECTION: the selected swatch, or the color band's
+  // header ∅ when uncolored — never an arbitrary swatch, whose focus ring
+  // would read as a phantom selection.
   const [focus, setFocus] = useState<GridPos>(() => {
-    const idx = selectedValue != null ? PICKER_COLOR_VALUES.indexOf(selectedValue) : -1;
-    if (idx < 0) return { row: 0, col: 1 };
-    return { row: Math.floor(idx / COLOR_COLS) + 1, col: (idx % COLOR_COLS) + 1 };
+    const row = COLOR_ROW_NORMAL.indexOf(selectedValue ?? "");
+    if (row >= 0) return { row: 2, col: row };
+    const dark = COLOR_ROW_DARK.indexOf(selectedValue ?? "");
+    if (dark >= 0) return { row: 3, col: dark };
+    return { row: 1, col: 0 };
   });
   // The focus ring renders only after the first arrow key: the listbox
   // autofocuses on mount, so an always-on ring would show mouse users a
   // phantom highlight.
   const [keyboardActive, setKeyboardActive] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const cellRefs = useRef(new Map<string, HTMLElement>());
 
-  // Activate the cell at a grid position (Enter/Space).
+  // Goal-column resolution: the raw column may exceed a row's extent (it is
+  // carried through the single-cell header rows); the EFFECTIVE cell clamps.
+  const effectiveId = useCallback(
+    (pos: GridPos): string | undefined => {
+      const row = grid[pos.row];
+      return row?.[Math.min(pos.col, row.length - 1)];
+    },
+    [grid],
+  );
+  const focusedId = effectiveId(focus);
+
+  // Arrow moves scroll the focused cell into view — the color band's
+  // horizontal strip stays invisible to the grid model.
+  useEffect(() => {
+    if (!keyboardActive || !focusedId) return;
+    const el = cellRefs.current.get(focusedId);
+    el?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  }, [keyboardActive, focusedId]);
+
+  // On open, scroll the selected swatch into view inside the strip (a
+  // selected family past the right edge must be visible without a swipe).
+  useEffect(() => {
+    if (selectedValue == null) return;
+    const el = cellRefs.current.get(cellId("color", selectedValue));
+    el?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+    // Mount-only: scrolls the OPENING selection, not every pick.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const setCellRef = useCallback(
+    (id: string) => (el: HTMLElement | null) => {
+      if (el) cellRefs.current.set(id, el);
+      else cellRefs.current.delete(id);
+    },
+    [],
+  );
+
+  // Activate the focused cell (Enter/Space).
   const activate = useCallback(
     (pos: GridPos) => {
-      if (pos.row >= FLAIR_ROW) {
-        const flair = FLAIR_STATES[flairIndexAt(pos.row, pos.col)];
-        if (onSelectFlair && flair !== undefined) onSelectFlair(flair);
-      } else if (pos.col === 0) {
-        // The undefined check guards against the 1:1 pairing drifting
-        // (GRID_ROWS outgrowing MARKER_CELLS) — never emit undefined.
-        const marker = MARKER_CELLS[pos.row];
-        if (onSelectMarker && marker !== undefined) onSelectMarker(marker);
-      } else if (pos.row === 0) {
-        if (pos.col === COLOR_COLS) onClose(); // ✕ — the explicit dismiss
-        else emit(null); // Clear color
-      } else {
-        const idx = colorIndexAt(pos.row, pos.col);
-        if (idx >= 0 && idx < PICKER_COLOR_VALUES.length) emit(PICKER_COLOR_VALUES[idx]);
+      const id = effectiveId(pos);
+      if (id === undefined) return;
+      if (id === cellId("close")) onClose();
+      else if (id === cellId("clear-color")) emit(null);
+      else if (id === cellId("clear-marker")) onSelectMarker?.("");
+      else if (id === cellId("clear-flair")) onSelectFlair?.("");
+      else if (id.startsWith("color:")) emit(id.slice("color:".length));
+      else if (id.startsWith("marker:")) {
+        const state = id.slice("marker:".length);
+        setMarkerOverride(state);
+        onSelectMarker?.(state);
+      } else if (id.startsWith("flair:")) {
+        const state = id.slice("flair:".length);
+        setFlairOverride(state);
+        onSelectFlair?.(state);
       }
     },
-    [emit, showMarkers, onSelectMarker, onSelectFlair, onClose],
+    [effectiveId, emit, onClose, onSelectMarker, onSelectFlair],
+  );
+
+  // Mouse picks repaint the preview overrides immediately (same immediacy the
+  // keyboard path gets through activate).
+  const pickMarker = useCallback(
+    (state: string) => {
+      setMarkerOverride(state);
+      onSelectMarker?.(state);
+    },
+    [onSelectMarker],
+  );
+  const pickFlair = useCallback(
+    (state: string) => {
+      setFlairOverride(state);
+      onSelectFlair?.(state);
+    },
+    [onSelectFlair],
   );
 
   // Close on Escape
@@ -220,8 +332,8 @@ export function SwatchPopover({
   }, [onClose]);
 
   // Autofocus the listbox on mount — the `Window: Label` palette action is
-  // the only keyboard path to the marker section, and arrow keys are dead
-  // until the listbox has focus.
+  // the only keyboard path to the bands, and arrow keys are dead until the
+  // listbox has focus.
   useEffect(() => {
     containerRef.current?.focus();
   }, []);
@@ -243,72 +355,55 @@ export function SwatchPopover({
     };
   }, [onClose]);
 
-  // Arrow-key movement: ArrowLeft/Right cross the hairline (marker ↔ color),
-  // ArrowUp/Down move within a column; edge moves clamp to the nearest valid
-  // cell.
+  // Arrow-key movement over the logical row stack: Left/Right operate on the
+  // CLAMPED column of the current row (resetting the goal column to the row's
+  // extent); Up/Down carry the raw goal column through single-cell header
+  // rows, clamping only for display/activation.
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key.startsWith("Arrow")) setKeyboardActive(true);
       if (e.key === "ArrowRight") {
         e.preventDefault();
         setFocus((f) => {
-          if (f.col === 0) return { row: f.row, col: 1 }; // cross the hairline
-          if (f.row === 0) return { row: 0, col: COLOR_COLS }; // Clear → ✕ (Clear spans cols 1–3)
-          // Flair rows: clamp at EACH row's last cell (4/4/3).
-          if (f.row >= FLAIR_ROW) return { row: f.row, col: Math.min(f.col + 1, maxFlairCol(f.row)) };
-          return { row: f.row, col: Math.min(f.col + 1, maxColorCol(f.row)) };
+          const max = grid[f.row].length - 1;
+          return { row: f.row, col: Math.min(Math.min(f.col, max) + 1, max) };
         });
       } else if (e.key === "ArrowLeft") {
         e.preventDefault();
         setFocus((f) => {
-          if (f.col === 0) return f; // already at the left edge
-          if (f.row === 0 && f.col === COLOR_COLS) return { row: 0, col: 1 }; // ✕ → Clear
-          // Cross the hairline — but the marker column does not extend into
-          // the flair row, so ArrowLeft from the flair row's first cell clamps.
-          if (f.col === 1) return showMarkers && f.row < GRID_ROWS ? { row: f.row, col: 0 } : f;
-          return { row: f.row, col: f.col - 1 };
+          const max = grid[f.row].length - 1;
+          return { row: f.row, col: Math.max(Math.min(f.col, max) - 1, 0) };
         });
       } else if (e.key === "ArrowDown") {
         e.preventDefault();
-        setFocus((f) => {
-          const lastRow = showFlair ? FLAIR_ROW + FLAIR_ROWS - 1 : GRID_ROWS - 1;
-          if (f.row >= lastRow) return f; // bottom row
-          const row = f.row + 1;
-          // Into a flair row: the marker column has no cell there, so col 0
-          // lands on the row's first cell (∅, col 1) — the exception extends
-          // to ALL flair rows.
-          if (row >= FLAIR_ROW) return { row, col: Math.min(f.col === 0 ? 1 : f.col, maxFlairCol(row)) };
-          if (f.col === 0) return { row, col: 0 }; // within the marker column
-          return { row, col: Math.min(f.col, maxColorCol(row)) };
-        });
+        setFocus((f) => (f.row >= grid.length - 1 ? f : { row: f.row + 1, col: f.col }));
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
-        setFocus((f) => {
-          if (f.row === 0) return f; // top row
-          const row = f.row - 1;
-          if (f.col === 0) return { row, col: 0 }; // within the marker column
-          // Between flair rows (4/4/3): the row above is never narrower, so
-          // the column carries straight up.
-          if (f.row > FLAIR_ROW) return { row, col: f.col };
-          // Into the removal row: cols 1–3 land on Clear (single spanning
-          // target, canonical col 1); col 4 lands on the ✕ close cell.
-          if (row === 0) return { row: 0, col: f.col === COLOR_COLS ? COLOR_COLS : 1 };
-          return { row, col: f.col };
-        });
+        setFocus((f) => (f.row === 0 ? f : { row: f.row - 1, col: f.col }));
       } else if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
         activate(focus);
       }
     },
-    [focus, activate, showMarkers, showFlair],
+    [focus, activate, grid],
   );
 
-  const focusOnClear = keyboardActive && focus.row === 0 && focus.col >= 1 && focus.col < COLOR_COLS;
-  const focusOnClose = keyboardActive && focus.row === 0 && focus.col === COLOR_COLS;
+  const isFocused = (id: string) => keyboardActive && focusedId === id;
+
+  // The combo caption: family name (shade legible from the preview itself) ·
+  // marker pattern name · flair name, ∅ for unset axes — legs only for the
+  // axes this variant shows (flair last/lightest).
+  const captionLegs = [
+    parseColorValue(previewValue)?.family.name ?? "∅",
+    ...(showMarkers ? [previewMarker || "∅"] : []),
+    ...(showFlair ? [previewFlair || "∅"] : []),
+  ];
+
+  const previewStripe = markerStripeStyle(previewMarker, previewStripeColor);
 
   return (
-    // TipGroup: the marker cells are a warm-tip cluster — sweeping down the
-    // tiny 18px cells names each marker instantly.
+    // TipGroup: the band cells are a warm-tip cluster — sweeping across the
+    // tiny 18px cells names each state instantly.
     <TipGroup>
     <div
       ref={containerRef}
@@ -316,182 +411,203 @@ export function SwatchPopover({
       aria-label={showMarkers ? "Label picker" : "Color picker"}
       tabIndex={0}
       onKeyDown={handleKeyDown}
-      className="bg-bg-primary border border-border p-1.5 z-50 w-max"
+      className="bg-bg-primary border border-border p-1.5 z-50 w-[190px]"
       style={{ boxShadow: "3px 3px 0 rgba(0,0,0,.35)" }}
     >
-      <div className="flex">
-        {/* Marker column (col 0) + vertical hairline. Each 18px cell + 3px gap
-            row-aligns 1:1 with the color grid beside it. Non-∅ cells are LIVE
-            ROW PREVIEWS of the currently selected color: tint.base background
-            (gray sentinel when uncolored), guarded-color stripe, and the
-            paired row texture. */}
-        {showMarkers && (
-          <>
-            <div className="flex flex-col gap-[3px]">
-              {MARKER_CELLS.map((state, row) => {
-                const isSelected = currentMarker === state;
-                const isFocused = keyboardActive && focus.col === 0 && focus.row === row;
-                const isPreview = state !== "";
-                const stripe = markerStripeStyle(state, previewStripeColor);
-                return (
-                  <Tip key={state || "none"} label={state || "none"}>
-                  <button
-                    role="option"
-                    aria-selected={isSelected}
-                    aria-label={`Marker ${state || "none"}`}
-                    data-marker-value={state}
-                    onClick={() => onSelectMarker?.(state)}
-                    className={`w-[18px] h-[18px] overflow-hidden transition-all relative ${
-                      isPreview ? "" : "bg-bg-inset "
-                    }${isFocused ? "ring-1 ring-text-secondary" : ""} ${
-                      isSelected ? "ring-1 ring-text-primary" : ""
-                    }`}
-                    style={
-                      isPreview
-                        ? ({
-                            backgroundColor: previewTint?.base,
-                            "--rk-marker-color": previewStripeColor,
-                          } as React.CSSProperties)
-                        : undefined
-                    }
-                  >
-                    {/* Paired row texture — the row's RESTING look: the dashed
-                        rain animates (always-on on real rows) but never the
-                        crawl (selected-state motion), even when double is
-                        selected. The thick cell drops the hazard's left-wedge
-                        mask — masked at 18px the weave is invisible under the
-                        6px stripe. */}
-                    {state === "double" && (
-                      <span aria-hidden="true" className="rk-scanlines absolute inset-0 pointer-events-none" />
-                    )}
-                    {state === "dashed" && (
-                      <span aria-hidden="true" className="rk-dash-rain absolute inset-0 pointer-events-none" />
-                    )}
-                    {state === "thick" && (
-                      <span aria-hidden="true" className="rk-hazard rk-hazard-preview absolute inset-0 pointer-events-none" />
-                    )}
-                    {/* Stripe inset 2px so the marker doesn't kiss the edge. */}
-                    {stripe && (
-                      <span className="absolute inset-y-0 right-0" style={{ left: 2, ...stripe }} />
-                    )}
-                    {state === "" && (
-                      <span className="absolute inset-0 flex items-center justify-center text-text-secondary" style={{ fontSize: 10, lineHeight: 1 }}>
-                        &#x2205;
-                      </span>
-                    )}
-                  </button>
-                  </Tip>
-                );
-              })}
-            </div>
-            <div className="w-px bg-border mx-1.5 self-stretch" aria-hidden="true" />
-          </>
-        )}
-        {/* Color section (cols 1–4): the removal row (Clear + ✕), then the 20
-            family/shade swatches 4-wide in PAIRED order. */}
-        <div className="grid grid-cols-4 gap-[3px]">
-          <button
-            role="option"
-            aria-selected={selectedValue == null}
-            onClick={() => emit(null)}
-            className={`col-span-3 h-[18px] text-[10px] text-text-secondary hover:text-text-primary transition-colors flex items-center justify-center ${
-              focusOnClear ? "ring-1 ring-text-secondary" : ""
-            } ${selectedValue == null ? "ring-1 ring-text-primary" : ""}`}
-          >
-            Clear
-          </button>
-          {/* ✕ — the explicit dismiss. role=option (never aria-selected) so
-              the listbox holds only ARIA-valid children. */}
-          <button
-            role="option"
-            aria-selected={false}
-            aria-label="Close picker"
-            onClick={onClose}
-            className={`w-[18px] h-[18px] text-[10px] text-text-secondary hover:text-text-primary transition-colors flex items-center justify-center ${
-              focusOnClose ? "ring-1 ring-text-secondary" : ""
-            }`}
-          >
-            &#x2715;
-          </button>
-          {PICKER_COLOR_VALUES.map((value, i) => {
-            const tint = rowTints.get(value);
-            const fallback = colorValueToHex(value, theme.palette) ?? theme.palette.foreground;
-            // One solid fill (the value's selected-tint blend); the ring + ✓
-            // keep the picked swatch unambiguous between adjacent same-family
-            // shades.
-            const fill = tint?.selected ?? fallback;
-            const isSelected = selectedValue === value;
-            const isFocused =
-              keyboardActive &&
-              focus.row === Math.floor(i / COLOR_COLS) + 1 && focus.col === (i % COLOR_COLS) + 1;
-            return (
-              <button
-                key={value}
-                role="option"
-                aria-selected={isSelected}
-                aria-label={`Color ${value}`}
-                data-color-value={value}
-                onClick={() => emit(value)}
-                className={`w-[18px] h-[18px] overflow-hidden transition-all flex items-center justify-center ${
-                  isFocused ? "ring-1 ring-text-secondary" : ""
-                } ${isSelected ? "ring-1 ring-text-primary" : ""}`}
-                style={{ backgroundColor: fill }}
-              >
-                {isSelected && (
-                  <span style={{ color: theme.palette.foreground, fontWeight: 700, fontSize: 7, lineHeight: 1 }}>
-                    &#x2713;
-                  </span>
-                )}
-              </button>
-            );
-          })}
-          {/* Flair section: live row previews of the selected color, each
-              carrying its always-on rk-flair-* overlay. The 11 cells (∅ + the
-              named FLAIR_STATES) flow inside the 4-wide grid as 4/4/3 — the
-              keyboard nav treats them as three logical rows (FLAIR_ROW…+2). */}
-          {showFlair && (
-            <>
-              <div className="col-span-4 h-px bg-border self-center" aria-hidden="true" />
-              {FLAIR_STATES.map((state, i) => {
-                const isSelected = currentFlair === state;
-                const isFocused =
-                  keyboardActive &&
-                  focus.row === FLAIR_ROW + Math.floor(i / COLOR_COLS) &&
-                  focus.col === (i % COLOR_COLS) + 1;
-                const isPreview = state !== "";
-                return (
-                  <Tip key={state || "none"} label={state || "none"}>
-                  <button
-                    role="option"
-                    aria-selected={isSelected}
-                    aria-label={`Flair ${state || "none"}`}
-                    data-flair-value={state}
-                    onClick={() => onSelectFlair?.(state)}
-                    className={`w-[18px] h-[18px] overflow-hidden transition-all relative ${
-                      isPreview ? "" : "bg-bg-inset "
-                    }${isFocused ? "ring-1 ring-text-secondary" : ""} ${
-                      isSelected ? "ring-1 ring-text-primary" : ""
-                    }`}
-                    style={
-                      isPreview
-                        ? { backgroundColor: previewTint?.base }
-                        : undefined
-                    }
-                  >
-                    {isPreview && <FlairOverlay flair={state} />}
-                    {state === "" && (
-                      <span className="absolute inset-0 flex items-center justify-center text-text-secondary" style={{ fontSize: 10, lineHeight: 1 }}>
-                        &#x2205;
-                      </span>
-                    )}
-                  </button>
-                  </Tip>
-                );
-              })}
-            </>
+      {/* Composite preview row: the row's actual RESTING look — tint base +
+          marker stripe + the static paired texture (hatch ↔ hazard wedge) +
+          the live flair overlay (reused FlairOverlay — the cube/warp
+          child-markup contract) + the row name. The ✕ close cell sits beside
+          it. */}
+      <div className="flex items-center gap-1.5">
+        <div
+          aria-hidden="true"
+          className="relative h-[24px] flex-1 min-w-0 overflow-hidden flex items-center pl-[30px] pr-2"
+          style={
+            {
+              backgroundColor: previewTint?.base,
+              "--rk-marker-color": previewStripeColor,
+            } as React.CSSProperties
+          }
+        >
+          {previewMarker === "hatch" && (
+            <span className="rk-hazard absolute inset-0 pointer-events-none" />
           )}
+          <FlairOverlay flair={previewFlair || undefined} color={previewStripeColor} />
+          {previewStripe && (
+            <span className="absolute inset-y-0 left-[4px] w-[6px]" style={previewStripe} />
+          )}
+          <span className="relative z-10 truncate text-xs text-text-primary">
+            {rowName ?? SAMPLE_ROW_NAME}
+          </span>
+        </div>
+        {/* ✕ — the explicit dismiss. role=option (never aria-selected) so the
+            listbox holds only ARIA-valid children. */}
+        <button
+          ref={setCellRef(cellId("close"))}
+          role="option"
+          aria-selected={false}
+          aria-label="Close picker"
+          onClick={onClose}
+          className={`${CELL} shrink-0 text-[10px] text-text-secondary hover:text-text-primary transition-colors flex items-center justify-center ${
+            isFocused(cellId("close")) ? "ring-1 ring-text-secondary" : ""
+          }`}
+        >
+          &#x2715;
+        </button>
+      </div>
+      {/* Combo caption under the preview. */}
+      <div
+        aria-hidden="true"
+        className="text-right text-[9px] tracking-[0.08em] text-text-secondary select-none mb-0.5"
+      >
+        {captionLegs.join(" · ")}
+      </div>
+
+      {/* ── [ color ] band — 2 shade rows × family columns, column-flow,
+             horizontal-scroll strip: families grow horizontally BY
+             CONSTRUCTION (a vertical scroll would break the shade pairing /
+             family-column identity). ~8 of 10 families visible at 190px; the
+             cut-off partial column + right-edge fade carry the affordance. ── */}
+      <BandHeader
+        axis="color"
+        clearLabel="Clear color"
+        isUnset={selectedValue == null}
+        onClear={() => emit(null)}
+        focused={isFocused(cellId("clear-color"))}
+        cellRef={setCellRef(cellId("clear-color"))}
+      />
+      <div className="rk-band-fade">
+        <div className="rk-band-scroll">
+          <div className="grid grid-flow-col grid-rows-[18px_18px] auto-cols-[18px] gap-[3px] w-max">
+            {PICKER_COLOR_VALUES.map((value) => {
+              const tint = rowTints.get(value);
+              const fallback = colorValueToHex(value, theme.palette) ?? theme.palette.foreground;
+              // One solid fill (the value's selected-tint blend); the ring + ✓
+              // keep the picked swatch unambiguous between adjacent same-family
+              // shades.
+              const fill = tint?.selected ?? fallback;
+              const isSelected = selectedValue === value;
+              const id = cellId("color", value);
+              return (
+                <button
+                  key={value}
+                  ref={setCellRef(id)}
+                  role="option"
+                  aria-selected={isSelected}
+                  aria-label={`Color ${value}`}
+                  data-color-value={value}
+                  onClick={() => emit(value)}
+                  className={`${CELL} overflow-hidden transition-all flex items-center justify-center ${
+                    isFocused(id) ? "ring-1 ring-text-secondary" : ""
+                  } ${isSelected ? "ring-1 ring-text-primary" : ""}`}
+                  style={{ backgroundColor: fill }}
+                >
+                  {isSelected && (
+                    <span style={{ color: theme.palette.foreground, fontWeight: 700, fontSize: 7, lineHeight: 1 }}>
+                      &#x2713;
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
+
+      {/* ── [ marker ] band — one static row of the 8 states (semantic states
+             never hide behind a scroll). Cells are mini row previews of the
+             selected color: tint.base background, guarded stripe (2px inset),
+             and the ONE texture pairing (hatch ↔ hazard, preview modifier —
+             masked at 18px the weave is invisible under the stripe). The ∅
+             lives in the band header. ── */}
+      {showMarkers && (
+        <>
+          <BandHeader
+            axis="marker"
+            clearLabel="Marker none"
+            isUnset={currentMarker === ""}
+            onClear={() => pickMarker("")}
+            focused={isFocused(cellId("clear-marker"))}
+            cellRef={setCellRef(cellId("clear-marker"))}
+          />
+          <div className="flex gap-[3px] mt-1">
+            {MARKER_STATES.slice(1).map((state) => {
+              const isSelected = currentMarker === state;
+              const id = cellId("marker", state);
+              const stripe = markerStripeStyle(state, previewStripeColor);
+              return (
+                <Tip key={state} label={state}>
+                <button
+                  ref={setCellRef(id)}
+                  role="option"
+                  aria-selected={isSelected}
+                  aria-label={`Marker ${state}`}
+                  data-marker-value={state}
+                  onClick={() => pickMarker(state)}
+                  className={`${CELL} overflow-hidden transition-all relative ${
+                    isFocused(id) ? "ring-1 ring-text-secondary" : ""
+                  } ${isSelected ? "ring-1 ring-text-primary" : ""}`}
+                  style={
+                    {
+                      backgroundColor: previewTint?.base,
+                      "--rk-marker-color": previewStripeColor,
+                    } as React.CSSProperties
+                  }
+                >
+                  {state === "hatch" && (
+                    <span aria-hidden="true" className="rk-hazard rk-hazard-preview absolute inset-0 pointer-events-none" />
+                  )}
+                  {stripe && (
+                    <span className="absolute inset-y-0 right-0" style={{ left: 2, ...stripe }} />
+                  )}
+                </button>
+                </Tip>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      {/* ── [ flair ] band — 2-row column-flow strip of the 12 named states
+             (rain/scan leading); motion IS the flair identity, so the cells
+             stay live. The ∅ lives in the band header. ── */}
+      {showFlair && (
+        <>
+          <BandHeader
+            axis="flair"
+            clearLabel="Flair none"
+            isUnset={currentFlair === ""}
+            onClear={() => pickFlair("")}
+            focused={isFocused(cellId("clear-flair"))}
+            cellRef={setCellRef(cellId("clear-flair"))}
+          />
+          <div className="grid grid-flow-col grid-rows-[18px_18px] auto-cols-[18px] gap-[3px] w-max mt-1">
+            {FLAIR_NAMED.map((state) => {
+              const isSelected = currentFlair === state;
+              const id = cellId("flair", state);
+              return (
+                <Tip key={state} label={state}>
+                <button
+                  ref={setCellRef(id)}
+                  role="option"
+                  aria-selected={isSelected}
+                  aria-label={`Flair ${state}`}
+                  data-flair-value={state}
+                  onClick={() => pickFlair(state)}
+                  className={`${CELL} overflow-hidden transition-all relative ${
+                    isFocused(id) ? "ring-1 ring-text-secondary" : ""
+                  } ${isSelected ? "ring-1 ring-text-primary" : ""}`}
+                  style={{ backgroundColor: previewTint?.base }}
+                >
+                  <FlairOverlay flair={state} color={previewStripeColor} />
+                </button>
+                </Tip>
+              );
+            })}
+          </div>
+        </>
+      )}
     </div>
     </TipGroup>
   );

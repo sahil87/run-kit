@@ -407,8 +407,9 @@ describe("shade axis (normal + dark)", () => {
 describe("markerStripeStyle", () => {
   const color = "#123456";
 
-  it("covers all six states with the documented widths", () => {
+  it("covers all eight states with the documented widths", () => {
     expect(markerStripeStyle("", color)).toBeUndefined();
+    expect(markerStripeStyle("pipe", color)).toEqual({ borderLeft: `1px solid ${color}` });
     expect(markerStripeStyle("solid", color)).toEqual({ borderLeft: `3px solid ${color}` });
     expect(markerStripeStyle("double", color)).toEqual({ borderLeft: `6px double ${color}` });
     expect(markerStripeStyle("thick", color)).toEqual({ borderLeft: `6px solid ${color}` });
@@ -433,12 +434,29 @@ describe("markerStripeStyle", () => {
     expect(s.backgroundRepeat).toBe("repeat-y");
   });
 
-  it("MARKER_STATES is the closed set in display order (empty first)", () => {
-    expect(MARKER_STATES).toEqual(["", "dotted", "dashed", "solid", "double", "thick"]);
+  it("hatch is a 45° diagonal weave on a 12px×12px tile (welds on the 12px module)", () => {
+    const s = markerStripeStyle("hatch", color)!;
+    // The NON-repeating 45° linear-gradient with 25/50/75% stops phase-aligns
+    // across every 12px tile boundary (the same math as the .rk-hazard wedge) —
+    // a repeating-linear-gradient would not (12/√2 is no multiple of its period).
+    expect(s.backgroundImage).toBe(`linear-gradient(45deg, ${color} 0 25%, transparent 25% 50%, ${color} 50% 75%, transparent 75%)`);
+    expect(s.backgroundSize).toBe("12px 12px");
+    expect(s.backgroundRepeat).toBe("repeat");
   });
 
-  it("FLAIR_STATES is the closed set in display order (empty first)", () => {
-    expect(FLAIR_STATES).toEqual(["", "nyan", "naruto", "onepiece", "pacman", "matrix", "aquarium", "roadrunner", "invaders", "cube", "warp"]);
+  it("block is a one-period fixed tile (9px block / 3px gap on a 12px period, 6px wide)", () => {
+    const s = markerStripeStyle("block", color)!;
+    expect(s.backgroundImage).toBe(`linear-gradient(to bottom, ${color} 0 9px, transparent 9px 12px)`);
+    expect(s.backgroundSize).toBe("6px 12px");
+    expect(s.backgroundRepeat).toBe("repeat-y");
+  });
+
+  it("MARKER_STATES is the closed set in display order (empty first)", () => {
+    expect(MARKER_STATES).toEqual(["", "pipe", "dotted", "dashed", "solid", "double", "thick", "hatch", "block"]);
+  });
+
+  it("FLAIR_STATES is the closed set in display order (empty first, rain/scan leading)", () => {
+    expect(FLAIR_STATES).toEqual(["", "rain", "scan", "nyan", "naruto", "onepiece", "pacman", "matrix", "aquarium", "roadrunner", "invaders", "cube", "warp"]);
   });
 });
 

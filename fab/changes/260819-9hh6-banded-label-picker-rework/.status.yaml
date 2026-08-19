@@ -1,0 +1,55 @@
+id: 9hh6
+name: 260819-9hh6-banded-label-picker-rework
+created: 2026-08-19T18:01:37Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 12
+    acceptance_count: 30
+    acceptance_completed: 30
+confidence:
+    certain: 12
+    confident: 7
+    tentative: 0
+    unresolved: 0
+    score: 4.2
+    fuzzy: true
+    dimensions:
+        signal: 79.2
+        reversibility: 81.6
+        competence: 87.9
+        disambiguation: 84.2
+stage_metrics:
+    intake: {started_at: "2026-08-19T18:01:37Z", driver: fab-new, iterations: 1, completed_at: "2026-08-19T18:07:46Z"}
+    apply: {started_at: "2026-08-19T18:07:46Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-19T21:56:52Z"}
+    review: {started_at: "2026-08-19T21:56:52Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-19T22:13:10Z"}
+    hydrate: {started_at: "2026-08-19T22:13:10Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-19T22:27:12Z"}
+    ship: {started_at: "2026-08-19T22:27:12Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-08-19T22:27:12Z"
+    computed_at_stage: hydrate
+summary: Banded B-H Label picker (preview + band headers + header-∅), marker vocabulary 5→8 (categorical classes, hatch↔hazard the one texture pairing), motion split (rain/scan flairs; markers fully static), backend closed sets widened
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-19T22:27:12Z

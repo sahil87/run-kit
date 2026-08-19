@@ -63,9 +63,9 @@ export type ProjectSession = {
   /** Session working directory (`#{session_path}`), raw. Absent on payloads
    *  from an older backend; display abbreviation is a frontend concern. */
   sessionPath?: string;
-  /** Row flair state: ""/absent (no flair) | "nyan" | "naruto" | "onepiece" |
-   *  "pacman" | "matrix" | "aquarium" | "roadrunner" | "invaders" | "cube" |
-   *  "warp".
+  /** Row flair state: ""/absent (no flair) | "rain" | "scan" | "nyan" |
+   *  "naruto" | "onepiece" | "pacman" | "matrix" | "aquarium" | "roadrunner" |
+   *  "invaders" | "cube" | "warp".
    *  Decoration only (FLAIR_STATES in themes.ts) — an ambient CSS-only overlay
    *  with no status semantics. */
   flair?: string;
@@ -90,13 +90,14 @@ export type WindowInfo = {
    *  (label axis). */
   color?: string;
   /** Left-gutter marker state, from the `@rk_marker` window option:
-   *  ""/absent (no marker) | "dotted" | "dashed" | "solid" | "double" |
-   *  "thick". An INDEPENDENT
+   *  ""/absent (no marker) | "pipe" | "dotted" | "dashed" | "solid" |
+   *  "double" | "thick" | "hatch" | "block". An INDEPENDENT
    *  label axis from `color` — see docs/specs/themes.md. */
   marker?: string;
   /** Row flair state, from the `@rk_flair` window option: ""/absent (no
-   *  flair) | "nyan" | "naruto" | "onepiece" | "pacman" | "matrix" |
-   *  "aquarium" | "roadrunner" | "invaders" | "cube" | "warp". Decoration
+   *  flair) | "rain" | "scan" | "nyan" | "naruto" | "onepiece" | "pacman" |
+   *  "matrix" | "aquarium" | "roadrunner" | "invaders" | "cube" | "warp".
+   *  Decoration
    *  only (FLAIR_STATES in themes.ts) — an ambient CSS-only overlay with no
    *  status semantics. */
   flair?: string;

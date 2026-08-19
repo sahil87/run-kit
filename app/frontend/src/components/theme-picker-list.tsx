@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useId } from "react";
-import { useThemeActions } from "@/contexts/theme-context";
+import { useTheme, useThemeActions } from "@/contexts/theme-context";
 import { THEMES } from "@/themes";
 import type { Theme } from "@/themes";
 
@@ -12,7 +12,7 @@ interface ThemePickerListProps {
   initialSelectedId?: string;
   onConfirm: (theme: Theme) => void;
   /** Fires on Escape after the core has reverted any uncommitted preview
-   *  (and, when `collapsible`, closed the list). `consumed` lets an inline
+   *  (and, when `collapsible`, closed the popover). `consumed` lets an inline
    *  consumer eat the press (stopPropagation) only when it actually did
    *  either, so an idle Escape still bubbles to the enclosing dialog. */
   onEscape?: (e: React.KeyboardEvent, consumed: boolean) => void;
@@ -20,9 +20,10 @@ interface ThemePickerListProps {
    *  picker (the inline surface's cancel seam; the modal keeps previews
    *  alive until Escape/backdrop). */
   cancelOnLeave?: boolean;
-  /** Render only the search input at rest; the list expands while the input
-   *  is engaged (focus/click/typing/arrows) and closes on commit, Escape,
-   *  or focus leave. The modal leaves this off — its list IS the modal. */
+  /** Render a trigger button at rest showing the ACTIVE theme (swatch + name
+   *  + ▾); clicking it opens the search field with the list in a popover,
+   *  which closes on commit, Escape, or focus leave. The modal leaves this
+   *  off — its list IS the modal. */
   collapsible?: boolean;
   autoFocus?: boolean;
 }
@@ -30,11 +31,11 @@ interface ThemePickerListProps {
 /**
  * The shared theme-picker core: search + DARK/LIGHT grouped listbox with
  * palette swatches, keyboard nav, and live preview. Owns no overlay, backdrop,
- * open/close state, or document-event listener — `ThemeSelector` (modal) and
- * the settings dialog's theme control both render this and differ only via
- * props. Preview lifecycle is core-owned: it starts on user interaction
- * (never on mount, so an idle inline picker holds no preview) and is reverted
- * here on Escape, leave (when `cancelOnLeave`), and unmount.
+ * or document-event listener — `ThemeSelector` (modal) and the settings
+ * dialog's theme control both render this and differ only via props. Preview
+ * lifecycle is core-owned: it starts on user interaction (never on mount, so
+ * an idle inline picker holds no preview) and is reverted here on Escape,
+ * leave (when `cancelOnLeave`), and unmount.
  */
 export function ThemePickerList({
   checkedIds,
@@ -53,8 +54,10 @@ export function ThemePickerList({
   });
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const listId = useId();
 
+  const { theme: activeTheme } = useTheme();
   const { previewTheme, cancelPreview } = useThemeActions();
 
   // Whether an uncommitted preview is live. Core-owned so Escape/leave/unmount
@@ -62,6 +65,9 @@ export function ThemePickerList({
   const previewingRef = useRef(false);
   // Suppress mouse-enter during keyboard nav (scroll moves items under cursor)
   const keyboardNavRef = useRef(false);
+  // Return focus to the trigger only on keyboard/commit closes — never on a
+  // blur close, where stealing focus back would fight the user's click.
+  const refocusTriggerRef = useRef(false);
   // Latest cancelPreview for the unmount cleanup (its identity changes with
   // context state, but cleanup effects capture the first render's closure).
   const cancelPreviewRef = useRef(cancelPreview);
@@ -79,6 +85,16 @@ export function ThemePickerList({
       inputRef.current?.focus();
     }
   }, [autoFocus]);
+
+  // The collapsible trigger swaps to the search field on open — focus it.
+  useEffect(() => {
+    if (collapsible && expanded) {
+      inputRef.current?.focus();
+    } else if (!expanded && refocusTriggerRef.current) {
+      refocusTriggerRef.current = false;
+      triggerRef.current?.focus();
+    }
+  }, [collapsible, expanded]);
 
   // Revert a still-live preview when the picker unmounts (modal close paths
   // are already reverted/committed by then, making this a no-op there; the
@@ -110,9 +126,22 @@ export function ThemePickerList({
     previewingRef.current = false;
   }
 
+  function openList() {
+    setQuery("");
+    const idx = flattenByCategory(THEMES).findIndex((t) => t.id === activeTheme.id);
+    setSelectedIndex(idx >= 0 ? idx : 0);
+    setExpanded(true);
+  }
+
+  function closeList(refocusTrigger: boolean) {
+    setQuery("");
+    refocusTriggerRef.current = refocusTrigger;
+    setExpanded(false);
+  }
+
   function handleConfirm(theme: Theme) {
     previewingRef.current = false;
-    if (collapsible) setExpanded(false);
+    if (collapsible) closeList(true);
     onConfirm(theme);
   }
 
@@ -122,12 +151,11 @@ export function ThemePickerList({
       const hadPreview = previewingRef.current;
       endPreview();
       const closedList = collapsible && expanded;
-      if (closedList) setExpanded(false);
+      if (closedList) closeList(true);
       onEscape?.(e, hadPreview || closedList);
     } else if (e.key === "ArrowDown") {
       e.preventDefault();
       keyboardNavRef.current = true;
-      if (!expanded) setExpanded(true);
       if (flatThemes.length > 0) {
         const next = (selectedIndex + 1) % flatThemes.length;
         setSelectedIndex(next);
@@ -136,7 +164,6 @@ export function ThemePickerList({
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       keyboardNavRef.current = true;
-      if (!expanded) setExpanded(true);
       if (flatThemes.length > 0) {
         const next = (selectedIndex - 1 + flatThemes.length) % flatThemes.length;
         setSelectedIndex(next);
@@ -151,7 +178,6 @@ export function ThemePickerList({
   function handleQueryChange(value: string) {
     setQuery(value);
     setSelectedIndex(0);
-    if (!expanded) setExpanded(true);
     const nextFiltered = THEMES.filter((t) =>
       t.name.toLowerCase().includes(value.toLowerCase()),
     );
@@ -186,7 +212,7 @@ export function ThemePickerList({
       return;
     }
     endPreview();
-    if (collapsible && e.type !== "pointerleave") setExpanded(false);
+    if (collapsible && e.type !== "pointerleave" && expanded) closeList(false);
   }
 
   const groups: { label: string; themes: Theme[] }[] = [];
@@ -196,119 +222,148 @@ export function ThemePickerList({
   let flatIndex = 0;
 
   return (
-    <div onPointerLeave={handleLeave} onBlur={handleLeave}>
-      <input
-        ref={inputRef}
-        type="text"
-        value={query}
-        onChange={(e) => handleQueryChange(e.target.value)}
-        onKeyDown={handleKeyDown}
-        onFocus={() => {
-          if (collapsible) setExpanded(true);
-        }}
-        onClick={() => {
-          if (collapsible) setExpanded(true);
-        }}
-        placeholder="Search themes..."
-        aria-label="Search themes"
-        aria-autocomplete="list"
-        aria-controls={listId}
-        role="combobox"
-        aria-expanded={expanded}
-        className={`w-full bg-transparent text-text-primary text-[11px] p-2.5 outline-none placeholder:text-text-secondary ${
-          expanded ? "border-b border-border" : ""
-        }`}
-      />
+    <div className="relative" onPointerLeave={handleLeave} onBlur={handleLeave}>
+      {collapsible && !expanded ? (
+        <button
+          ref={triggerRef}
+          type="button"
+          data-testid="theme-picker-trigger"
+          aria-haspopup="listbox"
+          aria-expanded={false}
+          onClick={openList}
+          className="w-full flex items-center gap-2 p-2.5 text-[11px] text-text-primary border border-border rounded text-left hover:border-text-secondary transition-colors"
+        >
+          <PaletteSwatch theme={activeTheme} />
+          <span className="flex-1 min-w-0 truncate">{activeTheme.name}</span>
+          <span aria-hidden="true" className="text-text-secondary">
+            ▾
+          </span>
+        </button>
+      ) : (
+        <input
+          ref={inputRef}
+          type="text"
+          value={query}
+          onChange={(e) => handleQueryChange(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Search themes..."
+          aria-label="Search themes"
+          aria-autocomplete="list"
+          aria-controls={listId}
+          role="combobox"
+          aria-expanded={expanded}
+          className={`w-full bg-transparent text-text-primary text-[11px] p-2.5 outline-none placeholder:text-text-secondary ${
+            collapsible
+              ? "border border-border rounded focus:border-text-secondary"
+              : "border-b border-border"
+          }`}
+        />
+      )}
       {expanded && (
-      <div
-        id={listId}
-        ref={listRef}
-        role="listbox"
-        aria-label="Themes"
-        onMouseMove={handleMouseMove}
-        // Keep focus in the search input while clicking options — a blur
-        // would collapse the list before the click lands (collapsible).
-        onMouseDown={(e) => e.preventDefault()}
-        className="max-h-64 overflow-y-auto py-1"
-      >
-        {flatThemes.length === 0 ? (
-          <div className="px-3 py-2 text-[11px] text-text-secondary">
-            No matching themes
-          </div>
-        ) : (
-          groups.map((group) => {
-            const header = (
-              <div
-                key={`header-${group.label}`}
-                role="presentation"
-                className="px-2.5 pt-2 pb-1 text-[10px] font-medium uppercase tracking-wider text-text-secondary"
-              >
-                {group.label}
+        <div
+          className={
+            collapsible
+              ? "absolute left-0 right-0 top-full mt-1 z-50 bg-bg-primary border border-border rounded shadow-2xl"
+              : undefined
+          }
+        >
+          <div
+            id={listId}
+            ref={listRef}
+            role="listbox"
+            aria-label="Themes"
+            onMouseMove={handleMouseMove}
+            // Keep focus in the search input while clicking options — a blur
+            // would collapse the popover before the click lands (collapsible).
+            onMouseDown={(e) => e.preventDefault()}
+            className="max-h-64 overflow-y-auto py-1"
+          >
+            {flatThemes.length === 0 ? (
+              <div className="px-3 py-2 text-[11px] text-text-secondary">
+                No matching themes
               </div>
-            );
-
-            const items = group.themes.map((theme) => {
-              const currentFlatIndex = flatIndex++;
-              const isSelected = currentFlatIndex === selectedIndex;
-              const isChecked = checkedIds.includes(theme.id);
-
-              return (
-                <div
-                  key={theme.id}
-                  id={`${listId}-option-${theme.id}`}
-                  role="option"
-                  aria-selected={isSelected}
-                  onClick={() => handleConfirm(theme)}
-                  onMouseEnter={() => handleMouseEnter(theme)}
-                  className={`w-full text-left px-2.5 py-1.5 text-[11px] flex items-center justify-between cursor-pointer ${
-                    isSelected
-                      ? "bg-bg-card text-text-primary"
-                      : "text-text-secondary hover:text-text-primary hover:bg-bg-card/50"
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    {/* Palette swatch: bg + representative ANSI colors */}
-                    <span className="inline-flex h-3 rounded-sm border border-border shrink-0 overflow-hidden">
-                      {[
-                        theme.palette.background,
-                        theme.palette.ansi[1],
-                        theme.palette.ansi[2],
-                        theme.palette.ansi[3],
-                        theme.palette.ansi[4],
-                        theme.palette.ansi[5],
-                        theme.palette.ansi[6],
-                      ].map((color, i) => (
-                        <span
-                          key={i}
-                          className="inline-block w-1.5 h-full"
-                          style={{ backgroundColor: color }}
-                        />
-                      ))}
-                    </span>
-                    <span>{theme.name}</span>
+            ) : (
+              groups.map((group) => {
+                const header = (
+                  <div
+                    key={`header-${group.label}`}
+                    role="presentation"
+                    className="px-2.5 pt-2 pb-1 text-[10px] font-medium uppercase tracking-wider text-text-secondary"
+                  >
+                    {group.label}
                   </div>
-                  {isChecked && (
-                    <svg
-                      width="12"
-                      height="12"
-                      viewBox="0 0 16 16"
-                      fill="currentColor"
-                      className="text-accent-green shrink-0"
-                      aria-label="Current theme"
-                    >
-                      <path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.75.75 0 0 1 1.06-1.06L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0z" />
-                    </svg>
-                  )}
-                </div>
-              );
-            });
+                );
 
-            return [header, ...items];
-          })
-        )}
-      </div>
+                const items = group.themes.map((theme) => {
+                  const currentFlatIndex = flatIndex++;
+                  const isSelected = currentFlatIndex === selectedIndex;
+                  const isChecked = checkedIds.includes(theme.id);
+
+                  return (
+                    <div
+                      key={theme.id}
+                      id={`${listId}-option-${theme.id}`}
+                      role="option"
+                      aria-selected={isSelected}
+                      onClick={() => handleConfirm(theme)}
+                      onMouseEnter={() => handleMouseEnter(theme)}
+                      className={`w-full text-left px-2.5 py-1.5 text-[11px] flex items-center justify-between cursor-pointer ${
+                        isSelected
+                          ? "bg-bg-card text-text-primary"
+                          : "text-text-secondary hover:text-text-primary hover:bg-bg-card/50"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <PaletteSwatch theme={theme} />
+                        <span>{theme.name}</span>
+                      </div>
+                      {isChecked && (
+                        <svg
+                          width="12"
+                          height="12"
+                          viewBox="0 0 16 16"
+                          fill="currentColor"
+                          className="text-accent-green shrink-0"
+                          aria-label="Current theme"
+                        >
+                          <path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.75.75 0 0 1 1.06-1.06L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0z" />
+                        </svg>
+                      )}
+                    </div>
+                  );
+                });
+
+                return [header, ...items];
+              })
+            )}
+          </div>
+        </div>
       )}
     </div>
+  );
+}
+
+/** Palette swatch: bg + representative ANSI colors (red, green, yellow,
+ *  blue, magenta, cyan). */
+function PaletteSwatch({ theme }: { theme: Theme }) {
+  return (
+    <span className="inline-flex h-3 rounded-sm border border-border shrink-0 overflow-hidden">
+      {[
+        theme.palette.background,
+        theme.palette.ansi[1],
+        theme.palette.ansi[2],
+        theme.palette.ansi[3],
+        theme.palette.ansi[4],
+        theme.palette.ansi[5],
+        theme.palette.ansi[6],
+      ].map((color, i) => (
+        <span
+          key={i}
+          className="inline-block w-1.5 h-full"
+          style={{ backgroundColor: color }}
+        />
+      ))}
+    </span>
   );
 }
 

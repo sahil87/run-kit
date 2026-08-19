@@ -109,21 +109,22 @@ test.describe("Settings dialog", () => {
     await expect(dialog.getByText("Notifications", { exact: true })).toBeVisible();
 
     // The Appearance tab keeps its own scope split. The theme control is the
-    // shared searchable picker rendered inline (260819-qkow) — collapsed to
-    // its search field at rest; clicking it opens the list, where both
-    // preferred slots (dark + light) carry a check at once.
+    // shared searchable picker (260819-qkow): at rest a trigger names the
+    // ACTIVE theme; clicking it opens the search field with the list in a
+    // popover, where both preferred slots (dark + light) carry a check.
     await dialog.getByRole("tab", { name: "Appearance" }).click();
     await expect(dialog.getByRole("button", { name: "Set instance color" })).toBeVisible();
-    const themeSearch = dialog.getByRole("combobox", { name: "Search themes" });
-    await expect(themeSearch).toBeVisible();
+    const themeTrigger = dialog.getByTestId("theme-picker-trigger");
+    await expect(themeTrigger).toBeVisible();
     await expect(dialog.getByRole("listbox", { name: "Themes" })).not.toBeVisible();
-    await themeSearch.click();
+    await themeTrigger.click();
+    await expect(dialog.getByRole("combobox", { name: "Search themes" })).toBeVisible();
     await expect(dialog.getByRole("listbox", { name: "Themes" })).toBeVisible();
     await expect(dialog.getByLabel("Current theme")).toHaveCount(2);
     await expect(dialog.getByRole("button", { name: "Increase terminal font" })).toBeVisible();
 
-    // Escape is layered: with the theme list open it closes the LIST and the
-    // dialog stays; a second Escape closes the dialog (keyboard-first
+    // Escape is layered: with the theme popover open it closes the POPOVER
+    // and the dialog stays; a second Escape closes the dialog (keyboard-first
     // contract).
     await page.keyboard.press("Escape");
     await expect(dialog.getByRole("listbox", { name: "Themes" })).not.toBeVisible();

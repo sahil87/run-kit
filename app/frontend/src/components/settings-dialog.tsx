@@ -216,7 +216,7 @@ function ThemePairControl() {
         {modeButton("light", "Light", () => setTheme(themeLight))}
         {modeButton("dark", "Dark", () => setTheme(themeDark))}
       </div>
-      <div className="max-w-[420px] border border-border rounded overflow-hidden">
+      <div className="max-w-[420px]">
         <ThemePickerList
           checkedIds={[themeDark, themeLight]}
           initialSelectedId={theme.id}

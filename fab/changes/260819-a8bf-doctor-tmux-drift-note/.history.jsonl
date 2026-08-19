@@ -1,0 +1,3 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-19T15:24:56Z"}
+{"args":"Doctor drift note: compare on-disk tmux binary vs running server version, suggest restart when newer (W5 follow-up)","cmd":"fab-new","event":"command","ts":"2026-08-19T15:24:56Z"}
+{"delta":"+4.7","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-08-19T15:26:43Z"}

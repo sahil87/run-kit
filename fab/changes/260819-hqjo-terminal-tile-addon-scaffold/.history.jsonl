@@ -1,0 +1,3 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-19T18:47:19Z"}
+{"args":"Scaffold change: pre-land shared addon deps/registration + rk-slot anchors so export/find/progress changes run in parallel","cmd":"fab-new","event":"command","ts":"2026-08-19T18:47:19Z"}
+{"delta":"+4.8","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-08-19T18:48:12Z"}

@@ -12,7 +12,8 @@ Conversational — the same `/fab-discuss` addon-audit session that produced `26
 Key decisions from the discussion:
 
 - **One find grammar product-wide**: the tty find bar deliberately mirrors `260819-ie2i-web-tile-keyboard-find`'s bar (input, n/N counter, ∧/∨, close, Enter/⇧Enter/Esc keys, accent-green active match) so web and terminal find feel like one feature. The user asked for "a find button that acts like the new web search being built (visually)".
-- **Sequenced behind ie2i**: ie2i lands first with the find bar built in place; THIS change extracts that bar into a shared `FindBar` component consumed by both `IframeWindow` and the tty tile. The fallback (build the shared component here and have ie2i consume it) was noted but not planned for.
+- **Sequenced behind ie2i — SATISFIED**: ie2i landed and was archived on 2026-08-19 (its find bar is in `iframe-window.tsx` on main); this change extracts that bar into a shared `FindBar` component consumed by both `IframeWindow` and the tty tile.
+- **Amended 2026-08-20**: execution re-planned from sequential to parallel — this change additionally depends on the scaffold `260819-hqjo-terminal-tile-addon-scaffold` (pre-lands the addon dep/registration + `rk-slot:` anchors) and then runs in parallel with `260819-shqo` and `260819-1vxq`.
 - Entry points: a ⌕ button on the tty tile header (left of the pane segment, beside the ⇩ export button from shqo) + ⌘F while a tty tile owns focus + a palette action.
 - Scope honesty: addon-search searches the **xterm client buffer** (what streamed since attach), not tmux history. This is acceptable because shqo's "Full history" export covers the complete-record case; the find bar does not attempt server-side search.
 
@@ -30,8 +31,8 @@ Extract the find bar ie2i builds inside `iframe-window.tsx` into a shared presen
 
 ### 2. Find on the tty tile
 
-- **Addon**: `@xterm/addon-search@^0.16.0` added to `app/frontend/package.json`, statically imported and registered in `TerminalClient` alongside the existing addons (the static-import rule from the board-route dynamic-import hang).
-- **Bar placement**: a row that appears below the tty tile header when active (the web tile's below-URL-row pattern), mounting the shared `FindBar`.
+- **Addon — PRE-LANDED by the scaffold**: `@xterm/addon-search@^0.16.0` (dep, static import, registration, exposed `searchAddonRef` seam) is landed by `260819-hqjo-terminal-tile-addon-scaffold`; this change only consumes the ref. Do not edit `package.json` or the `terminal-client.tsx` import/registration block.
+- **Bar placement**: a row that appears below the tty tile header when active (the web tile's below-URL-row pattern), mounting the shared `FindBar` at the scaffold's `{/* rk-slot: find-bar-row */}` anchor; the ⌕ header button replaces `{/* rk-slot: find-button */}`. Edit ONLY those anchor lines (parallel siblings own the adjacent ones).
 - **Terminal-native toggles**: two small toggles in the bar, tty consumer only — `Aa` (case sensitive) and `.*` (regex) — mapping to `ISearchOptions.caseSensitive` / `.regex`. The web consumer renders no toggles (its mechanism has no regex support planned in ie2i).
 - **Decorations**: search with `decorations` enabled — match highlights in the buffer plus overview-ruler ticks on the right edge (amber matches, accent-green active match, matching the design study's state 01 and the label-color vocabulary). `findNext`/`findPrevious` drive navigation; `clearDecorations` on close/Escape and on query clear.
 - **Entry points**: ⌕ header button (left of the pane segment; renders active/`on` state while the bar is open) + ⌘F + palette action `Terminal: Find`.
@@ -59,7 +60,7 @@ The bar's key-hint area appends a muted scope note when the search has run: matc
 ## Impact
 
 - **Frontend only**: `app/frontend/src/components/find-bar.tsx` (new), `app/frontend/src/components/iframe-window.tsx` (consume shared bar — extraction refactor), `app/frontend/src/components/surface-layout.tsx` (tty header button + bar row mount), the `TerminalClient` module (addon registration, search wiring, custom key handler), keybindings/palette registries, `app/frontend/package.json`.
-- **Depends on**: `260819-ie2i-web-tile-keyboard-find` landing first (the bar to extract). If ie2i has not landed when this change starts, STOP at apply entry and surface the ordering rather than forking a parallel bar.
+- **Depends on**: `260819-ie2i-web-tile-keyboard-find` (SATISFIED — landed and archived 2026-08-19) and `260819-hqjo-terminal-tile-addon-scaffold` (must be landed; if not, STOP at apply entry and surface the ordering). Runs in parallel with `260819-shqo` and `260819-1vxq`.
 - **Tests**: Vitest for the FindBar contract and the search-option mapping; e2e proving ⌘F opens the bar on a tty tile, finds and navigates matches in real pane output, Escape clears decorations, and the web tile's existing find specs still pass; `.spec.md` companions per constitution.
 
 ## Open Questions
@@ -71,12 +72,12 @@ The bar's key-hint area appends a muted scope note when the search has run: matc
 | # | Grade | Decision | Rationale | Scores |
 |---|-------|----------|-----------|--------|
 | 1 | Certain | Tty find mirrors ie2i's bar via a shared extracted FindBar component; one find grammar product-wide | Discussed — user explicitly asked for find "like the new web search being built (visually)"; design study state 01 approved | S:90 R:80 A:95 D:90 |
-| 2 | Certain | Sequenced behind ie2i; this change extracts, never forks — apply STOPs if ie2i is unlanded | Discussed — agreed ordering (export → find → progress) with ie2i-first extraction | S:85 R:80 A:90 D:85 |
+| 2 | Certain | Extracts ie2i's landed bar, never forks (ie2i archived 2026-08-19); scaffold hqjo must land first, then parallel with shqo/1vxq | Amended 2026-08-20 — ie2i dependency verified satisfied; scaffold owns the shared seams | S:85 R:80 A:90 D:85 |
 | 3 | Certain | Mechanism is @xterm/addon-search with decorations (highlights + overview-ruler ticks) | Discussed and shown in the approved study; the addon is the upstream-standard terminal search | S:85 R:80 A:95 D:90 |
 | 4 | Confident | ⌘F claimed only while a tty tile owns focus, via the existing focused-kind seam + attachCustomKeyEventHandler | Same scoping ie2i assumed for web (its assumption 3); the ttyOnly gate seam already mirrors focused kind | S:60 R:80 A:80 D:75 |
 | 5 | Confident | Aa / regex toggles are tty-only FindBar extras; web consumer renders none | Terminal-native capability the web mechanism lacks; shown in the study; trivially adjustable | S:55 R:90 A:80 D:75 |
 | 6 | Confident | FindBar contract is props-driven with consumer-owned search mechanism | Standard extraction shape; keeps the web/tty mechanisms decoupled behind one UI | S:55 R:85 A:85 D:80 |
 | 7 | Confident | Client-buffer-only scope with a muted hint; no server-side search | Discussed constraint (tmux owns history; shqo covers full record); hint copy deferred to apply | S:60 R:85 A:85 D:80 |
-| 8 | Confident | addon-search imported statically, registered unconditionally | Static-import rule (board-route dynamic-import hang class); passive until used | S:60 R:90 A:85 D:80 |
+| 8 | Confident | addon-search registration is pre-landed by scaffold hqjo; this change consumes the exposed searchAddonRef seam only | Amended 2026-08-20 — the scaffold owns deps/registration so the three siblings can run in parallel | S:60 R:90 A:85 D:80 |
 
 8 assumptions (3 certain, 5 confident, 0 tentative, 0 unresolved).

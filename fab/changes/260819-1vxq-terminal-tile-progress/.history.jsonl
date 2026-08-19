@@ -1,3 +1,4 @@
 {"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-19T18:26:23Z"}
 {"args":"Terminal tile progress line: addon-progress renders OSC 9;4 (passthrough-wrapped) as 2px header line + percent chip","cmd":"fab-new","event":"command","ts":"2026-08-19T18:26:23Z"}
 {"delta":"+4.8","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-08-19T18:27:24Z"}
+{"delta":"+0.0","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-08-19T18:50:37Z"}

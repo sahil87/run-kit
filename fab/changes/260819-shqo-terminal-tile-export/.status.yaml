@@ -32,4 +32,4 @@ stage_metrics:
     intake: {started_at: "2026-08-19T18:22:58Z", driver: fab-new, iterations: 1}
 prs: []
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-19T18:24:30Z
+last_updated: 2026-08-19T18:50:37Z

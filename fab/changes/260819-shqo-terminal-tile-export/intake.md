@@ -5,7 +5,7 @@
 
 ## Origin
 
-Conversational — a `/fab-discuss` session audited the unused @xterm addon catalog against run-kit's terminal tile and produced an approved design study (`terminal-tile-addons-design-study.html`, presented via `rk present`; state 02 covers this change). The user picked three "strong fit" addons for execution; this is the first (no dependencies, ships first per the agreed order: export → find → progress).
+Conversational — a `/fab-discuss` session audited the unused @xterm addon catalog against run-kit's terminal tile and produced an approved design study (`terminal-tile-addons-design-study.html`, presented via `rk present`; state 02 covers this change). The user picked three "strong fit" addons for execution. **Amended 2026-08-20**: execution was re-planned from sequential to parallel — this change now depends only on the scaffold `260819-hqjo-terminal-tile-addon-scaffold` landing first, and runs in parallel with `260819-zqf9` and `260819-1vxq`. The scaffold pre-lands the addon dep/registration and the `rk-slot:` anchor comments this intake references.
 
 > Create the terminal-tile export intake: a ⇩ download button on the tty tile header — addon-serialize for colored HTML snapshots / plain-text transcripts / copy of the client buffer, plus a server-side full-history download via `tmux capture-pane -S -`
 
@@ -25,7 +25,7 @@ Key decisions from the discussion:
 
 ### 1. Export button + menu on the tty tile header
 
-A ⇩ button in the tty tile header in `surface-layout.tsx`, placed **left of the pane segment** (Split H · Split V · Close Pane), mirroring the web tile's ⌕/↗ placement from the sibling chrome study (`260819-v6y4`). Clicking opens a small dropdown menu (existing popup/menu conventions, `.rk-popup-elev`) with two labeled sections:
+A ⇩ button in the tty tile header in `surface-layout.tsx`, placed **left of the pane segment** (Split H · Split V · Close Pane), mirroring the web tile's ⌕/↗ placement from the sibling chrome study (`260819-v6y4`). It replaces the scaffold's `{/* rk-slot: export-button */}` anchor line — edit ONLY that line in the header cluster (parallel siblings own the adjacent anchors). Clicking opens a small dropdown menu (existing popup/menu conventions, `.rk-popup-elev`) with two labeled sections:
 
 ```
 This view — client buffer
@@ -52,9 +52,9 @@ A read endpoint following the chat-backfill shape (window-scoped, `?server=` par
 - The frontend menu row fetches it and triggers the same Blob-download path with a `-full.txt` filename suffix.
 - No caching, no state: pure derive-at-request-time (Constitution II).
 
-### 3. Addon registration
+### 3. Addon registration — PRE-LANDED by the scaffold
 
-`@xterm/addon-serialize@^0.14.0` added to `app/frontend/package.json`; the addon is loaded in `TerminalClient` alongside the existing fit/web-links/webgl/clipboard/unicode-graphemes addons (static import — the board-route dynamic-import hang class is why terminal addons are imported statically). Loaded unconditionally: it is passive (no render cost) until an export is invoked.
+`@xterm/addon-serialize@^0.14.0` (dep, static import, `loadAddon`, exposed `serializeAddonRef` seam) is landed by `260819-hqjo-terminal-tile-addon-scaffold`. This change only CONSUMES the exposed ref for the two client-side rows — it does not touch `package.json` or the `terminal-client.tsx` import/registration block.
 
 ### 4. Palette actions
 
@@ -76,7 +76,8 @@ Per the palette-registration review rule, all rows register as palette actions: 
 
 ## Impact
 
-- **Frontend**: `app/frontend/src/components/surface-layout.tsx` (header button + menu), `app/frontend/src/components/terminal.tsx`-adjacent `TerminalClient` module (addon registration + serialize/buffer-walk helpers), palette action registry, `app/frontend/package.json`.
+- **Frontend**: `app/frontend/src/components/surface-layout.tsx` (header button + menu, at the `rk-slot: export-button` anchor), serialize/buffer-walk helpers in a new module consuming the scaffold's `serializeAddonRef` seam, palette action registry. (`package.json` and `terminal-client.tsx` registration are pre-landed by `260819-hqjo` — do not edit them.)
+- **Depends on**: `260819-hqjo-terminal-tile-addon-scaffold` landed. Runs in parallel with `260819-zqf9` and `260819-1vxq`; touch only your own anchor lines.
 - **Backend**: one new handler file in `api/` (history GET), router registration in `api/router.go`, reusing `internal/tmux` capture helpers if present (else a small addition there).
 - **Tests**: Go handler test (validation, dead-server error path); Vitest unit test for the buffer-walk transcript helper and filename builder; one e2e proving the menu opens and the snapshot download fires (Playwright download event) with sibling `.spec.md` per constitution.
 
@@ -95,6 +96,6 @@ Per the palette-registration review rule, all rows register as palette actions: 
 | 5 | Confident | Transcript (.txt) via buffer-line `translateToString` walk, not `serialize()` | serialize() emits escape sequences — wrong artifact for .txt; buffer walk is the standard xterm approach | S:55 R:85 A:85 D:80 |
 | 6 | Confident | Filenames `{session}-{window}-{YYMMDD-HHmmss}` + `.html` / `.txt` extension, `-full` suffix for the server arm | Unstated detail; any reasonable convention works and is trivially changed | S:50 R:95 A:75 D:70 |
 | 7 | Confident | No new keyboard shortcut for copy/export — menu + palette only | Claimed-key set is deliberately small (keyboard-and-palette tier system); ⌘⇧C-class chords collide with terminal copy conventions | S:55 R:90 A:80 D:75 |
-| 8 | Confident | addon-serialize imported statically and registered unconditionally in TerminalClient | Static-import rule from the board-route dynamic-import hang; the addon is passive until invoked | S:60 R:90 A:85 D:80 |
+| 8 | Confident | addon-serialize registration is pre-landed by scaffold hqjo; this change consumes the exposed serializeAddonRef seam only | Amended 2026-08-20 — the scaffold owns deps/registration so the three siblings can run in parallel | S:60 R:90 A:85 D:80 |
 
 8 assumptions (3 certain, 5 confident, 0 tentative, 0 unresolved).

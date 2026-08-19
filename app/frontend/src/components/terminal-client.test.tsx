@@ -1057,6 +1057,47 @@ describe("TerminalClient Unicode width init", () => {
   });
 });
 
+describe("TerminalClient Option-as-Meta keyboard init", () => {
+  // xterm.js defaults `macOptionIsMeta` to false, which makes macOS treat Option
+  // as a third-level shift: the browser composes Option+P into `π` and those
+  // bytes reach the pty instead of the `ESC p` a Meta-bound CLI keybinding needs.
+  // The symptom itself cannot be reproduced here — composition happens in the
+  // OS/IME layer before any JS event fires — so the constructor option is the
+  // assertable contract.
+  beforeEach(() => {
+    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({
+      matches: false,
+      media: "",
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+    MockStream.instances = [];
+    mockRelayMux.openStream.mockClear();
+    vi.mocked(Terminal).mockClear();
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("constructs the Terminal with macOptionIsMeta enabled", async () => {
+    renderTerminalClient(false);
+
+    await waitFor(() => {
+      expect(vi.mocked(Terminal)).toHaveBeenCalled();
+    });
+
+    const ctorArgs = vi.mocked(Terminal).mock.calls[0]?.[0];
+    expect(ctorArgs?.macOptionIsMeta).toBe(true);
+  });
+});
+
 describe("TerminalClient clickable links (WebLinksAddon handler)", () => {
   // The addon MUST be constructed with an explicit handler. Its default opens
   // a blank window and assigns location.href — inside the desktop shell that

@@ -1,5 +1,5 @@
 ---
-description: "Terminal frontend: RelayMux singleton + TerminalClient port, adaptive write batching, window-switch slide transition, xterm addons, font size preference + bundling, unicode width handling, touch scroll."
+description: "Terminal frontend: RelayMux singleton + TerminalClient port, adaptive write batching, window-switch slide transition, xterm addons, keyboard Option-as-Meta handling, font size preference + bundling, unicode width handling, touch scroll."
 type: memory
 ---
 # run-kit UI — Terminal Frontend
@@ -135,6 +135,12 @@ The addon's default handler opens a window with **no URL** (to get a blank windo
 
 Passing the URI through `window.open` directly makes the two environments agree: identical browser behavior (new tab, opener severed by `noopener,noreferrer` rather than the addon's manual `.opener = null` dance), and the shell's window-open policy receives the real URL and routes it to the system browser. Covered by a unit test in `terminal-client.test.tsx` asserting the addon is constructed *with* a function and that invoking it calls `window.open` with the three-arg idiom; there is no e2e — xterm renders links on a canvas, so link-region clicks are not reliably automatable. (`260730-e9lz`)
 
+### Keyboard: Option as Meta
+
+The xterm `Terminal` in `terminal-client.tsx` is constructed with `macOptionIsMeta: true`. xterm.js's own default for this option is `false`, under which macOS treats Option as a third-level shift: the browser composes an Option+letter keydown into an OS glyph (e.g. Option+P → `π`) before xterm's keyboard handler ever sees it, and that composed character is what gets written to the pty. A CLI's Meta-bound keybinding (e.g. Claude Code's Option+P → `/model`) needs the `ESC`-prefixed sequence instead, so under the default it never fires — the keypress silently does nothing, or inserts a stray glyph into whatever has focus. With `macOptionIsMeta: true`, xterm encodes every Option/Alt + key chord as `ESC` + key uniformly, the same Meta convention standard readline/shell bindings and other CLIs already expect.
+
+This option governs the raw terminal pane's physical-keyboard path only, and shares no code path with two other Alt/Option-adjacent surfaces in the app: the docked compose textarea's `lib/readline-keys.ts`, which intercepts Alt+B/F/D by `event.code` on its own DOM element for word motion, and the bottom bar's Fn-menu `sendSpecial`, which already synthesizes an `ESC`-prefixed Alt for keyboardless coarse-pointer devices with no physical Option key to encode. Neither reads nor is affected by the Terminal constructor's `macOptionIsMeta` setting.
+
 ### Terminal Font Size (user-controllable global preference)
 
 Terminal font size is a **global** user preference owned by `ChromeContext`, not a per-pane or per-window value (`260613-oo89`). The context exposes the **effective** size as `terminalFontSize: number` (what `TerminalClient` reads and the top-bar control displays); the internal preference is stored as `number | null` (null = unset) and persisted to `localStorage["runkit-terminal-font-size"]`. Effective = preference ?? device default — 11px mobile / 13px desktop via the shared `isMobileViewport()` rule (narrow-width OR coarse-pointer, NOT a CSS media query). Bounds 8–24px, step 1, exported as `TERMINAL_FONT_BOUNDS` (`{ min: 8, max: 24, step: 1 }`); all stored values clamped into `[8, 24]` on read. Helpers `clampTerminalFont`/`deviceDefaultFontSize`/`readTerminalFontSize` mirror the `fixedWidth`/`SIDEBAR_WIDTH_BOUNDS` shape.
@@ -221,3 +227,9 @@ The effect gates on `evaluateMediaQuery("(pointer: coarse)")`: the lock preferen
 **Why**: each visual state is an honest, distinct signal — the click flip acknowledges intent, the SSE-derived highlight is the only confirmation, and the slide plays only on confirmed-fast arrival so motion never carries unconfirmed content. A full mask hides the stale bytes outright, so a user cannot read the old window as the new one and type into it.
 **Rejected**: pessimistic navigation (heading/URL wait on SSE — discards the acknowledged-intent signal); a dimmed overlay instead of a full mask (leaves stale bytes legible, so the surface still reads as arrived).
 *Introduced by*: 260715-38kg-window-switch-confirmed-motion
+
+### Global `macOptionIsMeta` over scoped Option+letter interception
+**Decision**: Set `macOptionIsMeta: true` once on the xterm `Terminal()` constructor so every Option/Alt + key chord is Meta-encoded uniformly.
+**Why**: xterm.js's own first-class option for this exact tradeoff — no fork, no version coupling, no reimplementation of xterm's keyboard encoder, and one reversible line. Meta is only useful as a modifier if arbitrary letters reach the program, which is precisely what a uniform flag gives.
+**Rejected**: Enumerating specific Option+letter combos inside the existing `attachCustomKeyEventHandler` (where Cmd+C copy is already special-cased) and emitting `\x1b` + letter manually. It only helps chords the app knows about in advance, so the allowlist would need extending every time a CLI adds a Meta binding, while still leaving the general case broken.
+*Introduced by*: 260819-c9i9-xterm-option-meta-key

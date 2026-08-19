@@ -30,7 +30,16 @@ jobs:
       # internal/sessions integration tests shell out to fab + tmux. fab is not
       # available on the runner, so those cases t.Skip — the rest still run.
       - name: Install tmux
-        run: sudo apt-get update && sudo apt-get install -y tmux
+        # apt has no network timeout by default — a stalled mirror connection
+        # (the recurring azure.archive.ubuntu.com flake) hangs this step until
+        # the 360-minute job timeout. Bound the step and give apt explicit
+        # fetch timeouts + retries so a mirror stall fails in minutes and a
+        # re-run recovers.
+        timeout-minutes: 5
+        run: |
+          APT_OPTS="-o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20"
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y tmux
 
       - name: Run backend tests
         run: just test-backend
@@ -102,7 +111,16 @@ jobs:
       # rk-test-e2e server is naturally isolated between shards — that is what
       # makes sharding (rather than in-process workers) the safe parallelism.
       - name: Install tmux
-        run: sudo apt-get update && sudo apt-get install -y tmux
+        # apt has no network timeout by default — a stalled mirror connection
+        # (the recurring azure.archive.ubuntu.com flake) hangs this step until
+        # the 360-minute job timeout. Bound the step and give apt explicit
+        # fetch timeouts + retries so a mirror stall fails in minutes and a
+        # re-run recovers.
+        timeout-minutes: 5
+        run: |
+          APT_OPTS="-o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20"
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y tmux
 
       # The air binary only changes when its pinned version does — cache it to
       # skip the ~17s source build. Bump the key together with the version in

@@ -540,6 +540,7 @@ func TestTmuxVersionCheckNoteShapes(t *testing.T) {
 		orig := tmuxVersionProbe
 		tmuxVersionProbe = func(context.Context) (tmux.Version, bool) { return v, known }
 		t.Cleanup(func() { tmuxVersionProbe = orig })
+		stubDriftSeams(t, nil, nil)
 	}
 
 	t.Run("at or above floor carries the plain version", func(t *testing.T) {
@@ -582,6 +583,118 @@ func TestTmuxVersionCheckNoteShapes(t *testing.T) {
 	})
 }
 
+// stubDriftSeams substitutes the drift-sweep seams for a test: servers is the
+// enumeration result (nil = no live servers) and versions maps server name to
+// its probed version (a missing key reads as unknown).
+func stubDriftSeams(t *testing.T, servers []string, versions map[string]tmux.Version) {
+	t.Helper()
+	origList, origProbe := tmuxServerList, tmuxServerVersionProbe
+	tmuxServerList = func(context.Context) ([]string, error) { return servers, nil }
+	tmuxServerVersionProbe = func(_ context.Context, server string) (tmux.Version, bool) {
+		v, ok := versions[server]
+		return v, ok
+	}
+	t.Cleanup(func() { tmuxServerList, tmuxServerVersionProbe = origList, origProbe })
+}
+
+// TestTmuxVersionCheckDriftNotes pins the drift-note shapes: a strictly-older
+// running server appends the restart sentence (socket named) after the base
+// note; equal, newer, suffix-only, and unknown server versions contribute
+// nothing; enumeration errors and an unknown binary skip the sweep; the row
+// stays OK in every branch (drift is informational — Constitution VI).
+func TestTmuxVersionCheckDriftNotes(t *testing.T) {
+	stubBinary := func(v tmux.Version, known bool) {
+		orig := tmuxVersionProbe
+		tmuxVersionProbe = func(context.Context) (tmux.Version, bool) { return v, known }
+		t.Cleanup(func() { tmuxVersionProbe = orig })
+	}
+	binary := tmux.Version{Major: 3, Minor: 6, Raw: "3.6a"}
+	driftSentence := func(server, raw string) string {
+		return fmt.Sprintf("tmux 3.6a installed but running server %q is %s — restart your tmux server when convenient to pick it up (kills its sessions; pick a quiet moment)", server, raw)
+	}
+
+	t.Run("older server appends the drift sentence after the plain version", func(t *testing.T) {
+		stubBinary(binary, true)
+		stubDriftSeams(t, []string{"default"}, map[string]tmux.Version{
+			"default": {Major: 3, Minor: 2, Raw: "3.2a"},
+		})
+		c := tmuxVersionCheck()
+		if !c.OK {
+			t.Errorf("drift must never fail the row, got %+v", c)
+		}
+		want := "3.6a; " + driftSentence("default", "3.2a")
+		if c.Note != want {
+			t.Errorf("note = %q, want %q", c.Note, want)
+		}
+	})
+
+	t.Run("only strictly-older servers drift in a mixed sweep", func(t *testing.T) {
+		stubBinary(binary, true)
+		stubDriftSeams(t, []string{"default", "rk-daemon", "rk-fresh"}, map[string]tmux.Version{
+			"default":   {Major: 3, Minor: 6, Raw: "3.6"}, // suffix-only difference — no drift
+			"rk-daemon": {Major: 3, Minor: 2, Raw: "3.2a"},
+			"rk-fresh":  {Major: 4, Minor: 0, Raw: "4.0"}, // server ahead — no drift
+		})
+		c := tmuxVersionCheck()
+		want := "3.6a; " + driftSentence("rk-daemon", "3.2a")
+		if c.Note != want {
+			t.Errorf("note = %q, want %q", c.Note, want)
+		}
+	})
+
+	t.Run("unknown server version is silently skipped", func(t *testing.T) {
+		stubBinary(binary, true)
+		stubDriftSeams(t, []string{"default"}, nil)
+		c := tmuxVersionCheck()
+		if c.Note != "3.6a" {
+			t.Errorf("note = %q, want the plain version %q", c.Note, "3.6a")
+		}
+	})
+
+	t.Run("enumeration error leaves the base note unchanged", func(t *testing.T) {
+		stubBinary(binary, true)
+		stubDriftSeams(t, nil, nil)
+		origList := tmuxServerList
+		tmuxServerList = func(context.Context) ([]string, error) { return nil, fmt.Errorf("socket dir unreadable") }
+		t.Cleanup(func() { tmuxServerList = origList })
+		c := tmuxVersionCheck()
+		if !c.OK || c.Note != "3.6a" {
+			t.Errorf("enumeration error must degrade to the base note, got %+v", c)
+		}
+	})
+
+	t.Run("unknown binary version skips the sweep entirely", func(t *testing.T) {
+		stubBinary(tmux.Version{}, false)
+		origList := tmuxServerList
+		tmuxServerList = func(context.Context) ([]string, error) {
+			t.Error("server enumeration must not run when the binary version is unknown")
+			return nil, nil
+		}
+		t.Cleanup(func() { tmuxServerList = origList })
+		c := tmuxVersionCheck()
+		if !c.OK || c.Note != "" {
+			t.Errorf("unknown binary must keep today's empty-note row, got %+v", c)
+		}
+	})
+
+	t.Run("drift appends after the below-floor upgrade message", func(t *testing.T) {
+		below := tmux.Version{Major: 3, Minor: 3, Raw: "3.3"}
+		stubBinary(below, true)
+		stubDriftSeams(t, []string{"default"}, map[string]tmux.Version{
+			"default": {Major: 3, Minor: 1, Raw: "3.1"},
+		})
+		c := tmuxVersionCheck()
+		if !c.OK {
+			t.Errorf("below-floor + drift must stay OK, got %+v", c)
+		}
+		want := tmux.UpgradeHint(runtime.GOOS, exec.LookPath, "3.3") +
+			"; " + fmt.Sprintf("tmux 3.3 installed but running server %q is %s — restart your tmux server when convenient to pick it up (kills its sessions; pick a quiet moment)", "default", "3.1")
+		if c.Note != want {
+			t.Errorf("note = %q, want %q", c.Note, want)
+		}
+	})
+}
+
 // TestTmuxVersionCheckNoteSurvivesJSON proves the --json report carries the
 // version via the check's existing `note` field.
 func TestTmuxVersionCheckNoteSurvivesJSON(t *testing.T) {
@@ -590,6 +703,7 @@ func TestTmuxVersionCheckNoteSurvivesJSON(t *testing.T) {
 		return tmux.Version{Major: 3, Minor: 6, Raw: "3.6a"}, true
 	}
 	t.Cleanup(func() { tmuxVersionProbe = orig })
+	stubDriftSeams(t, nil, nil)
 
 	data, err := json.Marshal(doctorReport{OK: true, Checks: []doctorCheck{tmuxVersionCheck()}})
 	if err != nil {

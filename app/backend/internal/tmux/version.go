@@ -24,10 +24,13 @@ const (
 	FloorString = "3.4"
 )
 
-// versionPattern matches release-build `tmux -V` output: `tmux 3.2a`,
-// `tmux 3.4` — a major.minor token with an optional letter suffix. Anything
-// else (`tmux next-3.7`, vendor formats) does not match and reads as unknown.
-var versionPattern = regexp.MustCompile(`^tmux ((\d+)\.(\d+)[a-z]*)$`)
+// versionTokenPattern matches a release version token: `3.2a`, `3.4` — a
+// major.minor pair with an optional letter suffix. Anything else (`next-3.7`,
+// `3.2a-3ubuntu1`, vendor formats) does not match and reads as unknown. The
+// single grammar behind both entry shapes: `tmux -V` client output (prefix
+// stripped by ParseVersion) and the bare `#{version}` format variable
+// (parseVersionToken directly, via ServerVersion).
+var versionTokenPattern = regexp.MustCompile(`^(\d+)\.(\d+)[a-z]*$`)
 
 // Version is a parsed tmux release version.
 type Version struct {
@@ -45,20 +48,40 @@ func (v Version) BelowFloor() bool {
 	return v.Major < FloorMajor || (v.Major == FloorMajor && v.Minor < FloorMinor)
 }
 
+// OlderThan reports whether v is strictly older than other by major.minor
+// ordering. Letter suffixes are ignored — a suffix-only difference (3.2 vs
+// 3.2a) is NOT older. This is the drift predicate: the doctor drift note
+// fires only when the on-disk binary is strictly newer than a running server.
+func (v Version) OlderThan(other Version) bool {
+	return v.Major < other.Major || (v.Major == other.Major && v.Minor < other.Minor)
+}
+
 // ParseVersion parses `tmux -V` output. The bool is false for anything that
 // is not a plain release string — non-release output is "unknown", never an
 // error, so callers never warn or block on a parse.
 func ParseVersion(output string) (Version, bool) {
-	m := versionPattern.FindStringSubmatch(strings.TrimSpace(output))
+	token, ok := strings.CutPrefix(strings.TrimSpace(output), "tmux ")
+	if !ok {
+		return Version{}, false
+	}
+	return parseVersionToken(token)
+}
+
+// parseVersionToken parses a bare version token (`3.2a`) against the shared
+// release grammar. Same unknown semantics as ParseVersion: false, never an
+// error.
+func parseVersionToken(token string) (Version, bool) {
+	token = strings.TrimSpace(token)
+	m := versionTokenPattern.FindStringSubmatch(token)
 	if m == nil {
 		return Version{}, false
 	}
-	major, err1 := strconv.Atoi(m[2])
-	minor, err2 := strconv.Atoi(m[3])
+	major, err1 := strconv.Atoi(m[1])
+	minor, err2 := strconv.Atoi(m[2])
 	if err1 != nil || err2 != nil {
 		return Version{}, false
 	}
-	return Version{Major: major, Minor: minor, Raw: m[1]}, true
+	return Version{Major: major, Minor: minor, Raw: token}, true
 }
 
 // CurrentVersion probes the tmux on PATH (through the tmux-guard shim to the
@@ -72,4 +95,20 @@ func CurrentVersion(ctx context.Context) (Version, bool) {
 		return Version{}, false
 	}
 	return ParseVersion(string(out))
+}
+
+// ServerVersion probes a RUNNING tmux server's version via the `#{version}`
+// format variable (the server's version — unlike `tmux -V`, which reports the
+// on-disk client binary). Callers must target only servers already confirmed
+// live (ListServers): a tmux client command on a dead socket can resurrect a
+// server. The ctx is caller-owned per the runner-core contract. Any failure —
+// dead socket, timeout, no sessions, non-release output — is unknown:
+// (Version{}, false), never an error.
+func ServerVersion(ctx context.Context, server string) (Version, bool) {
+	args := append(serverArgs(server), "display-message", "-p", "#{version}")
+	out, err := RunOutput(ctx, args, RunOpts{})
+	if err != nil {
+		return Version{}, false
+	}
+	return parseVersionToken(string(out))
 }

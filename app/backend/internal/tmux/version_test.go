@@ -50,6 +50,73 @@ func TestParseVersion(t *testing.T) {
 	}
 }
 
+// TestParseVersionToken pins the bare-token grammar consumed by the
+// `#{version}` server probe — no `tmux ` prefix, same unknown semantics.
+func TestParseVersionToken(t *testing.T) {
+	cases := []struct {
+		token     string
+		wantOK    bool
+		wantMajor int
+		wantMinor int
+		wantRaw   string
+	}{
+		{"3.2a", true, 3, 2, "3.2a"},
+		{"3.4", true, 3, 4, "3.4"},
+		{"4.0", true, 4, 0, "4.0"},
+		{"3.4\n", true, 3, 4, "3.4"},
+		{"next-3.7", false, 0, 0, ""},
+		{"3.2a-3ubuntu1", false, 0, 0, ""},
+		{"tmux 3.4", false, 0, 0, ""},
+		{"", false, 0, 0, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.token, func(t *testing.T) {
+			v, ok := parseVersionToken(tc.token)
+			if ok != tc.wantOK {
+				t.Fatalf("parseVersionToken(%q) ok = %v, want %v", tc.token, ok, tc.wantOK)
+			}
+			if ok && (v.Major != tc.wantMajor || v.Minor != tc.wantMinor || v.Raw != tc.wantRaw) {
+				t.Errorf("parseVersionToken(%q) = %+v, want %d.%d raw %q", tc.token, v, tc.wantMajor, tc.wantMinor, tc.wantRaw)
+			}
+		})
+	}
+}
+
+// TestVersionOlderThan pins the drift predicate: strict major.minor ordering,
+// suffixes ignored, one-directional (a newer server never reads as drift).
+func TestVersionOlderThan(t *testing.T) {
+	v := func(major, minor int) Version { return Version{Major: major, Minor: minor} }
+	cases := []struct {
+		name      string
+		a, b      Version
+		wantOlder bool
+	}{
+		{"minor older", v(3, 2), v(3, 5), true},
+		{"major older", v(2, 9), v(3, 0), true},
+		{"equal", v(3, 4), v(3, 4), false},
+		{"suffix-only difference is not older", Version{Major: 3, Minor: 2, Raw: "3.2"}, Version{Major: 3, Minor: 2, Raw: "3.2a"}, false},
+		{"server ahead is not older", v(3, 5), v(3, 4), false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.a.OlderThan(tc.b); got != tc.wantOlder {
+				t.Errorf("%d.%d OlderThan %d.%d = %v, want %v", tc.a.Major, tc.a.Minor, tc.b.Major, tc.b.Minor, got, tc.wantOlder)
+			}
+		})
+	}
+}
+
+// TestServerVersion_ProbeFailureIsUnknown mirrors the CurrentVersion probe
+// contract for the server-side probe: a failed exec is unknown, never an
+// error. A pre-canceled context fails immediately, so no real tmux is needed.
+func TestServerVersion_ProbeFailureIsUnknown(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, ok := ServerVersion(ctx, "rk-nonexistent-probe"); ok {
+		t.Error("ServerVersion with a canceled ctx must report unknown")
+	}
+}
+
 // TestCurrentVersion_ProbeFailureIsUnknown proves a failed probe (tmux
 // present but `-V` errors/times out) yields unknown rather than propagating
 // an error — unknown never warns and never blocks. A pre-canceled context

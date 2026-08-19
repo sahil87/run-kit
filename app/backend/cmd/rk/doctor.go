@@ -29,6 +29,14 @@ var doctorJSON bool
 // drive the below-floor / unknown branches without a real tmux.
 var tmuxVersionProbe = tmux.CurrentVersion
 
+// tmuxServerList / tmuxServerVersionProbe are the seams for the drift sweep
+// (live-server enumeration + per-server version probe) — tests substitute
+// them to drive every drift branch without live tmux servers.
+var (
+	tmuxServerList         = tmux.ListServers
+	tmuxServerVersionProbe = tmux.ServerVersion
+)
+
 // doctorCheck is one dependency check in the --json report. `ok` is the pass
 // flag; `hint` carries the remediation string on failure (empty when ok);
 // `note` carries informational state on a passing check (e.g. an optional
@@ -88,7 +96,9 @@ func runDoctorChecks() doctorReport {
 // the plain version at/above the floor, the shared below-floor message below
 // it (WARN-shaped — the row stays OK, mirroring the code-server precedent;
 // doctor is the detail view, not the enforcement point), and no note for an
-// unknown version (never block on a parse). --json carries the note verbatim.
+// unknown version (never block on a parse). When the binary version is known,
+// drift sentences for running servers still executing an older version are
+// appended (see tmuxDriftNotes). --json carries the note verbatim.
 func tmuxVersionCheck() doctorCheck {
 	check := doctorCheck{Name: "tmux", OK: true}
 	ctx, cancel := context.WithTimeout(context.Background(), tmux.TmuxTimeout)
@@ -102,7 +112,37 @@ func tmuxVersionCheck() doctorCheck {
 	} else {
 		check.Note = v.Raw
 	}
+	check.Note = strings.Join(append([]string{check.Note}, tmuxDriftNotes(v)...), "; ")
 	return check
+}
+
+// tmuxDriftNotes sweeps the live tmux servers and returns one drift sentence
+// per server still executing a version strictly older than the on-disk binary
+// — an upgrade replaces the binary but never the running servers, and that
+// latency is invisible without this note. Informational only, doctor-only,
+// and never a restart (Constitution VI: the timing is the user's call — the
+// sentence names the cost). Only servers ListServers confirmed live are
+// probed (a tmux command on a dead socket can resurrect a server); every
+// failure — enumeration error, unknown server version — degrades to a silent
+// skip, so drift can never fail or block the row.
+func tmuxDriftNotes(binary tmux.Version) []string {
+	ctx, cancel := context.WithTimeout(context.Background(), tmux.TmuxTimeout)
+	defer cancel()
+	servers, err := tmuxServerList(ctx)
+	if err != nil {
+		return nil
+	}
+	var notes []string
+	for _, server := range servers {
+		probeCtx, probeCancel := context.WithTimeout(context.Background(), tmux.TmuxTimeout)
+		sv, ok := tmuxServerVersionProbe(probeCtx, server)
+		probeCancel()
+		if !ok || !sv.OlderThan(binary) {
+			continue
+		}
+		notes = append(notes, fmt.Sprintf("tmux %s installed but running server %q is %s — restart your tmux server when convenient to pick it up (kills its sessions; pick a quiet moment)", binary.Raw, server, sv.Raw))
+	}
+	return notes
 }
 
 // dialTCP is the production reachability probe for the code-server doctor row:

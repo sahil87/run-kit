@@ -114,7 +114,7 @@ Destination: `fab/changes/260819-lrm8-universal-flair-catalogue-refresh/assets/`
 
 ## Affected Memory
 
-- `run-kit/ui/visual-design`: (modify) row textures + character flair overlays — flair vocabulary grows to 7 named states; naruto/onepiece sprite redraws; roadrunner cadence/photosensitivity note; reduced-motion enumeration.
+- `run-kit/ui/visual-design`: (modify) row textures + character flair overlays — flair vocabulary grows to 10 named states; naruto/onepiece sprite redraws; roadrunner cadence/photosensitivity note; reduced-motion enumeration.
 - `run-kit/tmux-sessions`: (modify) `@rk_flair` entry in the `@rk_*` user-option registry — accepted value set grows.
 
 ## Impact

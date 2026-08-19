@@ -19,42 +19,6 @@ export const HELP_URL = "https://shll.ai/run-kit";
 export const NOTIFICATIONS_HELP_URL =
   "https://github.com/sahil87/run-kit/blob/main/docs/site/notifications.md";
 
-/** The three theme-mode glyphs (monitor / sun / moon), keyed by the effective
- *  mode — the same SVGs the retired top-bar ThemeToggle carried. */
-export function ThemeModeIcon({ mode }: { mode: "system" | "light" | "dark" }) {
-  if (mode === "system") {
-    return (
-      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-        <rect x="1" y="2" width="14" height="9" rx="1" fill="none" stroke="currentColor" strokeWidth="1.5" />
-        <line x1="5" y1="14" x2="11" y2="14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-        <line x1="8" y1="11" x2="8" y2="14" stroke="currentColor" strokeWidth="1.5" />
-      </svg>
-    );
-  }
-  if (mode === "light") {
-    return (
-      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-        <circle cx="8" cy="8" r="3" />
-        <g stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-          <line x1="8" y1="1" x2="8" y2="2.5" />
-          <line x1="8" y1="13.5" x2="8" y2="15" />
-          <line x1="1" y1="8" x2="2.5" y2="8" />
-          <line x1="13.5" y1="8" x2="15" y2="8" />
-          <line x1="3.05" y1="3.05" x2="4.11" y2="4.11" />
-          <line x1="11.89" y1="11.89" x2="12.95" y2="12.95" />
-          <line x1="3.05" y1="12.95" x2="4.11" y2="11.89" />
-          <line x1="11.89" y1="4.11" x2="12.95" y2="3.05" />
-        </g>
-      </svg>
-    );
-  }
-  return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-      <path d="M6 2a6 6 0 1 0 8 8c-3.3 0-6-2.7-6-6a6 6 0 0 0-2-2z" />
-    </svg>
-  );
-}
-
 /** Question-mark help glyph — the retired top-bar HelpLink's SVG. */
 export function HelpIcon() {
   return (

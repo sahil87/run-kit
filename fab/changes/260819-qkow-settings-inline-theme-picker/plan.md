@@ -54,7 +54,7 @@ The inline surface SHALL live-preview on hover/keyboard navigation and revert vi
 ### Non-Goals
 
 - No backend/API/persistence changes — `/api/settings/theme`, `theme-context.tsx`, and `themes.ts` are consumed as-is
-- No change to the modal's entry points, palette quick-switch actions, or the chevron-menu Theme… row
+- No change to the palette's theme actions (quick-switch + "Theme: Select Theme" opening the modal)
 - No new themes, palette derivation, or tmux-side theme work (`docs/specs/themes.md` contracts untouched)
 
 ### Design Decisions
@@ -84,6 +84,7 @@ The inline surface SHALL live-preview on hover/keyboard navigation and revert vi
 - [x] T004 [P] Update `app/frontend/src/components/settings-dialog.test.tsx`: replace select assertions with inline-picker assertions (search filter, dual checkmarks, click-confirm → `setTheme`, Escape preview-cancel does not close the dialog, mode buttons intact) <!-- R6 -->
 - [x] T005 [P] Update `app/frontend/tests/e2e/settings-dialog.spec.ts` (the `getByLabel("Dark theme")` assertion → inline picker) and its `settings-dialog.spec.md` companion in the same commit <!-- R6 -->
 - [x] T006 Collapse the inline picker at rest: `collapsible` prop on `ThemePickerList` — a trigger button showing the active theme opens the search field + popover list (close on commit/Escape/focus-leave; trigger refocus on keyboard/commit closes; mousedown-preventDefault on the list so option clicks don't blur-close it first), settings passes it; unit + e2e + `.spec.md` updated <!-- R3 -->
+- [x] T007 Remove the chevron menu's App-section Theme… row: drop the `theme` registry entry in `top-bar.tsx`, delete `ThemeMenuRow` (`top-bar-overflow-menu.tsx`) and the now-consumerless `ThemeModeIcon` (`global-chrome.tsx`); update `top-bar.test.tsx` + e2e `top-bar-overflow` / `mobile-layout` specs and `.spec.md` companions <!-- R3 -->
 
 ## Acceptance
 
@@ -112,6 +113,7 @@ The inline surface SHALL live-preview on hover/keyboard navigation and revert vi
 - [x] A-009 No unnecessary duplication: The picker UI exists exactly once (the core); neither consumer re-implements filtering, grouping, nav, or swatches
 - [x] A-010 Comment discipline: No comment narration; comments state only constraints the code can't show (per code-quality.md anti-patterns)
 - [x] A-011 R3: The inline picker is collapsed at rest — a trigger naming the active theme opens the search-field popover, closing on commit, Escape, and focus leave (unit + e2e covered)
+- [x] A-012 R3: The top-bar chevron menu carries no Theme… row (`ThemeMenuRow` and `ThemeModeIcon` removed with no dead code); the modal stays reachable via the palette's "Theme: Select Theme" (unit + e2e covered)
 
 ## Notes
 

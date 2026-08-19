@@ -191,9 +191,9 @@ interface SurfaceLayoutProps {
   onRatioCommit?: () => void;
   /** ⏶ Zoom palette seam (T012/R11): zoom stays INTERNAL transient state (R6),
    *  but the palette's `Layout: Zoom`/`Unzoom` entries must observe and
-   *  trigger it. The component registers a slot-A zoom toggle into this ref
-   *  (cleared on unmount) and reports zoom flips via `onZoomChange` so the
-   *  palette list rebuilds. */
+   *  trigger it. The component registers a FOCUSED-slot zoom toggle into this
+   *  ref (260819-qwr7 R7 — cleared on unmount) and reports zoom flips via
+   *  `onZoomChange` so the palette list rebuilds. */
   zoomToggleRef?: React.MutableRefObject<(() => void) | null>;
   onZoomChange?: (zoomed: boolean) => void;
   /** Focused-tile reporting (260812-wfic R2): fired with the focused slot's
@@ -523,18 +523,9 @@ export function SurfaceLayout({
   }, [layout.order.length]);
   const zoomed = zoomedIndex !== null;
 
-  // Zoom palette seam (T012/R11): register the slot-A toggle for the parent's
-  // `Layout: Zoom`/`Unzoom` palette entries and report flips so those entries
-  // rebuild. The toggle is a no-op on single layouts (the clearing effect
-  // above immediately unsets an index that no longer fits).
-  useEffect(() => {
-    if (!zoomToggleRef) return;
-    zoomToggleRef.current = () =>
-      setZoomedIndex((z) => (z === null ? 0 : null));
-    return () => {
-      zoomToggleRef.current = null;
-    };
-  }, [zoomToggleRef]);
+  // Zoom flip reporting for the palette seam (T012/R11): the `Layout: Zoom`/
+  // `Unzoom` entries rebuild on every flip. The toggle registration itself
+  // lives below the focused-slot state (it reads the focused slot).
   useEffect(() => {
     onZoomChange?.(zoomed);
   }, [zoomed, onZoomChange]);
@@ -611,6 +602,26 @@ export function SurfaceLayout({
   useEffect(() => {
     if (focusedKind) reportFocusedKind(focusedKind);
   }, [focusedKind, reportFocusedKind]);
+
+  // Zoom palette/chord seam (T012/R11 + 260819-qwr7 R7): register the toggle
+  // for the parent's `Layout: Zoom`/`Unzoom` palette entries and the ⇧⌘⏎
+  // zen chord (flips report via the `onZoomChange` effect above, so those
+  // entries rebuild). The toggle zooms the FOCUSED slot (R7: the chord acts
+  // on the tile the user is in) and is a no-op on single layouts (the
+  // clearing effect above immediately unsets an index that no longer fits).
+  // Declared after the focused-slot state — the toggle reads it via a ref.
+  const focusedSlotRef = useRef(focusedSlot);
+  focusedSlotRef.current = focusedSlot;
+  useEffect(() => {
+    if (!zoomToggleRef) return;
+    zoomToggleRef.current = () =>
+      setZoomedIndex((z) =>
+        z === null ? Math.min(focusedSlotRef.current, layout.order.length - 1) : null,
+      );
+    return () => {
+      zoomToggleRef.current = null;
+    };
+  }, [zoomToggleRef, layout.order.length]);
 
   // Palette focus seam (R10): `Tile: Focus <Surface>` routes through this
   // ref — focus the FIRST slot of the given kind (duplicate tty tiles: slot A

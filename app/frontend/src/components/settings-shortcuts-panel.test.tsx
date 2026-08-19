@@ -88,22 +88,25 @@ describe("SettingsShortcutsPanel", () => {
     expect(screen.getAllByText("⇧").length).toBeGreaterThan(0);
   });
 
-  it("mac display renders the switcher locked row as ⌥⌘ and drops the server digit claims (260731-nv5r)", () => {
+  it("mac display renders the switcher locked row as ⌥⌘, Win·Linux as Alt; neither display carries server digit claims (260731-nv5r)", () => {
     renderPanel();
-    // Win·Linux display (jsdom default): the switcher row uses Shift+Ctrl
-    // caps — no ⌥ anywhere — and the shifted tier map claims the switcher
-    // digits as "server" (Digit1/2/9 have their own cells; 3–8 sit in the
-    // decorative ellipsis).
+    // Win·Linux display (jsdom default): the switcher locked row uses Alt
+    // caps — no ⌥ anywhere, and no Shift/Ctrl pair on that row — while the
+    // shifted tier map carries NO "server" digit claims: the switcher's
+    // Alt+1–9 sits outside every tier (the mac ⌥⌘ precedent), so claims
+    // data dropped the rows.
     expect(screen.queryByText("⌥")).toBeNull();
-    expect(screen.getAllByTitle("server").length).toBeGreaterThan(0);
+    expect(screen.getByText("Alt")).toBeInTheDocument();
+    expect(screen.queryAllByTitle("server")).toHaveLength(0);
     fireEvent.click(screen.getByText("macOS"));
     // The switcher row diverges to ⌥⌘1…9 (the mac shell tier) — the only ⌥
     // keycap in the panel — while Force reload keeps the shared ⇧⌘ caps.
     expect(screen.getAllByText("⌥").length).toBe(1);
     expect(screen.getAllByText("⇧").length).toBeGreaterThan(0);
     expect(screen.getByText("Switch to server 1–9")).toBeInTheDocument();
-    // The mac shifted map carries no shell "server" digit claims: Digit1/2/9
-    // render free (the 3/4/5 screenshot claims live inside the ellipsis run).
+    // The mac shifted map carries no shell "server" digit claims either:
+    // Digit1/2/9 render free (the 3/4/5 screenshot claims live inside the
+    // ellipsis run).
     expect(screen.queryAllByTitle("server")).toHaveLength(0);
   });
 
@@ -370,9 +373,10 @@ describe("SettingsShortcutsPanel host-divergence row facts (260801-r8j2)", () =>
       expect(screen.getByText("in desktop app: ⌘W")).toBeInTheDocument();
       expect(screen.getByText("in desktop app: ⌘,")).toBeInTheDocument();
       // The amber reserved pill coexists on the browser-reserved rows — N/T/W
-      // only: settings-open's mac-browser default is the unclaimed ⇧⌘, (the
-      // browser Comma claim sits on the unshifted cmd tier).
-      expect(screen.getAllByText("browser")).toHaveLength(3);
+      // plus the three surface digits (⌘1/2/3 are the browser's tab
+      // accelerators): settings-open's mac-browser default is the unclaimed
+      // ⇧⌘, (the browser Comma claim sits on the unshifted cmd tier).
+      expect(screen.getAllByText("browser")).toHaveLength(6);
     } finally {
       unspoofMacHost();
     }

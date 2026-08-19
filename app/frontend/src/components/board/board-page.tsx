@@ -32,6 +32,7 @@ import { useBoardPaneReorder } from "@/hooks/use-board-pane-reorder";
 import { computeMoveNeighbors, focusedIndexForKey, shouldFocusPane } from "@/lib/board-reorder";
 import { isWaiting } from "@/lib/waiting";
 import { withShortcutHints, formatCombo } from "@/lib/keybindings";
+import { runComposeToggleChord } from "@/lib/compose-strip-events";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import { useKeybindingDispatch } from "@/hooks/use-keybinding-dispatch";
@@ -299,7 +300,7 @@ function BoardPageContent({ name }: { name: string }) {
     [reorder],
   );
 
-  // Chrome dispatch — lifted above the keybinding handlers so the ⇧⌘E
+  // Chrome dispatch — lifted above the keybinding handlers so the ⌘I/⇧Ctrl+E
   // compose-toggle chord (260801-sm6g) and the palette memos below can consume
   // it (also feeds the sidebar toggle).
   const { sidebarOpen, composeStripEnabled, scrollLocked } = useChromeState();
@@ -308,12 +309,13 @@ function BoardPageContent({ name }: { name: string }) {
   // Keyboard chords (260730-g40a): the pane-cycle ⌘[/⌘] pair migrated into
   // the keybinding registry (`board-cycle-prev`/`board-cycle-next`, combos
   // unchanged, per-device rebindable), joined by the global shifted-tier
-  // back/forward + shortcuts-overlay chords and the ⇧⌘E compose toggle
-  // (260801-sm6g — the board twin mounts the same handler as AppShell; the
-  // terminal-scoped ⇧⌘O open-last-used chord has no board handler and falls
-  // through). One dispatcher mount per route shell — AppShell mounts its own;
-  // the two never co-mount. A missing handler (no panes) falls through
-  // untouched, matching the old `entries.length === 0` early-return.
+  // back/forward + shortcuts-overlay chords and the ⌘I/⇧Ctrl+E compose chord
+  // (260801-sm6g — the board twin mounts the same stateful handler as
+  // AppShell; the terminal-scoped ⇧⌘O open-last-used chord has no board
+  // handler and falls through). One dispatcher mount per route shell —
+  // AppShell mounts its own; the two never co-mount. A missing handler (no
+  // panes) falls through untouched, matching the old `entries.length === 0`
+  // early-return.
   const { byAction: bindingByAction, host: bindingHost } = useKeybindings();
   // Settings dialog trigger (o7q8) — the dialog mounts once in AppLayout; the
   // board twin registers both the chord handler (below) and the palette
@@ -338,14 +340,20 @@ function BoardPageContent({ name }: { name: string }) {
       // `onSelect` through the merged palette list (the fromPalette
       // convention) — the same toggle the chord and palette entry share.
       "shortcuts-overlay": paletteGlobals.find((a) => a.id === "shortcuts-overlay")?.onSelect,
-      "compose-toggle": toggleComposeStrip,
+      // Stateful compose chord (R6) — the shared three-arm body
+      // (`runComposeToggleChord`): off → toggle on (focus-on-open focuses the
+      // textarea); on + textarea unfocused → focus, with a focuser decline
+      // (disabled no-target state) falling back to the toggle so the chord
+      // never dead-presses; on + focused → toggle off (closing is lossless
+      // via the draft store).
+      "compose-toggle": () => runComposeToggleChord(composeStripEnabled, toggleComposeStrip),
       // ⇧⌘,/⌘, settings (260801-mqim) — the board twin mounts the same
       // shared-context opener as AppShell (the board route renders no
       // AppShell, so a handler registered only there would leave the chord
       // dead here); a re-fire while the dialog is open is a no-op.
       "settings-open": openSettings,
     };
-  }, [entries.length, router, paletteGlobals, toggleComposeStrip, openSettings]);
+  }, [entries.length, router, paletteGlobals, toggleComposeStrip, composeStripEnabled, openSettings]);
   useKeybindingDispatch(boardKeyHandlers);
 
   // Drag-resize state — separate from the persisted widths; live during drag.

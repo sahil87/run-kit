@@ -57,7 +57,7 @@ import type { ShellHostMenuRow } from "@/lib/shell-strip";
  * back to `location.hostname` (older shell, denial, no active entry). When
  * the bridge answers a non-empty host list, the label is the host-switcher
  * dropdown trigger (`<name> ▾`, 260731-4bqi) — the mouse-secondary companion
- * to the ⌥⌘1–9 / ⇧Ctrl+1–9 accelerators and the palette's `Server: Switch
+ * to the ⌥⌘1–9 / Alt+1–9 accelerators and the palette's `Server: Switch
  * to` block (Constitution V keeps the keyboard paths primary). Selecting a
  * host hands off to the shell's `switchToHost` seam (a full page swap with
  * lastPath restore), so there is no optimistic UI. On an older shell without
@@ -74,7 +74,7 @@ import type { ShellHostMenuRow } from "@/lib/shell-strip";
  * the row model), an amber `● N` waiting-agent count on BACKGROUND rows
  * (the active host's attention surface is the dock badge), and manual
  * reorder — a hover drag grip (commit-on-drop) plus ⌥↑/⌥↓ while the menu is
- * open (one move per keypress). Order IS the ⌥⌘1–9/⇧Ctrl+1–9 accelerator
+ * open (one move per keypress). Order IS the ⌥⌘1–9/Alt+1–9 accelerator
  * map, so reordering re-numbers the hints live; the shell rebuilds its
  * native menu on each committed move. All three ride the optional
  * `reorder` invoker / additive projection fields — an older shell renders

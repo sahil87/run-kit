@@ -76,7 +76,7 @@ describe("useKeybindingDispatch", () => {
     expect(toggle).toHaveBeenCalledTimes(1);
   });
 
-  it("compose-toggle (⇧⌘E) closes the strip from its own focused textarea (260801-sm6g)", () => {
+  it("compose-toggle (⌘I mac / ⇧Ctrl+E) closes the strip from its own focused textarea (260801-sm6g)", () => {
     // The compose strip is a plain <textarea> — exactly what shouldSuppressChord
     // gates. compose-toggle carries ignoreInputs so the chord can CLOSE the
     // strip while the user is typing in it; this pins that end-to-end through

@@ -5,6 +5,7 @@ import { CommandPalette, type PaletteAction } from "@/components/command-palette
 import { ChromeProvider } from "@/contexts/chrome-context";
 import { SettingsDialogProvider, useSettingsDialog } from "@/contexts/settings-dialog-context";
 import { ToastProvider } from "@/components/toast";
+import { registerSidebarRowFocuser } from "@/lib/sidebar-events";
 
 /**
  * Tests for the layout-level global palette groups (260811-239r) — the hook
@@ -71,6 +72,7 @@ describe("useGlobalPaletteActions", () => {
   afterEach(() => {
     cleanup();
     localStorage.clear();
+    vi.unstubAllGlobals();
   });
 
   it("builds the global groups in the canonical relative order (nav → font → refresh → help → shortcuts → settings)", () => {
@@ -178,5 +180,47 @@ describe("useGlobalPaletteActions", () => {
 
     act(() => byId.get("panel-toggle-boards")?.onSelect());
     expect(localStorage.getItem("runkit-sidebar-section-boards")).toBe("false");
+  });
+
+  it("Sidebar: Toggle flips the persisted visibility; Sidebar: Focus is the show+focus arm", () => {
+    // jsdom ships no rAF without pretendToBeVisual — run the deferred focus
+    // synchronously (the logo-spinner/terminal-client stub precedent).
+    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
+      cb(0);
+      return 0;
+    });
+    renderHook();
+    const fire = (id: string) => captured.find((a) => a.id === id)?.onSelect();
+    const byId = new Map(captured.map((a) => [a.id, a]));
+    expect(byId.get("sidebar-toggle")?.label).toBe("Sidebar: Toggle");
+    expect(byId.get("sidebar-focus")?.label).toBe("Sidebar: Focus");
+    // The id = actionId join decorates Toggle with the effective sidebar
+    // chord; Focus (id ≠ actionId) carries no hint.
+    expect(byId.get("sidebar-toggle")?.shortcut).toBeTruthy();
+    expect(byId.get("sidebar-focus")?.shortcut).toBeUndefined();
+
+    // Toggle flips the persisted boolean both ways (jsdom default: open).
+    act(() => fire("sidebar-toggle"));
+    expect(localStorage.getItem("runkit-sidebar-open")).toBe("false");
+    act(() => fire("sidebar-toggle"));
+    expect(localStorage.getItem("runkit-sidebar-open")).toBe("true");
+
+    // Focus on a visible sidebar routes through the registered row focuser
+    // without touching visibility.
+    const focus = vi.fn(() => true);
+    const unregister = registerSidebarRowFocuser(focus);
+    act(() => fire("sidebar-focus"));
+    expect(focus).toHaveBeenCalledOnce();
+    expect(localStorage.getItem("runkit-sidebar-open")).toBe("true");
+
+    // Focus on a hidden sidebar opens it first, then focuses on the deferred
+    // frame (the focuser registers on the sidebar's mount).
+    focus.mockClear();
+    act(() => fire("sidebar-toggle")); // hide
+    expect(localStorage.getItem("runkit-sidebar-open")).toBe("false");
+    act(() => fire("sidebar-focus"));
+    expect(localStorage.getItem("runkit-sidebar-open")).toBe("true");
+    expect(focus).toHaveBeenCalledOnce();
+    unregister();
   });
 });

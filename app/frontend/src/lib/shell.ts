@@ -208,7 +208,7 @@ export function canReorderShellHosts(): boolean {
 
 /**
  * Move a host to `toIndex` in the shell's host list — the switcher menu's
- * order IS the ⌥⌘1–9/⇧Ctrl+1–9 accelerator map, so the shell rebuilds its
+ * order IS the ⌥⌘1–9/Alt+1–9 accelerator map, so the shell rebuilds its
  * native menu on commit. Resolves `false` in a plain browser, on an older
  * shell whose `servers` group lacks the `reorder` invoker, or when the shell
  * rejects/denies the call. Never throws.

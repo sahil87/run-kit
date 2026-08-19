@@ -16,10 +16,10 @@
  *                                 not rearrange the layout.
  *  - `Tile: Hide <Surface>`     — per open kind; omitted on a `single` layout
  *                                 (hiding the last tile is disallowed, R7).
- *  - `Layout: Zoom` / `Layout: Unzoom` — the transient slot-A zoom toggle
- *                                 (desktop multi-tile only; R6 keeps zoom out
- *                                 of URL/localStorage). Exactly one renders,
- *                                 keyed on the caller's `zoomed` state.
+ *  - `Layout: Zoom` / `Layout: Unzoom` — the transient focused-slot zoom
+ *                                 toggle (desktop multi-tile only; R6 keeps
+ *                                 zoom out of URL/localStorage). Exactly one
+ *                                 renders, keyed on the caller's `zoomed` state.
  *  - `Layout: Promote <Surface>` / `Layout: Swap <Surface>` — per open kind
  *                                 (promote of slot A is a no-op, so it's
  *                                 omitted; swap-with-next always wraps).
@@ -43,7 +43,7 @@
  *                                 is degenerate (a `single` layout cycles to
  *                                 itself).
  *
- * The `code-toggle` chord (⌘J/⇧Ctrl+J) toggles the code surface's tile; that
+ * The `code-toggle` chord (⌘2/⇧Ctrl+2) toggles the code surface's tile; that
  * surface's Show/Hide entry carries its effective combo
  * (`toggleTarget`/`toggleShortcut`) so the chord stays discoverable (the
  * retired `Panel: Code` hint precedent).
@@ -141,8 +141,9 @@ export function buildLayoutActions(
     }
   }
 
-  // Zoom / Unzoom — the transient slot-A toggle (R6): no URL/localStorage
-  // change. Exactly one form renders, keyed on the live zoom state.
+  // Zoom / Unzoom — the transient focused-slot toggle (R6; 260819-qwr7 R7):
+  // no URL/localStorage change. Exactly one form renders, keyed on the live
+  // zoom state.
   if (opts.zoomEnabled) {
     actions.push(
       opts.zoomed

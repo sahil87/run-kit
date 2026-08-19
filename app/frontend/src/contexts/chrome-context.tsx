@@ -254,9 +254,10 @@ export function ChromeProvider({ children }: { children: React.ReactNode }) {
       const next = !prev;
       // OPEN transition (off→on): mark the focus-on-open flag so the strip's
       // mount effect focuses its textarea (260801-sm6g — every open path
-      // funnels through this toggle: `>_` chip, palette, ⇧⌘E chord, drag-drop
-      // enable, board twin). Idempotent, so StrictMode's double-invoked
-      // updater is harmless. Route remounts never call this → never focus.
+      // funnels through this toggle: `>_` chip, palette, ⌘I/⇧Ctrl+E chord,
+      // drag-drop enable, board twin). Idempotent, so StrictMode's
+      // double-invoked updater is harmless. Route remounts never call this →
+      // never focus.
       if (!prev) markComposeStripFocusOnOpen();
       try { localStorage.setItem(COMPOSE_STRIP_STORAGE_KEY, String(next)); } catch { /* noop */ }
       return next;

@@ -74,18 +74,23 @@ describe("DEFAULT_BINDINGS integrity", () => {
       "shortcuts-overlay": "Slash",
       "settings-open": "Comma",
       "sidebar-toggle": "KeyB",
-      "code-toggle": "KeyJ",
+      "tty-toggle": "Digit1",
+      "code-toggle": "Digit2",
+      "web-toggle": "Digit3",
+      "zen-toggle": "Enter",
       "focus-hop": "Backquote",
     });
   });
 
-  it("compose-toggle: ⇧⌘E, global, ignoreInputs, no mac demotion (260801-sm6g)", () => {
+  it("compose-toggle: ⇧Ctrl+E base / ⌘I mac refinement, global, ignoreInputs", () => {
     const def = DEFAULT_BINDINGS.find((b) => b.actionId === "compose-toggle");
-    // Full-row equality: the ⇧⌘E row is a do-not-move constraint.
+    // Full-row equality: the compose row is a do-not-move constraint.
     expect(def).toEqual({
       actionId: "compose-toggle",
       code: "KeyE",
       tier: "shifted",
+      macCode: "KeyI",
+      macTier: "cmd",
       scope: "global",
       kind: "builtin",
       label: "Compose text",
@@ -93,14 +98,31 @@ describe("DEFAULT_BINDINGS integrity", () => {
       mapLabel: "compose",
       ignoreInputs: true,
     });
-    expect(def?.macTier).toBeUndefined();
-    // Shifted everywhere — mac hosts included (no demotion; ⌘E is browser
-    // find-selection territory).
-    for (const host of ALL_HOSTS) {
+    // ⌘I in BOTH mac hosts (no macShellOnly — unshifted ⌘E is browser
+    // find-selection territory on mac, so the demotion rides macCode).
+    for (const host of [SHELL_MAC, BROWSER_MAC]) {
+      expect(byId(resolved(host), "compose-toggle")).toMatchObject({
+        code: "KeyI",
+        tier: "cmd",
+        enabled: true,
+        isDefault: true,
+      });
+      expect(
+        findMatches(chord({ code: "KeyI", metaKey: true }), resolved(host)).map((b) => b.actionId),
+      ).toEqual(["compose-toggle"]);
+      // ⇧⌘E is gone on mac — the refinement moved the default off KeyE.
+      expect(
+        findMatches(chord({ code: "KeyE", metaKey: true, shiftKey: true }), resolved(host)),
+      ).toEqual([]);
+    }
+    // Win/Linux unchanged: ⇧Ctrl+E (I is the win/linux devtools claim — the
+    // mac refinement is what spends KeyI).
+    for (const host of [SHELL_OTHER, BROWSER_OTHER]) {
       expect(byId(resolved(host), "compose-toggle")).toMatchObject({
         code: "KeyE",
         tier: "shifted",
         enabled: true,
+        isDefault: true,
       });
     }
   });
@@ -237,11 +259,12 @@ describe("DEFAULT_BINDINGS integrity", () => {
     });
   });
 
-  it("code-toggle: the J keycap — ⌘J on mac in BOTH hosts, ⇧Ctrl+J on Win/Linux", () => {
+  it("surface digits: tty/code/web on Digit1/2/3 — ⌘ on mac, ⇧Ctrl on Win/Linux; ⌘J retired outright", () => {
     const def = DEFAULT_BINDINGS.find((b) => b.actionId === "code-toggle");
+    // Full-row equality: the recoded row keeps its shape, code aside.
     expect(def).toEqual({
       actionId: "code-toggle",
-      code: "KeyJ",
+      code: "Digit2",
       tier: "shifted",
       macTier: "cmd",
       scope: "terminal",
@@ -250,27 +273,113 @@ describe("DEFAULT_BINDINGS integrity", () => {
       description: "open/close the code tile",
       mapLabel: "code",
     });
-    for (const host of [SHELL_MAC, BROWSER_MAC]) {
-      expect(byId(resolved(host), "code-toggle")).toMatchObject({
-        code: "KeyJ",
+    // No KeyJ row or refinement remains anywhere in the registry.
+    expect(DEFAULT_BINDINGS.some((b) => b.code === "KeyJ" || b.macCode === "KeyJ")).toBe(false);
+    for (const [id, code, mapLabel] of [
+      ["tty-toggle", "Digit1", "tty"],
+      ["web-toggle", "Digit3", "web"],
+    ] as const) {
+      expect(DEFAULT_BINDINGS.find((b) => b.actionId === id)).toMatchObject({
+        actionId: id,
+        code,
+        tier: "shifted",
+        macTier: "cmd",
+        scope: "terminal",
+        kind: "builtin",
+        mapLabel,
+      });
+    }
+    // Mac shell: the ⌘ tier, enabled and default.
+    for (const [id, code] of [
+      ["tty-toggle", "Digit1"],
+      ["code-toggle", "Digit2"],
+      ["web-toggle", "Digit3"],
+    ] as const) {
+      expect(byId(resolved(SHELL_MAC), id)).toMatchObject({
+        code,
         tier: "cmd",
         enabled: true,
         isDefault: true,
       });
-    }
-    for (const host of [SHELL_OTHER, BROWSER_OTHER]) {
-      expect(byId(resolved(host), "code-toggle")).toMatchObject({
-        code: "KeyJ",
+      expect(byId(resolved(SHELL_OTHER), id)).toMatchObject({
+        code,
         tier: "shifted",
         enabled: true,
         isDefault: true,
       });
-      // ⇧Ctrl+J matches ONLY code-toggle (⌘. stayed with view-cycle).
+      expect(byId(resolved(BROWSER_OTHER), id)).toMatchObject({
+        code,
+        tier: "shifted",
+        enabled: true,
+        isDefault: true,
+      });
+    }
+    // Mac browser: ⌘1–9 are the browser's tab accelerators (the cmd-tier
+    // claims) — all three resolve reserved and stay palette-reachable.
+    for (const id of ["tty-toggle", "code-toggle", "web-toggle"]) {
+      expect(byId(resolved(BROWSER_MAC), id)).toMatchObject({
+        tier: "cmd",
+        enabled: false,
+        disabledReason: "reserved",
+      });
+    }
+    // Dispatch: ⇧Ctrl+2 matches ONLY code-toggle on win/linux; ⌘2 the same in
+    // the mac shell.
+    expect(
+      findMatches(chord({ code: "Digit2", shiftKey: true, ctrlKey: true }), resolved(SHELL_OTHER)).map(
+        (b) => b.actionId,
+      ),
+    ).toEqual(["code-toggle"]);
+    expect(
+      findMatches(chord({ code: "Digit2", metaKey: true }), resolved(SHELL_MAC)).map(
+        (b) => b.actionId,
+      ),
+    ).toEqual(["code-toggle"]);
+    // The retired ⌘J/⇧Ctrl+J chords match nothing on any host.
+    for (const host of ALL_HOSTS) {
+      expect(findMatches(chord({ code: "KeyJ", metaKey: true }), resolved(host))).toEqual([]);
       expect(
-        findMatches(chord({ code: "KeyJ", shiftKey: true, ctrlKey: true }), resolved(host)).map(
-          (b) => b.actionId,
-        ),
-      ).toEqual(["code-toggle"]);
+        findMatches(chord({ code: "KeyJ", shiftKey: true, ctrlKey: true }), resolved(host)),
+      ).toEqual([]);
+    }
+  });
+
+  it("zen-toggle: Enter, shifted on BOTH platforms, terminal scope, ignoreInputs", () => {
+    const def = DEFAULT_BINDINGS.find((b) => b.actionId === "zen-toggle");
+    expect(def).toEqual({
+      actionId: "zen-toggle",
+      code: "Enter",
+      tier: "shifted",
+      scope: "terminal",
+      kind: "builtin",
+      label: "Toggle zen mode",
+      description: "zoom the focused tile",
+      ignoreInputs: true,
+    });
+    for (const host of ALL_HOSTS) {
+      expect(byId(resolved(host), "zen-toggle")).toMatchObject({
+        code: "Enter",
+        tier: "shifted",
+        enabled: true,
+        isDefault: true,
+      });
+    }
+    // ⇧⌘⏎ / ⇧Ctrl+Enter match zen-toggle alone — exact-modifier matching
+    // keeps the chord disjoint from the classifier-owned ⌘Enter/Ctrl+Enter
+    // compose-submit chords (no registry row; they never carry Shift).
+    expect(
+      findMatches(chord({ code: "Enter", metaKey: true, shiftKey: true }), resolved(SHELL_MAC)).map(
+        (b) => b.actionId,
+      ),
+    ).toEqual(["zen-toggle"]);
+    expect(
+      findMatches(chord({ code: "Enter", ctrlKey: true, shiftKey: true }), resolved(SHELL_OTHER)).map(
+        (b) => b.actionId,
+      ),
+    ).toEqual(["zen-toggle"]);
+    for (const host of ALL_HOSTS) {
+      expect(findMatches(chord({ code: "Enter", metaKey: true }), resolved(host))).toEqual([]);
+      expect(findMatches(chord({ code: "Enter", ctrlKey: true }), resolved(host))).toEqual([]);
     }
   });
 
@@ -345,6 +454,75 @@ describe("DEFAULT_BINDINGS integrity", () => {
 
   it("keeps ⌘K firing in inputs (ignoreInputs) — byte-identical migration", () => {
     expect(byId(resolved(), "command-palette").ignoreInputs).toBe(true);
+  });
+});
+
+describe("palette parity invariant", () => {
+  // Palette lists are runtime-built, so this static map mirrors them: every
+  // DEFAULT_BINDINGS actionId resolves to palette entry id(s) — either the
+  // entry whose id IS the actionId (the `withShortcutHints` join) or a
+  // documented equivalence. Equivalences (entry id ≠ actionId):
+  //   compose-toggle ⇄ text-input ("View: Text Input" — the strip toggle body)
+  //                    + compose-focus ("Compose: Focus" — the show+focus arm,
+  //                    added with the palette gap-fill phase)
+  //   code-toggle    ⇄ tile-show-code / tile-hide-code
+  //   tty-toggle     ⇄ tile-show-tty / tile-hide-tty / tile-focus-tty
+  //   web-toggle     ⇄ tile-show-web / tile-hide-web / tile-focus-web
+  //   zen-toggle     ⇄ layout-zoom / layout-unzoom ("Layout: Zoom"/"Unzoom")
+  //   focus-hop      ⇄ tile-focus-tty / tile-focus-code
+  //   view-cycle     ⇄ the View: <lens> destinations (view-tty / view-web /
+  //                    view-code — the `buildViewActions` id shape)
+  // window-prev / window-next resolve to "Window: Previous" / "Window: Next"
+  // and sidebar-toggle to "Sidebar: Toggle" (ids = actionIds, so the chord
+  // hints attach) + sidebar-focus ("Sidebar: Focus") — all added with the
+  // palette gap-fill phase; the map names them ahead of their runtime rows.
+  const PALETTE_RESOLUTIONS: Record<string, readonly string[]> = {
+    "create-session": ["create-session"], // Session: Create
+    "create-window": ["create-window"], // Window: Create
+    "kill-window": ["kill-window"], // Window: Close
+    "compose-toggle": ["text-input", "compose-focus"],
+    "open-last-used": ["open-last-used"], // Open: Last used
+    "split-horizontal": ["split-horizontal"], // Window: Split Horizontal
+    "split-vertical": ["split-vertical"], // Window: Split Vertical
+    "window-prev": ["window-prev"],
+    "window-next": ["window-next"],
+    "go-back": ["go-back"], // Go: Back
+    "go-forward": ["go-forward"], // Go: Forward
+    "agent-next-waiting": ["agent-next-waiting"], // Agent: Next waiting
+    "shortcuts-overlay": ["shortcuts-overlay"], // Help: Keyboard Shortcuts
+    "settings-open": ["settings-open"], // Settings: Open
+    "sidebar-toggle": ["sidebar-toggle", "sidebar-focus"],
+    "code-toggle": ["tile-show-code", "tile-hide-code"],
+    "tty-toggle": ["tile-show-tty", "tile-hide-tty", "tile-focus-tty"],
+    "web-toggle": ["tile-show-web", "tile-hide-web", "tile-focus-web"],
+    "zen-toggle": ["layout-zoom", "layout-unzoom"],
+    "focus-hop": ["tile-focus-tty", "tile-focus-code"],
+    "view-cycle": ["view-tty", "view-web", "view-code"],
+    "web-find": ["web-find"], // Web: Find in page (260819-ie2i)
+    "web-address": ["web-address"], // Web: Focus address bar (260819-v6y4)
+    "layout-cycle": ["layout-cycle"], // Layout: Cycle Shape
+    "board-cycle-next": ["board-cycle-next"], // Board: pane cycle →
+    "board-cycle-prev": ["board-cycle-prev"], // Board: pane cycle ←
+  };
+
+  // Documented no-entry cases: a binding whose action cannot live in the
+  // palette at all, with the reason.
+  const PALETTE_EXEMPT: Record<string, string> = {
+    // The palette's own opener — no entry can open the list it lives in; the
+    // palette mount reads the binding itself for its local ⌘K listener.
+    "command-palette": "the palette cannot list its own opener",
+  };
+
+  it("every DEFAULT_BINDINGS actionId resolves to a palette entry or a documented equivalence", () => {
+    for (const b of DEFAULT_BINDINGS) {
+      const entries = PALETTE_RESOLUTIONS[b.actionId];
+      const exempt = PALETTE_EXEMPT[b.actionId];
+      expect(
+        entries ?? exempt,
+        `${b.actionId} has no palette entry and no equivalence-map row — add one to PALETTE_RESOLUTIONS or document an exemption`,
+      ).toBeDefined();
+      if (entries) expect(entries.length, `${b.actionId} maps to no palette entry`).toBeGreaterThan(0);
+    }
   });
 });
 
@@ -457,8 +635,8 @@ describe("claimedKeys", () => {
       .filter((c) => c.tier === tier)
       .map((c) => c.code);
 
-  it("claims the shifted switcher digits on win/linux only + R everywhere, I/C/V on win-linux, Q on mac (260731-nv5r)", () => {
-    // Mac: the switcher moved to ⌥⌘1–9 (outside every tier), so the shifted
+  it("shifted claims: R everywhere, I/C/V win-linux, Q mac, mac screenshots — NO digit claims on any host", () => {
+    // Mac: the switcher lives on ⌥⌘1–9 (outside every tier), so the shifted
     // tier carries NO shell digit claims — only the 3/4/5 screenshot system
     // claims below. Freed ⇧⌘1/2/6–9 are unclaimed future page real estate.
     const mac = codes("mac", true, "shifted");
@@ -470,15 +648,16 @@ describe("claimedKeys", () => {
     expect(mac).toContain("KeyQ");
     expect(mac).not.toContain("KeyI");
     expect(mac).not.toContain("KeyC");
-    // Win/linux: the nine shell-owned switcher digits stay, unchanged.
+    // Win/linux: the switcher moved to Alt+1–9, likewise outside every tier
+    // (Alt is no tier — the mac ⌥⌘ precedent), so the shifted digit claims
+    // are gone with no replacement rows; the surface digits 1/2/3 now bind.
     const other = codes("other", true, "shifted");
-    expect(other).toEqual(
-      expect.arrayContaining(["Digit1", "Digit9", "KeyR", "KeyI", "KeyC", "KeyV"]),
-    );
+    expect(other).toEqual(expect.arrayContaining(["KeyR", "KeyI", "KeyC", "KeyV"]));
+    expect(other.filter((c) => c.startsWith("Digit"))).toEqual([]);
     expect(other).not.toContain("KeyQ");
   });
 
-  it("mac ⇧⌘3/4/5 screenshot claims are system-owned and apply in both hosts; win/linux digits stay shell-owned (260731-nv5r)", () => {
+  it("mac ⇧⌘3/4/5 screenshot claims are system-owned and apply in both hosts; win/linux carries no shifted digit claims", () => {
     for (const shell of [true, false]) {
       const screenshots = claimedKeys("mac", shell).filter(
         (c) => c.tier === "shifted" && c.label === "screenshot",
@@ -488,8 +667,7 @@ describe("claimedKeys", () => {
       const otherDigits = claimedKeys("other", shell).filter(
         (c) => c.tier === "shifted" && c.code.startsWith("Digit"),
       );
-      expect(otherDigits).toHaveLength(9);
-      expect(otherDigits.every((c) => c.owner === "shell" && c.label === "server")).toBe(true);
+      expect(otherDigits).toHaveLength(0);
     }
   });
 
@@ -518,7 +696,15 @@ describe("claimedKeys", () => {
     const macBrowserCmd = claimedKeys("mac", false).filter((c) => c.tier === "cmd");
     const browserOwned = macBrowserCmd.filter((c) => c.owner === "browser").map((c) => c.code);
     expect(browserOwned).toEqual(
-      expect.arrayContaining(["KeyN", "KeyT", "KeyW", "Digit1", "Digit9"]),
+      expect.arrayContaining([
+        "KeyN", "KeyT", "KeyW",
+        // The full ⌘1–9 tab-digit set — this is what resolves the surface
+        // digit bindings (tty/code/web) reserved in a mac browser. KeyL is
+        // deliberately absent: ⌘L is web-address's page-interceptable chord
+        // (260819-v6y4), no longer a browser claim.
+        "Digit1", "Digit2", "Digit3", "Digit4", "Digit5",
+        "Digit6", "Digit7", "Digit8", "Digit9",
+      ]),
     );
     // ⌘L is NOT claimed (260819-v6y4): page-interceptable (the ⌘D/⌘J class),
     // and web-address's webOnly gate preserves the browser address bar
@@ -537,7 +723,7 @@ describe("claimedKeys", () => {
     expect(codes("other", false, "cmd")).toEqual([]);
   });
 
-  it("claims nothing on KeyB / KeyJ / Backquote in any tier or host (the VS Code-aligned keycaps stay free)", () => {
+  it("claims nothing on KeyB / KeyJ / Backquote in any tier or host (the aligned and retired keycaps stay free)", () => {
     for (const platform of ["mac", "other"] as const) {
       for (const shell of [true, false]) {
         const claimed = claimedKeys(platform, shell).map((c) => c.code);
@@ -761,6 +947,58 @@ describe("applyCapture (steal-with-warning)", () => {
       SHELL_OTHER,
     );
     expect(overrides).toEqual({});
+  });
+
+  it("own-default recapture follows the moved codes: ⌘2/⌘I on mac, ⇧Ctrl+2 on win/linux", () => {
+    // code-toggle recoded to Digit2 — re-capturing its new host default drops
+    // the diff entry and steals from nobody on both platform families.
+    const prior = { "code-toggle": { code: "KeyU", tier: "shifted" as const } };
+    const mac = applyCapture(
+      resolveBindings(DEFAULT_BINDINGS, prior, SHELL_MAC),
+      prior,
+      "code-toggle",
+      { code: "Digit2", tier: "cmd" },
+      SHELL_MAC,
+    );
+    expect(mac).toEqual({ overrides: {}, stolenFrom: null });
+    const other = applyCapture(
+      resolveBindings(DEFAULT_BINDINGS, prior, SHELL_OTHER),
+      prior,
+      "code-toggle",
+      { code: "Digit2", tier: "shifted" },
+      SHELL_OTHER,
+    );
+    expect(other).toEqual({ overrides: {}, stolenFrom: null });
+    // The OLD default is a genuine rebind now: ⇧Ctrl+J stores a diff.
+    const oldChord = applyCapture(
+      resolveBindings(DEFAULT_BINDINGS, {}, SHELL_OTHER),
+      {},
+      "code-toggle",
+      { code: "KeyJ", tier: "shifted" },
+      SHELL_OTHER,
+    );
+    expect(oldChord.stolenFrom).toBeNull();
+    expect(oldChord.overrides).toEqual({ "code-toggle": { code: "KeyJ", tier: "shifted" } });
+    // compose-toggle's macCode refinement: ⌘I is its mac own-default; the old
+    // ⇧⌘E (its win/linux default) is NOT its mac default — a real diff there.
+    const composePrior = { "compose-toggle": { code: "KeyU", tier: "shifted" as const } };
+    const composeMac = applyCapture(
+      resolveBindings(DEFAULT_BINDINGS, composePrior, SHELL_MAC),
+      composePrior,
+      "compose-toggle",
+      { code: "KeyI", tier: "cmd" },
+      SHELL_MAC,
+    );
+    expect(composeMac).toEqual({ overrides: {}, stolenFrom: null });
+    const composeOld = applyCapture(
+      resolveBindings(DEFAULT_BINDINGS, {}, SHELL_MAC),
+      {},
+      "compose-toggle",
+      { code: "KeyE", tier: "shifted" },
+      SHELL_MAC,
+    );
+    expect(composeOld.stolenFrom).toBeNull();
+    expect(composeOld.overrides).toEqual({ "compose-toggle": { code: "KeyE", tier: "shifted" } });
   });
 
   it("own-default detection is host-aware: ⌘/ is shortcuts-overlay's mac default (260730-n789)", () => {
@@ -1519,16 +1757,16 @@ describe("hasReclaimableMatch — the lens-iframe reclaim carve-out (260812-wfic
   });
 
   it("the code toggle and focus hop reclaim from inside the code iframe (toggle symmetry / ⌃` preemption)", () => {
-    // ⌘J (code-toggle's mac default) and ⌃` (focus-hop's ctrl tier) match
+    // ⌘2 (code-toggle's mac default) and ⌃` (focus-hop's ctrl tier) match
     // non-gated bindings, so a keydown inside the code-server iframe
     // re-dispatches to the parent — preempting code-server's own ⌃`
-    // integrated-terminal toggle. ⇧Ctrl+J reclaims off mac the same way.
+    // integrated-terminal toggle. ⇧Ctrl+2 reclaims off mac the same way.
     const mac = resolved(SHELL_MAC);
-    expect(hasReclaimableMatch(chord({ code: "KeyJ", metaKey: true }), mac, "code")).toBe(true);
+    expect(hasReclaimableMatch(chord({ code: "Digit2", metaKey: true }), mac, "code")).toBe(true);
     expect(hasReclaimableMatch(chord({ code: "Backquote", ctrlKey: true }), mac, "code")).toBe(true);
     expect(
       hasReclaimableMatch(
-        chord({ code: "KeyJ", shiftKey: true, ctrlKey: true }),
+        chord({ code: "Digit2", shiftKey: true, ctrlKey: true }),
         resolved(SHELL_OTHER),
         "code",
       ),

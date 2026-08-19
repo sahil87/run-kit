@@ -146,11 +146,12 @@ export const KEYBINDINGS_STORAGE_KEY = "runkit-keybindings";
  * decide per-route applicability by handler presence.
  *
  * macOS demotions (260730-n789 — letters constant, modifier varies; the split
- * pair's `macCode` is the one deliberate code exception): [/]// and the
- * VS Code-aligned B/J pair default to the unshifted ⌘ tier on every mac host
- * (interceptable in browsers — ⌘B bold and mac Chrome's ⌘J Downloads panel
- * are the same class as the shipped ⌘[/⌘]/⌘/ and ⌘D interceptions, not
- * reserved like ⌘N/T/W); N/T/W and , demote only inside
+ * pair's and compose-toggle's `macCode`s are the deliberate code exceptions):
+ * [/]// and the VS Code-aligned ⌘B sidebar keycap default to the unshifted ⌘
+ * tier on every mac host (interceptable in browsers — ⌘B bold is
+ * the same class as the shipped ⌘[/⌘]/⌘/ and ⌘D interceptions, not
+ * reserved like ⌘N/T/W); the positional surface digits (⌘1 tty / ⌘2 code /
+ * ⌘3 web) and ⌘I compose demote the same way. N/T/W and , demote only inside
  * the desktop shell (`macShellOnly` — mac browsers reserve N/T/W even
  * shifted, so those stay palette-only there; ⌘, is browser Preferences, so
  * settings keeps the shifted default outside the shell). H/L/A stay
@@ -166,18 +167,23 @@ export const KEYBINDINGS_STORAGE_KEY = "runkit-keybindings";
  *
  * `KeyP` is deliberately unbound on EVERY tier — reserved for a future
  * create/open-PR action (the Conductor ⇧⌘P convention). Do not spend it.
+ * The ⇧⌘digit layer is likewise reserved on mac for future positional tile
+ * jumps (the ⇧⌘P precedent) — partial there: ⇧⌘3/4/5 stay macOS system
+ * screenshot claims (MAC_SCREENSHOT_CLAIMS below).
  */
 export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // — run-kit shifted tier (global) —
   { actionId: "create-session", code: "KeyN", tier: "shifted", macTier: "cmd", macShellOnly: true, scope: "global", kind: "builtin", label: "New session", description: "create a tmux session", mapLabel: "new session" },
   { actionId: "create-window", code: "KeyT", tier: "shifted", macTier: "cmd", macShellOnly: true, scope: "global", kind: "builtin", label: "New window", description: "tab-analog in current session", mapLabel: "new window" },
   { actionId: "kill-window", code: "KeyW", tier: "shifted", macTier: "cmd", macShellOnly: true, scope: "global", kind: "builtin", label: "Close window", description: "confirm flow", mapLabel: "close win" },
-  // ⇧⌘E compose toggle (260801-sm6g): E is free on both platforms (C is the
-  // win/linux terminal-copy claim, T is create-window, I is win/linux
-  // devtools). No macTier demotion — ⌘E is browser "use selection for find"
-  // territory on mac. ignoreInputs lets the chord CLOSE the strip while its
-  // own textarea has focus.
-  { actionId: "compose-toggle", code: "KeyE", tier: "shifted", scope: "global", kind: "builtin", label: "Compose text", description: "toggle the compose strip", mapLabel: "compose", ignoreInputs: true },
+  // ⇧Ctrl+E compose base / ⌘I mac refinement (macCode + macTier — the
+  // split-pair precedent, one host gate refining code and tier together). E
+  // stays the win/linux keycap: C is the terminal-copy claim, T is
+  // create-window, I is the devtools claim. Unshifted ⌘E is browser "use
+  // selection for find" territory on mac, so the demotion rides a different
+  // letter. ignoreInputs lets the chord CLOSE the strip while its own
+  // textarea has focus.
+  { actionId: "compose-toggle", code: "KeyE", tier: "shifted", macCode: "KeyI", macTier: "cmd", scope: "global", kind: "builtin", label: "Compose text", description: "toggle the compose strip", mapLabel: "compose", ignoreInputs: true },
   // ⇧⌘O open-last-used (260801-sm6g): re-runs the Open split-button's primary
   // (last-used) target. Terminal scope — the Open control is
   // terminal-route-only; the board/server routes mount no handler.
@@ -219,13 +225,24 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // Win/Linux the shifted tier keeps plain Ctrl+B with the pane (readline
   // back-char / nested-tmux prefix).
   { actionId: "sidebar-toggle", code: "KeyB", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Toggle sidebar", mapLabel: "sidebar" },
-  // ⌘J/⇧Ctrl+J code-editor toggle — VS Code's ⌘J panel keycap for the
-  // code surface (run-kit's secondary panel). Same demotion class as ⌘B
-  // above: mac Chrome's ⌘J Downloads accelerator is preventDefault-
-  // interceptable, so no macShellOnly and no claimed-keys entry on KeyJ.
-  // Terminal scope: the tile exists only on window routes (handler presence
-  // gates).
-  { actionId: "code-toggle", code: "KeyJ", tier: "shifted", macTier: "cmd", scope: "terminal", kind: "builtin", label: "Toggle code editor", description: "open/close the code tile", mapLabel: "code" },
+  // Positional surface digits — ⌘1/2/3 on mac, ⇧Ctrl+1/2/3 on win/linux —
+  // toggle the tty/code/web tiles in tile order. Same demotion class as ⌘B
+  // (page-interceptable, no macShellOnly). In a mac BROWSER the cmd-tier
+  // Digit1–9 tab claims (MAC_BROWSER_CMD_CLAIMS below) resolve all three
+  // reserved — palette-reachable only there. The win/linux digits were freed
+  // by the shell switcher's move to Alt+1–9, outside every tier (the mac ⌥⌘
+  // precedent — Alt is no tier). Terminal scope: the tiles exist only on
+  // window routes (handler presence gates).
+  { actionId: "tty-toggle", code: "Digit1", tier: "shifted", macTier: "cmd", scope: "terminal", kind: "builtin", label: "Toggle terminal", description: "open/close the tty tile", mapLabel: "tty" },
+  { actionId: "code-toggle", code: "Digit2", tier: "shifted", macTier: "cmd", scope: "terminal", kind: "builtin", label: "Toggle code editor", description: "open/close the code tile", mapLabel: "code" },
+  { actionId: "web-toggle", code: "Digit3", tier: "shifted", macTier: "cmd", scope: "terminal", kind: "builtin", label: "Toggle web view", description: "open/close the web tile", mapLabel: "web" },
+  // ⇧⌘⏎/⇧Ctrl+Enter zen toggle — shifted on BOTH platforms (no macTier):
+  // exact-modifier matching keeps the chord disjoint from the
+  // classifier-owned ⌘Enter/Ctrl+Enter compose-submit chords, which never
+  // carry Shift. Enter is free in every claim set. ignoreInputs: the chord
+  // must fire from the compose textarea. No mapLabel — Enter has no keycap
+  // cell in the overlay grids (the Backquote precedent).
+  { actionId: "zen-toggle", code: "Enter", tier: "shifted", scope: "terminal", kind: "builtin", label: "Toggle zen mode", description: "zoom the focused tile", ignoreInputs: true },
   // ⌃`/⇧Ctrl+` tty↔code focus hop — VS Code's ⌃` gesture. The FIRST shipped
   // ctrl-tier default (mac only: plain Ctrl belongs to the pane on Win/Linux,
   // so the base tier there is shifted and `macTier` does the demotion; the
@@ -282,20 +299,6 @@ export type ClaimedKey = {
   /** Restrict to one keycap platform; absent = both. */
   platform?: BindingPlatform;
 };
-
-/** The shell's Hosts-switcher digit claims — WIN/LINUX ONLY (⇧Ctrl+1–9). On
- *  mac the switcher moved to ⌥⌘1–9 (260731-nv5r: ⇧⌘3/4/5 are macOS
- *  system-wide screenshot shortcuts that intercept before menu accelerators),
- *  and Option is deliberately not a tier, so the mac claim is unrepresentable
- *  here — which is the point of the move: ⌥⌘ is territory the page can never
- *  claim or capture. */
-const SHELL_SWITCHER_DIGITS: ClaimedKey[] = Array.from({ length: 9 }, (_, i) => ({
-  code: `Digit${i + 1}`,
-  tier: "shifted" as const,
-  label: "server",
-  owner: "shell" as const,
-  platform: "other" as const,
-}));
 
 /** macOS system-wide screenshot shortcuts ⇧⌘3/4/5 — like the ⇧⌘Q logout row,
  *  they apply on both shell and browser hosts (screenshots are system-wide).
@@ -357,9 +360,10 @@ const MAC_BROWSER_CMD_CLAIMS: ClaimedKey[] = [
 
 /**
  * The claimed keys for a host, per tier. Shifted tier: shell claims (menu
- * accelerators: ⇧Ctrl+1–9 switcher + ⇧Ctrl+I devtools on win/linux ONLY —
- * the mac switcher lives on ⌥⌘1–9, outside every tier (260731-nv5r) —
- * ⇧CmdOrCtrl+R force reload everywhere) and system claims (⇧⌘Q macOS
+ * accelerators: ⇧Ctrl+I devtools on win/linux ONLY —
+ * ⇧CmdOrCtrl+R force reload everywhere; both Hosts switchers — mac ⌥⌘1–9,
+ * win/linux Alt+1–9 — live outside every tier, Alt being no tier (the mac
+ * ⌥⌘ precedent, 260731-nv5r)) and system claims (⇧⌘Q macOS
  * logout; ⇧⌘3/4/5 macOS screenshots; ⇧Ctrl+C/V terminal copy/paste
  * convention on win/linux) apply in both hosts; browser claims (N/T/W —
  * incognito / reopen-tab / close-window) apply only outside the desktop
@@ -370,7 +374,6 @@ const MAC_BROWSER_CMD_CLAIMS: ClaimedKey[] = [
  */
 export function claimedKeys(platform: BindingPlatform, shell: boolean): ClaimedKey[] {
   const claims: ClaimedKey[] = [
-    ...SHELL_SWITCHER_DIGITS,
     ...MAC_SCREENSHOT_CLAIMS,
     { code: "KeyR", tier: "shifted", label: "reload", owner: "shell" },
     { code: "KeyI", tier: "shifted", label: "devtools", owner: "shell", platform: "other" },

@@ -1,15 +1,30 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode, type RefObject } from "react";
 import { useChromeState, useChromeDispatch } from "@/contexts/chrome-context";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useFocusTrap } from "@/hooks/use-focus-trap";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { matchesCombo, shouldSuppressChord } from "@/lib/keybindings";
+import { focusSidebarCurrentRow, restoreWindowFocus } from "@/lib/sidebar-events";
 
 /**
- * `Cmd+B` (macOS) / `Shift+Ctrl+B` (Linux/Windows) toggles the sidebar.
- * Constitution V (Keyboard-First) requires every user-facing action be
- * keyboard-reachable; the sidebar's visibility now is one such action. We
- * register at Shell level so the chord works on every route that mounts a
+ * `Cmd+B` (macOS) / `Shift+Ctrl+B` (Linux/Windows) — the stateful sidebar
+ * chord (260819-qwr7 R5). Desktop arms:
+ *
+ * - hidden → open the sidebar and focus the current window's row (once the
+ *   sidebar mounts — the row focuser registers on mount);
+ * - visible, focus outside the sidebar → focus the current row;
+ * - visible, focus inside the sidebar → hide the sidebar, then return focus
+ *   via the terminal route's registered restore path (board/host routes
+ *   register none — blur suffices).
+ *
+ * Mobile keeps today's plain toggle — the stateful arms are desktop-only and
+ * must not fight the drawer (its focus trap owns Escape there). The row
+ * focus crosses the shell→sidebar boundary via the module registry in
+ * `lib/sidebar-events.ts` (the `registerComposeStripFocuser` pattern) — no
+ * DOM reach-around; the sidebar records nothing in focus memory (chrome, not
+ * a per-window `FocusKind`).
+ *
+ * We register at Shell level so the chord works on every route that mounts a
  * `<Shell>` (AppShell + BoardPage).
  *
  * The chord comes from the keybinding registry (`sidebar-toggle`, default ⌘B
@@ -17,13 +32,18 @@ import { matchesCombo, shouldSuppressChord } from "@/lib/keybindings";
  * browser — and ⇧Ctrl+B elsewhere; per-device rebindable — 260730-g40a); the
  * input gating is the shared `shouldSuppressChord` predicate (real text
  * inputs suppress; the `.xterm` helper textarea and `.rk-chat-input`
- * carve-outs pass through). Binding held in a ref so the listener registers
- * once per mount.
+ * carve-outs pass through). Binding + live state held in refs so the
+ * listener registers once per mount.
  */
-function useSidebarKeyboardToggle(toggle: () => void) {
+function useSidebarKeyboardToggle(sidebarRef: RefObject<HTMLElement | null>) {
   const { byAction } = useKeybindings();
+  const { sidebarOpen } = useChromeState();
+  const { setSidebarOpen } = useChromeDispatch();
+  const isMobile = useIsMobile();
   const bindingRef = useRef(byAction.get("sidebar-toggle"));
   bindingRef.current = byAction.get("sidebar-toggle");
+  const stateRef = useRef({ sidebarOpen, isMobile });
+  stateRef.current = { sidebarOpen, isMobile };
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -32,11 +52,32 @@ function useSidebarKeyboardToggle(toggle: () => void) {
       if (shouldSuppressChord(e.target)) return;
 
       e.preventDefault();
-      toggle();
+      const { sidebarOpen: open, isMobile: mobile } = stateRef.current;
+      if (mobile) {
+        setSidebarOpen(!open);
+        return;
+      }
+      if (!open) {
+        setSidebarOpen(true);
+        // The row focuser registers on the sidebar's mount — defer past the
+        // commit (the mobile drawer-open effect's rAF precedent).
+        requestAnimationFrame(() => {
+          focusSidebarCurrentRow();
+        });
+        return;
+      }
+      if (!sidebarRef.current?.contains(document.activeElement)) {
+        focusSidebarCurrentRow();
+        return;
+      }
+      setSidebarOpen(false);
+      if (!restoreWindowFocus()) {
+        (document.activeElement as HTMLElement | null)?.blur();
+      }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [toggle]);
+  }, [setSidebarOpen, sidebarRef]);
 }
 
 /**
@@ -151,10 +192,12 @@ export function Shell({
   const { setSidebarOpen } = useChromeDispatch();
   const isMobile = useIsMobile();
   const drawerRef = useRef<HTMLElement>(null);
+  const sidebarAsideRef = useRef<HTMLElement>(null);
 
-  // Cmd+B / Shift+Ctrl+B toggles the sidebar. Cmd captures only — see hook
-  // for the input/textarea/contenteditable suppression rules.
-  useSidebarKeyboardToggle(() => setSidebarOpen(!sidebarOpen));
+  // ⌘B / ⇧Ctrl+B — the stateful sidebar chord (show+focus / focus / hide+
+  // return). Input/textarea/contenteditable suppression rules live in the
+  // hook; the containment check reads the Shell-owned desktop aside.
+  useSidebarKeyboardToggle(sidebarAsideRef);
 
   // The mobile drawer is `aria-modal`: trap Tab focus within it and close on
   // Escape while it is mounted, honoring the `role="dialog" aria-modal="true"
@@ -227,6 +270,7 @@ export function Shell({
               stage ground. */}
           {sidebarOpen && sidebarChildren && (
             <aside
+              ref={sidebarAsideRef}
               style={{ gridArea: "sidebar" }}
               aria-label="Sidebar"
               className="relative flex flex-row overflow-hidden rounded-md border rk-card-border bg-bg-primary"

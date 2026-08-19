@@ -16,6 +16,7 @@ import { useSelectionStore } from "@/store/selection-store";
 import { getAllServerColors, setServerColor } from "@/api/client";
 import { stubMatchMedia } from "@/test-utils/match-media";
 import { resetFlyoutWarmState } from "./row-flyout-card";
+import { focusSidebarCurrentRow, registerWindowFocusRestorer } from "@/lib/sidebar-events";
 import {
   computeRowTints,
   computeRowBorders,
@@ -2671,5 +2672,127 @@ describe("Sidebar — operator pinned row (260813-ifya)", () => {
       el.getAttribute("data-row-key"),
     );
     expect(inGroup).toEqual(["alpha:@0"]);
+  });
+});
+
+describe("Sidebar — ⌘B row-focuser registry + Escape return (260819-qwr7 R5)", () => {
+  // The shell's stateful sidebar chord drives these seams through the
+  // `lib/sidebar-events.ts` module registries; this suite pins the SIDEBAR
+  // side of the contract (which row takes focus, the roving sync, the Escape
+  // return). Branch selection in the chord itself is covered in
+  // `components/shell/shell-sidebar-chord.test.tsx`.
+  let unregisterRestorer: (() => void) | undefined;
+  afterEach(() => {
+    unregisterRestorer?.();
+    unregisterRestorer = undefined;
+  });
+
+  const sessionsNav = () => screen.getByRole("navigation", { name: "Sessions" });
+
+  it("focusSidebarCurrentRow focuses the aria-current window row and syncs the roving tab stop", () => {
+    // Default fixture: currentServer "primary", currentWindowId "@0" — that
+    // row's button carries aria-current="page". The initial roving tab stop is
+    // the FIRST row (the "main" session header), so the focus arm must MOVE it.
+    renderSidebar({ currentServer: "primary" });
+    const row = document.querySelector<HTMLElement>('[data-window-id] [aria-current="page"]')!;
+    expect(row).not.toBeNull();
+    const treeItem = row.closest<HTMLElement>("[data-window-id]")!;
+    expect(treeItem).toHaveAttribute("tabindex", "-1");
+
+    let focused = false;
+    act(() => {
+      focused = focusSidebarCurrentRow();
+    });
+
+    expect(focused).toBe(true);
+    expect(document.activeElement).toBe(row);
+    // Roving sync (the Wave-2 #262 invariant): the tab stop moved to the
+    // focused row's treeitem, and exactly one tab stop exists.
+    expect(treeItem).toHaveAttribute("tabindex", "0");
+    const tabbable = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="tree"] [role="treeitem"][tabindex="0"]'),
+    );
+    expect(tabbable).toEqual([treeItem]);
+  });
+
+  it("with no aria-current window row (board/host routes) it focuses the tree's roving tab stop", () => {
+    // currentServer null (the board route) makes EVERY group non-current, so
+    // all render collapsed by default — expand one to have visible rows. The
+    // harness's default sessions map keys its fixture rows on the current
+    // server, so the sessions must be passed explicitly here.
+    localStorage.setItem("runkit-panel-sessions-primary", "true");
+    renderSidebar({
+      currentServer: null,
+      sessionsByServer: new Map([["primary", PRIMARY_SESSIONS]]),
+    });
+    expect(
+      document.querySelector('[data-window-id] [aria-current="page"]'),
+    ).toBeNull();
+    const tabStop = document.querySelector<HTMLElement>(
+      '[role="tree"] [role="treeitem"][tabindex="0"]',
+    )!;
+    expect(tabStop).not.toBeNull();
+
+    let focused = false;
+    act(() => {
+      focused = focusSidebarCurrentRow();
+    });
+
+    expect(focused).toBe(true);
+    expect(document.activeElement).toBe(tabStop);
+  });
+
+  it("reports false once unmounted (the focuser slot clears on unmount)", () => {
+    const { unmount } = renderSidebar({ currentServer: "primary" });
+    unmount();
+    expect(focusSidebarCurrentRow()).toBe(false);
+  });
+
+  it("Escape inside the nav returns focus via the registered restorer WITHOUT hiding the sidebar", () => {
+    const restore = vi.fn();
+    unregisterRestorer = registerWindowFocusRestorer(restore);
+    renderSidebar({ currentServer: "primary" });
+    const row = document.querySelector<HTMLElement>('[data-window-id] [aria-current="page"]')!;
+    act(() => {
+      row.focus();
+    });
+    expect(document.activeElement).toBe(row);
+
+    // Fire on the nav itself: the listener is nav-scoped bubble-phase (the
+    // tree's selection-clear capture and the row flyout's dismiss get first
+    // refusal on row-targeted presses — not under test here).
+    fireEvent.keyDown(sessionsNav(), { key: "Escape" });
+
+    expect(restore).toHaveBeenCalledTimes(1);
+    // No hiding: the tree (and the focused row) stay mounted.
+    expect(screen.getByRole("tree")).toBeInTheDocument();
+    expect(row.isConnected).toBe(true);
+  });
+
+  it("Escape blurs when no restorer is registered (board/host routes)", () => {
+    renderSidebar({ currentServer: "primary" });
+    const row = document.querySelector<HTMLElement>('[data-window-id] [aria-current="page"]')!;
+    act(() => {
+      row.focus();
+    });
+    expect(document.activeElement).toBe(row);
+
+    fireEvent.keyDown(sessionsNav(), { key: "Escape" });
+
+    expect(document.activeElement).toBe(document.body);
+    expect(screen.getByRole("tree")).toBeInTheDocument();
+  });
+
+  it("Escape skips editable targets (a rename input's Escape cancels the rename)", () => {
+    const restore = vi.fn();
+    unregisterRestorer = registerWindowFocusRestorer(restore);
+    renderSidebar({ currentServer: "primary" });
+    const input = document.createElement("input");
+    sessionsNav().appendChild(input);
+
+    fireEvent.keyDown(input, { key: "Escape" });
+
+    expect(restore).not.toHaveBeenCalled();
+    input.remove();
   });
 });

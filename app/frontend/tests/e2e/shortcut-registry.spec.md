@@ -18,9 +18,11 @@ runs on Linux). It also covers the **split-pane chords** (260807-rbx5): the
 divider pair ⇧Ctrl+\/⇧Ctrl+- splitting side-by-side then stacked on this
 host, and ⌘D/⇧⌘D doing the same on a spoofed mac (the `macCode` refinement —
 both actions bound and palette-hinted on every host). It covers the
-**VS Code-aligned chrome chords**: `sidebar-toggle` on the B keycap (⇧Ctrl+B
-here, ⌘B on a spoofed mac — both mac hosts, no shell gate), `code-toggle` on
-J (⇧Ctrl+J / ⌘J — toggles the code tile on a code-capable window), and
+**VS Code-aligned chrome chords**: the STATEFUL `sidebar-toggle` chord on the
+B keycap (⇧Ctrl+B here, ⌘B on a spoofed mac — both mac hosts, no shell gate —
+focus current row / hide+return / reopen+focus, 260819-qwr7 R5), the stateful
+`code-toggle` chord on 2 (⇧Ctrl+2 / ⌘2 — open+focus / hide+restore on a
+code-capable window, 260819-qwr7 R4), and
 `focus-hop` on Backquote (⇧Ctrl+` here, ⌃` on a spoofed mac via the seam's
 mac-only ctrl-tier refusal rule — open-then-focus on a closed code tile,
 then the hop back to the tty tile). Finally it covers the **tabbed-dialog
@@ -288,29 +290,35 @@ refusal and ⇧⌘D the shifted-tier one.
 3. Assert the two bodies are `{horizontal: true, cwd: "/tmp/win-one"}` then
    `{horizontal: false, cwd: "/tmp/win-one"}`.
 
-### `Shift+Ctrl+B toggles the sidebar`
+### `Shift+Ctrl+B runs the stateful sidebar chord: focus the current row, then hide, then reopen+focus`
 
 **What it proves:** the `sidebar-toggle` binding lives on the B keycap — the
-shifted tier on Win/Linux — and fires from the component-local shell listener
-while the terminal owns focus.
+shifted tier on Win/Linux — and fires the STATEFUL chord (260819-qwr7 R5) from
+the component-local shell listener while the terminal owns focus: visible +
+focus outside → focus the current window's row (the sidebar stays open);
+focus inside → hide + return; hidden → reopen + refocus.
 
 **Steps:**
 1. Mock the backend; open `/default/1`; assert the `aside[aria-label="Sidebar"]`
-   is visible.
-2. Press Shift+Ctrl+B → the sidebar unmounts.
-3. Press Shift+Ctrl+B again → it returns.
+   is visible and the current window's row carries `aria-current="page"`.
+2. Press Shift+Ctrl+B → the row takes DOM focus; the sidebar stays visible.
+3. Press Shift+Ctrl+B again (focus inside the sidebar) → the sidebar unmounts.
+4. Press Shift+Ctrl+B a third time → the sidebar returns and the row is
+   focused again.
 
-### `Shift+Ctrl+J toggles the code tile on a code-capable window`
+### `Shift+Ctrl+2 toggles the code tile on a code-capable window`
 
-**What it proves:** the `code-toggle` binding (⇧Ctrl+J on Win/Linux) toggles
-the code surface's tile through the shared layout-mutation path, gated on the
-window carrying a derived `gitRoot`.
+**What it proves:** the `code-toggle` binding (⇧Ctrl+2 on Win/Linux, ⌘J
+retired — 260819-qwr7 R1) drives the stateful tile chord (R4) through the
+shared layout-mutation path, gated on the window carrying a derived `gitRoot`:
+hidden → open + focus on landing; focused at arity 2 → hide + restore.
 
 **Steps:**
 1. Mock the backend with the code-capable payload (`gitRoot` on `@1`); open
    `/default/1`; assert no code tile exists.
-2. Press Shift+Ctrl+J → the `surface-tile-code` tile appears.
-3. Press Shift+Ctrl+J again → the tile hides (mounted-hidden — the
+2. Press Shift+Ctrl+2 → the `surface-tile-code` tile appears and carries the
+   `border-accent-green` focused-tile border (the landing focus).
+3. Press Shift+Ctrl+2 again → the tile hides (mounted-hidden — the
    hide-never-unmount rule).
 
 ### `Shift+Ctrl+` opens the closed code tile and hops focus, then hops back to the tty`
@@ -328,29 +336,35 @@ focus back to the tty tile without closing anything.
 3. Press Shift+Ctrl+` again → the tty tile carries the accent border, the code
    tile stays open and loses it.
 
-### `⌘B toggles the sidebar on a mac host (both mac hosts — no shell gate)`
+### `⌘B runs the stateful sidebar chord on a mac host (both mac hosts — no shell gate)`
 
 **What it proves:** the `sidebar-toggle` `macTier: "cmd"` demotion applies in
 a mac BROWSER host (⌘B is page-interceptable; no claimed-keys entry on KeyB) —
-no `macShellOnly`.
+no `macShellOnly` — and the chord is the stateful one (260819-qwr7 R5).
 
 **Steps:**
-1. Spoof the mac platform; mock the backend; open `/default/1`.
-2. Press Meta+B → the sidebar unmounts; press Meta+B again → it returns.
+1. Spoof the mac platform; mock the backend; open `/default/1`; the current
+   window's row carries `aria-current="page"`.
+2. Press Meta+B → the row takes DOM focus; the sidebar stays visible.
+3. Press Meta+B again → the sidebar unmounts (focus was inside it).
+4. Press Meta+B a third time → the sidebar returns and the row refocuses.
 
-### `⌘J toggles the code tile and ⌃` hops focus on a mac host`
+### `⌘2 is inert in a mac BROWSER host (the browser's tab claim); ⌃` hops focus`
 
-**What it proves:** on a mac host the `code-toggle` default resolves to ⌘J and
-`focus-hop` to ⌃` (the registry's first shipped ctrl-tier default), and ⌃`
-reaches the dispatcher from under terminal focus via the seam's mac-only
-ctrl-tier refusal rule (rule 3).
+**What it proves:** on a mac host the `code-toggle` default resolves to ⌘2
+(⌘J retired — 260819-qwr7 R1), but in a mac BROWSER the ⌘1–9 digit layer is
+the browser's own tab-switching claim set (`MAC_BROWSER_CMD_CLAIMS`), so the
+chord resolves `reserved` and dispatches nothing (260819-qwr7 R2) — while
+`focus-hop` keeps its ⌃` default (the registry's first shipped ctrl-tier
+default), which reaches the dispatcher from under terminal focus via the
+seam's mac-only ctrl-tier refusal rule (rule 3).
 
 **Steps:**
 1. Spoof the mac platform; mock the backend with the code-capable payload;
    open `/default/1`.
-2. Press Meta+J → the code tile appears; press Meta+J again → it hides
-   (mounted-hidden).
-3. Press Control+` → the closed code tile reopens and takes the
+2. Press Meta+2 → no code tile appears (the chord is browser-reserved here;
+   it fires in the mac SHELL, covered by the unit per-host resolution tests).
+3. Press Control+` → the code tile opens and takes the
    `border-accent-green` focused-tile border.
 4. Press Control+` again → the accent border hops back to the tty tile; the
    code tile stays open.

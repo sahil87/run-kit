@@ -1,5 +1,6 @@
 # Archived Changes
 
+- **260819-ie2i-web-tile-keyboard-find** — Web Tile Keyboard Reclaim + Find-in-Page
 - **260819-vtd1-tmux-version-floor** — tmux Version Floor
 - **260817-pfvt-host-dropdown-disconnect-rename** — Host-Switcher Dropdown Per-Row Disconnect & Rename
 - **260817-r65p-row-popup-elevation-contrast** — row popup elevation contrast

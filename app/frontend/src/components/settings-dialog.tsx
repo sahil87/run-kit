@@ -221,12 +221,14 @@ function ThemePairControl() {
           checkedIds={[themeDark, themeLight]}
           initialSelectedId={theme.id}
           onConfirm={(t) => setTheme(t.id)}
-          // Eat the Escape only when it just reverted a preview — an idle
-          // Escape must still bubble to the dialog's focus trap and close it.
-          onEscape={(e, hadPreview) => {
-            if (hadPreview) e.stopPropagation();
+          // Eat the Escape only when it just reverted a preview or closed the
+          // list — an idle Escape must still bubble to the dialog's focus
+          // trap and close it.
+          onEscape={(e, consumed) => {
+            if (consumed) e.stopPropagation();
           }}
           cancelOnLeave
+          collapsible
         />
       </div>
     </PreferenceRow>

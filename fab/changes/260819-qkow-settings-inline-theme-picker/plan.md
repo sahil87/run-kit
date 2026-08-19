@@ -22,7 +22,7 @@ A shared picker-core component (`app/frontend/src/components/theme-picker-list.t
 - **THEN** the modal opened, previewed the navigated theme, reverted to the open-time theme, and closed — identical to pre-change behavior
 
 #### R3: Inline picker replaces the settings selects
-`ThemePairControl` (`settings-dialog.tsx`) SHALL keep its System/Light/Dark mode button row and replace the two per-mode `<select>`s with the inline core: search on top, scrollable grouped list below (`max-h-64 overflow-y-auto`), within the existing `max-w-[420px]` control envelope. Confirm calls `setTheme(theme.id)` (the existing wiring — picking a theme updates its category's preferred slot and switches mode); nothing closes on confirm. The two `<select>`s and their labels MUST be fully removed.
+`ThemePairControl` (`settings-dialog.tsx`) SHALL keep its System/Light/Dark mode button row and replace the two per-mode `<select>`s with the inline core: search on top, scrollable grouped list below (`max-h-64 overflow-y-auto`), within the existing `max-w-[420px]` control envelope. The inline control is collapsed at rest (`collapsible`): only the search field shows until it is engaged (focus/click/typing/arrows), and the list closes on commit, Escape, or focus leave. Confirm calls `setTheme(theme.id)` (the existing wiring — picking a theme updates its category's preferred slot and switches mode); nothing closes on confirm. The two `<select>`s and their labels MUST be fully removed.
 
 - **GIVEN** the Settings dialog open on the Appearance tab
 - **WHEN** the user searches "drac" and clicks Dracula
@@ -83,6 +83,7 @@ The inline surface SHALL live-preview on hover/keyboard navigation and revert vi
 - [x] T003 [P] Update `app/frontend/src/components/theme-selector.test.tsx`: keep all existing behavioral tests green against the wrapper+core split <!-- R6 -->
 - [x] T004 [P] Update `app/frontend/src/components/settings-dialog.test.tsx`: replace select assertions with inline-picker assertions (search filter, dual checkmarks, click-confirm → `setTheme`, Escape preview-cancel does not close the dialog, mode buttons intact) <!-- R6 -->
 - [x] T005 [P] Update `app/frontend/tests/e2e/settings-dialog.spec.ts` (the `getByLabel("Dark theme")` assertion → inline picker) and its `settings-dialog.spec.md` companion in the same commit <!-- R6 -->
+- [x] T006 Collapse the inline picker at rest: `collapsible` prop on `ThemePickerList` (expand on focus/click/typing/arrows; close on commit/Escape/focus-leave; `aria-expanded` live; mousedown-preventDefault on the list so option clicks don't blur-close it first), settings passes it; unit + e2e + `.spec.md` updated <!-- R3 -->
 
 ## Acceptance
 
@@ -110,6 +111,7 @@ The inline surface SHALL live-preview on hover/keyboard navigation and revert vi
 - [x] A-008 Pattern consistency: New component follows the codebase's component conventions (colocated tests, Tailwind tokens, `useTheme`/`useThemeActions` hooks, no `as` casts — type narrowing per code-quality.md)
 - [x] A-009 No unnecessary duplication: The picker UI exists exactly once (the core); neither consumer re-implements filtering, grouping, nav, or swatches
 - [x] A-010 Comment discipline: No comment narration; comments state only constraints the code can't show (per code-quality.md anti-patterns)
+- [x] A-011 R3: The inline picker is collapsed at rest — the list renders only while the search field is engaged, closing on commit, Escape, and focus leave (unit + e2e covered)
 
 ## Notes
 

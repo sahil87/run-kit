@@ -168,9 +168,10 @@ describe("SettingsDialog", () => {
     expect(screen.getByText("This device")).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "Theme mode" })).toBeInTheDocument();
     // The theme picker is the shared searchable core rendered inline — the
-    // per-mode <select>s are gone.
+    // per-mode <select>s are gone. At rest only the search input shows; the
+    // list opens on engagement (collapsible).
     expect(screen.getByRole("combobox", { name: "Search themes" })).toBeInTheDocument();
-    expect(screen.getByRole("listbox", { name: "Themes" })).toBeInTheDocument();
+    expect(screen.queryByRole("listbox", { name: "Themes" })).not.toBeInTheDocument();
     expect(document.querySelector("select")).toBeNull();
     expect(screen.getByRole("button", { name: "Set instance color" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Increase terminal font" })).toBeInTheDocument();
@@ -182,7 +183,16 @@ describe("SettingsDialog", () => {
       return screen.getByRole("combobox", { name: "Search themes" });
     }
 
-    it("filters themes by search query", () => {
+    it("the list is closed at rest and opens when the search field is focused", () => {
+      const input = openAppearance();
+      expect(input).toHaveAttribute("aria-expanded", "false");
+      expect(screen.queryByRole("listbox", { name: "Themes" })).not.toBeInTheDocument();
+      fireEvent.focus(input);
+      expect(input).toHaveAttribute("aria-expanded", "true");
+      expect(screen.getByRole("listbox", { name: "Themes" })).toBeInTheDocument();
+    });
+
+    it("filters themes by search query (typing opens the list)", () => {
       const input = openAppearance();
       fireEvent.change(input, { target: { value: "gru" } });
       const list = screen.getByRole("listbox", { name: "Themes" });
@@ -192,7 +202,8 @@ describe("SettingsDialog", () => {
     });
 
     it("shows checkmarks on BOTH preferred slots (dark and light)", () => {
-      openAppearance();
+      const input = openAppearance();
+      fireEvent.focus(input);
       const list = screen.getByRole("listbox", { name: "Themes" });
       const checked = within(list)
         .getAllByLabelText("Current theme")
@@ -207,15 +218,20 @@ describe("SettingsDialog", () => {
       );
     });
 
-    it("clicking a theme commits it through setTheme (slot + mode update)", () => {
-      openAppearance();
+    it("clicking a theme commits it through setTheme and closes the list", () => {
+      const input = openAppearance();
+      fireEvent.focus(input);
       const list = screen.getByRole("listbox", { name: "Themes" });
       fireEvent.click(within(list).getByText("Dracula"));
       expect(localStorage.getItem("runkit-theme")).toBe("dracula");
       expect(localStorage.getItem("runkit-theme-dark")).toBe("dracula");
-      // The dialog stays open; the DARK slot check moved to Dracula.
+      // The dialog stays open; the commit closes the list.
       expect(screen.getByRole("dialog", { name: "Settings" })).toBeInTheDocument();
-      const checkedNames = within(list)
+      expect(screen.queryByRole("listbox", { name: "Themes" })).not.toBeInTheDocument();
+      // Reopening shows the DARK slot check moved to Dracula.
+      fireEvent.focus(input);
+      const reopened = screen.getByRole("listbox", { name: "Themes" });
+      const checkedNames = within(reopened)
         .getAllByLabelText("Current theme")
         .map((el) => el.closest('[role="option"]')!.textContent);
       expect(checkedNames).toEqual(
@@ -226,13 +242,15 @@ describe("SettingsDialog", () => {
       );
     });
 
-    it("a preview-cancelling Escape does NOT close the dialog; an idle Escape does", () => {
+    it("a preview-cancelling Escape closes the LIST, not the dialog; an idle Escape closes the dialog", () => {
       const input = openAppearance();
-      // ArrowDown starts a live preview.
+      // ArrowDown opens the list and starts a live preview.
       fireEvent.keyDown(input, { key: "ArrowDown" });
+      expect(screen.getByRole("listbox", { name: "Themes" })).toBeInTheDocument();
       fireEvent.keyDown(input, { key: "Escape" });
+      expect(screen.queryByRole("listbox", { name: "Themes" })).not.toBeInTheDocument();
       expect(screen.getByRole("dialog", { name: "Settings" })).toBeInTheDocument();
-      // No preview pending now — Escape bubbles to the focus trap and closes.
+      // Nothing open or previewing now — Escape bubbles to the focus trap.
       fireEvent.keyDown(input, { key: "Escape" });
       expect(screen.queryByRole("dialog", { name: "Settings" })).not.toBeInTheDocument();
     });

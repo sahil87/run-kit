@@ -11,15 +11,19 @@ interface ThemePickerListProps {
   /** Where keyboard selection starts in the unfiltered list. */
   initialSelectedId?: string;
   onConfirm: (theme: Theme) => void;
-  /** Fires on Escape after the core has reverted any uncommitted preview.
-   *  `hadPreview` lets an inline consumer consume the press (stopPropagation)
-   *  only when it actually cancelled something, so an idle Escape still
-   *  bubbles to the enclosing dialog. */
-  onEscape?: (e: React.KeyboardEvent, hadPreview: boolean) => void;
+  /** Fires on Escape after the core has reverted any uncommitted preview
+   *  (and, when `collapsible`, closed the list). `consumed` lets an inline
+   *  consumer eat the press (stopPropagation) only when it actually did
+   *  either, so an idle Escape still bubbles to the enclosing dialog. */
+  onEscape?: (e: React.KeyboardEvent, consumed: boolean) => void;
   /** Revert an uncommitted preview when the pointer or focus leaves the
    *  picker (the inline surface's cancel seam; the modal keeps previews
    *  alive until Escape/backdrop). */
   cancelOnLeave?: boolean;
+  /** Render only the search input at rest; the list expands while the input
+   *  is engaged (focus/click/typing/arrows) and closes on commit, Escape,
+   *  or focus leave. The modal leaves this off — its list IS the modal. */
+  collapsible?: boolean;
   autoFocus?: boolean;
 }
 
@@ -38,9 +42,11 @@ export function ThemePickerList({
   onConfirm,
   onEscape,
   cancelOnLeave = false,
+  collapsible = false,
   autoFocus = false,
 }: ThemePickerListProps) {
   const [query, setQuery] = useState("");
+  const [expanded, setExpanded] = useState(!collapsible);
   const [selectedIndex, setSelectedIndex] = useState(() => {
     const idx = flattenByCategory(THEMES).findIndex((t) => t.id === initialSelectedId);
     return idx >= 0 ? idx : 0;
@@ -85,12 +91,12 @@ export function ThemePickerList({
 
   // Scroll selected item into view
   useEffect(() => {
-    if (!listRef.current) return;
+    if (!expanded || !listRef.current) return;
     const selected = listRef.current.querySelector('[aria-selected="true"]');
     if (selected && typeof selected.scrollIntoView === "function") {
       selected.scrollIntoView({ block: "nearest" });
     }
-  }, [selectedIndex]);
+  }, [selectedIndex, expanded]);
 
   function preview(theme: Theme | undefined) {
     if (!theme) return;
@@ -106,6 +112,7 @@ export function ThemePickerList({
 
   function handleConfirm(theme: Theme) {
     previewingRef.current = false;
+    if (collapsible) setExpanded(false);
     onConfirm(theme);
   }
 
@@ -114,10 +121,13 @@ export function ThemePickerList({
       e.preventDefault();
       const hadPreview = previewingRef.current;
       endPreview();
-      onEscape?.(e, hadPreview);
+      const closedList = collapsible && expanded;
+      if (closedList) setExpanded(false);
+      onEscape?.(e, hadPreview || closedList);
     } else if (e.key === "ArrowDown") {
       e.preventDefault();
       keyboardNavRef.current = true;
+      if (!expanded) setExpanded(true);
       if (flatThemes.length > 0) {
         const next = (selectedIndex + 1) % flatThemes.length;
         setSelectedIndex(next);
@@ -126,6 +136,7 @@ export function ThemePickerList({
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       keyboardNavRef.current = true;
+      if (!expanded) setExpanded(true);
       if (flatThemes.length > 0) {
         const next = (selectedIndex - 1 + flatThemes.length) % flatThemes.length;
         setSelectedIndex(next);
@@ -140,6 +151,7 @@ export function ThemePickerList({
   function handleQueryChange(value: string) {
     setQuery(value);
     setSelectedIndex(0);
+    if (!expanded) setExpanded(true);
     const nextFiltered = THEMES.filter((t) =>
       t.name.toLowerCase().includes(value.toLowerCase()),
     );
@@ -174,6 +186,7 @@ export function ThemePickerList({
       return;
     }
     endPreview();
+    if (collapsible && e.type !== "pointerleave") setExpanded(false);
   }
 
   const groups: { label: string; themes: Theme[] }[] = [];
@@ -190,20 +203,32 @@ export function ThemePickerList({
         value={query}
         onChange={(e) => handleQueryChange(e.target.value)}
         onKeyDown={handleKeyDown}
+        onFocus={() => {
+          if (collapsible) setExpanded(true);
+        }}
+        onClick={() => {
+          if (collapsible) setExpanded(true);
+        }}
         placeholder="Search themes..."
         aria-label="Search themes"
         aria-autocomplete="list"
         aria-controls={listId}
         role="combobox"
-        aria-expanded="true"
-        className="w-full bg-transparent text-text-primary text-[11px] p-2.5 border-b border-border outline-none placeholder:text-text-secondary"
+        aria-expanded={expanded}
+        className={`w-full bg-transparent text-text-primary text-[11px] p-2.5 outline-none placeholder:text-text-secondary ${
+          expanded ? "border-b border-border" : ""
+        }`}
       />
+      {expanded && (
       <div
         id={listId}
         ref={listRef}
         role="listbox"
         aria-label="Themes"
         onMouseMove={handleMouseMove}
+        // Keep focus in the search input while clicking options — a blur
+        // would collapse the list before the click lands (collapsible).
+        onMouseDown={(e) => e.preventDefault()}
         className="max-h-64 overflow-y-auto py-1"
       >
         {flatThemes.length === 0 ? (
@@ -282,6 +307,7 @@ export function ThemePickerList({
           })
         )}
       </div>
+      )}
     </div>
   );
 }

@@ -253,11 +253,16 @@ func (s *Server) handleWindowSplit(w http.ResponseWriter, r *http.Request) {
 		resolvedCwd = expanded
 	}
 
-	paneID, err := s.tmux.SplitWindow(windowID, body.Horizontal, resolvedCwd, serverFromRequest(r))
+	server := serverFromRequest(r)
+	paneID, err := s.tmux.SplitWindow(windowID, body.Horizontal, resolvedCwd, server)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+
+	// Auto-focus the new pane. Best-effort: the split succeeded and the pane
+	// exists, so a select failure must not turn the response into an error.
+	_ = s.tmux.SelectPane(paneID, server)
 
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "pane_id": paneID})
 }

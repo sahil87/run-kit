@@ -98,6 +98,11 @@ type mockTmuxOps struct {
 	splitWindowResult     string
 	splitWindowErr        error
 
+	selectPaneCalled bool
+	selectPanePaneID string
+	selectPaneServer string
+	selectPaneErr    error
+
 	killActivePaneCalled   bool
 	killActivePaneWindowID string
 
@@ -331,6 +336,12 @@ func (m *mockTmuxOps) SplitWindow(windowID string, horizontal bool, cwd string, 
 	m.splitWindowID = windowID
 	m.splitWindowHorizontal = horizontal
 	return m.splitWindowResult, m.splitWindowErr
+}
+func (m *mockTmuxOps) SelectPane(paneID, server string) error {
+	m.selectPaneCalled = true
+	m.selectPanePaneID = paneID
+	m.selectPaneServer = server
+	return m.selectPaneErr
 }
 func (m *mockTmuxOps) SelectWindowInSession(session, windowID, server string) error {
 	m.selectWindowInSessionCalled = true

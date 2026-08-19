@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -864,6 +865,15 @@ func TestWindowSplit(t *testing.T) {
 	if !ops.splitWindowHorizontal {
 		t.Error("horizontal = false, want true")
 	}
+	if !ops.selectPaneCalled {
+		t.Error("SelectPane was not called")
+	}
+	if ops.selectPanePaneID != "%5" {
+		t.Errorf("SelectPane paneID = %q, want %%5", ops.selectPanePaneID)
+	}
+	if ops.selectPaneServer != "default" {
+		t.Errorf("SelectPane server = %q, want %q", ops.selectPaneServer, "default")
+	}
 
 	var result map[string]any
 	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
@@ -871,6 +881,50 @@ func TestWindowSplit(t *testing.T) {
 	}
 	if result["pane_id"] != "%5" {
 		t.Errorf("pane_id = %q, want %%5", result["pane_id"])
+	}
+}
+
+func TestWindowSplitSelectPaneError(t *testing.T) {
+	ops := &mockTmuxOps{splitWindowResult: "%7", selectPaneErr: errors.New("select failed")}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	body := `{"horizontal":true}`
+	req := httptest.NewRequest(http.MethodPost, "/api/windows/@0/split", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	var result map[string]any
+	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if result["ok"] != true {
+		t.Error("expected ok: true despite SelectPane error")
+	}
+	if result["pane_id"] != "%7" {
+		t.Errorf("pane_id = %q, want %%7", result["pane_id"])
+	}
+}
+
+func TestWindowSplitError(t *testing.T) {
+	ops := &mockTmuxOps{splitWindowErr: errors.New("split failed")}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	body := `{"horizontal":false}`
+	req := httptest.NewRequest(http.MethodPost, "/api/windows/@0/split", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
+	}
+	if ops.selectPaneCalled {
+		t.Error("SelectPane was called after a failed split")
 	}
 }
 

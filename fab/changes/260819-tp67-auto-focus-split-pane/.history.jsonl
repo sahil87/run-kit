@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-19T11:59:19Z"}
+{"args":"Auto-focus the new pane created by window split (Cmd+D / top-bar Split / board split): handleWindowSplit should call tmux.SelectPane on the returned pane ID after tmux.SplitWindow, leaving SplitWindow's -d contract untouched for the snapshot restorer","cmd":"fab-new","event":"command","ts":"2026-08-19T11:59:19Z"}
+{"delta":"+4.8","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-08-19T12:01:14Z"}
+{"cmd":"fab-ff","event":"command","ts":"2026-08-19T12:02:02Z"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"apply","ts":"2026-08-19T12:02:09Z"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"review","ts":"2026-08-19T12:06:46Z"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"hydrate","ts":"2026-08-19T12:12:23Z"}
+{"event":"review","result":"passed","ts":"2026-08-19T12:12:23Z"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"ship","ts":"2026-08-19T12:15:16Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-08-19T13:51:30Z"}

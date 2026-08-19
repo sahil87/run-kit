@@ -63,6 +63,7 @@ type TmuxOps interface {
 	ResolveWindowSession(ctx context.Context, server, windowID string) (string, error)
 	HasSession(ctx context.Context, server, session string) bool
 	SplitWindow(windowID string, horizontal bool, cwd string, server string) (string, error)
+	SelectPane(paneID, server string) error
 	KillActivePane(windowID, server string) error
 	SetSessionColor(session string, colorValue string, server string) error
 	UnsetSessionColor(session string, server string) error
@@ -312,6 +313,9 @@ func (p *prodTmuxOps) HasSession(ctx context.Context, server, session string) bo
 }
 func (p *prodTmuxOps) SplitWindow(windowID string, horizontal bool, cwd string, server string) (string, error) {
 	return tmux.SplitWindow(windowID, horizontal, cwd, server)
+}
+func (p *prodTmuxOps) SelectPane(paneID, server string) error {
+	return tmux.SelectPane(paneID, server)
 }
 func (p *prodTmuxOps) KillActivePane(windowID, server string) error {
 	return tmux.KillActivePane(windowID, server)

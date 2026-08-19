@@ -1,0 +1,4 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-19T15:36:08Z"}
+{"args":"Web tile browser chrome + polish + hardening: open-in-browser escape hatch, frame-refusal probe + error state, same-origin back/forward + real reload + current-path display, URL bar hardening (scheme allowlist, normalization) and visual polish (clean URL display, page title + kind badge, load progress, Cmd+L focus)","cmd":"fab-new","event":"command","ts":"2026-08-19T15:36:08Z"}
+{"delta":"+4.2","event":"confidence","score":4.2,"trigger":"calc-score","ts":"2026-08-19T15:38:03Z"}
+{"delta":"+0.0","event":"confidence","score":4.2,"trigger":"calc-score","ts":"2026-08-19T15:53:17Z"}

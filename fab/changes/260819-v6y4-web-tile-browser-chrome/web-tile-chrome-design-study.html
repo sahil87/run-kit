@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WebTile Chrome Design Study</title>
+<style>
+  :root {
+    --bg: #0b0d0e;
+    --panel: #101315;
+    --panel-2: #14181a;
+    --line: #24292c;
+    --line-soft: #1b2023;
+    --text: #d7dbde;
+    --muted: #7e878d;
+    --faint: #4c545a;
+    --green: #3ddc84;
+    --green-dim: #1f5c3a;
+    --green-soft: rgba(61,220,132,.12);
+    --amber: #e8b13f;
+    --red: #e0645c;
+    --blue: #6ab0f3;
+    --mark: rgba(232,177,63,.30);
+    --mark-active: rgba(61,220,132,.45);
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: var(--mono); font-size: 13px; line-height: 1.55;
+    padding: 28px 20px 80px;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+
+  h1 { font-size: 20px; font-weight: 600; letter-spacing: .02em; margin: 0 0 4px; }
+  h1 .brkt { color: var(--green); }
+  .sub { color: var(--muted); margin: 0 0 28px; max-width: 72ch; }
+  h2 { font-size: 13px; font-weight: 600; color: var(--green); text-transform: uppercase; letter-spacing: .14em; margin: 44px 0 14px; }
+  h2::before { content: "[ "; color: var(--faint); }
+  h2::after  { content: " ]"; color: var(--faint); }
+
+  /* ---------- tile scaffold ---------- */
+  .tile {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+    overflow: hidden; box-shadow: 0 1px 0 rgba(0,0,0,.4);
+  }
+  .tile.active { border-color: var(--green); }
+  .tile-head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 10px; border-bottom: 1px solid var(--line-soft);
+    background: var(--panel-2); min-height: 32px;
+  }
+  .glyph { color: var(--green); font-weight: 700; letter-spacing: -.05em; }
+  .title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .title .dim { color: var(--muted); font-weight: 400; }
+  .badge {
+    font-size: 10px; padding: 1px 7px; border-radius: 3px; letter-spacing: .06em;
+    border: 1px solid var(--line); color: var(--muted); white-space: nowrap;
+  }
+  .badge.present { color: var(--green); border-color: var(--green-dim); background: var(--green-soft); }
+  .badge.proxy   { color: var(--amber); border-color: rgba(232,177,63,.35); background: rgba(232,177,63,.08); }
+  .badge.ext     { color: var(--blue);  border-color: rgba(106,176,243,.35); background: rgba(106,176,243,.08); }
+  .spacer { flex: 1; }
+  .chrome { display: flex; gap: 6px; color: var(--faint); }
+  .chrome span { padding: 0 2px; }
+
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 26px; height: 26px; padding: 0 6px;
+    border: 1px solid var(--line); border-radius: 4px; background: transparent;
+    color: var(--muted); font-family: var(--mono); font-size: 12px; cursor: default;
+    white-space: nowrap;
+  }
+  .btn.on { color: var(--green); border-color: var(--green-dim); }
+  .btn.disabled { color: #383f44; border-color: var(--line-soft); }
+
+  .urlrow {
+    display: flex; align-items: center; gap: 6px;
+    padding: 7px 8px; border-bottom: 1px solid var(--line-soft);
+  }
+  .addr {
+    flex: 1; display: flex; align-items: center; gap: 8px;
+    height: 28px; padding: 0 10px; border: 1px solid var(--line); border-radius: 4px;
+    background: #0d1012; color: var(--text); overflow: hidden; white-space: nowrap;
+  }
+  .addr .scheme { color: var(--faint); }
+  .addr .host { color: var(--text); }
+  .addr .path { color: var(--muted); }
+  .addr.editing { border-color: var(--green); }
+  .addr .sel { background: rgba(61,220,132,.25); border-radius: 2px; }
+  .addr .caret { display:inline-block; width: 7px; height: 15px; background: var(--green); vertical-align: -2px; animation: blink 1.1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  .progress { position: relative; height: 2px; background: transparent; overflow: hidden; }
+  .progress.loading::after {
+    content: ""; position: absolute; inset: 0; width: 38%;
+    background: var(--green); animation: slide 1.15s ease-in-out infinite;
+  }
+  @keyframes slide { 0% { transform: translateX(-110%);} 100% { transform: translateX(300%);} }
+
+  .findbar {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 8px; border-bottom: 1px solid var(--line-soft); background: var(--panel-2);
+  }
+  .findbar .addr { flex: 0 1 240px; }
+  .count { color: var(--muted); font-size: 12px; }
+  .count b { color: var(--green); font-weight: 600; }
+  .hint { color: var(--faint); font-size: 11px; margin-left: auto; white-space: nowrap; }
+
+  .content { padding: 18px 20px 22px; min-height: 168px; background: var(--panel); }
+  .content h3 { margin: 0 0 8px; font-size: 16px; }
+  .content .kicker { color: var(--green); font-size: 10px; letter-spacing: .22em; margin-bottom: 6px; }
+  .content p { margin: 0 0 8px; color: var(--muted); max-width: 60ch; }
+  mark { background: var(--mark); color: var(--text); padding: 0 1px; border-radius: 2px; }
+  mark.cur { background: var(--mark-active); outline: 1px solid var(--green); }
+
+  .errbox {
+    min-height: 168px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 10px; text-align: center; padding: 24px;
+  }
+  .errbox .big { font-size: 26px; color: var(--faint); }
+  .errbox .msg { color: var(--text); }
+  .errbox .why { color: var(--muted); font-size: 12px; }
+  .errbox .btn { color: var(--green); border-color: var(--green-dim); height: 30px; padding: 0 14px; }
+
+  /* ---------- gallery ---------- */
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(430px, 1fr)); gap: 26px; }
+  .cell figcaption { margin-top: 10px; }
+  .cap-t { color: var(--text); font-weight: 600; margin-bottom: 4px; }
+  .cap-t .k { color: var(--green); }
+  .notes { margin: 0; padding: 0 0 0 18px; color: var(--muted); font-size: 12px; }
+  .notes li { margin: 2px 0; }
+  figure { margin: 0; }
+
+  /* ---------- anatomy callouts ---------- */
+  .num {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 15px; height: 15px; border-radius: 50%;
+    background: var(--green); color: #06130b; font-size: 10px; font-weight: 700;
+    margin-left: 3px; vertical-align: 2px; flex: none;
+  }
+  .legend { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 4px 28px; margin-top: 14px; }
+  .legend div { color: var(--muted); font-size: 12px; }
+  .legend b { color: var(--text); font-weight: 600; }
+  .legend .num { margin: 0 6px 0 0; vertical-align: -2px; }
+  .keep { color: var(--faint); }
+
+  .footnote { color: var(--faint); font-size: 11px; margin-top: 40px; border-top: 1px solid var(--line-soft); padding-top: 12px; }
+  code { color: var(--green); font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1><span class="brkt">://</span> WebTile Chrome — design study</h1>
+<p class="sub">Proposed chrome for the web tile (changes <code>v6y4</code> browser-chrome + looks, with <code>ie2i</code>'s find bar shown in place). One tile, six states. Everything below the URL row is per-viewer; only Enter in the address field writes <code>@rk_url</code>.</p>
+
+<h2>Anatomy — proposed rest state</h2>
+<figure>
+  <div class="tile active">
+    <div class="tile-head">
+      <span class="glyph">://</span>
+      <span class="badge present">present<span class="num">1</span></span>
+      <span class="title">tmux Version Floor<span class="num">2</span></span>
+      <span class="spacer"></span>
+      <span class="chrome"><span>⤢</span><span>▣</span><span>⇄</span><span>✕</span><span class="num" style="background:#4c545a">9</span></span>
+    </div>
+    <div class="urlrow">
+      <span class="btn">◀</span><span class="btn disabled">▶</span><span class="num">3</span>
+      <span class="btn">↻</span><span class="num">4</span>
+      <span class="addr"><span class="path">tmux-version-floor.html</span><span class="num">5</span></span>
+      <span class="btn">⌕</span><span class="num">6</span>
+      <span class="btn">↗</span><span class="num">7</span>
+    </div>
+    <div class="progress"><span class="num" style="position:absolute; right:6px; top:-7px;">8</span></div>
+    <div class="content">
+      <div class="kicker">RUN-KIT · CHANGE PLAN</div>
+      <h3>tmux Version Floor ▍</h3>
+      <p>Link run-kit to a minimum tmux version so old installs stop degrading the experience — enforced where it can actually be enforced.</p>
+    </div>
+  </div>
+  <div class="legend">
+    <div><span class="num">1</span><b>Kind badge</b> — present / :port proxy / external. Instant answer to "what am I looking at".</div>
+    <div><span class="num">2</span><b>Page title</b> — same-origin <code>contentDocument.title</code>; replaces the bare "Web" label. Falls back to the display-form URL.</div>
+    <div><span class="num">3</span><b>Back / forward</b> — <code>contentWindow.history</code>, same-origin only, per-viewer. Hidden on cross-origin tiles.</div>
+    <div><span class="num">4</span><b>Real reload</b> — <code>location.reload()</code> keeps the frame's current page (today's about:blank bounce resets to @rk_url).</div>
+    <div><span class="num">5</span><b>Address, display form</b> — plumbing hidden (<code>?server=…&amp;v=…</code>); raw value on focus. Enter is the only write to <code>@rk_url</code>.</div>
+    <div><span class="num">6</span><b>Find (⌘F)</b> — same-origin find bar, from sibling change ie2i; shown here for placement.</div>
+    <div><span class="num">7</span><b>Open in browser ↗</b> — pops the current address into a real tab. The universal escape hatch.</div>
+    <div><span class="num">8</span><b>Progress line</b> — 2px sweep on the content's top edge while the frame loads.</div>
+    <div><span class="num">9</span><b class="keep">Tile verbs (zoom / promote / swap / close) — existing, unchanged.</b> The &gt;_ switch-to-terminal button is <b>removed</b> — the top-bar surface toggles already own view switching.</div>
+  </div>
+</figure>
+
+<h2>State gallery</h2>
+<div class="grid">
+
+  <figure class="cell">
+    <div class="tile">
+      <div class="tile-head">
+        <span class="glyph">://</span>
+        <span class="badge proxy">:3000 proxy</span>
+        <span class="title">run-kit <span class="dim">— board: runKit</span></span>
+        <span class="spacer"></span>
+        <span class="chrome"><span>⤢</span><span>▣</span><span>⇄</span><span>✕</span></span>
+      </div>
+      <div class="urlrow">
+        <span class="btn">◀</span><span class="btn">▶</span>
+        <span class="btn">↻</span>
+        <span class="addr"><span class="host">localhost:3000</span><span class="path">/board/runKit</span></span>
+        <span class="btn">⌕</span><span class="btn">↗</span>
+      </div>
+      <div class="progress"></div>
+      <div class="content">
+        <div class="kicker">DEV SERVER</div>
+        <p>A proxied port at rest. The stored value is <code>/proxy/3000/board/runKit</code>; the bar displays the de-proxied form. Back/forward live because the frame is same-origin.</p>
+      </div>
+    </div>
+    <figcaption>
+      <div class="cap-t"><span class="k">01</span> · proxied dev server, rest</div>
+      <ul class="notes">
+        <li>Display form <b>localhost:3000/board/runKit</b> — the /proxy/ plumbing never shows at rest</li>
+        <li>Amber badge = proxied port; header title from the page's own &lt;title&gt;</li>
+      </ul>
+    </figcaption>
+  </figure>
+
+  <figure class="cell">
+    <div class="tile active">
+      <div class="tile-head">
+        <span class="glyph">://</span>
+        <span class="badge proxy">:3000 proxy</span>
+        <span class="title">run-kit <span class="dim">— board: runKit</span></span>
+        <span class="spacer"></span>
+        <span class="chrome"><span>⤢</span><span>▣</span><span>⇄</span><span>✕</span></span>
+      </div>
+      <div class="urlrow">
+        <span class="btn">◀</span><span class="btn">▶</span>
+        <span class="btn">↻</span>
+        <span class="addr editing"><span class="sel">/proxy/3000/board/runKit</span><span class="caret"></span></span>
+        <span class="btn">⌕</span><span class="btn">↗</span>
+      </div>
+      <div class="progress"></div>
+      <div class="content">
+        <div class="kicker">EDIT MODE — ⌘L or click</div>
+        <p>Focus reveals the raw stored value, selected. Type <code>localhost:5173</code> and Enter normalizes it to <code>/proxy/5173/</code>; a bare domain gets <code>https://</code>. Esc reverts. Enter POSTs <code>@rk_url</code> — every viewer navigates (substrate, spec R7).</p>
+      </div>
+    </div>
+    <figcaption>
+      <div class="cap-t"><span class="k">02</span> · address bar focused (⌘L)</div>
+      <ul class="notes">
+        <li>Raw editable value on focus, select-all; green border marks the write path</li>
+        <li>Normalization on submit; <code>javascript:</code> / <code>data:</code> rejected backend-side</li>
+      </ul>
+    </figcaption>
+  </figure>
+
+  <figure class="cell">
+    <div class="tile active">
+      <div class="tile-head">
+        <span class="glyph">://</span>
+        <span class="badge present">present</span>
+        <span class="title">tmux Version Floor</span>
+        <span class="spacer"></span>
+        <span class="chrome"><span>⤢</span><span>▣</span><span>⇄</span><span>✕</span></span>
+      </div>
+      <div class="urlrow">
+        <span class="btn">◀</span><span class="btn disabled">▶</span>
+        <span class="btn">↻</span>
+        <span class="addr"><span class="path">tmux-version-floor.html</span></span>
+        <span class="btn on">⌕</span><span class="btn">↗</span>
+      </div>
+      <div class="findbar">
+        <span class="addr editing" style="height:26px;">version<span class="caret"></span></span>
+        <span class="count"><b>3</b>/17</span>
+        <span class="btn">∧</span><span class="btn">∨</span>
+        <span class="btn">✕</span>
+        <span class="hint">Enter next · ⇧Enter prev · Esc close</span>
+      </div>
+      <div class="progress"></div>
+      <div class="content">
+        <p>Parse tmux -V in the daemon-start precheck; warn below the <mark>version</mark> floor with an upgrade hint. Hard-refuse only remote tunnels below the minimum <mark class="cur">version</mark> — the security-relevant seam. The install script stays a thin bootstrap; <mark>version</mark> knowledge belongs in rk.</p>
+      </div>
+    </div>
+    <figcaption>
+      <div class="cap-t"><span class="k">03</span> · find bar active (⌘F) — change ie2i</div>
+      <ul class="notes">
+        <li>Parent-driven search over same-origin <code>contentDocument</code>; active match outlined green, scrolled into view</li>
+        <li>On cross-origin tiles the bar renders disabled: "page is cross-origin — find unavailable"</li>
+      </ul>
+    </figcaption>
+  </figure>
+
+  <figure class="cell">
+    <div class="tile">
+      <div class="tile-head">
+        <span class="glyph">://</span>
+        <span class="badge ext">external</span>
+        <span class="title dim">shll.ai</span>
+        <span class="spacer"></span>
+        <span class="chrome"><span>⤢</span><span>▣</span><span>⇄</span><span>✕</span></span>
+      </div>
+      <div class="urlrow">
+        <span class="btn">↻</span>
+        <span class="addr"><span class="scheme">https://</span><span class="host">shll.ai</span><span class="path">/rk/skill</span></span>
+        <span class="btn disabled">⌕</span><span class="btn">↗</span>
+      </div>
+      <div class="progress loading"></div>
+      <div class="content">
+        <div class="kicker">LOADING</div>
+        <p>External URL loading. Back/forward hidden (cross-origin), find disabled, progress line sweeping. Title falls back to the host until the frame settles.</p>
+      </div>
+    </div>
+    <figcaption>
+      <div class="cap-t"><span class="k">04</span> · external URL, loading</div>
+      <ul class="notes">
+        <li>Blue badge = external; chrome degrades honestly — no dead buttons pretending to work</li>
+        <li>Progress line is the only motion; zeroed under prefers-reduced-motion</li>
+      </ul>
+    </figcaption>
+  </figure>
+
+  <figure class="cell">
+    <div class="tile">
+      <div class="tile-head">
+        <span class="glyph">://</span>
+        <span class="badge ext">external</span>
+        <span class="title dim">github.com</span>
+        <span class="spacer"></span>
+        <span class="chrome"><span>⤢</span><span>▣</span><span>⇄</span><span>✕</span></span>
+      </div>
+      <div class="urlrow">
+        <span class="btn">↻</span>
+        <span class="addr"><span class="scheme">https://</span><span class="host">github.com</span><span class="path">/sahil87/run-kit</span></span>
+        <span class="btn disabled">⌕</span><span class="btn">↗</span>
+      </div>
+      <div class="progress"></div>
+      <div class="errbox">
+        <div class="big">⊘</div>
+        <div class="msg">github.com refuses embedding</div>
+        <div class="why">X-Frame-Options: deny — this site can't render inside a tile</div>
+        <span class="btn">Open in browser ↗</span>
+      </div>
+    </div>
+    <figcaption>
+      <div class="cap-t"><span class="k">05</span> · frame-refusal error state</div>
+      <ul class="notes">
+        <li>Backend <code>frame-check</code> probe reads the headers; the tile explains instead of blanking</li>
+        <li>The escape hatch is right in the empty state — today this is a silent black rectangle</li>
+      </ul>
+    </figcaption>
+  </figure>
+
+  <figure class="cell">
+    <div class="tile">
+      <div class="tile-head">
+        <span class="glyph">://</span>
+        <span class="badge proxy">:8080 proxy</span>
+        <span class="title dim">localhost:8080</span>
+        <span class="spacer"></span>
+        <span class="chrome"><span>⤢</span><span>▣</span><span>⇄</span><span>✕</span></span>
+      </div>
+      <div class="urlrow">
+        <span class="btn">◀</span><span class="btn disabled">▶</span>
+        <span class="btn">↻</span>
+        <span class="addr"><span class="host">localhost:8080</span><span class="path">/</span></span>
+        <span class="btn">⌕</span><span class="btn">↗</span>
+      </div>
+      <div class="progress"></div>
+      <div class="errbox">
+        <div class="big">⚡</div>
+        <div class="msg">nothing listening on :8080</div>
+        <div class="why">connection refused — the dev server may have stopped</div>
+        <span class="btn">↻ Retry</span>
+      </div>
+    </div>
+    <figcaption>
+      <div class="cap-t"><span class="k">06</span> · dead port error state</div>
+      <ul class="notes">
+        <li>Same error surface, different cause — proxy 502 renders a message, not a broken frame</li>
+        <li>Title falls back to the display form when there's no page to ask</li>
+      </ul>
+    </figcaption>
+  </figure>
+
+</div>
+
+<p class="footnote">Static mock — no live behavior. Chrome verbs ⤢ ▣ ⇄ ✕ are today's, unchanged; the &gt;_ switch-to-terminal button is removed (the top-bar surface toggles own view switching). Badge hues: green=present, amber=proxied port, blue=external. All new buttons palette-registered; ⌘L / ⌘F claimed only while the web tile owns focus.</p>
+
+</div>
+</body>
+</html>

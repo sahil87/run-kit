@@ -1,0 +1,3 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-19T15:34:07Z"}
+{"args":"Web tile keyboard reclaim + find-in-page: wire IframeWindow into the CodeSurface chord-reclaim seam for same-origin frames, and add a find bar (Cmd+F) operating on contentDocument for same-origin content, disabled with hint for cross-origin","cmd":"fab-new","event":"command","ts":"2026-08-19T15:34:07Z"}
+{"delta":"+4.4","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-08-19T15:35:45Z"}

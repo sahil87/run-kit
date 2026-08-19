@@ -1,0 +1,35 @@
+id: ie2i
+name: 260819-ie2i-web-tile-keyboard-find
+created: 2026-08-19T15:34:07Z
+created_by: sahil-noon
+change_type: refactor
+issues: []
+progress:
+    intake: ready
+    apply: pending
+    review: pending
+    hydrate: pending
+    ship: pending
+    review-pr: pending
+plan:
+    generated: false
+    task_count: 0
+    acceptance_count: 0
+    acceptance_completed: 0
+confidence:
+    certain: 2
+    confident: 5
+    tentative: 0
+    unresolved: 0
+    score: 4.4
+    fuzzy: true
+    dimensions:
+        signal: 65.0
+        reversibility: 83.6
+        competence: 80.0
+        disambiguation: 75.7
+stage_metrics:
+    intake: {started_at: "2026-08-19T15:34:07Z", driver: fab-new, iterations: 1}
+prs: []
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-19T15:35:52Z

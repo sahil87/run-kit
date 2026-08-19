@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 12
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-08-19T18:07:46Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-19T21:56:52Z"}
     review: {started_at: "2026-08-19T21:56:52Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-19T22:13:10Z"}
     hydrate: {started_at: "2026-08-19T22:13:10Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-19T22:27:12Z"}
-    ship: {started_at: "2026-08-19T22:27:12Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-08-19T22:27:12Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-19T22:31:03Z"}
+    review-pr: {started_at: "2026-08-19T22:31:03Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/668
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 5207
+    deleted: 1392
+    net: 3815
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 1528
+        deleted: 1276
+        net: 252
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-08-19T22:27:12Z"
-    computed_at_stage: hydrate
+        added: 195
+        deleted: 63
+        net: 132
+    computed_at: "2026-08-19T22:31:03Z"
+    computed_at_stage: ship
 summary: Banded B-H Label picker (preview + band headers + header-∅), marker vocabulary 5→8 (categorical classes, hatch↔hazard the one texture pairing), motion split (rain/scan flairs; markers fully static), backend closed sets widened
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-19T22:27:12Z
+last_updated: 2026-08-19T22:31:03Z

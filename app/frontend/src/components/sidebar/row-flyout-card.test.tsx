@@ -525,7 +525,7 @@ describe("Flyout warm-window delay group (module-scoped)", () => {
   it("a no-op close (card never opened) does not arm the warm window", () => {
     vi.setSystemTime(new Date("2026-08-05T10:00:00Z"));
     render(<Row win={makeWindow({})} />);
-    // Drag-start fires `close()` even when the 350ms delay never elapsed and
+    // Drag-start fires `close()` even when the open delay never elapsed and
     // the card never opened — that must NOT stamp lastClosedAt (a false warm
     // window would make the next unrelated hover open instantly).
     act(() => {

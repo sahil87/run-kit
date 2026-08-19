@@ -1,10 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup, within, waitFor } from "@testing-library/react";
-import { ShortcutsOverlay } from "./shortcuts-overlay";
+import {
+  SettingsShortcutsPanel,
+  resetShortcutsPanelViewPrefs,
+} from "./settings-shortcuts-panel";
 import { KEYBINDINGS_STORAGE_KEY } from "@/lib/keybindings";
 import type { Keybinding } from "@/api/client";
 
-// The overlay reads the current server from the session context and fetches
+// The panel reads the current server from the session context and fetches
 // the tmux bindings itself (260801-sm6g) — mock both seams so unit tests stay
 // light (no SessionProvider sockets, no network). Default: NO current server
 // (the effect resolves `[]` synchronously → the empty state, no async state
@@ -27,6 +30,7 @@ beforeEach(() => {
   mockCurrentServer = null;
   getKeybindingsMock.mockReset();
   getKeybindingsMock.mockResolvedValue([]);
+  resetShortcutsPanelViewPrefs();
 });
 
 afterEach(() => {
@@ -34,21 +38,13 @@ afterEach(() => {
   localStorage.clear();
 });
 
-function renderOverlay(onClose = vi.fn()) {
-  render(<ShortcutsOverlay open={true} onClose={onClose} />);
-  return onClose;
+function renderPanel() {
+  render(<SettingsShortcutsPanel />);
 }
 
-describe("ShortcutsOverlay", () => {
-  it("renders nothing when closed", () => {
-    render(<ShortcutsOverlay open={false} onClose={() => {}} />);
-    expect(screen.queryByTestId("shortcuts-overlay")).toBeNull();
-  });
-
-  it("renders the dialog with grouped rows, scope badges, and locked shell rows", () => {
-    renderOverlay();
-    const overlay = screen.getByTestId("shortcuts-overlay");
-    expect(overlay.querySelector('[role="dialog"]')).not.toBeNull();
+describe("SettingsShortcutsPanel", () => {
+  it("renders grouped rows, scope badges, and locked shell rows", () => {
+    renderPanel();
     // Group headings (SHELL is no longer a top-level section — 260801-sm6g;
     // TMUX joined as the merged read-only section)
     expect(screen.getByText("GLOBAL")).toBeInTheDocument();
@@ -69,13 +65,13 @@ describe("ShortcutsOverlay", () => {
   });
 
   it("marks browser-reserved rows (jsdom is a browser host)", () => {
-    renderOverlay();
+    renderPanel();
     // N/T/W are browser-reserved outside the desktop shell.
     expect(screen.getAllByText("browser").length).toBe(3);
   });
 
   it("filters rows by the query and hides empty groups", () => {
-    renderOverlay();
+    renderPanel();
     fireEvent.change(screen.getByLabelText("Filter shortcuts"), {
       target: { value: "waiting" },
     });
@@ -85,7 +81,7 @@ describe("ShortcutsOverlay", () => {
   });
 
   it("toggles keycap platform rendering (macOS ↔ Win·Linux)", () => {
-    renderOverlay();
+    renderPanel();
     // jsdom detects as non-mac → Shift/Ctrl keycaps present.
     expect(screen.getAllByText("Shift").length).toBeGreaterThan(0);
     fireEvent.click(screen.getByText("macOS"));
@@ -93,7 +89,7 @@ describe("ShortcutsOverlay", () => {
   });
 
   it("mac display renders the switcher locked row as ⌥⌘ and drops the server digit claims (260731-nv5r)", () => {
-    renderOverlay();
+    renderPanel();
     // Win·Linux display (jsdom default): the switcher row uses Shift+Ctrl
     // caps — no ⌥ anywhere — and the shifted tier map claims the switcher
     // digits as "server" (Digit1/2/9 have their own cells; 3–8 sit in the
@@ -102,7 +98,7 @@ describe("ShortcutsOverlay", () => {
     expect(screen.getAllByTitle("server").length).toBeGreaterThan(0);
     fireEvent.click(screen.getByText("macOS"));
     // The switcher row diverges to ⌥⌘1…9 (the mac shell tier) — the only ⌥
-    // keycap in the overlay — while Force reload keeps the shared ⇧⌘ caps.
+    // keycap in the panel — while Force reload keeps the shared ⇧⌘ caps.
     expect(screen.getAllByText("⌥").length).toBe(1);
     expect(screen.getAllByText("⇧").length).toBeGreaterThan(0);
     expect(screen.getByText("Switch to server 1–9")).toBeInTheDocument();
@@ -112,7 +108,7 @@ describe("ShortcutsOverlay", () => {
   });
 
   it("macOS display offers the ⌘ map layer via the modifier picker; Win·Linux display omits it (260801-r8j2)", () => {
-    renderOverlay();
+    renderPanel();
     // jsdom host → Win·Linux display by default: no modifier picker (plain
     // Ctrl belongs to the pane there) — a static "Holding Shift Ctrl" label
     // and the shifted layer rendered.
@@ -141,14 +137,16 @@ describe("ShortcutsOverlay", () => {
     expect(screen.getByTitle("incognito")).toBeInTheDocument();
   });
 
-  it("the ⌘ layer selection survives close/reopen (session-scoped view state, 260801-r8j2)", () => {
-    const { rerender } = render(<ShortcutsOverlay open={true} onClose={vi.fn()} />);
+  it("the ⌘ layer selection survives unmount/remount (session-scoped view state, 260801-r8j2)", () => {
+    const { unmount } = render(<SettingsShortcutsPanel />);
     fireEvent.click(screen.getByText("macOS"));
     fireEvent.click(
       within(screen.getByRole("group", { name: "Keyboard map modifier" })).getByText("⌘"),
     );
-    rerender(<ShortcutsOverlay open={false} onClose={vi.fn()} />);
-    rerender(<ShortcutsOverlay open={true} onClose={vi.fn()} />);
+    // The panel unmounts with the dialog close / tab switch now (the old
+    // overlay toggled `open`); the hoisted view prefs survive the remount.
+    unmount();
+    render(<SettingsShortcutsPanel />);
     const picker = screen.getByRole("group", { name: "Keyboard map modifier" });
     expect(within(picker).getByText("⌘")).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByTitle("address bar")).toBeInTheDocument();
@@ -156,14 +154,14 @@ describe("ShortcutsOverlay", () => {
 
   it("header hint shows the HOST-effective chord: ⌘/ on a mac host (260730-n789)", () => {
     // jsdom detects as a win/linux browser host → the shifted base chord.
-    renderOverlay();
+    renderPanel();
     expect(screen.getByText(/^Shift\+Ctrl\+\/ toggles this sheet$/)).toBeInTheDocument();
     cleanup();
     // Spoof a mac host: the overlay toggle demotes to the ⌘ tier (macTier,
     // no shell gate), so the header must advertise ⌘/ — never ⇧⌘/.
     Object.defineProperty(navigator, "platform", { value: "MacIntel", configurable: true });
     try {
-      renderOverlay();
+      renderPanel();
       expect(screen.getByText(/^⌘\/ toggles this sheet$/)).toBeInTheDocument();
     } finally {
       // Drop the instance shadow — jsdom's prototype getter resumes.
@@ -173,12 +171,12 @@ describe("ShortcutsOverlay", () => {
 
   it("hides the header hint when the overlay toggle is unbound", () => {
     localStorage.setItem(KEYBINDINGS_STORAGE_KEY, JSON.stringify({ "shortcuts-overlay": null }));
-    renderOverlay();
+    renderPanel();
     expect(screen.queryByText(/toggles this sheet/)).toBeNull();
   });
 
   it("click-to-capture rebinds, persists the diff, and shows the modified reset affordance", () => {
-    renderOverlay();
+    renderPanel();
     fireEvent.click(screen.getByLabelText("Change binding for Next window"));
     // Modifier-only press keeps capturing; then a valid shifted chord lands.
     fireEvent.keyDown(window, { key: "Shift", code: "ShiftLeft", shiftKey: true });
@@ -196,17 +194,20 @@ describe("ShortcutsOverlay", () => {
     expect(localStorage.getItem(KEYBINDINGS_STORAGE_KEY)).toBeNull();
   });
 
-  it("Escape cancels capture without persisting", () => {
-    const onClose = renderOverlay();
+  it("Escape cancels an armed capture without persisting", () => {
+    renderPanel();
     fireEvent.click(screen.getByLabelText("Change binding for Next window"));
+    expect(screen.getByText("press keys…")).toBeInTheDocument();
     fireEvent.keyDown(window, { key: "Escape", code: "Escape" });
     expect(localStorage.getItem(KEYBINDINGS_STORAGE_KEY)).toBeNull();
-    // The capture-phase Escape must not close the overlay (capture-only cancel).
-    expect(onClose).not.toHaveBeenCalled();
+    // Capture disarmed; the panel (and its host dialog) stay open — the
+    // capture-phase listener stopPropagations before the focus trap sees Esc.
+    expect(screen.queryByText("press keys…")).toBeNull();
+    expect(screen.getByTestId("settings-shortcuts-panel")).toBeInTheDocument();
   });
 
   it("steal-with-warning: capturing another action's combo unbinds it and flags it", () => {
-    renderOverlay();
+    renderPanel();
     fireEvent.click(screen.getByLabelText("Change binding for Next window"));
     // ⇧Ctrl+A is owned by "Next waiting agent".
     fireEvent.keyDown(window, { key: "A", code: "KeyA", shiftKey: true, ctrlKey: true });
@@ -223,21 +224,13 @@ describe("ShortcutsOverlay", () => {
       KEYBINDINGS_STORAGE_KEY,
       JSON.stringify({ "window-next": { code: "KeyU", tier: "shifted" } }),
     );
-    renderOverlay();
+    renderPanel();
     fireEvent.click(screen.getByText("reset all"));
     expect(localStorage.getItem(KEYBINDINGS_STORAGE_KEY)).toBeNull();
   });
-
-  it("Escape (outside capture) and the close button both close the overlay", () => {
-    const onClose = renderOverlay();
-    fireEvent.keyDown(document, { key: "Escape", code: "Escape" });
-    expect(onClose).toHaveBeenCalledTimes(1);
-    fireEvent.click(screen.getByLabelText("Close"));
-    expect(onClose).toHaveBeenCalledTimes(2);
-  });
 });
 
-describe("ShortcutsOverlay merged view (260801-sm6g)", () => {
+describe("SettingsShortcutsPanel merged view (260801-sm6g)", () => {
   const TMUX_BINDINGS: Keybinding[] = [
     { key: "F3", table: "root", command: "previous-window", label: "Previous window (tmux)" },
     { key: "S-F3", table: "root", command: "select-pane -t :.-", label: "Previous pane" },
@@ -245,7 +238,7 @@ describe("ShortcutsOverlay merged view (260801-sm6g)", () => {
   ];
 
   it("renders the sticky jump-nav chips for every section", () => {
-    renderOverlay();
+    renderPanel();
     const nav = screen.getByTestId("shortcuts-jump-nav");
     for (const label of ["key map", "global", "terminal", "board", "tmux"]) {
       expect(within(nav).getByText(label)).toBeInTheDocument();
@@ -255,7 +248,7 @@ describe("ShortcutsOverlay merged view (260801-sm6g)", () => {
   });
 
   it("filtering shows live chip counts, dims empty chips, and hides the key map", () => {
-    renderOverlay();
+    renderPanel();
     expect(screen.getByText(/Holding/)).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Filter shortcuts"), {
       target: { value: "waiting" },
@@ -278,7 +271,7 @@ describe("ShortcutsOverlay merged view (260801-sm6g)", () => {
   });
 
   it("collapse map folds the key grid; expand restores it (new one-line claimed legend)", () => {
-    renderOverlay();
+    renderPanel();
     const legend = "claimed — taken by the OS / browser / app menu (the desktop app frees the browser ones)";
     expect(screen.getByText(legend)).toBeInTheDocument();
     fireEvent.click(screen.getByText("▾ collapse map"));
@@ -288,7 +281,7 @@ describe("ShortcutsOverlay merged view (260801-sm6g)", () => {
   });
 
   it("shell-owned rows render as a GLOBAL subgroup", () => {
-    renderOverlay();
+    renderPanel();
     expect(
       screen.getByText("Shell-owned — accelerators live in the desktop shell menu"),
     ).toBeInTheDocument();
@@ -300,7 +293,7 @@ describe("ShortcutsOverlay merged view (260801-sm6g)", () => {
   it("tmux section renders Direct + Prefix locked rows from getKeybindings", async () => {
     mockCurrentServer = "rk";
     getKeybindingsMock.mockResolvedValue(TMUX_BINDINGS);
-    renderOverlay();
+    renderPanel();
     const tmux = screen.getByTestId("tmux-section");
     await waitFor(() => expect(within(tmux).getByText("Previous pane")).toBeInTheDocument());
     expect(getKeybindingsMock).toHaveBeenCalledWith("rk");
@@ -319,7 +312,7 @@ describe("ShortcutsOverlay merged view (260801-sm6g)", () => {
   });
 
   it("shows the tmux empty state when no current server exists (board/host routes)", () => {
-    renderOverlay(); // mockCurrentServer = null
+    renderPanel(); // mockCurrentServer = null
     expect(screen.getByText("No tmux server running")).toBeInTheDocument();
     expect(getKeybindingsMock).not.toHaveBeenCalled();
   });
@@ -327,7 +320,7 @@ describe("ShortcutsOverlay merged view (260801-sm6g)", () => {
   it("shows the tmux empty state when the fetch fails", async () => {
     mockCurrentServer = "rk";
     getKeybindingsMock.mockRejectedValue(new Error("boom"));
-    renderOverlay();
+    renderPanel();
     await waitFor(() =>
       expect(screen.getByText("No tmux server running")).toBeInTheDocument(),
     );
@@ -336,7 +329,7 @@ describe("ShortcutsOverlay merged view (260801-sm6g)", () => {
   it("one filter spans app + tmux rows and the tmux chip counts them", async () => {
     mockCurrentServer = "rk";
     getKeybindingsMock.mockResolvedValue(TMUX_BINDINGS);
-    renderOverlay();
+    renderPanel();
     const tmux = screen.getByTestId("tmux-section");
     await waitFor(() => expect(within(tmux).getByText("Split horizontally")).toBeInTheDocument());
     fireEvent.change(screen.getByLabelText("Filter shortcuts"), {
@@ -351,7 +344,7 @@ describe("ShortcutsOverlay merged view (260801-sm6g)", () => {
   });
 });
 
-describe("ShortcutsOverlay host-divergence row facts (260801-r8j2)", () => {
+describe("SettingsShortcutsPanel host-divergence row facts (260801-r8j2)", () => {
   // The desktop badge + other-host hint gate on the PHYSICAL host, so these
   // spoof `navigator.platform` (the header-hint test's pattern) and, for the
   // shell case, inject the `window.runkitShell` bridge marker.
@@ -365,7 +358,7 @@ describe("ShortcutsOverlay host-divergence row facts (260801-r8j2)", () => {
   it("mac BROWSER host: exactly the macShellOnly quartet rows carry the desktop badge + desktop-chord hint", () => {
     spoofMacHost();
     try {
-      renderOverlay();
+      renderPanel();
       // Exactly four badges — N/T/W/, (260801-mqim adds settings-open);
       // host-invariant rows carry none.
       expect(screen.getAllByText("desktop")).toHaveLength(4);
@@ -387,7 +380,7 @@ describe("ShortcutsOverlay host-divergence row facts (260801-r8j2)", () => {
     spoofMacHost();
     window.runkitShell = { version: "1", platform: "darwin" };
     try {
-      renderOverlay();
+      renderPanel();
       expect(screen.getAllByText("desktop")).toHaveLength(4);
       expect(screen.getByText("in browser: ⇧⌘N")).toBeInTheDocument();
       expect(screen.getByText("in browser: ⇧⌘T")).toBeInTheDocument();
@@ -403,7 +396,7 @@ describe("ShortcutsOverlay host-divergence row facts (260801-r8j2)", () => {
   it("no badge on a win/linux host, and an override collapses the divergence", () => {
     // Default jsdom host (platform "other") → never a badge, whatever the
     // display toggle shows.
-    renderOverlay();
+    renderPanel();
     expect(screen.queryByText("desktop")).toBeNull();
     fireEvent.click(screen.getByText("macOS"));
     expect(screen.queryByText("desktop")).toBeNull();
@@ -417,7 +410,7 @@ describe("ShortcutsOverlay host-divergence row facts (260801-r8j2)", () => {
       JSON.stringify({ "create-window": { code: "KeyU", tier: "shifted" } }),
     );
     try {
-      renderOverlay();
+      renderPanel();
       expect(screen.getAllByText("desktop")).toHaveLength(3);
       expect(screen.queryByText("in desktop app: ⌘T")).toBeNull();
       expect(screen.getByText("in desktop app: ⌘N")).toBeInTheDocument();
@@ -427,7 +420,7 @@ describe("ShortcutsOverlay host-divergence row facts (260801-r8j2)", () => {
   });
 });
 
-describe("ShortcutsOverlay CUSTOM section (260730-hbyh)", () => {
+describe("SettingsShortcutsPanel CUSTOM section (260730-hbyh)", () => {
   const DISCUSS = {
     actionId: "macro:discuss",
     kind: "macro",
@@ -440,9 +433,7 @@ describe("ShortcutsOverlay CUSTOM section (260730-hbyh)", () => {
     targets?: { id: string; label: string }[];
   }) {
     render(
-      <ShortcutsOverlay
-        open={true}
-        onClose={vi.fn()}
+      <SettingsShortcutsPanel
         paletteTargets={opts?.targets ?? [{ id: "create-window", label: "Window: Create" }]}
         riffPresetNames={opts?.presets ?? ["discuss"]}
       />,
@@ -450,7 +441,7 @@ describe("ShortcutsOverlay CUSTOM section (260730-hbyh)", () => {
   }
 
   it("renders no CUSTOM section when no macros exist and no targets are provided", () => {
-    renderOverlay();
+    renderPanel();
     expect(screen.queryByTestId("macro-section")).toBeNull();
   });
 
@@ -538,7 +529,7 @@ describe("ShortcutsOverlay CUSTOM section (260730-hbyh)", () => {
 
   it("hides the add row when no paletteTargets prop is provided (board mount)", () => {
     localStorage.setItem("runkit-macros", JSON.stringify([DISCUSS]));
-    renderOverlay();
+    renderPanel();
     // Rows still render (view/rebind/delete), but no add flow.
     expect(screen.getByText("rk riff --preset discuss")).toBeInTheDocument();
     expect(

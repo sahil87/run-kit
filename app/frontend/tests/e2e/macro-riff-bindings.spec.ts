@@ -5,8 +5,9 @@ import { mockStateSocket } from "./_state-socket-mock";
 // the server list, and the riff endpoints via page.route, then drive the
 // keyboard. See macro-riff-bindings.spec.md for intent + steps.
 //
-// Macro shortcut bindings over riff presets (260730-hbyh): the overlay's
-// CUSTOM section (add-macro flow, command preview, missing-preset badge),
+// Macro shortcut bindings over riff presets (260730-hbyh): the CUSTOM section
+// of the settings dialog's Shortcuts tab (260818-bncw — the standalone
+// overlay is retired) — add-macro flow, command preview, missing-preset badge —
 // macro chords dispatching `POST /api/riff` with the PRESET NAME only,
 // success toast + navigation to the spawned window, the kind-tagged
 // `Macro:` palette entry with its effective-combo hint, and the 400-toast
@@ -119,11 +120,12 @@ test.describe("overlay add-macro flow", () => {
     const spawnBodies = await mockBackend(page);
     await gotoWindowOne(page);
 
-    // Open the cheatsheet and start the add flow.
+    // Open the Shortcuts tab (the settings dialog, 260818-bncw) and start the
+    // add flow.
     await page.keyboard.press("Shift+Control+Slash");
-    const overlay = page.getByTestId("shortcuts-overlay");
-    await expect(overlay).toBeVisible();
-    await overlay.getByText("+ bind a key to a palette action or riff preset…").click();
+    const panel = page.getByTestId("settings-shortcuts-panel");
+    await expect(panel).toBeVisible();
+    await panel.getByText("+ bind a key to a palette action or riff preset…").click();
 
     // Target list = riff presets (from the mocked preflight) + palette actions.
     await page.getByLabel("Search macro targets").fill("discuss");
@@ -132,7 +134,7 @@ test.describe("overlay add-macro flow", () => {
     await page.getByRole("button", { name: "add + capture key" }).click();
 
     // Capture armed on the fresh row — land the chord.
-    await expect(overlay.getByText("press keys…")).toBeVisible();
+    await expect(panel.getByText("press keys…")).toBeVisible();
     await page.keyboard.press("Shift+Control+KeyD");
 
     // Definition + combo persisted to their two stores.
@@ -143,10 +145,10 @@ test.describe("overlay add-macro flow", () => {
       "macro:riff-discuss": { code: "KeyD", tier: "shifted" },
     });
     // The row renders the resolved-command preview.
-    await expect(overlay.getByText("rk riff --preset discuss")).toBeVisible();
+    await expect(panel.getByText("rk riff --preset discuss")).toBeVisible();
 
     await page.keyboard.press("Escape");
-    await expect(overlay).toHaveCount(0);
+    await expect(page.getByRole("dialog", { name: "Settings" })).toHaveCount(0);
 
     // The chord POSTs the preset name only and navigates to the spawned window.
     await page.keyboard.press("Shift+Control+KeyD");
@@ -193,11 +195,11 @@ test.describe("missing preset — no silent fallback", () => {
 
     // The CUSTOM row carries the error badge once the preset list is known.
     await page.keyboard.press("Shift+Control+Slash");
-    const overlay = page.getByTestId("shortcuts-overlay");
-    await expect(overlay).toBeVisible();
-    await expect(overlay.getByText("missing preset")).toBeVisible();
+    const panel = page.getByTestId("settings-shortcuts-panel");
+    await expect(panel).toBeVisible();
+    await expect(panel.getByText("missing preset")).toBeVisible();
     await page.keyboard.press("Escape");
-    await expect(overlay).toHaveCount(0);
+    await expect(page.getByRole("dialog", { name: "Settings" })).toHaveCount(0);
 
     // The chord still POSTs (the backend is authoritative) and the 400
     // surfaces as an error toast; nothing navigates.

@@ -1727,8 +1727,12 @@ describe("TopBar", () => {
     /** Probe rendering the layout-level settings-dialog state, so a gear/menu
      *  click has an observable effect without mounting the dialog itself. */
     function SettingsState() {
-      const { isOpen } = useSettingsDialog();
-      return <span data-testid="settings-open-state">{isOpen ? "open" : "closed"}</span>;
+      const { isOpen, activeTab } = useSettingsDialog();
+      return (
+        <span data-testid="settings-open-state">
+          {isOpen ? `open:${activeTab}` : "closed"}
+        </span>
+      );
     }
 
     function renderTopBarWithSettingsProbe(
@@ -1816,19 +1820,22 @@ describe("TopBar", () => {
       expect(rel).toContain("noreferrer");
     });
 
-    it("the Keyboard shortcuts row dispatches shortcuts-overlay:open and carries the effective chord", () => {
-      renderTopBar();
+    it("the Keyboard shortcuts row deep-links the dialog's Shortcuts tab and carries the effective chord", () => {
+      renderTopBarWithSettingsProbe();
       act(() => fireEvent.click(screen.getByLabelText("More controls")));
       const menu = screen.getByRole("menu", { name: "More controls" });
       const row = within(menu).getByRole("menuitem", { name: "Keyboard shortcuts" });
       // The trailing keycap is aria-hidden (visual education, not part of the
       // name) and shows the host-effective chord (jsdom platform "other").
       expect(row.querySelector("kbd")).toHaveTextContent("Shift+Ctrl+/");
+      // The retired `shortcuts-overlay:open` event seam is gone — the row
+      // calls openSettings("shortcuts") directly.
       const openListener = vi.fn();
       document.addEventListener("shortcuts-overlay:open", openListener);
       try {
         act(() => fireEvent.click(row));
-        expect(openListener).toHaveBeenCalledTimes(1);
+        expect(openListener).not.toHaveBeenCalled();
+        expect(screen.getByTestId("settings-open-state")).toHaveTextContent("open:shortcuts");
       } finally {
         document.removeEventListener("shortcuts-overlay:open", openListener);
       }

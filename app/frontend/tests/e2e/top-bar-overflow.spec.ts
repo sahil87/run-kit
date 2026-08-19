@@ -412,12 +412,14 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
     await expect(help).toHaveAttribute("target", "_blank");
     await expect(help).toHaveAttribute("rel", /noopener/);
 
-    // Keyboard shortcuts — dispatches the overlay event; the layout opens the
-    // ShortcutsOverlay (menu closes on the menuitem click).
+    // Keyboard shortcuts — deep-links into the settings dialog's Shortcuts
+    // tab directly via the settings context (the `shortcuts-overlay:open`
+    // event seam is retired, 260818-bncw; menu closes on the menuitem click).
     await menu.getByRole("menuitem", { name: "Keyboard shortcuts" }).click();
-    await expect(page.getByTestId("shortcuts-overlay")).toBeVisible();
+    await expect(page.getByRole("dialog", { name: "Settings" })).toBeVisible();
+    await expect(page.getByTestId("settings-shortcuts-panel")).toBeVisible();
     await page.keyboard.press("Escape");
-    await expect(page.getByTestId("shortcuts-overlay")).toHaveCount(0);
+    await expect(page.getByRole("dialog", { name: "Settings" })).toHaveCount(0);
 
     // Theme… — opens the theme selector (click-cycling is retired).
     await page.getByRole("button", { name: "More controls" }).click();

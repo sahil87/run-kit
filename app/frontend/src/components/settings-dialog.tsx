@@ -1,45 +1,51 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
+import { useMatches } from "@tanstack/react-router";
 import { Dialog } from "@/components/dialog";
 import { Tip, TipGroup } from "@/components/tip";
 import { SwatchPopover } from "@/components/swatch-popover";
-import { useSettingsDialog } from "@/contexts/settings-dialog-context";
+import {
+  SettingsShortcutsPanel,
+  type MacroPaletteTarget,
+} from "@/components/settings-shortcuts-panel";
+import { useSettingsDialog, type SettingsTab } from "@/contexts/settings-dialog-context";
 import { useInstanceName } from "@/contexts/instance-name-context";
 import { useInstanceAccent } from "@/contexts/instance-accent-context";
+import { useSessionContext } from "@/contexts/session-context";
+import { usePaletteActions } from "@/contexts/palette-actions-context";
 import { useChromeState, useChromeDispatch, TERMINAL_FONT_BOUNDS } from "@/contexts/chrome-context";
 import { useTheme, useThemeActions } from "@/contexts/theme-context";
 import { usePushSubscription } from "@/hooks/use-push-subscription";
 import { NOTIFICATIONS_HELP_URL } from "@/components/global-chrome";
 import { THEMES } from "@/themes";
-import { getSSHHost, setSSHHost } from "@/api/client";
+import { getSSHHost, setSSHHost, getRiffPresets } from "@/api/client";
 import { invalidateOpenContext } from "@/hooks/use-open-targets";
+import { isMacroActionId } from "@/lib/macros";
 
 /**
  * VS Code-style settings dialog (260723-o7q8; desktop preference-pane layout
- * 260724-6j1v), rendered ONCE in `AppLayout` so it exists on every page —
- * server routes, terminals, boards, and the host page. Two labeled sections
- * make the persistence scope visible:
+ * 260724-6j1v; TABBED in 260818-bncw), rendered ONCE in `AppLayout` so it
+ * exists on every page — server routes, terminals, boards, and the host page.
  *
- *  - **This host** — settings stored on the instance's host
- *    (`~/.rk/settings.yaml`): instance display name, SSH host, instance
- *    accent color, theme pair. Every device viewing this instance sees them.
- *  - **This device** — browser-local ergonomics (localStorage / this
- *    browser's push subscription): terminal font size, notifications.
- *
- * Layout (6j1v): the dialog uses the wide `size="lg"` Dialog variant
- * (~672px). Each setting is a PREFERENCE ROW — a `190px 1fr` CSS grid (label
- * + sublabel hint left, control right) so all controls align on one vertical
- * rule, with hairline separators between rows and scope headings as
- * full-width rules carrying the storage hint right-aligned. Below 480px the
- * row grid collapses to a single column (label above control) via the
- * `min-[480px]:` variant — ONE code path, no second dialog.
+ * Three topic tabs — **General** (instance name, SSH host, notifications),
+ * **Appearance** (theme pair, accent color, terminal font size), **Shortcuts**
+ * (the ported shortcuts-overlay body, `SettingsShortcutsPanel`) — each keeping
+ * the persistence-scope `ScopeHeading` groups inside the tab (both General and
+ * Appearance mix This host / This device). The tab list is ONE
+ * `role="tablist"` markup with roving-tabindex arrow-key nav: a vertical left
+ * rail at ≥480px, a horizontal scrollable strip under the title below (the
+ * `min-[480px]:` variant — ONE code path, no mobile fork). The dialog rides
+ * the fixed-height `size="xl"` Dialog variant so the rail never jumps between
+ * the short General tab and the tall Shortcuts tab; each tab panel owns its
+ * own internal scroll.
  *
  * Controls REUSE the existing models rather than rebuilding them: the accent
  * picker is the HOST-panel `SwatchPopover` + descriptor model, the theme pair
  * drives the existing `setTheme()` wiring, the font stepper is the shared
- * `ChromeContext` control, and the Notifications block (moved here from the
- * retired top-bar bell, 6j1v) is `usePushSubscription`. Open/close state
- * lives in `SettingsDialogContext` (palette actions + the sidebar gear call
- * `openSettings()`).
+ * `ChromeContext` control, and the Notifications block is
+ * `usePushSubscription`. Open/close/tab state lives in
+ * `SettingsDialogContext` (`openSettings(tab?)` deep-links — the
+ * `settings-open` chord lands General, the `shortcuts-overlay` chord toggles
+ * the Shortcuts tab).
  */
 
 /** Scope heading — a full-width underlined rule: uppercase scope name left,
@@ -414,6 +420,77 @@ function NotificationsControl() {
   );
 }
 
+const SETTINGS_TABS: { id: SettingsTab; label: string }[] = [
+  { id: "general", label: "General" },
+  { id: "appearance", label: "Appearance" },
+  { id: "shortcuts", label: "Shortcuts" },
+];
+
+/** The tab rail (260818-bncw) — ONE `role="tablist"` markup: a vertical left
+ *  rail at ≥480px, a horizontal scrollable strip under the dialog title below
+ *  (the same `min-[480px]:` single-breakpoint idiom the preference rows use).
+ *  Roving tabindex: the active tab is the list's one Tab stop; arrow keys
+ *  (both axes, both layouts) move focus and activate on focus. */
+function SettingsTabList({
+  activeTab,
+  onSelect,
+}: {
+  activeTab: SettingsTab;
+  onSelect: (tab: SettingsTab) => void;
+}) {
+  const tabRefs = useRef<Partial<Record<SettingsTab, HTMLButtonElement | null>>>({});
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    const delta =
+      e.key === "ArrowDown" || e.key === "ArrowRight"
+        ? 1
+        : e.key === "ArrowUp" || e.key === "ArrowLeft"
+          ? -1
+          : 0;
+    if (delta === 0) return;
+    e.preventDefault();
+    const idx = SETTINGS_TABS.findIndex((t) => t.id === activeTab);
+    const next = SETTINGS_TABS[(idx + delta + SETTINGS_TABS.length) % SETTINGS_TABS.length];
+    onSelect(next.id);
+    tabRefs.current[next.id]?.focus();
+  };
+
+  return (
+    <div
+      role="tablist"
+      aria-label="Settings sections"
+      onKeyDown={onKeyDown}
+      className="flex gap-1 overflow-x-auto border-b border-border pb-2 min-[480px]:flex-col min-[480px]:w-32 min-[480px]:shrink-0 min-[480px]:overflow-visible min-[480px]:border-b-0 min-[480px]:border-r min-[480px]:pb-0 min-[480px]:pr-3"
+    >
+      {SETTINGS_TABS.map((t) => {
+        const active = t.id === activeTab;
+        return (
+          <button
+            key={t.id}
+            ref={(el) => {
+              tabRefs.current[t.id] = el;
+            }}
+            type="button"
+            role="tab"
+            id={`settings-tab-${t.id}`}
+            aria-selected={active}
+            aria-controls={`settings-panel-${t.id}`}
+            tabIndex={active ? 0 : -1}
+            onClick={() => onSelect(t.id)}
+            className={`text-left whitespace-nowrap text-xs px-2.5 py-1.5 rounded transition-colors ${
+              active
+                ? "bg-accent/15 text-text-primary"
+                : "text-text-secondary hover:text-text-primary hover:bg-bg-inset/70"
+            }`}
+          >
+            {t.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export function SettingsDialog() {
   const { isOpen, closeSettings } = useSettingsDialog();
   if (!isOpen) return null;
@@ -421,8 +498,10 @@ export function SettingsDialog() {
 }
 
 /** The dialog body — mounted only while open, so per-open fetches (the SSH
- *  host setting) run on mount without any reopen-staleness bookkeeping. */
+ *  host setting, the Shortcuts tab's riff presets) run on mount without any
+ *  reopen-staleness bookkeeping. */
 function SettingsDialogBody({ onClose }: { onClose: () => void }) {
+  const { activeTab, setActiveTab } = useSettingsDialog();
   const { hostname, instanceName, setInstanceName } = useInstanceName();
 
   // The SSH host field edits the stored SETTING (may be empty while the
@@ -441,54 +520,194 @@ function SettingsDialogBody({ onClose }: { onClose: () => void }) {
   }, []);
 
   return (
-    <Dialog title="Settings" onClose={onClose} size="lg">
+    <Dialog title="Settings" onClose={onClose} size="xl">
       <TipGroup>
-        <section aria-label="This host settings">
-          <ScopeHeading label="This host" hint="stored on this instance, shared by every device" />
-          {/* Hairline separators between rows — a low-opacity border (6j1v). */}
-          <div className="divide-y divide-border/40">
-            <TextSetting
-              id="settings-instance-name"
-              label="Instance name"
-              value={instanceName ?? ""}
-              placeholder={hostname || "hostname"}
-              hint="Display name for this instance; empty uses the hostname"
-              commit={(trimmed) => {
-                // Optimistic context write (failure toasts globally); resolve
-                // immediately so the field never shows a stale error.
-                setInstanceName(trimmed === "" ? null : trimmed);
-                return Promise.resolve();
-              }}
-            />
-            <TextSetting
-              id="settings-ssh-host"
-              label="SSH host"
-              value={sshHost}
-              placeholder="alias or user@host"
-              hint="Used verbatim in editor deeplinks; empty falls back to RK_SSH_HOST"
-              commit={async (trimmed) => {
-                await setSSHHost(trimmed === "" ? null : trimmed);
-                setSSHHostState(trimmed);
-                // The Open control's cached context embeds the SSH host in
-                // editor deeplinks — refresh it at the one seam where it
-                // changes. Success only: a rejected commit left the server
-                // value unchanged, so the cache is still correct.
-                invalidateOpenContext();
-              }}
-            />
-            <AccentColorControl />
-            <ThemePairControl />
-          </div>
-        </section>
-
-        <section aria-label="This device settings" className="mt-4">
-          <ScopeHeading label="This device" hint="stored in this browser only" />
-          <div className="divide-y divide-border/40">
-            <TerminalFontControl />
-            <NotificationsControl />
-          </div>
-        </section>
+        <div className="flex flex-col min-[480px]:flex-row gap-3 flex-1 min-h-0">
+          <SettingsTabList activeTab={activeTab} onSelect={setActiveTab} />
+          {/* One stable tabpanel per tab so every tab's `aria-controls` target
+              exists; inactive panels are `hidden`, content stays mount-gated. */}
+          {SETTINGS_TABS.map((t) => {
+            const active = t.id === activeTab;
+            return (
+              <div
+                key={t.id}
+                role="tabpanel"
+                id={`settings-panel-${t.id}`}
+                aria-labelledby={`settings-tab-${t.id}`}
+                hidden={!active}
+                className="flex-1 min-w-0 min-h-0 overflow-y-auto"
+              >
+                {active && t.id === "general" && (
+                  <GeneralPanel
+                    hostname={hostname}
+                    instanceName={instanceName}
+                    setInstanceName={setInstanceName}
+                    sshHost={sshHost}
+                    setSSHHostState={setSSHHostState}
+                  />
+                )}
+                {active && t.id === "appearance" && <AppearancePanel />}
+                {active && t.id === "shortcuts" && <ShortcutsTabPanel />}
+              </div>
+            );
+          })}
+        </div>
       </TipGroup>
     </Dialog>
+  );
+}
+
+function GeneralPanel({
+  hostname,
+  instanceName,
+  setInstanceName,
+  sshHost,
+  setSSHHostState,
+}: {
+  hostname: string;
+  instanceName: string | null;
+  setInstanceName: (name: string | null) => void;
+  sshHost: string;
+  setSSHHostState: (host: string) => void;
+}) {
+  return (
+    <>
+      <section aria-label="This host settings">
+        <ScopeHeading label="This host" hint="stored on this instance, shared by every device" />
+        {/* Hairline separators between rows — a low-opacity border (6j1v). */}
+        <div className="divide-y divide-border/40">
+          <TextSetting
+            id="settings-instance-name"
+            label="Instance name"
+            value={instanceName ?? ""}
+            placeholder={hostname || "hostname"}
+            hint="Display name for this instance; empty uses the hostname"
+            commit={(trimmed) => {
+              // Optimistic context write (failure toasts globally); resolve
+              // immediately so the field never shows a stale error.
+              setInstanceName(trimmed === "" ? null : trimmed);
+              return Promise.resolve();
+            }}
+          />
+          <TextSetting
+            id="settings-ssh-host"
+            label="SSH host"
+            value={sshHost}
+            placeholder="alias or user@host"
+            hint="Used verbatim in editor deeplinks; empty falls back to RK_SSH_HOST"
+            commit={async (trimmed) => {
+              await setSSHHost(trimmed === "" ? null : trimmed);
+              setSSHHostState(trimmed);
+              // The Open control's cached context embeds the SSH host in
+              // editor deeplinks — refresh it at the one seam where it
+              // changes. Success only: a rejected commit left the server
+              // value unchanged, so the cache is still correct.
+              invalidateOpenContext();
+            }}
+          />
+        </div>
+      </section>
+
+      <section aria-label="This device settings" className="mt-4">
+        <ScopeHeading label="This device" hint="stored in this browser only" />
+        <div className="divide-y divide-border/40">
+          <NotificationsControl />
+        </div>
+      </section>
+    </>
+  );
+}
+
+function AppearancePanel() {
+  return (
+    <>
+      <section aria-label="This host settings">
+        <ScopeHeading label="This host" hint="stored on this instance, shared by every device" />
+        <div className="divide-y divide-border/40">
+          <ThemePairControl />
+          <AccentColorControl />
+        </div>
+      </section>
+
+      <section aria-label="This device settings" className="mt-4">
+        <ScopeHeading label="This device" hint="stored in this browser only" />
+        <div className="divide-y divide-border/40">
+          <TerminalFontControl />
+        </div>
+      </section>
+    </>
+  );
+}
+
+/** The Shortcuts tab — the retired shortcuts-overlay's body plus the per-open
+ *  data plumbing the old layout mount owned (260811-239r's
+ *  `LayoutShortcutsOverlay`): the macro add-flow's palette-target candidates
+ *  (every merged palette action except the macro entries themselves) and the
+ *  best-effort riff-preset fetch. Both stay gated on a route with a server +
+ *  session (the same deepest-first route-param walk + SSE snapshot), and the
+ *  fetch runs only while the Shortcuts tab is the visible panel (this
+ *  component mounts only then) — a board/host route keeps the CUSTOM rows
+ *  read/rebind/delete-only, exactly as before. */
+function ShortcutsTabPanel() {
+  const ctx = useSessionContext();
+  const matches = useMatches();
+  const allActions = usePaletteActions();
+
+  let serverParam: string | undefined;
+  let windowParam: string | undefined;
+  for (let i = matches.length - 1; i >= 0; i--) {
+    const p = (matches[i]?.params ?? {}) as { server?: string; window?: string };
+    if (serverParam === undefined && typeof p.server === "string") serverParam = p.server;
+    if (windowParam === undefined && typeof p.window === "string") windowParam = p.window;
+  }
+  const server = ctx.currentServer ?? serverParam ?? "";
+  // The session of the URL's window, derived from the streamed sessions.
+  const sessionName = useMemo(() => {
+    if (!windowParam || !server) return undefined;
+    return (ctx.sessionsByServer.get(server) ?? []).find((s) =>
+      s.windows.some((w) => w.windowId === windowParam),
+    )?.name;
+  }, [ctx.sessionsByServer, server, windowParam]);
+
+  const macroPaletteTargets = useMemo<MacroPaletteTarget[] | undefined>(
+    () =>
+      server
+        ? allActions
+            .filter((a) => !isMacroActionId(a.id))
+            .map((a) => ({ id: a.id, label: a.label }))
+        : undefined,
+    [server, allActions],
+  );
+
+  // Best-effort riff-preset names for the CUSTOM section (add-flow targets +
+  // missing-preset badges); GET /api/riff/presets derives the repo from the
+  // session's active pane — the same preflight seam the spawn dialog uses.
+  // null = unknown: no badges, palette targets only. Mount-gated: the effect
+  // runs only while the Shortcuts tab is visible, cancel-flagged on
+  // unmount/server change.
+  const [riffPresetNames, setRiffPresetNames] = useState<string[] | null>(null);
+  useEffect(() => {
+    if (!sessionName) {
+      setRiffPresetNames(null);
+      return;
+    }
+    let cancelled = false;
+    getRiffPresets(server, sessionName)
+      .then((data) => {
+        if (!cancelled) setRiffPresetNames(data.presets.map((p) => p.name));
+      })
+      .catch(() => {
+        if (!cancelled) setRiffPresetNames(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [server, sessionName]);
+
+  return (
+    <SettingsShortcutsPanel
+      paletteTargets={macroPaletteTargets}
+      riffPresetNames={riffPresetNames}
+    />
   );
 }

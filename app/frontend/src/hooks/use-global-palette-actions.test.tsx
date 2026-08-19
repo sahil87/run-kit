@@ -3,16 +3,17 @@ import { render, screen, fireEvent, cleanup, act } from "@testing-library/react"
 import { useGlobalPaletteActions } from "./use-global-palette-actions";
 import { CommandPalette, type PaletteAction } from "@/components/command-palette";
 import { ChromeProvider } from "@/contexts/chrome-context";
-import { SettingsDialogProvider } from "@/contexts/settings-dialog-context";
+import { SettingsDialogProvider, useSettingsDialog } from "@/contexts/settings-dialog-context";
 import { ToastProvider } from "@/components/toast";
 
 /**
  * Tests for the layout-level global palette groups (260811-239r) — the hook
  * behind the single AppLayout-mounted CommandPalette. Verifies the group
  * composition/ordering (R9/R11: nav → font → refresh → help → shortcuts →
- * settings → update/check/maintenance/version), the route-walk-driven nav
- * mode (`Go: tmux Server` on terminal routes only), and the layout-lifted
- * shortcuts-overlay toggle wiring (R12).
+ * settings), the route-walk-driven nav mode (`Go: tmux Server` on terminal
+ * routes only), and the settings-dialog deep-link wiring (260818-bncw: the
+ * `shortcuts-overlay` entry toggles the dialog's Shortcuts tab; `Settings:
+ * Open` is a tab-less pure opener; `Settings: Appearance` deep-links).
  */
 
 let mockMatches: Array<{ params: Record<string, string> }> = [{ params: {} }];
@@ -27,16 +28,18 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 
 let captured: PaletteAction[] = [];
-let toggleOverlay: () => void = () => {};
+// Dialog-state probe so entry bodies can be asserted against the context.
+let dialogState: { isOpen: boolean; activeTab: string } = { isOpen: false, activeTab: "general" };
 
 function Probe() {
-  const actions = useGlobalPaletteActions({ onToggleShortcutsOverlay: () => toggleOverlay() });
+  const actions = useGlobalPaletteActions();
   captured = actions;
+  const { isOpen, activeTab } = useSettingsDialog();
+  dialogState = { isOpen, activeTab };
   return <CommandPalette actions={actions} />;
 }
 
-function renderHook(mockToggle: () => void = () => {}) {
-  toggleOverlay = mockToggle;
+function renderHook() {
   render(
     <ToastProvider>
       <ChromeProvider>
@@ -84,6 +87,7 @@ describe("useGlobalPaletteActions", () => {
       "help-documentation",
       "shortcuts-overlay",
       "settings-open",
+      "settings-appearance",
     ];
     expect(order.slice(0, expectInOrder.length)).toEqual(expectInOrder);
   });
@@ -111,13 +115,40 @@ describe("useGlobalPaletteActions", () => {
     expect(mockNavigate).toHaveBeenCalledWith({ to: "/" });
   });
 
-  it("wires the shortcuts-overlay entry to the layout-lifted toggle (R12)", () => {
-    const onToggle = vi.fn();
-    renderHook(onToggle);
-    const entry = captured.find((a) => a.id === "shortcuts-overlay");
-    expect(entry?.label).toBe("Help: Keyboard Shortcuts");
-    entry?.onSelect();
-    expect(onToggle).toHaveBeenCalledOnce();
+  it("the shortcuts-overlay entry toggles the dialog's Shortcuts tab (260818-bncw three-state rule)", () => {
+    renderHook();
+    const fire = () => captured.find((a) => a.id === "shortcuts-overlay")?.onSelect();
+    // Closed → open on Shortcuts.
+    act(() => fire());
+    expect(dialogState).toEqual({ isOpen: true, activeTab: "shortcuts" });
+    // Open on Shortcuts → close.
+    act(() => fire());
+    expect(dialogState.isOpen).toBe(false);
+    // Open on ANOTHER tab → switch to Shortcuts, no close.
+    act(() => captured.find((a) => a.id === "settings-appearance")?.onSelect());
+    expect(dialogState).toEqual({ isOpen: true, activeTab: "appearance" });
+    act(() => fire());
+    expect(dialogState).toEqual({ isOpen: true, activeTab: "shortcuts" });
+  });
+
+  it("Settings: Open is a pure opener — re-fire while open never closes and never yanks the tab", () => {
+    renderHook();
+    const open = () => captured.find((a) => a.id === "settings-open")?.onSelect();
+    act(() => open());
+    expect(dialogState).toEqual({ isOpen: true, activeTab: "general" });
+    // Re-fire while open on Shortcuts: no close, no tab reset.
+    act(() => captured.find((a) => a.id === "shortcuts-overlay")?.onSelect());
+    expect(dialogState.activeTab).toBe("shortcuts");
+    act(() => open());
+    expect(dialogState).toEqual({ isOpen: true, activeTab: "shortcuts" });
+  });
+
+  it("Settings: Appearance deep-links the Appearance tab (id settings-appearance)", () => {
+    renderHook();
+    const entry = captured.find((a) => a.id === "settings-appearance");
+    expect(entry?.label).toBe("Settings: Appearance");
+    act(() => entry?.onSelect());
+    expect(dialogState).toEqual({ isOpen: true, activeTab: "appearance" });
   });
 
   it("renders the global entries through the palette (id/label identity)", () => {
@@ -129,6 +160,7 @@ describe("useGlobalPaletteActions", () => {
     expect(screen.getByText("Help: Documentation")).toBeInTheDocument();
     expect(screen.getByText("Help: Keyboard Shortcuts")).toBeInTheDocument();
     expect(screen.getByText("Settings: Open")).toBeInTheDocument();
+    expect(screen.getByText("Settings: Appearance")).toBeInTheDocument();
   });
 
   it("registers the four Panel: Toggle actions, each flipping its section's persisted boolean (iha5 R6)", () => {

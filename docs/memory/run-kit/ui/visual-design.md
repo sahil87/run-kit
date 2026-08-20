@@ -466,3 +466,9 @@ The viewport meta tag in `app/frontend/index.html` includes `maximum-scale=1.0` 
 **Why**: measured, `bg-bg-card` against `bg-bg-primary` is 1.10:1 in dark and 1.05:1 in light. In a dark theme, surface lightness has no headroom to do the separating; only occlusion reads. The token swap still matters because `tip.tsx` already uses `bg-bg-card`, so it puts every popup surface on the one elevated token.
 **Rejected**: relying on the 1px border (2.25:1 dark / 1.40:1 light — both under the 3:1 WCAG 1.4.11 bar, and `themes.ts` re-derives `--color-border` per terminal theme so its strength is not even guaranteed); relying on stock `shadow-lg` (black at 10%, invisible on a near-black ground).
 *Introduced by*: 260817-nwz9-flyout-card-elevation-action-tray
+
+### No rest-state alpha dim on icon affordances; 24×24 minimum icon-button targets
+**Decision**: An icon affordance rests at full opacity in a solid token (`text-text-secondary` on chrome grounds); a muted rest look, where wanted, is a dedicated solid color token tuned to ≥3:1 against its ground in BOTH themes, never an `opacity-*` class or a `/NN` alpha suffix. Icon-only buttons on fine pointers are at least 24×24 (WCAG 2.2 SC 2.5.8 target minimum; coarse-pointer floors stay ≥26px).
+**Why**: Measured on the tile-header verbs, a 65% dim over `bg-bg-card` dropped `text-text-secondary` from ≈4.5:1 dark / ≈4.8:1 light (passing) to ≈2.7:1 / ≈2.5:1 — failing SC 1.4.11 (3:1 non-text) and text AA in both themes. Alpha multiplies against whatever sits behind the element, so one dim value cannot be tuned safely for two themes or for varying grounds; a solid token can be verified per theme once.
+**Rejected**: A lighter dim (e.g. `opacity-80` or `text-text-secondary/80`) — still alpha, still ground-dependent; hover-to-reveal (`opacity-0 group-hover:…`) — zero rest discoverability, the pattern the 65% dim itself had replaced.
+*Introduced by*: 260820-pjqd-tile-verb-button-visibility

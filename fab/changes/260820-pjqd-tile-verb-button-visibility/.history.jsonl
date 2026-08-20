@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-20T16:29:16Z"}
+{"args":"Tile-header verb button visibility/accessibility fix: drop rest-state opacity-65 from VERB_BUTTON_CLASS, grow verbs 22-\u003e24px (header 30-\u003e32px), replace unicode verb glyphs with 14px ControlGlyph SVGs (approved mock variant C)","cmd":"fab-new","event":"command","ts":"2026-08-20T16:29:16Z"}
+{"delta":"+5.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-08-20T16:30:48Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-08-20T16:32:00Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-20T16:33:42Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-20T16:34:36Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-20T16:44:00Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-20T16:47:39Z"}
+{"event":"review","result":"passed","ts":"2026-08-20T16:47:39Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-20T16:51:04Z"}

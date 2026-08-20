@@ -110,6 +110,79 @@ export function ClosePaneBoxedGlyph() {
   );
 }
 
+/** Find — lucide search (circle + handle), the tile-header find toggle
+ *  (tty and web ⌕ vocabulary). */
+export function FindGlyph() {
+  return (
+    <ControlGlyph name="find">
+      <circle cx="11" cy="11" r="8" />
+      <path d="m21 21-4.3-4.3" />
+    </ControlGlyph>
+  );
+}
+
+/** Export — arrow-down-to-line ("pull the buffer down to a file"), the tty
+ *  tile header's export-menu trigger. */
+export function ExportGlyph() {
+  return (
+    <ControlGlyph name="export">
+      <path d="M12 17V3" />
+      <path d="m6 11 6 6 6-6" />
+      <path d="M19 21H5" />
+    </ControlGlyph>
+  );
+}
+
+/** Zoom — lucide maximize corner brackets. One glyph serves zoom and unzoom;
+ *  state is carried by the button's accent-green + aria-label, never the shape. */
+export function ZoomGlyph() {
+  return (
+    <ControlGlyph name="zoom">
+      <path d="M8 3H5a2 2 0 0 0-2 2v3" />
+      <path d="M21 8V5a2 2 0 0 0-2-2h-3" />
+      <path d="M3 16v3a2 2 0 0 0 2 2h3" />
+      <path d="M16 21h3a2 2 0 0 0 2-2v-3" />
+    </ControlGlyph>
+  );
+}
+
+/** Promote — square with a left-half divider (lucide panel-left shape): "make
+ *  this tile slot A", the ◧ semantics. */
+export function PromoteGlyph() {
+  return (
+    <ControlGlyph name="promote">
+      <rect width="18" height="18" x="3" y="3" rx="2" />
+      <path d="M9 3v18" />
+    </ControlGlyph>
+  );
+}
+
+/** Swap — lucide arrow-left-right, the swap-with-next tile verb. */
+export function SwapGlyph() {
+  return (
+    <ControlGlyph name="swap">
+      <path d="M8 3 4 7l4 4" />
+      <path d="M4 7h16" />
+      <path d="m16 21 4-4-4-4" />
+      <path d="M20 17H4" />
+    </ControlGlyph>
+  );
+}
+
+/** Tile close — bare crossed lines. Deliberately NOT boxed: the boxed
+ *  square-x is Close Pane's shape (`ClosePaneBoxedGlyph`), and the two
+ *  destructive closes in one header never share a shape (the close-distinction
+ *  contract). Distinct data-icon from the menu-row `ClosePaneGlyph` — the seam
+ *  names the verb, not the drawing. */
+export function TileCloseGlyph() {
+  return (
+    <ControlGlyph name="tile-close">
+      <path d="M18 6 6 18" />
+      <path d="m6 6 12 12" />
+    </ControlGlyph>
+  );
+}
+
 /** Refresh — lucide rotate-cw (circular arrow with a top-right arrowhead),
  *  the in-bar RefreshButton glyph. */
 export function RefreshGlyph() {

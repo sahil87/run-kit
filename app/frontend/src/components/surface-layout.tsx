@@ -35,8 +35,14 @@ import {
 } from "@/lib/focus-memory";
 import {
   ClosePaneBoxedGlyph,
+  ExportGlyph,
+  FindGlyph,
+  PromoteGlyph,
   SplitHorizontalGlyph,
   SplitVerticalGlyph,
+  SwapGlyph,
+  TileCloseGlyph,
+  ZoomGlyph,
 } from "@/components/top-bar-icons";
 import type { ViewWindow } from "@/lib/window-view";
 import {
@@ -80,13 +86,14 @@ import {
  *   `bg-bg-inset` ground itself are provided by the Shell STAGE
  *   (260814-ldbs) — this grid ceded its own `p-[6px]`/`bg-bg-inset` so the
  *   tiles and the rail card share ONE continuous ground. Each tile carries a
- *   30px `bg-bg-card` header —
+ *   32px `bg-bg-card` header —
  *   kind glyph (`SURFACE_GLYPH`) + surface name + the small meta as an inset
  *   chip (git-root basename for code, `@rk_url` host for web) — with
- *   rest-visible boxed verb buttons (22×22, 26×26 coarse): ⛶ zoom, ◧
- *   promote, ⇄ swap-with-next, ✕ close (a hairline rule separates ✕ from the
- *   safe verbs; its hover turns `text-signal-red`). While a tile is zoomed
- *   its ⛶ stays `accent-green` and its ◧/⇄ verbs hide (no-ops there).
+ *   rest-visible boxed verb buttons (24×24, 26×26 coarse; 14px SVG glyphs
+ *   from the `top-bar-icons.tsx` register): zoom, promote, swap-with-next,
+ *   ✕ close (a hairline rule separates ✕ from the safe verbs; its hover turns
+ *   `text-signal-red`). While a tile is zoomed its zoom verb stays
+ *   `accent-green` and its promote/swap verbs hide (no-ops there).
  *   `single` layouts render NO layout verbs (promote/swap are meaningless and
  *   closing the last tile is disallowed). The tty header also mounts the
  *   shared `StatusDot` (agent state) when the parent passes `statusWindow`.
@@ -262,14 +269,15 @@ function defaultRatios(arity: 1 | 2 | 3): LayoutRatios {
   return [100 / 3, 200 / 3];
 }
 
-/** Verb button chrome (260812-wfic R4): fixed-size boxed buttons — 22×22,
- *  26×26 on coarse pointers (the `TOP_BAR_BUTTON*` fixed-size precedent:
- *  rendered size must not drift with content) — VISIBLE AT REST at ~65%
- *  opacity (the retired hover-cluster pattern had zero discoverability),
- *  hover giving an inset background + full opacity. Touch pointers keep the
- *  always-full-opacity rule (no hover to reveal them). */
+/** Verb button chrome: fixed-size boxed buttons — 24×24 (WCAG 2.2 SC 2.5.8
+ *  target minimum), 26×26 on coarse pointers (the `TOP_BAR_BUTTON*` fixed-size
+ *  precedent: rendered size must not drift with content) — visible at rest at
+ *  FULL opacity in `text-text-secondary` (contrast-passing over `bg-bg-card`
+ *  in both themes; a rest-state alpha dim compounds against the ground and
+ *  fails SC 1.4.11, so muted looks must be solid tokens tuned ≥3:1 per theme,
+ *  never opacity). Hover gives an inset background + `text-text-primary`. */
 const VERB_BUTTON_CLASS =
-  "inline-flex items-center justify-center h-[22px] w-[22px] coarse:h-[26px] coarse:w-[26px] rounded opacity-65 coarse:opacity-100 hover:opacity-100 focus-visible:opacity-100 hover:bg-bg-inset transition-opacity";
+  "inline-flex items-center justify-center h-[24px] w-[24px] coarse:h-[26px] coarse:w-[26px] rounded hover:bg-bg-inset transition-colors";
 
 /** Tty progress colors (260819-1vxq, design study state 03): green = running,
  *  red = error, amber = pause/warning — the existing signal-token vocabulary.
@@ -1367,7 +1375,7 @@ export function SurfaceLayout({
             both sides (the rail's chips hug it at the same distance on their
             side) — only the window edge carries the 12px major-seam inset. */}
         {!mobile && (
-          <div className="flex items-center gap-1.5 px-1.5 h-[30px] shrink-0 border-b border-border bg-bg-card font-mono text-[11px] text-text-secondary select-none">
+          <div className="flex items-center gap-1.5 px-1.5 h-[32px] shrink-0 border-b border-border bg-bg-card font-mono text-[11px] text-text-secondary select-none">
             {kind === "tty" && statusWindow && <StatusDot win={statusWindow} />}
             {kind === "tty" && ttyChip && (
               <span
@@ -1418,10 +1426,10 @@ export function SurfaceLayout({
                   aria-pressed={findOpen}
                   onClick={() => (findOpen ? closeFind() : setFindOpen(true))}
                   className={`${VERB_BUTTON_CLASS} hover:text-text-primary${
-                    findOpen ? " text-accent-green opacity-100" : ""
+                    findOpen ? " text-accent-green" : ""
                   }`}
                 >
-                  &#x2315;
+                  <FindGlyph />
                 </button>
               </Tip>
             )}
@@ -1437,7 +1445,7 @@ export function SurfaceLayout({
                     onClick={toggleExportMenu}
                     className={`${VERB_BUTTON_CLASS} hover:text-text-primary`}
                   >
-                    ⇩
+                    <ExportGlyph />
                   </button>
                 </Tip>
                 {exportMenuPos && (
@@ -1514,7 +1522,7 @@ export function SurfaceLayout({
               <>
                 <div
                   data-testid="pane-segment"
-                  className="inline-flex items-center h-6 rounded border border-border"
+                  className="inline-flex items-center h-[26px] rounded border border-border"
                 >
                   <Tip label="Split pane horizontally">
                     <button
@@ -1560,10 +1568,10 @@ export function SurfaceLayout({
                     aria-label={isZoomed ? `Unzoom ${label}` : `Zoom ${label}`}
                     onClick={() => setZoomedIndex(isZoomed ? null : slot)}
                     className={`${VERB_BUTTON_CLASS} hover:text-text-primary${
-                      isZoomed ? " text-accent-green opacity-100" : ""
+                      isZoomed ? " text-accent-green" : ""
                     }`}
                   >
-                    ⛶
+                    <ZoomGlyph />
                   </button>
                 </Tip>
                 {/* Promote/swap are no-ops on a zoomed render — hidden while
@@ -1577,7 +1585,7 @@ export function SurfaceLayout({
                         onClick={() => onPromote(kind)}
                         className={`${VERB_BUTTON_CLASS} hover:text-text-primary`}
                       >
-                        ◧
+                        <PromoteGlyph />
                       </button>
                     </Tip>
                     <Tip label={`Swap ${label}`}>
@@ -1587,7 +1595,7 @@ export function SurfaceLayout({
                         onClick={() => onSwap(kind)}
                         className={`${VERB_BUTTON_CLASS} hover:text-text-primary`}
                       >
-                        ⇄
+                        <SwapGlyph />
                       </button>
                     </Tip>
                   </>
@@ -1602,7 +1610,7 @@ export function SurfaceLayout({
                     onClick={() => onClose(kind)}
                     className={`${VERB_BUTTON_CLASS} hover:text-signal-red`}
                   >
-                    ✕
+                    <TileCloseGlyph />
                   </button>
                 </Tip>
               </>

@@ -289,17 +289,17 @@ describe("SurfaceLayout tile verbs", () => {
     expect(onClose).toHaveBeenCalledWith("code");
   });
 
-  it("verb buttons are boxed and visible at rest (260812-wfic R4)", () => {
+  it("verb buttons are boxed and visible at rest at full opacity", () => {
     renderLayout({ layout: { shape: "split-h", order: ["tty", "code"] } });
     const close = screen.getByRole("button", { name: "Close Code" });
-    // Rest-visible (~65% opacity) boxed 22×22 buttons (26×26 coarse) — the
-    // retired pattern was hover-revealed (`opacity-0 group-hover:opacity-100`).
-    expect(close.className).toContain("opacity-65");
-    expect(close.className).toContain("h-[22px]");
-    expect(close.className).toContain("w-[22px]");
+    // Full-opacity 24×24 boxed buttons (26×26 coarse) — no rest-state alpha
+    // dim (the retired 65% dim failed WCAG SC 1.4.11 over bg-card), and the
+    // even older pattern was hover-revealed (`opacity-0 group-hover:…`).
+    expect(close.className).not.toContain("opacity-");
+    expect(close.className).toContain("h-[24px]");
+    expect(close.className).toContain("w-[24px]");
     expect(close.className).toContain("coarse:h-[26px]");
     expect(close.className).toContain("coarse:w-[26px]");
-    expect(close.className).not.toContain("opacity-0");
     expect(close.className).not.toContain("group-hover");
     // The destructive verb reddens on hover; the safe verbs brighten.
     expect(close.className).toContain("hover:text-signal-red");
@@ -397,11 +397,11 @@ describe("SurfaceLayout zoom", () => {
     expect(screen.getByTestId("surface-divider-0")).toBeTruthy();
   });
 
-  it("zoomed tile shows an accent-green ⛶ and hides its promote/swap verbs (260812-wfic R5)", () => {
+  it("zoomed tile shows an accent-green zoom glyph and hides its promote/swap verbs (260812-wfic R5)", () => {
     renderLayout({ layout: { shape: "split-h", order: ["tty", "code"] } });
     fireEvent.click(screen.getByRole("button", { name: "Zoom Code" }));
     const unzoom = screen.getByRole("button", { name: "Unzoom Code" });
-    expect(unzoom.textContent).toBe("⛶");
+    expect(unzoom.querySelector('[data-icon="zoom"]')).toBeTruthy();
     expect(unzoom.className).toContain("text-accent-green");
     // Promote/swap are no-ops on a zoomed render — hidden; ✕ stays.
     expect(screen.queryByRole("button", { name: "Promote Code" })).toBeNull();
@@ -553,7 +553,7 @@ describe("SurfaceLayout header chrome (260812-wfic R3)", () => {
     renderLayout({ layout: { shape: "split-h", order: ["code", "web"] } });
     const codeTile = screen.getByTestId("surface-tile-code");
     const header = codeTile.firstElementChild!;
-    expect(header.className).toContain("h-[30px]");
+    expect(header.className).toContain("h-[32px]");
     expect(header.className).toContain("bg-bg-card");
     expect(header.className).toContain("text-[11px]");
     // The SURFACE_GLYPH kind glyph precedes the label.

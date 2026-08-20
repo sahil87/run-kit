@@ -1,5 +1,39 @@
 # Archived Changes
 
+- **260820-sywl-welcome-host-hub** — Welcome Host Hub
+- **260820-o8cr-true-zen-mode** — True Zen Mode
+- **260820-nv0o-host-menu-shortcut-digit-select** — Host Menu Shortcut + Digit Select
+- **260820-hol4-mux-panes-native-pane-map** — rk mux panes — native pane-map enumeration
+- **260820-ecl4-zen-chord-compose-exact-modifier** — Zen chord fires from compose surfaces (exact-modifier Enter classifier)
+- **260820-d99v-spa-host-form-dialog** — SPA Host Form Dialog
+- **260820-4psk-host-recovery-section** — Host Recovery Section
+- **260820-4le0-export-honesty-scrollback** — Export Honesty + Scrollback
+- **260819-zqf9-terminal-tile-find** — Terminal Tile Find
+- **260819-tp67-auto-focus-split-pane** — Auto-Focus Split Pane
+- **260819-shqo-terminal-tile-export** — Terminal Tile Export
+- **260819-qwr7-surface-focus-chords** — Surface Hide/Focus Shortcut Family
+- **260819-qkow-settings-inline-theme-picker** — Settings Inline Theme Picker
+- **260819-lrm8-universal-flair-catalogue-refresh** — Universal Flair Catalogue Refresh
+- **260819-hqjo-terminal-tile-addon-scaffold** — Terminal Tile Addon Scaffold
+- **260819-c9i9-xterm-option-meta-key** — Terminal Option Key as Meta
+- **260819-9hh6-banded-label-picker-rework** — Banded Label Picker Rework
+- **260819-1vxq-terminal-tile-progress** — Terminal Tile Progress
+- **260818-nzho-code-server-respawn-port-race** — Code-Server Respawn Port Race
+- **260818-lqcf-daemon-restart-full-flag** — Daemon Restart Full Flag
+- **260818-gs6y-unify-daemon-restart-sequencing** — Unify Daemon Restart Sequencing
+- **260818-bncw-tabbed-settings-dialog** — Tabbed Settings Dialog
+- **260818-54lp-restore-window-on-server-switch** — Restore Window on Server Switch
+- **260817-ve5m-three-tier-status-rail-cards** — Continuous Three-Tier Status Rail + Session/Server Cards + Change Color Action
+- **260817-nwz9-flyout-card-elevation-action-tray** — Flyout Card Elevation + Action Tray
+- **260817-kabi-hover-card-change-only** — Hover Card — Change Only
+- **260817-iha5-sidebar-section-visibility-rail** — Sidebar Section-Visibility Toggle Micro-Rail
+- **260817-ho1o-tmux-missing-remediation-hints** — Tmux-Missing Remediation Hints
+- **260816-sm66-vscode-shortcut-realignment** — VS Code Shortcut Realignment
+- **260816-q6hw-compose-strip-card-unification** — Compose Strip Card Unification
+- **260816-ox16-mobile-tile-switch-vocab** — Mobile switch-to-tile verb + tile-verb palette vocabulary rename
+- **260816-momh-consolidate-home-path-abbreviation** — Consolidate Home-Path Abbreviation
+- **260816-lkzv-mobile-scroll-lock-hardening** — Mobile Scroll-Lock Hardening
+- **260816-4v2o-unclip-bottom-bar-safe-floor** — Unclip Bottom-Bar Safe Floor
 - **260819-v6y4-web-tile-browser-chrome** — Web Tile Browser Chrome + Polish + Hardening
 - **260819-a8bf-doctor-tmux-drift-note** — Doctor tmux Drift Note
 - **260819-ie2i-web-tile-keyboard-find** — Web Tile Keyboard Reclaim + Find-in-Page

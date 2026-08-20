@@ -419,6 +419,15 @@ export function ShellTitlebarStrip() {
     dragIdRef.current = id;
     e.dataTransfer.setData(HOST_REORDER_MIME, id);
     e.dataTransfer.effectAllowed = "move";
+    // A grip-initiated drag would default to the tiny dots as its drag
+    // image; the row (the handler's wrapper) is what moves. Optional call:
+    // jsdom/test DataTransfer mocks carry no setDragImage.
+    const rect = e.currentTarget.getBoundingClientRect();
+    e.dataTransfer.setDragImage?.(
+      e.currentTarget,
+      e.clientX - rect.left,
+      e.clientY - rect.top,
+    );
   }, []);
 
   const onRowDragOver = useCallback((e: React.DragEvent, targetId: string) => {
@@ -829,11 +838,19 @@ export function ShellTitlebarStrip() {
                           </button>
                         </Tip>
                       )}
-                      {/* Drag grip — visual only; the row is the draggable. */}
+                      {/* Drag grip — a REAL handle, not decoration: the
+                          cluster is a SIBLING of the draggable row button, so
+                          a pointer-events-none grip would drop presses on the
+                          non-draggable cluster div and no drag could ever
+                          start from the dots. Its dragstart bubbles to the
+                          wrapper's shared handler; clicks on it stay inert
+                          (a grip never selects the host). */}
                       {canReorder && (
                         <span
                           aria-hidden="true"
-                          className="pointer-events-none text-[10px] leading-none tracking-[-2px] text-text-secondary opacity-60"
+                          draggable
+                          data-testid="shell-host-grip"
+                          className="cursor-grab text-[10px] leading-none tracking-[-2px] text-text-secondary opacity-60"
                         >
                           ⋮⋮
                         </span>

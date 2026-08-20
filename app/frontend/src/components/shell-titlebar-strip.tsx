@@ -24,6 +24,7 @@ import {
 import type { ShellServer } from "@/lib/shell";
 import {
   activeShellHostName,
+  HOST_MENU_OPEN_EVENT,
   SHELL_STRIP_HEIGHT_PX,
   SHELL_STRIP_MARKER_CLASS,
   shellHostMenuRows,
@@ -31,6 +32,8 @@ import {
   stripLabelColor,
   stripSwitcherEnabled,
 } from "@/lib/shell-strip";
+import { matchesCombo, shouldSuppressChord } from "@/lib/keybindings";
+import { useKeybindings } from "@/hooks/use-keybindings";
 import type { ShellHostMenuRow } from "@/lib/shell-strip";
 
 /**
@@ -138,6 +141,19 @@ export function ShellTitlebarStrip() {
 
   const toggle = useCallback(() => setOpen((v) => !v), []);
 
+  // Hand off to the shell's single switch seam. The whole page navigates
+  // (lastPath capture/restore is shell-side), so there is nothing to update
+  // optimistically; a denial/failure surfaces the palette's toast precedent.
+  const selectHost = useCallback(
+    (id: string) => {
+      setOpen(false);
+      void switchShellServer(id).then((ok) => {
+        if (!ok) addToast("Shell server switch failed", "error");
+      });
+    },
+    [addToast],
+  );
+
   // Refetch on every open (260731-4bqi): the native `Hosts → Remove "<name>"…`
   // menu mutates the list without a page reload, so a mount-time-only list can
   // go stale.
@@ -161,6 +177,52 @@ export function ShellTitlebarStrip() {
   const canRename = canRenameShellHost();
   const canSetUrl = canSetShellHostUrl();
   const affordanceCount = (canReorder ? 1 : 0) + (canRemove ? 1 : 0) + (canRename ? 1 : 0);
+
+  // `host-menu-open` chord (⇧⌘M / ⇧Ctrl+M) — component-local listener, the
+  // `useSidebarKeyboardToggle` pattern: the strip is the only surface that can
+  // act, so its mount IS the handler-presence gate (in a browser the strip
+  // never mounts and the chord falls through everywhere). Binding + live state
+  // ride refs so the listener registers once per mount. Toggle semantics
+  // (the stateful-chord family): closed → open (the open-transition effect
+  // places focus on the active row); open → close + refocus the trigger (the
+  // Escape path's treatment). A non-interactive switcher (older shell, empty
+  // list) never preventDefaults — the key must fall through untouched.
+  const { byAction } = useKeybindings();
+  const chordBindingRef = useRef(byAction.get("host-menu-open"));
+  chordBindingRef.current = byAction.get("host-menu-open");
+  const chordStateRef = useRef({ open, interactive });
+  chordStateRef.current = { open, interactive };
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const binding = chordBindingRef.current;
+      if (!binding?.enabled || !matchesCombo(e, binding)) return;
+      if (shouldSuppressChord(e.target)) return;
+      const { open: isOpen, interactive: canAct } = chordStateRef.current;
+      if (!canAct) return;
+      e.preventDefault();
+      if (isOpen) {
+        setOpen(false);
+        triggerRef.current?.focus();
+      } else {
+        setOpen(true);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // The palette's `Host: Switcher` body reaches this menu through the
+  // HOST_MENU_OPEN_EVENT document seam (it cannot touch the strip's state
+  // directly). Open-only — palette bodies keep single-verb semantics; the
+  // stateful toggle lives in the chord handler above.
+  useEffect(() => {
+    function onOpenRequest() {
+      if (chordStateRef.current.interactive) setOpen(true);
+    }
+    document.addEventListener(HOST_MENU_OPEN_EVENT, onOpenRequest);
+    return () => document.removeEventListener(HOST_MENU_OPEN_EVENT, onOpenRequest);
+  }, []);
 
   // Latest COMMITTED host-row count, read live inside the capture-phase
   // keydown handler: that handler stays attached from a commit until the
@@ -459,6 +521,26 @@ export function ShellTitlebarStrip() {
         if (row) openEdit(row);
         return;
       }
+      // Plain digits select the Nth host row — rendered-list order IS the
+      // ⌥⌘1–9/Alt+1–9 accelerator order, so `⇧⌘M, 3` mirrors ⌥⌘3. The
+      // no-modifier guard keeps the shell's own accelerators and every chord
+      // tier untouched; a digit past the live committed count releases the
+      // key (the arrow guard's hostCountRef read, same staleness reasoning).
+      if (
+        /^Digit[1-9]$/.test(e.code) &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey &&
+        !e.shiftKey
+      ) {
+        const n = Number(e.code.slice(5));
+        const row = n <= hostCountRef.current ? rowsRef.current[n - 1] : undefined;
+        if (!row) return;
+        e.preventDefault();
+        e.stopPropagation();
+        selectHost(row.id);
+        return;
+      }
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         // Never swallow arrows the menu cannot act on: an emptied-list
         // refetch unmounts the rows one render before the close-on-empty
@@ -504,7 +586,7 @@ export function ShellTitlebarStrip() {
     }
     document.addEventListener("keydown", handleKey, { capture: true });
     return () => document.removeEventListener("keydown", handleKey, { capture: true });
-  }, [open, rows.length, canAdd, canReorder, canRemove, canRename, dialogOpen, moveHostRow, requestRemove, openEdit]);
+  }, [open, rows.length, canAdd, canReorder, canRemove, canRename, dialogOpen, moveHostRow, requestRemove, openEdit, selectHost]);
 
   // Focus lands on the active row on open.
   useEffect(() => {
@@ -536,19 +618,6 @@ export function ShellTitlebarStrip() {
       return clamped;
     });
   }, [open, rows.length, canAdd]);
-
-  // Hand off to the shell's single switch seam. The whole page navigates
-  // (lastPath capture/restore is shell-side), so there is nothing to update
-  // optimistically; a denial/failure surfaces the palette's toast precedent.
-  const selectHost = useCallback(
-    (id: string) => {
-      setOpen(false);
-      void switchShellServer(id).then((ok) => {
-        if (!ok) addToast("Shell server switch failed", "error");
-      });
-    },
-    [addToast],
-  );
 
   // Open the shell's Add Host flow (welcome page in add mode) — a full page
   // swap, same as selecting a host, so the menu just closes first.
@@ -665,7 +734,7 @@ export function ShellTitlebarStrip() {
                       <span
                         className={`ml-auto shrink-0 pl-2 text-xs text-amber-600${
                           affordanceCount > 0
-                            ? " group-hover:invisible group-focus-within:invisible"
+                            ? " group-hover:invisible group-has-[:focus-visible]:invisible"
                             : ""
                         }`}
                       >
@@ -679,7 +748,7 @@ export function ShellTitlebarStrip() {
                       <span
                         className={`absolute right-2 top-1/2 -translate-y-1/2 text-xs text-text-secondary${
                           affordanceCount > 0
-                            ? " group-hover:invisible group-focus-within:invisible"
+                            ? " group-hover:invisible group-has-[:focus-visible]:invisible"
                             : ""
                         }`}
                       >
@@ -690,9 +759,14 @@ export function ShellTitlebarStrip() {
                   {/* Hover/focus action cluster: edit · remove · grip.
                       Instant reveal (visibility, no fade) on a solid chip;
                       buttons tab-skip — Delete/Backspace and F2 are the
-                      keyboard paths. */}
+                      keyboard paths. Reveal is hover + :focus-visible (NOT
+                      focus-within): the open-transition effect focuses the
+                      active row programmatically, and after a pointer open
+                      that focus must show the ⌥⌘n hint, not the cluster —
+                      keyboard navigation still matches :focus-visible, and
+                      `has` covers the cluster's own buttons when tabbed. */}
                   {affordanceCount > 0 && (
-                    <div className="invisible absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-1 rounded bg-bg-card px-1 py-0.5 group-hover:visible group-focus-within:visible">
+                    <div className="invisible absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-1 rounded bg-bg-card px-1 py-0.5 group-hover:visible group-has-[:focus-visible]:visible">
                       {canRename && (
                         <Tip label="Edit">
                           <button

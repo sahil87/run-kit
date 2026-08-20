@@ -6,12 +6,14 @@ import { useUpdateNotification } from "@/contexts/session-context";
 import { useUpdateCheck } from "@/hooks/use-update-check";
 import { consumeUpdateWatchTarget } from "@/hooks/use-update-click";
 import { useKeybindings } from "@/hooks/use-keybindings";
+import { useShellServers } from "@/hooks/use-shell-servers";
 import { useSidebarSectionVisible } from "@/hooks/use-sidebar-sections";
 import { useToast } from "@/components/toast";
 import type { PaletteAction } from "@/components/command-palette";
 import { HELP_URL } from "@/components/global-chrome";
 import { withShortcutHints } from "@/lib/keybindings";
 import { focusSidebarCurrentRow } from "@/lib/sidebar-events";
+import { HOST_MENU_OPEN_EVENT } from "@/lib/shell-strip";
 import { buildNavActions, type NavMode } from "@/lib/palette-nav";
 import { buildUpdateActions, buildMaintenanceActions, buildCheckActions } from "@/lib/palette-update";
 import { buildVersionAction, displayVersion } from "@/lib/palette-version";
@@ -223,6 +225,29 @@ export function useGlobalPaletteActions(): PaletteAction[] {
     [sidebarOpen, setSidebarOpen],
   );
 
+  // Host switcher (260820-nv0o) — opens the desktop-shell titlebar strip's
+  // hosts menu through the HOST_MENU_OPEN_EVENT document seam (the strip
+  // mounts in AppLayout, out of this hook's reach). The id IS the
+  // `host-menu-open` registry actionId, so the effective ⇧⌘M/⇧Ctrl+M hint
+  // renders on the row. Gated on a non-empty bridge list — the same
+  // non-empty condition as the strip's own switcher trigger
+  // (`stripSwitcherEnabled`); `useShellServers` resolves [] in a plain
+  // browser and on older shells, so no separate isShell() pre-check.
+  const shellServers = useShellServers();
+  const hostMenuActions: PaletteAction[] = useMemo(
+    () =>
+      shellServers.length > 0
+        ? [
+            {
+              id: "host-menu-open",
+              label: "Host: Switcher",
+              onSelect: () => document.dispatchEvent(new CustomEvent(HOST_MENU_OPEN_EVENT)),
+            },
+          ]
+        : [],
+    [shellServers],
+  );
+
   // Update actions — keyboard-first parity (Constitution V) for the top-bar
   // update chip. Gated on a qualifying pending update (dev version suppressed).
   // Only the Dismiss action remains here (mirroring the chip's `✕` for
@@ -314,10 +339,10 @@ export function useGlobalPaletteActions(): PaletteAction[] {
       // formatted per platform and reflecting overrides; disabled bindings
       // (user-disabled or browser-reserved) render no hint (260730-g40a).
       withShortcutHints(
-        [...navActions, ...terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, settingsEntry, settingsAppearanceEntry, ...panelActions, ...sidebarActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions],
+        [...navActions, ...terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, settingsEntry, settingsAppearanceEntry, ...panelActions, ...sidebarActions, ...hostMenuActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions],
         bindingByAction,
         bindingHost.platform,
       ),
-    [navActions, terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, settingsEntry, settingsAppearanceEntry, panelActions, sidebarActions, updateActions, checkActions, maintenanceActions, versionActions, bindingByAction, bindingHost],
+    [navActions, terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, settingsEntry, settingsAppearanceEntry, panelActions, sidebarActions, hostMenuActions, updateActions, checkActions, maintenanceActions, versionActions, bindingByAction, bindingHost],
   );
 }

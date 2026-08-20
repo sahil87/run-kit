@@ -56,6 +56,12 @@ export function activeShellHostName(servers: ShellServer[] | null): string | nul
   return active ? active.name : null;
 }
 
+/** Document CustomEvent name opening the strip's host-switcher menu — the
+ *  `terminal-find:open` seam shape: entry points that cannot reach the strip's
+ *  state (the palette's `Host: Switcher` body) dispatch it, and the mounted
+ *  `ShellTitlebarStrip` listens and opens. No detail payload. */
+export const HOST_MENU_OPEN_EVENT = "host-menu:open";
+
 /** Accelerator-hint cap — mirrors the native Hosts menu's
  *  `MAX_SWITCHER_ACCELERATORS` (hosts beyond the ninth get no binding, so
  *  they get no hint either). */

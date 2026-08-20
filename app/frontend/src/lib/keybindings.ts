@@ -212,6 +212,13 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   { actionId: "go-back", code: "BracketLeft", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Back", description: "history", mapLabel: "back" },
   { actionId: "go-forward", code: "BracketRight", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Forward", description: "history", mapLabel: "fwd" },
   { actionId: "agent-next-waiting", code: "KeyA", tier: "shifted", scope: "global", kind: "builtin", label: "Next waiting agent", description: "jump to an agent blocked on input", mapLabel: "agent" },
+  // ⇧⌘M/⇧Ctrl+M host switcher — opens the shell titlebar strip's hosts menu
+  // (plain digits select a host while it is open). NO mac demotion: ⌘M is the
+  // shell's minimize accelerator and the mac-browser system minimize claim,
+  // so the shifted tier is the chord everywhere. Global scope, but the
+  // handler is component-local to ShellTitlebarStrip (shell-only mount), so
+  // in a browser host the chord resolves to no handler and falls through.
+  { actionId: "host-menu-open", code: "KeyM", tier: "shifted", scope: "global", kind: "builtin", label: "Host switcher", description: "open the hosts menu", mapLabel: "hosts" },
   { actionId: "shortcuts-overlay", code: "Slash", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Keyboard shortcuts", description: "toggle this cheatsheet", mapLabel: "cheatsheet", ignoreInputs: true },
   // ⇧⌘,/⇧Ctrl+, settings (260801-mqim): ⌘, unshifted is browser Preferences
   // (claimed data below), so the browser default is the shifted tier; inside

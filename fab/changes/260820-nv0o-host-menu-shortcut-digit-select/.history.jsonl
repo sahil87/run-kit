@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-20T10:23:22Z"}
+{"args":"host-switcher shortcut: SPA-bound Shift+Cmd+M opens the titlebar-strip hosts menu with digit-select, plus focus-visible fix for the row action cluster","cmd":"fab-new","event":"command","ts":"2026-08-20T10:23:22Z"}
+{"delta":"+5.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-08-20T10:26:53Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-20T10:31:24Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-20T10:32:18Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-20T10:44:33Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-20T10:49:24Z"}
+{"event":"review","result":"passed","ts":"2026-08-20T10:49:24Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-20T10:53:13Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-08-20T10:54:57Z"}

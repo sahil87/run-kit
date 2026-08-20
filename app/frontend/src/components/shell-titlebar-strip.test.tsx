@@ -7,7 +7,7 @@ import {
 } from "@/contexts/instance-accent-context";
 import { ThemeProvider } from "@/contexts/theme-context";
 import { ToastProvider } from "@/components/toast";
-import { SHELL_STRIP_MARKER_CLASS } from "@/lib/shell-strip";
+import { HOST_MENU_OPEN_EVENT, SHELL_STRIP_MARKER_CLASS } from "@/lib/shell-strip";
 
 // ThemeProvider makes no real HTTP calls in tests.
 vi.mock("@/api/client", () => ({
@@ -1043,5 +1043,131 @@ describe("ShellTitlebarStrip host menu — Remove + Edit Host dialog", () => {
       expect(screen.queryByRole("button", { name: "Switch host" })).not.toBeInTheDocument();
     });
     expect(fireEvent.keyDown(document, { key: "ArrowDown" })).toBe(true);
+  });
+});
+
+describe("ShellTitlebarStrip host-menu-open chord + digit select (260820-nv0o)", () => {
+  const openMenu = () => fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+  // The shifted tier matches Shift + (Meta OR Ctrl) on every platform, so the
+  // Ctrl spelling works regardless of the jsdom-detected host platform.
+  const chord = () =>
+    fireEvent.keyDown(document, { key: "M", code: "KeyM", shiftKey: true, ctrlKey: true });
+
+  it("⇧⌘M opens the closed menu and focus lands on the active row", async () => {
+    await renderInteractive();
+    chord();
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    const rows = screen.getAllByRole("menuitemradio");
+    await waitFor(() => {
+      expect(document.activeElement).toBe(rows[0]);
+    });
+  });
+
+  it("⇧⌘M on an open menu closes it and returns focus to the trigger (toggle)", async () => {
+    await renderInteractive();
+    const trigger = screen.getByRole("button", { name: "Switch host" });
+    openMenu();
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    chord();
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("falls through untouched when the switcher is not interactive (empty list)", async () => {
+    shellBridge([]);
+    renderStrip();
+    await waitFor(() => {
+      expect(screen.getByText(window.location.hostname)).toBeInTheDocument();
+    });
+    // fireEvent returns false when a handler preventDefaulted the event — a
+    // non-interactive strip must release the chord.
+    expect(chord()).toBe(true);
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
+
+  it("suppresses the chord while a real text input outside the strip owns focus", async () => {
+    await renderInteractive();
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    input.focus();
+    fireEvent.keyDown(input, { key: "M", code: "KeyM", shiftKey: true, ctrlKey: true });
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    input.remove();
+  });
+
+  it("the HOST_MENU_OPEN_EVENT document seam opens the menu (the palette body's path)", async () => {
+    await renderInteractive();
+    act(() => {
+      document.dispatchEvent(new CustomEvent(HOST_MENU_OPEN_EVENT));
+    });
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+  });
+
+  it("the HOST_MENU_OPEN_EVENT seam is inert while the switcher is not interactive", async () => {
+    shellBridge([]);
+    renderStrip();
+    await waitFor(() => {
+      expect(screen.getByText(window.location.hostname)).toBeInTheDocument();
+    });
+    act(() => {
+      document.dispatchEvent(new CustomEvent(HOST_MENU_OPEN_EVENT));
+    });
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
+
+  it("a plain digit selects the Nth rendered host (accelerator order) and closes the menu", async () => {
+    const bridge = await renderInteractive();
+    openMenu();
+    fireEvent.keyDown(document, { key: "2", code: "Digit2" });
+    expect(bridge.switch).toHaveBeenCalledWith("b");
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
+
+  it("a digit past the host count is a no-op that releases the key", async () => {
+    const bridge = await renderInteractive();
+    openMenu();
+    expect(fireEvent.keyDown(document, { key: "7", code: "Digit7" })).toBe(true);
+    expect(bridge.switch).not.toHaveBeenCalled();
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+  });
+
+  it("modified digits are not treated as select (the shell's own accelerators stay untouched)", async () => {
+    const bridge = await renderInteractive();
+    openMenu();
+    fireEvent.keyDown(document, { key: "2", code: "Digit2", altKey: true, metaKey: true });
+    fireEvent.keyDown(document, { key: "2", code: "Digit2", shiftKey: true, ctrlKey: true });
+    expect(bridge.switch).not.toHaveBeenCalled();
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+  });
+
+  it("digits reach an open Edit dialog untouched (the dialogOpen guard)", async () => {
+    // (list, platform, withAdd, withReorder, withRemove, withRename)
+    const bridge = await renderInteractive(hosts, "darwin", false, false, false, true);
+    openMenu();
+    const rows = screen.getAllByRole("menuitemradio");
+    await waitFor(() => {
+      expect(document.activeElement).toBe(rows[0]);
+    });
+    fireEvent.keyDown(document, { key: "F2" });
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: "1", code: "Digit1" });
+    expect(bridge.switch).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("the action cluster reveals on hover + :focus-visible, never plain focus-within (issue 3)", async () => {
+    await renderInteractive(hosts, "darwin", false, false, true, true);
+    openMenu();
+    // The cluster chip reveals via the has(:focus-visible) variant, so the
+    // programmatic focus a pointer open places on the active row shows the
+    // ⌥⌘n hint, not the pencil/minus cluster; keyboard focus still reveals.
+    expect(
+      document.querySelector('[class*="group-has-[:focus-visible]:visible"]'),
+    ).not.toBeNull();
+    // The hint/waiting zones yield under exactly the same conditions.
+    expect(
+      document.querySelector('[class*="group-has-[:focus-visible]:invisible"]'),
+    ).not.toBeNull();
+    expect(document.querySelector('[class*="group-focus-within"]')).toBeNull();
   });
 });

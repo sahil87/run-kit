@@ -71,6 +71,7 @@ describe("DEFAULT_BINDINGS integrity", () => {
       "go-back": "BracketLeft",
       "go-forward": "BracketRight",
       "agent-next-waiting": "KeyA",
+      "host-menu-open": "KeyM",
       "shortcuts-overlay": "Slash",
       "settings-open": "Comma",
       "sidebar-toggle": "KeyB",
@@ -487,6 +488,34 @@ describe("DEFAULT_BINDINGS integrity", () => {
     }
   });
 
+  it("host-menu-open: ⇧⌘M/⇧Ctrl+M — shifted KeyM everywhere, global, no mac refinement", () => {
+    const def = DEFAULT_BINDINGS.find((b) => b.actionId === "host-menu-open");
+    // Full-row equality: the no-refinement shape is a do-not-move constraint —
+    // ⌘M is the mac shell's minimize accelerator and the mac-browser system
+    // minimize claim, so the chord must stay on the shifted tier on mac.
+    expect(def).toEqual({
+      actionId: "host-menu-open",
+      code: "KeyM",
+      tier: "shifted",
+      scope: "global",
+      kind: "builtin",
+      label: "Host switcher",
+      description: "open the hosts menu",
+      mapLabel: "hosts",
+    });
+    // Shifted KeyM carries no claim in any host, so the binding resolves
+    // enabled everywhere (the handler-presence gate — the strip's shell-only
+    // mount — is what keeps the chord inert in browsers, not a reservation).
+    for (const host of ALL_HOSTS) {
+      expect(byId(resolved(host), "host-menu-open")).toMatchObject({
+        code: "KeyM",
+        tier: "shifted",
+        enabled: true,
+        isDefault: true,
+      });
+    }
+  });
+
   it("ships layout-cycle on ⌘; (260812-ab5v R9/R11) — the ▦ chip's same-arity shape cycle", () => {
     expect(byId(resolved(), "layout-cycle")).toMatchObject({
       code: "Semicolon",
@@ -543,6 +572,7 @@ describe("palette parity invariant", () => {
     "go-back": ["go-back"], // Go: Back
     "go-forward": ["go-forward"], // Go: Forward
     "agent-next-waiting": ["agent-next-waiting"], // Agent: Next waiting
+    "host-menu-open": ["host-menu-open"], // Host: Switcher
     "shortcuts-overlay": ["shortcuts-overlay"], // Help: Keyboard Shortcuts
     "settings-open": ["settings-open"], // Settings: Open
     "sidebar-toggle": ["sidebar-toggle", "sidebar-focus"],

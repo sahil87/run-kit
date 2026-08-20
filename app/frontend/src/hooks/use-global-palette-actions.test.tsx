@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup, act } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, act, waitFor } from "@testing-library/react";
 import { useGlobalPaletteActions } from "./use-global-palette-actions";
 import { CommandPalette, type PaletteAction } from "@/components/command-palette";
 import { ChromeProvider } from "@/contexts/chrome-context";
 import { SettingsDialogProvider, useSettingsDialog } from "@/contexts/settings-dialog-context";
 import { ToastProvider } from "@/components/toast";
 import { registerSidebarRowFocuser } from "@/lib/sidebar-events";
+import { HOST_MENU_OPEN_EVENT } from "@/lib/shell-strip";
 
 /**
  * Tests for the layout-level global palette groups (260811-239r) — the hook
@@ -222,5 +223,43 @@ describe("useGlobalPaletteActions", () => {
     expect(localStorage.getItem("runkit-sidebar-open")).toBe("true");
     expect(focus).toHaveBeenCalledOnce();
     unregister();
+  });
+});
+
+describe("useGlobalPaletteActions — Host: Switcher (260820-nv0o)", () => {
+  afterEach(() => {
+    delete window.runkitShell;
+  });
+
+  it("registers no host-menu-open entry in a plain browser (bridge absent → empty list)", () => {
+    renderHook();
+    expect(ids()).not.toContain("host-menu-open");
+  });
+
+  it("registers Host: Switcher when the bridge lists hosts, dispatching the open-event seam", async () => {
+    window.runkitShell = {
+      version: "1.2.3",
+      platform: "darwin",
+      servers: {
+        list: vi.fn(() =>
+          Promise.resolve({
+            ok: true,
+            servers: [{ id: "a", name: "studio", url: "http://a:3000", active: true }],
+          }),
+        ),
+        switch: vi.fn(() => Promise.resolve({ ok: true })),
+      },
+    };
+    renderHook();
+    await waitFor(() => {
+      expect(ids()).toContain("host-menu-open");
+    });
+    const entry = captured.find((a) => a.id === "host-menu-open");
+    expect(entry?.label).toBe("Host: Switcher");
+    const seen = vi.fn();
+    document.addEventListener(HOST_MENU_OPEN_EVENT, seen);
+    act(() => entry?.onSelect());
+    expect(seen).toHaveBeenCalledOnce();
+    document.removeEventListener(HOST_MENU_OPEN_EVENT, seen);
   });
 });

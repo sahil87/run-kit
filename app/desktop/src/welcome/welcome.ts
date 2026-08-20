@@ -9,6 +9,15 @@
  * post-add corrections live in the SPA dropdown's Edit Host dialog).
  * `?mode=add` shows a cancel link back to the active host.
  *
+ * Hosts rung ("Your Hosts" section): a one-shot `servers:list` fetch renders
+ * registered hosts above the This Mac section, with the SPA strip dropdown's
+ * row anatomy (accent bar, ✓ marker, name, dimmed origin, ⌥⌘n/Alt+n hint).
+ * Click/Enter switches via `servers:switch`. The page is already a
+ * privileged `servers:*` sender, so no new IPC is added; an absent `servers`
+ * bridge group or a failed list answer leaves the section hidden (graceful
+ * degradation). ⇧⌘M (⇧Ctrl+M on win/linux) is handled locally: it focuses
+ * the list, or the URL field when no hosts are listed.
+ *
  * Local flow ("This Mac" section, darwin/linux only — suppressed on win32):
  * polls `daemon:status` every 3s while the page is visible and renders the
  * four states — running (green dot, Connect + Stop), stopped (grey dot,
@@ -42,6 +51,11 @@ interface RemoteBridge {
   onProgress(handler: (line: string) => void): void;
 }
 
+interface ServersBridge {
+  list(): Promise<unknown>;
+  switch(id: string): Promise<unknown>;
+}
+
 interface WelcomeElements {
   form: HTMLFormElement;
   urlInput: HTMLInputElement;
@@ -49,6 +63,8 @@ interface WelcomeElements {
   errorEl: HTMLElement;
   connectButton: HTMLButtonElement;
   cancelLink: HTMLAnchorElement;
+  hostsSection: HTMLElement;
+  hostsList: HTMLElement;
   localSection: HTMLElement;
   localHeading: HTMLElement;
   localStatusRow: HTMLElement;
@@ -70,6 +86,22 @@ interface PingOk {
   ok: true;
   origin: string;
   hostname: string;
+}
+
+/** One row of the Your Hosts list (the servers:list projection, narrowed). */
+interface HostRow {
+  id: string;
+  name: string;
+  origin: string;
+  active: boolean;
+  accentColor: string | null;
+  hint: string | null;
+}
+
+/** Focus handle for the Your Hosts list — the ⇧⌘M chord's target. */
+interface HostListHandle {
+  /** Focus the roving seat (first row); false when the list is empty. */
+  focusFirst(): boolean;
 }
 
 /** Mirror of the main process's DaemonStatus (structurally re-narrowed here). */
@@ -147,6 +179,23 @@ function getRemoteBridge(): RemoteBridge | null {
   };
 }
 
+/** Narrow `window.runkitShell.servers` to the list/switch shape the hosts
+ *  rung consumes (the SPA's switcher group — an older preload without it
+ *  narrows to null and the section stays hidden). */
+function getServersBridge(): ServersBridge | null {
+  const shell: unknown = Reflect.get(window, "runkitShell");
+  if (typeof shell !== "object" || shell === null || !("servers" in shell)) return null;
+  const candidate = shell.servers;
+  if (typeof candidate !== "object" || candidate === null) return null;
+  if (!("list" in candidate) || !("switch" in candidate)) return null;
+  const { list, switch: switchHost } = candidate;
+  if (typeof list !== "function" || typeof switchHost !== "function") return null;
+  return {
+    list: (): Promise<unknown> => Promise.resolve(list()),
+    switch: (id: string): Promise<unknown> => Promise.resolve(switchHost(id)),
+  };
+}
+
 /** Narrow `window.runkitShell.platform` (drives the local-section heading). */
 function getShellPlatform(): string | null {
   const shell: unknown = Reflect.get(window, "runkitShell");
@@ -161,6 +210,8 @@ function getWelcomeElements(): WelcomeElements | null {
   const errorEl = document.getElementById("error");
   const connectButton = document.getElementById("connect");
   const cancelLink = document.getElementById("cancel");
+  const hostsSection = document.getElementById("hosts");
+  const hostsList = document.getElementById("hosts-list");
   const localSection = document.getElementById("local");
   const localHeading = document.getElementById("local-heading");
   const localStatusRow = document.getElementById("local-status-row");
@@ -183,6 +234,8 @@ function getWelcomeElements(): WelcomeElements | null {
     !(errorEl instanceof HTMLElement) ||
     !(connectButton instanceof HTMLButtonElement) ||
     !(cancelLink instanceof HTMLAnchorElement) ||
+    !(hostsSection instanceof HTMLElement) ||
+    !(hostsList instanceof HTMLElement) ||
     !(localSection instanceof HTMLElement) ||
     !(localHeading instanceof HTMLElement) ||
     !(localStatusRow instanceof HTMLElement) ||
@@ -208,6 +261,8 @@ function getWelcomeElements(): WelcomeElements | null {
     errorEl,
     connectButton,
     cancelLink,
+    hostsSection,
+    hostsList,
     localSection,
     localHeading,
     localStatusRow,
@@ -280,6 +335,206 @@ function hostPortOf(origin: string): string {
   } catch {
     return origin;
   }
+}
+
+/** Strict hex gate before style interpolation — the SPA row model's
+ *  `HOST_ACCENT_HEX` (lib/shell-strip.ts), mirrored by value: this page is a
+ *  global script and cannot import SPA modules. */
+const HOST_ACCENT_HEX = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
+
+/** Accelerator-hint cap — mirrors the native Hosts menu's binding cap (hosts
+ *  beyond the ninth get no binding, so they get no hint either). */
+const MAX_SWITCHER_HINTS = 9;
+
+/** Trailing accelerator hint for the host at `index` (list order — the
+ *  native Hosts menu binds in the same order): `⌥⌘{n}` on darwin, `Alt+{n}`
+ *  elsewhere; null past the cap. Mirrors the SPA's `hostAcceleratorHint`. */
+function hostAcceleratorHint(platform: string, index: number): string | null {
+  if (index >= MAX_SWITCHER_HINTS) return null;
+  return platform === "darwin" ? `⌥⌘${index + 1}` : `Alt+${index + 1}`;
+}
+
+/** The entry's origin for display; a malformed url falls back to the raw
+ *  string (the SPA's `hostOrigin`). */
+function hostOriginOf(url: string): string {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return url;
+  }
+}
+
+/** Narrow one servers:list entry to a row, or null on a malformed projection. */
+function hostRowOf(value: unknown, index: number, platform: string): HostRow | null {
+  if (typeof value !== "object" || value === null) return null;
+  if (!("id" in value) || typeof value.id !== "string") return null;
+  if (!("name" in value) || typeof value.name !== "string") return null;
+  if (!("url" in value) || typeof value.url !== "string") return null;
+  if (!("active" in value) || typeof value.active !== "boolean") return null;
+  const accent =
+    "accentColor" in value && typeof value.accentColor === "string" ? value.accentColor : null;
+  return {
+    id: value.id,
+    name: value.name,
+    origin: hostOriginOf(value.url),
+    active: value.active,
+    accentColor: accent !== null && HOST_ACCENT_HEX.test(accent) ? accent : null,
+    hint: hostAcceleratorHint(platform, index),
+  };
+}
+
+/** Narrow a servers:list envelope to rows, or null on failure/garbage. */
+function hostRowsOf(value: unknown, platform: string): HostRow[] | null {
+  if (typeof value !== "object" || value === null) return null;
+  if (!("ok" in value) || value.ok !== true || !("servers" in value)) return null;
+  if (!Array.isArray(value.servers)) return null;
+  const rows: HostRow[] = [];
+  for (const entry of value.servers) {
+    const row = hostRowOf(entry, rows.length, platform);
+    if (row === null) return null;
+    rows.push(row);
+  }
+  return rows;
+}
+
+/** The host-menu chord — mirrors the SPA registry's `host-menu-open` binding
+ *  (lib/keybindings.ts, shifted tier): `KeyM`, Shift + the platform primary
+ *  modifier (meta on darwin, ctrl otherwise), no other modifiers. */
+function isHostMenuChord(event: KeyboardEvent, platform: string): boolean {
+  if (event.code !== "KeyM" || !event.shiftKey || event.altKey) return false;
+  return platform === "darwin"
+    ? event.metaKey && !event.ctrlKey
+    : event.ctrlKey && !event.metaKey;
+}
+
+/**
+ * The "Your Hosts" top rung — a one-shot `servers:list` fetch at wire-up (no
+ * poll: the page is short-lived and list mutations from this page navigate
+ * away — the SPA dropdown's open-time-snapshot precedent). Click/Enter on a
+ * row invokes `servers:switch`; main's switchToHost attaches the view and
+ * navigates this window away, so a resolved switch needs no cleanup here.
+ * Empty list, absent bridge, or a failed/malformed answer leaves the section
+ * hidden (graceful degradation, no error).
+ */
+function wireHostsSection(
+  els: WelcomeElements,
+  servers: ServersBridge | null,
+  platform: string,
+): HostListHandle {
+  const rows: HostRow[] = [];
+  const buttons: HTMLButtonElement[] = [];
+  let seat = 0;
+
+  const setSeat = (index: number): void => {
+    seat = index;
+    buttons.forEach((button, i) => {
+      button.tabIndex = i === seat ? 0 : -1;
+    });
+  };
+
+  const switchTo = (id: string): void => {
+    if (servers === null) return;
+    void servers.switch(id);
+  };
+
+  const buildRow = (row: HostRow): HTMLButtonElement => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "host-row";
+    button.tabIndex = -1;
+    if (row.accentColor !== null) {
+      // The accentColor passed the strict hex gate in the row model — safe
+      // to interpolate into a style.
+      const accent = document.createElement("span");
+      accent.className = "host-accent";
+      accent.setAttribute("aria-hidden", "true");
+      accent.style.backgroundColor = row.accentColor;
+      button.appendChild(accent);
+    }
+    const marker = document.createElement("span");
+    marker.className = "host-marker";
+    marker.setAttribute("aria-hidden", "true");
+    marker.textContent = row.active ? "✓" : "";
+    button.appendChild(marker);
+    const name = document.createElement("span");
+    name.className = "host-name";
+    name.textContent = row.name;
+    button.appendChild(name);
+    const origin = document.createElement("span");
+    origin.className = "host-origin";
+    origin.textContent = row.origin;
+    button.appendChild(origin);
+    if (row.hint !== null) {
+      const hint = document.createElement("span");
+      hint.className = "host-hint";
+      hint.textContent = row.hint;
+      button.appendChild(hint);
+    }
+    button.addEventListener("click", () => {
+      switchTo(row.id);
+    });
+    return button;
+  };
+
+  // Roving focus over the rows: ↓/↑ move the seat without wrapping, Enter
+  // selects the focused row (native button activation → click), and
+  // unmodified digits 1–9 select the Nth row. The listener lives on the list
+  // container, so digits only fire while focus is inside the list — never
+  // while typing in the form inputs.
+  els.hostsList.addEventListener("keydown", (event) => {
+    if (buttons.length === 0) return;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const delta = event.key === "ArrowDown" ? 1 : -1;
+      const next = Math.min(buttons.length - 1, Math.max(0, seat + delta));
+      setSeat(next);
+      buttons[next].focus();
+      return;
+    }
+    if (
+      /^Digit[1-9]$/.test(event.code) &&
+      !event.shiftKey &&
+      !event.ctrlKey &&
+      !event.metaKey &&
+      !event.altKey
+    ) {
+      const n = Number(event.code.slice("Digit".length));
+      if (n <= rows.length) {
+        event.preventDefault();
+        switchTo(rows[n - 1].id);
+      }
+    }
+  });
+
+  const populate = async (): Promise<void> => {
+    if (servers === null) return;
+    let result: unknown = null;
+    try {
+      result = await servers.list();
+    } catch {
+      return; // a rejected invoke degrades to a hidden section
+    }
+    const hostRows = hostRowsOf(result, platform);
+    if (hostRows === null || hostRows.length === 0) return;
+    for (const row of hostRows) {
+      rows.push(row);
+      buttons.push(buildRow(row));
+    }
+    setSeat(0);
+    els.hostsList.replaceChildren(...buttons);
+    els.hostsSection.hidden = false;
+  };
+
+  void populate();
+
+  return {
+    focusFirst: () => {
+      if (buttons.length === 0) return false;
+      setSeat(0);
+      buttons[0].focus();
+      return true;
+    },
+  };
 }
 
 /**
@@ -516,8 +771,22 @@ function wireWelcomePage(els: WelcomeElements, bridge: WelcomeBridge): void {
   const connect = async (): Promise<void> => {
     els.errorEl.hidden = true;
 
+    // Client-side URL pre-check (the shared host-form contract's copy),
+    // before any `welcome:test-host` ping.
+    const rawUrl = els.urlInput.value.trim();
+    let parsed: URL | null = null;
+    try {
+      parsed = new URL(rawUrl);
+    } catch {
+      parsed = null;
+    }
+    if (parsed === null || (parsed.protocol !== "http:" && parsed.protocol !== "https:")) {
+      showError("Enter a full http(s) URL, e.g. http://host:3000");
+      return;
+    }
+
     setBusy("Testing…");
-    const ping = await bridge.testHost(els.urlInput.value);
+    const ping = await bridge.testHost(rawUrl);
     if (!isPingOk(ping)) {
       showError(errorOf(ping));
       setBusy(null);
@@ -558,10 +827,26 @@ function wireWelcomePage(els: WelcomeElements, bridge: WelcomeBridge): void {
   }
   wireWelcomePage(els, bridge);
 
+  const platform = getShellPlatform() ?? "";
+
+  // "Your Hosts" top rung: the page is already a privileged servers:* sender,
+  // so the existing SPA switcher group covers list + switch. An absent group
+  // (older preload) or a failed/empty list leaves the section hidden.
+  const hostsHandle = wireHostsSection(els, getServersBridge(), platform);
+
+  // The host-menu chord, handled locally: focuses the Your Hosts list, or
+  // the add form's URL field when no hosts are listed. Shell-owned — no IPC,
+  // no accelerator, no coordination with the SPA's binding (the two surfaces
+  // never coexist on screen).
+  document.addEventListener("keydown", (event) => {
+    if (!isHostMenuChord(event, platform)) return;
+    event.preventDefault();
+    if (!hostsHandle.focusFirst()) els.urlInput.focus();
+  });
+
   // "This Mac" section: darwin and linux only — rk daemon/tmux is not a
   // Windows concept, so the section (and its brew hint) is suppressed
   // entirely on win32.
-  const platform = getShellPlatform();
   const heading =
     platform === "darwin" ? "This Mac" : platform === "linux" ? "This Machine" : null;
   const daemonBridge = getDaemonBridge();

@@ -33,6 +33,7 @@ import {
   IpcMainInvokeEvent,
   Menu,
   nativeImage,
+  nativeTheme,
   net,
   session,
   shell,
@@ -65,6 +66,7 @@ import {
   shouldInjectFallbackStrip,
   STRIP_HEIGHT_PX,
   symbolColorFor,
+  welcomeStripColor,
 } from "./strip";
 import {
   createLineSplitter,
@@ -245,7 +247,7 @@ function showWelcome(win: BrowserWindow, query?: Record<string, string>): void {
   if (current) win.contentView.removeChildView(current.handle);
   views = deactivateViews(views);
   clearBadge(); // painted surface only — the per-view caches are kept
-  applyOverlayColor(DEFAULT_STRIP_COLOR); // welcome's static strip color
+  applyOverlayColor(welcomeStripColor(nativeTheme.shouldUseDarkColors)); // welcome's static strip color
   void win.loadFile(WELCOME_PATH, query ? { query } : undefined);
 }
 

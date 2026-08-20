@@ -1,3 +1,9 @@
 {"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-20T10:23:52Z"}
 {"args":"welcome page becomes the Host Hub: SPA design tokens, system theme, Your Hosts list with shared row anatomy, local Shift+Cmd+M handler","cmd":"fab-new","event":"command","ts":"2026-08-20T10:23:52Z"}
 {"delta":"+5.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-08-20T10:26:53Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-20T13:05:00Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-20T13:05:59Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-20T13:15:38Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-20T13:17:45Z"}
+{"event":"review","result":"passed","ts":"2026-08-20T13:17:45Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-20T13:22:10Z"}

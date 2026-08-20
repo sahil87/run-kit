@@ -8,10 +8,12 @@ import {
   BLANK_UNDERLAY_URL,
   DEFAULT_STRIP_COLOR,
   fallbackStripCss,
+  LIGHT_STRIP_COLOR,
   shouldInjectFallbackStrip,
   STRIP_HEIGHT_PX,
   STRIP_MARKER_CLASS,
   symbolColorFor,
+  welcomeStripColor,
 } from "./strip";
 
 // ── symbolColorFor ───────────────────────────────────────────────────────────
@@ -29,6 +31,19 @@ test("light strip backgrounds derive dark symbols", () => {
 test("unparseable background reads as dark (light symbols)", () => {
   assert.equal(symbolColorFor(""), "#e5e7eb");
   assert.equal(symbolColorFor("not-a-color"), "#e5e7eb");
+});
+
+// ── welcomeStripColor ────────────────────────────────────────────────────────
+
+test("dark system theme keeps the shell default (today's behavior byte-for-byte)", () => {
+  assert.equal(welcomeStripColor(true), DEFAULT_STRIP_COLOR);
+});
+
+test("light system theme paints the light page background token", () => {
+  // The welcome page's static strip rides --bg-primary, so the win/linux
+  // overlay must match under a light theme (#f8f9fb — the light token).
+  assert.equal(welcomeStripColor(false), "#f8f9fb");
+  assert.equal(welcomeStripColor(false), LIGHT_STRIP_COLOR);
 });
 
 // ── fallbackStripCss ─────────────────────────────────────────────────────────

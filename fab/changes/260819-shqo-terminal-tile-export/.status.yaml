@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 10
@@ -33,22 +33,24 @@ stage_metrics:
     apply: {started_at: "2026-08-20T03:10:01Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-20T04:43:13Z"}
     review: {started_at: "2026-08-20T04:43:13Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-20T04:50:35Z"}
     hydrate: {started_at: "2026-08-20T04:50:35Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-20T04:58:11Z"}
-    ship: {started_at: "2026-08-20T04:58:11Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-08-20T04:58:11Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-20T05:01:58Z"}
+    review-pr: {started_at: "2026-08-20T05:01:58Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/678
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 1219
+    deleted: 25
+    net: 1194
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 913
+        deleted: 5
+        net: 908
     tests:
-        added: 0
+        added: 336
         deleted: 0
-        net: 0
-    computed_at: "2026-08-20T04:58:11Z"
-    computed_at_stage: hydrate
+        net: 336
+    computed_at: "2026-08-20T05:01:58Z"
+    computed_at_stage: ship
 summary: tty tile ⇩ export menu (serialize HTML snapshot, buffer-walk transcript, copy-visible) + GET /api/windows/{windowId}/history full-history capture, 4 palette actions, terminalRef seam
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-20T04:58:11Z
+last_updated: 2026-08-20T05:01:58Z

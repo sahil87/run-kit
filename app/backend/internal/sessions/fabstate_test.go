@@ -46,6 +46,25 @@ func TestFabStateWalkUpAndChangeName(t *testing.T) {
 	}
 }
 
+func TestFabStateWalkSkipsNonSymlinkEntries(t *testing.T) {
+	root := mkFabWorktree(t, "260820-hol4-mux-panes", "progress:\n    intake: done\n    apply: active\n")
+
+	// A stray REGULAR FILE named .fab-status.yaml in a subdirectory must not
+	// short-circuit the walk — the contract is a symlink, so the walk skips it
+	// and resolves via the valid symlink at the worktree root above.
+	sub := filepath.Join(root, "app", "backend")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, fabStatusLinkName), []byte("not a symlink"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	st := newFabStateMemo().derive(sub)
+	if st.change != "260820-hol4-mux-panes" {
+		t.Errorf("change = %q, want resolution via the root symlink past the stray regular file", st.change)
+	}
+}
+
 func TestFabDisplayStageTiers(t *testing.T) {
 	cases := []struct {
 		name      string

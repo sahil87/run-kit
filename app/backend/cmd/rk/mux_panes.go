@@ -102,12 +102,14 @@ type muxPanesRow struct {
 // runMuxPanes is the testable core: resolve server → enumerate → render
 // (table / json).
 func runMuxPanes(cmd *cobra.Command) error {
-	parent := cmd.Context()
-	if parent == nil {
-		parent = context.Background()
+	// No enumeration-wide deadline: each tmux call below (ListSessions,
+	// ListWindows per session, ServerAlive) self-bounds with its own
+	// tmux.TmuxTimeout, so a shared cap would artificially fail a many-session
+	// server mid-loop while adding no per-call protection.
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	ctx, cancel := context.WithTimeout(parent, muxCmdTimeout)
-	defer cancel()
 
 	server := muxServer()
 	sink := newSink(cmd)

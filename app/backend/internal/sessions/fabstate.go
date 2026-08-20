@@ -78,15 +78,19 @@ func (m *fabStateMemo) derive(cwd string) fabState {
 }
 
 // locateFabStatusLink walks up from cwd to the nearest ancestor directory
-// containing a .fab-status.yaml entry, bounded by the filesystem root. Lstat
-// (not Stat) so a dangling symlink — an archived change — still counts as
-// found and degrades at read time like any other unreadable target. Returns ""
-// when no ancestor carries the link (a plain non-fab directory).
+// containing a .fab-status.yaml SYMLINK, bounded by the filesystem root. The
+// contract is explicitly a symlink (fab maintains it via `fab change switch`),
+// so a regular file or directory carrying the name is ignored and the walk
+// continues — otherwise a stray non-symlink in a subdirectory would
+// short-circuit the walk and blank a window whose valid symlink sits higher
+// up. Lstat (not Stat) so a dangling symlink — an archived change — still
+// counts as found and degrades at read time like any other unreadable target.
+// Returns "" when no ancestor carries the link (a plain non-fab directory).
 func locateFabStatusLink(cwd string) string {
 	dir := filepath.Clean(cwd)
 	for {
 		link := filepath.Join(dir, fabStatusLinkName)
-		if _, err := os.Lstat(link); err == nil {
+		if fi, err := os.Lstat(link); err == nil && fi.Mode()&os.ModeSymlink != 0 {
 			return link
 		}
 		parent := filepath.Dir(dir)

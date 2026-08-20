@@ -158,9 +158,20 @@ export function Shell({
   sidebarResizeHandle,
   bottomBarChildren,
   statusBarChildren,
+  zenActive = false,
 }: {
   children: ReactNode;
   sidebarChildren?: ReactNode;
+  /**
+   * Zen mode (260820-o8cr R3): the terminal route's transient render-time
+   * sidebar hide. Composes `sidebarOpen && !zenActive` for the desktop stage
+   * columns, the aside, and the resize handle — the persisted preference
+   * (`runkit-sidebar-open`) is NEVER written on a zen path, so exiting zen
+   * restores exactly what the preference says. The column-gap collapses with
+   * the column for free (the existing hidden-sidebar geometry), and the 150ms
+   * ease-out transition animates the zen collapse like any sidebar toggle.
+   */
+  zenActive?: boolean;
   /**
    * Desktop-only drag affordance rendered over the 6px stage gap at the
    * sidebar card's right seam (AppShell passes its drag-resize handle;
@@ -193,6 +204,11 @@ export function Shell({
   const isMobile = useIsMobile();
   const drawerRef = useRef<HTMLElement>(null);
   const sidebarAsideRef = useRef<HTMLElement>(null);
+
+  // Zen render-time override: the EFFECTIVE sidebar visibility for the desktop
+  // stage. Never feeds back into `setSidebarOpen` — the chord and the ⌘B
+  // keyboard toggle keep reading/writing the persisted preference untouched.
+  const sidebarVisible = sidebarOpen && !zenActive;
 
   // ⌘B / ⇧Ctrl+B — the stateful sidebar chord (show+focus / focus / hide+
   // return). Input/textarea/contenteditable suppression rules live in the
@@ -241,10 +257,10 @@ export function Shell({
   const stageStyle: React.CSSProperties = {
     gridArea: "stage",
     display: "grid",
-    gridTemplateColumns: sidebarOpen ? `${sidebarWidth}px 1fr` : "0 1fr",
+    gridTemplateColumns: sidebarVisible ? `${sidebarWidth}px 1fr` : "0 1fr",
     gridTemplateRows: "1fr auto",
     gridTemplateAreas: '"sidebar content" "sidebar bottombar"',
-    columnGap: sidebarOpen ? "6px" : "0",
+    columnGap: sidebarVisible ? "6px" : "0",
     padding: "6px",
     minWidth: 0,
     minHeight: 0,
@@ -263,12 +279,13 @@ export function Shell({
       ) : (
         <div style={stageStyle} className="bg-bg-inset">
           {/* Desktop sidebar aside (Shell-owned — 260719-rwqf). Gated the same
-              way the callers used to gate their own asides (`sidebarOpen` plus
+              way the callers used to gate their own asides (`sidebarVisible` —
+              `sidebarOpen` composed with the zen render-time override — plus
               a `sidebarChildren` presence check), so it fully unmounts on
               collapse — no zero-width rail. Card family: `rounded-md` + the
               shared dimmed `rk-card-border` + `bg-bg-primary`, floating on the
               stage ground. */}
-          {sidebarOpen && sidebarChildren && (
+          {sidebarVisible && sidebarChildren && (
             <aside
               ref={sidebarAsideRef}
               style={{ gridArea: "sidebar" }}
@@ -283,7 +300,7 @@ export function Shell({
               item pinned to the sidebar track's right edge with visible
               overflow, so the handle's hit zone straddles the 6px gap instead
               of consuming layout width or doubling the card's border seam. */}
-          {sidebarOpen && sidebarChildren && sidebarResizeHandle && (
+          {sidebarVisible && sidebarChildren && sidebarResizeHandle && (
             <div
               style={{ gridArea: "sidebar", justifySelf: "end" }}
               className="relative z-10 h-full w-0 overflow-visible"

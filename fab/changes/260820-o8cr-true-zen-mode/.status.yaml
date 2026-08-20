@@ -1,0 +1,55 @@
+id: o8cr
+name: 260820-o8cr-true-zen-mode
+created: 2026-08-20T15:42:11Z
+created_by: Sahil Ahuja
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 9
+    acceptance_count: 21
+    acceptance_completed: 21
+confidence:
+    certain: 10
+    confident: 5
+    tentative: 0
+    unresolved: 0
+    score: 4.1
+    fuzzy: true
+    dimensions:
+        signal: 79.0
+        reversibility: 83.3
+        competence: 83.7
+        disambiguation: 80.3
+stage_metrics:
+    intake: {started_at: "2026-08-20T15:42:11Z", driver: fab-new, iterations: 1, completed_at: "2026-08-20T15:45:21Z"}
+    apply: {started_at: "2026-08-20T15:45:21Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-20T16:24:25Z"}
+    review: {started_at: "2026-08-20T16:24:25Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-20T16:28:20Z"}
+    hydrate: {started_at: "2026-08-20T16:28:20Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-20T16:38:26Z"}
+    ship: {started_at: "2026-08-20T16:38:26Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-08-20T16:38:26Z"
+    computed_at_stage: hydrate
+summary: 'True zen mode: zen-toggle mounts at any arity (transient top-bar + sidebar hide via ZenContext/Shell render-time overrides, arity>1 focused-tile zoom with zen-initiated tracking), View: Enter/Exit Zen Mode palette entries, status-bar exit-zen button, parity map updated; memory rehydrated to present truth'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-20T16:38:26Z

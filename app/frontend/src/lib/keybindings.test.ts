@@ -212,6 +212,7 @@ describe("DEFAULT_BINDINGS integrity", () => {
       kind: "builtin",
       label: "Toggle sidebar",
       mapLabel: "sidebar",
+      ignoreInputs: true,
     });
     // No macShellOnly: ⌘B is preventDefault-interceptable in a mac browser.
     for (const host of [SHELL_MAC, BROWSER_MAC]) {
@@ -274,6 +275,7 @@ describe("DEFAULT_BINDINGS integrity", () => {
       label: "Toggle code editor",
       description: "open/close the code tile",
       mapLabel: "code",
+      ignoreInputs: true,
     });
     // No KeyJ row or refinement remains anywhere in the registry.
     expect(DEFAULT_BINDINGS.some((b) => b.code === "KeyJ" || b.macCode === "KeyJ")).toBe(false);
@@ -289,6 +291,7 @@ describe("DEFAULT_BINDINGS integrity", () => {
         scope: "terminal",
         kind: "builtin",
         mapLabel,
+        ignoreInputs: true,
       });
     }
     // Mac shell: the ⌘ tier, enabled and default.

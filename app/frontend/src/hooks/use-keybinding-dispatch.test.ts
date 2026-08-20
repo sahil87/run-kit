@@ -91,6 +91,25 @@ describe("useKeybindingDispatch", () => {
     expect(event.defaultPrevented).toBe(true);
   });
 
+  it("the tile toggles (⇧Ctrl+1/2/3) fire from the compose textarea (ignoreInputs)", () => {
+    // Same rationale as compose-toggle: chrome toggles are modifier combos
+    // that never insert text, so drafting in the strip must not swallow them.
+    // Pinned through the real DEFAULT_BINDINGS rows, one per surface digit.
+    const handlers = { "tty-toggle": vi.fn(), "code-toggle": vi.fn(), "web-toggle": vi.fn() };
+    renderHook(() => useKeybindingDispatch(handlers));
+    const textarea = document.createElement("textarea");
+    document.body.appendChild(textarea);
+    textarea.focus();
+    for (const [code, handler] of [
+      ["Digit1", handlers["tty-toggle"]],
+      ["Digit2", handlers["code-toggle"]],
+      ["Digit3", handlers["web-toggle"]],
+    ] as const) {
+      press({ code, shiftKey: true, ctrlKey: true }, textarea);
+      expect(handler).toHaveBeenCalledTimes(1);
+    }
+  });
+
   it("honors overrides (rebound chord dispatches, default chord falls through)", () => {
     localStorage.setItem(
       KEYBINDINGS_STORAGE_KEY,

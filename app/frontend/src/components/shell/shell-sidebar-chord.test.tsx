@@ -132,7 +132,10 @@ describe("Shell — stateful sidebar chord (⌘B / ⇧Ctrl+B, 260819-qwr7 R5)", 
     expect(mockRestore).not.toHaveBeenCalled();
   });
 
-  it("is suppressed from a real text input (the shared shouldSuppressChord gate)", () => {
+  it("fires from a real text input — the binding's ignoreInputs skips the suppression gate", () => {
+    // The compose strip's textarea is the motivating focus home: the chord is
+    // a modifier combo that never inserts text, so drafting must not swallow
+    // it. Focus outside the sidebar → the show-focus branch runs.
     renderShell({ open: true });
     const input = document.createElement("input");
     screen.getByTestId("content").appendChild(input);
@@ -140,8 +143,8 @@ describe("Shell — stateful sidebar chord (⌘B / ⇧Ctrl+B, 260819-qwr7 R5)", 
 
     pressSidebarChord(input);
 
-    expect(mockFocusRow).not.toHaveBeenCalled();
-    expect(mockRestore).not.toHaveBeenCalled();
+    expect(mockFocusRow).toHaveBeenCalledTimes(1);
     expect(sidebarAside()).toBeInTheDocument();
+    expect(mockRestore).not.toHaveBeenCalled();
   });
 });

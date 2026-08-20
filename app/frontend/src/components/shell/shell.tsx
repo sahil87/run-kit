@@ -30,9 +30,10 @@ import { focusSidebarCurrentRow, restoreWindowFocus } from "@/lib/sidebar-events
  * The chord comes from the keybinding registry (`sidebar-toggle`, default ⌘B
  * on mac — demoted via `macTier`, since ⌘B is page-interceptable in a mac
  * browser — and ⇧Ctrl+B elsewhere; per-device rebindable — 260730-g40a); the
- * input gating is the shared `shouldSuppressChord` predicate (real text
- * inputs suppress; the `.xterm` helper textarea and `.rk-chat-input`
- * carve-outs pass through). Binding + live state held in refs so the
+ * input gating mirrors the central dispatcher's rule 4: the shared
+ * `shouldSuppressChord` predicate, skipped when the binding carries
+ * `ignoreInputs` (the registry default for `sidebar-toggle` — the chord
+ * stays live while composing). Binding + live state held in refs so the
  * listener registers once per mount.
  */
 function useSidebarKeyboardToggle(sidebarRef: RefObject<HTMLElement | null>) {
@@ -49,7 +50,7 @@ function useSidebarKeyboardToggle(sidebarRef: RefObject<HTMLElement | null>) {
     function onKey(e: KeyboardEvent) {
       const binding = bindingRef.current;
       if (!binding?.enabled || !matchesCombo(e, binding)) return;
-      if (shouldSuppressChord(e.target)) return;
+      if (!binding.ignoreInputs && shouldSuppressChord(e.target)) return;
 
       e.preventDefault();
       const { sidebarOpen: open, isMobile: mobile } = stateRef.current;

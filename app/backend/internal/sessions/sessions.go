@@ -3,7 +3,6 @@ package sessions
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -78,154 +77,6 @@ func applyActiveWindow(windows []tmux.WindowInfo, trackedWid string) {
 	for i := range windows {
 		windows[i].IsActiveWindow = i == matchIdx
 	}
-}
-
-// paneMapEntry matches the JSON output of `fab pane map --json`. Since the
-// generic agent-state tier (260705-dmex), the join consumes only the fab tier
-// proper — change/stage/display_state. Agent state now comes from the
-// @rk_agent_state pane option (see internal/tmux) and PR links are derived
-// server-side from the pane's branch (see internal/prstatus), so agent_state /
-// agent_idle_duration / pr_url / pr_number are no longer read from the pane map
-// (any such keys still emitted by fab are simply ignored).
-type paneMapEntry struct {
-	Session      string  `json:"session"`
-	WindowIndex  int     `json:"window_index"`
-	Pane         string  `json:"pane"`
-	Tab          string  `json:"tab"`
-	Worktree     string  `json:"worktree"`
-	Change       *string `json:"change"`
-	Stage        *string `json:"stage"`
-	DisplayState *string `json:"display_state"` // active/ready/done/failed/pending/skipped; nil when null/absent (fab < 2.1.7)
-}
-
-// fetchPaneMap runs `fab pane map --json --all-sessions` via the fab router on
-// PATH and returns a lookup map keyed by stable tmux pane ID (see
-// keyPaneEntries — entries with no pane ID are dropped). When server is
-// non-empty, it is passed as `-L <server>` so the subprocess targets the same
-// tmux socket the backend is querying; otherwise fab falls back to $TMUX or
-// the default socket.
-//
-// cmd.Dir is deliberately set to a freshly-created, empty, private (0700) temp
-// directory. The fab router resolves which versioned fab-go binary to dispatch
-// from the CWD's fab/project/config.yaml; `pane map --all-sessions` is a
-// CROSS-project, cross-worktree query whose per-window data (change/stage/pr_url,
-// each read from the pane's own worktree .status.yaml) does NOT depend on CWD —
-// only the router's version selection does. Pinning that selection to any one
-// project's fab_version is wrong: a single project pinned to an older fab (one
-// that predates a field like pr_url) silently strips that field from EVERY
-// window on the server, even windows owned by projects on a newer fab. Running
-// from a project-free dir makes the router fall back to the globally-installed
-// fab, so the schema is always the newest the host's fab CLI supports and never
-// downgraded by a stale sibling project.
-//
-// We create our OWN empty dir rather than reuse os.TempDir(): the shared system
-// temp dir can already contain a fab/project/config.yaml (re-pinning the
-// version) and is world-writable on Unix, so another process could plant one
-// there — both would silently reintroduce the bug. A per-call MkdirTemp(0700)
-// dir is guaranteed project-free and not writable by others. If the dir can't
-// be created we fall back to running with the inherited CWD rather than failing
-// the whole pane-map (degraded, but better than no data).
-func fetchPaneMap(server string) (map[string]paneMapEntry, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	args := make([]string, 0, 6)
-	if server != "" {
-		args = append(args, "-L", server)
-	}
-	args = append(args, "pane", "map", "--json", "--all-sessions")
-	cmd := exec.CommandContext(ctx, "fab", args...)
-	// Project-free CWD so the fab router uses the global fab version (see above).
-	if neutralDir, err := os.MkdirTemp("", "rk-panemap-"); err == nil {
-		defer os.RemoveAll(neutralDir)
-		cmd.Dir = neutralDir
-	}
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
-	if err != nil {
-		if stderr.Len() > 0 {
-			return nil, fmt.Errorf("%w: %s", err, stderr.String())
-		}
-		return nil, err
-	}
-
-	var entries []paneMapEntry
-	if err := json.Unmarshal(out, &entries); err != nil {
-		return nil, err
-	}
-
-	return keyPaneEntries(entries), nil
-}
-
-// keyPaneEntries builds the fetch-time pane-map lookup keyed by the STABLE tmux
-// pane ID (e.g. "%12"), one entry per pane. It performs NO window-level dedup:
-// which window a pane belongs to is only knowable against a fresh tmux snapshot,
-// so the change-bound-vs-first-seen preference among a window's panes moves to
-// join time (see FetchSessions' enrichment loop), not here.
-//
-// An entry with an empty Pane field is dropped: every fab version emits the
-// pane ID, so a pane-less entry can only come from malformed JSON and there is
-// no stable key to store it under. Duplicate pane IDs cannot occur (pane IDs
-// are unique per server); if one did, first-seen wins.
-func keyPaneEntries(entries []paneMapEntry) map[string]paneMapEntry {
-	m := make(map[string]paneMapEntry, len(entries))
-	for _, e := range entries {
-		if e.Pane == "" {
-			continue
-		}
-		if _, ok := m[e.Pane]; !ok {
-			m[e.Pane] = e
-		}
-	}
-	return m
-}
-
-// Pane-map cache: package-level with sync.RWMutex protection, keyed by
-// tmux server label so queries against different sockets don't collide.
-// Avoids re-running `fab pane map` on every SSE tick (5s TTL).
-type paneMapCacheEntry struct {
-	data map[string]paneMapEntry
-	time time.Time
-}
-
-var (
-	paneMapCache    = make(map[string]paneMapCacheEntry)
-	paneMapCacheMu  sync.RWMutex
-	paneMapCacheTTL = 5 * time.Second
-)
-
-// fetchPaneMapCached wraps fetchPaneMap with a per-server TTL cache.
-// Uses a double-check pattern after write lock acquisition to prevent thundering herd.
-// On fetch error, the stale cache entry for that server is preserved (if one exists).
-func fetchPaneMapCached(server string) (map[string]paneMapEntry, error) {
-	paneMapCacheMu.RLock()
-	if entry, ok := paneMapCache[server]; ok && time.Since(entry.time) < paneMapCacheTTL {
-		cached := entry.data
-		paneMapCacheMu.RUnlock()
-		return cached, nil
-	}
-	paneMapCacheMu.RUnlock()
-
-	paneMapCacheMu.Lock()
-	defer paneMapCacheMu.Unlock()
-
-	// Double-check: another goroutine may have refreshed while we waited for the write lock.
-	if entry, ok := paneMapCache[server]; ok && time.Since(entry.time) < paneMapCacheTTL {
-		return entry.data, nil
-	}
-
-	m, err := fetchPaneMap(server)
-	if err != nil {
-		// Preserve stale cache entry on error (graceful degradation).
-		if entry, ok := paneMapCache[server]; ok {
-			return entry.data, nil
-		}
-		return nil, err
-	}
-
-	paneMapCache[server] = paneMapCacheEntry{data: m, time: time.Now()}
-	return m, nil
 }
 
 // Per-entry git branch cache with separate positive/negative TTLs.
@@ -438,14 +289,6 @@ func resolveGitBranches(ctx context.Context, cwds []string) map[string]string {
 	return result
 }
 
-// derefStr dereferences a *string, returning empty string for nil.
-func derefStr(s *string) string {
-	if s == nil {
-		return ""
-	}
-	return *s
-}
-
 // agentStatePrecedence ranks the three agent states for the window-level rollup:
 // waiting > active > idle. A higher number wins. An unknown/empty state ranks 0
 // (contributes nothing). waiting is the attention state, so it must win the
@@ -604,9 +447,9 @@ func windowBranchRepo(w *tmux.WindowInfo) (repoDir, branch string) {
 }
 
 // enrichWindowPR populates the window's PrURL/PrNumber (and a fallback PrState)
-// from its branch (Constitution §X — PR links are derivable, not pushed). It
-// replaces the pane-map join as the PR-link source: any pane on a branch with a
-// PR (open, merged, or closed) gets its link, in any repo, under any workflow.
+// from its branch (Constitution §X — PR links are derivable, not pushed):
+// any pane on a branch with a PR (open, merged, or closed) gets its link, in
+// any repo, under any workflow.
 //
 // CRITICAL — this runs on the SSE hot path (FetchSessions), so it does ZERO
 // network/subprocess work: it (a) REGISTERS the (repoDir, branch) pair with the
@@ -651,57 +494,11 @@ func enrichWindowPR(w *tmux.WindowInfo) {
 }
 
 // sessionData pairs a session's tmux info with its fresh window snapshot. It is
-// the unit FetchSessions fans out per session and the input to the pane-map
-// enrichment join (joinPaneMapByWindow).
+// the unit FetchSessions fans out per session and the input to the per-window
+// enrichment passes (fab state, git branch, rollups).
 type sessionData struct {
 	info    tmux.SessionInfo
 	windows []tmux.WindowInfo
-}
-
-// joinPaneMapByWindow attributes each fetch-time pane-map entry to a window of
-// the FRESH snapshot and returns a map keyed by the window's stable WindowID
-// (feeding FetchSessions' fab-field assignment). paneMap is keyed by stable pane
-// ID (see keyPaneEntries).
-//
-// For each fresh window, it walks the window's panes IN ORDER and looks each
-// pane's PaneID up in paneMap. Among the matching candidate entries of a single
-// window, selection preserves the prior fetch-time dedup semantics exactly:
-// a change-bound entry (Change != nil) wins; otherwise the first-seen candidate
-// (pane order) wins.
-//
-// Because the join key is the stable pane ID against the fresh snapshot, a stale
-// cached paneMap can never misattribute one window's fab state to another across
-// a reorder/move: an entry can only ever attach to the window that actually
-// contains its pane. A pane absent from the fresh snapshot contributes nothing.
-//
-// Pure function (no I/O) so the join is unit-testable directly, mirroring the
-// parseWindows/rollupAgentState/applyActiveWindow split.
-func joinPaneMapByWindow(paneMap map[string]paneMapEntry, data []sessionData) map[string]paneMapEntry {
-	enrichByWindowID := make(map[string]paneMapEntry, len(paneMap))
-	for _, sd := range data {
-		for j := range sd.windows {
-			w := &sd.windows[j]
-			var selected *paneMapEntry
-			for k := range w.Panes {
-				entry, ok := paneMap[w.Panes[k].PaneID]
-				if !ok {
-					continue
-				}
-				e := entry
-				if selected == nil {
-					// First candidate pane wins by default (first-seen).
-					selected = &e
-				} else if selected.Change == nil && e.Change != nil {
-					// Change-bound entry beats a bare first-seen one.
-					selected = &e
-				}
-			}
-			if selected != nil {
-				enrichByWindowID[w.WindowID] = *selected
-			}
-		}
-	}
-	return enrichByWindowID
 }
 
 // FetchSessions fetches all sessions from the specified server, derives project
@@ -737,14 +534,6 @@ func FetchSessions(ctx context.Context, server string, provider ActiveWindowProv
 	}
 	wg.Wait()
 
-	// Fetch pane-map once for all sessions. fetchPaneMap runs from a neutral
-	// (non-project) dir so the fab router dispatches the globally-installed fab
-	// version — `pane map` is a cross-project query and must not be pinned to
-	// any single window's project version (see fetchPaneMap doc). If refreshing
-	// the cache fails, fetchPaneMapCached may return a stale cached paneMap; if
-	// none is available, windows keep empty fab fields (graceful degradation).
-	paneMap, _ := fetchPaneMapCached(server)
-
 	// Collect all pane cwds for git branch resolution.
 	var allCwds []string
 	for _, sd := range data {
@@ -757,29 +546,24 @@ func FetchSessions(ctx context.Context, server string, provider ActiveWindowProv
 	gitBranches := resolveGitBranches(ctx, allCwds)
 	cwdMissing := resolveCwdMissing(allCwds)
 
-	// Attribute each cached pane-map entry to a window by STABLE PANE ID against
-	// the FRESH snapshot. The `fab pane map` result is cached (5s TTL) while the
-	// window snapshot below is fresh, so the two can disagree on window INDICES
-	// after a reorder/move. The pane ID is the stable join key: it travels with
-	// its window across swap-window / cross-session move exactly like the window
-	// ID, so a stale cached map can never misattribute enrichment across a
-	// reorder — at worst a pane that is absent from the fresh snapshot simply
-	// contributes nothing. (Contrast the former index join, which glued a
-	// window's fab state to whichever window happened to sit at its old index for
-	// the ~5s the cache was stale.) See joinPaneMapByWindow.
-	enrichByWindowID := joinPaneMapByWindow(paneMap, data)
+	// The fab tier is derived natively from disk (cwd → .fab-status.yaml →
+	// .status.yaml — see fabstate.go), fresh on every call: no subprocess, no
+	// cross-request cache, so a stage transition repaints on the next fetch.
+	// The memo dedupes reads within this one call (many panes share a worktree).
+	fabMemo := newFabStateMemo()
 
-	// Build result with per-window fab enrichment from pane-map and git branches.
+	// Build result with per-window fab enrichment and git branches.
 	nowUnix := time.Now().Unix()
 	result := make([]ProjectSession, len(data))
 	for i, sd := range data {
 		for j := range sd.windows {
-			// Fab tier proper (change/stage/display_state) from the pane map.
-			if entry, ok := enrichByWindowID[sd.windows[j].WindowID]; ok {
-				sd.windows[j].FabChange = derefStr(entry.Change)
-				sd.windows[j].FabStage = derefStr(entry.Stage)
-				sd.windows[j].FabDisplayState = derefStr(entry.DisplayState)
-			}
+			// Fab tier proper (change/stage/displayState) from the native
+			// per-pane derivation, rolled up to the window (change-bound pane
+			// wins, else the first pane carrying one).
+			fab := fabMemo.windowState(sd.windows[j].Panes)
+			sd.windows[j].FabChange = fab.change
+			sd.windows[j].FabStage = fab.stage
+			sd.windows[j].FabDisplayState = fab.displayState
 			for k := range sd.windows[j].Panes {
 				cwd := sd.windows[j].Panes[k].Cwd
 				if branch, ok := gitBranches[cwd]; ok {

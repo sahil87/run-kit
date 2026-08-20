@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "The `rk mux` family — nine tmux-substrate verbs, no daemon dependency. Pane-scoped members (`send`/`await` messaging + `capture`/`kill`/`process` substrate twins) share the strict %N/@N/=session:window grammar and the inherited `-L` flag; toolkit exit codes 0/1/2. Twins add plain capture with substrate-only enrichment, kill's agent-state gate, and process classification incl. the agent-state pid cross-check. Operator members `reap`/`snapshot`/`init-conf`/`guard` reject `-L` (`guard` excepted)."
+description: "The `rk mux` family — ten tmux-substrate verbs, no daemon dependency. Pane-scoped members (`send`/`await` messaging + `capture`/`kill`/`process` substrate twins) share the strict %N/@N/=session:window grammar and, with the `panes` whole-server enumeration, consume the inherited `-L` flag. Twins add plain capture with substrate-only enrichment, kill's agent-state gate, and process classification. Operator members `reap`/`snapshot`/`init-conf`/`guard` reject `-L` (`guard` excepted)."
 ---
 # Agent-to-Agent Messaging (`rk mux`)
 
@@ -11,13 +11,17 @@ description: "The `rk mux` family — nine tmux-substrate verbs, no daemon depen
 `rk mux` is the tmux-substrate CLI family (per `docs/specs/cli-layering.md`):
 operations that talk to tmux directly from the caller's context with **no daemon
 dependency** (the `rk present` pattern), so they work while `rk serve` is down.
-The family has nine members. The messaging pair is the conversation loop's
+The family has ten members. The messaging pair is the conversation loop's
 halves: `rk mux send` delivers a message into another agent's pane — the
 agent→agent counterpart of `rk present`'s agent→user attach — and `rk mux await`
 blocks until a peer's state (or a file signal) fires. The substrate twins are
 the generic pane-mechanics verbs: `rk mux capture` (scrollback capture with
 substrate-only enrichment), `rk mux kill` (agent-state-gated pane removal), and
-`rk mux process` (the pane's process tree with agent classification). The
+`rk mux process` (the pane's process tree with agent classification). `rk mux
+panes` is the whole-server enumeration query — one row per pane across all
+sessions, substrate facts only (no change/stage; choreography enrichment stays
+the fab layer's), the family's only server-scoped enumeration (no target
+argument). The
 operator tier groups the janitor/recovery/scaffold verbs plus the guard:
 `rk mux reap` (test-socket cleanup), `rk mux snapshot list|show|restore`
 (layout recovery, [layout-snapshots](/run-kit/layout-snapshots.md)),
@@ -34,7 +38,8 @@ daemon route and the CLI verb run ONE implementation.
 The family parent (`muxCmd`, `cmd/rk/mux.go`) carries the shared persistent
 `-L/--server` flag (the `fab pane` pattern). Server resolution: `-L` wins, else
 the caller's own server derived from the original `$TMUX` socket basename, else
-`default`. Only the pane-scoped verbs consume it — the operator members reject
+`default`. Only the pane-scoped verbs and the `panes` enumeration consume it —
+the operator members reject
 an explicitly-set `-L` (see Requirements), **except `guard`**: its
 `DisableFlagParsing` means nothing is parsed and `-L`/`-S` flow verbatim into
 the tmux argv, where they are genuinely tmux's socket flags. The old root forms
@@ -279,6 +284,42 @@ children}], "has_agent"}`.
 - **WHEN** `rk mux process %5` runs
 - **THEN** that node is tagged `[agent]` and `Agent process detected.` prints.
 
+### Requirement: `rk mux panes` — whole-server enumeration, substrate facts only
+`rk mux panes [--json]` SHALL enumerate every pane of every session on the
+resolved server — one row per pane, with **no positional target** (an
+enumeration query, not a pane-scoped verb; a stray argument is usage, exit 2).
+It consumes the family's inherited `-L/--server` with the standard resolution
+order (`-L` wins → the caller's `$TMUX` socket basename → `default`) and, being
+a query against a server, does NOT call `muxRejectInheritedServerFlag`.
+Enumeration reuses `tmux.ListSessions` + `tmux.ListWindows` (whose panes already
+carry the reconciled `@rk_agent_state`) through the `parseSessions` chokepoint,
+so `_rk-pin-*` pin-sessions and the `_rk-ctl` anchor contribute no rows and a
+pinned window lists exactly once, via its home session. Rows carry **substrate
+facts only** — no change/stage/display-state keys (choreography enrichment is
+the fab layer's job, per cli-layering Part 8). The default output is an aligned
+one-pane-per-row table (session, window `index:name`, pane ID, active markers,
+agent state + duration, command, cwd) on stdout; diagnostics go to stderr.
+`--json` emits a two-space-indented array, one object per pane, with exactly
+`session`, `session_id`, `window_index`, `window_id`, `window_name`,
+`window_active`, `pane`, `pane_index`, `pane_active`, `command`, `cwd`,
+`agent_state`, `agent_state_duration`; the agent fields are `null` when the pane
+is uninstrumented or the reconciler rejects the value (the `mux capture --json`
+semantics), and the duration appears only for `idle`/`waiting` (epoch > 0),
+never `active`, formatted via `sessions.FormatAgentDuration`. Exit codes follow
+the toolkit convention: **0** success — including an alive server with nothing
+to list (`[]` under `--json`; an empty enumeration is liveness-probed via
+`tmux.ServerAlive` to separate "alive, empty" from "no server"); **1**
+operational (no server on the resolved socket, tmux failure) carrying tmux's
+diagnostic on stderr; **2** usage.
+
+#### Scenario: Empty enumeration succeeds; a dead socket is operational
+- **GIVEN** an alive server with no sessions
+- **WHEN** `rk mux panes --json` runs
+- **THEN** it prints `[]` and exits 0; **AND GIVEN** no server on socket
+  `nope`, **WHEN** `rk mux panes -L nope` runs, **THEN** exit is 1 with tmux's
+  diagnostic on stderr; **AND GIVEN** a stray positional argument, **THEN**
+  exit 2.
+
 ### Requirement: No daemon dependency; bounded subprocesses
 The pane-scoped verbs SHALL address tmux directly from the caller's context
 (`-L <server>`
@@ -392,7 +433,8 @@ state across instances.
 ### Reject explicitly-set `-L` on operator members
 **Decision**: reap/snapshot/init-conf under `mux` error (usage, exit 2) when the
 inherited `--server` flag was explicitly set; the five pane-scoped verbs
-(send/await/capture/kill/process) consume it. The `guard` member is exempt —
+(send/await/capture/kill/process) and the `panes` enumeration consume it. The
+`guard` member is exempt —
 `DisableFlagParsing` means `-L` is never parsed and flows verbatim into the tmux
 argv, so there is nothing to reject (see
 [tmux-guard-shim](/run-kit/tmux-guard-shim.md) § Design Decisions).
@@ -416,12 +458,34 @@ subtler footgun).
 
 ### Capture enrichment is substrate-only
 **Decision**: capture carries cwd + reconciled agent state/duration; fab's
-change/stage fields are dropped.
+change/stage fields are dropped. The decision governs the **CLI substrate
+verbs** — the cross-tool substrate surface — and stands. It does not bar the
+SERVER's own fab-tier read: the dashboard's L2 register derivation
+(`.fab-status.yaml` → `.status.yaml`; see
+[tmux-sessions](/run-kit/tmux-sessions.md) § Fab-Tier Derivation) is the
+sanctioned Constitution II request-time derivation — a different consumer with
+a different contract.
 **Why**: cli-layering delegation rule 1 — change/stage come from
-`.fab-status.yaml`, fab's layer; rk must not reimplement the read.
+`.fab-status.yaml`, fab's layer; rk's CLI must not reimplement the read for its
+substrate output. The two consumers differ: CLI verbs are the cross-tool
+substrate surface, while the server's dashboard registers are constitutionally
+derived from the filesystem.
 **Rejected**: shelling out to `fab pane capture` for the join (inverts the
-dependency); porting the `.fab-status.yaml` parse (reimplements fab's layer).
-*Introduced by*: `260815-82w7-mux-substrate-twins`
+dependency); porting the `.fab-status.yaml` parse into the CLI verbs
+(reimplements fab's layer); reading this decision as banning any rk read of fab
+artifacts (contradicts Constitution II and status-pyramid.md).
+*Introduced by*: `260815-82w7-mux-substrate-twins`; scope pinned by
+`260820-hol4-mux-panes-native-pane-map`
+
+### `panes` enumerates the `parseSessions`-filtered view
+**Decision**: `rk mux panes` lists the same filtered view the dashboard shows —
+`_rk-pin-*` pin-sessions and the `_rk-ctl` anchor are skipped, and a
+dual-membership (pinned) window appears once, via its home session.
+**Why**: matches the dashboard's user-facing truth and avoids duplicate rows
+for pinned windows; an enrichment consumer wants one row per real pane.
+**Rejected**: raw unfiltered enumeration (duplicates pinned windows, leaks
+internal sessions).
+*Introduced by*: `260820-hol4-mux-panes-native-pane-map`
 
 ### Duration semantics follow rk's sessions rollup, not fab's idle-only
 **Decision**: the capture duration shows for `idle` and `waiting` (JSON field

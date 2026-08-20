@@ -485,9 +485,9 @@ type WindowInfo struct {
 	FabChange       string `json:"fabChange,omitempty"`
 	FabStage        string `json:"fabStage,omitempty"`
 	FabDisplayState string `json:"fabDisplayState,omitempty"` // pipeline state of the displayed stage; empty when fab reports null/omits the field
-	// PR fields. PrURL/PrNumber come from `fab pane map` (filesystem, cheap)
-	// via the sessions enrichment join (Layer 1), which also seeds branch-derived
-	// PrState/PrIsDraft. PrChecks/PrReview are attached by the SSE hub from the
+	// PR fields. PrURL/PrNumber are branch-derived in FetchSessions via
+	// prstatus (enrichWindowPR — Layer 1), which also seeds PrState/PrIsDraft.
+	// PrChecks/PrReview are attached by the SSE hub from the
 	// in-memory prstatus collector snapshot (Layer 3), which also OVERRIDES
 	// PrState/PrIsDraft on a URL hit but preserves the Layer-1 seed on a miss —
 	// the collector only sees the authenticated user's own PRs, so a teammate's
@@ -2207,6 +2207,19 @@ func probeServerAlive(ctx context.Context, name string) bool {
 	defer cancel()
 	cmd := exec.CommandContext(probeCtx, "tmux", "-L", name, "list-sessions")
 	return cmd.Run() == nil
+}
+
+// ServerAlive probes whether a tmux server answers on the named socket and
+// returns tmux's error verbatim (stderr appended) when it does not — a dead or
+// absent socket. It is the diagnostic-carrying counterpart of ListSessions,
+// which swallows the dead-server case into (nil, nil) for its dashboard
+// callers: a CLI enumeration query must tell "no server" (operational failure)
+// apart from "server alive, nothing user-facing to list". Read-only.
+func ServerAlive(ctx context.Context, server string) error {
+	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
+	defer cancel()
+	_, err := tmuxExecRawServer(ctx, server, "list-sessions")
+	return err
 }
 
 // ServerAllowlistEnv is the environment variable that, when set, scopes

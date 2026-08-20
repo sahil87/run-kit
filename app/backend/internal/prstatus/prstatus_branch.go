@@ -17,8 +17,8 @@ import (
 // via `gh pr list --head <branch> --state all` run in the repo, picking by
 // precedence (open > merged > closed — pickBranchPR). run-kit derives
 // PrURL/PrNumber this way for ANY pane on a branch with a PR — not only
-// fab-change-bound windows — replacing the pane-map join as the PR-link source
-// (Constitution §X: PR links are derivable, not pushed). The viewer-wide
+// fab-change-bound windows (Constitution §X: PR links are derivable, not
+// pushed). The viewer-wide
 // URL-keyed collector still supplies the live state/checks/review join, keyed by
 // the derived URL.
 //

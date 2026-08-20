@@ -11,7 +11,7 @@
 //     longer OPEN) simply drops out next cycle — this is the cleanup mechanism,
 //     so there is no eviction logic or window-lifecycle hook.
 //   - On a gh error (network blip) the last-good map is kept
-//     (stale-while-revalidate), mirroring metrics.Collector / fetchPaneMapCached.
+//     (stale-while-revalidate), mirroring metrics.Collector.
 //   - gh absent or unauthenticated is a silent no-op (last-good kept), matching
 //     the `command -v rk` fail-silent posture used elsewhere in the codebase.
 //
@@ -35,7 +35,7 @@ import (
 
 // ghTimeout bounds the single batched gh call so a hung gh can never block the
 // background goroutine (Constitution Process Execution: 30s for build-like ops,
-// shorter for queries; 10s here matches the pane-map fetch).
+// shorter for queries).
 const ghTimeout = 10 * time.Second
 
 // prFetchLimit caps the number of PRs requested in the batched query. A user

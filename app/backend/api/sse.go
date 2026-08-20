@@ -516,8 +516,7 @@ func (h *sseHub) sendLocked(c *sseClient, ev hubEvent) {
 
 // codeServerProbeTTL bounds how often the hub dials the configured code-server
 // port: the probe piggybacks the existing poll cadence and is never a
-// per-request dial (intake k3vp §2, assumption 9 — matches the 5s fab pane-map
-// cache precedent).
+// per-request dial (intake k3vp §2, assumption 9).
 const codeServerProbeTTL = 5 * time.Second
 
 // codeServerDialTimeout bounds the TCP reachability dial. Localhost refused is

@@ -98,6 +98,16 @@ rk mux process %5 --json
 
 Discovers the pane's process tree (the shell's `#{pane_pid}` and its descendants) and prints it as indented `PID comm [class]` lines under a `Pane %5 (PID 1234)` header, with a trailing `Agent process detected.` when an agent is present. Classification by comm: `agent` (`claude`, `claude-code`, `codex`, `gemini`, `copilot`), `node`, `git` (`git`, `gh`), else `other` (tag omitted). **Agent-state cross-check**: when the pane's `@rk_agent_state` carries a live pid, that tree node is `agent` regardless of comm (e.g. an agent behind a wrapper) — instrumentation beats heuristics. `--json` emits `{"pane", "pane_pid", "processes": [{pid, ppid, comm, cmdline, classification, children}], "has_agent"}`.
 
+## `rk mux panes` — enumerate every pane on the server
+
+```sh
+rk mux panes                 # aligned table, one row per pane
+rk mux panes --json          # machine-readable array
+rk mux panes -L foo          # another tmux server (default: yours, from $TMUX)
+```
+
+The whole-server enumeration query — no target argument; it is the one mux member that is not pane-scoped. Every pane of every session lists exactly once; run-kit's internal sessions (`_rk-pin-*` pin-sessions, the `_rk-ctl` anchor) are excluded, so a pinned window appears via its home session only. Rows carry **substrate facts only**: `session`, `session_id`, `window_index`, `window_id`, `window_name`, `window_active`, `pane`, `pane_index`, `pane_active`, `command`, `cwd`, `agent_state`, `agent_state_duration` — no change/stage fields (choreography enrichment is fab's layer). `agent_state`/`agent_state_duration` are `null` for uninstrumented panes; the duration shows only for `idle`/`waiting`, never `active`. An alive server with nothing to list exits 0 (`[]` under `--json`); no server on the socket is exit 1 with tmux's diagnostic; a stray argument is exit 2.
+
 ## Gotchas
 
 - All five pane-scoped verbs share the same target grammar — `%N`, `@N`, `=session:window` (bare `session:window` rejected) — and the same `-L <server>` flag (default: your own server, from `$TMUX`).

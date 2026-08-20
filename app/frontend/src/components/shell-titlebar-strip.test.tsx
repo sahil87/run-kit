@@ -734,6 +734,44 @@ describe("ShellTitlebarStrip host menu — accent bars, waiting counts, reorder 
     expect(reordered[1].textContent).toContain("alpha");
   });
 
+  it("a drag started from the ⋮⋮ grip itself commits the reorder (the grip is a real handle)", async () => {
+    const four = [
+      { id: "a", name: "alpha", url: "http://a:3000", active: true },
+      { id: "b", name: "beta", url: "http://b:3000", active: false },
+      { id: "c", name: "gamma", url: "http://c:3000", active: false },
+      { id: "d", name: "delta", url: "http://d:3000", active: false },
+    ];
+    const bridge = await renderInteractive(four, "darwin", false, true);
+    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    const grips = screen.getAllByTestId("shell-host-grip");
+    expect(grips).toHaveLength(4);
+    // The grip must be draggable itself and must NOT swallow pointer events:
+    // it sits on the cluster (a sibling of the row button), so a
+    // pointer-events-none grip has no draggable ancestor and can never
+    // start a drag.
+    for (const grip of grips) {
+      expect(grip).toHaveAttribute("draggable", "true");
+      expect(grip.className).not.toContain("pointer-events-none");
+    }
+    const dataTransfer = {
+      setData: vi.fn(),
+      types: ["application/x-shell-host-reorder"],
+      effectAllowed: "",
+      dropEffect: "",
+    };
+    // Drag row 4 (delta) BY ITS GRIP onto row 1 (alpha) — the dragstart
+    // bubbles from the grip to the row wrapper's shared handler.
+    fireEvent.dragStart(grips[3], { dataTransfer });
+    expect(dataTransfer.setData).toHaveBeenCalledWith("application/x-shell-host-reorder", "d");
+    const rows = screen.getAllByRole("menuitemradio");
+    fireEvent.dragOver(rows[0], { dataTransfer });
+    fireEvent.drop(rows[0], { dataTransfer });
+    fireEvent.dragEnd(grips[3], { dataTransfer });
+    expect(bridge.reorder).toHaveBeenCalledTimes(1);
+    expect(bridge.reorder).toHaveBeenCalledWith("d", 0);
+    expect(screen.getAllByRole("menuitemradio")[0].textContent).toContain("delta");
+  });
+
   it("a denied drag-drop reorder surfaces the error toast and refetches the list", async () => {
     const bridge = await renderInteractive(hosts, "darwin", false, true);
     bridge.reorder.mockResolvedValue({ ok: false });

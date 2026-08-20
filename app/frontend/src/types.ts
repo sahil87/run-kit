@@ -154,7 +154,9 @@ export type WindowInfo = {
    *  FetchSessions). Alt-screen panes have no scrollback, so a server-side
    *  `capture-pane -S -` history capture is structurally empty for them — the
    *  export menu disables its "full history" row and the palette omits the
-   *  action while this is true. Always emitted (false = normal screen). */
+   *  action while this is true. The backend emits it on every window (false =
+   *  normal screen); optional here only for partial test fixtures — consumers
+   *  treat absent as false. */
   altScreen?: boolean;
   panes?: PaneInfo[];
 };

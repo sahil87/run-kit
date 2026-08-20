@@ -2886,6 +2886,10 @@ function AppShell() {
     />
   );
 
+  // Derived boolean (not `currentWindow` itself) so the memo below doesn't
+  // recompute on every SSE-driven window-object identity change.
+  const currentAltScreen = currentWindow?.altScreen === true;
+
   const viewActions: PaletteAction[] = useMemo(
     () => [
       ...(sessionName
@@ -3065,7 +3069,7 @@ function AppShell() {
               // Gated ABSENT (not disabled — the availability idiom) on an
               // alt-screen window: tmux holds no scrollback there, so the
               // server capture is structurally empty (260820-4le0).
-              ...(currentWindow?.altScreen
+              ...(currentAltScreen
                 ? []
                 : [["terminal-export-history", "Terminal: Download full history", "history"] as const]),
             ] as const
@@ -3077,7 +3081,7 @@ function AppShell() {
           }))
         : []),
     ],
-    [sessionName, fixedWidth, toggleFixedWidth, toggleComposeStrip, composeStripEnabled, currentViews, resolvedView, switchView, bindingByAction, bindingHost, windowParam, isMobile, renderLayout, panelSurfaces, applyLayout, layoutZoomed, focusedTileKind, mobileActiveTile, switchToTile, currentWindow, zenOn, toggleZen],
+    [sessionName, fixedWidth, toggleFixedWidth, toggleComposeStrip, composeStripEnabled, currentViews, resolvedView, switchView, bindingByAction, bindingHost, windowParam, isMobile, renderLayout, panelSurfaces, applyLayout, layoutZoomed, focusedTileKind, mobileActiveTile, switchToTile, currentAltScreen, zenOn, toggleZen],
   );
 
   // Navigation actions (`Go: Back` / `Go: Forward` / ancestor entries,

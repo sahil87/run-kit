@@ -1055,6 +1055,7 @@ export function SurfaceLayout({
         {!mobile && (
           <div className="flex items-center gap-1.5 px-1.5 h-[30px] shrink-0 border-b border-border bg-bg-card font-mono text-[11px] text-text-secondary select-none">
             {kind === "tty" && statusWindow && <StatusDot win={statusWindow} />}
+            {/* rk-slot: progress-chip */}
             <span
               aria-hidden="true"
               className={`shrink-0 ${isFocused ? "text-accent-green" : ""}`}
@@ -1084,6 +1085,8 @@ export function SurfaceLayout({
               </>
             )}
             <span className="flex-1" />
+            {/* rk-slot: find-button */}
+            {/* rk-slot: export-button */}
             {/* Pane segment (260813-w1lf content verbs): tty tiles carry a
                 bordered group of PANE verbs — Split H · Split V · Close Pane —
                 at ANY arity (including `single:tty`, which renders no layout
@@ -1188,6 +1191,8 @@ export function SurfaceLayout({
             )}
           </div>
         )}
+        {/* rk-slot: find-bar-row */}
+        {/* rk-slot: progress-line */}
         <div
           // Mid-drag the iframe/xterm content must not swallow pointermove
           // (the drag would stall at the iframe boundary). Applies to both

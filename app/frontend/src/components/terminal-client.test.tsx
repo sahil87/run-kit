@@ -7,6 +7,9 @@ import { FitAddon } from "@xterm/addon-fit";
 import { UnicodeGraphemesAddon } from "@xterm/addon-unicode-graphemes";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
+import { SearchAddon } from "@xterm/addon-search";
+import { SerializeAddon } from "@xterm/addon-serialize";
+import { ProgressAddon } from "@xterm/addon-progress";
 import { TerminalClient } from "./terminal-client";
 import type { OpenStreamOpts, RelayStream } from "@/lib/relay-mux";
 
@@ -130,13 +133,34 @@ vi.mock("@xterm/addon-web-links", () => ({
 
 vi.mock("@xterm/addon-webgl", () => ({
   WebglAddon: vi.fn().mockImplementation(function () {
-    return { dispose: vi.fn() };
+    // onContextLoss must exist: init() registers it BEFORE loadAddon, so a
+    // mock without it throws into the fallback and WebGL never "loads" in
+    // tests — masking load-order assertions.
+    return { dispose: vi.fn(), onContextLoss: vi.fn() };
   }),
 }));
 
 vi.mock("@xterm/addon-unicode-graphemes", () => ({
   UnicodeGraphemesAddon: vi.fn().mockImplementation(function () {
     return { dispose: vi.fn() };
+  }),
+}));
+
+vi.mock("@xterm/addon-search", () => ({
+  SearchAddon: vi.fn().mockImplementation(function () {
+    return { dispose: vi.fn(), findNext: vi.fn(), findPrevious: vi.fn() };
+  }),
+}));
+
+vi.mock("@xterm/addon-serialize", () => ({
+  SerializeAddon: vi.fn().mockImplementation(function () {
+    return { dispose: vi.fn(), serialize: vi.fn() };
+  }),
+}));
+
+vi.mock("@xterm/addon-progress", () => ({
+  ProgressAddon: vi.fn().mockImplementation(function () {
+    return { dispose: vi.fn(), onChange: vi.fn() };
   }),
 }));
 
@@ -1234,5 +1258,111 @@ describe("TerminalClient terminal-font change syncs the grid to tmux", () => {
     expect(fit.mock.calls.length).toBeGreaterThan(fitCallsBefore);
     expect(st.resize.mock.calls.length).toBe(resizesBefore + 1);
     expect(st.resize.mock.calls[st.resize.mock.calls.length - 1]).toEqual([80, 24]);
+  });
+});
+
+describe("TerminalClient addon scaffold (search/serialize/progress)", () => {
+  // The three addons are pre-landed passively for downstream consumers: the
+  // addons load on every terminal, but nothing invokes search/serialize and
+  // nothing renders progress. What IS this change's contract: they load
+  // without error alongside the existing addons, the imperative-ref seams
+  // fill/clear on the focusRef lifecycle, and the progress addon's
+  // { state, value } payload is adapted to the two-arg callback prop.
+  beforeEach(() => {
+    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({
+      matches: false,
+      media: "",
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+    MockStream.instances = [];
+    mockRelayMux.openStream.mockClear();
+    vi.mocked(Terminal).mockClear();
+    vi.mocked(SearchAddon).mockClear();
+    vi.mocked(SerializeAddon).mockClear();
+    vi.mocked(ProgressAddon).mockClear();
+    vi.mocked(UnicodeGraphemesAddon).mockClear();
+    vi.mocked(WebglAddon).mockClear();
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  function renderWithSeams(onProgressChange?: (state: number, value: number) => void) {
+    const searchAddonRef: React.MutableRefObject<SearchAddon | null> = { current: null };
+    const serializeAddonRef: React.MutableRefObject<SerializeAddon | null> = { current: null };
+    const result = render(
+      <ChromeProvider>
+        <FocusedTerminalProvider>
+          <TerminalClient
+            sessionName="test-session"
+            windowId="@0"
+            server="default"
+            wsRef={createWsRef()}
+            searchAddonRef={searchAddonRef}
+            serializeAddonRef={serializeAddonRef}
+            onProgressChange={onProgressChange}
+          />
+        </FocusedTerminalProvider>
+      </ChromeProvider>,
+    );
+    return { result, searchAddonRef, serializeAddonRef };
+  }
+
+  it("loads all three addons without error alongside the existing ones", async () => {
+    renderTerminalClient(false);
+
+    await waitFor(() => {
+      expect(vi.mocked(SearchAddon)).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(SerializeAddon)).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(ProgressAddon)).toHaveBeenCalledTimes(1);
+    });
+
+    const terminal = vi.mocked(Terminal).mock.results[0]?.value;
+    const loaded = terminal.loadAddon.mock.calls.map((c: unknown[]) => c[0]);
+    expect(loaded).toContain(vi.mocked(SearchAddon).mock.results[0]?.value);
+    expect(loaded).toContain(vi.mocked(SerializeAddon).mock.results[0]?.value);
+    expect(loaded).toContain(vi.mocked(ProgressAddon).mock.results[0]?.value);
+    // The existing addons still load — the scaffold adds, never reorders away.
+    expect(loaded).toContain(vi.mocked(UnicodeGraphemesAddon).mock.results[0]?.value);
+    expect(loaded).toContain(vi.mocked(WebglAddon).mock.results[0]?.value);
+  });
+
+  it("fills the search/serialize seam refs at init and clears them on unmount", async () => {
+    const { result, searchAddonRef, serializeAddonRef } = renderWithSeams();
+
+    await waitFor(() => {
+      expect(searchAddonRef.current).toBe(vi.mocked(SearchAddon).mock.results[0]?.value);
+      expect(serializeAddonRef.current).toBe(
+        vi.mocked(SerializeAddon).mock.results[0]?.value,
+      );
+    });
+
+    result.unmount();
+    expect(searchAddonRef.current).toBeNull();
+    expect(serializeAddonRef.current).toBeNull();
+  });
+
+  it("adapts the progress addon's { state, value } payload to the two-arg prop", async () => {
+    const onProgressChange = vi.fn();
+    renderWithSeams(onProgressChange);
+
+    await waitFor(() => {
+      expect(vi.mocked(ProgressAddon)).toHaveBeenCalledTimes(1);
+    });
+
+    const progress = vi.mocked(ProgressAddon).mock.results[0]?.value;
+    const changeCb = progress.onChange.mock.calls[0]?.[0];
+    expect(typeof changeCb).toBe("function");
+
+    changeCb({ state: 1, value: 42 });
+    expect(onProgressChange).toHaveBeenCalledWith(1, 42);
   });
 });

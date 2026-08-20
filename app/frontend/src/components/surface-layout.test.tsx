@@ -1165,3 +1165,125 @@ describe("SurfaceLayout zoom palette seam (T012/R11)", () => {
     expect(screen.getByTestId("surface-tile-code").classList.contains("hidden")).toBe(false);
   });
 });
+
+describe("SurfaceLayout tty progress (260819-1vxq)", () => {
+  // Deterministic rAF: the consumer coalesces onProgressChange events to one
+  // state commit per frame, so tests queue callbacks and flush explicitly
+  // (the terminal-client.test.tsx pattern). Restored per-test — a blanket
+  // unstubAllGlobals would also drop the module-level matchMedia stub.
+  let rafCallbacks: Map<number, FrameRequestCallback>;
+  let nextRafId: number;
+  const realRaf = window.requestAnimationFrame;
+  const realCaf = window.cancelAnimationFrame;
+
+  beforeEach(() => {
+    rafCallbacks = new Map();
+    nextRafId = 1;
+    window.requestAnimationFrame = ((cb: FrameRequestCallback) => {
+      const id = nextRafId++;
+      rafCallbacks.set(id, cb);
+      return id;
+    }) as typeof window.requestAnimationFrame;
+    window.cancelAnimationFrame = ((id: number) => {
+      rafCallbacks.delete(id);
+    }) as typeof window.cancelAnimationFrame;
+  });
+
+  afterEach(() => {
+    window.requestAnimationFrame = realRaf;
+    window.cancelAnimationFrame = realCaf;
+  });
+
+  /** Fire the captured onProgressChange (the scaffold seam) and flush the
+   *  coalescing frame in one step. */
+  function fireProgress(state: number, value: number) {
+    const props = terminalSpy.mock.lastCall?.[0] as {
+      onProgressChange?: (state: number, value: number) => void;
+    };
+    expect(props.onProgressChange).toBeTypeOf("function");
+    act(() => {
+      props.onProgressChange!(state, value);
+      for (const cb of [...rafCallbacks.values()]) cb(0);
+      rafCallbacks.clear();
+    });
+  }
+
+  it("state 1 renders the green determinate line at value% and a percent chip", () => {
+    renderLayout();
+    expect(screen.queryByTestId("progress-line")).toBeNull();
+    expect(screen.queryByTestId("progress-chip")).toBeNull();
+    fireProgress(1, 42);
+    const line = screen.getByTestId("progress-line");
+    expect(line.getAttribute("aria-valuenow")).toBe("42");
+    const bar = line.querySelector("span")!;
+    expect(bar.className).toContain("bg-accent-green");
+    expect(bar.style.width).toBe("42%");
+    const chip = screen.getByTestId("progress-chip");
+    expect(chip.textContent).toBe("42%");
+    expect(chip.className).toContain("text-accent-green");
+  });
+
+  it("state 2 renders red at the last-known width; state 4 renders amber", () => {
+    renderLayout();
+    fireProgress(1, 61);
+    fireProgress(2, 0);
+    let bar = screen.getByTestId("progress-line").querySelector("span")!;
+    expect(bar.className).toContain("bg-signal-red");
+    expect(bar.style.width).toBe("61%");
+    expect(screen.getByTestId("progress-chip").className).toContain("text-signal-red");
+    expect(screen.getByTestId("progress-chip").textContent).toBe("61%");
+    fireProgress(4, 0);
+    bar = screen.getByTestId("progress-line").querySelector("span")!;
+    expect(bar.className).toContain("bg-signal-yellow");
+    expect(screen.getByTestId("progress-chip").className).toContain("text-signal-yellow");
+  });
+
+  it("state 3 sweeps with no chip; state 0 removes line and chip", () => {
+    renderLayout();
+    fireProgress(3, 0);
+    const line = screen.getByTestId("progress-line");
+    expect(line.getAttribute("aria-valuenow")).toBeNull();
+    expect(line.querySelector("span")!.className).toContain(
+      "rk-tty-progress-indeterminate",
+    );
+    expect(screen.queryByTestId("progress-chip")).toBeNull();
+    fireProgress(0, 0);
+    expect(screen.queryByTestId("progress-line")).toBeNull();
+    expect(screen.queryByTestId("progress-chip")).toBeNull();
+  });
+
+  it("coalesces a burst to one committed frame (latest event wins)", () => {
+    renderLayout();
+    const props = terminalSpy.mock.lastCall?.[0] as {
+      onProgressChange: (state: number, value: number) => void;
+    };
+    act(() => {
+      for (let i = 1; i <= 100; i++) props.onProgressChange(1, i);
+    });
+    // Nothing commits before the frame, and the burst scheduled ONE callback.
+    expect(screen.queryByTestId("progress-line")).toBeNull();
+    expect(rafCallbacks.size).toBe(1);
+    act(() => {
+      for (const cb of [...rafCallbacks.values()]) cb(0);
+      rafCallbacks.clear();
+    });
+    expect(screen.getByTestId("progress-chip").textContent).toBe("100%");
+  });
+
+  it("renders progress on tty tiles only, and every tty tile shares the slot", () => {
+    renderLayout({ layout: { shape: "split-h", order: ["tty", "code"] } });
+    fireProgress(1, 30);
+    const ttyTile = screen.getByTestId("surface-tile-tty");
+    const codeTile = screen.getByTestId("surface-tile-code");
+    expect(within(ttyTile).getByTestId("progress-line")).toBeTruthy();
+    expect(within(codeTile).queryByTestId("progress-line")).toBeNull();
+    expect(within(codeTile).queryByTestId("progress-chip")).toBeNull();
+  });
+
+  it("mobile renders the line but no chip (no tile header chrome)", () => {
+    renderLayout({ isMobile: true });
+    fireProgress(1, 55);
+    expect(screen.getByTestId("progress-line")).toBeTruthy();
+    expect(screen.queryByTestId("progress-chip")).toBeNull();
+  });
+});

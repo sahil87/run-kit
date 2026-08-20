@@ -1,10 +1,6 @@
-# `packages` is required by pnpm 9 (release.yml pins version 9 — a
-# settings-only workspace file errors with "packages field missing or
-# empty"); pnpm 10+ would accept the file without it. `.` = this directory is
-# the sole package, which matches the existing non-workspace lockfile exactly.
+# Declares this directory as a single-package workspace. Build-script
+# approvals live in package.json `pnpm.onlyBuiltDependencies` — do not add
+# settings here that pnpm reads from package.json, and keep `packages` present
+# (it matches the existing non-workspace lockfile exactly).
 packages:
   - '.'
-
-allowBuilds:
-  electron: true
-  electron-winstaller: true

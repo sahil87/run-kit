@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 10
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-08-20T03:35:29Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-20T03:51:13Z"}
     hydrate: {started_at: "2026-08-20T03:51:13Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-20T04:00:34Z"}
     ship: {started_at: "2026-08-20T04:00:34Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-20T04:03:33Z"}
-    review-pr: {started_at: "2026-08-20T04:03:33Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-08-20T04:03:33Z", driver: git-pr, iterations: 1, completed_at: "2026-08-20T05:12:14Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/676
 true_impact:
@@ -53,4 +53,4 @@ true_impact:
     computed_at_stage: ship
 summary: 'tty tile find: shared FindBar extraction, addon-search wiring with theme-derived decorations + overview ruler, terminal-find chord (⇧Ctrl+F/⌘F, ttyOnly) + Terminal: Find palette action, terminal-find:open seam'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-20T04:03:33Z
+last_updated: 2026-08-20T05:12:14Z

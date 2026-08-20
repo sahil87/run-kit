@@ -184,8 +184,10 @@ To run run-kit as a background daemon, see 'run-kit daemon start' (and the rest 
 		tmuxctl.SetStampOrigin(fmt.Sprintf("http://%s:%d", cfg.Host, cfg.Port))
 
 		// Layout snapshotter: periodically persists per-covered-server layout
-		// snapshots (disaster-recovery backups, write-only per Constitution II)
-		// and tombstones a server's last snapshot when its socket is removed.
+		// snapshots (disaster-recovery backups; the /api/recovery endpoints are
+		// the sanctioned read-only reader — live state never derives from a
+		// snapshot) and tombstones a server's last snapshot when its socket is
+		// removed.
 		// Wired BEFORE supervisor.Start so the removal callback can never miss
 		// an early socket removal. Best-effort throughout: a store-dir
 		// resolution failure disables snapshotting with a warning — it must
@@ -193,9 +195,13 @@ To run run-kit as a background daemon, see 'run-kit daemon start' (and the rest 
 		if snapDir, err := snapshot.DefaultDir(); err != nil {
 			slog.Warn("layout snapshots disabled: state dir unresolvable", "err", err)
 		} else {
-			snapshotter := snapshot.NewSnapshotter(supervisor, snapshot.NewStore(snapDir))
+			snapStore := snapshot.NewStore(snapDir)
+			snapshotter := snapshot.NewSnapshotter(supervisor, snapStore)
 			supervisor.OnSocketRemoved = snapshotter.OnServerRemoved
 			apiServer.SetServerKillNotifier(snapshotter.NoteAuditedKill)
+			// The recovery endpoints read from the SAME store the snapshotter
+			// writes to, so /api/recovery offers exactly what was persisted.
+			apiServer.SetSnapshotStore(snapStore)
 			snapshotter.Start(ctx)
 		}
 

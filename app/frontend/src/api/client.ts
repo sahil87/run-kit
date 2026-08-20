@@ -862,6 +862,77 @@ export async function setServerOrder(order: string[]): Promise<void> {
   if (!res.ok) await throwOnError(res);
 }
 
+// --- Host recovery (reboot-orphaned snapshot offers) ---
+
+/** One recorded window inside a recovery offer's stored layout tree. */
+export type RecoveryWindow = {
+  index: number;
+  name: string;
+  paneCount: number;
+  /** Former per-pane commands — display-only; restore semantics are server-side. */
+  commands: string[];
+  /** True when any recorded pane command was an agent (`claude`) — a
+   *  display-only tag; the per-window resume affordance is out of scope. */
+  resumable: boolean;
+};
+
+/** One recorded session inside a recovery offer. `color` is the raw
+ *  @session_color descriptor ("4" / "1+3"), absent when unset. */
+export type RecoverySession = {
+  name: string;
+  color?: string;
+  windows: RecoveryWindow[];
+};
+
+/** A restorable snapshot offer: a server that died with the host (reboot) and
+ *  left a live-latest layout snapshot on disk. Carries the full layout tree
+ *  inline so the row expansion needs no second request. */
+export type RecoveryOffer = {
+  server: string;
+  /** RFC3339 snapshot timestamp — the row's "last seen" age. */
+  takenAt: string;
+  sessionCount: number;
+  windowCount: number;
+  sessions: RecoverySession[];
+};
+
+/** The restore engine's report body (recreated sessions/windows, skipped
+ *  items, notes, former commands). The frontend only gates on the HTTP status
+ *  — no individual field is read. */
+export type RecoveryRestoreReport = Record<string, unknown>;
+
+/** List restorable snapshot offers. Server-global — no `server` param. */
+export async function getRecoveryOffers(): Promise<RecoveryOffer[]> {
+  const res = await deduplicatedFetch("/api/recovery");
+  if (!res.ok) await throwOnError(res);
+  const data = (await res.json()) as { offers?: RecoveryOffer[] };
+  return data.offers ?? [];
+}
+
+/** Restore one offered server from its snapshot. Body-addressed (mirrors
+ *  POST /api/servers/kill), synchronous server-side; rejects with the
+ *  engine's refusal message on a non-ok status (e.g. server already alive). */
+export async function restoreRecoveryServer(server: string): Promise<RecoveryRestoreReport> {
+  const res = await fetch("/api/recovery/restore", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ server }),
+  });
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
+/** Dismiss one offer (tombstones the snapshot server-side; idempotent). */
+export async function dismissRecoveryServer(server: string): Promise<{ ok: boolean }> {
+  const res = await fetch("/api/recovery/dismiss", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ server }),
+  });
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
 export interface Keybinding {
   key: string;
   table: string;

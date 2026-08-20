@@ -19,6 +19,9 @@ import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import { formatCombo } from "@/lib/keybindings";
 import { SectionHeading } from "@/components/section-heading";
 import { StatusBar } from "@/components/status-bar";
+import { RecoverySection, useRecoveryOffers } from "@/components/recovery-section";
+import { buildRecoveryActions } from "@/lib/palette-recovery";
+import { useRegisterPaletteActions } from "@/contexts/palette-actions-context";
 import { Tip } from "@/components/tip";
 import { displayVersion } from "@/lib/palette-version";
 import { deriveEffectiveSessionOrder } from "@/lib/palette-move";
@@ -110,6 +113,25 @@ export function HostOverviewPage() {
   // settings override; null falls back to the metrics hostname below.
   const { instanceName } = useInstanceName();
   const hostServices = useHostServices();
+  // Recovery offers + flows (the RECOVERY zone below and its palette verbs
+  // share this one hook instance — one fetch, one mutation flow).
+  const recovery = useRecoveryOffers();
+  // Recovery palette verbs (Constitution V): `Server: Restore <name>` /
+  // `Restore all previous servers` / `Server: Dismiss recovery <name>` — one
+  // entry per offer, gated on offers existing (empty list → no entries).
+  // Registered from THIS route: `/` mounts no AppShell, so the host page owns
+  // its route-scoped palette slot registration. The bodies invoke the same
+  // useRecoveryOffers flows the zone's buttons do.
+  const recoveryPaletteActions = useMemo(
+    () =>
+      buildRecoveryActions(recovery.offers, {
+        onRestore: (server) => void recovery.restore(server),
+        onRestoreAll: () => void recovery.restoreAll(),
+        onDismiss: (server) => void recovery.dismiss(server),
+      }),
+    [recovery],
+  );
+  useRegisterPaletteActions(recoveryPaletteActions);
   // De-emphasize system/infra listeners (mirrors the isInfraServer treatment on
   // server tiles): well-known ports (< 1024, the reserved/system range —
   // ssh:22, smtp:25, etc.) sort AFTER regular ports as a class and render in
@@ -438,6 +460,13 @@ export function HostOverviewPage() {
             </button>
           </div>
         </section>
+
+        {/* RECOVERY zone — reboot-orphaned servers with restorable snapshot
+            offers. Slotted between TMUX SERVERS and SERVICES; renders ONLY
+            when offers exist (zero footprint otherwise — no heading, no empty
+            state). Offers load on mount + refetch after the section's own
+            restore/dismiss mutations; no polling, no new SSE kind. */}
+        <RecoverySection recovery={recovery} />
 
         {/* SERVICES zone (zone 3, Host host-console home). A listening TCP
             port is a HOST property (not owned by any tmux window/session), so

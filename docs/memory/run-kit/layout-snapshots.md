@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "Per-server tmux layout snapshots (`internal/snapshot`): the sessions/windows/panes + rk-options capture set, the `$XDG_STATE_HOME/rk/snapshots` store (atomic latest, 10-entry history, content-dedup, zero-session guard, `.died-{ts}` tombstones on audited kills), the Snapshotter's tick debounce + 60s safety pass + removal-race guard, `internal/tmux` layout read/restore primitives, the `rk mux snapshot list|show|restore` CLI (fresh shells, no relaunch), and the write-only Constitution II line."
+description: "Per-server tmux layout snapshots (`internal/snapshot`): the sessions/windows/panes + rk-options capture set, the `$XDG_STATE_HOME/rk/snapshots` store (atomic latest, 10-entry history, content-dedup, zero-session guard, `.died-{ts}` tombstones), the Snapshotter cadence, the restore engine + `rk mux snapshot` CLI (fresh shells, no relaunch), and the recovery reader (`RestorableOffers`, `Store.Dismiss`, `/api/recovery` — the Constitution II carve-out; live state never derives from a snapshot)."
 ---
 # Layout Snapshots & Restore
 
@@ -8,7 +8,7 @@ description: "Per-server tmux layout snapshots (`internal/snapshot`): the sessio
 
 ## Overview
 
-The run-kit daemon persists a layout snapshot per covered tmux server so a server death (agent misfire, crash, reboot) is recoverable instead of a forensic reconstruction. `internal/snapshot` owns the schema, the file store, the periodic writer, and the restore engine; `rk mux snapshot list|show|restore` is the only reader. Snapshots are **write-only disaster-recovery backups** — no request-time path reads them, and restore never relaunches a process.
+The run-kit daemon persists a layout snapshot per covered tmux server so a server death (agent misfire, crash, reboot) is recoverable instead of a forensic reconstruction. `internal/snapshot` owns the schema, the file store, the periodic writer, the restore engine, and the restorable-offer derivation. Snapshots are **disaster-recovery backups** — artifacts about the past, never the source of a live-state answer — and restore never relaunches a process. Two read surfaces serve them: the `rk mux snapshot list|show|restore` CLI (the operator reader) and the `/api/recovery` endpoints behind the Host Overview RECOVERY zone (the user-facing reader — § Snapshot read boundary).
 
 ## Requirements
 
@@ -70,6 +70,8 @@ Capture assembles from the `internal/tmux` layout reads plus `GetSessionOrder`/`
 
 `Tombstone(server, diedAt, audited)` loads the latest, stamps `diedAt` (+ `auditedKill`), atomically writes `{server}.died-{ts}.json`, removes `{server}.json`, and prunes tombstones to 10; history directories are left intact. A server with no latest snapshot is a no-op.
 
+`Dismiss(server)` converts the server's lingering live-latest into a tombstone stamped `auditedKill: true` (a thin `Tombstone(server, time.Now(), true)` wrapper): a user-driven dismissal is a deliberate run-kit action, and the audited marker already excludes the entry from the restorable-offer set, so a dismissed server is never re-offered. Idempotent — a server with no latest snapshot is a no-op success; history is left intact.
+
 Readers: `LoadLatest`, `LoadAt(server, ts)` (history entry, then tombstone), `Resolve(server, at)` (the entry at `at`, else the latest, else the newest tombstone), and `List(serverFilter)` (every live latest and every tombstone, newest-first, with session/window counts and history depth). The `.died-` infix can never occur inside a server name — validated names are `[A-Za-z0-9_-]`, no dots — so the filename grammar is unambiguous.
 
 #### Scenario: Zero-session snapshot never overwrites a good latest
@@ -127,16 +129,29 @@ Split-order fidelity has a stated limit: `select-layout` maps panes to layout ce
 - **WHEN** `rk mux snapshot restore <server>` runs
 - **THEN** every recreated pane is a fresh shell and the stored commands appear only in the report output
 
-### Requirement: Write-only boundary (Constitution II / VI)
+### Requirement: Restorable offers — the reboot signature
 
-Snapshots are derived state persisted as a disaster-recovery backup, not a state store — the same category as the daemon's log file: an artifact about the past, not a database about the present. No HTTP handler or request-time read path reads a snapshot file to answer a query; live state stays derived from tmux and the filesystem. `api/` has **zero** `internal/snapshot` imports — the only importers are `cmd/rk/serve.go` (writer wiring) and `cmd/rk/snapshot.go` (the user-initiated CLI reader).
+`Store.RestorableOffers(liveServers []string)` (`restorable.go`) derives the restorable-offer set: every `Store.List("")` entry with `DiedAt == nil` (a lingering live-latest — the daemon died with the server, so nothing tombstoned it: the reboot signature) whose server is absent from the caller-supplied live-server enumeration (`tmux.ListServers(ctx)` — no live socket). Tombstones — audited or unaudited — are never offered. Infra servers are excluded by name via `infraServerName` (exact `rk-daemon`/`rk-jobs`/`rk-code-server`/`rk-remotes` — the daemon siblings, whose layouts are owner-recreated — plus the `rk-test-*` prefix, mirroring the frontend `isInfraServer` idiom; `rk-test-*` sockets never snapshot at all, so the prefix rule is a second line of defense). The live-server enumeration stays outside the package — the caller passes it in.
 
-The one api-side touchpoint is the write-path annotation: `api.Server.SetServerKillNotifier(fn)` (`api/tmuxctl_bridge.go`) is wired by `rk serve` to the snapshotter's `NoteAuditedKill`, and `handleServerKill` (`POST /api/servers/kill`) invokes it with the server name just before `tmux.KillServer` so the imminent tombstone records the kill as audited. Fire-and-forget, nil-safe, and it reads nothing.
+Each `Offer` carries the server name, `takenAt`, session/window counts, and the full stored layout tree inline — sessions (name, raw `color`) with windows sorted by index (index, name, pane count, the recorded per-pane former commands in pane order with empties omitted, and a per-window `resumable` boolean) — so a row expansion needs no second request. A window is `resumable` when any pane's recorded command is a `claude` invocation (`isClaudeCommand`: the basename of the first word equals `claude` — `claude`, `claude -c`, `/path/to/claude --flags` match; `claudeify` does not). Slices serialize non-nil (`[]`, never `null`). A `LoadLatest` that comes back nil between `List` and load (a raced concurrent tombstone) is skipped — the server no longer qualifies.
 
-#### Scenario: No handler serves snapshot data as live state
+#### Scenario: Reboot orphan is offered; infra, tombstone, and live servers never are
+- **GIVEN** a store holding a live-latest for `kit`, a live-latest for `rk-daemon`, and a tombstone for `old`, while only `dev` has a live socket
+- **WHEN** `RestorableOffers` runs
+- **THEN** exactly one offer is returned (`kit`) — `rk-daemon` is excluded as infra, `old` as a tombstone; a live-latest whose server has a socket is excluded as alive
+
+### Requirement: Snapshot read boundary (Constitution II / VI)
+
+Snapshots are derived state persisted as a disaster-recovery backup, not a state store — the same category as the daemon's log file: an artifact about the past, not a database about the present. Live state stays derived from tmux and the filesystem; no live-state query is ever answered from a snapshot.
+
+The one sanctioned request-time read path is the user-facing recovery reader (the Constitution §II recovery-reader carve-out): `api/recovery.go` — the api package's only `internal/snapshot` consumer — serves `GET /api/recovery` (the derived restorable offers; an unwired or empty store yields an empty list, never an error), `POST /api/recovery/restore` (validate the body-addressed server via `validate.ValidateServerName` before any filesystem or tmux use → load the latest → drive `snapshot.Restore` synchronously under a dedicated 60s context — a documented, commented exception to the 5s handler-blocking guidance: rare, user-initiated, each inner tmux call individually `TmuxTimeout`-bounded; the response is the engine's restore report serialized directly, and engine refusals surface as errors, never partial success) and `POST /api/recovery/dismiss` (validate → `Store.Dismiss`). These endpoints answer questions **about backups** and drive user-initiated restore — restore stays user-initiated only (Constitution §VI); the daemon never restores automatically. The store is wired nil-safe from `cmd/rk/serve.go` via `api.Server.SetSnapshotStore` — the read-seam mirror of the kill-notifier write seam below — from the same store the snapshotter writes, so the offers are exactly what was persisted.
+
+The other api-side touchpoint is the write-path annotation: `api.Server.SetServerKillNotifier(fn)` (`api/tmuxctl_bridge.go`) is wired by `rk serve` to the snapshotter's `NoteAuditedKill`, and `handleServerKill` (`POST /api/servers/kill`) invokes it with the server name just before `tmux.KillServer` so the imminent tombstone records the kill as audited. Fire-and-forget, nil-safe, and it reads nothing.
+
+#### Scenario: Live state never comes from a snapshot
 - **GIVEN** the api package
-- **WHEN** its imports are grepped for `internal/snapshot`
-- **THEN** there are none, and the only snapshot coupling is the nil-safe `serverKillNotify` function field
+- **WHEN** its snapshot coupling is audited
+- **THEN** the only `internal/snapshot` consumer is `api/recovery.go`, whose handlers serve backup questions (offers, restore, dismiss) — no live-state handler reads a snapshot to answer a query
 
 ## Design Decisions
 
@@ -187,3 +202,15 @@ The one api-side touchpoint is the write-path annotation: `api.Server.SetServerK
 **Why**: Pinned windows come back through their home sessions (the capture keys each window to its non-pin owner), board membership is re-derivable UI state, and the anchor is tmuxctl-owned and auto-recreated on the next dial.
 **Rejected**: Capturing and replaying pin-session links (restores derived UI state at the cost of a link-recreation ordering problem on a fresh server). See [tmux-sessions](/run-kit/tmux-sessions.md) § Pin Sessions.
 *Introduced by*: 260805-htmy-daemon-layout-snapshots-restore
+
+### Restorable-offer derivation lives in `internal/snapshot`
+**Decision**: The restorable-offer derivation is `Store.RestorableOffers(liveServers)` in `internal/snapshot`, taking the live-server list as an argument, not api-side logic.
+**Why**: The store schema and tombstone semantics live there; the api handler stays a thin validate→derive→serialize shell, and the derivation is unit-testable with a temp-dir store and a fake server list.
+**Rejected**: Deriving in the handler (couples offer semantics to HTTP; harder to test).
+*Introduced by*: 260820-4psk-host-recovery-section
+
+### Dismiss reuses tombstone semantics
+**Decision**: Dismiss converts the live-latest to a tombstone stamped `auditedKill: true` (a thin `Tombstone(server, time.Now(), true)` wrapper), so it never re-qualifies as an offer.
+**Why**: Audited tombstones are already never offered; the smallest semantic reuse guaranteeing no re-offer, introducing no new state class (Constitution II).
+**Rejected**: A separate dismissed-list file (a new state class); deleting the snapshot (destroys the backup the user might still want via the CLI).
+*Introduced by*: 260820-4psk-host-recovery-section

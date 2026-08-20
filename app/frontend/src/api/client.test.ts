@@ -35,6 +35,9 @@ import {
   triggerRestart,
   refreshStatus,
   checkForUpdates,
+  getRecoveryOffers,
+  restoreRecoveryServer,
+  dismissRecoveryServer,
   DAEMON_SERVER,
   isInfraServer,
   compareServers,
@@ -375,6 +378,93 @@ describe("API client", () => {
     );
     await renameSession("server with spaces", "foo", "bar");
     expect(capturedUrl).toContain("?server=server%20with%20spaces");
+  });
+});
+
+describe("recovery offers client", () => {
+  const offer = {
+    server: "kit",
+    takenAt: "2026-08-20T06:00:00Z",
+    sessionCount: 2,
+    windowCount: 3,
+    sessions: [
+      {
+        name: "dev",
+        color: "4",
+        windows: [
+          { index: 0, name: "shell", paneCount: 1, commands: ["zsh"], resumable: false },
+          { index: 1, name: "agent", paneCount: 2, commands: ["zsh", "claude -c"], resumable: true },
+        ],
+      },
+    ],
+  };
+
+  it("getRecoveryOffers fetches GET /api/recovery and returns the offers list", async () => {
+    mswServer.use(
+      http.get("/api/recovery", () => HttpResponse.json({ offers: [offer] })),
+    );
+    const offers = await getRecoveryOffers();
+    expect(offers).toEqual([offer]);
+  });
+
+  it("getRecoveryOffers resolves [] when the offers key is absent", async () => {
+    mswServer.use(http.get("/api/recovery", () => HttpResponse.json({})));
+    await expect(getRecoveryOffers()).resolves.toEqual([]);
+  });
+
+  it("getRecoveryOffers throws the server's error message on failure", async () => {
+    mswServer.use(
+      http.get("/api/recovery", () =>
+        HttpResponse.json({ error: "snapshot store unavailable" }, { status: 500 }),
+      ),
+    );
+    await expect(getRecoveryOffers()).rejects.toThrow("snapshot store unavailable");
+  });
+
+  it("restoreRecoveryServer POSTs {server} in the body with no query string", async () => {
+    let capturedUrl = "";
+    let capturedBody: Record<string, string> = {};
+    mswServer.use(
+      http.post("/api/recovery/restore", async ({ request }) => {
+        capturedUrl = request.url;
+        capturedBody = (await request.json()) as Record<string, string>;
+        return HttpResponse.json({ sessionsCreated: 2 });
+      }),
+    );
+    const report = await restoreRecoveryServer("kit");
+    expect(capturedUrl).toMatch(/\/api\/recovery\/restore$/);
+    expect(capturedBody).toEqual({ server: "kit" });
+    expect(report).toEqual({ sessionsCreated: 2 });
+  });
+
+  it("restoreRecoveryServer throws the engine's refusal message on failure", async () => {
+    mswServer.use(
+      http.post("/api/recovery/restore", () =>
+        HttpResponse.json({ error: "server already alive" }, { status: 409 }),
+      ),
+    );
+    await expect(restoreRecoveryServer("kit")).rejects.toThrow("server already alive");
+  });
+
+  it("dismissRecoveryServer POSTs {server} in the body and returns ok", async () => {
+    let capturedBody: Record<string, string> = {};
+    mswServer.use(
+      http.post("/api/recovery/dismiss", async ({ request }) => {
+        capturedBody = (await request.json()) as Record<string, string>;
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    await expect(dismissRecoveryServer("kit")).resolves.toEqual({ ok: true });
+    expect(capturedBody).toEqual({ server: "kit" });
+  });
+
+  it("dismissRecoveryServer throws the server's error message on failure", async () => {
+    mswServer.use(
+      http.post("/api/recovery/dismiss", () =>
+        HttpResponse.json({ error: "nope" }, { status: 500 }),
+      ),
+    );
+    await expect(dismissRecoveryServer("kit")).rejects.toThrow("nope");
   });
 });
 

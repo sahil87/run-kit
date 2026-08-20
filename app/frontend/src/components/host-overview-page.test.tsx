@@ -5,6 +5,7 @@ import type { ServerInfo } from "@/api/client";
 import { ThemeProvider } from "@/contexts/theme-context";
 import { ChromeProvider } from "@/contexts/chrome-context";
 import { TopBarSlotProvider } from "@/contexts/top-bar-slot-context";
+import { PaletteActionsProvider } from "@/contexts/palette-actions-context";
 import { stubMatchMedia } from "@/test-utils/match-media";
 
 // --- Router mock: capture navigate calls. ---
@@ -26,6 +27,8 @@ vi.mock("@/api/client", async () => {
     getSessions: vi.fn().mockResolvedValue([]),
     splitWindow: vi.fn().mockResolvedValue({ ok: true }),
     closePane: vi.fn().mockResolvedValue({ ok: true }),
+    // The RECOVERY zone mounts with the page; empty offers → zero footprint.
+    getRecoveryOffers: vi.fn().mockResolvedValue([]),
   };
 });
 
@@ -104,7 +107,11 @@ function renderPage(instanceNameValue: InstanceName = nameValue()) {
       <ChromeProvider>
         <InstanceNameValueProvider value={instanceNameValue}>
           <TopBarSlotProvider>
-            <HostOverviewPage />
+            {/* The page registers its recovery palette verbs into the slot
+                (Constitution V); an empty-globals provider suffices here. */}
+            <PaletteActionsProvider globalActions={[]}>
+              <HostOverviewPage />
+            </PaletteActionsProvider>
           </TopBarSlotProvider>
         </InstanceNameValueProvider>
       </ChromeProvider>

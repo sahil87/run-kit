@@ -335,6 +335,16 @@ func (s *Store) Tombstone(server string, diedAt time.Time, audited bool) (create
 	return true, nil
 }
 
+// Dismiss converts the server's lingering live-latest into a never-re-offerable
+// tombstone. A user-driven dismissal is a deliberate run-kit action, so the
+// tombstone carries the audited marker — the same marker that already excludes
+// audited tombstones from the restorable-offer set. Idempotent: a server with
+// no latest snapshot is a no-op success. History is left intact.
+func (s *Store) Dismiss(server string) error {
+	_, err := s.Tombstone(server, time.Now(), true)
+	return err
+}
+
 // Entry is one row in a store listing: a live latest snapshot or a died
 // tombstone.
 type Entry struct {

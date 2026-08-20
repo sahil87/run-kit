@@ -1,0 +1,14 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-20T07:26:18Z"}
+{"args":"Recovery section on Host Overview: restore dead tmux servers from lingering layout snapshots after a system reboot (backlog 4psk)","cmd":"fab-new","event":"command","ts":"2026-08-20T07:26:18Z"}
+{"delta":"+0.0","event":"confidence","score":2.3,"trigger":"calc-score","ts":"2026-08-20T07:29:19Z"}
+{"cmd":"fab-draft","event":"command","ts":"2026-08-20T07:29:35Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-08-20T07:30:33Z"}
+{"cmd":"fab-clarify","event":"command","ts":"2026-08-20T07:31:00Z"}
+{"delta":"+1.0","event":"confidence","score":3.3,"trigger":"calc-score","ts":"2026-08-20T07:33:51Z"}
+{"delta":"+0.7","event":"confidence","score":4,"trigger":"calc-score","ts":"2026-08-20T07:36:34Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-20T07:40:27Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-20T07:59:27Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-20T08:05:54Z"}
+{"event":"review","result":"passed","ts":"2026-08-20T08:05:54Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-20T08:12:08Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-08-20T08:14:42Z"}

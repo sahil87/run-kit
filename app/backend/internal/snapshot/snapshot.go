@@ -1,12 +1,14 @@
 // Package snapshot persists per-tmux-server layout snapshots as
 // disaster-recovery backups and restores them onto dead servers.
 //
-// Snapshots are WRITE-ONLY at runtime (Constitution II): nothing at request
-// time reads a snapshot to answer API queries — live state stays derived from
-// tmux and the filesystem. The only reader is the user-initiated
-// `rk mux snapshot` CLI, and the daemon never restores automatically
-// (Constitution VI). This is the same category as the daemon's log file: an
-// artifact about the past, not a database about the present.
+// Snapshots are disaster-recovery backups, never live state (Constitution
+// II): no snapshot read ever answers a live-state query — live state stays
+// derived from tmux and the filesystem. The sanctioned readers are the
+// user-initiated `rk mux snapshot` CLI and the read-only /api/recovery
+// endpoints (offer listing plus user-initiated restore/dismiss). The daemon
+// never restores automatically (Constitution VI). This is the same category
+// as the daemon's log file: an artifact about the past, not a database about
+// the present.
 package snapshot
 
 import (

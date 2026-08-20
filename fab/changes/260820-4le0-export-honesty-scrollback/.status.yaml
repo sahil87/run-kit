@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 7
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-08-20T16:24:45Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-20T16:26:49Z"}
     hydrate: {started_at: "2026-08-20T16:26:49Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-20T16:35:43Z"}
     ship: {started_at: "2026-08-20T16:35:43Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-20T16:38:50Z"}
-    review-pr: {started_at: "2026-08-20T16:38:50Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-08-20T16:38:50Z", driver: git-pr, iterations: 1, completed_at: "2026-08-20T16:51:22Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/686
 true_impact:
@@ -53,4 +53,4 @@ true_impact:
     computed_at_stage: ship
 summary: 'Export honesty + scrollback: xterm scrollback device-split default (SCROLLBACK_DESKTOP 25k / SCROLLBACK_MOBILE 10k, boards pinned 1000 via explicit prop); WindowInfo gains altScreen (active pane''s alternate_on rollup via new #{alternate_on} pane-format field); export menu history row renders disabled+hint and the palette action is gated off on altScreen windows.'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-20T16:38:50Z
+last_updated: 2026-08-20T16:51:22Z

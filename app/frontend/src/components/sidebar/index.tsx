@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo, useReducer, memo } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "@tanstack/react-router";
-import { killSession as killSessionApi, killWindow as killWindowApi, renameSession, moveWindow, moveWindowToSession, setSessionColor as setSessionColorApi, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, setWindowFlair as setWindowFlairApi, setSessionFlair as setSessionFlairApi, getAllServerColors, setServerColor as setServerColorApi, setSessionOrder, type ServerInfo } from "@/api/client";
+import { killSession as killSessionApi, killWindow as killWindowApi, renameSession, moveWindow, moveWindowToSession, setSessionColor as setSessionColorApi, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, setWindowFlair as setWindowFlairApi, setSessionFlair as setSessionFlairApi, getAllServerColors, setServerColor as setServerColorApi, getAllServerFlairs, setServerFlair as setServerFlairApi, setSessionOrder, type ServerInfo } from "@/api/client";
 import { useSessionContext, useUpdateNotification } from "@/contexts/session-context";
 import { useFocusedPane } from "@/contexts/focused-pane-context";
 import { resolveFocusedWindow, thinWindowFromFocusedPane } from "@/lib/focused-pane-window";
@@ -13,6 +13,7 @@ import { useToast } from "@/components/toast";
 import { TypedLabel } from "@/components/typed-label";
 import { Tip, TipGroup } from "@/components/tip";
 import { SwatchPopover } from "@/components/swatch-popover";
+import { FlairOverlay } from "@/components/flair-overlay";
 import { PaletteIcon, PlusIcon, CloseIcon } from "./icons";
 import { useTheme } from "@/contexts/theme-context";
 import { displayVersion } from "@/lib/palette-version";
@@ -228,6 +229,14 @@ export function Sidebar({
   const [serverColors, setServerColors] = useState<Record<string, string>>({});
   useEffect(() => {
     getAllServerColors().then(setServerColors).catch(() => {});
+  }, []);
+
+  // Server flairs from settings.yaml (all servers) — flair tokens from the
+  // universal set. Same mount-fetch + optimistic-map shape as serverColors
+  // (settings mutations emit no control-mode event, so no SSE derive exists).
+  const [serverFlairs, setServerFlairs] = useState<Record<string, string>>({});
+  useEffect(() => {
+    getAllServerFlairs().then(setServerFlairs).catch(() => {});
   }, []);
 
   // Server-switch handler — resolves a landing window for the target server
@@ -1578,6 +1587,20 @@ export function Sidebar({
     );
   }, [addToast]);
 
+  // Server flair write seam — mirrors handleServerColorChange (the x4sf
+  // funnel): optimistic `serverFlairs` update + POST + failure toast. Stable
+  // identity-arg callback for the ServerGroup memo contract.
+  const handleServerFlairChange = useCallback((targetServer: string, f: string | null) => {
+    setServerFlairs((prev) => {
+      const next = { ...prev };
+      if (f == null || f === "") { delete next[targetServer]; } else { next[targetServer] = f; }
+      return next;
+    });
+    setServerFlairApi(targetServer, f == null || f === "" ? null : f).catch((err) =>
+      addToast(err.message || "Failed to set server flair"),
+    );
+  }, [addToast]);
+
   // `current` scope narrows to the resolved current server. When no current
   // server resolves — board route (`currentServer === null`) or a
   // stale/deleted route param not in the list — fall back to showing all
@@ -1612,6 +1635,7 @@ export function Sidebar({
         server={currentServer ?? ""}
         servers={servers}
         serverColors={serverColors}
+        serverFlairs={serverFlairs}
         waitingCounts={waitingCounts}
         rowTints={rowTints}
         rowBorders={rowBorders}
@@ -1695,6 +1719,7 @@ export function Sidebar({
                 server={srvInfo.name}
                 isCurrent={srvInfo.name === currentServer}
                 serverColor={serverColors[srvInfo.name]}
+                serverFlair={serverFlairs[srvInfo.name]}
                 rowTints={rowTints}
                 rowBorders={rowBorders}
                 isOpen={currentOnly ? true : readServerOpen(srvInfo.name)}
@@ -1747,6 +1772,7 @@ export function Sidebar({
                 onWindowRenameBlur={handleWindowRenameBlur}
                 onSessionColorChange={handleSessionColorChange}
                 onServerColorChange={handleServerColorChange}
+                onServerFlairChange={handleServerFlairChange}
                 onKillServer={onKillServer}
                 onWindowColorChange={handleWindowColorChange}
                 onWindowMarkerChange={handleWindowMarkerChange}
@@ -2042,6 +2068,9 @@ type ServerGroupProps = {
   server: string;
   isCurrent: boolean;
   serverColor: string | undefined;
+  /** The server's flair token (universal set), or undefined when unset. Threads
+   *  as a scalar like `serverColor` so the row-tree memoization is preserved. */
+  serverFlair: string | undefined;
   rowTints: Map<string, import("@/themes").RowTint>;
   rowBorders: Map<string, string>;
   isOpen: boolean;
@@ -2134,6 +2163,9 @@ type ServerGroupProps = {
   /** Server color write seam (x4sf) — the same shared handler `ServerPanel`
    *  receives (optimistic update + POST + toast). Stable identity. */
   onServerColorChange: (server: string, color: string | null) => void;
+  /** Server flair write seam — mirrors `onServerColorChange` (optimistic
+   *  update + POST + toast). Stable identity. */
+  onServerFlairChange: (server: string, flair: string | null) => void;
   /** Kill-server request (x4sf) — routes to the parent's confirmation dialog
    *  (`killServerTarget` in app.tsx / board-page.tsx); never kills directly. */
   onKillServer: (name: string) => void;
@@ -2164,6 +2196,7 @@ function ServerGroupInner(props: ServerGroupProps) {
     server,
     isCurrent,
     serverColor,
+    serverFlair,
     rowTints,
     rowBorders,
     isOpen,
@@ -2215,6 +2248,7 @@ function ServerGroupInner(props: ServerGroupProps) {
     onWindowRenameBlur,
     onSessionColorChange,
     onServerColorChange,
+    onServerFlairChange,
     onKillServer,
     onWindowColorChange,
     onWindowMarkerChange,
@@ -2581,6 +2615,13 @@ function ServerGroupInner(props: ServerGroupProps) {
             : undefined
         }
       >
+        {/* Flair overlay (decoration-only channel): mounted whenever the
+            server carries a flair value — same overlay discipline as the
+            window/session rows (clipped, pointer-events-none, z-5). The
+            guarded header accent rides as `color` so tinted flairs
+            (rain/scan) match the header's family. Hidden under
+            prefers-reduced-motion (globals.css § Flair overlays). */}
+        <FlairOverlay flair={serverFlair} color={headerAccent} />
         <button
           type="button"
           onClick={() => onToggleOpen(server)}
@@ -2705,6 +2746,10 @@ function ServerGroupInner(props: ServerGroupProps) {
               selectedColor={serverColor}
               // Selection does NOT close (the picker's dismissal contract).
               onSelect={(c) => onServerColorChange(server, c)}
+              // Supplying onSelectFlair renders the picker's flair band;
+              // "" (the header ∅ cell) clears.
+              selectedFlair={serverFlair ?? ""}
+              onSelectFlair={(f) => onServerFlairChange(server, f === "" ? null : f)}
               onClose={() => setShowColorPicker(false)}
             />
           </div>,

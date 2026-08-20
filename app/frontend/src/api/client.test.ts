@@ -21,6 +21,8 @@ import {
   killServer,
   setThemePreference,
   setServerColor,
+  getAllServerFlairs,
+  setServerFlair,
   getSSHHost,
   setSSHHost,
   getInstanceName,
@@ -768,6 +770,43 @@ describe("POST verb migration + /options contract", () => {
     );
     await setServerColor("default", "1+3");
     expect(capturedBody).toEqual({ server: "default", color: "1+3" });
+  });
+
+  it("getAllServerFlairs GETs the map form and unwraps flairs", async () => {
+    mswServer.use(
+      http.get("/api/settings/server-flair", () =>
+        HttpResponse.json({ flairs: { default: "nyan", dev: "cube" } }),
+      ),
+    );
+    await expect(getAllServerFlairs()).resolves.toEqual({ default: "nyan", dev: "cube" });
+  });
+
+  it("setServerFlair issues POST (not PUT) with a string flair value; null clears", async () => {
+    let capturedMethod = "";
+    const bodies: Array<{ server?: string; flair?: string | null }> = [];
+    mswServer.use(
+      http.post("/api/settings/server-flair", async ({ request }) => {
+        capturedMethod = request.method;
+        bodies.push((await request.json()) as { server?: string; flair?: string | null });
+        return HttpResponse.json({ status: "ok" });
+      }),
+    );
+    await setServerFlair("default", "cube");
+    await setServerFlair("default", null);
+    expect(capturedMethod).toBe("POST");
+    expect(bodies).toEqual([
+      { server: "default", flair: "cube" },
+      { server: "default", flair: null },
+    ]);
+  });
+
+  it("setServerFlair rejects on a non-2xx (e.g. 400 unknown token)", async () => {
+    mswServer.use(
+      http.post("/api/settings/server-flair", () =>
+        HttpResponse.json({ error: "Flair must be one of: ..." }, { status: 400 }),
+      ),
+    );
+    await expect(setServerFlair("default", "sparkle")).rejects.toThrow();
   });
 });
 

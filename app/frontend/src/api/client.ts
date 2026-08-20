@@ -1006,6 +1006,24 @@ export async function setServerColor(server: string, color: string | null): Prom
   if (!res.ok) await throwOnError(res);
 }
 
+// --- Server flair settings (a server→flair map on the instance-global settings store) ---
+
+export async function getAllServerFlairs(): Promise<Record<string, string>> {
+  const res = await deduplicatedFetch("/api/settings/server-flair");
+  if (!res.ok) await throwOnError(res);
+  const data: { flairs: Record<string, string> } = await res.json();
+  return data.flairs;
+}
+
+export async function setServerFlair(server: string, flair: string | null): Promise<void> {
+  const res = await fetch("/api/settings/server-flair", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ server, flair }),
+  });
+  if (!res.ok) await throwOnError(res);
+}
+
 // --- Instance accent color (per-instance "host color", scalar) ---
 
 /** The explicit instance accent color descriptor ("4" / "1+3"), or null when

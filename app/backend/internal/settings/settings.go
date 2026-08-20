@@ -34,6 +34,11 @@ type Settings struct {
 	// "1+3" for a two-hue blend). Stored as a string so a blend can round-trip;
 	// reads tolerate a legacy bare integer (normalized on load).
 	ServerColors map[string]string
+	// ServerFlairs is server name → flair token — the flair decoration on the
+	// server's sidebar surfaces (group header, SERVER tile). A closed set
+	// (validate.FlairValues, the single universal vocabulary); reads drop
+	// anything outside it.
+	ServerFlairs map[string]string
 	// BoardOrder is the user-defined display order of board names; rank = slice
 	// index. Boards absent from the list sort after ranked boards, alphabetically
 	// (the sort itself lives at the API layer — this package only persists the
@@ -187,7 +192,21 @@ var nestedSections = []nestedSection{
 	// Tolerant color read: accept a legacy bare integer OR the string
 	// descriptor ("1+3"); normalize and drop anything malformed.
 	mapSection("server_colors", func(s *Settings) *map[string]string { return &s.ServerColors }, validate.NormalizeColorValue),
+	// Tolerant flair read: accept only non-empty tokens in the universal set;
+	// no canonicalization needed — flair tokens round-trip as-is.
+	mapSection("server_flairs", func(s *Settings) *map[string]string { return &s.ServerFlairs }, normalizeFlairValue),
 	listSection("board_order", func(s *Settings) *[]string { return &s.BoardOrder }),
+}
+
+// normalizeFlairValue is the membership-check normalize for the server_flairs
+// mapSection: a value survives iff it is a non-empty token in the universal
+// flair set. Unlike colors, flair tokens need no canonical form — pass/fail
+// only.
+func normalizeFlairValue(value string) (string, bool) {
+	if value != "" && validate.FlairValues[value] {
+		return value, true
+	}
+	return "", false
 }
 
 // parse extracts settings from simple "key: value" lines.
@@ -309,6 +328,31 @@ func SetServerColor(server string, color *string) error {
 			s.ServerColors = make(map[string]string)
 		}
 		s.ServerColors[server] = *color
+	}
+	return Save(s)
+}
+
+// GetServerFlair returns the flair token for the named server, or nil. Mirrors
+// GetServerColor.
+func GetServerFlair(server string) *string {
+	s := Load()
+	if v, ok := s.ServerFlairs[server]; ok {
+		return &v
+	}
+	return nil
+}
+
+// SetServerFlair sets or clears the flair token for the named server (nil
+// clears). Mirrors SetServerColor (load-then-save).
+func SetServerFlair(server string, flair *string) error {
+	s := Load()
+	if flair == nil {
+		delete(s.ServerFlairs, server)
+	} else {
+		if s.ServerFlairs == nil {
+			s.ServerFlairs = make(map[string]string)
+		}
+		s.ServerFlairs[server] = *flair
 	}
 	return Save(s)
 }

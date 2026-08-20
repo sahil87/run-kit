@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 8
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-08-20T12:22:42Z", driver: fab-fff, iterations: 2, completed_at: "2026-08-20T12:24:39Z"}
     review: {started_at: "2026-08-20T12:24:39Z", driver: fab-fff, iterations: 2, completed_at: "2026-08-20T12:28:49Z"}
     hydrate: {started_at: "2026-08-20T12:28:49Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-20T12:37:52Z"}
-    ship: {started_at: "2026-08-20T12:37:52Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-08-20T12:37:52Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-20T12:41:32Z"}
+    review-pr: {started_at: "2026-08-20T12:41:32Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/684
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 963
+    deleted: 151
+    net: 812
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 718
+        deleted: 129
+        net: 589
     tests:
-        added: 0
+        added: 90
         deleted: 0
-        net: 0
-    computed_at: "2026-08-20T12:37:52Z"
-    computed_at_stage: hydrate
+        net: 90
+    computed_at: "2026-08-20T12:41:32Z"
+    computed_at_stage: ship
 summary: Shared add/edit HostFormDialog in the shell strip + additive servers:add-direct channel (main-side ping, persist, switch); the + Add Host… footer forks on canAddShellHostDirect
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-20T12:37:52Z
+last_updated: 2026-08-20T12:41:32Z
